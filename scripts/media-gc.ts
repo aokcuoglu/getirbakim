@@ -13,8 +13,10 @@ if (args.apply && existsSync(LOCK_PATH)) throw new Error(`A storefront sync is r
 const storage = objectStorage();
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
+  // The bucket belongs to this one database: the output names both, so a run against the wrong pair stands out.
+  const database = (await pool.query<{ name: string }>("SELECT current_database() AS name")).rows[0].name;
   const result = await collectMedia(pool, storage, { ...args, bucket });
-  console.log(JSON.stringify({ mode: args.apply ? "APPLIED" : "DRY RUN", bucket, minAgeDays: args.minAgeDays, limit: args.limit, ...result }, null, 2));
+  console.log(JSON.stringify({ mode: args.apply ? "APPLIED" : "DRY RUN", database, bucket, minAgeDays: args.minAgeDays, limit: args.limit, ...result }, null, 2));
 } finally {
   storage.destroy();
   await pool.end();

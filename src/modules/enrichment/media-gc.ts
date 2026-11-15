@@ -87,37 +87,43 @@ export async function findUnreferencedMedia(db: Queryable, { minAgeDays, bucket,
     foreignBucket: row.foreign_bucket, rows: row.rows, storedAt, references };
 }
 
-export type MediaGcOptions = { minAgeDays: number; bucket: string; apply?: boolean; batchSize?: number; limit?: number | null; maxShare?: number };
+export type MediaGcOptions = {
+  minAgeDays: number; bucket: string; apply?: boolean; batchSize?: number; limit?: number | null; maxShare?: number;
+  /** How long a deletion waits for a row another transaction holds (an import about to reference it). */
+  lockTimeoutMs?: number;
+};
 export type MediaGcResult = Omit<UnreferencedMedia, "rows"> & {
-  apply: boolean; deleted: number; deletedBytes: number; becameReferenced: number; sample: string[];
+  apply: boolean; deleted: number; deletedBytes: number; becameReferenced: number; locked: number; sample: string[];
 };
 
-const lockKey = "getirbakim:media-gc";
-const isForeignKeyViolation = (error: unknown) => (error as { code?: string } | null)?.code === "23503";
+// One collection at a time; the (20261001, n) pairs are the project's advisory locks, 1-9 are taken.
+const lockKey = [20261001, 10];
+const errorCode = (error: unknown) => (error as { code?: string } | null)?.code;
 
 /**
  * Reports (and with `apply` deletes) unreferenced media. Each batch deletes its rows first (foreign keys and the
  * conditions are checked again then), removes their objects, and commits only after the bucket confirmed; an object
  * store failure keeps the rows of the objects that stayed and stops the run. A row referenced after it was listed
- * (23503) is kept and the rest of its batch goes row by row.
+ * (23503) or held by another transaction past `lockTimeoutMs` (55P03) is kept and the rest of its batch goes row by row.
  */
 export async function collectMedia(pool: Pick<Pool, "connect">, storage: Pick<S3Client, "send">,
-  { minAgeDays, bucket, apply = false, batchSize = 200, limit = null, maxShare = 0.2 }: MediaGcOptions): Promise<MediaGcResult> {
+  { minAgeDays, bucket, apply = false, batchSize = 200, limit = null, maxShare = 0.2, lockTimeoutMs = 5000 }: MediaGcOptions): Promise<MediaGcResult> {
   if (!Number.isInteger(minAgeDays) || minAgeDays < 1) throw new Error("minAgeDays must be a whole number of days, at least 1");
   if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > 1000) throw new Error("batchSize must be between 1 and 1000");
   if (limit !== null && (!Number.isInteger(limit) || limit < 1)) throw new Error("limit must be a positive whole number");
   if (!(maxShare >= 0 && maxShare <= 1)) throw new Error("maxShare must be between 0 and 1");
+  if (!Number.isInteger(lockTimeoutMs) || lockTimeoutMs < 1) throw new Error("lockTimeoutMs must be a positive whole number");
   if (!bucket) throw new Error("bucket is required");
   const lock = apply ? await pool.connect() : null;
   const client = await pool.connect();
   let locked = false;
   try {
     if (lock) {
-      locked = (await lock.query<{ ok: boolean }>("SELECT pg_try_advisory_lock(hashtext($1)) AS ok", [lockKey])).rows[0].ok;
+      locked = (await lock.query<{ ok: boolean }>("SELECT pg_try_advisory_lock($1, $2) AS ok", lockKey)).rows[0].ok;
       if (!locked) throw new Error("Another media collection is running");
     }
     const { rows, references, ...found } = await findUnreferencedMedia(client, { minAgeDays, bucket, limit });
-    const result: MediaGcResult = { ...found, apply, deleted: 0, deletedBytes: 0, becameReferenced: 0, sample: rows.slice(0, 20).map(row => row.objectKey) };
+    const result: MediaGcResult = { ...found, apply, deleted: 0, deletedBytes: 0, becameReferenced: 0, locked: 0, sample: rows.slice(0, 20).map(row => row.objectKey) };
     if (!apply) return result;
     if (!found.storedAt) throw new Error("product_media_objects.stored_at is missing; run npm run db:setup before --apply");
     if (found.total && found.candidates / found.total > maxShare) {
@@ -136,26 +142,34 @@ export async function collectMedia(pool: Pick<Pool, "connect">, storage: Pick<S3
       result.deletedBytes += deleted.reduce((sum, row) => sum + row.sizeBytes, 0);
     };
     const rollback = () => client.query("ROLLBACK");
-
-    /** Deletes rows and their objects in one transaction; false when a reference appeared (23503, rolled back). */
-    const deleteTogether = async (ids: string[]) => {
+    const begin = async () => {
       await client.query("BEGIN");
+      await client.query("SELECT set_config('lock_timeout', $1, true)", [`${lockTimeoutMs}ms`]);
+    };
+
+    /**
+     * Deletes rows and their objects in one transaction. "referenced": a reference appeared (23503); "locked":
+     * another transaction held a row past the lock timeout (55P03); both rolled back, nothing deleted.
+     */
+    const deleteTogether = async (ids: string[]): Promise<"done" | "referenced" | "locked"> => {
+      await begin();
       let deleted: MediaCandidate[];
       try { deleted = await remove(ids); } catch (error) {
         await rollback();
-        if (isForeignKeyViolation(error)) return false;
+        if (errorCode(error) === "23503") return "referenced";
+        if (errorCode(error) === "55P03") return "locked";
         throw error;
       }
       result.becameReferenced += ids.length - deleted.length;
-      if (!deleted.length) { await client.query("COMMIT"); return true; }
+      if (!deleted.length) { await client.query("COMMIT"); return "done"; }
       let failed: Set<string>;
       try { failed = await removeObjects(deleted.map(row => row.objectKey)); } catch (error) { await rollback(); throw error; }
-      if (!failed.size) { await client.query("COMMIT"); counted(deleted); return true; }
+      if (!failed.size) { await client.query("COMMIT"); counted(deleted); return "done"; }
       // The bucket kept some objects: their rows stay; the rows of objects already gone are deleted, then the run stops.
       await rollback();
       const gone = deleted.filter(row => !failed.has(row.objectKey));
       if (gone.length) {
-        await client.query("BEGIN");
+        await begin();
         try { counted(await remove(gone.map(row => row.id))); await client.query("COMMIT"); } catch (error) { await rollback(); throw error; }
       }
       throw new Error(`Object storage did not delete ${failed.size} object(s), their rows were kept: ${[...failed].slice(0, 5).join(", ")}`);
@@ -163,15 +177,19 @@ export async function collectMedia(pool: Pick<Pool, "connect">, storage: Pick<S3
 
     for (let start = 0; start < rows.length; start += batchSize) {
       const ids = rows.slice(start, start + batchSize).map(row => row.id);
-      if (await deleteTogether(ids)) continue;
-      for (const id of ids) if (!await deleteTogether([id])) result.becameReferenced++;
+      if (await deleteTogether(ids) === "done") continue;
+      for (const id of ids) {
+        const outcome = await deleteTogether([id]);
+        if (outcome === "referenced") result.becameReferenced++;
+        else if (outcome === "locked") result.locked++;
+      }
     }
     return result;
   } finally {
     client.release();
     if (lock) {
       // A connection whose unlock failed is closed instead of returned to the pool still holding the lock.
-      const unlocked = !locked || await lock.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]).then(() => true, () => false);
+      const unlocked = !locked || await lock.query("SELECT pg_advisory_unlock($1, $2)", lockKey).then(() => true, () => false);
       lock.release(!unlocked);
     }
   }

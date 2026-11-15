@@ -183,6 +183,21 @@ test("a row referenced after it was listed (23503) stays and the rest of its bat
   assert.equal(storage.objects.has(rows[1].key), true);
 });
 
+test("a row another transaction holds past the lock timeout (55P03) stays and the rest of its batch is collected", async () => {
+  const rows = [await media(30), await media(29), await media(28)];
+  const writer = await schema.pool.connect();
+  try {
+    await writer.query("BEGIN");
+    // Never committed while the collection runs: the deletion of this row gives up after lockTimeoutMs.
+    await writer.query("INSERT INTO product_override_images(product_id,media_id,position,width,height) VALUES($1,$2,0,100,100)", [productId, rows[1].id]);
+    const report = await run({ apply: true, lockTimeoutMs: 100 });
+    assert.deepEqual([report.deleted, report.locked, report.becameReferenced], [2, 1, 0]);
+    await writer.query("ROLLBACK");
+  } finally { writer.release(); }
+  assert.deepEqual([await exists(rows[0].id), await exists(rows[1].id), await exists(rows[2].id)], [false, true, false]);
+  assert.equal(storage.objects.has(rows[1].key), true);
+});
+
 test("rows in another bucket are skipped and counted; a run above the share limit deletes nothing", async () => {
   const foreign = await media(30, { rowBucket: "other-bucket" });
   const loose = await media(30);

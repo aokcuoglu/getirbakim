@@ -64,11 +64,12 @@ test("a new image that fails verification is not retried", () => withImage(async
   assert.deepEqual(storage.calls, ["PutObjectCommand", "HeadObjectCommand"]);
 }, false));
 
-/** A client whose known row is media-1 and whose upsert returns `upserted`; records the SQL it receives. */
-function upsertClient(upserted: string) {
+/** A client whose known row is media-1 and whose upsert returns `upserted`; records the SQL it receives in `log`. */
+function upsertClient(upserted: string, log: string[] = []) {
   const sql: string[] = [];
   return { sql, client: { query: async (text: string) => {
     sql.push(text);
+    log.push(text.startsWith("SELECT") ? "select" : "upsert");
     return { rows: [{ id: text.startsWith("SELECT") ? "media-1" : upserted }] };
   } } as unknown as PoolClient };
 }
@@ -81,11 +82,19 @@ test("storing a known image marks its row as stored now, so the media collection
   assert.deepEqual(storage.calls, ["HeadObjectCommand"]);
 }));
 
-test("a known row the collection removed meanwhile gets its object written again", () => withImage(async file => {
-  const { client } = upsertClient("media-2");
-  const storage = fakeStorage({ length: jpeg.length, sha256 });
+test("a known object is verified after the upsert and written again when a collection deleted it", () => withImage(async file => {
+  // A media:gc batch deleted the object, then rolled its row deletion back: the upsert returns the same id.
+  const storage = fakeStorage(null);
+  const { client } = upsertClient("media-1", storage.calls);
+  assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-1");
+  assert.deepEqual(storage.calls, ["select", "upsert", "HeadObjectCommand", "PutObjectCommand", "HeadObjectCommand"]);
+}));
+
+test("a known row the collection removed meanwhile gets a new id and its object written again", () => withImage(async file => {
+  const storage = fakeStorage(null);
+  const { client } = upsertClient("media-2", storage.calls);
   assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-2");
-  assert.deepEqual(storage.calls, ["HeadObjectCommand", "PutObjectCommand", "HeadObjectCommand"]);
+  assert.deepEqual(storage.calls, ["select", "upsert", "HeadObjectCommand", "PutObjectCommand", "HeadObjectCommand"]);
 }));
 
 test("a vehicle-list make without model_list parses and leaves its vehicles unresolved", async () => {

@@ -35,11 +35,7 @@ export async function storeProductImageBytes(client: Pick<PoolClient, "query">, 
     return head?.ContentLength === bytes.length && head.Metadata?.sha256 === hash;
   };
   const existing = (await client.query("SELECT id FROM product_media_objects WHERE sha256=$1",[hash])).rows[0];
-  if (!existing) await put();
-  // A known object can lose its sha256 metadata (or go missing) when another tool rewrites it; the key is the
-  // hash of these bytes, so rewriting it with them restores the object instead of failing the import.
-  if (!await verified()) {
-    if (!existing) throw new Error("Object verification failed");
+  if (!existing) {
     await put();
     if (!await verified()) throw new Error("Object verification failed");
   }
@@ -47,8 +43,10 @@ export async function storeProductImageBytes(client: Pick<PoolClient, "query">, 
   const id = (await client.query(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
     VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(sha256) DO UPDATE SET stored_at=now() RETURNING id`,
     [bucket, key, hash, contentType, bytes.length, source])).rows[0].id as string;
-  // A different id means the collection removed the known row (and its object) after the check above: store again.
-  if (existing && existing.id !== id) {
+  // A known object is checked only now, after the upsert: a collection batch may have deleted it (and the row, or
+  // rolled the row back) meanwhile. It can also lose its sha256 metadata when another tool rewrites it. The key is the
+  // hash of these bytes, so rewriting it with them restores the object instead of failing the import.
+  if (existing && !await verified()) {
     await put();
     if (!await verified()) throw new Error("Object verification failed");
   }

@@ -1,10 +1,11 @@
 import {createServer} from 'node:http';
-import {randomBytes,randomUUID,timingSafeEqual,createHash} from 'node:crypto';
+import {randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
 import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {Pool} from 'pg';
-import {S3Client,PutObjectCommand,HeadObjectCommand} from '@aws-sdk/client-s3';
+import {S3Client} from '@aws-sdk/client-s3';
 import sharp from 'sharp';
 import {transform} from 'esbuild';
+import {storeProductImageBytes} from '../src/modules/enrichment/import';
 const pool=new Pool({connectionString:process.env.DATABASE_URL});
 await pool.query(await readFile('db/source-categories.sql','utf8'));
 await pool.query(`INSERT INTO category_image_jobs(source,category_id,path)
@@ -40,12 +41,11 @@ else{
     else{
      if(typeof data.data!=='string'||!/^data:image\/(jpeg|png|webp);base64,/.test(data.data))throw Error('Invalid image data');
      const bytes=await sharp(Buffer.from(data.data.split(',')[1],'base64'),{limitInputPixels:10000000}).resize({width:270,height:180,fit:'inside',withoutEnlargement:true}).webp({quality:90}).toBuffer();
-     const info=await sharp(bytes).metadata(),hash=createHash('sha256').update(bytes).digest('hex'),key=`categories/${hash.slice(0,2)}/${hash}.webp`,bucket=process.env.S3_BUCKET!;
-     await storage.send(new PutObjectCommand({Bucket:bucket,Key:key,Body:bytes,ContentType:'image/webp',Metadata:{sha256:hash}}));const head=await storage.send(new HeadObjectCommand({Bucket:bucket,Key:key}));if(head.ContentLength!==bytes.length||head.Metadata?.sha256!==hash)throw Error('Category object verification failed');
-     const media=(await client.query(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url) VALUES($1,$2,$3,'image/webp',$4,$5)
-      ON CONFLICT(sha256) DO UPDATE SET sha256=EXCLUDED.sha256 RETURNING id`,[bucket,key,hash,bytes.length,'https://www.trodo.com'+job.path])).rows[0];
+     const info=await sharp(bytes).metadata();
+     // categories/<hash[0:2]>/<hash>.webp in S3_BUCKET, verified, with the row's stored_at refreshed for npm run media:gc.
+     const mediaId=await storeProductImageBytes(client,bytes,'https://www.trodo.com'+job.path,storage,'categories');
      await client.query(`INSERT INTO source_category_images(source,category_id,media_id,width,height) VALUES('trodo',$1,$2,$3,$4)
-      ON CONFLICT(source,category_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height`,[data.id,media.id,info.width,info.height]);
+      ON CONFLICT(source,category_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height`,[data.id,mediaId,info.width,info.height]);
      await client.query("UPDATE category_image_jobs SET status='complete',lease_token=NULL,lease_until=NULL,last_error=NULL,updated_at=now() WHERE source='trodo' AND category_id=$1",[data.id]);
     }
     await client.query('COMMIT');result={saved:true};

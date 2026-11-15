@@ -81,9 +81,11 @@ npm run media:gc -- --min-age-days=14 --limit=500 --batch=200 --max-share=0.2
 ```
 
 - **Yaş eşiği:** varsayılan 7 gün (en az 1). Yaş `GREATEST(created_at, stored_at)`: bir içe aktarma var olan görseli yeniden kaydettiğinde `stored_at` güncellenir, başvurusu yazılana kadar satır genç kalır.
-- **Güvenlik sınırları:** adaylar toplamın `--max-share` oranını (varsayılan 0,2) aşarsa `--apply` reddedilir. Aynı anda tek koşu (advisory lock). Her parti önce satırları siler (FK ve koşullar yeniden denetlenir), sonra nesneleri siler, kova onaylayınca commit eder; kova silemediği nesnelerin satırlarını bırakır ve komut hata ile durur. Seçimden sonra başvuru alan satır kalır (`becameReferenced`).
+- **Güvenlik sınırları:** adaylar toplamın `--max-share` oranını (varsayılan 0,2) aşarsa `--apply` reddedilir. Aynı anda tek koşu (advisory lock `20261001, 10`). Her parti önce satırları siler (FK ve koşullar yeniden denetlenir), sonra nesneleri siler, kova onaylayınca commit eder; kova silemediği nesnelerin satırlarını bırakır ve komut hata ile durur. Seçimden sonra başvuru alan satır kalır (`becameReferenced`); başka bir işlemin 5 sn'den uzun tuttuğu satır da kalır (`locked`).
+- **Kova tek veritabanına aittir:** komut, kovadaki nesnelere yalnız bu veritabanının satırları başvurur varsayımıyla siler. Çıktıdaki `database` ve `bucket` alanlarının doğru çifti gösterdiğini kontrol edin; iki veritabanının paylaştığı kovada koşmayın.
+- **Merge sonrası:** her ortamda önce `npm run db:setup` (AWS'de `release-aws` ile gelen kurulum) koşmalıdır; `stored_at` kolonu olmadan görsel yazımı `42703` (kolon yok) hatası verir.
 - **Her ortamda ayrı koşu:** medya id'leri ortamlar arasında farklıdır; yerelde, VPS'te ve AWS'de ayrı koşulur. AWS'de operations görevi olarak: `node --conditions=react-server --import tsx scripts/media-gc.ts [--apply]` (`.env.local` yok, ortam değişkenleri görevden gelir).
-- **Ne zaman koşulmaz:** zenginleştirme işçileri, kategori görseli içe aktarımları veya storefront sync çalışırken `--apply` koşmayın (sync kilidi `.local/storefront-sync/sync.lock` varsa komut zaten reddeder). `scripts/category-images.ts` ve `scripts/import-category-image-files.ts` `storeProductImageBytes`'tan geçmez; `stored_at`'i güncellemezler.
+- **Ne zaman koşulmaz:** zenginleştirme işçileri, kategori görseli içe aktarımları veya storefront sync çalışırken `--apply` koşmayın. Sync kilidi `.local/storefront-sync/sync.lock` varsa komut reddeder, ama bu kilit yalnız aynı checkout'taki sync'i korur: AWS'de veya VPS'te çalışan bir storefront import görevi olmadığını operatör kontrol eder.
 - **Yetki:** yerel MinIO medya kullanıcısının politikasında `s3:DeleteObject` gerekir (`deploy/storage.compose.yml`; mevcut kurulumda politikayı güncellemek için `npm run storage:setup`). AWS'de operations görev rolüne kovada `s3:DeleteObject` verilmelidir (infra reposu). Kova sürümlemesi açıksa silme yalnız delete marker bırakır; eski sürümler yaşam döngüsü kuralıyla temizlenmelidir.
 
 ## Ürün–araç kataloğu bağlantıları
@@ -268,8 +270,8 @@ Komutlar:
 - node --env-file=.env.local --import tsx scripts/enrichment-categories.ts import-tree artifacts/trodo-categories/tree-20261007.json
 - node --env-file=.env.local --import tsx scripts/localize-categories.ts
 - node --env-file=.env.local --import tsx scripts/enrichment-categories.ts backfill
-- node --env-file=.env.local --import tsx scripts/category-images.ts
-- node --env-file=.env.local --import tsx scripts/category-images.ts status
+- node --env-file=.env.local --conditions=react-server --import tsx scripts/category-images.ts
+- node --env-file=.env.local --conditions=react-server --import tsx scripts/category-images.ts status
 
 Görsel köprüsü yalnızca 127.0.0.1:4319 üzerinde çalışır. Ürettiği
 .local/enrichment/category-image-start.js dosyası gizli, geçici erişim anahtarı içerir;
