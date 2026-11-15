@@ -47,6 +47,8 @@ try {
    await client.query(await readFile("db/product-override-references.sql", "utf8"));
    // Admin-entered technical specifications (#603): reads products, accounts and product_override_changes.
    await client.query(await readFile("db/product-override-specs.sql", "utf8"));
+  // Admin-added and removed vehicle fitments (#583): reads products, vehicle_types, accounts and product_override_changes.
+  await client.query(await readFile("db/product-override-fitments.sql", "utf8"));
    // Reads product_sources: the storefront catalog with unavailable products (#475), then their restock requests.
    await client.query(await readFile("db/storefront-catalog.sql", "utf8"));
    await client.query(await readFile("db/restock-requests.sql", "utf8"));
