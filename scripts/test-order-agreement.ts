@@ -164,20 +164,24 @@ test("placing an order stores the consent and an immutable order-specific copy",
     assert.equal(await setCartQuantity(final, product, 1, false, vehicle), true);
     assert.equal(await setCartQuantity(final, second, 1), true);
     const finalQuote = cartQuote(await cartFor(final), 0, await shippingRule());
+    let injected = false;
     const originalQuery = db.query.bind(db) as (...args: unknown[]) => Promise<unknown>;
     const query = mock.method(db, "query", async (...args: unknown[]) => {
       const result = await originalQuery(...args);
       if (typeof args[0] === "string" && args[0].startsWith("SELECT product_id::text,vehicle FROM commerce_cart_items")) {
         // The preload has just read one line without a vehicle: the vehicle is now set on it and a second line has joined.
+        injected = true;
         query.mock.restore();
         await schema.pool.query("UPDATE commerce_cart_items SET vehicle=$2 WHERE owner_id=$1 AND product_id=$3", [racing.id, JSON.stringify(vehicle), product]);
         await schema.pool.query(`INSERT INTO commerce_cart_items(owner_kind,owner_id,product_id,quantity) VALUES('guest',$1,$2,1)`, [racing.id, second]);
       }
       return result;
     });
-    const raced = await submitOrder(racing, { ...form, requestKey: randomUUID(), quote: finalQuote });
+    let raced: Awaited<ReturnType<typeof submitOrder>>;
+    try { raced = await submitOrder(racing, { ...form, requestKey: randomUUID(), quote: finalQuote }); }
+    finally { query.mock.restore(); }
+    assert.equal(injected, true, "fitment preload query text changed — race hook did not fire");
     assert.ok(raced.id, String(raced.error));
-    assert.equal(query.mock.callCount() > 0, true);
     const racedLines = (await schema.pool.query<{ code: string; vehicle: unknown; fitment_level: string }>(
       "SELECT code,vehicle,fitment_level FROM commerce_order_items WHERE order_id=$1 ORDER BY code", [raced.id])).rows;
     const reference = [await productFitmentLevel({ id: product, code: "AGR-1", brand: "TEST" }, vehicle), await productFitmentLevel({ id: second, code: "AGR-2", brand: "TEST" }, null)];
