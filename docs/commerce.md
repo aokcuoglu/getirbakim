@@ -89,7 +89,7 @@ Müşteri `/siparis/[id]` sayfasındaki "Sözleşmeler" kartından `/siparis/[id
 | `unknown` | Ürünün araç verisi yok, eşleşmemiş kaynak satırı var ya da garaj aracı katalogda değil |
 | `no_vehicle` | Garajda araç yok |
 
-Kural `src/modules/store/fitment-level.ts` içindedir; ürün sayfası aynı kuralla "listede yok" uyarısı gösterir. Bu seviyeler henüz müşteriye garanti olarak sunulmaz.
+Kural `src/modules/store/fitment-level.ts` içindedir; ürün sayfası aynı kuralla "listede yok" uyarısı gösterir. Bu seviyeler henüz müşteriye garanti olarak sunulmaz. Siparişte tüm satırların seviyesi sipariş işleminden (ve kilitlerinden) önce toplu sorgularla okunur (`fitmentLevelResolver`, `src/modules/store/fitment-level.server.ts`); sepet bu arada değiştiyse işlem içinde bir kez yeniden hesaplanır.
 
 İadeler sevk veya teslim edilmiş (`shipped`/`delivered`) siparişin sayfasında yönetici tarafından satır bazında, nedeniyle (`not_fit` = "Aracıma uymadı") `commerce_returns` tablosuna kaydedilir; toplam iade adedi sipariş adedini aşamaz. `/yonetim/siparisler` sipariş satırlarını sipariş anındaki seviyeye göre iade ve "uymadı" sayılarıyla raporlar.
 

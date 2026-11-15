@@ -136,6 +136,24 @@ test("placing an order stores the consent and an immutable order-specific copy",
     assert.equal(bareRow.ip, null); assert.equal(bareRow.forwarded_for, null); assert.equal(bareRow.user_agent, null);
     assert.equal(bareRow.consent_text, checkoutConsentText);
 
+    // Each line keeps the vehicle it was added with (else the garage's) and its fitment level at order time (#708).
+    const vehicle = { make: "Fiat", model: "Doblo", year: 2015, vehicleId: "999999" };
+    const garageVehicle = { make: "Renault", model: "Clio", year: 2018 };
+    const second = (await schema.pool.query<{ id: string }>(`INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock)
+      VALUES('demo','AGR-2','Second part','TEST',5000,10) RETURNING id::text`)).rows[0].id;
+    const lineOwner = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
+    await schema.pool.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [lineOwner.id]);
+    assert.equal(await setCartQuantity(lineOwner, product, 1, false, vehicle), true);
+    assert.equal(await setCartQuantity(lineOwner, second, 1), true);
+    const orderLines = async (garage: typeof garageVehicle | null) => {
+      const placedLines = await submitOrder(lineOwner, { ...form, requestKey: randomUUID(), quote: cartQuote(await cartFor(lineOwner), 0, await shippingRule()) }, garage);
+      assert.ok(placedLines.id, String(placedLines.error));
+      return (await schema.pool.query("SELECT code,vehicle,fitment_level FROM commerce_order_items WHERE order_id=$1 ORDER BY code", [placedLines.id])).rows;
+    };
+    assert.deepEqual(await orderLines(null), [{ code: "AGR-1", vehicle, fitment_level: "unknown" }, { code: "AGR-2", vehicle: null, fitment_level: "no_vehicle" }]);
+    assert.deepEqual(await orderLines(garageVehicle), [{ code: "AGR-1", vehicle, fitment_level: "unknown" },
+      { code: "AGR-2", vehicle: garageVehicle, fitment_level: "unknown" }]);
+
     // Re-running the schema keeps rows; deleting an order removes its record.
     await schema.pool.query(await readFile("db/commerce.sql", "utf8"));
     assert.equal((await agreementRow(placed.id)).length, 1);
