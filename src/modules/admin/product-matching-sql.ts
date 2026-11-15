@@ -47,3 +47,5 @@ export const manualKindFilterSql = (parameter: string) => `(${parameter}::boolea
 export const manualDeciderSql = "COALESCE(NULLIF(a.name,''),a.email)";
 /** Whether an offer row of the matched groups (`offers.id`, a supplier item) is linked to its product by hand. */
 export const offerManualSql = "EXISTS (SELECT 1 FROM product_sources s WHERE s.supplier_item_id=offers.id AND s.method='manual')";
+/** The groups (product_offers.primary_id) with at least one offer linked by hand; a group counts even if only its primary row is manual (as the row badge shows); read with the matched groups index. */
+export const manualGroupsSql = "SELECT DISTINCT o.primary_id::text AS primary_id FROM product_sources s JOIN product_offers o ON o.item_id=s.supplier_item_id WHERE s.method='manual'";

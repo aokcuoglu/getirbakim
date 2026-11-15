@@ -33,6 +33,7 @@ export function ProductMatchingFilters({ params, placeholder, filters = [], rese
     new FormData(event.currentTarget).forEach((value, key) => {
       if (typeof value === "string" && value.trim()) query.set(key, value.trim());
     });
+    if (query.get("scope") === "manual") query.delete("linked");
     startTransition(() => router.push(`/yonetim/urun-eslestirme?${query}`, { scroll: false }));
   }
 

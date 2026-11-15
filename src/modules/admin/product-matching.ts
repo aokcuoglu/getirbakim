@@ -1,12 +1,12 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
-import { compactCode as compact, manualKind, manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
-import { bulkAcceptableSql, isBulkReason, manualDeciderSql, manualKindFilterSql, manualKindSql, offerManualSql, isPatternBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+import { compactCode as compact, manualKind, manualSearchTerms, pickSameProducts, sameLinked, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
+import { bulkAcceptableSql, isBulkReason, manualDeciderSql, manualKindFilterSql, manualKindSql, manualGroupsSql, offerManualSql, isPatternBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
-type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string; kind?: string };
+type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string; kind?: string; linked?: string };
 // Header sorting per tab (TableHead sortKey → column); keys are only looked up here, never interpolated from the URL.
 const sorts = {
   brands: { name: "name", items: "items" },
@@ -168,10 +168,16 @@ async function sameSummaryIfReady() {
 }
 async function loadSameIndex(): Promise<SameIndex> {
   // `codes`: the offers' codes as the search compares them; `position`: the database's primary_id order, the last tie-break.
-  const entries = (await db.query<SameEntry>(sameGroups("", `
-   string_agg(regexp_replace(upper(code),'[^A-Z0-9]','','g'),' ') AS codes,row_number() OVER (ORDER BY primary_id::text)::int AS position`))).rows;
-  const summary = { all: entries.length, dinamik: 0, basbug: 0, none: 0 };
+  // `manual` comes from its own query: ~8-30 ms (depending on buffer cache) next to the ~2.8 s index, which adding it to the grouping CTE would
+  // change (a join per offer in the big query) without a shown-cheap plan.
+  const [groups, manualGroups] = await Promise.all([db.query<Omit<SameEntry, "manual">>(sameGroups("", `
+   string_agg(regexp_replace(upper(code),'[^A-Z0-9]','','g'),' ') AS codes,row_number() OVER (ORDER BY primary_id::text)::int AS position`)),
+    db.query<{ primary_id: string }>(manualGroupsSql)]);
+  const manualIds = new Set(manualGroups.rows.map(row => row.primary_id));
+  const entries = groups.rows.map(row => ({ ...row, manual: manualIds.has(row.primary_id) }));
+  const summary = { all: entries.length, dinamik: 0, basbug: 0, none: 0, manual: 0 };
   for (const entry of entries) {
+    if (entry.manual) summary.manual++;
     if (entry.selling === "dinamik") summary.dinamik++;
     else if (entry.selling === "basbug") summary.basbug++;
     else if (entry.selling === null) summary.none++;
@@ -185,11 +191,12 @@ async function sameProducts(params: MatchingParams) {
   // The other views' counts stay on the scope selector while the cached groups are loaded; the list never waits for them.
   if (scope === "manual") {
     const [decided, summary] = await Promise.all([manualDecisions(params, exclusions), sameSummaryIfReady()]);
-    return { ...decided, same: [] as SameProduct[], summary, scope, exclusions };
+    return { ...decided, same: [] as SameProduct[], summary, scope, exclusions, linked: false };
   }
   const requested = Number(params.page), page = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
+  const linked = sameLinked(params.linked);
   const { entries, summary } = await sameIndex();
-  const { total, listed } = pickSameProducts(entries, { scope, q: compact(params.q), sort: params.sort, dir: params.dir, page, pageSize });
+  const { total, listed } = pickSameProducts(entries, { scope, q: compact(params.q), linked, sort: params.sort, dir: params.dir, page, pageSize });
   const ids = listed.map(entry => entry.primary_id);
   const rows = ids.length ? (await db.query<SameProduct>(sameGroups("AND o.primary_id=ANY($1::uuid[]) AND c.id=ANY(ARRAY(SELECT item_id FROM product_offers WHERE primary_id=ANY($1::uuid[])))", `
    jsonb_agg(jsonb_build_object('id',id,'supplier',supplier,'code',code,'name',name,'price',price_kurus,'available',available,'stock_label',stock_label,'manual',${offerManualSql})
@@ -197,7 +204,7 @@ async function sameProducts(params: MatchingParams) {
   const byId = new Map(rows.map(row => [row.primary_id, row]));
   const same = ids.flatMap(id => byId.get(id) ?? []);
   const { pages } = pageOf(String(page), total);
-  return { same, summary, scope, total, page: Math.min(page, pages), pages, exclusions };
+  return { same, summary, scope, total, page: Math.min(page, pages), pages, exclusions, linked };
 }
 
 /**

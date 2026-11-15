@@ -4,7 +4,7 @@
 import { normalizeSearchText } from "@/modules/search/query";
 
 /** A grouped Başbuğ product without its offers; `codes` are the offers' codes as the search compares them. */
-export type SameEntry = { primary_id: string; selling: string | null; selling_price: number | null; primary_price: number | null; codes: string; position: number };
+export type SameEntry = { primary_id: string; selling: string | null; selling_price: number | null; primary_price: number | null; codes: string; position: number; manual: boolean };
 type SameScope = "all" | "dinamik" | "basbug" | "none" | "manual";
 const sameSortColumns = { primary: "primary_price", selling: "selling_price" } as const;
 
@@ -17,6 +17,9 @@ export function sameScope(raw: string | undefined): SameScope {
 /** "Elle kararlar" kind filter from `?kind=`: only `merge` (Birleştirme) or `split` (Ayırma); anything else is no filter. */
 export type ManualKind = "merge" | "split";
 export const manualKind = (raw: string | undefined): ManualKind | null => raw === "merge" || raw === "split" ? raw : null;
+
+/** `?linked=manual` narrows the matched groups to those with an offer linked by hand; anything else is no filter. */
+export const sameLinked = (raw: string | undefined) => raw === "manual";
 
 /** A code as the matching page compares codes and part numbers: A-Z0-9 only, at most 80 characters. */
 export const compactCode = (value: string | undefined) => value?.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 80) ?? "";
@@ -40,10 +43,10 @@ const nullsLast = (a: number | null, b: number | null, desc: boolean) =>
 const saving = (entry: SameEntry) => entry.primary_price === null || entry.selling_price === null ? null : entry.primary_price - entry.selling_price;
 
 /** `q` is already compacted (A-Z0-9); a group matches when any offer code contains it. */
-export function pickSameProducts(entries: SameEntry[], options: { scope: Exclude<SameScope, "manual">; q: string; sort?: string; dir?: string; page: number; pageSize: number }) {
+export function pickSameProducts(entries: SameEntry[], options: { scope: Exclude<SameScope, "manual">; q: string; linked?: boolean; sort?: string; dir?: string; page: number; pageSize: number }) {
   const { scope, q, page, pageSize } = options;
   const filtered = entries.filter(entry => (scope === "all" || (scope === "none" ? entry.selling === null : entry.selling === scope))
-    && (!q || entry.codes.includes(q)));
+    && (!q || entry.codes.includes(q)) && (!options.linked || entry.manual));
   const column = options.sort && Object.hasOwn(sameSortColumns, options.sort) ? sameSortColumns[options.sort as keyof typeof sameSortColumns] : null;
   const desc = options.dir === "desc";
   filtered.sort((a, b) => (column ? nullsLast(a[column], b[column], desc) : 0) || nullsLast(saving(a), saving(b), true) || a.position - b.position);
