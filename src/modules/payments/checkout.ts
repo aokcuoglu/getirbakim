@@ -26,8 +26,23 @@ function callbackSignature(orderId: string) {
   if (!secret) throw new Error("TAMI_SECRET_KEY is missing.");
   return createHmac("sha256", secret).update(`tami-callback:${orderId}`).digest("base64url");
 }
+/**
+ * TAMI's hosted page only follows a callback whose hostname contains a dot, so a local `localhost` site is sent as
+ * 127.0.0.1; the callback route then hands the customer back to the `localhost` origin (#743).
+ */
+export function providerReturnBase(base = siteUrl) {
+  const url = new URL(base);
+  if (url.hostname === "localhost") url.hostname = "127.0.0.1";
+  return url.origin;
+}
+/** The site origin a provider-facing callback must continue on, or null when the request is already there. */
+export function siteReturnUrl(requestUrl: URL, base = siteUrl) {
+  const site = new URL(base);
+  if (site.hostname !== "localhost" || requestUrl.hostname === "localhost") return null;
+  return new URL(`${requestUrl.pathname}${requestUrl.search}`, site.origin);
+}
 export function callbackUrl(orderId: string) {
-  const url = new URL("/api/payments/tami/callback", siteUrl);
+  const url = new URL("/api/payments/tami/callback", providerReturnBase());
   url.searchParams.set("order", orderId);
   url.searchParams.set("sig", callbackSignature(orderId));
   return url.toString();
