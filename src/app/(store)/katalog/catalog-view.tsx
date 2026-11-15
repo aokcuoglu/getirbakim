@@ -92,9 +92,10 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
  const oilFilters=parseOilFilters(params.oil);
  // Engine-oil listings: the oil categories, an oil filter, or a search for engine oil or a grade ("5w30").
  const oilListing=oilFilters.size>0||Boolean(category&&(category.path.includes(engineOilCategoryId)||category.id===legacyCategoryIds.yag))||/motor\s*ya[gğ]|\b\d{1,2}w-?\d{2}\b/i.test(params.q??"");
- const fitNote=vehicle&&!(vehicleTypeId&&(params.fits||fitCount>0))&&<p className="mb-4 flex items-center gap-2.5 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status"><Info size={18} className="shrink-0 text-primary" aria-hidden="true"/><span>{vehicleTypeId
-  ?<>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı ürün bulunamadı. Ürünlerin uyumunu ürün sayfasında veya OEM numarasıyla kontrol et.</>
-  :<>Garajındaki <strong>{vehicleName}</strong> kataloğumuzdaki bir araç tipine bağlı değil; listeyi araca göre süzemiyoruz. Aracını marka ve modelden seçebilirsin.</>}</span></p>;
+ const fitNoteClass="mb-4 flex items-start gap-2.5 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground";
+ const fitNote=vehicle&&!result.searchTooShort&&(vehicleTypeId
+  ?!(params.fits||fitCount>0)&&products.length>0&&!result.vehicleScope&&<p className={fitNoteClass} role="status"><Info size={18} className="mt-px shrink-0 text-primary" aria-hidden="true"/><span>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı ürün bulunamadı. Ürünlerin uyumunu ürün sayfasında veya OEM numarasıyla kontrol et.</span></p>
+  :<p className={fitNoteClass} role="status"><Info size={18} className="mt-px shrink-0 text-primary" aria-hidden="true"/><span>Garajındaki <strong>{vehicleName}</strong> için uyum kontrolü yapılamıyor; aracını marka ve modelden seçersen uyan ürünleri gösterebiliriz.</span></p>);
  const oilBanner=oilSpec&&oilListing&&vehicleName&&<VehicleOilBanner spec={oilSpec} vehicleName={vehicleName} active={oilFilters} total={result.total}
   href={(filters:OilFilter[])=>listingHref({oil:oilFilterParam(new Set(filters))})}/>;
  const correction=result.correctedQuery&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">“{params.q}” için sonuç bulunamadı, <strong>“{result.correctedQuery}”</strong> için sonuçlar gösteriliyor.</p>;
