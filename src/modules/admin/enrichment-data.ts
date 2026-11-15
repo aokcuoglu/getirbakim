@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { sortOrder } from "@/lib/table-sort";
 import { parseSearchQuery } from "@/modules/search/query";
-import { binder, supplierItemMatch } from "@/modules/search/sql";
+import { binder, enrichmentStateMatch } from "@/modules/search/sql";
 import { sourceHosts, summarizeSources, type PassPace, type SourceActivity, type SourceKey, type SourceRun } from "./enrichment-pace";
 import type { PartialGap } from "../enrichment/partial-gaps";
 
@@ -109,20 +109,11 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   if (name) { values.push(like(name)); conditions.push(`j.product_name ILIKE $${values.length}`); }
   if (code) { values.push(like(code)); conditions.push(`COALESCE(j.supplier_code,j.part_number) ILIKE $${values.length}`); }
   let joins = "";
-  if (q) {
-    // Same engine as the storefront: words as prefixes, part/OEM numbers with any spacing.
-    const parsed = parseSearchQuery(q), bind = binder(values);
-    const enriched = parsed.compact.length >= 3 ? (() => {
-      const key = bind(`%${parsed.compact}%`);
-      return ` OR search_compact(COALESCE(j.manufacturer_part_number,'')) LIKE ${key}
-      OR EXISTS(SELECT 1 FROM jsonb_each(COALESCE(e.payload->'oemNumbers','{}'::jsonb)) r,
-        jsonb_array_elements_text(r.value) n WHERE search_compact(n) LIKE ${key})`;
-    })() : "";
-    conditions.push(`(${supplierItemMatch("s", parsed, bind)}${enriched})`);
-    joins = " LEFT JOIN supplier_items s ON s.id=j.supplier_item_id LEFT JOIN product_enrichments e ON j.enriched AND e.supplier_item_id=j.supplier_item_id";
-  }
+  // Same engine as the storefront: words as prefixes, part/OEM numbers with any spacing.
+  if (q) conditions.push(enrichmentStateMatch("j", parseSearchQuery(q), binder(values)));
   // The brand list is counted before the brand condition so another brand can still be chosen.
-  const facetFrom = `FROM enrichment_product_states j${joins} WHERE ${conditions.join(" AND ")}`, facetValues = [...values];
+  // The search conditions hold subqueries with their own WHERE, so the gap join is placed by building the FROM, not by text replacement.
+  const facetWhere = conditions.join(" AND "), facetFrom = `FROM enrichment_product_states j WHERE ${facetWhere}`, facetValues = [...values];
   if (brand) { values.push(brand); conditions.push(`COALESCE(j.supplier_brand,j.product_brand)=$${values.length}`); }
   if (gap) { joins += gapJoin; conditions.push(`(${gapConditions[gap]})`); }
   const from = `FROM enrichment_product_states j${joins} WHERE ${conditions.join(" AND ")}`;
@@ -170,7 +161,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
     !records?Promise.resolve(null):db.query<{value:string;label:string;count:number}>(`SELECT COALESCE(j.supplier_brand,j.product_brand) AS value,COALESCE(j.supplier_brand,j.product_brand) AS label,count(*)::int AS count
       ${facetFrom} AND COALESCE(j.supplier_brand,j.product_brand)<>'' GROUP BY 1 ORDER BY 3 DESC,1 LIMIT 1000`, facetValues),
     records&&status==="partial"?db.query<Record<PartialGap,number>>(`SELECT ${(Object.keys(gapConditions) as PartialGap[]).map(key=>`count(*) FILTER (WHERE ${gapConditions[key]})::int AS ${key}`).join(",")}
-      ${facetFrom.replace(" WHERE ", `${gapJoin} WHERE `)}`, facetValues):Promise.resolve(null),
+      FROM enrichment_product_states j${gapJoin} WHERE ${facetWhere}`, facetValues):Promise.resolve(null),
     // parts2world's latest queue run: products searched (any outcome but a block answer) since it started (#403).
     records?Promise.resolve(null):db.query<SourceRun>(`SELECT r.queue,r.total,r.started_at,r.finished_at,r.outcome,a.processed,a.errors,a.last FROM
       (SELECT * FROM enrichment_source_runs WHERE source='parts2world' ORDER BY started_at DESC LIMIT 1) r

@@ -31,7 +31,6 @@ try {
    await client.query(await readFile("db/search.sql", "utf8"));
    await client.query(await readFile("db/garage.sql", "utf8"));
    await client.query(await readFile("db/product-enrichment.sql", "utf8"));
-   await client.query(await readFile("db/enrichment-search.sql", "utf8"));
    await client.query(await readFile("db/manual-supplier.sql", "utf8"));
    await client.query(await readFile("db/manufacturer-logos.sql", "utf8"));
    await client.query(await readFile("db/vehicle-type-specs.sql", "utf8"));
@@ -51,6 +50,8 @@ try {
    await client.query(await readFile("db/restock-requests.sql", "utf8"));
    await client.query(await readFile("db/enrichment-products.sql", "utf8"));
    await client.query(await readFile("db/enrichment-states.sql", "utf8"));
+   // After enrichment-states: besides the enrichment OEM index (#609) it indexes enrichment_product_states (#617).
+   await client.query(await readFile("db/enrichment-search.sql", "utf8"));
    await client.query(await readFile("db/enrichment-shared-links.sql", "utf8"));
    await client.query(await readFile("db/storefront-make-fits.sql", "utf8"));
    await client.query(await readFile("db/newsletter.sql", "utf8"));
