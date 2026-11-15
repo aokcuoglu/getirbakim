@@ -52,7 +52,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
 
   const attention = [
     { href: "/yonetim/siparisler?status=action", icon: ReceiptText, tone: "warning", title: "Teyit bekleyen sipariş", note: "Tedarikçi stok ve teslim süresini teyit edip onayla", count: orders.action },
-    { href: "/yonetim/siparisler?status=shipping", icon: Truck, tone: "neutral", title: "Sevk bekleyen sipariş", note: "Onaylandı, kargoya verilmeyi bekliyor", count: orders.shipping },
+    { href: "/yonetim/siparisler?status=shipping", icon: Truck, tone: "neutral", title: "Kargoya verilecek sipariş", note: "Onaylandı, kargoya verilmeyi bekliyor", count: orders.shipping },
     { href: "/yonetim/siparisler?status=refund", icon: RotateCcw, tone: "danger", title: "İade bekleyen ödeme", note: "TAMI portalından iade edip referansı kaydet", count: orders.refund },
     { href: "/yonetim/servisler", icon: Building2, tone: "warning", title: "Onay bekleyen servis başvurusu", note: "Onay, fiyat ve sepet erişimini açar", count: pending.length },
     { href: `/yonetim/urun-verileri?status=${enrichment.review ? "review" : "error"}`, icon: Layers3, tone: "warning", title: "Kontrol bekleyen zenginleştirme", note: "İnceleme, erişim veya işlem hatası", count: enrichmentAttention },

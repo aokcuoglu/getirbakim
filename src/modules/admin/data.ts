@@ -49,7 +49,7 @@ type AdminPayment = { provider_order_id: string; status: string; amount_kurus: n
 export const orderFilters = {
   all: { label: "Tümü", where: "true" },
   action: { label: "Teyit bekleyen", where: "o.status='pending' AND o.payment_status IN ('paid','none')" },
-  shipping: { label: "Sevk bekleyen", where: "o.status='confirmed'" },
+  shipping: { label: "Kargoya verilecek", where: "o.status='confirmed'" },
   refund: { label: "İade bekleyen", where: "o.payment_status='refund_required'" },
   awaiting_payment: { label: "Ödeme bekleyen", where: "o.status='awaiting_payment'" },
   shipped: { label: "Kargoda", where: "o.status='shipped'" },
