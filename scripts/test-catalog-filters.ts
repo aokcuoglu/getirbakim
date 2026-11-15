@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {selectedBrands, selectedAttributes,catalogSpecifications} from "../src/modules/store/catalog-filters";
+import {selectedBrands, selectedAttributes,catalogSpecifications,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
 import {parseCatalogQuery} from "../src/modules/store/catalog-query";
 
 test("manufacturer selection supports multiple brands and legacy links", () => {
@@ -31,4 +31,20 @@ test("OEM alternatives keep technical criteria without adopting another part's i
  const specs:[string,string][]=[["Fitting Position","Front Axle"],["Brand class","Premium"],["EAN","123"],["Manufacturer","ABE"],["Manufacturer Part Number","C2S000ABE"]];
  assert.deepEqual(catalogSpecifications(specs,false),[["Fitting Position","Front Axle"]]);
  assert.deepEqual(catalogSpecifications(specs,true),specs);
+});
+test("typed specification keys and values map back to the source spelling (#603)", () => {
+  assert.equal(specificationKey("Montaj konumu"), "Fitting Position");
+  assert.equal(specificationKey(" MONTAJ KONUMU "), "Fitting Position");
+  assert.equal(specificationKey("fitting position"), "Fitting Position");
+  assert.equal(specificationKey("Üretici"), "Manufacturer");
+  assert.equal(specificationKey("Renk "), "Renk");
+  assert.equal(specificationKey("constructor"), "constructor");
+  assert.equal(specificationRawValue("Fitting Position", "Ön aks"), "Front Axle");
+  assert.equal(specificationRawValue("Fitting Position", "front axle"), "Front Axle");
+  assert.equal(specificationRawValue("Brake Disc Type", "Havalandırmalı"), "Vented");
+  assert.equal(specificationRawValue("Brake Disc Type", "vented"), "vented");
+  assert.equal(specificationRawValue("Renk", "Ön"), "Ön");
+  assert.equal(specificationRawValue("Fitting Position", " Üst sol "), "Üst sol");
+  assert.equal(specificationLabel("constructor"), "constructor");
+  assert.equal(specificationValue("toString"), "toString");
 });
