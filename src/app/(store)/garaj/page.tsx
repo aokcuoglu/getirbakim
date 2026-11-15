@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { privatePageRobots } from "@/modules/seo/crawlers";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import Link from "next/link";
 import { CarFront,ChevronRight,Check,Trash2 } from "lucide-react";
@@ -12,6 +14,7 @@ const vehicleMakes=["Volkswagen","BMW","Mercedes-Benz","Audi","Renault","Ford","
 const label="text-sm leading-5 font-normal";
 const input="h-[52px] rounded-lg bg-white px-3.5 py-[13px] text-base leading-6 md:text-base placeholder:text-sm";
 
+export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Garage({searchParams}:{searchParams:Promise<SearchParams>}) {
  const [vehicle,saved,params]=await Promise.all([currentVehicle(),savedVehicles(),searchParams.then(normalizeSearchParams)]);
  const others=saved.vehicles.filter(entry=>!vehicle||entry.key!==vehicleKey(vehicle));

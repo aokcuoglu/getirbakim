@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { privatePageRobots } from "@/modules/seo/crawlers";
 import Link from "next/link";
 import { randomUUID } from "node:crypto";
 import { Check, LockKeyhole } from "lucide-react";
@@ -29,6 +31,7 @@ const step="flex items-center gap-2 whitespace-nowrap not-last:after:ml-1 not-la
 const stepMark="grid size-8 place-items-center rounded-full border border-input";
 const required=<span className="text-[#ba3c28]" aria-hidden>*</span>;
 
+export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Checkout({searchParams}:{searchParams:Promise<SearchParams>}) {
   const [account,owner,params]=await Promise.all([currentAccount(),currentCartOwner(),searchParams.then(normalizeSearchParams)]);
   const [items,shipping]=await Promise.all([cartFor(owner),shippingRule()]);

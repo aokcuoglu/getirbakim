@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { privatePageRobots } from "@/modules/seo/crawlers";
 import { currentOrders } from "@/modules/store/order-read";
 import Link from 'next/link';
 import { money } from '@/modules/store/catalog';
@@ -6,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { carrierLabel } from '@/modules/store/shipment';
 
 const time = (value: Date) => new Date(value).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' });
+export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Orders() {
    const orders = await currentOrders();
    return <section className="mx-auto min-h-[55vh] w-full max-w-[1280px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10"><h1 className="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">Siparişlerim</h1>
