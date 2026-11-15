@@ -159,6 +159,11 @@ test("an enrichment that does not describe the row, or only loosely matches it, 
   await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
   assert.equal((await find("febi", "7H0407621A")).length, 0, "a reference match to another OEM number is not the product's own enrichment");
   await reset();
+  await schema.pool.query(`UPDATE product_enrichments SET match_basis='{"type":"cross_reference"}' WHERE supplier_item_id=$1`, [ids.skf]);
+  await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
+  await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
+  assert.equal((await find("febi", "7H0407621A")).length, 0, "a cross-reference enrichment is valid for the view but not exact: the arm excludes it");
+  await reset();
   await schema.pool.query("UPDATE supplier_items SET code='SKF 99999' WHERE id=$1", [ids.skf]);
   assert.equal((await find("febi", "7H0407621A")).length, 0, "the enrichment of another code does not describe the row");
   await reset();

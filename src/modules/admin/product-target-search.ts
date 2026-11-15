@@ -28,9 +28,11 @@ export type EquivalentTarget = {
  * product_references, db/product-matching.sql, which product_references_key_idx reads), through an OEM number of its
  * enrichment (exact: storefront_enrichments payload oemNumbers, with the ownership guard and hidden numbers of
  * loadProductReferences; the GIN trigram index product_enrichments_oem_search_idx of db/enrichment-search.sql only
- * prefilters with LIKE) or through a hand-entered OEM or competitor number (product_override_references). The enrichment
- * path runs from five characters on and only for a query with a digit: short or repetitive queries match so many
- * trigram rows that the prefilter costs 1-2 s. Shorter queries than three characters find nothing.
+ * prefilters: its text is the compact numbers joined by spaces, so a whole-token regex reads the same index with far
+ * fewer rows than LIKE) or through a hand-entered OEM or competitor number (product_override_references). The
+ * enrichment path runs from five characters on and only for a query with a digit: short or repetitive queries still
+ * match many trigram rows (about 0.5 s for "10000" with the regex, 1-2 s with LIKE). Shorter queries than three
+ * characters find nothing.
  */
 export async function searchEquivalentTargets(database: Pick<Pool, "query">, id: string, query: string | undefined) {
   const q = compact(query);
