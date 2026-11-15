@@ -3,21 +3,24 @@ import { boundedQuery } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { legacyCategoryIds } from "@/modules/store/category-tree";
 import { vehicleBrandSlug } from "@/modules/store/vehicle-catalog";
-import { productIndexPolicy } from "./indexing";
+import { minimumContentSql, productIndexPolicy } from "./indexing";
 import { productChunkRange, sitemapUrlLimit, withAncestors } from "./sitemap";
 
 const isoUtc = (column: string) => `to_char(${column} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 
 // The supplier branch selects what productIndexable (./indexing) accepts: the rows the store lists (commerce_supplier_items
 // as in commerce_catalog, without secondary offers like `listedOnly` in src/modules/store/catalog.ts), not hidden by an
-// admin. Unavailable cards (commerce_unavailable_items) and demo rows stay out. Plan: a bitmap scan of
-// supplier_items_saleable_order_v3_idx per file (~0.1-0.3 s locally), no sequential scan of supplier_items.
+// admin, with minimum content (#641). Unavailable cards (commerce_unavailable_items) and demo rows stay out. Plan: a
+// bitmap scan of supplier_items_saleable_order_v3_idx per file; the content signals are index probes per row
+// (product_model_fitments_pkey, product_offers_primary_idx), no sequential scan of supplier_items.
 const supplierBranch = `SELECT i.id::text AS id,${isoUtc("GREATEST(i.changed_at,l.imported_at)")} AS lastmod
  FROM commerce_supplier_items i
  LEFT JOIN product_enrichment_shared_links l ON l.supplier_item_id=i.id
+ LEFT JOIN commerce_item_overrides h ON h.supplier_item_id=i.id
  WHERE i.company=ANY($1::text[]) AND i.id BETWEEN $2::uuid AND $3::uuid
   AND NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=i.id AND o.primary_id<>o.item_id)
-  AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=i.id AND h.hidden)`;
+  AND h.hidden IS NOT TRUE
+  AND ${minimumContentSql()}`;
 const storeBranch = `SELECT p.id::text,${isoUtc("p.updated_at")} FROM store_products p
  WHERE p.supplier<>'demo' AND p.id BETWEEN $2::uuid AND $3::uuid`;
 

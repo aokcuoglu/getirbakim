@@ -36,7 +36,7 @@ import { cn } from "@/lib/utils";
 import { JsonLd } from "@/components/json-ld";
 import { breadcrumbJsonLd, productJsonLd, productTrail } from "@/modules/seo/structured-data";
 import { campaignEndText, listPrice, saleUntil } from "@/modules/store/best-offer";
-import { productIndexable } from "@/modules/seo/indexing";
+import { hasMinimumContent, productContent, productIndexable } from "@/modules/seo/indexing";
 
 const benefits = [
   { icon: ShieldCheck, size: 23, title: "Güvenli alışveriş", text: <>Fiyat ve sipariş bilgilerini hesabından takip et.</> },
@@ -48,6 +48,14 @@ const benefits = [
 // Metadata and the page read the same enrichment once per request. The enrichment is looked up by the supplier's code
 // and brand; display_code / display_brand (an admin's part number and store brand, #602) are only printed.
 const productEnrichment = cache((id: string, code: string, brand: string) => getProductEnrichment({ id, code, brand }));
+// The vehicle models of the supplier's description: an index signal of the metadata (#641) and a section of the page.
+const descriptionFitments = cache(getDescriptionFitments);
+// The description is read only when the other signals fall short; the page then reads the same models (cached).
+async function indexable(product: Parameters<typeof productIndexable>[0] & { id: string; oem: string }, enrichment: unknown) {
+  const content = productContent({ enrichment, descriptionModels: [], oem: product.oem });
+  if (product.source === "store" || hasMinimumContent(content)) return productIndexable(product, content);
+  return productIndexable(product, productContent({ enrichment, descriptionModels: await descriptionFitments(product.id), oem: product.oem }));
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
@@ -68,7 +76,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     alternates: { canonical: `/urun/${id}` },
     openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description.slice(0, 180), url: `/urun/${id}`,
       images: [socialImage(images, meta.title, defaultSocialImage)] },
-    robots: productIndexable(product) ? undefined : { index: false, follow: true },
+    robots: await indexable(product, enrichment) ? undefined : { index: false, follow: true },
   };
 }
 
@@ -119,7 +127,7 @@ export default async function Detail({ params }: { params: Promise<{ id: string 
   const vehicle = await currentVehicle();
   // Without engine-level TecDoc data, the models named in the supplier's description (#392) can only make a garage
   // vehicle "likely": they never name an engine type.
-  const descriptionModels = enrichment?.vehicles.length || enrichment?.vehicleModels.length ? [] : await getDescriptionFitments(product.id);
+  const descriptionModels = enrichment?.vehicles.length || enrichment?.vehicleModels.length ? [] : await descriptionFitments(product.id);
   const fitment = vehicle && fitmentLevel(await fitmentVehicle(vehicle),
     enrichment?.vehicles.length ? enrichment.vehicles : descriptionModels.map(row => ({ vehicleTypeId: null, modelId: row.modelId })));
   // The enrichment's specifications with the admin's edited, hidden and added keys (#603).
