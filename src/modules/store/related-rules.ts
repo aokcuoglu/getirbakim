@@ -80,13 +80,15 @@ export const complementaryCategories: Readonly<Record<number, readonly number[]>
 export const universalCategories: ReadonlySet<number> = new Set([957, 958, 960, 961, 962, 1075]);
 
 /**
- * Fluids never used to fill the dialog of a product in the key category. Transmission oil after engine oil (#715): a
+ * Fluids never used to fill the dialog of a product in the key category, both ways. Engine and transmission oil (#715): a
  * gearbox oil change is another job with another specification, and a second "oil" next to the one just added reads like
  * a duplicate or a wrong pick; brake fluid, coolant and oil additives remain.
  */
 export const unrelatedFluids: Readonly<Record<number, readonly number[]>> = {
   // motor-yaglari → sanziman-yaglari
   957: [958],
+  // sanziman-yaglari → motor-yaglari
+  958: [957],
 };
 
 /** The categories suggested for a product in `path` (root first): the deepest category with an entry. */
@@ -183,6 +185,16 @@ export type OilRankOptions = {
   /** The litres to fill; unknown counts as 4, so a 1 L top-up bottle ranks behind a 4–5 L can. */
   capacityLitres?: number | null;
 };
+
+/**
+ * The litres to fill for several targets (the added product's fitted types): the type-weighted mean of the capacities
+ * known; undefined when none is (rankOils then assumes 4 L).
+ */
+export function targetCapacity(targets: readonly OilTarget[]) {
+  const known = targets.filter(target => target.spec.capacityMax !== null && target.spec.capacityMax > 0);
+  const weight = known.reduce((sum, target) => sum + target.weight, 0);
+  return weight > 0 ? known.reduce((sum, target) => sum + target.spec.capacityMax! * target.weight, 0) / weight : undefined;
+}
 
 const viscosityOnly: ReadonlySet<OilFilter> = new Set(["viscosity"]);
 

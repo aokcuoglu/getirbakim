@@ -33,7 +33,8 @@ type TargetRow = { viscosities: string[]; acea: string[]; approvals: string[]; c
 
 /**
  * The recommended engine oils of the vehicle types the added product (its offer group) fits, through its trusted
- * enrichment's fitments, grouped by recommendation and weighted by the number of types. Read once per enrichment row:
+ * enrichment's fitments, grouped by recommendation and weighted by the number of types; the capacity is the group's
+ * largest (targetCapacity averages the groups by weight). Read once per enrichment row:
  * the vehicles payload is taken out in the materialized CTE, not per fitment.
  */
 export async function productOilTargets(group: readonly string[]): Promise<OilTarget[]> {

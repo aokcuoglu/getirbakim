@@ -42,7 +42,7 @@ before(async () => {
     ["drumFit", "FREN KAMPANASI", 274], ["drumUnknown", "FREN KAMPANASI UYUMSUZ", 274],
     ["oilFilter", "YAG FILTRESI", 242], ["barrel", "MOTOR YAGI 5W30 208 LT", 957], ["can", "MOTOR YAGI 5W30 4 LT", 957],
     ["canOther", "MOTOR YAGI 10W40 4 LT", 957], ["bottle", "MOTOR YAGI 5W30 1 LT", 957], ["gearOil", "SANZIMAN YAGI 75W90 1 LT", 958],
-    ["typedFilter", "YAG FILTRESI GOLF", 242],
+    ["typedFilter", "YAG FILTRESI GOLF", 242], ["filterOffer", "YAG FILTRESI IKINCI", 242],
   ];
   for (const [key, label] of items) await item(key, label);
   // The pad's cheaper second supplier: a secondary offer, the price the pad's suggestion shows.
@@ -52,7 +52,8 @@ before(async () => {
   // An engine oil recognised by its name only (listed under engine oil by name, no category of its own).
   await item("namedOil", "MOTOR YAGI 5W30 5 LT");
   await schema.pool.query("SELECT refresh_product_matches()");
-  await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1) ON CONFLICT (item_id) DO UPDATE SET primary_id=EXCLUDED.primary_id", [ids.pad, ids.padOffer]);
+  for (const [primary, offer] of [["pad", "padOffer"], ["oilFilter", "filterOffer"]])
+    await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1) ON CONFLICT (item_id) DO UPDATE SET primary_id=EXCLUDED.primary_id", [ids[primary], ids[offer]]);
   for (const id of [252, 241, 956]) await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw)
     VALUES('trodo',$1,NULL,$2,$2,$3,'https://www.trodo.com/x','{}')`, [id, `root-${id}`, [id]]);
   for (const [, , category] of items) {
@@ -134,6 +135,7 @@ test("an oil filter gets one engine oil in a can, the garage vehicle's grade whe
   assert.equal(shown.length, 1, shown.join());
   assert.ok(cans.includes(shown[0]!), shown.join());
   assert.deepEqual(await suggested("oilFilter"), shown, "the same filter gets the same oil");
+  assert.deepEqual(await suggested("filterOffer"), shown, "also when its other offer is added (product card vs page)");
   // Golf (type 1) takes 10W-40: only that oil, never a 5W-30.
   assert.deepEqual(await suggested("oilFilter", { vehicle: golf }), ["canOther"]);
   // Without a garage vehicle, the vehicle types the filter fits decide (type 1 through its enrichment).
@@ -149,6 +151,9 @@ test("engine oil gets one fluid of each kind and no transmission oil; with a veh
   const withCar = await suggested("can", { vehicle: golf });
   assert.deepEqual(new Set(withCar), new Set(["typedFilter", forOil[0]]), withCar.join());
   assert.ok(!withCar.includes("gearOil"));
+  // Nor engine oil after transmission oil: brake fluid fills its dialog.
+  const forGear = await suggested("gearOil");
+  assert.ok(forGear.length === 1 && fluids.includes(forGear[0]!), forGear.join());
 });
 
 test("the dialog's suggestion adds the best offer it shows, and nothing unrelated fills the dialog", async () => {

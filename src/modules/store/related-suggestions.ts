@@ -5,7 +5,7 @@ import type { GarageVehicle } from "./garage";
 import { oilPackLitres } from "./maintenance-kit";
 import { sellableProducts } from "./maintenance-kit.server";
 import { maxOilLitres, productOilTargets, sellableFluidIds, suggestableOils } from "./related-fluids.server";
-import { complementsFor, fillerSection, pickRelated, rankOils, unrelatedFluids, universalCategories } from "./related-rules";
+import { complementsFor, fillerSection, pickRelated, rankOils, targetCapacity, unrelatedFluids, universalCategories } from "./related-rules";
 import { engineOilCategoryId, vehicleOilFilters } from "./vehicle-oil";
 import { engineOilIds, getVehicleOilSpec } from "./vehicle-oil.server";
 
@@ -119,10 +119,10 @@ const oilInputs = (group: string[], vehicle: GarageVehicle | null | undefined) =
  * recommendations of the vehicle types the added product fits. Ties rotate by the added product, so oil filters do not all
  * get one oil.
  */
-function rankedOils(productId: string, [oils, fitted, garage]: Awaited<ReturnType<typeof oilInputs>>, garageTypeId: string | null) {
+function rankedOils(seed: string, [oils, fitted, garage]: Awaited<ReturnType<typeof oilInputs>>, garageTypeId: string | null) {
   if (garageTypeId && garage && vehicleOilFilters(garage).length)
-    return rankOils(oils, [{ spec: garage, weight: 1 }], { seed: productId, strict: true, capacityLitres: garage.capacityMax });
-  return rankOils(oils, fitted, { seed: productId, strict: false });
+    return rankOils(oils, [{ spec: garage, weight: 1 }], { seed, strict: true, capacityLitres: garage.capacityMax });
+  return rankOils(oils, fitted, { seed, strict: false, capacityLitres: targetCapacity(fitted) });
 }
 
 /**
@@ -137,6 +137,8 @@ function rankedOils(productId: string, [oils, fitted, garage]: Awaited<ReturnTyp
 export async function relatedSuggestions(productId: string, context: RelatedContext, limit = 3): Promise<CatalogProduct[]> {
   try {
     const [group, cartGroup] = await Promise.all([offerGroupIds([productId]), offerGroupIds(context.cartIds ?? [])]);
+    // The rotation's seed: the same for every offer of the product (the card adds the best offer, the page the primary).
+    const seed = [...group].sort()[0] ?? productId;
     const path = await productCategoryPath(group);
     if (!path.length) return [];
     const complements = complementsFor(path);
@@ -171,11 +173,11 @@ export async function relatedSuggestions(productId: string, context: RelatedCont
     const [{ fitScore, garageTypeId }, oilData, fluidIds] = await Promise.all([vehicleFit(group, context.vehicle, candidates),
       needsOil ? oilInputs(group, context.vehicle) : null,
       Promise.all(otherFluids.map(async id => [id, await sellableFluidIds(id)] as const)).then(entries => new Map(entries))]);
-    const oils = oilData ? rankedOils(productId, oilData, garageTypeId) : [];
+    const oils = oilData ? rankedOils(seed, oilData, garageTypeId) : [];
     const pool = (list: { categoryId: number; ids: string[] }) =>
       ({ ...list, ids: list.categoryId === engineOilCategoryId ? oils : fluidIds.get(list.categoryId) ?? list.ids });
     open = open.map(pool); openFluids = openFluids.map(pool);
-    const order = { exclude, perCategory: rankedPerCategory, ordered: new Set([engineOilCategoryId]), seed: productId };
+    const order = { exclude, perCategory: rankedPerCategory, ordered: new Set([engineOilCategoryId]), seed };
     const ranked = pickRelated({ complements: open, fitScore, ...order });
     // The filler: fitting parts of the sibling categories, best fitting first, then the fluids taking turns; scored before it is capped.
     const filler = [

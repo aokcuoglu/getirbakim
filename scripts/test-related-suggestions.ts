@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { complementaryCategories, complementsFor, fillerSection, pickRelated, rankOils, stableHash, universalCategories, unrelatedFluids,
+import { complementaryCategories, complementsFor, fillerSection, pickRelated, rankOils, stableHash, targetCapacity, universalCategories, unrelatedFluids,
   type OilCandidate, type OilTarget, type RelatedInput } from "../src/modules/store/related-rules";
 import { productOilSpec, type VehicleOilSpec } from "../src/modules/store/vehicle-oil";
 
@@ -73,11 +73,15 @@ test("the filler's section is one level above the category, never the whole car 
   assert.equal(fillerSection([956]), 956);
 });
 
-test("a fluid's dialog leaves out fluids of another job: no transmission oil after engine oil", () => {
+test("a fluid's dialog leaves out fluids of another job: engine and transmission oil never suggest each other", () => {
   assert.deepEqual(unrelatedFluids[957], [958]);
+  assert.deepEqual(unrelatedFluids[958], [957]);
   for (const [key, fluids] of Object.entries(unrelatedFluids)) {
     assert.ok(universalCategories.has(Number(key)), `${key} is a fluid`);
-    for (const fluid of fluids) assert.ok(universalCategories.has(fluid) && fluid !== Number(key));
+    for (const fluid of fluids) {
+      assert.ok(universalCategories.has(fluid) && fluid !== Number(key));
+      assert.ok(unrelatedFluids[fluid]?.includes(Number(key)), `${fluid} leaves out ${key} too`);
+    }
   }
 });
 
@@ -113,6 +117,16 @@ test("engine oil: the fewest packs for the capacity first; unknown capacity coun
   const fourLitres = rankOils(oils, [vehicle], { seed: "f", strict: true, capacityLitres: 4 });
   assert.ok(fourLitres.indexOf("four") < fourLitres.indexOf("one"));
   assert.equal(rankOils(oils, [], { seed: "f", strict: false }).at(-1), "one");
+});
+
+test("several fitted types: the capacity is their type-weighted mean, unknown capacities left out", () => {
+  assert.equal(targetCapacity([target({ capacityMax: 4 }, 3), target({ capacityMax: 6 }, 1), target({}, 10)]), 4.5);
+  assert.equal(targetCapacity([target({ viscosities: ["5W-30"] })]), undefined);
+  assert.equal(targetCapacity([]), undefined);
+  // 4.5 L across the types: a 5 L can before a 4 L one.
+  const oils = [oil("four", "MOTOR YAGI 5W-30 4 LT", 4), oil("five", "MOTOR YAGI 5W-30 5 LT", 5)];
+  const targets = [target({ viscosities: ["5W-30"], capacityMax: 4 }, 3), target({ viscosities: ["5W-30"], capacityMax: 6 }, 1)];
+  assert.deepEqual(rankOils(oils, targets, { seed: "f", strict: false, capacityLitres: targetCapacity(targets) }), ["five", "four"]);
 });
 
 test("engine oil without targets: the same product gets the same oil, different products different ones", () => {
