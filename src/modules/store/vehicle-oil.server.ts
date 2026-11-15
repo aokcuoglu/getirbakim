@@ -18,6 +18,9 @@ export const getVehicleOilSpec = cache(async (vehicleTypeId: string | null | und
     capacityMin: row.capacity_min_l === null ? null : Number(row.capacity_min_l), capacityMax: row.capacity_max_l === null ? null : Number(row.capacity_max_l) } : null;
 });
 
+// A candidate engine oil: a listed row whose name has a grade or "motor yağı" and no other fluid's name ($1 companies, $2-$4 name patterns).
+const oilCandidateWhere = `(catalog.source='store' OR catalog.company=ANY($1::text[])) AND (catalog.name ~* $2 OR catalog.name ~* $3) AND catalog.name !~* $4`;
+
 // Engine oils change only with supplier syncs and enrichment imports, like the catalog's other id lists.
 const cachedOils = staleCache<{ id: string; spec: ProductOilSpec; litres: number | null }[]>(10 * 60 * 1000, 1);
 /**
@@ -27,7 +30,7 @@ const cachedOils = staleCache<{ id: string; spec: ProductOilSpec; litres: number
  */
 export const engineOils = () => cachedOils("all", async () => {
   const candidates = (await db.query<{ id: string; name: string }>(`SELECT catalog.id::text,catalog.name FROM storefront_catalog_entries catalog
-   WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND (catalog.name ~* $2 OR catalog.name ~* $3) AND catalog.name !~* $4`,
+   WHERE ${oilCandidateWhere}`,
   [storefrontCompanies(), engineOilNameSql, plainEngineOilNameSql, notEngineOilNameSql])).rows;
   if (!candidates.length) return [];
   // One pass over the shared view for every candidate id. A correlated subquery per candidate re-sorted the
@@ -41,6 +44,15 @@ export const engineOils = () => cachedOils("all", async () => {
   [candidates.map(row => row.id), oilSpecificationKeys])).rows.map(row => [row.id, row.specs]));
   return candidates.flatMap(row => { const spec = productOilSpec(row.name, specs.get(row.id) ?? ""); return spec ? [{ id: row.id, spec, litres: oilPackLitres(row.name) }] : []; });
 });
+
+/** Whether any of `ids` is an engine oil recognised by its name (as engineOils lists it), without scanning the catalog. */
+export async function namedEngineOil(ids: readonly string[]): Promise<boolean> {
+  if (!ids.length) return false;
+  const rows = (await db.query<{ name: string }>(`SELECT catalog.name FROM storefront_catalog_entries catalog
+   WHERE catalog.id=ANY($5::uuid[]) AND ${oilCandidateWhere}`,
+  [storefrontCompanies(), engineOilNameSql, plainEngineOilNameSql, notEngineOilNameSql, ids])).rows;
+  return rows.some(row => productOilSpec(row.name) !== null);
+}
 
 export async function engineOilIds() { return (await engineOils()).map(oil => oil.id); }
 
