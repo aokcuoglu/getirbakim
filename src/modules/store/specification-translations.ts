@@ -426,3 +426,8 @@ export function facetOptions(rawValues: string[]) {
   }
   return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label, "tr"));
 }
+
+/** The card's display pairs, same order as the raw pairs: Turkish label and value, while the raw pairs stay the keys of compare and filters. */
+export function displaySpecifications(specifications: [string, string][]): [string, string][] {
+  return specifications.map(([key, value]) => [translateSpecificationLabel(key), translateSpecificationList(value)]);
+}

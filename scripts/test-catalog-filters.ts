@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {facetOptions,translateSpecificationLabel,translateSpecificationList,translateSpecificationParts,translateSpecificationValue} from "../src/modules/store/specification-translations";
+import {displaySpecifications,facetOptions,translateSpecificationLabel,translateSpecificationList,translateSpecificationParts,translateSpecificationValue} from "../src/modules/store/specification-translations";
 import {applySpecOverrides,mergeSpecificationRows,pageSpecifications} from "../src/modules/store/product-spec-display";
 import {selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
 import {parseCatalogQuery} from "../src/modules/store/catalog-query";
@@ -146,4 +146,15 @@ test("mergeSpecificationRows merges equal labels, keeps every distinct value and
   assert.deepEqual(mergeSpecificationRows([["A","Febi"],["B","1 kg"],["A","FEBI"],["A","Febi Bilstein"],["C",""],["D"," "],["D","x"]]),
     [["A","Febi, Febi Bilstein"],["B","1 kg"],["D","x"]]);
   assert.deepEqual(mergeSpecificationRows([["E",""]]),[]);
+});
+
+test("card display pairs are translated in the raw order, raw keys stay (#700)", () => {
+  const raw:[string,string][]=[["Fitting Position","Front Axle, Rear Axle"],["Outer Diameter [mm]","280,5"],["Thread Size","M14 x 1,5"],["Renk","Siyah"]];
+  const display=displaySpecifications(raw);
+  assert.equal(display.length,raw.length);
+  assert.deepEqual(display[0],["Montaj konumu","Ön aks, Arka aks"]);
+  assert.deepEqual(display[1],["Dış çap [mm]","280,5"]);
+  assert.equal(display[2][1],"M14 x 1,5");
+  assert.deepEqual(display[3],["Renk","Siyah"]);
+  assert.deepEqual(raw[0],["Fitting Position","Front Axle, Rear Axle"]);
 });
