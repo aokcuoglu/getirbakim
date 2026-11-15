@@ -69,13 +69,18 @@ test("client evidence prefers the CDN viewer address and drops invalid values", 
   assert.deepEqual(evidence({ "cloudfront-viewer-address": "203.0.113.7:51234", "x-real-ip": "10.0.0.1", "x-forwarded-for": "1.1.1.1, 10.0.0.2", "user-agent": "Test UA" }),
     { ip: "203.0.113.7", forwardedFor: "1.1.1.1, 10.0.0.2", userAgent: "Test UA" });
   assert.equal(evidence({ "cloudfront-viewer-address": "[2001:db8::1]:443" }).ip, "2001:db8::1");
-  assert.equal(evidence({ "cloudfront-viewer-address": "2001:db8::1:443" }).ip, "2001:db8::1");
-  assert.equal(evidence({ "cloudfront-viewer-address": "garbage", "x-real-ip": "198.51.100.4" }).ip, "198.51.100.4");
+  // CloudFront's documented IPv6 form is the full eight groups plus the port.
+  assert.equal(evidence({ "cloudfront-viewer-address": "2001:0db8:85a3:0000:0000:8a2e:0370:7334:46532" }).ip, "2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+  assert.equal(evidence({ "cloudfront-viewer-address": "2001:db8::1" }).ip, "2001:db8::1");
+  assert.equal(evidence({ "cloudfront-viewer-address": "garbage", "x-forwarded-for": "198.51.100.4" }).ip, "198.51.100.4");
+  assert.equal(evidence({ "x-real-ip": "198.51.100.5" }).ip, null);
+  assert.equal(evidence({ "x-real-ip": "198.51.100.5", "x-forwarded-for": "192.0.2.10" }).ip, "192.0.2.10");
   assert.equal(evidence({ "x-forwarded-for": "spoofed, 192.0.2.9" }).ip, "192.0.2.9");
-  assert.equal(evidence({ "x-real-ip": "not-an-ip", "x-forwarded-for": "also-bad" }).ip, null);
+  assert.equal(evidence({ "x-forwarded-for": "also-bad" }).ip, null);
   assert.deepEqual(evidence({}), { ip: null, forwardedFor: null, userAgent: null });
   assert.equal(evidence({ "user-agent": "u".repeat(900) }).userAgent?.length, 500);
-  assert.equal(evidence({ "x-forwarded-for": "1.1.1.1,".repeat(100) }).forwardedFor?.length, 500);
+  const chain = evidence({ "x-forwarded-for": `${"1.1.1.1,".repeat(100)} 192.0.2.77` }).forwardedFor;
+  assert.equal(chain?.length, 500); assert.ok(chain?.endsWith("192.0.2.77"));
 });
 
 test("placing an order stores the consent and an immutable order-specific copy", async () => {

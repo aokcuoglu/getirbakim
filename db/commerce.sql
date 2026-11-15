@@ -287,5 +287,4 @@ CREATE OR REPLACE FUNCTION commerce_order_agreement_immutable() RETURNS trigger 
 BEGIN
  RAISE EXCEPTION 'commerce_order_agreements rows are immutable';
 END $$;
-DROP TRIGGER IF EXISTS commerce_order_agreement_immutable ON commerce_order_agreements;
-CREATE TRIGGER commerce_order_agreement_immutable BEFORE UPDATE ON commerce_order_agreements FOR EACH ROW EXECUTE FUNCTION commerce_order_agreement_immutable();
+CREATE OR REPLACE TRIGGER commerce_order_agreement_immutable BEFORE UPDATE ON commerce_order_agreements FOR EACH ROW EXECUTE FUNCTION commerce_order_agreement_immutable();
