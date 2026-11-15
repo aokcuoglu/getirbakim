@@ -34,7 +34,7 @@ node --import tsx --test scripts/test-product-enrichment.ts
 
 `supplier_items.product_data`, fiyat ve stok verileri değiştirilmez. Tedarikçi senkronizasyonu zenginleştirme verisini silmez. Tedarikçi marka/kodu değişirse eski eşleşme ürün sayfasında kullanılmaz.
 
-Eklenen OEM numaraları katalog aramasında da kullanılır. Kısmi bir paket tamamlanmış bir kaydın üzerine yazılamaz.
+Eklenen OEM numaraları katalog aramasında da kullanılır. Kod araması önce `enrichment_oem_search(payload)` üzerindeki trigram indeksiyle (`product_enrichments_oem_search_idx`, #609) adayları daraltır, sonra her numarayı tek tek denetler; bu fonksiyon veya `search_compact` değişirse `REINDEX INDEX product_enrichments_oem_search_idx` gerekir. Kısmi bir paket tamamlanmış bir kaydın üzerine yazılamaz.
 
 İçe aktarma JSON’u tek kayıt veya kayıt dizisi olabilir. Tam örnek formatı `artifacts/trodo-sample/enrichment-import.json` içindedir. Görsel yolu çalışma dizinine göre çözülür. Görseller en fazla 10 MB; içerik imzası WebP/JPEG/PNG olarak doğrulanır. Nesne anahtarında SHA-256 kullanılır; aynı dosya birden çok kez depolanmaz. MinIO yazımı ve HEAD doğrulamasından sonra veritabanı kaydı tamamlanır. Veritabanı işlemi başarısız olursa depoda referansı olmayan bir nesne kalabilir; kullanıcıya yayımlanmaz.
 

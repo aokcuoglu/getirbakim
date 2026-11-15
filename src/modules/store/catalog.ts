@@ -198,17 +198,18 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
   `SELECT p.id FROM store_products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`,
   // Products no supplier sells now are found too; the listing puts them last (#475).
   `SELECT u.id FROM commerce_unavailable_items u WHERE ${supplierItemMatch("u",parsed,bind,mode)}`];
- // OEM numbers always carry digits; a word query ("frenbalatasi") would only normalise every stored reference (~0.1 s).
- if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact))hits.push(`SELECT e.supplier_item_id FROM storefront_enrichments e
+ // OEM numbers always carry digits. The trigram index on enrichment_oem_search (db/product-enrichment.sql, #609)
+ // narrows the enrichments first; normalising every stored reference per query took ~3 s.
+ if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact)){const key=bind(`%${parsed.compact}%`);hits.push(`SELECT e.supplier_item_id FROM storefront_enrichments e
     JOIN supplier_items supplier_item ON supplier_item.id=e.supplier_item_id
       AND supplier_item.code=e.supplier_code AND supplier_item.product_data->>'uk'=e.supplier_brand
       AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
     CROSS JOIN LATERAL jsonb_each(e.payload->'oemNumbers') refs
     CROSS JOIN LATERAL jsonb_array_elements_text(refs.value) reference(number)
-    WHERE search_compact(reference.number) LIKE ${bind(`%${parsed.compact}%`)}
+    WHERE enrichment_oem_search(e.payload) LIKE ${key} AND search_compact(reference.number) LIKE ${key}
      AND NOT EXISTS (SELECT 1 FROM product_override_references h JOIN product_sources hs ON hs.product_id=h.product_id
       WHERE hs.supplier_item_id=e.supplier_item_id AND h.action='hide' AND h.kind='oem' AND h.brand_key=part_number_key(refs.key)
-       AND h.number_key=part_number_key(reference.number))`);
+       AND h.number_key=part_number_key(reference.number))`);}
  // Numbers an admin added (#582): OEM, cross-reference and barcode. A small table read whole, like overrideItemMatch.
  if(parsed.compact.length>=3)hits.push(`SELECT ps.supplier_item_id FROM product_override_references r
     JOIN product_sources ps ON ps.product_id=r.product_id

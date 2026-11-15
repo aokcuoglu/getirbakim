@@ -97,6 +97,14 @@ test("hidden numbers leave their group, added ones join the brand's group once",
   assert.equal(referenceHistoryValue("name", "x"), null);
 });
 
+test("enrichment OEM numbers are compacted into one indexed search text", async () => {
+  const oemSearch = async (payload: unknown) => (await schema.pool.query<{ text: string }>("SELECT enrichment_oem_search($1::jsonb) AS text", [JSON.stringify(payload)])).rows[0].text;
+  assert.equal(await oemSearch({ oemNumbers: { VW: ["1K0 615 301 AA", null, "1K0-615.301 AB"], X: "bad" } }), "1k0615301aa 1k0615301ab");
+  assert.equal(await oemSearch({}), "");
+  assert.equal(await oemSearch({ oemNumbers: [] }), "");
+  assert.equal((await schema.pool.query("SELECT 1 FROM pg_indexes WHERE schemaname=$1 AND indexname='product_enrichments_oem_search_idx'", [schema.name])).rowCount, 1);
+});
+
 test("added numbers reach every supplier row of the product; the admin list shows the automatic ones", async () => {
   const febi = await productOf("febiBasbug");
   assert.deepEqual(await add(febi, "oem", "SKODA", "5Q0 615 301"), { ok: true });
@@ -151,6 +159,8 @@ test("enrichment imports, supplier syncs and matching refreshes leave the number
   await schema.pool.query("SELECT refresh_product_matches()");
   await schema.pool.query("SELECT product_enrichment_shared_sync()");
   assert.equal(await productOf("febiBasbug"), febi);
+  // The OEM search index (#609) follows the rewritten payload.
+  assert.ok((await found("1K0 615 301 AD")).some(id => id === ids.febiBasbug || id === ids.febiDinamik), "new enrichment OEM");
   assert.deepEqual(await references.getItemReferences(ids.febiDinamik), before);
   const loaded = await store.loadProductReferences(schema.pool, febi);
   // The rewritten payload is listed; the hidden number is still hidden; the supplier OEM is read-only.
@@ -219,6 +229,7 @@ test("a merge carries the numbers (the kept product's own row wins); undoing it 
 
 test("setup can run the file again", async () => {
   await schema.pool.query(await readFile("db/product-override-references.sql", "utf8"));
+  await schema.pool.query(await readFile("db/product-enrichment.sql", "utf8"));
   assert.equal((await schema.pool.query(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname='product_override_references_products_restored'
     AND tgrelid=to_regclass($1)`, [`${schema.name}.products`])).rows[0].n, 1);
 });
