@@ -54,10 +54,10 @@ type PageMetadataInput = {
 export function pageMetadata({ title, description, path, absoluteTitle, image, robots }: PageMetadataInput): Metadata {
   return {
     title: absoluteTitle ? { absolute: title } : title,
-    description,
+    ...(description !== undefined && { description }),
     alternates: { canonical: path },
     openGraph: { ...siteOpenGraph, url: path, images: [image ?? defaultSocialImage] },
-    robots,
+    ...(robots !== undefined && { robots }),
   };
 }
 

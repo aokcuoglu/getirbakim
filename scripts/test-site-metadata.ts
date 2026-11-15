@@ -53,6 +53,17 @@ test("the brand suffix comes from the title template, not from page titles", () 
   };
   walk("src/app");
   files.push("src/components/legal-page.tsx");
-  const offenders = files.filter(file => readFileSync(file, "utf8").includes("| Getirbakim") && !["src/app/layout.tsx", "src/app/global-error.tsx"].includes(file));
+  const offenders = files.filter(file => readFileSync(file, "utf8").includes("| Getirbakim") && !["src/app/layout.tsx", "src/app/global-error.tsx", "src/app/yonetim/layout.tsx"].includes(file));
   assert.deepEqual(offenders, []);
+});
+
+test("the workspace layout re-declares the title template so its pages get the brand suffix", () => {
+  assert.match(readFileSync("src/app/layout.tsx", "utf8"), /template:\s*"%s \| Getirbakim"/);
+  assert.match(readFileSync("src/app/yonetim/layout.tsx", "utf8"), /title:\s*\{\s*default:\s*"Yönetim",\s*template:\s*"%s \| Getirbakim"\s*\}/);
+});
+
+test("pageMetadata leaves description and robots out when not given", () => {
+  const meta = pageMetadata({ title: "T", path: "/x" });
+  assert.equal("description" in meta, false);
+  assert.equal("robots" in meta, false);
 });
