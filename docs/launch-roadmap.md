@@ -38,7 +38,7 @@ Kargo için startup şirketlerle anlaşma yapılacak. **Acil B2B parça ihtiyaç
 - [ ] Search Console hesabında doğrulama, Merchant Center ve ölçüm hesabı kurulmuş.
 - [ ] Reklam, ürün ve ödeme fiyatı/stoku aynı; reklam sadece satışa hazır ürünlerde.
 
-`SITE_URL` kanonik alan adını, `GOOGLE_SITE_VERIFICATION` Search Console meta doğrulama değerini alır. Sitemap sentetik demo ürünlerini dışarıda bırakır; tedarikçi hazırlık sayfaları noindex alır. Product JSON-LD ödeme/vergi/sevk tamamlanana kadar Offer ve puan yayınlamaz; gerçek ürün fotoğrafı ve doğrulanmış Offer eklenmeden zengin ürün sonucu veya Merchant Center uygunluğu iddia edilmez. Katalog filtre/arama sayfaları canonical ve noindex kurallarıyla yönetilir.
+`SITE_URL` kanonik alan adını, `GOOGLE_SITE_VERIFICATION` Search Console, `BING_SITE_VERIFICATION` Bing Webmaster, `YANDEX_SITE_VERIFICATION` Yandex Webmaster meta doğrulama değerini alır (boşsa etiket basılmaz). Sitemap sentetik demo ürünlerini dışarıda bırakır; tedarikçi hazırlık sayfaları noindex alır. Product JSON-LD ödeme/vergi/sevk tamamlanana kadar Offer ve puan yayınlamaz; gerçek ürün fotoğrafı ve doğrulanmış Offer eklenmeden zengin ürün sonucu veya Merchant Center uygunluğu iddia edilmez. Katalog filtre/arama sayfaları canonical ve noindex kurallarıyla yönetilir.
 
 ## Bütçe ve karar kuralı
 

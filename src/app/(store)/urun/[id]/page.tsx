@@ -49,7 +49,7 @@ const productEnrichment = cache((id: string, code: string, brand: string) => get
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params;
   const product = await getStorefrontProduct(id);
-  if (!product) return { title: "Ürün bulunamadı | Getirbakim", robots: { index: false } };
+  if (!product) return { title: "Ürün bulunamadı", robots: { index: false } };
   // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description.
   const [override, enrichment, uploads] = await Promise.all([getItemOverride(product.id), productEnrichment(product.id, product.code, product.brand), getItemImages(product.id)]);
   const description = productDescription(override, enrichment?.description, product.description);
@@ -60,7 +60,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
   return {
-    title: `${meta.title} | Getirbakim`,
+    title: meta.title,
     description: meta.description.slice(0, 180),
     alternates: { canonical: `/urun/${id}` },
     openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description.slice(0, 180), url: `/urun/${id}`,

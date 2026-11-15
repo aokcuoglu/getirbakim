@@ -1,4 +1,3 @@
-import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { Check, ChevronRight, Wrench, Layers, Images, ShoppingCart, CarFront } from "lucide-react";
@@ -7,13 +6,14 @@ import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { maintenanceKitOptions } from "@/modules/store/maintenance-kit.server";
 import { kitCountLabel, kitKindLabel, kitPackages } from "@/modules/store/maintenance-kit";
 import { GarageButton } from "@/components/garage/garage-button";
+import { pageMetadata } from "@/lib/site";
 import { KitBuilder } from "./kit-builder";
 
-export const metadata: Metadata = {
-  title: "Bakım Robotu | Getirbakim",
+export const metadata = pageMetadata({
+  title: "Bakım Robotu",
   description: "Garajındaki araç için 3'lü, 4'lü veya 5'li filtre ve motor yağı bakım setini markalarını seçerek kur; set görselini ve toplam fiyatı anında gör, tek tıkla sepete ekle.",
-  alternates: { canonical: "/bakim-robotu" },
-};
+  path: "/bakim-robotu",
+});
 
 const steps = [
   { icon: CarFront, title: "Aracını seç", text: "Motor tipine uyan ürünler listelenir." },

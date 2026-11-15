@@ -16,7 +16,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export const metadata = { title: "Stok bildirimleri | Getirbakim" };
+export const metadata = { title: "Stok bildirimleri" };
 const tabs: { key: RestockTab; label: string }[] = [{ key: "pending", label: "Bekleyen" }, { key: "notified", label: "Bildirilen" }];
 
 // "Gelince haber ver" requests (#475). The store sends no email yet: the admin tells the shopper and marks it here.

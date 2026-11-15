@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { pageMetadata } from "@/lib/site";
 import { legalDocument, legalLinks, legalTitle, type LegalNode } from "@/content/legal";
 
 // Render only semantic text and links from the reviewed local content.
@@ -36,11 +37,7 @@ export const legalHeadingClass = "m-0 mb-3.5 text-[19px] leading-[1.5] font-semi
 export function legalMetadata(slug: string): Metadata {
   const page = legalDocument(slug);
   if (!page) notFound();
-  return {
-    title: `${legalTitle(slug)} | Getirbakim`,
-    description: page.description,
-    alternates: { canonical: `/${slug}` },
-  };
+  return pageMetadata({ title: legalTitle(slug) ?? page.title, description: page.description, path: `/${slug}` });
 }
 
 export function LegalPage({ slug }: { slug: string }) {

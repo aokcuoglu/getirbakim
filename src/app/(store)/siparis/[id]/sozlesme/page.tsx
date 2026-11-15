@@ -5,7 +5,7 @@ import { LegalBlocks, legalBodyClass, legalCardClass, legalHeadingClass } from "
 import { currentOrderAgreement } from "@/modules/store/order-read";
 import { cn } from "@/lib/utils";
 
-export const metadata: Metadata = { title: "Sipariş sözleşmeleri | Getirbakim", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "Sipariş sözleşmeleri", robots: { index: false, follow: false } };
 
 const time = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" });
 

@@ -60,6 +60,7 @@
     "db:commerce:migrate": "node --env-file=.env.local --import tsx scripts/migrate-commerce.ts",
     "verify:commerce": "node --env-file=.env.local --conditions=react-server --import tsx scripts/verify-commerce.ts",
     "verify:commerce:http": "node --env-file=.env.local --import tsx scripts/verify-commerce-http.ts",
+    "test:site-metadata": "node --import tsx --test scripts/test-site-metadata.ts",
     "test:brand": "node --conditions=react-server --import tsx --test scripts/test-brand-launch.ts",
     "verify:brand": "node --env-file=.env.local --import tsx scripts/verify-brand-launch.ts",
     "test:review": "node --import tsx --test scripts/test-review.ts",
