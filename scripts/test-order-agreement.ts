@@ -1,0 +1,147 @@
+import assert from "node:assert/strict";
+import { randomBytes, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { test } from "node:test";
+import { isolatedSchema } from "./isolated-schema";
+import { checkoutConsentText, checkoutInput } from "../src/modules/store/checkout-schema";
+import { buildOrderAgreement, defaultSources, legalTextVersion, type AgreementSources } from "../src/modules/store/order-agreement";
+import { clientEvidence } from "../src/lib/client-address";
+
+// Checkout consent evidence and the order-specific pre-contract copy (#604).
+const form = { requestKey: randomUUID(), quote: "a".repeat(64), name: "Ayşe Yılmaz", email: "ayse@example.invalid", phone: "0555 123 45 67",
+  address: "Test Mahallesi 1. Sokak No 2, Kadıköy İstanbul", note: "" };
+
+test("no order input without the pre-contract consent", () => {
+  assert.equal(checkoutInput.safeParse(form).success, false);
+  assert.equal(checkoutInput.safeParse({ ...form, consent: "off" }).success, false);
+  assert.equal(checkoutInput.safeParse({ ...form, consent: "on" }).success, true);
+});
+
+test("the stored consent text is the checkbox label shown at checkout", async () => {
+  const page = await readFile("src/app/(store)/siparis-olustur/page.tsx", "utf8");
+  const label = page.match(/<FieldLabel htmlFor="checkout-consent"[^>]*>([\s\S]*?)<\/FieldLabel>/)?.[1];
+  assert.ok(label, "consent label not found");
+  assert.equal(label.replace(/<\/?Link[^>]*>/g, ""), checkoutConsentText);
+});
+
+const order = { number: "42", createdAt: new Date("2026-11-15T09:30:00Z"), name: "Ayşe Yılmaz", email: "ayse@example.invalid", phone: "0555 123 45 67",
+  address: "Test Mahallesi 1. Sokak No 2, Kadıköy İstanbul", note: "Kapıya bırakın", discountPercent: 10,
+  subtotalKurus: 27000, shippingKurus: 15000, totalKurus: 42000 };
+const lines = [{ name: "Yağ filtresi", brand: "MANN", code: "W 712/95", quantity: 2, unitPriceKurus: 9000 },
+  { name: "Hava filtresi", brand: "", code: "C 2029", quantity: 1, unitPriceKurus: 9000 }];
+const text = (value: unknown) => JSON.stringify(value);
+
+test("the agreement fills both documents with the buyer, lines, totals and seller", () => {
+  const agreement = buildOrderAgreement(order, lines);
+  assert.equal(agreement.schema, 1);
+  assert.deepEqual(agreement.documents.map(d => d.slug), ["on-bilgilendirme-formu", "mesafeli-satis-sozlesmesi"]);
+  for (const document of agreement.documents) {
+    const body = text(document);
+    assert.equal(document.sections[0].title, "Satıcı Bilgileri");
+    assert.match(body, /ERGUL ENERJI SAN TIC LTD STI/);
+    for (const value of [order.name, order.email, order.phone, order.address, order.note, "#42", "%10", "15.11.2026 12:30:00"]) assert.ok(body.includes(value), value);
+    assert.ok(body.includes("2 × Yağ filtresi (MANN W 712/95) — birim fiyat ₺90,00 — tutar ₺180,00"));
+    assert.ok(body.includes("1 × Hava filtresi (C 2029) — birim fiyat ₺90,00 — tutar ₺90,00"));
+    for (const value of ["₺270,00", "₺150,00", "₺420,00", "TAMI"]) assert.ok(body.includes(value), value);
+    const titles = document.sections.map(s => s.title);
+    assert.ok(!titles.includes("Kapsam ve Bilgilendirme") && !titles.includes("Siparişe Özgü Bilgiler"));
+    assert.ok(titles.includes("Cayma Hakkı ve Bildirim"));
+  }
+  const free = text(buildOrderAgreement({ ...order, shippingKurus: 0, discountPercent: 0 }, lines));
+  assert.match(free, /Ücretsiz/); assert.doesNotMatch(free, /Servis indirimi/);
+});
+
+function editedSources(): AgreementSources {
+  const sources = structuredClone(defaultSources());
+  const section = sources["mesafeli-satis-sozlesmesi"].sections.at(-1)!;
+  section.blocks = [...section.blocks, "x"];
+  return sources;
+}
+
+test("the text version follows the legal pages", () => {
+  assert.equal(legalTextVersion(), legalTextVersion(defaultSources()));
+  assert.match(legalTextVersion(), /^\d{4}-\d{2}-\d{2}\.[0-9a-f]{12}$/);
+  assert.notEqual(legalTextVersion(editedSources()), legalTextVersion());
+});
+
+test("client evidence prefers the CDN viewer address and drops invalid values", () => {
+  const evidence = (headers: Record<string, string>) => clientEvidence(new Headers(headers));
+  assert.deepEqual(evidence({ "cloudfront-viewer-address": "203.0.113.7:51234", "x-real-ip": "10.0.0.1", "x-forwarded-for": "1.1.1.1, 10.0.0.2", "user-agent": "Test UA" }),
+    { ip: "203.0.113.7", forwardedFor: "1.1.1.1, 10.0.0.2", userAgent: "Test UA" });
+  assert.equal(evidence({ "cloudfront-viewer-address": "[2001:db8::1]:443" }).ip, "2001:db8::1");
+  assert.equal(evidence({ "cloudfront-viewer-address": "2001:db8::1:443" }).ip, "2001:db8::1");
+  assert.equal(evidence({ "cloudfront-viewer-address": "garbage", "x-real-ip": "198.51.100.4" }).ip, "198.51.100.4");
+  assert.equal(evidence({ "x-forwarded-for": "spoofed, 192.0.2.9" }).ip, "192.0.2.9");
+  assert.equal(evidence({ "x-real-ip": "not-an-ip", "x-forwarded-for": "also-bad" }).ip, null);
+  assert.deepEqual(evidence({}), { ip: null, forwardedFor: null, userAgent: null });
+  assert.equal(evidence({ "user-agent": "u".repeat(900) }).userAgent?.length, 500);
+  assert.equal(evidence({ "x-forwarded-for": "1.1.1.1,".repeat(100) }).forwardedFor?.length, 500);
+});
+
+test("placing an order stores the consent and an immutable order-specific copy", async () => {
+  const env: Record<string, string> = {
+    TAMI_CHECKOUT_ENABLED: "true", SITE_URL: "https://shop.example.invalid", TAMI_MERCHANT_NUMBER: "test-merchant", TAMI_TERMINAL_NUMBER: "test-terminal",
+    TAMI_SECRET_KEY: "synthetic-test-secret", TAMI_JWK_KID: "test-kid", TAMI_JWK_K: Buffer.from("synthetic-test-hmac-key").toString("base64url"),
+    TAMI_PAYMENT_API_BASE_URL: "https://sandbox-paymentapi.tami.com.tr", TAMI_PORTAL_BASE_URL: "https://sandbox-portal.tami.com.tr",
+  };
+  const originalEnv = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
+  Object.assign(process.env, env);
+  const schema = await isolatedSchema("order_agreement_test");
+  const { db } = await import("../src/lib/db");
+  try {
+    const { submitOrder, cartQuote, shippingRule } = await import("../src/modules/store/orders");
+    const { cartFor, setCartQuantity } = await import("../src/modules/store/cart");
+    await schema.pool.query("UPDATE commerce_settings SET shipping_fee_kurus=15000,free_shipping_threshold_kurus=150000");
+    const product = (await schema.pool.query<{ id: string }>(`INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock)
+      VALUES('demo','AGR-1','Agreement part','TEST',10000,10) RETURNING id::text`)).rows[0].id;
+    const owner = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
+    await schema.pool.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [owner.id]);
+    assert.equal(await setCartQuantity(owner, product, 2), true);
+    const input = async () => ({ ...form, requestKey: randomUUID(), quote: cartQuote(await cartFor(owner), 0, await shippingRule()) });
+    const evidence = { ip: "203.0.113.7", forwardedFor: "203.0.113.7, 10.0.0.2", userAgent: "Mozilla/5.0 Test" };
+    const agreementRow = async (id: string) => (await schema.pool.query("SELECT * FROM commerce_order_agreements WHERE order_id=$1", [id])).rows;
+
+    const first = await input();
+    const placed = await submitOrder(owner, first, null, evidence);
+    assert.ok(placed.id, String(placed.error));
+    const [row] = await agreementRow(placed.id);
+    assert.equal(row.ip, evidence.ip); assert.equal(row.forwarded_for, evidence.forwardedFor); assert.equal(row.user_agent, evidence.userAgent);
+    assert.equal(row.consent_text, checkoutConsentText); assert.equal(row.legal_version, legalTextVersion());
+    const orderRow = (await schema.pool.query("SELECT * FROM commerce_orders WHERE id=$1", [placed.id])).rows[0];
+    assert.equal(row.accepted_at.getTime(), orderRow.created_at.getTime());
+    assert.deepEqual(row.document, buildOrderAgreement({ number: orderRow.number, createdAt: orderRow.created_at, name: form.name, email: form.email,
+      phone: form.phone, address: form.address, note: form.note, discountPercent: 0, subtotalKurus: 20000, shippingKurus: 15000, totalKurus: 35000 },
+    [{ name: "Agreement part", brand: "TEST", code: "AGR-1", quantity: 2, unitPriceKurus: 10000 }]));
+
+    // A retried submit returns the same order and writes nothing new.
+    assert.deepEqual(await submitOrder(owner, first, null, { ip: "198.51.100.1", forwardedFor: null, userAgent: "other" }), { id: placed.id });
+    assert.equal((await agreementRow(placed.id)).length, 1);
+    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM commerce_order_agreements")).rows[0].n, 1);
+
+    // The copy cannot be changed, and later legal page edits do not touch it.
+    await assert.rejects(schema.pool.query("UPDATE commerce_order_agreements SET legal_version='x' WHERE order_id=$1", [placed.id]), /immutable/);
+    assert.notEqual(legalTextVersion(editedSources()), row.legal_version);
+    const [after] = await agreementRow(placed.id);
+    assert.equal(after.legal_version, row.legal_version); assert.deepEqual(after.document, row.document);
+
+    // Callers without request evidence (scripts) still get an order and a record with empty evidence.
+    const bare = await submitOrder(owner, await input());
+    assert.ok(bare.id, String(bare.error));
+    const [bareRow] = await agreementRow(bare.id);
+    assert.equal(bareRow.ip, null); assert.equal(bareRow.forwarded_for, null); assert.equal(bareRow.user_agent, null);
+    assert.equal(bareRow.consent_text, checkoutConsentText);
+
+    // Re-running the schema keeps rows; deleting an order removes its record.
+    await schema.pool.query(await readFile("db/commerce.sql", "utf8"));
+    assert.equal((await agreementRow(placed.id)).length, 1);
+    await schema.pool.query("DELETE FROM commerce_order_items WHERE order_id=$1", [bare.id]);
+    await schema.pool.query("DELETE FROM commerce_orders WHERE id=$1", [bare.id]);
+    assert.equal((await agreementRow(bare.id)).length, 0);
+  } finally {
+    await db.end();
+    await schema.drop();
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
+  }
+});

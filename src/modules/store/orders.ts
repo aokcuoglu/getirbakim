@@ -10,6 +10,9 @@ import { paymentsEnabled,PAYMENT_WINDOW_MINUTES } from '@/modules/payments/check
 import { parseGarageVehicle,type GarageVehicle } from './garage';
 import { productFitmentLevel } from './fitment-level.server';
 import type { FitmentLevel } from './fitment-level';
+import { buildOrderAgreement,legalTextVersion,type AgreementLine } from './order-agreement';
+import { checkoutConsentText } from './checkout-schema';
+import type { ClientEvidence } from '@/lib/client-address';
 
 export type CommerceOrder = {
  id:string; number:string; owner_kind:'account'|'guest'; owner_id:string;
@@ -40,8 +43,11 @@ export function orderTotals(items:CartItem[],discount:number,shipping:ShippingRu
  return {subtotal,shipping:fee,total:subtotal+fee,freeShippingRemaining:!free && shipping.threshold>0 ? shipping.threshold-subtotal : 0};
 }
 export type CheckoutInput = {requestKey:string;quote:string;name:string;email:string;phone:string;address:string;note:string};
-/** `garage` is used for cart lines added before a vehicle was recorded on them. */
-export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:GarageVehicle|null=null):Promise<{id:string;error?:undefined}|{error:string;id?:undefined}> {
+/**
+ * `garage` is used for cart lines added before a vehicle was recorded on them. `evidence` is who accepted the
+ * pre-contract documents; the consent and the order-specific copy of those documents are stored with the order.
+ */
+export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:GarageVehicle|null=null,evidence:ClientEvidence={ip:null,forwardedFor:null,userAgent:null}):Promise<{id:string;error?:undefined}|{error:string;id?:undefined}> {
  // Completed retries must not require another supplier call.
  const completed=(await db.query<{id:string}>('SELECT id FROM commerce_orders WHERE owner_kind=$1 AND owner_id=$2 AND request_key=$3',[owner.kind,owner.id,input.requestKey])).rows[0];
  if(completed) return {id:completed.id};
@@ -72,11 +78,14 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   const shipping=await shippingRule(client);
   if(cartQuote(items,discount,shipping)!==input.quote) { await client.query('ROLLBACK'); return {error:'price'}; }
   const totals=orderTotals(items,discount,shipping);
-  const order=(await client.query<{id:string}>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,note,total_kurus,discount_percent,
+  const order=(await client.query<{id:string;number:string;created_at:Date}>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,note,total_kurus,discount_percent,
    subtotal_kurus,shipping_kurus,status,payment_status,payment_due_at)
-   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment','awaiting',now()+make_interval(mins=>$13)) RETURNING id`,
+   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment','awaiting',now()+make_interval(mins=>$13)) RETURNING id,number,created_at`,
    [owner.kind,owner.id,input.requestKey,input.name,input.email,input.phone,input.address,input.note,totals.total,discount,totals.subtotal,totals.shipping,PAYMENT_WINDOW_MINUTES])).rows[0];
+  const lines:AgreementLine[]=[];
   for(const p of items) {
+   const unitPrice=servicePrice(p.price_kurus!,discount);
+   lines.push({name:p.name,brand:p.brand,code:p.code,quantity:p.quantity,unitPriceKurus:unitPrice});
    const vehicle=parseGarageVehicle(p.vehicle) ?? garage;
    const fitment=await productFitmentLevel(p,vehicle);
    // Only in-house stock is reserved; the line records what was taken so cancel/expiry return exactly that.
@@ -85,8 +94,12 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
     await client.query('ROLLBACK'); return {error:'stock'};
    }
    await client.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level,reserved_quantity)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,servicePrice(p.price_kurus!,discount),JSON.stringify({...p.pricing_snapshot,discount_percent:discount}),vehicle ? JSON.stringify(vehicle) : null,fitment,reserved]);
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,unitPrice,JSON.stringify({...p.pricing_snapshot,discount_percent:discount}),vehicle ? JSON.stringify(vehicle) : null,fitment,reserved]);
   }
+  const document=buildOrderAgreement({number:order.number,createdAt:order.created_at,name:input.name,email:input.email,phone:input.phone,address:input.address,note:input.note,
+   discountPercent:discount,subtotalKurus:totals.subtotal,shippingKurus:totals.shipping,totalKurus:totals.total},lines);
+  await client.query(`INSERT INTO commerce_order_agreements(order_id,ip,forwarded_for,user_agent,consent_text,legal_version,document) VALUES($1,$2,$3,$4,$5,$6,$7)`,
+   [order.id,evidence.ip,evidence.forwardedFor,evidence.userAgent,checkoutConsentText,legalTextVersion(),JSON.stringify(document)]);
   // The cart stays until TAMI confirms payment, so a declined card can be retried.
   await client.query('COMMIT'); return {id:order.id};
  } catch(error) { await client.query('ROLLBACK'); throw error; }
