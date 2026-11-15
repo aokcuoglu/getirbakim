@@ -426,6 +426,7 @@ test("home category rails follow the admin's category like the category page (#6
   for (const key of ["catDonor", "catUpload"]) await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',7001)", [ids[key]]);
   const donor = await productOf("catDonor"), uploaded = await productOf("catUpload");
   // getHomeProducts(category) resolves the subtree through the request-scoped category list; the pick takes the ids.
+  const categories = [7001, 7002].map(id => ({ id, parentId: null, name: String(id), slug: id === 7001 ? "fren" : "suspansiyon", imagePath: null, position: 0, path: [id] }));
   const rail = async (category: number) => { await epoch.invalidateListings(); return home.homeProductIds([category]); };
   const page = async (category: number) => { await epoch.invalidateListings(); return catalog.categoryProductIds([], [category]); };
 
@@ -436,6 +437,9 @@ test("home category rails follow the admin's category like the category page (#6
   assert.ok(!(await rail(7001)).includes(ids.catDonor), "(b) off the old rail");
   assert.ok((await rail(7002)).includes(ids.catDonor), "(b) on the new rail");
   assert.ok(!(await page(7001)).includes(ids.catDonor) && (await page(7002)).includes(ids.catDonor), "(b) the category page agrees");
+  const label = async (key: string) => (await home.homeProductCategories([{ id: ids[key] }], categories)).get(ids[key])?.slug;
+  assert.equal(await label("catUpload"), "fren", "(b) label: donor category before the move");
+  assert.equal(await label("catDonor"), "suspansiyon", "(b) label: the admin's category");
   // (c) The upload arm follows the same rule.
   assert.deepEqual(await upload(uploaded, await solid(153), "sachs.jpg"), { ok: true });
   assert.ok((await rail(7001)).includes(ids.catUpload), "(c) upload, donor category");

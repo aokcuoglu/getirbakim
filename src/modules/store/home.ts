@@ -2,6 +2,7 @@ import "server-only";
 import {boundedQuery,db} from "@/lib/db";
 import {catalogSql, categoryMovedAwaySql, withBestOffers, type CatalogProduct} from "./catalog";
 import {getStoreCategories} from "./categories";
+import type {StoreCategory} from "./category-tree";
 import {storefrontCompanies} from "@/modules/suppliers/storefront-sources";
 import {staleCache} from "@/lib/stale-cache";
 import {listingEpoch} from "./listing-epoch";
@@ -60,9 +61,21 @@ export async function getHomeProducts(categoryId?:number):Promise<CatalogProduct
 }
 
 export async function getHomeProductCategories(products:{id:string}[]) {
-  const categories=await getStoreCategories();
-  const rows=(await db.query<{supplier_item_id:string;category_id:number}>("SELECT e.supplier_item_id,pc.category_id FROM storefront_enrichments e JOIN product_source_categories pc ON pc.supplier_item_id=e.donor_item_id WHERE pc.source='trodo' AND e.supplier_item_id=ANY($1::uuid[])",[products.map(product=>product.id)])).rows;
+  return homeProductCategories(products,await getStoreCategories());
+}
+/** The deepest category of each card: the admin's category when set (#667), else the enrichment donor's. */
+export async function homeProductCategories(products:{id:string}[],categories:StoreCategory[]) {
+  const ids=products.map(product=>product.id);
+  const rows=(await db.query<{supplier_item_id:string;category_id:number;admin:boolean}>(`SELECT e.supplier_item_id,pc.category_id,false AS admin FROM storefront_enrichments e
+    JOIN product_source_categories pc ON pc.supplier_item_id=e.donor_item_id WHERE pc.source='trodo' AND e.supplier_item_id=ANY($1::uuid[])
+    UNION ALL SELECT ps.supplier_item_id,o.category_id,true FROM product_sources ps JOIN product_overrides o ON o.product_id=ps.product_id
+    WHERE o.category_id IS NOT NULL AND ps.supplier_item_id=ANY($1::uuid[])`,[ids])).rows;
+  const adminRows=new Set(rows.filter(row=>row.admin).map(row=>row.supplier_item_id));
   const labels=new Map<string,{name:string;slug:string;depth:number}>();
-  for(const row of rows){const category=categories.find(category=>category.id===row.category_id);if(category&&category.path.length>(labels.get(row.supplier_item_id)?.depth??0))labels.set(row.supplier_item_id,{name:category.name,slug:category.slug,depth:category.path.length});}
+  for(const row of rows){
+    if(adminRows.has(row.supplier_item_id)&&!row.admin)continue;
+    const category=categories.find(category=>category.id===row.category_id);
+    if(category&&category.path.length>(labels.get(row.supplier_item_id)?.depth??0))labels.set(row.supplier_item_id,{name:category.name,slug:category.slug,depth:category.path.length});
+  }
   return labels;
 }
