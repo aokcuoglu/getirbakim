@@ -4,6 +4,7 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
 import { staleCache } from "@/lib/stale-cache";
+import { listingEpoch } from "./listing-epoch";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
@@ -165,6 +166,9 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
 }
 // Fitments change only when enrichments are imported; make and vehicle-type lists are shared per process.
 const cachedFitted=staleCache<string[]>(10*60*1000);
+// Admin edits move products between categories (#575): an edit bumps the listing epoch and these reload (#585).
+const listings={epoch:listingEpoch};
+const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
 /**
  * Products fitting one make, precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455). Matching a
  * make's fitments to the payloads per read took 20-57 s on RDS for the large makes; the table answers in ms and is
@@ -179,7 +183,7 @@ export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fi
  * to ids first, like makes; as an OR inside the catalog WHERE it defeated the indexes and every
  * listing query (count, page, brands, facets) scanned all supplier items: 6-8 s each in production.
  */
-export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedFitted(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
+export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedCategoryIds(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
  (await boundedQuery<{id:string}>(`SELECT id::text FROM (SELECT id FROM store_products WHERE category=ANY($1::text[])
   UNION SELECT id FROM supplier_items WHERE product_data->>'category'<>'' AND product_data->>'category'=ANY($1::text[])
   UNION SELECT e.supplier_item_id FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
@@ -378,10 +382,11 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
 }
 // Listings without a search scan the whole 320k-row catalog for counts, facets and the date order
 // (~0.5-1.5 s each on the VPS). Those change only with supplier syncs, so they are served from a
-// 10-minute stale-while-revalidate cache; prices and stock are still read live for the listed ids.
+// 10-minute stale-while-revalidate cache; prices and stock are still read live for the listed ids. Admin edits
+// (name, category, hidden, brand, part number, references, merge/split) bump the listing epoch instead (#585).
 const aggregateTtl=10*60*1000;
-const cachedCounts=staleCache<number>(aggregateTtl),cachedPageIds=staleCache<string[]>(aggregateTtl);
-const cachedFacets=staleCache<{brands:string[];attributes:CatalogFacet[]}>(aggregateTtl),cachedBrands=staleCache<string[]>(aggregateTtl);
+const cachedCounts=staleCache<number>(aggregateTtl,500,listings),cachedPageIds=staleCache<string[]>(aggregateTtl,500,listings);
+const cachedFacets=staleCache<{brands:string[];attributes:CatalogFacet[]}>(aggregateTtl,500,listings),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
 /** Cache key of everything that narrows the listing except search, which goes uncached. */
 function filterKey(query:CatalogQuery,context:CatalogContext){
  return JSON.stringify([query.category,query.make,query.brand,query.brands,query.attributes,query.availability,query.fits,query.oil,query.fits||query.oil?context.vehicleTypeId:null]);
@@ -420,11 +425,11 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
 }
 // A search with no other filter is the common case. Broad ones ("fren": ~70k matches) spend ~0.5 s just
 // reading the matched rows, and their answer changes only with supplier syncs — like the listings above,
-// it is served stale-while-revalidate for 10 minutes. Prices and stock are still read live for the listed
+// it is served stale-while-revalidate for 10 minutes (admin edits reload it at once through the listing epoch, #585). Prices and stock are still read live for the listed
 // ids. The first pages are kept (deeper pages are recomputed); facets need every match, so they are kept too.
 // 30 cards keep a listing page near 0.6 MB of HTML (60 made it 1.15 MB); 20 cached pages still cover 600 results.
 const catalogPageSize=30;
-const cachedPages=20,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300);
+const cachedPages=20,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300,listings);
 type PlainSearch={ids:string[];total:number;brands:string[];attributes:CatalogFacet[];correctedQuery?:string;vehicle?:VehicleSearchScope;tooShort?:boolean};
 const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`,async()=>{
  const search=await catalogSearch(raw,mode),summary=await summarizeSearch(search);

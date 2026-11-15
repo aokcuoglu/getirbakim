@@ -133,7 +133,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
         </Field>
       </FieldGroup>
     </fieldset>
-    <p className="text-muted-foreground">Liste sayımları ve kategori sayfaları en geç 10 dakika içinde güncellenir.</p>
+    <p className="text-muted-foreground">Liste, kategori ve arama sonuçları birkaç saniye içinde güncellenir.</p>
     {showResult && result.message && <Alert variant={result.status === "error" ? "destructive" : "success"} role={result.status === "error" ? "alert" : "status"}>
       {result.status === "error" ? <CircleAlert aria-hidden="true"/> : <CircleCheck aria-hidden="true"/>}<AlertDescription>{result.message}</AlertDescription>
     </Alert>}

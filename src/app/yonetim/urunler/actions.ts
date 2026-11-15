@@ -6,8 +6,10 @@ import { db } from "@/lib/db";
 import { forgetSameProducts } from "@/modules/admin/product-matching";
 import { productCardFields, productOverrideIdSchema, productOverrideValuesSchema, productPriceValuesSchema, priceText,
   type ProductCardValues, type ProductOverrideResult, type ProductPriceResult, type ProductPriceValues } from "@/modules/admin/product-override-schema";
+import type { ProductOverrideField } from "@/modules/admin/product-override-fields";
 import { belowCostSources, persistProductOverride } from "@/modules/admin/product-override-store";
 import { requireAdmin } from "@/modules/auth/session";
+import { invalidateListings } from "@/modules/store/listing-epoch";
 
 const input = z.object({ item_id: z.uuid(), product_id: z.uuid() });
 
@@ -34,6 +36,8 @@ export async function splitSource(form: FormData) {
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  // The store lists the row on its own now: cached listings and searches reload (#585).
+  if (created) await invalidateListings();
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
@@ -47,6 +51,8 @@ export async function undoSplitSource(form: FormData) {
   if (!data.success) redirect("/yonetim/urunler?error=input");
   const target = (await db.query<{ id: string | null }>(`SELECT product_reset_item(supplier_item_id,$3) AS id FROM product_sources
     WHERE supplier_item_id=$1 AND product_id=$2 AND method='manual'`, [data.data.item_id, data.data.product_id, admin.id])).rows[0]?.id;
+  // The store regroups the row: cached listings and searches reload (#585).
+  if (target) await invalidateListings();
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
@@ -98,6 +104,8 @@ export async function mergeProducts(form: FormData) {
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  // The merged products list as one, with the carried edits: cached listings and searches reload (#585).
+  if (target) await invalidateListings();
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
@@ -171,10 +179,13 @@ const overrideFailures = {
   "sale-expired": "Kampanya bitişi geçmişte kalıyor. Bitişi ileri alın ya da kampanyayı kaldırın.",
 } as const;
 
+const listingFields = new Set<ProductOverrideField>(["name", "description", "category_id", "hidden", "brand", "part_number"]);
+
 /**
  * Store card edits (#575): "save" stores every field of the form, "reset" returns one field to its automatic value.
  * Both carry the version the form was opened with, so a stale form cannot overwrite a newer save. Supplier syncs and
- * enrichment never write these values; the store reads them at once (lists within 10 minutes).
+ * enrichment never write these values; the store reads them at once, cached listings and searches through the listing
+ * epoch (#585).
  */
 export async function saveProductOverride(_previous: ProductOverrideResult, form: FormData): Promise<ProductOverrideResult> {
   const admin = await requireAdmin();
@@ -204,6 +215,8 @@ export async function saveProductOverride(_previous: ProductOverrideResult, form
   if (!result.ok) return { status: "error", message: overrideFailures[result.reason] };
   const saved = { values: result.values, version: result.version, reset };
   if (!result.changed.length) return { status: "success", message: "Değişiklik yok; kayıtlı değerler aynı.", ...saved };
+  // Fields a listing, a category page or a search shows; SEO text only reaches the product page (#585).
+  if (result.changed.some(field => listingFields.has(field))) await invalidateListings();
   // The store's product page, listings and search, and this admin page: every page may show the product.
   revalidatePath("/", "layout");
   return { status: "success", message: reset ? "Alan otomatik değere döndü." : "Mağaza bilgileri kaydedildi.", ...saved };
