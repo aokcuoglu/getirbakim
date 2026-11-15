@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { kitContentLine, kitCountLabel, kitImageHref, kitKindLabel, kitName, kitPackages, kitSlot, kitSlots, matchingPackage, orderSlotKeys, type KitSlotKey } from "@/modules/store/maintenance-kit";
 import type { KitCandidate, KitSlotOptions } from "@/modules/store/maintenance-kit.server";
 import { addKitToCart, type KitCartResult } from "./actions";
+import { cartCount } from "@/modules/store/cart-count";
 
 type Choice = { brand: string; productId: string; quantity: number };
 const money = (kurus: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(kurus / 100);
@@ -50,7 +51,9 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
     if (first) choose(slot.key, { brand, productId: first.id, quantity: first.suggestedQuantity });
   };
   const submit = () => startTransition(async () => {
-    setResult(await addKitToCart(pieces.map(piece => ({ productId: piece.candidate.offerId, quantity: piece.quantity, name: piece.candidate.code }))));
+    const added = await addKitToCart(pieces.map(piece => ({ productId: piece.candidate.offerId, quantity: piece.quantity, name: piece.candidate.code })));
+    if (added.cartCount !== undefined) cartCount.set(added.cartCount);
+    setResult(added);
   });
 
   return <div className="grid grid-cols-[minmax(0,1fr)_420px] items-start gap-8 max-[1000px]:grid-cols-1 max-[1000px]:gap-6">

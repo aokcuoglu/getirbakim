@@ -12,6 +12,7 @@ import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui
 import { cn } from "@/lib/utils";
 import { addToCart as addToCartEvent, catalogItem } from "@/modules/analytics/events";
 import { track } from "@/modules/analytics/track";
+import { cartCount } from "@/modules/store/cart-count";
 
 const initial: PurchaseState = { error:null, added:null, suggestions:[] };
 // The dialog's follow-up request for related parts gives up after this.
@@ -56,6 +57,10 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
   const suggestions=state.suggestionsPending ? (loaded?.for===state ? loaded.suggestions : null) : state.suggestions;
   // Announced only when the suggestions load after the dialog opened; immediate ones are read with the dialog.
   const status=suggestions===null ? "Öneriler yükleniyor" : state.suggestionsPending&&suggestions.length ? `${suggestions.length} öneri yüklendi` : "";
+  useEffect(()=>{
+    // The action skips layout revalidation (#707); the header badge takes the new total from here.
+    if(state.cartCount!==undefined) cartCount.set(state.cartCount);
+  },[state]);
   const product=variant==="product";
   return <>
     <form action={action} className={cn("mb-4 flex gap-2",product&&"mb-5 items-center gap-2.5",className)}>
