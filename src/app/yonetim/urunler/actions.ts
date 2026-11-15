@@ -69,7 +69,7 @@ export async function mergeProducts(form: FormData) {
   if (!data.success) redirect("/yonetim/urunler?error=input");
   const { product_id, other_id } = data.data;
   const client = await db.connect();
-  let target: string | null = null, carriedHidden = false, imagesFlag = "", refsFlag = "";
+  let target: string | null = null, carriedHidden = false, imagesFlag = "", refsFlag = "", specsFlag = "";
   try {
     await client.query("BEGIN");
     const rows = (await client.query<{ id: string; basbug: boolean }>("SELECT id,'basbug'=ANY(suppliers) AS basbug FROM products WHERE id=ANY($1::uuid[])",
@@ -89,6 +89,10 @@ export async function mergeProducts(form: FormData) {
         const refs = (await client.query<{ carried: { added: number; hidden: number } }>("SELECT product_override_references_carry($1,$2,$3) AS carried",
           [drop, target, admin.id])).rows[0].carried;
         if (refs.added + refs.hidden > 0) refsFlag = `&refs=${refs.added + refs.hidden}`;
+        // Hand-entered technical specifications (#603); the kept product's own row wins for the same key.
+        const specs = (await client.query<{ carried: { set: number; hidden: number } }>("SELECT product_override_specs_carry($1,$2,$3) AS carried",
+          [drop, target, admin.id])).rows[0].carried;
+        if (specs.set + specs.hidden > 0) specsFlag = `&specs=${specs.set + specs.hidden}`;
       }
       // Recorded like a reviewed candidate so the pair is not suggested again.
       if (target) await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
@@ -101,7 +105,7 @@ export async function mergeProducts(form: FormData) {
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
-  redirect(target ? `/yonetim/urunler/${target}?merged=${carriedHidden ? "hidden" : "1"}${imagesFlag}${refsFlag}` : `/yonetim/urunler/${product_id}?error=merge`);
+  redirect(target ? `/yonetim/urunler/${target}?merged=${carriedHidden ? "hidden" : "1"}${imagesFlag}${refsFlag}${specsFlag}` : `/yonetim/urunler/${product_id}?error=merge`);
 }
 
 const pair = z.object({ product_id: z.uuid(), other_id: z.uuid() }).refine(data => data.product_id !== data.other_id);

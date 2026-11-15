@@ -22,9 +22,10 @@ export function withMatchingFlag(back: string, flag: string): string {
   params.delete("refreshed");
   params.delete("error");
   params.delete("carried_hidden");
-  // Carry counts of an earlier merge (#581, #582) do not belong to the next notice.
+  // Carry counts of an earlier merge (#581, #582, #603) do not belong to the next notice.
   params.delete("images");
   params.delete("refs");
+  params.delete("specs");
   for (const [key, value] of new URLSearchParams(flag)) params.set(key, value);
   return `${path}?${params}`;
 }
