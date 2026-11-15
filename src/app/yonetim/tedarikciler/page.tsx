@@ -229,14 +229,15 @@ export default async function Suppliers() {
       <CardContent>
         {history.length ? <Table controls={false}>
           <caption className="sr-only">Son 24 saatteki tedarikçi çekimleri</caption>
-          <TableHeader><TableRow><TableHead>Tedarikçi</TableHead><TableHead className="text-right">Deneme</TableHead><TableHead className="text-right">Başarılı</TableHead>
-            <TableHead className="text-right">Başarısız</TableHead><TableHead className="text-right">Kalite reddi</TableHead><TableHead>Çözülmemiş</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead>Tedarikçi</TableHead><TableHead className="hidden text-right md:table-cell">Deneme</TableHead><TableHead className="hidden text-right md:table-cell">Başarılı</TableHead>
+            <TableHead className="text-right">Başarısız</TableHead><TableHead className="hidden text-right md:table-cell">Kalite reddi</TableHead><TableHead>Çözülmemiş</TableHead></TableRow></TableHeader>
           <TableBody>{history.map(row => <TableRow key={row.key}>
-            <TableCell className="font-medium">{row.name}</TableCell>
-            <TableCell className="text-right tabular-nums">{number(row.total)}</TableCell>
-            <TableCell className="text-right tabular-nums">{number(row.succeeded)}</TableCell>
+            <TableCell className="whitespace-normal font-medium md:whitespace-nowrap">{row.name}
+              <div className="font-normal text-muted-foreground md:hidden">Deneme {number(row.total)} · Başarılı {number(row.succeeded)} · Kalite reddi {number(row.rejected)}</div></TableCell>
+            <TableCell className="hidden text-right tabular-nums md:table-cell">{number(row.total)}</TableCell>
+            <TableCell className="hidden text-right tabular-nums md:table-cell">{number(row.succeeded)}</TableCell>
             <TableCell className="text-right tabular-nums">{number(row.failed)}</TableCell>
-            <TableCell className="text-right tabular-nums">{number(row.rejected)}</TableCell>
+            <TableCell className="hidden text-right tabular-nums md:table-cell">{number(row.rejected)}</TableCell>
             <TableCell>{row.unresolved ? <StatusBadge tone="warning">{number(row.unresolved)} kapsam</StatusBadge> : <StatusBadge tone="success">Yok</StatusBadge>}</TableCell>
           </TableRow>)}</TableBody>
         </Table>

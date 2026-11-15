@@ -15,7 +15,7 @@ KVKK hakları tamamlandı; amaç ve hukuki sebepler mevcut hesap/sepet/garaj iş
 - Bu proje henüz yayımlanmadı; yerel ortamda çalışıyor.
 - AWS Almanya/Frankfurt bölgesine yayımlama planlanıyor; aktarım başlamadı.
 - Mevcut durumda kişisel veri paylaşılan e-posta, ödeme veya kargo sağlayıcısı bulunmuyor.
-- Kodda sipariş/ödeme, açık üyelik, sosyal giriş ve pazarlama gönderimi etkin değil; analitik/reklam entegrasyonu yok.
+- Kodda sipariş/ödeme, açık üyelik, sosyal giriş ve pazarlama gönderimi etkin değil; Google Analytics 4 yalnızca analiz çerezi rızasıyla ve `GA4_MEASUREMENT_ID` doluyken yüklenir (#644); reklam entegrasyonu yok.
 
 Metinler uygulanmış bir AWS aktarım mekanizması veya tamamlanmış saklama/imha takvimi varmış gibi taahhüt içermez. Şirket, bu fiilî bilgilerin değişmesiyle metinleri güncellemelidir.
 
@@ -42,6 +42,6 @@ AWS hizmetinin gerçek sözleşme tarafı, erişim/alt işleyen zinciri ve yurt 
 
 Veri kategorilerine göre somut saklama süreleri ve uygulanacak imha işlemleri belirlenip teknik olarak hayata geçirilmelidir. Çerezlerin sona ermesi, sunucu kayıtlarının fiziksel olarak silindiği anlamına gelmez.
 
-Satış açılırken kargo taşıyıcısı ve teslimat koşulları belirlenmeli; siparişe özgü ön bilgilendirme ve sözleşme oluşturma, teyit, kalıcı veri saklayıcısıyla iletme ve kayıt saklama uygulanmalıdır. Ödeme sağlayıcısı, fiyatlar ve ürün bazlı cayma istisnaları fiilî duruma göre açıklanmalıdır. Sunulmayan ödeme/kampanya seçenekleri metinlerde vaat edilmez.
+Satış açılırken kargo taşıyıcısı ve teslimat koşulları belirlenmelidir. Siparişe özgü ön bilgilendirme ve mesafeli satış sözleşmesinin sipariş anında oluşturulması, onayın (zaman, IP, tarayıcı, metin sürümü) kaydı ve değişmez kopyanın saklanması #604 ile uygulandı ([ayrıntı](commerce.md)); kopya müşteriye `/siparis/[id]/sozlesme` sayfasında 16 piksel gövdeyle gösterilir. Kopyanın kalıcı veri saklayıcısıyla (ör. e-posta ekinde) tüketiciye iletilmesi ve siparişe özgü teslimat süresi/iade taşıyıcısı bilgileri henüz uygulanmadı. Ödeme sağlayıcısı, fiyatlar ve ürün bazlı cayma istisnaları fiilî duruma göre açıklanmalıdır. Sunulmayan ödeme/kampanya seçenekleri metinlerde vaat edilmez.
 
 Bu revizyon genel hukuki ve teknik hazırlıktır; şirketin bütün süreçlerinin mevzuata uygunluğu bakımından bir hukukçu incelemesinin veya uygulama denetiminin yerine geçmez.

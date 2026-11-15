@@ -25,7 +25,8 @@ try {
  for(const [t,id] of [[token,accountId],[adminToken,adminId]]) await db.query("INSERT INTO sessions VALUES($1,$2,now()+interval '5 minutes')",[createHash('sha256').update(t).digest('hex'),id]);
  productId=(await db.query("INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock) VALUES('demo',$1,'HTTP verify product','VERIFY',10000,2) RETURNING id",[`HTTP-${token}`])).rows[0].id;
  const detail=await get(`/urun/${productId}`);assert.equal(detail.res.status,200);assert.ok(detail.html.includes('90,00'));
- const add=fields(detail.html,'productId');add.set('quantity','1');assert.equal((await post(`/urun/${productId}`,add)).status,200);
+ const add=fields(detail.html,'productId');add.set('quantity','1');// The bare id address forwards to the slugged one (#640): the form is posted where the page now lives.
+ assert.equal((await post(new URL(detail.res.url).pathname,add)).status,200);
  const cart=await get('/sepet');assert.equal(cart.res.status,200);assert.ok(cart.html.includes('/siparis-olustur'));
  const checkout=fields((await get('/siparis-olustur')).html,'requestKey');
  for(const [k,v] of Object.entries({name:'Verification Buyer',email:'verify@example.invalid',phone:'5551234567',address:'Synthetic address only, Istanbul',note:'HTTP test',consent:'on'}))checkout.set(k,v);
@@ -60,7 +61,7 @@ try {
  const guestProductId=supplier?.id??productId;
  const beforeImports=(await db.query('SELECT count(*) FROM supplier_imports')).rows[0].count;
  const guestDetail=await get(`/urun/${guestProductId}`,'');const guestAdd=fields(guestDetail.html,'productId');guestAdd.set('quantity','1');
- const guestAdded=await post(`/urun/${guestProductId}`,guestAdd,'');assert.equal(guestAdded.status,200);const guestCookie=guestAdded.headers.getSetCookie().find(c=>c.startsWith('gb_cart='))?.split(';')[0] ?? '';assert.ok(guestCookie);
+ const guestAdded=await post(new URL(guestDetail.res.url).pathname,guestAdd,'');assert.equal(guestAdded.status,200);const guestCookie=guestAdded.headers.getSetCookie().find(c=>c.startsWith('gb_cart='))?.split(';')[0] ?? '';assert.ok(guestCookie);
  guestHash=createHash('sha256').update(guestCookie.slice('gb_cart='.length)).digest('hex');
  const guestCart=await get('/sepet',guestCookie);assert.ok(guestCart.html.includes('Sepetim'));
  const guestCheckout=fields((await get('/siparis-olustur',guestCookie)).html,'requestKey');

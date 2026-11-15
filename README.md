@@ -19,7 +19,7 @@ Yerel `.env.local` hazırdır ve Git dışında tutulur. PostgreSQL 18 Homebrew 
 
 ## B2C ve B2B
 
-- **Bireysel müşteriler:** `/katalog` üzerinden ürün adı, marka, ürün veya OEM koduyla arama; kategori/marka filtreleri ve fiyat sıralaması; açık bireysel fiyatlar; üyelik olmadan detay ve kalıcı ziyaretçi sepeti.
+- **Bireysel müşteriler:** `/katalog` üzerinden ürün adı, marka, ürün veya OEM koduyla arama; kategori sayfaları `/kategori/<kategori>`, araç markası sayfaları `/yedek-parca/<marka>` (adres düzeni: [lansman planı](docs/launch-roadmap.md#adres-düzeni)); kategori/marka filtreleri ve fiyat sıralaması; açık bireysel fiyatlar; üyelik olmadan detay ve kalıcı ziyaretçi sepeti.
 - **Servisler:** `/giris` üzerinden onaylı hesapla giriş; servise tanımlı indirimle B2B fiyatları; ziyaretçi sepetinin girişte hesap sepetine aktarılması. Hesap sepeti veritabanında kalıcıdır.
 - **Yönetim:** `/yonetim`, yalnızca yöneticilere açıktır. Yönetici e-posta/şifresi `.env.local` içindeki `ADMIN_EMAIL` ve `ADMIN_PASSWORD` alanlarındadır. Servis onayı ve indirim tanımı burada yapılır.
 - **Başbuğ verileri:** `/yonetim/tedarikciler/basbug` admin için parça/OEM/ad/marka araması, grup/marka/para birimi/stok sinyali/veri kalitesi filtreleri, 50 satırlık sayfalama ve ürün detaylarını sunar. Kaynak fiyatlar, MRK depo sinyalleri, kur yanıtı, çekilme zamanları ve veri kalitesi sayıları gösterilir. “Seçili grubu API’den güncelle” yeni bir DB gözlemi oluşturur. Başbuğ’un 15 liste grubunun tamamı hazır; güncel veriler ve değişiklik geçmişi ayrı saklanır. [İşleyiş ve sınırlar](docs/basbug-admin.md).
@@ -41,7 +41,7 @@ Kaynak URL, yerel yol, içerik türü, boyut ve SHA-256 özeti [materyal manifes
 
 ## Katalog ve entegrasyon sınırı
 
-Başbuğ ürünleri genel `/katalog` sayfasında listelenir. Kategori bilgisi olmayan kayıtlar kategorisiz kalır ve kategori filtrelerinde görünmez; açık bir `product_data.category` değeri varsa ilgili kategoride görünür. Arama ürün kodu, OEM, ad ve markayı kapsar; sonuçlar 60 ürünlük sayfalarla gösterilir. Yalnızca mevcut (`present`), çelişkisiz MRK kayıtları yayınlanır. Satışa hazırlanmış aynı tedarikçi/kod `products` içinde varsa o kayıt önceliklidir. Ham maliyet ve stok işaretleri doğrudan satış fiyatı/adet olarak gösterilmez. Geçerli maliyet ve kurdan hesaplanan KDV dahil satış fiyatı gösterilir; fiyat verisi eksik veya eski olan ürünlerde hazırlık bilgisi görünür ve satın alma formu bulunmaz.
+Başbuğ ürünleri genel `/katalog` sayfasında listelenir. Kategori bilgisi olmayan kayıtlar kategorisiz kalır ve kategori sayfalarında (`/kategori/<kategori>`) görünmez; açık bir `product_data.category` değeri varsa ilgili kategoride görünür. Arama ürün kodu, OEM, ad ve markayı kapsar; sonuçlar 60 ürünlük sayfalarla gösterilir. Yalnızca mevcut (`present`), çelişkisiz MRK kayıtları yayınlanır. Satışa hazırlanmış aynı tedarikçi/kod `products` içinde varsa o kayıt önceliklidir. Ham maliyet ve stok işaretleri doğrudan satış fiyatı/adet olarak gösterilmez. Geçerli maliyet ve kurdan hesaplanan KDV dahil satış fiyatı gösterilir; fiyat verisi eksik veya eski olan ürünlerde hazırlık bilgisi görünür ve satın alma formu bulunmaz.
 
 `npm run verify:catalog` yerel veriyle katalog, arama, filtre, sayfalama ve detay akışını salt okunur doğrular (varsayılan adres `http://localhost:3000`).
 
@@ -83,7 +83,7 @@ Tedarikçi otomatik fiyat/stok/kur güncellemesi, macOS zamanlayıcısı ve bild
 
 `/servisler` tanıtımı ve `/servisler/basvuru` başvuru akışı, yönetici onayına bağlı hesap oluşturur. Şema eklemeleri için `npm run db:brand:migrate`; mevcut hesaplar korunur. `/yonetim` başvuru iletişim bilgilerini ve indirimli onayı sunar. Başvuru tekrarları mevcut hesabı değiştirmez; onay öncesi oturum açılmaz.
 
-SEO: `SITE_URL` (varsayılan https://getirbakim.com), isteğe bağlı `GOOGLE_SITE_VERIFICATION`, `/robots.txt`, `/sitemap.xml`, ürün metadata ve Product JSON-LD. Ödeme/sevkiyat doğrulanana kadar Offer ve Merchant Center satış verisi yayınlanmaz. TAMI’nin mevcut canlı entegrasyonu ve ücretli B2B moto-kurye ticari tercihleri yol haritasında kayıtlı; TAMI taşıma adaptörü eski gb projesinden uyarlandı ve sahte imza/tutar/sipariş testleri eklendi. Nihai kargo ve kalıcı ödeme denemesi/dönüş akışı tamamlanmadan tahsilata bağlanmadı; reklam hesabı kurulmadı.
+SEO: `SITE_URL` (varsayılan https://getirbakim.com), isteğe bağlı `GOOGLE_SITE_VERIFICATION`, `BING_SITE_VERIFICATION`, `YANDEX_SITE_VERIFICATION` (boşsa etiket basılmaz), `/robots.txt` (özel yollar kapalı, yapay zekâ tarayıcıları adlarıyla tanımlı), `/llms.txt`, `/sitemap.xml`, ürün metadata ve Product JSON-LD. Ödeme/sevkiyat doğrulanana kadar Offer ve Merchant Center satış verisi yayınlanmaz. TAMI’nin mevcut canlı entegrasyonu ve ücretli B2B moto-kurye ticari tercihleri yol haritasında kayıtlı; TAMI taşıma adaptörü eski gb projesinden uyarlandı ve sahte imza/tutar/sipariş testleri eklendi. Nihai kargo ve kalıcı ödeme denemesi/dönüş akışı tamamlanmadan tahsilata bağlanmadı; reklam hesabı kurulmadı.
 
 Marka doğrulaması: `npm run test:brand` (girdi ve TAMI sözleşmesi, sentetik/mocked veriler) ve çalışan uygulamada `npm run verify:brand` (başvuru → onay → giriş, CSRF, izolasyon ve SEO). İkinci komut geçici test hesabını sonunda siler.
 

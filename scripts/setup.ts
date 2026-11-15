@@ -38,14 +38,28 @@ try {
    await client.query(await readFile("db/product-fitments.sql", "utf8"));
    await client.query(await readFile("db/source-categories.sql", "utf8"));
    await client.query(await readFile("db/product-matching.sql", "utf8"));
+   // Admin edits of the store card (#575): reads products/product_sources, writes the copy commerce views read.
+   await client.query(await readFile("db/product-overrides.sql", "utf8"));
+   // Admin-uploaded product images (#581): reads products, product_media_objects and product_override_changes.
+   await client.query(await readFile("db/product-override-images.sql", "utf8"));
+   // Admin-entered OEM / cross-reference / barcode numbers (#582): reads products, accounts, product_override_changes
+   // and part_number_key (db/commerce.sql).
+   await client.query(await readFile("db/product-override-references.sql", "utf8"));
+   // Admin-entered technical specifications (#603): reads products, accounts and product_override_changes.
+   await client.query(await readFile("db/product-override-specs.sql", "utf8"));
+   // Admin-added and removed vehicle fitments (#583): reads products, vehicle_types, accounts and product_override_changes.
+   await client.query(await readFile("db/product-override-fitments.sql", "utf8"));
    // Reads product_sources: the storefront catalog with unavailable products (#475), then their restock requests.
    await client.query(await readFile("db/storefront-catalog.sql", "utf8"));
    await client.query(await readFile("db/restock-requests.sql", "utf8"));
    await client.query(await readFile("db/enrichment-products.sql", "utf8"));
    await client.query(await readFile("db/enrichment-states.sql", "utf8"));
+   // After enrichment-states: besides the enrichment OEM index (#609) it indexes enrichment_product_states (#617).
+   await client.query(await readFile("db/enrichment-search.sql", "utf8"));
    await client.query(await readFile("db/enrichment-shared-links.sql", "utf8"));
    await client.query(await readFile("db/storefront-make-fits.sql", "utf8"));
    await client.query(await readFile("db/newsletter.sql", "utf8"));
+   await client.query(await readFile("db/indexnow.sql", "utf8"));
    await client.query("COMMIT");
    break;
   } catch (error) {

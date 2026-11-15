@@ -7,7 +7,7 @@ import {Button} from "@/components/ui/button";
 import {Checkbox} from "@/components/ui/checkbox";
 import {Dialog,DialogContent,DialogTitle} from "@/components/ui/dialog";
 import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from "@/components/ui/table";
-type Entry={id:string;title:string;price:string;specifications:[string,string][]};
+type Entry={id:string;href:string;title:string;price:string;specifications:[string,string][]};
 const CompareContext=createContext<{entries:Entry[];toggle:(entry:Entry)=>void}>({entries:[],toggle:()=>{}});
 const head="font-bold ";
 const cell="border-b border-[#dfe3e8] p-3 text-left align-top whitespace-normal";
@@ -26,7 +26,7 @@ export function ComparisonProvider({children}:{children:ReactNode}){
    <Button variant="ghost" size="icon" className="min-h-0 p-0 absolute top-3 right-3 bg-transparent text-foreground" aria-label="Karşılaştırmayı kapat" onClick={()=>setOpen(false)}><X className="size-5"/></Button>
    <DialogTitle className="mb-6 text-[26px] leading-[34px] font-semibold">Ürün karşılaştırması</DialogTitle>
    <Table className="min-w-[600px] border-collapse text-sm">
-    <TableHeader><TableRow className="border-0 hover:bg-transparent"><TableHead className={head+cell}>Özellik</TableHead>{entries.map(e=><TableHead key={e.id} className={head+cell}><Link className="hover:text-primary hover:underline" href={"/urun/"+e.id}>{e.title}</Link></TableHead>)}</TableRow></TableHeader>
+    <TableHeader><TableRow className="border-0 hover:bg-transparent"><TableHead className={head+cell}>Özellik</TableHead>{entries.map(e=><TableHead key={e.id} className={head+cell}><Link className="hover:text-primary hover:underline" href={e.href}>{e.title}</Link></TableHead>)}</TableRow></TableHeader>
     <TableBody><TableRow className="border-0 hover:bg-transparent"><TableHead className={head+cell}>Fiyat</TableHead>{entries.map(e=><TableCell key={e.id} className={cell}>{e.price}</TableCell>)}</TableRow>
     {keys.map(key=><TableRow key={key} className="border-0 hover:bg-transparent"><TableHead className={head+cell}>{specificationLabel(key)}</TableHead>{entries.map(e=><TableCell key={e.id} className={cell}>{specificationValue(e.specifications.find(s=>s[0]===key)?.[1]??"—")}</TableCell>)}</TableRow>)}</TableBody>
    </Table>

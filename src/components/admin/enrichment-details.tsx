@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table";
+import { productIdPath } from "@/modules/seo/product-id";
 
 const number = formatNumber;
 const date = (value: string) => formatDateTime(value);
@@ -31,7 +32,7 @@ function DetailsBody({ row }: { row: Details }) {
     ["Aranan kaynaklar", row.searched.length ? sourceNames(row.searched) : "Henüz aranmadı"],
     ...(row.status === "partial" ? [["Eksik veri", gaps || "Belirtilmemiş"] as [string, string]] : []),
     ["Tedarikçi OEM", row.oem || "Belirtilmemiş"],
-    ["Görsel", row.image_id ? "Kaydedildi" : "Henüz yok"],
+    ["Görsel", row.image_uploaded ? "Yönetici yükledi" : row.image_id && !row.image_shown ? "Otomatik görsel gizli" : row.image_id ? "Kaydedildi" : "Henüz yok"],
     ["Son işlem", `${date(row.imported_at || row.updated_at)} · ${row.attempts} deneme`],
   ];
   return <>
@@ -73,7 +74,7 @@ export function EnrichmentDetails({ name, code, productId }: { name: string; cod
       <DialogFooter>
         {sourceUrl ? <Button variant="outline" nativeButton={false} render={<Link href={sourceUrl} target="_blank"/>}>{new URL(sourceUrl).hostname}<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
           : row ? <span className="text-sm text-muted-foreground sm:mr-auto">Henüz kaynak verisi kaydedilmedi.</span> : null}
-        <Button nativeButton={false} render={<Link href={`/urun/${productId}`}/>}>Ürün sayfasını aç<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
+        <Button nativeButton={false} render={<Link href={productIdPath(productId)}/>}>Ürün sayfasını aç<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>;

@@ -1,15 +1,13 @@
-import { parseCatalogQuery } from "@/modules/store/catalog-query";
 import { type SearchParams } from "@/lib/search-params";
-import {getStoreCategories} from "@/modules/store/categories";
-import {CatalogView,catalogDescription} from "./catalog-view";
+import { CatalogView } from "./catalog-view";
+import { listingMetadata, loadListing } from "./listing-route";
+
+// All products and search. A category or a make has its own path (/kategori, /yedek-parca); the old
+// ?category= form is sent there by src/proxy.ts.
 export async function generateMetadata({ searchParams }: { searchParams: Promise<SearchParams> }) {
- const params=parseCatalogQuery({...await searchParams,make:undefined});
- const categories=await getStoreCategories();
- const category=categories.find(c=>c.slug===params.category);
- return {title:`${category?.name ?? "Yedek parça kataloğu"} | Getirbakim`,description:(catalogDescription(category?.slug ?? "yedek-parca")??`${category?.name} ürünlerini incele. Ürün kodu ve OEM numarasıyla uyumluluğu kontrol et.`).slice(0,180),
-  alternates:{canonical:category ? `/katalog?category=${category.slug}` : "/katalog"},
-  robots:params.q || params.brand || params.brands || params.attributes || params.availability || params.fits || params.oil || params.sort || params.page ? {index:false,follow:true} : undefined};
+ return listingMetadata(await loadListing({ search: await searchParams }));
 }
-export default async function Catalog({searchParams}:{searchParams:Promise<SearchParams>}) {
- return <CatalogView params={parseCatalogQuery({...await searchParams,make:undefined})}/>;
+export default async function Catalog({ searchParams }: { searchParams: Promise<SearchParams> }) {
+ const { query } = await loadListing({ search: await searchParams });
+ return <CatalogView params={query}/>;
 }

@@ -11,12 +11,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
-import { clearCatalogVehicle, garageVehicles, removeGarageVehicle, selectCatalogVehicle, switchGarageVehicle } from "@/app/(store)/garaj/actions";
-import type { GarageEntry } from "@/modules/store/garage";
+import { clearCatalogVehicle, garageVehicles, removeGarageVehicle, selectCatalogVehicle, switchGarageVehicle, type ShownGarageEntry } from "@/app/(store)/garaj/actions";
 import { minSearchLength, searchTooShort } from "@/modules/search/query";
-import { vehicleDetails, vehicleModelFamilies, vehicleModelFamilyKey, vehicleProductionDates, type CatalogVehicle, type SavedVehicle } from "@/modules/store/vehicle-catalog";
+import { vehicleModelFamilies, vehicleModelFamilyKey, vehicleProductionDates, type CatalogVehicle, type ShownVehicle } from "@/modules/store/vehicle-catalog";
 import { oilCapacity } from "@/modules/store/vehicle-oil";
 import { useVehicleCatalog } from "./use-vehicle-catalog";
+import { catalogPath } from "@/modules/seo/paths";
 
 type Step = "brand" | "family" | "model" | "fuel" | "engine" | "confirm";
 type Tab = "search" | "garage";
@@ -44,7 +44,7 @@ function vehicleSpecRows(vehicle: CatalogVehicle): [string, string][] {
 
 const emptyBox = "py-9 text-center text-muted-foreground [&>svg]:mx-auto [&>svg]:mb-4 [&>p]:mt-0 [&>p]:mb-2 [&>p]:text-sm [&>p]:leading-[22px] [&>p]:text-foreground [&>small]:text-xs [&>small]:leading-5";
 
-export function VehicleSheet({ open, vehicle, onClose, initialTab = "search", finalFocus }: { open: boolean; vehicle: SavedVehicle | null; onClose: () => void; initialTab?: Tab; finalFocus?: RefObject<HTMLElement | null> }) {
+export function VehicleSheet({ open, vehicle, onClose, initialTab = "search", finalFocus }: { open: boolean; vehicle: ShownVehicle | null; onClose: () => void; initialTab?: Tab; finalFocus?: RefObject<HTMLElement | null> }) {
   const busyRef = useRef(false);
   const id = useId();
   return <Sheet open={open} onOpenChange={next => { if (!next && !busyRef.current) onClose(); }}>
@@ -58,7 +58,7 @@ export function VehicleSheet({ open, vehicle, onClose, initialTab = "search", fi
   </Sheet>;
 }
 
-function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: string; vehicle: SavedVehicle | null; onClose: () => void; initialTab: Tab; busyRef: RefObject<boolean> }) {
+function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: string; vehicle: ShownVehicle | null; onClose: () => void; initialTab: Tab; busyRef: RefObject<boolean> }) {
   const content = useRef<HTMLDivElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -73,7 +73,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const [searchOffset, setSearchOffset] = useState(0);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
-  const [garage, setGarage] = useState<{ signedIn: boolean; vehicles: GarageEntry[]; activeKey: string | null } | null>(null);
+  const [garage, setGarage] = useState<{ signedIn: boolean; vehicles: ShownGarageEntry[]; activeKey: string | null } | null>(null);
   const brandsRequest = useVehicleCatalog("/api/vehicles");
   const modelsRequest = useVehicleCatalog(brandId ? `/api/vehicles?brandId=${encodeURIComponent(brandId)}` : null);
   const typesRequest = useVehicleCatalog(modelId ? `/api/vehicles?modelId=${encodeURIComponent(modelId)}` : null);
@@ -155,7 +155,6 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
       </Button>
     </li>)}</ul>;
   }
-  const selectedDetails = selected ? vehicleDetails(selected, year) : null;
   const stepHeading = "m-0 text-base leading-6 font-semibold outline-none";
 
   return <Tabs value={tab} onValueChange={value => { setTab(value as Tab); setError(""); }} className="flex min-h-0 flex-1 flex-col gap-0">
@@ -181,9 +180,9 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             <h3 ref={heading} tabIndex={-1} className={stepHeading}>{query.trim() ? "Arama sonuçları" : titles[step]}</h3>
           </div>
           {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-1.5 text-muted-foreground [&>button]:min-h-6 [&>button]:text-xs [&>button]:text-muted-foreground [&>button:hover]:text-brand [&>button:hover]:underline" aria-label="Araç seçim adımları">
-            <Button type="button" className={plain} onClick={() => go("brand")}>{brand?.name}</Button>
-            {family && step !== "family" && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("family")}>{family.name}</Button></>}
-            {model && !["family", "model"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go(family?.models.length === 1 ? "family" : "model")}>{model.name}</Button></>}
+            <Button type="button" className={plain} onClick={() => go("brand")}>{brand?.label ?? brand?.name}</Button>
+            {family && step !== "family" && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("family")}>{family.label}</Button></>}
+            {model && !["family", "model"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go(family?.models.length === 1 ? "family" : "model")}>{model.label ?? model.name}</Button></>}
             {fuel && ["engine", "confirm"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("fuel")}>{fuel}</Button></>}
           </nav>}
           {query.trim() && tooShort ? <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">Aramak için en az {minSearchLength} harf veya rakam yaz.</p>
@@ -192,7 +191,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             : query.trim() ? <>
               <p className="mt-0 mb-3 text-xs text-muted-foreground">{searchTotal} araç seçeneği{searchTotal > 60 && ` · ${searchOffset + 1}–${Math.min(searchOffset + 60, searchTotal)} gösteriliyor`}</p>
               {searchRequest.data?.correctedQuery && <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">“{query.trim()}” bulunamadı, “{searchRequest.data.correctedQuery}” için sonuçlar gösteriliyor.</p>}
-              {searchResults.length ? rows(searchResults.map(v => { const details = vehicleDetails(v, v.to); return { key: v.id, label: `${details.make} ${v.generation}`, action: () => pick(v), detail: `${v.engine} · ${v.fuel} · ${v.power} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}` }; }))
+              {searchResults.length ? rows(searchResults.map(v => ({ key: v.id, label: `${v.makeLabel} ${v.modelLabel}`, action: () => pick(v), detail: `${v.engine} · ${v.fuel} · ${v.power} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}` })))
                 : <div className={emptyBox}><Search size={28} /><p>Aradığın araç bulunamadı.</p><small>Başka bir marka, model veya yakıt türü dene.</small></div>}
               {searchTotal > 60 && <div className="mt-4 flex gap-3">
                 <Button type="button" className={cn(secondaryButton, "mt-0")} disabled={searchOffset === 0} onClick={() => { setSearchOffset(value => Math.max(0, value - 60)); content.current?.scrollTo(0, 0); }}>Önceki</Button>
@@ -201,17 +200,17 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             </> : <>
               {step === "brand" && [true, false].map(popular => <div className="border-[#dfe3e8] [&+&]:mt-[22px] [&+&]:border-t [&+&]:pt-[22px]" key={String(popular)}>
                 <h4 className="mt-0 mb-2 text-[11px] leading-4 font-semibold tracking-[.3px] text-[#54626e]">{popular ? "POPÜLER MARKALAR" : "TÜM MARKALAR"}</h4>
-                {rows(vehicleBrands.filter(b => b.popular === popular).map(b => ({ key: b.id, label: b.name.toLocaleUpperCase("tr"), action: () => { setBrandId(b.id); setFamilyKey(""); setModelId(""); setFuel(""); go("family"); } })))}
+                {rows(vehicleBrands.filter(b => b.popular === popular).map(b => ({ key: b.id, label: b.label ?? b.name, action: () => { setBrandId(b.id); setFamilyKey(""); setModelId(""); setFuel(""); go("family"); } })))}
               </div>)}
-              {step === "family" && rows(families.map(f => ({ key: f.key, label: f.name, action: () => {
+              {step === "family" && rows(families.map(f => ({ key: f.key, label: f.label, action: () => {
                 setFamilyKey(f.key); setFuel("");
                 if (f.models.length === 1) { setModelId(f.models[0].id); go("fuel"); } else { setModelId(""); go("model"); }
               }, detail: `${f.models.length > 1 ? `${f.models.length} kasa / nesil · ` : ""}${vehicleProductionDates(f.dateFrom, f.dateTo)}` })))}
-              {step === "model" && rows((family?.models ?? []).map(m => ({ key: m.id, label: m.name, action: () => { setModelId(m.id); setFuel(""); go("fuel"); }, detail: vehicleProductionDates(m.dateFrom, m.dateTo) })))}
+              {step === "model" && rows((family?.models ?? []).map(m => ({ key: m.id, label: m.label ?? m.name, action: () => { setModelId(m.id); setFuel(""); go("fuel"); }, detail: vehicleProductionDates(m.dateFrom, m.dateTo) })))}
               {step === "fuel" && rows([...new Set(variants.map(v => v.fuel))].map(name => ({ key: name, label: name, action: () => { setFuel(name); go("engine"); } })))}
               {step === "engine" && rows(variants.filter(v => v.fuel === fuel).map(v => ({ key: v.id, label: v.engine, action: () => pick(v), detail: `${v.power}${v.cc ? ` · ${v.cc} cm³` : ""} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}` })))}
-              {step === "confirm" && selected && selectedDetails && <div>
-                <div className={summaryBox}><VehicleHeroImage image={selected.image} alt={`${selectedDetails.make} ${selectedDetails.model}`} /><div className="min-w-0"><strong>{selectedDetails.make} {selectedDetails.model}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small></div></div>
+              {step === "confirm" && selected && <div>
+                <div className={summaryBox}><VehicleHeroImage image={selected.image} alt={`${selected.makeLabel} ${selected.modelLabel}`} /><div className="min-w-0"><strong>{selected.makeLabel} {selected.modelLabel}</strong><p>{vehicleProductionDates(selected.dateFrom, selected.dateTo)}</p><small>{selected.engine} · {selected.fuel}<br />{selected.power}{selected.cc ? ` · ${selected.cc} cm³` : ""}</small></div></div>
                 <label className="mb-2 block text-[13px] font-medium" htmlFor={`${id}-year`}>Model yılı</label>
                 <NativeSelect id={`${id}-year`} value={year} onChange={event => setYear(Number(event.target.value))} className="mb-5 w-full [&>select]:h-[52px] [&>select]:rounded-[5px] [&>select]:bg-white [&>select]:pl-3.5 [&>select]:text-sm [&>select]:text-foreground">
                   {Array.from({ length: selected.to - selected.from + 1 }, (_, index) => selected.to - index).map(value => <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>)}
@@ -225,7 +224,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
       <TabsContent value="garage" className="p-5">
         <h3 ref={tab === "garage" ? heading : undefined} tabIndex={-1} className={cn(stepHeading, "mt-1 mb-6")}>{vehicle ? "Seçili aracın" : others.length ? "Garajındaki araçlar" : garage ? "Garajın henüz boş" : "Garajım"}</h3>
         {vehicle ? <>
-          <div className={summaryBox}><VehicleHeroImage image={savedImage} alt={`${vehicle.make} ${vehicle.model}`} /><div className="min-w-0"><strong>{vehicle.make} {vehicle.model}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div>
+          <div className={summaryBox}><VehicleHeroImage image={savedImage} alt={`${vehicle.makeLabel} ${vehicle.modelLabel}`} /><div className="min-w-0"><strong>{vehicle.makeLabel} {vehicle.modelLabel}</strong><p>{vehicle.year}{vehicle.generation && vehicle.generation !== vehicle.model && ` · ${vehicle.generation}`}</p>{vehicle.engine && <small>{vehicle.engine} · {vehicle.fuel}<br />{vehicle.power}</small>}</div></div>
           {(savedSpecs.length > 0 || savedOil) && <div className="-mt-2.5 mb-[22px] grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 rounded-[5px] border border-border px-[18px] text-[13px] leading-5 [&>dl]:col-span-2 [&>dl]:grid [&>dl]:grid-cols-subgrid [&>dl]:gap-y-1 [&>dl]:py-3.5 [&>dl+dl]:border-t [&>dl+dl]:border-border [&_dt]:text-muted-foreground [&_dd]:m-0 [&_dd]:wrap-anywhere">
             {savedSpecs.length > 0 && <dl aria-label="Araç özellikleri">
               {savedSpecs.map(([label, value]) => <Fragment key={label}><dt>{label}</dt><dd>{value}</dd></Fragment>)}
@@ -244,8 +243,8 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
         </> : garage && !others.length && <div className={emptyBox}><CarFront size={52} strokeWidth={1.3} /><p>Aracın her zaman elinin altında olsun.</p><small>Marka ve model seçerek aracını garajına ekle.</small><Button className={saveButton} type="button" onClick={() => { setTab("search"); go("brand"); }}>Araç seç <ChevronRight size={16} /></Button></div>}
         {others.length > 0 && <div className="mt-6"><h4 className="mb-2 text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground">{vehicle ? "DİĞER KAYITLI ARAÇLAR" : "KAYITLI ARAÇLAR"}</h4>
           <ul className="m-0 list-none p-0">{others.map(entry => <li key={entry.key} className="flex items-center gap-2 border-b border-[#f1f3f5]">
-            <Button type="button" disabled={pending} onClick={() => switchTo(entry.key)} className={cn(plain, "flex min-h-8 flex-1 items-center justify-between gap-3 bg-white py-3 text-left text-sm leading-5 whitespace-normal text-foreground hover:bg-[#f1f7fb] hover:text-brand [&>svg]:shrink-0")}><span>{entry.make} {entry.model}<small className="block text-xs text-muted-foreground">{[entry.year, entry.engine, entry.fuel].filter(Boolean).join(" · ")}</small></span><ChevronRight size={14} aria-hidden="true" /></Button>
-            <Button type="button" variant="ghost" size="icon" disabled={pending} className="size-8 text-muted-foreground hover:text-[#c53333]" aria-label={`${entry.make} ${entry.model} aracını garajdan kaldır`} onClick={() => forget(entry.key)}><Trash2 size={15} /></Button>
+            <Button type="button" disabled={pending} onClick={() => switchTo(entry.key)} className={cn(plain, "flex min-h-8 flex-1 items-center justify-between gap-3 bg-white py-3 text-left text-sm leading-5 whitespace-normal text-foreground hover:bg-[#f1f7fb] hover:text-brand [&>svg]:shrink-0")}><span>{entry.makeLabel} {entry.modelLabel}<small className="block text-xs text-muted-foreground">{[entry.year, entry.engine, entry.fuel].filter(Boolean).join(" · ")}</small></span><ChevronRight size={14} aria-hidden="true" /></Button>
+            <Button type="button" variant="ghost" size="icon" disabled={pending} className="size-8 text-muted-foreground hover:text-[#c53333]" aria-label={`${entry.makeLabel} ${entry.modelLabel} aracını garajdan kaldır`} onClick={() => forget(entry.key)}><Trash2 size={15} /></Button>
           </li>)}</ul></div>}
         {!vehicle && !others.length && !garage && <p className="text-xs text-muted-foreground" role="status">Kayıtlı araçlar yükleniyor…</p>}
         {garage && !garage.signedIn && <p className="mt-[18px] mb-0 text-xs leading-5 text-muted-foreground">Araçların bu tarayıcıda saklanır (en çok 5). B2B hesabınla giriş yaparsan hesabına kaydedilir ve her cihazda görünür.</p>}
@@ -253,7 +252,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
       {error && <p className="mx-5 mt-0 mb-5 rounded-[5px] bg-[#fff0ec] p-3 text-[13px] leading-5 text-[#a74130]" role="alert">{error}</p>}
     </div>
     <div className="shrink-0 border-t border-border bg-white p-5 max-[600px]:pb-[max(20px,env(safe-area-inset-bottom))]">
-      <Button nativeButton={false} render={<Link href="/katalog" onClick={onClose} />}
+      <Button nativeButton={false} render={<Link href={catalogPath} onClick={onClose} />}
         className="flex h-auto min-h-11 w-full items-center justify-center rounded-[5px] border border-input bg-white px-3 py-2.5 text-[13px] leading-5 font-medium text-foreground hover:border-[#54626e] hover:bg-[#f9fafb] hover:text-foreground">Araç seçmeden alışveriş yap</Button>
     </div>
   </Tabs>;

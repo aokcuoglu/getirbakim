@@ -9,6 +9,8 @@ import type { PurchaseState } from "@/modules/store/purchase-types";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { addToCart as addToCartEvent, catalogItem } from "@/modules/analytics/events";
+import { track } from "@/modules/analytics/track";
 
 const initial: PurchaseState = { error:null, added:null, suggestions:[] };
 const money=(value:number)=>new Intl.NumberFormat("tr-TR",{style:"currency",currency:"TRY"}).format(value/100);
@@ -27,6 +29,10 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if(state.added) setOpen(true);
   },[state.added]);
+  useEffect(()=>{
+    // `added.price` is what the visitor pays (service discount applied); `addedQuantity` is this click's units.
+    if(state.added) track("add_to_cart",addToCartEvent(catalogItem({id:state.added.id,name:state.added.itemName,brand:state.added.brand},state.added.price),state.addedQuantity??1));
+  },[state.added,state.addedQuantity]);
   const product=variant==="product";
   return <>
     <form action={action} className={cn("mb-4 flex gap-2",product&&"mb-5 items-center gap-2.5",className)}>
@@ -50,15 +56,15 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
         {state.suggestions.length>0 && <section className="border-r border-[#e0e4e8] p-8 max-[760px]:border-t max-[760px]:border-r-0 max-[760px]:px-5 max-[760px]:py-6">
           <h2 className="mb-9 text-center text-2xl leading-8 font-semibold tracking-[-.5px] max-[760px]:mb-7 max-[760px]:text-left max-[760px]:text-xl">Bunları da inceleyebilirsin</h2>
           {state.suggestions.map(p=><article key={p.id} className="grid grid-cols-[60px_1fr_auto] items-start gap-4 border-b border-[#dfe3e8] pt-[18px] pb-6 last:border-b-0 last:pb-0">
-          <Link className="flex h-20 items-center justify-center text-muted-foreground" href={`/urun/${p.id}`}>{p.image ? <Image className="max-h-20 max-w-[60px] object-contain" src={p.image} width={80} height={80} alt={p.name} unoptimized/> : <Package size={36}/>}</Link>
-          <div><Link className="block text-sm leading-5 font-medium text-foreground hover:text-primary" href={`/urun/${p.id}`}>{p.name}</Link><strong className="mt-2.5 mb-1 block text-sm text-[#007bc4]">{money(p.price)}</strong><small className="text-[13px] text-muted-foreground">KDV dahil · Kargo hariç</small></div>
+          <Link className="flex h-20 items-center justify-center text-muted-foreground" href={p.href}>{p.image ? <Image className="max-h-20 max-w-[60px] object-contain" src={p.image} width={80} height={80} alt={p.name} unoptimized/> : <Package size={36}/>}</Link>
+          <div><Link className="block text-sm leading-5 font-medium text-foreground hover:text-primary" href={p.href}>{p.name}</Link><strong className="mt-2.5 mb-1 block text-sm text-[#007bc4]">{money(p.price)}</strong><small className="text-[13px] text-muted-foreground">KDV dahil · Kargo hariç</small></div>
           <form action={action}><input type="hidden" name="productId" value={p.id}/><input type="hidden" name="quantity" value="1"/><Button type="submit" variant="outline" className={cn(outline,"min-h-[42px] px-3 py-2.5 text-[13px]")} disabled={pending}>Sepete ekle</Button></form>
         </article>)}</section>}
         <section className="bg-[#f8f9f9] p-8 max-[760px]:row-start-1 max-[760px]:px-5 max-[760px]:py-7">
           <DialogTitle id={titleId} className="mb-9 flex items-center gap-2.5 text-2xl leading-8 font-semibold tracking-[-.5px] max-[760px]:mb-7 max-[760px]:text-[22px] max-[760px]:leading-7"><CheckCircle2 size={30} className="shrink-0 text-[#459938]"/>Ürün sepetine eklendi</DialogTitle>
           <div className="mb-8 flex items-start gap-6 text-sm leading-5">
-            <Link className="grid size-20 shrink-0 place-items-center rounded-[5px] border border-input bg-white text-muted-foreground" href={`/urun/${state.added.id}`}>{state.added.image ? <Image className="size-16 object-contain" src={state.added.image} width={80} height={80} alt={state.added.name} unoptimized/> : <Package size={36}/>}</Link>
-            <div><Link className="mb-2.5 block font-medium text-foreground hover:text-primary" href={`/urun/${state.added.id}`}>{state.added.name}</Link><div className="flex items-center gap-6 [&_select]:h-8 [&_select]:min-h-8 [&_select]:w-[54px] [&_select]:rounded-[5px] [&_select]:border [&_select]:border-input [&_select]:bg-white [&_select]:px-2 [&_select]:py-1 [&_select]:text-sm"><CartQuantity key={`${state.added.id}-${state.added.quantity}`} productId={state.added.id} name={state.added.code} quantity={state.added.quantity} maxQuantity={state.added.maxQuantity}/><strong className="text-sm font-medium">{money(state.added.price)}</strong></div></div>
+            <Link className="grid size-20 shrink-0 place-items-center rounded-[5px] border border-input bg-white text-muted-foreground" href={state.added.href}>{state.added.image ? <Image className="size-16 object-contain" src={state.added.image} width={80} height={80} alt={state.added.name} unoptimized/> : <Package size={36}/>}</Link>
+            <div><Link className="mb-2.5 block font-medium text-foreground hover:text-primary" href={state.added.href}>{state.added.name}</Link><div className="flex items-center gap-6 [&_select]:h-8 [&_select]:min-h-8 [&_select]:w-[54px] [&_select]:rounded-[5px] [&_select]:border [&_select]:border-input [&_select]:bg-white [&_select]:px-2 [&_select]:py-1 [&_select]:text-sm"><CartQuantity key={`${state.added.id}-${state.added.quantity}`} productId={state.added.id} name={state.added.code} quantity={state.added.quantity} maxQuantity={state.added.maxQuantity}/><strong className="text-sm font-medium">{money(state.added.price)}</strong></div></div>
           </div>
           <DialogClose render={<Button variant="outline" className={cn(outline,"mb-4 w-full")}/>}>Alışverişe devam et</DialogClose>
           <Button className="h-auto min-h-12 w-full gap-2.5 rounded-[5px] border-[#007bc4] bg-[#007bc4] px-4 py-3 text-sm leading-5 font-semibold text-white hover:bg-[#006bb0]" nativeButton={false} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]"/>Siparişi tamamla</Button>

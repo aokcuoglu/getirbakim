@@ -324,8 +324,53 @@ CREATE OR REPLACE FUNCTION product_names_conflict(name_a text, name_b text) RETU
   AND NOT EXISTS (SELECT 1 FROM unnest(a) t WHERE position(t IN product_name_glued(name_b))>0)
  FROM (SELECT product_name_terms(name_a) a, product_name_terms(name_b) b) x
 $$;
+-- Part-number endings known to name another part (#534). Measured on the fully decided local suffix queue (438 pairs,
+-- 240 different / 198 same): these rows block 213 different and 3 same pairs. Rows are (brand key or '*', pattern of
+-- the shorter number, pattern of the extension, verdict). Ambiguous endings (DAYCO/GATES xPK…HD, letter suffixes, VW
+-- index letters) are left out on purpose. Brand rows use canonical brand keys (products.brand); update the row when a
+-- brand key is merged or renamed.
+-- 'same' rows (#535) are endings reviewed as the same part (measured on the decided local pairs, none decided as
+-- different): Ford colour codes, MAYSAN MM/WM/PM, KENTPAR 01, GMB M/T/A, STONE 1, OSRAM 1BL. Their candidates may be
+-- merged in bulk; everything else stays a decision by hand. OSRAM nBL with n>1 is a multi-blister pack (Dinamik sells
+-- 5007ULT and 5007ULT-2BL at 2.2–2.9× the price) like nHB. SKF VKJA…G stays 'review': Başbuğ prices two such pairs
+-- far apart (VKJA3028 vs VKJA3028G).
+-- Precedence (product_suffix_verdict): brand rows before '*'; within one scope 'different' before 'review' before
+-- 'same' (safety first); then row order. A brand 'same' row therefore overrides a '*' 'different' row (STONE 1).
+CREATE OR REPLACE FUNCTION product_suffix_rules() RETURNS TABLE(brand text, base_pattern text, ext_pattern text, verdict text)
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ VALUES
+ ('*','[0-9]$','^[0-9]$','different'),
+ ('*','^[0-9]+$','^[0-9]{2,3}$','different'),
+ ('OSRAM','.','^[0-9]HB$','different'),
+ ('DAYCO','^KPV','^HD$','different'),
+ ('DAYCO','.','^SF$','different'),
+ ('GATES','.','^SF$','different'),
+ ('SILBAK','[A-Z]$','^2$','different'),
+ ('CONTITECH','PK[0-9]+$','^K[0-9]$','different'),
+ ('OSRAM','.','^[2-9]BL$','different'),
+ ('ORIJINAL','^[A-Z0-9]{4}[A-Z]?[0-9]{5,6}[A-Z]{1,2}5YZ$','^9$','same'),
+ ('ORIJINAL','^[A-Z0-9]{4}[A-Z]?[0-9]{5,6}[A-Z]{1,2}3JA$','^6$','same'),
+ ('MAYSAN','^[A-Z]{1,2}[0-9]{7}$','^(MM|WM|PM)$','same'),
+ ('KENTPAR','^[0-9]{3}T[0-9]{3}$','^01$','same'),
+ ('GMB','^GH[0-9]{5}$','^[MTA]$','same'),
+ ('STONE','[0-9]$','^1$','same'),
+ ('OSRAM','.','^1BL$','same')
+$$;
+-- Verdict for two part numbers of one brand (brand, number, number): NULL when neither number extends the other, else
+-- 'different' (never suggested as a suffix candidate), 'same' (suggested; may be merged in bulk) or 'review'
+-- (suggested and decided by hand). Overlapping rows resolve as described above product_suffix_rules().
+CREATE OR REPLACE FUNCTION product_suffix_verdict(text, text, text) RETURNS text LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT COALESCE((SELECT r.verdict FROM product_suffix_rules() WITH ORDINALITY r(brand,base_pattern,ext_pattern,verdict,ord)
+   WHERE r.brand IN ($1,'*') AND x.base ~ r.base_pattern AND x.ext ~ r.ext_pattern
+   ORDER BY r.brand='*', CASE r.verdict WHEN 'different' THEN 0 WHEN 'review' THEN 1 ELSE 2 END, r.ord LIMIT 1),'review')
+ FROM (SELECT CASE WHEN length($2)<length($3) THEN $2 ELSE $3 END AS base,
+   substr(CASE WHEN length($2)<length($3) THEN $3 ELSE $2 END, least(length($2),length($3))+1) AS ext) x
+ WHERE $2<>$3 AND (starts_with($2,$3) OR starts_with($3,$2))
+$$;
 UPDATE product_match_candidates c SET name_conflict=product_names_conflict(a.name,b.name) FROM products a, products b
 WHERE c.name_conflict IS NULL AND a.id=c.product_a AND b.id=c.product_b;
+-- Suffix candidates written before the rules above (#534) are dropped; the next refresh does not suggest them again.
+DELETE FROM product_match_candidates c USING products a, products b
+WHERE c.reason='suffix' AND a.id=c.product_a AND b.id=c.product_b AND product_suffix_verdict(a.brand,a.part_number,b.part_number)='different';
 CREATE TABLE IF NOT EXISTS product_match_decisions (
  product_a uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
  product_b uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -395,8 +440,12 @@ BEGIN
 END $$;
 -- Undo a manual decision (split or merge) for one row: it rejoins the automatic product of its own key, which is
 -- created or revived when needed; a product left without rows redirects there. A merge undone this way is recorded
--- as "different" so the pair is not suggested again.
-CREATE OR REPLACE FUNCTION product_reset_item(item uuid) RETURNS uuid LANGUAGE plpgsql AS $$
+-- as "different" (product_a = the product the row was merged into; refresh_product_matches() checks decisions in both
+-- directions, since a merge from the product page need not follow the candidate's a/b order) so the pair is not
+-- suggested again, whether or not the merge left a decision row (#551); undoing a split (back to the same key) records
+-- nothing. `actor` is the admin who undid it; the one-argument form came first.
+DROP FUNCTION IF EXISTS product_reset_item(uuid);
+CREATE OR REPLACE FUNCTION product_reset_item(item uuid, actor uuid DEFAULT NULL) RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE k record; old_id uuid; pid uuid;
 BEGIN
  SELECT s.product_id INTO old_id FROM product_sources s WHERE s.supplier_item_id=item AND s.method='manual';
@@ -417,7 +466,10 @@ BEGIN
  UPDATE product_sources SET product_id=pid, method='auto', decided_by=NULL, linked_at=now() WHERE supplier_item_id=item;
  IF old_id<>pid THEN
   UPDATE products SET merged_into=pid, updated_at=now() WHERE id=old_id AND NOT EXISTS (SELECT 1 FROM product_sources WHERE product_id=old_id);
-  UPDATE product_match_decisions SET status='different', decided_at=now() WHERE status='same' AND product_a=old_id AND product_b=pid;
+  IF NOT EXISTS (SELECT 1 FROM products WHERE id=old_id AND brand=k.brand AND part_number=k.part_number) THEN
+   INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES (old_id,pid,'different',actor)
+   ON CONFLICT (product_a,product_b) DO UPDATE SET status='different', decided_by=excluded.decided_by, decided_at=now();
+  END IF;
  END IF;
  PERFORM product_refresh_suppliers(ARRAY[pid,old_id]);
  PERFORM product_refresh_offers(ARRAY[pid,old_id]);
@@ -425,7 +477,8 @@ BEGIN
 END $$;
 -- "Ayır" on one offer of a group (#523): a row merged by hand returns to its own key's product; a row grouped by its
 -- key (or a manual row already on its key's product) becomes a locked product of its own. Either way the pair is
--- recorded as different (product_a = the group's product, as candidates are keyed), so it is not suggested again.
+-- recorded as different (product_a = the group's product; candidate generation checks both directions), so it is not
+-- suggested again.
 -- Only a non-primary offer of the group the admin saw (`expected_primary`, product_offers.primary_id) can be split:
 -- the primary is the listing itself, and a stale form (the row has since moved to another group) changes nothing.
 -- NULL when the row is no such offer. The two-argument form came first (#523).
@@ -437,7 +490,7 @@ BEGIN
  SELECT s.product_id, s.method INTO src FROM product_sources s WHERE s.supplier_item_id=item
   AND EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=item AND o.primary_id=expected_primary AND o.primary_id<>o.item_id);
  IF NOT FOUND THEN RETURN NULL; END IF;
- IF src.method='manual' THEN pid := product_reset_item(item); END IF;
+ IF src.method='manual' THEN pid := product_reset_item(item, actor); END IF;
  IF pid IS NULL OR pid=src.product_id THEN
   -- product_split_item locks the link and refreshes suppliers; the storefront grouping is refreshed here.
   pid := product_split_item(item, actor);
@@ -673,7 +726,9 @@ BEGIN
    UNION ALL SELECT a.id, b.id, 'suffix', a.name, b.name, 3 FROM cand_a a JOIN cand_b b ON b.brand=a.brand AND left(b.part_number,5)=left(a.part_number,5)
     AND b.part_number<>a.part_number AND length(a.part_number)>=6 AND length(b.part_number)>=6 AND abs(length(a.part_number)-length(b.part_number))<=3
     AND (starts_with(a.part_number,b.part_number) OR starts_with(b.part_number,a.part_number))
+    AND product_suffix_verdict(a.brand,a.part_number,b.part_number)<>'different'
   ) c WHERE NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.a AND d.product_b=c.b)
+   AND NOT EXISTS (SELECT 1 FROM product_match_decisions d WHERE d.product_a=c.b AND d.product_b=c.a)
   ORDER BY a, b, priority
   ON CONFLICT DO NOTHING;
  END LOOP;

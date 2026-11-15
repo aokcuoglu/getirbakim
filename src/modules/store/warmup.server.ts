@@ -1,5 +1,6 @@
 import "server-only";
 import { popularVehicleMakes, vehicleBrandSlug } from "./vehicle-catalog";
+import { catalogPath, makePath, makesPath } from "@/modules/seo/paths";
 
 /**
  * Requests the most visited storefront pages once when a server starts (#448). Make lists, category ids,
@@ -19,9 +20,9 @@ export async function warmStorefront(origin: string, options: { concurrency?: nu
     return;
   }
   // The catalog page lists the main categories; a failed read leaves only the fixed pages.
-  const catalog = await get("/katalog").then(response => response.ok ? response.text() : "").catch(() => "");
-  const categories = [...new Set([...catalog.matchAll(/href="(\/katalog\?category=[^"&]+)"/g)].map(match => match[1]))];
-  const paths = ["/", "/automakers", ...popularVehicleMakes.map(name => "/car-parts/" + vehicleBrandSlug(name)), ...categories];
+  const catalog = await get(catalogPath).then(response => response.ok ? response.text() : "").catch(() => "");
+  const categories = [...new Set([...catalog.matchAll(/href="(\/kategori\/[^"?/]+)"/g)].map(match => match[1]))];
+  const paths = ["/", makesPath, ...popularVehicleMakes.map(name => makePath(vehicleBrandSlug(name))), ...categories];
   let next = 0, failed = 0;
   const worker = async () => {
     while (next < paths.length) {

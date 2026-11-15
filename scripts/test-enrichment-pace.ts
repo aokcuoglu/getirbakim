@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { partialGaps, passForecast, runProgress, summarizeSources, type PassPace, type SourceRun } from "../src/modules/admin/enrichment-pace";
-import { dashboardTab } from "../src/modules/admin/enrichment-labels";
+import { dashboardTab, gapText } from "../src/modules/admin/enrichment-labels";
 import { completeWithImage, imageNote, keepsRicherPartial } from "../src/modules/enrichment/partial-gaps";
 
 const pace = (finished: number, windows: number, fallback = 0): PassPace => ({ finished_24h: finished, active_windows_24h: windows, linked_products: 0, fallback_pending_found_24h: fallback, interval_ms: 10000, challenge_since: null, blocked: false });
@@ -58,6 +58,20 @@ test("partial gaps name what each adapter could not collect", () => {
   assert.deepEqual(partialGaps("otoparcasan.com public HTTP adapter v1; x; commercial vehicles dropped 0; invalid rows 2; failed makes 1", true), ["invalid_rows", "failed_makes"]);
   assert.deepEqual(partialGaps("spareto.com public HTTP adapter v2; x; vehicle models 0/0; catalog-resolved 0/0; invalid rows 0; no image; no vehicles listed", false), ["image", "no_vehicles"]);
   assert.deepEqual(partialGaps(null, true), []);
+});
+
+test("the partial gap list counts the image the store shows (#596)", () => {
+  const note = "spareto.com public HTTP adapter v2; x; vehicle models 0/0; catalog-resolved 0/0; invalid rows 0; no vehicles listed";
+  // An admin upload closes the image gap; a hidden automatic image without an upload leaves it open.
+  const row = { status: "partial", source_method: note, image_id: null, image_shown: false, image_uploaded: false };
+  assert.equal(gapText({ ...row, image_shown: true, image_uploaded: true }), "Araç listesi yok · Görseli yönetici yükledi");
+  assert.equal(gapText(row), "Görsel yok · Araç listesi yok");
+  assert.equal(gapText({ ...row, image_id: "a" }), "Görsel yok · Araç listesi yok", "automatic image hidden, no upload");
+  assert.equal(gapText({ ...row, image_id: "a", image_shown: true }), "Araç listesi yok");
+  // The image was the only gap: the upload is named instead of an empty list.
+  const imageOnly = "Durable public browser adapter v2; run x; exact brand/part verified; source IDs covered 14/14; invalid rows 0";
+  assert.equal(gapText({ ...row, source_method: imageOnly, image_shown: true, image_uploaded: true }), "Görseli yönetici yükledi");
+  assert.equal(gapText({ ...row, status: "complete" }), "");
 });
 
 test("an image completes a partial product only when it was the last gap", () => {

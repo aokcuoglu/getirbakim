@@ -42,7 +42,7 @@ try {
  await post("/sepet",guestFields,true);
  assert.equal((await pool.query("SELECT quantity FROM commerce_cart_items WHERE owner_kind='guest' AND owner_id=$1",[guestHash])).rows[0].quantity,2);
  guestFields.set("quantity","2");const guestOverstock=await post("/sepet",guestFields,true);assert.ok(guestOverstock.headers.get("location")?.includes("error=stock"));
- assert.ok((await (await get(`/katalog?category=fren`)).text()).includes(code));assert.ok(!(await (await get(`/katalog?category=filtre`)).text()).includes(code));
+ assert.ok((await (await get(`/kategori/fren`)).text()).includes(code));assert.ok(!(await (await get(`/kategori/filtre`)).text()).includes(code));
  await pool.query("INSERT INTO commerce_cart_items(owner_kind,owner_id,product_id,quantity) VALUES('account',$1,$2,1)",[accountId,productId]);
  assert.equal((await get("/yonetim")).status,307);assert.equal((await get("/sepet")).status,200);
  const loginPage=await get("/giris");const loginFields=fields(await loginPage.text(),f=>f.includes('name="password"'));loginFields.set("email",email);loginFields.set("password",password);

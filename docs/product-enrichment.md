@@ -34,7 +34,7 @@ node --import tsx --test scripts/test-product-enrichment.ts
 
 `supplier_items.product_data`, fiyat ve stok verileri değiştirilmez. Tedarikçi senkronizasyonu zenginleştirme verisini silmez. Tedarikçi marka/kodu değişirse eski eşleşme ürün sayfasında kullanılmaz.
 
-Eklenen OEM numaraları katalog aramasında da kullanılır. Kısmi bir paket tamamlanmış bir kaydın üzerine yazılamaz.
+Eklenen OEM numaraları katalog aramasında da kullanılır. Kod araması önce `enrichment_oem_search(payload)` üzerindeki trigram indeksiyle (`product_enrichments_oem_search_idx`, `db/enrichment-search.sql`, #609) adayları daraltır, sonra her numarayı tek tek denetler; bu fonksiyon veya `search_compact` değişirse `REINDEX INDEX product_enrichments_oem_search_idx` gerekir. Kısmi bir paket tamamlanmış bir kaydın üzerine yazılamaz.
 
 İçe aktarma JSON’u tek kayıt veya kayıt dizisi olabilir. Tam örnek formatı `artifacts/trodo-sample/enrichment-import.json` içindedir. Görsel yolu çalışma dizinine göre çözülür. Görseller en fazla 10 MB; içerik imzası WebP/JPEG/PNG olarak doğrulanır. Nesne anahtarında SHA-256 kullanılır; aynı dosya birden çok kez depolanmaz. MinIO yazımı ve HEAD doğrulamasından sonra veritabanı kaydı tamamlanır. Veritabanı işlemi başarısız olursa depoda referansı olmayan bir nesne kalabilir; kullanıcıya yayımlanmaz.
 
@@ -69,6 +69,24 @@ Başarılı kaynak yanıtları `product_enrichment_vehicle_cache` tablosunda kay
 ## Yedekleme
 
 PostgreSQL yedeğiyle birlikte `getirbakim_product-media` volume’unu ve `.local/storage.env` dosyasını yedekleyin. Veritabanı yedeği tek başına görselleri içermez. `docker compose down` dosyaları korur; `down -v` volume’u siler. Konsol ve API portları yalnızca yerel makineye bağlanır.
+
+## Medya temizliği
+
+Hiçbir yerden başvurulmayan `product_media_objects` satırlarını ve kovadaki nesnelerini `npm run media:gc` toplar (#597). Başvuru sayılanlar: `product_media_objects`'e giden her foreign key (çalışma anında `pg_constraint`'ten okunur; `db/*.sql`'de olmayan eski tablolar da korunur) ile FK'siz kopyalar `product_enrichment_shared_links.image_id` ve `enrichment_product_states.image_id`. FK'siz, tanınmayan bir `*image_id` / `*media_id` uuid kolonu varsa komut hiçbir şey silmeden durur. Kova hiç listelenmez; yalnız silinen satırın anahtarı silinir (kovada `internal/storefront-sync/…` gibi medya dışı anahtarlar da var).
+
+```sh
+npm run media:gc                                  # dry run: aday sayısı, bayt, klasör dökümü, ilk 20 anahtar (JSON)
+npm run media:gc -- --apply                       # siler
+npm run media:gc -- --min-age-days=14 --limit=500 --batch=200 --max-share=0.2
+```
+
+- **Yaş eşiği:** varsayılan 7 gün (en az 1). Yaş `GREATEST(created_at, stored_at)`: bir içe aktarma var olan görseli yeniden kaydettiğinde `stored_at` güncellenir, başvurusu yazılana kadar satır genç kalır.
+- **Güvenlik sınırları:** adaylar toplamın `--max-share` oranını (varsayılan 0,2) aşarsa `--apply` reddedilir. Aynı anda tek koşu (advisory lock `20261001, 10`). Her parti önce satırları siler (FK ve koşullar yeniden denetlenir), sonra nesneleri siler, kova onaylayınca commit eder; kova silemediği nesnelerin satırlarını bırakır ve komut hata ile durur. Seçimden sonra başvuru alan satır kalır (`becameReferenced`); başka bir işlemin 5 sn'den uzun tuttuğu satır da kalır (`locked`).
+- **Kova tek veritabanına aittir:** komut, kovadaki nesnelere yalnız bu veritabanının satırları başvurur varsayımıyla siler. Çıktıdaki `database` ve `bucket` alanlarının doğru çifti gösterdiğini kontrol edin; iki veritabanının paylaştığı kovada koşmayın.
+- **Merge sonrası:** her ortamda önce `npm run db:setup` (AWS'de `release-aws` ile gelen kurulum) koşmalıdır; `stored_at` kolonu olmadan görsel yazımı `42703` (kolon yok) hatası verir.
+- **Her ortamda ayrı koşu:** medya id'leri ortamlar arasında farklıdır; yerelde, VPS'te ve AWS'de ayrı koşulur. AWS'de operations görevi olarak: `node --conditions=react-server --import tsx scripts/media-gc.ts [--apply]` (`.env.local` yok, ortam değişkenleri görevden gelir).
+- **Ne zaman koşulmaz:** zenginleştirme işçileri, kategori görseli içe aktarımları veya storefront sync çalışırken `--apply` koşmayın. Sync kilidi `.local/storefront-sync/sync.lock` varsa komut reddeder, ama bu kilit yalnız aynı checkout'taki sync'i korur: AWS'de veya VPS'te çalışan bir storefront import görevi olmadığını operatör kontrol eder.
+- **Yetki:** yerel MinIO medya kullanıcısının politikasında `s3:DeleteObject` gerekir (`deploy/storage.compose.yml`; mevcut kurulumda politikayı güncellemek için `npm run storage:setup`). AWS'de operations görev rolüne kovada `s3:DeleteObject` verilmelidir (infra reposu). Kova sürümlemesi açıksa silme yalnız delete marker bırakır; eski sürümler yaşam döngüsü kuralıyla temizlenmelidir.
 
 ## Ürün–araç kataloğu bağlantıları
 
@@ -132,13 +150,62 @@ Parti tamamlanınca tarayıcı toplayıcıları durdurulur, koşu kilidi ve yere
 
 Tarama yerel veritabanına yazar; canlı, aktarılana kadar eski veriyi gösterir. `npm run storefront:sync` şu adımları çalıştırır:
 
-1. `PRODUCTION_SSH` (`.env.local`, ör. `root@<host>`) üzerinden, son başarılı aktarımdan sonra içe aktarılan zenginleştirmeleri, bunların kategori eşlemelerini ve görsellerini dışa aktarır. Kategori ağacı ve logolar her seferinde tam gönderilir.
-2. Paketi VPS'te `.local/storefront-bundles/current` dizinine rsync ile kopyalar; yalnızca değişen dosyalar gider.
-3. Canlıda sırasıyla `production-task.sh backup`, `import-storefront` kuru çalıştırması, `--apply` ve `rebuild-fitments` çalışır.
+1. Son başarılı aktarımdan sonra içe aktarılan zenginleştirmeleri, bunların kategori eşlemelerini ve görsellerini dışa aktarır. Kategori ağacı, logolar, REPXPERT araç verisi ve tamamlanmış/kısmi zenginleştirme işlerinin durumları her seferinde tam gönderilir.
+2. `vps` hedefinde paketi `PRODUCTION_SSH` (`.env.local`, ör. `root@<host>`) üzerinden VPS'te `.local/storefront-bundles/current` dizinine rsync ile kopyalar; yalnızca değişen dosyalar gider. `aws` hedefi aşağıda.
+3. VPS'te sırasıyla `production-task.sh backup`, `import-storefront` kuru çalıştırması, `--apply` ve `rebuild-fitments` çalışır.
 
-Filigran (`.local/storefront-sync/state.json`) yalnızca canlı paketi uyguladıktan sonra ilerler; başarısız bir çalıştırma bir sonrakinde tamamen tekrarlanır. Anlık görüntü sırasında sürmekte olan içe aktarmaları kaçırmamak için 1 saat geri örtüşme bırakılır; içe aktarma upsert olduğu için tekrar zararsızdır. İlk çalıştırma (filigran yokken) tüm zenginleştirmeleri gönderir.
+Filigran yalnızca canlı paketi uyguladıktan sonra ilerler; başarısız bir çalıştırma bir sonrakinde tamamen tekrarlanır. Anlık görüntü sırasında sürmekte olan içe aktarmaları kaçırmamak için 1 saat geri örtüşme bırakılır; içe aktarma upsert olduğu için tekrar zararsızdır.
 
 `npm run storefront:sync:install` her gün 04:30'da çalışan launchd işini kurar. Mac o saatte uykudaysa iş uyanınca çalışır. Günlük `.local/storefront-sync/sync.log` dosyasına yazılır; kaldırmak için `npm run storefront:sync:uninstall`.
+
+#### Hedefler, filigran ve bayraklar (#553)
+
+`STOREFRONT_SYNC_TARGET` (`.env.local`) `vps` (varsayılan, yukarıdaki SSH akışı) ya da `aws` olur. `aws` hedefinde parçalar S3 inbound kovasına yüklenir ve tek bir ECS görevi `scripts/import-storefront-inbound.ts`'i çalıştırır: tüm parçaların kuru çalıştırması → uygulama → `rebuild-product-fitments.ts` → paylaşılan bağlantı kuyruğunun boşaltılması (`product_enrichment_shared_sync()`) → `enrichment-states.ts sync`.
+
+- **Filigran hedef başına ayrıdır:** `vps` → `.local/storefront-sync/state.json` (eskisi gibi), `aws` → `.local/storefront-sync/state.aws.json`. Durum dosyası `snapshotAt`, `syncedAt`, `target`, `since`, gönderilen sayıları ve gerekiyorsa `retry` listesini tutar. Yollar komutun çalıştığı dizine göredir; başka bir worktree'den çalıştırma ana checkout'un filigranına dokunmaz.
+- **Bayraklar katıdır:** yalnız `--dry-run`, `--full`, `--force` ve `--baseline=<ISO>` kabul edilir; başka her argüman (`--dryrun`, `-n`, boşlukla yazılmış `--baseline 2026-…`) hata verir, gerçek çalıştırmaya dönüşmez.
+- **`--baseline=<ISO>`:** `--dry-run` olmadan hedefin son anlık görüntüsünü `<ISO>` olarak kaydeder (`baseline: true`) ve çıkar; kilit altında çalışır, var olan durumu yalnızca `--force` ile ezer (varsa `retry` listesi korunur). Zaman dilimi açık yazılmalıdır (`Z` ya da `±hh:mm`); dilimsiz, gelecekteki ya da geçersiz zaman reddedilir. `--dry-run` ile birlikte yalnızca o çalıştırmanın filigranıdır, hiçbir şey yazılmaz.
+- **`aws` hedefinde durum dosyası yoksa** çalıştırma durur: `--baseline=<ISO>` ile son aktarılan anı kaydedin ya da bilinçli olarak her şeyi göndermek için `--full` kullanın. `vps` hedefi eskisi gibi filigransız ilk çalıştırmada her şeyi gönderir.
+- **`--full`:** filigranı yok sayıp tüm zenginleştirmeleri gönderir; `--baseline` ile birlikte kullanılamaz.
+- **`--dry-run`:** dışa aktarır ve parçalara böler, hedefi, `since`, `snapshotAt`, satır sayılarını, MB'ı ve parça dökümünü (part-00 ayrı) JSON olarak yazar. Aktarım yapmaz, filigran yazmaz, kilit almaz; AWS profili ya da SSH ayarı istemez. Yerel veritabanı ve yerel nesne deposu (MinIO) okunur.
+- **Kilit:** gerçek çalıştırmalar ve `--baseline` `.local/storefront-sync/sync.lock` (`{pid, startedAt, target}`) alır; launchd ve elle çalıştırma çakışmaz. Kilidi tutan süreç ölmüşse ya da kilit 24 saatten eskiyse devralınır; `startedAt` geçersizse devralınmaz, hata verilir; Ctrl-C/SIGTERM kilidi bırakır. Hata mesajı kilit dosyasının yolunu verir; o süreç bir aktarım değilse dosyayı silin.
+- **Atlanan zenginleştirmeler (`retry`):** tedarikçi ürünü canlıda henüz yoksa (canlı ve yerel tedarikçi senkronları ayrı) zenginleştirme atlanır. İçe aktarma görevi uygulamadan sonra medya kovasına (`S3_BUCKET`, herkese kapalı) `internal/storefront-sync/storefront/current/report.json` anahtarıyla toplam sayıları ve atlanan ürünlerin anahtarlarını (`id`, `supplier`, `company`, `list_group`, `warehouse`, `code`) yazar. Yerel aktarım görev başarıyla bitince raporu indirir, atlanan varsa uyarır ve anahtarları `state.aws.json`'da `retry` olarak saklar. Sonraki dışa aktarım bu ürünlerin zenginleştirmelerini filigrandan bağımsız olarak yeniden gönderir (`export-storefront-bundle.ts --retry-file`, kimlik ya da doğal anahtar eşleşmesi); liste her çalıştırmada yeni raporun atlanan kümesiyle değiştirilir ve 10.000 anahtarla sınırlıdır (sayı her zaman tam raporlanır). Raporu yazamayan görev başarısız biter (veri yazılmış olsa da). Görev başarıyla bitmiş ama rapor yoksa (eski operations imajı) ya da rapordaki `snapshotAt` bu paketinkiyle uyuşmuyorsa aktarım iki durumu ayrı mesajla belirterek hata verir; filigran ve `retry` listesi ilerlemez, sonraki çalıştırma aynı veriyi yeniden gönderir (içe aktarma idempotent). Atlanan anahtar sayısı 10.000'i aşarsa uyarı, ürünler canlıya geldiğinde `--full` ile çalıştırmayı önerir. Rapor her çalıştırmada üzerine yazılır.
+- **Kategori eşlemeleri değiştirilir:** paketteki her zenginleştirmenin canlıdaki `product_source_categories` satırları, paketin taşıdığı kaynaklar (ör. `trodo`) için silinip paketteki satırlarla aynı işlemde yeniden yazılır; kategorisi değişen ürün eski kategoriyi tutmaz.
+- **`aws` ön kontrolü:** yüklemeden önce `aws ecs list-tasks --started-by storefront-sync --desired-status RUNNING` çalışır; süren bir içe aktarma görevi varsa ya da çağrı başarısız olursa çalıştırma durur.
+
+#### Yerelde topla → AWS'ye aktar
+
+Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde çalışır ve yerel veritabanına yazar; canlıya yalnızca bu aktarım taşır.
+
+1. `.env.local`: `STOREFRONT_SYNC_TARGET=aws`, `PRODUCTION_AWS_PROFILE` (adlandırılmış profil, `default` değil).
+2. İlk kez: son aktarılan anı kaydedin, sonra kuru çalıştırma ile ne gideceğine bakın:
+   ```bash
+   npm run storefront:sync -- --baseline=2026-11-13T05:47:24Z
+   npm run storefront:sync -- --dry-run
+   ```
+3. Gerçek yazma (`npm run storefront:sync`) yalnız kullanıcının açık onayıyla. Sonraki çalıştırmalar filigrandan devam eder; günlük çalıştırma için launchd işi isteğe bağlıdır (`npm run storefront:sync:install`).
+
+İlk gerçek çalıştırmadan önce yeni bir operations imajı (`release-aws`) gerekir: iş durumlarını içe aktaran `import-storefront-bundle.ts` ve kuyrukları boşaltan `import-storefront-inbound.ts` imajın içindedir. Eski imaj paketteki `jobs` alanını yok sayar ve yeni zenginleştirmeler mağazaya düşmez. IAM değişikliği gerekmez: operations görev rolü inbound kovayı yalnız okuyabilir, raporu zaten yazabildiği medya kovasına yazar. Yerel aktarım medya kovasını Data yığınının `MediaBucketName` çıktısından, yoksa operations görev tanımındaki `S3_BUCKET`'tan bulur. Eski imaj rapor yazmadığı için yeni imaj olmadan aws hedefine gerçek çalıştırma filigranı ilerletmeden hata verir.
+
+#### Tablo kararları
+
+| Tablo | Karar | Not |
+| --- | --- | --- |
+| `product_enrichments`, `product_source_categories`, `product_media_objects`, kategori ağacı, logolar, `vehicle_type_specs` / `vehicle_type_images` | Pakette | Zenginleştirmeler `imported_at > since`; ağaç, logolar ve REPXPERT verisi her seferinde tam |
+| `product_enrichment_jobs` (yalnız `complete`/`partial` ve zenginleştirme satırı olan) | Pakette, her seferinde tam, part-00'da | `product_enrichments`'ta durum yok; `enrichment_valid_data` (`db/enrichment-products.sql`) iş durumuna JOIN yapar. İşler gitmezse yeni zenginleştirme `product_enrichment_shared_links` → `storefront_enrichments`'a ulaşmaz. Yalnız değişen satır yazılır (`IS DISTINCT FROM`), aksi halde tetikleyiciler ~69k satırı her seferinde kuyruğa alır |
+| `product_enrichment_shared_links`, `storefront_make_fits`, `storefront_model_fits` | AWS'de türetilir | İçe aktarma sonunda kuyruk boşaltılır; model tablosu (#639) marka tablosuyla aynı yenilemede yazılır |
+| `enrichment_product_states` (+ kuyruk) | AWS'de türetilir | `scripts/enrichment-states.ts sync` |
+| `product_vehicle_fitments` | AWS'de türetilir | `scripts/rebuild-product-fitments.ts` |
+| `product_override_fitments` | Aktarılmaz | Yöneticinin araç uyumu kararları (#583) AWS panelinde yönetilir; `products.id` ortama özgüdür. Yeniden kurulum yalnız `product_vehicle_fitments`'ı yazar, kararlar kalır |
+| `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş) |
+| `vehicle_type_oil_specs` | Aktarılmaz | `data/vehicle_type_oil_specs.csv` + `npm run db:vehicle-oils` |
+| `vehicle_type_trodo_oils`, `product_enrichment_sources` | Aktarılmaz | Yerel kalır |
+
+İş durumlarının doğruluk kaynağı yereldir: paketteki ürünlerin canlıdaki `product_enrichment_jobs` durumu (ve `supplier_code`, `supplier_brand`, `candidate_url`) paketteki değerle ezilir; canlıda o ürün için başka bir durum yazılmışsa korunmaz.
+
+`enrichment-categories.ts backfill` `imported_at`'i yalnız kategoriler gerçekten değiştiğinde ilerletir; böylece bir backfill tüm Trodo zenginleştirmelerini yeniden göndermez.
+
+Aktarılmayan değişiklikler: yerelde silinen zenginleştirmeler canlıda kalır; `complete`/`partial`'dan başka bir duruma düşen iş paketten çıkar ama canlıdaki satırı değişmez.
 
 ### Tarayıcı bağlantısı
 
@@ -204,8 +271,8 @@ Komutlar:
 - node --env-file=.env.local --import tsx scripts/enrichment-categories.ts import-tree artifacts/trodo-categories/tree-20261007.json
 - node --env-file=.env.local --import tsx scripts/localize-categories.ts
 - node --env-file=.env.local --import tsx scripts/enrichment-categories.ts backfill
-- node --env-file=.env.local --import tsx scripts/category-images.ts
-- node --env-file=.env.local --import tsx scripts/category-images.ts status
+- node --env-file=.env.local --conditions=react-server --import tsx scripts/category-images.ts
+- node --env-file=.env.local --conditions=react-server --import tsx scripts/category-images.ts status
 
 Görsel köprüsü yalnızca 127.0.0.1:4319 üzerinde çalışır. Ürettiği
 .local/enrichment/category-image-start.js dosyası gizli, geçici erişim anahtarı içerir;
@@ -228,7 +295,7 @@ mobilde iki sütun bulunur; tüm kategori verileri DB'den okunur.
 
 Katalog sidebar'ı kategori ağacı, çoklu üretici seçimi, kategoriye ait teknik filtreler, marka sınıfı ve stok durumunu gösterir. Teknik filtreler doğrulanmış enrichment kayıtlarından çıkarılır; EAN ve ölçü gibi yüksek çeşitliliğe sahip alanlar sidebar'a taşınmaz. Seçimler URL'de tutulur (`brands` JSON dizisi, `attributes` JSON nesnesi, `availability=in_stock|out_of_stock`); aynı gruptaki değerler OR, farklı gruplar AND ile eşleşir. Seçili filtreler mevcut seçenek listesini ortadan kaldırmaz.
 
-Kartlar grid/list görünümü, ilk dört teknik özellik ve genişletme, marka logosu, gerçek fiyat/stok, adet seçimi ve üç ürüne kadar karşılaştırma içerir. Fiyatı veya stoku güncel olmayan ürünler satın alınabilir gösterilmez. Bilinmeyen stok, “Stokta yok” filtresine dahil edilmez. OEM alternatifinden alınan teknik bilgiler kullanılabilir; alternatifin EAN, üretici, üretici parça numarası, ticari numaraları ve marka sınıfı kart kimliğine aktarılmaz. Marka sınıfı filtresi yalnızca birebir parça eşleşmelerini kullanır.
+Kartlar grid/list görünümü, ilk dört teknik özellik ve genişletme, marka logosu, gerçek fiyat/stok, adet seçimi ve üç ürüne kadar karşılaştırma içerir. Fiyatı veya stoku güncel olmayan ürünler satın alınabilir gösterilmez. Bilinmeyen stok, “Stokta yok” filtresine dahil edilmez. OEM alternatifinden alınan teknik bilgiler kullanılabilir; alternatifin EAN, üretici, üretici parça numarası, ticari numaraları ve marka sınıfı kart kimliğine aktarılmaz. Marka sınıfı filtresi yalnızca birebir parça eşleşmelerini kullanır. Yöneticinin ürün sayfasında elle düzenlediği, eklediği veya gizlediği teknik özellikler (#603, `product_override_specs`) kartlarda, süzgeç seçeneklerinde ve öznitelik süzgecinde otomatik değerin önüne geçer.
 
 Kontroller:
 - `node --import tsx --test scripts/test-catalog-filters.ts`
@@ -254,7 +321,7 @@ Trodo kapsamı `products` tablosundaki, başka ürüne yönlendirilmemiş ana ü
 
 Mevcut koşular `product_id` ile ilişkilendirilir. Başlangıçta gereksiz bekleyen tekrarlar ve kapsam dışı teklifler `skipped` olur; eski sonuçlar, checkpoint ve kaynak önbelleği silinmez. Durdur/devam komutu aynıdır: `npm run enrichment:continue -- 4318 1000 --chrome`. Yeni partiler her ana ürünü bir kez seçer. Eski `product_enrichment_jobs` tablosu tedarikçi düzeyindeki geçmişi saklar; operasyonun toplam/kalan sayacı olarak kullanılmaz.
 
-`/yonetim/urun-verileri` görünümü doğrudan okumaz: `db/enrichment-states.sql` her ana ürün için `enrichment_product_catalog` satırının materyalize hâlini `enrichment_product_states` tablosunda tutar (durum, temsilci tedarikçi satırı, OEM/araç/özellik sayıları, sıralama anahtarı). `products`, `product_sources`, `supplier_items` (kod, ürün verisi, varlık), `product_enrichment_jobs` ve `product_enrichments` üzerindeki trigger'lar etkilenen ürün kimliklerini `enrichment_product_state_queue` kuyruğuna yazar; `brands`/`supplier_brands` eşleme değişikliği tam yeniden kurma işareti bırakır. Sayfa her okumadan önce `enrichment_product_states_sync()` ile kuyruğu boşaltır: küçük kuyruk nokta nokta yenilenir, 20 binden büyük kuyruk veya işaret tüm tabloyu yeniden kurar (yerelde ~5 sn; görünüm için nested loop kapatılır, aksi hâlde dakikalar sürer). `npm run db:setup` ve `npm run enrichment:prepare` şemayı uygular; ilk kurulumda `db:setup` şema işleminden sonra bir senkron koşar. `npm run enrichment:states` tam yeniden kurar (`sync` argümanı yalnız kuyruğu boşaltır).
+`/yonetim/urun-verileri` görünümü doğrudan okumaz: `db/enrichment-states.sql` her ana ürün için `enrichment_product_catalog` satırının materyalize hâlini `enrichment_product_states` tablosunda tutar (durum, temsilci tedarikçi satırı, OEM/araç/özellik sayıları, sıralama anahtarı). `products`, `product_sources`, `supplier_items` (kod, ürün verisi, varlık), `product_enrichment_jobs` ve `product_enrichments` üzerindeki trigger'lar etkilenen ürün kimliklerini `enrichment_product_state_queue` kuyruğuna yazar; `brands`/`supplier_brands` eşleme değişikliği tam yeniden kurma işareti bırakır. Sayfa her okumadan önce `enrichment_product_states_sync()` ile kuyruğu boşaltır: küçük kuyruk nokta nokta yenilenir, 20 binden büyük kuyruk veya işaret tüm tabloyu yeniden kurar (yerelde ~5 sn; görünüm için nested loop kapatılır, aksi hâlde dakikalar sürer). `npm run db:setup` ve `npm run enrichment:prepare` şemayı uygular; ilk kurulumda `db:setup` şema işleminden sonra bir senkron koşar. `npm run enrichment:states` tam yeniden kurar (`sync` argümanı yalnız kuyruğu boşaltır). Sayfadaki arama (#617) üç indeksli kimlik kümesinin birleşimidir: mağazayla aynı tedarikçi satırı eşleşmesi (`db/search.sql`), üretici parça numarası (`db/enrichment-search.sql` içindeki kısmi `enrichment_product_states_part_number_search_idx`) ve yalnız zenginleştirilmiş satırlarda OEM numaraları (`product_enrichments_oem_search_idx`); her küme birincil anahtardan okunur. `search_compact` değişirse bu indeks de `REINDEX INDEX enrichment_product_states_part_number_search_idx` ile yeniden kurulur.
 
 `/yonetim/urun-verileri` kapsamı, durumları, zenginleştirme metrikleri ve son 24 saat hızını tekil ana ürünlerle hesaplar. Katalog turu hızı kartı süreç içinde bir dakika önbelleklenir. Parti kartı atlanan teklifleri ayrıca gösterir. Yerel şema geçişi için işçi önce SIGTERM ile durdurulur, `npm run enrichment:prepare` uygulanır ve aynı devam komutu yeniden başlatılır. Bu işlem deploy değildir; production şeması yalnız ayrıca istenen manuel yayın kapsamında uygulanır.
 

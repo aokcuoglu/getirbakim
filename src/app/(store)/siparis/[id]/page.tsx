@@ -1,4 +1,6 @@
-import { currentOrder } from "@/modules/store/order-read";
+import type { Metadata } from "next";
+import { privatePageRobots } from "@/modules/seo/crawlers";
+import { currentOrder, orderRefundedKurus } from "@/modules/store/order-read";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
@@ -7,6 +9,7 @@ import { orderStatus, paymentStatus } from "@/modules/store/orders";
 import { paymentsEnabled, reconcileOrderPayments } from "@/modules/payments/checkout";
 import { PaymentWatcher } from "@/components/payment-watcher";
 import { PayButton } from "@/components/pay-button";
+import { CancelOrderButton } from "@/components/cancel-order-button";
 import { paymentErrors } from "@/modules/payments/messages";
 import { currentAccount } from "@/modules/auth/session";
 import { orderReturns } from "@/modules/admin/data";
@@ -20,6 +23,8 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
 import { returnReasonLabels, returnReasons, type ReturnReason } from "@/modules/store/returns";
+import { carrierLabel } from "@/modules/store/shipment";
+import { catalogPath } from "@/modules/seo/paths";
 
 const eyebrow="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]";
 const title="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]";
@@ -32,8 +37,17 @@ const panelText="text-[13px] leading-[1.7]";
 const panelMuted="text-[13px] leading-[1.7] text-muted-foreground";
 const cta="h-auto min-h-12 gap-2.5 rounded-lg border-primary px-[27px] py-[13px] text-sm leading-5 font-medium hover:bg-brand-strong";
 
+// Outcomes of the customer cancel action (#607); "tamam" needs none, the order's own notice says it.
+const cancelMessages:Record<string,{text:string;error:boolean}>={
+  odendi:{text:"Ödemen bu sırada alındı, bu yüzden sipariş iptal edilmedi. Yine de vazgeçmek istersen aşağıdan iptal edebilirsin; ödemen iade edilir.",error:false},
+  dogrulanamadi:{text:"Ödeme durumunu şu anda doğrulayamadık; sipariş iptal edilmedi. Birkaç dakika sonra yeniden dene.",error:true},
+  kapali:{text:"Bu sipariş artık buradan iptal edilemiyor. Onaylanmış ya da kargoya verilmiş siparişler için bizimle iletişime geç.",error:true},
+  hata:{text:"İptal işlemi tamamlanamadı. Yeniden dene.",error:true},
+};
+
 const time=(value:Date)=>new Date(value).toLocaleString("tr-TR",{timeZone:"Europe/Istanbul"});
 
+export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Order({params,searchParams}:{params:Promise<{id:string}>;searchParams:Promise<SearchParams>}) {
   const [{id},query]=await Promise.all([params,searchParams.then(normalizeSearchParams)]);
   let result=await currentOrder(id);
@@ -43,29 +57,51 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     try { await reconcileOrderPayments(id,{minIntervalSeconds:5}); result=await currentOrder(id) ?? result; }
     catch(error) { console.error("Order page payment reconciliation failed",{id,error:error instanceof Error ? error.message : error}); }
   }
-  const {order,items}=result;
+  const {order,items,agreement,mine}=result;
   const account=await currentAccount();
   const admin=Boolean(account?.approved && account.role==="admin");
   const returns=admin ? await orderReturns(order.id) : [];
+  const refundedKurus=order.payment_status==="refunded" && order.refunded_at ? await orderRefundedKurus(order.id) ?? Number(order.total_kurus) : 0;
   const snapshotOrder=items.some(item=>item.pricing_snapshot?.checkout_mode==="snapshot");
   const awaiting=order.status==="awaiting_payment" && order.payment_status==="awaiting";
+  // Only the order's own customer cancels, and only before operations confirm it (#607).
+  const pendingCancel=mine && order.status==="pending" && ["paid","none"].includes(order.payment_status);
+  const awaitingCancel=mine && awaiting;
+  const total=money(Number(order.total_kurus));
+  const cancelButton=(expected:"awaiting_payment"|"pending")=><CancelOrderButton orderId={order.id} number={order.number} expected={expected} total={total} paid={order.payment_status==="paid"}/>;
   const returned=query.odeme==="sonuc",created=query.odeme==="yeni";
-  const notice=order.payment_status==="paid"
+  const shipment=order.status==="shipped" || order.status==="delivered";
+  // Shipment outranks the payment notes: shipped and delivered orders are paid (or legacy offline) orders.
+  const notice=order.status==="delivered" ? "Siparişin teslim edildi."
+    : order.status==="shipped" ? `Siparişin kargoya verildi.${order.tracking_no ? " Kargo takibi bölümünden izleyebilirsin." : ""}`
+    : order.payment_status==="paid"
     ? (order.status==="pending" ? "Ödemen alındı. Tedarikçi stok teyidinden sonra siparişin hazırlanacak; stok teyit edilemezse ödemen iade edilir." : `Ödemen alındı. Sipariş durumu: ${orderStatus[order.status]}.`)
     : awaiting ? (returned ? "Ödemen henüz doğrulanmadı. Kart işlemi tamamlanmadıysa yeniden deneyebilirsin; tamamladıysan birkaç dakika içinde güncellenecek."
       : created ? "Siparişin oluşturuldu. Kartla ödemek için aşağıdaki butona bas; TAMI güvenli ödeme penceresi bu sayfanın üzerinde açılır." : "Siparişin oluşturuldu, ödemen bekleniyor.")
     : order.payment_status==="expired" ? "Ödeme süresi içinde tamamlanmadığı için sipariş iptal edildi. Kartından tahsilat yapılmadı."
+    : order.payment_status==="refund_required" && order.cancelled_by==="customer" ? "Siparişini iptal ettin. Ödemenin iadesini ekibimiz başlatacak; tamamlandığında bu sayfada görünür."
+    : order.payment_status==="cancelled" ? "Siparişini iptal ettin. Kartından tahsilat yapılmadı."
     : order.payment_status==="refund_required" ? "Sipariş iptal edildi. Ödemenin iadesi başlatılacak."
-    : order.payment_status==="refunded" ? "Sipariş iptal edildi ve ödemen iade edildi. İadenin kartına yansıması bankana göre birkaç iş günü sürebilir."
+    : order.payment_status==="refunded" ? (order.refunded_at
+      ? `Sipariş iptal edildi; ${money(refundedKurus)} tutarındaki ödemen ${new Date(order.refunded_at).toLocaleDateString("tr-TR",{timeZone:"Europe/Istanbul"})} tarihinde iade edildi. Kartına yansıması bankana göre birkaç iş günü sürebilir.`
+      : "Sipariş iptal edildi ve ödemen iade edildi. İadenin kartına yansıması bankana göre birkaç iş günü sürebilir.")
     : order.status==="pending" ? "Sipariş kaydın oluşturuldu. Fiyat, stok ve sevkiyat teyidi için iletişime geçilecektir. Ödeme alınmadı." : `Sipariş durumu: ${orderStatus[order.status]}.`;
   const error=query.odeme ? paymentErrors[query.odeme] ?? null : null;
+  // An order already cancelled (expiry, operations) needs no "cannot cancel" message: its notice explains it.
+  // "odendi" invites a cancel from the button below, so it shows only while that button does.
+  const hiddenCancelMessage=(query.iptal==="kapali" && order.status==="cancelled") || (query.iptal==="odendi" && !pendingCancel && !awaitingCancel);
+  const cancelMessage=query.iptal && !hiddenCancelMessage ? cancelMessages[query.iptal] ?? null : null;
   return <section className="mx-auto min-h-[55vh] w-full max-w-[1280px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10"><p className={eyebrow}>SİPARİŞ #{order.number}</p><h1 className={title}>{orderStatus[order.status]}</h1>
     {error && <Alert className={errorBox}>{error}</Alert>}
     {admin && query.iade==="kaydedildi" && <Alert role="status" className={noticeBox}>İade kaydedildi.</Alert>}
-    {admin && query.iade==="hata" && <Alert className={errorBox}>İade kaydedilemedi: sipariş sevk edilmemiş ya da adet sipariş edilenden fazla.</Alert>}
+    {admin && query.iade==="hata" && <Alert className={errorBox}>İade kaydedilemedi: sipariş sevk ya da teslim edilmemiş veya adet sipariş edilenden fazla.</Alert>}
+    {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cancelMessage.error ? errorBox : noticeBox}>{cancelMessage.text}</Alert>}
     <Alert role="status" className={noticeBox}>{notice}</Alert>
-    {awaiting && paymentsEnabled() && <Card className={cn(panel,"mt-3 gap-3 ring-0")}><PayButton orderId={order.id} total={money(Number(order.total_kurus))}>{order.payment_due_at && <small className="text-sm leading-[22px] text-muted-foreground">Son ödeme zamanı: {time(order.payment_due_at)}</small>}</PayButton>
+    {pendingCancel && <div className="mt-3 flex flex-wrap items-center gap-3"><p className={muted}>Siparişin henüz onaylanmadı; istersen iptal edebilirsin.</p>{cancelButton("pending")}</div>}
+    {awaitingCancel && !paymentsEnabled() && <div className="mt-3">{cancelButton("awaiting_payment")}</div>}
+    {awaiting && paymentsEnabled() && <Card className={cn(panel,"mt-3 gap-3 ring-0")}><PayButton orderId={order.id} total={total}>{order.payment_due_at && <small className="text-sm leading-[22px] text-muted-foreground">Son ödeme zamanı: {time(order.payment_due_at)}</small>}</PayButton>
       <p className={panelMuted}>Ödeme TAMI’nin güvenli penceresinde alınır; site arkada açık kalır. Ödeme tamamlanınca bu sayfa kendiliğinden güncellenir. Hata alırsan pencereyi kapatıp yeniden dene; sepetin ve siparişin korunur.</p>
+      {awaitingCancel && <div>{cancelButton("awaiting_payment")}</div>}
       <PaymentWatcher orderId={order.id} state={`${order.status}:${order.payment_status}`}/></Card>}
     {snapshotOrder && <p className={muted}>Bu sipariş Başbuğ’un kayıtlı fiyat ve stok verileriyle oluşturuldu. Sipariş anında canlı API doğrulaması yapılmadı.</p>}
     <p className={muted}>{time(order.created_at)} · %{order.discount_percent} servis indirimi · Ödeme: {paymentStatus[order.payment_status]}{order.paid_at ? ` (${time(order.paid_at)})` : ""}</p>
@@ -73,13 +109,21 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
         {(()=>{ const vehicle=parseGarageVehicle(p.vehicle); return vehicle && <p className={panelMuted}>Araç: {garageVehicleLabel(vehicle)}</p>; })()}
         {admin && p.fitment_level && <p className={panelMuted}>Uyumluluk (sipariş anında): {fitmentLevelLabels[p.fitment_level]}</p>}
         {admin && returns.filter(r=>r.product_id===p.product_id).map(r=><p key={r.id} className={panelMuted}>İade: {r.quantity} adet · {returnReasonLabels[r.reason as ReturnReason] ?? r.reason}{r.note ? ` · ${r.note}` : ""} · {time(r.created_at)}</p>)}
-        {admin && order.status==="shipped" && <form action={recordReturn} className="mt-3 flex flex-wrap items-end gap-2.5"><input type="hidden" name="orderId" value={order.id}/><input type="hidden" name="productId" value={p.product_id}/>
+        {admin && shipment && <form action={recordReturn} className="mt-3 flex flex-wrap items-end gap-2.5"><input type="hidden" name="orderId" value={order.id}/><input type="hidden" name="productId" value={p.product_id}/>
           <Input className="h-10 w-[85px] bg-white" name="quantity" type="number" min={1} max={p.quantity} defaultValue={1} aria-label="İade adedi" required/>
           <NativeSelect className="[&>select]:h-10 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
           <Input className="h-10 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className="h-10 px-4 hover:bg-brand-strong">İade kaydet</Button></form>}
       </div><strong className="shrink-0 font-semibold">{money(Number(p.unit_price_kurus)*p.quantity)}</strong></div>)}
       <p className={panelText}>Ürün toplamı: {money(Number(order.subtotal_kurus))}</p><p className={panelText}>Kargo: {Number(order.shipping_kurus) ? money(Number(order.shipping_kurus)) : order.payment_status==="none" ? "Teyitte belirlenir" : "Ücretsiz"}</p>
       <h3 className="mt-[18px] mb-3 text-[21px] leading-[29px] font-semibold">Toplam: {money(Number(order.total_kurus))}</h3><p className={panelMuted}>KDV dahil.</p>
-    </article><article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Teslimat bilgileri</h2><p className={panelText}>{order.customer_name}</p><p className={panelText}>{order.email} · {order.phone}</p><p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>{order.address}</p>{order.note && <p className={panelText}>Not: {order.note}</p>}</article></div><Button nativeButton={false} className={cta} render={<Link href="/katalog"/>}>Kataloğa dön →</Button>
+    </article><div className="min-w-0">{shipment && <article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Kargo takibi</h2>
+        {order.carrier ? <><p className={panelText}>{carrierLabel(order.carrier,order.carrier_name)}</p>{order.tracking_no && <p className={cn(panelText,"wrap-anywhere")}>Takip no: <strong className="font-semibold">{order.tracking_no}</strong></p>}
+          {order.tracking_url ? <a href={order.tracking_url} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 font-medium text-primary hover:underline">Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span><span aria-hidden>→</span></a>
+            : <p className={panelMuted}>Takip numarasıyla kargo firmasının sitesinden sorgulayabilirsin.</p>}</>
+          : <p className={panelMuted}>{order.status==="delivered" ? "Bu sipariş için kargo bilgisi kayıtlı değil." : "Kargo bilgisi henüz eklenmedi."}</p>}
+        {order.shipped_at && <p className={panelMuted}>Kargoya veriliş: {time(order.shipped_at)}</p>}
+        {order.delivered_at && <p className={panelMuted}>Teslim: {time(order.delivered_at)}</p>}</article>}
+      <article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Teslimat bilgileri</h2><p className={panelText}>{order.customer_name}</p><p className={panelText}>{order.email} · {order.phone}</p><p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>{order.address}</p>{order.note && <p className={panelText}>Not: {order.note}</p>}</article>
+      {agreement && <article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Sözleşmeler</h2><p className={panelText}>Ön bilgilendirme formunu ve mesafeli satış sözleşmesini {time(agreement.accepted_at)} tarihinde onayladın.</p><Link href={`/siparis/${order.id}/sozlesme`} className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 font-medium text-primary hover:underline">Sözleşme kopyasını görüntüle<span aria-hidden>→</span></Link></article>}</div></div><Button nativeButton={false} className={cta} render={<Link href={catalogPath}/>}>Kataloğa dön →</Button>
   </section>;
 }

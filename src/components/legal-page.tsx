@@ -3,6 +3,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, pageTrail } from "@/modules/seo/structured-data";
+import { pageMetadata, siteUrl } from "@/lib/site";
 import { legalDocument, legalLinks, legalTitle, type LegalNode } from "@/content/legal";
 
 // Render only semantic text and links from the reviewed local content.
@@ -22,23 +25,31 @@ function renderNode(node: LegalNode, key: number): React.ReactNode {
   return createElement(node.tag, { key }, ...children);
 }
 
+/** Renders stored legal blocks (site pages and per-order contract copies) with the same safe tag set. */
+export function LegalBlocks({ blocks }: { blocks: LegalNode[] }) {
+  return <>{blocks.map(renderNode)}</>;
+}
+
+/** Body typography of legal texts (16px, docs/legal-content.md); shared by the order contract copy. */
+export const legalBodyClass = "[&_li]:text-base [&_li]:leading-[1.9] [&_li]:text-[#546371] [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:mb-3 [&_p]:text-base [&_p]:leading-[1.9] [&_p]:text-[#546371] [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6";
+/** Bordered card and section heading of legal pages. */
+export const legalCardClass = "rounded-md border border-border p-[22px] max-[600px]:p-[18px]";
+export const legalHeadingClass = "m-0 mb-3.5 text-[19px] leading-[1.5] font-semibold";
+
 export function legalMetadata(slug: string): Metadata {
   const page = legalDocument(slug);
   if (!page) notFound();
-  return {
-    title: `${legalTitle(slug)} | Getirbakim`,
-    description: page.description,
-    alternates: { canonical: `/${slug}` },
-  };
+  return pageMetadata({ title: legalTitle(slug) ?? page.title, description: page.description, path: `/${slug}` });
 }
 
 export function LegalPage({ slug }: { slug: string }) {
   const page = legalDocument(slug);
   if (!page) notFound();
   const box = "rounded-md border border-border bg-[#f7f9fb] p-[22px] max-[600px]:p-[18px]";
-  const card = "rounded-md border border-border p-[22px] max-[600px]:p-[18px]";
-  const heading = "m-0 mb-3.5 text-[19px] leading-[1.5] font-semibold";
+  const card = legalCardClass;
+  const heading = legalHeadingClass;
   return <section className="mx-auto min-h-[55vh] w-full max-w-[1200px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10 [&_a:not([data-back])]:text-primary [&_a:not([data-back])]:underline [&_a:not([data-back])]:underline-offset-3 [&_a:not([data-back])]:wrap-anywhere">
+    <JsonLd data={breadcrumbJsonLd(pageTrail(legalTitle(slug) ?? page.title, `/${slug}`), siteUrl)}/>
     <Link data-back href="/" className="mb-[25px] block w-fit text-xs leading-5 text-muted-foreground hover:text-primary">← Ana sayfa</Link>
     <div className="mb-8 max-w-[780px] max-[600px]:mb-6">
       <p className="mb-2 block text-base leading-[1.8] font-medium tracking-[1.2px] text-muted-foreground">GETİRBAKİM / KURUMSAL BİLGİLER</p>
@@ -47,7 +58,7 @@ export function LegalPage({ slug }: { slug: string }) {
       <p className="mt-4 text-xs leading-[1.8] text-muted-foreground">Son güncelleme: <time dateTime={page.updatedAt}>{page.updatedAt}</time></p>
     </div>
     <div className="grid grid-cols-[minmax(0,1fr)_310px] items-start gap-12 max-[850px]:grid-cols-1 max-[850px]:gap-6 max-[600px]:gap-4">
-      <div className="[&_li]:text-base [&_li]:leading-[1.9] [&_li]:text-[#546371] [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:mb-3 [&_p]:text-base [&_p]:leading-[1.9] [&_p]:text-[#546371] [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6">
+      <div className={legalBodyClass}>
         {page.sections.map((section, index) => <article key={index} id={`bolum-${index + 1}`} className={cn("mb-8 scroll-mt-6", section.title === "Kapsam ve Bilgilendirme" && box)}>
           <h2 className={cn(heading, "max-[600px]:text-lg")}>{section.title}</h2>
           {section.blocks.map(renderNode)}

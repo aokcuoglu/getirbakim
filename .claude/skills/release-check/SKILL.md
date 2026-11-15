@@ -9,6 +9,7 @@ Politika: `docs/development-workflow.md` → "`main` sürümleri ve Git tag'leri
 - `git fetch origin --tags`; son sürüm `git describe --tags --abbrev=0 origin/main`; `package.json` sürümü.
 - Kapsam: `git log --first-parent --format='%h %s' origin/main..origin/dev` ve merge edilen PR'lar (`gh pr list --state merged --base dev --search "merged:>=<son sürüm tarihi>" --json number,title,labels`).
 - Etki: herhangi bir `feat` / `release:minor` → MINOR; yalnız `fix`/`perf` → PATCH; MAJOR yalnız kullanıcı isterse. Salt docs/CI tek başına sürüm gerektirmez.
+- Araç yağı verisi: `git diff --quiet <son-tag> origin/dev -- data/vehicle_type_oil_specs.csv scripts/import-vehicle-oils.ts` (çıkış 1 = değişti). `release-aws` / `db:setup` bu CSV'yi içe aktarmaz; değiştiyse kullanıcıya bildir, CHANGELOG sürüm bölümünün "Deploy and operations" kısmına ve release PR gövdesine ekle (aşağıdaki 4. adım komutuyla).
 - `CHANGELOG.md` en üst bölümünü oku (biçimi koru).
 
 ## 2. Öneri ve ONAY
@@ -25,3 +26,14 @@ Kullanıcıya göster: mevcut sürüm → önerilen `vX.Y.Z`, PR listesi (tür v
 
 ## 4. Production yayını — AYRI adım
 `main` merge'i deploy etmez. Yayını yalnız kullanıcı ayrıca ve açıkça isterse yap: `gh workflow run release-aws.yml --ref main`, GitHub `production` ortam onayını kullanıcıya bırak, `gh run watch` ile izle, sonucu ve smoke testleri (`https://getirbakim.com` ana sayfa, arama, `/api/health/suppliers`) bildir. Deploy workflow'larını değiştirme; Contabo workflow'larını etkinleştirme.
+
+### Araç yağı verisi AWS'ye ayrıca aktarılır
+Sürümde `data/vehicle_type_oil_specs.csv` (veya `scripts/import-vehicle-oils.ts`) değiştiyse, `release-aws` bittikten sonra kullanıcıya hatırlat: operations imajı (`COPY . .`) CSV'yi taşır ama içe aktarma otomatik koşmaz. İdempotent görev (DB'ye yazar; yalnız kullanıcı onayıyla), `scripts/sync-storefront-production.ts`'in `ecs run-task` biçimiyle, operations görev tanımı ve ağ ayarları App/Network yığın çıktılarından alınarak:
+
+```
+aws ecs run-task --cluster <App.ClusterName> --task-definition <App.OperationsTaskFamily> --launch-type FARGATE --count 1 \
+  --network-configuration '{"awsvpcConfiguration":{"subnets":[<Network.PrivateSubnetIds>],"securityGroups":["<Network.OperationsSecurityGroupId>"],"assignPublicIp":"DISABLED"}}' \
+  --overrides '{"containerOverrides":[{"name":"<App.OperationsContainerName>","command":["node","--import","tsx","scripts/import-vehicle-oils.ts"]}]}'
+```
+
+(`npm run db:vehicle-oils` yerel `.env.local`'e yazar; AWS için kullanılmaz.) Bunun için `production-task.sh` alt komutu yoktur (o betik eski Contabo/compose yoludur) ve sürüm sürecine bağlı otomatik bir adım tanımlı değildir: AWS'de yerleşik çalıştırma yolu açık iş olarak kalır (#565).

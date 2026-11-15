@@ -23,8 +23,13 @@ export const matchLabels: Record<string, string> = { oem_reference: "OEM referan
 /** The source that wrote a product's data, from its source URL. */
 export const dataSource = (url: string | null) => url ? (Object.keys(sourceHosts) as SourceKey[]).find(key => sourceHosts[key] === new URL(url).hostname) ?? null : null;
 export const sourceNames = (keys: SourceKey[]) => keys.map(key => sourceLabels[key].name).join(", ");
-export const gapText = (row: { status: string; source_method: string | null; image_id: string | null }) =>
-  row.status === "partial" ? partialGaps(row.source_method, Boolean(row.image_id)).map(gap => gapLabels[gap]).join(" · ") : "";
+/**
+ * What a partial record lacks, counting the image the store shows (#596). An admin upload that stands in for a missing
+ * automatic image is named, so a record whose only gap was the image does not read as "nothing missing".
+ */
+export const gapText = (row: { status: string; source_method: string | null; image_id: string | null; image_shown: boolean; image_uploaded: boolean }) =>
+  row.status === "partial" ? [...partialGaps(row.source_method, row.image_shown).map(gap => gapLabels[gap]),
+    ...(row.image_uploaded && !row.image_id ? ["Görseli yönetici yükledi"] : [])].join(" · ") : "";
 /** The dashboard's two views: the product records list and the sources overview. */
 export const dashboardTabs = ["records", "sources"] as const;
 export type DashboardTab = typeof dashboardTabs[number];

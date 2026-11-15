@@ -15,8 +15,9 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { productIdPath } from "@/modules/seo/product-id";
 
-export const metadata = { title: "Stok bildirimleri | Getirbakim" };
+export const metadata = { title: "Stok bildirimleri" };
 const tabs: { key: RestockTab; label: string }[] = [{ key: "pending", label: "Bekleyen" }, { key: "notified", label: "Bildirilen" }];
 
 // "Gelince haber ver" requests (#475). The store sends no email yet: the admin tells the shopper and marks it here.
@@ -52,7 +53,7 @@ export default async function RestockRequests({ searchParams }: { searchParams: 
           <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead>E-posta</TableHead><TableHead>{tab === "pending" ? "Talep" : "Bildirim"}</TableHead><TableHead>Durum</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
           <TableBody>{rows.map(row => <TableRow key={row.id} className="align-top">
             <TableCell className="min-w-56 whitespace-normal">
-              {row.supplier_item_id ? <Link className="font-medium underline-offset-4 hover:underline" href={`/urun/${row.supplier_item_id}`} target="_blank">{row.brand} {row.name}</Link> : <span className="font-medium">{row.brand} {row.name}</span>}
+              {row.supplier_item_id ? <Link className="font-medium underline-offset-4 hover:underline" href={productIdPath(row.supplier_item_id)} target="_blank">{row.brand} {row.name}</Link> : <span className="font-medium">{row.brand} {row.name}</span>}
               <div className="text-muted-foreground">{row.code}</div>
             </TableCell>
             <TableCell className="break-all">{row.email}</TableCell>
@@ -60,7 +61,7 @@ export default async function RestockRequests({ searchParams }: { searchParams: 
             <TableCell>
               {row.status === "notified" ? <StatusBadge tone="neutral" icon={CircleCheck}>Bildirildi</StatusBadge>
                 : row.offer_id ? <div className="flex flex-col items-start gap-1">
-                  <StatusBadge tone="success" render={<Link href={`/urun/${row.offer_id}`} target="_blank"/>}>Bildirilecek</StatusBadge>
+                  <StatusBadge tone="success" render={<Link href={productIdPath(row.offer_id)} target="_blank"/>}>Bildirilecek</StatusBadge>
                   <span className="text-muted-foreground tabular-nums">{money(row.offer_price_kurus)} · {row.offer_stock_label}</span>
                 </div>
                 : <StatusBadge tone="neutral" icon={Clock}>Tedarik bekleniyor</StatusBadge>}

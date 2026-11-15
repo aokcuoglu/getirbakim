@@ -7,9 +7,10 @@ export type DescriptionCatalogModel = { id: number; brand: string; name: string;
 export type DescriptionFitment = { status: "matched" | "no_brand" | "no_model" | "years_conflict" | "ambiguous"; how: "code" | "family" | null;
   modelIds: number[]; models: { id: number; yearFrom: number | null; yearTo: number | null }[] };
 
-const ROMAN: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8 };
-// Words after the model family that name a body style or generation, not another model.
-const BODY = new Set(["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "VAN", "CONVERTIBLE", "COUPE", "CABRIO", "CABRIOLET", "ESTATE", "HATCHBACK",
+export const ROMAN: Record<string, number> = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6, VII: 7, VIII: 8 };
+// Words after the model family that name a body style or generation, not another model (also read by
+// vehicle-model-groups.ts, #639).
+export const BODY = new Set(["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "VAN", "CONVERTIBLE", "COUPE", "CABRIO", "CABRIOLET", "ESTATE", "HATCHBACK",
   "SALOON", "SEDAN", "SPORTBACK", "VARIANT", "AVANT", "TOURER", "BUS", "PLATFORM/CHASSIS", "PICKUP", "MPV", "KOMBI", "BOX", "BODY/ESTATE",
   "T-MODEL", "SHOOTING", "BRAKE", "LIMOUSINE", "ROADSTER", "SPORTS", "ALL-TERRAIN", "GRAN", "COMBI", "FLATBED/CHASSIS", "CLOSED", "OFF-ROAD",
   "VEHICLE", "TOURING", "SPORTWAGON", "SW", "BREAK", "CROSSOVER", "TRUCK"]);

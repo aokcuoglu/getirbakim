@@ -9,12 +9,12 @@ import { Select } from "@/components/site/select";
 import { SiteIcon } from "@/components/site/site-icon";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { catalogPath } from "@/modules/seo/paths";
 
 type SearchBoxProps = {
   variant?: "header" | "hero" | "catalog";
   defaultQuery?: string;
   defaultMode?: "all" | "code";
-  category?: string;
   className?: string;
 };
 
@@ -62,7 +62,7 @@ function useSuggestions(query: string, mode: "all" | "code") {
   return active && result?.key === key ? result.data : null;
 }
 
-export function SearchBox({ variant = "header", defaultQuery = "", defaultMode = "all", category, className }: SearchBoxProps) {
+export function SearchBox({ variant = "header", defaultQuery = "", defaultMode = "all", className }: SearchBoxProps) {
   const [mode, setMode] = useState(defaultMode);
   const [query, setQuery] = useState(defaultQuery);
   const [open, setOpen] = useState(false);
@@ -90,7 +90,7 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
   const notice = suggestions?.vehicleScope ? `“${suggestions.vehicleScope.vehicleText}” için “${suggestions.vehicleScope.productText}”`
     : suggestions?.correctedQuery ? `“${suggestions.correctedQuery}” için öneriler` : null;
   return (
-    <form ref={form} action="/katalog" role="search" aria-label={variant === "header" ? "Site genelinde parça ara" : "Katalogda parça ara"}
+    <form ref={form} action={catalogPath} role="search" aria-label={variant === "header" ? "Site genelinde parça ara" : "Katalogda parça ara"}
       onSubmit={() => setOpen(false)}
       className={cn("relative flex min-w-0 items-center gap-0 border bg-white text-sm leading-5 transition-[border-color,box-shadow] duration-150 focus-within:border-brand focus-within:shadow-[0_0_0_3px_#0077c714]", v.form, className)}>
       <Select name="searchBy" label="Arama türü" value={mode} className={cn("shrink-0", v.select)}
@@ -104,7 +104,6 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
         value={query} onChange={event => { setQuery(event.target.value); setOpen(true); setActiveIndex(-1); }}
         onFocus={() => setOpen(true)} onBlur={() => setOpen(false)} onKeyDown={onKeyDown} minLength={2} maxLength={120}
         className={cn("w-0 min-w-0 flex-1 rounded-none border-0 bg-transparent text-sm leading-[22px] text-foreground outline-none placeholder:text-sm placeholder:text-muted-foreground focus:border-0 focus:shadow-none focus:outline-none focus-visible:outline-none", v.input)} />
-      {category && <input type="hidden" name="category" value={category} />}
       <button type="submit" aria-label="Parça ara" className={cn("grid min-h-0 shrink-0 place-items-center border-0 p-0", v.button)}><Search size={20} aria-hidden="true" /></button>
       {expanded && <div className="absolute top-[calc(100%+6px)] right-0 left-0 z-50 overflow-hidden rounded-md border border-border bg-white text-left shadow-[0_8px_24px_#212b361f]"
         // Keep focus in the input while choosing with the mouse, so blur does not close the list first.

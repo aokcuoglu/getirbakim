@@ -1,7 +1,7 @@
-import { siteUrl } from "@/lib/site";
+import { defaultSocialImage, siteDescription, siteOpenGraph, siteUrl, siteVerification } from "@/lib/site";
 import type { Metadata } from "next";
 import "./globals.css";
-export const metadata:Metadata={title:"Getirbakim | Aracın için doğru parça",metadataBase:new URL(siteUrl),verification:{google:process.env.GOOGLE_SITE_VERIFICATION},description:"Aracın için, parçadan anlayan insanların yedek parça mağazası. Bir bakalım, doğru parçayı bulalım.",openGraph:{siteName:"Getirbakim",locale:"tr_TR",type:"website",images:[{url:"/brand/social-getirbakim.png",width:1080,height:1080,alt:"Getirbakim — Bir bakalım, doğru parçayı bulalım."}]}};
+export const metadata:Metadata={title:{default:"Getirbakim | Aracın için doğru parça",template:"%s | Getirbakim"},metadataBase:new URL(siteUrl),verification:siteVerification(),description:siteDescription,openGraph:{...siteOpenGraph,images:[defaultSocialImage]},twitter:{card:"summary_large_image"}};
 // Applies the saved workspace theme before first paint on full loads of /yonetim; AdminTheme covers client navigation.
 const adminThemeScript=`try{if(location.pathname.startsWith("/yonetim"))document.documentElement.classList.toggle("dark",localStorage.getItem("gb-admin-theme")==="dark")}catch(e){}`;
 // The shared shell only: the storefront chrome lives in (store)/layout.tsx and the workspace shell in yonetim/layout.tsx.

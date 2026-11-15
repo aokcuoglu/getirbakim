@@ -58,6 +58,9 @@ export type PartnerCatalogRow = {
   code: string;
   name: string;
   brand: string;
+  /** The store brand and manufacturer part number (#602): an admin's, else the supplier's brand and code. */
+  display_brand: string;
+  display_code: string;
   category: string | null;
   oem: string;
   price_kurus: number | null;
@@ -102,7 +105,7 @@ function observedAt(row: PartnerCatalogRow) {
 }
 
 function price(row: PartnerCatalogRow, discountBps: number): PartnerPrice {
-  return resolvePartnerPrice(row.pricing_snapshot, row.price_kurus != null, discountBps);
+  return resolvePartnerPrice(row.pricing_snapshot, row.price_kurus, discountBps);
 }
 
 export function toPartnerOffer(row: PartnerCatalogRow): PartnerOffer {
@@ -135,10 +138,11 @@ export function toPartnerProduct(row: PartnerCatalogRow, options: {
     contractVersion: "1.2",
     sourceProductId: row.id,
     id: row.id,
+    // partNo stays the supplier code the partner orders by; the manufacturer number and brand are what the store shows.
     partNo: row.code,
-    manufacturerPartNumber: { value: row.code, normalized: normalizePartCode(row.code) },
+    manufacturerPartNumber: { value: row.display_code, normalized: normalizePartCode(row.display_code) },
     name: row.name,
-    brandName: row.brand,
+    brandName: row.display_brand,
     categoryName: row.category?.trim() || null,
     oemNumbers,
     references: oemNumbers.map(value => ({ type: "OEM", value, normalized: normalizePartCode(value), brand: null })),

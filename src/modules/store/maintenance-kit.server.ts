@@ -1,7 +1,9 @@
 import "server-only";
+import { shownProductName } from "./product-name";
 import { db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
-import { catalogSql, categoryProductIds, listedOnly, typeFittedIds, withBestOffers, type CatalogProduct } from "./catalog";
+import { catalogSql, categoryProductIds, notSecondaryOffer, typeFittedIds, withBestOffers, type CatalogProduct } from "./catalog";
+import { productPath } from "@/modules/seo/product-path";
 import { getCatalogProductImages, type CatalogProductImage } from "./product-enrichment";
 import { getManufacturerLogos, type ManufacturerLogo } from "./manufacturer-logos";
 import { getVehicleOilSpec, vehicleOilProductIds } from "./vehicle-oil.server";
@@ -13,6 +15,9 @@ export type KitCandidate = {
   id: string;
   /** The offer sold (a secondary supplier's row when it is cheaper); what goes into the cart. */
   offerId: string;
+  /** The product page. */
+  href: string;
+  /** The store brand and part number (#602): an admin's, else the supplier's. */
   name: string; brand: string; code: string;
   priceKurus: number; maxQuantity: number; stockLabel: string;
   image: CatalogProductImage | null; logo: ManufacturerLogo | null;
@@ -31,18 +36,18 @@ export type MaintenanceKitOptions = { slots: KitSlotOptions[]; oilSpec: VehicleO
 const perBrandLimit = 6;
 const sellable = (product: CatalogProduct) => product.available && product.price_kurus !== null && product.max_quantity > 0;
 
-/** Listed, sellable catalog rows among `ids`, priced by their best offer. */
-async function sellableProducts(ids: string[]) {
+/** Listed, sellable catalog rows among `ids`, priced by their best offer: commerce_catalog holds supplied rows only (#677). */
+export async function sellableProducts(ids: string[]) {
   if (!ids.length) return [];
-  const rows = (await db.query<CatalogProduct>(`SELECT * FROM (${catalogSql}) catalog WHERE catalog.id=ANY($2::uuid[]) AND ${listedOnly}`,
+  const rows = (await db.query<CatalogProduct>(`SELECT * FROM (${catalogSql}) catalog WHERE catalog.id=ANY($2::uuid[]) AND ${notSecondaryOffer}`,
     [storefrontCompanies(), ids])).rows;
   return (await withBestOffers(rows)).filter(sellable).sort((a, b) => a.price_kurus! - b.price_kurus! || a.code.localeCompare(b.code, "tr"));
 }
 
-/** Keeps the cheapest `perBrandLimit` rows of each brand, overall order unchanged. */
-function limitPerBrand<T extends { brand: string }>(rows: T[]) {
+/** Keeps the cheapest `perBrandLimit` rows of each brand the store shows, overall order unchanged. */
+function limitPerBrand<T extends { display_brand: string }>(rows: T[]) {
   const seen = new Map<string, number>();
-  return rows.filter(row => { const n = (seen.get(row.brand) ?? 0) + 1; seen.set(row.brand, n); return n <= perBrandLimit; });
+  return rows.filter(row => { const n = (seen.get(row.display_brand) ?? 0) + 1; seen.set(row.display_brand, n); return n <= perBrandLimit; });
 }
 
 /**
@@ -52,6 +57,12 @@ function limitPerBrand<T extends { brand: string }>(rows: T[]) {
 export async function maintenanceKitOptions(vehicleTypeId: string): Promise<MaintenanceKitOptions> {
   const [fitted, oilSpec] = await Promise.all([typeFittedIds(Number(vehicleTypeId)), getVehicleOilSpec(vehicleTypeId)]);
   const fittedSet = new Set(fitted);
+  // The supplier's code and brand of every candidate: the picture is looked up by those, not by what the store shows.
+  const sources = new Map<string, { id: string; code: string; brand: string }>();
+  const candidates = (products: CatalogProduct[], spec: VehicleOilSpec | null) => products.map(product => {
+    sources.set(product.id, { id: product.id, code: product.code, brand: product.brand });
+    return toCandidate(product, spec);
+  });
   const slots = await Promise.all(kitSlots.map(async (slot): Promise<KitSlotOptions> => {
     if (slot.key === "engineOil") {
       // Without a grade or an approval to match, any oil would be a guess.
@@ -60,15 +71,15 @@ export async function maintenanceKitOptions(vehicleTypeId: string): Promise<Main
       let ids = await vehicleOilProductIds(vehicleTypeId, new Set(filters)), oilMatch: KitSlotOptions["oilMatch"] = filters.includes("approval") ? "full" : "viscosity";
       if (!ids.length && filters.length > 1) { ids = await vehicleOilProductIds(vehicleTypeId, new Set(["viscosity"])); oilMatch = "viscosity"; }
       const products = limitPerBrand(await sellableProducts(ids));
-      return { key: slot.key, oilMatch: products.length ? oilMatch : "none", candidates: products.map(product => toCandidate(product, oilSpec)) };
+      return { key: slot.key, oilMatch: products.length ? oilMatch : "none", candidates: candidates(products, oilSpec) };
     }
     const inCategory = await categoryProductIds([], [slot.categoryId]);
     const products = limitPerBrand(await sellableProducts(inCategory.filter(id => fittedSet.has(id))));
-    return { key: slot.key, candidates: products.map(product => toCandidate(product, null)) };
+    return { key: slot.key, candidates: candidates(products, null) };
   }));
   const all = slots.flatMap(slot => slot.candidates);
   const [images, logos] = await Promise.all([
-    getCatalogProductImages(all.map(candidate => ({ id: candidate.id, code: candidate.code, brand: candidate.brand }))),
+    getCatalogProductImages([...sources.values()]),
     getManufacturerLogos([...new Set(all.map(candidate => candidate.brand))]),
   ]);
   for (const candidate of all) { candidate.image = images.get(candidate.id) ?? null; candidate.logo = logos.get(candidate.brand) ?? null; }
@@ -78,7 +89,7 @@ export async function maintenanceKitOptions(vehicleTypeId: string): Promise<Main
 function toCandidate(product: CatalogProduct, oilSpec: VehicleOilSpec | null): KitCandidate {
   const packLitres = oilSpec ? oilPackLitres(product.name) : null;
   return {
-    id: product.id, offerId: product.offer_id ?? product.id, name: product.name, brand: product.brand, code: product.code,
+    id: product.id, offerId: product.offer_id ?? product.id, href: productPath(product), name: shownProductName(product), brand: product.display_brand, code: product.display_code,
     priceKurus: product.price_kurus!, maxQuantity: Math.min(99, product.max_quantity), stockLabel: product.stock_label,
     image: null, logo: null, packLitres,
     suggestedQuantity: oilSpec?.capacityMax ? Math.min(Math.max(1, product.max_quantity), oilPackQuantity(oilSpec.capacityMax, packLitres)) : 1,
@@ -91,8 +102,8 @@ function toCandidate(product: CatalogProduct, oilSpec: VehicleOilSpec | null): K
  */
 export async function kitImageItems(productIds: string[]) {
   if (!productIds.length) return [];
-  const rows = (await db.query<{ id: string; name: string; brand: string; code: string; category_id: number | null; engine_oil: boolean }>(
-    `SELECT catalog.id::text,catalog.name,catalog.brand,catalog.code,
+  const rows = (await db.query<{ id: string; name: string; brand: string; code: string; display_brand: string; category_id: number | null; engine_oil: boolean }>(
+    `SELECT catalog.id::text,catalog.name,catalog.brand,catalog.code,catalog.display_brand,
       (SELECT pc.category_id FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
         WHERE e.supplier_item_id=catalog.id AND pc.source='trodo' AND pc.category_id=ANY($3::int[]) LIMIT 1) AS category_id,
       ((catalog.name ~* $4 OR catalog.name ~* $5) AND catalog.name !~* $6) AS engine_oil
@@ -101,6 +112,7 @@ export async function kitImageItems(productIds: string[]) {
       engineOilNameSql, plainEngineOilNameSql, notEngineOilNameSql])).rows;
   const byId = new Map(rows.map(row => [row.id, row]));
   const products = productIds.flatMap(id => byId.get(id) ?? []);
+  // Looked up by the supplier's code and brand; the store brand (#602) is only returned for display.
   const images = await getCatalogProductImages(products);
   const mediaIds = [...new Set([...images.values()].map(image => image.src.split("/").pop()!))];
   const media = mediaIds.length ? (await db.query<{ id: string; bucket: string; object_key: string; content_type: string }>(
@@ -109,6 +121,6 @@ export async function kitImageItems(productIds: string[]) {
   return products.map(product => {
     const slot = kitSlots.find(candidate => candidate.categoryId === product.category_id) ?? (product.engine_oil ? kitSlots.find(candidate => candidate.key === "engineOil")! : null);
     const image = images.get(product.id);
-    return { id: product.id, name: product.name, brand: product.brand, slot, media: image ? mediaById.get(image.src.split("/").pop()!) ?? null : null };
+    return { id: product.id, name: product.name, brand: product.display_brand, slot, media: image ? mediaById.get(image.src.split("/").pop()!) ?? null : null };
   });
 }

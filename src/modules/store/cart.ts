@@ -52,6 +52,7 @@ export async function cartFor(owner: CartOwner | null, connection: Pick<PoolClie
  // Keep removed/unpublished products visible so they can be removed, never silently ordered.
  return (await connection.query<CartItem>(`SELECT COALESCE(p.id,c.product_id) id,
  COALESCE(p.name,'Ürün artık satışta değil') name,COALESCE(p.code,'') code,COALESCE(p.brand,'') brand,
+ COALESCE(p.display_brand,'') display_brand,COALESCE(p.display_code,'') display_code,COALESCE(p.name_overridden,false) name_overridden,
  p.category,p.supplier,p.description,p.price_kurus,p.stock,p.source,p.oem,p.pricing_snapshot,
  COALESCE(p.available,false) available,COALESCE(p.max_quantity,0) max_quantity,
  COALESCE(p.stock_label,'Ürün artık satışta değil') stock_label,c.quantity,c.vehicle

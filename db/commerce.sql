@@ -14,6 +14,31 @@ CREATE TABLE IF NOT EXISTS commerce_product_pricing (
  updated_at timestamptz NOT NULL DEFAULT now(), updated_by uuid NOT NULL REFERENCES accounts(id),
  CHECK(markup_percent IS NOT NULL OR vat_percent IS NOT NULL)
 );
+-- Admin edits of the store card (#575), projected onto supplier rows by db/product-overrides.sql: the product-level
+-- product_overrides table is the source of truth; this copy exists because the catalog views below are created
+-- before the master catalog. NULL keeps the supplier's value; hidden takes the row off sale everywhere.
+CREATE TABLE IF NOT EXISTS commerce_item_overrides (
+ supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
+ -- No FK: products is created later (db/product-matching.sql).
+ product_id uuid NOT NULL,
+ name text, description text, hidden boolean NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS commerce_item_overrides_product_idx ON commerce_item_overrides(product_id);
+-- Hand-set prices (#580), VAT included, in kuruş. price_kurus replaces the formula's price; sale_price_kurus sells below
+-- it between sale_from and sale_until (a NULL end is open). Neither opens a row the formula cannot price: missing cost,
+-- rate or freshness keeps the row unpriced (commerce_catalog below).
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS price_kurus integer CHECK(price_kurus>0);
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_price_kurus integer CHECK(sale_price_kurus>0);
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_from timestamptz;
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_until timestamptz;
+-- Store brand (a master brand's name) and manufacturer part number (#602), shown as display_brand / display_code.
+-- brand and code stay the supplier's values: order lines, enrichment lookups and matching read those.
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS brand text;
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS part_number text;
+-- Supplier OEM field hidden on the store (#615): the views show an empty oem, so the product page, cards, cart,
+-- partner API and reference links drop it; storefront search skips these rows' stored OEM (src/modules/store/catalog.ts).
+-- supplier_items keeps the value: matching, enrichment and the admin's supplier searches still read it.
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS hide_oem boolean NOT NULL DEFAULT false;
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS basbug_checkout_mode text NOT NULL DEFAULT 'live'
  CHECK(basbug_checkout_mode IN ('live','snapshot'));
 -- Polymorphic catalog identifiers: store products and current supplier observations.
@@ -68,12 +93,19 @@ WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier IN ('seta','man
 AND NOT EXISTS(SELECT 1 FROM store_products p WHERE p.supplier=i.supplier AND p.code=i.code);
 CREATE OR REPLACE VIEW commerce_catalog_entries AS
 SELECT id,category,supplier,code,name,brand,description,updated_at,
- ''::text AS oem,'store'::text AS source,''::text AS company FROM store_products
+ ''::text AS oem,'store'::text AS source,''::text AS company,brand AS display_brand,code AS display_code,
+ false AS name_overridden FROM store_products
 UNION ALL
 SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
- COALESCE(NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(i.product_data->>'ac2',''),i.changed_at,COALESCE(i.product_data->>'oe',''),'supplier',i.company
-FROM commerce_supplier_items i CROSS JOIN commerce_settings s;
+ COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
+ COALESCE(ov.description,i.product_data->>'ac2',''),i.changed_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,'supplier',i.company,
+ COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,i.code),
+ -- An admin's name (#686) is shown as written; a supplier's is converted by readableProductName (#659).
+ ov.name IS NOT NULL
+FROM commerce_supplier_items i CROSS JOIN commerce_settings s
+LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
+-- Hidden by an admin (#575): not for sale anywhere.
+WHERE ov.hidden IS NOT TRUE;
 DROP INDEX IF EXISTS supplier_items_catalog_order_idx;
 -- The predicate mirrors commerce_supplier_items; a changed predicate needs a new index name.
 DROP INDEX IF EXISTS supplier_items_saleable_order_idx;
@@ -107,27 +139,55 @@ WITH latest AS (
  AND (sc.last_success_at IS NULL OR sc.last_success_at>now()-COALESCE(sc.stale_minutes,2160)*interval '1 minute'))) AS source_fresh,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 1::numeric ELSE r.rate END AS exchange_rate,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN i.last_seen_at ELSE r.completed_at END AS rate_at,
- (i.price_data->>'nf')::numeric AS cost
+ (i.price_data->>'nf')::numeric AS cost,ov.name AS override_name,ov.description AS override_description,
+ ov.price_kurus AS override_price,ov.sale_until,ov.brand AS override_brand,ov.part_number AS override_part_number,
+ ov.hide_oem AS override_hide_oem,
+ -- The campaign price only inside its window; a NULL end is open.
+ CASE WHEN (ov.sale_from IS NULL OR ov.sale_from<=now()) AND (ov.sale_until IS NULL OR now()<ov.sale_until) THEN ov.sale_price_kurus END AS sale_price,
+ -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
+ (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
+ LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
  LEFT JOIN supplier_sync_scopes sc ON sc.supplier=i.supplier AND sc.company=i.company AND sc.list_group=i.list_group AND sc.warehouse=i.warehouse
  LEFT JOIN rates r ON r.supplier=i.supplier AND r.company=i.company AND r.currency=i.product_data->>'dc'
+ WHERE ov.hidden IS NOT TRUE
+), priced AS (
+ -- The formula price (auto_price) is the only gate: an admin price never sells a row the formula cannot price.
+ SELECT *,CASE WHEN cost>0 AND exchange_rate>0
+ AND (basbug_checkout_mode='snapshot' OR ((supplier='manual' OR rate_at>now()-make_interval(hours=>max_age_hours)) AND source_fresh))
+ AND round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647
+ THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer ELSE NULL END AS auto_price
+ FROM supplier_prices
+), sold AS (
+ -- These CTEs are inlined, so each column below is its expression wherever it is used: auto_price is evaluated in
+ -- CASE branches only, the formula's branch first, so a row without an admin price computes it exactly once (as
+ -- before #580). Rows with one recompute it a few times. A campaign at or above the regular price is ignored.
+ SELECT *,CASE WHEN NOT admin_priced THEN NULL WHEN auto_price IS NOT NULL THEN COALESCE(override_price,auto_price) END AS regular_price
+ FROM priced
+), final AS (
+ SELECT *,CASE WHEN NOT admin_priced THEN auto_price WHEN sale_price<regular_price THEN sale_price ELSE regular_price END AS final_price,
+ CASE WHEN NOT admin_priced THEN false ELSE COALESCE(regular_price IS NOT NULL AND sale_price<regular_price,false) END AS on_sale,
+ CASE WHEN NOT admin_priced THEN false ELSE regular_price IS NOT NULL AND (override_price IS NOT NULL OR COALESCE(sale_price<regular_price,false)) END AS overridden,
+ jsonb_build_object('source','supplier','nf',cost,'currency',product_data->>'dc','exchange_rate',exchange_rate,
+ 'rate_at',rate_at,'markup_percent',markup_percent,'vat_percent',vat_percent,'stock',stock_data,'observed_at',last_seen_at,
+ 'checkout_mode',basbug_checkout_mode,'source_fresh',source_fresh,'company',company,'list_group',list_group,'warehouse',warehouse,
+ 'cost_kurus',round(cost*exchange_rate*100)) AS formula_snapshot
+ FROM sold
 )
 SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,
  stock>0 AS available,LEAST(stock,99) AS max_quantity,
  CASE WHEN stock>0 THEN 'Stokta mevcut: '||stock||' adet' ELSE 'Stokta yok' END AS stock_label,
- jsonb_build_object('source','store','base_price_kurus',price_kurus) AS pricing_snapshot
+ jsonb_build_object('source','store','base_price_kurus',price_kurus) AS pricing_snapshot,
+ brand AS display_brand,code AS display_code,false AS name_overridden
 FROM store_products
 UNION ALL
 SELECT id,NULLIF(product_data->>'category',''),supplier,code,
- COALESCE(NULLIF(product_data->>'ac',''),code),COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(product_data->>'ac2',''),
- CASE WHEN cost>0 AND exchange_rate>0
- AND (basbug_checkout_mode='snapshot' OR ((supplier='manual' OR rate_at>now()-make_interval(hours=>max_age_hours)) AND source_fresh))
- AND round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647
- THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer ELSE NULL END,
- NULL::integer,changed_at,COALESCE(product_data->>'oe',''),'supplier',company,
+ COALESCE(override_name,NULLIF(product_data->>'ac',''),code),COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),
+ COALESCE(override_description,product_data->>'ac2',''),
+ final_price,
+ NULL::integer,changed_at,CASE WHEN override_hide_oem THEN '' ELSE COALESCE(product_data->>'oe','') END,'supplier',company,
  (basbug_checkout_mode='snapshot' OR source_fresh) AND
  (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0),
  99,
@@ -138,10 +198,15 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  WHEN (stock_data->>'sFarkliDepo')::numeric>0 THEN 'Diğer depoda mevcut'
  WHEN (stock_data->>'sYol')::numeric>0 THEN 'Tedarikçiye sevkiyat bekleniyor'
  ELSE 'Stokta yok' END,
- jsonb_build_object('source','supplier','nf',cost,'currency',product_data->>'dc','exchange_rate',exchange_rate,
- 'rate_at',rate_at,'markup_percent',markup_percent,'vat_percent',vat_percent,'stock',stock_data,'observed_at',last_seen_at,
- 'checkout_mode',basbug_checkout_mode,'source_fresh',source_fresh,'company',company,'list_group',list_group,'warehouse',warehouse)
-FROM supplier_prices;
+ -- docs/commerce.md: price_kind fixed (the admin's price) or sale (the campaign; list_price_kurus is the price it replaces).
+ CASE WHEN NOT overridden THEN formula_snapshot ELSE formula_snapshot
+  || jsonb_build_object('source','override','price_kind',CASE WHEN on_sale THEN 'sale' ELSE 'fixed' END,'auto_price_kurus',auto_price)
+  || CASE WHEN override_price IS NOT NULL THEN jsonb_build_object('fixed_price_kurus',override_price) ELSE '{}'::jsonb END
+  || CASE WHEN on_sale THEN jsonb_build_object('list_price_kurus',regular_price,'sale_until',sale_until) ELSE '{}'::jsonb END
+ END,
+ COALESCE(override_brand,NULLIF(product_data->>'uk',''),'Belirtilmemiş'),COALESCE(override_part_number,code),
+ override_name IS NOT NULL
+FROM final;
 -- Prepaid checkout: card payment is collected on TAMI's hosted page before operations confirm the order.
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS shipping_fee_kurus integer NOT NULL DEFAULT 15000
  CHECK(shipping_fee_kurus BETWEEN 0 AND 10000000);
@@ -167,6 +232,23 @@ DO $$ BEGIN
    CHECK(status IN ('awaiting_payment','pending','confirmed','shipped','cancelled'));
  END IF;
 END $$;
+-- Shipment (#605): carrier is a code from src/modules/store/shipment.ts (validated there, no CHECK so the list can grow);
+-- carrier_name is the free name for 'other'. tracking_url is resolved when written: the admin's link, else the carrier template.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS carrier text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS carrier_name text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS tracking_no text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS tracking_url text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS shipped_at timestamptz;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivered_at timestamptz;
+-- Widens the list above once. Its result still contains 'awaiting_payment', so the two blocks never undo each other.
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND conname='commerce_orders_status_check'
+  AND pg_get_constraintdef(oid) LIKE '%delivered%') THEN
+  ALTER TABLE commerce_orders DROP CONSTRAINT IF EXISTS commerce_orders_status_check;
+  ALTER TABLE commerce_orders ADD CONSTRAINT commerce_orders_status_check
+   CHECK(status IN ('awaiting_payment','pending','confirmed','shipped','delivered','cancelled'));
+ END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS commerce_orders_payment_due_idx ON commerce_orders(payment_due_at) WHERE status='awaiting_payment';
 -- One row per hosted-page attempt. provider_order_id is the orderId sent to TAMI and must never be reused.
 CREATE TABLE IF NOT EXISTS commerce_payments (
@@ -182,6 +264,28 @@ CREATE TABLE IF NOT EXISTS commerce_payments (
 );
 CREATE INDEX IF NOT EXISTS commerce_payments_order_idx ON commerce_payments(order_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS commerce_payments_open_idx ON commerce_payments(checked_at NULLS FIRST) WHERE status IN ('initiated','pending');
+-- TAMI void/refund calls made from /yonetim (#619). One row per provider call, each with its own correlation id.
+-- A row is committed as 'requested' before TAMI is called, so a crash or a lost reply leaves evidence. 'unknown' means
+-- TAMI may have reversed the payment; it blocks a new call until a signed query or operations settles it.
+-- Full reversals only: at most one active (requested/unknown/succeeded) row per payment attempt.
+CREATE TABLE IF NOT EXISTS commerce_payment_refunds (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ payment_id uuid NOT NULL REFERENCES commerce_payments(id),
+ order_id uuid NOT NULL REFERENCES commerce_orders(id),
+ kind text NOT NULL CHECK(kind IN ('void','refund')),
+ amount_kurus bigint NOT NULL CHECK(amount_kurus>0),
+ status text NOT NULL DEFAULT 'requested' CHECK(status IN ('requested','succeeded','failed','unknown')),
+ correlation_id text NOT NULL UNIQUE,
+ bank_reference text, bank_auth_code text, provider_transaction_at text,
+ error_code text, error_message text, provider_result jsonb,
+ requested_by uuid REFERENCES accounts(id),
+ requested_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz, checked_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS commerce_payment_refunds_active_idx ON commerce_payment_refunds(payment_id)
+ WHERE status IN ('requested','unknown','succeeded');
+CREATE INDEX IF NOT EXISTS commerce_payment_refunds_order_idx ON commerce_payment_refunds(order_id,requested_at);
+-- When the order's money went back to the customer (TAMI API or a manually recorded reference).
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refunded_at timestamptz;
 -- Fitment guarantee, phase 0: measure compatibility before promising it.
 -- The garage vehicle is captured when a product is added and copied to the order line together
 -- with the compatibility level computed at checkout. No FK: orders outlive vehicle catalog reloads.
@@ -223,3 +327,44 @@ UPDATE commerce_order_items i SET reserved_quantity=CASE
 FROM commerce_orders o WHERE o.id=i.order_id AND i.reserved_quantity IS NULL;
 -- Admin list order and the dashboard's 14-day chart (a created_at range per Istanbul day).
 CREATE INDEX IF NOT EXISTS commerce_orders_created_idx ON commerce_orders(created_at DESC,id DESC);
+-- Checkout consent evidence and the order-specific pre-contract text (#604). One row per order, written in the
+-- order's transaction; orders placed before this change have none. The row is never updated (trigger below):
+-- `document` is the full Ön Bilgilendirme Formu + Mesafeli Satış Sözleşmesi as shown for that order, so later
+-- edits to the site's legal pages do not change it. Deleting the order removes it.
+CREATE TABLE IF NOT EXISTS commerce_order_agreements (
+ order_id uuid PRIMARY KEY REFERENCES commerce_orders(id) ON DELETE CASCADE,
+ accepted_at timestamptz NOT NULL DEFAULT now(),
+ ip text, forwarded_for text, user_agent text,
+ consent_text text NOT NULL, legal_version text NOT NULL,
+ document jsonb NOT NULL CHECK(jsonb_typeof(document)='object')
+);
+CREATE OR REPLACE FUNCTION commerce_order_agreement_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ RAISE EXCEPTION 'commerce_order_agreements rows are immutable';
+END $$;
+CREATE OR REPLACE TRIGGER commerce_order_agreement_immutable BEFORE UPDATE ON commerce_order_agreements FOR EACH ROW EXECUTE FUNCTION commerce_order_agreement_immutable();
+-- Procurement of order lines (#606): operations mark each supplier line as ordered from the supplier (with an optional
+-- reference) and then procured. Store-stock lines (pricing_snapshot.source='store') need none and keep 'pending'.
+-- Existing lines start as 'pending'; the admin list shows no badge for shipped, delivered or cancelled orders.
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_status text NOT NULL DEFAULT 'pending'
+ CHECK(procurement_status IN ('pending','ordered','procured'));
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_ref text;
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_ordered_at timestamptz;
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procured_at timestamptz;
+ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_by uuid REFERENCES accounts(id);
+-- Customer cancellation (#607). Who cancelled and when; orders cancelled before this change keep NULL.
+-- payment_status 'cancelled': the customer cancelled before paying (not 'expired', which a late payment may revive).
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS cancelled_by text CHECK(cancelled_by IN ('customer','admin','expiry'));
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS cancelled_at timestamptz;
+-- Widens the payment_status list above once. The inline CHECK's generated name is not relied on: it is found by definition.
+DO $$ DECLARE c text; BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND contype='c'
+  AND pg_get_constraintdef(oid) LIKE '%payment_status%' AND pg_get_constraintdef(oid) LIKE '%''cancelled''%') THEN
+  FOR c IN SELECT conname FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND contype='c'
+   AND pg_get_constraintdef(oid) LIKE '%payment_status%' LOOP
+   EXECUTE format('ALTER TABLE commerce_orders DROP CONSTRAINT %I', c);
+  END LOOP;
+  ALTER TABLE commerce_orders ADD CONSTRAINT commerce_orders_payment_status_check
+   CHECK(payment_status IN ('none','awaiting','paid','expired','cancelled','refund_required','refunded'));
+ END IF;
+END $$;

@@ -38,7 +38,31 @@ Kargo için startup şirketlerle anlaşma yapılacak. **Acil B2B parça ihtiyaç
 - [ ] Search Console hesabında doğrulama, Merchant Center ve ölçüm hesabı kurulmuş.
 - [ ] Reklam, ürün ve ödeme fiyatı/stoku aynı; reklam sadece satışa hazır ürünlerde.
 
-`SITE_URL` kanonik alan adını, `GOOGLE_SITE_VERIFICATION` Search Console meta doğrulama değerini alır. Sitemap sentetik demo ürünlerini dışarıda bırakır; tedarikçi hazırlık sayfaları noindex alır. Product JSON-LD ödeme/vergi/sevk tamamlanana kadar Offer ve puan yayınlamaz; gerçek ürün fotoğrafı ve doğrulanmış Offer eklenmeden zengin ürün sonucu veya Merchant Center uygunluğu iddia edilmez. Katalog filtre/arama sayfaları canonical ve noindex kurallarıyla yönetilir.
+`SITE_URL` kanonik alan adını, `GOOGLE_SITE_VERIFICATION` Search Console, `BING_SITE_VERIFICATION` Bing Webmaster, `YANDEX_SITE_VERIFICATION` Yandex Webmaster meta doğrulama değerini alır (boşsa etiket basılmaz). Sitemap sentetik demo ürünlerini dışarıda bırakır; tedarikçi hazırlık sayfaları noindex alır. Product JSON-LD (`src/modules/seo/structured-data.ts`) Offer'ı yalnız sayfanın kendi bireysel KDV dahil fiyatı ve kesin stok durumu (stokta / "Stokta yok") varken basar; fiyatsız, tedarik edilemeyen veya stok durumu belirsiz üründe Offer yoktur, B2B fiyatı hiç girmez. İade (14 gün, ücretsiz) hukuki metinden gelir. Puan/yorum basılmaz; kargo ayrıntısı (`shippingDetails`) ücret ve teslim süresi onayını bekliyor. Ürün, liste (CollectionPage/ItemList) ve sayfa kırıntıları BreadcrumbList taşır. gerçek ürün fotoğrafı ve doğrulanmış Offer eklenmeden zengin ürün sonucu veya Merchant Center uygunluğu iddia edilmez. Katalog filtre/arama sayfaları canonical ve noindex kurallarıyla yönetilir.
+
+Ürün sayfası dizin politikası (#641, tek kaynak `src/modules/seo/indexing.ts`; site haritası aynı ölçütü SQL'de uygular ve `npm run test:sitemap` ikisini eşit tutar): tedarikçi ürünü yalnız asgari içerikle dizine açıktır; ad, marka ve parça numarası dışında en az biri gerekir: kod ve markası eşleşen zenginleştirme, tedarikçi açıklamasından çıkarılmış uyumlu araç modeli (ürünün ya da gruptaki tekliflerinin) veya yöneticinin gizlemediği tedarikçi OEM numarası. Mağaza ürünleri dizine açıktır; demo ürünleri dizine kapalıdır. Ölçüt dışı kalan sayfalar `noindex,follow` ile erişilebilir kalır ve sinyal kazanınca kendiliğinden dizine girer. Stok ölçüte girmez (30 dakikalık senkronla değişir, site haritasını çalkalar). Yerel ölçüm (2026-11-15, listelenen 773.118 tedarikçi satırı): yalnız zenginleştirme 80.207 (%10,4), zenginleştirme veya açıklamadan uyumluluk ~353 bin (%45,6), seçilen ölçüt (artı tedarikçi OEM'i) 536.560 (%69,4); hiçbir sinyali olmayan ~236,5 bin sayfa dizin dışında. Tedarik edilemeyen kart (hiçbir tedarikçi şu an satmıyor) 200 döner, "Şu an tedarik edilemiyor" yazar, `noindex,follow` alır, site haritasında yer almaz ve JSON-LD'de Offer basmaz; fiyatı olmayan ürün de Offer basmaz. Geçersiz/bilinmeyen id, yöneticinin gizlediği ve kanonik karşılığı olmayan satır gerçek 404 döner; ikincil teklif ve düşmüş mükerrer satır 307 ile birincil/kanonik sayfaya yönlenir. 410 ve "kalıcı kalkmış" tanımı henüz yok.
+
+## Adres düzeni
+
+Liste sayfalarının adresleri Türkçe ve yol tabanlıdır (#638); tek kaynak `src/modules/seo/paths.ts`. Kategori slug'ı sayısal son ekini (`fren-diskleri-269`) korur.
+
+| Sayfa | Adres | Not |
+| --- | --- | --- |
+| Tüm ürünler ve arama | `/katalog`, `/katalog?q=…` | Arama ve süzgeçli adresler `noindex,follow` |
+| Araç markaları | `/arac-markalari` | |
+| Araç markası | `/yedek-parca/<marka>` | |
+| Kategori | `/kategori/<kategori>` | |
+| Kategori × araç markası | `/kategori/<kategori>/<marka>` | |
+| Ürün | `/urun/<marka>-<ad>-<parça-no>-<id>` | #640; tek kaynak `src/modules/seo/product-path.ts` (`productPath`). Slug ASCII'dir ve yalnız okunur; ürünü sondaki 36 karakterlik kimlik bulur (`product-id.ts`). Slug boş kalırsa adres `/urun/<id>` |
+| Araç modeli | `/yedek-parca/<marka>/<model>` | #639: model ailesi + nesil (`golf-7`, `passat-b8`, `tipo-356`, `3-e90`); ürünsüz model `404`, 10 üründen azı `noindex,follow` (`minIndexableListingProducts`) |
+| Model × kategori | `/kategori/<kategori>/<marka>/<model>` | #639 sonraki dilimi için ayrıldı; model sayfasında kategori gezintisi bu yüzden kapalı |
+| Üretici | `/marka/<uretici>` | #660 için ayrıldı; bugün `/katalog?brand=` |
+
+Ürün adresleri (#640): çıplak kimlik, bayat slug ya da büyük harfli kimlik sayfada tek adımda `308` ile güncel adrese gider; ikincil teklifin kimliği (`primaryId`) doğrudan birincil ürünün slug'lı adresine `307` ile gider (eşleştirme yenilenince değişebilir, kalıcılanmaz). Sorgu dizgesi (`utm_*`, `gclid`) her iki yönlendirmede korunur. `/yonetim` bağlantıları çıplak kimlik kullanır (`productIdPath`) ve bu yönlendirmelerden geçer.
+
+Eski adresler tek adımda `301` ile taşınır (`src/proxy.ts`): `/automakers` → `/arac-markalari`, `/car-parts/<marka>` → `/yedek-parca/<marka>`, `/car-parts/<marka>?category=<k>` → `/kategori/<k>/<marka>`, `/katalog?category=<k>` → `/kategori/<k>`; diğer sorgu parametreleri korunur. Bilinmeyen kategori, marka veya model `404` döner.
+
+Model sayfası birimi (#639) bir markanın bir model ailesi ve nesli, tüm kasa tipleriyle birlikte: TecDoc'ta kasa başına ayrı seri olan `GOLF VII`, `GOLF VII Variant`, `GOLF VII Van` tek sayfa (`golf-7`). Slug kuralı ve sabitlenen adresler `src/modules/store/vehicle-model-groups.ts` ve `scripts/test-vehicle-model-groups.ts` içinde; yerel katalogda 5.767 seri 4.372 birim, slug çakışması yok. Liste model düzeyindedir: motor düzeyi uyumluluk (`storefront_model_fits`) ile tedarikçi açıklamasından okunan model (`product_model_fitments`) birleşir; sayfa bunu söyler ve motor tipine göre doğrulama için garaj seçicisini sunar. Marka sayfası ürünü olan modelleri aile → nesil listesiyle bağlar. CDN veya bakım modunda yola bağlı kural varsa yeni önekler (`/kategori/*`, `/yedek-parca/*`, `/arac-markalari`) eklenmelidir.
 
 ## Bütçe ve karar kuralı
 

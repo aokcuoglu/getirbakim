@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
-import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Empty, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { candidateNames, candidateReasons, productMatchingData, type BrandSuggestion, type CandidateNames, type CandidateReason, type Offer } from "@/modules/admin/product-matching";
 import { money } from "@/modules/store/catalog";
 import { acceptCandidates, decideCandidate, rejectCandidates, refreshMatches, splitOffer, undoSplit } from "./actions";
+import { productIdPath } from "@/modules/seo/product-id";
 
 const number = formatNumber;
 const percent = (value: number | null) => value === null ? null : `%${Math.round(value * 100)}`;
@@ -37,6 +38,8 @@ const splitMessages: Record<string, string> = {
   "1": "Ayrıldı: kayıt artık kendi ürünü olarak listeleniyor; bu çift tekrar önerilmez. Elle kararlar görünümünden geri alabilirsiniz.", undone: "Karar geri alındı; kayıt kendi ürününe döndü.",
 };
 
+const manualBadge = <StatusBadge tone="info" icon={Merge} title="Elle karar verilmiş kayıt; eşleşmeleri yenilemek yerini değiştirmez">Elle</StatusBadge>;
+
 function OfferCell({ offer }: { offer: Offer | undefined }) {
   if (!offer) return <span className="text-muted-foreground">—</span>;
   return <div className="flex min-w-0 flex-col gap-1"><span className="max-w-48 truncate font-mono" title={offer.code}>{offer.code}</span>
@@ -47,20 +50,24 @@ function OfferCell({ offer }: { offer: Offer | undefined }) {
 const suggestionEvidence = (suggestion: BrandSuggestion) => suggestion.shared_parts >= 3 && suggestion.shared_parts >= suggestion.parts / 2
   ? `${number(suggestion.shared_parts)}/${number(suggestion.parts)} parça no ortak` : `ad benzer${suggestion.shared_parts ? ` · ${number(suggestion.shared_parts)} parça no ortak` : ""}`;
 
-function EmptyState({ title, icon }: { title: string; icon: ReactNode }) {
-  return <Empty><EmptyHeader><EmptyMedia variant="icon">{icon}</EmptyMedia><EmptyTitle>{title}</EmptyTitle></EmptyHeader></Empty>;
+function EmptyState({ title, icon, clearHref }: { title: string; icon: ReactNode; clearHref?: string }) {
+  return <Empty><EmptyHeader><EmptyMedia variant="icon">{icon}</EmptyMedia><EmptyTitle>{title}</EmptyTitle></EmptyHeader>
+    {clearHref && <EmptyContent><Button variant="outline" nativeButton={false} render={<Link href={clearHref} scroll={false}/>}>Filtreyi temizle</Button></EmptyContent>}</Empty>;
 }
 
 export default async function ProductMatching({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = normalizeSearchParams(await searchParams);
   const data = await productMatchingData(params);
   const stats = data.run?.stats;
+  // The kind filter belongs to the manual decisions view only.
+  const kind = "decisions" in data ? params.kind : undefined;
+  const linked = "same" in data && data.linked ? "manual" : undefined;
   const query = (changes: Record<string, string | undefined>) => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries({ tab: params.tab, scope: params.scope, names: params.names, q: params.q, sort: params.sort, dir: params.dir, ...changes })) if (value) next.set(key, value);
+    for (const [key, value] of Object.entries({ tab: params.tab, scope: params.scope, names: params.names, q: params.q, sort: params.sort, dir: params.dir, kind, linked, ...changes })) if (value) next.set(key, value);
     return `/yonetim/urun-eslestirme${next.size ? `?${next}` : ""}`;
   };
-  const tabHref = (tab?: string) => query({ tab, page: undefined, scope: undefined, names: undefined, q: undefined, sort: undefined, dir: undefined });
+  const tabHref = (tab?: string) => query({ tab, page: undefined, scope: undefined, names: undefined, q: undefined, sort: undefined, dir: undefined, kind: undefined, linked: undefined });
   const back = query({ page: params.page });
   const prev = data.page > 1 ? query({ page: String(data.page - 1) }) : null, next = data.page < data.pages ? query({ page: String(data.page + 1) }) : null;
   const pager = data.total > 0 && <CardFooter className="flex-wrap justify-between gap-3">
@@ -72,9 +79,9 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     </PaginationContent></Pagination>
   </CardFooter>;
   const search = (tab: string, placeholder: string, filters?: MatchingFilter[], searchable = true) => <ProductMatchingFilters
-    key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.sort}|${params.dir}`}
-    params={{ tab, q: searchable ? params.q : undefined, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir }}
-    placeholder={placeholder} filters={filters} searchable={searchable} resetHref={query({ q: undefined, scope: undefined, names: undefined, page: undefined })}/>;
+    key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.sort}|${params.dir}|${kind}|${linked}`}
+    params={{ tab, q: searchable ? params.q : undefined, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir, kind, linked }}
+    placeholder={placeholder} filters={filters} searchable={searchable} resetHref={query({ q: undefined, scope: undefined, names: undefined, kind: undefined, linked: undefined, page: undefined })}/>;
   let body: ReactNode = null;
   if ("brands" in data) {
     const rows: BrandRow[] = data.brands.map(brand => ({ id: brand.id, key: brand.key, name: brand.name, items: number(brand.items), pending: brand.pending,
@@ -124,14 +131,14 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             ...nameKinds.map(kind => ({ value: kind, label: `${candidateNames[kind]} (${number(data.byNames[kind])})` })),
           ] },
         ])}
-        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Son ek farkı olan öneriler topluca birleştirilmez: koda eklenen fazladan hane veya ek çoğu zaman farklı bir parçadır (ör. FEBI 100261 ve 1002610). Her çifti ayrı inceleyip karar verin.</AlertDescription></Alert>}
+        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Yalnız incelenmiş güvenli ek desenleri (ör. Ford renk ekleri, MAYSAN MM/WM/PM, OSRAM 1BL) topluca birleştirilebilir; diğerlerini tek tek karara bağlayın. Bilinen farklı parça desenleri (ör. FEBI 100261 ve 1002610, OSRAM -2HB/-2BL) önerilmez.</AlertDescription></Alert>}
         {(bulkBrand || data.names === "conflict") && <div className="flex flex-wrap items-center gap-2">
           {bulkBrand && data.reason && data.bulkAllowed && data.names !== "conflict" && <div className="flex flex-wrap items-center gap-2">
             {data.acceptableTotal > 0 && <form action={acceptCandidates}>
               <input type="hidden" name="reason" value={data.reason}/><input type="hidden" name="brand" value={bulkBrand}/><input type="hidden" name="back" value={back}/>
-              <SubmitButton variant="outline" title={`${bulkBrand}: tanımı farklı ve birden çok eşi/kodu olan öneriler atlanır`} icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>}>Tümünü birleştir ({number(data.acceptableTotal)})</SubmitButton>
+              <SubmitButton variant="outline" title={`${bulkBrand}: ${data.bulkPartial ? "yalnız güvenli ek desenleri birleştirilir; " : ""}tanımı farklı ve birden çok eşi/kodu olan öneriler atlanır`} icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>}>{data.bulkPartial ? "Güvenli olanları birleştir" : "Tümünü birleştir"} ({number(data.acceptableTotal)})</SubmitButton>
             </form>}
-            {data.acceptableTotal < data.total && <span className="text-muted-foreground tabular-nums">{number(data.total - data.acceptableTotal)} öneri tek tek karar bekliyor (farklı tanım veya birden çok eş/kod)</span>}
+            {data.acceptableTotal < data.total && <span className="text-muted-foreground tabular-nums">{number(data.total - data.acceptableTotal)} öneri tek tek karar bekliyor ({data.bulkPartial ? "güvenli sayılmayan son ek, " : ""}farklı tanım veya birden çok eş/kod)</span>}
           </div>}
           {data.names === "conflict" && data.total > 0 && <form action={rejectCandidates}>
             {data.reason && <input type="hidden" name="reason" value={data.reason}/>}{data.brandFilter && <input type="hidden" name="q" value={data.brandFilter}/>}<input type="hidden" name="back" value={back}/>
@@ -144,7 +151,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell><div className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
               {item.name_conflict && <StatusBadge tone="error" title="İki tanım farklı parça türü söylüyor">Tanımı farklı</StatusBadge>}
               {item.shared_b && <StatusBadge tone="warning" title="Bu ürün başka ürünlere de önerildi; yalnız birine bağlanabilir">Birden çok eş</StatusBadge>}
-              {item.multi_a && <StatusBadge tone="warning" title="Bu ürüne farklı kodlu birden çok Dinamik ürünü öneriliyor veya bağlı; toplu birleştirmede atlanır">Birden çok kod</StatusBadge>}</div></TableCell>
+              {item.multi_a && <StatusBadge tone="warning" title="Bu ürüne farklı kodlu birden çok Dinamik ürünü öneriliyor veya bağlı; toplu birleştirmede atlanır">Birden çok kod</StatusBadge>}
+              {item.suffix_bulk && <StatusBadge tone="success" title="İncelenmiş güvenli ek deseni; topluca birleştirilebilir">Güvenli ek</StatusBadge>}</div></TableCell>
             <TableCell>{side(item.a)}</TableCell>
             <TableCell>{side(item.b)}</TableCell>
             <TableCell className="text-center">{item.name_similarity === null ? "—" : <StatusBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"}>{percent(item.name_similarity)}</StatusBadge>}</TableCell>
@@ -167,9 +175,12 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           { value: "basbug", label: `Başbuğ${summary ? ` (${number(summary.basbug)})` : ""}` },
           { value: "none", label: `Stok yok${summary ? ` (${number(summary.none)})` : ""}` },
           { value: "manual", label: `Elle kararlar (${number(data.exclusions)})` },
-        ] }])}
+        ] }, ...decisions ? [] : [{ name: "linked", label: "Bağlantı türü", value: linked ?? "", options: [
+          { value: "", label: "Tüm bağlantılar" },
+          { value: "manual", label: `Elle bağlı teklifi olanlar${summary ? ` (${number(summary.manual)})` : ""}` },
+        ] }]])}
         {decisions ? (decisions.length ? <Table server><caption className="sr-only">Elle kararlar</caption>
-          <TableHeader><TableRow><TableHead sortKey="kind">Karar</TableHead><TableHead sortKey="supplier">Tedarikçi</TableHead><TableHead sortKey="code">Kayıt</TableHead><TableHead>Bağlı ürün</TableHead><TableHead sortKey="decided">Tarih</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead sortKey="kind" filter={{ param: "kind", options: [{ value: "merge", label: "Birleştirme" }, { value: "split", label: "Ayırma" }] }}>Karar</TableHead><TableHead sortKey="supplier">Tedarikçi</TableHead><TableHead sortKey="code">Kayıt</TableHead><TableHead>Bağlı ürün</TableHead><TableHead sortKey="decider">Karar veren</TableHead><TableHead sortKey="decided">Tarih</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{decisions.map(item => <TableRow key={item.id}>
             <TableCell>{item.kind === "merge" ? <StatusBadge tone="info" icon={Merge} title="Başka bir ürüne elle bağlandı">Birleştirme</StatusBadge>
               : <StatusBadge tone="neutral" icon={Split} title="Kendi ürünü olarak elle ayrıldı">Ayırma</StatusBadge>}</TableCell>
@@ -179,27 +190,28 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell className="max-w-64"><div className="flex min-w-0 flex-col gap-1">
               <Link className="truncate font-mono underline-offset-4 hover:underline" href={`/yonetim/urunler/${item.product_id}`} title={`${item.product_label} ${item.product_code}`}>{item.product_label} {item.product_code}</Link>
               <span className="truncate text-muted-foreground" title={item.product_name ?? ""}>{item.product_name || "—"}</span></div></TableCell>
+            <TableCell className="max-w-48"><span className={item.decided_by_name ? "block truncate" : "block truncate text-muted-foreground"} title={item.decided_by_name ?? "Karar veren kaydedilmemiş"}>{item.decided_by_name ?? "Bilinmiyor"}</span></TableCell>
             <TableCell className="text-muted-foreground tabular-nums">{formatDateTime(item.decided_at)}</TableCell>
             <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><SubmitButton variant="outline" aria-label={`${item.code} kararını geri al`}>Geri al</SubmitButton></form></TableCell>
-          </TableRow>)}</TableBody></Table> : <EmptyState title={params.q ? "Aramayla eşleşen elle karar yok." : "Elle karar verilmiş kayıt yok."} icon={<Boxes/>}/>)
+          </TableRow>)}</TableBody></Table> : <EmptyState title={params.q && kind ? "Arama ve filtreyle eşleşen elle karar yok." : kind ? "Bu filtreyle eşleşen elle karar yok." : params.q ? "Aramayla eşleşen elle karar yok." : "Elle karar verilmiş kayıt yok."} icon={<Boxes/>} clearHref={kind ? query({ kind: undefined, page: undefined }) : undefined}/>)
           : data.same.length ? <Table server><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
-            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır">Bağlı teklifler</TableHead>
+            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead filter={{ param: "linked", options: [{ value: "manual", label: "Elle bağlı teklifi olanlar" }] }} title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır. Elle: marka ve parça numarası eşleşmesiyle değil, yönetici kararıyla bağlandı.">Bağlı teklifler</TableHead>
               <TableHead sortKey="selling" filter={{ param: "scope", options: [{ value: "dinamik", label: "Dinamik satışta" }, { value: "basbug", label: "Başbuğ satışta" }, { value: "none", label: "Stok yok" }] }}>Mağazada satılan</TableHead></TableRow></TableHeader>
             <TableBody>{data.same.map(group => {
               const primary = group.offers[0];
               const saving = group.selling === "dinamik" && group.primary_price && group.selling_price ? Math.round((1 - group.selling_price / group.primary_price) * 100) : 0;
               return <TableRow key={group.primary_id}>
-                <TableCell className="max-w-64"><Link className="block truncate font-medium hover:underline" href={`/urun/${group.primary_id}`} target="_blank" rel="noreferrer" title={primary.name}>{primary.name}</Link></TableCell>
-                <TableCell><OfferCell offer={primary}/></TableCell>
+                <TableCell className="max-w-64"><Link className="block truncate font-medium hover:underline" href={productIdPath(group.primary_id)} target="_blank" rel="noreferrer" title={primary.name}>{primary.name}</Link></TableCell>
+                <TableCell><div className="flex flex-col items-start gap-1">{primary.manual && manualBadge}<OfferCell offer={primary}/></div></TableCell>
                 <TableCell><div className="flex flex-col gap-3">{group.offers.slice(1).map(offer => <div key={offer.id} className="flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 flex-col items-start gap-1"><Badge variant="secondary">{suppliers[offer.supplier] ?? offer.supplier}</Badge><OfferCell offer={offer}/></div>
+                  <div className="flex min-w-0 flex-col items-start gap-1"><div className="flex flex-wrap items-center gap-1"><Badge variant="secondary">{suppliers[offer.supplier] ?? offer.supplier}</Badge>{offer.manual && manualBadge}</div><OfferCell offer={offer}/></div>
                   <form action={splitOffer}><input type="hidden" name="item_id" value={offer.id}/><input type="hidden" name="primary_id" value={group.primary_id}/><input type="hidden" name="back" value={back}/>
                     <SubmitButton variant="ghost" size="sm" title="Yanlış eşleşme: yalnız bu kayıt kendi ürününe dönsün" aria-label={`${offer.code} kaydını ayır`}>Ayır</SubmitButton></form>
                 </div>)}</div></TableCell>
                 <TableCell>{group.selling ? <div className="flex flex-col items-start gap-1"><StatusBadge tone={group.selling === "dinamik" ? "success" : "neutral"} icon={group.selling === "dinamik" ? undefined : Store}>{suppliers[group.selling]}</StatusBadge>
                   <span className="tabular-nums">{price(group.selling_price)}{saving > 0 && <span className="text-muted-foreground"> · %{saving} ucuz</span>}</span></div> : <span className="text-muted-foreground">Stok yok</span>}</TableCell>
               </TableRow>;
-            })}</TableBody></Table> : <EmptyState title="Bu görünümde ürün yok." icon={<SearchX/>}/>}
+            })}</TableBody></Table> : <EmptyState title={linked ? (params.q || data.scope !== "all" ? "Arama ve filtreyle eşleşen grup yok." : "Bu filtreyle eşleşen grup yok.") : "Bu görünümde ürün yok."} icon={<SearchX/>} clearHref={linked ? query({ q: undefined, scope: undefined, linked: undefined, page: undefined }) : undefined}/>}
       </CardContent>
       {pager}
     </>;
@@ -210,7 +222,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         {data.dinamik.length ? <Table server><caption className="sr-only">{"Yalnız Dinamik'te olan ürünler"}</caption>
           <TableHeader><TableRow><TableHead sortKey="code">Kod</TableHead><TableHead sortKey="brand">Marka</TableHead><TableHead sortKey="name">Ad</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead>Trodo</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{data.dinamik.map(item => <TableRow key={item.id}>
-            <TableCell className="max-w-44 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={`/urun/${item.id}`} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
+            <TableCell className="max-w-44 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={productIdPath(item.id)} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
             <TableCell className="max-w-28 truncate text-muted-foreground" title={item.brand ?? ""}>{item.brand || "—"}</TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
             <TableCell className="text-right font-medium tabular-nums">{price(item.price_kurus)}</TableCell>
@@ -230,7 +242,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         {data.seta.length ? <Table server><caption className="sr-only">SETA muadilleri</caption>
           <TableHeader><TableRow><TableHead sortKey="code">SETA kodu</TableHead><TableHead>Ad</TableHead><TableHead sortKey="price" className="text-right">Fiyat</TableHead><TableHead className="text-center">Stok</TableHead><TableHead sortKey="linked" className="text-right">Gösterildiği ürün</TableHead><TableHead>Örnek</TableHead><TableHead><span className="sr-only">Bağlantılar</span></TableHead></TableRow></TableHeader>
           <TableBody>{data.seta.map(item => <TableRow key={item.id}>
-            <TableCell className="max-w-36 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={`/urun/${item.id}`} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
+            <TableCell className="max-w-36 truncate font-mono" title={item.code}><Link className="font-medium hover:underline" href={productIdPath(item.id)} target="_blank" rel="noreferrer">{item.code}</Link></TableCell>
             <TableCell className="max-w-80 truncate" title={item.name ?? ""}>{item.name || "—"}</TableCell>
             <TableCell className="text-right font-medium tabular-nums">{price(item.price_kurus)}</TableCell>
             <TableCell className="text-center"><StockLabel stock={item.available}/></TableCell>
@@ -259,13 +271,16 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
         <h1 className="text-2xl font-semibold tracking-tight">Ürün eşleştirme</h1>
         <p className="text-muted-foreground">Başbuğ, Dinamik ve SETA kayıtlarını aynı ürün altında toplayan marka, ürün ve muadil kararları.</p>
       </div>
-      <form action={refreshMatches}><SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Eşleştiriliyor…">Yenile</SubmitButton></form>
+      <form action={refreshMatches}><input type="hidden" name="back" value={back}/><SubmitButton icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Eşleştiriliyor…">Yenile</SubmitButton></form>
     </div>
     {params.refreshed === "1" && notice("Eşleştirme yenilendi.")}
     {params.brand && brandMessages[params.brand] && notice(brandMessages[params.brand])}
     {params.split && splitMessages[params.split] && notice(splitMessages[params.split])}
-    {params.matched && (params.matched === "bulk" ? notice(`${number(Number(params.count) || 0)} öneri aynı ürün olarak birleştirildi.`)
-      : params.matched === "bulk-different" ? notice(`${number(Number(params.count) || 0)} öneri farklı ürün olarak kaydedildi; tekrar önerilmezler.`) : matchedMessages[params.matched] && notice(matchedMessages[params.matched]))}
+    {params.matched && (params.matched === "bulk" ? notice(`${number(Number(params.count) || 0)} öneri aynı ürün olarak birleştirildi.${Number(params.carried_hidden) > 0
+        ? ` ${number(Number(params.carried_hidden))} tanesinde birleşen ürün mağazada gizli olduğu için gizlilik hedef ürüne taşındı; hedef ürünler artık mağazada görünmüyor.` : ""}${Number(params.carried_oem) > 0
+        ? ` ${number(Number(params.carried_oem))} tanesinde tedarikçi OEM alanı gizliliği taşındı.` : ""}${Number(params.images) > 0 ? ` ${number(Number(params.images))} görsel taşındı.` : ""}${Number(params.refs) > 0 ? ` ${number(Number(params.refs))} referans numarası taşındı.` : ""}${Number(params.specs) > 0 ? ` ${number(Number(params.specs))} teknik özellik taşındı.` : ""}${Number(params.fitments) > 0 ? ` ${number(Number(params.fitments))} araç uyumu kararı taşındı.` : ""}`)
+      : params.matched === "bulk-different" ? notice(`${number(Number(params.count) || 0)} öneri farklı ürün olarak kaydedildi; tekrar önerilmezler.`)
+      : matchedMessages[params.matched] && notice(`${matchedMessages[params.matched]}${params.matched === "same" && params.carried_hidden === "1" ? " Birleşen ürün mağazada gizliydi; gizlilik hedef ürüne taşındı, ürün artık mağazada görünmüyor." : ""}${params.matched === "same" && params.carried_oem === "1" ? " Tedarikçi OEM alanı gizliliği taşındı." : ""}${params.matched === "same" && params.images ? params.images === "kept" ? " Hedefte görsel olduğu için birleşen ürünün görselleri taşınmadı." : ` ${number(Number(params.images) || 0)} görsel taşındı.` : ""}${params.matched === "same" && Number(params.refs) > 0 ? ` ${number(Number(params.refs))} referans numarası taşındı.` : ""}${params.matched === "same" && Number(params.specs) > 0 ? ` ${number(Number(params.specs))} teknik özellik taşındı.` : ""}${params.matched === "same" && Number(params.fitments) > 0 ? ` ${number(Number(params.fitments))} araç uyumu kararı taşındı.` : ""}`))}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{params.error === "refresh" ? "Eşleştirme tamamlanamadı; önceki sonuçlar korunuyor." : params.error === "brand" ? "Hedef ana marka bulunamadı; adı listede göründüğü gibi yazın." : params.error === "merge" ? "Birleştirilemedi: Dinamik ürünü zaten başka bir ürüne bağlı. Ürün sayfasından kontrol edin." : params.error === "split" ? "Ayrılamadı: kayıt artık bu grupta değil. Listeyi yenileyip tekrar deneyin." : "İşlem kaydedilemedi."}</AlertDescription></Alert>}
     {!stats ? <EmptyState title="Henüz eşleştirme yok" icon={<Boxes/>}/> : <>
       <Card size="sm"><CardContent>

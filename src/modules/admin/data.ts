@@ -7,7 +7,9 @@ import { manualCompany, setaCompany } from "@/modules/suppliers/storefront-sourc
 import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE } from "@/modules/suppliers/dinamik-import";
 import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
 import type { CommerceOrder } from "@/modules/store/orders";
+import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules";
 import { restockDueCount } from "./restock";
+import { procurementOpenSql, type AdminOrderLine } from "./order-procurement";
 import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 
 type ServiceAccount = {
@@ -44,35 +46,63 @@ export async function adminPricing() {
   return { settings: settings.rows[0], latest: latest.rows[0], rates: latest.rows[0]?.currencies_data.dovizListesi ?? [] };
 }
 
-type AdminPayment = { provider_order_id: string; status: string; amount_kurus: number; bank_reference: string | null; paid_at: string | null };
+type AdminPayment = { id: string; provider_order_id: string; status: string; amount_kurus: number; bank_reference: string | null; paid_at: string | null };
+/** TAMI void/refund calls of an order (#619), oldest first. */
+export type AdminRefund = {
+  id: string; payment_id: string; provider_order_id: string; kind: ReversalKind; status: RefundStatus; amount_kurus: number;
+  bank_reference: string | null; error_code: string | null; error_message: string | null; requested_at: string; completed_at: string | null;
+};
 
 export const orderFilters = {
   all: { label: "Tümü", where: "true" },
   action: { label: "Teyit bekleyen", where: "o.status='pending' AND o.payment_status IN ('paid','none')" },
-  shipping: { label: "Sevk bekleyen", where: "o.status='confirmed'" },
+  shipping: { label: "Kargoya verilecek", where: "o.status='confirmed'" },
   refund: { label: "İade bekleyen", where: "o.payment_status='refund_required'" },
   awaiting_payment: { label: "Ödeme bekleyen", where: "o.status='awaiting_payment'" },
-  shipped: { label: "Sevk edildi", where: "o.status='shipped'" },
+  shipped: { label: "Kargoda", where: "o.status='shipped'" },
+  delivered: { label: "Teslim edildi", where: "o.status='delivered'" },
   cancelled: { label: "İptal", where: "o.status='cancelled'" },
 } as const;
 export type OrderFilter = keyof typeof orderFilters;
 // Header sorting on the orders list (TableHead sortKey → column).
 const orderSorts = { created: "o.created_at", customer: "o.customer_name", total: "o.total_kurus" };
 
-export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { sort?: string; dir?: string } = {}) {
+/** Checkout consent evidence (#604); null on orders placed before it was recorded. */
+type OrderAgreementSummary = { agreement_at: Date | null; agreement_ip: string | null; agreement_user_agent: string | null; agreement_version: string | null };
+// The orders list's "Tedarik" column filter (#606); the tab counts stay unfiltered.
+const procurementFilters = {
+  all: "true",
+  open: procurementOpenSql,
+  done: `o.status IN ('pending','confirmed') AND NOT (${procurementOpenSql})`,
+};
+export type ProcurementFilter = keyof typeof procurementFilters;
+export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { sort?: string; dir?: string } = {}, rawProcurement?: string) {
   await requireAdmin();
   const requested = Number(rawPage);
   const page = Number.isSafeInteger(requested) ? Math.max(1, Math.min(10000, requested)) : 1;
   const filter: OrderFilter = pickKey(orderFilters, rawFilter, "all");
-  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[] }>(
+  const procurement: ProcurementFilter = pickKey(procurementFilters, rawProcurement, "all");
+  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[]; lines: AdminOrderLine[] } & OrderAgreementSummary>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
-     o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,
-     COALESCE((SELECT jsonb_agg(jsonb_build_object('provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
-      'bank_reference',p.bank_reference,'paid_at',p.paid_at) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments
-     FROM commerce_orders o WHERE ${orderFilters[filter].where} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
+     o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,o.refunded_at,
+     o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,o.cancelled_by,o.cancelled_at,
+     a.accepted_at AS agreement_at,a.ip AS agreement_ip,a.user_agent AS agreement_user_agent,a.legal_version AS agreement_version,
+     COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
+      'bank_reference',p.bank_reference,'paid_at',p.paid_at) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments,
+     COALESCE((SELECT jsonb_agg(jsonb_build_object('id',r.id,'payment_id',r.payment_id,'provider_order_id',p.provider_order_id,'kind',r.kind,'status',r.status,
+      'amount_kurus',r.amount_kurus,'bank_reference',r.bank_reference,'error_code',r.error_code,'error_message',r.error_message,
+      'requested_at',r.requested_at,'completed_at',r.completed_at) ORDER BY r.requested_at,r.id)
+      FROM commerce_payment_refunds r JOIN commerce_payments p ON p.id=r.payment_id WHERE r.order_id=o.id),'[]') AS refunds,
+     -- Lines with what operations need to procure them (#606): supplier scope and cost live in pricing_snapshot.
+     COALESCE((SELECT jsonb_agg(jsonb_build_object('product_id',i.product_id,'code',i.code,'name',i.name,'supplier',i.supplier,'quantity',i.quantity,
+      'unit_price_kurus',i.unit_price_kurus,'pricing_snapshot',i.pricing_snapshot,'procurement_status',i.procurement_status,'procurement_ref',i.procurement_ref,
+      'procurement_ordered_at',i.procurement_ordered_at,'procured_at',i.procured_at,'supplier_item',si.id IS NOT NULL,'master_id',ps.product_id) ORDER BY i.code,i.product_id)
+      FROM commerce_order_items i LEFT JOIN supplier_items si ON si.id=i.product_id LEFT JOIN product_sources ps ON ps.supplier_item_id=i.product_id
+      WHERE i.order_id=o.id),'[]') AS lines
+     FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} AND ${procurementFilters[procurement]} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50],
   ), db.query<Record<OrderFilter, number>>(`SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`)]);
-  return { orders: orders.rows, page, filter, counts: counts.rows[0] };
+  return { orders: orders.rows, page, filter, procurement, counts: counts.rows[0] };
 }
 
 /** Badge counts for the workspace navigation; kept to cheap aggregate queries. */
@@ -146,7 +176,7 @@ export async function fitmentReturnReport() {
      FROM commerce_order_items i JOIN commerce_orders o ON o.id=i.order_id
      LEFT JOIN LATERAL (SELECT sum(quantity) AS quantity,sum(quantity) FILTER (WHERE reason='not_fit') AS not_fit
       FROM commerce_returns WHERE order_id=i.order_id AND product_id=i.product_id) r ON true
-     WHERE o.status IN ('pending','confirmed','shipped') GROUP BY 1 ORDER BY 2 DESC`,
+     WHERE o.status IN ('pending','confirmed','shipped','delivered') GROUP BY 1 ORDER BY 2 DESC`,
   )).rows;
 }
 

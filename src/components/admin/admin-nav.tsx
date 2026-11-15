@@ -5,6 +5,7 @@ import { CircleAlert, CircleCheck, CircleDashed, ChevronsUpDown, ExternalLink, L
 import { logout } from "@/modules/auth/actions";
 import { ADMIN_THEME_KEY } from "@/components/admin/admin-theme";
 import { adminSections, isAdminRouteActive, type AdminNavStatus, type AdminRoute } from "@/components/admin/admin-routes";
+import { currentAppVersion } from "@/lib/app-version";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import {
@@ -80,6 +81,7 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
           </DropdownMenu>
         </SidebarMenuItem>
       </SidebarMenu>
+      {!collapsed && <p className="truncate px-2 text-xs text-muted-foreground tabular-nums" title="Uygulama sürümü"><span className="sr-only">Uygulama sürümü: </span>{currentAppVersion.label}</p>}
     </SidebarFooter>
     <SidebarRail/>
   </Sidebar>;

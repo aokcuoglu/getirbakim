@@ -38,12 +38,34 @@ Saatler örnek. "Biz" = getirbakim, "LO" = Lokum Ops.
 | 03:15 | Biz | Yükleme | A Mac'ten (~0,75 GB, ~12 dk). Komutlar değiştirilmeden; her biri HTTP 200 | ~12 dk |
 | 03:30 | LO | Geri yükleme | 1) boş DB'ye A dump'ı, 2) `setup.ts`, 3) `ANALYZE`, 4) M + A medyası → S3 | LO |
 | — | LO | Doğrulama | SHA-256; tablolar A'nın `table-counts.txt`'siyle birebir. `excluded-table-data.txt`'deki tablolar boş, yalnız `commerce_settings` tek satır (`setup.ts`) | LO |
-| — | LO | AWS zamanlayıcıları | Önce tedarikçi senkronizasyonu, sonra ödeme mutabakatı | LO |
+| — | Biz | AWS zamanlayıcıları | `getirbakim-production` grubunda önce `supplier-sync` ve `nightly-jobs`, DNS'ten hemen sonra `payment-reconciliation` açılır (aşağıda). Geçişe kadar üçü de kapalı | 2 dk |
 | — | Biz | DNS | Aşağıda | 5 dk |
 | — | Birlikte | Kontrol | Aşağıda | 15 dk |
 | Sonra | Biz | Yerel işçileri başlat | `.env.local`: `STOREFRONT_SYNC_TARGET=aws` + AWS profili, sonra `bash scripts/cutover/local-workers.sh start` | 1 dk |
 
 Başbuğ tazelemesi VPS'teki canlı senkronizasyonla aynı anda çalışabiliyor (provada denendi). Dinamik geçişe dahil değil: Dinamik canlıda bugün satılmıyor; AWS'te zamanlayıcı onları proxy üzerinden tazeledikçe fiyatları görünür.
+
+## Canlı ödeme kontrol listesi
+
+DNS'ten önce kontrol edilir (14 Kasım 2026 durumu parantez içinde):
+
+- [x] `getirbakim-production/app` secret'ında canlı TAMI çifti: `TAMI_PAYMENT_API_BASE_URL=https://paymentapi.tami.com.tr`, `TAMI_PORTAL_BASE_URL=https://portal.tami.com.tr`; üye işyeri, terminal, secret key ve JWK değerleri dolu (tanımlı).
+- [x] `TAMI_CHECKOUT_ENABLED=true` (tanımlı).
+- [x] `PAYMENT_RECONCILIATION_SECRET` ≥32 karakter, uygulama ve mutabakat görevi aynı değeri okur (64 karakter).
+- [x] App görev tanımında `SITE_URL=https://getirbakim.com`; TAMI callback adresi bundan üretilir (tanımlı).
+- [ ] App görev tanımında `BING_SITE_VERIFICATION` ve `YANDEX_SITE_VERIFICATION` (hesaplar açılınca; boşken doğrulama etiketi basılmaz).
+- [ ] App görev tanımında `GA4_MEASUREMENT_ID` (GA4 mülkü açılınca; boşken etiket yüklenmez ve çerez bandı "analiz kullanılmıyor" der).
+- [ ] `/yonetim/fiyatlandirma` → Kargo: gerçek ücret ve ücretsiz kargo eşiği. AWS DB `setup.ts` varsayılanlarıyla kuruldu (150 TL / 1.500 TL); bunlar yer tutucudur.
+- [ ] DNS'ten hemen sonra mutabakat zamanlayıcısını aç:
+
+```bash
+export AWS_PROFILE=getirbakim-prod
+aws scheduler get-schedule --group-name getirbakim-production --name getirbakim-production-payment-reconciliation --output json \
+  | jq '{Name,GroupName,ScheduleExpression,ScheduleExpressionTimezone,FlexibleTimeWindow,Target,Description,State:"ENABLED"}' > /tmp/s.json \
+  && aws scheduler update-schedule --cli-input-json file:///tmp/s.json
+```
+
+  İlk çalışma 5 dk içinde `/getirbakim-production/operations` günlüğüne `200 {"checked":…}` yazar. Görev tanımı ve zamanlayıcı ayrıntıları: [Online ödeme](payments.md#ayarlar).
 
 ## DNS değişikliği (Cloudflare, getirbakim.com zone)
 
@@ -56,7 +78,7 @@ Proxy kapalı olmalı: sertifika, önbellek ve WAF CloudFront'ta. Apex'te A kayd
 
 ## Doğrulama
 
-- `https://getirbakim.com/api/health` → `ok` ve AWS sürümü.
+- `https://getirbakim.com/api/health` → `status: "ok"`, `release` yayınlanan sürüm (`vX.Y.Z`), `commit` yayınlanan commit'in kısa SHA'sı (#656; `null` ise imaj `BUILD_VERSION` build-arg'ı olmadan kurulmuş). Aynı değer site alt bilgisinde ve /yonetim kenar çubuğunda görünür (#628).
 - Katalogda Başbuğ fiyatları görünüyor ("Fiyat bilgisi güncelleniyor" yok); ürün sayfası, kodla arama, araç seçimi, üye girişi, yönetim paneli.
 - Dinamik ürünü sepete: sipariş adımındaki canlı stok kontrolü proxy'den geçer (squid loguna `18.194.217.212 … CONNECT dinamikapp-api… 200`).
 - Ödeme akışı LO ile birlikte, küçük tutarlı gerçek bir siparişle; ardından iade.

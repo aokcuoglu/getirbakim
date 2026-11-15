@@ -1,12 +1,12 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
-import { compactCode as compact, manualSearchTerms, pickSameProducts, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
-import { bulkAcceptableSql, isBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+import { compactCode as compact, manualKind, manualSearchTerms, pickSameProducts, sameLinked, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
+import { bulkAcceptableSql, isBulkReason, manualDeciderSql, manualKindFilterSql, manualKindSql, manualGroupsSql, offerManualSql, isPatternBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
-type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string };
+type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string; kind?: string; linked?: string };
 // Header sorting per tab (TableHead sortKey → column); keys are only looked up here, never interpolated from the URL.
 const sorts = {
   brands: { name: "name", items: "items" },
@@ -14,19 +14,21 @@ const sorts = {
   dinamik: { code: "i.code", brand: "i.product_data->>'marka'", name: "supplier_item_name('dinamik',i.product_data)" },
   seta: { code: "s.code", linked: "linked", price: "c.price_kurus" },
   // "Karar" A→Z: Ayırma (a split-off variant) before Birleştirme.
-  manual: { kind: "(p.variant=0)", supplier: "i.supplier", code: "i.code", decided: "x.linked_at" },
+  manual: { kind: "(p.variant=0)", supplier: "i.supplier", code: "i.code", decided: "x.linked_at", decider: manualDeciderSql },
 };
 // Keys arrived over time; runs recorded before a key lack it.
 type MatchStats = { items: number; basbug_dinamik_groups?: number; dinamik_only?: number; offer_exclusions?: number;
   seta_linked_items?: number; seta_linked_products?: number; match_candidates?: number };
-export type Offer = { id: string; supplier: string; code: string; name: string; price: number | null; available: boolean; stock_label: string };
+export type Offer = { id: string; supplier: string; code: string; name: string; price: number | null; available: boolean; stock_label: string;
+  /** Linked by an admin (product_sources.method='manual'), not by brand key + part number. */
+  manual: boolean };
 /** A Başbuğ product with the Dinamik offers grouped under it; `selling` is the supplier whose offer the store sells now. */
 type SameProduct = { primary_id: string; offers: Offer[]; selling: string | null; selling_price: number | null; primary_price: number | null };
 /**
  * A supplier row an admin placed by hand: merged into another product (`merge`) or split off into a product of its
  * own (`split`, a variant above 0); "Geri al" returns it to its own key's product.
  */
-export type ManualDecision = { id: string; supplier: string; code: string; name: string | null; decided_at: Date; kind: "merge" | "split";
+export type ManualDecision = { id: string; supplier: string; code: string; name: string | null; decided_at: Date; decided_by_name: string | null; kind: "merge" | "split";
   product_id: string; product_label: string; product_code: string; product_name: string | null };
 export type DinamikItem = { id: string; product_id: string | null; code: string; brand: string | null; name: string | null; price_kurus: number | null; available: boolean | null; enriched: boolean };
 type SetaProduct = { id: string; supplier: string; code: string; name: string | null; via: string };
@@ -47,7 +49,7 @@ export const candidateReasons: Record<CandidateReason, string> = { prefix: "Kod 
 type CandidateSide = { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; price_kurus: number | null; available: boolean | null };
 /** A Başbuğ-only (a) and a Dinamik-only product (b), or a Başbuğ/Dinamik product (a) and a manual-list-only one (b), that
  *  look the same; "Aynı ürün" merges b into a. */
-export type Candidate = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; brand: string; a: CandidateSide; b: CandidateSide };
+export type Candidate = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; suffix_bulk: boolean; brand: string; a: CandidateSide; b: CandidateSide };
 /** Candidates split by whether the two part names name the same kind of part (db product_names_conflict). */
 export type CandidateNames = "consistent" | "conflict";
 export const candidateNames: Record<CandidateNames, string> = { consistent: "Tanımı uyumlu", conflict: "Tanımı farklı" };
@@ -116,13 +118,14 @@ async function masterBrands(scope: BrandScope, params: MatchingParams) {
   return { scope, brands, total, page, pages };
 }
 
-// A group is a Başbuğ product that Dinamik also sells. The offer sold is the cheapest available one, the Başbuğ row
-// winning ties: the rule of withBestOffers (store catalog). `filter` narrows the offers before grouping.
+// A group is a Başbuğ product that Dinamik also sells. The offer sold is the cheapest available one, the lower cost and
+// then the Başbuğ row winning ties: the rule of withBestOffers (compareOffers). `filter` narrows the offers before grouping.
 const sameGroups = (filter: string, columns: string) => `WITH offers AS MATERIALIZED (
-    SELECT o.primary_id,c.id,c.supplier,c.code,c.name,c.price_kurus,c.available,c.stock_label FROM product_offers o JOIN commerce_catalog c ON c.id=o.item_id ${filter}
+    SELECT o.primary_id,c.id,c.supplier,c.code,c.name,c.price_kurus,c.available,c.stock_label,(c.pricing_snapshot->>'cost_kurus')::numeric AS cost_kurus
+    FROM product_offers o JOIN commerce_catalog c ON c.id=o.item_id ${filter}
   )
   SELECT primary_id::text,
-   (array_agg(supplier ORDER BY price_kurus,(id=primary_id) DESC) FILTER (WHERE available AND price_kurus IS NOT NULL))[1] AS selling,
+   (array_agg(supplier ORDER BY price_kurus,cost_kurus NULLS LAST,(id=primary_id) DESC,id) FILTER (WHERE available AND price_kurus IS NOT NULL))[1] AS selling,
    min(price_kurus) FILTER (WHERE available) AS selling_price, min(price_kurus) FILTER (WHERE id=primary_id) AS primary_price,${columns}
   FROM offers GROUP BY primary_id HAVING bool_or(supplier='basbug' AND id=primary_id) AND bool_or(supplier='dinamik')`;
 type SameIndex = { entries: SameEntry[]; summary: Record<string, number> };
@@ -165,10 +168,16 @@ async function sameSummaryIfReady() {
 }
 async function loadSameIndex(): Promise<SameIndex> {
   // `codes`: the offers' codes as the search compares them; `position`: the database's primary_id order, the last tie-break.
-  const entries = (await db.query<SameEntry>(sameGroups("", `
-   string_agg(regexp_replace(upper(code),'[^A-Z0-9]','','g'),' ') AS codes,row_number() OVER (ORDER BY primary_id::text)::int AS position`))).rows;
-  const summary = { all: entries.length, dinamik: 0, basbug: 0, none: 0 };
+  // `manual` comes from its own query: ~8-30 ms (depending on buffer cache) next to the ~2.8 s index, which adding it to the grouping CTE would
+  // change (a join per offer in the big query) without a shown-cheap plan.
+  const [groups, manualGroups] = await Promise.all([db.query<Omit<SameEntry, "manual">>(sameGroups("", `
+   string_agg(regexp_replace(upper(code),'[^A-Z0-9]','','g'),' ') AS codes,row_number() OVER (ORDER BY primary_id::text)::int AS position`)),
+    db.query<{ primary_id: string }>(manualGroupsSql)]);
+  const manualIds = new Set(manualGroups.rows.map(row => row.primary_id));
+  const entries = groups.rows.map(row => ({ ...row, manual: manualIds.has(row.primary_id) }));
+  const summary = { all: entries.length, dinamik: 0, basbug: 0, none: 0, manual: 0 };
   for (const entry of entries) {
+    if (entry.manual) summary.manual++;
     if (entry.selling === "dinamik") summary.dinamik++;
     else if (entry.selling === "basbug") summary.basbug++;
     else if (entry.selling === null) summary.none++;
@@ -182,37 +191,39 @@ async function sameProducts(params: MatchingParams) {
   // The other views' counts stay on the scope selector while the cached groups are loaded; the list never waits for them.
   if (scope === "manual") {
     const [decided, summary] = await Promise.all([manualDecisions(params, exclusions), sameSummaryIfReady()]);
-    return { ...decided, same: [] as SameProduct[], summary, scope, exclusions };
+    return { ...decided, same: [] as SameProduct[], summary, scope, exclusions, linked: false };
   }
   const requested = Number(params.page), page = Number.isSafeInteger(requested) && requested > 0 ? requested : 1;
+  const linked = sameLinked(params.linked);
   const { entries, summary } = await sameIndex();
-  const { total, listed } = pickSameProducts(entries, { scope, q: compact(params.q), sort: params.sort, dir: params.dir, page, pageSize });
+  const { total, listed } = pickSameProducts(entries, { scope, q: compact(params.q), linked, sort: params.sort, dir: params.dir, page, pageSize });
   const ids = listed.map(entry => entry.primary_id);
   const rows = ids.length ? (await db.query<SameProduct>(sameGroups("AND o.primary_id=ANY($1::uuid[]) AND c.id=ANY(ARRAY(SELECT item_id FROM product_offers WHERE primary_id=ANY($1::uuid[])))", `
-   jsonb_agg(jsonb_build_object('id',id,'supplier',supplier,'code',code,'name',name,'price',price_kurus,'available',available,'stock_label',stock_label)
+   jsonb_agg(jsonb_build_object('id',id,'supplier',supplier,'code',code,'name',name,'price',price_kurus,'available',available,'stock_label',stock_label,'manual',${offerManualSql})
     ORDER BY (id=primary_id) DESC,supplier,code) AS offers`), [ids])).rows : [];
   const byId = new Map(rows.map(row => [row.primary_id, row]));
   const same = ids.flatMap(id => byId.get(id) ?? []);
   const { pages } = pageOf(String(page), total);
-  return { same, summary, scope, total, page: Math.min(page, pages), pages, exclusions };
+  return { same, summary, scope, total, page: Math.min(page, pages), pages, exclusions, linked };
 }
 
 /**
  * Every manual decision, newest first, paged. Each word of `q` must match the supplier code or the product's part
  * number (compacted), or the row's name, the product's brand or name (search_normalize): "FEBI 100261" finds FEBI's
- * 100261. `manualTotal` is the unfiltered count the caller already read.
+ * 100261. `kind` (merge/split) narrows to one kind. `manualTotal` is the unfiltered count the caller already read.
  */
 async function manualDecisions(params: MatchingParams, manualTotal: number) {
   const terms = manualSearchTerms(params.q);
-  const values = [terms.map(term => term.code), terms.map(term => term.text)];
-  const from = "product_sources x JOIN supplier_items i ON i.id=x.supplier_item_id JOIN products p ON p.id=x.product_id";
-  const where = `x.method='manual' AND NOT EXISTS (SELECT 1 FROM unnest($1::text[],$2::text[]) t(code,text) WHERE NOT (
+  const kind = manualKind(params.kind);
+  const values = [terms.map(term => term.code), terms.map(term => term.text), kind === null ? null : kind === "split"];
+  const from = "product_sources x JOIN supplier_items i ON i.id=x.supplier_item_id JOIN products p ON p.id=x.product_id LEFT JOIN accounts a ON a.id=x.decided_by";
+  const where = `x.method='manual' AND ${manualKindFilterSql("$3")} AND NOT EXISTS (SELECT 1 FROM unnest($1::text[],$2::text[]) t(code,text) WHERE NOT (
     t.code<>'' AND (regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||t.code||'%' OR p.part_number LIKE '%'||t.code||'%')
     OR t.text<>'' AND (search_normalize(concat_ws(' ',supplier_item_name(i.supplier,i.product_data),p.brand_label,p.name)) LIKE '%'||t.text||'%')))`;
-  const total = terms.length ? (await db.query<{ count: number }>(`SELECT count(*)::int FROM ${from} WHERE ${where}`, values)).rows[0].count : manualTotal;
+  const total = terms.length || kind ? (await db.query<{ count: number }>(`SELECT count(*)::int FROM ${from} WHERE ${where}`, values)).rows[0].count : manualTotal;
   const { page, pages } = pageOf(params.page, total);
   const decisions = (await db.query<ManualDecision>(`SELECT i.id,i.supplier,i.code,supplier_item_name(i.supplier,i.product_data) AS name,x.linked_at AS decided_at,
-      CASE WHEN p.variant>0 THEN 'split' ELSE 'merge' END AS kind,p.id AS product_id,p.brand_label AS product_label,p.code AS product_code,p.name AS product_name
+      ${manualDeciderSql} AS decided_by_name,${manualKindSql} AS kind,p.id AS product_id,p.brand_label AS product_label,p.code AS product_code,p.name AS product_name
     FROM ${from} WHERE ${where}
     ORDER BY ${sortOrder(params, sorts.manual, "x.linked_at DESC,x.supplier_item_id")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   return { decisions, total, page, pages };
@@ -235,9 +246,9 @@ async function matchCandidates(params: MatchingParams) {
       count(*) FILTER (WHERE ${bulkAcceptableSql})::int AS acceptable FROM ${from} WHERE ${where}`, values),
   ]);
   const { page, pages } = pageOf(params.page, total.rows[0].count);
-  type Row = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; brand: string; a: Omit<CandidateSide, "price_kurus" | "available">; b: Omit<CandidateSide, "price_kurus" | "available"> };
+  type Row = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; suffix_bulk: boolean; brand: string; a: Omit<CandidateSide, "price_kurus" | "available">; b: Omit<CandidateSide, "price_kurus" | "available"> };
   const side = (alias: string) => `jsonb_build_object('id',${alias}.id,'brand_label',${alias}.brand_label,'code',${alias}.code,'name',${alias}.name,'suppliers',${alias}.suppliers)`;
-  const rows = (await db.query<Row>(`SELECT c.reason,c.name_similarity,COALESCE(c.name_conflict,false) AS name_conflict,${sharedCandidateSql} AS shared_b,${multiNumberCandidateSql} AS multi_a,a.brand,${side("a")} AS a,${side("b")} AS b FROM ${from} WHERE ${where}
+  const rows = (await db.query<Row>(`SELECT c.reason,c.name_similarity,COALESCE(c.name_conflict,false) AS name_conflict,${sharedCandidateSql} AS shared_b,${multiNumberCandidateSql} AS multi_a,(c.reason='suffix' AND ${bulkAcceptableSql}) AS suffix_bulk,a.brand,${side("a")} AS a,${side("b")} AS b FROM ${from} WHERE ${where}
     ORDER BY ${sortOrder(params, sorts.candidates, "c.name_similarity DESC NULLS LAST,a.brand,a.part_number")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   // Priced in one pass for the page (commerce_catalog per id is fast; per row in a subquery it is not). Each side is
   // a single-supplier product; its cheapest available row stands for it.
@@ -252,7 +263,7 @@ async function matchCandidates(params: MatchingParams) {
   const candidates: Candidate[] = rows.map(row => ({ ...row, a: priced(row.a), b: priced(row.b) }));
   const byReason = Object.fromEntries(counts.rows.map(row => [row.reason, row.count])) as Partial<Record<CandidateReason, number>>;
   return { candidates, reason, names, byReason, byNames: nameCounts.rows[0], total: total.rows[0].count, acceptableTotal: total.rows[0].acceptable,
-    bulkAllowed: reason !== null && isBulkReason(reason),
+    bulkAllowed: reason !== null && isBulkReason(reason), bulkPartial: reason !== null && isPatternBulkReason(reason),
     page, pages, brandFilter: q };
 }
 

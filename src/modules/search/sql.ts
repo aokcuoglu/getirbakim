@@ -24,6 +24,27 @@ export function supplierItemMatch(alias: string, parsed: ParsedSearch, bind: Bin
   return clauses.length ? `(${clauses.join(" OR ")})` : "false";
 }
 
+/**
+ * Condition over an enrichment_product_states row `alias` (/yonetim/urun-verileri search, #617): its supplier item
+ * matches like the storefront, or its manufacturer part number or one of its enrichment's OEM numbers holds the code.
+ * Each branch is an indexed id set (db/search.sql, db/enrichment-search.sql) reached through the primary key; as an
+ * OR over joined rows the same test computed the search text of every row of the tab (6 s complete, 21 s pending).
+ */
+export function enrichmentStateMatch(alias: string, parsed: ParsedSearch, bind: Bind) {
+  const sets = [`SELECT x.product_id FROM enrichment_product_states x
+    WHERE x.supplier_item_id IN (SELECT s.id FROM supplier_items s WHERE ${supplierItemMatch("s", parsed, bind)})`];
+  // compact is [a-z0-9] only, so it needs no LIKE escaping.
+  if (parsed.compact.length >= 3) {
+    const key = bind(`%${parsed.compact}%`);
+    sets.push(`SELECT x.product_id FROM enrichment_product_states x
+      WHERE x.manufacturer_part_number IS NOT NULL AND search_compact(x.manufacturer_part_number) LIKE ${key}`,
+    // Only an enriched row reads its enrichment. The key has no space, so a hit in the space-separated text lies inside one number.
+    `SELECT x.product_id FROM product_enrichments e JOIN enrichment_product_states x ON x.supplier_item_id=e.supplier_item_id AND x.enriched
+      WHERE enrichment_oem_search(e.payload) LIKE ${key}`);
+  }
+  return `${alias}.product_id IN (${sets.join(" UNION ALL ")})`;
+}
+
 // Turkish letters a normalized (ASCII) query letter stands for; ~* covers the ASCII case pair.
 const turkishVariants: Record<string, string> = { c: "cçÇ", g: "gğĞ", i: "iıİ", o: "oöÖ", s: "sşŞ", u: "uüÜ" };
 
@@ -57,6 +78,31 @@ export function vehicleTypeMatch(alias: string, parsed: ParsedSearch, bind: Bind
   return where.length ? where.join(" AND ") : "TRUE";
 }
 
+/**
+ * Supplier rows whose admin-edited name, description, store brand or part number (commerce_item_overrides, #575/#602)
+ * matches: the stored search text of a row is the supplier's, so a renamed product is found by its new name here, and
+ * an edited part number with any spacing (code searches too). The supplier's own name, brand and code keep finding the
+ * row through the stored fields. Rows whose supplier OEM field is hidden (#615) are left out of those stored fields by
+ * the storefront search (src/modules/store/catalog.ts), so they match here on their text and code without the OEM.
+ * The table holds only edited rows, so it is read whole. Null when neither applies.
+ */
+export function overrideItemMatch(parsed: ParsedSearch, bind: Bind, mode: SearchMode = "all") {
+  const clauses: string[] = [];
+  const query = prefixTsQuery(parsed);
+  if (mode === "all" && query) clauses.push(`((o.name IS NOT NULL OR o.description IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL OR o.hide_oem)
+    AND to_tsvector('simple', search_normalize(concat_ws(' ', COALESCE(o.name, NULLIF(s.product_data->>'ac', ''), s.code),
+      s.product_data->>'ac', s.product_data->>'uk', s.code, CASE WHEN o.hide_oem THEN NULL ELSE s.product_data->>'oe' END,
+      s.product_data->>'ac2', o.description, o.brand, o.part_number))) @@ to_tsquery('simple', ${bind(query)}))`);
+  // compact is [a-z0-9] only, so it needs no LIKE escaping.
+  if (parsed.compact.length >= 3) {
+    const key = bind(`%${parsed.compact}%`);
+    clauses.push(`(o.part_number IS NOT NULL AND search_compact(o.part_number) LIKE ${key})`, `(o.hide_oem AND search_compact(s.code) LIKE ${key})`);
+  }
+  if (!clauses.length) return null;
+  return `SELECT o.supplier_item_id FROM commerce_item_overrides o JOIN supplier_items s ON s.id = o.supplier_item_id
+    WHERE ${clauses.join(" OR ")}`;
+}
+
 /** Same condition for the hand-entered store `products` table (small, unindexed). */
 export function storeProductMatch(alias: string, parsed: ParsedSearch, bind: Bind, mode: SearchMode = "all") {
   const clauses: string[] = [];
@@ -67,15 +113,25 @@ export function storeProductMatch(alias: string, parsed: ParsedSearch, bind: Bin
   return clauses.length ? `(${clauses.join(" OR ")})` : "false";
 }
 
-/** Relevance of a catalog-shaped row (name, brand, code, oem, description columns), highest first. */
+/**
+ * Relevance of a catalog-shaped row (name, brand, code, oem, description, display_brand, display_code columns), highest
+ * first. Keep in step with summarizeSearch (src/modules/store/catalog.ts).
+ */
 export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
   const queries = `to_tsquery('simple', ${bind(prefixTsQuery(parsed))}::text), to_tsquery('simple', ${bind(exactTsQuery(parsed))}::text), ${bind(parsed.compact)}::text`;
-  const columns = ["name", "brand", "code", "oem", "description"].map(column => `${alias}.${column}`).join(", ");
+  const rank = (code: string) => `catalog_search_rank(${[`${alias}.name`, `${alias}.display_brand`, `${alias}.${code}`, `${alias}.oem`, `${alias}.description`].join(", ")}, ${queries})`;
   // Supplier rows rank their stored inputs (db/search.sql trigger): ~6 normalisations fewer per row, which
   // turned a 23k-match search from ~0.8 s of ranking into a primary-key lookup each. Store products, and
-  // any row the trigger has not filled yet, compute the same values on the fly.
+  // any row the trigger has not filled yet, compute the same values on the fly. So do rows with an admin-edited name,
+  // description, store brand or part number (#575, #602): the stored inputs are the supplier's, the view columns carry
+  // the edit (a price edit, #580, does not). An edited part number ranks like the supplier code it stands beside: the
+  // better of the two, so an exact match of either ranks first. A row whose supplier OEM field is hidden (#615) ranks
+  // on the computed path too: its view oem is empty, the stored search_oem is not.
   return `COALESCE((SELECT catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries})
-    FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL), catalog_search_rank(${columns}, ${queries}))`;
+    FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides o WHERE o.supplier_item_id = s.id
+        AND (o.name IS NOT NULL OR o.description IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL OR o.hide_oem))),
+    CASE WHEN ${alias}.display_code <> ${alias}.code THEN GREATEST(${rank("code")}, ${rank("display_code")}) ELSE ${rank("code")} END)`;
 }
 
 /**

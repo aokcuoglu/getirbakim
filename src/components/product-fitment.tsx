@@ -10,6 +10,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 type Vehicle = {
   model: string | null; engineAndCodes: string; fuel: string;
   kw: number; ps: number; cc: number; from: string; to: string | null;
+  /** Computed on the server (vehicle-label.ts): the make as the catalog writes it (the filter's value) and its reading form,
+   * and the model in reading form, the same for every spelling of one model; `model` stays as stored. */
+  makeKey: string; makeLabel: string; modelLabel: string;
   vehicleTypeId?: number | null; brandId?: number | null; modelId?: number | null; catalogEngine?: string | null; catalogBrand?: string | null;
 };
 
@@ -26,13 +29,15 @@ export function ProductFitment({ vehicles }: { vehicles: Vehicle[] }) {
   const [query, setQuery] = useState("");
   const [make, setMake] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
-  const models = [...new Set(vehicles.map(vehicle => vehicle.model))];
-  const makes = [...new Set(vehicles.map(vehicle => vehicle.catalogBrand || vehicle.model?.split(" ")[0]).filter(Boolean))] as string[];
-  const normalized = query.trim().toLocaleLowerCase("tr");
+  const models = [...new Set(vehicles.map(vehicle => vehicle.modelLabel))];
+  const makeLabels = new Map(vehicles.map(vehicle => [vehicle.makeKey, vehicle.makeLabel]));
+  const makes = [...makeLabels.keys()];
+  // Turkish lower case turns the roman "VII" into "vıı"; folding ı to i on both sides keeps "golf vii" a match.
+  const fold = (text: string) => text.toLocaleLowerCase("tr").replaceAll("ı", "i");
+  const normalized = fold(query.trim());
   const matches = vehicles.filter(vehicle =>
-    (!make || vehicle.model?.startsWith(`${make} `)) && (!selectedModel || vehicle.model === selectedModel) &&
-    `${vehicle.model} ${vehicle.engineAndCodes} ${vehicle.from} ${vehicle.to || ""} ${vehicle.ps} ${vehicle.kw}`
-      .toLocaleLowerCase("tr").includes(normalized));
+    (!make || vehicle.makeKey === make) && (!selectedModel || vehicle.modelLabel === selectedModel) &&
+    fold(`${vehicle.modelLabel} ${vehicle.engineAndCodes} ${vehicle.from} ${vehicle.to || ""} ${vehicle.ps} ${vehicle.kw}`).includes(normalized));
 
   const select="w-[200px] max-[1000px]:w-40 max-[750px]:w-full [&>select]:h-10 [&>select]:rounded-[5px] [&>select]:bg-white [&>select]:px-3 [&>select]:text-sm [&>svg]:text-foreground";
   return <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar" aria-labelledby="fitment-title">
@@ -40,15 +45,15 @@ export function ProductFitment({ vehicles }: { vehicles: Vehicle[] }) {
     <p className="hidden">Modelini seç, motor kodu ve üretim tarihini karşılaştır. Sipariş öncesinde araç bilgilerini ve OEM kodunu doğrula.</p>
     <p className="-mt-2.5 mb-[18px] text-xs leading-5 text-[#53677d]">{vehicles.length} uyumlu araç kaydı</p>
     <div className="flex flex-wrap items-center gap-2 rounded-t-lg border border-[#dce2e9] bg-white p-4">
-      <label className="max-[750px]:min-w-[110px] max-[750px]:flex-1"><span className="sr-only">Araç markası</span><NativeSelect className={select} value={make} onChange={event => { setMake(event.target.value); setSelectedModel(""); }}><NativeSelectOption value="">Marka</NativeSelectOption>{makes.map(value => <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>)}</NativeSelect></label>
-      <label className="max-[750px]:min-w-[110px] max-[750px]:flex-1"><span className="sr-only">Araç modeli</span><NativeSelect className={select} value={selectedModel} onChange={event => setSelectedModel(event.target.value)}><NativeSelectOption value="">Model</NativeSelectOption>{models.filter(model => !make || model?.startsWith(`${make} `)).map(model => <NativeSelectOption key={model} value={model || ""}>{model}</NativeSelectOption>)}</NativeSelect></label>
+      <label className="max-[750px]:min-w-[110px] max-[750px]:flex-1"><span className="sr-only">Araç markası</span><NativeSelect className={select} value={make} onChange={event => { setMake(event.target.value); setSelectedModel(""); }}><NativeSelectOption value="">Marka</NativeSelectOption>{makes.map(value => <NativeSelectOption key={value} value={value}>{makeLabels.get(value)}</NativeSelectOption>)}</NativeSelect></label>
+      <label className="max-[750px]:min-w-[110px] max-[750px]:flex-1"><span className="sr-only">Araç modeli</span><NativeSelect className={select} value={selectedModel} onChange={event => setSelectedModel(event.target.value)}><NativeSelectOption value="">Model</NativeSelectOption>{[...new Set(vehicles.filter(vehicle => !make || vehicle.makeKey === make).map(vehicle => vehicle.modelLabel))].map(model => <NativeSelectOption key={model} value={model}>{model}</NativeSelectOption>)}</NativeSelect></label>
       <Button type="button" variant="ghost" className="h-10 min-h-0 bg-transparent px-5 text-sm text-[#0065c3] hover:bg-muted hover:text-[#0065c3]" onClick={() => { setMake(""); setSelectedModel(""); setQuery(""); }}>Sıfırla</Button>
     <label className="flex h-10 min-w-40 flex-1 items-center gap-3 rounded-[5px] border border-[#e5e7eb] px-3.5 text-muted-foreground focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 max-[750px]:basis-full" htmlFor={inputId}><Search size={18}/><input id={inputId} type="search" className="h-[38px] w-full min-w-0 border-0 bg-transparent py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground" value={query} onChange={event => setQuery(event.target.value)} placeholder="Model, motor kodu veya yıl ara"/><span className="sr-only">Uyumlu araçlarda ara</span></label>
     </div>
     <p className="m-0 border-x border-[#dce2e9] bg-white px-4 py-3 text-xs leading-5 text-muted-foreground" role="status">{normalized || make || selectedModel ? `${matches.length} eşleşme bulundu` : `${models.length} model serisi · Motor ayrıntıları için aç`}</p>
     <div className="overflow-hidden rounded-b-lg border border-t-0 border-[#dce2e9] bg-white">
       {models.map(model => {
-        const rows = matches.filter(vehicle => vehicle.model === model);
+        const rows = matches.filter(vehicle => vehicle.modelLabel === model);
         if (!rows.length) return null;
         return <Collapsible key={model + (normalized ? "-search" : "")} defaultOpen={Boolean(normalized)} className="border-t border-[#e0e5eb]">
           <CollapsibleTrigger className="group/model flex w-full cursor-pointer rounded-none border-0 bg-transparent text-foreground items-center gap-3 px-4 py-5 text-left text-base leading-5 outline-none hover:bg-[#f7f8fa] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#2e78c7]"><ChevronRight size={18} aria-hidden="true" className="shrink-0 text-[#53677d] transition-transform group-data-panel-open/model:rotate-90"/><strong className="font-medium">{model}</strong><span className="ml-auto text-[11px] whitespace-nowrap text-muted-foreground">{rows.length} seçenek</span></CollapsibleTrigger>

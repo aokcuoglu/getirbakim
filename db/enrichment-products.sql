@@ -60,6 +60,7 @@ CREATE OR REPLACE VIEW enrichment_product_catalog AS
  ) r ON r.product_id=p.id WHERE p.merged_into IS NULL;
 
 -- The requested offer keeps its own identity; validation and fitments use the original donor's identity.
+-- also mirrored in src/modules/admin/fitment-donor.ts
 CREATE OR REPLACE VIEW product_enrichment_shared AS
  SELECT target.id AS supplier_item_id,target.code AS supplier_code,
  COALESCE(NULLIF(target.product_data->>'uk',''),supplier_item_brand(target.supplier,target.product_data),'') AS supplier_brand,

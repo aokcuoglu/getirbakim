@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { privatePageRobots } from "@/modules/seo/crawlers";
 import Link from "next/link";
 import { randomUUID } from "node:crypto";
 import { Check, LockKeyhole } from "lucide-react";
@@ -18,6 +20,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { catalogPath } from "@/modules/seo/paths";
 
 const errors:Record<string,string>={supplier:"Tedarikçi fiyat ve stok bilgisi şu anda doğrulanamadı. Biraz sonra yeniden dene.",stock:"Ürün fiyatı veya stok durumu uygun değil. Sepetini kontrol edip güncelle.",price:"Fiyatlar, servis indirimi veya sipariş veri kaynağı değişti. Güncel toplamı kontrol ederek siparişini tekrar onayla.",validation:"İletişim ve teslimat bilgilerini tamamla; sözleşmeleri onayla.",session:"Sepet oturumu sona erdi.",payment:"Online ödeme şu anda kapalı. Lütfen daha sonra tekrar dene."};
 
@@ -29,6 +32,7 @@ const step="flex items-center gap-2 whitespace-nowrap not-last:after:ml-1 not-la
 const stepMark="grid size-8 place-items-center rounded-full border border-input";
 const required=<span className="text-[#ba3c28]" aria-hidden>*</span>;
 
+export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Checkout({searchParams}:{searchParams:Promise<SearchParams>}) {
   const [account,owner,params]=await Promise.all([currentAccount(),currentCartOwner(),searchParams.then(normalizeSearchParams)]);
   const [items,shipping]=await Promise.all([cartFor(owner),shippingRule()]);
@@ -54,6 +58,6 @@ export default async function Checkout({searchParams}:{searchParams:Promise<Sear
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-note" className={label}>Sipariş notu</FieldLabel><Textarea id="checkout-note" className={cn(textarea,"min-h-20")} name="note" maxLength={1000} rows={2}/></Field>
         <Field orientation="horizontal" className="items-start gap-2.5"><Checkbox id="checkout-consent" name="consent" required className="my-0.5 size-5"/><FieldLabel htmlFor="checkout-consent" className="block text-sm leading-[22px] font-normal"><Link href="/on-bilgilendirme-formu" target="_blank" className="hover:text-primary hover:underline">Ön bilgilendirme formunu</Link> ve <Link href="/mesafeli-satis-sozlesmesi" target="_blank" className="hover:text-primary hover:underline">mesafeli satış sözleşmesini</Link> okudum, onaylıyorum. Ödemenin TAMI güvenli ödeme sayfasında alınacağını; tedarikçi stoku teyit edilemezse siparişin iptal edilip ödemenin iade edileceğini biliyorum.</FieldLabel></Field>
       </CheckoutForm><p className="mt-[18px] mb-6 flex flex-wrap items-center gap-1.5 text-xs leading-[18px] text-muted-foreground"><LockKeyhole className="size-[15px]" aria-hidden/>Bilgilerin yalnız sipariş işlemleri için kullanılır. <Link href="/gizlilik-politikasi" className="text-[#0065a5] hover:underline">Gizlilik politikası</Link></p><Link href="/sepet" className="hover:text-primary">← Sepete dön</Link></Card><OrderSummary items={items} discount={discount} shipping={shipping} checkout/></div>
-    : <Empty className="gap-6 rounded-none border-0 px-4 py-16"><h2 className="m-0 text-2xl leading-[34px] font-semibold">Sepetin henüz boş.</h2><Button nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5 font-semibold hover:bg-brand-strong" render={<Link href="/katalog"/>}>Alışverişe başla</Button></Empty>}
+    : <Empty className="gap-6 rounded-none border-0 px-4 py-16"><h2 className="m-0 text-2xl leading-[34px] font-semibold">Sepetin henüz boş.</h2><Button nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5 font-semibold hover:bg-brand-strong" render={<Link href={catalogPath}/>}>Alışverişe başla</Button></Empty>}
   </section></div>;
 }

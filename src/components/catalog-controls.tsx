@@ -13,17 +13,12 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
+// Make, model and category live in the path (/kategori/{category}/{make}, /yedek-parca/{make}/{model}), every other
+// filter in the query string.
+import {listingPath,listingUrl} from "@/modules/seo/paths";
 import {ComparisonProvider} from "./catalog-card-controls";
 
 type Query=CatalogQuery;
-// A vehicle make lives in the path (/car-parts/{make}), every other filter in the query string.
-function catalogUrl(params:Query, updates:Partial<Query>) {
- const {make,...rest}={...params,page:undefined,...updates};
- const query=new URLSearchParams();
- Object.entries(rest).forEach(([key,value])=>{if(value)query.set(key,value);});
- const path=make?`/car-parts/${make}`:"/katalog";
- return query.size?`${path}?${query}`:path;
-}
 const searchBox="flex h-10 items-center gap-2 rounded-md border border-input bg-white px-3 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50";
 const searchInput="h-full w-full min-w-0 border-0 bg-transparent p-0 text-[13px] outline-none placeholder:text-muted-foreground";
 // Children of the active category (or the top level), with a search across the whole tree.
@@ -60,7 +55,8 @@ function FilterGroup({label,options,selected,onToggle,searchable=true}:{label:st
  </CollapsibleContent>
  </Collapsible>;
 }
-export function CatalogSidebar({categories,brands,facets,params}:{categories:StoreCategory[];brands:string[];facets:CatalogFacet[];params:Query}) {
+// `categoryNav={false}`: no category links (vehicle model pages until their category routes exist, #639).
+export function CatalogSidebar({categories,brands,facets,params,categoryNav=true}:{categories:StoreCategory[];brands:string[];facets:CatalogFacet[];params:Query;categoryNav?:boolean}) {
  const router=useRouter();
  // Open on desktop, folded behind the "Filtreler" toggle on phones.
  const [open,setOpen]=useState(true);
@@ -68,16 +64,16 @@ export function CatalogSidebar({categories,brands,facets,params}:{categories:Sto
  const selected=selectedBrands(params),attributes=selectedAttributes(params);
  const active=categories.find(c=>c.slug===params.category),parent=categories.find(c=>c.id===active?.parentId);
  function toggle(list:string[],value:string){return list.includes(value)?list.filter(v=>v!==value):[...list,value];}
- function change(updates:Partial<Query>){router.push(catalogUrl(params,updates),{scroll:false});}
+ function change(updates:Partial<Query>){router.push(listingUrl(params,updates),{scroll:false});}
  return <aside className="min-w-0"><Collapsible open={open} onOpenChange={setOpen}>
  <CollapsibleTrigger className="group/filters hidden min-h-12 w-full cursor-pointer justify-start text-foreground items-center gap-2 rounded-md border border-input bg-white px-4 py-3 text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-panel-open:mb-4 max-[768px]:flex"><SlidersHorizontal size={17}/><span>Filtreler</span><ChevronDown size={16} className="ml-auto transition-transform group-data-panel-open/filters:rotate-180"/></CollapsibleTrigger>
  <CollapsibleContent>
- <section className="mb-[15px] rounded-[4px] border border-border bg-white py-[25px]"><h2 className="mb-[15px] flex items-center gap-2.5 px-[25px] text-base leading-6 font-semibold"><Link className="grid size-6 place-items-center rounded-[3px] bg-[#f1f3f5] hover:bg-[#e6e9ec]" aria-label="Üst kategori" href={parent?catalogUrl(params,{category:parent.slug,attributes:undefined,brands:undefined,brand:undefined,oil:undefined}):params.make?`/car-parts/${params.make}`:"/katalog"}><ChevronLeft size={16}/></Link>{parent?.name??"Kategoriler"}</h2><nav aria-label="Katalog kategorileri"><SidebarCategoryTree categories={categories} selected={params.category} href={slug=>catalogUrl(params,{category:slug,brand:undefined,brands:undefined,attributes:undefined,availability:undefined,oil:undefined})}/></nav></section>
+ {categoryNav&&<section className="mb-[15px] rounded-[4px] border border-border bg-white py-[25px]"><h2 className="mb-[15px] flex items-center gap-2.5 px-[25px] text-base leading-6 font-semibold"><Link className="grid size-6 place-items-center rounded-[3px] bg-[#f1f3f5] hover:bg-[#e6e9ec]" aria-label="Üst kategori" href={parent?listingUrl(params,{category:parent.slug,attributes:undefined,brands:undefined,brand:undefined,oil:undefined}):listingPath({makeSlug:params.make,modelSlug:params.model})}><ChevronLeft size={16}/></Link>{parent?.name??"Kategoriler"}</h2><nav aria-label="Katalog kategorileri"><SidebarCategoryTree categories={categories} selected={params.category} href={slug=>listingUrl(params,{category:slug,brand:undefined,brands:undefined,attributes:undefined,availability:undefined,oil:undefined})}/></nav></section>}
  <div className="overflow-hidden rounded-[4px] border border-border bg-white"><FilterGroup label="Üretici" options={brands.map(value=>({value,label:value}))} selected={selected} onToggle={value=>{const next=toggle(selected,value);change({brand:undefined,brands:next.length?JSON.stringify(next):undefined});}}/>
  {facets.map(facet=><FilterGroup key={facet.key} searchable={facet.key!=="Brand class"} label={facet.label} options={facet.values.map(value=>({value,label:specificationValue(value)}))} selected={attributes[facet.key]??[]} onToggle={value=>{const next={...attributes,[facet.key]:toggle(attributes[facet.key]??[],value)};if(!next[facet.key].length)delete next[facet.key];change({attributes:Object.keys(next).length?JSON.stringify(next):undefined});}}/>)}
  <FilterGroup label="Stok durumu" searchable={false} options={[{value:"in_stock",label:"Stokta mevcut"},{value:"out_of_stock",label:"Stokta yok"},{value:"supplied",label:"Tedarik edilebilir"}]} selected={params.availability?[params.availability]:[]} onToggle={value=>change({availability:params.availability===value?undefined:value as Query["availability"]})}/>
  </div>
- {(selected.length>0||Object.keys(attributes).length>0||params.availability)&&<Link className="mt-[15px] block text-[13px] text-brand-strong hover:underline" href={catalogUrl(params,{brand:undefined,brands:undefined,attributes:undefined,availability:undefined})}>Filtreleri temizle</Link>}
+ {(selected.length>0||Object.keys(attributes).length>0||params.availability)&&<Link className="mt-[15px] block text-[13px] text-brand-strong hover:underline" href={listingUrl(params,{brand:undefined,brands:undefined,attributes:undefined,availability:undefined})}>Filtreleri temizle</Link>}
  </CollapsibleContent></Collapsible></aside>;
 }
 const pageButton="h-12 rounded-md border-brand bg-brand px-[27px] text-sm text-white hover:bg-brand-strong";
@@ -91,16 +87,16 @@ export function CatalogResults({count,page,pages,pageSize,params,children,defaul
    <Button variant="ghost" className={viewButton} aria-label="Liste görünümü" aria-pressed={view==="list"} onClick={()=>setView("list")}><Image src="/media/site/icons/layout-list.svg" width={24} height={24} alt="" unoptimized/></Button>
    <Button variant="ghost" className={viewButton} aria-label="Izgara görünümü" aria-pressed={view==="grid"} onClick={()=>setView("grid")}><Image src="/media/site/icons/layout-grid.svg" width={24} height={24} alt="" unoptimized/></Button>
   </div>
-  <NativeSelect name="sort" aria-label="Ürünleri sırala" value={params.sort ?? (params.q ? "relevance" : "newest")} onChange={event=>router.push(catalogUrl(params,{sort:event.target.value as Query["sort"]}))}
+  <NativeSelect name="sort" aria-label="Ürünleri sırala" value={params.sort ?? (params.q ? "relevance" : "newest")} onChange={event=>router.push(listingUrl(params,{sort:event.target.value as Query["sort"]}))}
    className="w-[180px] max-[600px]:w-[150px] max-[380px]:w-[145px] [&>select]:h-[42px] [&>select]:rounded-md [&>select]:bg-white [&>select]:pr-[30px] [&>select]:pl-3 [&>select]:text-sm [&>svg]:text-foreground">
    {params.q&&<NativeSelectOption value="relevance">En alakalı</NativeSelectOption>}<NativeSelectOption value="newest">Son eklenenler</NativeSelectOption><NativeSelectOption value="price-asc">Fiyat: düşükten yükseğe</NativeSelectOption><NativeSelectOption value="price-desc">Fiyat: yüksekten düşüğe</NativeSelectOption>
   </NativeSelect>
  </div></div>
  <div className="flex flex-col gap-4 group-data-[view=grid]/listing:mx-[-2px] group-data-[view=grid]/listing:grid group-data-[view=grid]/listing:grid-cols-3 group-data-[view=grid]/listing:items-stretch group-data-[view=grid]/listing:gap-x-4 group-data-[view=grid]/listing:gap-y-6 max-[992px]:group-data-[view=grid]/listing:grid-cols-2 max-[600px]:group-data-[view=grid]/listing:mx-0 max-[600px]:group-data-[view=grid]/listing:gap-x-2 max-[600px]:group-data-[view=grid]/listing:gap-y-4 max-[380px]:group-data-[view=grid]/listing:grid-cols-1">{children}</div>
  {pages>1 && <Pagination aria-label="Katalog sayfaları" className="mt-[25px]"><PaginationContent className="flex-wrap justify-center gap-4 text-sm">
-  {page>1 && <PaginationItem><Button className={pageButton} nativeButton={false} render={<Link href={catalogUrl(params,{page:String(page-1)})}/>}>Önceki sayfa</Button></PaginationItem>}
+  {page>1 && <PaginationItem><Button className={pageButton} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page-1)})}/>}>Önceki sayfa</Button></PaginationItem>}
   <PaginationItem><span>Sayfa {page} / {pages}</span></PaginationItem>
-  {page<pages && <PaginationItem><Button className={pageButton} nativeButton={false} render={<Link href={catalogUrl(params,{page:String(page+1)})}/>}>Sonraki sayfa</Button></PaginationItem>}
+  {page<pages && <PaginationItem><Button className={pageButton} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page+1)})}/>}>Sonraki sayfa</Button></PaginationItem>}
  </PaginationContent></Pagination>}
  </div></ComparisonProvider>;
 }

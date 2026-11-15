@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+import { privatePageRobots } from "@/modules/seo/crawlers";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import Link from "next/link";
 import { login } from "@/modules/auth/actions";
@@ -6,12 +8,14 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { catalogPath } from "@/modules/seo/paths";
 
 const field="gap-2";
 const label="text-sm leading-5 font-normal";
 const input="h-[52px] rounded-lg bg-white px-3.5 py-[13px] text-base leading-6 md:text-base placeholder:text-sm";
 const serviceLink="mt-5 flex w-fit items-center gap-1.5 text-sm leading-5 text-primary hover:underline";
 
+export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Login({searchParams}:{searchParams:Promise<SearchParams>}) {
  const {error,next}=normalizeSearchParams(await searchParams);
  const returnTo=safeReturnTo(next);
@@ -29,6 +33,6 @@ export default async function Login({searchParams}:{searchParams:Promise<SearchP
   <p className="mt-4 text-[13px] leading-[1.8] [&_a]:text-primary [&_a]:underline"><Link href="/kvkk-aydinlatma-metni">KVKK Aydınlatma Metni</Link> · <Link href="/gizlilik-politikasi">Gizlilik Politikası</Link></p>
   <p className="mt-[25px] text-sm leading-[22px] text-muted-foreground">Hesaplar Getirbakim yönetimi tarafından servis onayından sonra açılır.</p>
   <p><Link className={serviceLink} href="/servisler/basvuru">Servis hesabına başvur →</Link></p>
-  <Link className={serviceLink} href="/katalog">Bireysel alışverişe devam et →</Link>
+  <Link className={serviceLink} href={catalogPath}>Bireysel alışverişe devam et →</Link>
  </section>;
 }

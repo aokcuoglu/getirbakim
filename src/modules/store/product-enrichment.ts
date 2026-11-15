@@ -3,11 +3,29 @@ import { db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { enrichmentDataSchema, matchBasisSchema, matchesEnrichment } from "./enrichment-contract";
 import {catalogSpecifications} from "./catalog-filters";
+import { getOverrideImages } from "./product-images";
+import { applySpecOverrides } from "./product-spec-display";
+import { getOverrideSpecs } from "./product-specs";
 
 export type CatalogProductImage = { src: string; width: number; height: number };
 
-// Load only the visible page in one query, without fetching vehicle fitments.
+/**
+ * The image cards, the cart and the partner API show per store row (#581): the product's first admin upload, else its
+ * automatic enrichment image unless the admin hid it. Rows with neither are left out (the caller draws PartArt).
+ */
 export async function getCatalogProductImages(products: { id: string; code: string; brand: string }[]) {
+  const [automatic, uploads] = await Promise.all([getAutomaticProductImages(products), getOverrideImages(products.map(product => product.id))]);
+  const images = new Map<string, CatalogProductImage>();
+  for (const product of products) {
+    const own = uploads.get(product.id);
+    const image = own?.images[0] ?? (own?.hideAutomatic ? undefined : automatic.get(product.id));
+    if (image) images.set(product.id, image);
+  }
+  return images;
+}
+
+// The enrichment image of the visible page in one query, without fetching vehicle fitments.
+export async function getAutomaticProductImages(products: { id: string; code: string; brand: string }[]) {
   const images = new Map<string, CatalogProductImage>();
   if (!products.length) return images;
   const productsById = new Map(products.map(product => [product.id, product]));
@@ -82,11 +100,21 @@ export async function getProductEnrichment(product: { id: string; code: string; 
 export async function getCatalogProductDetails(products:{id:string;code:string;brand:string}[]){
  const details=new Map<string,{specifications:[string,string][];vehicleSpecific:boolean;partNumber:string}>();
  if(!products.length)return details;
- const rows=(await db.query<{supplier_item_id:string;supplier_code:string;supplier_brand:string;current_oem:string;donor_code:string;donor_brand:string;donor_item_id:string;donor_master_brand:string|null;manufacturer:string;manufacturer_part_number:string;payload:unknown;match_basis:unknown}>("SELECT e.*,e.donor_oem AS current_oem FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.company=ANY($2::text[]) AND s.presence='present'",[products.map(p=>p.id),storefrontCompanies()])).rows;
+ // The enrichment is matched by the supplier's raw code and brand (#602); the admin's specifications (#603) apply on top.
+ const [{rows},overrides]=await Promise.all([db.query<{supplier_item_id:string;supplier_code:string;supplier_brand:string;current_oem:string;donor_code:string;donor_brand:string;donor_item_id:string;donor_master_brand:string|null;manufacturer:string;manufacturer_part_number:string;payload:unknown;match_basis:unknown}>("SELECT e.*,e.donor_oem AS current_oem FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.company=ANY($2::text[]) AND s.presence='present'",[products.map(p=>p.id),storefrontCompanies()]),getOverrideSpecs(products.map(p=>p.id))]);
  for(const row of rows){
   const product=products.find(p=>p.id===row.supplier_item_id),data=enrichmentDataSchema.safeParse(row.payload),basis=matchBasisSchema.safeParse(row.match_basis);
   if(!product||product.code!==row.supplier_code||product.brand!==row.supplier_brand||!data.success||!basis.success||!matchesEnrichment({code:row.donor_code,brand:row.donor_brand,oem:row.current_oem,masterBrand:row.donor_master_brand},{manufacturer:row.manufacturer,partNumber:row.manufacturer_part_number,data:data.data,matchBasis:basis.data}))continue;
   details.set(product.id,{specifications:catalogSpecifications(data.data.specifications,basis.data.type==='exact_part'),vehicleSpecific:data.data.vehicles.length>0,partNumber:basis.data.type==='exact_part'?row.manufacturer_part_number:product.code});
+ }
+ for(const product of products){
+  const own=overrides.get(product.id);
+  if(!own)continue;
+  const detail=details.get(product.id);
+  const specifications=applySpecOverrides(detail?.specifications??[],own);
+  if(detail)details.set(product.id,{...detail,specifications});
+  // A product without (matching) enrichment shows the specifications the admin added.
+  else if(specifications.length)details.set(product.id,{specifications,vehicleSpecific:false,partNumber:product.code});
  }
  return details;
 }

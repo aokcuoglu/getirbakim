@@ -21,3 +21,9 @@ test("mismatch requires every source row to be linked", () => {
 test("a free-text garage vehicle without a catalog type cannot be judged", () => {
   assert.equal(fitmentLevel({ typeId: null, modelId: null }, linked), "unknown");
 });
+test("a type an admin removed from the product is a mismatch, whatever the rows say", () => {
+  assert.equal(fitmentLevel({ typeId: "10", modelId: "1" }, [{ vehicleTypeId: 20, modelId: 1 }], [10]), "mismatch");
+  assert.equal(fitmentLevel({ typeId: "10", modelId: "1" }, [], [10]), "mismatch");
+  assert.equal(fitmentLevel({ typeId: "10", modelId: "1" }, [{ vehicleTypeId: null, modelId: null }], [10]), "mismatch");
+  assert.equal(fitmentLevel({ typeId: "11", modelId: "1" }, linked, [10]), "likely");
+});

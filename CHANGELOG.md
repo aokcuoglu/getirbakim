@@ -2,6 +2,41 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.26.0 — 2026-11-15
+
+Release of `dev` since v0.25.0 (52 pull requests): storefront SEO and GEO, per-product editing in the admin, and payments and order handling. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **SEO and GEO foundation**: site-wide metadata (title template, canonicals, icons, site JSON-LD), robots policy with AI crawler rules, `llms.txt` and `noindex` on private pages, Product/Offer, BreadcrumbList and ItemList structured data, indexing supplier products only with minimum content, primary product image as the share image ([#651](https://github.com/aokcuoglu/getirbakim/pull/651), [#648](https://github.com/aokcuoglu/getirbakim/pull/648), [#657](https://github.com/aokcuoglu/getirbakim/pull/657), [#665](https://github.com/aokcuoglu/getirbakim/pull/665), [#624](https://github.com/aokcuoglu/getirbakim/pull/624)).
+- **Readable addresses and names**: Turkish path URLs for category and make pages with 301s; readable product names with search title/description templates; product URLs with a slug before the id (old addresses 308 to the new one) ([#669](https://github.com/aokcuoglu/getirbakim/pull/669), [#679](https://github.com/aokcuoglu/getirbakim/pull/679), [#682](https://github.com/aokcuoglu/getirbakim/pull/682)).
+- **Vehicle model landing pages** at `/yedek-parca/<make>/<model>` backed by the `storefront_model_fits` summary table ([#683](https://github.com/aokcuoglu/getirbakim/pull/683)).
+- **IndexNow** notifications for changed product URLs and **consent-gated GA4** with catalog e-commerce events ([#671](https://github.com/aokcuoglu/getirbakim/pull/671), [#672](https://github.com/aokcuoglu/getirbakim/pull/672)).
+- **Per-product editing in `/yonetim/urunler`**: store name, description, category, visibility and SEO; images (upload, order, hide); OEM, cross-reference and EAN numbers; technical specifications; store brand and part number; hiding the supplier OEM field; vehicle fitments (add/remove); fixed and campaign prices over the supplier formula ([#593](https://github.com/aokcuoglu/getirbakim/pull/593), [#599](https://github.com/aokcuoglu/getirbakim/pull/599), [#613](https://github.com/aokcuoglu/getirbakim/pull/613), [#626](https://github.com/aokcuoglu/getirbakim/pull/626), [#618](https://github.com/aokcuoglu/getirbakim/pull/618), [#652](https://github.com/aokcuoglu/getirbakim/pull/652), [#678](https://github.com/aokcuoglu/getirbakim/pull/678), [#600](https://github.com/aokcuoglu/getirbakim/pull/600)).
+- **Payments and orders**: refund and void TAMI payments from the admin, checkout consent with an order-specific contract copy, carrier and tracking on shipment, customer cancellation of unpaid and unconfirmed orders, supplier/warehouse/cost and procurement state per order line ([#629](https://github.com/aokcuoglu/getirbakim/pull/629), [#612](https://github.com/aokcuoglu/getirbakim/pull/612), [#621](https://github.com/aokcuoglu/getirbakim/pull/621), [#670](https://github.com/aokcuoglu/getirbakim/pull/670), [#663](https://github.com/aokcuoglu/getirbakim/pull/663)).
+- **Product matching**: bulk merge for reviewed safe suffix patterns, who decided and kind filter in manual decisions, hand-linked offers flagged and filterable in matched groups ([#592](https://github.com/aokcuoglu/getirbakim/pull/592), [#594](https://github.com/aokcuoglu/getirbakim/pull/594), [#610](https://github.com/aokcuoglu/getirbakim/pull/610), [#614](https://github.com/aokcuoglu/getirbakim/pull/614)).
+- **Platform**: incremental storefront sync to AWS from the 13 Nov baseline; app version in the footer and admin sidebar and build release/commit in `/api/health`; garbage collection of unreferenced product media ([#572](https://github.com/aokcuoglu/getirbakim/pull/572), [#630](https://github.com/aokcuoglu/getirbakim/pull/630), [#658](https://github.com/aokcuoglu/getirbakim/pull/658), [#632](https://github.com/aokcuoglu/getirbakim/pull/632)).
+
+### Changed
+- Performance: indexed enrichment OEM numbers for storefront code search, `/yonetim/urun-verileri` search through indexed id sets, paged vehicle matches in the enrichment dialog, per-offer fitment donor lookups ([#616](https://github.com/aokcuoglu/getirbakim/pull/616), [#625](https://github.com/aokcuoglu/getirbakim/pull/625), [#579](https://github.com/aokcuoglu/getirbakim/pull/579), [#588](https://github.com/aokcuoglu/getirbakim/pull/588)).
+- Admin product edits invalidate listing caches across tasks; home rails count admin-uploaded images ([#627](https://github.com/aokcuoglu/getirbakim/pull/627), [#668](https://github.com/aokcuoglu/getirbakim/pull/668)).
+- Vehicle make and model names are readable on listing pages, the model page H1 carries the year range, and the garage, vehicle picker and fitment table use the same labels; an admin's product name is shown as written ([#687](https://github.com/aokcuoglu/getirbakim/pull/687), [#688](https://github.com/aokcuoglu/getirbakim/pull/688), [#690](https://github.com/aokcuoglu/getirbakim/pull/690)).
+
+### Fixed
+- Sitemap built as a chunked index from the live catalog; admin-hidden products skipped in home rails ([#654](https://github.com/aokcuoglu/getirbakim/pull/654), [#655](https://github.com/aokcuoglu/getirbakim/pull/655)).
+- `/bakim-robotu` failing for visitors with a garage vehicle ([#684](https://github.com/aokcuoglu/getirbakim/pull/684)).
+- Garage button and fitment messaging follow the selected vehicle ([#681](https://github.com/aokcuoglu/getirbakim/pull/681)).
+- Matching: `different` recorded on undo without a prior decision; known different-part patterns skipped in suffix candidates ([#576](https://github.com/aokcuoglu/getirbakim/pull/576), [#590](https://github.com/aokcuoglu/getirbakim/pull/590)).
+- Admin: recent fetches table on narrow screens; selected tab and filters kept after refreshing matches ([#577](https://github.com/aokcuoglu/getirbakim/pull/577), [#578](https://github.com/aokcuoglu/getirbakim/pull/578)).
+
+### Maintenance
+- Local `db:setup` refuses to run from a branch behind `origin/dev`; reminder to import vehicle oil specs on AWS when the CSV changes; TAMI reconcile schedule and live payment checklist documented ([#601](https://github.com/aokcuoglu/getirbakim/pull/601), [#573](https://github.com/aokcuoglu/getirbakim/pull/573), [#620](https://github.com/aokcuoglu/getirbakim/pull/620)).
+
+### Deploy and operations
+- `scripts/setup.ts` (`db:setup`, run by the AWS release) applies every `db/*.sql` idempotently. New this release: product override tables (`product_overrides` with prices and their history, images, references, specifications, fitments), `storefront_model_fits`, `indexnow_urls`, order/payment columns and the `name_overridden` column on the catalog views. The first run creates `storefront_model_fits` and queues one full make/model fitment refresh (~1.8M rows); run it outside a supplier-sync window.
+- New optional secrets: `GA4_MEASUREMENT_ID` (empty = no tag), `INDEXNOW_KEY` / `INDEXNOW_MAX_URLS` (empty = IndexNow off). If IndexNow goes live before the product URL change reaches production, run `npm run seo:indexnow -- --seed` once after it does (`docs/indexnow.md`).
+- Live TAMI payments need the steps in the payment checklist (#608): reconcile schedule, CloudFront viewer address header, `PAYMENT_RECONCILIATION_SECRET`, `TAMI_CHECKOUT_ENABLED=true`, real shipping fee and free-shipping threshold.
+- Vehicle oil specs (`data/vehicle_type_oil_specs.csv`) are unchanged in this release.
+
 ## v0.25.0 — 2026-11-14
 
 Release of `dev` since v0.24.0 (63 pull requests): the AWS production runtime, supplier operations in the admin, and review tools for product matching. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
