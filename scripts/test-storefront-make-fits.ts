@@ -19,25 +19,6 @@ const liveFor=(types:string)=>`WITH types AS MATERIALIZED (${types}),
  UNION SELECT supplier_item_id::text FROM decided WHERE mode='add'`;
 const live=liveFor('SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1');
 const liveModel=liveFor('SELECT v.id FROM vehicle_types v WHERE v.model_id=$1');
- trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM product_enrichment_shared e
-  JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-  AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
-<<<<<<< HEAD
-  WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits)),
- decided AS MATERIALIZED (SELECT ps.supplier_item_id,o.vehicle_type_id,o.mode FROM types
-  JOIN product_override_fitments o ON o.vehicle_type_id=types.id JOIN product_sources ps ON ps.product_id=o.product_id)
- SELECT t.supplier_item_id::text AS id FROM fits f JOIN trusted t ON t.donor_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index
-  WHERE NOT EXISTS (SELECT 1 FROM decided d WHERE d.mode='remove' AND d.supplier_item_id=t.supplier_item_id AND d.vehicle_type_id=f.vehicle_type_id)
- UNION SELECT supplier_item_id::text FROM decided WHERE mode='add'`;
-||||||| parent of bc346671 (feat(catalog): keep engine-level fits per vehicle model in storefront_model_fits (#639))
-  WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits))
- SELECT DISTINCT t.supplier_item_id::text AS id FROM fits f JOIN trusted t ON t.donor_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index`;
-=======
-  WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits))
- SELECT DISTINCT t.supplier_item_id::text AS id FROM fits f JOIN trusted t ON t.donor_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index`;
-const live=liveFor('SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1');
-const liveModel=liveFor('SELECT v.id FROM vehicle_types v WHERE v.model_id=$1');
->>>>>>> bc346671 (feat(catalog): keep engine-level fits per vehicle model in storefront_model_fits (#639))
 
 test('storefront make and model lists follow payloads, fitments, the vehicle catalog and links',{skip:!process.env.DATABASE_URL},async()=>{
  const schema='make_fits_test_'+randomUUID().replaceAll('-','');
@@ -127,7 +108,6 @@ test('storefront make and model lists follow payloads, fitments, the vehicle cat
   await pool.query('DELETE FROM product_vehicle_fitments WHERE supplier_item_id=$1',[unlinked]);
   lists=await consistent();
   assert.deepEqual(lists[1],[donor]);
-<<<<<<< HEAD
   // An admin removes the product's last VW fitment (#583): its make goes; an added BMW type lists the product and the
   // target that left it gets its own product with an added type, without any enrichment link.
   await pool.query("INSERT INTO products(id,brand,part_number) VALUES($1,'FEBI','181123X')",[target]);
@@ -137,12 +117,23 @@ test('storefront make and model lists follow payloads, fitments, the vehicle cat
   lists=await consistent();
   assert.deepEqual(lists[1],[]);
   assert.deepEqual(lists[2],[donor,target].sort());
+  // The model tables take the same decisions: the removed type's model drops the product, the added type's model
+  // lists both offers (the target without any link, no key violation).
+  assert.deepEqual(lists[10],[]);
+  assert.deepEqual(lists[20],[donor,target].sort());
   await pool.query("DELETE FROM product_override_fitments WHERE mode='add'");
   lists=await consistent();
   assert.deepEqual(lists[2],[]);
+  assert.deepEqual(lists[20],[]);
+  // An added type of another model lists the unlinked target there; the product's own model is untouched.
+  await pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,110,'add')",[target]);
+  lists=await consistent();
+  assert.deepEqual(lists[11],[target]);
+  assert.deepEqual(lists[1],[target]);
   await pool.query('DELETE FROM product_override_fitments');
   lists=await consistent();
   assert.deepEqual(lists[1],[donor]);
+  assert.deepEqual([lists[10],lists[11]],[[donor],[]]);
   // The donor's enrichment is deleted: its links and fitments go, and the make rows (keyed to supplier_items since
   // #583, no longer cascaded from the links) leave with the queued refresh.
   await pool.query('DELETE FROM product_enrichments WHERE supplier_item_id=$1',[donor]);
@@ -150,9 +141,6 @@ test('storefront make and model lists follow payloads, fitments, the vehicle cat
   assert.deepEqual(lists[1],[]);
   assert.deepEqual(lists[2],[]);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM storefront_make_fits')).rows[0].n,0);
-||||||| parent of bc346671 (feat(catalog): keep engine-level fits per vehicle model in storefront_model_fits (#639))
-=======
-  assert.deepEqual(lists[10],[donor]);
->>>>>>> bc346671 (feat(catalog): keep engine-level fits per vehicle model in storefront_model_fits (#639))
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM storefront_model_fits')).rows[0].n,0);
  } finally {await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}
 });
