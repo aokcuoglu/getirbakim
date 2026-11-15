@@ -168,7 +168,7 @@ async function sameSummaryIfReady() {
 }
 async function loadSameIndex(): Promise<SameIndex> {
   // `codes`: the offers' codes as the search compares them; `position`: the database's primary_id order, the last tie-break.
-  // `manual` comes from its own query: ~6-12 ms next to the ~2.8 s index, which adding it to the grouping CTE would
+  // `manual` comes from its own query: ~8-30 ms (depending on buffer cache) next to the ~2.8 s index, which adding it to the grouping CTE would
   // change (a join per offer in the big query) without a shown-cheap plan.
   const [groups, manualGroups] = await Promise.all([db.query<Omit<SameEntry, "manual">>(sameGroups("", `
    string_agg(regexp_replace(upper(code),'[^A-Z0-9]','','g'),' ') AS codes,row_number() OVER (ORDER BY primary_id::text)::int AS position`)),

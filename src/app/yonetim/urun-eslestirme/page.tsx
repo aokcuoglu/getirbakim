@@ -176,7 +176,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           { value: "manual", label: `Elle kararlar (${number(data.exclusions)})` },
         ] }, ...decisions ? [] : [{ name: "linked", label: "Bağlantı türü", value: linked ?? "", options: [
           { value: "", label: "Tüm bağlantılar" },
-          { value: "manual", label: `Elle bağlı teklifli${summary ? ` (${number(summary.manual)})` : ""}` },
+          { value: "manual", label: `Elle bağlı teklifi olanlar${summary ? ` (${number(summary.manual)})` : ""}` },
         ] }]])}
         {decisions ? (decisions.length ? <Table server><caption className="sr-only">Elle kararlar</caption>
           <TableHeader><TableRow><TableHead sortKey="kind" filter={{ param: "kind", options: [{ value: "merge", label: "Birleştirme" }, { value: "split", label: "Ayırma" }] }}>Karar</TableHead><TableHead sortKey="supplier">Tedarikçi</TableHead><TableHead sortKey="code">Kayıt</TableHead><TableHead>Bağlı ürün</TableHead><TableHead sortKey="decider">Karar veren</TableHead><TableHead sortKey="decided">Tarih</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
@@ -194,7 +194,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             <TableCell><form action={undoSplit}><input type="hidden" name="item_id" value={item.id}/><input type="hidden" name="back" value={back}/><SubmitButton variant="outline" aria-label={`${item.code} kararını geri al`}>Geri al</SubmitButton></form></TableCell>
           </TableRow>)}</TableBody></Table> : <EmptyState title={params.q && kind ? "Arama ve filtreyle eşleşen elle karar yok." : kind ? "Bu filtreyle eşleşen elle karar yok." : params.q ? "Aramayla eşleşen elle karar yok." : "Elle karar verilmiş kayıt yok."} icon={<Boxes/>} clearHref={kind ? query({ kind: undefined, page: undefined }) : undefined}/>)
           : data.same.length ? <Table server><caption className="sr-only">{"Başbuğ ve Dinamik'te aynı ürünler"}</caption>
-            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead filter={{ param: "linked", options: [{ value: "manual", label: "Elle bağlı" }] }} title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır. Elle: marka ve parça numarası eşleşmesiyle değil, yönetici kararıyla bağlandı.">Bağlı teklifler</TableHead>
+            <TableHeader><TableRow><TableHead>Ürün</TableHead><TableHead sortKey="primary">Başbuğ</TableHead><TableHead filter={{ param: "linked", options: [{ value: "manual", label: "Elle bağlı teklifi olanlar" }] }} title="Gruba bağlı diğer tedarikçi kayıtları; Ayır yalnız o kaydı gruptan çıkarır. Elle: marka ve parça numarası eşleşmesiyle değil, yönetici kararıyla bağlandı.">Bağlı teklifler</TableHead>
               <TableHead sortKey="selling" filter={{ param: "scope", options: [{ value: "dinamik", label: "Dinamik satışta" }, { value: "basbug", label: "Başbuğ satışta" }, { value: "none", label: "Stok yok" }] }}>Mağazada satılan</TableHead></TableRow></TableHeader>
             <TableBody>{data.same.map(group => {
               const primary = group.offers[0];
@@ -210,7 +210,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
                 <TableCell>{group.selling ? <div className="flex flex-col items-start gap-1"><StatusBadge tone={group.selling === "dinamik" ? "success" : "neutral"} icon={group.selling === "dinamik" ? undefined : Store}>{suppliers[group.selling]}</StatusBadge>
                   <span className="tabular-nums">{price(group.selling_price)}{saving > 0 && <span className="text-muted-foreground"> · %{saving} ucuz</span>}</span></div> : <span className="text-muted-foreground">Stok yok</span>}</TableCell>
               </TableRow>;
-            })}</TableBody></Table> : <EmptyState title={linked ? "Bu filtreyle eşleşen grup yok." : "Bu görünümde ürün yok."} icon={<SearchX/>} clearHref={linked ? query({ linked: undefined, page: undefined }) : undefined}/>}
+            })}</TableBody></Table> : <EmptyState title={linked ? (params.q || data.scope !== "all" ? "Arama ve filtreyle eşleşen grup yok." : "Bu filtreyle eşleşen grup yok.") : "Bu görünümde ürün yok."} icon={<SearchX/>} clearHref={linked ? query({ q: undefined, scope: undefined, linked: undefined, page: undefined }) : undefined}/>}
       </CardContent>
       {pager}
     </>;
