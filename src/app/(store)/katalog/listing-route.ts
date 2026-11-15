@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { vehicleModelGroupYears } from "@/modules/store/vehicle-model-groups";
+import { vehicleMakeLabel, vehicleModelGroupYears, vehicleModelLabels } from "@/modules/store/vehicle-model-groups";
 import { notFound } from "next/navigation";
 import type { SearchParams } from "@/lib/search-params";
 import { findListing, type LoadedListing } from "@/modules/store/listing-load";
@@ -14,19 +14,17 @@ export async function loadListing(input: { category?: string; make?: string; mod
   return await findListing(input) ?? notFound();
 }
 
-const makeLabel = (name: string) => name === "VOLKSWAGEN" ? "VW" : name;
-
 export function listingMetadata({ query, category, make, model, modelTotal }: LoadedListing): Metadata {
   const path = listingPath({ makeSlug: make && query.make, modelSlug: make && model && query.model, categorySlug: category?.slug });
   // A model page needs enough products to be indexed; the other listings keep the plain-listing rule (#638).
   const robots = listingIndexable(query, modelTotal ?? 0) ? undefined : { index: false, follow: true };
   if (make && model) {
-    const name = `${makeLabel(make.name)} ${model.name}`, years = vehicleModelGroupYears(model);
-    return pageMetadata({ title: `${name} yedek parçaları`, path, robots,
+    const { name, title } = vehicleModelLabels(make.name, model), years = vehicleModelGroupYears(model);
+    return pageMetadata({ title, path, robots,
       description: `${name}${years ? ` (${years})` : ""} için ${(modelTotal ?? 0).toLocaleString("tr-TR")} yedek parça: üreticiye ve OEM numarasına göre incele. Motor tipine göre doğrulamak için aracını seç.`.slice(0, 180) });
   }
   if (make) {
-    const name = makeLabel(make.name);
+    const name = vehicleMakeLabel(make.name);
     const parts = category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları";
     return pageMetadata({ title: `${name} ${parts}`, path, robots,
       description: `${name} araçlara uygun ${parts} incele. Ürün kodu, OEM numarası ve araç bilgileriyle uyumluluğu kontrol et.`.slice(0, 180) });

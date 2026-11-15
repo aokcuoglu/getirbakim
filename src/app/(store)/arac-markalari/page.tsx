@@ -4,6 +4,7 @@ import {getVehicleBrands} from "@/modules/store/vehicle-catalog.server";
 import {vehicleBrandSlug,popularVehicleMakes} from "@/modules/store/vehicle-catalog";
 import {pageMetadata,siteUrl} from "@/lib/site";
 import {getVehicleLogo} from "@/modules/store/storefront-logos";
+import {vehicleMakeLabel} from "@/modules/store/vehicle-model-groups";
 import {Breadcrumb,BreadcrumbItem,BreadcrumbLink,BreadcrumbList,BreadcrumbPage,BreadcrumbSeparator} from "@/components/ui/breadcrumb";
 
 import {JsonLd} from "@/components/json-ld";
@@ -14,7 +15,6 @@ export const metadata=pageMetadata({title:"Araç markaları",
  description:"Tüm araç markalarını incele ve aracının markasına uygun yedek parçaları keşfet.",
  path:makesPath});
 
-const displayName=(name:string)=>name==="VOLKSWAGEN"?"VW":name;
 // Group under the plain Latin initial so "CITROËN" sits with C; digits share one group.
 const initial=(name:string)=>{const letter=vehicleBrandSlug(name).charAt(0).toUpperCase();return /[A-Z]/.test(letter)?letter:"0-9";};
 
@@ -23,9 +23,9 @@ export default async function VehicleMakes() {
  const groups=[...Map.groupBy(brands,brand=>initial(brand.name))].sort(([a],[b])=>a.localeCompare(b));
  const popular=popularVehicleMakes.flatMap(name=>brands.filter(brand=>brand.name===name));
  const tile=(brand:typeof brands[number])=>{const logo=getVehicleLogo(brand.name);
-  return <li key={brand.id}><Link prefetch={false} href={makePath(vehicleBrandSlug(brand.name))} aria-label={brand.name+" yedek parçaları"} className="flex h-[88px] flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary max-md:h-20">
-   {logo?<Image src={logo.src} width={logo.width} height={logo.height} alt={`${brand.name} logosu`} unoptimized className="h-[42px] w-[92px] max-w-full object-contain"/>:<span className="grid size-[42px] place-items-center rounded-full bg-muted text-sm font-semibold tracking-[.5px] text-muted-foreground" aria-hidden="true">{displayName(brand.name).slice(0,2)}</span>}
-   <span className="max-w-full wrap-anywhere">{displayName(brand.name)}</span>
+  return <li key={brand.id}><Link prefetch={false} href={makePath(vehicleBrandSlug(brand.name))} aria-label={vehicleMakeLabel(brand.name)+" yedek parçaları"} className="flex h-[88px] flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary max-md:h-20">
+   {logo?<Image src={logo.src} width={logo.width} height={logo.height} alt={`${vehicleMakeLabel(brand.name)} logosu`} unoptimized className="h-[42px] w-[92px] max-w-full object-contain"/>:<span className="grid size-[42px] place-items-center rounded-full bg-muted text-sm font-semibold tracking-[.5px] text-muted-foreground" aria-hidden="true">{vehicleMakeLabel(brand.name).slice(0,2).toUpperCase()}</span>}
+   <span className="max-w-full wrap-anywhere">{vehicleMakeLabel(brand.name)}</span>
   </Link></li>;};
  const grid="grid list-none grid-cols-6 gap-4 max-lg:grid-cols-4 max-md:grid-cols-3 max-md:gap-2";
  const h2="mt-8 mb-4 text-[22px] leading-7 font-semibold tracking-[-.4px]";
