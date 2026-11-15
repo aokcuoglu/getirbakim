@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Inbox } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Inbox, TriangleAlert } from "lucide-react";
 import { adminOrders, fitmentReturnReport, orderFilters, type OrderFilter } from "@/modules/admin/data";
 import { fitmentLevelLabels, type FitmentLevel } from "@/modules/store/fitment-level";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
@@ -78,6 +78,14 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                     {o.payments.length > 0 && <div><dt className="text-muted-foreground">TAMI</dt><dd className="break-all">{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""})`).join(", ")}</dd></div>}
                     {o.paid_at && <div><dt className="text-muted-foreground">Ödeme zamanı</dt><dd>{time(o.paid_at)}</dd></div>}
                     {o.refund_reference && <div><dt className="text-muted-foreground">İade referansı</dt><dd>{o.refund_reference}</dd></div>}
+                    <div className="sm:col-span-2"><dt className="text-muted-foreground">Sözleşme onayı</dt>
+                      {o.agreement_at ? <dd className="flex flex-col items-start gap-2">
+                        <Badge variant="success"><CircleCheck data-icon="inline-start"/>Sözleşme onaylandı</Badge>
+                        <span>{time(o.agreement_at)} · IP {o.agreement_ip ?? "kaydedilmedi"} · Sürüm {o.agreement_version}</span>
+                        <span className="break-all text-muted-foreground">{o.agreement_user_agent ?? "Tarayıcı bilgisi yok"}</span>
+                        <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/siparis/${o.id}/sozlesme`}/>}>Sözleşme kopyası</Button>
+                      </dd> : <dd><Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Onay kaydı yok</Badge></dd>}
+                    </div>
                   </dl>
                 </AccordionContent>
               </AccordionItem></Accordion>

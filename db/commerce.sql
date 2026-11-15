@@ -272,3 +272,19 @@ UPDATE commerce_order_items i SET reserved_quantity=CASE
 FROM commerce_orders o WHERE o.id=i.order_id AND i.reserved_quantity IS NULL;
 -- Admin list order and the dashboard's 14-day chart (a created_at range per Istanbul day).
 CREATE INDEX IF NOT EXISTS commerce_orders_created_idx ON commerce_orders(created_at DESC,id DESC);
+-- Checkout consent evidence and the order-specific pre-contract text (#604). One row per order, written in the
+-- order's transaction; orders placed before this change have none. The row is never updated (trigger below):
+-- `document` is the full Ön Bilgilendirme Formu + Mesafeli Satış Sözleşmesi as shown for that order, so later
+-- edits to the site's legal pages do not change it. Deleting the order removes it.
+CREATE TABLE IF NOT EXISTS commerce_order_agreements (
+ order_id uuid PRIMARY KEY REFERENCES commerce_orders(id) ON DELETE CASCADE,
+ accepted_at timestamptz NOT NULL DEFAULT now(),
+ ip text, forwarded_for text, user_agent text,
+ consent_text text NOT NULL, legal_version text NOT NULL,
+ document jsonb NOT NULL CHECK(jsonb_typeof(document)='object')
+);
+CREATE OR REPLACE FUNCTION commerce_order_agreement_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ RAISE EXCEPTION 'commerce_order_agreements rows are immutable';
+END $$;
+CREATE OR REPLACE TRIGGER commerce_order_agreement_immutable BEFORE UPDATE ON commerce_order_agreements FOR EACH ROW EXECUTE FUNCTION commerce_order_agreement_immutable();

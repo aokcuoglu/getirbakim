@@ -43,7 +43,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     try { await reconcileOrderPayments(id,{minIntervalSeconds:5}); result=await currentOrder(id) ?? result; }
     catch(error) { console.error("Order page payment reconciliation failed",{id,error:error instanceof Error ? error.message : error}); }
   }
-  const {order,items}=result;
+  const {order,items,agreement}=result;
   const account=await currentAccount();
   const admin=Boolean(account?.approved && account.role==="admin");
   const returns=admin ? await orderReturns(order.id) : [];
@@ -80,6 +80,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
       </div><strong className="shrink-0 font-semibold">{money(Number(p.unit_price_kurus)*p.quantity)}</strong></div>)}
       <p className={panelText}>Ürün toplamı: {money(Number(order.subtotal_kurus))}</p><p className={panelText}>Kargo: {Number(order.shipping_kurus) ? money(Number(order.shipping_kurus)) : order.payment_status==="none" ? "Teyitte belirlenir" : "Ücretsiz"}</p>
       <h3 className="mt-[18px] mb-3 text-[21px] leading-[29px] font-semibold">Toplam: {money(Number(order.total_kurus))}</h3><p className={panelMuted}>KDV dahil.</p>
-    </article><article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Teslimat bilgileri</h2><p className={panelText}>{order.customer_name}</p><p className={panelText}>{order.email} · {order.phone}</p><p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>{order.address}</p>{order.note && <p className={panelText}>Not: {order.note}</p>}</article></div><Button nativeButton={false} className={cta} render={<Link href="/katalog"/>}>Kataloğa dön →</Button>
+    </article><div className="min-w-0"><article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Teslimat bilgileri</h2><p className={panelText}>{order.customer_name}</p><p className={panelText}>{order.email} · {order.phone}</p><p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>{order.address}</p>{order.note && <p className={panelText}>Not: {order.note}</p>}</article>
+      {agreement && <article className={cn(panel,"mb-3 min-w-0")}><h2 className={panelTitle}>Sözleşmeler</h2><p className={panelText}>Ön bilgilendirme formunu ve mesafeli satış sözleşmesini {time(agreement.accepted_at)} tarihinde onayladın.</p><Link href={`/siparis/${order.id}/sozlesme`} className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 font-medium text-primary hover:underline">Sözleşme kopyasını görüntüle<span aria-hidden>→</span></Link></article>}</div></div><Button nativeButton={false} className={cta} render={<Link href="/katalog"/>}>Kataloğa dön →</Button>
   </section>;
 }

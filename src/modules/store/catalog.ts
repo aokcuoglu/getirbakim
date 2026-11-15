@@ -129,7 +129,7 @@ export async function getDecidedEquivalents(id: string) {
   .sort((a, b) => Number(Boolean(b.id)) - Number(Boolean(a.id)) || Number(Boolean(b.available)) - Number(Boolean(a.available)) || a.code.localeCompare(b.code));
 }
 export function servicePrice(price: number, discount: number) { return Math.round(price * (100-discount) / 100); }
-export function money(kurus: number) { return new Intl.NumberFormat("tr-TR",{ style:"currency", currency:"TRY" }).format(kurus/100); }
+export { money } from "./money";
 
 export const categories = [
  {slug:"yedek-parca",name:"Yedek parçalar",art:"parts"},

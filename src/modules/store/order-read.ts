@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { currentAccount } from "@/modules/auth/session";
 import { currentCartOwner, currentGuestCartOwner } from "./cart";
 import type { CommerceOrder, OrderItem } from "./orders";
+import type { OrderAgreementDocument } from "./order-agreement";
 
 export const orderColumns="id,number,owner_kind,owner_id,customer_name,email,phone,address,note,total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,created_at,payment_status,payment_due_at,paid_at,payment_note,refund_reference";
 
@@ -25,6 +26,18 @@ export async function currentOrder(id:string) {
   [id,account?.approved && account.role==='admin' || false,owner.kind,owner.id,guest?.id ?? ''],
  )).rows[0];
  if(!order) return null;
- const items=(await db.query<OrderItem>("SELECT product_id,name,code,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id",[id])).rows;
- return {order,items};
+ const [items,agreement]=await Promise.all([
+  db.query<OrderItem>("SELECT product_id,name,code,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id",[id]),
+  db.query<{accepted_at:Date;legal_version:string}>("SELECT accepted_at,legal_version FROM commerce_order_agreements WHERE order_id=$1",[id]),
+ ]);
+ return {order,items:items.rows,agreement:agreement.rows[0] ?? null};
+}
+
+/** The order's stored pre-contract copy, under the same access rule as the order page; null when none was recorded. */
+export async function currentOrderAgreement(id:string) {
+ const result=await currentOrder(id);
+ if(!result) return null;
+ const agreement=(await db.query<{accepted_at:Date;legal_version:string;consent_text:string;document:OrderAgreementDocument}>(
+  "SELECT accepted_at,legal_version,consent_text,document FROM commerce_order_agreements WHERE order_id=$1",[id])).rows[0];
+ return agreement ? {order:result.order,agreement} : null;
 }

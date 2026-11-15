@@ -80,6 +80,7 @@
     "db:supplier:automation": "node --env-file=.env.local --import tsx scripts/migrate-supplier-automation.ts",
     "test:payments": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-payments.ts",
     "test:order-actions": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-order-actions.ts",
+    "test:order-agreement": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-order-agreement.ts",
     "test:supplier-checkout": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-supplier-checkout.ts",
     "storefront:sync": "node --env-file=.env.local --import tsx scripts/sync-storefront-production.ts",
     "storefront:sync:install": "node --import tsx scripts/install-storefront-sync-launchd.ts",

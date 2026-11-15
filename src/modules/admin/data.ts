@@ -59,17 +59,20 @@ export type OrderFilter = keyof typeof orderFilters;
 // Header sorting on the orders list (TableHead sortKey → column).
 const orderSorts = { created: "o.created_at", customer: "o.customer_name", total: "o.total_kurus" };
 
+/** Checkout consent evidence (#604); null on orders placed before it was recorded. */
+type OrderAgreementSummary = { agreement_at: Date | null; agreement_ip: string | null; agreement_user_agent: string | null; agreement_version: string | null };
 export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { sort?: string; dir?: string } = {}) {
   await requireAdmin();
   const requested = Number(rawPage);
   const page = Number.isSafeInteger(requested) ? Math.max(1, Math.min(10000, requested)) : 1;
   const filter: OrderFilter = pickKey(orderFilters, rawFilter, "all");
-  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[] }>(
+  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[] } & OrderAgreementSummary>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,
+     a.accepted_at AS agreement_at,a.ip AS agreement_ip,a.user_agent AS agreement_user_agent,a.legal_version AS agreement_version,
      COALESCE((SELECT jsonb_agg(jsonb_build_object('provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
       'bank_reference',p.bank_reference,'paid_at',p.paid_at) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments
-     FROM commerce_orders o WHERE ${orderFilters[filter].where} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
+     FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50],
   ), db.query<Record<OrderFilter, number>>(`SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`)]);
   return { orders: orders.rows, page, filter, counts: counts.rows[0] };

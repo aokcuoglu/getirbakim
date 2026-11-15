@@ -8,6 +8,9 @@ import { cartFor } from "@/modules/store/cart";
 import { purchasePreview } from "@/modules/store/purchase-preview";
 import type { PurchaseState } from "@/modules/store/purchase-types";
 import { currentVehicle } from "@/modules/store/garage";
+import { headers } from "next/headers";
+import { checkoutInput } from "@/modules/store/checkout-schema";
+import { clientEvidence } from "@/lib/client-address";
 
 export async function addToCart(_state: PurchaseState, form: FormData): Promise<PurchaseState> {
  const input=z.object({productId:z.uuid(),quantity:z.coerce.number().int().min(1).max(99)}).safeParse(Object.fromEntries(form));
@@ -45,8 +48,6 @@ export async function updateCart(form: FormData) {
  revalidatePath("/", "layout"); redirect(ok ? "/sepet" : "/sepet?error=stock");
 }
 
-const checkoutInput=z.object({requestKey:z.uuid(),quote:z.string().regex(/^[a-f0-9]{64}$/),name:z.string().trim().min(2).max(150),email:z.email().max(200),phone:z.string().trim().regex(/^\+?[\d\s()-]{10,20}$/),address:z.string().trim().min(15).max(1000),note:z.string().trim().max(1000),consent:z.literal('on')});
-
 /** Creates the awaiting-payment order; the cart is kept until TAMI confirms the payment. */
 export async function placeOrder(form:FormData):Promise<{id:string;error?:undefined}|{error:string;id?:undefined}> {
  const input=checkoutInput.safeParse(Object.fromEntries(form));
@@ -54,7 +55,7 @@ export async function placeOrder(form:FormData):Promise<{id:string;error?:undefi
  const owner=await currentCartOwner();
  if(!owner) return {error:'session'};
  const {submitOrder}=await import('@/modules/store/orders');
- const result=await submitOrder(owner,input.data,await currentVehicle());
+ const result=await submitOrder(owner,input.data,await currentVehicle(),clientEvidence(await headers()));
  if(result.error===undefined) revalidatePath('/','layout');
  return result;
 }

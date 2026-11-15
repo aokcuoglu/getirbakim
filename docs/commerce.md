@@ -49,6 +49,20 @@ Katalog, ürün detayı ve Başbuğ yönetim tablosundaki **Sepete ekle** işlem
 
 Sipariş oluştururken iletişim ve adres alınır, fiyat/indirim/adet tekrar kontrol edilir. Fiyat değişmişse güncel toplam tekrar onaylanır. Aynı gönderimin tekrarı ikinci sipariş oluşturmaz. Mağaza stoku transaction içinde ayrılır; tedarikçi sinyali azaltılmaz. Satış fiyatı, NF/kur/kâr/KDV/indirim ve gözlem bilgileri sipariş kaleminde saklanır.
 
+### Sözleşme onayı ve siparişe özgü metin (#604)
+
+Sipariş formundaki Ön Bilgilendirme / Mesafeli Satış onay kutusu işaretlenmeden sipariş oluşmaz (`checkoutInput`, `src/modules/store/checkout-schema.ts`). Sipariş aynı transaction içinde `commerce_order_agreements` tablosuna (sipariş başına bir satır, `order_id` birincil anahtar) şunları yazar:
+
+- `accepted_at`: onay zamanı (veritabanı `now()`, siparişin `created_at`'i ile aynı),
+- `ip`, `forwarded_for`, `user_agent`: isteği gönderenin kanıtı (`src/lib/client-address.ts`: önce CloudFront `cloudfront-viewer-address`, yoksa `x-forwarded-for`'un son halkası; `x-real-ip` önünde onu yazan bir katman olmadığından istemcinin sahtelemesine açıktır ve kullanılmaz. Geçersiz IP `NULL`; ham zincirin son 500 karakteri ve tarayıcı bilgisinin ilk 500 karakteri saklanır). CloudFront origin request policy'de `CloudFront-Viewer-Address` başlığı açık olmalıdır; açık değilse `x-forwarded-for`'un son halkası müşterinin değil CloudFront edge sunucusunun IP'sidir,
+- `consent_text`: işaretlenen kutunun düz metni (`checkoutConsentText`; test, sipariş sayfasındaki etiketle aynı olduğunu doğrular),
+- `legal_version`: `<iki sayfanın en yeni updatedAt'i>.<şablon sürümü + iki sayfanın içeriğinin sha256'sının ilk 12 hanesi>`; yasal metinde tek karakter değişse sürüm değişir. Üretilen bölümlerin yapısı değişince `AGREEMENT_TEMPLATE_VERSION` artırılır,
+- `document`: sipariş anında üretilmiş Ön Bilgilendirme Formu ve Mesafeli Satış Sözleşmesi (`src/modules/store/order-agreement.ts`). Her belgede satıcı bilgileri, alıcı, sipariş numarası/tarihi, kalemler (adet, marka/kod, KDV dahil birim fiyat ve tutar), ürün toplamı, servis indirimi, kargo, ödenecek toplam, ödeme yöntemi ve teslimat adresi; ardından o anki genel bölümlerin kopyası yer alır ("Kapsam ve Bilgilendirme" ve "Siparişe Özgü Bilgiler" bölümleri siparişe özgü kopyada yer almaz).
+
+Yalnız güncelleme engellenir (`BEFORE UPDATE` tetikleyicisi hata verir); sipariş silinince kayıt da silinir. Görüntüleme yalnız saklanan belgeyi işler, `legal-pages.json`'u okumaz; yasal sayfalar sonradan değişse de kopya aynı kalır. Aynı gönderimin tekrarı yeni satır yazmaz. Bu değişiklikten önceki siparişlerde satır yoktur: müşteri sayfasında kart görünmez, yönetimde "Onay kaydı yok" yazar.
+
+Müşteri `/siparis/[id]` sayfasındaki "Sözleşmeler" kartından `/siparis/[id]/sozlesme` kopyasını açar (sipariş sayfasıyla aynı erişim kuralı; IP ve tarayıcı bilgisi müşteriye gösterilmez). `/yonetim/siparisler` "Teslimat ve ödeme" ayrıntısında onay zamanı, IP, tarayıcı bilgisi, metin sürümü ve kopya bağlantısı görünür.
+
 Ödeme sipariş anında TAMI ortak ödeme sayfasında kartla alınır; sipariş ödeme doğrulanınca “Teyit bekliyor” olur. Kargo sabit ücret + ücretsiz kargo eşiğiyle toplamda tahsil edilir. Ayrıntılar: [Online ödeme (TAMI)](payments.md). Tedarikçiye otomatik satın alma bağlı değildir.
 
 ## Araç uyumluluğu ölçümü
@@ -76,6 +90,7 @@ Kural `src/modules/store/fitment-level.ts` içindedir; ürün sayfası aynı kur
 - `npm run test:supplier-checkout`: geçici şemada canlı API hata/fiyat/stok kontrolleri, kayıtlı modda eski NF/kur/stokla API’siz sipariş, eksik/çelişkili/pasif kayıtların reddi, adet sınırı, eşzamanlı gönderim ve değişmeyen sipariş fiyat/gözlem kayıtları. API yanıtları mock edilir; yerel durdurma dosyasına dokunulmaz.
 - `npm run test:product-pricing`: sabit/kampanya fiyatı girişi (TL → kuruş, tarih kuralları), en iyi teklif sırası, maliyet altı uyarısı ve fiyat formu; yalıtılmış şemada sabit fiyatın formülü ezmesi, kampanya penceresi, eksik tedarikçi verisinde fiyatsızlık, snapshot anahtarları, İstanbul saati dönüşümü ve geçmiş kayıtları. Ayrıca oran doğrulaması, kuruş yuvarlama, ürüne özel kâr/KDV, genel ayardan devralma ve sıfır oranları; geçici PostgreSQL şemasında fiyat hesabı, diğer ürünlerin korunması, senkronizasyon sonrası oranların korunması ve genel oranlara dönüş. CI bu testi ve sipariş testiyle oran değişikliklerini PostgreSQL üzerinde çalıştırır.
 - `npm run test:fitment-level`: uyumluluk seviyesi kuralı.
+- `npm run test:order-agreement`: onaysız sipariş girdisinin reddi, saklanan onay metninin form etiketiyle aynılığı, siparişe özgü belge içeriği, metin sürümü, IP/tarayıcı başlıkları; yalıtılmış şemada siparişle birlikte kayıt, tekrar gönderimde tek kayıt, güncellemenin reddi ve yasal metin değişse de kopyanın aynı kalması.
 - `npm run verify:catalog`: katalog arama/filtre/paginasyon ve ürün detayları.
 
 Doğrulamalar geçici sentetik hesap/ürün/sipariş kayıtlarını sonunda siler. HTTP doğrulaması varsayılan `http://localhost:3000` kullanır; `VERIFY_URL` ile değiştirilebilir.
