@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition, type DragEvent } from "react";
+import { useEffect, useId, useRef, useState, useTransition, type DragEvent, type FormEvent } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, CircleAlert, CircleCheck, EyeOff, GitMerge, ImagePlus, Star, Trash2 } from "lucide-react";
-import { finishProductImageUpload, removeProductImage, reorderProductImages, setAutomaticImageHidden, uploadProductImage, type ProductImageActionResult } from "@/app/yonetim/urunler/image-actions";
-import { productImageLimits, productImageTypes } from "@/modules/admin/product-image-limits";
+import { ArrowDown, ArrowUp, CircleAlert, CircleCheck, EyeOff, GitMerge, ImagePlus, Link2, Star, Trash2 } from "lucide-react";
+import { addProductImageFromUrl, finishProductImageUpload, removeProductImage, reorderProductImages, setAutomaticImageHidden, uploadProductImage, type ProductImageActionResult } from "@/app/yonetim/urunler/image-actions";
+import { productImageLimits, productImageTypes, remoteImageUrlMaxLength } from "@/modules/admin/product-image-limits";
 import type { ProductImages } from "@/modules/admin/product-image-store";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -14,15 +14,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from "@/components/ui/item";
 import { Progress, ProgressLabel } from "@/components/ui/progress";
+import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 
 type Upload = ProductImages["images"][number];
 const maxMegabytes = productImageLimits.maxBytes / 1024 / 1024;
 
 /**
- * Uploads (drop or pick several files; sent one at a time), order, primary image, delete and the automatic image's
+ * Uploads (drop or pick several files; sent one at a time) or an image URL the server downloads (#725), order, primary image, delete and the automatic image's
  * visibility (#581). Every change goes through a server action; the page refreshes with the stored gallery.
  */
 export function ProductImagesManager({ productId, images, hideAutomatic, automatic }: {
@@ -37,6 +39,10 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
   // The arrow button to focus again once a move is stored and the list re-rendered (the button is disabled meanwhile).
   const focusAfterMove = useRef<{ id: string; direction: "up" | "down" } | null>(null);
   const switchId = useId();
+  const urlId = useId();
+  const urlInput = useRef<HTMLInputElement>(null);
+  const [url, setUrl] = useState("");
+  const [fetchingUrl, setFetchingUrl] = useState(false);
   const [pending, startTransition] = useTransition();
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -86,6 +92,28 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
     });
   };
 
+  const addFromUrl = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const value = url.trim();
+    if (!value || pending) return;
+    setNotice(null);
+    setErrors([]);
+    setFetchingUrl(true);
+    startTransition(async () => {
+      const result = await addProductImageFromUrl({ productId, url: value }).catch((): ProductImageActionResult => ({ status: "error", message: "Bağlantı kesildi; yeniden deneyin." }));
+      if (result.status === "error") setErrors([result.message]);
+      else {
+        await finishProductImageUpload(productId).catch(() => undefined);
+        setNotice(result.message);
+        setUrl("");
+      }
+      setFetchingUrl(false);
+      // Back to the field: to correct the address after an error, or to paste the next one.
+      urlInput.current?.focus();
+      router.refresh();
+    });
+  };
+
   const mutate = (action: () => Promise<ProductImageActionResult>, success?: string) => {
     setNotice(null);
     setErrors([]);
@@ -126,7 +154,24 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
               onChange={event => { upload([...event.target.files ?? []]); event.target.value = ""; }}/>
             <Button type="button" variant="outline" aria-label="Ürün görseli için dosya seç" disabled={pending || remaining <= 0} onClick={() => input.current?.click()}>
               <ImagePlus data-icon="inline-start" aria-hidden="true"/>Dosya seç</Button>
-            {remaining <= 0 && <p className="text-muted-foreground">Görsel sınırına ulaşıldı; yeni görsel için önce birini silin.</p>}
+            <form className="flex w-full max-w-lg flex-col gap-2 text-left" noValidate onSubmit={addFromUrl}>
+              <Field>
+                <FieldLabel htmlFor={urlId}>Ya da görsel adresi (URL)</FieldLabel>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <InputGroup>
+                    <InputGroupAddon><Link2 aria-hidden="true"/></InputGroupAddon>
+                    <InputGroupInput ref={urlInput} id={urlId} type="url" inputMode="url" autoComplete="off" spellCheck={false} placeholder="https://…/gorsel.jpg"
+                      maxLength={remoteImageUrlMaxLength} value={url} readOnly={pending} disabled={remaining <= 0}
+                      aria-describedby={remaining <= 0 ? `${urlId}-description ${urlId}-limit` : `${urlId}-description`} onChange={event => setUrl(event.target.value)}/>
+                  </InputGroup>
+                  <Button type="submit" variant="outline" className="w-full sm:w-auto" disabled={pending || remaining <= 0 || !url.trim()}>
+                    {fetchingUrl ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <Link2 data-icon="inline-start" aria-hidden="true"/>}
+                    {fetchingUrl ? "Ekleniyor…" : "URL'den ekle"}</Button>
+                </div>
+                <FieldDescription id={`${urlId}-description`}>Görsel sunucuda indirilir; yalnız herkese açık JPEG, PNG veya WebP adresleri eklenebilir.</FieldDescription>
+              </Field>
+            </form>
+            {remaining <= 0 && <p id={`${urlId}-limit`} className="text-muted-foreground">Görsel sınırına ulaşıldı; yeni görsel için önce birini silin.</p>}
           </EmptyContent>
         </Empty>
       </CardContent>

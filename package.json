@@ -25,6 +25,7 @@
     "test:product-equivalents": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-equivalent-search.ts",
     "test:catalog-filters": "node --import tsx --test scripts/test-catalog-filters.ts",
     "test:product-overrides": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-overrides.ts scripts/test-listing-cache.ts",
+    "test:remote-image": "node --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-remote-image.ts",
     "test:product-override-images": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-images.ts",
     "test:product-override-references": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-references.ts",
     "test:product-override-specs": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-specs.ts",
