@@ -6,6 +6,9 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { money } from "@/modules/store/catalog";
 import { changeOrderStatus, recordRefund } from "@/modules/admin/commerce-actions";
+import { carrierLabel } from "@/modules/store/shipment";
+import { OrderShipmentDialog } from "@/components/admin/order-shipment-dialog";
+import { OrderDeliveredDialog } from "@/components/admin/order-delivered-dialog";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { SubmitButton } from "@/components/admin/submit-button";
@@ -23,7 +26,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const time = (value: Date | string) => formatDateTime(value, { year: true });
-const tabOrder: OrderFilter[] = ["all", "action", "shipping", "refund", "awaiting_payment", "shipped", "cancelled"];
+const tabOrder: OrderFilter[] = ["all", "action", "shipping", "refund", "awaiting_payment", "shipped", "delivered", "cancelled"];
 
 export default async function Orders({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
@@ -78,6 +81,15 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                     {o.payments.length > 0 && <div><dt className="text-muted-foreground">TAMI</dt><dd className="break-all">{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""})`).join(", ")}</dd></div>}
                     {o.paid_at && <div><dt className="text-muted-foreground">Ödeme zamanı</dt><dd>{time(o.paid_at)}</dd></div>}
                     {o.refund_reference && <div><dt className="text-muted-foreground">İade referansı</dt><dd>{o.refund_reference}</dd></div>}
+                    {["shipped", "delivered"].includes(o.status) && <div className="sm:col-span-2"><dt className="text-muted-foreground">Kargo</dt>
+                      {o.carrier ? <dd className="flex flex-col gap-1">
+                        <span className="break-all">{carrierLabel(o.carrier, o.carrier_name)} · {o.tracking_no}</span>
+                        {o.tracking_url && <a className="w-fit underline-offset-4 hover:underline" href={o.tracking_url} target="_blank" rel="noopener noreferrer">Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span></a>}
+                      </dd> : o.status === "delivered" ? <dd className="text-muted-foreground">Bu sipariş için kargo bilgisi kayıtlı değil.</dd>
+                        : <dd><Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Kargo bilgisi girilmedi</Badge></dd>}
+                      {o.shipped_at && <dd className="text-muted-foreground">Kargoya veriliş: {time(o.shipped_at)}</dd>}
+                      {o.delivered_at && <dd className="text-muted-foreground">Teslim: {time(o.delivered_at)}</dd>}
+                    </div>}
                     <div className="sm:col-span-2"><dt className="text-muted-foreground">Sözleşme onayı</dt>
                       {o.agreement_at ? <dd className="flex flex-col items-start gap-2">
                         <Badge variant="success"><CircleCheck data-icon="inline-start"/>Sözleşme onaylandı</Badge>
@@ -95,12 +107,20 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             <TableCell><PaymentStatusBadge status={o.payment_status}/></TableCell>
             <TableCell className="text-right"><div className="font-medium tabular-nums">{money(Number(o.total_kurus))}</div>{Number(o.shipping_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Kargo {money(Number(o.shipping_kurus))} dahil</div>}</TableCell>
             <TableCell>
-              {["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status) && <form action={changeOrderStatus} className="flex justify-end gap-2">
-                <input type="hidden" name="id" value={o.id}/>
-                <input type="hidden" name="back" value={back}/>
-                <NativeSelect name="status" aria-label={`#${o.number} yeni durum`}>{o.status === "pending" ? <NativeSelectOption value="confirmed">Onayla</NativeSelectOption> : <NativeSelectOption value="shipped">Sevk edildi</NativeSelectOption>}<NativeSelectOption value="cancelled">{o.payment_status === "paid" ? "İptal et (iade gerekecek)" : "İptal et"}</NativeSelectOption></NativeSelect>
-                <SubmitButton>Uygula</SubmitButton>
-              </form>}
+              {["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
+                {o.status === "confirmed" && <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="ship"/>}
+                <form action={changeOrderStatus} className="flex justify-end gap-2">
+                  <input type="hidden" name="id" value={o.id}/>
+                  <input type="hidden" name="back" value={back}/>
+                  <NativeSelect name="status" aria-label={`#${o.number} yeni durum`}>{o.status === "pending" && <NativeSelectOption value="confirmed">Onayla</NativeSelectOption>}<NativeSelectOption value="cancelled">{o.payment_status === "paid" ? "İptal et (iade gerekecek)" : "İptal et"}</NativeSelectOption></NativeSelect>
+                  <SubmitButton>Uygula</SubmitButton>
+                </form>
+              </div>}
+              {o.status === "shipped" && ["paid", "none"].includes(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
+                <OrderDeliveredDialog orderId={o.id} number={o.number} back={back}/>
+                <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="edit"
+                  initial={{ carrier: o.carrier, carrierName: o.carrier_name, trackingNo: o.tracking_no, trackingUrl: o.tracking_url }}/>
+              </div>}
               {o.payment_status === "refund_required" && <form action={recordRefund} className="flex justify-end gap-2">
                 <input type="hidden" name="id" value={o.id}/>
                 <input type="hidden" name="back" value={back}/>
@@ -130,7 +150,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {fitment.length > 0 && <Card>
       <CardHeader>
         <CardTitle>Uyumluluk ve iadeler</CardTitle>
-        <CardDescription>İptal edilmemiş siparişlerin satırları, sipariş anındaki uyumluluk durumuna göre. İadeler sevk edilen siparişin sayfasından kaydedilir.</CardDescription>
+        <CardDescription>İptal edilmemiş siparişlerin satırları, sipariş anındaki uyumluluk durumuna göre. İadeler kargoya verilen veya teslim edilen siparişin sayfasından kaydedilir.</CardDescription>
       </CardHeader>
       <CardContent>
         <Table controls={false}><TableHeader><TableRow><TableHead>Uyumluluk</TableHead><TableHead className="text-right">Satır</TableHead><TableHead className="text-right">İade edilen</TableHead><TableHead className="text-right">“Aracıma uymadı”</TableHead></TableRow></TableHeader>

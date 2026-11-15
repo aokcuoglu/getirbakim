@@ -7,7 +7,9 @@
 - `/yonetim/fiyatlandirma`: maliyet üzerine kâr, KDV ve kur/tedarikçi verisi geçerlilik süresi. Başlangıç %30 kâr, %20 KDV ve 36 saat geçerlilik. KDV oranı işletme tarafından panelden değiştirilebilir.
 - Dinamik, Başbuğ ve SETA ürün detayındaki **Kâr ve KDV oranları**: sayfadan ayrılmadan açılan modalda bu ürün için kâr ve/veya KDV özelleştirilir. Boş bırakılan alan genel oranı izler; `0` özel bir orandır. **Genel oranlara dön** özel kaydı kaldırır. Genel ayarlar ve diğer ürünler değişmez. Başbuğ dövizli maliyetinde önizleme, katalog ile aynı son başarılı aktarımın satış kurunu kullanır; kur yoksa önizleme gösterilmez. SETA detayına yönetim listesindeki parça kodundan veya detay düğmesinden erişilir.
 - `/yonetim/servisler`: servis hesabı oluşturma, onayı açma/kapatma ve %0–50 servis indirimi.
-- `/yonetim/siparisler`: siparişleri inceleme, teyit bekleyen siparişi onaylama veya iptal; onaylı siparişi sevk etme veya iptal. İptal, ayrılmış mağaza stoklarını yalnız bir kez iade eder.
+- `/yonetim/siparisler`: siparişleri inceleme, teyit bekleyen siparişi onaylama veya iptal; onaylı siparişi sevk etme veya iptal; kargodaki siparişi teslim edildi olarak işaretleme. İptal, ayrılmış mağaza stoklarını yalnız bir kez iade eder.
+  - **Kargoya ver** dialogu (#605) kargo firmasını (Yurtiçi, Aras, MNG/DHL eCommerce, PTT, Sürat, UPS, HepsiJET, Kolay Gelsin veya ad girilen "Diğer"; liste `src/modules/store/shipment.ts`) ve takip numarasını (boşluksuz 4–40 harf/rakam/tire; Yurtiçi Kargo'da yalnız 12 veya 16 hane) ister; varsayılan kargo firması Yurtiçi Kargo (2026-11-15 kullanıcı kararı): dialog onunla açılır ve listede ilk sıradadır, diğer firmalar seçilebilir; sipariş `shipped` olur, `shipped_at` yazılır. Takip bağlantısı (`tracking_url`) kayıt anında belirlenir: yöneticinin girdiği `https://` bağlantısı, yoksa firmanın şablonu (Yurtiçi, Aras, UPS), yoksa boş — müşteriye o zaman takip numarasıyla firmanın sitesinden sorgulaması söylenir. Kargo bilgisi sipariş `shipped` iken düzeltilebilir (#605 öncesi sevk edilen siparişlere de böyle eklenir; bunlar "Kargo bilgisi girilmedi" uyarısıyla görünür), sevk zamanı değişmez.
+  - **Teslim edildi** onay penceresinden sonra `shipped` → `delivered` geçişidir (geri alınamaz), `delivered_at` yazılır; `delivered` son durumdur. Kolonlar `commerce_orders.carrier` (firma kodu), `carrier_name` (yalnız "Diğer"), `tracking_no`, `tracking_url`, `shipped_at`, `delivered_at`; `/siparis/[id]` ve `/siparisler` bunları müşteriye gösterir.
 
 Satış fiyatı kuruş olarak `round(NF × döviz satış kuru × (1+kâr/100) × (1+KDV/100) × 100)` hesaplanır. Onaylı servisin indirimi bu satış fiyatına uygulanır. İndirim kârı azaltır; yüksek indirim maliyet altına satışa neden olabilir. Geçmiş sipariş fiyatları değişmez.
 
@@ -80,7 +82,7 @@ Müşteri `/siparis/[id]` sayfasındaki "Sözleşmeler" kartından `/siparis/[id
 
 Kural `src/modules/store/fitment-level.ts` içindedir; ürün sayfası aynı kuralla "listede yok" uyarısı gösterir. Bu seviyeler henüz müşteriye garanti olarak sunulmaz.
 
-İadeler sevk edilmiş siparişin sayfasında yönetici tarafından satır bazında, nedeniyle (`not_fit` = "Aracıma uymadı") `commerce_returns` tablosuna kaydedilir; toplam iade adedi sipariş adedini aşamaz. `/yonetim/siparisler` sipariş satırlarını sipariş anındaki seviyeye göre iade ve "uymadı" sayılarıyla raporlar.
+İadeler sevk veya teslim edilmiş (`shipped`/`delivered`) siparişin sayfasında yönetici tarafından satır bazında, nedeniyle (`not_fit` = "Aracıma uymadı") `commerce_returns` tablosuna kaydedilir; toplam iade adedi sipariş adedini aşamaz. `/yonetim/siparisler` sipariş satırlarını sipariş anındaki seviyeye göre iade ve "uymadı" sayılarıyla raporlar.
 
 ## Kurulum ve doğrulama
 

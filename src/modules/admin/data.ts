@@ -49,10 +49,11 @@ type AdminPayment = { provider_order_id: string; status: string; amount_kurus: n
 export const orderFilters = {
   all: { label: "Tümü", where: "true" },
   action: { label: "Teyit bekleyen", where: "o.status='pending' AND o.payment_status IN ('paid','none')" },
-  shipping: { label: "Sevk bekleyen", where: "o.status='confirmed'" },
+  shipping: { label: "Kargoya verilecek", where: "o.status='confirmed'" },
   refund: { label: "İade bekleyen", where: "o.payment_status='refund_required'" },
   awaiting_payment: { label: "Ödeme bekleyen", where: "o.status='awaiting_payment'" },
-  shipped: { label: "Sevk edildi", where: "o.status='shipped'" },
+  shipped: { label: "Kargoda", where: "o.status='shipped'" },
+  delivered: { label: "Teslim edildi", where: "o.status='delivered'" },
   cancelled: { label: "İptal", where: "o.status='cancelled'" },
 } as const;
 export type OrderFilter = keyof typeof orderFilters;
@@ -69,6 +70,7 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
   const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[] } & OrderAgreementSummary>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,
+     o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,
      a.accepted_at AS agreement_at,a.ip AS agreement_ip,a.user_agent AS agreement_user_agent,a.legal_version AS agreement_version,
      COALESCE((SELECT jsonb_agg(jsonb_build_object('provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
       'bank_reference',p.bank_reference,'paid_at',p.paid_at) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments
@@ -149,7 +151,7 @@ export async function fitmentReturnReport() {
      FROM commerce_order_items i JOIN commerce_orders o ON o.id=i.order_id
      LEFT JOIN LATERAL (SELECT sum(quantity) AS quantity,sum(quantity) FILTER (WHERE reason='not_fit') AS not_fit
       FROM commerce_returns WHERE order_id=i.order_id AND product_id=i.product_id) r ON true
-     WHERE o.status IN ('pending','confirmed','shipped') GROUP BY 1 ORDER BY 2 DESC`,
+     WHERE o.status IN ('pending','confirmed','shipped','delivered') GROUP BY 1 ORDER BY 2 DESC`,
   )).rows;
 }
 

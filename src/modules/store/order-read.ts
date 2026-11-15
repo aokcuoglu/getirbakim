@@ -6,13 +6,13 @@ import { currentCartOwner, currentGuestCartOwner } from "./cart";
 import type { CommerceOrder, OrderItem } from "./orders";
 import type { OrderAgreementDocument } from "./order-agreement";
 
-export const orderColumns="id,number,owner_kind,owner_id,customer_name,email,phone,address,note,total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,created_at,payment_status,payment_due_at,paid_at,payment_note,refund_reference";
+export const orderColumns="id,number,owner_kind,owner_id,customer_name,email,phone,address,note,total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,created_at,payment_status,payment_due_at,paid_at,payment_note,refund_reference,carrier,carrier_name,tracking_no,tracking_url,shipped_at,delivered_at";
 
 export async function currentOrders() {
  const [owner,guest]=await Promise.all([currentCartOwner(),currentGuestCartOwner()]);
  if(!owner) return [];
- return (await db.query<Pick<CommerceOrder,'id'|'number'|'status'|'payment_status'|'total_kurus'|'created_at'>>(
-  "SELECT id,number,status,payment_status,total_kurus,created_at FROM commerce_orders WHERE (owner_kind=$1 AND owner_id=$2) OR (owner_kind='guest' AND owner_id=$3) ORDER BY created_at DESC,id DESC LIMIT 100",
+ return (await db.query<Pick<CommerceOrder,'id'|'number'|'status'|'payment_status'|'total_kurus'|'created_at'|'carrier'|'carrier_name'|'tracking_no'|'tracking_url'|'shipped_at'|'delivered_at'>>(
+  "SELECT id,number,status,payment_status,total_kurus,created_at,carrier,carrier_name,tracking_no,tracking_url,shipped_at,delivered_at FROM commerce_orders WHERE (owner_kind=$1 AND owner_id=$2) OR (owner_kind='guest' AND owner_id=$3) ORDER BY created_at DESC,id DESC LIMIT 100",
   [owner.kind,owner.id,guest?.id ?? ''],
  )).rows;
 }
