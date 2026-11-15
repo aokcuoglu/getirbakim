@@ -1,4 +1,4 @@
-import { foldText, modelKeyword, primaryVehicle, readableProductName, vehicleLabel } from "@/modules/store/product-name";
+import { commonMake, foldText, modelKeyword, primaryVehicle, readableProductName, vehicleLabel } from "@/modules/store/product-name";
 
 // The page part of a search title stays within 60 characters: the root template appends " | Getirbakim" to it, and
 // results show roughly 60 characters before cutting, so the brand, name and part number come first.
@@ -7,10 +7,18 @@ const descriptionBudget = 160;
 
 const wordsOf = (text: string) => foldText(text).split(/[^a-z0-9]+/).filter(Boolean);
 
-/** The part number without a leading brand ("BOSCH 0986…" next to the brand "BOSCH"). */
+/**
+ * The part number without a leading brand ("BOSCH 0986…" next to the brand "BOSCH"). A brand of several words ("KALE
+ * RADYATOR") is often written by its first word alone in the number ("KALE 12345"), so that prefix goes too; the
+ * number is never emptied.
+ */
 function numberWithoutBrand(partNumber: string, brand: string): string {
-  const prefix = `${foldText(brand)} `;
-  return foldText(partNumber).startsWith(prefix) ? partNumber.slice(prefix.length).trim() : partNumber.trim();
+  const number = foldText(partNumber);
+  const folded = foldText(brand).trim();
+  for (const prefix of [folded, folded.split(/\s+/)[0]]) {
+    if (prefix && number.startsWith(`${prefix} `) && partNumber.slice(prefix.length).trim()) return partNumber.slice(prefix.length).trim();
+  }
+  return partNumber.trim();
 }
 
 /** Name words that fit `room` characters, cut at a word boundary and never left with an open parenthesis. */
@@ -30,9 +38,20 @@ function mainVehicle(vehicles: string[], hint: string) {
   return model === null ? null : { model, ...vehicleLabel(model) };
 }
 
+/** " – ‹Marka› uyumlu" for a part of several models of one make that its name does not single out; none for other lists. */
+function makeSuffix(base: string, input: { brand: string; name: string; vehicles: string[] }, max: number): string {
+  const make = commonMake(input.vehicles);
+  if (!make) return base;
+  const makeWords = wordsOf(make);
+  if (makeWords.every(word => wordsOf(input.name).includes(word) || wordsOf(input.brand).includes(word))) return base;
+  const candidate = `${base} – ${make} uyumlu`;
+  return candidate.length <= max ? candidate : base;
+}
+
 /**
  * "‹Marka› ‹ad› ‹parça no›", then " – ‹araç› uyumlu" when it fits (the full vehicle name, else the short one, else none;
- * none too when the name already carries the model). Only the name gives way to the limit: brand and part number are the
+ * none too when the name already carries the model). Several models of one make that the name does not single out give
+ * " – ‹Marka› uyumlu"; across two makes or more nothing is added. Only the name gives way to the limit: brand and part number are the
  * product's identity and are never cut.
  */
 export function productSeoTitle(input: { brand: string; name: string; partNumber: string; vehicles: string[]; hint: string; max?: number }): string {
@@ -42,8 +61,10 @@ export function productSeoTitle(input: { brand: string; name: string; partNumber
   const room = max - fixed.join(" ").length - 1;
   const name = fitWords(input.name, room);
   const base = [input.brand, name, number].filter(Boolean).join(" ");
+  if (name !== input.name.trim()) return base;
   const vehicle = mainVehicle(input.vehicles, input.hint);
-  if (!vehicle || !vehicle.short || name !== input.name.trim()) return base;
+  if (!vehicle) return makeSuffix(base, input, max);
+  if (!vehicle.short) return base;
   const keyword = modelKeyword(vehicle.model);
   if (keyword && wordsOf(input.name).includes(keyword)) return base;
   // A model without a name word ("3", "124") says nothing short; only its full label ("BMW 3") may stand.

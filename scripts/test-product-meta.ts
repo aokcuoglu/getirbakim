@@ -44,7 +44,7 @@ test("vehicle labels drop chassis codes and body words", () => {
 test("the primary vehicle is the one the name or description mentions", () => {
   const models = ["DAIHATSU ROCKY", "HYUNDAI H100 Bus"];
   assert.equal(primaryVehicle(models, "MAZOT FILTRESI H100 97>"), "HYUNDAI H100 Bus");
-  assert.equal(primaryVehicle(models, "MAZOT FILTRESI"), "DAIHATSU ROCKY");
+  assert.equal(primaryVehicle(models, "MAZOT FILTRESI"), null);
   assert.equal(primaryVehicle([], "X"), null);
 });
 
@@ -178,13 +178,79 @@ test("title: no suffix for a make-only or a nameless model; a model already in t
   assert.equal(modelKeyword("BMW 3 (G20)"), null);
 });
 
-test("primary vehicle: no hint match falls back only for one or two makes", () => {
-  assert.equal(primaryVehicle(["FIAT PUNTO (188)", "FIAT PANDA (169)"], "FILTRE"), "FIAT PUNTO (188)");
+test("primary vehicle: a list the hint does not name has no vehicle; the make stands in for one make", () => {
+  assert.equal(primaryVehicle(["FIAT PUNTO (188)", "FIAT PANDA (169)"], "FILTRE"), null);
+  assert.equal(primaryVehicle(["FIAT PUNTO (188)", "FIAT PUNTO Van"], "FILTRE"), "FIAT PUNTO (188)");
   assert.equal(primaryVehicle(["ALFA ROMEO MITO (955)", "FIAT PUNTO (188)", "LANCIA YPSILON (846)"], "FILTRE"), null);
+  // Across more than two makes a hint match is a coincidence.
+  assert.equal(primaryVehicle(["ALFA ROMEO MITO (955)", "FIAT PUNTO (188)", "LANCIA YPSILON (846)"], "FILTRE PUNTO"), null);
+  assert.equal(primaryVehicle(["FIAT PUNTO (188)", "LANCIA YPSILON (846)"], "FILTRE PUNTO"), "FIAT PUNTO (188)");
+  const title = (vehicles: string[], hint = "", brand = "X") => productSeoTitle({ brand, name: "Filtre", partNumber: "1", vehicles, hint });
+  assert.equal(title(["FIAT PUNTO (188)", "FIAT PANDA (169)"]), "X Filtre 1 – Fiat uyumlu");
+  assert.equal(title(["LAND ROVER DEFENDER", "LAND ROVER FREELANDER"]), "X Filtre 1 – Land Rover uyumlu");
+  assert.equal(title(["FIAT PUNTO (188)", "FIAT PANDA (169)"], "", "FIAT"), "FIAT Filtre 1");
+  assert.equal(title(["FIAT PUNTO (188)", "FIAT PANDA (169)"], "PANDA"), "X Filtre 1 – Fiat Panda uyumlu");
+  assert.equal(title(["FIAT PUNTO (188)", "LANCIA YPSILON (846)"]), "X Filtre 1");
+  assert.equal(title(["DAIHATSU ROCKY", "HYUNDAI H100 Bus", "FIAT PUNTO"], "H100"), "X Filtre 1");
+  assert.equal(title(["MINI HATCHBACK"]), "X Filtre 1");
+  assert.equal(vehicleLabel("MINI Hatchback").short, "");
   assert.equal(productSeoTitle({ brand: "OPAR", name: "Filtre", partNumber: "46797936", vehicles: ["ALFA ROMEO MITO (955)", "FIAT PUNTO (188)", "LANCIA YPSILON (846)"], hint: "" }), "OPAR Filtre 46797936");
 });
 
 test("description: the product text is readable and a text without letters is skipped", () => {
   assert.equal(productSeoDescription({ brand: "A", name: "Ad", partNumber: "1", vehicles: [], text: "SURGULU KAPAK" }), "A 1 Ad. Sürgülü Kapak.");
   assert.equal(productSeoDescription({ brand: "A", name: "Ad", partNumber: "1", vehicles: [], text: "." }), "A 1 Ad.");
+});
+
+test("a multi-word brand loses its first word at the start of the part number", () => {
+  const title = (brand: string, partNumber: string) => productSeoTitle({ brand, name: "Dikiz Aynası", partNumber, vehicles: [], hint: "" });
+  assert.equal(title("KRAFTVOLL DIKIZ AYNASI", "KRAFTVOLL 09080074"), "KRAFTVOLL DIKIZ AYNASI Dikiz Aynası 09080074");
+  assert.equal(title("KALE RADYATOR", "KALE 123456"), "KALE RADYATOR Dikiz Aynası 123456");
+  assert.equal(title("PSA ORIJINAL", "PSA 1618Q4"), "PSA ORIJINAL Dikiz Aynası 1618Q4");
+  assert.equal(title("KALE RADYATOR", "KALE RADYATOR 123456"), "KALE RADYATOR Dikiz Aynası 123456");
+  assert.equal(title("KALE RADYATOR", "KALE"), "KALE RADYATOR Dikiz Aynası KALE");
+  assert.equal(productSeoDescription({ brand: "KALE RADYATOR", name: "Radyatör", partNumber: "KALE 123456", vehicles: [] }), "KALE RADYATOR 123456 Radyatör.");
+});
+
+test("a name with a third of its letters in lower case is a human's; a stray written word does not protect an upper case name", () => {
+  assert.equal(readableProductName("YAG FILTRESI Gri"), "Yağ Filtresi Gri");
+  assert.equal(readableProductName("LM51 2-COMPONENTS 1 Kg"), "LM51 2-Components 1 Kg");
+  assert.equal(readableProductName("ON AMORTISOR Sol"), "Ön Amortisör Sol");
+  for (const written of ["Hava Filtresi", "Yağ Filtresi (Elle) BMW 3", "FEBI Kapı Dış Açma Kolu Sağ", "Motor Yağı 5W30 5 Litre", "Disk Fren Balatası Sağ ÖN"]) assert.equal(readableProductName(written), written);
+});
+
+test("models and technical codes stay upper case, real words and Mito are converted", () => {
+  const cases: [string, string][] = [
+    ["MAN TGA TGS TGX", "MAN TGA TGS TGX"], ["FORD KA FIESTA", "Ford KA Fiesta"], ["VW UP GOLF", "VW UP Golf"], ["TOYOTA RAV 4", "Toyota RAV 4"],
+    ["MITSUBISHI ASX", "Mitsubishi ASX"], ["W118 CLA ON SOL", "W118 CLA Ön Sol"], ["W167 GLE 19>", "W167 GLE 19>"], ["LEXUS IS XE", "Lexus IS XE"],
+    ["MERCEDES EQC EQS", "Mercedes EQC EQS"], ["P206 GTI", "P206 GTI"], ["RENAULT MAGNUM DXI 440", "Renault Magnum DXI 440"], ["STAREX TCI", "Starex TCI"],
+    ["DSG KARTER VAG GRUBU", "DSG Karter VAG Grubu"], ["MITSUBISHI L200 DID", "Mitsubishi L200 DID"], ["SANDERO 1.0 SCE", "Sandero 1.0 SCE"], ["FORD USA EXPLORER", "Ford USA Explorer"],
+    ["EPS EGZOZ BASINC SENSORU", "EPS Egzoz Basınç Sensörü"], ["FIESTA 1.25 EFI 16V", "Fiesta 1.25 EFI 16V"], ["GOLF 1.9 TDI AXD", "Golf 1.9 TDI AXD"],
+    ["ALFA ROMEO MITO", "Alfa Romeo Mito"], ["SOL ALT FAR ARKA", "Sol Alt Far Arka"], ["IS MAKINASI STOP", "İş Makinası Stop"], ["TOYOTA HILUX PICK-UP", "Toyota Hilux Pick-Up"],
+    ["NISSAN PICK UP 2.4", "Nissan Pick Up 2.4"],
+  ];
+  for (const [raw, expected] of cases) assert.equal(readableProductName(raw), expected, raw);
+});
+
+test("DIS before FREZE is dış even after a count; the tooth rules stay", () => {
+  assert.equal(readableProductName("KAMA 2 DIS FREZE 12"), "Kama 2 Dış Freze 12");
+  assert.equal(readableProductName("AKS (DIS FREZE:23 IC FREZE:26)"), "Aks (Dış Freze:23 İç Freze:26)");
+  assert.equal(readableProductName("AKS 25 DIS FREEZE"), "Aks 25 Dış Freeze");
+  assert.equal(readableProductName("MARS MOTORU 12V 8 DIS"), "Marş Motoru 12V 8 Diş");
+});
+
+test("mixed Turkish letters and ASCII I: frequent words are in the dictionary", () => {
+  const cases: [string, string][] = [
+    ["ÜNIVERSAL STOP", "Üniversal Stop"], ["H100 MINIBÜS", "H100 Minibüs"], ["DIRENÇ", "Direnç"], ["ÇEKICI", "Çekici"], ["UNIVERSAL MINIBUS", "Üniversal Minibüs"],
+    ["HÜRLIMANN TRAKTÖR", "Hürlimann Traktör"], ["GÜÇLENDIRILMIS", "Güçlendirilmiş"],
+  ];
+  for (const [raw, expected] of cases) assert.equal(readableProductName(raw), expected, raw);
+});
+
+test("apostrophes: the ending is lower case, after a count it follows the number's vowel", () => {
+  const cases: [string, string][] = [
+    ["4'LU PAKET", "4'lü Paket"], ["2'LI SET", "2'li Set"], ["6'LI SET", "6'lı Set"], ["3'LU", "3'lü"], ["9'LU", "9'lu"], ["10'LU", "10'lu"], ["20'LI", "20'li"],
+    ["100'LUK", "100'lük"], ["LION'S CITY", "Lion's City"], ["KIA CEE'D", "Kia Cee'd"], ["ABS'LI TEKER", "ABS'li Teker"], ["SANTA FÉ", "Santa Fé"],
+  ];
+  for (const [raw, expected] of cases) assert.equal(readableProductName(raw), expected, raw);
 });
