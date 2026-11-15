@@ -30,6 +30,7 @@ const imageFailures: Record<ProductImageErrorReason, string> = {
 
 const remoteFailures: Record<RemoteImageErrorReason, string> = {
   url: `Geçerli bir http:// veya https:// görsel adresi girin (kullanıcı adı/parola olmadan, en çok ${remoteImageUrlMaxLength} karakter).`,
+  port: "Bu bağlantı noktasına izin verilmiyor: yalnız 80, 443, 8080 ve 8443 portlarındaki adresler eklenebilir.",
   blocked: "Bu adrese erişilemez: yalnız internetteki herkese açık adreslerden görsel alınabilir.",
   unreachable: "Adrese ulaşılamadı. Adresi kontrol edip yeniden deneyin.",
   timeout: "Adres zamanında yanıt vermedi. Yeniden deneyin.",

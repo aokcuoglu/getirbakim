@@ -40,6 +40,7 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
   const focusAfterMove = useRef<{ id: string; direction: "up" | "down" } | null>(null);
   const switchId = useId();
   const urlId = useId();
+  const urlInput = useRef<HTMLInputElement>(null);
   const [url, setUrl] = useState("");
   const [fetchingUrl, setFetchingUrl] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -107,6 +108,8 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
         setUrl("");
       }
       setFetchingUrl(false);
+      // Back to the field: to correct the address after an error, or to paste the next one.
+      urlInput.current?.focus();
       router.refresh();
     });
   };
@@ -151,23 +154,24 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
               onChange={event => { upload([...event.target.files ?? []]); event.target.value = ""; }}/>
             <Button type="button" variant="outline" aria-label="Ürün görseli için dosya seç" disabled={pending || remaining <= 0} onClick={() => input.current?.click()}>
               <ImagePlus data-icon="inline-start" aria-hidden="true"/>Dosya seç</Button>
-            <form className="flex w-full max-w-lg flex-col gap-2" onSubmit={addFromUrl}>
+            <form className="flex w-full max-w-lg flex-col gap-2 text-left" noValidate onSubmit={addFromUrl}>
               <Field>
                 <FieldLabel htmlFor={urlId}>Ya da görsel adresi (URL)</FieldLabel>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <InputGroup>
                     <InputGroupAddon><Link2 aria-hidden="true"/></InputGroupAddon>
-                    <InputGroupInput id={urlId} type="url" inputMode="url" autoComplete="off" spellCheck={false} placeholder="https://…/gorsel.jpg"
-                      maxLength={remoteImageUrlMaxLength} value={url} disabled={pending || remaining <= 0} onChange={event => setUrl(event.target.value)}/>
+                    <InputGroupInput ref={urlInput} id={urlId} type="url" inputMode="url" autoComplete="off" spellCheck={false} placeholder="https://…/gorsel.jpg"
+                      maxLength={remoteImageUrlMaxLength} value={url} readOnly={pending} disabled={remaining <= 0}
+                      aria-describedby={remaining <= 0 ? `${urlId}-description ${urlId}-limit` : `${urlId}-description`} onChange={event => setUrl(event.target.value)}/>
                   </InputGroup>
-                  <Button type="submit" variant="outline" disabled={pending || remaining <= 0 || !url.trim()}>
+                  <Button type="submit" variant="outline" className="w-full sm:w-auto" disabled={pending || remaining <= 0 || !url.trim()}>
                     {fetchingUrl ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <Link2 data-icon="inline-start" aria-hidden="true"/>}
                     {fetchingUrl ? "Ekleniyor…" : "URL'den ekle"}</Button>
                 </div>
-                <FieldDescription>Görsel sunucuda indirilir; yalnız herkese açık JPEG, PNG veya WebP adresleri eklenebilir.</FieldDescription>
+                <FieldDescription id={`${urlId}-description`}>Görsel sunucuda indirilir; yalnız herkese açık JPEG, PNG veya WebP adresleri eklenebilir.</FieldDescription>
               </Field>
             </form>
-            {remaining <= 0 && <p className="text-muted-foreground">Görsel sınırına ulaşıldı; yeni görsel için önce birini silin.</p>}
+            {remaining <= 0 && <p id={`${urlId}-limit`} className="text-muted-foreground">Görsel sınırına ulaşıldı; yeni görsel için önce birini silin.</p>}
           </EmptyContent>
         </Empty>
       </CardContent>

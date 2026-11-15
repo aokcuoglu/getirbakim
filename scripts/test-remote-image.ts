@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
+import { createServer as createTcpServer } from "node:net";
+import { gzipSync } from "node:zlib";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, mock, test } from "node:test";
-import { isPublicAddress, parseRemoteImageUrl, RemoteImageError, remoteImageName, remoteImageUrlMaxLength, type RemoteImageErrorReason } from "../src/modules/admin/remote-image-url";
+import { isAllowedRemotePort, isPublicAddress, parseRemoteImageUrl, RemoteImageError, remoteImageName, remoteImageUrlMaxLength, type RemoteImageErrorReason } from "../src/modules/admin/remote-image-url";
 
 // Admin "add image from URL" (#725): URL rules, the public-address check and the SSRF-safe fetch against a loopback
 // fixture (only 127.0.0.1 is allowed here; the real check refuses it), then the server action's error messages.
@@ -15,6 +17,10 @@ describe("URL rules", () => {
     for (const url of ["", "ftp://example.com/a.jpg", "file:///etc/passwd", "javascript:alert(1)", "data:image/png;base64,AAAA",
       "https://user:pass@example.com/a.jpg", "https://user@example.com/a.jpg", "not a url", "//example.com/a.jpg",
       `https://example.com/${"a".repeat(remoteImageUrlMaxLength)}`]) assert.equal(parseRemoteImageUrl(url), null, url);
+  });
+  test("allows only web ports", () => {
+    for (const port of [80, 443, 8080, 8443]) assert.equal(isAllowedRemotePort(port), true, String(port));
+    for (const port of [0, 22, 25, 5432, 6379, 8000, 9200, 65535]) assert.equal(isAllowedRemotePort(port), false, String(port));
   });
   test("names the image after the last path segment", () => {
     assert.equal(remoteImageName(new URL("https://x.test/a/b/fren%20balatasi.jpg?w=1")), "fren balatasi.jpg");
@@ -41,13 +47,14 @@ describe("fetch", () => {
   let server: Server;
   let base = "";
   let fetchRemoteImage: typeof import("../src/modules/admin/remote-image").fetchRemoteImage;
+  let connectOrder: typeof import("../src/modules/admin/remote-image").connectOrder;
   const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
-  const loopbackOnly = { allowAddress: (address: string) => address === "127.0.0.1", resolve: async () => [{ address: "127.0.0.1", family: 4 }] };
+  const loopbackOnly = { allowAddress: (address: string) => address === "127.0.0.1", allowPort: () => true, resolve: async () => [{ address: "127.0.0.1", family: 4 }] };
   const rejects = (promise: Promise<unknown>, reason: RemoteImageErrorReason) =>
     assert.rejects(promise, (error: unknown) => error instanceof RemoteImageError && error.reason === reason);
 
   before(async () => {
-    ({ fetchRemoteImage } = await import("../src/modules/admin/remote-image"));
+    ({ fetchRemoteImage, connectOrder } = await import("../src/modules/admin/remote-image"));
     server = createServer((req, res) => {
       const path = req.url ?? "/";
       if (path === "/ua") return void res.writeHead(200, { "content-type": "image/png" }).end(Buffer.from(String(req.headers["user-agent"])));
@@ -61,6 +68,13 @@ describe("fetch", () => {
         const push = () => { while (sent < 4096 && res.write(Buffer.alloc(256))) sent += 256; if (sent < 4096) res.once("drain", push); else res.end(); };
         return void push();
       }
+      if (path === "/drip") {
+        res.writeHead(200, { "content-type": "image/png" });
+        const timer = setInterval(() => res.write(Buffer.alloc(1)), 50);
+        res.once("close", () => clearInterval(timer));
+        return;
+      }
+      if (path === "/gzip") return void res.writeHead(200, { "content-type": "image/png", "content-encoding": "gzip" }).end(gzipSync(png));
       if (path === "/missing") return void res.writeHead(404, { "content-type": "image/png" }).end();
       if (path === "/slow") return void setTimeout(() => res.writeHead(200, { "content-type": "image/png" }).end(png), 2000);
       if (path === "/to-img") return void res.writeHead(302, { location: "/img/redirected.png" }).end();
@@ -88,10 +102,10 @@ describe("fetch", () => {
     const image = await fetchRemoteImage(`${base}/ua`, loopbackOnly);
     assert.match(image.bytes.toString(), /^Mozilla\/5\.0 \(compatible; ImageFetcher\/1\.0\)$/);
   });
-  test("refuses loopback with the real address check", () => rejects(fetchRemoteImage(`${base}/img/a.png`), "blocked"));
+  test("refuses loopback with the real address check", () => rejects(fetchRemoteImage(`${base}/img/a.png`, { allowPort: () => true }), "blocked"));
   test("refuses a host name that resolves to any blocked address", () =>
     rejects(fetchRemoteImage(`http://mixed.example.test:${new URL(base).port}/img/a.png`,
-      { allowAddress: loopbackOnly.allowAddress, resolve: async () => [{ address: "127.0.0.1", family: 4 }, { address: "10.0.0.5", family: 4 }] }), "blocked"));
+      { allowAddress: loopbackOnly.allowAddress, allowPort: () => true, resolve: async () => [{ address: "127.0.0.1", family: 4 }, { address: "10.0.0.5", family: 4 }] }), "blocked"));
   test("refuses a URL that is not http(s)", () => rejects(fetchRemoteImage("file:///etc/passwd", loopbackOnly), "url"));
   test("refuses a non-image content type", async () => {
     await rejects(fetchRemoteImage(`${base}/html`, loopbackOnly), "not-image");
@@ -110,6 +124,55 @@ describe("fetch", () => {
     await rejects(fetchRemoteImage(`${base}/to-file`, loopbackOnly), "unreachable");
   });
   test("stops after three redirects", () => rejects(fetchRemoteImage(`${base}/loop`, loopbackOnly), "redirects"));
+  test("times out a body that keeps dripping", () => rejects(fetchRemoteImage(`${base}/drip`, { ...loopbackOnly, timeoutMs: 300 }), "timeout"));
+  test("does not decode a compressed body", async () => {
+    const image = await fetchRemoteImage(`${base}/gzip`, loopbackOnly);
+    assert.deepEqual(image.bytes, gzipSync(png));
+  });
+  test("refuses numeric, hex, octal, short and trailing-dot IPv4 hosts", async () => {
+    for (const url of ["http://2130706433/a.png", "http://0x7f.1/a.png", "http://127.1/a.png", "http://0177.0.0.1/a.png", "http://127.0.0.1./a.png",
+      "http://[::ffff:127.0.0.1]/a.png", "http://0/a.png"]) await rejects(fetchRemoteImage(url), "blocked");
+    // A trailing-dot name is still resolved and checked.
+    await rejects(fetchRemoteImage("http://localhost./a.png", { resolve: async () => [{ address: "127.0.0.1", family: 4 }] }), "blocked");
+  });
+  test("refuses ports other than 80, 443, 8080 and 8443", async () => {
+    await rejects(fetchRemoteImage("http://example.com:22/a.png"), "port");
+    await rejects(fetchRemoteImage("https://example.com:5432/a.png"), "port");
+  });
+  test("re-checks the port after a redirect", async () => {
+    const port = Number(new URL(base).port);
+    await rejects(fetchRemoteImage(`${base}/to-private`, { ...loopbackOnly, allowPort: candidate => candidate === port }), "port");
+  });
+  test("connects over https to the vetted address only, with the host name for TLS", async () => {
+    const seen: { address: string; hello: Buffer }[] = [];
+    const tcp = createTcpServer(socket => socket.once("data", hello => { seen.push({ address: socket.localAddress ?? "", hello }); socket.destroy(); }));
+    await new Promise<void>(resolve => tcp.listen(0, "127.0.0.1", resolve));
+    const port = (tcp.address() as AddressInfo).port;
+    try {
+      // Not a TLS server, so the handshake fails after the client hello.
+      await rejects(fetchRemoteImage(`https://pinned.example.test:${port}/a.png`, loopbackOnly), "unreachable");
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].address, "127.0.0.1");
+      assert.ok(seen[0].hello.includes(Buffer.from("pinned.example.test")), "SNI carries the host name");
+    } finally { await new Promise<void>(resolve => tcp.close(() => resolve())); }
+  });
+  test("tries IPv4 addresses first", () => {
+    assert.deepEqual(connectOrder([{ address: "2606:4700::1", family: 6 }, { address: "1.1.1.1", family: 4 }, { address: "2a00::1", family: 6 }, { address: "8.8.8.8", family: 4 }])
+      .map(({ address }) => address), ["1.1.1.1", "8.8.8.8", "2606:4700::1", "2a00::1"]);
+  });
+  test("moves on to the next vetted address when a connection fails", async t => {
+    const v6 = createServer((_req, res) => res.writeHead(200, { "content-type": "image/png" }).end(png));
+    const listening = await new Promise<boolean>(resolve => { v6.once("error", () => resolve(false)); v6.listen(0, "::1", () => resolve(true)); });
+    if (!listening) return t.skip("no IPv6 loopback");
+    try {
+      const port = (v6.address() as AddressInfo).port;
+      // Nothing listens on 127.0.0.1 at this port: the IPv4 answer is tried first, refused, then ::1 serves the image.
+      const image = await fetchRemoteImage(`http://both.example.test:${port}/img/a.png`, { allowPort: () => true,
+        allowAddress: address => address === "127.0.0.1" || address === "::1",
+        resolve: async () => [{ address: "::1", family: 6 }, { address: "127.0.0.1", family: 4 }] });
+      assert.deepEqual(image.bytes, png);
+    } finally { await new Promise<void>(resolve => v6.close(() => resolve())); }
+  });
   test("times out", () => rejects(fetchRemoteImage(`${base}/slow`, { ...loopbackOnly, timeoutMs: 200 }), "timeout"));
   test("times out a hanging DNS lookup", () =>
     rejects(fetchRemoteImage("http://hang.example.test/a.png", { ...loopbackOnly, resolve: () => new Promise(() => undefined), timeoutMs: 100 }), "timeout"));
@@ -157,7 +220,7 @@ describe("server action", () => {
   });
   test("maps every download failure to a Turkish message", async () => {
     const expected: Record<RemoteImageErrorReason, RegExp> = {
-      url: /görsel adresi girin/, blocked: /herkese açık adres/, unreachable: /ulaşılamadı/, timeout: /zamanında yanıt vermedi/,
+      url: /görsel adresi girin/, port: /bağlantı noktasına izin verilmiyor/, blocked: /herkese açık adres/, unreachable: /ulaşılamadı/, timeout: /zamanında yanıt vermedi/,
       status: /döndürmedi/, "not-image": /bir görsel değil/, size: /en çok 8 MB/, redirects: /yönlendirme/,
     };
     for (const [reason, message] of Object.entries(expected) as [RemoteImageErrorReason, RegExp][]) {

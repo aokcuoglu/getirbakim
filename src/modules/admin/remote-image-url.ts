@@ -7,7 +7,7 @@ import { remoteImageUrlMaxLength } from "./product-image-limits";
  */
 export { remoteImageUrlMaxLength };
 
-export type RemoteImageErrorReason = "url" | "blocked" | "unreachable" | "timeout" | "status" | "not-image" | "size" | "redirects";
+export type RemoteImageErrorReason = "url" | "port" | "blocked" | "unreachable" | "timeout" | "status" | "not-image" | "size" | "redirects";
 export class RemoteImageError extends Error {
   constructor(readonly reason: RemoteImageErrorReason) {
     super(`Remote image rejected: ${reason}`);
@@ -24,6 +24,10 @@ export function parseRemoteImageUrl(raw: string): URL | null {
   if (url.username || url.password || !url.hostname) return null;
   return url;
 }
+
+const allowedPorts = new Set([80, 443, 8080, 8443]);
+/** Web ports only, so a pasted URL cannot reach mail, database or admin services on a public host. */
+export const isAllowedRemotePort = (port: number) => allowedPorts.has(port);
 
 /** The URL's host as a DNS name or a bare IP address (IPv6 without brackets). */
 export function urlHost(url: URL): string {
