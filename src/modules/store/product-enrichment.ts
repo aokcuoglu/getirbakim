@@ -41,13 +41,9 @@ export async function getAutomaticProductImages(products: { id: string; code: st
   [products.map(product => product.id), storefrontCompanies()])).rows;
   for (const row of rows) {
     const product = productsById.get(row.supplier_item_id);
-    if (!product || row.supplier_code !== product.code || row.supplier_brand !== product.brand) continue;
-    const parsed = enrichmentDataSchema.safeParse(row.payload);
-    const basis = matchBasisSchema.safeParse(row.match_basis);
-    if (!parsed.success || !basis.success || !matchesEnrichment({ code: row.donor_code, brand: row.donor_brand, oem: row.current_oem, masterBrand: row.donor_master_brand }, {
-      manufacturer: row.manufacturer, partNumber: row.manufacturer_part_number, data: parsed.data, matchBasis: basis.data,
-    })) continue;
-    images.set(product.id, { src: `/api/product-media/${row.image_id}`, width: parsed.data.imageWidth, height: parsed.data.imageHeight });
+    const valid = product && validEnrichment(row, product);
+    if (!product || !valid) continue;
+    images.set(product.id, { src: `/api/product-media/${row.image_id}`, width: valid.data.imageWidth, height: valid.data.imageHeight });
   }
   return images;
 }
@@ -58,12 +54,9 @@ export async function getProductEnrichment(product: { id: string; code: string; 
     supplier_code: string; supplier_brand: string; source_url: string; match_basis: unknown; current_oem: string; donor_code: string; donor_brand: string; donor_item_id: string; donor_master_brand: string | null;
     manufacturer: string; manufacturer_part_number: string; payload: unknown; image_id: string | null; status: string;
   }>("SELECT e.*,e.donor_oem AS current_oem FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=$1", [product.id])).rows[0];
-  if (!row || row.supplier_code !== product.code || row.supplier_brand !== product.brand) return null;
-  const parsed = enrichmentDataSchema.safeParse(row.payload);
-  const basis = matchBasisSchema.safeParse(row.match_basis);
-  if (!parsed.success || !basis.success || !matchesEnrichment({ code: row.donor_code, brand: row.donor_brand, oem: row.current_oem, masterBrand: row.donor_master_brand }, {
-    manufacturer: row.manufacturer, partNumber: row.manufacturer_part_number, data: parsed.data, matchBasis: basis.data,
-  })) return null;
+  const valid = validEnrichment(row, product);
+  if (!row || !valid) return null;
+  const { data, basis } = valid;
   const fitments = (await db.query<{
     source_index: number; vehicle_type_id: number | null; brand_id: number | null; model_id: number | null;
     brand: string | null; model: string | null; engine: string | null; fuel: string | null;
@@ -77,7 +70,7 @@ export async function getProductEnrichment(product: { id: string; code: string; 
     LEFT JOIN vehicle_brands b ON b.id=m.brand_id
     WHERE f.supplier_item_id=$1 AND f.source_vehicle=$2::jsonb->'vehicles'->f.source_index`, [row.donor_item_id, JSON.stringify(row.payload)])).rows;
   const fitmentByIndex = new Map(fitments.map(fitment => [fitment.source_index, fitment]));
-  const vehicles = parsed.data.vehicles.map((source, index) => {
+  const vehicles = data.vehicles.map((source, index) => {
     const linked = fitmentByIndex.get(index);
     if (!linked?.vehicle_type_id) return { ...source, vehicleTypeId: null, brandId: null, modelId: null, catalogEngine: null, catalogBrand: null };
     return { ...source, vehicleTypeId: linked.vehicle_type_id, brandId: linked.brand_id, modelId: linked.model_id,
@@ -85,11 +78,11 @@ export async function getProductEnrichment(product: { id: string; code: string; 
       fuel: linked.fuel!, kw: linked.kw!, ps: linked.ps!, cc: linked.cc ?? source.cc, from: linked.from!, to: linked.to };
   });
   return {
-    ...parsed.data,
+    ...data,
     vehicles,
     linkedVehicleCount: vehicles.filter(vehicle => vehicle.vehicleTypeId !== null).length,
     completeness: row.status,
-    matchBasis: basis.data,
+    matchBasis: basis,
     source: row.source_url,
     sourceLabel: new URL(row.source_url).hostname.replace(/^www\./, ""),
     manufacturer: row.manufacturer,
@@ -106,7 +99,7 @@ type LinkedFitment = { vehicleTypeId: number; modelId: number | null };
 /** The enrichment rows and linked fitments of several store rows (loadEnrichmentFitments), checked per product later. */
 export type LoadedEnrichmentFitments = { rows: Map<string, EnrichmentGateRow>; linked: Map<string, Map<number, LinkedFitment>> };
 
-/** The enrichment data the store shows for this product, under the same checks as getProductEnrichment. */
+/** The parsed enrichment data and match basis the store shows for this product; null when the row fails any check. */
 function validEnrichment(row: EnrichmentGateRow | undefined, product: { code: string; brand: string }) {
   if (!row || row.supplier_code !== product.code || row.supplier_brand !== product.brand) return null;
   const parsed = enrichmentDataSchema.safeParse(row.payload);
@@ -114,7 +107,7 @@ function validEnrichment(row: EnrichmentGateRow | undefined, product: { code: st
   if (!parsed.success || !basis.success || !matchesEnrichment({ code: row.donor_code, brand: row.donor_brand, oem: row.current_oem, masterBrand: row.donor_master_brand }, {
     manufacturer: row.manufacturer, partNumber: row.manufacturer_part_number, data: parsed.data, matchBasis: basis.data,
   })) return null;
-  return parsed.data;
+  return { data: parsed.data, basis: basis.data };
 }
 
 /**
@@ -153,8 +146,9 @@ export async function loadEnrichmentFitments(productIds: string[]): Promise<Load
  * null ids) and its model-level list; null when the store shows no enrichment for it.
  */
 export function enrichmentFitmentRows(loaded: LoadedEnrichmentFitments, product: { id: string; code: string; brand: string }) {
-  const data = validEnrichment(loaded.rows.get(product.id), product);
-  if (!data) return null;
+  const valid = validEnrichment(loaded.rows.get(product.id), product);
+  if (!valid) return null;
+  const { data } = valid;
   const linked = loaded.linked.get(product.id);
   const vehicles: FitmentRow[] = data.vehicles.map((_, index) => linked?.get(index) ?? { vehicleTypeId: null, modelId: null });
   return { vehicles, vehicleModels: data.vehicleModels };
@@ -166,9 +160,10 @@ export async function getCatalogProductDetails(products:{id:string;code:string;b
  // The enrichment is matched by the supplier's raw code and brand (#602); the admin's specifications (#603) apply on top.
  const [{rows},overrides]=await Promise.all([db.query<{supplier_item_id:string;supplier_code:string;supplier_brand:string;current_oem:string;donor_code:string;donor_brand:string;donor_item_id:string;donor_master_brand:string|null;manufacturer:string;manufacturer_part_number:string;payload:unknown;match_basis:unknown}>("SELECT e.*,e.donor_oem AS current_oem FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.company=ANY($2::text[]) AND s.presence='present'",[products.map(p=>p.id),storefrontCompanies()]),getOverrideSpecs(products.map(p=>p.id))]);
  for(const row of rows){
-  const product=products.find(p=>p.id===row.supplier_item_id),data=enrichmentDataSchema.safeParse(row.payload),basis=matchBasisSchema.safeParse(row.match_basis);
-  if(!product||product.code!==row.supplier_code||product.brand!==row.supplier_brand||!data.success||!basis.success||!matchesEnrichment({code:row.donor_code,brand:row.donor_brand,oem:row.current_oem,masterBrand:row.donor_master_brand},{manufacturer:row.manufacturer,partNumber:row.manufacturer_part_number,data:data.data,matchBasis:basis.data}))continue;
-  details.set(product.id,{specifications:catalogSpecifications(data.data.specifications,basis.data.type==='exact_part'),vehicleSpecific:data.data.vehicles.length>0,partNumber:basis.data.type==='exact_part'?row.manufacturer_part_number:product.code});
+  const product=products.find(p=>p.id===row.supplier_item_id),valid=product&&validEnrichment(row,product);
+  if(!product||!valid)continue;
+  const{data,basis}=valid;
+  details.set(product.id,{specifications:catalogSpecifications(data.specifications,basis.type==='exact_part'),vehicleSpecific:data.vehicles.length>0,partNumber:basis.type==='exact_part'?row.manufacturer_part_number:product.code});
  }
  for(const product of products){
   const own=overrides.get(product.id);

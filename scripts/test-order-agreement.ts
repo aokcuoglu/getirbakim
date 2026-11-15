@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { test } from "node:test";
+import { mock, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { checkoutConsentText, checkoutInput } from "../src/modules/store/checkout-schema";
 import { buildOrderAgreement, defaultSources, legalTextVersion, type AgreementSources } from "../src/modules/store/order-agreement";
@@ -153,6 +153,36 @@ test("placing an order stores the consent and an immutable order-specific copy",
     assert.deepEqual(await orderLines(null), [{ code: "AGR-1", vehicle, fitment_level: "unknown" }, { code: "AGR-2", vehicle: null, fitment_level: "no_vehicle" }]);
     assert.deepEqual(await orderLines(garageVehicle), [{ code: "AGR-1", vehicle, fitment_level: "unknown" },
       { code: "AGR-2", vehicle: garageVehicle, fitment_level: "unknown" }]);
+
+    // The cart changes after the fitment preload and before BEGIN (#719): the stored level is resolved again inside the
+    // transaction. The race is injected by changing the cart right after submitOrder reads the cart for its fitment preload.
+    const { productFitmentLevel } = await import("../src/modules/store/fitment-level.server");
+    const racing = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
+    const final = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
+    for (const cartOwner of [racing, final]) await schema.pool.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [cartOwner.id]);
+    assert.equal(await setCartQuantity(racing, product, 1), true);
+    assert.equal(await setCartQuantity(final, product, 1, false, vehicle), true);
+    assert.equal(await setCartQuantity(final, second, 1), true);
+    const finalQuote = cartQuote(await cartFor(final), 0, await shippingRule());
+    const originalQuery = db.query.bind(db) as (...args: unknown[]) => Promise<unknown>;
+    const query = mock.method(db, "query", async (...args: unknown[]) => {
+      const result = await originalQuery(...args);
+      if (typeof args[0] === "string" && args[0].startsWith("SELECT product_id::text,vehicle FROM commerce_cart_items")) {
+        // The preload has just read one line without a vehicle: the vehicle is now set on it and a second line has joined.
+        query.mock.restore();
+        await schema.pool.query("UPDATE commerce_cart_items SET vehicle=$2 WHERE owner_id=$1 AND product_id=$3", [racing.id, JSON.stringify(vehicle), product]);
+        await schema.pool.query(`INSERT INTO commerce_cart_items(owner_kind,owner_id,product_id,quantity) VALUES('guest',$1,$2,1)`, [racing.id, second]);
+      }
+      return result;
+    });
+    const raced = await submitOrder(racing, { ...form, requestKey: randomUUID(), quote: finalQuote });
+    assert.ok(raced.id, String(raced.error));
+    assert.equal(query.mock.callCount() > 0, true);
+    const racedLines = (await schema.pool.query<{ code: string; vehicle: unknown; fitment_level: string }>(
+      "SELECT code,vehicle,fitment_level FROM commerce_order_items WHERE order_id=$1 ORDER BY code", [raced.id])).rows;
+    const reference = [await productFitmentLevel({ id: product, code: "AGR-1", brand: "TEST" }, vehicle), await productFitmentLevel({ id: second, code: "AGR-2", brand: "TEST" }, null)];
+    assert.deepEqual(reference, ["unknown", "no_vehicle"]);
+    assert.deepEqual(racedLines, [{ code: "AGR-1", vehicle, fitment_level: reference[0] }, { code: "AGR-2", vehicle: null, fitment_level: reference[1] }]);
 
     // Re-running the schema keeps rows; deleting an order removes its record.
     await schema.pool.query(await readFile("db/commerce.sql", "utf8"));
