@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { slugPattern } from "../src/modules/seo/paths";
 import type { VehicleModel } from "../src/modules/store/vehicle-catalog";
 import { compareSlugSnapshots, slugSnapshot } from "../src/modules/store/vehicle-model-slug-snapshot";
-import { vehicleModelGroupFamilies, vehicleModelGroupYears, vehicleModelGroups } from "../src/modules/store/vehicle-model-groups";
+import { vehicleMakeLabel, vehicleModelGroupFamilies, vehicleModelGroupYears, vehicleModelGroups, vehicleModelLabels } from "../src/modules/store/vehicle-model-groups";
 
 // Model page units and their addresses (#639). The catalog rows below are copied from the local vehicle_models
 // (2026-11-15): a renamed or regrouped series would change a public address, so the slugs are pinned here.
@@ -367,7 +367,7 @@ const pinned: Record<string, string[]> = {
   "BEDFORD": ["midi-1984"],
   "BMW": ["3-e21", "3-e30", "3-e36", "3-compact-e36", "3-e46", "3-compact-e46", "3-e90", "3-e91", "3-e92", "3-e93", "3-f30", "3-f31", "3-f34", "3-g20", "3-g21"],
   "CHERY": ["tiggo-5x", "tiggo-9", "tiggo-8", "tiggo-7"],
-  "BYD": ["atto-3", "seal-2022", "seal-u-2024", "atto-2", "sealion-7", "seal-06", "seal-5", "seal-6"],
+  "BYD": ["atto-3", "seal-2022", "seal-u-2024", "atto-2", "sealion-7", "seal-6", "seal-5"],
   "MG": ["mg-x-power-2003", "mg-6", "mg-5", "mg-eh32", "mg-zp2"],
   "FORD USA": ["mustang-1963", "mustang-1978", "mustang-c", "mustang-2004", "mustang-2014", "mustang-2023"],
   "BMW MOTORRAD": ["r-65", "r-850", "r-100", "r-90", "r-75", "r-80", "r-50", "r-60", "r-1100", "r-1150", "r-1200", "r-900", "r-25", "r-14014", "r-69", "r-45", "r-1250", "r-18", "r-1300", "r-12"],
@@ -434,7 +434,9 @@ test("a number right after the family names a code-less model: tiggo-7, atto-3, 
   assert.deepEqual(members("CHERY", "tiggo-7"), ["TIGGO 7"]);
   assert.deepEqual(members("CHERY", "tiggo-8"), ["TIGGO 8 PLUS"]);
   assert.deepEqual(members("BYD", "atto-2"), ["ATTO 2"]);
-  assert.deepEqual(members("BYD", "seal-6"), ["SEAL 6 DM-i Estate"]);
+  // A leading zero is no part of the number: "SEAL 06 Saloon" and "SEAL 6 DM-i Estate" are one model (#685).
+  assert.deepEqual(members("BYD", "seal-6"), ["SEAL 06 Saloon", "SEAL 6 DM-i Estate"]);
+  assert.equal(members("BYD", "seal-06"), undefined);
   // "SEAL" alone and "SEAL U" are other models; "MG 4 (EH32)" is named by its code like any coded series.
   assert.deepEqual(members("BYD", "seal-2022"), ["SEAL"]);
   assert.deepEqual(members("MG", "mg-6"), ["MG 6 Saloon"]);
@@ -497,7 +499,25 @@ test("a unit spans its members' production years; an open end or unknown start s
   assert.deepEqual([passatB8.dateFrom, passatB8.dateTo], ["2014-08", null]);
   const unknown = vehicleModelGroups(models([[5, "R 65", null, null]]))[0];
   assert.deepEqual([unknown.slug, unknown.dateFrom, unknown.dateTo], ["r-65", null, null]);
-  assert.deepEqual([golf7, passatB8, unknown].map(vehicleModelGroupYears), ["2012–2022", "2014–günümüz", null]);
+  assert.deepEqual([golf7, passatB8, unknown].map(group => vehicleModelGroupYears(group)), ["2012–2022", "2014–günümüz", null]);
+  assert.equal(vehicleModelGroupYears(passatB8, ""), "2014–");
+});
+
+test("model pages name the make and model readably, with the years in the heading (#685)", () => {
+  assert.deepEqual(["VOLKSWAGEN", "MERCEDES-BENZ", "BMW", "ALFA ROMEO", "LAND ROVER"].map(vehicleMakeLabel), ["Volkswagen", "Mercedes-Benz", "BMW", "Alfa Romeo", "Land Rover"]);
+  const golf7 = groups("VOLKSWAGEN").find(group => group.slug === "golf-7")!;
+  assert.deepEqual(vehicleModelLabels("VOLKSWAGEN", golf7), { name: "Volkswagen Golf 7", model: "Golf 7",
+    heading: "Volkswagen Golf 7 (2012–2022) yedek parçaları", title: "Volkswagen Golf 7 (2012–2022) yedek parçaları" });
+  const passatB8 = groups("VOLKSWAGEN").find(group => group.slug === "passat-b8")!;
+  assert.equal(vehicleModelLabels("VOLKSWAGEN", passatB8).heading, "Volkswagen Passat B8 (2014–) yedek parçaları");
+  // A title over 60 characters drops the years; the heading keeps them.
+  const long = { name: "SPRINTER 3,5-T", dateFrom: "2006-01", dateTo: "2018-12" };
+  const labels = vehicleModelLabels("MERCEDES-BENZ", long);
+  assert.equal(labels.heading, "Mercedes-Benz Sprinter 3,5-T (2006–2018) yedek parçaları");
+  assert.ok(labels.title.length <= 60);
+  const longer = vehicleModelLabels("MERCEDES-BENZ", { ...long, name: "SPRINTER 3,5-T PLATFORM CHASSIS" });
+  assert.equal(longer.title, "Mercedes-Benz Sprinter 3,5-T Platform Chassis yedek parçaları");
+  assert.ok(longer.heading.includes("(2006–2018)"));
 });
 
 test("families list their generations newest first", () => {

@@ -8,7 +8,8 @@
 //  3. Else the series sharing a chassis code in brackets: `<family>-<code>`, the earliest series' first code
 //     (tipo-356 = Saloon + Hatchback + Estate, 3-e90, c-class-w205).
 //  4. Else a number right after the family names the model (tiggo-7, atto-3, seal-6, mg-5, r-1200): the number is the
-//     model, not a generation, and `describe()` in description-fitment.ts reads it the same way.
+//     model, not a generation, and `describe()` in description-fitment.ts reads it the same way. A leading zero is no
+//     part of the number ("SEAL 06 Saloon" and "SEAL 6 DM-i Estate" are the unit seal-6).
 //  5. Else (no code at all) the family's series whose production years overlap: `<family>-<start year>` (clio-2025).
 //     A series without an end year ends where the family's next generation (4+ years later) starts, so
 //     ford-usa/mustang-2004 stops at the 2014 Mustang.
@@ -20,6 +21,7 @@
 // (it merges them). 141 such single-series additions were measured on the local catalog (2026-11-15): known limit.
 // `npm run vehicles:slugs` (docs/vehicle-catalog.md) compares the addresses before and after a catalog import.
 import { BODY, ROMAN, normalizeText } from "./description-fitment";
+import { readableProductName } from "./product-name";
 import type { VehicleModel } from "./vehicle-catalog";
 
 export type VehicleModelGroup = {
@@ -55,7 +57,7 @@ function parse(model: VehicleModel): Parsed {
     .map(code => code.split("/")[0].replace(/[^A-Z0-9]/g, "")).filter(Boolean));
   return { model, familyKey: words.slice(0, length).join(" "), family: original.slice(0, length).join(" "),
     generation: rest.map(word => ROMAN[word]).find(Boolean) ?? null, wordCode: rest.find(word => codeWord.test(word)) ?? null,
-    number: /^\d+$/.test(rest[0] ?? "") ? rest[0] : null, codes };
+    number: /^\d+$/.test(rest[0] ?? "") ? String(Number(rest[0])) : null, codes };
 }
 
 const start = (model: VehicleModel) => model.dateFrom ?? "9999-99";
@@ -157,8 +159,21 @@ export function vehicleModelGroupFamilies(groups: VehicleModelGroup[]): VehicleM
     .sort((a, b) => a.family.localeCompare(b.family, "tr", { numeric: true }));
 }
 
-/** Production years for titles and copy: "2012–2022", "2019–günümüz"; null without a start. */
-export function vehicleModelGroupYears(group: Pick<VehicleModelGroup, "dateFrom" | "dateTo">) {
+const modelTitleBudget = 60;
+
+/** A make in reading form: "VOLKSWAGEN" → "Volkswagen", "MERCEDES-BENZ" → "Mercedes-Benz", "BMW" stays (the rule of product names). */
+export const vehicleMakeLabel = (name: string) => readableProductName(name);
+
+/** Page texts of a model page: "Volkswagen Golf 7" (`model` "Golf 7"), its H1 with the years and the shorter <title>. */
+export function vehicleModelLabels(makeName: string, group: Pick<VehicleModelGroup, "name" | "dateFrom" | "dateTo">) {
+  const model = readableProductName(group.name), name = `${vehicleMakeLabel(makeName)} ${model}`, years = vehicleModelGroupYears(group, "");
+  const heading = `${name}${years ? ` (${years})` : ""} yedek parçaları`;
+  // The page part of a title stays within 60 characters (the site template appends " | Getirbakim"); years go first.
+  return { name, model, heading, title: heading.length <= modelTitleBudget ? heading : `${name} yedek parçaları` };
+}
+
+/** Production years for titles and copy: "2012–2022", "2019–günümüz" (`openEnd` "" gives "2019–"); null without a start. */
+export function vehicleModelGroupYears(group: Pick<VehicleModelGroup, "dateFrom" | "dateTo">, openEnd = "günümüz") {
   if (!group.dateFrom) return null;
-  return `${group.dateFrom.slice(0, 4)}–${group.dateTo?.slice(0, 4) ?? "günümüz"}`;
+  return `${group.dateFrom.slice(0, 4)}–${group.dateTo?.slice(0, 4) ?? openEnd}`;
 }

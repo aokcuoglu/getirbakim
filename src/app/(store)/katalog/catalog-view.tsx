@@ -17,7 +17,7 @@ import { getCatalogProductImages,getCatalogProductDetails } from "@/modules/stor
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import {getVehicleBrands} from "@/modules/store/vehicle-catalog.server";
 import {vehicleBrandSlug,type VehicleBrand} from "@/modules/store/vehicle-catalog";
-import {vehicleModelGroupYears,type VehicleModelGroup} from "@/modules/store/vehicle-model-groups";
+import {vehicleMakeLabel,vehicleModelGroupYears,vehicleModelLabels,type VehicleModelGroup} from "@/modules/store/vehicle-model-groups";
 import {VehicleModelSummary} from "@/components/vehicle-model-summary";
 import {VehicleModelList} from "@/components/vehicle-model-list";
 import {getStoreCategories} from "@/modules/store/categories";
@@ -81,9 +81,9 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
  const isBrakeCategory=category?.path.includes(252);
  const popularOrder=["VOLKSWAGEN","AUDI","TOYOTA","BMW","OPEL","VOLVO","SKODA","RENAULT","MERCEDES-BENZ","PEUGEOT","FORD","KIA","HYUNDAI","SUBARU","MAZDA","CITROËN","NISSAN","LEXUS","HONDA","SEAT"];
  const popularMakes=popularOrder.flatMap(name=>vehicleBrands.filter(brand=>brand.name===name));
- const makeName=make&&(make.name==="VOLKSWAGEN"?"VW":make.name);
- const modelName=make&&model&&`${makeName} ${model.name}`,modelYears=model&&vehicleModelGroupYears(model);
- const title=params.q ? `“${params.q.slice(0,120)}” için arama sonuçları` : modelName ? `${modelName} yedek parçaları` : make ? `${makeName} ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"}` : category?.name ?? "Yedek parça ve bakım ürünleri";
+ const makeName=make&&vehicleMakeLabel(make.name);
+ const modelLabels=make&&model?vehicleModelLabels(make.name,model):undefined,modelName=modelLabels?.name,modelYears=model&&vehicleModelGroupYears(model);
+ const title=params.q ? `“${params.q.slice(0,120)}” için arama sonuçları` : modelLabels ? modelLabels.heading : make ? `${makeName} ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"}` : category?.name ?? "Yedek parça ve bakım ürünleri";
  // The listing itself (the code search stays inside it) and the same listing without its category.
  const modelSlug=model&&params.model;
  const home=listingPath({makeSlug:params.make,modelSlug,categorySlug:params.category}),allProducts=listingPath({makeSlug:params.make,modelSlug});
@@ -112,7 +112,7 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
  const vehicleNotice=scope&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">
   {scope.fitted?<>“{scope.vehicleText}” aracına bağlı <strong>“{scope.productText}”</strong> ürünleri gösteriliyor. <Link className="font-semibold text-primary hover:underline" href={partHref!}>Tüm “{scope.productText}” sonuçları</Link></>
    :<>“{scope.vehicleText}” aracına bağlı <strong>“{scope.productText}”</strong> ürünü bulunamadı; tüm “{scope.productText}” sonuçları gösteriliyor. Aracına uyduğunu OEM numarasıyla kontrol et.</>}</p>;
- const trail=catalogTrail({make:make&&{name:makeName!,slug:params.make!},model:model&&{name:model.name,slug:params.model!},categories:category?categoryPath(categories,category.id):[]});
+ const trail=catalogTrail({make:make&&{name:makeName!,slug:params.make!},model:model&&{name:modelLabels!.model,slug:params.model!},categories:category?categoryPath(categories,category.id):[]});
  // Only the plain listings are indexed (the pages' robots rule): a search, filter, sort or page 2 is not a collection.
  // A model page says what its list is: model-level fits, which the garage vehicle narrows to an engine type.
  const intro=params.q?undefined:modelName?`${modelName}${modelYears?` (${modelYears})`:""} için listelenen ${(modelTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
