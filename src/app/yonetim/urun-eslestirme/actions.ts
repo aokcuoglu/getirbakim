@@ -10,6 +10,7 @@ import { bulkAcceptableSql, bulkCandidateReasons } from "@/modules/admin/product
 // re-keys the cache; other price changes (markup/VAT settings, stale rows) reach it within 60 s.
 import { forgetSameProducts } from "@/modules/admin/product-matching";
 import { matchingBack, safeMatchingBack, withMatchingFlag } from "@/modules/admin/product-matching-back";
+import { invalidateListings } from "@/modules/store/listing-epoch";
 
 export async function refreshMatches(form: FormData) {
   await requireAdmin();
@@ -35,6 +36,8 @@ export async function splitOffer(form: FormData) {
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&error=input");
   const { item_id, primary_id, back } = input.data;
   const { id } = (await db.query<{ id: string | null }>("SELECT product_split_offer($1,$2,$3) AS id", [item_id, primary_id, admin.id])).rows[0];
+  // The store lists the row on its own now: cached listings and searches reload (#585).
+  if (id) await invalidateListings();
   forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, id ? "split=1" : "error=split"));
@@ -45,7 +48,9 @@ export async function undoSplit(form: FormData) {
   const admin = await requireAdmin();
   const input = z.object({ item_id: z.uuid(), back: backPath }).safeParse(Object.fromEntries(form));
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=same&scope=manual&error=input");
-  await db.query("SELECT product_reset_item($1,$2)", [input.data.item_id, admin.id]);
+  const { id } = (await db.query<{ id: string | null }>("SELECT product_reset_item($1,$2) AS id", [input.data.item_id, admin.id])).rows[0];
+  // The store regroups the row: cached listings and searches reload (#585).
+  if (id) await invalidateListings();
   forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(input.data.back, "split=undone"));
@@ -87,6 +92,8 @@ export async function decideCandidate(form: FormData) {
     }
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  // Only a merge changes what the store lists (#585); "Farklı" records a decision.
+  if (status === "same" && !failed) await invalidateListings();
   forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, failed ? "error=merge" : `matched=${status}${carriedHidden ? "&carried_hidden=1" : ""}${carriedImages ? `&images=${carriedImages}` : keptImages ? "&images=kept" : ""}${carriedRefs ? `&refs=${carriedRefs}` : ""}`));
@@ -127,6 +134,8 @@ export async function acceptCandidates(form: FormData) {
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  // One bump for the whole batch (#585).
+  if (merged > 0) await invalidateListings();
   forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk&count=${merged}&carried_hidden=${carriedHidden}&images=${carriedImages}&refs=${carriedRefs}`));

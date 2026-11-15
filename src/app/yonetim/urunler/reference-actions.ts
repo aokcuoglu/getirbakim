@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
+import { invalidateListings } from "@/modules/store/listing-epoch";
 import * as store from "@/modules/admin/product-reference-store";
 import { productReferenceLimit, referenceKinds } from "@/modules/admin/product-reference-fields";
 
@@ -49,6 +50,8 @@ async function run(action: () => Promise<store.ProductReferenceResult>, success:
     return { status: "error", message: "Referans kaydedilemedi. Yeniden deneyin." };
   }
   if (!result.ok) return { status: "error", message: failures[result.reason] };
+  // Code search lists products by their reference numbers: cached searches reload (#585).
+  await invalidateListings();
   revalidateStore();
   return { status: "success", message: success };
 }
@@ -66,7 +69,7 @@ export async function addProductReference(input: { productId: string; kind: stri
   const data = reference.safeParse(input);
   if (!data.success) return { status: "error", message: inputError(data.error.issues) };
   const { productId: id, ...value } = data.data;
-  return run(() => store.addProductReference(db, id, value, admin.id), "Referans eklendi; ürün sayfasında hemen, kod aramasında birkaç dakika içinde görünür.");
+  return run(() => store.addProductReference(db, id, value, admin.id), "Referans eklendi; ürün sayfasında hemen, kod aramasında birkaç saniye içinde görünür.");
 }
 
 export async function hideProductReference(input: { productId: string; kind: string; brand: string; number: string }): Promise<ProductReferenceActionResult> {
@@ -74,7 +77,7 @@ export async function hideProductReference(input: { productId: string; kind: str
   const data = automatic.safeParse(input);
   if (!data.success) return { status: "error", message: "Referans tanınmadı. Sayfayı yenileyin." };
   const { productId: id, kind, brand, number } = data.data;
-  return run(() => store.hideProductReference(db, id, { kind, brand, number }, admin.id), "Otomatik referans ürün sayfasında gizlendi; kod aramasından birkaç dakika içinde çıkar.");
+  return run(() => store.hideProductReference(db, id, { kind, brand, number }, admin.id), "Otomatik referans ürün sayfasında gizlendi; kod aramasından birkaç saniye içinde çıkar.");
 }
 
 export async function removeProductReference(input: { productId: string; referenceId: string; shown?: boolean }): Promise<ProductReferenceActionResult> {
