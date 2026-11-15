@@ -5,7 +5,8 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { returnReasons } from '@/modules/store/returns';
-import { transitionOrder,recordOrderRefund } from './orders';
+import { shipmentSchema,type ShipmentResult } from '@/modules/store/shipment';
+import { transitionOrder,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn } from './orders';
 import { orderListBack,orderListReturn } from './order-list-return';
 export async function savePricing(form:FormData) {
  const admin=await requireAdmin();
@@ -38,11 +39,24 @@ export async function saveService(form:FormData) {
 }
 export async function changeOrderStatus(form:FormData) {
  await requireAdmin();
- const input=z.object({id:z.uuid(),status:z.enum(['confirmed','shipped','cancelled']),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ const input=z.object({id:z.uuid(),status:z.enum(['confirmed','cancelled','delivered']),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
  if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
  const ok=await transitionOrder(input.data.id,input.data.status);
  revalidateOrder(input.data.id);
  redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
+}
+/** Ship dialog (#605): `ship` hands a confirmed order to the carrier, `edit` corrects the details of a shipped one. */
+export async function saveShipment(_previous:ShipmentResult,form:FormData):Promise<ShipmentResult> {
+ await requireAdmin();
+ const values=Object.fromEntries(form);
+ const target=z.object({id:z.uuid(),mode:z.enum(['ship','edit']),back:orderListBack.optional()}).safeParse(values);
+ const shipment=shipmentSchema.safeParse(values);
+ if(!target.success) return {status:'error',message:'Sipariş bulunamadı. Listeyi yenileyin.'};
+ if(!shipment.success) return {status:'error',errors:shipment.error.flatten().fieldErrors};
+ const ok=target.data.mode==='ship' ? await shipOrder(target.data.id,shipment.data) : await updateShipment(target.data.id,shipment.data);
+ if(!ok) return {status:'error',message:'Sipariş bu işlem için uygun değil. Listeyi yenileyin.'};
+ revalidateOrder(target.data.id);
+ redirect(orderListReturn(target.data.back,'saved'));
 }
 export async function recordRefund(form:FormData) {
  await requireAdmin();
@@ -56,24 +70,12 @@ export async function recordRefund(form:FormData) {
 function revalidateOrder(id:string) {
  revalidatePath('/yonetim','layout');revalidatePath(`/siparis/${id}`);revalidatePath('/siparisler');
 }
-/** Shipped lines only; partial returns may add up to the ordered quantity. */
+/** Shipped or delivered lines; partial returns may add up to the ordered quantity. */
 export async function recordReturn(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({orderId:z.uuid(),productId:z.uuid(),quantity:z.coerce.number().int().min(1).max(99),reason:z.enum(returnReasons),note:z.string().trim().max(500)}).safeParse(Object.fromEntries(form));
  if(!input.success) redirect('/yonetim/siparisler?error=1');
- const {orderId,productId,quantity,reason,note}=input.data;
- const client=await db.connect();
- let ok=false;
- try {
-  await client.query('BEGIN');
-  const line=(await client.query<{quantity:number;returned:number}>(`SELECT i.quantity,COALESCE((SELECT sum(r.quantity) FROM commerce_returns r WHERE r.order_id=i.order_id AND r.product_id=i.product_id),0)::integer AS returned
-   FROM commerce_order_items i JOIN commerce_orders o ON o.id=i.order_id WHERE i.order_id=$1 AND i.product_id=$2 AND o.status='shipped' FOR UPDATE OF i`,[orderId,productId])).rows[0];
-  if(line && line.returned+quantity<=line.quantity) {
-   await client.query('INSERT INTO commerce_returns(order_id,product_id,quantity,reason,note,created_by) VALUES($1,$2,$3,$4,$5,$6)',[orderId,productId,quantity,reason,note,admin.id]);ok=true;
-  }
-  await client.query('COMMIT');
- } catch(error) { await client.query('ROLLBACK');throw error; }
- finally {client.release();}
- revalidatePath(`/siparis/${orderId}`);revalidatePath('/yonetim/siparisler');
- redirect(`/siparis/${orderId}?iade=${ok ? 'kaydedildi' : 'hata'}`);
+ const ok=await recordOrderReturn({...input.data,adminId:admin.id});
+ revalidatePath(`/siparis/${input.data.orderId}`);revalidatePath('/yonetim/siparisler');
+ redirect(`/siparis/${input.data.orderId}?iade=${ok ? 'kaydedildi' : 'hata'}`);
 }

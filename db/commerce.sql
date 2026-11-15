@@ -223,6 +223,23 @@ DO $$ BEGIN
    CHECK(status IN ('awaiting_payment','pending','confirmed','shipped','cancelled'));
  END IF;
 END $$;
+-- Shipment (#605): carrier is a code from src/modules/store/shipment.ts (validated there, no CHECK so the list can grow);
+-- carrier_name is the free name for 'other'. tracking_url is resolved when written: the admin's link, else the carrier template.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS carrier text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS carrier_name text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS tracking_no text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS tracking_url text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS shipped_at timestamptz;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivered_at timestamptz;
+-- Widens the list above once. Its result still contains 'awaiting_payment', so the two blocks never undo each other.
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND conname='commerce_orders_status_check'
+  AND pg_get_constraintdef(oid) LIKE '%delivered%') THEN
+  ALTER TABLE commerce_orders DROP CONSTRAINT IF EXISTS commerce_orders_status_check;
+  ALTER TABLE commerce_orders ADD CONSTRAINT commerce_orders_status_check
+   CHECK(status IN ('awaiting_payment','pending','confirmed','shipped','delivered','cancelled'));
+ END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS commerce_orders_payment_due_idx ON commerce_orders(payment_due_at) WHERE status='awaiting_payment';
 -- One row per hosted-page attempt. provider_order_id is the orderId sent to TAMI and must never be reused.
 CREATE TABLE IF NOT EXISTS commerce_payments (

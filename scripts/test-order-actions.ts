@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { orderListBack, orderListReturn } from "../src/modules/admin/order-list-return";
+import { resolveTrackingUrl, shipmentSchema } from "../src/modules/store/shipment";
 
 // Admin order steps (#516) in an isolated copy of the schema; nothing touches the shared database's tables.
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
@@ -56,23 +57,135 @@ test("actions return to the list they came from; anything else falls back to the
   assert.equal(orderListBack.safeParse("/yonetim/siparisler?page=2").success, true);
 });
 
+const shipment = (input: Record<string, string>) => shipmentSchema.parse(input);
+
 test("order steps follow the state machine and only for paid or legacy offline orders", async () => {
   const paid = await order("pending", "paid", [{ quantity: 1, reserved: 1 }]);
-  assert.equal(await orders.transitionOrder(paid, "shipped"), false);
+  const yurtici = shipment({ carrier: "yurtici", trackingNo: "123 456 789" });
+  assert.equal(await orders.shipOrder(paid, yurtici), false);
   assert.equal(await orders.transitionOrder(paid, "confirmed"), true);
   assert.equal((await row(paid)).status, "confirmed");
   assert.equal(await orders.transitionOrder(paid, "confirmed"), false);
-  assert.equal(await orders.transitionOrder(paid, "shipped"), true);
+  // Delivery needs a shipment first.
+  assert.equal(await orders.transitionOrder(paid, "delivered"), false);
+  assert.equal(await orders.shipOrder(paid, yurtici), true);
+  const shipped = await row(paid);
+  assert.equal(shipped.status, "shipped"); assert.equal(shipped.carrier, "yurtici"); assert.equal(shipped.carrier_name, null);
+  assert.equal(shipped.tracking_no, "123456789");
+  assert.equal(shipped.tracking_url, "https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=123456789");
+  assert.ok(shipped.shipped_at instanceof Date); assert.equal(shipped.delivered_at, null);
+  assert.equal(await orders.shipOrder(paid, yurtici), false);
   assert.equal(await orders.transitionOrder(paid, "cancelled"), false);
-  assert.equal((await row(paid)).status, "shipped");
+  assert.equal(await orders.transitionOrder(paid, "delivered"), true);
+  const delivered = await row(paid);
+  assert.equal(delivered.status, "delivered"); assert.ok(delivered.delivered_at instanceof Date);
+  // delivered is final.
+  for (const status of ["confirmed", "cancelled", "delivered"] as const) assert.equal(await orders.transitionOrder(paid, status), false);
+  assert.equal(await orders.shipOrder(paid, yurtici), false);
+  assert.equal((await row(paid)).status, "delivered");
   // An unpaid online order is left to expiry.
   const unpaid = await order("awaiting_payment", "awaiting", [{ quantity: 1, reserved: 1 }]);
   assert.equal(await orders.transitionOrder(unpaid, "confirmed"), false);
   assert.equal(await orders.transitionOrder(unpaid, "cancelled"), false);
+  assert.equal(await orders.shipOrder(unpaid, yurtici), false);
+  assert.equal(await orders.shipOrder(await order("confirmed", "awaiting", [{ quantity: 1, reserved: 1 }]), yurtici), false);
   assert.equal((await row(unpaid)).status, "awaiting_payment");
   const offline = await order("pending", "none", [{ quantity: 1, reserved: 0 }]);
   assert.equal(await orders.transitionOrder(offline, "confirmed"), true);
   assert.equal(await orders.transitionOrder(randomUUID(), "confirmed"), false);
+});
+
+test("shipment details can be corrected only while the order is shipped; the ship time stays", async () => {
+  const id = await order("confirmed", "paid", [{ quantity: 1, reserved: 0, product: "supplier" }]);
+  const other = shipment({ carrier: "other", carrierName: "Yerel Kurye", trackingNo: "KRY-1" });
+  assert.equal(await orders.updateShipment(id, other), false);
+  assert.equal(await orders.shipOrder(id, shipment({ carrier: "mng", trackingNo: "WRONG1" })), true);
+  const before = await row(id);
+  assert.equal(before.tracking_url, null);
+  assert.equal(await orders.updateShipment(id, other), true);
+  const after = await row(id);
+  assert.equal(after.status, "shipped"); assert.equal(after.carrier, "other"); assert.equal(after.carrier_name, "Yerel Kurye");
+  assert.equal(after.tracking_no, "KRY-1"); assert.equal(after.tracking_url, null);
+  assert.equal(after.shipped_at.getTime(), before.shipped_at.getTime());
+  // A hand-entered link wins over the template.
+  assert.equal(await orders.updateShipment(id, shipment({ carrier: "ups", trackingNo: "1Z999", trackingUrl: "https://example.com/t/1Z999" })), true);
+  assert.equal((await row(id)).tracking_url, "https://example.com/t/1Z999");
+  assert.equal(await orders.transitionOrder(id, "delivered"), true);
+  assert.equal(await orders.updateShipment(id, other), false);
+  assert.equal((await row(id)).carrier, "ups");
+  // An order shipped before #605 has no carrier yet; it can be completed.
+  const legacy = await order("shipped", "none", [{ quantity: 1, reserved: 0 }]);
+  assert.equal(await orders.updateShipment(legacy, shipment({ carrier: "aras", trackingNo: "ARAS123" })), true);
+  const completed = await row(legacy);
+  assert.equal(completed.carrier, "aras"); assert.equal(completed.shipped_at, null);
+  assert.equal(completed.tracking_url, "https://kargotakip.araskargo.com.tr/mainpage.aspx?code=ARAS123");
+});
+
+test("the shipment form rejects a missing or malformed tracking number, carrier or link", () => {
+  const fails = (input: Record<string, string>) => shipmentSchema.safeParse(input).error?.flatten().fieldErrors ?? {};
+  assert.ok(fails({ carrier: "yurtici", trackingNo: "" }).trackingNo);
+  assert.ok(fails({ carrier: "yurtici", trackingNo: "   " }).trackingNo);
+  assert.ok(fails({ carrier: "yurtici", trackingNo: "ABC" }).trackingNo);
+  assert.ok(fails({ carrier: "yurtici" }).trackingNo);
+  assert.ok(fails({ carrier: "yurtici", trackingNo: "A".repeat(41) }).trackingNo);
+  assert.ok(fails({ carrier: "yurtici", trackingNo: "ABC_123" }).trackingNo);
+  assert.ok(fails({ carrier: "yurtici", trackingNo: "<script>" }).trackingNo);
+  assert.equal(shipment({ carrier: "aras", trackingNo: " 12 34\t56 " }).trackingNo, "123456");
+  assert.ok(fails({ carrier: "dhl-express", trackingNo: "ABCD1" }).carrier);
+  assert.ok(fails({ trackingNo: "ABCD1" }).carrier);
+  assert.ok(fails({ carrier: "other", trackingNo: "ABCD1" }).carrierName);
+  assert.ok(fails({ carrier: "other", carrierName: " X ", trackingNo: "ABCD1" }).carrierName);
+  assert.equal(shipment({ carrier: "other", carrierName: " Yerel Kurye ", trackingNo: "ABCD1" }).carrierName, "Yerel Kurye");
+  // The free name is only kept for "other".
+  assert.equal(shipment({ carrier: "ups", carrierName: "Başka", trackingNo: "ABCD1" }).carrierName, null);
+  for (const trackingUrl of ["http://example.com/t", "javascript:alert(1)", "data:text/html,x", "example.com/t", "https://", `https://example.com/${"a".repeat(500)}`]) {
+    assert.ok(fails({ carrier: "ups", trackingNo: "ABCD1", trackingUrl }).trackingUrl, trackingUrl);
+  }
+  assert.equal(shipment({ carrier: "ups", trackingNo: "ABCD1", trackingUrl: "" }).trackingUrl, null);
+});
+
+test("tracking links: the admin's link, else the carrier template with the number encoded, else none", () => {
+  assert.equal(resolveTrackingUrl("yurtici", "A B/1", null), "https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=A%20B%2F1");
+  assert.equal(resolveTrackingUrl("ups", "1Z9", null), "https://www.ups.com/track?loc=tr_TR&tracknum=1Z9");
+  for (const carrier of ["mng", "ptt", "surat", "hepsijet", "kolaygelsin", "other", "unknown"]) assert.equal(resolveTrackingUrl(carrier, "ABCD1", null), null, carrier);
+  assert.equal(resolveTrackingUrl("mng", "ABCD1", "https://example.com/x"), "https://example.com/x");
+  assert.equal(resolveTrackingUrl("yurtici", "ABCD1", "https://example.com/x"), "https://example.com/x");
+});
+
+test("returns are recorded on shipped and delivered orders only, up to the ordered quantity", async () => {
+  const admin = (await schema.pool.query<{ id: string }>("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Yönetici',$1,'x','admin',true) RETURNING id::text",
+    [`${randomUUID()}@example.invalid`])).rows[0].id;
+  const line = (orderId: string, quantity: number) => ({ orderId, productId: product, quantity, reason: "not_fit", note: "", adminId: admin });
+  const returned = async (id: string) => Number((await schema.pool.query("SELECT COALESCE(sum(quantity),0) AS n FROM commerce_returns WHERE order_id=$1", [id])).rows[0].n);
+  const confirmed = await order("confirmed", "paid", [{ quantity: 2, reserved: 0 }]);
+  assert.equal(await orders.recordOrderReturn(line(confirmed, 1)), false);
+  const shipped = await order("shipped", "paid", [{ quantity: 2, reserved: 0 }]);
+  assert.equal(await orders.recordOrderReturn(line(shipped, 1)), true);
+  assert.equal(await orders.recordOrderReturn(line(shipped, 2)), false);
+  assert.equal(await orders.recordOrderReturn(line(shipped, 1)), true);
+  assert.equal(await orders.recordOrderReturn(line(shipped, 1)), false);
+  assert.equal(await returned(shipped), 2);
+  const delivered = await order("delivered", "paid", [{ quantity: 3, reserved: 0 }]);
+  assert.equal(await orders.recordOrderReturn(line(delivered, 3)), true);
+  assert.equal(await orders.recordOrderReturn(line(delivered, 1)), false);
+  assert.equal(await returned(delivered), 3); assert.equal(await returned(confirmed), 0);
+  // A product that is not on the order.
+  assert.equal(await orders.recordOrderReturn({ ...line(delivered, 1), productId: randomUUID() }), false);
+});
+
+test("the status check accepts delivered and nothing unknown, and survives a re-run of the schema", async () => {
+  const id = await order("pending", "none", [{ quantity: 1, reserved: 0 }]);
+  await schema.pool.query("UPDATE commerce_orders SET status='delivered' WHERE id=$1", [id]);
+  await assert.rejects(schema.pool.query("UPDATE commerce_orders SET status='x' WHERE id=$1", [id]));
+  const definition = async () => (await schema.pool.query<{ def: string }>(
+    "SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND conname='commerce_orders_status_check'")).rows.map(r => r.def);
+  const first = await definition();
+  await schema.pool.query(await readFile("db/commerce.sql", "utf8"));
+  await schema.pool.query(await readFile("db/commerce.sql", "utf8"));
+  assert.deepEqual(await definition(), first);
+  assert.match(first[0], /delivered/); assert.match(first[0], /awaiting_payment/);
+  await assert.rejects(schema.pool.query("UPDATE commerce_orders SET status='x' WHERE id=$1", [id]));
+  assert.equal((await row(id)).status, "delivered");
 });
 
 test("cancelling returns only the stock each line reserved, once; a refund is then recorded once", async () => {

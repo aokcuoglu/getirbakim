@@ -18,9 +18,11 @@ export type CommerceOrder = {
  id:string; number:string; owner_kind:'account'|'guest'; owner_id:string;
  customer_name:string; email:string; phone:string; address:string; note:string;
  total_kurus:string; subtotal_kurus:string; shipping_kurus:string; discount_percent:number;
- status:'awaiting_payment'|'pending'|'confirmed'|'shipped'|'cancelled'; created_at:Date;
+ status:'awaiting_payment'|'pending'|'confirmed'|'shipped'|'delivered'|'cancelled'; created_at:Date;
  payment_status:'none'|'awaiting'|'paid'|'expired'|'refund_required'|'refunded';
  payment_due_at:Date|null; paid_at:Date|null; payment_note:string; refund_reference:string|null;
+ // Shipment (#605); NULL on orders shipped before it was recorded. carrier is a code from ./shipment.
+ carrier:string|null; carrier_name:string|null; tracking_no:string|null; tracking_url:string|null; shipped_at:Date|null; delivered_at:Date|null;
 };
 export type OrderItem = {product_id:string; name:string; code:string; quantity:number; unit_price_kurus:string; pricing_snapshot:Record<string,unknown>; vehicle:GarageVehicle|null; fitment_level:FitmentLevel|null};
 
@@ -106,5 +108,5 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
  } catch(error) { await client.query('ROLLBACK'); throw error; }
  finally {client.release();}
 }
-export const orderStatus:Record<string,string>={awaiting_payment:'Ödeme bekleniyor',pending:'Teyit bekliyor',confirmed:'Onaylandı',shipped:'Sevk edildi',cancelled:'İptal edildi'};
+export const orderStatus:Record<string,string>={awaiting_payment:'Ödeme bekleniyor',pending:'Teyit bekliyor',confirmed:'Onaylandı',shipped:'Kargoya verildi',delivered:'Teslim edildi',cancelled:'İptal edildi'};
 export const paymentStatus:Record<string,string>={none:'Ödeme alınmadı',awaiting:'Ödeme bekleniyor',paid:'Ödendi',expired:'Ödeme süresi doldu',refund_required:'İade bekliyor',refunded:'İade edildi'};
