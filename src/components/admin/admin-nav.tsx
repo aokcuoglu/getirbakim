@@ -81,7 +81,7 @@ export function AdminSidebar({ status, account }: { status: AdminNavStatus; acco
           </DropdownMenu>
         </SidebarMenuItem>
       </SidebarMenu>
-      {!collapsed && <p className="truncate px-2 text-xs text-muted-foreground tabular-nums" title="Uygulama sürümü">{currentAppVersion.label}</p>}
+      {!collapsed && <p className="truncate px-2 text-xs text-muted-foreground tabular-nums" title="Uygulama sürümü"><span className="sr-only">Uygulama sürümü: </span>{currentAppVersion.label}</p>}
     </SidebarFooter>
     <SidebarRail/>
   </Sidebar>;
