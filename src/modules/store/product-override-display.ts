@@ -1,3 +1,5 @@
+import { readableProductName } from "./product-name";
+
 /** Store-facing edits of a product (product_overrides, #575); NULL follows the automatic sources. */
 export type StoreOverride = {
   name: string | null; description: string | null; seo_title: string | null; seo_description: string | null; category_id: number | null;
@@ -38,8 +40,7 @@ export function cardPartNumber(product: { code: string; display_code: string; br
   return number;
 }
 
-/** The title a listing card prints: the supplier's name in title case, the store brand and the part number. */
+/** The title a listing card prints: the supplier's name in its readable form (#659), the store brand and the part number. */
 export function catalogCardTitle(product: { name: string; code: string; display_code: string; brand: string; display_brand: string }, partNumber?: string) {
-  const name = product.name.toLowerCase().replace(/\bon\b/g, "ön").split(" ").map(word => word.charAt(0).toLocaleUpperCase("tr") + word.slice(1)).join(" ");
-  return `${name} ${product.display_brand} ${cardPartNumber(product, partNumber ?? product.code)}`;
+  return `${readableProductName(product.name)} ${product.display_brand} ${cardPartNumber(product, partNumber ?? product.code)}`;
 }

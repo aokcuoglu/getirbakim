@@ -4,13 +4,13 @@ import type {Account} from "@/modules/auth/session";
 import {money,servicePrice,type CatalogProduct} from "@/modules/store/catalog";
 import type {CatalogProductImage} from "@/modules/store/product-enrichment";
 import {listPrice} from "@/modules/store/best-offer";
+import {readableProductName} from "@/modules/store/product-name";
 import {cardPartNumber} from "@/modules/store/product-override-display";
 import {catalogPath,categoryPath} from "@/modules/seo/paths";
 
 export function HomeProductCard({product,image,partNumber,category,account}:{product:CatalogProduct;image?:CatalogProductImage;partNumber?:string;category?:{name:string;slug:string};account:Account|null}) {
-  const name=product.name.toLowerCase().replace(/\bon\b/g,"ön").split(" ").map(word=>word.charAt(0).toLocaleUpperCase("tr")+word.slice(1)).join(" ");
   // The store brand and part number (#602): an admin's, else the supplier's.
-  const title=name+" "+product.display_brand+" "+cardPartNumber(product,partNumber??product.code);
+  const title=readableProductName(product.name)+" "+product.display_brand+" "+cardPartNumber(product,partNumber??product.code);
   const discounted=account?.approved&&account.role==="service";
   // A running campaign (#580): the regular price struck through on its own line, discounted like the price. The card's
   // heights are minimums, so the extra line grows it (and its carousel row) instead of overflowing; the end date stays
