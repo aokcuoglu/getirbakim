@@ -9,7 +9,12 @@ import { legacyRedirect } from "@/modules/seo/legacy-redirects";
 // The cookie outlives the database expiry that currentAccount() extends; a dead token kept alive here stays rejected there.
 // Old listing addresses (/automakers, /car-parts/<make>, /katalog?category=) move with one 301 (#638). Next needs an
 // absolute URL here and sends it on relative (same host), so a CDN or load balancer in front keeps its own host.
+// Publicly cached GETs (category tree, category and product images) never carry a session cookie: a shared cache
+// would keep the Set-Cookie with the body and hand one visitor's session to the next (#642). The matcher skips them;
+// the check here keeps it that way if the matcher changes.
+const publicCachedPath = /^\/api\/(?:categories|category-media|product-media)(?:\/|$)/;
 export function proxy(request: NextRequest) {
+ if (publicCachedPath.test(request.nextUrl.pathname)) return NextResponse.next();
  const target = legacyRedirect(request.nextUrl.pathname, request.nextUrl.searchParams);
  if (target) return NextResponse.redirect(new URL(target, request.url), 301);
  let response: NextResponse;
@@ -34,6 +39,6 @@ export const config = {
   "/yonetim", "/yonetim/:path*",
   // Constants only (Next reads them at build time); scripts/test-listing-paths.ts ties them to legacyListingPaths.
   { source: "/katalog", has: [{ type: "query", key: "category" }] }, "/automakers", "/car-parts/:path*",
-  { source: "/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
+  { source: "/((?!_next/static|_next/image|api/(?:categories|category-media|product-media)(?:/|$)|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
  ],
 };
