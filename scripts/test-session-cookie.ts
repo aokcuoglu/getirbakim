@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { NextRequest } from "next/server";
-import { proxy } from "@/proxy";
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
+import { config, proxy } from "@/proxy";
 import { RETURN_TO_HEADER } from "@/modules/auth/return-to";
 import { SESSION_COOKIE, SESSION_IDLE_SECONDS, SESSION_REFRESH_SECONDS, SESSION_SEEN_COOKIE, sessionCookieDue, sessionCookieOptions } from "@/modules/auth/session-cookie";
 
@@ -60,4 +61,15 @@ test("an old stamp rewrites both cookies and /yonetim keeps its return address",
   assert.ok(cookies.some(c => c.startsWith(`${SESSION_COOKIE}=${token};`)));
   assert.ok(cookies.some(c => c.startsWith(`${SESSION_SEEN_COOKIE}=`)));
   assert.equal(response.headers.get(`x-middleware-request-${RETURN_TO_HEADER}`), "/yonetim/urunler?page=2");
+});
+
+test("publicly cached routes never get the session cookie (#642)", () => {
+  const cookies = { [SESSION_COOKIE]: token };
+  for (const url of ["/api/categories", "/api/category-media/9db4f695-185e-4d35-b8e4-190bfb549e91", "/api/product-media/175b52d1-f7be-4e67-8b8c-7b6bfa6f23dd"]) {
+    assert.equal(unstable_doesMiddlewareMatch({ config, url, cookies }), false, `${url} runs the proxy`);
+    assert.deepEqual(setCookies(proxy(request(url, `${SESSION_COOKIE}=${token}`))), [], `${url} sets a cookie`);
+  }
+  // Neighbours still slide the session.
+  for (const url of ["/api/categories-extra", "/api/vehicles", "/sepet"]) assert.equal(unstable_doesMiddlewareMatch({ config, url, cookies }), true, url);
+  assert.equal(unstable_doesMiddlewareMatch({ config, url: "/api/categories" }), false);
 });
