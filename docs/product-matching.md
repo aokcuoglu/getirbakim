@@ -141,6 +141,29 @@ Bilinen sınırlar:
 - **Tedarikçi barkodları gösterilmez:** Dinamik `barkod1..3` eşleştirmede kullanılır, mağazada yalnız elle eklenen barkod görünür.
 - **Ortamlar arası aktarım yok:** mağaza paketi, tedarikçi senkronları, zenginleştirme importu ve uyum yeniden kurulumu bu tabloya yazmaz (`test:product-override-references` yapısal olarak denetler).
 
+### Elle teknik özellikler (#603)
+
+`/yonetim/urunler/[id]` "Teknik özellikler" kartı bir özelliğin değerini elle düzenler, otomatik kaynakta olmayan özellik ekler ve otomatik (zenginleştirme) özelliği mağazada gizler. Tablo `db/product-override-specs.sql`'dedir (kurulumda `product-override-references`'tan hemen sonra):
+
+- `product_override_specs`: ana ürün (`products.id`) başına, özellik anahtarı başına bir satır (`UNIQUE (product_id,key)`); `action` (`set` | `hide`), `key` (zenginleştirmenin ham anahtarı, ör. `Fitting Position`; `|` içeremez), `value` (yalnız `set`'te, en çok 500 karakter), `carried_from`, `created_by`, `updated_at`. Ürün başına en çok 100 satır.
+- Yazarken anahtar kanonik hale getirilir: Türkçe etiket (`Montaj konumu`) ya da başka yazılış ham anahtara, ürünün otomatik veya elle anahtarlarından biriyle büyük/küçük harf farkıyla eşleşirse o yazılışa çevrilir; bilinen anahtarların Türkçe değerleri (`Ön aks`) ham değere döner (`specificationKey` / `specificationRawValue`, `src/modules/store/catalog-filters.ts`). Böylece süzgeçler tek yazılış görür.
+- `set` otomatik anahtarın tüm değerlerinin yerine tek değer koyar (birden çok otomatik değer tek satıra iner); otomatikte olmayan anahtar eklenir. `hide` yalnız otomatik kaynakta bulunan anahtar için kabul edilir ve anahtarın tüm değerlerini düşer. Satırı silmek otomatik değere döndürür.
+- Kimlik anahtarları (`Manufacturer`, `Manufacturer Part Number`, `EAN`, `Trade numbers` ve sayfanın kendi `Üretici`, `Üretici parça numarası`, `OEM numarası`, `Barkod (EAN)` satırları) elle girilemez: marka ve parça numarası "Mağaza bilgileri"nde (#602), barkod "Referans numaraları"nda (#582) düzenlenir. Otomatik "EAN" gibi kimlik anahtarları gizlenebilir; elle barkod eklemek otomatik "EAN" özelliğini kendiliğinden gizlemez.
+- Geçmiş `product_override_changes`'a `key|value` (gizlenen anahtarda yalnız `key`) metniyle yazılır: `spec_set`, `spec_hidden`, `spec_removed`, `spec_shown`.
+
+Okuma: ürün sayfası, kartlar, karşılaştırma ve ana sayfa (`getCatalogProductDetails`, `src/modules/store/product-enrichment.ts`) zenginleştirme özelliklerine `applySpecOverrides` (`src/modules/store/product-spec-display.ts`) uygular: gizlenen anahtar düşer, düzenlenen anahtar ilk yerinde yeni değerle kalır, eklenenler sona eklenme sırasıyla girer. Zenginleştirmesi olmayan (ya da koruması tutmayan) ürün yalnız elle eklenenleri gösterir. Zenginleştirme eşleşmesi tedarikçinin ham kod/markasıyla kalır (#602). Okuma istek anındadır (`getItemSpecs` / `getOverrideSpecs`, `src/modules/store/product-specs.ts`).
+
+Süzgeçler (`src/modules/store/catalog.ts`): öznitelik süzgeci elle kararı olan ürünleri otomatik daldan çıkarır ve onları yalnız `set` değeriyle eşler; süzgeç seçenekleri (`attributeFacets`) aynı kuralla otomatik değerin yerine elle değeri sayar (`facetSpecificationKeys` tek kaynak). Süzgeç seçenekleri 10 dakikalık süreç önbelleğinde tutulduğundan değişiklik ürün sayfasında hemen, süzgeçlerde birkaç dakika içinde görünür.
+
+Birleştirme ve geri alma referanslarla aynıdır: `product_override_specs_carry(source, target, actor)` (`{"set":n,"hidden":n}`; hedefte aynı anahtarın satırı varsa hedefinki kalır, kopyalar kaynaktaki `created_at`'i ve böylece sırayı korur, `reason='carry'`), geri almada `product_override_specs_products_restored` → `product_override_specs_uncarry` (`spec_removed` / `spec_shown`, `reason='uncarry'`). Yöneticinin değiştirdiği taşınmış satır `carried_from`'u temizler ve geri almada kalır. Taşıma 100 satır sınırına bakmaz; sınırı aşan üründe yeni anahtar eklenemez, yalnız mevcut anahtarlar değiştirilebilir veya kaldırılabilir.
+
+Bilinen sınırlar:
+
+- **Ürün sayfası ham anahtarları gösterir:** teknik bilgiler tablosu anahtarları kaynaktaki (İngilizce) yazılışla basar; Türkçeleştirme ayrı iştir.
+- **Motor yağı süzgeci** (`vehicle-oil.server.ts`) zenginleştirme verisini doğrudan okur; elle özellikler orada kullanılmaz.
+- **Çok kaynaklı ürün:** kartın otomatik listesi tüm kaynakların birleşimidir; mağaza yalnız gösterilen satırın zenginleştirmesini kullanır.
+- **Ortamlar arası aktarım yok:** mağaza paketi, tedarikçi senkronları, zenginleştirme importu ve uyum yeniden kurulumu bu tabloya yazmaz (`test:product-override-specs` yapısal olarak denetler).
+
 ## Tablolar ve çalıştırma
 
 `refresh_product_matches()` tek transaction'da yeniden kurar (~45 sn; `DELETE` kullanır, ekran yenileme sırasında eski sonuçları göstermeye devam eder): `product_match_items` (her güncel kayıt için marka/parça no/ad), `product_match_groups` (iki+ kayıtlı anahtarlar), `product_references` (SETA rakip kodları ve OEM numaraları; aynı ürün değil muadil). Kararlar `product_brand_pair_decisions`, takma adlar `product_brand_aliases` tablosundadır ve yenilemede korunur.

@@ -135,7 +135,7 @@ test("withMatchingFlag appends to the existing query", () => {
 });
 
 test("withMatchingFlag drops earlier result flags and keeps the rest", () => {
-  const url = new URL(`http://x${withMatchingFlag("/yonetim/urun-eslestirme?tab=same&error=refresh&refreshed=1&q=ab", "refreshed=1")}`);
+  const url = new URL(`http://x${withMatchingFlag("/yonetim/urun-eslestirme?tab=same&error=refresh&refreshed=1&q=ab&images=2&refs=1&specs=3", "refreshed=1")}`);
   assert.equal(url.pathname, "/yonetim/urun-eslestirme");
   assert.deepEqual([...url.searchParams], [["tab", "same"], ["q", "ab"], ["refreshed", "1"]]);
 });

@@ -197,12 +197,14 @@ export async function getMasterProduct(id: string) {
   // The store still lists supplier rows in this phase: the row it shows for this product.
   const listed = rows.find(row => row.saleable && row.supplier !== "seta" && row.id === id)
     ?? rows.find(row => row.saleable) ?? null;
-  const [override, references, brands] = await Promise.all([loadProductOverride(db, id),
+  const [override, references, specs, brands] = await Promise.all([loadProductOverride(db, id),
     db.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM product_override_references WHERE product_id=$1) AS exists", [id]),
+    db.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM product_override_specs WHERE product_id=$1) AS exists", [id]),
     // The store brand's choices (#602): every master brand.
     loadBrandOptions(db)]);
-  // Hand-entered reference numbers (#582) count as an edit for the "Elle düzenlendi" badge.
-  return { product, sources: rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override, hasReferences: references.rows[0].exists, brands };
+  // Hand-entered reference numbers (#582) and specifications (#603) count as an edit for the "Elle düzenlendi" badge.
+  return { product, sources: rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override, hasReferences: references.rows[0].exists,
+    hasSpecs: specs.rows[0].exists, brands };
 }
 
 type MergeTarget = {

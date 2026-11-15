@@ -12,7 +12,7 @@ import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
 import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
-import {selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
+import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
 import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
 import {compareOffers} from './best-offer';
@@ -369,7 +369,12 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
    CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
    WHERE spec->>0=${attributeKey} AND spec->>1=ANY(${optionsKey}::text[])
-   AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part'))`);
+   AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')
+   -- The admin's value or hiding of the key (#603) replaces the automatic one: those products match by the set value only.
+   -- NOT IN (product_sources.supplier_item_id is NOT NULL) plans as a hashed SubPlan; <>ALL(ARRAY(...)) scans the array per row.
+   AND e.supplier_item_id NOT IN (SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=${attributeKey})
+   UNION ALL SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id
+   WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))`);
  }
  // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
  if(query.availability==='supplied')clauses.push('NOT catalog.unavailable');
@@ -552,14 +557,22 @@ async function facetsFor(values:unknown[],from:string){
 /** `scopedSql` selects the listing's ids (one `id` column) using `values`. */
 async function attributeFacets(brands:string[],values:unknown[],scopedSql:string){
  // MATERIALIZED: inlined, the search filter gets planned across the enrichment joins (~60 s instead of ms).
- const rows=(await db.query<{key:string;values:string[]}>(`WITH scoped AS MATERIALIZED (${scopedSql})
- SELECT spec->>0 AS key,array_agg(DISTINCT spec->>1 ORDER BY spec->>1) AS values
- FROM scoped JOIN storefront_enrichments e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
- AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
- AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
- CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
- WHERE spec->>0 IN ('Fitting Position','Brand class','Filter type','Lamp Type','Bulb Type','Fuel Type','Shock Absorber Type','Shock Absorber System','Wiper blade type','Oil Viscosity Classification SAE','Transmission Type','Mounting Type') AND length(spec->>1)<=200
- AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')
- GROUP BY spec->>0 HAVING count(DISTINCT spec->>1)<=40 ORDER BY CASE WHEN spec->>0='Fitting Position' THEN 0 WHEN spec->>0='Brand class' THEN 1 ELSE 2 END,spec->>0 LIMIT 8`,values)).rows;
+ // `ov`: the admin's specifications of the facet keys (#603); a set or hidden key replaces the row's automatic values.
+ const keys=`$${values.length+1}::text[]`;
+ const rows=(await db.query<{key:string;values:string[]}>(`WITH scoped AS MATERIALIZED (${scopedSql}),
+ ov AS MATERIALIZED (SELECT ps.supplier_item_id AS id,o.key,o.action,o.value FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=ANY(${keys})),
+ specs AS (
+  SELECT spec->>0 AS key,spec->>1 AS value
+  FROM scoped JOIN storefront_enrichments e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
+  AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
+  AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
+  CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
+  WHERE spec->>0=ANY(${keys}) AND length(spec->>1)<=200
+  AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')
+  AND NOT EXISTS (SELECT 1 FROM ov WHERE ov.id=scoped.id AND ov.key=spec->>0)
+  UNION ALL
+  SELECT ov.key,ov.value FROM ov JOIN scoped ON scoped.id=ov.id WHERE ov.action='set' AND length(ov.value)<=200)
+ SELECT key,array_agg(DISTINCT value ORDER BY value) AS values FROM specs
+ GROUP BY key HAVING count(DISTINCT value)<=40 ORDER BY CASE WHEN key='Fitting Position' THEN 0 WHEN key='Brand class' THEN 1 ELSE 2 END,key LIMIT 8`,[...values,facetSpecificationKeys])).rows;
  return {brands,attributes:rows.map(row=>({...row,label:specificationLabel(row.key)})) as CatalogFacet[]};
 }
