@@ -71,7 +71,7 @@ export function HomeGridPager({children,label,kind}:{children:ReactNode;label:st
   </Carousel>;
 }
 
-export function HomeCategoryTabs({categories}:{categories:StoreCategory[]}) {
+export function HomeCategoryTabs({categories}:{categories:Pick<StoreCategory,"id"|"parentId"|"name"|"slug"|"imagePath">[]}) {
   const roots=categories.filter(category=>category.parentId===null);
   const [selected,setSelected]=useState(roots[0]?.id);
   return <section className="mt-[100px] max-md:mt-[76px]" aria-label="Ürün kategorileri">

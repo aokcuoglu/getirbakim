@@ -8,6 +8,7 @@ import { Select } from "@/components/site/select";
 import { SiteIcon } from "@/components/site/site-icon";
 import { RouteFrame } from "@/components/layout/store-route";
 import { getStoreCategories } from "@/modules/store/categories";
+import { headerCategoryLinks } from "@/modules/store/category-tree";
 
 const localeTrigger = "h-8 min-h-8 border-0 bg-transparent py-1.5 pr-[25px] pl-2 text-sm hover:border-0 hover:bg-transparent max-[600px]:pl-1 max-[600px]:text-sm";
 
@@ -58,7 +59,7 @@ export async function SiteHeader() {
         "group-data-[route=home]/route:max-[600px]:static group-data-[route=home]/route:max-[600px]:h-0 group-data-[route=home]/route:max-[600px]:min-h-0 group-data-[route=home]/route:max-[600px]:overflow-visible group-data-[route=home]/route:max-[600px]:p-0",
         "min-[601px]:in-data-home-scrolled:invisible min-[601px]:in-data-catalog-scrolled:invisible",
       ].join(" ")}>
-        <CategoryMenu categories={categories}/>
+        <CategoryMenu links={headerCategoryLinks(categories)}/>
         <Link className="ml-auto inline-flex min-h-5 items-center gap-1.5 text-brand hover:underline hover:underline-offset-3" href="/bakim-robotu" prefetch={false}><Wrench size={14} aria-hidden="true"/> Bakım Robotu</Link>
         <Link className="inline-flex min-h-5 items-center gap-1.5 text-[#923830] max-[1100px]:hidden" href="/bilgi/yardim"><SiteIcon name="help" size={14}/> Yardım al</Link>
       </nav>

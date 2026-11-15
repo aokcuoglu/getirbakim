@@ -22,7 +22,7 @@ import {vehicleMakeLabel,vehicleModelGroupYears,vehicleModelLabels,type VehicleM
 import {VehicleModelSummary} from "@/components/vehicle-model-summary";
 import {VehicleModelList} from "@/components/vehicle-model-list";
 import {getStoreCategories} from "@/modules/store/categories";
-import {categoryPath} from "@/modules/store/category-tree";
+import {categoryPath,sidebarCategoryBranch} from "@/modules/store/category-tree";
 import {CatalogStickyFinder} from "@/components/catalog-sticky-finder";
 import {CategoryCards} from "@/components/category-cards";
 import {VehicleOilBanner} from "@/components/vehicle-oil-banner";
@@ -144,7 +144,7 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
     {make&&!model&&!category&&!params.q&&!filtered&&<VehicleModelList brandId={make.id} makeName={makeName!} makeSlug={params.make!}/>}
     {!params.q&&!make&&<section className="mb-8 max-[768px]:mb-6" aria-label="Popüler araç markaları"><h2 className="mb-[15px] text-xl leading-7 font-medium tracking-[-.4px]">Popüler araç markaları</h2><ul className="flex flex-wrap gap-x-[3px] max-[600px]:max-h-12 max-[600px]:overflow-auto">{popularMakes.map(make=><li key={make.id} className="text-[13px] leading-[18px] not-last:after:ml-px not-last:after:content-[',']"><Link prefetch={false} className="hover:underline" href={makePath(vehicleBrandSlug(make.name))}>{vehicleMakeLabel(make.name)}</Link></li>)}</ul></section>}
     <div className="grid grid-cols-[304px_minmax(0,1fr)] items-start gap-8 max-[768px]:grid-cols-1 max-[768px]:gap-5">
-     <CatalogSidebar categories={model?[]:[...categories]} categoryNav={!model} brands={facetData.brands} facets={facetData.attributes} params={params}/>
+     <CatalogSidebar branch={model?null:sidebarCategoryBranch(categories,params.category)} brands={facetData.brands} facets={facetData.attributes} params={params}/>
      <div className="min-w-0">
      {tooShort}{correction}{vehicleNotice}{oilBanner}{fitFilter}{fitNote}
     {!filtered&&!model&&<CategoryCards className="mt-0 mb-8" categories={categories.filter(node=>category?node.parentId===category.id:node.parentId===null)} makeSlug={params.make}/>}
