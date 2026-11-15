@@ -50,7 +50,7 @@ const listed = async (productId: string) => (await store.loadProductSpecs(schema
 const card = async (key: string) => (await enrichment.getCatalogProductDetails([{ id: ids[key], ...codes[key] }])).get(ids[key])?.specifications;
 /** The listed store row ids of an attribute filter (each filter once: listings are cached for the process). */
 const filtered = async (attributes: Record<string, string[]>) => (await catalog.browseProducts({ attributes: JSON.stringify(attributes), sort: "newest" })).items.map(row => row.id);
-const facet = (facets: { attributes: { key: string; values: string[] }[] }, key: string) => facets.attributes.find(row => row.key === key)?.values;
+const facet = (facets: { attributes: { key: string; options: { values: string[] }[] }[] }, key: string) => facets.attributes.find(row => row.key === key)?.options.flatMap(option => option.values).sort();
 
 before(async () => {
   schema = await isolatedSchema("product_override_specs_test");
@@ -235,4 +235,21 @@ test("setup can run the file again", async () => {
   await schema.pool.query(await readFile("db/product-override-specs.sql", "utf8"));
   assert.equal((await schema.pool.query(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname='product_override_specs_products_restored'
     AND tgrelid=to_regclass($1)`, [`${schema.name}.products`])).rows[0].n, 1);
+});
+
+test("facet options merge equivalent translations and keep every raw value in the filter (#703)", async () => {
+  await item("posA", { supplier: "basbug", code: "VAR 11011", brand: "VARTA", name: "VARTA ARKA ON" });
+  await item("posB", { supplier: "basbug", code: "VAR 12012", brand: "VARTA", name: "VARTA ON ARKA" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  assert.deepEqual(await set(await productOf("posA"), "Fitting Position", "Front Axle, Rear Axle"), { ok: true });
+  assert.deepEqual(await set(await productOf("posB"), "Fitting Position", "Rear Axle, Front Axle"), { ok: true });
+  const facets = await catalog.catalogFacets({ q: "VARTA" });
+  const options = facets.attributes.find(row => row.key === "Fitting Position")?.options ?? [];
+  assert.equal(options.length, 1, JSON.stringify(options));
+  assert.equal(options[0].label, "Ön aks, Arka aks");
+  assert.deepEqual([...options[0].values].sort(), ["Front Axle, Rear Axle", "Rear Axle, Front Axle"]);
+  const both = await catalog.browseProducts({ attributes: JSON.stringify({ "Fitting Position": options[0].values }), sort: "newest" });
+  const each = await Promise.all(options[0].values.map(value => catalog.browseProducts({ attributes: JSON.stringify({ "Fitting Position": [value] }), sort: "newest" })));
+  assert.deepEqual(both.items.map(row => row.id).sort(), [ids.posA, ids.posB].sort());
+  assert.equal(both.total, each.reduce((sum, page) => sum + page.total, 0));
 });

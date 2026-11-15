@@ -12,7 +12,7 @@ try {
   assert.equal((await getCatalogProductDetails(base.items.map(p=>({...p,code:"STALE-CODE"})))).size,0,"Stale identity must not supply card specifications");
   const facets=await catalogFacets({category});
   const fitting=facets.attributes.find(f=>f.key==="Fitting Position");
-  assert.ok(fitting?.values.includes("Front Axle"));
+  assert.ok(fitting?.options.flatMap(o=>o.values).includes("Front Axle"));
   assert.ok(!facets.attributes.some(f=>f.key==="EAN"),"Identifiers must not become facets");
   const brands=facets.brands.slice(0,2);
   assert.equal(brands.length,2);
