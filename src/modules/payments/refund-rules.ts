@@ -17,16 +17,31 @@ export function reversalKind(paidAt: Date | string | null, earlier: { kind: stri
   return istanbulDay.format(new Date(paidAt)) === istanbulDay.format(now) ? "void" : "refund";
 }
 
-type PaymentRow = { id: string; status: string };
+/**
+ * TAMI's transactionDate is Istanbul wall time without an offset ("2026-11-15T10:04:19.595942"). Turkey stays on
+ * UTC+3 all year (no DST since 2016). Null when the value is not in that shape.
+ */
+export function istanbulLocalTime(value: unknown): Date | null {
+  const match = typeof value === "string" ? /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?$/.exec(value) : null;
+  if (!match) return null;
+  const [, y, mo, d, h, mi, sec, fraction = "0"] = match;
+  const ms = Number(fraction.padEnd(3, "0").slice(0, 3));
+  return new Date(Date.UTC(Number(y), Number(mo) - 1, Number(d), Number(h) - 3, Number(mi), Number(sec), ms));
+}
+
+type PaymentRow = { id: string; status: string; paid_at?: Date | string | null };
 type RefundRow = { payment_id: string; status: string };
 
 /**
  * Payment attempts operations may reverse through TAMI. A cancelled paid order (refund_required) gets back every
  * captured attempt; a paid order only its extra captures, so at least one captured attempt always stays.
  */
-export function refundablePayments<P extends PaymentRow>(order: { payment_status: string }, payments: P[], refunds: RefundRow[]): P[] {
+export function refundablePayments<P extends PaymentRow>(order: { payment_status: string; refunded_at?: Date | string | null }, payments: P[], refunds: RefundRow[]): P[] {
   const blocked = new Set(refunds.filter(r => (activeRefundStatuses as readonly string[]).includes(r.status)).map(r => r.payment_id));
-  const open = payments.filter(p => p.status === "succeeded" && !blocked.has(p.id));
+  // Attempts captured before an earlier refund of the order (e.g. recorded by hand) were part of that refund.
+  const refundedAt = order.refunded_at ? new Date(order.refunded_at).getTime() : null;
+  const coveredByEarlierRefund = (p: P) => refundedAt !== null && p.paid_at != null && new Date(p.paid_at).getTime() <= refundedAt;
+  const open = payments.filter(p => p.status === "succeeded" && !blocked.has(p.id) && !coveredByEarlierRefund(p));
   if (order.payment_status === "refund_required") return open;
   // Attempts with a call in flight may already be reversed, so they do not count as the one that stays.
   if (order.payment_status === "paid") return open.length >= 2 ? open : [];

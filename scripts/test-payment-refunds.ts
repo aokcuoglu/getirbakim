@@ -3,7 +3,7 @@ import crypto, { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
-import { refundablePayments, reversalKind } from "../src/modules/payments/refund-rules";
+import { istanbulLocalTime, refundablePayments, reversalKind } from "../src/modules/payments/refund-rules";
 
 // TAMI void/refund from /yonetim (#619) in an isolated copy of the schema. Every TAMI reply is mocked and signed with a
 // synthetic key; no provider request is made.
@@ -281,67 +281,132 @@ test("double clicks and parallel requests reach TAMI once", async () => {
   assert.equal((await refundRows(order)).length, 1);
 });
 
+/** TAMI's transactionDate: Istanbul wall time without an offset. */
+const istanbulAt = (offsetMs = 0) => new Date(Date.now() + offsetMs + 3 * 3_600_000).toISOString().replace("Z", "").replace(/\.(\d{3})$/, ".$1123");
+// The shapes observed in the sandbox (GB2-36-1, 15 Nov 2026).
+const reversalTx = (type: "REVERSE" | "REFUND", status: "SUCCESS" | "FAIL", { amount = 200 as number | null, at = istanbulAt(), ref = "631909196255" } = {}) => ({
+  ...(amount === null ? {} : { amount }), transactionType: type, fraudStatus: false, transactionStatus: status, transactionDate: at, bankReferenceNumber: ref,
+});
+
+test("TAMI's Istanbul transaction time is read as UTC+3", () => {
+  assert.equal(istanbulLocalTime("2026-11-15T10:04:19.595942")?.toISOString(), "2026-11-15T07:04:19.595Z");
+  assert.equal(istanbulLocalTime("2026-11-15T00:30:00")?.toISOString(), "2026-11-14T21:30:00.000Z");
+  for (const bad of ["2026-11-15T10:04:19Z", "2026-11-15", "", null, 1731654259]) assert.equal(istanbulLocalTime(bad), null);
+});
+
 test("TAMI'de kontrol et settles an unknown call from the signed order query", async () => {
   const unknownCall = async () => {
     const seeded = await seed();
     handler = () => { throw new TypeError("fetch failed"); };
     assert.equal((await refund(seeded.order, seeded.payments[0].id)).outcome, "unknown");
     const [row] = await refundRows(seeded.order);
+    await age(row.id, 5);
     return { ...seeded, refundId: row.id as string };
   };
   const age = (id: string, minutes: number) => schema.pool.query("UPDATE commerce_payment_refunds SET requested_at=now()-make_interval(mins=>$2) WHERE id=$1", [id, minutes]);
   const check = (order: string, refundId: string) => refunds.checkRefund({ refundId, orderId: order });
+  const query = (transactions: Array<Record<string, unknown>>, options?: { forge?: boolean }) => (call: Call) => signedQuery(String(call.body.orderId), transactions, options);
 
-  // The query shows the reversal: succeeded, order refunded.
+  // A successful REFUND after the call: succeeded, order refunded.
   const shown = await unknownCall();
-  await age(shown.refundId, 5);
-  handler = call => signedQuery(String(call.body.orderId), [authOk, { transactionType: "REFUND", transactionStatus: "SUCCESS", amount: 200, bankReferenceNumber: "Q-REF" }]);
+  handler = query([authOk, reversalTx("REFUND", "SUCCESS", { ref: "Q-REF" })]);
   assert.equal((await check(shown.order, shown.refundId)).outcome, "succeeded");
   const settled = await orderRow(shown.order);
   assert.equal(settled.payment_status, "refunded"); assert.match(settled.refund_reference, /banka ref\. Q-REF/);
+  assert.equal(JSON.stringify((await refundRows(shown.order))[0].provider_result).includes("securityHash"), false);
   assert.deepEqual(await check(shown.order, shown.refundId), { outcome: "not_allowed" });
 
-  assert.equal(JSON.stringify((await refundRows(shown.order))[0].provider_result).includes("securityHash"), false);
+  // Only a FAIL of this call: failed, and a new call is allowed.
+  const failed = await unknownCall();
+  handler = query([authOk, reversalTx("REFUND", "FAIL")]);
+  assert.equal((await check(failed.order, failed.refundId)).outcome, "failed");
+  assert.equal((await refundRows(failed.order))[0].status, "failed");
+  handler = approve;
+  assert.equal((await refund(failed.order, failed.payments[0].id)).outcome, "succeeded");
 
-  // Only the AUTH, however long after the call: the query is not proven to list reversals, so it stays unknown.
-  const none = await unknownCall();
-  await age(none.refundId, 120);
-  handler = call => signedQuery(String(call.body.orderId), [authOk]);
-  assert.equal((await check(none.order, none.refundId)).outcome, "unknown");
-  assert.equal((await refundRows(none.order))[0].status, "unknown");
-  assert.equal((await refund(none.order, none.payments[0].id)).outcome, "busy");
-  // A refund transaction without its amount is not proof either.
-  handler = call => signedQuery(String(call.body.orderId), [authOk, { transactionType: "REFUND", transactionStatus: "SUCCESS" }]);
-  assert.equal((await check(none.order, none.refundId)).outcome, "unknown");
+  // A FAIL and a SUCCESS of this call: the SUCCESS wins.
+  const both = await unknownCall();
+  handler = query([authOk, reversalTx("REFUND", "FAIL"), reversalTx("REFUND", "SUCCESS")]);
+  assert.equal((await check(both.order, both.refundId)).outcome, "succeeded");
 
-  // Stays unknown: too fresh to ask, AUTH only but recent, query down, forged signature, unrecognised transaction.
+  // Stays unknown: too fresh to ask, nothing matching yet, query down, forged signature.
   const open = await unknownCall();
+  await age(open.refundId, 0);
   calls.length = 0;
   assert.equal((await check(open.order, open.refundId)).outcome, "unknown");
   assert.equal(calls.length, 0);
   await age(open.refundId, 5);
-  handler = call => signedQuery(String(call.body.orderId), [authOk]);
-  assert.equal((await check(open.order, open.refundId)).outcome, "unknown");
-  await age(open.refundId, 20);
-  handler = () => { throw new TypeError("fetch failed"); };
-  assert.equal((await check(open.order, open.refundId)).outcome, "unknown");
-  handler = call => signedQuery(String(call.body.orderId), [authOk, { transactionType: "REFUND", transactionStatus: "SUCCESS", amount: 200 }], { forge: true });
-  assert.equal((await check(open.order, open.refundId)).outcome, "unknown");
-  handler = call => signedQuery(String(call.body.orderId), [authOk, { transactionType: "SOMETHING_NEW", transactionStatus: "SUCCESS" }]);
-  assert.equal((await check(open.order, open.refundId)).outcome, "unknown");
-  handler = call => signedQuery(String(call.body.orderId), [authOk, { transactionType: "REFUND", transactionStatus: "SUCCESS", amount: 150 }]);
-  assert.equal((await check(open.order, open.refundId)).outcome, "unknown");
+  for (const [name, reply] of Object.entries({
+    authOnly: query([authOk]),
+    otherKind: query([authOk, reversalTx("REVERSE", "SUCCESS")]),
+    otherAmount: query([authOk, reversalTx("REFUND", "SUCCESS", { amount: 150 })]),
+    noAmount: query([authOk, reversalTx("REFUND", "SUCCESS", { amount: null })]),
+    beforeTheCall: query([authOk, reversalTx("REFUND", "SUCCESS", { at: istanbulAt(-10 * 60_000) }), reversalTx("REFUND", "FAIL", { at: istanbulAt(-6 * 60_000) })]),
+    zonedDate: query([authOk, reversalTx("REFUND", "SUCCESS", { at: new Date().toISOString() })]),
+    forged: query([authOk, reversalTx("REFUND", "SUCCESS")], { forge: true }),
+    down: () => { throw new TypeError("fetch failed"); },
+  })) {
+    handler = reply;
+    assert.equal((await check(open.order, open.refundId)).outcome, "unknown", name);
+  }
   const [row] = await refundRows(open.order);
   assert.equal(row.status, "unknown"); assert.ok(row.checked_at);
   assert.equal((await orderRow(open.order)).payment_status, "refund_required");
+  assert.equal((await refund(open.order, open.payments[0].id)).outcome, "busy");
   // The refund id must belong to the order.
-  assert.deepEqual(await check(none.order, open.refundId), { outcome: "not_allowed" });
+  assert.deepEqual(await check(failed.order, open.refundId), { outcome: "not_allowed" });
+
+  // A FAIL of an earlier, already failed call of the same attempt does not settle the new one.
+  const retried = await seed();
+  handler = () => reject("30028", "Banka tarafında işlemin onaylanmadı. TAMI-28802");
+  assert.equal((await refund(retried.order, retried.payments[0].id)).outcome, "failed");
+  handler = () => { throw new TypeError("fetch failed"); };
+  assert.equal((await refund(retried.order, retried.payments[0].id)).outcome, "unknown");
+  const [first, second] = await refundRows(retried.order);
+  await schema.pool.query("UPDATE commerce_payment_refunds SET requested_at=now()-interval '10 minutes',completed_at=now()-interval '9 minutes' WHERE id=$1", [first.id]);
+  await age(second.id, 5);
+  handler = query([authOk, reversalTx("REFUND", "FAIL", { at: istanbulAt(-9.5 * 60_000) })]);
+  assert.equal((await check(retried.order, second.id)).outcome, "unknown");
 
   // Manual fallback: operations record the reference while the call is still unknown.
   assert.equal(await orders.recordOrderRefund(open.order, "PORTAL-REF-1"), true);
   const manual = await orderRow(open.order);
   assert.equal(manual.payment_status, "refunded"); assert.ok(manual.refunded_at instanceof Date); assert.equal(manual.refund_reference, "PORTAL-REF-1");
   assert.equal((await refundRows(open.order))[0].status, "unknown");
+});
+
+test("after a refund recorded by hand, a late capture is the only attempt left to refund", async () => {
+  const { order, payments: [first] } = await seed();
+  assert.equal(await orders.recordOrderRefund(order, "PORTAL-REF-9"), true);
+  const late = `GB2-T-${randomUUID().slice(0, 12)}`;
+  const lateId = (await schema.pool.query<{ id: string }>("INSERT INTO commerce_payments(order_id,provider_order_id,amount_kurus,status) VALUES($1,$2,20000,'pending') RETURNING id::text",
+    [order, late])).rows[0].id;
+  handler = call => signedQuery(String(call.body.orderId), [authOk]);
+  await checkout.reconcileOrderPayments(order);
+  const reopened = await orderRow(order);
+  assert.equal(reopened.payment_status, "refund_required");
+  const payments = (await schema.pool.query("SELECT id::text,status,paid_at FROM commerce_payments WHERE order_id=$1", [order])).rows;
+  assert.deepEqual(refundablePayments(reopened, payments, []).map(p => p.id), [lateId]);
+  calls.length = 0; handler = approve;
+  assert.deepEqual(await refund(order, first.id), { outcome: "not_allowed" });
+  assert.equal(calls.length, 0);
+  assert.equal((await refund(order, lateId)).outcome, "succeeded");
+  const done = await orderRow(order);
+  assert.equal(done.payment_status, "refunded");
+  assert.equal(done.refund_reference, `PORTAL-REF-9; TAMI İptal ${late} · banka ref. BANK-${late}`);
+});
+
+test("missing TAMI settings: nothing is recorded or sent", async () => {
+  const { order, payments: [payment] } = await seed();
+  const key = process.env.TAMI_JWK_K;
+  delete process.env.TAMI_JWK_K;
+  calls.length = 0;
+  try {
+    assert.equal((await refund(order, payment.id)).outcome, "unavailable");
+    assert.equal((await refunds.checkRefund({ refundId: randomUUID(), orderId: order })).outcome, "unavailable");
+  } finally { process.env.TAMI_JWK_K = key; }
+  assert.equal(calls.length, 0);
+  assert.equal((await refundRows(order)).length, 0);
 });
 
 test("duplicate captures: extra attempts of a paid order are refunded, the last one stays", async () => {

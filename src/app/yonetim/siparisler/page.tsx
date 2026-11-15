@@ -67,6 +67,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.refund_void_failed && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>TAMI iptali reddetti (hata kodu siparişin İadeler satırında). Tekrar &quot;TAMI&apos;den iade et&quot; derseniz iade olarak gönderilir.</AlertDescription></Alert>}
     {params.refund_failed && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>TAMI iadeyi reddetti; ayrıntı siparişin İadeler satırında. Sorunu giderip yeniden deneyebilirsiniz.</AlertDescription></Alert>}
     {params.refund_unknown && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>TAMI yanıtı doğrulanamadı. TAMI&apos;de kontrol edin; iade görünüyorsa &quot;TAMI&apos;de kontrol et&quot; ile sonucu alın ya da referansı elle kaydedin.</AlertDescription></Alert>}
+    {params.refund_unavailable && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>TAMI ayarları eksik; TAMI&apos;ye istek gönderilmedi. Teknik ekibe bildirin; acilse iadeyi TAMI portalından yapıp referansı elle kaydedin.</AlertDescription></Alert>}
     {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
 
     <Tabs value={filter}><ScrollArea className="pb-2">

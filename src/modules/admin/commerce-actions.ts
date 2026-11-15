@@ -70,7 +70,7 @@ export async function recordRefund(form:FormData) {
  revalidateOrder(input.data.id);
  redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
 }
-const refundOutcome:Record<RefundOutcome['outcome'],OrderListOutcome>={succeeded:'refunded',failed:'refund_failed',unknown:'refund_unknown',busy:'refund_busy',not_allowed:'error'};
+const refundOutcome:Record<RefundOutcome['outcome'],OrderListOutcome>={succeeded:'refunded',failed:'refund_failed',unknown:'refund_unknown',busy:'refund_busy',not_allowed:'error',unavailable:'refund_unavailable'};
 const refundReturn=(result:RefundOutcome):OrderListOutcome=>result.outcome==='failed' && result.kind==='void' ? 'refund_void_failed' : refundOutcome[result.outcome];
 /** A TAMI call whose result could not be handled is shown as unknown; its row (if any) stays and locks new calls. */
 async function settledOrUnknown(run:()=>Promise<RefundOutcome>):Promise<OrderListOutcome> {

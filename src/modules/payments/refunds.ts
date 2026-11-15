@@ -2,7 +2,7 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { appendNote } from "./checkout";
-import { refundablePayments, refundKindLabel, reversalKind, type ReversalKind } from "./refund-rules";
+import { istanbulLocalTime, refundablePayments, refundKindLabel, reversalKind, type ReversalKind } from "./refund-rules";
 import {
   assertTamiConfigured, buildCorrelationId, queryPaymentByOrderId, refundTamiPayment, verifiedReversal, voidTamiPayment,
   type TamiReversalResult,
@@ -11,23 +11,31 @@ import {
 // TAMI void/refund from /yonetim (#619). Callers check the admin session. Every provider call has its own
 // commerce_payment_refunds row, committed as 'requested' before the call, so a lost reply is never forgotten.
 
-export type RefundOutcome = { outcome: "succeeded" | "failed" | "unknown" | "busy" | "not_allowed"; kind?: ReversalKind; message?: string };
+export type RefundOutcome = { outcome: "succeeded" | "failed" | "unknown" | "busy" | "not_allowed" | "unavailable"; kind?: ReversalKind; message?: string };
 
-// TODO(#619): the order query's transactionType for a reversal is not documented. The orchestrator confirms the real
-// names from a sandbox void/refund and narrows this set; until then any of them counts as a reversal.
-export const REVERSAL_TRANSACTION_TYPES = ["REFUND", "VOID", "CANCEL"] as const;
+/** Missing TAMI credentials: nothing is recorded or sent. */
+function tamiUnavailable(): RefundOutcome | null {
+  try { assertTamiConfigured(); return null; }
+  catch { return { outcome: "unavailable", message: "TAMI ayarları eksik." }; }
+}
+
+// The signed order query lists every reversal attempt (sandbox, 15 Nov 2026, GB2-36-1): a void as "REVERSE", a refund
+// as "REFUND", each with transactionStatus SUCCESS or FAIL, its amount and an Istanbul-time transactionDate.
+export const REVERSAL_TRANSACTION_TYPE: Record<ReversalKind, string> = { void: "REVERSE", refund: "REFUND" };
+// TAMI's clock may run slightly ahead of ours.
+const CLOCK_SKEW_MS = 30_000;
 // A query right after the call may not show it yet.
 const CHECK_AFTER_MINUTES = 1;
 
 type Payment = { id: string; provider_order_id: string; amount_kurus: string; status: string; paid_at: Date | null };
-type Order = { id: string; number: string; payment_status: string };
+type Order = { id: string; number: string; payment_status: string; refunded_at: Date | null };
 type Settlement = {
   status: "succeeded" | "failed" | "unknown"; bankReference?: string | null; bankAuthCode?: string | null; transactionAt?: string | null;
   errorCode?: string | null; errorMessage?: string | null; providerResult?: Record<string, unknown> | null;
 };
 
 const lockOrder = async (client: PoolClient, orderId: string) => (await client.query<Order>(
-  "SELECT id,number,payment_status FROM commerce_orders WHERE id=$1 FOR UPDATE", [orderId],
+  "SELECT id,number,payment_status,refunded_at FROM commerce_orders WHERE id=$1 FOR UPDATE", [orderId],
 )).rows[0];
 
 async function inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -101,17 +109,20 @@ async function settleOrderAfterRefund(client: PoolClient, order: Order, provider
     await appendNote(client, order.id, `TAMI ${refundKindLabel[kind].toLocaleLowerCase("tr")} kaydı ${providerOrderId} sonradan doğrulandı.`);
     return;
   }
+  // Attempts captured before an earlier refund of the order (e.g. one recorded by hand) were part of that refund.
   const open = (await client.query<{ open: number }>(
     `SELECT count(*)::int AS open FROM commerce_payments p WHERE p.order_id=$1 AND p.status='succeeded'
-     AND NOT EXISTS(SELECT 1 FROM commerce_payment_refunds r WHERE r.payment_id=p.id AND r.status='succeeded')`, [order.id],
+     AND NOT ($2::timestamptz IS NOT NULL AND p.paid_at<=$2::timestamptz)
+     AND NOT EXISTS(SELECT 1 FROM commerce_payment_refunds r WHERE r.payment_id=p.id AND r.status='succeeded')`, [order.id, order.refunded_at],
   )).rows[0].open;
   if (open) return;
+  // Earlier references (manual or API) stay; only reversals since the previous refund are added.
   const references = (await client.query<{ kind: ReversalKind; provider_order_id: string; bank_reference: string | null }>(
     `SELECT r.kind,p.provider_order_id,r.bank_reference FROM commerce_payment_refunds r JOIN commerce_payments p ON p.id=r.payment_id
-     WHERE r.order_id=$1 AND r.status='succeeded' ORDER BY r.completed_at,r.id`, [order.id],
+     WHERE r.order_id=$1 AND r.status='succeeded' AND ($2::timestamptz IS NULL OR r.completed_at>$2::timestamptz) ORDER BY r.completed_at,r.id`, [order.id, order.refunded_at],
   )).rows.map(r => `TAMI ${refundKindLabel[r.kind]} ${r.provider_order_id}${r.bank_reference ? ` · banka ref. ${r.bank_reference}` : ""}`);
-  await client.query("UPDATE commerce_orders SET payment_status='refunded',refunded_at=now(),refund_reference=$2 WHERE id=$1 AND payment_status='refund_required'",
-    [order.id, references.join("; ")]);
+  await client.query(`UPDATE commerce_orders SET payment_status='refunded',refunded_at=now(),refund_reference=concat_ws('; ',NULLIF(refund_reference,''),NULLIF($2,''))
+    WHERE id=$1 AND payment_status='refund_required'`, [order.id, references.join("; ")]);
 }
 
 const outcomeMessage: Record<Settlement["status"], string> = {
@@ -132,7 +143,8 @@ function logUncertain(message: string, context: { orderId: string; providerOrder
  * unresolved call for the same attempt returns `busy`.
  */
 export async function refundPayment({ orderId, paymentId, adminId }: { orderId: string; paymentId: string; adminId: string }): Promise<RefundOutcome> {
-  assertTamiConfigured();
+  const unavailable = tamiUnavailable();
+  if (unavailable) return unavailable;
   type Claim = { order: Order; payment: Payment; kind: ReversalKind; refund: { id: string; correlation_id: string } };
   let claim: Claim | RefundOutcome;
   try {
@@ -198,18 +210,24 @@ export async function refundPayment({ orderId, paymentId, adminId }: { orderId: 
   }
 }
 
-type OpenRefund = { id: string; order_id: string; payment_id: string; kind: ReversalKind; amount_kurus: string; status: string; requested_at: Date; provider_order_id: string; correlation_id: string };
+type OpenRefund = {
+  id: string; order_id: string; payment_id: string; kind: ReversalKind; amount_kurus: string; status: string; requested_at: Date;
+  provider_order_id: string; correlation_id: string; since: Date | null;
+};
 
 /**
- * Settles a requested/unknown call from the signed order query: a recognised successful reversal of exactly the paid
- * amount makes it succeeded. Nothing else does — whether the query lists reversals at all is not yet observed in the
- * sandbox, so "no reversal shown" is not evidence of no refund. Otherwise the call stays unknown; the way out is the
- * manual reference after checking the TAMI portal.
+ * Settles a requested/unknown call from the signed order query, which lists every reversal attempt with its status.
+ * Only transactions of this call's type, for exactly its amount and dated after the call was made (and after an
+ * earlier call of the same attempt ended) count: a SUCCESS makes it succeeded; only FAILs make it failed (retry
+ * allowed). None of them yet keeps it unknown.
  */
 export async function checkRefund({ refundId, orderId }: { refundId: string; orderId: string }): Promise<RefundOutcome> {
+  const unavailable = tamiUnavailable();
+  if (unavailable) return unavailable;
   const refund = (await db.query<OpenRefund>(
-    `SELECT r.id,r.order_id,r.payment_id,r.kind,r.amount_kurus,r.status,r.requested_at,r.correlation_id,p.provider_order_id FROM commerce_payment_refunds r
-     JOIN commerce_payments p ON p.id=r.payment_id WHERE r.id=$1 AND r.order_id=$2`, [refundId, orderId],
+    `SELECT r.id,r.order_id,r.payment_id,r.kind,r.amount_kurus,r.status,r.requested_at,r.correlation_id,p.provider_order_id,
+     (SELECT max(e.completed_at) FROM commerce_payment_refunds e WHERE e.payment_id=r.payment_id AND e.id<>r.id AND e.requested_at<r.requested_at) AS since
+     FROM commerce_payment_refunds r JOIN commerce_payments p ON p.id=r.payment_id WHERE r.id=$1 AND r.order_id=$2`, [refundId, orderId],
   )).rows[0];
   if (!refund || !["requested", "unknown"].includes(refund.status)) return { outcome: "not_allowed" };
   if (Date.now() - refund.requested_at.getTime() < CHECK_AFTER_MINUTES * 60_000) {
@@ -218,22 +236,32 @@ export async function checkRefund({ refundId, orderId }: { refundId: string; ord
   let settlement: Settlement;
   try {
     const query = await queryPaymentByOrderId({ orderId: refund.provider_order_id, locale: "tr" });
-    const reversal = query.transactions.find(t => (REVERSAL_TRANSACTION_TYPES as readonly string[]).includes(String(t.transactionType ?? "").toUpperCase())
-      && String(t.transactionStatus ?? "").toUpperCase() === "SUCCESS");
-    const trusted = query.securityHashValid && query.orderId === refund.provider_order_id;
-    const reversedAmount = reversal?.amount == null || reversal.amount === "" ? null : Math.round(Number(reversal.amount) * 100);
-    // A refund must show its amount; a void is checked when it does.
-    const amountOk = reversedAmount === null ? refund.kind === "void" : reversedAmount === Number(refund.amount_kurus);
-    if (trusted && reversal && amountOk) {
-      const { securityHash: _hash, ...raw } = query.raw;
-      void _hash;
+    const trusted = query.securityHashValid && query.success && query.orderId === refund.provider_order_id;
+    const from = Math.max(refund.requested_at.getTime() - CLOCK_SKEW_MS, refund.since?.getTime() ?? 0);
+    const matching = query.transactions.filter(t => {
+      const at = istanbulLocalTime(t.transactionDate);
+      const amount = t.amount == null || t.amount === "" ? NaN : Math.round(Number(t.amount) * 100);
+      return String(t.transactionType ?? "").toUpperCase() === REVERSAL_TRANSACTION_TYPE[refund.kind]
+        && at !== null && at.getTime() >= from && amount === Number(refund.amount_kurus);
+    });
+    const statusOf = (t: Record<string, unknown>) => String(t.transactionStatus ?? "").toUpperCase();
+    const success = matching.find(t => statusOf(t) === "SUCCESS");
+    const { securityHash: _hash, ...raw } = query.raw;
+    void _hash;
+    if (trusted && success) {
       settlement = {
-        status: "succeeded", bankReference: text(reversal.bankReferenceNumber), bankAuthCode: text(reversal.bankAuthCode),
-        transactionAt: text(reversal.transactionDate), providerResult: { query: raw },
+        status: "succeeded", bankReference: text(success.bankReferenceNumber), bankAuthCode: text(success.bankAuthCode),
+        transactionAt: text(success.transactionDate), providerResult: { query: raw },
+      };
+    } else if (trusted && matching.length && matching.every(t => statusOf(t) === "FAIL")) {
+      const failed = matching.at(-1)!;
+      settlement = {
+        status: "failed", bankReference: text(failed.bankReferenceNumber), transactionAt: text(failed.transactionDate),
+        errorMessage: "TAMI sorgusu bu işlemi başarısız gösteriyor; yeniden denenebilir.", providerResult: { query: raw },
       };
     } else {
       settlement = { status: "unknown", errorMessage: trusted
-        ? "TAMI sorgusu bu iptal/iadeyi göstermiyor. TAMI portalında kontrol edin; iade yapıldıysa referansı elle kaydedin."
+        ? "TAMI sorgusu bu iptal/iadeyi henüz göstermiyor. Biraz sonra yeniden kontrol edin ya da TAMI portalına bakıp referansı elle kaydedin."
         : "TAMI sorgu yanıtı doğrulanamadı." };
     }
   } catch (error) {
