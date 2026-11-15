@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { UnsavedInputGuard } from "@/components/admin/unsaved-input-guard";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,7 +22,7 @@ const excerpt = (text: string, length = 160) => text.length > length ? `${text.s
  * The store card fields an admin sets by hand (#575). An empty field follows the automatic sources; "Otomatiğe dön"
  * clears one field and leaves the other fields' unsaved input alone. Every input is controlled by
  * overrideFormReducer: after a save or revert the form shows what the action stored, an error keeps the input as typed.
- * `version` is the stored edit the form was opened with: the action refuses a save made on top of a newer one.
+ * `version` is the stored edit the form was opened with: the action refuses a save made on top of a newer one. Leaving the tab with unsaved input asks first (#698).
  */
 export function ProductOverrideForm({ productId, values, version, automatic, categories, brands }: {
   productId: string;
@@ -82,7 +83,8 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
     onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => edit({ [field]: event.currentTarget.value }),
   });
 
-  return <form className="flex flex-col gap-6" onSubmit={event => { event.preventDefault(); submit(); }}>
+  return <>
+  <form className="flex flex-col gap-6" onSubmit={event => { event.preventDefault(); submit(); }}>
     <fieldset disabled={pending}>
       <FieldGroup className="grid gap-6 md:grid-cols-2">
         <Field>
@@ -140,5 +142,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
     <div className="flex justify-end">
       <Button type="submit" disabled={pending}>{pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <Save data-icon="inline-start" aria-hidden="true"/>}{pending ? "Kaydediliyor…" : "Kaydet"}</Button>
     </div>
-  </form>;
+  </form>
+  <UnsavedInputGuard dirty={form.dirty.length > 0}/>
+  </>;
 }

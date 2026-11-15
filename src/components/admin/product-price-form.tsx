@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { Separator } from "@/components/ui/separator";
+import { UnsavedInputGuard } from "@/components/admin/unsaved-input-guard";
 import { Spinner } from "@/components/ui/spinner";
 
 /** A saleable source: its formula price (null: the formula cannot price it, so neither can a fixed price) and cost. */
@@ -33,7 +34,7 @@ function effective(auto: number | null, values: Parsed, now: string) {
 /**
  * The product's fixed price and campaign (#580), VAT included. Inputs are controlled by priceFormReducer like the store
  * card form: a save shows what was stored, a revert resets its own inputs only, an error keeps the input. `now` is the
- * page's render time as Istanbul wall clock, so the preview matches the server's rendering.
+ * page's render time as Istanbul wall clock, so the preview matches the server's rendering. Leaving the tab with unsaved input asks first (#698).
  */
 export function ProductPriceForm({ productId, values, version, sources, now }: {
   productId: string; values: ProductPriceValues | null; version: string; sources: PriceFormSource[]; now: string;
@@ -103,7 +104,8 @@ export function ProductPriceForm({ productId, values, version, sources, now }: {
     onBlur={() => touch(field)}/>;
   const error = (field: keyof PriceFormValues) => errors[field] && <FieldError id={`${id(field)}-error`}>{errors[field][0]}</FieldError>;
 
-  return <form className="flex flex-col gap-6" onSubmit={event => {
+  return <>
+  <form className="flex flex-col gap-6" onSubmit={event => {
     event.preventDefault();
     if (valid) submit(); else setTouched(["price", "sale_price", "sale_from", "sale_until"]);
   }}>
@@ -166,5 +168,7 @@ export function ProductPriceForm({ productId, values, version, sources, now }: {
     <div className="flex justify-end">
       <Button type="submit" disabled={pending}>{pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <Save data-icon="inline-start" aria-hidden="true"/>}{pending ? "Kaydediliyor…" : "Fiyatı kaydet"}</Button>
     </div>
-  </form>;
+  </form>
+  <UnsavedInputGuard dirty={form.dirty.length > 0}/>
+  </>;
 }
