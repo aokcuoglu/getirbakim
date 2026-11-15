@@ -22,6 +22,10 @@ import { ProductReferencesCard } from "@/components/admin/product-references-car
 import { productReferenceChangeLabels, referenceHistoryValue } from "@/modules/admin/product-reference-fields";
 import { ProductSpecsCard } from "@/components/admin/product-specs-card";
 import { productSpecChangeLabels, specHistoryValue } from "@/modules/admin/product-spec-fields";
+import { ProductFitmentsCard } from "@/components/admin/product-fitments-card";
+import { fitmentHistoryValue, isFitmentChange, productFitmentChangeLabels } from "@/modules/admin/product-fitment-fields";
+import { fitmentVehicleNames } from "@/modules/admin/product-fitment-store";
+import { db } from "@/lib/db";
 import { automaticVersion } from "@/modules/admin/product-override-store";
 import { money } from "@/modules/store/catalog";
 import { formatDateTime } from "@/modules/admin/format";
@@ -36,18 +40,20 @@ export default async function MasterProduct({ params, searchParams }: { params: 
   // The merge search needs only the id; without merge_q it returns at once.
   const [data, merge] = await Promise.all([getMasterProduct(id), findMergeTargets(id, query.merge_q)]);
   if (!data) notFound();
-  const { product, sources, equivalents, merged, storeId, override, hasReferences, hasSpecs, brands } = data;
+  const { product, sources, equivalents, merged, storeId, override, hasReferences, hasSpecs, hasFitments, brands } = data;
   const multiple = sources.length > 1;
   const edit = override.override;
   // Category choices as their path in the store tree ("Fren sistemi › Balata").
-  const storeCategories = await getStoreCategories();
+  // Fitment history stores the vehicle type id: the names of the ones in the history, in one query.
+  const [storeCategories, vehicleNames] = await Promise.all([getStoreCategories(), fitmentVehicleNames(db, override.changes
+    .filter(change => isFitmentChange(change.field)).flatMap(change => [change.old_value, change.new_value]).filter(value => value !== null))]);
   const categoryLabels = new Map(storeCategories.map(category => [String(category.id), categoryPath(storeCategories, category.id).map(node => node.name).join(" › ")]));
   const categoryOptions = [...categoryLabels].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "tr"));
   // A saved store brand stays choosable after its master brand was merged away or renamed (the edit keeps the name).
   const brandOptions = [...edit?.brand && !brands.includes(edit.brand) ? [{ value: edit.brand, label: `${edit.brand} (ana marka listesinde yok)` }] : [],
     ...brands.map(name => ({ value: name, label: name }))];
   // A history value as the admin knows it: category names, published/hidden, lira, Istanbul times, NULL as the automatic value.
-  const historyValue = (field: string, value: string | null) => imageHistoryValue(field, value) ?? referenceHistoryValue(field, value) ?? specHistoryValue(field, value) ?? (value === null ? <StatusBadge tone="neutral">Otomatik</StatusBadge>
+  const historyValue = (field: string, value: string | null) => imageHistoryValue(field, value) ?? referenceHistoryValue(field, value) ?? specHistoryValue(field, value) ?? fitmentHistoryValue(field, value, vehicleNames) ?? (value === null ? <StatusBadge tone="neutral">Otomatik</StatusBadge>
     : field === "category_id" ? categoryLabels.get(value) ?? value
     : productOverrideFields.includes(field as ProductOverrideField) ? overrideValueText(value, field as ProductOverrideField) : value);
   // The price form's preview compares campaign times (Istanbul wall clock) with the time of this render.
@@ -60,7 +66,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{product.name ?? product.code}</h1>
         <p className="text-muted-foreground">{product.brand_label || product.brand} · <span className="font-mono">{product.code}</span></p>
-        {(edit || hasReferences || hasSpecs) && <div className="flex flex-wrap gap-2">
+        {(edit || hasReferences || hasSpecs || hasFitments) && <div className="flex flex-wrap gap-2">
           {edit?.hidden && <StatusBadge tone="warning" icon={EyeOff}>Mağazada gizli</StatusBadge>}
           <Badge variant="info"><Pencil data-icon="inline-start" aria-hidden="true"/>Elle düzenlendi</Badge>
         </div>}
@@ -80,6 +86,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       : `${Number(query.images) || 0} görsel birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.`}</AlertDescription></Alert>}
     {query.merged && Number(query.refs) > 0 && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{Number(query.refs)} referans numarası birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.</AlertDescription></Alert>}
     {query.merged && Number(query.specs) > 0 && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{Number(query.specs)} teknik özellik birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.</AlertDescription></Alert>}
+    {query.merged && Number(query.fitments) > 0 && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{Number(query.fitments)} araç uyumu kararı birleşen üründen taşındı; birleştirme geri alınırsa kaldırılır.</AlertDescription></Alert>}
     {query.reset && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Kayıt kendi ürününe <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.reset}`}>geri döndü</Link>.</AlertDescription></Alert>}
     {query.linked && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Muadil olarak bağlandı; ürünler ayrı kalır, yenilemeler bu kararı korur.</AlertDescription></Alert>}
     {query.unlinked && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Muadil bağlantısı kaldırıldı; yenilemeler bu çifti yeniden bağlamaz.</AlertDescription></Alert>}
@@ -118,6 +125,8 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     {!merged && <ProductReferencesCard productId={product.id}/>}
 
     {!merged && <ProductSpecsCard productId={product.id}/>}
+
+    {!merged && <ProductFitmentsCard productId={product.id}/>}
 
     <Card>
       <CardHeader><CardTitle><h2>Ürün kimliği</h2></CardTitle>
@@ -216,7 +225,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Alan</TableHead><TableHead>Eski değer</TableHead><TableHead>Yeni değer</TableHead><TableHead>Kim</TableHead></TableRow></TableHeader>
         <TableBody>{override.changes.map(change => <TableRow key={change.id}>
           <TableCell className="tabular-nums">{formatDateTime(change.changed_at, { year: true })}</TableCell>
-          <TableCell>{productImageChangeLabels[change.field] ?? productReferenceChangeLabels[change.field] ?? productSpecChangeLabels[change.field] ?? (productOverrideFields.includes(change.field as ProductOverrideField) ? productOverrideLabels[change.field as ProductOverrideField] : change.field)}</TableCell>
+          <TableCell>{productImageChangeLabels[change.field] ?? productReferenceChangeLabels[change.field] ?? productSpecChangeLabels[change.field] ?? productFitmentChangeLabels[change.field] ?? (productOverrideFields.includes(change.field as ProductOverrideField) ? productOverrideLabels[change.field as ProductOverrideField] : change.field)}</TableCell>
           <TableCell className="max-w-72 truncate" title={change.old_value ?? undefined}>{historyValue(change.field, change.old_value)}</TableCell>
           <TableCell className="max-w-72 truncate" title={change.new_value ?? undefined}>{historyValue(change.field, change.new_value)}</TableCell>
           <TableCell>{change.reason === "uncarry" ? <span className="text-muted-foreground">Sistem: birleştirme geri alındı</span>
