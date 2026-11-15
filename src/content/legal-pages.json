@@ -2878,7 +2878,7 @@
     "title": "Gizlilik Politikası",
     "sourceUrl": "https://getirbakim.com/gizlilik-politikasi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-19",
+    "updatedAt": "2026-11-15",
     "description": "Mevcut site hizmetlerinde kişisel verilerin kullanılması, güvenliği ve başvuru hakları.",
     "sections": [
       {
@@ -3124,7 +3124,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Analitik veya pazarlama gibi açık rıza gerektiren işlemler: faaliyete özgü bilgilendirme ve özgür iradeyle verilen açık rıza bulunması hâlinde KVKK madde 5/1. Bu sitede şu anda analitik veya reklam entegrasyonu etkin değildir."
+                  "Analitik veya pazarlama gibi açık rıza gerektiren işlemler: faaliyete özgü bilgilendirme ve özgür iradeyle verilen açık rıza bulunması hâlinde KVKK madde 5/1. Analiz için Google Analytics 4 yalnızca çerez tercihlerinde izin vermeniz hâlinde kullanılır; ayrıntılar Çerez Politikası’ndadır."
                 ]
               }
             ]
@@ -3570,7 +3570,7 @@
     "title": "KVKK Aydınlatma Metni",
     "sourceUrl": "https://getirbakim.com/kvkk-aydinlatma-metni",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-19",
+    "updatedAt": "2026-11-15",
     "description": "Mevcut site hizmetlerinde işlenen kişisel veriler, işleme amaçları ve hukuki sebepler ile ilgili kişi hakları.",
     "sections": [
       {
@@ -3797,7 +3797,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Analitik veya pazarlama gibi açık rıza gerektiren işlemler: faaliyete özgü bilgilendirme ve özgür iradeyle verilen açık rıza bulunması hâlinde KVKK madde 5/1. Bu sitede şu anda analitik veya reklam entegrasyonu etkin değildir."
+                  "Analitik veya pazarlama gibi açık rıza gerektiren işlemler: faaliyete özgü bilgilendirme ve özgür iradeyle verilen açık rıza bulunması hâlinde KVKK madde 5/1. Analiz için Google Analytics 4 yalnızca çerez tercihlerinde izin vermeniz hâlinde kullanılır; ayrıntılar Çerez Politikası’ndadır."
                 ]
               }
             ]
@@ -4212,7 +4212,7 @@
     "title": "Çerez Politikası",
     "sourceUrl": "https://getirbakim.com/cerez-politikasi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-19",
+    "updatedAt": "2026-11-15",
     "description": "Sitede kullanılan çerez ve yerel depolama kayıtları, amaçları, süreleri ve tercihlerin yönetimi.",
     "sections": [
       {
@@ -4283,7 +4283,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Çerez, internet sitesinin tarayıcıya kaydettiği ve sonraki isteklerde siteye gönderilebilen küçük bir veridir. Yerel depolama ise tarayıcıda veri saklayan ayrı bir mekanizmadır. Çerez tercih kaydı yerel depolamada tutulur; bir HTTP çerezi değildir."
+              "Çerez, internet sitesinin tarayıcıya kaydettiği ve sonraki isteklerde siteye gönderilebilen küçük bir veridir. Yerel depolama ise tarayıcıda veri saklayan ayrı bir mekanizmadır. Çerez tercih kaydı birinci taraf bir çerezde tutulur."
             ]
           }
         ]
@@ -4320,7 +4320,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "gb_cookie_consent: Çerez kategorisi tercihlerini ve kayıt zamanını bu tarayıcının yerel depolamasında tutar. Tercih kaydı 180 gün geçerli kabul edilir; süre dolduktan sonraki site ziyaretinde yeniden seçim istenir."
+                  "gb_consent: Çerez kategorisi tercihlerini ve kayıt zamanını tutan birinci taraf çerezdir. 180 gün geçerlidir; süre dolduğunda veya çerez kategorileri değiştiğinde yeniden seçim istenir."
                 ]
               }
             ]
@@ -4341,7 +4341,21 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Şu anda analitik veya pazarlama çerezi ve bu amaçlara yönelik entegrasyon etkin değildir. Tercih ekranında bu kategorilere seçim yapılması, kurulmamış veya açıklanmamış herhangi bir hizmet sağlayıcısı için sınırsız açık rıza oluşturmaz."
+              "Analiz çerezleri: “Analiz çerezleri”ne izin vermeniz hâlinde Google Analytics 4 (Google Ireland Limited / Google LLC) yüklenir ve _ga ile _ga_<kimlik> çerezlerini (2 yıla kadar) yazar. Ziyaret edilen sayfalar, görüntülenen ve sepete eklenen ürünler, yaklaşık konum, cihaz ve tarayıcı bilgileri işlenir; ad, e-posta, telefon veya adres bilgisi gönderilmez. İzin verilmediğinde bu hizmet yüklenmez ve Google’a istek gönderilmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Reklam ve kişiselleştirme çerezleri: bu kategoride şu anda etkin bir hizmet yoktur. Google Ads veya Meta ölçümü devreye alındığında bu politika güncellenir ve tercihiniz yeniden sorulur."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bu hizmetler kapsamında veriler yurt dışındaki sunuculara aktarılabilir; aktarım KVKK madde 9 kapsamında açık rızanıza dayanır. Rızanızı “Çerez tercihleri” bağlantısından dilediğiniz zaman geri alabilirsiniz; geri aldığınızda ilgili çerezler silinir."
             ]
           },
           {
@@ -4386,7 +4400,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Sitede analitik veya reklam amacıyla üçüncü taraf izleme entegrasyonu bulunmamaktadır."
+              "Üçüncü taraf ölçüm hizmetleri yalnızca yukarıda açıklanan kategorilere izin vermeniz hâlinde çalışır."
             ]
           },
           {
