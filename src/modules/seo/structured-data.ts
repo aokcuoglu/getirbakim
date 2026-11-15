@@ -2,7 +2,7 @@
 // the price is the product's own list price, so a service's B2B price never reaches the markup.
 import { saleUntil } from "@/modules/store/best-offer";
 import { organizationId } from "@/lib/site";
-import { absoluteUrl, catalogPath, listingPath, makesPath, productPath } from "./paths";
+import { absoluteUrl, catalogPath, listingPath, makesPath } from "./paths";
 
 export type Crumb = { name: string; path: string };
 export type JsonLdNode = Record<string, unknown>;
@@ -11,10 +11,10 @@ type Named = { name: string; slug: string };
 const home: Crumb = { name: "Ana sayfa", path: "/" };
 
 /** Home, catalog, the product's categories, the product (the last crumb is the page itself). */
-export function productTrail(input: { categories: Named[]; title: string; productId: string }): Crumb[] {
+export function productTrail(input: { categories: Named[]; title: string; path: string }): Crumb[] {
   return [home, { name: "Katalog", path: catalogPath },
     ...input.categories.map(category => ({ name: category.name, path: listingPath({ categorySlug: category.slug }) })),
-    { name: input.title, path: productPath(input.productId) }];
+    { name: input.title, path: input.path }];
 }
 
 /** A listing's trail: without a make "Katalog" (only while no category is chosen), with one "Araç markaları" and the make. */
@@ -37,7 +37,8 @@ export function breadcrumbJsonLd(trail: Crumb[], base: string): JsonLdNode | nul
 }
 
 export type ProductJsonLdInput = {
-  id: string; supplier: string; name: string; description?: string; sku: string; mpn: string; brand: string;
+  /** The product's address (productPath). */
+  path: string; supplier: string; name: string; description?: string; sku: string; mpn: string; brand: string;
   /** Site-relative image paths. */
   images: string[];
   gtin?: { property: "gtin8" | "gtin12" | "gtin13" | "gtin14"; value: string } | null;
@@ -69,7 +70,7 @@ export function productOffer(input: ProductJsonLdInput, base: string, now = new 
   if (input.available ? input.stockLabel === unconfirmedStockLabel : input.stockLabel !== outOfStockLabel) return null;
   const until = saleUntil({ pricing_snapshot: input.pricingSnapshot });
   return {
-    "@type": "Offer", url: absoluteUrl(base, productPath(input.id)),
+    "@type": "Offer", url: absoluteUrl(base, input.path),
     price: (input.priceKurus / 100).toFixed(2), priceCurrency: "TRY",
     ...until && until > now ? { priceValidUntil: istanbulDay(until) } : {},
     availability: input.available ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
@@ -91,17 +92,17 @@ export function productJsonLd(input: ProductJsonLdInput, base: string, now = new
     ...input.description ? { description: input.description } : {},
     ...input.category ? { category: input.category } : {},
     ...input.images.length ? { image: input.images.map(image => absoluteUrl(base, image)) } : {},
-    url: absoluteUrl(base, productPath(input.id)),
+    url: absoluteUrl(base, input.path),
     ...input.gtin ? { [input.gtin.property]: input.gtin.value } : {},
     ...vehicles.length ? { isAccessoryOrSparePartFor: vehicles.map(name => ({ "@type": "Vehicle", name })) } : {},
     ...offer ? { offers: offer } : {} };
 }
 
-export function collectionJsonLd(input: { name: string; description?: string; path: string; items: { id: string; name: string }[] }, base: string): JsonLdNode {
+export function collectionJsonLd(input: { name: string; description?: string; path: string; items: { path: string; name: string }[] }, base: string): JsonLdNode {
   return { "@context": "https://schema.org", "@type": "CollectionPage", name: input.name, url: absoluteUrl(base, input.path),
     ...input.description ? { description: input.description } : {},
     mainEntity: { "@type": "ItemList", numberOfItems: input.items.length,
-      itemListElement: input.items.map((item, index) => ({ "@type": "ListItem", position: index + 1, url: absoluteUrl(base, productPath(item.id)), name: item.name })) } };
+      itemListElement: input.items.map((item, index) => ({ "@type": "ListItem", position: index + 1, url: absoluteUrl(base, item.path), name: item.name })) } };
 }
 
 /** JSON for a script tag: `<` is escaped so no value can close the tag. */

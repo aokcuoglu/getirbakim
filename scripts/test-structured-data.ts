@@ -4,12 +4,13 @@ import assert from "node:assert/strict";
 import { legalDocument, type LegalNode } from "../src/content/legal";
 import { breadcrumbJsonLd, catalogTrail, collectionJsonLd, maxStructuredVehicles, outOfStockLabel, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
   serializeJsonLd, unconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
-import { listingPath, makePath, productPath } from "../src/modules/seo/paths";
+import { listingPath, makePath } from "../src/modules/seo/paths";
+import { productPath } from "../src/modules/seo/product-path";
 import { organizationId, siteJsonLd } from "../src/lib/site";
 
 const base = "https://getirbakim.com";
 const now = new Date("2026-11-15T10:00:00Z");
-const input: ProductJsonLdInput = { id: "p1", supplier: "dinamik", name: "Fren Diski", sku: "BOSCH 0986479C20", mpn: "0986479C20", brand: "BOSCH",
+const input: ProductJsonLdInput = { path: "/urun/bosch-fren-diski-0986479c20-p1", supplier: "dinamik", name: "Fren Diski", sku: "BOSCH 0986479C20", mpn: "0986479C20", brand: "BOSCH",
   images: ["/api/product-media/a.webp"], priceKurus: 124990, available: true, stockLabel: "Stokta" };
 const offers = (node: JsonLdNode | null) => (node as { offers?: Record<string, unknown> }).offers;
 const product = (changes: Partial<ProductJsonLdInput>) => productJsonLd({ ...input, ...changes }, base, now);
@@ -21,7 +22,7 @@ test("in stock: price, currency, availability, condition, seller and URL", () =>
   assert.equal(offer.availability, "https://schema.org/InStock");
   assert.equal(offer.itemCondition, "https://schema.org/NewCondition");
   assert.deepEqual(offer.seller, { "@type": "Organization", "@id": `${base}/#organization`, name: "Getirbakim", url: base });
-  assert.equal(offer.url, `${base}/urun/p1`);
+  assert.equal(offer.url, `${base}/urun/bosch-fren-diski-0986479c20-p1`);
   assert.equal((product({}) as { url: string }).url, offer.url);
 });
 
@@ -85,9 +86,9 @@ test("only filled keys are written; images are absolute", () => {
 
 test("breadcrumb trails and BreadcrumbList", () => {
   const brakes = { name: "Fren diski", slug: "fren-diskleri-269" };
-  assert.deepEqual(productTrail({ categories: [brakes], title: "Fren Diski BOSCH 1", productId: "p1" }), [
+  assert.deepEqual(productTrail({ categories: [brakes], title: "Fren Diski BOSCH 1", path: "/urun/bosch-fren-diski-1-p1" }), [
     { name: "Ana sayfa", path: "/" }, { name: "Katalog", path: "/katalog" },
-    { name: "Fren diski", path: "/kategori/fren-diskleri-269" }, { name: "Fren Diski BOSCH 1", path: "/urun/p1" }]);
+    { name: "Fren diski", path: "/kategori/fren-diskleri-269" }, { name: "Fren Diski BOSCH 1", path: "/urun/bosch-fren-diski-1-p1" }]);
   assert.deepEqual(catalogTrail({ categories: [] }).map(crumb => crumb.name), ["Ana sayfa", "Katalog"]);
   assert.deepEqual(catalogTrail({ categories: [brakes] }).map(crumb => crumb.path), ["/", "/kategori/fren-diskleri-269"]);
   assert.deepEqual(catalogTrail({ make: { name: "VW", slug: "volkswagen" }, categories: [brakes] }), [
@@ -100,11 +101,11 @@ test("breadcrumb trails and BreadcrumbList", () => {
 });
 
 test("collection page lists the products with their addresses", () => {
-  const items = [{ id: "a", name: "A" }, { id: "b", name: "B" }];
+  const items = [{ path: productPath({ id: "a", name: "A", display_brand: "BOSCH", display_code: "1" }), name: "A" }, { path: productPath({ id: "b", name: "B", display_brand: "BOSCH", display_code: "2" }), name: "B" }];
   const node = collectionJsonLd({ name: "Fren diski", path: "/kategori/x", items }, base) as { url: string; mainEntity: { numberOfItems: number; itemListElement: Record<string, unknown>[] } };
   assert.equal(node.url, `${base}/kategori/x`);
   assert.equal(node.mainEntity.numberOfItems, 2);
-  assert.deepEqual(node.mainEntity.itemListElement.map(item => [item.position, item.url]), [[1, `${base}${productPath("a")}`], [2, `${base}${productPath("b")}`]]);
+  assert.deepEqual(node.mainEntity.itemListElement.map(item => [item.position, item.url]), [[1, `${base}${items[0].path}`], [2, `${base}${items[1].path}`]]);
 });
 
 test("serialization cannot close the script tag", () => {
@@ -174,5 +175,4 @@ test("listing and product addresses", () => {
   assert.equal(listingPath({ categorySlug: "x" }), "/kategori/x");
   assert.equal(listingPath({ makeSlug: "vw" }), makePath("vw"));
   assert.equal(listingPath({ makeSlug: "vw", categorySlug: "x" }), "/kategori/x/vw");
-  assert.equal(productPath("p1"), "/urun/p1");
 });

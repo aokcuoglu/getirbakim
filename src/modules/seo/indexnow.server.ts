@@ -3,9 +3,9 @@ import { boundedQuery, db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { batches, diffChunk, indexNowConfig, indexNowDisabledReason, removalAnomaly, submitUrls, type IndexNowRow } from "./indexnow";
 import { contentSignals } from "./indexing";
-import { productPath } from "./paths";
+import { productPath, type ProductAddress } from "./product-path";
 import { productChunkRange, productChunks } from "./sitemap";
-import { indexableProductsSql } from "./sitemap.server";
+import { indexableProductsSql, productAddressColumns } from "./sitemap.server";
 
 // The content a search engine sees on the page: shown name, brand, part number, description, shown OEM and the
 // enrichment import (images, specifications, vehicles; only while the page shows that enrichment, the same condition as
@@ -24,12 +24,12 @@ const storeFingerprint = "md5(concat_ws(chr(31),p.name,p.brand,p.code,p.descript
 export async function loadIndexNowChunk(index: number): Promise<IndexNowRow[]> {
   const { from, to } = productChunkRange(index);
   const sql = indexableProductsSql({
-    supplier: `i.id::text AS id,${supplierFingerprint} AS fingerprint`,
-    store: `p.id::text AS id,${storeFingerprint} AS fingerprint`,
+    supplier: `${productAddressColumns.supplier},${supplierFingerprint} AS fingerprint`,
+    store: `${productAddressColumns.store},${storeFingerprint} AS fingerprint`,
   });
-  const { rows } = await boundedQuery<{ id: string; fingerprint: string }>(`SELECT id,fingerprint FROM (${sql}) u ORDER BY id`,
+  const { rows } = await boundedQuery<ProductAddress & { fingerprint: string }>(`SELECT id,name,display_brand,display_code,fingerprint FROM (${sql}) u ORDER BY id`,
     [storefrontCompanies(), from, to]);
-  return rows.map(row => ({ id: row.id, path: productPath(row.id), fingerprint: row.fingerprint }));
+  return rows.map(row => ({ id: row.id, path: productPath(row), fingerprint: row.fingerprint }));
 }
 
 export type IndexNowRunOptions = {

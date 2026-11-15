@@ -25,8 +25,6 @@ export function absoluteUrl(site: string, path: string) {
   return `${site}${path}`;
 }
 
-export const productPath = (id: string) => `/urun/${id}`;
-
 /** A listing: the catalog or a vehicle make's page, optionally narrowed to a category. */
 export function listingPath({ makeSlug, categorySlug }: { makeSlug?: string; categorySlug?: string } = {}) {
   if (categorySlug) return makeSlug ? `${categoryPath(categorySlug)}/${makeSlug}` : categoryPath(categorySlug);

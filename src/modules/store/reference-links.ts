@@ -2,13 +2,14 @@ import "server-only";
 import {db} from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { searchPath } from "@/modules/seo/paths";
+import { productPath, type ProductAddress } from "@/modules/seo/product-path";
 
 export type ReferenceGroup = {brand: string; kind: "oem" | "cross"; codes: string[]};
 export const compactPartNumber = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 const referenceKey = (brand: string, code: string) => `${compactPartNumber(brand)}|${compactPartNumber(code)}`;
 const searchHref = (code: string) => searchPath({ q: compactPartNumber(code), searchBy: "code" });
 const company = storefrontCompanies;
-const entriesSql = "SELECT id,brand,code,oem FROM storefront_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
+const entriesSql = "SELECT id,brand,code,oem,name,display_brand,display_code FROM storefront_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
 
 // Items whose part number (the code after the supplier prefix) is one of `codes`, read through
 // supplier_items_part_key_idx; filtering the catalog view directly normalised every item (~2 s per page).
@@ -29,23 +30,23 @@ export async function getReferenceLinks(productId: string, groups: ReferenceGrou
     // Catalog codes are "<supplier prefix> <part number>"; the prefix or the brand
     // name must equal the reference brand before the (costly) normalisation runs.
     const candidates = await partNumberCandidates(crossCodes);
-    const rows = candidates.length ? (await db.query<{id: string; brand_key: string; prefix_key: string; part: string}>(
-      `SELECT id, part_number_key(brand) brand_key, part_number_key(split_part(code,' ',1)) prefix_key,
+    const rows = candidates.length ? (await db.query<ProductAddress & {brand_key: string; prefix_key: string; part: string}>(
+      `SELECT id, name, display_brand, display_code, part_number_key(brand) brand_key, part_number_key(split_part(code,' ',1)) prefix_key,
         part_number_key(substring(code from position(' ' in code)+1)) part
       FROM (${entriesSql}) catalog
       WHERE catalog.id=ANY($4::uuid[])
         AND (part_number_key(brand)=ANY($2::text[]) OR part_number_key(split_part(code,' ',1))=ANY($2::text[]))
         AND part_number_key(substring(code from position(' ' in code)+1))=ANY($3::text[])`,
       [company(), crossBrands, crossCodes, candidates])).rows : [];
-    const matches = new Map<string, Set<string>>();
+    const matches = new Map<string, Map<string, ProductAddress>>();
     for (const row of rows) for (const brandKey of new Set([row.brand_key, row.prefix_key])) {
       const key = `${brandKey}|${row.part}`;
-      matches.set(key, (matches.get(key) || new Set()).add(row.id));
+      matches.set(key, (matches.get(key) || new Map()).set(row.id, row));
     }
     for (const group of groups) if (group.kind === "cross") for (const code of group.codes) {
-      const ids = [...(matches.get(referenceKey(group.brand, code)) || [])].filter(id => id !== productId);
-      if (ids.length === 1) links.set(referenceKey(group.brand, code), `/urun/${ids[0]}`);
-      else if (ids.length > 1) links.set(referenceKey(group.brand, code), searchHref(code));
+      const found = [...(matches.get(referenceKey(group.brand, code))?.values() || [])].filter(row => row.id !== productId);
+      if (found.length === 1) links.set(referenceKey(group.brand, code), productPath(found[0]));
+      else if (found.length > 1) links.set(referenceKey(group.brand, code), searchHref(code));
     }
   }
 

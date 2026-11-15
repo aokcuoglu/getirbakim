@@ -18,6 +18,7 @@ import { Card } from "@/components/ui/card";
 import { Empty, EmptyMedia } from "@/components/ui/empty";
 import { updateCart } from "./actions";
 import { catalogPath } from "@/modules/seo/paths";
+import { productPath } from "@/modules/seo/product-path";
 
 const benefit = "flex-row gap-3.5 rounded-[5px] p-5 text-sm leading-[22px] ring-0 border border-border [&>svg]:size-[23px] [&>svg]:shrink-0";
 
@@ -35,10 +36,10 @@ export default async function Cart({searchParams}:{searchParams:Promise<SearchPa
       <Card className="gap-0 rounded-[10px] py-0 ring-0 border border-border">
         <div className="grid grid-cols-[1fr_64px_90px] gap-6 border-b border-border px-5 py-[18px] text-sm max-[1000px]:grid-cols-[1fr_56px_80px] max-[1000px]:gap-3 max-[1000px]:px-4 max-[760px]:hidden" aria-hidden><span>Ürün</span><span>Adet</span><span className="text-right">Fiyat</span></div>
         {items.map(p=>{
-          const image=images.get(p.id),unit=servicePrice(p.price_kurus??0,discount);
+          const image=images.get(p.id),href=productPath(p),unit=servicePrice(p.price_kurus??0,discount);
           return <article className="grid grid-cols-[80px_minmax(0,1fr)_64px_90px] items-start gap-6 border-b border-border px-5 py-6 text-sm leading-5 last:border-b-0 max-[1000px]:grid-cols-[60px_minmax(0,1fr)_56px_80px] max-[1000px]:gap-3 max-[1000px]:px-4 max-[1000px]:py-5 max-[760px]:grid-cols-[60px_minmax(0,1fr)_80px]" key={p.id}>
-            <Link className="mt-2 grid h-[100px] place-items-center max-[760px]:row-span-2" href={`/urun/${p.id}`}>{image ? <Image className="max-h-[100px] w-20 object-contain max-[1000px]:w-[60px]" src={image.src} width={100} height={100} alt={`${p.name} ${p.display_brand}`} unoptimized/> : <PartArt className="size-20" kind={categories.find(c=>c.slug===p.category)?.art}/>}</Link>
-            <div className="max-[760px]:col-span-2"><Link href={`/urun/${p.id}`} className="hover:text-primary"><h2 className="mt-0.5 mb-2 text-base leading-[22px] font-medium wrap-anywhere">{p.name} {p.display_brand}</h2></Link><p className="mb-3.5 text-[13px] text-muted-foreground">Kod: {p.display_code}</p><p className="mb-3 flex items-start gap-2"><CalendarCheck className="mt-0.5 size-[18px] shrink-0" aria-hidden/>{p.stock_label}</p>
+            <Link className="mt-2 grid h-[100px] place-items-center max-[760px]:row-span-2" href={href}>{image ? <Image className="max-h-[100px] w-20 object-contain max-[1000px]:w-[60px]" src={image.src} width={100} height={100} alt={`${p.name} ${p.display_brand}`} unoptimized/> : <PartArt className="size-20" kind={categories.find(c=>c.slug===p.category)?.art}/>}</Link>
+            <div className="max-[760px]:col-span-2"><Link href={href} className="hover:text-primary"><h2 className="mt-0.5 mb-2 text-base leading-[22px] font-medium wrap-anywhere">{p.name} {p.display_brand}</h2></Link><p className="mb-3.5 text-[13px] text-muted-foreground">Kod: {p.display_code}</p><p className="mb-3 flex items-start gap-2"><CalendarCheck className="mt-0.5 size-[18px] shrink-0" aria-hidden/>{p.stock_label}</p>
               {(!p.available || !p.price_kurus || p.quantity>p.max_quantity) && <p className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]">Sipariş için uygun değil; adedi güncelle veya ürünü kaldır.</p>}
               <form action={updateCart}><input type="hidden" name="productId" value={p.id}/><input type="hidden" name="quantity" value="0"/><Button type="submit" variant="link" className="h-6 min-h-6 border-0 bg-transparent p-0 text-sm font-medium text-[#0065a5] hover:bg-transparent">Kaldır</Button></form>
             </div>

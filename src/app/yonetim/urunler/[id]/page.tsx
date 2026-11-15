@@ -32,6 +32,7 @@ import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { linkEquivalent, mergeProducts, splitSource, undoSplitSource, unlinkEquivalent } from "../actions";
+import { productIdPath } from "@/modules/seo/product-id";
 
 const kinds = { oem: "Ortak OEM numarası", cross: "Rakip kodu referansı", brand: "Muadil marka kararı", manual: "Elle muadil" } as const;
 
@@ -73,7 +74,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       </div>
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/urunler"/>}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Ürünlere dön</Button>
-        {storeId && <Button variant="outline" nativeButton={false} render={<Link href={`/urun/${storeId}`} target="_blank"/>}>Mağazada aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
+        {storeId && <Button variant="outline" nativeButton={false} render={<Link href={productIdPath(storeId)} target="_blank"/>}>Mağazada aç<ExternalLink data-icon="inline-end" aria-hidden="true"/></Button>}
       </div>
     </div>
     {query.split && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Kayıt ayrıldı ve <Link className="underline underline-offset-4" href={`/yonetim/urunler/${query.split}`}>ayrı bir ürün</Link> oldu; mağazada ayrı listeleniyor.</AlertDescription></Alert>}

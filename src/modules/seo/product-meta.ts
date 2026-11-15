@@ -12,7 +12,7 @@ const wordsOf = (text: string) => foldText(text).split(/[^a-z0-9]+/).filter(Bool
  * RADYATOR") is often written by its first word alone in the number ("KALE 12345"), so that prefix goes too; the
  * number is never emptied.
  */
-function numberWithoutBrand(partNumber: string, brand: string): string {
+export function numberWithoutBrand(partNumber: string, brand: string): string {
   const number = foldText(partNumber);
   const folded = foldText(brand).trim();
   for (const prefix of [folded, folded.split(/\s+/)[0]]) {
