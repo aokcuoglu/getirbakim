@@ -63,7 +63,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Siparişler</h1>
-        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur. Tedarik sütunundan kalemlerin tedarikçisini, deposunu ve maliyetini görüp tedarik durumunu işaretle.</p>
+        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur. Müşteri, ödenmemiş ya da henüz onaylanmamış siparişini kendisi iptal edebilir; ödenmiş olanlar İade bekleyen sekmesine düşer. Tedarik sütunundan kalemlerin tedarikçisini, deposunu ve maliyetini görüp tedarik durumunu işaretle.</p>
       </div>
     </div>
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
@@ -92,6 +92,9 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
           <TableBody>{shown.map(o => {
             const refundable = refundablePayments(o, o.payments, o.refunds);
             const pendingRefunds = o.refunds.filter(r => r.status === "requested" || r.status === "unknown");
+            const lines = o.lines.map(line => orderLineView(line, supplierNames[line.supplier] ?? line.supplier));
+            // A cancelled order whose supplier lines were already ordered or procured needs the supplier order checked (#607).
+            const supplierOrdered = o.status === "cancelled" && lines.some(line => line.needsProcurement && line.procurement_status !== "pending");
             return <TableRow key={o.id} className="align-top">
             <TableCell><Link className="font-medium underline-offset-4 hover:underline" href={`/siparis/${o.id}`}>#{o.number}</Link><div className="text-muted-foreground">{time(o.created_at)}</div></TableCell>
             <TableCell className="min-w-56 whitespace-normal">
@@ -138,10 +141,17 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               </AccordionItem></Accordion>
               {o.payment_note && <p className="mt-1 text-destructive">{o.payment_note}</p>}
             </TableCell>
-            <TableCell><OrderStatusBadge status={o.status}/></TableCell>
+            <TableCell><div className="flex flex-col items-start gap-1">
+              <OrderStatusBadge status={o.status}/>
+              {o.status === "cancelled" && o.cancelled_by === "customer" && <>
+                <Badge variant="info"><Info data-icon="inline-start"/>Müşteri iptal etti</Badge>
+                {o.cancelled_at && <span className="text-muted-foreground">{time(o.cancelled_at)}</span>}
+              </>}
+              {supplierOrdered && <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Tedarikçiye sipariş verilmişti</Badge>}
+            </div></TableCell>
             <TableCell><OrderLinesDialog number={o.number} orderId={o.id} orderStatus={o.status}
               editable={["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status)}
-              lines={o.lines.map(line => orderLineView(line, supplierNames[line.supplier] ?? line.supplier))}/></TableCell>
+              lines={lines}/></TableCell>
             <TableCell><PaymentStatusBadge status={o.payment_status}/></TableCell>
             <TableCell className="text-right"><div className="font-medium tabular-nums">{money(Number(o.total_kurus))}</div>{Number(o.shipping_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Kargo {money(Number(o.shipping_kurus))} dahil</div>}</TableCell>
             <TableCell>
