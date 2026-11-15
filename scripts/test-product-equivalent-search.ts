@@ -92,3 +92,50 @@ test("a query shorter than three characters finds nothing", async () => {
   const result = await search.searchEquivalentTargets(schema.pool, await productOf("febi"), "FE");
   assert.deepEqual(result, { q: "FE", targets: [] });
 });
+
+async function enrich(payload: unknown) {
+  await schema.pool.query("DELETE FROM product_enrichments WHERE supplier_item_id=$1", [ids.skf]);
+  await schema.pool.query("DELETE FROM product_enrichment_jobs WHERE supplier_item_id=$1", [ids.skf]);
+  await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,'SKF 40040','SKF','complete')`, [ids.skf]);
+  await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
+    VALUES($1,'SKF 40040','SKF','https://www.trodo.com/skf','test','SKF','40040',$2)`, [ids.skf, JSON.stringify(payload)]);
+  await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
+  await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
+}
+const skfOems = { specifications: [], vehicles: [], oemNumbers: { VW: ["7H0 407 621 A"], BMW: ["31 22 6 765 601"], SHORT: ["A12B"] } };
+
+test("an enrichment OEM number finds its product by the enrichment arm, exactly", async () => {
+  await enrich(skfOems);
+  const found = await find("febi", "7h0-407 621 a");
+  assert.equal(found.length, 1);
+  assert.equal(found[0].brand_label, "SKF");
+  assert.deepEqual(found[0].via, ["enrichment"]);
+  assert.equal((await find("skf", "7h0-407 621 a")).length, 0, "never itself");
+  assert.equal((await find("febi", "7H0407621")).length, 0, "a partial number is not a match");
+});
+
+test("a number that is also hand-entered shows both paths", async () => {
+  const skf = await productOf("skf");
+  await schema.pool.query(`INSERT INTO product_override_references(product_id,kind,action,brand,number,created_by) VALUES($1,'oem','add','VW','7H0 407 621 A',$2)`, [skf, admin]);
+  assert.deepEqual((await find("febi", "7H0407621A"))[0].via, ["enrichment", "reference"]);
+  await schema.pool.query("DELETE FROM product_override_references WHERE product_id=$1", [skf]);
+});
+
+test("a hidden enrichment OEM number is not a match, the others stay", async () => {
+  const skf = await productOf("skf");
+  await schema.pool.query(`INSERT INTO product_override_references(product_id,kind,action,brand,number,created_by) VALUES($1,'oem','hide','VW','7H0 407 621 A',$2)`, [skf, admin]);
+  assert.equal((await find("febi", "7H0407621A")).length, 0);
+  assert.deepEqual((await find("febi", "31226765601"))[0].via, ["enrichment"]);
+  await schema.pool.query("DELETE FROM product_override_references WHERE product_id=$1", [skf]);
+});
+
+test("the enrichment arm needs five characters", async () => {
+  assert.equal((await find("febi", "A12B")).length, 0);
+});
+
+test("malformed oemNumbers do not break the search", async () => {
+  for (const oemNumbers of [["7H0407621A"], "7H0407621A", { VW: "7H0407621A" }]) {
+    await enrich({ specifications: [], vehicles: [], oemNumbers });
+    assert.equal((await find("febi", "7H0407621A")).length, 0);
+  }
+});

@@ -39,7 +39,7 @@ import { SubmitButton } from "@/components/admin/submit-button";
 import { linkEquivalent, mergeProducts, splitSource, undoSplitSource, unlinkEquivalent } from "../actions";
 import { productIdPath } from "@/modules/seo/product-id";
 
-const equivalentVia = { code: "Parça no / kod", oem: "OEM numarası", reference: "Elle referans" } as const;
+const equivalentVia = { code: "Parça no / kod", enrichment: "Zenginleştirme OEM", oem: "OEM numarası", reference: "Elle referans" } as const;
 const kinds = { oem: "Ortak OEM numarası", cross: "Rakip kodu referansı", brand: "Muadil marka kararı", manual: "Elle muadil" } as const;
 
 export default async function MasterProduct({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
