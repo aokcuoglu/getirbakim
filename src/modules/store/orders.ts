@@ -85,7 +85,8 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   const lines:AgreementLine[]=[];
   for(const p of items) {
    const unitPrice=servicePrice(p.price_kurus!,discount);
-   lines.push({name:p.name,brand:p.brand,code:p.code,quantity:p.quantity,unitPriceKurus:unitPrice});
+   // The contract names the part as the store showed it (#602); the order line keeps the supplier's code for operations.
+   lines.push({name:p.name,brand:p.display_brand,code:p.display_code,quantity:p.quantity,unitPriceKurus:unitPrice});
    const vehicle=parseGarageVehicle(p.vehicle) ?? garage;
    const fitment=await productFitmentLevel(p,vehicle);
    // Only in-house stock is reserved; the line records what was taken so cancel/expiry return exactly that.

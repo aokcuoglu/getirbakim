@@ -317,7 +317,7 @@ test("a save returns the stored values and their version", async () => {
   const sachs = await productOf("sachs");
   const saved = await store.persistProductOverride(schema.pool, sachs, { name: "Sachs ön amortisör", category_id: 200 }, admin);
   assert.ok(saved.ok);
-  const noPrice = { price_kurus: null, sale_price_kurus: null, sale_from: null, sale_until: null };
+  const noPrice = { price_kurus: null, sale_price_kurus: null, sale_from: null, sale_until: null, brand: null, part_number: null };
   assert.deepEqual(saved.values, { name: "Sachs ön amortisör", description: null, seo_title: null, seo_description: null, category_id: 200, hidden: false, ...noPrice });
   assert.equal(saved.version, (await store.loadProductOverride(schema.pool, sachs)).override?.version);
   const cleared = await store.persistProductOverride(schema.pool, sachs, { name: null, category_id: null }, admin, saved.version);
@@ -327,39 +327,39 @@ test("a save returns the stored values and their version", async () => {
 });
 
 test("the form shows stored values after a save, keeps other input on a revert and everything on an error", () => {
-  const stored = { name: "Ad", description: null, seo_title: null, seo_description: null, category_id: 241, hidden: true };
+  const stored = { name: "Ad", description: null, seo_title: null, seo_description: null, category_id: 241, hidden: true, brand: null, part_number: null };
   let state = initialOverrideForm(stored, "1");
-  assert.deepEqual(state.values, { name: "Ad", description: "", seo_title: "", seo_description: "", category_id: "241", published: false });
+  assert.deepEqual(state.values, { name: "Ad", description: "", seo_title: "", seo_description: "", category_id: "241", published: false, brand: "", part_number: "" });
   state = overrideFormReducer(state, { type: "edit", values: { name: "Yazılan ad", seo_title: "Yazılan SEO" } });
   // Reverting the category: only the category takes the stored (automatic) value; typed text stays.
   state = overrideFormReducer(state, { type: "result", result: { status: "success", reset: "category_id", version: "2",
     values: { ...stored, category_id: null } } });
   assert.deepEqual(state, { version: "2", dirty: ["name", "seo_title"],
-    values: { name: "Yazılan ad", description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "", published: false } });
+    values: { name: "Yazılan ad", description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "", published: false, brand: "", part_number: "" } });
   // The page refresh after our own save carries the version already adopted: nothing changes.
   assert.equal(overrideFormReducer(state, { type: "server", values: { ...stored, category_id: null }, version: "2" }), state);
   // An error (stale, unknown category) keeps every typed value and the version.
   assert.equal(overrideFormReducer(state, { type: "result", result: { status: "error", message: "x" } }), state);
   // A full save shows every stored value, the category and the hidden switch included.
   state = overrideFormReducer(state, { type: "result", result: { status: "success", version: "3",
-    values: { name: "Yazılan ad", description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: true } } });
-  assert.deepEqual(state.values, { name: "Yazılan ad", description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "241", published: false });
+    values: { name: "Yazılan ad", description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: true, brand: null, part_number: null } } });
+  assert.deepEqual(state.values, { name: "Yazılan ad", description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "241", published: false, brand: "", part_number: "" });
   // Reverting hidden publishes the switch only.
   state = overrideFormReducer(overrideFormReducer(state, { type: "edit", values: { name: "Yeni" } }),
-    { type: "result", result: { status: "success", reset: "hidden", version: "4", values: { name: "Yazılan ad", description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: false } } });
+    { type: "result", result: { status: "success", reset: "hidden", version: "4", values: { name: "Yazılan ad", description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: false, brand: null, part_number: null } } });
   assert.deepEqual([state.values.name, state.values.category_id, state.values.published, state.version], ["Yeni", "241", true, "4"]);
   // Edited "Yeni" is still unsaved: another version from the page keeps it and the old version; untouched inputs follow.
   assert.deepEqual(overrideFormReducer(state, { type: "server", values: null, version: "auto" }),
-    { version: "4", dirty: ["name"], values: { name: "Yeni", description: "", seo_title: "", seo_description: "", category_id: "", published: true } });
+    { version: "4", dirty: ["name"], values: { name: "Yeni", description: "", seo_title: "", seo_description: "", category_id: "", published: true, brand: "", part_number: "" } });
   // Nothing edited: another version is adopted as a whole.
   const clean = initialOverrideForm(stored, "5");
   assert.deepEqual(overrideFormReducer(clean, { type: "server", values: null, version: "auto" }),
-    { version: "auto", dirty: [], values: { name: "", description: "", seo_title: "", seo_description: "", category_id: "", published: true } });
+    { version: "auto", dirty: [], values: { name: "", description: "", seo_title: "", seo_description: "", category_id: "", published: true, brand: "", part_number: "" } });
 });
 
 test("a second tab's stale save keeps what it typed, whatever the page refresh brings", () => {
   // Both tabs opened at version 1; tab 1 saved name "AAAx" (version 2) meanwhile.
-  const opened = { name: "Ad", description: "Eski", seo_title: null, seo_description: null, category_id: null, hidden: false };
+  const opened = { name: "Ad", description: "Eski", seo_title: null, seo_description: null, category_id: null, hidden: false, brand: null, part_number: null };
   let tab2 = initialOverrideForm(opened, "1");
   tab2 = overrideFormReducer(tab2, { type: "edit", values: { name: "BBB" } });
   tab2 = overrideFormReducer(tab2, { type: "edit", values: { description: "DESC-B" } });
@@ -369,13 +369,13 @@ test("a second tab's stale save keeps what it typed, whatever the page refresh b
   // The refresh after the action renders tab 1's save (name AAAx, description cleared): typed fields stay, so does version 1.
   tab2 = overrideFormReducer(tab2, { type: "server", values: { ...opened, name: "AAAx", description: null, seo_title: "Tab 1 SEO" }, version: "2" });
   assert.deepEqual(tab2, { version: "1", dirty: ["name", "description"],
-    values: { name: "BBB", description: "DESC-B", seo_title: "Tab 1 SEO", seo_description: "", category_id: "", published: true } });
+    values: { name: "BBB", description: "DESC-B", seo_title: "Tab 1 SEO", seo_description: "", category_id: "", published: true, brand: "", part_number: "" } });
 });
 
 test("the form schema trims, empties to automatic and reads the published switch", () => {
-  const base = { name: "  Ad  ", description: "", seo_title: " ", seo_description: "", category_id: "" };
+  const base = { name: "  Ad  ", description: "", seo_title: " ", seo_description: "", category_id: "", brand: "", part_number: "" };
   assert.deepEqual(productOverrideValuesSchema.parse({ ...base, published: "on" }),
-    { name: "Ad", description: null, seo_title: null, seo_description: null, category_id: null, hidden: false });
+    { name: "Ad", description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, brand: null, part_number: null });
   assert.equal(productOverrideValuesSchema.parse(base).hidden, true);
   assert.equal(productOverrideValuesSchema.parse({ ...base, category_id: "241" }).category_id, 241);
   assert.equal(productOverrideValuesSchema.safeParse({ ...base, category_id: "12a" }).success, false);

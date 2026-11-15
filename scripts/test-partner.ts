@@ -84,7 +84,7 @@ test("partner discount: unset, invalid and excessive rates", () => {
 
 const row = (overrides: Partial<PartnerCatalogRow> = {}): PartnerCatalogRow => ({
   id: "0000a569-053e-4b84-a484-d510f04fab3b", supplier: "basbug", code: "LUK 510 0207 10", name: "DEBRIYAJ RULMANI", brand: "LUK",
-  category: null, oem: "55248403; 55248403 ,9S51-7548-AA", price_kurus: 888759, available: true, stock_label: "Tedarikçide mevcut",
+  display_brand: "LUK", display_code: "LUK 510 0207 10", category: null, oem: "55248403; 55248403 ,9S51-7548-AA", price_kurus: 888759, available: true, stock_label: "Tedarikçide mevcut",
   pricing_snapshot: { nf: 103.19, exchange_rate: 55.2105, markup_percent: 30, vat_percent: 20, observed_at: "2026-11-10T08:00:00+03:00", source_fresh: true,
     stock: { stok: 7 }, company: "BASBUG", warehouse: "MERKEZ" } as PartnerCatalogRow["pricing_snapshot"],
   ...overrides,
@@ -122,6 +122,14 @@ test("partner product DTO keeps the 1.2 contract and leaks no supplier internals
   assert.deepEqual([overridden.listPriceKurus, overridden.b2bPriceKurus, overridden.offers[0].informationalPriceKurus], [800000, 800000, 800000]);
   for (const internal of ["auto_price", "fixed_price", "cost_kurus", "888759", "override"]) assert.ok(!JSON.stringify(overridden).includes(internal), internal);
   assert.equal(toPartnerProduct(row(), { offers: [row()], discountBps: 0, imageUrl: null, vehicleTypeId: 9, fitted: false }).exactFitment.status, "NOT_CONFIRMED");
+});
+
+test("partner product shows the store brand and part number; partNo stays the supplier code (#602)", () => {
+  const edited = row({ display_brand: "SCHAEFFLER", display_code: "510020710" });
+  const product = toPartnerProduct(edited, { offers: [edited], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitted: false });
+  assert.equal(product.brandName, "SCHAEFFLER");
+  assert.deepEqual(product.manufacturerPartNumber, { value: "510020710", normalized: "510020710" });
+  assert.equal(product.partNo, "LUK 510 0207 10");
 });
 
 test("exact part and OEM numbers ignore separators and a supplier brand prefix", () => {

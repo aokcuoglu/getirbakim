@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { pickKey, sortOrder } from "@/lib/table-sort";
 import { productCategoriesSql } from "./product-categories-sql";
-import { loadProductOverride } from "./product-override-store";
+import { loadBrandOptions, loadProductOverride } from "./product-override-store";
 import { loadProductPricing } from "./product-pricing-store";
 import type { ProductPricing } from "./product-pricing-schema";
 import { compareOffers } from "@/modules/store/best-offer";
@@ -197,10 +197,12 @@ export async function getMasterProduct(id: string) {
   // The store still lists supplier rows in this phase: the row it shows for this product.
   const listed = rows.find(row => row.saleable && row.supplier !== "seta" && row.id === id)
     ?? rows.find(row => row.saleable) ?? null;
-  const [override, references] = await Promise.all([loadProductOverride(db, id),
-    db.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM product_override_references WHERE product_id=$1) AS exists", [id])]);
+  const [override, references, brands] = await Promise.all([loadProductOverride(db, id),
+    db.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM product_override_references WHERE product_id=$1) AS exists", [id]),
+    // The store brand's choices (#602): every master brand.
+    loadBrandOptions(db)]);
   // Hand-entered reference numbers (#582) count as an edit for the "Elle düzenlendi" badge.
-  return { product, sources: rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override, hasReferences: references.rows[0].exists };
+  return { product, sources: rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override, hasReferences: references.rows[0].exists, brands };
 }
 
 type MergeTarget = {

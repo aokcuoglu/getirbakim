@@ -17,3 +17,23 @@ export function productDescription(override: StoreOverride | null, enrichmentDes
 export function productMeta(override: StoreOverride | null, automatic: { title: string; description: string }) {
   return { title: override?.seo_title || automatic.title, description: override?.seo_description || automatic.description };
 }
+
+/**
+ * The manufacturer part number the store prints (#602): an admin's number (display_code differs from the supplier code)
+ * as entered, else `automatic` (the enrichment's exact-match spelling or the supplier code).
+ */
+export function shownPartNumber(product: { code: string; display_code: string }, automatic: string) {
+  return product.display_code !== product.code ? product.display_code : automatic;
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** shownPartNumber without a leading brand, which a card prints beside it ("BOSCH 0986…" → "0986…"); store brand first. */
+export function cardPartNumber(product: { code: string; display_code: string; brand: string; display_brand: string }, automatic: string) {
+  const number = shownPartNumber(product, automatic);
+  for (const brand of new Set([product.display_brand, product.brand])) {
+    const prefix = new RegExp(`^${escapeRegExp(brand)}\\s+`, "i");
+    if (prefix.test(number)) return number.replace(prefix, "");
+  }
+  return number;
+}

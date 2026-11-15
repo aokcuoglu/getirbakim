@@ -166,6 +166,7 @@ const overrideFailures = {
   "not-found": "Ürün bulunamadı. Sayfayı yenileyin.",
   merged: "Bu ürün başka bir ürünle birleştirildi; düzenlemeyi birleştirilen üründe yapın.",
   category: "Seçilen kategori bulunamadı. Listeden yeniden seçin.",
+  brand: "Seçilen marka bulunamadı. Listeden yeniden seçin.",
   stale: "Bu ürün siz düzenlerken başka bir sekmede veya kullanıcı tarafından değiştirildi. Sayfayı yenileyip yeniden deneyin.",
   "sale-expired": "Kampanya bitişi geçmişte kalıyor. Bitişi ileri alın ya da kampanyayı kaldırın.",
 } as const;
@@ -189,6 +190,7 @@ export async function saveProductOverride(_previous: ProductOverrideResult, form
     const input = productOverrideValuesSchema.safeParse({
       name: form.get("name") ?? "", description: form.get("description") ?? "", seo_title: form.get("seo_title") ?? "",
       seo_description: form.get("seo_description") ?? "", category_id: form.get("category_id") ?? "", published: form.get("published") ?? undefined,
+      brand: form.get("brand") ?? "", part_number: form.get("part_number") ?? "",
     });
     if (!input.success) return { status: "error", message: input.error.issues[0]?.message ?? "Alanları kontrol edin." };
     patch = input.data;

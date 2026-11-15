@@ -13,7 +13,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { initialOverrideForm, overrideFormReducer, type OverrideFormValues } from "@/modules/admin/product-override-form-state";
-import { CategoryCombobox, type CategoryOption } from "./category-combobox";
+import { OptionCombobox, type ComboboxOption } from "./option-combobox";
 
 const excerpt = (text: string, length = 160) => text.length > length ? `${text.slice(0, length).trimEnd()}…` : text;
 
@@ -23,13 +23,15 @@ const excerpt = (text: string, length = 160) => text.length > length ? `${text.s
  * overrideFormReducer: after a save or revert the form shows what the action stored, an error keeps the input as typed.
  * `version` is the stored edit the form was opened with: the action refuses a save made on top of a newer one.
  */
-export function ProductOverrideForm({ productId, values, version, automatic, categories }: {
+export function ProductOverrideForm({ productId, values, version, automatic, categories, brands }: {
   productId: string;
   values: ProductCardValues | null;
   version: string;
-  /** `category` is null when the enrichment gives the product no category. */
-  automatic: { name: string; description: string; category: string | null };
-  categories: CategoryOption[];
+  /** `category` is null when the enrichment gives the product no category; brand and part number are the listed source's. */
+  automatic: { name: string; description: string; category: string | null; brand: string; partNumber: string };
+  categories: ComboboxOption[];
+  /** Master brands (brands.name) the store brand is picked from. */
+  brands: ComboboxOption[];
 }) {
   const fieldId = useId();
   const [form, dispatch] = useReducer(overrideFormReducer, null, () => initialOverrideForm(values, version));
@@ -47,7 +49,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
     return next;
   }, { status: "idle" });
   const edit = (change: Partial<OverrideFormValues>) => { dispatch({ type: "edit", values: change }); setShowResult(false); };
-  const current = values ?? { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false };
+  const current = values ?? { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, brand: null, part_number: null };
   const overridden = (field: ProductCardField) => field === "hidden" ? current.hidden : current[field] !== null;
   // Submitted from state (not the DOM form), so React's reset of a form action never touches what the admin typed.
   const submit = (reset?: ProductCardField) => {
@@ -56,7 +58,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
     data.set("version", form.version);
     if (reset) data.set("reset", reset);
     else {
-      for (const field of ["name", "description", "seo_title", "seo_description", "category_id"] as const) data.set(field, form.values[field]);
+      for (const field of ["name", "description", "seo_title", "seo_description", "category_id", "brand", "part_number"] as const) data.set(field, form.values[field]);
       if (form.values.published) data.set("published", "on");
     }
     startTransition(() => action(data));
@@ -71,7 +73,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
     </Button>}
   </div>;
   const id = (field: ProductCardField) => `${fieldId}-${field}`;
-  const textInput = (field: "name" | "seo_title") => ({
+  const textInput = (field: "name" | "seo_title" | "part_number") => ({
     id: id(field), name: field, value: form.values[field], "aria-describedby": `${id(field)}-hint`,
     onChange: (event: React.ChangeEvent<HTMLInputElement>) => edit({ [field]: event.currentTarget.value }),
   });
@@ -90,9 +92,20 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
         </Field>
         <Field>
           {label("category_id", id("category_id"))}
-          <CategoryCombobox id={id("category_id")} name="category_id" placeholder="Kategori ara" options={categories}
+          <OptionCombobox id={id("category_id")} name="category_id" placeholder="Kategori ara" emptyText="Eşleşen kategori yok." options={categories}
             value={form.values.category_id} onValueChange={value => edit({ category_id: value })} describedBy={`${id("category_id")}-hint`}/>
           <FieldDescription id={`${id("category_id")}-hint`}>{automatic.category ? `Boş bırakılırsa: ${automatic.category}` : "Otomatik kategori yok; boş bırakılırsa kategori atanmaz."}</FieldDescription>
+        </Field>
+        <Field>
+          {label("brand", id("brand"))}
+          <OptionCombobox id={id("brand")} name="brand" placeholder="Marka ara" emptyText="Eşleşen marka yok." options={brands}
+            value={form.values.brand} onValueChange={value => edit({ brand: value })} describedBy={`${id("brand")}-hint`}/>
+          <FieldDescription id={`${id("brand")}-hint`}>Boş bırakılırsa: {automatic.brand}</FieldDescription>
+        </Field>
+        <Field>
+          {label("part_number", id("part_number"))}
+          <Input {...textInput("part_number")} maxLength={60} placeholder={automatic.partNumber}/>
+          <FieldDescription id={`${id("part_number")}-hint`}>Boş bırakılırsa: {automatic.partNumber}. Yalnız mağazada gösterilen numara değişir; tedarikçi kodu, sipariş ve eşleştirme aynı kalır.</FieldDescription>
         </Field>
         <Field className="md:col-span-2">
           {label("description", id("description"))}

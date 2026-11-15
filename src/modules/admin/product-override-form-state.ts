@@ -5,6 +5,7 @@ import type { ProductCardField, ProductCardValues, ProductOverrideResult } from 
 /** What the inputs hold: text as typed, the category id as a string ("" = automatic), the switch as published. */
 export type OverrideFormValues = {
   name: string; description: string; seo_title: string; seo_description: string; category_id: string; published: boolean;
+  brand: string; part_number: string;
 };
 export type OverrideFormState = {
   values: OverrideFormValues;
@@ -22,12 +23,13 @@ export function formValues(values: ProductCardValues | null): OverrideFormValues
   return {
     name: values?.name ?? "", description: values?.description ?? "", seo_title: values?.seo_title ?? "",
     seo_description: values?.seo_description ?? "", category_id: values?.category_id === null || values?.category_id === undefined ? "" : String(values.category_id),
-    published: !values?.hidden,
+    published: !values?.hidden, brand: values?.brand ?? "", part_number: values?.part_number ?? "",
   };
 }
 
 const inputOf: Record<ProductCardField, keyof OverrideFormValues> = {
   name: "name", description: "description", seo_title: "seo_title", seo_description: "seo_description", category_id: "category_id", hidden: "published",
+  brand: "brand", part_number: "part_number",
 };
 
 export function initialOverrideForm(values: ProductCardValues | null, version: string): OverrideFormState {
