@@ -93,7 +93,7 @@ function fileName(name: string) {
 /**
  * Converts and stores one uploaded file and appends it to the product's gallery. The object is written before the
  * transaction (an object store call must not hold the product lock); a refused upload leaves an unreferenced object
- * for the media collection (#597) to remove.
+ * for `npm run media:gc` to remove.
  */
 export async function addProductImage(database: Database, productId: string, file: { bytes: Buffer; name: string }, adminId: string,
   storage?: Pick<S3Client, "send">): Promise<ProductImageResult> {
@@ -126,7 +126,7 @@ type Row = { id: string; file_name: string };
 const currentImages = async (client: PoolClient, productId: string) => (await client.query<Row>(
   "SELECT id::text,file_name FROM product_override_images WHERE product_id=$1 ORDER BY position,id", [productId])).rows;
 
-/** Removes an upload from the gallery; the media object and its bytes stay (#597). */
+/** Removes an upload from the gallery; the media object and its bytes stay until `npm run media:gc` collects them. */
 export async function removeProductImage(database: Pick<Pool, "connect">, productId: string, imageId: string, adminId: string) {
   return change(database, productId, async client => {
     const images = await currentImages(client, productId);
