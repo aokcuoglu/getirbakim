@@ -32,6 +32,18 @@ test("tags come from the page header and from a fetch's tags and soft tags", asy
   assert.equal(internals.ttlSeconds({ revalidate: false }), 30 * 24 * 60 * 60);
 });
 
+test("unstable_cache FETCH entries take their TTL from value.revalidate", async () => {
+  const { internals } = await load({ CACHE_URL: undefined }, "fetch-ttl");
+  const day = 24 * 60 * 60;
+  const fetchEntry = (revalidate?: number | false) => ({ kind: "FETCH", data: { headers: {}, body: "[]", status: 200, url: "" }, revalidate });
+  const ctx = { fetchCache: true, tags: ["sitemap"] };
+  assert.equal(internals.ttlSeconds(ctx, fetchEntry(21_600)), 43_200);
+  assert.equal(internals.ttlSeconds(ctx, fetchEntry(365 * day)), 30 * day, "a one-year revalidate (false) is capped");
+  assert.equal(internals.ttlSeconds(ctx, fetchEntry(undefined)), 7 * day, "no revalidate keeps the default");
+  assert.equal(internals.ttlSeconds(ctx, fetchEntry(false)), 7 * day, "a non-numeric revalidate keeps the default");
+  assert.equal(internals.ttlSeconds({ ...ctx, revalidate: 60 }, fetchEntry(21_600)), 60, "ctx wins when it carries one");
+});
+
 test("without CACHE_URL the in-process store caches and honours revalidateTag", async () => {
   const { handler } = await load({ CACHE_URL: undefined }, "memory");
   await handler.set("/katalog", page("_N_T_/katalog"), { cacheControl: { revalidate: 60 } });
