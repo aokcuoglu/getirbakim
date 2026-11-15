@@ -10,3 +10,13 @@ export function galleryImages(uploaded: CatalogProductImage[], automatic: Catalo
     if (!images.some(shown => shown.src === image.src)) images.push(image);
   return images;
 }
+
+/**
+ * The product page's share image (#595): the first image the gallery shows, so an admin upload wins over the automatic
+ * one. Sizes are passed only when known. A product without an image falls back to the site's share image.
+ */
+export function socialImage(images: CatalogProductImage[], alt: string, fallback: { url: string; width: number; height: number; alt: string }) {
+  const image = images[0];
+  if (!image) return fallback;
+  return { url: image.src, alt, ...(image.width > 0 && image.height > 0 ? { width: image.width, height: image.height } : {}) };
+}

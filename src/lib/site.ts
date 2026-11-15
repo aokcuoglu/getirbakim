@@ -3,6 +3,13 @@ export const siteUrl = (process.env.SITE_URL || "https://getirbakim.com").replac
 /** Getirbakim customer contact; the seller company keeps its own address in the legal pages. */
 export const contactEmail = "hey@getirbakim.com";
 
+/**
+ * The site-wide Open Graph fields. A page that sets its own openGraph replaces the layout's object as a whole, so it
+ * spreads these back in (#595).
+ */
+export const siteOpenGraph = { siteName: "Getirbakim", locale: "tr_TR", type: "website" } as const;
+export const defaultSocialImage = { url: "/brand/social-getirbakim.png", width: 1080, height: 1080, alt: "Getirbakim — Bir bakalım, doğru parçayı bulalım." };
+
 export const socialProfiles = {
   x: "https://x.com/getirbakim",
   linkedin: "https://www.linkedin.com/company/getirbakim",
