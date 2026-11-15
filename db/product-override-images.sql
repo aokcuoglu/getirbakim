@@ -2,7 +2,7 @@
 -- and come before the automatic enrichment image; the smallest position is the primary image. Supplier syncs, the
 -- matcher, enrichment imports, fitment rebuilds and the storefront bundle never write these tables. Uploads live in the
 -- environment where they were made: products.id differs between environments, so the bundle carries none of them.
--- Deleting an image removes only its row here; the media object and its stored bytes stay (#597 collects them).
+-- Deleting an image removes only its row here; the media object and its stored bytes stay (npm run media:gc collects them).
 CREATE TABLE IF NOT EXISTS product_override_images (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  product_id uuid NOT NULL REFERENCES products(id) ON DELETE CASCADE,

@@ -111,6 +111,8 @@
     "enrichment:fallback:install": "node --import tsx scripts/install-enrichment-fallback-launchd.ts",
     "enrichment:fallback:uninstall": "node --import tsx scripts/install-enrichment-fallback-launchd.ts --uninstall",
     "enrichment:states": "node --env-file=.env.local --import tsx scripts/enrichment-states.ts",
+    "media:gc": "node --env-file=.env.local --conditions=react-server --import tsx scripts/media-gc.ts",
+    "test:media-gc": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-media-gc.ts",
     "test:otoparcasan": "node --import tsx --test scripts/test-otoparcasan.ts",
     "test:spareto": "node --import tsx --test scripts/test-spareto.ts",
     "test:parts2world": "node --import tsx --test scripts/test-parts2world.ts",

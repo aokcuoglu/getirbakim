@@ -70,6 +70,24 @@ Başarılı kaynak yanıtları `product_enrichment_vehicle_cache` tablosunda kay
 
 PostgreSQL yedeğiyle birlikte `getirbakim_product-media` volume’unu ve `.local/storage.env` dosyasını yedekleyin. Veritabanı yedeği tek başına görselleri içermez. `docker compose down` dosyaları korur; `down -v` volume’u siler. Konsol ve API portları yalnızca yerel makineye bağlanır.
 
+## Medya temizliği
+
+Hiçbir yerden başvurulmayan `product_media_objects` satırlarını ve kovadaki nesnelerini `npm run media:gc` toplar (#597). Başvuru sayılanlar: `product_media_objects`'e giden her foreign key (çalışma anında `pg_constraint`'ten okunur; `db/*.sql`'de olmayan eski tablolar da korunur) ile FK'siz kopyalar `product_enrichment_shared_links.image_id` ve `enrichment_product_states.image_id`. FK'siz, tanınmayan bir `*image_id` / `*media_id` uuid kolonu varsa komut hiçbir şey silmeden durur. Kova hiç listelenmez; yalnız silinen satırın anahtarı silinir (kovada `internal/storefront-sync/…` gibi medya dışı anahtarlar da var).
+
+```sh
+npm run media:gc                                  # dry run: aday sayısı, bayt, klasör dökümü, ilk 20 anahtar (JSON)
+npm run media:gc -- --apply                       # siler
+npm run media:gc -- --min-age-days=14 --limit=500 --batch=200 --max-share=0.2
+```
+
+- **Yaş eşiği:** varsayılan 7 gün (en az 1). Yaş `GREATEST(created_at, stored_at)`: bir içe aktarma var olan görseli yeniden kaydettiğinde `stored_at` güncellenir, başvurusu yazılana kadar satır genç kalır.
+- **Güvenlik sınırları:** adaylar toplamın `--max-share` oranını (varsayılan 0,2) aşarsa `--apply` reddedilir. Aynı anda tek koşu (advisory lock `20261001, 10`). Her parti önce satırları siler (FK ve koşullar yeniden denetlenir), sonra nesneleri siler, kova onaylayınca commit eder; kova silemediği nesnelerin satırlarını bırakır ve komut hata ile durur. Seçimden sonra başvuru alan satır kalır (`becameReferenced`); başka bir işlemin 5 sn'den uzun tuttuğu satır da kalır (`locked`).
+- **Kova tek veritabanına aittir:** komut, kovadaki nesnelere yalnız bu veritabanının satırları başvurur varsayımıyla siler. Çıktıdaki `database` ve `bucket` alanlarının doğru çifti gösterdiğini kontrol edin; iki veritabanının paylaştığı kovada koşmayın.
+- **Merge sonrası:** her ortamda önce `npm run db:setup` (AWS'de `release-aws` ile gelen kurulum) koşmalıdır; `stored_at` kolonu olmadan görsel yazımı `42703` (kolon yok) hatası verir.
+- **Her ortamda ayrı koşu:** medya id'leri ortamlar arasında farklıdır; yerelde, VPS'te ve AWS'de ayrı koşulur. AWS'de operations görevi olarak: `node --conditions=react-server --import tsx scripts/media-gc.ts [--apply]` (`.env.local` yok, ortam değişkenleri görevden gelir).
+- **Ne zaman koşulmaz:** zenginleştirme işçileri, kategori görseli içe aktarımları veya storefront sync çalışırken `--apply` koşmayın. Sync kilidi `.local/storefront-sync/sync.lock` varsa komut reddeder, ama bu kilit yalnız aynı checkout'taki sync'i korur: AWS'de veya VPS'te çalışan bir storefront import görevi olmadığını operatör kontrol eder.
+- **Yetki:** yerel MinIO medya kullanıcısının politikasında `s3:DeleteObject` gerekir (`deploy/storage.compose.yml`; mevcut kurulumda politikayı güncellemek için `npm run storage:setup`). AWS'de operations görev rolüne kovada `s3:DeleteObject` verilmelidir (infra reposu). Kova sürümlemesi açıksa silme yalnız delete marker bırakır; eski sürümler yaşam döngüsü kuralıyla temizlenmelidir.
+
 ## Ürün–araç kataloğu bağlantıları
 
 `product_vehicle_fitments`, kaynak araç satırını `supplier_item_id` ve `source_index` ile saklar. Eşleşen satırdaki `vehicle_type_id`, gerçek `vehicle_types.id` kaydına foreign key ile bağlıdır; marka ve model `vehicle_types → vehicle_models → vehicle_brands` ilişkisi üzerinden okunur. Aynı araç farklı ürünlere bağlanabilir. Kaynak motor kodları ve diğer ham değerler `source_vehicle` içinde korunur.
@@ -252,8 +270,8 @@ Komutlar:
 - node --env-file=.env.local --import tsx scripts/enrichment-categories.ts import-tree artifacts/trodo-categories/tree-20261007.json
 - node --env-file=.env.local --import tsx scripts/localize-categories.ts
 - node --env-file=.env.local --import tsx scripts/enrichment-categories.ts backfill
-- node --env-file=.env.local --import tsx scripts/category-images.ts
-- node --env-file=.env.local --import tsx scripts/category-images.ts status
+- node --env-file=.env.local --conditions=react-server --import tsx scripts/category-images.ts
+- node --env-file=.env.local --conditions=react-server --import tsx scripts/category-images.ts status
 
 Görsel köprüsü yalnızca 127.0.0.1:4319 üzerinde çalışır. Ürettiği
 .local/enrichment/category-image-start.js dosyası gizli, geçici erişim anahtarı içerir;

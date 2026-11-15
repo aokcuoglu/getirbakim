@@ -115,7 +115,7 @@ Birleştirme: eylemler `product_overrides_carry`'nin yanında `product_override_
 Kararlar ve sınırlar:
 
 - **Ortamlar arası aktarım yok:** yüklemeler yapıldıkları ortamda yaşar (kaynak AWS yönetim paneli). `products.id` ortamlar arasında farklı olduğundan mağaza paketi (#553) bu tabloları ne dışa aktarır ne içe alır; aktarım aracı yoktur (`test:product-override-images` yapısal olarak denetler).
-- **Silme yalnız satırı kaldırır:** `product_override_images` satırı silinir; `product_media_objects` kaydı ve S3'teki baytlar kalır. Başka bir yükleme veya zenginleştirme kullanmıyorsa `/api/product-media` onu artık sunmaz. Kullanılmayan nesneleri toplama ayrı iştir (#597).
+- **Silme yalnız satırı kaldırır:** `product_override_images` satırı silinir; `product_media_objects` kaydı ve S3'teki baytlar kalır. Başka bir yükleme veya zenginleştirme kullanmıyorsa `/api/product-media` onu artık sunmaz. Kullanılmayan nesneleri `npm run media:gc` toplar (bkz. [Medya temizliği](product-enrichment.md#medya-temizliği)).
 - **Tarayıcı önbelleği:** `/api/product-media` yanıtları `Cache-Control: public, max-age=86400` taşır; silinen veya gizlenen bir görsel, onu daha önce yüklemiş tarayıcıda (ve CDN'de) en çok 1 gün görünebilir.
 - **Gizli ürünlerin görselleri:** mağazada gizli (`product_overrides.hidden`) bir ürünün yüklenen görselleri mağazada listelenmez, ama adresini bilen `/api/product-media/<uuid>` üzerinden açabilir; birleştirilmiş ürünlerin yüklemeleri ise sunulmaz.
 - **Zincirleme taşıma:** A, B'ye birleşip görselleri B'ye taşındıktan sonra B de C'ye birleşirse C'deki kopyaların kaynağı B olur (`carried_from=B`); A→B birleştirmesini geri almak B'deki kopyaları kaldırır ama C'dekilere dokunmaz (onlar ancak B→C geri alınınca gider).
