@@ -8,7 +8,7 @@ export const orderListBack = z.string().max(500)
   .refine(value => value === listPath || value.startsWith(`${listPath}?`), "Sipariş listesi dışında bir adres");
 
 /** Back to the same tab, sort and page, with the action's outcome. Only list parameters are carried over. */
-export type OrderListOutcome = "saved" | "error" | "refunded" | "refund_failed" | "refund_unknown" | "refund_busy";
+export type OrderListOutcome = "saved" | "error" | "refunded" | "refund_failed" | "refund_void_failed" | "refund_unknown" | "refund_busy";
 export function orderListReturn(back: unknown, outcome: OrderListOutcome) {
   const parsed = orderListBack.safeParse(back);
   const source = new URLSearchParams(parsed.success ? parsed.data.slice(listPath.length + 1) : "");

@@ -6,7 +6,7 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { money } from "@/modules/store/catalog";
 import { changeOrderStatus, checkTamiRefund, recordRefund } from "@/modules/admin/commerce-actions";
-import { refundablePayments, refundKindLabel, refundStatusLabel, reversalKinds, type RefundStatus } from "@/modules/payments/refund-rules";
+import { refundablePayments, refundKindLabel, refundStatusLabel, reversalKind, type RefundStatus } from "@/modules/payments/refund-rules";
 import { carrierLabel } from "@/modules/store/shipment";
 import { OrderShipmentDialog } from "@/components/admin/order-shipment-dialog";
 import { OrderDeliveredDialog } from "@/components/admin/order-delivered-dialog";
@@ -28,10 +28,14 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const time = (value: Date | string) => formatDateTime(value, { year: true });
-const refundBadge: Record<RefundStatus, { variant: "success" | "destructive" | "warning"; icon: typeof CircleCheck }> = {
+const refundBadge: Record<RefundStatus, { variant: "success" | "destructive" | "warning" | "info"; icon: typeof CircleCheck }> = {
   succeeded: { variant: "success", icon: CircleCheck }, failed: { variant: "destructive", icon: CircleAlert },
-  unknown: { variant: "warning", icon: TriangleAlert }, requested: { variant: "warning", icon: TriangleAlert },
+  unknown: { variant: "warning", icon: TriangleAlert }, requested: { variant: "info", icon: Info },
 };
+function RefundStatusBadge({ status }: { status: RefundStatus }) {
+  const { variant, icon: Icon } = refundBadge[status];
+  return <Badge variant={variant}><Icon data-icon="inline-start"/>{refundStatusLabel[status]}</Badge>;
+}
 const tabOrder: OrderFilter[] = ["all", "action", "shipping", "refund", "awaiting_payment", "shipped", "delivered", "cancelled"];
 
 export default async function Orders({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -60,6 +64,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Bu değişikliğe izin verilmiyor. Listeyi yenileyin.</AlertDescription></Alert>}
     {params.refunded && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>TAMI iadeyi onayladı; sipariş güncellendi.</AlertDescription></Alert>}
+    {params.refund_void_failed && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>TAMI iptali reddetti (hata kodu siparişin İadeler satırında). Tekrar &quot;TAMI&apos;den iade et&quot; derseniz iade olarak gönderilir.</AlertDescription></Alert>}
     {params.refund_failed && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>TAMI iadeyi reddetti; ayrıntı siparişin İadeler satırında. Sorunu giderip yeniden deneyebilirsiniz.</AlertDescription></Alert>}
     {params.refund_unknown && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>TAMI yanıtı doğrulanamadı. TAMI&apos;de kontrol edin; iade görünüyorsa &quot;TAMI&apos;de kontrol et&quot; ile sonucu alın ya da referansı elle kaydedin.</AlertDescription></Alert>}
     {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
@@ -96,17 +101,14 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                     {o.refund_reference && <div><dt className="text-muted-foreground">İade referansı</dt><dd className="break-all">{o.refund_reference}</dd></div>}
                     {o.refunded_at && <div><dt className="text-muted-foreground">İade zamanı</dt><dd>{time(o.refunded_at)}</dd></div>}
                     {o.refunds.length > 0 && <div className="sm:col-span-2"><dt className="text-muted-foreground">İadeler</dt>
-                      {o.refunds.map(r => {
-                        const badge = refundBadge[r.status], Icon = badge.icon;
-                        return <dd key={r.id} className="flex flex-col items-start gap-1">
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span>TAMI {refundKindLabel[r.kind]} · {r.provider_order_id} · <span className="tabular-nums">{money(Number(r.amount_kurus))}</span></span>
-                            <Badge variant={badge.variant}><Icon data-icon="inline-start"/>{refundStatusLabel[r.status]}</Badge>
-                          </span>
-                          <span className="text-muted-foreground">{time(r.completed_at ?? r.requested_at)}{r.bank_reference ? ` · banka ref. ${r.bank_reference}` : ""}</span>
-                          {(r.error_code || r.error_message) && <span className="break-all text-muted-foreground">{r.error_code ? `Hata ${r.error_code}: ` : ""}{r.error_message}</span>}
-                        </dd>;
-                      })}
+                      <div className="flex flex-col gap-2">{o.refunds.map(r => <dd key={r.id} className="flex flex-col items-start gap-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span>TAMI {refundKindLabel[r.kind].toLocaleLowerCase("tr-TR")} · {r.provider_order_id} · <span className="tabular-nums">{money(Number(r.amount_kurus))}</span></span>
+                          <RefundStatusBadge status={r.status}/>
+                        </span>
+                        <span className="text-muted-foreground">{time(r.completed_at ?? r.requested_at)}{r.bank_reference ? ` · banka ref. ${r.bank_reference}` : ""}</span>
+                        {(r.error_code || r.error_message) && <span className="break-all text-muted-foreground">{r.error_code ? `Hata ${r.error_code}: ` : ""}{r.error_message}</span>}
+                      </dd>)}</div>
                     </div>}
                     {["shipped", "delivered"].includes(o.status) && <div className="sm:col-span-2"><dt className="text-muted-foreground">Kargo</dt>
                       {o.carrier ? <dd className="flex flex-col gap-1">
@@ -150,12 +152,13 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               </div>}
               {(refundable.length > 0 || pendingRefunds.length > 0) && <div className="mt-2 flex flex-col items-end gap-2">
                 {refundable.map(p => <OrderRefundDialog key={p.id} orderId={o.id} number={o.number} paymentId={p.id} providerOrderId={p.provider_order_id}
-                  amountKurus={Number(p.amount_kurus)} kinds={reversalKinds(p.paid_at)} several={o.payments.filter(x => x.status === "succeeded").length > 1} back={back}/>)}
+                  amountKurus={Number(p.amount_kurus)} kind={reversalKind(p.paid_at, o.refunds.filter(r => r.payment_id === p.id))}
+                  several={o.payments.filter(x => x.status === "succeeded").length > 1} orderPaid={o.payment_status === "paid"} back={back}/>)}
                 {pendingRefunds.map(r => <form key={r.id} action={checkTamiRefund} className="flex flex-wrap items-center justify-end gap-2">
                   <input type="hidden" name="refund" value={r.id}/>
                   <input type="hidden" name="order" value={o.id}/>
                   <input type="hidden" name="back" value={back}/>
-                  <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>İade sonucu bilinmiyor</Badge>
+                  <RefundStatusBadge status={r.status}/>
                   <SubmitButton variant="outline" aria-label={`#${o.number} ${r.provider_order_id} iadesini TAMI'de kontrol et`} pendingLabel="Sorgulanıyor…"
                     icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>}>TAMI&apos;de kontrol et</SubmitButton>
                 </form>)}

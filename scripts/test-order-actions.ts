@@ -49,7 +49,7 @@ test("actions return to the list they came from; anything else falls back to the
     "/yonetim/siparisler?status=action&sort=total&dir=desc&page=3&saved=1");
   assert.equal(orderListReturn("/yonetim/siparisler", "error"), "/yonetim/siparisler?error=1");
   // TAMI refund outcomes (#619) replace any earlier outcome.
-  for (const outcome of ["refunded", "refund_failed", "refund_unknown", "refund_busy"] as const) {
+  for (const outcome of ["refunded", "refund_failed", "refund_void_failed", "refund_unknown", "refund_busy"] as const) {
     assert.equal(orderListReturn("/yonetim/siparisler?status=refund&saved=1", outcome), `/yonetim/siparisler?status=refund&${outcome}=1`);
   }
   assert.equal(orderListReturn("/yonetim/siparisler?refund_unknown=1&page=2", "refunded"), "/yonetim/siparisler?page=2&refunded=1");
