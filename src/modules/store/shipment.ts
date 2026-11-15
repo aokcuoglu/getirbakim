@@ -1,7 +1,8 @@
 import { z } from "zod";
 
-// Carriers offered in the admin's ship dialog (#605). trackingUrl builds the carrier's public tracking page; null where no
-// stable query link is known (checked 2026-11-15: PTT's link redirects to its home page), so the customer is told to search.
+// Carriers offered in the admin's ship dialog (#605), in display order. trackingUrl builds the carrier's public tracking page;
+// null where no stable query link is known (checked 2026-11-15: PTT's link redirects to its home page), so the customer is
+// told to search. Yurtiçi's page reads `code` from the query string and runs the search (its shipment-tracking.js).
 export const carriers = {
   yurtici: { label: "Yurtiçi Kargo", trackingUrl: (no: string) => `https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=${no}` },
   aras: { label: "Aras Kargo", trackingUrl: (no: string) => `https://kargotakip.araskargo.com.tr/mainpage.aspx?code=${no}` },
@@ -15,6 +16,11 @@ export const carriers = {
 } satisfies Record<string, { label: string; trackingUrl: ((no: string) => string) | null }>;
 export type CarrierCode = keyof typeof carriers;
 export const carrierCodes = Object.keys(carriers) as [CarrierCode, ...CarrierCode[]];
+
+/** The store ships with Yurtiçi Kargo (2026-11-15 decision); the ship dialog starts on it and it leads the list. */
+export const defaultCarrier: CarrierCode = "yurtici";
+/** Carrier the ship dialog starts on: the recorded one, else the default. */
+export const startingCarrier = (stored: string | null | undefined) => stored || defaultCarrier;
 
 const isCarrier = (value: string): value is CarrierCode => Object.hasOwn(carriers, value);
 

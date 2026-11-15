@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { orderListBack, orderListReturn } from "../src/modules/admin/order-list-return";
-import { resolveTrackingUrl, shipmentSchema } from "../src/modules/store/shipment";
+import { carrierCodes, defaultCarrier, resolveTrackingUrl, shipmentSchema, startingCarrier } from "../src/modules/store/shipment";
 
 // Admin order steps (#516) in an isolated copy of the schema; nothing touches the shared database's tables.
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
@@ -142,6 +142,15 @@ test("the shipment form rejects a missing or malformed tracking number, carrier 
     assert.ok(fails({ carrier: "ups", trackingNo: "ABCD1", trackingUrl }).trackingUrl, trackingUrl);
   }
   assert.equal(shipment({ carrier: "ups", trackingNo: "ABCD1", trackingUrl: "" }).trackingUrl, null);
+});
+
+test("Yurtiçi Kargo is the default carrier and leads the list; a recorded carrier is kept", () => {
+  assert.equal(defaultCarrier, "yurtici");
+  assert.equal(carrierCodes[0], "yurtici");
+  assert.equal(startingCarrier(undefined), "yurtici");
+  assert.equal(startingCarrier(null), "yurtici");
+  assert.equal(startingCarrier("aras"), "aras");
+  assert.equal(shipmentSchema.parse({ carrier: defaultCarrier, trackingNo: "123456789012" }).carrier, "yurtici");
 });
 
 test("tracking links: the admin's link, else the carrier template with the number encoded, else none", () => {

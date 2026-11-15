@@ -3,7 +3,7 @@
 import { useActionState, useId, useRef, useState } from "react";
 import { CircleAlert, Save, Truck } from "lucide-react";
 import { saveShipment } from "@/modules/admin/commerce-actions";
-import { carrierCodes, carriers, hasTrackingTemplate, resolveTrackingUrl, type ShipmentResult } from "@/modules/store/shipment";
+import { carrierCodes, carriers, hasTrackingTemplate, resolveTrackingUrl, startingCarrier, type ShipmentResult } from "@/modules/store/shipment";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -39,7 +39,7 @@ function ShipmentForm({ orderId, back, mode, initial, initialFocus }: {
   orderId: string; back: string; mode: "ship" | "edit"; initial?: ShipmentInitial; initialFocus: React.RefObject<HTMLSelectElement | null>;
 }) {
   const fieldId = useId();
-  const startCarrier = initial?.carrier ?? "";
+  const startCarrier = startingCarrier(initial?.carrier);
   const startNo = initial?.trackingNo ?? "";
   // A stored link that the carrier template produced is shown as automatic, not as a hand-entered one.
   const startUrl = initial?.trackingUrl && initial.trackingUrl !== resolveTrackingUrl(startCarrier, startNo, null) ? initial.trackingUrl : "";
@@ -63,7 +63,6 @@ function ShipmentForm({ orderId, back, mode, initial, initialFocus }: {
         <FieldLabel htmlFor={`${fieldId}-carrier`}>Kargo firması</FieldLabel>
         <NativeSelect ref={initialFocus} id={`${fieldId}-carrier`} name="carrier" className="w-full" required value={values.carrier} onChange={set("carrier")}
           aria-invalid={Boolean(errors.carrier)} aria-describedby={describe("carrier")}>
-          <NativeSelectOption value="" disabled>Firma seç</NativeSelectOption>
           {carrierCodes.map(code => <NativeSelectOption key={code} value={code}>{carriers[code].label}</NativeSelectOption>)}
         </NativeSelect>
         {errors.carrier && <FieldError id={`${fieldId}-carrier-error`}>{errors.carrier[0]}</FieldError>}
