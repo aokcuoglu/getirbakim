@@ -6,7 +6,8 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { returnReasons } from '@/modules/store/returns';
 import { shipmentSchema,type ShipmentResult } from '@/modules/store/shipment';
-import { transitionOrder,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn } from './orders';
+import { transitionOrder,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn,setLineProcurement } from './orders';
+import { procurementInput } from './order-procurement';
 import { orderListBack,orderListReturn,type OrderListOutcome } from './order-list-return';
 import { refundPayment,checkRefund,type RefundOutcome } from '@/modules/payments/refunds';
 export async function savePricing(form:FormData) {
@@ -61,6 +62,17 @@ export async function saveShipment(_previous:ShipmentResult,form:FormData):Promi
  if(!ok) return {status:'error',message:'Sipariş bu işlem için uygun değil. Listeyi yenileyin.'};
  revalidateOrder(target.data.id);
  return {status:'success',next:orderListReturn(form.get('back'),'saved')};
+}
+export type ProcurementResult={status:'idle'|'success'|'error';message?:string};
+/** Procurement status of one order line (#606); the lines dialog stays open and shows the refreshed list. */
+export async function saveLineProcurement(_previous:ProcurementResult,form:FormData):Promise<ProcurementResult> {
+ const admin=await requireAdmin();
+ const input=procurementInput.safeParse(Object.fromEntries(form));
+ if(!input.success) return {status:'error',message:'Tedarik bilgisi geçersiz. Referans en fazla 200 karakter olabilir.'};
+ const ok=await setLineProcurement({orderId:input.data.order,productId:input.data.product,status:input.data.status,reference:input.data.reference,adminId:admin.id});
+ if(!ok) return {status:'error',message:'Sipariş bu işlem için uygun değil. Listeyi yenileyin.'};
+ revalidatePath('/yonetim','layout');
+ return {status:'success'};
 }
 export async function recordRefund(form:FormData) {
  await requireAdmin();

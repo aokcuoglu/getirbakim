@@ -4,6 +4,7 @@ import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { releaseReservedStock } from "@/modules/store/stock-reservation";
 import { resolveTrackingUrl, type Shipment } from "@/modules/store/shipment";
+import type { ProcurementStatus } from "./order-procurement";
 
 // Shipping is its own step (shipOrder): it needs the carrier and tracking number. delivered is final.
 type OrderTransition = "confirmed" | "cancelled" | "delivered";
@@ -64,7 +65,24 @@ export async function recordOrderRefund(id: string, reference: string) {
   return Boolean(updated.rowCount);
 }
 
-export type OrderReturnInput = { orderId: string; productId: string; quantity: number; reason: string; note: string; adminId: string };
+export type LineProcurementInput = { orderId: string; productId: string; status: ProcurementStatus; reference: string; adminId: string };
+/**
+ * Procurement of one supplier line (#606), freely between pending, ordered and procured while the order is pending or
+ * confirmed (and paid or offline). Back to pending clears the reference and times; a blank reference keeps the old one.
+ */
+export async function setLineProcurement({ orderId, productId, status, reference, adminId }: LineProcurementInput) {
+  return withHandledOrder(orderId, async (client, old) => {
+    if (!["pending", "confirmed"].includes(old.status)) return false;
+    const updated = await client.query(`UPDATE commerce_order_items SET procurement_status=$3,
+      procurement_ref=CASE WHEN $3='pending' THEN NULL ELSE COALESCE(NULLIF(btrim($4),''),procurement_ref) END,
+      procurement_ordered_at=CASE WHEN $3='pending' THEN NULL ELSE COALESCE(procurement_ordered_at,now()) END,
+      procured_at=CASE WHEN $3='procured' THEN COALESCE(procured_at,now()) END,procurement_by=$5
+      WHERE order_id=$1 AND product_id=$2 AND COALESCE(pricing_snapshot->>'source','')<>'store'`, [orderId, productId, status, reference, adminId]);
+    return Boolean(updated.rowCount);
+  });
+}
+
+export type OrderReturnInput ={ orderId: string; productId: string; quantity: number; reason: string; note: string; adminId: string };
 /** Shipped or delivered lines only; partial returns may add up to the ordered quantity. */
 export async function recordOrderReturn({ orderId, productId, quantity, reason, note, adminId }: OrderReturnInput) {
   const client = await db.connect();
