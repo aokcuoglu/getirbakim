@@ -66,7 +66,7 @@ export async function addProductReference(input: { productId: string; kind: stri
   const data = reference.safeParse(input);
   if (!data.success) return { status: "error", message: inputError(data.error.issues) };
   const { productId: id, ...value } = data.data;
-  return run(() => store.addProductReference(db, id, value, admin.id), "Referans eklendi; mağazada gösteriliyor ve aramada bulunuyor.");
+  return run(() => store.addProductReference(db, id, value, admin.id), "Referans eklendi; ürün sayfasında hemen, kod aramasında birkaç dakika içinde görünür.");
 }
 
 export async function hideProductReference(input: { productId: string; kind: string; brand: string; number: string }): Promise<ProductReferenceActionResult> {
@@ -74,7 +74,7 @@ export async function hideProductReference(input: { productId: string; kind: str
   const data = automatic.safeParse(input);
   if (!data.success) return { status: "error", message: "Referans tanınmadı. Sayfayı yenileyin." };
   const { productId: id, kind, brand, number } = data.data;
-  return run(() => store.hideProductReference(db, id, { kind, brand, number }, admin.id), "Otomatik referans mağazada gizlendi.");
+  return run(() => store.hideProductReference(db, id, { kind, brand, number }, admin.id), "Otomatik referans ürün sayfasında gizlendi; kod aramasından birkaç dakika içinde çıkar.");
 }
 
 export async function removeProductReference(input: { productId: string; referenceId: string; shown?: boolean }): Promise<ProductReferenceActionResult> {

@@ -2,20 +2,27 @@
 
 import { useId, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { CircleAlert, CircleCheck, Eye, EyeOff, GitMerge, Pencil, Plus, Trash2 } from "lucide-react";
+import { CircleAlert, CircleCheck, Eye, EyeOff, GitMerge, Hash, Pencil, Plus, Trash2 } from "lucide-react";
 import { addProductReference, hideProductReference, removeProductReference, type ProductReferenceActionResult } from "@/app/yonetim/urunler/reference-actions";
 import { productReferenceLimit, referenceKindLabels, referenceKinds, type ReferenceKind } from "@/modules/admin/product-reference-fields";
 import type { ProductReferences } from "@/modules/admin/product-reference-store";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Spinner } from "@/components/ui/spinner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 type Row = { key: string; kind: ReferenceKind; brand: string; number: string; status: "manual" | "carried" | "automatic" | "hidden" | "supplier";
   carried?: boolean; id?: string };
+
+const compact = (value: string) => value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+const rowKey = (kind: string, brand: string, number: string) => `${kind}|${compact(brand)}|${compact(number)}`;
+// Fixed display order, so a refresh after a change never moves rows under the pointer.
+const statusOrder: Record<Row["status"], number> = { manual: 0, carried: 0, hidden: 1, automatic: 2, supplier: 3 };
 
 const brandLabels: Record<ReferenceKind, string> = { oem: "Araç markası", cross: "Üretici", ean: "" };
 const brandPlaceholders: Record<ReferenceKind, string> = { oem: "Örn. VW", cross: "Örn. BOSCH", ean: "" };
@@ -50,6 +57,8 @@ export function ProductReferencesManager({ productId, references }: { productId:
   };
 
   const shownHidden = new Set(references.automatic.map(row => row.hiddenId).filter(Boolean));
+  // An automatic number the admin also added by hand cannot be hidden (same key) until the added row is removed.
+  const addedKeys = new Set(references.added.map(row => rowKey(row.kind, row.brand, row.number)));
   const rows: Row[] = [
     ...references.added.map(row => ({ key: row.id, id: row.id, kind: row.kind, brand: row.brand, number: row.number, status: row.carried ? "carried" as const : "manual" as const })),
     ...references.automatic.map(row => ({ key: `${row.supplierOem ? "s" : "a"}|${row.kind}|${row.brand}|${row.number}`, id: row.hiddenId ?? undefined,
@@ -57,7 +66,7 @@ export function ProductReferencesManager({ productId, references }: { productId:
     // Hidden numbers the enrichment no longer lists stay here so they can be shown again.
     ...references.hidden.filter(row => !shownHidden.has(row.id)).map(row => ({ key: row.id, id: row.id, kind: row.kind, brand: row.brand, number: row.number,
       status: "hidden" as const, carried: row.carried })),
-  ];
+  ].map((row, index) => ({ row, index })).sort((a, b) => statusOrder[a.row.status] - statusOrder[b.row.status] || a.index - b.index).map(({ row }) => row);
 
   return <div className="flex flex-col gap-4">
     <form className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end" onSubmit={submit}>
@@ -77,7 +86,8 @@ export function ProductReferencesManager({ productId, references }: { productId:
         <Input id={ids.number} value={number} minLength={3} maxLength={60} required disabled={pending} placeholder={numberPlaceholders[kind]} autoComplete="off"
           className="font-mono" onChange={event => setNumber(event.target.value)}/>
       </Field>
-      <Button type="submit" disabled={pending || stored >= productReferenceLimit}><Plus data-icon="inline-start" aria-hidden="true"/>Ekle</Button>
+      <Button type="submit" disabled={pending || stored >= productReferenceLimit}>
+        {pending ? <><Spinner data-icon="inline-start"/>Kaydediliyor…</> : <><Plus data-icon="inline-start" aria-hidden="true"/>Ekle</>}</Button>
       <FieldDescription className="sm:col-span-2 lg:col-span-4">
         {kind === "ean" ? "Barkod 8, 12, 13 veya 14 haneli olmalı; kontrol hanesi doğrulanır." : "Harf, rakam, boşluk, nokta, eğik çizgi ve tire kullanılabilir; aramada boşluk ve işaretler yok sayılır."}
         {stored >= productReferenceLimit && ` Bu ürün ${productReferenceLimit} kayıt sınırına ulaştı; yeni numara için önce birini kaldırın.`}
@@ -89,11 +99,11 @@ export function ProductReferencesManager({ productId, references }: { productId:
     </div>
     {result?.status === "error" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
 
-    {rows.length ? <Table><caption className="sr-only">Referans numaraları</caption>
+    {rows.length ? <Table controls={false}><caption className="sr-only">Referans numaraları</caption>
       <TableHeader><TableRow><TableHead>Tür</TableHead><TableHead>Marka</TableHead><TableHead>Numara</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
       <TableBody>{rows.map(row => <TableRow key={row.key}>
         <TableCell>{referenceKindLabels[row.kind]}</TableCell>
-        <TableCell className="max-w-48 truncate" title={row.brand}>{row.brand || <span className="text-muted-foreground">—</span>}</TableCell>
+        <TableCell className="max-w-48 truncate" title={row.brand}>{row.brand || <><span className="text-muted-foreground" aria-hidden="true">—</span><span className="sr-only">Marka yok</span></>}</TableCell>
         <TableCell className="font-mono">{row.number}</TableCell>
         <TableCell><div className="flex flex-wrap gap-1">
           {row.status === "manual" && <StatusBadge tone="info" icon={Pencil}>Elle eklendi</StatusBadge>}
@@ -104,13 +114,16 @@ export function ProductReferencesManager({ productId, references }: { productId:
         </div></TableCell>
         <TableCell><div className="flex flex-wrap justify-end gap-2">
           {(row.status === "manual" || row.status === "carried") && row.id && <Button type="button" variant="outline" disabled={pending}
-            onClick={() => mutate(() => removeProductReference({ productId, referenceId: row.id! }))}><Trash2 data-icon="inline-start" aria-hidden="true"/>Kaldır</Button>}
-          {row.status === "automatic" && row.kind !== "ean" && <Button type="button" variant="outline" disabled={pending || stored >= productReferenceLimit}
-            onClick={() => mutate(() => hideProductReference({ productId, kind: row.kind, brand: row.brand, number: row.number }))}><EyeOff data-icon="inline-start" aria-hidden="true"/>Gizle</Button>}
+            aria-label={`${row.number} numarasını kaldır`} onClick={() => mutate(() => removeProductReference({ productId, referenceId: row.id! }))}><Trash2 data-icon="inline-start" aria-hidden="true"/>Kaldır</Button>}
+          {row.status === "automatic" && addedKeys.has(rowKey(row.kind, row.brand, row.number))
+            && <span className="text-muted-foreground">Gizlemek için önce elle eklenen numarayı kaldırın.</span>}
+          {row.status === "automatic" && row.kind !== "ean" && !addedKeys.has(rowKey(row.kind, row.brand, row.number)) && <Button type="button" variant="outline"
+            disabled={pending || stored >= productReferenceLimit} aria-label={`${row.number} numarasını mağazada gizle`} onClick={() => mutate(() => hideProductReference({ productId, kind: row.kind, brand: row.brand, number: row.number }))}><EyeOff data-icon="inline-start" aria-hidden="true"/>Gizle</Button>}
           {row.status === "hidden" && row.id && <Button type="button" variant="outline" disabled={pending}
-            onClick={() => mutate(() => removeProductReference({ productId, referenceId: row.id!, shown: true }))}><Eye data-icon="inline-start" aria-hidden="true"/>Yeniden göster</Button>}
+            aria-label={`${row.number} numarasını yeniden göster`} onClick={() => mutate(() => removeProductReference({ productId, referenceId: row.id!, shown: true }))}><Eye data-icon="inline-start" aria-hidden="true"/>Yeniden göster</Button>}
         </div></TableCell>
       </TableRow>)}</TableBody></Table>
-      : <p className="text-muted-foreground">Bu ürünün referans numarası yok.</p>}
+      : <Empty><EmptyHeader><EmptyMedia variant="icon"><Hash/></EmptyMedia><EmptyTitle>Referans numarası yok</EmptyTitle>
+        <EmptyDescription>Bu ürünün otomatik OEM veya muadil numarası yok; yukarıdaki formla elle ekleyebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}
   </div>;
 }

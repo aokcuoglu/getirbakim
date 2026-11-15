@@ -208,7 +208,7 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
     WHERE search_compact(reference.number) LIKE ${bind(`%${parsed.compact}%`)}
      AND NOT EXISTS (SELECT 1 FROM product_override_references h JOIN product_sources hs ON hs.product_id=h.product_id
       WHERE hs.supplier_item_id=e.supplier_item_id AND h.action='hide' AND h.kind='oem' AND h.brand_key=part_number_key(refs.key)
-       AND lower(h.number_key)=search_compact(reference.number))`);
+       AND h.number_key=part_number_key(reference.number))`);
  // Numbers an admin added (#582): OEM, cross-reference and barcode. A small table read whole, like overrideItemMatch.
  if(parsed.compact.length>=3)hits.push(`SELECT ps.supplier_item_id FROM product_override_references r
     JOIN product_sources ps ON ps.product_id=r.product_id
