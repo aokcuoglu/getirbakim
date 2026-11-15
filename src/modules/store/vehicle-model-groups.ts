@@ -22,6 +22,7 @@
 // `npm run vehicles:slugs` (docs/vehicle-catalog.md) compares the addresses before and after a catalog import.
 import { BODY, ROMAN, normalizeText } from "./description-fitment";
 import { readableProductName } from "./product-name";
+import { vehicleMakeLabel } from "./vehicle-label";
 import type { VehicleModel } from "./vehicle-catalog";
 
 export type VehicleModelGroup = {
@@ -161,8 +162,8 @@ export function vehicleModelGroupFamilies(groups: VehicleModelGroup[]): VehicleM
 
 const modelTitleBudget = 60;
 
-/** A make in reading form: "VOLKSWAGEN" → "Volkswagen", "MERCEDES-BENZ" → "Mercedes-Benz", "BMW" stays (the rule of product names). */
-export const vehicleMakeLabel = (name: string) => readableProductName(name);
+// The make's reading form lives in vehicle-label.ts (#689); the model pages' import path stays.
+export { vehicleMakeLabel };
 
 /** Page texts of a model page: "Volkswagen Golf 7" (`model` "Golf 7"), its H1 with the years and the shorter <title>. */
 export function vehicleModelLabels(makeName: string, group: Pick<VehicleModelGroup, "name" | "dateFrom" | "dateTo">) {

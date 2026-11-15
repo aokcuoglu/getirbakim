@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { currentAccount } from "@/modules/auth/session";
 import { currentVehicle } from "@/modules/store/garage";
+import { shownVehicle } from "@/modules/store/vehicle-label";
 import { cartQuantity, currentCartOwner } from "@/modules/store/cart";
 import { AccountMenu } from "@/components/auth/account-menu";
 import { GarageButton } from "@/components/garage/garage-button";
@@ -17,7 +18,7 @@ async function HeaderAccount() {
 }
 
 async function HeaderGarage() {
-  return <GarageButton vehicle={await currentVehicle()} />;
+  return <GarageButton vehicle={shownVehicle(await currentVehicle())} />;
 }
 
 async function HeaderCart() {

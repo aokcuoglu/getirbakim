@@ -15,8 +15,9 @@ import { CatalogSidebar,CatalogResults } from "@/components/catalog-controls";
 import { CatalogProduct } from "@/components/catalog-product";
 import { getCatalogProductImages,getCatalogProductDetails } from "@/modules/store/product-enrichment";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
+import {shownVehicle,vehicleText} from "@/modules/store/vehicle-label";
 import {getVehicleBrands} from "@/modules/store/vehicle-catalog.server";
-import {vehicleBrandSlug,type VehicleBrand} from "@/modules/store/vehicle-catalog";
+import {vehicleBrandSlug,type ShownVehicle,type VehicleBrand} from "@/modules/store/vehicle-catalog";
 import {vehicleMakeLabel,vehicleModelGroupYears,vehicleModelLabels,type VehicleModelGroup} from "@/modules/store/vehicle-model-groups";
 import {VehicleModelSummary} from "@/components/vehicle-model-summary";
 import {VehicleModelList} from "@/components/vehicle-model-list";
@@ -51,7 +52,7 @@ const benefits=[
  {icon:CarFront,title:"Parça uyumluluğunu kontrol et",text:"OEM numarasını ve araç bilgilerini karşılaştır."},
 ];
 // OEM code search plus the garage picker; `compact` is the smaller copy inside the sticky finder.
-function CatalogFinder({compact,home,query,vehicle}:{compact:boolean;home:string;query?:string;vehicle:Awaited<ReturnType<typeof currentVehicle>>}){
+function CatalogFinder({compact,home,query,vehicle}:{compact:boolean;home:string;query?:string;vehicle:ShownVehicle|null}){
  return <div className={cn("flex items-center justify-center py-1 max-[600px]:mx-auto max-[600px]:max-w-[400px] max-[600px]:flex-wrap",compact&&"h-20 px-[15px] py-4")}>
   <form action={home} className="flex gap-2.5 max-[600px]:w-full" role="search" aria-label="OEM numarasıyla parça ara">
    <label className={cn("flex h-14 w-[296px] overflow-hidden rounded-md border border-white bg-white min-[601px]:max-[850px]:w-60 max-[600px]:w-auto max-[600px]:min-w-0 max-[600px]:flex-1",compact&&"h-12 w-[245px]")}>
@@ -91,7 +92,7 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
  // Same URL shape as the sidebar filters: make and category stay in the path, a page number is dropped.
  const listingHref=(updates:Partial<CatalogQuery>)=>listingUrl(params,updates);
  const fitsHref=(fits:"vehicle"|undefined)=>listingHref({fits});
- const vehicleName=vehicle&&[vehicle.make,vehicle.model,vehicle.engine].filter(Boolean).join(" ");
+ const shown=shownVehicle(vehicle),vehicleName=shown&&vehicleText(shown);
  const fitFilter=vehicleTypeId&&(params.fits||fitCount>0)&&<div className={cn("mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground",params.fits&&"border-[#9fd3b5] bg-[#e8f6ee]")} role="status"><CircleCheck size={18} aria-hidden="true"/>
   {params.fits?<p>Yalnızca garajındaki <strong>{vehicleName}</strong> aracına bağlı ürünler gösteriliyor ({result.total.toLocaleString("tr-TR")} ürün).</p>
    :<p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>}
@@ -118,7 +119,7 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
  const intro=params.q?undefined:modelName?`${modelName}${modelYears?` (${modelYears})`:""} için listelenen ${(modelTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
  const collection=isIndexableListing(params)&&products.length>0
   ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,modelSlug,categorySlug:category?.slug}),items:products.map(product=>({path:productPath(product),name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
- const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.q} vehicle={vehicle}/>;
+ const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.q} vehicle={shown}/>;
  const crumbLink="min-h-0 transition-colors hover:text-primary hover:underline underline-offset-4";
  const crumbSeparator=<BreadcrumbSeparator className="[&>svg]:size-2.5"><ChevronRight/></BreadcrumbSeparator>;
  return (
@@ -139,7 +140,7 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
       {trail.map((crumb,index)=><Fragment key={crumb.path}>{index>0&&crumbSeparator}<BreadcrumbItem>{index===trail.length-1?<BreadcrumbPage className="text-inherit">{crumb.name}</BreadcrumbPage>:<BreadcrumbLink className={crumbLink} render={<Link href={crumb.path}/>}>{crumb.name}</BreadcrumbLink>}</BreadcrumbItem></Fragment>)}
      </BreadcrumbList>
     </Breadcrumb>
-    {!params.q&&<div className="mb-4 pb-[26px] max-[768px]:pb-4"><h2 className="mb-3 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl max-[768px]:leading-[26px]">{modelName?`${modelName} için yedek parçaları keşfet`:make&&!category?`${makeName} araçlar için yedek parçaları keşfet`:category?.id===269?"Aracın için ön ve arka fren disklerini keşfet":category?category.name+" ürünlerini keşfet":"Aracına uygun yedek parçayı bul"}</h2><p className="min-h-[54px] text-[13px] leading-[18px]">{intro}</p>{model&&modelName&&<VehicleModelSummary name={modelName} model={model} vehicle={vehicle}/>}</div>}
+    {!params.q&&<div className="mb-4 pb-[26px] max-[768px]:pb-4"><h2 className="mb-3 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl max-[768px]:leading-[26px]">{modelName?`${modelName} için yedek parçaları keşfet`:make&&!category?`${makeName} araçlar için yedek parçaları keşfet`:category?.id===269?"Aracın için ön ve arka fren disklerini keşfet":category?category.name+" ürünlerini keşfet":"Aracına uygun yedek parçayı bul"}</h2><p className="min-h-[54px] text-[13px] leading-[18px]">{intro}</p>{model&&modelName&&<VehicleModelSummary name={modelName} model={model} vehicle={shown}/>}</div>}
     {make&&!model&&!category&&!params.q&&!filtered&&<VehicleModelList brandId={make.id} makeName={makeName!} makeSlug={params.make!}/>}
     {!params.q&&!make&&<section className="mb-8 max-[768px]:mb-6" aria-label="Popüler araç markaları"><h2 className="mb-[15px] text-xl leading-7 font-medium tracking-[-.4px]">Popüler araç markaları</h2><ul className="flex flex-wrap gap-x-[3px] max-[600px]:max-h-12 max-[600px]:overflow-auto">{popularMakes.map(make=><li key={make.id} className="text-[13px] leading-[18px] not-last:after:ml-px not-last:after:content-[',']"><Link prefetch={false} className="hover:underline" href={makePath(vehicleBrandSlug(make.name))}>{vehicleMakeLabel(make.name)}</Link></li>)}</ul></section>}
     <div className="grid grid-cols-[304px_minmax(0,1fr)] items-start gap-8 max-[768px]:grid-cols-1 max-[768px]:gap-5">

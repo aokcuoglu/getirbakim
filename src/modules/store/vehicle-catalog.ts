@@ -10,14 +10,19 @@ export type VehicleSpecs = {
   cylinders: number | null; valves: number | null; engineCodes: string[];
 };
 
-export type VehicleBrand = { id: string; name: string; popular: boolean };
+/** `label` is the make in reading form ("Volkswagen"), set by the server for the picker; `name` stays the catalog's. */
+export type VehicleBrand = { id: string; name: string; popular: boolean; label?: string };
 export type VehicleModel = {
   id: string; brandId: string; name: string; dateFrom: string | null; dateTo: string | null;
+  /** The series name in reading form ("Golf VII (5G1)"), set by the server for the picker; `name` stays the catalog's. */
+  label?: string;
   /** Picture of the series' most recent type that has one. */
   image?: VehicleImage;
 };
 export type CatalogVehicle = {
   id: string; modelId: string; brandId: string; make: string; model: string; generation: string;
+  /** `make` and `model` in reading form, for display only (vehicle-label.ts). */
+  makeLabel: string; modelLabel: string;
   from: number; to: number; dateFrom: string; dateTo: string | null;
   fuel: string; engine: string; power: string; cc: number | null;
   /** The type's own picture, else its series' picture. */
@@ -31,6 +36,8 @@ export type SavedVehicle = {
   make: string; model: string; year: number; vehicleId?: string;
   generation?: string; fuel?: string; engine?: string; power?: string;
 };
+/** A saved vehicle with the labels the server derived for display; `make` and `model` stay the stored values. */
+export type ShownVehicle = SavedVehicle & { makeLabel: string; modelLabel: string };
 export type VehicleCatalogResponse = {
   brands?: VehicleBrand[]; models?: VehicleModel[]; vehicles?: CatalogVehicle[]; total?: number;
   /** Set when nothing matched as typed and the results are for this corrected spelling. */
@@ -51,7 +58,7 @@ export function matchesVehicleSearch(query: string, ...values: string[]) {
   return normalizeVehicleSearch(query).trim().split(/\s+/).every(term => haystack.includes(term));
 }
 
-export type VehicleModelFamily = { key: string; name: string; models: VehicleModel[]; dateFrom: string | null; dateTo: string | null };
+export type VehicleModelFamily = { key: string; name: string; label: string; models: VehicleModel[]; dateFrom: string | null; dateTo: string | null };
 
 // Words that start a generation or body variant rather than continue the family name:
 // roman numerals ("GOLF VII"), letter generations ("A4 B8", "ANTARA A", "MK II"), body types
@@ -91,7 +98,10 @@ export function vehicleModelFamilies(models: VehicleModel[]): VehicleModelFamily
       && rest.every(words => words[length] && normalizeVehicleSearch(words[length]) === normalizeVehicleSearch(first[length]))) length++;
     const dateFrom = group.models.reduce<string | null>((min, m) => m.dateFrom && (!min || m.dateFrom < min) ? m.dateFrom : min, null);
     const dateTo = group.models.some(m => !m.dateTo) ? null : group.models.reduce<string | null>((max, m) => !max || m.dateTo! > max ? m.dateTo : max, null);
-    return { key, name: first.slice(0, length).join(" ").toUpperCase(), models: group.models, dateFrom, dateTo };
+    // The label takes the same leading words of the first series' reading form (a word-for-word conversion).
+    const labelWords = group.models[0].label ? familyWords(group.models[0].label) : first;
+    const name = first.slice(0, length).join(" ").toUpperCase();
+    return { key, name, label: labelWords.length === first.length ? labelWords.slice(0, length).join(" ") : name, models: group.models, dateFrom, dateTo };
   }).sort((a, b) => a.name.localeCompare(b.name, "tr", { numeric: true }));
 }
 

@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Check, ChevronRight, Wrench, Layers, Images, ShoppingCart, CarFront } from "lucide-react";
 import { currentVehicle, garageVehicleLabel } from "@/modules/store/garage";
+import { shownVehicle } from "@/modules/store/vehicle-label";
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { maintenanceKitOptions } from "@/modules/store/maintenance-kit.server";
 import { kitCountLabel, kitKindLabel, kitPackages } from "@/modules/store/maintenance-kit";
@@ -45,7 +46,7 @@ export default async function MaintenanceRobot() {
             {perks.map(perk => <li key={perk} className="flex items-center gap-2.5"><span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#7cd992]/20"><Check size={13} strokeWidth={2.5} className="text-[#7cd992]" aria-hidden="true"/></span>{perk}</li>)}
           </ul>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-3 [&>button]:h-14 [&>button]:min-h-14 [&>button]:w-[360px] max-[600px]:[&>button]:w-full">
-            <GarageButton vehicle={vehicle} variant="catalog"/>
+            <GarageButton vehicle={shownVehicle(vehicle)} variant="catalog"/>
             <span className="text-[13px] leading-5 text-white/70">{options && vehicleName ? "Setin aşağıda hazır; aracını buradan değiştirebilirsin." : "Başlamak için aracını seç."}</span>
           </div>
         </div>
@@ -79,7 +80,7 @@ export default async function MaintenanceRobot() {
             <p className="mb-6 text-sm leading-[22px] text-muted-foreground">{vehicle
               ? `“${vehicleName}” serbest metinle kaydedilmiş. Bakım seti için aracını marka, model ve motor tipiyle katalogdan seçmen gerekiyor.`
               : "Bakım seti aracın motor tipine göre kurulur. Garajından marka, model ve motor tipini seçerek başla."}</p>
-            <div className="[&>button]:h-12 [&>button]:min-h-12 [&>button]:w-full [&>button]:max-w-[340px] [&>button]:border-border [&>button]:text-foreground"><GarageButton vehicle={vehicle} variant="catalog"/></div>
+            <div className="[&>button]:h-12 [&>button]:min-h-12 [&>button]:w-full [&>button]:max-w-[340px] [&>button]:border-border [&>button]:text-foreground"><GarageButton vehicle={shownVehicle(vehicle)} variant="catalog"/></div>
           </div>
           <div className="border-l border-border bg-[#f7f8fa] px-8 py-8 max-[760px]:border-t max-[760px]:border-l-0 max-[600px]:px-5 max-[600px]:py-6">
             <p className="mb-4 text-xs leading-4 font-semibold tracking-[.6px] text-muted-foreground uppercase">Hazır paketler</p>

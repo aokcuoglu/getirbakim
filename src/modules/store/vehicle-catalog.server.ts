@@ -6,6 +6,7 @@ import { exactTsQuery, parseSearchQuery, searchTooShort, type ParsedSearch } fro
 import { vehicleBrandSlug, vehicleDetails, type CatalogVehicle, type VehicleSpecs, type VehicleBrand, type VehicleModel } from "./vehicle-catalog";
 import { getVehicleModelImages, getVehicleTypeImages } from "./vehicle-images.server";
 import { getVehicleOilSpec } from "./vehicle-oil.server";
+import { vehicleMakeLabel, vehicleSeriesLabel } from "./vehicle-label";
 
 // SQL only accepts TecDoc integer identifiers; UI/cookies keep string identifiers.
 function validId(value: string) {
@@ -23,7 +24,7 @@ const vehicleJoins = `FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model
 
 function formatVehicle(row: VehicleRow): CatalogVehicle {
   return { id: row.id, modelId: row.model_id, brandId: row.brand_id, make: row.make, model: row.model,
-    generation: row.model, from: Number(row.date_from.slice(0, 4)),
+    makeLabel: vehicleMakeLabel(row.make), modelLabel: vehicleSeriesLabel(row.model), generation: row.model, from: Number(row.date_from.slice(0, 4)),
     to: row.date_to ? Number(row.date_to.slice(0, 4)) : new Date().getFullYear(),
     dateFrom: row.date_from, dateTo: row.date_to, fuel: row.fuel_name,
     engine: row.name, power: `${row.hp} hp / ${row.kwt} kW`, cc: row.cc };

@@ -1,8 +1,10 @@
 "use server";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { vehicleSchema, chooseVehicle, forgetVehicle, savedVehicles, currentVehicle, vehicleKey, type GarageEntry } from "@/modules/store/garage";
+import { vehicleSchema, chooseVehicle, forgetVehicle, savedVehicles, currentVehicle, vehicleKey } from "@/modules/store/garage";
 import { savedCatalogVehicle } from "@/modules/store/vehicle-catalog.server";
+import { shownVehicle } from "@/modules/store/vehicle-label";
+import type { ShownVehicle } from "@/modules/store/vehicle-catalog";
 
 export async function selectCatalogVehicle(vehicleId: string, year: number) {
  const vehicle=await savedCatalogVehicle(vehicleId,year);
@@ -17,9 +19,11 @@ export async function clearCatalogVehicle() {
  const active=await currentVehicle();
  if(active) await forgetVehicle(vehicleKey(active));
 }
-export async function garageVehicles(): Promise<{signedIn:boolean;vehicles:GarageEntry[];activeKey:string|null}> {
+export type ShownGarageEntry=ShownVehicle&{key:string};
+/** The saved vehicles with their display labels (#689); each keeps its stored make and model and its key. */
+export async function garageVehicles(): Promise<{signedIn:boolean;vehicles:ShownGarageEntry[];activeKey:string|null}> {
  const [saved,active]=await Promise.all([savedVehicles(),currentVehicle()]);
- return {...saved,activeKey:active ? vehicleKey(active) : null};
+ return {...saved,vehicles:saved.vehicles.map(entry=>shownVehicle(entry)),activeKey:active ? vehicleKey(active) : null};
 }
 const keySchema=z.string().min(1).max(200);
 export async function switchGarageVehicle(key: string) {

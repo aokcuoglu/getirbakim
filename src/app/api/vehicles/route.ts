@@ -1,4 +1,5 @@
 import { getCatalogVehicle, getVehicleBrands, getVehicleModels, getModelVehicles, searchVehicleCatalog } from "@/modules/store/vehicle-catalog.server";
+import { vehicleMakeLabel, vehicleSeriesLabel } from "@/modules/store/vehicle-label";
 
 export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
@@ -20,9 +21,9 @@ export async function GET(request: Request) {
     }
     if (brandId) {
       const models = await getVehicleModels(brandId);
-      return models ? Response.json({ models }) : Response.json({ error: "Marka bulunamadı." }, { status: 404 });
+      return models ? Response.json({ models: models.map(model => ({ ...model, label: vehicleSeriesLabel(model.name) })) }) : Response.json({ error: "Marka bulunamadı." }, { status: 404 });
     }
-    return Response.json({ brands: await getVehicleBrands() });
+    return Response.json({ brands: (await getVehicleBrands()).map(brand => ({ ...brand, label: vehicleMakeLabel(brand.name) })) });
   } catch (error) {
     console.error("Vehicle catalog could not be loaded", error);
     return Response.json({ error: "Araç verileri yüklenemedi. Lütfen tekrar dene." }, { status: 500 });
