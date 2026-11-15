@@ -1,41 +1,52 @@
 import "server-only";
 import { shownProductName } from "./product-name";
 import { getProduct, servicePrice, type CatalogProduct } from "./catalog";
-import { getHomeProducts } from "./home";
 import { getCatalogProductDetails, getCatalogProductImages } from "./product-enrichment";
 import { catalogCardTitle } from "./product-override-display";
 import { productPath } from "@/modules/seo/product-path";
 import type { PurchasePreview } from "./purchase-types";
-import { fillSuggestions } from "./related-rules";
-import { offerGroupIds, relatedSuggestions, type RelatedContext } from "./related-suggestions";
+import { relatedSuggestions, type RelatedContext } from "./related-suggestions";
 
 const suggestionCount = 3;
-// The dialog does not wait longer than this for related parts; a cold cache keeps loading in the background.
+// The add-to-cart answer does not wait longer than this for related parts; on a cold cache the dialog loads them after
+// opening (loadCartSuggestions), while the first lookup keeps warming the caches in the background.
 const relatedBudgetMs = 250;
 
-/** `work`'s result, or an empty list when it takes longer than `ms` (the work itself is not cancelled). */
-export function withinBudget<T>(work: Promise<T[]>, ms: number): Promise<T[]> {
+/** `work`'s result, or `null` when it takes longer than `ms` (the work itself is not cancelled). */
+export function withinBudget<T>(work: Promise<T>, ms: number): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<T[]>(resolve => { timer = setTimeout(() => resolve([]), ms); });
+  const timeout = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), ms); });
   return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
 }
 
-export async function purchasePreview(productId: string, quantity: number, discount: number, context: RelatedContext = {}) {
-  const [product, related, taken] = await Promise.all([getProduct(productId),
-    withinBudget(relatedSuggestions(productId, context, suggestionCount), relatedBudgetMs),
-    // Cart lines may hold a secondary offer's id: the fill skips the whole offer group.
-    offerGroupIds([productId, ...(context.cartIds ?? [])]).catch(() => [productId, ...(context.cartIds ?? [])])]);
-  if (!product?.price_kurus) return null;
-  // Parts fitted with the added one first (#704); the newest store products fill the remaining places.
-  const suggestions = fillSuggestions(related, related.length < suggestionCount ? await getHomeProducts() : [], new Set(taken), suggestionCount);
-  const shown = [product, ...suggestions];
+/**
+ * The dialog rows of `products`. A suggestion's `id` is its best offer (what its form adds, at the price it shows); the
+ * added product keeps the cart line's id.
+ */
+async function previews(products: { product: CatalogProduct; quantity: number; offer: boolean }[], discount: number): Promise<PurchasePreview[]> {
+  const shown = products.map(row => row.product);
   const [images, details] = await Promise.all([getCatalogProductImages(shown), getCatalogProductDetails(shown)]);
-  // `id`: what the suggestion's form adds; a suggestion sells its best offer, whose price it shows.
-  const preview = (p: CatalogProduct, count: number, id = p.id): PurchasePreview => ({
+  return products.map(({ product: p, quantity, offer }) => ({
     // The store brand and part number (#602); the image lookup above keeps the supplier's code and brand.
-    id, href: productPath(p), name: `${shownProductName(p)} ${p.display_brand}`, itemName: catalogCardTitle(p, details.get(p.id)?.partNumber), code: p.display_code, brand: p.display_brand,
-    price: servicePrice(p.price_kurus!, discount), quantity: count, maxQuantity: p.max_quantity,
+    id: offer ? p.offer_id ?? p.id : p.id, href: productPath(p), name: `${shownProductName(p)} ${p.display_brand}`, itemName: catalogCardTitle(p, details.get(p.id)?.partNumber), code: p.display_code, brand: p.display_brand,
+    price: servicePrice(p.price_kurus!, discount), quantity, maxQuantity: p.max_quantity,
     image: images.get(p.id)?.src ?? null, stockLabel: p.stock_label,
-  });
-  return { added: preview(product, quantity), suggestions: suggestions.map(p => preview(p, 1, p.offer_id ?? p.id)) };
+  }));
+}
+
+/** Related parts for the dialog (#704), without a time budget: the dialog's follow-up request on a cold cache. */
+export async function suggestionPreviews(productId: string, discount: number, context: RelatedContext) {
+  const related = await relatedSuggestions(productId, context, suggestionCount);
+  return related.length ? previews(related.map(product => ({ product, quantity: 1, offer: true })), discount) : [];
+}
+
+/**
+ * The add-to-cart dialog: the added product and its related parts (#704). When the related parts miss the time budget,
+ * `suggestionsPending` asks the dialog to load them itself; there is no unrelated filler.
+ */
+export async function purchasePreview(productId: string, quantity: number, discount: number, context: RelatedContext = {}) {
+  const [product, related] = await Promise.all([getProduct(productId), withinBudget(relatedSuggestions(productId, context, suggestionCount), relatedBudgetMs)]);
+  if (!product?.price_kurus) return null;
+  const [added, ...suggestions] = await previews([{ product, quantity, offer: false }, ...(related ?? []).map(p => ({ product: p, quantity: 1, offer: true }))], discount);
+  return { added, suggestions, suggestionsPending: related === null };
 }

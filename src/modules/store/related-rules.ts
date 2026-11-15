@@ -132,14 +132,9 @@ export function pickRelated(input: RelatedInput): { id: string; categoryId: numb
   }
 }
 
-type Suggestable = { id: string; offer_id?: string; available: boolean; price_kurus: number | null };
 /**
- * The dialog's suggestions: the related parts, then (only when fewer than `count`) the newest store products the shopper
- * has not got: never an id or offer in `taken` (the added product's and the cart's offer groups) or already listed.
+ * The section a filler may come from: the main group under "Yedek parça" (Fren sistemi for a disc, path 3 → 252 → 269),
+ * or the top category of a shallow tree (Yağlar ve sıvılar for engine oil, 956 → 957). The whole "Yedek parça" tree
+ * would let a water pump fill a brake disc's dialog.
  */
-export function fillSuggestions<T extends Suggestable>(related: T[], home: readonly T[], taken: ReadonlySet<string>, count: number): T[] {
-  if (related.length >= count) return related.slice(0, count);
-  const listed = new Set([...taken, ...related.flatMap(p => [p.id, p.offer_id ?? p.id])]);
-  const fill = home.filter(p => !listed.has(p.id) && !listed.has(p.offer_id ?? p.id) && p.available && p.price_kurus);
-  return [...related, ...fill.slice(0, count - related.length)];
-}
+export const fillerSection = (path: readonly number[]) => path.length >= 3 ? path[1] : path[0];

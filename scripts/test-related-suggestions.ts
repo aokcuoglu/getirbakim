@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { complementaryCategories, complementsFor, fillSuggestions, pickRelated, universalCategories, type RelatedInput } from "../src/modules/store/related-rules";
+import { complementaryCategories, complementsFor, fillerSection, pickRelated, universalCategories, type RelatedInput } from "../src/modules/store/related-rules";
 
 const input = (overrides: Partial<RelatedInput>): RelatedInput =>
   ({ complements: [], fitScore: new Map(), exclude: new Set(), perCategory: 4, ...overrides });
@@ -62,12 +62,9 @@ test("ties break by id so the result is stable", () => {
   assert.deepEqual(run(), run());
 });
 
-test("the home products fill only the missing places, skipping offers already taken", () => {
-  const p = (id: string, offer_id?: string, available = true) => ({ id, offer_id, available, price_kurus: available ? 100 : null });
-  const related = [p("r1", "r1s")];
-  const home = [p("added"), p("cartPrimary"), p("r1"), p("h0", "r1s"), p("gone", undefined, false), p("h1"), p("h2"), p("h3")];
-  assert.deepEqual(fillSuggestions(related, home, new Set(["added", "cartPrimary", "cartSecondary"]), 3).map(item => item.id), ["r1", "h1", "h2"]);
-  const full = [p("r1"), p("r2"), p("r3")];
-  assert.deepEqual(fillSuggestions(full, home, new Set(), 3), full);
-  assert.deepEqual(fillSuggestions([], [], new Set(), 3), []);
+test("the filler's section is the main group under car parts, or a shallow tree's top", () => {
+  assert.equal(fillerSection([3, 252, 269]), 252);
+  assert.equal(fillerSection([3, 4, 168, 175]), 4);
+  assert.equal(fillerSection([956, 957]), 956);
+  assert.equal(fillerSection([252, 274]), 252);
 });

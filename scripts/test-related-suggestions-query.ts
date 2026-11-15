@@ -35,11 +35,14 @@ before(async () => {
     ["disc", "FREN DISKI ON", 269], ["pad", "FREN BALATASI ON", 268], ["pad2", "FREN BALATASI ON 2", 268], ["cartPad", "FREN BALATASI ARKA", 268],
     ["equivalentPad", "FREN BALATASI MUADIL", 268], ["otherCarPad", "FREN BALATASI BASKA ARAC", 268],
     ["fluid", "FREN HIDROLIGI DOT4", 960], ["fluid2", "FREN HIDROLIGI DOT5", 960], ["fluidTwin", "FREN HIDROLIGI DOT4 MUADIL", 960],
+    ["drumFit", "FREN KAMPANASI", 274], ["drumUnknown", "FREN KAMPANASI UYUMSUZ", 274],
     ["oilFilter", "YAG FILTRESI", 242], ["barrel", "MOTOR YAGI 5W30 208 LT", 957], ["can", "MOTOR YAGI 5W30 4 LT", 957],
   ];
   for (const [key, label] of items) await item(key, label);
   // The pad's cheaper second supplier: a secondary offer, the price the pad's suggestion shows.
   await item("padOffer", "FREN BALATASI ON IKINCI", 50);
+  // No category at all.
+  await item("lone", "TAKIM CANTASI");
   await schema.pool.query("SELECT refresh_product_matches()");
   await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1) ON CONFLICT (item_id) DO UPDATE SET primary_id=EXCLUDED.primary_id", [ids.pad, ids.padOffer]);
   for (const id of [252, 241, 956]) await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw)
@@ -54,7 +57,7 @@ before(async () => {
   await equivalent("fluid", "fluidTwin");
   await schema.pool.query(`INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VW');
     INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(10,1,'GOLF VII (5G1)','2012-08-01',NULL),(20,1,'POLO VI (AW1)','2017-06-01',NULL)`);
-  for (const [model, key] of [[10, "disc"], [10, "pad"], [10, "pad2"], [10, "equivalentPad"], [20, "otherCarPad"]] as const)
+  for (const [model, key] of [[10, "disc"], [10, "pad"], [10, "pad2"], [10, "equivalentPad"], [20, "otherCarPad"], [10, "drumFit"]] as const)
     await schema.pool.query("INSERT INTO storefront_model_fits(model_id,supplier_item_id) VALUES($1,$2)", [model, ids[key]]);
   const [{ db }, module, preview] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/related-suggestions"),
     import("../src/modules/store/purchase-preview")]);
@@ -67,17 +70,18 @@ after(async () => { await closeDb?.(); await schema?.drop(); });
 test("an unknown product or one without complements gets no related parts", async () => {
   assert.deepEqual(await related.relatedSuggestions(randomUUID(), {}), []);
   assert.deepEqual(await related.relatedSuggestions(randomUUID(), { vehicle: { make: "Volkswagen", model: "Golf", year: 2016, vehicleId: "1" }, cartIds: [randomUUID()] }), []);
-  assert.deepEqual(await suggested("fluid"), []);
+  assert.deepEqual(await suggested("oilFilter", { cartIds: [ids.can] }), [], "no complement left, no fluid under filters");
 });
 
 test("a brake disc suggests fitting pads and brake fluid, never an equivalent, a part of unknown fit or another car's", async () => {
   const shown = await suggested("disc", {}, 5);
-  assert.equal(shown.length, 4, shown.join());
-  // One per category first, then a second fitting part of each.
+  assert.equal(shown.length, 5, shown.join());
+  // One per category first, then a second fitting part of each, then a fitting part of the rest of Fren sistemi.
   assert.equal(shown[0]?.startsWith("pad"), true, shown.join());
   assert.ok(fluids.includes(shown[1]!), shown.join());
   assert.deepEqual(new Set([shown[0], shown[2]]), new Set(["pad", "pad2"]));
   assert.ok(fluids.includes(shown[3]!), shown.join());
+  assert.equal(shown[4], "drumFit");
   // The second fluid is never the first one's equivalent.
   assert.ok(!(shown.includes("fluid") && shown.includes("fluidTwin")), shown.join());
 });
@@ -86,25 +90,47 @@ test("the cart's parts and their categories are not suggested again, also throug
   const pads = (shown: (string | undefined)[]) => shown.filter(key => key?.toLowerCase().includes("pad"));
   assert.deepEqual(pads(await suggested("disc", { cartIds: [ids.cartPad] })), [], "a pad in the cart covers the pad category");
   assert.deepEqual(pads(await suggested("disc", { cartIds: [ids.padOffer] })), [], "the pad's secondary offer is the pad");
-  const fluidsOnly = await suggested("disc", { cartIds: [ids.padOffer] });
-  assert.equal(fluidsOnly.length, 2, fluidsOnly.join());
 });
 
-test("engine oil comes in a can with an oil filter; without a vehicle oil gets no vehicle-specific parts", async () => {
+test("a short list is filled from the top-level category with fitting parts only, never with unrelated products", async () => {
+  // Pads covered by the cart: two brake fluids (not twins), then the fitting drum of Fren sistemi; the drum of unknown fit never.
+  const shown = await suggested("disc", { cartIds: [ids.padOffer] });
+  assert.equal(shown.length, 3, shown.join());
+  assert.ok(fluids.includes(shown[0]!) && fluids.includes(shown[1]!), shown.join());
+  assert.equal(shown[2], "drumFit");
+  // Without a vehicle (the drum has no fitment of its own) no vehicle-specific part is suggested.
+  assert.deepEqual(await suggested("drumUnknown"), []);
+  // A fluid's filler is other fluids of its top-level category: engine oil in a can, not a barrel.
+  assert.deepEqual(await suggested("fluid"), ["can"]);
+});
+
+test("engine oil comes in a can with an oil filter; without a vehicle oil gets fluids, no vehicle-specific parts", async () => {
   assert.deepEqual(await suggested("oilFilter"), ["can"]);
-  assert.deepEqual(await suggested("can"), []);
-  assert.deepEqual(await suggested("can", { vehicle: { make: "Volkswagen", model: "Golf", year: 2016, vehicleId: "1" } }), []);
+  const forOil = await suggested("can");
+  assert.equal(forOil.length, 2, forOil.join());
+  assert.ok(forOil.every(key => fluids.includes(key!)), forOil.join());
+  const withCar = await suggested("can", { vehicle: { make: "Volkswagen", model: "Golf", year: 2016, vehicleId: "1" } });
+  assert.ok(withCar.every(key => fluids.includes(key!)), withCar.join());
 });
 
-test("the dialog's suggestion adds the best offer it shows", async () => {
+test("the dialog's suggestion adds the best offer it shows, and nothing unrelated fills the dialog", async () => {
   const preview = await purchase.purchasePreview(ids.disc, 1, 0);
   assert.ok(preview, "disc preview");
+  assert.equal(preview.suggestionsPending, false);
   const shown = preview.suggestions.map(suggestion => name(suggestion.id));
   assert.ok(shown.includes("padOffer"), shown.join());
   assert.ok(!shown.includes("pad"), shown.join());
+  // A product without a category gets no suggestions: no newest-products filler (the dialog shows one column).
+  const lone = await purchase.purchasePreview(ids.lone, 1, 0);
+  assert.ok(lone);
+  assert.deepEqual(lone.suggestions, []);
+  // The dialog's follow-up request (no time budget) answers alike.
+  const follow = (await purchase.suggestionPreviews(ids.disc, 0, { cartIds: [ids.padOffer] })).map(suggestion => name(suggestion.id));
+  assert.equal(follow[2], "drumFit", follow.join());
 });
 
-test("a slow lookup gives way to the budget", async () => {
-  assert.deepEqual(await purchase.withinBudget(new Promise<string[]>(() => undefined), 20), []);
+test("a slow lookup gives way to the budget and is reported as pending", async () => {
+  assert.equal(await purchase.withinBudget(new Promise<string[]>(() => undefined), 20), null);
+  assert.deepEqual(await purchase.withinBudget(Promise.resolve([] as string[]), 1000), []);
   assert.deepEqual(await purchase.withinBudget(Promise.resolve(["a"]), 1000), ["a"]);
 });

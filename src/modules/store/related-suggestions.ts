@@ -4,13 +4,15 @@ import { categoryProductIds, typeFittedIds, type CatalogProduct } from "./catalo
 import type { GarageVehicle } from "./garage";
 import { oilPackLitres } from "./maintenance-kit";
 import { sellableProducts } from "./maintenance-kit.server";
-import { complementsFor, pickRelated } from "./related-rules";
+import { complementsFor, fillerSection, pickRelated, universalCategories } from "./related-rules";
 
 export type RelatedContext = { vehicle?: GarageVehicle | null; cartIds?: string[] };
 
 // Candidates ranked per category before pricing: enough for a sellable pick (and a second one for a short list) when
 // the best fitting are out of stock or (engine oil) sold in barrels.
 const rankedPerCategory = 6;
+// Filler candidates priced at most; the best fitting come first, so a few dozen leave enough sellable ones.
+const fillerCap = 24;
 // Engine oil is suggested in packs a shopper carries home, not workshop barrels.
 const maxOilLitres = 5;
 const engineOilCategory = 957;
@@ -96,20 +98,36 @@ const packTooBig = (categoryId: number, product: CatalogProduct) => {
   return litres === null || litres > maxOilLitres;
 };
 
+/** The categories under `section`, outside `own` and its subcategories, in id order. */
+async function siblingCategories(section: number, own: number) {
+  return (await db.query<{ id: number }>(`SELECT category_id AS id FROM source_categories
+    WHERE source='trodo' AND $1=ANY(path_ids) AND NOT ($2=ANY(path_ids)) ORDER BY 1`, [section, own])).rows.map(row => row.id);
+}
+
+const byScore = (fitScore: ReadonlyMap<string, number> | null) => (a: string, b: string) =>
+  (fitScore?.get(b) ?? 0) - (fitScore?.get(a) ?? 0) || (a < b ? -1 : a > b ? 1 : 0);
+
 /**
  * Products to suggest after `productId` went into the cart (#704): sellable parts of the categories fitted together with
- * it, one per category first, the best fitting the vehicle first; a short list then takes a second fitting part. Parts
- * tied to a vehicle are suggested only when they fit the vehicle (garage, or the added product's models); fluids always.
- * Never the product's offers or equivalents, what the cart holds, or a category the cart already has a part of.
- * Empty when the product has no category with complements or anything fails: adding to the cart must not depend on it.
+ * it, one per category first, the best fitting the vehicle first; a short list then takes a second fitting part, then
+ * fitting parts of the rest of the product's section (Fren sistemi for a disc, fillerSection). Parts tied to a vehicle are
+ * suggested only when they fit the vehicle (garage, or the added product's models); fluids always. Never the product's
+ * offers or equivalents, what the cart holds, or a category the cart already has a part of. Fewer than `limit` (or none)
+ * when nothing else qualifies, and none when anything fails: adding to the cart must not depend on it.
  */
 export async function relatedSuggestions(productId: string, context: RelatedContext, limit = 3): Promise<CatalogProduct[]> {
   try {
     const [group, cartGroup] = await Promise.all([offerGroupIds([productId]), offerGroupIds(context.cartIds ?? [])]);
-    const complements = complementsFor(await productCategoryPath(group));
-    if (!complements.length) return [];
-    const [lists, equivalents] = await Promise.all([
-      Promise.all(complements.map(async categoryId => ({ categoryId, ids: await categoryProductIds([], [categoryId]) }))),
+    const path = await productCategoryPath(group);
+    if (!path.length) return [];
+    const complements = complementsFor(path);
+    const siblings = (await siblingCategories(fillerSection(path), path[path.length - 1])).filter(id => !complements.includes(id));
+    const specific = siblings.filter(id => !universalCategories.has(id));
+    const fluids = siblings.filter(id => universalCategories.has(id));
+    const idsOf = (categoryId: number) => categoryProductIds([], [categoryId]).then(ids => ({ categoryId, ids }));
+    const [lists, fluidLists, specificIds, equivalents] = await Promise.all([
+      Promise.all(complements.map(idsOf)), Promise.all(fluids.map(idsOf)),
+      specific.length ? categoryProductIds([], specific) : Promise.resolve<string[]>([]),
       equivalentIds(group),
     ]);
     const own = new Set([...group, ...equivalents]);
@@ -117,27 +135,33 @@ export async function relatedSuggestions(productId: string, context: RelatedCont
     const inCart = new Set(cartGroup.filter(id => !own.has(id)));
     const open = lists.filter(list => !list.ids.some(id => inCart.has(id)));
     const exclude = new Set([...own, ...cartGroup]);
-    const candidates = [...new Set(open.flatMap(list => list.ids))].filter(id => !exclude.has(id));
-    if (!candidates.length) return [];
+    const candidates = [...new Set([...open.flatMap(list => list.ids), ...specificIds])].filter(id => !exclude.has(id));
+    if (!candidates.length && !fluidLists.some(list => list.ids.length)) return [];
     const fitScore = await vehicleFit(group, context.vehicle, candidates);
     const ranked = pickRelated({ complements: open, fitScore, exclude, perCategory: rankedPerCategory });
-    if (!ranked.length) return [];
-    const priced = new Map((await sellableProducts(ranked.map(pick => pick.id))).map(product => [product.id, product]));
-    const usable = ranked.flatMap(pick => {
+    // The filler: fitting parts of the sibling categories, best fitting first, then fluids; scored before it is capped.
+    const filler = [
+      ...[...new Set(specificIds)].filter(id => !exclude.has(id) && (fitScore?.get(id) ?? 0) > 0).sort(byScore(fitScore)).map(id => ({ id, categoryId: 0 })),
+      ...fluidLists.flatMap(list => list.ids.filter(id => !exclude.has(id)).sort().map(id => ({ id, categoryId: list.categoryId }))),
+    ].slice(0, fillerCap);
+    if (!ranked.length && !filler.length) return [];
+    const priced = new Map((await sellableProducts([...new Set([...ranked, ...filler].map(pick => pick.id))])).map(product => [product.id, product]));
+    const usable = (picks: { id: string; categoryId: number }[]) => picks.flatMap(pick => {
       const product = priced.get(pick.id);
       return product && !packTooBig(pick.categoryId, product) ? [{ product, categoryId: pick.categoryId }] : [];
     });
+    const related = usable(ranked), extra = usable(filler);
     const chosen: CatalogProduct[] = [];
     const filled = new Set<number>();
-    for (const { product, categoryId } of usable) {
+    for (const { product, categoryId } of related) {
       if (chosen.length >= limit) break;
       if (filled.has(categoryId)) continue;
       chosen.push(product); filled.add(categoryId);
     }
-    const rest = usable.filter(({ product }) => !chosen.includes(product));
+    const rest = [...related.filter(({ product }) => !chosen.includes(product)), ...extra];
     if (chosen.length < limit && rest.length) {
-      // A second part of a category, never the same product or an equivalent of one already suggested.
-      const pairs = await equivalentPairs(usable.map(({ product }) => product.id));
+      // A second part of a category, then the filler; never the same product or an equivalent of one already suggested.
+      const pairs = await equivalentPairs([...new Set([...chosen, ...rest.map(({ product }) => product)].map(product => product.id))]);
       const twins = (id: string) => pairs.filter(pair => pair.a === id).map(pair => pair.b);
       const taken = new Set(chosen.flatMap(product => [product.id, ...twins(product.id)]));
       for (const { product } of rest) {
