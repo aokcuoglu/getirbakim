@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readableProductName, vehicleLabel, primaryVehicle } from "../src/modules/store/product-name";
+import { readableProductName, vehicleLabel, primaryVehicle, modelKeyword } from "../src/modules/store/product-name";
 import { productSeoDescription, productSeoTitle } from "../src/modules/seo/product-meta";
 import { productMeta, productTitle, type StoreOverride } from "../src/modules/store/product-override-display";
 
@@ -86,7 +86,7 @@ test("descriptions of the design table", () => {
   assert.equal(productSeoDescription({ brand: "SETA", name: "Hava Filtresi", partNumber: "STA-1573", oem: "13780-62M00", vehicles: ["SUZUKI SX4 S-CROSS (JY)", "SUZUKI VITARA (LY)"], hint: "VITARA" }),
     "SETA STA-1573 Hava Filtresi. OEM: 13780-62M00. Uyumlu araçlar: Suzuki Vitara, Suzuki SX4 S-Cross.");
   assert.equal(productSeoDescription({ brand: "CONTINENTAL-D", name: "Kış Lastiği", partNumber: "LTRC353196", vehicles: [], text: "205/55R16 91H CONTINENTAL TS830P SSR *" }),
-    "CONTINENTAL-D LTRC353196 Kış Lastiği. 205/55R16 91H CONTINENTAL TS830P SSR *.");
+    "CONTINENTAL-D LTRC353196 Kış Lastiği. 205/55R16 91H Continental TS830P SSR *.");
 });
 
 test("descriptions stay within 160, summarize many vehicles and cut the text at a word", () => {
@@ -104,4 +104,87 @@ test("an admin's name and SEO fields stay in front of the automatic ones", () =>
   assert.equal(productTitle(null, "Zengin", readableProductName("YAG FILTRESI")), "Zengin");
   assert.equal(productTitle(null, null, readableProductName("YAG FILTRESI")), "Yağ Filtresi");
   assert.deepEqual(productMeta(override, { title: "Otomatik", description: "Otomatik" }), { title: "Elle başlık", description: "Elle açıklama" });
+});
+
+test("DIS is diş after a count or beside KALIN / INCE / SAYISI, else dış", () => {
+  assert.equal(readableProductName("TETIK DISLISI (119 DIS)"), "Tetik Dişlisi (119 Diş)");
+  assert.equal(readableProductName("MARS MOTORU 12V 8 DIS"), "Marş Motoru 12V 8 Diş");
+  assert.equal(readableProductName("VOLAN DIS SAYISI:26"), "Volan Diş Sayısı:26");
+  assert.equal(readableProductName("TRIGER KASNAGI KALIN DIS"), "Triger Kasnağı Kalın Diş");
+  assert.equal(readableProductName("TRIGER KASNAGI (INCE DIS)"), "Triger Kasnağı (İnce Diş)");
+  assert.equal(readableProductName("DIS DIKIZ AYNASI SAG"), "Dış Dikiz Aynası Sağ");
+});
+
+test("ambiguous words stay as the supplier wrote them", () => {
+  assert.equal(readableProductName("KAPI DISI"), "Kapı Disi");
+  assert.equal(readableProductName("ARAC DISI SICAKLIK SENSORU"), "Araç Disi Sıcaklık Sensörü");
+  assert.equal(readableProductName("RENAULT VEL SATIS 2002>"), "Renault Vel Satis 2002>");
+  assert.equal(readableProductName("GAZ KELEBEGI"), "Gaz Kelebeği");
+  assert.equal(readableProductName("GAZ PEDALI"), "Gaz Pedalı");
+});
+
+test("the first letter is capitalized and marks are separators", () => {
+  assert.equal(readableProductName("***DESEN"), "***Desen");
+  assert.equal(readableProductName("[CAP] KAPAK"), "[Cap] Kapak");
+  assert.equal(readableProductName("{FARKLI} SET"), "{Farklı} Set");
+  assert.equal(readableProductName("*OE* FILTRE"), "*OE* Filtre");
+  assert.equal(readableProductName("''FIAT'' FILTRE"), "''Fiat'' Filtre");
+  assert.equal(readableProductName("ABS'LI TEKER"), "ABS'li Teker");
+});
+
+test("a token with a lower case letter stays, upper case tokens convert; people-written names are untouched", () => {
+  assert.equal(readableProductName("SILECEK SUPURGESI 530mm GOLF III IV"), "Silecek Süpürgesi 530mm Golf III IV");
+  assert.equal(readableProductName("TERMOSTAT 93°c MEGANE III"), "Termostat 93°c Megane III");
+  assert.equal(readableProductName("DISLI 5x100"), "Dişli 5x100");
+  for (const written of ["Hava Filtresi", "FEBI Kapı Dış Açma Kolu Sağ", "Plastık Derın Koruyucu 250 ml", "BOSCH Fren Diski", "Yağ Filtresi (Elle) BMW 3"]) assert.equal(readableProductName(written), written);
+});
+
+test("a repeated word goes only at the end of the name", () => {
+  assert.equal(readableProductName("CLIO CLIO II EXPRESS"), "Clio Clio II Express");
+  assert.equal(readableProductName("GOLF GOLF VIII"), "Golf Golf VIII");
+  assert.equal(readableProductName("GRANDE PUNTO PUNTO EVO"), "Grande Punto Punto Evo");
+  assert.equal(readableProductName("MEGANE I II II SCENIC"), "Megane I II II Scenic");
+  assert.equal(readableProductName("HAVA FILTRE FILTRE"), "Hava Filtre");
+});
+
+test("Turkish capitals and dotless I", () => {
+  assert.equal(readableProductName("ILERI GERI"), "İleri Geri");
+  assert.equal(readableProductName("İLERİ İNCE"), "İleri İnce");
+  assert.equal(readableProductName("BORU ÇAPI 12"), "Boru Çapı 12");
+  assert.equal(readableProductName("ÇATALI ARAÇLARI"), "Çatalı Araçları");
+  assert.equal(readableProductName("ONUN CAMI"), "Önün Camı");
+});
+
+test("vehicle labels keep model names with lower case letters and drop only listed body words", () => {
+  assert.deepEqual(vehicleLabel("HYUNDAI ix35 (LM, EL, ELH)"), { full: "Hyundai ix35", short: "ix35" });
+  assert.deepEqual(vehicleLabel("BMW iX3 (G08)"), { full: "BMW iX3", short: "iX3" });
+  assert.deepEqual(vehicleLabel("TOYOTA bZ4X (XEBM)"), { full: "Toyota bZ4X", short: "bZ4X" });
+  assert.deepEqual(vehicleLabel("FIAT 500e Hatchback"), { full: "Fiat 500e", short: "500e" });
+  assert.deepEqual(vehicleLabel("MERCEDES-BENZ CLA Coupe (C117)"), { full: "Mercedes-Benz CLA", short: "CLA" });
+  assert.deepEqual(vehicleLabel("VOLKSWAGEN GOLF IV Station Wagon"), { full: "Volkswagen Golf IV", short: "Golf IV" });
+  assert.equal(vehicleLabel("MINI MINI (R50)").full, "Mini");
+  assert.deepEqual(vehicleLabel("ALFA ROMEO"), { full: "Alfa Romeo", short: "" });
+});
+
+test("title: no suffix for a make-only or a nameless model; a model already in the name adds nothing", () => {
+  const title = (vehicles: string[], hint = "", name = "Hava Filtresi") => productSeoTitle({ brand: "X", name, partNumber: "1", vehicles, hint });
+  assert.equal(title(["HYUNDAI ix35 (LM)"]), "X Hava Filtresi 1 – Hyundai ix35 uyumlu");
+  assert.equal(title(["BMW 3 (G20)"]), "X Hava Filtresi 1 – BMW 3 uyumlu");
+  assert.equal(productSeoTitle({ brand: "BRAND", name: "Çok Uzun Bir Fren Balata Seti Ön Takım", partNumber: "ABCDEFGHIJ123", vehicles: ["FIAT 124 Spider"], hint: "" }),
+    "BRAND Çok Uzun Bir Fren Balata Seti Ön Takım ABCDEFGHIJ123");
+  assert.equal(title(["FIAT"]), "X Hava Filtresi 1");
+  assert.equal(title(["HYUNDAI IX35 (LM)"], "", "Hava Filtresi ix35"), "X Hava Filtresi ix35 1");
+  assert.equal(modelKeyword("FIAT 124 Spider"), "spider");
+  assert.equal(modelKeyword("BMW 3 (G20)"), null);
+});
+
+test("primary vehicle: no hint match falls back only for one or two makes", () => {
+  assert.equal(primaryVehicle(["FIAT PUNTO (188)", "FIAT PANDA (169)"], "FILTRE"), "FIAT PUNTO (188)");
+  assert.equal(primaryVehicle(["ALFA ROMEO MITO (955)", "FIAT PUNTO (188)", "LANCIA YPSILON (846)"], "FILTRE"), null);
+  assert.equal(productSeoTitle({ brand: "OPAR", name: "Filtre", partNumber: "46797936", vehicles: ["ALFA ROMEO MITO (955)", "FIAT PUNTO (188)", "LANCIA YPSILON (846)"], hint: "" }), "OPAR Filtre 46797936");
+});
+
+test("description: the product text is readable and a text without letters is skipped", () => {
+  assert.equal(productSeoDescription({ brand: "A", name: "Ad", partNumber: "1", vehicles: [], text: "SURGULU KAPAK" }), "A 1 Ad. Sürgülü Kapak.");
+  assert.equal(productSeoDescription({ brand: "A", name: "Ad", partNumber: "1", vehicles: [], text: "." }), "A 1 Ad.");
 });

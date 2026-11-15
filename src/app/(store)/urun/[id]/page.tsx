@@ -54,13 +54,14 @@ const benefits = [
 const productEnrichment = cache((id: string, code: string, brand: string) => getProductEnrichment({ id, code, brand }));
 // The vehicle models of the supplier's description: an index signal of the metadata (#641) and a section of the page.
 const descriptionFitments = cache(getDescriptionFitments);
-// The vehicle models the page names (the enrichment's, else those read from the description), for the search metadata.
+// The vehicle models of the search metadata: the enrichment's (`confirmed`, they may name the title's "uyumlu" vehicle) and,
+// without them, the models read from the supplier's description, which name no engine and only feed the description text.
 async function vehicleModels(enrichment: { vehicleModels: string[]; vehicles: { model: string }[] } | null, productId: string) {
   const models = enrichment?.vehicleModels.length ? enrichment.vehicleModels : enrichment?.vehicles.map(vehicle => vehicle.model) ?? [];
-  if (models.length) return [...new Set(models)];
-  return (await descriptionFitments(productId)).map(row => `${row.brand} ${row.model}`);
+  if (models.length) return { confirmed: [...new Set(models)], all: [...new Set(models)] };
+  return { confirmed: [], all: (await descriptionFitments(productId)).map(row => `${row.brand} ${row.model}`) };
 }
-// The description is read only when the other signals fall short; the page then reads the same models (cached).
+// The description models are read here only when the enrichment's signals fall short; the metadata and the page share the cached read.
 async function indexable(product: Parameters<typeof productIndexable>[0] & { id: string; oem: string }, enrichment: unknown) {
   const content = productContent({ enrichment, descriptionModels: [], oem: product.oem });
   if (product.source === "store" || hasMinimumContent(content)) return productIndexable(product, content);
@@ -78,8 +79,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const vehicles = await vehicleModels(enrichment, product.id);
   const hint = `${product.name} ${product.description}`;
   const meta = productMeta(override, {
-    title: productSeoTitle({ brand: product.display_brand, name, partNumber: product.display_code, vehicles, hint }),
-    description: productSeoDescription({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles, text: description, hint }),
+    title: productSeoTitle({ brand: product.display_brand, name, partNumber: product.display_code, vehicles: vehicles.confirmed, hint }),
+    description: productSeoDescription({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles: vehicles.all, text: description, hint }),
   });
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);

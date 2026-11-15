@@ -1,4 +1,4 @@
-import { foldText, modelKeyword, primaryVehicle, vehicleLabel } from "@/modules/store/product-name";
+import { foldText, modelKeyword, primaryVehicle, readableProductName, vehicleLabel } from "@/modules/store/product-name";
 
 // The page part of a search title stays within 60 characters: the root template appends " | Getirbakim" to it, and
 // results show roughly 60 characters before cutting, so the brand, name and part number come first.
@@ -24,7 +24,7 @@ function fitWords(name: string, room: number): string {
   return words.join(" ").replace(/[\s,/-]+$/, "");
 }
 
-/** The vehicle label the title or description names for a product, with its full and short spelling. */
+/** The vehicle the product is about, with its full and short label; null when no vehicle can be named. */
 function mainVehicle(vehicles: string[], hint: string) {
   const model = primaryVehicle(vehicles, hint);
   return model === null ? null : { model, ...vehicleLabel(model) };
@@ -43,10 +43,11 @@ export function productSeoTitle(input: { brand: string; name: string; partNumber
   const name = fitWords(input.name, room);
   const base = [input.brand, name, number].filter(Boolean).join(" ");
   const vehicle = mainVehicle(input.vehicles, input.hint);
-  if (!vehicle || name !== input.name.trim()) return base;
+  if (!vehicle || !vehicle.short || name !== input.name.trim()) return base;
   const keyword = modelKeyword(vehicle.model);
   if (keyword && wordsOf(input.name).includes(keyword)) return base;
-  for (const label of [vehicle.full, vehicle.short]) {
+  // A model without a name word ("3", "124") says nothing short; only its full label ("BMW 3") may stand.
+  for (const label of keyword === null ? [vehicle.full] : [vehicle.full, vehicle.short]) {
     const candidate = `${base} – ${label} uyumlu`;
     if (candidate.length <= max) return candidate;
   }
@@ -73,13 +74,13 @@ export function productSeoDescription(input: { brand: string; name: string; part
   const oem = input.oem?.trim();
   if (oem) append(`OEM: ${oem}.`);
   const main = mainVehicle(input.vehicles, input.hint ?? input.name);
-  const labels = [...new Set(input.vehicles.map(model => vehicleLabel(model).full).filter(Boolean))];
+  const labels = [...new Set(input.vehicles.map(vehicleLabel).filter(label => label.short).map(label => label.full))];
   if (main) labels.sort((a, b) => Number(b === main.full) - Number(a === main.full));
   for (let shown = Math.min(labels.length, 4); shown >= 1; shown--) {
     const rest = labels.length - shown;
     if (append(`Uyumlu araçlar: ${labels.slice(0, shown).join(", ")}${rest > 0 ? ` ve ${rest} model daha` : ""}.`)) break;
   }
-  const text = input.text?.replace(/\s+/g, " ").trim();
+  const text = input.text && /\p{L}/u.test(input.text) ? readableProductName(input.text) : "";
   if (text) {
     const room = max - description.length - 1;
     if (sentence(text).length <= room) append(sentence(text));
