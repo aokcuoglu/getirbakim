@@ -59,6 +59,7 @@ try {
    await client.query(await readFile("db/enrichment-shared-links.sql", "utf8"));
    await client.query(await readFile("db/storefront-make-fits.sql", "utf8"));
    await client.query(await readFile("db/newsletter.sql", "utf8"));
+   await client.query(await readFile("db/indexnow.sql", "utf8"));
    await client.query("COMMIT");
    break;
   } catch (error) {

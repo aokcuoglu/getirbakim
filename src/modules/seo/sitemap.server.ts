@@ -13,16 +13,25 @@ const isoUtc = (column: string) => `to_char(${column} AT TIME ZONE 'UTC','YYYY-M
 // admin, with minimum content (#641). Unavailable cards (commerce_unavailable_items) and demo rows stay out. Plan: a
 // bitmap scan of supplier_items_saleable_order_v3_idx per file; the content signals are index probes per row
 // (product_model_fitments_pkey, product_offers_primary_idx), no sequential scan of supplier_items.
-const supplierBranch = `SELECT i.id::text AS id,${isoUtc("GREATEST(i.changed_at,l.imported_at)")} AS lastmod
- FROM commerce_supplier_items i
+const supplierRows = `FROM commerce_supplier_items i
  LEFT JOIN product_enrichment_shared_links l ON l.supplier_item_id=i.id
  LEFT JOIN commerce_item_overrides h ON h.supplier_item_id=i.id
  WHERE i.company=ANY($1::text[]) AND i.id BETWEEN $2::uuid AND $3::uuid
   AND NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=i.id AND o.primary_id<>o.item_id)
   AND h.hidden IS NOT TRUE
   AND ${minimumContentSql()}`;
-const storeBranch = `SELECT p.id::text,${isoUtc("p.updated_at")} FROM store_products p
+const storeRows = `FROM store_products p
  WHERE p.supplier<>'demo' AND p.id BETWEEN $2::uuid AND $3::uuid`;
+
+/**
+ * The indexable product pages of one id range: `columns.supplier` over the supplier row `i`, its enrichment link `l`
+ * and override `h`; `columns.store` over the store row `p`, in the same order and names. Parameters: $1 the storefront
+ * companies, $2/$3 the uuid range. The sitemap (loadProductChunk) and IndexNow (indexnow.server.ts) share it.
+ */
+export function indexableProductsSql(columns: { supplier: string; store: string }): string {
+  const store = `SELECT ${columns.store} ${storeRows}`;
+  return productIndexPolicy.supplierCatalog ? `SELECT ${columns.supplier} ${supplierRows}\n UNION ALL\n ${store}` : store;
+}
 
 export type ProductSitemapRow = { id: string; lastmod: string };
 
@@ -30,7 +39,10 @@ export type ProductSitemapRow = { id: string; lastmod: string };
 /** Product ids of sitemap file `index` with their last change (ISO, UTC); one row past the limit shows an overflow. */
 export async function loadProductChunk(index: number): Promise<ProductSitemapRow[]> {
   const { from, to } = productChunkRange(index);
-  const branches = productIndexPolicy.supplierCatalog ? `${supplierBranch}\n UNION ALL\n ${storeBranch}` : storeBranch;
+  const branches = indexableProductsSql({
+    supplier: `i.id::text AS id,${isoUtc("GREATEST(i.changed_at,l.imported_at)")} AS lastmod`,
+    store: `p.id::text AS id,${isoUtc("p.updated_at")} AS lastmod`,
+  });
   return (await boundedQuery<ProductSitemapRow>(`SELECT id,lastmod FROM (${branches}) u ORDER BY id LIMIT ${sitemapUrlLimit + 1}`,
     [storefrontCompanies(), from, to])).rows;
 }
