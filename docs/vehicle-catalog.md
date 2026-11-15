@@ -33,4 +33,16 @@ Aktarım `data/vehicle_brands.csv`, `vehicle_models.csv`, `vehicle_types.csv` do
 
 Seçili araç `gb_vehicle` HttpOnly çerezinde 30 gün saklanır; seçim kaydedilirken tip kimliği ve yıl DB kataloğundan doğrulanır. Garaj birden fazla araç tutar. Ziyaretçide liste `gb_garage` çerezindedir (en çok 5 araç). Giriş yapmış B2B ve yönetim hesaplarında liste `account_vehicles` tablosundadır (`db/garage.sql`, en çok 20 araç) ve cihazlar arası görünür. Hesapta seçili araç çerezi yoksa en son seçilen kayıtlı araç kullanılır. Kaldırılan seçim `none` olarak işaretlenir, böylece eski bir araç kendiliğinden geri gelmez. Girişte ziyaretçi garajı hesaba taşınır. Aynı araç, tip + model yılı (serbest metinde marka/model/yıl) anahtarıyla tek kayıttır. Kural `src/modules/store/garage.ts` içindedir.
 
+## Model sayfaları
+
+`/yedek-parca/<marka>/<model>` (#639) bir model ailesinin bir neslini gösterir; TecDoc'un kasa başına serileri birleşir. `vehicle_models`'te aile/nesil alanı yoktur, birim addan çıkarılır (`src/modules/store/vehicle-model-groups.ts`, açıklama eşleştiricisinin `ROMAN`/`BODY` sözlükleriyle). Slug marka içinde tekildir:
+
+1. Roma rakamı nesil → `<aile>-<sayı>`: `golf-7`, `megane-3`, `clio-4`, `focus-3`. `GOLF SPORTSVAN VII`, `GOLF PLUS V` ayrı ailedir.
+2. Addaki kod sözcüğü → `<aile>-<kod>`: `passat-b8`, `a4-b8`, `transporter-t5`, `passat-b3-b4`, `passat-b5-5`.
+3. Yoksa parantezdeki şasi kodunu paylaşan seriler birleşir, ek en erken serinin ilk kodu: `tipo-356` (Saloon + Hatchback + Estate), `doblo-223`, `3-e90`, `c-class-w205`. BMW/Mercedes kasaları ayrı koda sahip olduğu için ayrı kalır (`3-e91`).
+4. Kod da yoksa ailenin üretim yılları örtüşen kodsuz serileri birleşir, ek başlangıç yılı (`clio-2025`, `midi-1984`); yılı bilinmeyen seride model kimliği.
+5. Hâlâ çakışan slug en erken birimde kalır, sonraki `-<en küçük model id>` alır; yeni seri eklenince var olan adres değişmez.
+
+Yerel katalogda 5.767 seri 4.372 birimdir; kural 5 bugün hiç devreye girmiyor. 10 marka ailesinin 273 serisi ve onlardan çıkan 128 adres `scripts/test-vehicle-model-groups.ts` içinde sabitlenmiştir: kural değişikliği var olan adresi taşıyamaz. Adres TecDoc adına bağlıdır; bir içe aktarım seri adını veya kodunu değiştirirse o adres 404 olur (kalıcı yönlendirme tablosu ancak böyle bir değişim görülürse).
+
 Araç kataloğu parça uyumluluk ilişkisi değildir. Ürünlerin TecDoc tiplerine bağlanması ve katalogda araca göre filtrelenmesi ayrı bir çalışmadır. Plaka sorgulama servisi bağlı değildir.

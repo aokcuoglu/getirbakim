@@ -53,10 +53,13 @@ Liste sayfalarının adresleri Türkçe ve yol tabanlıdır (#638); tek kaynak `
 | Araç markası | `/yedek-parca/<marka>` | |
 | Kategori | `/kategori/<kategori>` | |
 | Kategori × araç markası | `/kategori/<kategori>/<marka>` | |
-| Model, model × kategori | `/yedek-parca/<marka>/<model>`, `/kategori/<kategori>/<marka>/<model>` | #639 için ayrıldı |
+| Araç modeli | `/yedek-parca/<marka>/<model>` | #639: model ailesi + nesil (`golf-7`, `passat-b8`, `tipo-356`, `3-e90`); ürünsüz model `404`, 10 üründen azı `noindex,follow` (`minIndexableListingProducts`) |
+| Model × kategori | `/kategori/<kategori>/<marka>/<model>` | #639 sonraki dilimi için ayrıldı; model sayfasında kategori gezintisi bu yüzden kapalı |
 | Üretici | `/marka/<uretici>` | #660 için ayrıldı; bugün `/katalog?brand=` |
 
-Eski adresler tek adımda `301` ile taşınır (`src/proxy.ts`): `/automakers` → `/arac-markalari`, `/car-parts/<marka>` → `/yedek-parca/<marka>`, `/car-parts/<marka>?category=<k>` → `/kategori/<k>/<marka>`, `/katalog?category=<k>` → `/kategori/<k>`; diğer sorgu parametreleri korunur. Bilinmeyen kategori veya marka `404` döner. CDN veya bakım modunda yola bağlı kural varsa yeni önekler (`/kategori/*`, `/yedek-parca/*`, `/arac-markalari`) eklenmelidir.
+Eski adresler tek adımda `301` ile taşınır (`src/proxy.ts`): `/automakers` → `/arac-markalari`, `/car-parts/<marka>` → `/yedek-parca/<marka>`, `/car-parts/<marka>?category=<k>` → `/kategori/<k>/<marka>`, `/katalog?category=<k>` → `/kategori/<k>`; diğer sorgu parametreleri korunur. Bilinmeyen kategori, marka veya model `404` döner.
+
+Model sayfası birimi (#639) bir markanın bir model ailesi ve nesli, tüm kasa tipleriyle birlikte: TecDoc'ta kasa başına ayrı seri olan `GOLF VII`, `GOLF VII Variant`, `GOLF VII Van` tek sayfa (`golf-7`). Slug kuralı ve sabitlenen adresler `src/modules/store/vehicle-model-groups.ts` ve `scripts/test-vehicle-model-groups.ts` içinde; yerel katalogda 5.767 seri 4.372 birim, slug çakışması yok. Liste model düzeyindedir: motor düzeyi uyumluluk (`storefront_model_fits`) ile tedarikçi açıklamasından okunan model (`product_model_fitments`) birleşir; sayfa bunu söyler ve motor tipine göre doğrulama için garaj seçicisini sunar. Marka sayfası ürünü olan modelleri aile → nesil listesiyle bağlar. CDN veya bakım modunda yola bağlı kural varsa yeni önekler (`/kategori/*`, `/yedek-parca/*`, `/arac-markalari`) eklenmelidir.
 
 ## Bütçe ve karar kuralı
 
