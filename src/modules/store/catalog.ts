@@ -205,7 +205,14 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
       AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
     CROSS JOIN LATERAL jsonb_each(e.payload->'oemNumbers') refs
     CROSS JOIN LATERAL jsonb_array_elements_text(refs.value) reference(number)
-    WHERE search_compact(reference.number) LIKE ${bind(`%${parsed.compact}%`)}`);
+    WHERE search_compact(reference.number) LIKE ${bind(`%${parsed.compact}%`)}
+     AND NOT EXISTS (SELECT 1 FROM product_override_references h JOIN product_sources hs ON hs.product_id=h.product_id
+      WHERE hs.supplier_item_id=e.supplier_item_id AND h.action='hide' AND h.kind='oem' AND h.brand_key=part_number_key(refs.key)
+       AND h.number_key=part_number_key(reference.number))`);
+ // Numbers an admin added (#582): OEM, cross-reference and barcode. A small table read whole, like overrideItemMatch.
+ if(parsed.compact.length>=3)hits.push(`SELECT ps.supplier_item_id FROM product_override_references r
+    JOIN product_sources ps ON ps.product_id=r.product_id
+    WHERE r.action='add' AND lower(r.number_key) LIKE ${bind(`%${parsed.compact}%`)}`);
  // Rows renamed by an admin are found by the new name (#575).
  const overridden=overrideItemMatch(parsed,bind,mode);
  if(overridden)hits.push(overridden);

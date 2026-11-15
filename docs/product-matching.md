@@ -109,6 +109,27 @@ Kararlar ve sınırlar:
 - **Gizli ürünlerin görselleri:** mağazada gizli (`product_overrides.hidden`) bir ürünün yüklenen görselleri mağazada listelenmez, ama adresini bilen `/api/product-media/<uuid>` üzerinden açabilir; birleştirilmiş ürünlerin yüklemeleri ise sunulmaz.
 - **Zincirleme taşıma:** A, B'ye birleşip görselleri B'ye taşındıktan sonra B de C'ye birleşirse C'deki kopyaların kaynağı B olur (`carried_from=B`); A→B birleştirmesini geri almak B'deki kopyaları kaldırır ama C'dekilere dokunmaz (onlar ancak B→C geri alınınca gider).
 
+### Elle referans numaraları (#582)
+
+`/yonetim/urunler/[id]` "Referans numaraları" kartı ürüne elle OEM numarası, muadil (çapraz) kod ve barkod (EAN/GTIN) ekler ve otomatik (zenginleştirme) OEM / muadil numaralarını mağazada gizler. Tablo `db/product-override-references.sql`'dedir (kurulumda `product-override-images`'tan hemen sonra):
+
+- `product_override_references`: ana ürün (`products.id`) başına satır; `kind` (`oem` | `cross` | `ean`), `action` (`add` | `hide`), `brand` (OEM'de araç markası, muadilde üretici; barkodda boş), `number`, saklanan `brand_key`/`number_key` (`part_number_key()`, mağazanın `compactPartNumber` anahtarı), `carried_from`, `created_by`. Aynı ürün/tür/anahtar bir kez bulunur (`UNIQUE`); eklenen ile gizlenen aynı numara olamaz. Barkod yalnız eklenir, rakamdır ve `gtin_valid()` kontrol hanesinden geçmelidir. Ürün başına en çok 200 satır.
+- Geçmiş `product_override_changes`'a `kind|brand|number` metniyle yazılır: `reference_added`, `reference_removed`, `reference_hidden`, `reference_shown`.
+
+Okuma sırası: ürün sayfası (`src/app/(store)/urun/[id]/page.tsx`) zenginleştirmenin OEM ve muadil gruplarını alır, önce gizlenenleri (tür + marka anahtarı + numara anahtarı) düşer, boşalan grup kalkar; sonra eklenenleri aynı marka anahtarlı gruba, yoksa yöneticinin yazdığı markayla yeni gruba ekler (`applyReferenceOverrides`, `src/modules/store/product-reference-display.ts`). Elle eklenenler zenginleştirme olmasa da görünür. Barkodlar teknik bilgilere "Barkod (EAN)" olarak ve yapısal veriye `gtin8/12/13/14` olarak girer. Okuma istek anındadır (`getItemReferences`, `src/modules/store/product-references.ts`: `product_sources` PK → tablo); izdüşüm tablosu ve tetikleyici yoktur, katalog görünümleri değişmez.
+
+Arama: kod araması (her iki modda) eklenen numaraların `number_key`'inde de arar (`searchHits`, `src/modules/store/catalog.ts`; küçük tablo baştan sona okunur). Zenginleştirme OEM dalı gizlenen OEM numarasıyla ürünü bulmaz (eşleşme `part_number_key` anahtarıyla); aynı ürünün gizlenmemiş OEM'i bulmaya devam eder. Değişiklik ürün sayfasında hemen, aramada düz arama önbelleği nedeniyle birkaç dakika içinde görünür. Elle de eklenmiş bir otomatik numara gizlenemez (aynı anahtar); kart önce elle ekleneni kaldırmayı söyler. Ürün sayfasındaki OEM bağlantıları (`getReferenceLinks`) başka bir ürüne elle eklenmiş OEM'i de "katalogda var" sayar.
+
+Birleştirme ve geri alma: eylemler görsel taşımasının yanında `product_override_references_carry(source, target, actor)` çağırır; birleşen ürünün satırları `carried_from=source` ile hedefe kopyalanır, hedefte aynı numaranın satırı varsa hedefinki kalır; her kopya geçmişe `reason='carry'` ile yazılır ve ürün sayfası "N referans numarası birleşen üründen taşındı" der. Birleştirme geri alınınca `product_override_references_products_restored` tetikleyicisi `product_override_references_uncarry`'yi çağırır: hâlâ taşınmış duran satırlar silinir (`reference_removed` / `reference_shown`, `reason='uncarry'`). Görsellerden farklı olarak numaralar tek tek yönetilir: yöneticinin başka bir numarayı değiştirmesi taşınan satırları sahiplenmez.
+
+Bilinen sınırlar:
+
+- **Tedarikçi `oe` alanı gizlenmez:** kart tedarikçi satırlarının kendi OEM alanını "Tedarikçi verisi" olarak yalnız gösterir; mağazada gizleme kimlik/teknik bilgi düzenlemesiyle gelecek (#602).
+- **Sıralama:** elle eklenen numarayla bulunan ürün, arama sıralamasında tam parça/OEM eşleşmesinin önceliğini almaz (sıralama saklanan tedarikçi alanlarını okur).
+- **Önbellek:** düz arama sonuçlarının 10 dakikalık süreç önbelleği (#585) nedeniyle yeni eklenen numara aramada en geç 10 dakika içinde görünür; ürün sayfası anında güncellenir.
+- **Tedarikçi barkodları gösterilmez:** Dinamik `barkod1..3` eşleştirmede kullanılır, mağazada yalnız elle eklenen barkod görünür.
+- **Ortamlar arası aktarım yok:** mağaza paketi, tedarikçi senkronları, zenginleştirme importu ve uyum yeniden kurulumu bu tabloya yazmaz (`test:product-override-references` yapısal olarak denetler).
+
 ## Tablolar ve çalıştırma
 
 `refresh_product_matches()` tek transaction'da yeniden kurar (~45 sn; `DELETE` kullanır, ekran yenileme sırasında eski sonuçları göstermeye devam eder): `product_match_items` (her güncel kayıt için marka/parça no/ad), `product_match_groups` (iki+ kayıtlı anahtarlar), `product_references` (SETA rakip kodları ve OEM numaraları; aynı ürün değil muadil). Kararlar `product_brand_pair_decisions`, takma adlar `product_brand_aliases` tablosundadır ve yenilemede korunur.

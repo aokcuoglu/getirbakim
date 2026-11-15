@@ -22,6 +22,7 @@
     "test:product-pricing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-pricing.ts",
     "test:product-overrides": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-overrides.ts",
     "test:product-override-images": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-images.ts",
+    "test:product-override-references": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-references.ts",
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
     "test:partner": "node --import tsx --test scripts/test-partner.ts",
     "test:seta": "node --import tsx --test scripts/test-seta.ts",

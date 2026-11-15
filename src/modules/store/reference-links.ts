@@ -57,7 +57,15 @@ export async function getReferenceLinks(productId: string, groups: ReferenceGrou
       `SELECT DISTINCT part_number_key(oem) oem FROM (${entriesSql}) catalog
       WHERE catalog.id=ANY($4::uuid[]) AND oem<>'' AND id::text<>$3 AND part_number_key(oem)=ANY($2::text[])`,
       [company(), oemCodes, productId, candidates])).rows : [];
-    const found = new Set(rows.map(row => row.oem));
+    // OEM numbers an admin added to another product (#582) open the same search, which finds that product. The page's
+    // own product is left out with all of its supplier rows (the number is the product's, so every row carries it).
+    const added = (await db.query<{oem: string}>(
+      `SELECT DISTINCT r.number_key oem FROM product_override_references r
+      JOIN product_sources ps ON ps.product_id=r.product_id JOIN supplier_items i ON i.id=ps.supplier_item_id
+      WHERE r.action='add' AND r.kind='oem' AND r.number_key=ANY($1::text[]) AND i.company=ANY($3::text[])
+       AND NOT EXISTS (SELECT 1 FROM product_sources own WHERE own.supplier_item_id=$2::uuid AND own.product_id=r.product_id)`,
+      [oemCodes, productId, company()])).rows;
+    const found = new Set([...rows, ...added].map(row => row.oem));
     for (const group of groups) if (group.kind === "oem") for (const code of group.codes)
       if (found.has(compactPartNumber(code))) links.set(referenceKey(group.brand, code), searchHref(code));
   }

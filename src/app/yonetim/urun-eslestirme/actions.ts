@@ -60,17 +60,20 @@ export async function decideCandidate(form: FormData) {
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=candidates&error=input");
   const { product_a, product_b, status, back } = input.data;
   const client = await db.connect();
-  let failed = false, carriedHidden = false, carriedImages = 0, keptImages = false;
+  let failed = false, carriedHidden = false, carriedImages = 0, keptImages = false, carriedRefs = 0;
   try {
     await client.query("BEGIN");
     // No merge (the Dinamik product already sits elsewhere) leaves nothing to record.
     // product_overrides_carry: the Başbuğ product takes the merged product's store edits where it has none, and its
-    // hidden state (#575); the notice says when hidden was carried.
-    const merge = status === "same" ? (await client.query<{ id: string | null; carried: { hidden: boolean } | null; carried_images: { images: number; kept: boolean } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
-      SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images FROM merged`, [product_a, product_b, admin.id])).rows[0] : null;
+    // hidden state (#575); the notice says when hidden was carried. Images (#581) and reference numbers (#582) follow.
+    const merge = status === "same" ? (await client.query<{ id: string | null; carried: { hidden: boolean } | null; carried_images: { images: number; kept: boolean } | null;
+      carried_refs: { added: number; hidden: number } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
+      SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images,
+       product_override_references_carry($2, id, $3) AS carried_refs FROM merged`, [product_a, product_b, admin.id])).rows[0] : null;
     carriedHidden = Boolean(merge?.carried?.hidden);
     carriedImages = merge?.carried_images?.images ?? 0;
     keptImages = Boolean(merge?.carried_images?.kept);
+    carriedRefs = (merge?.carried_refs?.added ?? 0) + (merge?.carried_refs?.hidden ?? 0);
     if (merge && !merge.id) {
       await client.query("ROLLBACK");
       failed = true;
@@ -86,7 +89,7 @@ export async function decideCandidate(form: FormData) {
   finally { client.release(); }
   forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
-  redirect(withFlag(back, failed ? "error=merge" : `matched=${status}${carriedHidden ? "&carried_hidden=1" : ""}${carriedImages ? `&images=${carriedImages}` : keptImages ? "&images=kept" : ""}`));
+  redirect(withFlag(back, failed ? "error=merge" : `matched=${status}${carriedHidden ? "&carried_hidden=1" : ""}${carriedImages ? `&images=${carriedImages}` : keptImages ? "&images=kept" : ""}${carriedRefs ? `&refs=${carriedRefs}` : ""}`));
 }
 
 // Accept every candidate of one brand and reason at once (systematic code formats such as CONTITECH "CT 978K1"). Suffix
@@ -99,7 +102,7 @@ export async function acceptCandidates(form: FormData) {
   if (!input.success) redirect("/yonetim/urun-eslestirme?tab=candidates&error=input");
   const { reason, brand, back } = input.data;
   const client = await db.connect();
-  let merged = 0, carriedHidden = 0, carriedImages = 0;
+  let merged = 0, carriedHidden = 0, carriedImages = 0, carriedRefs = 0;
   try {
     await client.query("BEGIN");
     const pairs = (await client.query<{ product_a: string; product_b: string }>(`SELECT c.product_a,c.product_b FROM product_match_candidates c
@@ -107,12 +110,15 @@ export async function acceptCandidates(form: FormData) {
       WHERE c.reason=$1 AND a.brand=$2 AND ${bulkAcceptableSql} LIMIT 500`, [reason, brand])).rows;
     for (const pair of pairs) {
       // Skipped when nothing merged; the pair stays in the list for a decision by hand.
-      const merge = (await client.query<{ id: string | null; carried: { hidden: boolean } | null; carried_images: { images: number; kept: boolean } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
-        SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images FROM merged`, [pair.product_a, pair.product_b, admin.id])).rows[0];
+      const merge = (await client.query<{ id: string | null; carried: { hidden: boolean } | null; carried_images: { images: number; kept: boolean } | null;
+        carried_refs: { added: number; hidden: number } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
+        SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images,
+         product_override_references_carry($2, id, $3) AS carried_refs FROM merged`, [pair.product_a, pair.product_b, admin.id])).rows[0];
       if (!merge.id) continue;
       // A hidden product merged into a sellable one hides it too (#575); the summary counts them.
       if (merge.carried?.hidden) carriedHidden++;
       carriedImages += merge.carried_images?.images ?? 0;
+      carriedRefs += (merge.carried_refs?.added ?? 0) + (merge.carried_refs?.hidden ?? 0);
       await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
         ON CONFLICT (product_a,product_b) DO UPDATE SET status='same',decided_by=excluded.decided_by,decided_at=now()`, [pair.product_a, pair.product_b, admin.id]);
       await client.query("DELETE FROM product_match_candidates WHERE product_a=$1 AND product_b=$2", [pair.product_a, pair.product_b]);
@@ -123,7 +129,7 @@ export async function acceptCandidates(form: FormData) {
   finally { client.release(); }
   forgetSameProducts();
   revalidatePath("/yonetim/urun-eslestirme");
-  redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk&count=${merged}&carried_hidden=${carriedHidden}&images=${carriedImages}`));
+  redirect(withFlag(back.replace(/([?&])q=[^&]*&?/, "$1").replace(/[?&]$/, ""), `matched=bulk&count=${merged}&carried_hidden=${carriedHidden}&images=${carriedImages}&refs=${carriedRefs}`));
 }
 
 // Record every listed name-conflict candidate as different (a reviewed "Tanımı farklı" list); nothing is merged.

@@ -6,7 +6,7 @@ import { migrateSupplierSnapshots } from "../src/modules/suppliers/sync";
 // The schema files scripts/setup.ts applies, in its order.
 const setupFiles = ["schema", "brand-launch", "vehicle-schema", "vehicle-oil-specs", "commerce", "search", "garage", "product-enrichment",
   "manual-supplier", "manufacturer-logos", "vehicle-type-specs", "enrichment-worker", "product-fitments", "source-categories", "product-matching", "product-overrides",
-  "product-override-images", "storefront-catalog", "restock-requests", "enrichment-products", "enrichment-states", "enrichment-shared-links", "storefront-make-fits", "newsletter"];
+  "product-override-images", "product-override-references", "storefront-catalog", "restock-requests", "enrichment-products", "enrichment-states", "enrichment-shared-links", "storefront-make-fits", "newsletter"];
 
 /**
  * A throwaway schema holding the whole application schema, for integration tests that must not touch the shared
