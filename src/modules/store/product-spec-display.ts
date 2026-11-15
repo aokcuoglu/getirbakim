@@ -1,3 +1,5 @@
+import { catalogSpecifications } from "./catalog-filters";
+
 /** One admin decision about a technical specification of a product (db/product-override-specs.sql, #603). */
 export type SpecOverride = { action: "set" | "hide"; key: string; value: string | null };
 
@@ -23,4 +25,29 @@ export function applySpecOverrides(automatic: [string, string][], overrides: Spe
     shown.push([override.key, override.value]);
   }
   return shown;
+}
+
+/**
+ * Rows with the same label become one (#712): translated enrichment keys ("Manufacturer" → "Üretici") can meet the rows
+ * the page adds itself. The first row keeps its place; a different value of the same label is appended, ", "-joined.
+ */
+export function mergeSpecificationRows(rows: [string, string][]): [string, string][] {
+  const merged = new Map<string, string[]>();
+  for (const [label, value] of rows) {
+    const values = merged.get(label) ?? [];
+    const text = value.trim();
+    if (text && !values.some(known => known.toLowerCase() === text.toLowerCase())) values.push(text);
+    merged.set(label, values);
+  }
+  return [...merged].filter(([, values]) => values.length).map(([label, values]): [string, string] => [label, values.join(", ")]);
+}
+
+/**
+ * The enrichment rows the product page may show (#712): the page names its own maker, part number and barcode, so the
+ * enrichment's Manufacturer, Manufacturer Part Number (a donor's may differ) and, with an own barcode, EAN rows are dropped;
+ * a non-exact match also loses Brand class and Trade numbers, exactly like the catalog cards.
+ */
+export function pageSpecifications(specifications: [string, string][], exactPart: boolean, ownEan: boolean): [string, string][] {
+  return catalogSpecifications(specifications, exactPart)
+    .filter(([key]) => key !== "Manufacturer" && key !== "Manufacturer Part Number" && !(ownEan && key === "EAN"));
 }
