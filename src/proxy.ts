@@ -1,11 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { RETURN_TO_HEADER } from "@/modules/auth/return-to";
-import { SESSION_COOKIE, sessionCookieOptions } from "@/modules/auth/session-cookie";
+import { SESSION_COOKIE, SESSION_SEEN_COOKIE, sessionCookieDue, sessionCookieOptions } from "@/modules/auth/session-cookie";
 import { legacyRedirect } from "@/modules/seo/legacy-redirects";
 
 // /yonetim: lets requireService() send an expired session back to the page it was on after login.
-// Signed in: the session cookie slides with each request (server actions are POSTs to the page and pass here too),
-// matching the database expiry that currentAccount() extends. A dead token kept alive here stays rejected by the database.
+// Signed in: the session cookie slides with requests (server actions are POSTs to the page and pass here too), but at most
+// every SESSION_REFRESH_SECONDS: a Set-Cookie on an action response marks the page revalidated and re-renders it (#716).
+// The cookie outlives the database expiry that currentAccount() extends; a dead token kept alive here stays rejected there.
 // Old listing addresses (/automakers, /car-parts/<make>, /katalog?category=) move with one 301 (#638). Next needs an
 // absolute URL here and sends it on relative (same host), so a CDN or load balancer in front keeps its own host.
 export function proxy(request: NextRequest) {
@@ -20,7 +21,11 @@ export function proxy(request: NextRequest) {
   response = NextResponse.next({ request: { headers } });
  } else response = NextResponse.next();
  const token = request.cookies.get(SESSION_COOKIE)?.value;
- if (token) response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
+ const now = Math.floor(Date.now() / 1000);
+ if (token && sessionCookieDue(request.cookies.get(SESSION_SEEN_COOKIE)?.value, now)) {
+  response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions());
+  response.cookies.set(SESSION_SEEN_COOKIE, String(now), sessionCookieOptions());
+ }
  return response;
 }
 

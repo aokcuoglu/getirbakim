@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import { loginPath, RETURN_TO_HEADER } from "./return-to";
-import { SESSION_COOKIE, SESSION_IDLE_SECONDS, sessionCookieOptions } from "./session-cookie";
+import { SESSION_COOKIE, SESSION_IDLE_SECONDS, SESSION_SEEN_COOKIE, sessionCookieOptions } from "./session-cookie";
 export type Account = { id: string; name: string; email: string; role: "admin" | "service"; approved: boolean; discount_percent: number };
 export const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 export const currentAccount = cache(async (): Promise<Account | null> => {
@@ -34,5 +34,7 @@ export async function adminApiAccount() {
 export async function startSession(accountId: string) {
  const token = randomBytes(32).toString("hex");
  await db.query("INSERT INTO sessions (token_hash,account_id,expires_at) VALUES ($1,$2,now()+make_interval(secs=>$3::int))",[tokenHash(token),accountId,SESSION_IDLE_SECONDS]);
- (await cookies()).set(SESSION_COOKIE,token,sessionCookieOptions());
+ const jar=await cookies();
+ jar.set(SESSION_COOKIE,token,sessionCookieOptions());
+ jar.set(SESSION_SEEN_COOKIE,String(Math.floor(Date.now()/1000)),sessionCookieOptions());
 }

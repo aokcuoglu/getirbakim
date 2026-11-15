@@ -4306,6 +4306,13 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
+                  "gb_session_at: Oturum çerezinin en son ne zaman yenilendiğini tutar; oturumun gereksiz yere yeniden yazılmasını önler. Zorunludur; giriş yapıldığında kullanılır ve oturum çereziyle aynı süre geçerlidir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
                   "gb_cart: Ziyaretçi sepetini tarayıcıyla ilişkilendirir. Ziyaretçi sepeti oluşturulduğunda kullanılır; geçerlilik süresi 30 gündür."
                 ]
               },
