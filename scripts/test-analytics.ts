@@ -4,7 +4,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { CONSENT_MAX_AGE, consentSignals, parseConsent, serializeConsent } from "../src/lib/cookie-consent";
 import { analyticsConfig } from "../src/modules/analytics/config";
-import { addToCart, catalogItem, kurusToValue, search, selectItem, viewItem, viewItemList } from "../src/modules/analytics/events";
+import { addToCart, catalogItem, cleanPageLocation, kurusToValue, search, selectItem, viewItem, viewItemList } from "../src/modules/analytics/events";
 
 const now = Date.UTC(2026, 10, 15);
 
@@ -24,7 +24,11 @@ test("consent signals follow the categories", () => {
   const denied = { analytics_storage: "denied", ad_storage: "denied", ad_user_data: "denied", ad_personalization: "denied" };
   assert.deepEqual(consentSignals(null), denied);
   assert.deepEqual(consentSignals({ analytics: true, marketing: false }), { ...denied, analytics_storage: "granted" });
-  assert.deepEqual(consentSignals({ analytics: false, marketing: true }),
+  // No advertising service is configured: a saved marketing choice does not grant advertising signals.
+  assert.deepEqual(consentSignals({ analytics: true, marketing: true }), { ...denied, analytics_storage: "granted" });
+  assert.deepEqual(consentSignals({ analytics: true, marketing: true }, { marketing: false }), { ...denied, analytics_storage: "granted" });
+  assert.deepEqual(consentSignals({ analytics: true, marketing: false }, { marketing: true }), { ...denied, analytics_storage: "granted" });
+  assert.deepEqual(consentSignals({ analytics: false, marketing: true }, { marketing: true }),
     { analytics_storage: "denied", ad_storage: "granted", ad_user_data: "granted", ad_personalization: "granted" });
 });
 
@@ -69,7 +73,7 @@ test("the admin area never loads the tag and no id is baked in at build", () => 
 function browser(cookie = "") {
   const target = new EventTarget();
   const fake = {
-    cookie, window: Object.assign(target, { localStorage: { removeItem() {} }, location: { protocol: "https:", hostname: "getirbakim.com" } }) as unknown as Window & typeof globalThis,
+    cookie, window: Object.assign(target, { localStorage: { removeItem() {} }, location: { protocol: "https:", hostname: "getirbakim.com", href: "https://getirbakim.com/" } }) as unknown as Window & typeof globalThis,
   };
   Object.assign(globalThis, { window: fake.window, document: fake });
   return fake;
@@ -84,15 +88,15 @@ test("an event sent before the tag boots is refused, then queued after the boot 
   window.addEventListener(TAG_READY_EVENT, () => { ready += 1; });
   assert.equal(track("view_item", {}), false);
   assert.equal(window.dataLayer, undefined);
-  bootGtag("G-TEST0000000", "b2c", false);
+  bootGtag("G-TEST0000000", "b2c", true, { marketing: false });
   assert.equal(ready, 1);
   const commands = () => (window.dataLayer ?? []).map(entry => Array.from(entry as ArrayLike<unknown>));
   assert.deepEqual(commands().map(command => command.slice(0, 2).join(":")).slice(0, 5),
     ["consent:default", "consent:update", "js:" + commands()[2][1], "set:user_properties", "config:G-TEST0000000"]);
   assert.equal(track("view_item", { a: 1 }), true);
-  assert.deepEqual(commands().at(-1), ["event", "view_item", { a: 1 }]);
+  assert.deepEqual(commands().at(-1), ["event", "view_item", { page_location: "https://getirbakim.com/", a: 1 }]);
   // Signing in later changes the user property without a second config.
-  bootGtag("G-TEST0000000", "b2b", false);
+  bootGtag("G-TEST0000000", "b2b", true, { marketing: false });
   assert.equal(commands().filter(command => command[0] === "config").length, 1);
   assert.deepEqual(commands().filter(command => command[0] === "set").at(-1), ["set", "user_properties", { customer_type: "b2b" }]);
   stopGtag("G-TEST0000000");
@@ -138,4 +142,17 @@ test("POST /api/consent: 204, 400 and 403", async () => {
   assert.equal(consentRequest({ ...base, origin: "https://shop.test", body: { analytics: "x" } }).status, 400);
   assert.equal(consentRequest({ ...base, origin: "https://shop.test", body: null }).status, 400);
   assert.equal(consentRequest({ ...base, origin: "https://shop.test", body: { analytics: true, marketing: true, savedAt: 1 } }).status, 400);
+});
+
+test("page_location never carries the sign-in `next` parameter", async () => {
+  assert.equal(cleanPageLocation("https://getirbakim.com/giris?next=%2Fyonetim"), "https://getirbakim.com/giris");
+  assert.equal(cleanPageLocation("https://getirbakim.com/katalog?q=fren&next=%2Fyonetim&page=2"), "https://getirbakim.com/katalog?q=fren&page=2");
+  assert.equal(cleanPageLocation("https://getirbakim.com/urun/1"), "https://getirbakim.com/urun/1");
+  const { track } = await import("../src/modules/analytics/track");
+  browser(`gb_consent=${serializeConsent({ analytics: true, marketing: false, savedAt: Date.now() })}`);
+  Object.assign(window.location, { href: "https://getirbakim.com/giris?next=%2Fyonetim" });
+  window.dataLayer = [];
+  window.gtag = (...args: unknown[]) => { window.dataLayer!.push(args); };
+  assert.equal(track("select_item", { a: 1 }), true);
+  assert.deepEqual(window.dataLayer[0], ["event", "select_item", { page_location: "https://getirbakim.com/giris", a: 1 }]);
 });

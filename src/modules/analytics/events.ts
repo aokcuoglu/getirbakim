@@ -31,3 +31,14 @@ export const selectItem = withList;
 export const viewItem = (item: AnalyticsItem) => withValue([item]);
 export const addToCart = (item: AnalyticsItem, quantity: number) => withValue([{ ...item, quantity }]);
 export const search = (term: string) => ({ search_term: term.slice(0, 100) });
+
+/** The page address Google receives: the sign-in `next` parameter would otherwise leak the page behind it (e.g. /yonetim). */
+export function cleanPageLocation(url: string) {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete("next");
+    return parsed.toString();
+  } catch {
+    return url.split("?")[0];
+  }
+}

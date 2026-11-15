@@ -1,3 +1,4 @@
+import { cleanPageLocation } from "@/modules/analytics/events";
 import { consentSignals, consentSnapshot, parseConsent } from "@/lib/cookie-consent";
 
 declare global {
@@ -14,7 +15,7 @@ const disableKey = (ga4: string) => `ga-disable-${ga4}`;
 const setDisabled = (ga4: string, value: boolean) => { (window as unknown as Record<string, boolean>)[disableKey(ga4)] = value; };
 
 /** Installs gtag and sends the Consent Mode commands in order: default, update, js, config. Call only with analytics consent. */
-export function bootGtag(ga4: string, customerType: string, marketing: boolean) {
+export function bootGtag(ga4: string, customerType: string, marketing: boolean, services: { marketing: boolean }) {
   const first = typeof window.gtag !== "function";
   setDisabled(ga4, false);
   if (first) {
@@ -24,7 +25,7 @@ export function bootGtag(ga4: string, customerType: string, marketing: boolean) 
     window.gtag = function () { window.dataLayer!.push(arguments); };
     window.gtag("consent", "default", consentSignals(null));
   }
-  window.gtag!("consent", "update", consentSignals({ analytics: true, marketing }));
+  window.gtag!("consent", "update", consentSignals({ analytics: true, marketing }, services));
   if (first) window.gtag!("js", new Date());
   // The visitor may sign in later, so this runs on every boot, not only the first.
   window.gtag!("set", "user_properties", { customer_type: customerType });
@@ -42,6 +43,6 @@ export function stopGtag(ga4: string) {
 export function track(name: string, params: Record<string, unknown>) {
   if (typeof window.gtag !== "function") return false;
   if (!parseConsent(consentSnapshot())?.analytics) return false;
-  window.gtag("event", name, params);
+  window.gtag("event", name, { page_location: cleanPageLocation(window.location.href), ...params });
   return true;
 }

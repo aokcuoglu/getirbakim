@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -41,6 +41,18 @@ export function CookieConsent() {
   const [analytics, setAnalytics] = useState(false);
   const [marketing, setMarketing] = useState(false);
   const preferencesButton = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!settings) return;
+    // Escape closes the panel like "Vazgeç" and returns focus to the button that opened it.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setSettings(false);
+      preferencesButton.current?.focus({ preventScroll: true });
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [settings]);
 
   function openSettings() {
     setAnalytics(consent?.analytics ?? false);

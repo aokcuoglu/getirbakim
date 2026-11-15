@@ -31,7 +31,7 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
   },[state.added]);
   useEffect(()=>{
     // `added.price` is what the visitor pays (service discount applied); `addedQuantity` is this click's units.
-    if(state.added) track("add_to_cart",addToCartEvent(catalogItem({id:state.added.id,name:state.added.name,brand:state.added.brand},state.added.price),state.addedQuantity??1));
+    if(state.added) track("add_to_cart",addToCartEvent(catalogItem({id:state.added.id,name:state.added.itemName,brand:state.added.brand},state.added.price),state.addedQuantity??1));
   },[state.added,state.addedQuantity]);
   const product=variant==="product";
   return <>

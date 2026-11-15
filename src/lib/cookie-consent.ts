@@ -46,10 +46,13 @@ export function consentSavedAt(client: number | undefined, now: number) {
   return Math.abs(client - now) <= CONSENT_CLIENT_SKEW ? Math.min(client, now) : null;
 }
 
-/** Consent Mode v2 signals: analytics_storage follows analytics; the three advertising signals follow marketing. */
-export function consentSignals(consent: Pick<CookieConsent, "analytics" | "marketing"> | null): ConsentSignals {
+/** Consent Mode v2 signals: analytics_storage follows analytics; the three advertising signals follow marketing, when a service uses them. */
+export function consentSignals(
+  consent: Pick<CookieConsent, "analytics" | "marketing"> | null, services: { marketing: boolean } = { marketing: false },
+): ConsentSignals {
   const analytics: ConsentSignal = consent?.analytics ? "granted" : "denied";
-  const marketing: ConsentSignal = consent?.marketing ? "granted" : "denied";
+  // Advertising signals need a configured advertising service too; the saved preference itself is left as chosen.
+  const marketing: ConsentSignal = consent?.marketing && services.marketing ? "granted" : "denied";
   return { analytics_storage: analytics, ad_storage: marketing, ad_user_data: marketing, ad_personalization: marketing };
 }
 
