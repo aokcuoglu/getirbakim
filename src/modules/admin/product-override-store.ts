@@ -12,11 +12,14 @@ export type ProductOverrideChange = {
 };
 export type ProductOverrideDetails = {
   override: ProductOverride | null;
-  /** What the store shows without an edit: the product's name, its listed source's description, enrichment categories. */
-  automatic: { name: string | null; description: string; categories: { id: number; name: string }[] };
+  /**
+   * What the store shows without an edit: the product's name, its listed source's description, brand and code,
+   * enrichment categories.
+   */
+  automatic: { name: string | null; description: string; brand: string | null; code: string | null; categories: { id: number; name: string }[] };
   changes: ProductOverrideChange[];
 };
-export type PersistOverrideResult = { ok: false; reason: "not-found" | "merged" | "category" | "stale" | "sale-expired" } | {
+export type PersistOverrideResult = { ok: false; reason: "not-found" | "merged" | "category" | "brand" | "stale" | "sale-expired" } | {
   ok: true; changed: ProductOverrideField[];
   /** The stored edits after the call and their version: the form shows these instead of waiting for the page refresh. */
   values: ProductOverrideValues; version: string;
@@ -30,10 +33,10 @@ const versionSql = "(extract(epoch FROM updated_at)*1000000)::bigint::text";
  */
 const valuesSql = (alias = "") => `${alias}name,${alias}description,${alias}seo_title,${alias}seo_description,${alias}category_id,${alias}hidden,
   ${alias}price_kurus,${alias}sale_price_kurus,to_char(${alias}sale_from AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD"T"HH24:MI') AS sale_from,
-  to_char(${alias}sale_until AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD"T"HH24:MI') AS sale_until`;
+  to_char(${alias}sale_until AT TIME ZONE 'Europe/Istanbul','YYYY-MM-DD"T"HH24:MI') AS sale_until,${alias}brand,${alias}part_number`;
 
 const empty: ProductOverrideValues = { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false,
-  price_kurus: null, sale_price_kurus: null, sale_from: null, sale_until: null };
+  price_kurus: null, sale_price_kurus: null, sale_from: null, sale_until: null, brand: null, part_number: null };
 
 /** History text of a value: hidden=false is the automatic state (published), so it is recorded as NULL like the rest. */
 function historyValue(field: ProductOverrideField, value: ProductOverrideValues[ProductOverrideField]): string | null {
@@ -68,6 +71,12 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
       await client.query("ROLLBACK"); return { ok: false, reason: "stale" };
     }
     const current: ProductOverrideValues = row ? Object.fromEntries(productOverrideFields.map(field => [field, row[field]])) as ProductOverrideValues : empty;
+    // A new store brand must be a master brand's name, as picked from the list. No FK: a brand merge deletes the merged
+    // brand and the saved edit keeps its text, so an unchanged brand is not checked again (the other fields still save).
+    if (patch.brand !== undefined && patch.brand !== null && patch.brand !== current.brand
+      && !(await client.query("SELECT 1 FROM brands WHERE name=$1", [patch.brand])).rowCount) {
+      await client.query("ROLLBACK"); return { ok: false, reason: "brand" };
+    }
     // A new end in the past would never sell; refused instead of stored silently. An ended campaign left as it is does
     // not block other changes (it no longer applies).
     if (patch.sale_until && patch.sale_until !== current.sale_until && (await client.query<{ ended: boolean }>(
@@ -82,14 +91,14 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
       VALUES($1,$2,$3,$4,$5)`, [productId, field, historyValue(field, current[field]), historyValue(field, next[field]), adminId]);
     const anySet = productOverrideFields.some(field => historyValue(field, next[field]) !== null);
     if (anySet) await client.query(`INSERT INTO product_overrides(product_id,name,description,seo_title,seo_description,category_id,hidden,
-      price_kurus,sale_price_kurus,sale_from,sale_until,updated_by)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$9,$10,$11::timestamp AT TIME ZONE 'Europe/Istanbul',$12::timestamp AT TIME ZONE 'Europe/Istanbul',$8)
+      price_kurus,sale_price_kurus,sale_from,sale_until,brand,part_number,updated_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$9,$10,$11::timestamp AT TIME ZONE 'Europe/Istanbul',$12::timestamp AT TIME ZONE 'Europe/Istanbul',$13,$14,$8)
       ON CONFLICT (product_id) DO UPDATE SET name=excluded.name,description=excluded.description,
       seo_title=excluded.seo_title,seo_description=excluded.seo_description,category_id=excluded.category_id,hidden=excluded.hidden,
       price_kurus=excluded.price_kurus,sale_price_kurus=excluded.sale_price_kurus,sale_from=excluded.sale_from,sale_until=excluded.sale_until,
-      updated_by=excluded.updated_by,updated_at=now()`,
+      brand=excluded.brand,part_number=excluded.part_number,updated_by=excluded.updated_by,updated_at=now()`,
     [productId, next.name, next.description, next.seo_title, next.seo_description, next.category_id, next.hidden, adminId,
-      next.price_kurus, next.sale_price_kurus, next.sale_from, next.sale_until]);
+      next.price_kurus, next.sale_price_kurus, next.sale_from, next.sale_until, next.brand, next.part_number]);
     else await client.query("DELETE FROM product_overrides WHERE product_id=$1", [productId]);
     const version = anySet ? (await client.query<{ version: string }>(`SELECT ${versionSql} AS version FROM product_overrides WHERE product_id=$1`, [productId])).rows[0].version
       : automaticVersion;
@@ -114,11 +123,15 @@ export async function loadProductOverride(database: Pick<Pool, "query">, product
     database.query<ProductOverride>(`SELECT ${valuesSql("o.")},o.updated_at,a.name AS updated_by,
       ${versionSql} AS version
       FROM product_overrides o LEFT JOIN accounts a ON a.id=o.updated_by WHERE o.product_id=$1`, [productId]),
-    // The listed source: the product's own row, then Başbuğ, Dinamik, SETA, manual (the storefront's order).
-    database.query<{ name: string | null; description: string | null }>(`SELECT p.name,
-      (SELECT i.product_data->>'ac2' FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id WHERE s.product_id=p.id
-       ORDER BY i.id=p.id DESC, storefront_supplier_rank(i.supplier), i.code LIMIT 1) AS description
-      FROM products p WHERE p.id=$1`, [productId]),
+    // The listed source: the product's own row, then Başbuğ, Dinamik, SETA, manual (the storefront's order). Its brand
+    // and code are what the store shows without an edit (commerce_catalog_entries' supplier branch).
+    database.query<{ name: string | null; description: string | null; brand: string | null; code: string | null }>(`SELECT p.name,
+      l.description,l.brand,l.code
+      FROM products p LEFT JOIN LATERAL (SELECT i.product_data->>'ac2' AS description,
+        COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.code
+       FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id WHERE s.product_id=p.id
+       ORDER BY i.id=p.id DESC, storefront_supplier_rank(i.supplier), i.code LIMIT 1) l ON true
+      WHERE p.id=$1`, [productId]),
     database.query<{ id: number; name: string }>(`SELECT DISTINCT c.category_id AS id, c.name FROM (${productCategoriesSql} AND s.product_id=$1) c
       ORDER BY c.name`, [productId]),
     database.query<ProductOverrideChange>(`SELECT c.id::text,c.field,c.old_value,c.new_value,c.changed_at,a.name AS changed_by,c.reason
@@ -127,9 +140,17 @@ export async function loadProductOverride(database: Pick<Pool, "query">, product
   ]);
   return {
     override: override.rows[0] ?? null,
-    automatic: { name: automatic.rows[0]?.name ?? null, description: automatic.rows[0]?.description ?? "", categories: categories.rows },
+    automatic: {
+      name: automatic.rows[0]?.name ?? null, description: automatic.rows[0]?.description ?? "",
+      brand: automatic.rows[0]?.brand ?? null, code: automatic.rows[0]?.code ?? null, categories: categories.rows,
+    },
     changes: changes.rows,
   };
+}
+
+/** The master brands an admin can pick as a product's store brand (#602), by name. */
+export async function loadBrandOptions(database: Pick<Pool, "query">): Promise<string[]> {
+  return (await database.query<{ name: string }>("SELECT name FROM brands ORDER BY name")).rows.map(row => row.name);
 }
 
 /** A saleable source of the product whose price is below its VAT-included cost right now (commerce_catalog). */

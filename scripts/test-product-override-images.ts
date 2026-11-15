@@ -14,6 +14,7 @@ let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let store: typeof import("../src/modules/admin/product-image-store");
 let enrichment: typeof import("../src/modules/store/product-enrichment");
 let images: typeof import("../src/modules/store/product-images");
+let overrides: typeof import("../src/modules/admin/product-override-store");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const [basbug, , dinamik] = storefrontCompanies();
@@ -82,9 +83,10 @@ before(async () => {
     VALUES($1,'FEBI 10010','FEBI','https://www.trodo.com/febi','test','FEBI BILSTEIN','10010',$2,$3)`,
   [ids.febiDinamik, automaticMedia, JSON.stringify({ specifications: [], oemNumbers: {}, crossReferences: {}, vehicles: [], imageWidth: 600, imageHeight: 400 })]);
   await schema.pool.query("SELECT product_enrichment_shared_sync()");
-  const [{ db }, storeModule, enrichmentModule, imagesModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/admin/product-image-store"),
-    import("../src/modules/store/product-enrichment"), import("../src/modules/store/product-images")]);
+  const [{ db }, storeModule, enrichmentModule, imagesModule, overridesModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/admin/product-image-store"),
+    import("../src/modules/store/product-enrichment"), import("../src/modules/store/product-images"), import("../src/modules/admin/product-override-store")]);
   store = storeModule;
+  overrides = overridesModule;
   enrichment = enrichmentModule;
   images = imagesModule;
   closeDb = () => db.end();
@@ -148,6 +150,22 @@ test("without uploads the store shows the automatic image; hidden, it shows none
   assert.equal((await enrichment.getCatalogProductImages(cards)).size, 2);
   assert.deepEqual((await history(febi)).map(change => [change.field, change.old_value, change.new_value]),
     [["auto_image_hidden", null, "true"], ["auto_image_hidden", "true", null]]);
+});
+
+test("a store brand and part number (#602) keep the automatic image: lookups use the supplier's code and brand", async () => {
+  const febi = await productOf("febiBasbug");
+  await schema.pool.query("INSERT INTO brands(key,name) VALUES('SCHAEFFLER602','SCHAEFFLER') ON CONFLICT (key) DO NOTHING");
+  const saved = await overrides.persistProductOverride(schema.pool, febi, { brand: "SCHAEFFLER", part_number: "F-10010" }, admin);
+  assert.ok(saved.ok);
+  const { rows } = await schema.pool.query<{ id: string; code: string; brand: string; display_code: string; display_brand: string }>(
+    "SELECT id::text,code,brand,display_code,display_brand FROM storefront_catalog WHERE id=$1", [ids.febiDinamik]);
+  assert.deepEqual(rows.map(row => [row.code, row.brand, row.display_code, row.display_brand]), [["FEBI 10010", "FEBI", "F-10010", "SCHAEFFLER"]]);
+  // The catalog row's raw code and brand, as the store passes them, find the image; the display values would not.
+  const raw = rows.map(row => ({ id: row.id, code: row.code, brand: row.brand }));
+  assert.equal((await enrichment.getCatalogProductImages(raw)).get(ids.febiDinamik)?.src, `/api/product-media/${automaticMedia}`);
+  assert.equal((await enrichment.getProductEnrichment(raw[0]))?.imagePath, `/api/product-media/${automaticMedia}`);
+  assert.equal((await enrichment.getCatalogProductImages(rows.map(row => ({ id: row.id, code: row.display_code, brand: row.display_brand })))).size, 0);
+  assert.ok((await overrides.persistProductOverride(schema.pool, febi, { brand: null, part_number: null }, admin)).ok);
 });
 
 test("an upload reaches every supplier row of the product, before the automatic image", async () => {

@@ -19,6 +19,11 @@ export type Product = { id: string; category: string; supplier: "dinamik" | "bas
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
  category: string | null; price_kurus: number | null; stock: number | null; oem: string; source: "store" | "supplier";
  available: boolean; max_quantity: number; stock_label: string; pricing_snapshot: Record<string, unknown>;
+ /**
+  * What the store shows as brand and manufacturer part number (#602): an admin's store brand / part number, else the
+  * supplier's. `brand` and `code` stay the supplier's values: order lines, enrichment lookups and matching read those.
+  */
+ display_brand: string; display_code: string;
  /** Set when the listing groups several supplier offers (db/product-matching.sql): the offer sold, and how many. */
  offer_id?: string; offers?: number;
  /** No supplier sells the product now (db/storefront-catalog.sql, #475): listed last, without a price, not orderable. */
@@ -115,11 +120,13 @@ export async function getSetaEquivalents(id: string) {
  */
 export async function getDecidedEquivalents(id: string) {
  if (!z.uuid().safeParse(id).success) return [];
+ // An admin's store brand and part number of the equivalent (#602) win, as on its own page.
  return (await db.query<{ id: string | null; brand: string; code: string; available: boolean | null }>(`SELECT DISTINCT ON (q.id) listed.id::text,
-   COALESCE(b.name,q.brand_label) AS brand, COALESCE(listed.code,q.code) AS code, listed.available
+   COALESCE(qo.brand,b.name,q.brand_label) AS brand, COALESCE(qo.part_number,listed.code,q.code) AS code, listed.available
   FROM product_sources s
   JOIN product_equivalents e ON e.product_id=s.product_id AND e.kind IN ('manual','brand')
   JOIN products q ON q.id=e.equivalent_id AND q.merged_into IS NULL LEFT JOIN brands b ON b.key=q.brand
+  LEFT JOIN product_overrides qo ON qo.product_id=q.id
   LEFT JOIN LATERAL (SELECT priced.id, priced.code, priced.available FROM product_sources o
    JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.supplier_item_id OFFSET 0) priced ON true
    WHERE o.product_id=q.id
@@ -214,7 +221,7 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
  if(parsed.compact.length>=3)hits.push(`SELECT ps.supplier_item_id FROM product_override_references r
     JOIN product_sources ps ON ps.product_id=r.product_id
     WHERE r.action='add' AND lower(r.number_key) LIKE ${bind(`%${parsed.compact}%`)}`);
- // Rows renamed by an admin are found by the new name (#575).
+ // Rows renamed by an admin are found by the new name (#575), store brand and part number (#602).
  const overridden=overrideItemMatch(parsed,bind,mode);
  if(overridden)hits.push(overridden);
  return hits.join(" UNION ALL ");
@@ -350,7 +357,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
- const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`brand=ANY($${values.length}::text[])`);}
+ const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`display_brand=ANY($${values.length}::text[])`);}
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
   clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
@@ -390,12 +397,17 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
  const values:unknown[]=[company(),search.ids],bind=binder(values);
  const queries=`to_tsquery('simple',${bind(prefixTsQuery(search.parsed))}::text),to_tsquery('simple',${bind(exactTsQuery(search.parsed))}::text),${bind(search.parsed.compact)}::text`;
  const row=(await db.query<{ids:string[]|null;brands:string[]|null}>(`WITH hits AS MATERIALIZED (
-   SELECT i.id,COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.updated_at,i.unavailable,
-    -- The stored ranking inputs are the supplier's; a row with an admin-edited name or description ranks the edit (#575).
-    -- A price-only edit (#580) keeps the stored inputs (src/modules/search/sql.ts, catalogRank).
-    COALESCE(CASE WHEN ov.name IS NULL AND ov.description IS NULL THEN catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}) END,
-     catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
-      i.code,COALESCE(i.product_data->>'oe',''),COALESCE(ov.description,i.product_data->>'ac2',''),${queries})) AS rank
+   SELECT i.id,COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.updated_at,i.unavailable,
+    -- The stored ranking inputs are the supplier's; a row with an admin-edited name, description, store brand or part
+    -- number ranks the edit (#575, #602), the part number as the better of it and the supplier code. A price-only edit
+    -- (#580) keeps the stored inputs. Same rule as catalogRank (src/modules/search/sql.ts).
+    COALESCE(CASE WHEN ov.name IS NULL AND ov.description IS NULL AND ov.brand IS NULL AND ov.part_number IS NULL
+      THEN catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}) END,
+     GREATEST(catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
+      i.code,COALESCE(i.product_data->>'oe',''),COALESCE(ov.description,i.product_data->>'ac2',''),${queries}),
+      CASE WHEN ov.part_number IS NOT NULL AND ov.part_number<>i.code THEN catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),
+       COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),ov.part_number,COALESCE(i.product_data->>'oe',''),
+       COALESCE(ov.description,i.product_data->>'ac2',''),${queries}) END)) AS rank
    FROM (SELECT s.*,s.changed_at AS updated_at,false AS unavailable FROM commerce_supplier_items s WHERE s.id=ANY($2::uuid[]) AND s.company=ANY($1::text[])
     UNION ALL
     SELECT u.*,u.last_seen_at,true FROM commerce_unavailable_items u WHERE ${includeUnavailable} AND u.id=ANY($2::uuid[]) AND u.company=ANY($1::text[])) i
@@ -496,13 +508,13 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  const values:unknown[]=[company(),search.ids.slice(0,maxRankedSuggestions)],bind=binder(values);
  // One suggestion per name and brand: a supplier lists the same part in many sizes.
  const products=(await db.query<{id:string;name:string;brand:string;code:string}>(`SELECT id,name,brand,code FROM (
-  SELECT DISTINCT ON (name,brand) id::text,name,brand,code,rank,updated_at,unavailable FROM (
+  SELECT DISTINCT ON (name,display_brand) id::text,name,display_brand AS brand,display_code AS code,rank,updated_at,unavailable FROM (
    SELECT catalog.*,${catalogRank("catalog",search.parsed,bind)} AS rank FROM (${catalogEntriesSql}) catalog WHERE catalog.id=ANY($2::uuid[])) ranked
-  ORDER BY name,brand,unavailable,rank DESC,updated_at DESC,id) best ORDER BY unavailable,rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
+  ORDER BY name,display_brand,unavailable,rank DESC,updated_at DESC,id) best ORDER BY unavailable,rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
  return {products:products.map(row=>({kind:"product" as const,...row})),...notes};
 }
 export async function catalogBrands() {
- return cachedBrands("all",async()=>(await db.query<{brand:string}>(`SELECT DISTINCT brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));
+ return cachedBrands("all",async()=>(await db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));
 }
 
 /** Products in the current search, category and make scope that are linked to the vehicle type. */
@@ -529,7 +541,7 @@ export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}
  return search ? load() : cachedFacets(filterKey(scope,context),load);
 }
 async function facetsFor(values:unknown[],from:string){
- const brands=(await db.query<{brand:string}>(`SELECT DISTINCT brand ${from} ORDER BY brand`,values)).rows.map(r=>r.brand);
+ const brands=(await db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand ${from} ORDER BY brand`,values)).rows.map(r=>r.brand);
  return attributeFacets(brands,values,`SELECT catalog.id ${from}`);
 }
 /** `scopedSql` selects the listing's ids (one `id` column) using `values`. */

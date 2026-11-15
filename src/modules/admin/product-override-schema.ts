@@ -16,6 +16,8 @@ export const productOverrideValuesSchema = z.object({
     .transform(value => value === "" ? null : Number(value)),
   // The form's "Mağazada yayında" switch: an unchecked switch submits nothing, so a missing value means hidden.
   published: z.string().optional(),
+  brand: text(80),
+  part_number: text(60).refine(value => value === null || /[\p{L}\p{N}]/u.test(value), "Parça numarası harf veya rakam içermeli."),
 }).transform(({ published, ...values }): ProductCardValues => ({ ...values, hidden: published !== "on" }));
 export const productOverrideIdSchema = z.uuid();
 

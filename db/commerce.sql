@@ -31,6 +31,10 @@ ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS price_kurus integer
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_price_kurus integer CHECK(sale_price_kurus>0);
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_from timestamptz;
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_until timestamptz;
+-- Store brand (a master brand's name) and manufacturer part number (#602), shown as display_brand / display_code.
+-- brand and code stay the supplier's values: order lines, enrichment lookups and matching read those.
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS brand text;
+ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS part_number text;
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS basbug_checkout_mode text NOT NULL DEFAULT 'live'
  CHECK(basbug_checkout_mode IN ('live','snapshot'));
 -- Polymorphic catalog identifiers: store products and current supplier observations.
@@ -85,11 +89,12 @@ WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier IN ('seta','man
 AND NOT EXISTS(SELECT 1 FROM store_products p WHERE p.supplier=i.supplier AND p.code=i.code);
 CREATE OR REPLACE VIEW commerce_catalog_entries AS
 SELECT id,category,supplier,code,name,brand,description,updated_at,
- ''::text AS oem,'store'::text AS source,''::text AS company FROM store_products
+ ''::text AS oem,'store'::text AS source,''::text AS company,brand AS display_brand,code AS display_code FROM store_products
 UNION ALL
 SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
  COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(ov.description,i.product_data->>'ac2',''),i.changed_at,COALESCE(i.product_data->>'oe',''),'supplier',i.company
+ COALESCE(ov.description,i.product_data->>'ac2',''),i.changed_at,COALESCE(i.product_data->>'oe',''),'supplier',i.company,
+ COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,i.code)
 FROM commerce_supplier_items i CROSS JOIN commerce_settings s
 LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
 -- Hidden by an admin (#575): not for sale anywhere.
@@ -128,7 +133,7 @@ WITH latest AS (
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 1::numeric ELSE r.rate END AS exchange_rate,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN i.last_seen_at ELSE r.completed_at END AS rate_at,
  (i.price_data->>'nf')::numeric AS cost,ov.name AS override_name,ov.description AS override_description,
- ov.price_kurus AS override_price,ov.sale_until,
+ ov.price_kurus AS override_price,ov.sale_until,ov.brand AS override_brand,ov.part_number AS override_part_number,
  -- The campaign price only inside its window; a NULL end is open.
  CASE WHEN (ov.sale_from IS NULL OR ov.sale_from<=now()) AND (ov.sale_until IS NULL OR now()<ov.sale_until) THEN ov.sale_price_kurus END AS sale_price,
  -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
@@ -166,7 +171,8 @@ SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,update
  ''::text AS oem,'store'::text AS source,''::text AS company,
  stock>0 AS available,LEAST(stock,99) AS max_quantity,
  CASE WHEN stock>0 THEN 'Stokta mevcut: '||stock||' adet' ELSE 'Stokta yok' END AS stock_label,
- jsonb_build_object('source','store','base_price_kurus',price_kurus) AS pricing_snapshot
+ jsonb_build_object('source','store','base_price_kurus',price_kurus) AS pricing_snapshot,
+ brand AS display_brand,code AS display_code
 FROM store_products
 UNION ALL
 SELECT id,NULLIF(product_data->>'category',''),supplier,code,
@@ -189,7 +195,8 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
   || jsonb_build_object('source','override','price_kind',CASE WHEN on_sale THEN 'sale' ELSE 'fixed' END,'auto_price_kurus',auto_price)
   || CASE WHEN override_price IS NOT NULL THEN jsonb_build_object('fixed_price_kurus',override_price) ELSE '{}'::jsonb END
   || CASE WHEN on_sale THEN jsonb_build_object('list_price_kurus',regular_price,'sale_until',sale_until) ELSE '{}'::jsonb END
- END
+ END,
+ COALESCE(override_brand,NULLIF(product_data->>'uk',''),'Belirtilmemiş'),COALESCE(override_part_number,code)
 FROM final;
 -- Prepaid checkout: card payment is collected on TAMI's hosted page before operations confirm the order.
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS shipping_fee_kurus integer NOT NULL DEFAULT 15000

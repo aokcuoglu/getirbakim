@@ -32,7 +32,8 @@ export async function searchPartnerProducts(input: PartnerSearch): Promise<{ pro
   // The storefront's search, ranking and prices, without the listing facets the partner never reads (#431).
   const items = await searchCatalogItems(text, source === "search" ? "all" : "code");
   const rows = (items as (PartnerCatalogRow & { source: string })[]).filter(item => item.source === "supplier")
-    .filter(item => partNo ? matchesPartNo(item.code, partNo) : oem ? matchesOem(item, oem) : true)
+    // A part number matches the supplier code or the store's manufacturer part number (#602).
+    .filter(item => partNo ? matchesPartNo(item.code, partNo) || matchesPartNo(item.display_code, partNo) : oem ? matchesOem(item, oem) : true)
     .slice(0, input.limit);
   return { products: await toPartnerProducts(rows, input), source };
 }

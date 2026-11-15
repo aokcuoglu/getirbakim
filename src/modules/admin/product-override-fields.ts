@@ -2,7 +2,7 @@
 // product's hand-set prices (#580).
 
 /** The "Mağaza bilgileri" form: NULL follows the automatic sources; hidden=false is the automatic state (published). */
-export const productCardFields = ["name", "description", "seo_title", "seo_description", "category_id", "hidden"] as const;
+export const productCardFields = ["name", "description", "seo_title", "seo_description", "category_id", "hidden", "brand", "part_number"] as const;
 /** The "Fiyat" form: VAT-included kuruş; campaign times as Istanbul wall clock "YYYY-MM-DDTHH:MM". NULL is the formula. */
 export const productPriceFields = ["price_kurus", "sale_price_kurus", "sale_from", "sale_until"] as const;
 export const productOverrideFields = [...productCardFields, ...productPriceFields] as const;
@@ -11,6 +11,10 @@ export type ProductPriceField = (typeof productPriceFields)[number];
 export type ProductOverrideField = (typeof productOverrideFields)[number];
 export type ProductCardValues = {
   name: string | null; description: string | null; seo_title: string | null; seo_description: string | null; category_id: number | null; hidden: boolean;
+  /** A master brand's name (brands.name) shown as the store brand (#602). */
+  brand: string | null;
+  /** The manufacturer part number shown in the store; supplier codes, orders and matching keep the supplier's code. */
+  part_number: string | null;
 };
 export type ProductPriceValues = { price_kurus: number | null; sale_price_kurus: number | null; sale_from: string | null; sale_until: string | null };
 export type ProductOverrideValues = ProductCardValues & ProductPriceValues;
@@ -22,6 +26,8 @@ export const productOverrideLabels: Record<ProductOverrideField, string> = {
   seo_description: "SEO açıklaması",
   category_id: "Kategori",
   hidden: "Mağazada görünürlük",
+  brand: "Mağaza markası",
+  part_number: "Üretici parça numarası",
   price_kurus: "Sabit satış fiyatı",
   sale_price_kurus: "Kampanya fiyatı",
   sale_from: "Kampanya başlangıcı",

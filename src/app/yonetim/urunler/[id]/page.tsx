@@ -34,13 +34,16 @@ export default async function MasterProduct({ params, searchParams }: { params: 
   // The merge search needs only the id; without merge_q it returns at once.
   const [data, merge] = await Promise.all([getMasterProduct(id), findMergeTargets(id, query.merge_q)]);
   if (!data) notFound();
-  const { product, sources, equivalents, merged, storeId, override, hasReferences } = data;
+  const { product, sources, equivalents, merged, storeId, override, hasReferences, brands } = data;
   const multiple = sources.length > 1;
   const edit = override.override;
   // Category choices as their path in the store tree ("Fren sistemi › Balata").
   const storeCategories = await getStoreCategories();
   const categoryLabels = new Map(storeCategories.map(category => [String(category.id), categoryPath(storeCategories, category.id).map(node => node.name).join(" › ")]));
   const categoryOptions = [...categoryLabels].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "tr"));
+  // A saved store brand stays choosable after its master brand was merged away or renamed (the edit keeps the name).
+  const brandOptions = [...edit?.brand && !brands.includes(edit.brand) ? [{ value: edit.brand, label: `${edit.brand} (ana marka listesinde yok)` }] : [],
+    ...brands.map(name => ({ value: name, label: name }))];
   // A history value as the admin knows it: category names, published/hidden, lira, Istanbul times, NULL as the automatic value.
   const historyValue = (field: string, value: string | null) => imageHistoryValue(field, value) ?? referenceHistoryValue(field, value) ?? (value === null ? <StatusBadge tone="neutral">Otomatik</StatusBadge>
     : field === "category_id" ? categoryLabels.get(value) ?? value
@@ -87,10 +90,11 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         <CardDescription>Elle girilen değer tedarikçi ve zenginleştirme verisinin yerine geçer; tedarikçi güncellemeleri ve yenilemeler onu değiştirmez. Boş bırakılan alan otomatik kaynaktan gelir.</CardDescription></CardHeader>
       <CardContent>
         <ProductOverrideForm productId={product.id} values={edit && { name: edit.name, description: edit.description, seo_title: edit.seo_title,
-          seo_description: edit.seo_description, category_id: edit.category_id, hidden: edit.hidden }}
-          version={edit?.version ?? automaticVersion} categories={categoryOptions}
+          seo_description: edit.seo_description, category_id: edit.category_id, hidden: edit.hidden, brand: edit.brand, part_number: edit.part_number }}
+          version={edit?.version ?? automaticVersion} categories={categoryOptions} brands={brandOptions}
           automatic={{ name: override.automatic.name ?? product.code, description: override.automatic.description,
-            category: override.automatic.categories.map(category => categoryLabels.get(String(category.id)) ?? category.name).join(", ") || null }}/>
+            category: override.automatic.categories.map(category => categoryLabels.get(String(category.id)) ?? category.name).join(", ") || null,
+            brand: override.automatic.brand ?? "", partNumber: override.automatic.code ?? product.code }}/>
       </CardContent>
     </Card>}
 

@@ -63,7 +63,7 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
  const vehicleTypeId=(await fitmentVehicle(vehicle))?.typeId ?? null;
  const [result,facetData,account,vehicleBrands,fitCount,oilSpec]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId?vehicleFitCount(params,vehicleTypeId):0,getVehicleOilSpec(vehicleTypeId)]);
  const products=result.items;
- const [images,logos,details,fitting]=await Promise.all([getCatalogProductImages(products),getManufacturerLogos(products.map(product=>product.brand)),getCatalogProductDetails(products),vehicleTypeId?productsFittingVehicle(products.map(product=>product.id),vehicleTypeId):new Set<string>()]);
+ const [images,logos,details,fitting]=await Promise.all([getCatalogProductImages(products),getManufacturerLogos(products.map(product=>product.display_brand)),getCatalogProductDetails(products),vehicleTypeId?productsFittingVehicle(products.map(product=>product.id),vehicleTypeId):new Set<string>()]);
  const categories=await getStoreCategories();
  const category=categories.find(c=>c.slug===params.category);
  const isBrakeCategory=category?.path.includes(252);
@@ -125,7 +125,7 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
      {tooShort}{correction}{vehicleNotice}{oilBanner}{fitFilter}
     {!filtered&&<CategoryCards className="mt-0 mb-8" categories={categories.filter(node=>category?node.parentId===category.id:node.parentId===null)} basePath={home}/>}
      <CatalogResults count={result.total} page={result.page} pages={result.pages} pageSize={result.pageSize} params={params} defaultView="list">
-      {products.length ? products.map(product => <CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.brand)} account={account} fitsVehicle={fitting.has(product.id)}/>) :
+      {products.length ? products.map(product => <CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.display_brand)} account={account} fitsVehicle={fitting.has(product.id)}/>) :
        <div className="col-span-full min-h-[300px] rounded-md border border-border px-6 py-16 text-center"><Search size={38} className="mx-auto mb-5 text-muted-foreground"/><h2 className="mb-3 text-[22px] leading-[30px] font-semibold">{params.fits ? "Bu listede aracına bağlı ürün bulunamadı." : params.oil ? "Aracının yağ önerisine uyan ürün bulunamadı." : filtered ? "Aramana uygun ürün bulunamadı." : "Bu kategoride şu an ürün bulunmuyor."}</h2><p className="mb-6 text-sm leading-[22px] text-muted-foreground">{params.fits ? "Tüm ürünlerde OEM numarasıyla arayabilir veya araç filtresini kaldırabilirsin." : params.oil ? "Yağ filtrelerinden birini kaldırarak benzer özellikteki yağları görebilirsin." : filtered ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Diğer kategorileri inceleyebilir veya aradığın parça için bize ulaşabilirsin."}</p><Button className="h-12 bg-brand px-[27px] hover:bg-brand-strong" nativeButton={false} render={<Link href={home}/>}>Tüm ürünlere göz at</Button></div>}
      </CatalogResults>
      </div>
