@@ -52,7 +52,7 @@ export default async function Checkout({searchParams}:{searchParams:Promise<Sear
       </ol></div>
     {params.error && <Alert className={alert}>{errors[params.error]??errors.stock}</Alert>}
     {!enabled && !params.error && items.length>0 && <Alert className={alert}>{errors.payment}</Alert>}
-    {items.length ? <div className="grid grid-cols-[minmax(0,1.76fr)_minmax(320px,1fr)] items-start gap-4 max-[1000px]:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)] max-[760px]:grid-cols-1"><TrackBeginCheckout items={analytics}/>
+    {items.length ? <div className="grid grid-cols-[minmax(0,1.76fr)_minmax(320px,1fr)] items-start gap-4 max-[1000px]:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)] max-[760px]:grid-cols-1">{valid && <TrackBeginCheckout items={analytics}/>}
       <Card className="gap-0 rounded-[10px] p-5 ring-0 border border-border max-[760px]:px-4"><h2 className="mb-2 text-xl leading-7 font-semibold tracking-[-0.5px]">Müşteri ve teslimat bilgileri</h2><p className="mb-7 text-sm text-muted-foreground">{discount ? `${account!.name} · %${discount} servis indirimi uygulanıyor.` : "Üye olmadan sipariş verebilirsin."}</p>
       <CheckoutForm analyticsItems={analytics} disabled={!valid} total={money(orderTotals(items,discount,shipping).total)} errors={errors}><input type="hidden" name="requestKey" value={randomUUID()}/><input type="hidden" name="quote" value={cartQuote(items,discount,shipping)}/>
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-name" className={label}>Ad soyad / Firma {required}</FieldLabel><Input id="checkout-name" className={control} name="name" autoComplete="name" minLength={2} maxLength={150} defaultValue={account?.name} required/></Field>

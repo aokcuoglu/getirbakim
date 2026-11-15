@@ -126,8 +126,8 @@ Google Analytics 4 yalnızca mağaza rotalarında (`src/app/(store)/layout.tsx` 
 - **Olaylar:** `page_view` (gezinmede, `send_page_view: false`), `view_item_list` (+ aramada `search`), `select_item`, `view_item`, `add_to_cart`. Hepsi `src/modules/analytics/track.ts` üzerinden geçer.
 - **Sepet ve ödeme hunisi (#675):** sunucu veriyi hazırlar, gönderim her zaman tarayıcıdan `track()` ile yapılır (`src/components/privacy/track-commerce.tsx`).
   - `view_cart`: `/sepet` açılışında bir kez.
-  - `remove_from_cart`: sepette "Kaldır" ile (satırın tüm adedi) veya adet azaltılınca (fark kadar). Adet artırılınca fark kadar `add_to_cart` gider (sepet ve "sepete eklendi" penceresi).
-  - `begin_checkout`: `/siparis-olustur` açılışında bir kez, fiyatlı satır varsa.
+  - `remove_from_cart`: sepette "Kaldır" gönderilirken, sunucu yanıtı beklenmeden (iyimser; satır başına bir kez, satırın tüm adedi) veya adet azaltılınca (fark kadar). Adet artırılınca fark kadar `add_to_cart` gider (sepet ve "sepete eklendi" penceresi).
+  - `begin_checkout`: `/siparis-olustur` açılışında bir kez, sepet siparişe uygunsa (ödeme açık, tüm satırlar fiyatlı ve stokta).
   - `add_payment_info`: sipariş oluşturulup kartla ödeme penceresi açılırken (`payment_type: "credit_card"`); yalnız `CheckoutForm`, ödeme sayfasındaki "Öde" düğmesi göndermez.
   - `purchase`: yalnız sipariş sayfasında (`/siparis/[id]`), ödenmiş siparişin kendi müşterisine; `transaction_id` = sipariş numarası.
   - `items[]` her olayda aynıdır: ürün kimliği (sepet/sipariş satırının ürünü), liste kartı başlığı, mağaza markası, ziyaretçinin ödediği birim fiyat, adet, sıra. Ad, e-posta, telefon, adres, not ve araç bilgisi gönderilmez.
