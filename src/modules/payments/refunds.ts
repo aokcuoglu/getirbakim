@@ -2,7 +2,7 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { appendNote } from "./checkout";
-import { refundablePayments, refundKindLabel, reversalKinds, type ReversalKind } from "./refund-rules";
+import { refundablePayments, refundKindLabel, reversalKind, type ReversalKind } from "./refund-rules";
 import {
   assertTamiConfigured, buildCorrelationId, queryPaymentByOrderId, refundTamiPayment, verifiedReversal, voidTamiPayment,
   type TamiReversalResult,
@@ -16,8 +16,6 @@ export type RefundOutcome = { outcome: "succeeded" | "failed" | "unknown" | "bus
 // TODO(#619): the order query's transactionType for a reversal is not documented. The orchestrator confirms the real
 // names from a sandbox void/refund and narrows this set; until then any of them counts as a reversal.
 export const REVERSAL_TRANSACTION_TYPES = ["REFUND", "VOID", "CANCEL"] as const;
-// The signed query is only trusted to say "no reversal happened" this long after the call.
-const NO_REVERSAL_AFTER_MINUTES = 15;
 // A query right after the call may not show it yet.
 const CHECK_AFTER_MINUTES = 1;
 
@@ -122,13 +120,20 @@ const outcomeMessage: Record<Settlement["status"], string> = {
   unknown: "TAMI yanıtı doğrulanamadı. TAMI'de kontrol edin.",
 };
 
+/** Ids only: never the signed request/response or the auth token. */
+function logUncertain(message: string, context: { orderId: string; providerOrderId: string; correlationId: string; httpStatus?: number | null; error?: unknown }) {
+  const { error, ...ids } = context;
+  console.error(message, { ...ids, error: error instanceof Error ? error.message : error });
+}
+
 /**
- * Reverses one captured payment attempt in full through TAMI. Same-day payments are voided, and refunded if TAMI
- * rejects the void; older ones are refunded. A concurrent or unresolved call for the same attempt returns `busy`.
+ * Reverses one captured payment attempt in full through TAMI with exactly one provider call. A same-day payment is
+ * voided; after TAMI has rejected a void, the next action refunds it. Older payments are refunded. A concurrent or
+ * unresolved call for the same attempt returns `busy`.
  */
 export async function refundPayment({ orderId, paymentId, adminId }: { orderId: string; paymentId: string; adminId: string }): Promise<RefundOutcome> {
   assertTamiConfigured();
-  type Claim = { order: Order; payment: Payment; kinds: ReversalKind[]; refund: { id: string; correlation_id: string } };
+  type Claim = { order: Order; payment: Payment; kind: ReversalKind; refund: { id: string; correlation_id: string } };
   let claim: Claim | RefundOutcome;
   try {
     claim = await inTransaction(async (client): Promise<Claim | RefundOutcome> => {
@@ -139,17 +144,17 @@ export async function refundPayment({ orderId, paymentId, adminId }: { orderId: 
       )).rows;
       const payment = payments.find(p => p.id === paymentId);
       if (!payment || payment.status !== "succeeded") return { outcome: "not_allowed" };
-      const refunds = (await client.query<{ payment_id: string; status: string }>(
-        "SELECT payment_id,status FROM commerce_payment_refunds WHERE order_id=$1", [orderId],
+      const refunds = (await client.query<{ payment_id: string; kind: string; status: string }>(
+        "SELECT payment_id,kind,status FROM commerce_payment_refunds WHERE order_id=$1", [orderId],
       )).rows;
       const own = refunds.filter(r => r.payment_id === paymentId);
       if (own.some(r => r.status === "requested" || r.status === "unknown")) {
         return { outcome: "busy", message: "Bu ödeme için sonucu bilinmeyen bir TAMI isteği var. Önce TAMI'de kontrol edin." };
       }
       if (!refundablePayments(order, payments, refunds).some(p => p.id === paymentId)) return { outcome: "not_allowed" };
-      const kinds = reversalKinds(payment.paid_at);
-      const refund = await insertRequested(client, { paymentId, orderId, kind: kinds[0], amountKurus: payment.amount_kurus, adminId });
-      return { order, payment, kinds, refund };
+      const kind = reversalKind(payment.paid_at, own);
+      const refund = await insertRequested(client, { paymentId, orderId, kind, amountKurus: payment.amount_kurus, adminId });
+      return { order, payment, kind, refund };
     });
   } catch (error) {
     if (isUniqueViolation(error)) return { outcome: "busy", message: "Bu ödeme için başka bir TAMI isteği sürüyor." };
@@ -157,78 +162,85 @@ export async function refundPayment({ orderId, paymentId, adminId }: { orderId: 
   }
   if (!("refund" in claim)) return claim;
 
-  const { order, payment, kinds } = claim;
-  let refund = claim.refund;
+  const { order, payment, kind, refund } = claim;
   const amountKurus = Number(payment.amount_kurus);
   const reason = order.payment_status === "paid" ? `Sipariş #${order.number} mükerrer ödeme` : `Sipariş #${order.number} iptal`;
-  for (const [index, kind] of kinds.entries()) {
-    let result: TamiReversalResult;
-    try {
-      result = kind === "void"
-        ? await voidTamiPayment({ orderId: payment.provider_order_id, reason, correlationId: refund.correlation_id })
-        : await refundTamiPayment({ orderId: payment.provider_order_id, amountKurus, reason, correlationId: refund.correlation_id });
-    } catch (error) {
-      result = { kind: "unknown", reason: error instanceof Error ? error.message : "TAMI çağrısı tamamlanamadı.", httpStatus: null };
-    }
-    const settlement = settlementOf(result, { kind, amountKurus, correlationId: refund.correlation_id });
-    const next = settlement.status === "failed" && index < kinds.length - 1 ? kinds[index + 1] : null;
-    type Step = { done: RefundOutcome } | { retry: { id: string; correlation_id: string } };
-    const step = await inTransaction(async (client): Promise<Step> => {
+  const ids = { orderId, providerOrderId: payment.provider_order_id, correlationId: refund.correlation_id };
+  let result: TamiReversalResult;
+  try {
+    result = kind === "void"
+      ? await voidTamiPayment({ orderId: payment.provider_order_id, reason, correlationId: refund.correlation_id })
+      : await refundTamiPayment({ orderId: payment.provider_order_id, amountKurus, reason, correlationId: refund.correlation_id });
+  } catch (error) {
+    result = { kind: "unknown", reason: error instanceof Error ? error.message : "TAMI çağrısı tamamlanamadı.", httpStatus: null };
+  }
+  const settlement = settlementOf(result, { kind, amountKurus, correlationId: refund.correlation_id });
+  if (settlement.status === "unknown") {
+    logUncertain("TAMI reversal outcome unknown", { ...ids, httpStatus: result.kind === "ok" ? null : result.httpStatus, error: settlement.errorMessage });
+  }
+  try {
+    return await inTransaction(async (client): Promise<RefundOutcome> => {
       const locked = await lockOrder(client, orderId);
       if (!await settleRow(client, refund.id, ["requested"], settlement)) {
         // Settled meanwhile (TAMI'de kontrol et); report what is recorded, change nothing.
         const current = (await client.query<{ status: Settlement["status"] | "requested" }>(
           "SELECT status FROM commerce_payment_refunds WHERE id=$1", [refund.id],
         )).rows[0]?.status;
-        return { done: { outcome: current === "requested" || !current ? "unknown" : current, kind } };
+        return { outcome: current === "requested" || !current ? "unknown" : current, kind };
       }
       if (settlement.status === "succeeded") await settleOrderAfterRefund(client, locked, payment.provider_order_id, kind);
-      if (next) return { retry: await insertRequested(client, { paymentId: payment.id, orderId, kind: next, amountKurus: payment.amount_kurus, adminId }) };
-      return { done: { outcome: settlement.status, kind, message: settlement.errorMessage ?? outcomeMessage[settlement.status] } };
+      return { outcome: settlement.status, kind, message: settlement.errorMessage ?? outcomeMessage[settlement.status] };
     });
-    if ("done" in step) return step.done;
-    refund = step.retry;
+  } catch (error) {
+    // The row stays 'requested', which locks new calls until TAMI'de kontrol et or a manual reference settles it.
+    logUncertain("TAMI reversal result could not be recorded", { ...ids, error });
+    return { outcome: "unknown", kind, message: outcomeMessage.unknown };
   }
-  return { outcome: "unknown" };
 }
 
-type OpenRefund = { id: string; order_id: string; payment_id: string; kind: ReversalKind; amount_kurus: string; status: string; requested_at: Date; provider_order_id: string };
+type OpenRefund = { id: string; order_id: string; payment_id: string; kind: ReversalKind; amount_kurus: string; status: string; requested_at: Date; provider_order_id: string; correlation_id: string };
 
 /**
- * Settles a requested/unknown call from the signed order query: a successful reversal transaction makes it succeeded;
- * a query that shows only the captured AUTH long after the call makes it failed (retry allowed); anything else keeps it unknown.
+ * Settles a requested/unknown call from the signed order query: a recognised successful reversal of exactly the paid
+ * amount makes it succeeded. Nothing else does — whether the query lists reversals at all is not yet observed in the
+ * sandbox, so "no reversal shown" is not evidence of no refund. Otherwise the call stays unknown; the way out is the
+ * manual reference after checking the TAMI portal.
  */
 export async function checkRefund({ refundId, orderId }: { refundId: string; orderId: string }): Promise<RefundOutcome> {
   const refund = (await db.query<OpenRefund>(
-    `SELECT r.id,r.order_id,r.payment_id,r.kind,r.amount_kurus,r.status,r.requested_at,p.provider_order_id FROM commerce_payment_refunds r
+    `SELECT r.id,r.order_id,r.payment_id,r.kind,r.amount_kurus,r.status,r.requested_at,r.correlation_id,p.provider_order_id FROM commerce_payment_refunds r
      JOIN commerce_payments p ON p.id=r.payment_id WHERE r.id=$1 AND r.order_id=$2`, [refundId, orderId],
   )).rows[0];
   if (!refund || !["requested", "unknown"].includes(refund.status)) return { outcome: "not_allowed" };
-  const age = Date.now() - refund.requested_at.getTime();
-  if (age < CHECK_AFTER_MINUTES * 60_000) {
+  if (Date.now() - refund.requested_at.getTime() < CHECK_AFTER_MINUTES * 60_000) {
     return { outcome: "unknown", kind: refund.kind, message: "İstek çok yeni; bir dakika sonra yeniden kontrol edin." };
   }
   let settlement: Settlement;
   try {
     const query = await queryPaymentByOrderId({ orderId: refund.provider_order_id, locale: "tr" });
-    const types = query.transactions.map(t => String(t.transactionType ?? "").toUpperCase());
     const reversal = query.transactions.find(t => (REVERSAL_TRANSACTION_TYPES as readonly string[]).includes(String(t.transactionType ?? "").toUpperCase())
       && String(t.transactionStatus ?? "").toUpperCase() === "SUCCESS");
     const trusted = query.securityHashValid && query.orderId === refund.provider_order_id;
-    const reversedAmount = reversal?.amount == null ? null : Math.round(Number(reversal.amount) * 100);
-    if (trusted && reversal && (reversedAmount === null || reversedAmount === Number(refund.amount_kurus))) {
+    const reversedAmount = reversal?.amount == null || reversal.amount === "" ? null : Math.round(Number(reversal.amount) * 100);
+    // A refund must show its amount; a void is checked when it does.
+    const amountOk = reversedAmount === null ? refund.kind === "void" : reversedAmount === Number(refund.amount_kurus);
+    if (trusted && reversal && amountOk) {
+      const { securityHash: _hash, ...raw } = query.raw;
+      void _hash;
       settlement = {
         status: "succeeded", bankReference: text(reversal.bankReferenceNumber), bankAuthCode: text(reversal.bankAuthCode),
-        transactionAt: text(reversal.transactionDate), providerResult: { query: query.raw },
+        transactionAt: text(reversal.transactionDate), providerResult: { query: raw },
       };
-    } else if (trusted && !reversal && query.success && query.orderStatus === "AUTH" && query.transactionStatus === "SUCCESS"
-      && types.every(type => type === "AUTH") && age > NO_REVERSAL_AFTER_MINUTES * 60_000) {
-      settlement = { status: "failed", errorMessage: "TAMI'de iade kaydı yok; yeniden deneyin.", providerResult: { query: query.raw } };
     } else {
-      settlement = { status: "unknown", errorMessage: trusted ? "TAMI sorgusu sonucu henüz göstermiyor." : "TAMI sorgu yanıtı doğrulanamadı." };
+      settlement = { status: "unknown", errorMessage: trusted
+        ? "TAMI sorgusu bu iptal/iadeyi göstermiyor. TAMI portalında kontrol edin; iade yapıldıysa referansı elle kaydedin."
+        : "TAMI sorgu yanıtı doğrulanamadı." };
     }
   } catch (error) {
     settlement = { status: "unknown", errorMessage: `TAMI sorgusu yanıt vermedi: ${error instanceof Error ? error.message : "bilinmeyen hata"}`.slice(0, 500) };
+  }
+  if (settlement.status === "unknown") {
+    logUncertain("TAMI reversal still unknown after query", { orderId, providerOrderId: refund.provider_order_id, correlationId: refund.correlation_id, error: settlement.errorMessage });
   }
   return inTransaction(async (client) => {
     const order = await lockOrder(client, orderId);

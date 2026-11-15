@@ -453,7 +453,9 @@ async function postTamiSigned(path: string, body: Record<string, unknown>, corre
       return { kind: 'unknown', reason: 'TAMI imzalı yanıtında success alanı yok.', httpStatus: response.status }
     }
     const errorCode = text(json.errorCode)
-    if (response.status >= 400 && response.status < 500 && json.success === false && errorCode) {
+    // Timeouts, conflicts and throttling may hide a call TAMI is still processing; they are never a definite "no".
+    const inconclusive = [408, 409, 425, 429].includes(response.status)
+    if (response.status >= 400 && response.status < 500 && !inconclusive && json.success === false && errorCode) {
       return {
         kind: 'rejected', errorCode, errorMessage: text(json.errorMessage) ?? text(json.message) ?? 'TAMI işlemi reddetti.',
         errorGroup: text(json.errorGroup), httpStatus: response.status, body: json
@@ -483,12 +485,12 @@ function kurus(value: unknown): number | null {
 }
 
 /**
- * A signed success alone is not enough: the reply must belong to this call and reverse exactly the paid amount.
- * Refund replies must carry the amount; void replies are checked when they do.
+ * A signed success alone is not enough: the reply must name this call (correlationId) and reverse exactly the paid
+ * amount. Refund replies must carry the amount; void replies are checked when they do.
  */
 export function verifiedReversal(body: Record<string, unknown>, expected: { kind: 'void' | 'refund'; amountKurus: number; correlationId: string }): boolean {
   if (body.success !== true) return false
-  if (body.correlationId != null && body.correlationId !== expected.correlationId) return false
+  if (body.correlationId !== expected.correlationId) return false
   if (body.currency != null && body.currency !== 'TRY') return false
   if (body.amount == null) return expected.kind === 'void'
   return kurus(body.amount) === expected.amountKurus

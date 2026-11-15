@@ -41,3 +41,9 @@ export async function currentOrderAgreement(id:string) {
   "SELECT accepted_at,legal_version,consent_text,document FROM commerce_order_agreements WHERE order_id=$1",[id])).rows[0];
  return agreement ? {order:result.order,agreement} : null;
 }
+
+/** Sum of TAMI reversals confirmed for an order (#619); null when none (refunded by hand or before #619). Call after currentOrder. */
+export async function orderRefundedKurus(id:string) {
+ const total=(await db.query<{total:string|null}>("SELECT sum(amount_kurus)::text AS total FROM commerce_payment_refunds WHERE order_id=$1 AND status='succeeded'",[id])).rows[0]?.total;
+ return total ? Number(total) : null;
+}

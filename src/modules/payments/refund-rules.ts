@@ -9,11 +9,12 @@ const istanbulDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbu
 
 /**
  * TAMI cancels (void) only on the day of the payment, before end-of-day settlement; afterwards it must be refunded.
- * A same-day payment tries void first and falls back to refund when TAMI rejects the void.
+ * One call per admin action: a same-day payment is voided; once TAMI has rejected a void for it, the next action
+ * sends a refund. There is no silent void→refund chain, so a refund never follows a void without a deliberate click.
  */
-export function reversalKinds(paidAt: Date | string | null, now = new Date()): ReversalKind[] {
-  if (!paidAt) return ["refund"];
-  return istanbulDay.format(new Date(paidAt)) === istanbulDay.format(now) ? ["void", "refund"] : ["refund"];
+export function reversalKind(paidAt: Date | string | null, earlier: { kind: string; status: string }[] = [], now = new Date()): ReversalKind {
+  if (!paidAt || earlier.some(r => r.kind === "void" && r.status === "failed")) return "refund";
+  return istanbulDay.format(new Date(paidAt)) === istanbulDay.format(now) ? "void" : "refund";
 }
 
 type PaymentRow = { id: string; status: string };
@@ -34,5 +35,5 @@ export function refundablePayments<P extends PaymentRow>(order: { payment_status
 
 export const refundKindLabel: Record<ReversalKind, string> = { void: "İptal", refund: "İade" };
 export const refundStatusLabel: Record<RefundStatus, string> = {
-  requested: "Yanıt bekleniyor", succeeded: "Başarılı", failed: "Reddedildi", unknown: "Sonuç bilinmiyor",
+  requested: "Yanıt bekleniyor", succeeded: "Başarılı", failed: "Reddedildi", unknown: "İade sonucu bilinmiyor",
 };
