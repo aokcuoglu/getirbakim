@@ -67,7 +67,7 @@ Nerede koşar:
 - Ana checkout `/Users/void/www/getirbakim` dalı `dev`'de durur; dev sunucusu `localhost:3000` (öldürülmez, worktree kodunu göstermez).
 - Worktree'ler `../getirbakim-<N>`; `.env.local` ve `node_modules` ana checkout'a symlink (lint/tsc/test için yeterli). Tarayıcı QA'sı için worktree'de gerçek `npm ci` + `npx next dev -p 31NN` (Turbopack symlink'li `node_modules` ile çalışmaz); QA bitince sunucu kapatılır.
 - Herdr içinde worktree `herdr worktree create … --path ../getirbakim-<N>` ile açılır (kenar çubuğu ağacı).
-- Yerel DB tüm worktree'lerin ortak veritabanıdır: veri yazan komutlar plan açıkça istemedikçe koşulmaz.
+- Yerel DB tüm worktree'lerin ortak veritabanıdır: veri yazan komutlar plan açıkça istemedikçe koşulmaz. `npm run db:setup` ortak DB'ye dalın `db/*.sql` kümesini uygular; önce `git fetch origin && git rebase origin/dev` şart, `scripts/flow/db-setup-guard.mjs` dal `origin/dev`'in gerisindeyse reddeder (bilinçli geçiş: `DB_SETUP_ALLOW_STALE=1`). Ajanlar ortak kurulum yerine izole şema testini (`scripts/isolated-schema.ts`) tercih eder; ortak kurulumdan önce diğer oturumlara haber verilir (#589).
 
 ## Ajan eklemek/değiştirmek
 1. `.claude/agents/<ad>.md` Markdown'ını düzenle (frontmatter: `name`, `description`, isteğe bağlı `tools`, `model`). Brief kendi kendine yetmeli: alt ajanlar sohbeti görmez.

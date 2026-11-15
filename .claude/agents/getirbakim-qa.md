@@ -13,7 +13,7 @@ node scripts/harness/admin-ui-lint.mjs --changed
 npm run typecheck
 npm run lint
 ```
-Ardından değişen alanla ilgili testler: değişen `src/modules/<alan>` ve `scripts/` dosyalarına göre `package.json`'daki `test:*` script'lerini ve `.github/workflows/ci.yml`'deki doğrudan `node --test` dosyalarını seç. DB isteyen testler `.env.local`'deki yerel DB'yi kullanır; veri yazan/silen test veya `verify*` komutlarını koşma, raporda "koşulmadı (yerel DB'ye yazar)" de.
+Ardından değişen alanla ilgili testler: değişen `src/modules/<alan>` ve `scripts/` dosyalarına göre `package.json`'daki `test:*` script'lerini ve `.github/workflows/ci.yml`'deki doğrudan `node --test` dosyalarını seç. DB isteyen testler `.env.local`'deki yerel DB'yi kullanır; veri yazan/silen test veya `verify*` komutlarını koşma, raporda "koşulmadı (yerel DB'ye yazar)" de. Ortak yerel DB'ye `npm run db:setup` koşma (dal `origin/dev` gerisindeyse şema geri sarılır; betik reddeder, `DB_SETUP_ALLOW_STALE=1` ile aşma); gerekirse izole şema testi (`scripts/isolated-schema.ts`) kullan.
 
 ## Aşama 2 — tarayıcıda davranış (rota verildiyse veya UI/route dosyası değiştiyse)
 1. **Sunucu:** port 3000 ana checkout'un (`/Users/void/www/getirbakim`, dal `dev`) dev sunucusudur — ASLA öldürme; worktree kodunu göstermez. Worktree için kısa ömürlü sunucu aç:
