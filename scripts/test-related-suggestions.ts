@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { complementaryCategories, complementsFor, fillerSection, pickRelated, universalCategories, type RelatedInput } from "../src/modules/store/related-rules";
+import { complementaryCategories, complementsFor, fillerSection, pickRelated, rankOils, stableHash, targetCapacity, universalCategories, unrelatedFluids,
+  type OilCandidate, type OilTarget, type RelatedInput } from "../src/modules/store/related-rules";
+import { productOilSpec, type VehicleOilSpec } from "../src/modules/store/vehicle-oil";
 
 const input = (overrides: Partial<RelatedInput>): RelatedInput =>
   ({ complements: [], fitScore: new Map(), exclude: new Set(), perCategory: 4, ...overrides });
@@ -69,4 +71,85 @@ test("the filler's section is one level above the category, never the whole car 
   assert.equal(fillerSection([956, 957]), 956);
   assert.equal(fillerSection([252, 274]), 252);
   assert.equal(fillerSection([956]), 956);
+});
+
+test("a fluid's dialog leaves out fluids of another job: engine and transmission oil never suggest each other", () => {
+  assert.deepEqual(unrelatedFluids[957], [958]);
+  assert.deepEqual(unrelatedFluids[958], [957]);
+  for (const [key, fluids] of Object.entries(unrelatedFluids)) {
+    assert.ok(universalCategories.has(Number(key)), `${key} is a fluid`);
+    for (const fluid of fluids) {
+      assert.ok(universalCategories.has(fluid) && fluid !== Number(key));
+      assert.ok(unrelatedFluids[fluid]?.includes(Number(key)), `${fluid} leaves out ${key} too`);
+    }
+  }
+});
+
+test("the stable hash is FNV-1a and the same across calls", () => {
+  assert.equal(stableHash(""), 0x811c9dc5);
+  assert.equal(stableHash("a"), 0xe40c292c);
+  assert.equal(stableHash("filter:oil"), stableHash("filter:oil"));
+  assert.notEqual(stableHash("filter-1:oil"), stableHash("filter-2:oil"));
+});
+
+const oil = (id: string, name: string, litres: number): OilCandidate => ({ id, spec: productOilSpec(name)!, litres });
+const target = (spec: Partial<VehicleOilSpec>, weight = 1): OilTarget =>
+  ({ weight, spec: { viscosities: [], acea: [], api: [], approvals: [], capacityMin: null, capacityMax: null, ...spec } });
+
+test("engine oil: a full match (grade and approval) before a grade-only match; strict drops oils matching nothing", () => {
+  const oils = [oil("grade", "MOTOR YAGI 5W-30 4 LT", 4), oil("full", "MOTOR YAGI 5W-30 C3 VW 504 00 4 LT", 4), oil("other", "MOTOR YAGI 10W-40 4 LT", 4)];
+  const vehicle = target({ viscosities: ["5W-30"], approvals: ["VW 504 00"] });
+  assert.deepEqual(rankOils(oils, [vehicle], { seed: "f", strict: true }), ["full", "grade"]);
+  assert.deepEqual(rankOils(oils, [vehicle], { seed: "f", strict: false }), ["full", "grade", "other"]);
+});
+
+test("engine oil: with several fitted types the grade most of them take comes first", () => {
+  const oils = [oil("a", "MOTOR YAGI 5W-30 4 LT", 4), oil("b", "MOTOR YAGI 10W-40 4 LT", 4), oil("c", "MOTOR YAGI 0W-20 4 LT", 4)];
+  const targets = [target({ viscosities: ["5W-30"] }, 2), target({ viscosities: ["10W-40"] }, 5)];
+  assert.deepEqual(rankOils(oils, targets, { seed: "f", strict: false }), ["b", "a", "c"]);
+});
+
+test("engine oil: the fewest packs for the capacity first; unknown capacity counts as 4 L, so a 1 L bottle goes last", () => {
+  const oils = [oil("one", "MOTOR YAGI 5W-30 1 LT", 1), oil("four", "MOTOR YAGI 5W-30 4 LT", 4), oil("five", "MOTOR YAGI 5W-30 5 LT", 5)];
+  const vehicle = target({ viscosities: ["5W-30"] });
+  // 4.5 L: one 5 L can, two 4 L cans, five 1 L bottles.
+  assert.deepEqual(rankOils(oils, [vehicle], { seed: "f", strict: true, capacityLitres: 4.5 }), ["five", "four", "one"]);
+  const fourLitres = rankOils(oils, [vehicle], { seed: "f", strict: true, capacityLitres: 4 });
+  assert.ok(fourLitres.indexOf("four") < fourLitres.indexOf("one"));
+  assert.equal(rankOils(oils, [], { seed: "f", strict: false }).at(-1), "one");
+});
+
+test("several fitted types: the capacity is their type-weighted mean, unknown capacities left out", () => {
+  assert.equal(targetCapacity([target({ capacityMax: 4 }, 3), target({ capacityMax: 6 }, 1), target({}, 10)]), 4.5);
+  assert.equal(targetCapacity([target({ viscosities: ["5W-30"] })]), undefined);
+  assert.equal(targetCapacity([]), undefined);
+  // 4.5 L across the types: a 5 L can before a 4 L one.
+  const oils = [oil("four", "MOTOR YAGI 5W-30 4 LT", 4), oil("five", "MOTOR YAGI 5W-30 5 LT", 5)];
+  const targets = [target({ viscosities: ["5W-30"], capacityMax: 4 }, 3), target({ viscosities: ["5W-30"], capacityMax: 6 }, 1)];
+  assert.deepEqual(rankOils(oils, targets, { seed: "f", strict: false, capacityLitres: targetCapacity(targets) }), ["five", "four"]);
+});
+
+test("engine oil without targets: the same product gets the same oil, different products different ones", () => {
+  const oils = Array.from({ length: 30 }, (_, i) => oil(`o${i}`, "MOTOR YAGI 5W-30 4 LT", 4));
+  assert.deepEqual(rankOils(oils, [], { seed: "filter-1", strict: false }), rankOils(oils, [], { seed: "filter-1", strict: false }));
+  const firsts = new Set(Array.from({ length: 20 }, (_, i) => rankOils(oils, [], { seed: `filter-${i}`, strict: false })[0]));
+  assert.ok(firsts.size > 5, `${firsts.size} distinct first oils`);
+});
+
+test("engine oil: a target the oil data cannot filter by is ignored, so strict keeps every oil", () => {
+  const oils = [oil("a", "MOTOR YAGI 5W-30 4 LT", 4), oil("b", "MOTOR YAGI 10W-40 4 LT", 4)];
+  assert.equal(rankOils(oils, [target({ api: ["SN"], capacityMax: 4 })], { seed: "f", strict: true }).length, 2);
+});
+
+test("an ordered category keeps its order; fluid ties rotate with the seed, without a seed they stay in id order", () => {
+  const picked = pickRelated(input({ complements: [{ categoryId: 957, ids: ["z", "x", "y"] }], fitScore: null, ordered: new Set([957]), exclude: new Set(["x"]) }));
+  assert.deepEqual(picked.map(pick => pick.id), ["z", "y"]);
+  const ids = Array.from({ length: 12 }, (_, i) => `f${String(i).padStart(2, "0")}`);
+  const first = (seed?: string) => pickRelated(input({ complements: [{ categoryId: 960, ids }], fitScore: null, perCategory: 12, seed }))[0].id;
+  assert.equal(first(), "f00");
+  assert.equal(first("disc-1"), first("disc-1"));
+  assert.ok(new Set(Array.from({ length: 12 }, (_, i) => first(`disc-${i}`))).size > 3);
+  // Vehicle-specific categories keep id order for ties even with a seed.
+  const pads = pickRelated(input({ complements: [{ categoryId: 268, ids: ["b", "a"] }], fitScore: new Map([["a", 1], ["b", 1]]), seed: "disc-1" }));
+  assert.deepEqual(pads.map(pick => pick.id), ["a", "b"]);
 });

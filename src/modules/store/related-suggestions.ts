@@ -4,7 +4,10 @@ import { categoryProductIds, typeFittedIds, type CatalogProduct } from "./catalo
 import type { GarageVehicle } from "./garage";
 import { oilPackLitres } from "./maintenance-kit";
 import { sellableProducts } from "./maintenance-kit.server";
-import { complementsFor, fillerSection, pickRelated, universalCategories } from "./related-rules";
+import { maxOilLitres, productOilTargets, sellableFluidIds, suggestableOils } from "./related-fluids.server";
+import { complementsFor, fillerSection, pickRelated, rankOils, targetCapacity, unrelatedFluids, universalCategories } from "./related-rules";
+import { engineOilCategoryId, vehicleOilFilters } from "./vehicle-oil";
+import { engineOilIds, getVehicleOilSpec } from "./vehicle-oil.server";
 
 export type RelatedContext = { vehicle?: GarageVehicle | null; cartIds?: string[] };
 
@@ -13,9 +16,6 @@ export type RelatedContext = { vehicle?: GarageVehicle | null; cartIds?: string[
 const rankedPerCategory = 6;
 // Filler candidates priced at most; the best fitting come first, so a few dozen leave enough sellable ones.
 const fillerCap = 24;
-// Engine oil is suggested in packs a shopper carries home, not workshop barrels.
-const maxOilLitres = 5;
-const engineOilCategory = 957;
 
 /**
  * The offer groups (product_offers) of `ids`: each id, its primary and every offer of that primary. A cart line or an
@@ -70,11 +70,13 @@ async function productModels(ids: string[]) {
 }
 
 /**
- * How well each candidate fits the vehicle the shopper is working on (null: no vehicle known). The garage vehicle counts
- * when the added product fits it, or when the added product carries no fitment of its own (engine oil); otherwise the added
- * product's models do, a candidate scoring the models it shares.
+ * How well each candidate fits the vehicle the shopper is working on (fitScore null: no vehicle known). The garage vehicle
+ * counts when the added product fits it, or when the added product carries no fitment of its own (engine oil); then
+ * garageTypeId is its type. Otherwise the added product's models do, a candidate scoring the models it shares.
  */
-async function vehicleFit(group: string[], vehicle: GarageVehicle | null | undefined, candidates: string[]): Promise<Map<string, number> | null> {
+async function vehicleFit(group: string[], vehicle: GarageVehicle | null | undefined, candidates: string[]): Promise<{
+  fitScore: Map<string, number> | null; garageTypeId: string | null;
+}> {
   const typeId = Number(vehicle?.vehicleId);
   const garage = Number.isInteger(typeId) && typeId > 0;
   const [typeFitted, models] = await Promise.all([garage ? typeFittedIds(typeId) : Promise.resolve<string[]>([]), productModels(group)]);
@@ -82,18 +84,18 @@ async function vehicleFit(group: string[], vehicle: GarageVehicle | null | undef
   const fitScore = new Map<string, number>();
   if (garage && (!models.length || group.some(id => typeSet.has(id)))) {
     for (const id of candidates) if (typeSet.has(id)) fitScore.set(id, 1);
-    return fitScore;
+    return { fitScore, garageTypeId: String(typeId) };
   }
-  if (!models.length) return null;
+  if (!models.length) return { fitScore: null, garageTypeId: null };
   // Both conditions together: the candidate list alone sends the planner to a slower bitmap scan.
   const overlap = (await db.query<{ id: string; shared: number }>(`SELECT f.supplier_item_id::text AS id,count(*)::int AS shared FROM storefront_model_fits f
     WHERE f.model_id=ANY($1::int[]) AND f.supplier_item_id=ANY($2::uuid[]) GROUP BY 1`, [models, candidates])).rows;
   for (const row of overlap) fitScore.set(row.id, row.shared);
-  return fitScore;
+  return { fitScore, garageTypeId: null };
 }
 
 const packTooBig = (categoryId: number, product: CatalogProduct) => {
-  if (categoryId !== engineOilCategory) return false;
+  if (categoryId !== engineOilCategoryId) return false;
   const litres = oilPackLitres(product.name);
   return litres === null || litres > maxOilLitres;
 };
@@ -107,24 +109,48 @@ async function siblingCategories(section: number, own: number) {
 const byScore = (fitScore: ReadonlyMap<string, number> | null) => (a: string, b: string) =>
   (fitScore?.get(b) ?? 0) - (fitScore?.get(a) ?? 0) || (a < b ? -1 : a > b ? 1 : 0);
 
+/** What the engine oil ranking reads, loaded alongside the vehicle fit. */
+const oilInputs = (group: string[], vehicle: GarageVehicle | null | undefined) =>
+  Promise.all([suggestableOils(), productOilTargets(group), getVehicleOilSpec(vehicle?.vehicleId)]);
+
+/**
+ * The engine oils to suggest, best first (#715): when the garage vehicle counts (vehicleFit's garageTypeId) and has oil
+ * data, only oils meeting its recommendation, the fewest packs for its capacity first; otherwise ranked by the
+ * recommendations of the vehicle types the added product fits. Ties rotate by the added product, so oil filters do not all
+ * get one oil.
+ */
+function rankedOils(seed: string, [oils, fitted, garage]: Awaited<ReturnType<typeof oilInputs>>, garageTypeId: string | null) {
+  if (garageTypeId && garage && vehicleOilFilters(garage).length)
+    return rankOils(oils, [{ spec: garage, weight: 1 }], { seed, strict: true, capacityLitres: garage.capacityMax });
+  return rankOils(oils, fitted, { seed, strict: false, capacityLitres: targetCapacity(fitted) });
+}
+
 /**
  * Products to suggest after `productId` went into the cart (#704): sellable parts of the categories fitted together with
  * it, one per category first, the best fitting the vehicle first; a short list then takes a second fitting part, then
  * fitting parts of the rest of the product's section (Fren sistemi for a disc, fillerSection). Parts tied to a vehicle are
- * suggested only when they fit the vehicle (garage, or the added product's models); fluids always. Never the product's
- * offers or equivalents, what the cart holds, or a category the cart already has a part of. Fewer than `limit` (or none)
- * when nothing else qualifies, and none when anything fails: adding to the cart must not depend on it.
+ * suggested only when they fit the vehicle (garage, or the added product's models); fluids always, at most one per fluid
+ * category, engine oil by the vehicle's oil specification (#715) and other fluids rotated by the added product. Never the
+ * product's offers or equivalents, what the cart holds, or a category the cart already has a part of. Fewer than `limit`
+ * (or none) when nothing else qualifies, and none when anything fails: adding to the cart must not depend on it.
  */
 export async function relatedSuggestions(productId: string, context: RelatedContext, limit = 3): Promise<CatalogProduct[]> {
   try {
     const [group, cartGroup] = await Promise.all([offerGroupIds([productId]), offerGroupIds(context.cartIds ?? [])]);
+    // The rotation's seed: the same for every offer of the product (the card adds the best offer, the page the primary).
+    const seed = [...group].sort()[0] ?? productId;
     const path = await productCategoryPath(group);
     if (!path.length) return [];
     const complements = complementsFor(path);
-    const siblings = (await siblingCategories(fillerSection(path), path[path.length - 1])).filter(id => !complements.includes(id));
+    const unrelated = path.flatMap(id => unrelatedFluids[id] ?? []);
+    const siblings = (await siblingCategories(fillerSection(path), path[path.length - 1]))
+      .filter(id => !complements.includes(id) && !unrelated.includes(id));
     const specific = siblings.filter(id => !universalCategories.has(id));
     const fluids = siblings.filter(id => universalCategories.has(id));
-    const idsOf = (categoryId: number) => categoryProductIds([], [categoryId]).then(ids => ({ categoryId, ids }));
+    // Engine oil: the category's products and the oils recognised by name (as its listing), so an oil in the cart covers it.
+    const idsOf = (categoryId: number) => Promise.all([categoryProductIds([], [categoryId]),
+      categoryId === engineOilCategoryId ? engineOilIds() : Promise.resolve<string[]>([])])
+      .then(([listed, named]) => ({ categoryId, ids: named.length ? [...new Set([...listed, ...named])] : listed }));
     const [lists, fluidLists, specificIds, equivalents] = await Promise.all([
       Promise.all(complements.map(idsOf)), Promise.all(fluids.map(idsOf)),
       specific.length ? categoryProductIds([], specific) : Promise.resolve<string[]>([]),
@@ -133,16 +159,30 @@ export async function relatedSuggestions(productId: string, context: RelatedCont
     const own = new Set([...group, ...equivalents]);
     // A category the cart already holds a part of (other than the added product) is covered.
     const inCart = new Set(cartGroup.filter(id => !own.has(id)));
-    const open = lists.filter(list => !list.ids.some(id => inCart.has(id)));
+    const uncovered = (list: { ids: readonly string[] }) => !list.ids.some(id => inCart.has(id));
+    let open = lists.filter(uncovered), openFluids = fluidLists.filter(uncovered);
     const exclude = new Set([...own, ...cartGroup]);
-    const candidates = [...new Set([...open.flatMap(list => list.ids), ...specificIds])].filter(id => !exclude.has(id));
-    if (!candidates.length && !fluidLists.some(list => list.ids.length)) return [];
-    const fitScore = await vehicleFit(group, context.vehicle, candidates);
-    const ranked = pickRelated({ complements: open, fitScore, exclude, perCategory: rankedPerCategory });
-    // The filler: fitting parts of the sibling categories, best fitting first, then fluids; scored before it is capped.
+    const needsOil = [...open, ...openFluids].some(list => list.categoryId === engineOilCategoryId);
+    // Engine oil is ranked by rankedOils, not by fitment: its ids stay out of the fit lookup.
+    const candidates = [...new Set([...open.filter(list => list.categoryId !== engineOilCategoryId).flatMap(list => list.ids), ...specificIds])]
+      .filter(id => !exclude.has(id));
+    if (!candidates.length && !needsOil && !openFluids.some(list => list.ids.length)) return [];
+    // Fluids other than engine oil rotate over their sellable products (the cart check above used the whole category).
+    const otherFluids = [...new Set([...open, ...openFluids].map(list => list.categoryId)
+      .filter(id => universalCategories.has(id) && id !== engineOilCategoryId))];
+    const [{ fitScore, garageTypeId }, oilData, fluidIds] = await Promise.all([vehicleFit(group, context.vehicle, candidates),
+      needsOil ? oilInputs(group, context.vehicle) : null,
+      Promise.all(otherFluids.map(async id => [id, await sellableFluidIds(id)] as const)).then(entries => new Map(entries))]);
+    const oils = oilData ? rankedOils(seed, oilData, garageTypeId) : [];
+    const pool = (list: { categoryId: number; ids: string[] }) =>
+      ({ ...list, ids: list.categoryId === engineOilCategoryId ? oils : fluidIds.get(list.categoryId) ?? list.ids });
+    open = open.map(pool); openFluids = openFluids.map(pool);
+    const order = { exclude, perCategory: rankedPerCategory, ordered: new Set([engineOilCategoryId]), seed };
+    const ranked = pickRelated({ complements: open, fitScore, ...order });
+    // The filler: fitting parts of the sibling categories, best fitting first, then the fluids taking turns; scored before it is capped.
     const filler = [
       ...[...new Set(specificIds)].filter(id => !exclude.has(id) && (fitScore?.get(id) ?? 0) > 0).sort(byScore(fitScore)).map(id => ({ id, categoryId: 0 })),
-      ...fluidLists.flatMap(list => list.ids.filter(id => !exclude.has(id)).sort().map(id => ({ id, categoryId: list.categoryId }))),
+      ...pickRelated({ complements: openFluids, fitScore: null, ...order }),
     ].slice(0, fillerCap);
     if (!ranked.length && !filler.length) return [];
     const priced = new Map((await sellableProducts([...new Set([...ranked, ...filler].map(pick => pick.id))])).map(product => [product.id, product]));
@@ -160,14 +200,15 @@ export async function relatedSuggestions(productId: string, context: RelatedCont
     }
     const rest = [...related.filter(({ product }) => !chosen.includes(product)), ...extra];
     if (chosen.length < limit && rest.length) {
-      // A second part of a category, then the filler; never the same product or an equivalent of one already suggested.
+      // A second part of a category, then the filler; never the same product or an equivalent of one already suggested,
+      // nor a second fluid of a kind (two brake fluids, two engine oils).
       const pairs = await equivalentPairs([...new Set([...chosen, ...rest.map(({ product }) => product)].map(product => product.id))]);
       const twins = (id: string) => pairs.filter(pair => pair.a === id).map(pair => pair.b);
       const taken = new Set(chosen.flatMap(product => [product.id, ...twins(product.id)]));
-      for (const { product } of rest) {
+      for (const { product, categoryId } of rest) {
         if (chosen.length >= limit) break;
-        if (taken.has(product.id)) continue;
-        chosen.push(product);
+        if (taken.has(product.id) || (universalCategories.has(categoryId) && filled.has(categoryId))) continue;
+        chosen.push(product); filled.add(categoryId);
         for (const id of [product.id, ...twins(product.id)]) taken.add(id);
       }
     }
