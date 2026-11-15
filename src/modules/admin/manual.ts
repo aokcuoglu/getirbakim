@@ -11,6 +11,7 @@ import { z } from "zod";
 import type { SupplierChange } from "./supplier-changes";
 import { supplierItemPage, type SaleFields } from "./supplier-items";
 import { getProduct } from "@/modules/store/catalog";
+import { itemProductSql, shownImageSql } from "@/modules/store/product-image-sql";
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 
 export type ManualParams = { liste?: string; taslak?: string; q?: string; category?: string; stock?: string; quality?: string; presence?: string;
@@ -66,6 +67,10 @@ export async function adminManualData(params: ManualParams) {
     categoryNames: new Map(categories.map(category => [category.id, category.name])) };
 }
 
+// The image the store shows (#596): an admin upload, or the enrichment image unless the admin hid it.
+const shownImage = (item: string) => shownImageSql(itemProductSql(`${item}.id`),
+  `EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=${item}.id AND e.image_id IS NOT NULL)`);
+
 async function manualItems(listGroup: string, params: ManualParams) {
   const values: unknown[] = [manualCompany, listGroup];
   const conditions = [scope, "list_group=$2"];
@@ -79,11 +84,11 @@ async function manualItems(listGroup: string, params: ManualParams) {
   if (params.stock === "none") conditions.push("stock_data IS NULL");
   if (params.quality === "missing-price") conditions.push("price_data IS NULL");
   if (params.quality === "missing-package") conditions.push("COALESCE(product_data->>'package','')=''");
-  if (params.quality === "missing-image") conditions.push("NOT EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=supplier_items.id AND e.image_id IS NOT NULL)");
+  if (params.quality === "missing-image") conditions.push(`NOT ${shownImage("supplier_items")}`);
   return supplierItemPage<Omit<ManualItem, keyof SaleFields>>({
     where: conditions.join(" AND "), values, order: sortOrder(params, itemSorts, "code,id"), page: params.page,
     select: `supplier_items.*,
-      EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=supplier_items.id AND e.image_id IS NOT NULL) AS has_image,
+      ${shownImage("supplier_items")} AS has_image,
       EXISTS (SELECT 1 FROM manual_item_overrides o WHERE o.list_group=supplier_items.list_group AND o.code=supplier_items.code AND o.fields<>'{}') AS overridden`,
   });
 }
@@ -95,8 +100,8 @@ export async function adminManualItem(id: string) {
   const [result, changes, categories, sale, pricing] = await Promise.all([
     db.query<ManualItem & {
       first_seen_at: Date; last_seen_at: Date; changed_at: Date; price_count: number; stock_count: number; source_variants: Record<string, unknown>;
-      image_id: string | null; overrides: ManualOverrides | null;
-    }>(`SELECT i.*,e.image_id,o.fields AS overrides FROM supplier_items i LEFT JOIN product_enrichments e ON e.supplier_item_id=i.id
+      overrides: ManualOverrides | null;
+    }>(`SELECT i.*,${shownImage("i")} AS has_image,o.fields AS overrides FROM supplier_items i
       LEFT JOIN manual_item_overrides o ON o.list_group=i.list_group AND o.code=i.code
       WHERE i.supplier='manual' AND i.company=$1 AND i.id=$2`, [manualCompany, id]),
     db.query<SupplierChange>("SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id]),

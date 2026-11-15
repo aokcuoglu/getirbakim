@@ -6,6 +6,7 @@ import { parseSearchQuery } from "@/modules/search/query";
 import { binder, enrichmentStateMatch } from "@/modules/search/sql";
 import { sourceHosts, summarizeSources, type PassPace, type SourceActivity, type SourceKey, type SourceRun } from "./enrichment-pace";
 import type { PartialGap } from "../enrichment/partial-gaps";
+import { shownImageSql, uploadedImageSql } from "../store/product-image-sql";
 
 import { dashboardTab, enrichmentStatuses } from "./enrichment-labels";
 export { enrichmentStatuses };
@@ -13,6 +14,8 @@ export type EnrichmentRow = {
   id: string; product_id: string; code: string; brand: string; name: string; oem: string; status: string; attempts: number;
   last_error: string | null; updated_at: Date; imported_at: Date | null; source_url: string | null;
   manufacturer: string | null; manufacturer_part_number: string | null; image_id: string | null;
+  /** The store shows an image: an admin upload, or the automatic one unless hidden (#596). */
+  image_shown: boolean; image_uploaded: boolean;
   match_type: string | null; reference: string | null; oem_count: number; vehicle_count: number; specification_count: number;
   /** The adapter's import note, read only for partial rows to explain what is missing. */
   source_method: string | null;
@@ -60,7 +63,8 @@ const like = (value: string) => `%${value.replace(/[\\%_]/g, match => `\\${match
 // SQL twins of partialGaps() over the import note, for the partial tab's header filter and its counts.
 const coveredBelow = (label: string) => `(SELECT m[1]::int < m[2]::int FROM regexp_match(g.source_method,'${label} (\\d+)/(\\d+)') m)`;
 const gapConditions: Record<PartialGap, string> = {
-  image: "j.image_id IS NULL",
+  // No image the store shows (#596): an upload counts, a hidden automatic image does not.
+  image: `NOT ${shownImageSql("j.product_id", "j.image_id IS NOT NULL")}`,
   vehicles_not_collected: "g.source_method ~ 'vehicles not collected'",
   no_vehicles: "g.source_method ~ 'no vehicles listed' AND g.source_method !~ 'vehicles not collected'",
   unresolved_vehicles: `g.source_method !~ 'vehicles not collected' AND COALESCE(${coveredBelow("source IDs covered")},${coveredBelow("vehicle models")},false)`,
@@ -72,6 +76,7 @@ const gapJoin = " LEFT JOIN product_enrichments g ON g.supplier_item_id=j.suppli
 const rowQuery=(source:string)=>`SELECT COALESCE(j.supplier_item_id,j.product_id) AS id,j.product_id,COALESCE(j.supplier_code,j.part_number) AS code,COALESCE(j.supplier_brand,j.product_brand) AS brand,
     COALESCE(j.product_name,'') AS name,j.oem,j.status,j.attempts,j.last_error,j.updated_at,
     j.imported_at,j.source_url,j.manufacturer,j.manufacturer_part_number,j.image_id,
+    ${shownImageSql("j.product_id","j.image_id IS NOT NULL")} AS image_shown,${uploadedImageSql("j.product_id")} AS image_uploaded,
     j.match_type,j.reference,j.oem_count,j.vehicle_count,j.specification_count,
     CASE WHEN j.status='partial' THEN (SELECT e.source_method FROM product_enrichments e WHERE e.supplier_item_id=j.supplier_item_id) END AS source_method,
     -- Trodo's searches are run items of the product; fallback searches are attempt rows of any of its supplier items.
@@ -118,6 +123,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   if (gap) { joins += gapJoin; conditions.push(`(${gapConditions[gap]})`); }
   const from = `FROM enrichment_product_states j${joins} WHERE ${conditions.join(" AND ")}`;
   const [active, products, metrics, total, pilot, pass, activity, written, brands, gaps, run] = await Promise.all([
+    // `images` counts the enrichment's own images (what the collectors found), not what the store shows (#596).
     db.query<{status:string;count:number;enriched:number;oem_matches:number;direct_matches:number;images:number;oem_numbers:number;vehicles:number;latest:Date|null}>(`SELECT status,count(*)::int AS count,
       count(*) FILTER(WHERE enriched)::int AS enriched,
       count(*) FILTER(WHERE match_type='oem_reference')::int AS oem_matches,

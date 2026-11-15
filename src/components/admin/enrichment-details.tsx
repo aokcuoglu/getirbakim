@@ -31,7 +31,7 @@ function DetailsBody({ row }: { row: Details }) {
     ["Aranan kaynaklar", row.searched.length ? sourceNames(row.searched) : "Henüz aranmadı"],
     ...(row.status === "partial" ? [["Eksik veri", gaps || "Belirtilmemiş"] as [string, string]] : []),
     ["Tedarikçi OEM", row.oem || "Belirtilmemiş"],
-    ["Görsel", row.image_id ? "Kaydedildi" : "Henüz yok"],
+    ["Görsel", row.image_uploaded ? "Yönetici yükledi" : row.image_id && !row.image_shown ? "Otomatik görsel gizli" : row.image_id ? "Kaydedildi" : "Henüz yok"],
     ["Son işlem", `${date(row.imported_at || row.updated_at)} · ${row.attempts} deneme`],
   ];
   return <>

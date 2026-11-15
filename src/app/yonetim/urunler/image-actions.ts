@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
+import { invalidateListings } from "@/modules/store/listing-epoch";
 import * as store from "@/modules/admin/product-image-store";
 import { productImageLimits, productImageTypes, type ProductImageErrorReason } from "@/modules/admin/product-image-upload";
 
@@ -32,7 +33,12 @@ const order = z.array(z.uuid()).min(1).max(productImageLimits.maxImages);
 // The store's product page, listings, cart and this admin page all show the product's images.
 const revalidateStore = () => revalidatePath("/", "layout");
 
-async function run(action: () => Promise<store.ProductImageResult>, success: string, revalidate = true): Promise<ProductImageActionResult> {
+/**
+ * `listings`: the change can add a product to or drop it from the home rails (they count only products whose image the
+ * store shows, #596), so the cached listing picks reload.
+ */
+async function run(action: () => Promise<store.ProductImageResult>, success: string,
+  { revalidate = true, listings = false }: { revalidate?: boolean; listings?: boolean } = {}): Promise<ProductImageActionResult> {
   let result: store.ProductImageResult;
   try { result = await action(); } catch (error) {
     console.error("Product image change failed", error);
@@ -40,6 +46,7 @@ async function run(action: () => Promise<store.ProductImageResult>, success: str
   }
   if (!result.ok) return { status: "error", message: result.reason === "image" && result.image ? imageFailures[result.image] : failures[result.reason] };
   if (revalidate) revalidateStore();
+  if (listings) await invalidateListings();
   return { status: "success", message: success };
 }
 
@@ -55,20 +62,22 @@ export async function uploadProductImage(form: FormData): Promise<ProductImageAc
   if (!file.size || file.size > productImageLimits.maxBytes) return { status: "error", message: imageFailures.size };
   if (!productImageTypes.some(type => type === file.type)) return { status: "error", message: imageFailures.type };
   const bytes = Buffer.from(await file.arrayBuffer());
-  return run(() => store.addProductImage(db, id.data, { bytes, name: file.name }, admin.id), "Görsel eklendi.", false);
+  return run(() => store.addProductImage(db, id.data, { bytes, name: file.name }, admin.id), "Görsel eklendi.", { revalidate: false });
 }
 
-/** End of an upload batch: the store's cached pages are refreshed once. */
+/** End of an upload batch: the store's cached pages and listing picks are refreshed once. */
 export async function finishProductImageUpload(id: string): Promise<void> {
   await requireAdmin();
-  if (productId.safeParse(id).success) revalidateStore();
+  if (!productId.safeParse(id).success) return;
+  revalidateStore();
+  await invalidateListings();
 }
 
 export async function removeProductImage(input: { productId: string; imageId: string }): Promise<ProductImageActionResult> {
   const admin = await requireAdmin();
   const data = z.object({ productId, imageId }).safeParse(input);
   if (!data.success) return { status: "error", message: "Görsel tanınmadı. Sayfayı yenileyin." };
-  return run(() => store.removeProductImage(db, data.data.productId, data.data.imageId, admin.id), "Görsel silindi.");
+  return run(() => store.removeProductImage(db, data.data.productId, data.data.imageId, admin.id), "Görsel silindi.", { listings: true });
 }
 
 export async function reorderProductImages(input: { productId: string; imageIds: string[] }): Promise<ProductImageActionResult> {
@@ -83,5 +92,5 @@ export async function setAutomaticImageHidden(input: { productId: string; hidden
   const data = z.object({ productId, hidden: z.boolean() }).safeParse(input);
   if (!data.success) return { status: "error", message: "Ayar tanınmadı. Sayfayı yenileyin." };
   return run(() => store.setAutomaticImageHidden(db, data.data.productId, data.data.hidden, admin.id),
-    data.data.hidden ? "Otomatik görsel mağazada gizlendi." : "Otomatik görsel mağazada gösteriliyor.");
+    data.data.hidden ? "Otomatik görsel mağazada gizlendi." : "Otomatik görsel mağazada gösteriliyor.", { listings: true });
 }

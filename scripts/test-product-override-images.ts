@@ -7,6 +7,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { galleryImages, socialImage } from "../src/modules/store/product-image-display";
 import { prepareProductImage, ProductImageError } from "../src/modules/admin/product-image-upload";
+import { automaticImageHiddenSql, hiddenAutomaticItemsSql, itemProductSql, shownImageSql, uploadedImageSql } from "../src/modules/store/product-image-sql";
 
 // Admin-uploaded product images (#581) in an isolated copy of the schema: db/product-override-images.sql, the store's
 // read path, the admin store and merge carry/undo. Uploaded bytes go to an in-memory object store.
@@ -59,6 +60,12 @@ const merge = (source: string, target: string) => schema.pool.query<{ id: string
 const history = async (productId: string) => (await schema.pool.query<{ field: string; old_value: string | null; new_value: string | null; reason: string | null }>(
   "SELECT field,old_value,new_value,reason FROM product_override_changes WHERE product_id=$1 ORDER BY id", [productId])).rows;
 let automaticMedia: string;
+/**
+ * The storefront enrichment links, rebuilt for this schema. product_enrichment_shared_sync() skips when another session
+ * holds its database-wide advisory lock (a local dev server syncs every few seconds), so the test drains the queue and
+ * calls the refresh, which takes no lock.
+ */
+const syncSharedLinks = () => schema.pool.query("DELETE FROM product_enrichment_shared_queue; SELECT product_enrichment_shared_refresh(NULL,NULL)");
 
 before(async () => {
   schema = await isolatedSchema("product_override_images_test");
@@ -82,7 +89,7 @@ before(async () => {
   await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload)
     VALUES($1,'FEBI 10010','FEBI','https://www.trodo.com/febi','test','FEBI BILSTEIN','10010',$2,$3)`,
   [ids.febiDinamik, automaticMedia, JSON.stringify({ specifications: [], oemNumbers: {}, crossReferences: {}, vehicles: [], imageWidth: 600, imageHeight: 400 })]);
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks();
   const [{ db }, storeModule, enrichmentModule, imagesModule, overridesModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/admin/product-image-store"),
     import("../src/modules/store/product-enrichment"), import("../src/modules/store/product-images"), import("../src/modules/admin/product-override-store")]);
   store = storeModule;
@@ -204,7 +211,7 @@ test("enrichment imports, supplier syncs and matching refreshes leave the upload
     ON CONFLICT (supplier_item_id) DO UPDATE SET payload=excluded.payload||'{"imageWidth":600,"imageHeight":400}',imported_at=now()`, [ids.febiDinamik, automaticMedia]);
   await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"ac":"FEBI YENI AD"}',changed_at=now() WHERE id=ANY($1::uuid[])`, [[ids.febiBasbug, ids.febiDinamik]]);
   await schema.pool.query("SELECT refresh_product_matches()");
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks();
   assert.equal(await productOf("febiBasbug"), febi);
   assert.deepEqual(await fileNames(febi), before);
   const shown = await enrichment.getCatalogProductImages([card("febiDinamik", "FEBI 10010", "FEBI")]);
@@ -353,6 +360,71 @@ test("a merged product's uploads are served only through a product that is not m
   // A revived: its own upload is served again.
   await schema.pool.query("SELECT product_reset_item($1)", [ids.swagA]);
   assert.ok(await images.servableProductMedia(mediaId, storefrontCompanies()));
+});
+
+test("home rails count uploads and skip a hidden automatic image (#596)", async () => {
+  const [home, epoch] = await Promise.all([import("../src/modules/store/home"), import("../src/modules/store/listing-epoch")]);
+  await item("railAuto", { supplier: "basbug", code: "ATE 50050", brand: "ATE", name: "ATE FREN DISKI" });
+  await item("railPlain", { supplier: "basbug", code: "VAL 60060", brand: "VALEO", name: "VALEO DEBRIYAJ" });
+  await item("railHidden", { supplier: "basbug", code: "DEL 61061", brand: "DELPHI", name: "DELPHI POMPA" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const media = (await schema.pool.query<{ id: string }>(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
+    VALUES('product-media','products/bb/rail.webp',$1,'image/webp',1000,'https://www.trodo.com/rail.webp') RETURNING id::text`,
+  [createHash("sha256").update("rail-automatic").digest("hex")])).rows[0].id;
+  await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,'ATE 50050','ATE','complete')`, [ids.railAuto]);
+  await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload)
+    VALUES($1,'ATE 50050','ATE','https://www.trodo.com/ate','test','ATE','50050',$2,'{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}')`, [ids.railAuto, media]);
+  await syncSharedLinks();
+  const railAuto = await productOf("railAuto"), railPlain = await productOf("railPlain"), railHidden = await productOf("railHidden");
+  const rail = async () => { await epoch.invalidateListings(); return (await home.getHomeProducts()).map(product => product.id); };
+
+  // (a) A trusted automatic image puts the row on the rail; rows without any image stay off.
+  let picked = await rail();
+  assert.ok(picked.includes(ids.railAuto), "(a) automatic image");
+  assert.ok(!picked.includes(ids.railPlain) && !picked.includes(ids.railHidden), "(a) no image");
+  // (b) Hiding the automatic image takes it off; without a bump the cached pick is still served.
+  assert.deepEqual(await store.setAutomaticImageHidden(schema.pool, railAuto, true, admin), { ok: true });
+  assert.ok((await home.getHomeProducts()).some(product => product.id === ids.railAuto), "no bump: the cached pick is served");
+  assert.ok(!(await rail()).includes(ids.railAuto), "(b) automatic image hidden");
+  // (c) An upload brings it back while the automatic image stays hidden.
+  assert.deepEqual(await upload(railAuto, await solid(150), "ate.jpg"), { ok: true });
+  assert.ok((await rail()).includes(ids.railAuto), "(c) upload over a hidden automatic image");
+  // (d) An upload on a product without any enrichment puts it on the rail, first (the newest image).
+  assert.deepEqual(await upload(railPlain, await solid(151), "valeo.jpg"), { ok: true });
+  picked = await rail();
+  assert.equal(picked[0], ids.railPlain, "(d) the newest upload comes first");
+  assert.equal(new Set(picked).size, picked.length, "a row in both arms is listed once");
+  // (e) Deleting the upload takes it off again.
+  const [plainImage] = (await store.loadProductImages(schema.pool, railPlain)).images;
+  assert.deepEqual(await store.removeProductImage(schema.pool, railPlain, plainImage.id, admin), { ok: true });
+  assert.ok(!(await rail()).includes(ids.railPlain), "(e) upload deleted");
+  // (f) An admin-hidden product stays off even with an upload.
+  assert.deepEqual(await upload(railHidden, await solid(152), "delphi.jpg"), { ok: true });
+  assert.ok((await rail()).includes(ids.railHidden), "(f) upload");
+  assert.ok((await overrides.persistProductOverride(schema.pool, railHidden, { hidden: true }, admin)).ok);
+  assert.ok(!(await rail()).includes(ids.railHidden), "(f) product hidden");
+});
+
+test("the store shows an image: an upload, or the automatic image unless hidden (#596)", async () => {
+  await item("shownA", { supplier: "basbug", code: "SHW 70001", brand: "SHOWN", name: "SHOWN A" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const product = await productOf("shownA");
+  const shown = async (automatic: boolean) => (await schema.pool.query<{ shown: boolean; hidden: boolean; uploaded: boolean }>(
+    `SELECT ${shownImageSql(itemProductSql("$1::uuid"), automatic ? "true" : "false")} AS shown,
+      ${automaticImageHiddenSql("$2::uuid")} AS hidden,${uploadedImageSql("$2::uuid")} AS uploaded`, [ids.shownA, product])).rows[0];
+  assert.deepEqual(await shown(false), { shown: false, hidden: false, uploaded: false }, "no image at all");
+  assert.deepEqual(await shown(true), { shown: true, hidden: false, uploaded: false }, "automatic image");
+  await store.setAutomaticImageHidden(schema.pool, product, true, admin);
+  assert.deepEqual(await shown(true), { shown: false, hidden: true, uploaded: false }, "automatic image hidden");
+  assert.deepEqual(await upload(product, await solid(160), "shown.jpg"), { ok: true });
+  assert.deepEqual(await shown(true), { shown: true, hidden: true, uploaded: true }, "hidden automatic image and an upload");
+  assert.deepEqual(await shown(false), { shown: true, hidden: true, uploaded: true }, "an upload alone");
+  assert.deepEqual((await schema.pool.query<{ id: string }>(`${hiddenAutomaticItemsSql} AND ps.supplier_item_id=$1`, [ids.shownA])).rows.length, 1);
+});
+
+test("the admin image filters read the image the store shows (#596)", async () => {
+  for (const file of ["src/modules/admin/manual.ts", "src/modules/admin/enrichment-data.ts"])
+    assert.match(await readFile(file, "utf8"), /shownImageSql\(/, file);
 });
 
 test("setup can run the file again", async () => {
