@@ -255,6 +255,28 @@ CREATE TABLE IF NOT EXISTS commerce_payments (
 );
 CREATE INDEX IF NOT EXISTS commerce_payments_order_idx ON commerce_payments(order_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS commerce_payments_open_idx ON commerce_payments(checked_at NULLS FIRST) WHERE status IN ('initiated','pending');
+-- TAMI void/refund calls made from /yonetim (#619). One row per provider call, each with its own correlation id.
+-- A row is committed as 'requested' before TAMI is called, so a crash or a lost reply leaves evidence. 'unknown' means
+-- TAMI may have reversed the payment; it blocks a new call until a signed query or operations settles it.
+-- Full reversals only: at most one active (requested/unknown/succeeded) row per payment attempt.
+CREATE TABLE IF NOT EXISTS commerce_payment_refunds (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ payment_id uuid NOT NULL REFERENCES commerce_payments(id),
+ order_id uuid NOT NULL REFERENCES commerce_orders(id),
+ kind text NOT NULL CHECK(kind IN ('void','refund')),
+ amount_kurus bigint NOT NULL CHECK(amount_kurus>0),
+ status text NOT NULL DEFAULT 'requested' CHECK(status IN ('requested','succeeded','failed','unknown')),
+ correlation_id text NOT NULL UNIQUE,
+ bank_reference text, bank_auth_code text, provider_transaction_at text,
+ error_code text, error_message text, provider_result jsonb,
+ requested_by uuid REFERENCES accounts(id),
+ requested_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz, checked_at timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS commerce_payment_refunds_active_idx ON commerce_payment_refunds(payment_id)
+ WHERE status IN ('requested','unknown','succeeded');
+CREATE INDEX IF NOT EXISTS commerce_payment_refunds_order_idx ON commerce_payment_refunds(order_id,requested_at);
+-- When the order's money went back to the customer (TAMI API or a manually recorded reference).
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refunded_at timestamptz;
 -- Fitment guarantee, phase 0: measure compatibility before promising it.
 -- The garage vehicle is captured when a product is added and copied to the order line together
 -- with the compatibility level computed at checkout. No FK: orders outlive vehicle catalog reloads.

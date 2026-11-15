@@ -1,14 +1,16 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Inbox, TriangleAlert } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, Inbox, Info, RefreshCw, TriangleAlert } from "lucide-react";
 import { adminOrders, fitmentReturnReport, orderFilters, type OrderFilter } from "@/modules/admin/data";
 import { fitmentLevelLabels, type FitmentLevel } from "@/modules/store/fitment-level";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { money } from "@/modules/store/catalog";
-import { changeOrderStatus, recordRefund } from "@/modules/admin/commerce-actions";
+import { changeOrderStatus, checkTamiRefund, recordRefund } from "@/modules/admin/commerce-actions";
+import { refundablePayments, refundKindLabel, refundStatusLabel, reversalKind, type RefundStatus } from "@/modules/payments/refund-rules";
 import { carrierLabel } from "@/modules/store/shipment";
 import { OrderShipmentDialog } from "@/components/admin/order-shipment-dialog";
 import { OrderDeliveredDialog } from "@/components/admin/order-delivered-dialog";
+import { OrderRefundDialog } from "@/components/admin/order-refund-dialog";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { SubmitButton } from "@/components/admin/submit-button";
@@ -26,6 +28,14 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const time = (value: Date | string) => formatDateTime(value, { year: true });
+const refundBadge: Record<RefundStatus, { variant: "success" | "destructive" | "warning" | "info"; icon: typeof CircleCheck }> = {
+  succeeded: { variant: "success", icon: CircleCheck }, failed: { variant: "destructive", icon: CircleAlert },
+  unknown: { variant: "warning", icon: TriangleAlert }, requested: { variant: "info", icon: Info },
+};
+function RefundStatusBadge({ status }: { status: RefundStatus }) {
+  const { variant, icon: Icon } = refundBadge[status];
+  return <Badge variant={variant}><Icon data-icon="inline-start"/>{refundStatusLabel[status]}</Badge>;
+}
 const tabOrder: OrderFilter[] = ["all", "action", "shipping", "refund", "awaiting_payment", "shipped", "delivered", "cancelled"];
 
 export default async function Orders({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -48,11 +58,17 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Siparişler</h1>
-        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödeme iadesini TAMI portalından yapıp referansı kaydet. Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur.</p>
+        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur.</p>
       </div>
     </div>
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Bu değişikliğe izin verilmiyor. Listeyi yenileyin.</AlertDescription></Alert>}
+    {params.refunded && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>TAMI iadeyi onayladı; sipariş güncellendi.</AlertDescription></Alert>}
+    {params.refund_void_failed && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>TAMI iptali reddetti (hata kodu siparişin İadeler satırında). Tekrar &quot;TAMI&apos;den iade et&quot; derseniz iade olarak gönderilir.</AlertDescription></Alert>}
+    {params.refund_failed && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>TAMI iadeyi reddetti; ayrıntı siparişin İadeler satırında. Sorunu giderip yeniden deneyebilirsiniz.</AlertDescription></Alert>}
+    {params.refund_unknown && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>TAMI yanıtı doğrulanamadı. TAMI&apos;de kontrol edin; iade görünüyorsa &quot;TAMI&apos;de kontrol et&quot; ile sonucu alın ya da referansı elle kaydedin.</AlertDescription></Alert>}
+    {params.refund_unavailable && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>TAMI ayarları eksik; TAMI&apos;ye istek gönderilmedi. Teknik ekibe bildirin; acilse iadeyi TAMI portalından yapıp referansı elle kaydedin.</AlertDescription></Alert>}
+    {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
 
     <Tabs value={filter}><ScrollArea className="pb-2">
       <TabsList variant="line" aria-label="Sipariş durumları">
@@ -68,7 +84,10 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
         {shown.length ? <Table server>
           <TableHeader><TableRow><TableHead sortKey="created">Sipariş</TableHead><TableHead sortKey="customer">Müşteri</TableHead>
             <TableHead filter={{ param: "status", options: tabOrder.filter(key => key !== "all").map(key => ({ value: key, label: orderFilters[key].label })) }}>Durum</TableHead><TableHead>Ödeme</TableHead><TableHead sortKey="total" className="text-right">Tutar</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
-          <TableBody>{shown.map(o => <TableRow key={o.id} className="align-top">
+          <TableBody>{shown.map(o => {
+            const refundable = refundablePayments(o, o.payments, o.refunds);
+            const pendingRefunds = o.refunds.filter(r => r.status === "requested" || r.status === "unknown");
+            return <TableRow key={o.id} className="align-top">
             <TableCell><Link className="font-medium underline-offset-4 hover:underline" href={`/siparis/${o.id}`}>#{o.number}</Link><div className="text-muted-foreground">{time(o.created_at)}</div></TableCell>
             <TableCell className="min-w-56 whitespace-normal">
               <div className="font-medium">{o.customer_name}</div><div className="text-muted-foreground">{o.email} · {o.phone}</div>
@@ -80,7 +99,18 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                     {o.note && <div><dt className="text-muted-foreground">Not</dt><dd>{o.note}</dd></div>}
                     {o.payments.length > 0 && <div><dt className="text-muted-foreground">TAMI</dt><dd className="break-all">{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""})`).join(", ")}</dd></div>}
                     {o.paid_at && <div><dt className="text-muted-foreground">Ödeme zamanı</dt><dd>{time(o.paid_at)}</dd></div>}
-                    {o.refund_reference && <div><dt className="text-muted-foreground">İade referansı</dt><dd>{o.refund_reference}</dd></div>}
+                    {o.refund_reference && <div><dt className="text-muted-foreground">İade referansı</dt><dd className="break-all">{o.refund_reference}</dd></div>}
+                    {o.refunded_at && <div><dt className="text-muted-foreground">İade zamanı</dt><dd>{time(o.refunded_at)}</dd></div>}
+                    {o.refunds.length > 0 && <div className="sm:col-span-2"><dt className="text-muted-foreground">İadeler</dt>
+                      <div className="flex flex-col gap-2">{o.refunds.map(r => <dd key={r.id} className="flex flex-col items-start gap-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span>TAMI {refundKindLabel[r.kind].toLocaleLowerCase("tr-TR")} · {r.provider_order_id} · <span className="tabular-nums">{money(Number(r.amount_kurus))}</span></span>
+                          <RefundStatusBadge status={r.status}/>
+                        </span>
+                        <span className="text-muted-foreground">{time(r.completed_at ?? r.requested_at)}{r.bank_reference ? ` · banka ref. ${r.bank_reference}` : ""}</span>
+                        {(r.error_code || r.error_message) && <span className="break-all text-muted-foreground">{r.error_code ? `Hata ${r.error_code}: ` : ""}{r.error_message}</span>}
+                      </dd>)}</div>
+                    </div>}
                     {["shipped", "delivered"].includes(o.status) && <div className="sm:col-span-2"><dt className="text-muted-foreground">Kargo</dt>
                       {o.carrier ? <dd className="flex flex-col gap-1">
                         <span className="break-all">{carrierLabel(o.carrier, o.carrier_name)} · {o.tracking_no}</span>
@@ -121,14 +151,28 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                 <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="edit"
                   initial={{ carrier: o.carrier, carrierName: o.carrier_name, trackingNo: o.tracking_no, trackingUrl: o.tracking_url }}/>
               </div>}
-              {o.payment_status === "refund_required" && <form action={recordRefund} className="flex justify-end gap-2">
+              {(refundable.length > 0 || pendingRefunds.length > 0) && <div className="mt-2 flex flex-col items-end gap-2">
+                {refundable.map(p => <OrderRefundDialog key={p.id} orderId={o.id} number={o.number} paymentId={p.id} providerOrderId={p.provider_order_id}
+                  amountKurus={Number(p.amount_kurus)} kind={reversalKind(p.paid_at, o.refunds.filter(r => r.payment_id === p.id))}
+                  several={o.payments.filter(x => x.status === "succeeded").length > 1} orderPaid={o.payment_status === "paid"} back={back}/>)}
+                {pendingRefunds.map(r => <form key={r.id} action={checkTamiRefund} className="flex flex-wrap items-center justify-end gap-2">
+                  <input type="hidden" name="refund" value={r.id}/>
+                  <input type="hidden" name="order" value={o.id}/>
+                  <input type="hidden" name="back" value={back}/>
+                  <RefundStatusBadge status={r.status}/>
+                  <SubmitButton variant="outline" aria-label={`#${o.number} ${r.provider_order_id} iadesini TAMI'de kontrol et`} pendingLabel="Sorgulanıyor…"
+                    icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>}>TAMI&apos;de kontrol et</SubmitButton>
+                </form>)}
+              </div>}
+              {o.payment_status === "refund_required" && <form action={recordRefund} className="mt-2 flex justify-end gap-2">
                 <input type="hidden" name="id" value={o.id}/>
                 <input type="hidden" name="back" value={back}/>
-                <Input className="w-40" name="reference" aria-label={`#${o.number} TAMI iade referansı`} placeholder="TAMI iade ref." minLength={3} maxLength={120} required/>
-                <SubmitButton>İade yapıldı</SubmitButton>
+                <Input className="w-40" name="reference" aria-label={`#${o.number} elle TAMI iade referansı`} placeholder="Elle: TAMI iade ref." minLength={3} maxLength={120} required/>
+                <SubmitButton variant="outline">İade yapıldı</SubmitButton>
               </form>}
             </TableCell>
-          </TableRow>)}</TableBody>
+          </TableRow>;
+          })}</TableBody>
         </Table> : <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon"><Inbox/></EmptyMedia>

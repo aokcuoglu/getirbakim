@@ -179,8 +179,12 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
       [attempt.id, JSON.stringify(providerResult(query)), query.bankReferenceNumber, query.bankAuthCode, query.installmentCount],
     );
     if (!order || !updated.rowCount) { await client.query("COMMIT"); return; }
-    if (order.payment_status === "paid" || order.payment_status === "refund_required" || order.payment_status === "refunded") {
-      await appendNote(client, orderId, `Mükerrer ödeme alındı (${attempt.provider_order_id}); fazla tahsilatı TAMI portalından iade edin.`);
+    if (order.payment_status === "refunded") {
+      // The order's money was already returned; this capture must be refunded too, so the refund step reopens.
+      await client.query("UPDATE commerce_orders SET payment_status='refund_required' WHERE id=$1", [orderId]);
+      await appendNote(client, orderId, `İade edilmiş siparişe yeni ödeme alındı (${attempt.provider_order_id}); Siparişler'den TAMI ile iade edin.`);
+    } else if (order.payment_status === "paid" || order.payment_status === "refund_required") {
+      await appendNote(client, orderId, `Mükerrer ödeme alındı (${attempt.provider_order_id}); fazla tahsilatı Siparişler'den TAMI ile iade edin.`);
     } else if (order.status === "awaiting_payment") {
       await client.query("UPDATE commerce_orders SET status='pending',payment_status='paid',paid_at=now() WHERE id=$1", [orderId]);
       await clearPurchasedCart(client, orderId);
@@ -200,7 +204,7 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
   finally { client.release(); }
 }
 
-async function appendNote(client: PoolClient, orderId: string, note: string) {
+export async function appendNote(client: PoolClient, orderId: string, note: string) {
   await client.query("UPDATE commerce_orders SET payment_note=concat_ws(' ',NULLIF(payment_note,''),$2::text) WHERE id=$1", [orderId, note]);
 }
 

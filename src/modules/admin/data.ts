@@ -7,6 +7,7 @@ import { manualCompany, setaCompany } from "@/modules/suppliers/storefront-sourc
 import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE } from "@/modules/suppliers/dinamik-import";
 import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
 import type { CommerceOrder } from "@/modules/store/orders";
+import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules";
 import { restockDueCount } from "./restock";
 import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 
@@ -44,7 +45,12 @@ export async function adminPricing() {
   return { settings: settings.rows[0], latest: latest.rows[0], rates: latest.rows[0]?.currencies_data.dovizListesi ?? [] };
 }
 
-type AdminPayment = { provider_order_id: string; status: string; amount_kurus: number; bank_reference: string | null; paid_at: string | null };
+type AdminPayment = { id: string; provider_order_id: string; status: string; amount_kurus: number; bank_reference: string | null; paid_at: string | null };
+/** TAMI void/refund calls of an order (#619), oldest first. */
+export type AdminRefund = {
+  id: string; payment_id: string; provider_order_id: string; kind: ReversalKind; status: RefundStatus; amount_kurus: number;
+  bank_reference: string | null; error_code: string | null; error_message: string | null; requested_at: string; completed_at: string | null;
+};
 
 export const orderFilters = {
   all: { label: "Tümü", where: "true" },
@@ -67,13 +73,17 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
   const requested = Number(rawPage);
   const page = Number.isSafeInteger(requested) ? Math.max(1, Math.min(10000, requested)) : 1;
   const filter: OrderFilter = pickKey(orderFilters, rawFilter, "all");
-  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[] } & OrderAgreementSummary>(
+  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[] } & OrderAgreementSummary>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
-     o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,
+     o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,o.refunded_at,
      o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,
      a.accepted_at AS agreement_at,a.ip AS agreement_ip,a.user_agent AS agreement_user_agent,a.legal_version AS agreement_version,
-     COALESCE((SELECT jsonb_agg(jsonb_build_object('provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
-      'bank_reference',p.bank_reference,'paid_at',p.paid_at) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments
+     COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
+      'bank_reference',p.bank_reference,'paid_at',p.paid_at) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments,
+     COALESCE((SELECT jsonb_agg(jsonb_build_object('id',r.id,'payment_id',r.payment_id,'provider_order_id',p.provider_order_id,'kind',r.kind,'status',r.status,
+      'amount_kurus',r.amount_kurus,'bank_reference',r.bank_reference,'error_code',r.error_code,'error_message',r.error_message,
+      'requested_at',r.requested_at,'completed_at',r.completed_at) ORDER BY r.requested_at,r.id)
+      FROM commerce_payment_refunds r JOIN commerce_payments p ON p.id=r.payment_id WHERE r.order_id=o.id),'[]') AS refunds
      FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50],
   ), db.query<Record<OrderFilter, number>>(`SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`)]);

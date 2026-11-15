@@ -1,6 +1,6 @@
 # Online ödeme (TAMI)
 
-9 Ekim 2026: kullanıcı kararı — tek ödeme yöntemi TAMI ortak ödeme sayfası (hosted); ödeme sipariş anında, tedarikçi stok teyidinden önce alınır. Kargo sabit ücret + ücretsiz kargo eşiği. İade TAMI portalından manuel yapılır. Ödemesiz sipariş yolu kaldırıldı.
+9 Ekim 2026: kullanıcı kararı — tek ödeme yöntemi TAMI ortak ödeme sayfası (hosted); ödeme sipariş anında, tedarikçi stok teyidinden önce alınır. Kargo sabit ücret + ücretsiz kargo eşiği. Ödemesiz sipariş yolu kaldırıldı. 15 Kasım 2026 (#619): iade/iptal `/yonetim/siparisler`'den TAMI API ile yapılır; portal + elle referans yalnız yedek yoldur.
 
 ## Akış
 
@@ -24,8 +24,43 @@
 
 - **Geç ödeme** (süre dolup iptal edildikten sonra): sipariş `pending`+`paid` olarak geri alınır, mağaza stoku yeniden ayrılmaya çalışılır, `payment_note` ile işaretlenir. Denemeler oluşturulduktan sonra 2 saat izlenir, sonra `abandoned`.
 - **Stok iadesi** (#516): her sipariş satırı gerçekten düşülen mağaza stokunu `commerce_order_items.reserved_quantity` alanında tutar. İptal ve süre dolumu yalnız bu adedi iade eder ve alanı 0'a çeker; ikinci iptal hiçbir şey iade etmez. Geç ödemede stok yetmeyen satır 0 olarak kalır, yani sonradan yapılan iptal o satır için stok iade etmez. `reserved_quantity` NULL olan eski satırlarda eski kural geçerlidir (tam adet). `db:setup` backfill'i bu alanı yalnız NULL satırlarda doldurur: "mağaza stoku yetersiz" notu taşıyan geç ödenmiş siparişlerin bütün satırları 0 sayılır. Bu siparişlerin stoğunu operasyon elle düzeltmelidir.
-- **Mükerrer ödeme** (aynı siparişe ikinci başarılı deneme): `payment_note` "fazla tahsilatı iade edin" uyarısı alır.
-- **İptal**: yönetim yalnız ödenmiş (veya ödeme öncesi dönemden kalan `none`) siparişleri onaylar/iptal eder. Ödenmiş sipariş iptal edilince `refund_required`; iade TAMI portalından yapılıp referansı `/yonetim/siparisler`'de girilince `refunded`.
+- **İade edilmiş siparişe geç tahsilat:** sipariş `refunded` iken başarılı bir deneme doğrulanırsa sipariş `refund_required`'a döner ve not eklenir; böylece yeni deneme için iade düğmesi çıkar.
+- **Mükerrer ödeme** (aynı siparişe ikinci başarılı deneme): `payment_note` "fazla tahsilatı Siparişler'den TAMI ile iade edin" uyarısı alır; fazla deneme aşağıdaki API yoluyla iade edilir.
+- **İptal**: yönetim yalnız ödenmiş (veya ödeme öncesi dönemden kalan `none`) siparişleri onaylar/iptal eder. Ödenmiş sipariş iptal edilince `refund_required`; `/yonetim/siparisler`'de "TAMI'den iade et" ile iade edilince (ya da yedek yolda referans elle girilince) `refunded` + `refunded_at`.
+
+## İptal / iade (API, #619)
+
+- **Uçlar:** `POST {TAMI_PAYMENT_API_BASE_URL}/api/v0/payment/void` (aynı gün, gün sonundan önce) ve `/api/v0/payment/refund`. `/api/v0` önekli yol sandbox'ta yanıt veriyor (15 Kas 2026). Hosted/sorgu çağrıları öneksiz çalışmaya devam ediyor. Önekli yol gövdesinde `errorCode` olmayan 404 dönerse aynı istek öneksiz yola bir kez gönderilir (`SIGNED_PATH_PREFIXES`, `src/modules/payments/tami.ts`).
+- **v4 imzalama** (TAMI Node örneği `tamiToken.js` ile aynı, yalnız `node:crypto`): gövde `{ "signedRequest": "<JWE>" }`. İçteki JWS HS512, başlık `{alg:"HS512",kid:TAMI_JWK_KID,typ:"JWT"}`, anahtar `base64url-decode(TAMI_JWK_K)`; iddialar `iss="<merchant>:<terminal>"`, `aud="tami"`, `jti`, `iat`, `nbf`, `exp=+600 sn`, `tami:body`, `tami:apiVersion="v4"`. Dış JWE kompakt `<başlık>..<iv>.<şifreli>.<etiket>`: `{alg:"dir",enc:"A256GCM",cty:"JWT"}`, anahtar `SHA-256(base64url-decode(k))`, 12 baytlık IV, AAD = başlığın base64url ASCII'si. Başlıklar: `PG-Api-Version: v4`, `PG-Auth-Token`, `correlationId` (her çağrıda yeni; satırın `correlation_id`'si). Tutar string, iki ondalık (`"200.00"`); iade hep tam tutarı açıkça gönderir.
+- **Yanıt:** başarıda `{ signedResponse }` düz JWS (HS512): imza `timingSafeEqual`, `aud="<merchant>:<terminal>"`, `exp+60 ≥ şimdi`, gövde `tami:body`.
+- **Sonuç sınıfları:**
+  - `succeeded`: imza/aud/exp geçerli, `success:true`, `correlationId` **zorunlu** ve bizimki, `currency` (varsa) `TRY`, `amount` kuruşu kuruşuna eşit (iadede zorunlu, iptalde alan varsa).
+  - `failed` (kesin, yeniden denenebilir): HTTP 4xx (408/409/425/429 hariç) + JSON `success:false` + `errorCode`, ya da imzalı gövdede `success:false`. Gövdesinde `errorCode` olan 404 de uç noktanın cevabıdır; öneksiz yol denenmez.
+  - `unknown`: ağ hatası, zaman aşımı (15 sn), 5xx, imzasız 408/409/425/429, JSON olmayan yanıt, imza/aud/exp hatası, tutar/para birimi/correlationId uyuşmazlığı. Sipariş `refund_required` kalır, aynı deneme için yeni istek kilitlenir. Sunucu günlüğüne yalnız kimlikler yazılır (sipariş, TAMI orderId, correlationId, HTTP durumu); token ve gövde yazılmaz.
+- **İptal mi iade mi:** her onay **tek** TAMI çağrısı yapar. Deneme (`commerce_payments.paid_at`) İstanbul saatiyle bugün tahsil edildiyse iptal gönderilir. TAMI iptali reddederse satır `failed` kalır ve yönetici "İptal reddedildi; tekrar 'TAMI'den iade et' derseniz iade olarak gönderilir" uyarısını görür. Bu ödeme için reddedilmiş bir iptal varsa sonraki onay doğrudan iade gönderir. Sessiz iptal→iade zinciri bilerek yok: iptal sonucu belirsizken iade de gönderilirse çift iade riski doğar. Daha eski ödeme doğrudan iade edilir. Her çağrı ayrı satır ve ayrı correlationId.
+- **Kayıt:** `commerce_payment_refunds` (çağrı başına bir satır; `requested` → `succeeded|failed|unknown`). Satır TAMI çağrılmadan **önce** commit edilir (sipariş satırı `FOR UPDATE` kilidiyle). Kısmi tekil indeks: deneme başına tek etkin (`requested|unknown|succeeded`) kayıt → çift tıklama/yarış tek çağrı. Yalnız tam iade (kısmi iade kapsam dışı).
+- **Sipariş:** iptal edilmiş (`refund_required`) siparişin tüm başarılı denemeleri iade edilince `refunded`, `refunded_at`, `refund_reference = "TAMI <İptal|İade> <deneme> · banka ref. …"`. Ödenmiş siparişte yalnız fazla denemeler iade edilebilir (en az biri kalır); iade notu `payment_note`'a eklenir. Müşteri sayfası iade tarihini gösterir.
+- **Sonucu bilinmeyen çağrı:** listede "İade sonucu bilinmiyor" + "TAMI'de kontrol et". Bu, çağrıdan ≥1 dk sonra imzalı `/payment/query` ile bakar. Sorgu her ters işlem denemesini listeler (sandbox'ta gözlendi): iptal `REVERSE`, iade `REFUND` (`REVERSAL_TRANSACTION_TYPE`, `src/modules/payments/refunds.ts`). Yalnız şu işlemler sayılır: çağrının türünde, tutarı tam eşit, tarihi çağrıdan sonra (30 sn saat farkı payıyla) ve aynı denemenin önceki çağrısı bittikten sonra olanlar.
+  - Eşleşen bir `SUCCESS` varsa `succeeded`.
+  - Eşleşenlerin hepsi `FAIL` ise `failed` (yeniden denenebilir).
+  - Eşleşen işlem yoksa ya da yanıt doğrulanamıyorsa `unknown` kalır ve `checked_at` güncellenir. Çıkış yolu: biraz sonra yeniden kontrol etmek ya da TAMI portalından bakıp referansı elle kaydetmek.
+  - **Tarih tuzağı:** `transactionDate` saat dilimi taşımayan İstanbul saatidir (`2026-11-15T10:04:19.595942`). `istanbulLocalTime` bunu UTC+3 olarak okur; dilimli ya da biçimsiz tarih eşleşmez.
+- **Yedek yol:** TAMI'ye ulaşılamıyorsa iade portaldan yapılır ve referans "Elle: TAMI iade ref." alanına girilir; bu `refund_required` siparişi `refunded` + `refunded_at` yapar, sonucu bilinmeyen çağrı satırlarına dokunmaz. Elle kapatılan siparişe sonradan tahsilat gelirse yalnız `refunded_at`'ten sonra ödenmiş denemeler iade edilebilir; elle referans korunur, yeni TAMI referansı arkasına eklenir. TAMI ayarları eksikse istek kaydedilmez ve gönderilmez; liste "TAMI ayarları eksik" uyarısı gösterir. Sandbox portalı için ayrı test portal kullanıcısı gerekir (TeknikDestek@tami.com.tr); mevcut girişle portal ekranı yanıt vermeden bekliyor.
+
+### Sandbox'ta gözlenen yanıt/sorgu biçimleri
+
+Test siparişi #36, `GB2-36-1`, ₺200, 15 Kasım 2026'da 09:11'de tahsil edildi (İstanbul saati).
+
+- **İptal** (`/api/v0/payment/void`, 10:04): **HTTP 422**, imzasız JSON `{success:false, errorCode:10001, errorMessage:"integration.reverse_operation_complete_without_bank_success_code", errorGroup:null, correlationId:<bizim>, transactionDate, systemTime}`. Kesin ret olarak sınıflandı: iptal satırı `failed`, liste `refund_void_failed` gösterdi.
+- **İade** (`/api/v0/payment/refund`, 10:05): imzasız `{success:false, errorCode:30028, errorGroup:"UNKNOWN", errorMessage:"Banka tarafında işlemin onaylanmadı. TAMI-28802", correlationId:<bizim>, transactionDate}`. Sonuç `failed`, sipariş `refund_required` kaldı.
+- **Ret yanıtları** `correlationId`'yi geri döndürüyor; `errorCode` sayı olarak geliyor.
+- **Sorgu** (v3 `/payment/query`, `securityHash` geçerli) sonrasında `transactions` şunlardı:
+  - `AUTH SUCCESS` (200, banka ref. 631909196070)
+  - `REVERSE FAIL` (200, `2026-11-15T10:04:19.595942`, ref. 631909196255)
+  - `REFUND FAIL` (200, `2026-11-15T10:05:01.181380`, ref. 631909196256, `reason` alanıyla)
+
+  Başarısız ters işlemlerden sonra üst düzey `orderStatus`/`paymentStatus` `AUTH`/`SUCCESS` olarak kaldı. Yani üst düzey alanlar iade kanıtı değil; ters işlemler `transactions` içinden okunur.
+- **Doğrulanmayan:** başarılı iptal/iade sandbox'ta gözlenemedi; bankanın simülatörü onaylamadı. Başarılı `signedResponse` biçimi (`amount` biçimi, `correlationId`, `bankReferenceNumber`, `transactionDate`) ve başarılı ters işlemin sorgudaki `SUCCESS` satırı yalnız TAMI belgesine ve Node örneğine dayanıyor. İlk canlı iadede (küçük tutarlı gerçek bir sipariş) ya da TAMI desteğiyle (TeknikDestek@tami.com.tr) doğrulanmalı. Bu doğrulanana kadar başarılı yanıt alanlarından biri (ör. `correlationId`) eksik gelirse çağrı `unknown` kalır; "TAMI'de kontrol et" sorgudaki `SUCCESS` satırıyla sonucu kapatır.
 
 ## Ayarlar
 
@@ -38,5 +73,6 @@
 ## Test
 
 - `npm run test:payments`: geçici şemada, sentetik anahtarla imzalanmış mock TAMI yanıtlarıyla; token tekrar kullanımı, imzalı callback, tutar uyuşmazlığı, eşzamanlı mutabakat, mükerrer/geç ödeme, süre dolumu ve stok iadesi, ağ hatası/sahte "işlem yok" yanıtında iptal etmeme.
+- `npm run test:payment-refunds`: geçici şemada sentetik anahtarla imzalanmış mock yanıtlarla; v4 istek şifreleme/imza, imzalı yanıt doğrulama (imza/aud/exp/alg), İstanbul günü sınırı, reddedilen iptalden sonra yalnız ikinci onayda iade, kesin ret, belirsiz sonuçlar (ağ, 5xx, 408/409/425/429, imzasız, tutar/para birimi/eksik ya da farklı correlationId), yarış, sorguyla mutabakat (REVERSE/REFUND, SUCCESS → başarılı, yalnız FAIL → başarısız, eşleşme yok → belirsiz; İstanbul saati), iade edilmiş (API ya da elle) siparişe geç tahsilat, TAMI ayarı eksik, mükerrer tahsilat, elle yedek yol.
 - `npm run test:supplier-checkout`, `npm run verify:commerce`: sipariş artık `awaiting_payment` oluşur ve sepet korunur.
 - Sandbox uçtan uca: checkout → TAMI sayfası doğru tutarla açıldı → yayımlanmış Garanti test kartı gönderildi → sorgu `NOT_COMPLETED` döndü ve sipariş doğru şekilde ödenmemiş kaldı. 3D OTP adımı (Garanti test ACS) otomasyonda yüklenmediği için **başarılı tahsilat sandbox'ta henüz uçtan uca doğrulanmadı**; gerçek tarayıcıda elle bir ödeme ile doğrulanmalı.

@@ -1,4 +1,4 @@
-import { currentOrder } from "@/modules/store/order-read";
+import { currentOrder, orderRefundedKurus } from "@/modules/store/order-read";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
@@ -48,6 +48,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const account=await currentAccount();
   const admin=Boolean(account?.approved && account.role==="admin");
   const returns=admin ? await orderReturns(order.id) : [];
+  const refundedKurus=order.payment_status==="refunded" && order.refunded_at ? await orderRefundedKurus(order.id) ?? Number(order.total_kurus) : 0;
   const snapshotOrder=items.some(item=>item.pricing_snapshot?.checkout_mode==="snapshot");
   const awaiting=order.status==="awaiting_payment" && order.payment_status==="awaiting";
   const returned=query.odeme==="sonuc",created=query.odeme==="yeni";
@@ -61,7 +62,9 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
       : created ? "Siparişin oluşturuldu. Kartla ödemek için aşağıdaki butona bas; TAMI güvenli ödeme penceresi bu sayfanın üzerinde açılır." : "Siparişin oluşturuldu, ödemen bekleniyor.")
     : order.payment_status==="expired" ? "Ödeme süresi içinde tamamlanmadığı için sipariş iptal edildi. Kartından tahsilat yapılmadı."
     : order.payment_status==="refund_required" ? "Sipariş iptal edildi. Ödemenin iadesi başlatılacak."
-    : order.payment_status==="refunded" ? "Sipariş iptal edildi ve ödemen iade edildi. İadenin kartına yansıması bankana göre birkaç iş günü sürebilir."
+    : order.payment_status==="refunded" ? (order.refunded_at
+      ? `Sipariş iptal edildi; ${money(refundedKurus)} tutarındaki ödemen ${new Date(order.refunded_at).toLocaleDateString("tr-TR",{timeZone:"Europe/Istanbul"})} tarihinde iade edildi. Kartına yansıması bankana göre birkaç iş günü sürebilir.`
+      : "Sipariş iptal edildi ve ödemen iade edildi. İadenin kartına yansıması bankana göre birkaç iş günü sürebilir.")
     : order.status==="pending" ? "Sipariş kaydın oluşturuldu. Fiyat, stok ve sevkiyat teyidi için iletişime geçilecektir. Ödeme alınmadı." : `Sipariş durumu: ${orderStatus[order.status]}.`;
   const error=query.odeme ? paymentErrors[query.odeme] ?? null : null;
   return <section className="mx-auto min-h-[55vh] w-full max-w-[1280px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10"><p className={eyebrow}>SİPARİŞ #{order.number}</p><h1 className={title}>{orderStatus[order.status]}</h1>

@@ -6,7 +6,7 @@ import { currentCartOwner, currentGuestCartOwner } from "./cart";
 import type { CommerceOrder, OrderItem } from "./orders";
 import type { OrderAgreementDocument } from "./order-agreement";
 
-export const orderColumns="id,number,owner_kind,owner_id,customer_name,email,phone,address,note,total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,created_at,payment_status,payment_due_at,paid_at,payment_note,refund_reference,carrier,carrier_name,tracking_no,tracking_url,shipped_at,delivered_at";
+export const orderColumns="id,number,owner_kind,owner_id,customer_name,email,phone,address,note,total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,created_at,payment_status,payment_due_at,paid_at,payment_note,refund_reference,refunded_at,carrier,carrier_name,tracking_no,tracking_url,shipped_at,delivered_at";
 
 export async function currentOrders() {
  const [owner,guest]=await Promise.all([currentCartOwner(),currentGuestCartOwner()]);
@@ -40,4 +40,10 @@ export async function currentOrderAgreement(id:string) {
  const agreement=(await db.query<{accepted_at:Date;legal_version:string;consent_text:string;document:OrderAgreementDocument}>(
   "SELECT accepted_at,legal_version,consent_text,document FROM commerce_order_agreements WHERE order_id=$1",[id])).rows[0];
  return agreement ? {order:result.order,agreement} : null;
+}
+
+/** Sum of TAMI reversals confirmed for an order (#619); null when none (refunded by hand or before #619). Call after currentOrder. */
+export async function orderRefundedKurus(id:string) {
+ const total=(await db.query<{total:string|null}>("SELECT sum(amount_kurus)::text AS total FROM commerce_payment_refunds WHERE order_id=$1 AND status='succeeded'",[id])).rows[0]?.total;
+ return total ? Number(total) : null;
 }
