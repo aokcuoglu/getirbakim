@@ -31,6 +31,28 @@ export const selectItem = withList;
 export const viewItem = (item: AnalyticsItem) => withValue([item]);
 export const addToCart = (item: AnalyticsItem, quantity: number) => withValue([{ ...item, quantity }]);
 export const search = (term: string) => ({ search_term: term.slice(0, 100) });
+export const viewCart = (items: AnalyticsItem[]) => withValue(items);
+export const beginCheckout = (items: AnalyticsItem[]) => withValue(items);
+/** `quantity` is how many were taken out; the value is that many at the line's price. */
+export const removeFromCart = (item: AnalyticsItem, quantity: number) => withValue([{ ...item, quantity }]);
+export const addPaymentInfo = (items: AnalyticsItem[]) => ({ ...withValue(items), payment_type: "credit_card" });
+
+/** VAT inside a VAT-included amount, in kuruş: total × rate / (100 + rate). */
+export function vatIncludedKurus(totalKurus: number, vatPercent: number) {
+  return vatPercent > 0 ? Math.round(totalKurus * vatPercent / (100 + vatPercent)) : 0;
+}
+
+/**
+ * `value` is the product subtotal the customer paid (VAT included, service discount applied, shipping excluded), the same
+ * basis as add_to_cart / view_cart / begin_checkout; `shipping` is reported separately, so value + shipping = order total.
+ */
+export function purchase(input: { transactionId: string; subtotalKurus: number; shippingKurus: number; taxKurus: number; items: AnalyticsItem[] }) {
+  return {
+    transaction_id: input.transactionId, currency: "TRY", value: kurusToValue(input.subtotalKurus),
+    tax: kurusToValue(input.taxKurus), shipping: kurusToValue(input.shippingKurus), items: input.items,
+  };
+}
+export type PurchaseEvent = ReturnType<typeof purchase>;
 
 /** The page address Google receives: the sign-in `next` parameter would otherwise leak the page behind it (e.g. /yonetim). */
 export function cleanPageLocation(url: string) {

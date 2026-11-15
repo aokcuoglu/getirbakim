@@ -39,10 +39,14 @@ export function stopGtag(ga4: string) {
   window.gtag?.("consent", "update", consentSignals(null));
 }
 
+/** Whether an event would be queued now: the tag is installed and the visitor allows analytics. */
+export function canTrack() {
+  return typeof window.gtag === "function" && Boolean(parseConsent(consentSnapshot())?.analytics);
+}
+
 /** The single exit for analytics events. Returns whether the event was queued; nothing is sent before analytics consent. */
 export function track(name: string, params: Record<string, unknown>) {
-  if (typeof window.gtag !== "function") return false;
-  if (!parseConsent(consentSnapshot())?.analytics) return false;
-  window.gtag("event", name, { page_location: cleanPageLocation(window.location.href), ...params });
+  if (!canTrack()) return false;
+  window.gtag!("event", name, { page_location: cleanPageLocation(window.location.href), ...params });
   return true;
 }
