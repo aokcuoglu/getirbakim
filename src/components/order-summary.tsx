@@ -5,6 +5,7 @@ import { money, servicePrice } from "@/modules/store/catalog";
 import { orderTotals, type ShippingRule } from "@/modules/store/orders";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { PAYMENT_NOTICE } from "@/modules/payments/messages";
 import { catalogPath } from "@/modules/seo/paths";
 
 const action = "h-auto min-h-[42px] w-full gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5";
@@ -34,6 +35,6 @@ export function OrderSummary({items,discount,shipping,checkout=false,className}:
       {valid ? <Button nativeButton={false} className={cn(action, "font-semibold hover:bg-brand-strong")} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]" aria-hidden/>Siparişi tamamla</Button>
         : <p className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]">Siparişe devam etmek için uygun olmayan ürünleri kaldır veya adetlerini güncelle.</p>}
     </div>}
-    <p className="mt-3.5 mb-0 text-center text-xs text-muted-foreground">Ödeme TAMI güvenli ödeme sayfasında kartla alınır; kart bilgilerin Getirbakım’a iletilmez.</p>
+    <p className="mt-3.5 mb-0 text-center text-xs text-muted-foreground">{PAYMENT_NOTICE}</p>
   </aside>;
 }
