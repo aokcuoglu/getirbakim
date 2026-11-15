@@ -151,10 +151,10 @@ test("mergeSpecificationRows merges equal labels, keeps every distinct value and
 test("card display pairs are translated in the raw order, raw keys stay (#700)", () => {
   const raw:[string,string][]=[["Fitting Position","Front Axle, Rear Axle"],["Outer Diameter [mm]","280,5"],["Thread Size","M14 x 1,5"],["Renk","Siyah"]];
   const display=displaySpecifications(raw);
-  assert.equal(display.length,raw.length);
-  assert.deepEqual(display[0],["Montaj konumu","Ön aks, Arka aks"]);
-  assert.deepEqual(display[1],["Dış çap [mm]","280,5"]);
-  assert.equal(display[2][1],"M14 x 1,5");
-  assert.deepEqual(display[3],["Renk","Siyah"]);
+  assert.deepEqual(display.map(row=>row.key),raw.map(([key])=>key));
+  assert.deepEqual(display[0],{key:"Fitting Position",label:"Montaj konumu",value:"Ön aks, Arka aks"});
+  assert.deepEqual(display[1],{key:"Outer Diameter [mm]",label:"Dış çap [mm]",value:"280,5"});
+  assert.equal(display[2].value,"M14 x 1,5");
+  assert.deepEqual(display[3],{key:"Renk",label:"Renk",value:"Siyah"});
   assert.deepEqual(raw[0],["Fitting Position","Front Axle, Rear Axle"]);
 });

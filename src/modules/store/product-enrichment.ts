@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { enrichmentDataSchema, matchBasisSchema, matchesEnrichment } from "./enrichment-contract";
 import {catalogSpecifications} from "./catalog-filters";
-import {displaySpecifications} from "./specification-translations";
+import {displaySpecifications,type CardSpecification} from "./specification-translations";
 import { getOverrideImages } from "./product-images";
 import { applySpecOverrides } from "./product-spec-display";
 import { getOverrideSpecs } from "./product-specs";
@@ -156,7 +156,7 @@ export function enrichmentFitmentRows(loaded: LoadedEnrichmentFitments, product:
 }
 
 export async function getCatalogProductDetails(products:{id:string;code:string;brand:string}[]){
- const details=new Map<string,{specifications:[string,string][];display:[string,string][];vehicleSpecific:boolean;partNumber:string}>();
+ const details=new Map<string,{specifications:[string,string][];card:CardSpecification[];vehicleSpecific:boolean;partNumber:string}>();
  if(!products.length)return details;
  // The enrichment is matched by the supplier's raw code and brand (#602); the admin's specifications (#603) apply on top.
  const [{rows},overrides]=await Promise.all([db.query<{supplier_item_id:string;supplier_code:string;supplier_brand:string;current_oem:string;donor_code:string;donor_brand:string;donor_item_id:string;donor_master_brand:string|null;manufacturer:string;manufacturer_part_number:string;payload:unknown;match_basis:unknown}>("SELECT e.*,e.donor_oem AS current_oem FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.company=ANY($2::text[]) AND s.presence='present'",[products.map(p=>p.id),storefrontCompanies()]),getOverrideSpecs(products.map(p=>p.id))]);
@@ -164,7 +164,7 @@ export async function getCatalogProductDetails(products:{id:string;code:string;b
   const product=products.find(p=>p.id===row.supplier_item_id),valid=product&&validEnrichment(row,product);
   if(!product||!valid)continue;
   const{data,basis}=valid;
-  details.set(product.id,{specifications:catalogSpecifications(data.specifications,basis.type==='exact_part'),display:[],vehicleSpecific:data.vehicles.length>0,partNumber:basis.type==='exact_part'?row.manufacturer_part_number:product.code});
+  details.set(product.id,{specifications:catalogSpecifications(data.specifications,basis.type==='exact_part'),card:[],vehicleSpecific:data.vehicles.length>0,partNumber:basis.type==='exact_part'?row.manufacturer_part_number:product.code});
  }
  for(const product of products){
   const own=overrides.get(product.id);
@@ -173,9 +173,9 @@ export async function getCatalogProductDetails(products:{id:string;code:string;b
   const specifications=applySpecOverrides(detail?.specifications??[],own);
   if(detail)details.set(product.id,{...detail,specifications});
   // A product without (matching) enrichment shows the specifications the admin added.
-  else if(specifications.length)details.set(product.id,{specifications,display:[],vehicleSpecific:false,partNumber:product.code});
+  else if(specifications.length)details.set(product.id,{specifications,card:[],vehicleSpecific:false,partNumber:product.code});
  }
  // Cards show the translated pairs; `specifications` keeps the raw keys the compare table and filters match on (#700).
- for(const detail of details.values())detail.display=displaySpecifications(detail.specifications);
+ for(const detail of details.values())detail.card=displaySpecifications(detail.specifications);
  return details;
 }
