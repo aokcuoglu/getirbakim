@@ -1,6 +1,8 @@
 import {z} from "zod";
 const values=z.array(z.string().trim().min(1).max(200)).max(30);
-export const attributesSchema=z.record(z.string().min(1).max(200),z.array(z.string().trim().min(1).max(200)).max(40)).refine(v=>Object.keys(v).length<=8);
+/** Most raw values one attribute group may carry in the URL (a merged sidebar option adds several, #703). */
+export const maxAttributeValues=40;
+export const attributesSchema=z.record(z.string().min(1).max(200),z.array(z.string().trim().min(1).max(200)).max(maxAttributeValues)).refine(v=>Object.keys(v).length<=8);
 export function selectedBrands(query:{brand?:string;brands?:string}):string[]{try{return query.brands?values.parse(JSON.parse(query.brands)):query.brand?[query.brand]:[];}catch{return [];}}
 export function selectedAttributes(query:{attributes?:string}):Record<string,string[]>{try{return query.attributes?attributesSchema.parse(JSON.parse(query.attributes)):{};}catch{return {};}}
 /** `values`: the raw spellings one sidebar option stands for (equivalent translations are merged, #703). */

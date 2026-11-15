@@ -297,17 +297,17 @@ const values: Record<string, string> = {
   "yes": "Evet", "no": "Hayır", "rubber": "Kauçuk", "cast iron": "Dökme demir", "copper": "Bakır", "brass": "Pirinç", "silicone": "Silikon",
   "ceramic": "Seramik", "textile": "Tekstil", "paper": "Kâğıt", "front": "Ön", "rear": "Arka", "left": "Sol", "right": "Sağ",
   "intake side": "Emme tarafı", "exhaust side": "Egzoz tarafı", "transmission sided": "Şanzıman tarafı", "transmission side": "Şanzıman tarafı",
-  "wheel side": "Tekerlek tarafı", "frontal sided": "Ön taraf", "engine sided": "Motor tarafı", "driver side": "Sürücü tarafı",
+  "wheel side": "Tekerlek tarafı", "frontal sided": "Ön tarafı", "engine sided": "Motor tarafı", "driver side": "Sürücü tarafı",
   "passenger side": "Yolcu tarafı", "eng.compart. passeng. side": "Motor bölmesi yolcu tarafı",
   "before catalytic converter": "Katalitik konvertör öncesi", "after catalytic converter": "Katalitik konvertör sonrası",
   "before soot particulate filter": "Partikül filtresi öncesi", "after soot particulate filter": "Partikül filtresi sonrası",
-  "charge air cooler": "Intercooler", "in fuel tank": "Yakıt deposunda", "in the fuel tank": "Yakıt deposunda",
+  "charge air cooler": "Intercooler (turbo hava soğutucusu)", "in fuel tank": "Yakıt deposunda", "in the fuel tank": "Yakıt deposunda",
   "behind the glove compartment": "Torpido arkası", "below the glove compartment": "Torpido altı", "cylinder head": "Silindir kapağı",
   "engine": "Motor", "lateral installation": "Yandan montaj", "bumper": "Tampon", "below the middle console": "Orta konsol altı",
   "exhaust manifold": "Egzoz manifoldu", "throttle housing": "Gaz kelebeği gövdesi", "inlet": "Giriş", "outlet": "Çıkış",
   "petrol": "Benzin", "diesel": "Dizel", "cng": "CNG", "cng/lpg": "CNG/LPG", "petrol/gas (bifuel)": "Benzin/Gaz (çift yakıt)",
   "oil pressure": "Yağ basınçlı", "monotube": "Tek borulu", "electronically adjustable shock strength": "Elektronik ayarlı sertlik",
-  "pollen filter": "Polen filtresi", "screen filter": "Elek filtre", "with antibacterial action": "Antibakteriyel etkili",
+  "pollen filter": "Polen filtresi", "screen filter": "Elekli filtre", "with antibacterial action": "Antibakteriyel etkili",
   "with fungicidal effect": "Mantar önleyici etkili", "with anti-allergic effect": "Antialerjik etkili", "with antiviral effect": "Antiviral etkili",
   "centrifuge": "Santrifüj", "pre-filter": "Ön filtre", "fresh air filter": "Temiz hava filtresi",
   "bolted": "Cıvatalı", "mounting": "Montaj", "rubber mount": "Kauçuk takoz", "screw connection": "Vidalı bağlantı", "plugged": "Geçmeli",
@@ -337,7 +337,7 @@ function composePosition(part: string) {
     out.push(hit[1]);
     rest = rest.slice(hit[0].length).trim();
   }
-  if (!out.length) return null;
+  if (!out.length || out.every(word => word === "ve")) return null;
   const text = out.join(" ");
   return text.charAt(0).toLocaleUpperCase("tr") + text.slice(1);
 }
@@ -371,9 +371,12 @@ export function translateSpecificationValue(value: string) {
   return `${items.join(", ")} ${phrase[1] === "with" ? "dahil" : "hariç"}`;
 }
 
+/** A list comma: not the decimal comma of "1,5" or "M14 x 1,5". */
+const listComma = /(?<!\d),|,(?!\d)/;
+
 /** Each comma separated part translated on its own; a part stays as written unless the dictionary or the position words know all of it. */
 export function translateSpecificationParts(value: string) {
-  const parts = value.split(",").map(part => part.trim()).filter(Boolean).map(part => {
+  const parts = value.split(listComma).map(part => part.trim()).filter(Boolean).map(part => {
     const translated = translateSpecificationValue(part);
     return translated !== part ? translated : composePosition(part) ?? part;
   });
@@ -383,7 +386,10 @@ export function translateSpecificationParts(value: string) {
 /** Turkish text of a (possibly comma separated) specification value: the whole text first, otherwise part by part. */
 export function translateSpecificationList(value: string) {
   const whole = translateSpecificationValue(value);
-  return whole !== value ? whole : translateSpecificationParts(value).join(", ");
+  if (whole !== value) return whole;
+  const parts = translateSpecificationParts(value);
+  const original = value.split(listComma).map(part => part.trim()).filter(Boolean);
+  return parts.length === original.length && parts.every((part, index) => part === original[index]) ? value : parts.join(", ");
 }
 
 const keyOf = (text: string) => /^[\x00-\x7f]*$/.test(text) ? text.toLowerCase() : text.toLocaleLowerCase("tr");
@@ -399,7 +405,7 @@ export function facetOptions(rawValues: string[]) {
     const key = [...new Set(parts.map(keyOf))].sort().join("|");
     const group = groups.get(key);
     if (group) group.values.push(raw);
-    else groups.set(key, { label: [...new Map(parts.map(part => [keyOf(part), part])).values()].join(", "), values: [raw] });
+    else groups.set(key, { label: [...new Map(parts.map(part => [keyOf(part), part])).values()].join(", ") || raw, values: [raw] });
   }
   return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label, "tr"));
 }

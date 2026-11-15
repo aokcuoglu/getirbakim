@@ -117,3 +117,11 @@ test("an attribute group holds up to 40 values (#703)", () => {
   assert.equal(selectedAttributes({attributes:group(40)})["Fitting Position"].length,40);
   assert.deepEqual(selectedAttributes({attributes:group(41)}),{});
 });
+test("decimal commas are not list commas (#703)", () => {
+  for (const value of ["1,1","5,5","M14 x 1,5","114,3","M10x1,25","12,5 mm"]) assert.equal(translateSpecificationList(value), value);
+  assert.equal(translateSpecificationList("Front Axle, Rear Axle, 5,5"), "Ön aks, Arka aks, 5,5");
+  assert.equal(translateSpecificationList("Left and Right"), "Sol ve sağ");
+  assert.deepEqual(translateSpecificationParts("and"), ["and"]);
+  assert.equal(facetOptions(["1,5","5,1"]).length, 2);
+  assert.deepEqual(facetOptions([","]), [{label:",",values:[","]}]);
+});
