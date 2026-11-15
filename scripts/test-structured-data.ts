@@ -1,8 +1,9 @@
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { legalDocument, type LegalNode } from "../src/content/legal";
-import { breadcrumbJsonLd, catalogTrail, collectionJsonLd, maxStructuredVehicles, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
-  serializeJsonLd, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
+import { breadcrumbJsonLd, catalogTrail, collectionJsonLd, maxStructuredVehicles, outOfStockLabel, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
+  serializeJsonLd, unconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
 import { productPath } from "../src/modules/seo/paths";
 
 const base = "https://getirbakim.com";
@@ -126,4 +127,37 @@ test("the return policy constant matches the legal text", () => {
 test("no rating or review is ever published", () => {
   const json = JSON.stringify([product({}), product({ available: false, stockLabel: "Stokta yok" }), product({ priceKurus: null })]);
   assert.equal(/aggregateRating|"review"/.test(json), false);
+});
+
+test("a campaign ending at Istanbul midnight ends on the day before", () => {
+  const sale = (sale_until: string) => ({ price_kind: "sale", list_price_kurus: 150000, sale_until });
+  assert.equal(offers(product({ pricingSnapshot: sale("2026-11-19T21:00:00Z") }))!.priceValidUntil, "2026-11-19");
+  assert.equal(offers(product({ pricingSnapshot: sale("2026-11-19T21:00:01Z") }))!.priceValidUntil, "2026-11-20");
+});
+
+const sql = readFileSync(new URL("../db/commerce.sql", import.meta.url), "utf8");
+
+test("the stock labels the markup relies on are the SQL's", () => {
+  assert.ok(sql.includes(`'${outOfStockLabel}'`));
+  assert.ok(sql.includes(`'${unconfirmedStockLabel}'`));
+});
+
+// Every label of commerce_catalog's stock_label (the store's own row and the supplier CASE) with its `available`.
+const stockCases: [label: string, available: boolean, expected: string | null][] = [
+  ["Stokta mevcut: 5 adet", true, "InStock"],
+  [unconfirmedStockLabel, true, null],
+  ["Stok bilgisi güncelleniyor", false, null],
+  ["Stok bilgisi bulunamadı", false, null],
+  ["Tedarikçide mevcut", true, "InStock"],
+  ["Diğer depoda mevcut", true, "InStock"],
+  ["Tedarikçiye sevkiyat bekleniyor", false, null],
+  [outOfStockLabel, false, "OutOfStock"],
+];
+
+test("every stock label is in the SQL and maps to InStock, OutOfStock or no offer", () => {
+  for (const [label, available, expected] of stockCases) {
+    if (!label.startsWith("Stokta mevcut:")) assert.ok(sql.includes(`'${label}'`), label);
+    const offer = offers(product({ available, stockLabel: label }));
+    assert.equal(offer ? String(offer.availability).split("/").pop() : null, expected, `${label} / ${available}`);
+  }
 });

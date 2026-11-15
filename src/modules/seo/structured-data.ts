@@ -53,16 +53,20 @@ export const maxStructuredVehicles = 20;
 /** From the delivery and return text (teslimat-ve-iade): 14 days without a reason, no return fee with the named carrier. */
 export const returnPolicy = { days: 14, country: "TR" } as const;
 
-const outOfStockLabel = "Stokta yok";
+/** The stock labels of db/commerce.sql the markup depends on (a test ties both to the SQL). */
+export const outOfStockLabel = "Stokta yok";
+export const unconfirmedStockLabel = "Kayıtlı stokta mevcut · Teyit bekliyor";
 
 function istanbulDay(date: Date) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+  // The last moment of the offer: a campaign ending at midnight ends on the day before.
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(date.getTime() - 1));
 }
 
 /** The Offer, only where the page itself states price and stock: no price, no supply, or an unknown stock gives none. */
 export function productOffer(input: ProductJsonLdInput, base: string, now = new Date()): JsonLdNode | null {
   if (input.unavailable || input.priceKurus === null || !(input.priceKurus >= 1)) return null;
-  if (!input.available && input.stockLabel !== outOfStockLabel) return null;
+  // A recorded but unconfirmed stock is not published as InStock; an unknown stock is not OutOfStock.
+  if (input.available ? input.stockLabel === unconfirmedStockLabel : input.stockLabel !== outOfStockLabel) return null;
   const until = saleUntil({ pricing_snapshot: input.pricingSnapshot });
   return {
     "@type": "Offer", url: absoluteUrl(base, productPath(input.id)),

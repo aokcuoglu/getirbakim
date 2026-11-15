@@ -1,4 +1,4 @@
-import type { CatalogQuery } from "@/modules/store/catalog-query";
+import { isIndexableListing, type CatalogQuery } from "@/modules/store/catalog-query";
 import { Fragment } from "react";
 import Link from "next/link";
 import { minSearchLength } from "@/modules/search/query";
@@ -101,7 +101,7 @@ export async function CatalogView({params,make}:{params:CatalogQuery;make?:Vehic
  const trail=catalogTrail({make:make&&{name:makeName!,slug:params.make!},categories:category?categoryPath(categories,category.id):[]});
  // Only the plain listings are indexed (the pages' robots rule): a search, filter, sort or page 2 is not a collection.
  const intro=params.q?undefined:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
- const collection=!filtered&&!params.sort&&!params.page&&products.length>0
+ const collection=isIndexableListing(params)&&products.length>0
   ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,categorySlug:category?.slug}),items:products.map(product=>({id:product.id,name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
  const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.q} category={category?.slug} vehicle={vehicle}/>;
  const crumbLink="min-h-0 transition-colors hover:text-primary hover:underline underline-offset-4";

@@ -1,5 +1,5 @@
 import {notFound} from "next/navigation";
-import {parseCatalogQuery} from "@/modules/store/catalog-query";
+import {isIndexableListing,parseCatalogQuery} from "@/modules/store/catalog-query";
 import {type SearchParams} from "@/lib/search-params";
 import {getStoreCategories} from "@/modules/store/categories";
 import {getVehicleBrandBySlug} from "@/modules/store/vehicle-catalog.server";
@@ -25,7 +25,7 @@ export async function generateMetadata(props:Props) {
  return {title:`${name} ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"}`,
   description:`${name} araçlara uygun ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"} incele. Ürün kodu, OEM numarası ve araç bilgileriyle uyumluluğu kontrol et.`.slice(0,180),
   alternates:{canonical},openGraph:{...siteOpenGraph,url:canonical,images:[defaultSocialImage]},
-  robots:query.q || query.brand || query.brands || query.attributes || query.availability || query.fits || query.oil || query.sort || query.page ? {index:false,follow:true} : undefined};
+  robots:isIndexableListing(query) ? undefined : {index:false,follow:true}};
 }
 
 export default async function CarParts(props:Props) {
