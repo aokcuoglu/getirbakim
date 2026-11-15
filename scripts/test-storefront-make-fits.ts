@@ -4,9 +4,9 @@ import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
 
-// The make lists the storefront reads (#455) must equal the live per-make computation after every write path, with
-// the admin's added and removed types (#583) applied per offer and type.
-const live=`WITH types AS MATERIALIZED (SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1),
+// The make and model lists the storefront reads (#455, #639) must equal the live computation after every write path,
+// with the admin's added and removed types (#583) applied per offer and type.
+const liveFor=(types:string)=>`WITH types AS MATERIALIZED (${types}),
  fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle,f.vehicle_type_id FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
  trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM product_enrichment_shared e
   JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
@@ -17,8 +17,10 @@ const live=`WITH types AS MATERIALIZED (SELECT v.id FROM vehicle_types v JOIN ve
  SELECT t.supplier_item_id::text AS id FROM fits f JOIN trusted t ON t.donor_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index
   WHERE NOT EXISTS (SELECT 1 FROM decided d WHERE d.mode='remove' AND d.supplier_item_id=t.supplier_item_id AND d.vehicle_type_id=f.vehicle_type_id)
  UNION SELECT supplier_item_id::text FROM decided WHERE mode='add'`;
+const live=liveFor('SELECT v.id FROM vehicle_types v JOIN vehicle_models m ON m.id=v.model_id WHERE m.brand_id=$1');
+const liveModel=liveFor('SELECT v.id FROM vehicle_types v WHERE v.model_id=$1');
 
-test('storefront make lists follow payloads, fitments, the vehicle catalog and links',{skip:!process.env.DATABASE_URL},async()=>{
+test('storefront make and model lists follow payloads, fitments, the vehicle catalog and links',{skip:!process.env.DATABASE_URL},async()=>{
  const schema='make_fits_test_'+randomUUID().replaceAll('-','');
  const connection=new URL(process.env.DATABASE_URL!);connection.searchParams.set('options',`-c search_path=${schema}`);
  const admin=new Pool({connectionString:process.env.DATABASE_URL});
@@ -38,8 +40,9 @@ test('storefront make lists follow payloads, fitments, the vehicle catalog and l
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
   for(const file of ['product-enrichment','enrichment-worker','product-fitments','product-override-fitments','enrichment-products','enrichment-shared-links','storefront-make-fits'])
    await pool.query(await readFile(`db/${file}.sql`,'utf8'));
-  const brandIds=[1,2];
+  const brandIds=[1,2],modelIds=[10,11,20];
   const table=async(brand:number)=>(await pool.query('SELECT supplier_item_id::text AS id FROM storefront_make_fits WHERE brand_id=$1 ORDER BY 1',[brand])).rows.map(row=>row.id);
+  const modelTable=async(model:number)=>(await pool.query('SELECT supplier_item_id::text AS id FROM storefront_model_fits WHERE model_id=$1 ORDER BY 1',[model])).rows.map(row=>row.id);
   const consistent=async()=>{
    await pool.query('SELECT product_enrichment_shared_sync()');
    assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared_queue')).rows[0].n,0);
@@ -49,9 +52,14 @@ test('storefront make lists follow payloads, fitments, the vehicle catalog and l
     assert.deepEqual(await table(brand),expected,`make ${brand}`);
     lists[brand]=expected;
    }
+   for(const model of modelIds){
+    const expected=(await pool.query(liveModel,[model])).rows.map(row=>row.id).sort();
+    assert.deepEqual(await modelTable(model),expected,`model ${model}`);
+    lists[model]=expected;
+   }
    return lists;
   };
-  await pool.query("INSERT INTO vehicle_brands VALUES(1,'VW'),(2,'BMW');INSERT INTO vehicle_models VALUES(10,1,'GOLF'),(20,2,'3');INSERT INTO vehicle_types VALUES(100,10,'1.6'),(200,20,'320d')");
+  await pool.query("INSERT INTO vehicle_brands VALUES(1,'VW'),(2,'BMW');INSERT INTO vehicle_models VALUES(10,1,'GOLF'),(11,1,'POLO'),(20,2,'3');INSERT INTO vehicle_types VALUES(100,10,'1.6'),(110,11,'1.4'),(200,20,'320d')");
   const donor=randomUUID(),target=randomUUID(),unlinked=randomUUID();
   await pool.query(`INSERT INTO supplier_items(id,code,product_data,supplier) VALUES
    ($1,'FEBI 181123','{"uk":"FEBI"}','basbug'),($2,'FEBI 181123','{"uk":"FEBI"}','basbug'),($3,'MAHLE OX1','{"uk":"MAHLE"}','basbug')`,[donor,target,unlinked]);
@@ -70,11 +78,18 @@ test('storefront make lists follow payloads, fitments, the vehicle catalog and l
   let lists=await consistent();
   assert.deepEqual(lists[1],[donor,target].sort());
   assert.deepEqual(lists[2],[donor,target,unlinked].sort());
+  assert.deepEqual([lists[10],lists[11],lists[20]],[[donor,target].sort(),[],[donor,target,unlinked].sort()]);
   // The payload's vehicle at index 1 changes: that fitment no longer agrees, BMW is gone for the product.
   await pool.query("UPDATE product_enrichments SET payload=$2 WHERE supplier_item_id=$1",[donor,payload([{model:'GOLF'},{model:'330d'}])]);
   lists=await consistent();
   assert.deepEqual(lists[2],[unlinked]);
-  // The GOLF fitment is rematched to the BMW type: the product moves from VW to BMW.
+  assert.deepEqual(lists[20],[unlinked]);
+  // The GOLF fitment is rematched to another model of the same make: the make list stays, the model lists move.
+  await pool.query('UPDATE product_vehicle_fitments SET vehicle_type_id=110 WHERE supplier_item_id=$1 AND source_index=0',[donor]);
+  lists=await consistent();
+  assert.deepEqual(lists[1],[donor,target].sort());
+  assert.deepEqual([lists[10],lists[11]],[[],[donor,target].sort()]);
+  // The fitment is rematched to the BMW type: the product moves from VW to BMW.
   await pool.query('UPDATE product_vehicle_fitments SET vehicle_type_id=200 WHERE supplier_item_id=$1 AND source_index=0',[donor]);
   lists=await consistent();
   assert.deepEqual(lists[1],[]);
@@ -84,11 +99,12 @@ test('storefront make lists follow payloads, fitments, the vehicle catalog and l
   lists=await consistent();
   assert.deepEqual(lists[1],[donor,target,unlinked].sort());
   assert.deepEqual(lists[2],[]);
+  assert.deepEqual([lists[10],lists[20]],[[donor,target,unlinked].sort(),[]]);
   // The target leaves the product: it no longer shares the donor's data.
   await pool.query('DELETE FROM product_sources WHERE supplier_item_id=$1',[target]);
   lists=await consistent();
   assert.deepEqual(lists[1],[donor,unlinked].sort());
-  // Removed fitments leave no make behind.
+  // Removed fitments leave no make or model behind.
   await pool.query('DELETE FROM product_vehicle_fitments WHERE supplier_item_id=$1',[unlinked]);
   lists=await consistent();
   assert.deepEqual(lists[1],[donor]);
@@ -101,12 +117,23 @@ test('storefront make lists follow payloads, fitments, the vehicle catalog and l
   lists=await consistent();
   assert.deepEqual(lists[1],[]);
   assert.deepEqual(lists[2],[donor,target].sort());
+  // The model tables take the same decisions: the removed type's model drops the product, the added type's model
+  // lists both offers (the target without any link, no key violation).
+  assert.deepEqual(lists[10],[]);
+  assert.deepEqual(lists[20],[donor,target].sort());
   await pool.query("DELETE FROM product_override_fitments WHERE mode='add'");
   lists=await consistent();
   assert.deepEqual(lists[2],[]);
+  assert.deepEqual(lists[20],[]);
+  // An added type of another model lists the unlinked target there; the product's own model is untouched.
+  await pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,110,'add')",[target]);
+  lists=await consistent();
+  assert.deepEqual(lists[11],[target]);
+  assert.deepEqual(lists[1],[target]);
   await pool.query('DELETE FROM product_override_fitments');
   lists=await consistent();
   assert.deepEqual(lists[1],[donor]);
+  assert.deepEqual([lists[10],lists[11]],[[donor],[]]);
   // The donor's enrichment is deleted: its links and fitments go, and the make rows (keyed to supplier_items since
   // #583, no longer cascaded from the links) leave with the queued refresh.
   await pool.query('DELETE FROM product_enrichments WHERE supplier_item_id=$1',[donor]);
@@ -114,5 +141,6 @@ test('storefront make lists follow payloads, fitments, the vehicle catalog and l
   assert.deepEqual(lists[1],[]);
   assert.deepEqual(lists[2],[]);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM storefront_make_fits')).rows[0].n,0);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM storefront_model_fits')).rows[0].n,0);
  } finally {await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}
 });

@@ -26,7 +26,7 @@ import { objectStorage } from "../src/lib/object-storage";
 // - carried in the bundle: enrichments, mappings, media, categories, logos, REPXPERT vehicle data and the
 //   complete/partial product_enrichment_jobs (sent whole in part-00 every run; the storefront needs the job status).
 // - derived here, after the parts: product_vehicle_fitments (rebuild-product-fitments.ts), product_enrichment_shared_links
-//   and storefront_make_fits (the shared-link queue the import filled is drained below), enrichment_product_states
+//   and storefront_make_fits / storefront_model_fits (the shared-link queue the import filled is drained below), enrichment_product_states
 //   (enrichment-states.ts sync). product_model_fitments comes from production's own Dinamik items, not from this sync.
 // - not carried: vehicle_type_oil_specs (data/vehicle_type_oil_specs.csv + db:vehicle-oils), vehicle_type_trodo_oils,
 //   product_enrichment_sources.

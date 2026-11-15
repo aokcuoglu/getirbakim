@@ -3,6 +3,8 @@
 -- read, that comparison ran over every fitment of the make (VW: 788k) and took 20-57 s on RDS for the large makes.
 -- product_enrichment_shared_refresh() recomputes the offers in its scope right after their links (no queue of its
 -- own); fitment and vehicle catalog changes reach it through product_enrichment_shared_queue (triggers below).
+-- storefront_model_fits (#639) holds the same engine-level fits per vehicle model, for /yedek-parca/<make>/<model>;
+-- the refresh computes both from one pass. Model pages add the description fitments (product_model_fitments) on read.
 CREATE TABLE IF NOT EXISTS storefront_make_fits (
  brand_id integer NOT NULL REFERENCES vehicle_brands(id) ON DELETE CASCADE,
  -- Any supplier row: a vehicle an admin added (db/product-override-fitments.sql, #583) lists a product without an
@@ -25,15 +27,22 @@ BEGIN
    FOREIGN KEY (supplier_item_id) REFERENCES supplier_items(id) ON DELETE CASCADE;
  END IF;
 END $$;
+-- Like the make table it keys any supplier row: a type an admin adds (#583) lists the model for an unlinked offer too.
+CREATE TABLE IF NOT EXISTS storefront_model_fits (
+ model_id integer NOT NULL REFERENCES vehicle_models(id) ON DELETE CASCADE,
+ supplier_item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
+ PRIMARY KEY (model_id, supplier_item_id)
+);
+CREATE INDEX IF NOT EXISTS storefront_model_fits_item_idx ON storefront_model_fits(supplier_item_id);
 
 -- NULL recomputes every offer. The payload's vehicles are read once per offer (MATERIALIZED), not per fitment.
 -- EXECUTE plans each call afresh: a scoped plan is never reused for the whole catalog.
--- An admin's decisions (product_override_fitments, #583) apply per offer and type: a removed type leaves out that
+-- An admin's decisions (product_override_fitments, #583) apply per offer and type, to the make and the model tables alike: a removed type leaves out that
 -- automatic fitment only (another type of the same make still lists the offer), an added type lists every offer of
 -- the product, enriched or not.
 CREATE OR REPLACE FUNCTION storefront_make_fits_refresh(item_ids uuid[] DEFAULT NULL) RETURNS integer
 LANGUAGE plpgsql AS $$
-DECLARE changed integer;
+DECLARE changed integer; model_changed integer;
 BEGIN
  -- The whole catalog hashes ~1M fitment rows with their vehicle objects; 4 MB (the default) spills to disk.
  PERFORM set_config('work_mem','64MB',true);
@@ -51,7 +60,7 @@ BEGIN
    JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
    WHERE ($1::uuid[] IS NULL OR l.supplier_item_id=ANY($1))
     AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=l.donor_oem))
-  SELECT DISTINCT m.brand_id,t.supplier_item_id
+  SELECT DISTINCT m.brand_id,v.model_id,t.supplier_item_id
   FROM vehicles t
   JOIN product_vehicle_fitments f ON f.supplier_item_id=t.donor_item_id AND f.vehicle_type_id IS NOT NULL
   JOIN vehicle_types v ON v.id=f.vehicle_type_id
@@ -61,14 +70,14 @@ BEGIN
   -- UNION ALL keeps the automatic branch's plan (a UNION sorted its ~9M rows); a pair both give is inserted once
   -- (ON CONFLICT DO NOTHING) and the delete below only asks whether it exists.
   UNION ALL
-  SELECT DISTINCT m.brand_id,ps.supplier_item_id
+  SELECT DISTINCT m.brand_id,v.model_id,ps.supplier_item_id
   FROM product_override_fitments o
   JOIN product_sources ps ON ps.product_id=o.product_id
   JOIN vehicle_types v ON v.id=o.vehicle_type_id
   JOIN vehicle_models m ON m.id=v.model_id
   WHERE o.mode='add' AND ($1::uuid[] IS NULL OR ps.supplier_item_id=ANY($1))$sql$ USING item_ids;
  WITH inserted AS (
-  INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT brand_id,supplier_item_id FROM make_fits_computed
+  INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT DISTINCT brand_id,supplier_item_id FROM make_fits_computed
   ON CONFLICT DO NOTHING RETURNING 1
  ), removed AS (
   DELETE FROM storefront_make_fits f WHERE (item_ids IS NULL OR f.supplier_item_id=ANY(item_ids))
@@ -76,9 +85,18 @@ BEGIN
   RETURNING 1
  )
  SELECT (SELECT count(*) FROM inserted)+(SELECT count(*) FROM removed) INTO changed;
+ WITH inserted AS (
+  INSERT INTO storefront_model_fits(model_id,supplier_item_id) SELECT DISTINCT model_id,supplier_item_id FROM make_fits_computed
+  ON CONFLICT DO NOTHING RETURNING 1
+ ), removed AS (
+  DELETE FROM storefront_model_fits f WHERE (item_ids IS NULL OR f.supplier_item_id=ANY(item_ids))
+   AND NOT EXISTS (SELECT 1 FROM make_fits_computed c WHERE c.model_id=f.model_id AND c.supplier_item_id=f.supplier_item_id)
+  RETURNING 1
+ )
+ SELECT (SELECT count(*) FROM inserted)+(SELECT count(*) FROM removed) INTO model_changed;
  DROP TABLE make_fits_computed;
- IF item_ids IS NULL THEN ANALYZE storefront_make_fits; END IF;
- RETURN changed;
+ IF item_ids IS NULL THEN ANALYZE storefront_make_fits; ANALYZE storefront_model_fits; END IF;
+ RETURN changed+model_changed;
 END $$;
 
 -- A fitment belongs to its donor item: the refresh resolves the item to its product and every offer sharing it.
@@ -122,6 +140,6 @@ DROP TRIGGER IF EXISTS enrichment_shared_vehicle_models_update ON vehicle_models
 CREATE TRIGGER enrichment_shared_vehicle_models_update AFTER UPDATE OF brand_id ON vehicle_models FOR EACH ROW
  WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION product_enrichment_shared_queue_all();
 
--- The first deployment fills the table: an empty one asks for a rebuild (scripts/setup.ts syncs after the schema).
+-- The first deployment fills the tables: an empty one asks for a rebuild (scripts/setup.ts syncs after the schema).
 INSERT INTO product_enrichment_shared_queue(kind,id) SELECT 'p','00000000-0000-0000-0000-000000000000'
- WHERE NOT EXISTS (SELECT 1 FROM storefront_make_fits) ON CONFLICT DO NOTHING;
+ WHERE NOT EXISTS (SELECT 1 FROM storefront_make_fits) OR NOT EXISTS (SELECT 1 FROM storefront_model_fits) ON CONFLICT DO NOTHING;

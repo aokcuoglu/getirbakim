@@ -3,6 +3,7 @@ import test from "node:test";
 import { GET } from "../src/app/llms.txt/route";
 import { aiCrawlers, privatePaths, robotsPolicy } from "../src/modules/seo/crawlers";
 import { llmsTxt } from "../src/modules/seo/llms";
+import { listingIndexable, minIndexableListingProducts } from "../src/modules/seo/indexing";
 import { legalLinks } from "../src/content/legal";
 
 type Group = { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
@@ -41,12 +42,26 @@ test("production has a general group and an AI crawler group with identical bodi
 });
 
 test("robots rules open the public store and close private and unbounded URLs", () => {
-  const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt"];
-  const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code"];
+  const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/yedek-parca/volkswagen/golf-7?page=2", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt"];
+  const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/yedek-parca/volkswagen/golf-7?sort=price-asc", "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code"];
   for (const group of groups) {
     for (const url of open) assert.equal(allowed(group, url), true, `${url} should be allowed`);
     for (const url of closed) assert.equal(allowed(group, url), false, `${url} should be blocked`);
   }
+});
+
+test("a model listing is indexed only as a plain listing with enough products", () => {
+  const model = { make: "volkswagen", model: "golf-7" };
+  assert.equal(minIndexableListingProducts, 10);
+  assert.equal(listingIndexable(model, 9), false);
+  assert.equal(listingIndexable(model, 10), true);
+  assert.equal(listingIndexable({ ...model, page: "2" }, 500), false);
+  assert.equal(listingIndexable({ ...model, brands: '["BOSCH"]' }, 500), false);
+  assert.equal(listingIndexable({ ...model, sort: "price-asc" }, 500), false);
+  // Make, category and catalog listings keep their rule (#638): no product threshold in this slice.
+  assert.equal(listingIndexable({ make: "volkswagen" }, 0), true);
+  assert.equal(listingIndexable({ category: "fren" }, 3), true);
+  assert.equal(listingIndexable({ q: "fren" }, 500), false);
 });
 
 test("llms.txt links are absolute, cover the legal pages and categories, and avoid private paths", () => {

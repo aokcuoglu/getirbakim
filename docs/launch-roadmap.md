@@ -54,12 +54,15 @@ Liste sayfalarının adresleri Türkçe ve yol tabanlıdır (#638); tek kaynak `
 | Kategori | `/kategori/<kategori>` | |
 | Kategori × araç markası | `/kategori/<kategori>/<marka>` | |
 | Ürün | `/urun/<marka>-<ad>-<parça-no>-<id>` | #640; tek kaynak `src/modules/seo/product-path.ts` (`productPath`). Slug ASCII'dir ve yalnız okunur; ürünü sondaki 36 karakterlik kimlik bulur (`product-id.ts`). Slug boş kalırsa adres `/urun/<id>` |
-| Model, model × kategori | `/yedek-parca/<marka>/<model>`, `/kategori/<kategori>/<marka>/<model>` | #639 için ayrıldı |
+| Araç modeli | `/yedek-parca/<marka>/<model>` | #639: model ailesi + nesil (`golf-7`, `passat-b8`, `tipo-356`, `3-e90`); ürünsüz model `404`, 10 üründen azı `noindex,follow` (`minIndexableListingProducts`) |
+| Model × kategori | `/kategori/<kategori>/<marka>/<model>` | #639 sonraki dilimi için ayrıldı; model sayfasında kategori gezintisi bu yüzden kapalı |
 | Üretici | `/marka/<uretici>` | #660 için ayrıldı; bugün `/katalog?brand=` |
 
 Ürün adresleri (#640): çıplak kimlik, bayat slug ya da büyük harfli kimlik sayfada tek adımda `308` ile güncel adrese gider; ikincil teklifin kimliği (`primaryId`) doğrudan birincil ürünün slug'lı adresine `307` ile gider (eşleştirme yenilenince değişebilir, kalıcılanmaz). Sorgu dizgesi (`utm_*`, `gclid`) her iki yönlendirmede korunur. `/yonetim` bağlantıları çıplak kimlik kullanır (`productIdPath`) ve bu yönlendirmelerden geçer.
 
-Eski adresler tek adımda `301` ile taşınır (`src/proxy.ts`): `/automakers` → `/arac-markalari`, `/car-parts/<marka>` → `/yedek-parca/<marka>`, `/car-parts/<marka>?category=<k>` → `/kategori/<k>/<marka>`, `/katalog?category=<k>` → `/kategori/<k>`; diğer sorgu parametreleri korunur. Bilinmeyen kategori veya marka `404` döner. CDN veya bakım modunda yola bağlı kural varsa yeni önekler (`/kategori/*`, `/yedek-parca/*`, `/arac-markalari`) eklenmelidir.
+Eski adresler tek adımda `301` ile taşınır (`src/proxy.ts`): `/automakers` → `/arac-markalari`, `/car-parts/<marka>` → `/yedek-parca/<marka>`, `/car-parts/<marka>?category=<k>` → `/kategori/<k>/<marka>`, `/katalog?category=<k>` → `/kategori/<k>`; diğer sorgu parametreleri korunur. Bilinmeyen kategori, marka veya model `404` döner.
+
+Model sayfası birimi (#639) bir markanın bir model ailesi ve nesli, tüm kasa tipleriyle birlikte: TecDoc'ta kasa başına ayrı seri olan `GOLF VII`, `GOLF VII Variant`, `GOLF VII Van` tek sayfa (`golf-7`). Slug kuralı ve sabitlenen adresler `src/modules/store/vehicle-model-groups.ts` ve `scripts/test-vehicle-model-groups.ts` içinde; yerel katalogda 5.767 seri 4.372 birim, slug çakışması yok. Liste model düzeyindedir: motor düzeyi uyumluluk (`storefront_model_fits`) ile tedarikçi açıklamasından okunan model (`product_model_fitments`) birleşir; sayfa bunu söyler ve motor tipine göre doğrulama için garaj seçicisini sunar. Marka sayfası ürünü olan modelleri aile → nesil listesiyle bağlar. CDN veya bakım modunda yola bağlı kural varsa yeni önekler (`/kategori/*`, `/yedek-parca/*`, `/arac-markalari`) eklenmelidir.
 
 ## Bütçe ve karar kuralı
 
