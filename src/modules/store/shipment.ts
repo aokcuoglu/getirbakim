@@ -32,6 +32,9 @@ export function carrierLabel(carrier: string | null, carrierName: string | null)
 }
 
 const httpsUrl = z.url({ protocol: /^https$/ });
+// Yurtiçi's own tracking page accepts only these (2026-11-15 decision); other carriers keep the general rule.
+const yurticiTrackingNo = /^(\d{12}|\d{16})$/;
+export const yurticiTrackingRule = "Yurtiçi Kargo takip numarası 12 veya 16 haneli olmalı.";
 
 export const shipmentSchema = z.object({
   carrier: z.enum(carrierCodes, "Kargo firmasını seçin."),
@@ -46,6 +49,9 @@ export const shipmentSchema = z.object({
   if (value.carrier === "other" && (value.carrierName ?? "").length < 2) {
     context.addIssue({ code: "custom", path: ["carrierName"], message: "Kargo firmasının adını girin." });
   }
+  if (value.carrier === "yurtici" && !yurticiTrackingNo.test(value.trackingNo)) {
+    context.addIssue({ code: "custom", path: ["trackingNo"], message: yurticiTrackingRule });
+  }
 }).transform(value => ({
   carrier: value.carrier,
   carrierName: value.carrier === "other" ? value.carrierName ?? null : null,
@@ -53,7 +59,8 @@ export const shipmentSchema = z.object({
   trackingUrl: value.trackingUrl || null,
 }));
 export type Shipment = z.output<typeof shipmentSchema>;
-export type ShipmentResult = { status: "idle" | "error"; errors?: Record<string, string[] | undefined>; message?: string };
+/** `next`: on success, the order list (same tab, sort and page) to return to. */
+export type ShipmentResult = { status: "idle" | "error" | "success"; errors?: Record<string, string[] | undefined>; message?: string; next?: string };
 
 /** Whether the carrier's tracking link can be built from the number alone. */
 export const hasTrackingTemplate = (carrier: string) => isCarrier(carrier) && carriers[carrier].trackingUrl !== null;

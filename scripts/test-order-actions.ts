@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { isolatedSchema } from "./isolated-schema";
 import { orderListBack, orderListReturn } from "../src/modules/admin/order-list-return";
-import { carrierCodes, defaultCarrier, resolveTrackingUrl, shipmentSchema, startingCarrier } from "../src/modules/store/shipment";
+import { carrierCodes, defaultCarrier, resolveTrackingUrl, shipmentSchema, startingCarrier, yurticiTrackingRule } from "../src/modules/store/shipment";
 
 // Admin order steps (#516) in an isolated copy of the schema; nothing touches the shared database's tables.
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
@@ -61,7 +62,7 @@ const shipment = (input: Record<string, string>) => shipmentSchema.parse(input);
 
 test("order steps follow the state machine and only for paid or legacy offline orders", async () => {
   const paid = await order("pending", "paid", [{ quantity: 1, reserved: 1 }]);
-  const yurtici = shipment({ carrier: "yurtici", trackingNo: "123 456 789" });
+  const yurtici = shipment({ carrier: "yurtici", trackingNo: "1234 5678 9012" });
   assert.equal(await orders.shipOrder(paid, yurtici), false);
   assert.equal(await orders.transitionOrder(paid, "confirmed"), true);
   assert.equal((await row(paid)).status, "confirmed");
@@ -71,8 +72,8 @@ test("order steps follow the state machine and only for paid or legacy offline o
   assert.equal(await orders.shipOrder(paid, yurtici), true);
   const shipped = await row(paid);
   assert.equal(shipped.status, "shipped"); assert.equal(shipped.carrier, "yurtici"); assert.equal(shipped.carrier_name, null);
-  assert.equal(shipped.tracking_no, "123456789");
-  assert.equal(shipped.tracking_url, "https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=123456789");
+  assert.equal(shipped.tracking_no, "123456789012");
+  assert.equal(shipped.tracking_url, "https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=123456789012");
   assert.ok(shipped.shipped_at instanceof Date); assert.equal(shipped.delivered_at, null);
   assert.equal(await orders.shipOrder(paid, yurtici), false);
   assert.equal(await orders.transitionOrder(paid, "cancelled"), false);
@@ -123,13 +124,13 @@ test("shipment details can be corrected only while the order is shipped; the shi
 
 test("the shipment form rejects a missing or malformed tracking number, carrier or link", () => {
   const fails = (input: Record<string, string>) => shipmentSchema.safeParse(input).error?.flatten().fieldErrors ?? {};
-  assert.ok(fails({ carrier: "yurtici", trackingNo: "" }).trackingNo);
-  assert.ok(fails({ carrier: "yurtici", trackingNo: "   " }).trackingNo);
-  assert.ok(fails({ carrier: "yurtici", trackingNo: "ABC" }).trackingNo);
-  assert.ok(fails({ carrier: "yurtici" }).trackingNo);
-  assert.ok(fails({ carrier: "yurtici", trackingNo: "A".repeat(41) }).trackingNo);
-  assert.ok(fails({ carrier: "yurtici", trackingNo: "ABC_123" }).trackingNo);
-  assert.ok(fails({ carrier: "yurtici", trackingNo: "<script>" }).trackingNo);
+  assert.ok(fails({ carrier: "ups", trackingNo: "" }).trackingNo);
+  assert.ok(fails({ carrier: "ups", trackingNo: "   " }).trackingNo);
+  assert.ok(fails({ carrier: "ups", trackingNo: "ABC" }).trackingNo);
+  assert.ok(fails({ carrier: "ups" }).trackingNo);
+  assert.ok(fails({ carrier: "ups", trackingNo: "A".repeat(41) }).trackingNo);
+  assert.ok(fails({ carrier: "ups", trackingNo: "ABC_123" }).trackingNo);
+  assert.ok(fails({ carrier: "ups", trackingNo: "<script>" }).trackingNo);
   assert.equal(shipment({ carrier: "aras", trackingNo: " 12 34\t56 " }).trackingNo, "123456");
   assert.ok(fails({ carrier: "dhl-express", trackingNo: "ABCD1" }).carrier);
   assert.ok(fails({ trackingNo: "ABCD1" }).carrier);
@@ -142,6 +143,19 @@ test("the shipment form rejects a missing or malformed tracking number, carrier 
     assert.ok(fails({ carrier: "ups", trackingNo: "ABCD1", trackingUrl }).trackingUrl, trackingUrl);
   }
   assert.equal(shipment({ carrier: "ups", trackingNo: "ABCD1", trackingUrl: "" }).trackingUrl, null);
+});
+
+test("Yurtiçi tracking numbers are 12 or 16 digits; other carriers keep the general rule", () => {
+  const trackingError = (carrier: string, trackingNo: string) => shipmentSchema.safeParse({ carrier, trackingNo }).error?.flatten().fieldErrors.trackingNo?.[0];
+  assert.equal(trackingError("yurtici", "12345678901"), yurticiTrackingRule);
+  assert.equal(trackingError("yurtici", "123456789012"), undefined);
+  assert.equal(trackingError("yurtici", "1234 5678 9012 3456"), undefined);
+  assert.equal(trackingError("yurtici", "1234567890123"), yurticiTrackingRule);
+  assert.equal(trackingError("yurtici", "12345678901A"), yurticiTrackingRule);
+  assert.equal(trackingError("yurtici", "1234-5678-9012"), yurticiTrackingRule);
+  assert.equal(shipment({ carrier: "yurtici", trackingNo: " 1234 5678 9012 " }).trackingNo, "123456789012");
+  assert.equal(trackingError("aras", "12345678901"), undefined);
+  assert.equal(trackingError("ups", "1Z999AA1"), undefined);
 });
 
 test("Yurtiçi Kargo is the default carrier and leads the list; a recorded carrier is kept", () => {
@@ -178,6 +192,24 @@ test("returns are recorded on shipped and delivered orders only, up to the order
   assert.equal(await orders.recordOrderReturn(line(delivered, 3)), true);
   assert.equal(await orders.recordOrderReturn(line(delivered, 1)), false);
   assert.equal(await returned(delivered), 3); assert.equal(await returned(confirmed), 0);
+  // Concurrent returns of the same one-unit line: only one fits.
+  const single = await order("delivered", "paid", [{ quantity: 1, reserved: 0 }]);
+  const results = await Promise.all([1, 2, 3].map(() => orders.recordOrderReturn(line(single, 1))));
+  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal(await returned(single), 1);
+  // Deterministic: the calls queue behind a held line lock while another return commits; none may count without it.
+  const held = await order("delivered", "paid", [{ quantity: 1, reserved: 0 }]);
+  const blocker = await schema.pool.connect();
+  try {
+    await blocker.query("BEGIN");
+    await blocker.query("SELECT 1 FROM commerce_order_items WHERE order_id=$1 FOR UPDATE", [held]);
+    const waiting = Promise.all([1, 2, 3].map(() => orders.recordOrderReturn(line(held, 1))));
+    await sleep(300);
+    await blocker.query("INSERT INTO commerce_returns(order_id,product_id,quantity,reason,note,created_by) VALUES($1,$2,1,'not_fit','',$3)", [held, product, admin]);
+    await blocker.query("COMMIT");
+    assert.deepEqual(await waiting, [false, false, false]);
+  } finally { blocker.release(); }
+  assert.equal(await returned(held), 1);
   // A product that is not on the order.
   assert.equal(await orders.recordOrderReturn({ ...line(delivered, 1), productId: randomUUID() }), false);
 });
