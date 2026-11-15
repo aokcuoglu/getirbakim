@@ -4,7 +4,7 @@ import { Pool } from "pg";
 import { migrateSupplierSnapshots } from "../src/modules/suppliers/sync";
 
 // The schema files scripts/setup.ts applies, in its order.
-const setupFiles = ["schema", "brand-launch", "vehicle-schema", "vehicle-oil-specs", "commerce", "search", "garage", "product-enrichment",
+const setupFiles = ["schema", "brand-launch", "vehicle-schema", "vehicle-oil-specs", "commerce", "search", "garage", "product-enrichment", "enrichment-search",
   "manual-supplier", "manufacturer-logos", "vehicle-type-specs", "enrichment-worker", "product-fitments", "source-categories", "product-matching", "product-overrides",
   "product-override-images", "product-override-references", "storefront-catalog", "restock-requests", "enrichment-products", "enrichment-states", "enrichment-shared-links", "storefront-make-fits", "newsletter"];
 

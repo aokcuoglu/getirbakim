@@ -198,7 +198,7 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
   `SELECT p.id FROM store_products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`,
   // Products no supplier sells now are found too; the listing puts them last (#475).
   `SELECT u.id FROM commerce_unavailable_items u WHERE ${supplierItemMatch("u",parsed,bind,mode)}`];
- // OEM numbers always carry digits. The trigram index on enrichment_oem_search (db/product-enrichment.sql, #609)
+ // OEM numbers always carry digits. The trigram index on enrichment_oem_search (db/enrichment-search.sql, #609)
  // narrows the enrichments first; normalising every stored reference per query took ~3 s.
  if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact)){const key=bind(`%${parsed.compact}%`);hits.push(`SELECT e.supplier_item_id FROM storefront_enrichments e
     JOIN supplier_items supplier_item ON supplier_item.id=e.supplier_item_id

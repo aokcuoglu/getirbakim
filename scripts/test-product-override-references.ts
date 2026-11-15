@@ -230,6 +230,7 @@ test("a merge carries the numbers (the kept product's own row wins); undoing it 
 test("setup can run the file again", async () => {
   await schema.pool.query(await readFile("db/product-override-references.sql", "utf8"));
   await schema.pool.query(await readFile("db/product-enrichment.sql", "utf8"));
+  await schema.pool.query(await readFile("db/enrichment-search.sql", "utf8"));
   assert.equal((await schema.pool.query(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname='product_override_references_products_restored'
     AND tgrelid=to_regclass($1)`, [`${schema.name}.products`])).rows[0].n, 1);
 });
