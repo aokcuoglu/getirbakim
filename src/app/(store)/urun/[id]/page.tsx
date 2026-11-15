@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { defaultSocialImage, siteOpenGraph, siteUrl } from "@/lib/site";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, Headphones } from "lucide-react";
+import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, CarFront, Headphones } from "lucide-react";
 import { getDecidedEquivalents, getSetaEquivalents, getStorefrontProduct, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
 import { currentAccount } from "@/modules/auth/session";
 import { PurchaseForm } from "@/components/purchase-form";
