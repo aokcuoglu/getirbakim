@@ -405,6 +405,47 @@ test("home rails count uploads and skip a hidden automatic image (#596)", async 
   assert.ok(!(await rail()).includes(ids.railHidden), "(f) product hidden");
 });
 
+test("home category rails follow the admin's category like the category page (#667)", async () => {
+  const [home, epoch, catalog] = await Promise.all([import("../src/modules/store/home"), import("../src/modules/store/listing-epoch"), import("../src/modules/store/catalog")]);
+  await item("catDonor", { supplier: "basbug", code: "ZIM 71071", brand: "ZIMMERMANN", name: "ZIMMERMANN FREN DISKI" });
+  await item("catUpload", { supplier: "basbug", code: "SAC 72072", brand: "SACHS", name: "SACHS AMORTISOR" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  for (const [id, slug] of [[7001, "fren"], [7002, "suspansiyon"]] as const) {
+    await schema.pool.query("INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES('trodo',$1,NULL,$2,$2,$3,'https://www.trodo.com/x','{}')", [id, slug, [id]]);
+    await schema.pool.query("INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES('trodo',$1,'tr',$2,$2)", [id, slug]);
+  }
+  const media = (await schema.pool.query<{ id: string }>(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
+    VALUES('product-media','products/cc/cat.webp',$1,'image/webp',1000,'https://www.trodo.com/cat.webp') RETURNING id::text`, [createHash("sha256").update("cat-rail").digest("hex")])).rows[0].id;
+  // Each item is its own enrichment donor, filed under category 7001 by Trodo.
+  for (const [key, code, brand] of [["catDonor", "ZIM 71071", "ZIMMERMANN"], ["catUpload", "SAC 72072", "SACHS"]]) {
+    await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,$2,$3,'complete')`, [ids[key], code, brand]);
+    await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload)
+      VALUES($1,$2,$3,'https://www.trodo.com/c','test',$3,'1',$4,'{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}')`, [ids[key], code, brand, media]);
+  }
+  await syncSharedLinks();
+  for (const key of ["catDonor", "catUpload"]) await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',7001)", [ids[key]]);
+  const donor = await productOf("catDonor"), uploaded = await productOf("catUpload");
+  // getHomeProducts(category) resolves the subtree through the request-scoped category list; the pick takes the ids.
+  const rail = async (category: number) => { await epoch.invalidateListings(); return home.homeProductIds([category]); };
+  const page = async (category: number) => { await epoch.invalidateListings(); return catalog.categoryProductIds([], [category]); };
+
+  // (a) Without an override the donor's category decides.
+  assert.ok((await rail(7001)).includes(ids.catDonor) && !(await rail(7002)).includes(ids.catDonor), "(a) donor category");
+  // (b) Moved by the admin: gone from the old rail, in the new one, as on the category page.
+  assert.ok((await overrides.persistProductOverride(schema.pool, donor, { category_id: 7002 }, admin)).ok);
+  assert.ok(!(await rail(7001)).includes(ids.catDonor), "(b) off the old rail");
+  assert.ok((await rail(7002)).includes(ids.catDonor), "(b) on the new rail");
+  assert.ok(!(await page(7001)).includes(ids.catDonor) && (await page(7002)).includes(ids.catDonor), "(b) the category page agrees");
+  // (c) The upload arm follows the same rule.
+  assert.deepEqual(await upload(uploaded, await solid(153), "sachs.jpg"), { ok: true });
+  assert.ok((await rail(7001)).includes(ids.catUpload), "(c) upload, donor category");
+  assert.ok((await overrides.persistProductOverride(schema.pool, uploaded, { category_id: 7002 }, admin)).ok);
+  assert.ok(!(await rail(7001)).includes(ids.catUpload) && (await rail(7002)).includes(ids.catUpload), "(c) upload moved");
+  // (d) A hidden product stays out of the new rail (#655).
+  assert.ok((await overrides.persistProductOverride(schema.pool, donor, { hidden: true }, admin)).ok);
+  assert.ok(!(await rail(7002)).includes(ids.catDonor), "(d) hidden");
+});
+
 test("the store shows an image: an upload, or the automatic image unless hidden (#596)", async () => {
   await item("shownA", { supplier: "basbug", code: "SHW 70001", brand: "SHOWN", name: "SHOWN A" });
   await schema.pool.query("SELECT refresh_product_matches()");
