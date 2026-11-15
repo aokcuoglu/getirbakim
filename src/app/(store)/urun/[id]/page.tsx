@@ -58,9 +58,15 @@ const productEnrichment = cache((id: string, code: string, brand: string) => get
 const descriptionFitments = cache(getDescriptionFitments);
 // The vehicle models of the search metadata: the enrichment's (`confirmed`, they may name the title's "uyumlu" vehicle) and,
 // without them, the models read from the supplier's description, which name no engine and only feed the description text.
-async function vehicleModels(enrichment: { vehicleModels: string[]; vehicles: { model: string }[] } | null, productId: string) {
-  const models = enrichment?.vehicleModels.length ? enrichment.vehicleModels : enrichment?.vehicles.map(vehicle => vehicle.model) ?? [];
+// The admin's added and removed vehicles (#583) apply here as on the page: the shown vehicles, and the description's models
+// only where the page falls back to them.
+async function vehicleModels(enrichment: { vehicleModels: string[]; vehicles: { model: string; vehicleTypeId: number | null }[] } | null,
+  productId: string, overrides: Awaited<ReturnType<typeof getItemFitments>>) {
+  const vehicles = applyFitmentOverrides(enrichment?.vehicles ?? [], overrides);
+  const fallbacks = modelFallbacks(overrides, vehicles, enrichment?.vehicleModels ?? []);
+  const models = fallbacks.vehicleModels.length ? fallbacks.vehicleModels : vehicles.map(vehicle => vehicle.model);
   if (models.length) return { confirmed: [...new Set(models)], all: [...new Set(models)] };
+  if (!fallbacks.description) return { confirmed: [], all: [] };
   return { confirmed: [], all: (await descriptionFitments(productId)).map(row => `${row.brand} ${row.model}`) };
 }
 // The description models are read here only when the enrichment's signals fall short; the metadata and the page share the cached read.
@@ -75,10 +81,11 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const product = await getStorefrontProduct(id);
   if (!product) return { title: "Ürün bulunamadı", robots: { index: false } };
   // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description.
-  const [override, enrichment, uploads] = await Promise.all([getItemOverride(product.id), productEnrichment(product.id, product.code, product.brand), getItemImages(product.id)]);
+  const [override, enrichment, uploads, fitmentOverrides] = await Promise.all([getItemOverride(product.id),
+    productEnrichment(product.id, product.code, product.brand), getItemImages(product.id), getItemFitments(product.id)]);
   const description = productDescription(override, enrichment?.description, product.description);
   const name = productTitle(override, enrichment?.displayName, readableProductName(product.name));
-  const vehicles = await vehicleModels(enrichment, product.id);
+  const vehicles = await vehicleModels(enrichment, product.id, fitmentOverrides);
   const hint = `${product.name} ${product.description}`;
   const meta = productMeta(override, {
     title: productSeoTitle({ brand: product.display_brand, name, partNumber: product.display_code, vehicles: vehicles.confirmed, hint }),
