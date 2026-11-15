@@ -8,6 +8,7 @@ import { loadProductPricing } from "./product-pricing-store";
 import type { ProductPricing } from "./product-pricing-schema";
 import { compareOffers } from "@/modules/store/best-offer";
 import { belowCost } from "./product-override-fields";
+import { codeMatch, compact, searchEquivalentTargets } from "./product-target-search";
 
 /** Master catalog (db/product-matching.sql): one product, the supplier rows it is sold from, and its equivalents. */
 export const productFilters = {
@@ -49,8 +50,6 @@ type ProductEquivalent = {
   via_brand: string; via_part: string;
 };
 
-const compact = (value: string | undefined) => (value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 40);
-
 /**
  * Best offer per product: the cheapest available saleable source, the lower cost and then the product's own row winning
  * ties (the storefront rule, compareOffers). Priced through commerce_catalog only for the ids asked for.
@@ -63,19 +62,6 @@ const offersSql = `WITH sources AS (
  )`;
 
 type ListedProduct = Omit<ProductRow, "best_price" | "best_supplier" | "available" | "sources" | "categories">;
-
-/**
- * Whether product `p` has a supplier row whose code contains the compact query `n` (punctuation ignored). From three
- * characters on, the trigram index on supplier_item_search_codes (db/search.sql: the same compact code, lowercased, plus
- * the OEM number) narrows supplier_items first and the original condition still decides; scanning every supplier row
- * took ~1 s per query. The index folds Turkish letters (Ç → c) where this condition drops them, so only a query running
- * across such a letter could differ. Shorter queries have no trigram to look up and keep the plain scan.
- */
-const codeMatch = (q: string, n: string) => q.length >= 3
-  ? `p.id IN (SELECT s.product_id FROM supplier_items i JOIN product_sources s ON s.supplier_item_id=i.id
-      WHERE supplier_item_search_codes(i.code,i.product_data) LIKE '%'||lower(${n})||'%' AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||${n}||'%')`
-  : `EXISTS (SELECT 1 FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id
-      WHERE s.product_id=p.id AND regexp_replace(upper(i.code),'[^A-Z0-9]','','g') LIKE '%'||${n}||'%')`;
 
 export async function listProducts(params: { q?: string; filter?: string; brands?: string[]; categories?: string[]; page?: string; sort?: string; dir?: string }) {
   await requireAdmin();
@@ -224,4 +210,11 @@ export async function findMergeTargets(id: string, query: string | undefined) {
     WHERE p.id<>$1 AND p.merged_into IS NULL AND (p.part_number LIKE '%'||$2||'%' OR ${codeMatch(q, "$2")})
     ORDER BY p.brand=self.brand DESC, p.part_number=$2 DESC, p.suppliers='{}', length(p.part_number), p.code LIMIT 20`, [id, q])).rows;
   return { q, targets };
+}
+
+/** Products to link as equivalents (#584): a part number or supplier code, or an OEM number the product shares. */
+export async function findEquivalentTargets(id: string, query: string | undefined) {
+  await requireAdmin();
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { q: compact(query), targets: [] };
+  return searchEquivalentTargets(db, id, query);
 }

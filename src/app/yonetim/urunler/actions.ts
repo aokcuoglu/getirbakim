@@ -8,6 +8,7 @@ import { productCardFields, productOverrideIdSchema, productOverrideValuesSchema
   type ProductCardValues, type ProductOverrideResult, type ProductPriceResult, type ProductPriceValues } from "@/modules/admin/product-override-schema";
 import type { ProductOverrideField } from "@/modules/admin/product-override-fields";
 import { belowCostSources, persistProductOverride } from "@/modules/admin/product-override-store";
+import { productTabHref } from "@/modules/admin/product-tabs";
 import { requireAdmin } from "@/modules/auth/session";
 import { invalidateListings } from "@/modules/store/listing-epoch";
 
@@ -41,7 +42,7 @@ export async function splitSource(form: FormData) {
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
-  redirect(created ? `/yonetim/urunler/${product_id}?split=${created}` : `/yonetim/urunler/${product_id}?error=split`);
+  redirect(productTabHref(product_id, "fiyat", { params: created ? { split: created } : { error: "split" } }));
 }
 
 // Undo a manual decision (split or merge) for one row: it rejoins its own key's product, and the store regroups at once.
@@ -58,7 +59,8 @@ export async function undoSplitSource(form: FormData) {
   revalidatePath("/yonetim/urunler");
   // Stay on the product while it still has rows; an emptied split product hands over to the row's own product.
   const remaining = (await db.query("SELECT 1 FROM product_sources WHERE product_id=$1 LIMIT 1", [data.data.product_id])).rowCount;
-  redirect(!target ? `/yonetim/urunler/${data.data.product_id}?error=split` : remaining ? `/yonetim/urunler/${data.data.product_id}?reset=${target}` : `/yonetim/urunler/${target}?joined=1`);
+  redirect(!target ? productTabHref(data.data.product_id, "fiyat", { params: { error: "split" } }) : remaining ? productTabHref(data.data.product_id, "fiyat", { params: { reset: target } })
+    : productTabHref(target, "fiyat", { params: { joined: "1" } }));
 }
 
 /** `&images=<n>` (uploads copied by the merge) or `&images=kept` (the kept product's own uploads stayed), else nothing. */
@@ -122,10 +124,12 @@ export async function mergeProducts(form: FormData) {
   // Regrouped offers: the matching page's cached groups are stale.
   forgetSameProducts();
   revalidatePath("/yonetim/urunler");
-  redirect(target ? `/yonetim/urunler/${target}?merged=${carriedHidden ? "hidden" : "1"}${oemFlag}${imagesFlag}${refsFlag}${specsFlag}${fitmentsFlag}` : `/yonetim/urunler/${product_id}?error=merge`);
+  redirect(target ? `${productTabHref(target, "fiyat")}&merged=${carriedHidden ? "hidden" : "1"}${oemFlag}${imagesFlag}${refsFlag}${specsFlag}${fitmentsFlag}` : productTabHref(product_id, "eslestirme", { params: { error: "merge" }, hash: "birlestir" }));
 }
 
-const pair = z.object({ product_id: z.uuid(), other_id: z.uuid() }).refine(data => data.product_id !== data.other_id);
+// eq_q: the equivalent search the form came from, kept in the redirect.
+const pair = z.object({ product_id: z.uuid(), other_id: z.uuid(), eq_q: z.string().max(60).optional() }).refine(data => data.product_id !== data.other_id);
+const equivalentHref = (id: string, params: Record<string, string | undefined>) => productTabHref(id, "eslestirme", { params, hash: "muadil" });
 
 /**
  * Not the same product but usable instead (another brand of the same size): an equivalent decision kept across
@@ -135,7 +139,7 @@ export async function linkEquivalent(form: FormData) {
   const admin = await requireAdmin();
   const data = pair.safeParse(Object.fromEntries(form));
   if (!data.success) redirect("/yonetim/urunler?error=input");
-  const { product_id, other_id } = data.data;
+  const { product_id, other_id, eq_q } = data.data;
   const client = await db.connect();
   let linked = false;
   try {
@@ -157,7 +161,7 @@ export async function linkEquivalent(form: FormData) {
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
   revalidatePath(`/yonetim/urunler/${product_id}`);
-  redirect(linked ? `/yonetim/urunler/${product_id}?linked=1#muadil` : `/yonetim/urunler/${product_id}?error=link#muadil`);
+  redirect(equivalentHref(product_id, { eq_q, ...linked ? { linked: "1" } : { error: "link" } }));
 }
 
 // Remove an equivalent: a hand-made link is forgotten, an automatic one is recorded as unrelated so refreshes skip it.
@@ -165,7 +169,7 @@ export async function unlinkEquivalent(form: FormData) {
   const admin = await requireAdmin();
   const data = pair.safeParse(Object.fromEntries(form));
   if (!data.success) redirect("/yonetim/urunler?error=input");
-  const { product_id, other_id } = data.data;
+  const { product_id, other_id, eq_q } = data.data;
   const [a, b] = [product_id, other_id].sort();
   const client = await db.connect();
   try {
@@ -180,7 +184,7 @@ export async function unlinkEquivalent(form: FormData) {
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
   revalidatePath(`/yonetim/urunler/${product_id}`);
-  redirect(`/yonetim/urunler/${product_id}?unlinked=1#muadil`);
+  redirect(equivalentHref(product_id, { eq_q, unlinked: "1" }));
 }
 
 const overrideFailures = {

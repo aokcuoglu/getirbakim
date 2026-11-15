@@ -68,6 +68,12 @@ Eşleşenler tablosunda gruptaki her bağlı teklifin (birincil Başbuğ satır�
 
 Eşleşenler listesi `?linked=manual` ("Bağlantı türü" seçimi ya da "Bağlı teklifler" başlığındaki süzgeç) ile yalnız elle bağlanmış teklifi olan gruplara daralır; `manualGroupsSql` (`method='manual'` kaynakların `product_offers.primary_id` değerleri) önbellekli grup dizini ile birlikte okunur, böylece `product_grouping_version` değişince ve işlem sonrası `forgetSameProducts` ile dizin gibi yenilenir (#611).
 
+## Ürün sayfası sekmeleri ve muadil araması (#584)
+
+`/yonetim/urunler/[id]` yedi sekmeye bölünür; sekme sunucu tarafında `?tab=` ile seçilir (varsayılan sekmede parametre yoktur, bilinmeyen değer varsayılana düşer) ve yalnız açık sekmenin kartları ve sorguları çalışır: **Mağaza bilgileri** (`bilgiler`), **Fiyat ve kaynaklar** (`fiyat`: fiyat, tedarikçi kaynakları, ürün kimliği), **Görseller**, **Referanslar ve özellikler**, **Araç uyumu**, **Eşleştirme ve muadiller** (`eslestirme`: birleştirme ve muadil) ve **Geçmiş**. Birleştirilmiş üründe yalnız `fiyat`, `eslestirme` ve `gecmis` vardır. Başlık, rozetler ve durum uyarıları sekmelerin üstünde kalır. Eski `#birlestir`, `#muadil`, `#fiyat` vb. bağlantıları istemcide doğru sekmeye yönlenir (`ProductTabAnchor`, `src/modules/admin/product-tabs.ts` `tabOfAnchor`). Ayır/geri al `fiyat`, muadil ekle/kaldır `eslestirme` sekmesinde kalır; birleştirme sonrası kalan ürün `fiyat` sekmesinde açılır.
+
+"Muadil ürünler" kartındaki arama (`eq_q`, `searchEquivalentTargets`, `src/modules/admin/product-target-search.ts`; en az 3 karakter, en çok 30 sonuç) üç yoldan bulur: **Parça no / kod** (ürünün parça numarası içerir veya tedarikçi kodu; birleştirme aramasıyla aynı koşul), **OEM numarası** (tedarikçi OEM numarası tam eşleşme: `product_references`, `brand='ORIJINAL'`) ve **Elle referans** (`product_override_references` OEM/çapraz numarası tam eşleşme). Sonuçta zaten muadil olanlar "Muadil", daha önce kaldırılmış çiftler "Daha önce kaldırıldı" ile işaretlenir; "Muadil ekle" `linkEquivalent` kararını yazar. Zenginleştirme (Trodo, spareto vb.) OEM numaraları bu aramada yoktur.
+
 ## Elle ürün düzenleme (override katmanı, #575)
 
 `/yonetim/urunler/[id]` "Mağaza bilgileri" kartı ürünün mağaza adını, açıklamasını, kategorisini, SEO başlığı/açıklamasını ve görünürlüğünü elle belirler. Değerler ana ürüne (`products.id`) bağlıdır ve `db/product-overrides.sql`'deki ayrı tablolarda tutulur:
