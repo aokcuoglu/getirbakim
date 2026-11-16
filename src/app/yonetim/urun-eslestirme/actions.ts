@@ -6,7 +6,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { bulkAcceptableSql, bulkCandidateReasons } from "@/modules/admin/product-matching-sql";
 // Actions that regroup offers clear the "Eşleşenler" groups cached in this process at once; other app processes see
-// it through product_grouping_version. Brand and reject decisions do not regroup. A successful supplier import
+// it through product_grouping_version. Brand and reject decisions do not regroup; brand decisions change the store's
+// shown brand names (display_brand, #811), so they reload the cached listings. A successful supplier import
 // re-keys the cache; other price changes (markup/VAT settings, stale rows) reach it within 60 s.
 import { forgetSameProducts } from "@/modules/admin/product-matching";
 import { matchingBack, safeMatchingBack, withMatchingFlag } from "@/modules/admin/product-matching-back";
@@ -190,6 +191,8 @@ async function brandDecision(back: string, flag: string, run: (client: import("p
     await client.query(done ? "COMMIT" : "ROLLBACK");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  // The store shows master brand names (#811): cached listings, facets and the manufacturer directory reload (#585).
+  if (done) await invalidateListings();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, done ? `brand=${flag}` : "error=brand"));
 }

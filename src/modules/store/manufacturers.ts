@@ -1,6 +1,7 @@
-// Manufacturer pages (/marka/<slug>, #660): a manufacturer is a master brand (brands); the store shows the suppliers'
-// labels (supplier_brands.label, the catalog's display_brand), each placed under one master brand. Pure: the server
-// loader (manufacturers.server.ts) feeds it the rows, scripts/test-manufacturers.ts checks the rules.
+// Manufacturer pages (/marka/<slug>, #660): a manufacturer is a master brand (brands). The store shows a product under its
+// master brand name (the catalog's display_brand, #811), or under an admin's store brand, which may be written as a
+// supplier label (supplier_brands.label). Pure: the server loader (manufacturers.server.ts) feeds it the rows,
+// scripts/test-manufacturers.ts checks the rules.
 import { isIndexableListing, type CatalogQuery } from "./catalog-query";
 import { minIndexableListingProducts } from "@/modules/seo/indexing";
 import { manufacturerSlug } from "@/modules/seo/manufacturer-path";
@@ -13,7 +14,7 @@ export type ManufacturerRow = { id: string; name: string; label: string; items: 
 export type ManufacturerMatch = { kind: "page"; manufacturer: Manufacturer } | { kind: "alias"; slug: string };
 export type ManufacturerDirectory = {
   find(slug: string): ManufacturerMatch | null;
-  /** The manufacturer page of a catalog display_brand, null when its brand has no page. */
+  /** The manufacturer page of a catalog display_brand (a master brand name or a label), null when its brand has no page. */
   pathForLabel(label: string): string | null;
   all: Manufacturer[];
 };
@@ -30,10 +31,12 @@ type Brand = { id: string; name: string; slug: string; items: number; labels: Se
 const wins = (a: Brand, b: Brand) => a.items !== b.items ? a.items > b.items : BigInt(a.id) < BigInt(b.id);
 
 /**
- * Rules: a brand's labels are its supplier labels plus its own name unless that name is another brand's label (an
- * admin's store brand may be written as the master name). A brand whose name leaves no slug has no page; brands sharing
- * a slug: the larger one gets it. A label whose slug differs from its brand's (BLUE PRINT → blueprint) is an alias
- * the page redirects from, unless a page has that slug.
+ * Rules: a brand's labels (the display_brand values its page lists) are its own name and its supplier labels. The store
+ * shows a brand's products under its name, so a name belongs to its brand first: brands sharing a name, the larger one
+ * owns it, and a supplier label written like another brand's name goes to that brand. Other labels (an admin's store
+ * brand written as a label) belong to their brand. A brand whose name leaves no slug has no page; brands sharing a slug:
+ * the larger one gets it. A label whose slug differs from its brand's (BLUE PRINT → blueprint) is an alias the page
+ * redirects from, unless a page has that slug.
  */
 export function buildManufacturerDirectory(rows: ManufacturerRow[]): ManufacturerDirectory {
   const brands = new Map<string, Brand>();
@@ -46,9 +49,16 @@ export function buildManufacturerDirectory(rows: ManufacturerRow[]): Manufacture
     owners.set(row.id, (owners.get(row.id) ?? 0) + row.items);
     labelItems.set(row.label, owners);
   }
+  const nameOwner = new Map<string, Brand>();
+  for (const brand of brands.values()) {
+    const taken = nameOwner.get(brand.name);
+    if (!taken || wins(brand, taken)) nameOwner.set(brand.name, brand);
+  }
+  for (const brand of nameOwner.values()) brand.labels.add(brand.name);
   // A label listed under several brands (different suppliers) belongs to the one with more of its items.
   const labelOwner = new Map<string, Brand>();
   for (const [label, owners] of labelItems) {
+    if (nameOwner.has(label)) continue;
     let owner: { brand: Brand; items: number } | undefined;
     for (const [id, items] of owners) {
       const brand = brands.get(id)!;
@@ -57,7 +67,6 @@ export function buildManufacturerDirectory(rows: ManufacturerRow[]): Manufacture
     labelOwner.set(label, owner!.brand);
     owner!.brand.labels.add(label);
   }
-  for (const brand of brands.values()) if (!labelOwner.has(brand.name)) { brand.labels.add(brand.name); labelOwner.set(brand.name, brand); }
 
   const pages = new Map<string, Brand>();
   for (const brand of brands.values()) {
@@ -84,7 +93,7 @@ export function buildManufacturerDirectory(rows: ManufacturerRow[]): Manufacture
       return alias ? { kind: "alias", slug: alias.slug } : null;
     },
     pathForLabel(label) {
-      const brand = labelOwner.get(label);
+      const brand = nameOwner.get(label) ?? labelOwner.get(label);
       return brand && pages.get(brand.slug) === brand ? manufacturerPath(brand.slug) : null;
     },
   };

@@ -137,7 +137,8 @@ export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
   // description, store brand or part number (#575, #602): the stored inputs are the supplier's, the view columns carry
   // the edit (a price edit, #580, does not). An edited part number ranks like the supplier code it stands beside: the
   // better of the two, so an exact match of either ranks first. A row whose supplier OEM field is hidden (#615) ranks
-  // on the computed path too: its view oem is empty, the stored search_oem is not.
+  // on the computed path too: its view oem is empty, the stored search_oem is not. The stored inputs carry the supplier's
+  // brand label, the computed path the shown brand (display_brand: the master brand name, #811).
   return `COALESCE((SELECT catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries})
     FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides o WHERE o.supplier_item_id = s.id
