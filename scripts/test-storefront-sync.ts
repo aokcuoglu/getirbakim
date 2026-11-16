@@ -138,6 +138,19 @@ test("the inbound report sums the applied parts and lists each skipped item once
   assert.deepEqual(report, { parts: 2, totals: { enrichments: 5, skippedEnrichments: 3 }, skippedEnrichments: 2, skipped: [item(1)], truncated: true });
 });
 
+test("the written items of each part stay out of the inbound report", () => {
+  const parts = [
+    { report: { enrichments: 3, skippedEnrichments: 1 }, skipped: [item(1)] },
+    { report: { enrichments: 2, skippedEnrichments: 0 }, skipped: [] },
+  ];
+  const withItems = parts.map((part, index) => ({ ...part, items: [item(10 + index).id, item(20).id] }));
+  const report = buildInboundReport(withItems);
+  assert.deepEqual(report, buildInboundReport(parts));
+  assert.deepEqual(report.totals, { enrichments: 5, skippedEnrichments: 1 });
+  assert.ok(!("items" in report));
+  assert.ok(!JSON.stringify(report).includes(item(20).id));
+});
+
 test("the retry list is replaced by each new report", () => {
   const report = (skipped: ReturnType<typeof item>[], truncated = false) => ({ parts: 1, totals: {}, skippedEnrichments: skipped.length, skipped, truncated });
   // Item 1 was retried and is still missing; item 2 arrived on the target; item 3 is new.

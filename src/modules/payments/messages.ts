@@ -8,5 +8,8 @@ export const paymentErrors: Record<string, string> = {
   paid: "Bu siparişin ödemesi zaten alındı.",
 };
 
+/** Card-data footnote shown wherever a customer is about to pay or has paid. */
+export const PAYMENT_NOTICE = "Kart bilgilerin TAMI’nin güvenli ödeme sayfasında işlenir, Getirbakım’a iletilmez.";
+
 /** Name of the window TAMI's hosted page opens in; the return page only talks to an opener through it. */
 export const PAYMENT_WINDOW = "getirbakim-tami";

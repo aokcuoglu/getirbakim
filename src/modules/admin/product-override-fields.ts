@@ -2,7 +2,7 @@
 // product's hand-set prices (#580).
 
 /** The "Mağaza bilgileri" form: NULL follows the automatic sources; hidden=false is the automatic state (published). */
-export const productCardFields = ["name", "description", "seo_title", "seo_description", "category_id", "hidden", "brand", "part_number"] as const;
+export const productCardFields = ["name", "description", "short_description", "seo_title", "seo_description", "category_id", "hidden", "brand", "part_number"] as const;
 /** The "Fiyat" form: VAT-included kuruş; campaign times as Istanbul wall clock "YYYY-MM-DDTHH:MM". NULL is the formula. */
 export const productPriceFields = ["price_kurus", "sale_price_kurus", "sale_from", "sale_until"] as const;
 /** The references card (#615): the supplier rows' OEM field hidden on the store; false is the automatic state (shown). */
@@ -12,7 +12,10 @@ export type ProductCardField = (typeof productCardFields)[number];
 export type ProductPriceField = (typeof productPriceFields)[number];
 export type ProductOverrideField = (typeof productOverrideFields)[number];
 export type ProductCardValues = {
-  name: string | null; description: string | null; seo_title: string | null; seo_description: string | null; category_id: number | null; hidden: boolean;
+  name: string | null; description: string | null;
+  /** The intro paragraph under the product page title (#697), at most 300 characters; no automatic source. */
+  short_description: string | null;
+  seo_title: string | null; seo_description: string | null; category_id: number | null; hidden: boolean;
   /** A master brand's name (brands.name) shown as the store brand (#602). */
   brand: string | null;
   /** The manufacturer part number shown in the store; supplier codes, orders and matching keep the supplier's code. */
@@ -24,6 +27,7 @@ export type ProductOverrideValues = ProductCardValues & ProductPriceValues & { h
 export const productOverrideLabels: Record<ProductOverrideField, string> = {
   name: "Mağaza ürün adı",
   description: "Açıklama",
+  short_description: "Kısa açıklama",
   seo_title: "SEO başlığı",
   seo_description: "SEO açıklaması",
   category_id: "Kategori",

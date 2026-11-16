@@ -6,6 +6,7 @@ import { CheckCircle2, LockKeyhole, Package, X } from "lucide-react";
 import { addToCart, loadCartSuggestions } from "@/app/(store)/sepet/actions";
 import { CartQuantity } from "./cart-quantity";
 import type { PurchasePreview, PurchaseState } from "@/modules/store/purchase-types";
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -63,17 +64,15 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
   },[state]);
   const product=variant==="product";
   return <>
-    <form action={action} className={cn("mb-4 flex gap-2",product&&"mb-5 items-center gap-2.5",className)}>
+    <form action={action} className={cn("buy-form",product&&"buy-form-product",className)}>
       <input type="hidden" name="productId" value={productId}/>
       <select aria-label={`${name} için adet`} name="quantity" defaultValue={1} disabled={!available || pending}
         onPointerEnter={()=>setAllQuantities(true)} onFocus={()=>setAllQuantities(true)}
-        className={cn("h-12 w-[66px] flex-[0_0_66px] cursor-pointer rounded-md border border-input bg-white px-3 py-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed max-[600px]:group-data-[view=grid]/listing:w-12 max-[600px]:group-data-[view=grid]/listing:flex-[0_0_48px] max-[600px]:group-data-[view=grid]/listing:px-2",
-          product&&"w-16 flex-[0_0_64px] rounded-[5px] py-2.5")}>
+        className={cn("buy-quantity",product&&"buy-quantity-product")}>
         {Array.from({length:allQuantities?quantities:Math.min(quantities,10)},(_,i)=><option key={i+1} value={i+1}>{i+1}</option>)}
       </select>
-      <Button type="submit" disabled={!available || pending}
-        className={cn("h-12 min-w-0 flex-1 rounded-md border-brand bg-brand px-2 py-[13px] text-sm font-medium text-white hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100 max-[600px]:group-data-[view=grid]/listing:px-1 max-[600px]:group-data-[view=grid]/listing:text-xs",
-          product&&"w-60 flex-none rounded-[5px] border-[#2e78c7] bg-[#2e78c7] font-semibold hover:bg-[#2168b1] disabled:text-[#7a8490] max-[750px]:w-auto max-[750px]:flex-1")}>{pending ? "Ekleniyor…" : "Sepete ekle"}</Button>
+      {/* ui/button's markup with one class (storefront.css) instead of ~940 characters per card. */}
+      <ButtonPrimitive type="submit" data-slot="button" disabled={!available || pending} className={cn("buy-button",product&&"buy-button-product")}>{pending ? "Ekleniyor…" : "Sepete ekle"}</ButtonPrimitive>
     </form>
     {state.error && <p className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]" role="alert">{state.error} <Link className="text-[#0065a5] underline" href="/sepet">Sepeti aç</Link></p>}
     <Dialog open={open} onOpenChange={setOpen}>
@@ -90,15 +89,15 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
             <Skeleton className="h-20 w-[60px]"/><div><Skeleton className="h-4 w-full"/><Skeleton className="mt-2 h-4 w-2/3"/><Skeleton className="mt-3 h-4 w-20"/></div><Skeleton className="h-[42px] w-[86px]"/>
           </div>)}</>}
           {suggestions?.map(p=><article key={p.id} className="grid grid-cols-[60px_1fr_auto] items-start gap-4 border-b border-[#dfe3e8] pt-[18px] pb-6 last:border-b-0 last:pb-0">
-          <Link className="flex h-20 items-center justify-center text-muted-foreground" href={p.href}>{p.image ? <Image className="max-h-20 max-w-[60px] object-contain" src={p.image} width={80} height={80} alt={p.name} unoptimized/> : <Package size={36}/>}</Link>
+          <Link className="flex h-20 items-center justify-center text-muted-foreground" href={p.href}>{p.image ? <Image className="max-h-20 max-w-[60px] object-contain" src={p.image} width={80} height={80} alt={p.name}/> : <Package size={36}/>}</Link>
           <div><Link className="block text-sm leading-5 font-medium text-foreground hover:text-primary" href={p.href}>{p.name}</Link><strong className="mt-2.5 mb-1 block text-sm text-[#007bc4]">{money(p.price)}</strong><small className="text-[13px] text-muted-foreground">KDV dahil · Kargo hariç</small></div>
           <form action={action}><input type="hidden" name="productId" value={p.id}/><input type="hidden" name="quantity" value="1"/><Button type="submit" variant="outline" className={cn(outline,"min-h-[42px] px-3 py-2.5 text-[13px]")} disabled={pending}>Sepete ekle</Button></form>
         </article>)}</section>}
         <section className="bg-[#f8f9f9] p-8 max-[760px]:row-start-1 max-[760px]:px-5 max-[760px]:py-7">
           <DialogTitle id={titleId} className="mb-9 flex items-center gap-2.5 text-2xl leading-8 font-semibold tracking-[-.5px] max-[760px]:mb-7 max-[760px]:text-[22px] max-[760px]:leading-7"><CheckCircle2 size={30} className="shrink-0 text-[#459938]"/>Ürün sepetine eklendi</DialogTitle>
           <div className="mb-8 flex items-start gap-6 text-sm leading-5">
-            <Link className="grid size-20 shrink-0 place-items-center rounded-[5px] border border-input bg-white text-muted-foreground" href={state.added.href}>{state.added.image ? <Image className="size-16 object-contain" src={state.added.image} width={80} height={80} alt={state.added.name} unoptimized/> : <Package size={36}/>}</Link>
-            <div><Link className="mb-2.5 block font-medium text-foreground hover:text-primary" href={state.added.href}>{state.added.name}</Link><div className="flex items-center gap-6 [&_select]:h-8 [&_select]:min-h-8 [&_select]:w-[54px] [&_select]:rounded-[5px] [&_select]:border [&_select]:border-input [&_select]:bg-white [&_select]:px-2 [&_select]:py-1 [&_select]:text-sm"><CartQuantity key={`${state.added.id}-${state.added.quantity}`} productId={state.added.id} name={state.added.code} quantity={state.added.quantity} maxQuantity={state.added.maxQuantity}/><strong className="text-sm font-medium">{money(state.added.price)}</strong></div></div>
+            <Link className="grid size-20 shrink-0 place-items-center rounded-[5px] border border-input bg-white text-muted-foreground" href={state.added.href}>{state.added.image ? <Image className="size-16 object-contain" src={state.added.image} width={80} height={80} alt={state.added.name}/> : <Package size={36}/>}</Link>
+            <div><Link className="mb-2.5 block font-medium text-foreground hover:text-primary" href={state.added.href}>{state.added.name}</Link><div className="flex items-center gap-6 [&_select]:h-8 [&_select]:min-h-8 [&_select]:w-[54px] [&_select]:rounded-[5px] [&_select]:border [&_select]:border-input [&_select]:bg-white [&_select]:px-2 [&_select]:py-1 [&_select]:text-sm"><CartQuantity key={`${state.added.id}-${state.added.quantity}`} productId={state.added.id} name={state.added.code} quantity={state.added.quantity} maxQuantity={state.added.maxQuantity} analyticsItem={catalogItem({id:state.added.id,name:state.added.itemName,brand:state.added.brand},state.added.price)}/><strong className="text-sm font-medium">{money(state.added.price)}</strong></div></div>
           </div>
           <DialogClose render={<Button variant="outline" className={cn(outline,"mb-4 w-full")}/>}>Alışverişe devam et</DialogClose>
           <Button className="h-auto min-h-12 w-full gap-2.5 rounded-[5px] border-[#007bc4] bg-[#007bc4] px-4 py-3 text-sm leading-5 font-semibold text-white hover:bg-[#006bb0]" nativeButton={false} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]"/>Siparişi tamamla</Button>

@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { CONSENT_MAX_AGE, consentSignals, parseConsent, serializeConsent } from "../src/lib/cookie-consent";
+import { CONSENT_MAX_AGE, consentBannerOpen, consentSignals, parseConsent, serializeConsent } from "../src/lib/cookie-consent";
 import { analyticsConfig } from "../src/modules/analytics/config";
-import { addToCart, catalogItem, cleanPageLocation, kurusToValue, search, selectItem, viewItem, viewItemList } from "../src/modules/analytics/events";
+import {
+  addPaymentInfo, addToCart, beginCheckout, catalogItem, cleanPageLocation, kurusToValue, purchase, removeFromCart, search, selectItem,
+  vatIncludedKurus, viewCart, viewItem, viewItemList,
+} from "../src/modules/analytics/events";
+import { PURCHASE_EVENT_WINDOW_DAYS, purchaseClaimAllowed, purchaseEventOpen } from "../src/modules/analytics/purchase";
 
 const now = Date.UTC(2026, 10, 15);
 
@@ -18,6 +22,16 @@ test("consent cookie: round trip, old versions, expiry and future records", () =
   assert.equal(parseConsent(serializeConsent({ analytics: true, marketing: true, savedAt: now + 600_000 }), now), null);
   assert.equal(parseConsent(null, now), null);
   assert.equal(parseConsent("2.2.0.1", now), null);
+});
+
+test("consent banner: open until a valid choice, and whenever the preferences are open", () => {
+  const valid = serializeConsent({ analytics: false, marketing: false, savedAt: now });
+  assert.equal(consentBannerOpen(null, false, now), true);
+  assert.equal(consentBannerOpen(valid, false, now), false);
+  assert.equal(consentBannerOpen(`1.1.1.${now / 1000}`, false, now), true);
+  assert.equal(consentBannerOpen(valid, false, now + CONSENT_MAX_AGE), true);
+  assert.equal(consentBannerOpen("garbage", false, now), true);
+  assert.equal(consentBannerOpen(valid, true, now), true);
 });
 
 test("consent signals follow the categories", () => {
@@ -53,6 +67,57 @@ test("events carry the visitor's price and a lira total", () => {
   assert.equal(selectItem({ listId: "fren", listName: "Fren", items: [item] }).item_list_id, "fren");
   const keys = JSON.stringify([added, list, search("fren"), item]).match(/"([a-z_]+)":/g) ?? [];
   assert.equal(keys.filter(key => /email|phone|name_|address/.test(key) || key === '"name":').length, 0);
+});
+
+test("funnel events: cart totals, removed quantity, payment type (#675)", () => {
+  const disc = catalogItem({ id: "p1", name: "Fren Diski BOSCH 0986", brand: "BOSCH" }, 112491, { quantity: 2, index: 0 });
+  const pad = catalogItem({ id: "p2", name: "Balata TRW GDB", brand: "TRW" }, 50050, { quantity: 1, index: 1 });
+  for (const event of [viewCart([disc, pad]), beginCheckout([disc, pad]), addPaymentInfo([disc, pad])]) {
+    assert.equal(event.currency, "TRY");
+    assert.equal(event.value, 2750.32);
+    assert.equal(event.items.length, 2);
+  }
+  assert.equal(addPaymentInfo([disc]).payment_type, "credit_card");
+  const removed = removeFromCart(disc, 1);
+  assert.equal(removed.value, 1124.91);
+  assert.equal(removed.items[0].quantity, 1);
+  assert.equal(disc.quantity, 2);
+});
+
+test("purchase: string transaction id, value + shipping = order total, VAT inside the value (#675)", () => {
+  const items = [catalogItem({ id: "p1", name: "Fren Diski", brand: "BOSCH" }, 6000, { quantity: 2, index: 0 })];
+  const event = purchase({ transactionId: String(1042), subtotalKurus: 12000, shippingKurus: 4990, taxKurus: vatIncludedKurus(12000, 20), items });
+  assert.equal(event.transaction_id, "1042");
+  assert.equal(typeof event.transaction_id, "string");
+  assert.equal(event.currency, "TRY");
+  assert.equal(event.value, 120);
+  assert.equal(event.shipping, 49.9);
+  assert.equal(Math.round((event.value + event.shipping) * 100), 16990);
+  assert.equal(event.tax, 20);
+  assert.equal(vatIncludedKurus(12000, 20), 2000);
+  assert.equal(vatIncludedKurus(12000, 0), 0);
+  assert.equal(vatIncludedKurus(11800, 18), 1800);
+  const keys = JSON.stringify([event, addPaymentInfo(items), viewCart(items)]).match(/"([a-z_]+)":/g) ?? [];
+  assert.equal(keys.filter(key => /email|phone|address|customer|note/.test(key)).length, 0);
+});
+
+test("purchase claim: GA4 id, consent and role gate the flag; the window is 7 days (#675)", () => {
+  const consent = (analytics: boolean) => serializeConsent({ analytics, marketing: false, savedAt: now });
+  const base = { ga4: "G-ABC123XYZ", role: undefined, consent: consent(true), now };
+  assert.equal(purchaseClaimAllowed(base), true);
+  assert.equal(purchaseClaimAllowed({ ...base, role: "service" }), true);
+  assert.equal(purchaseClaimAllowed({ ...base, consent: null }), false);
+  assert.equal(purchaseClaimAllowed({ ...base, consent: consent(false) }), false);
+  assert.equal(purchaseClaimAllowed({ ...base, consent: "garbage" }), false);
+  assert.equal(purchaseClaimAllowed({ ...base, role: "admin" }), false);
+  assert.equal(purchaseClaimAllowed({ ...base, ga4: null }), false);
+  const day = 86_400_000;
+  assert.equal(PURCHASE_EVENT_WINDOW_DAYS, 7);
+  assert.equal(purchaseEventOpen(null, new Date(now)), false);
+  assert.equal(purchaseEventOpen(new Date(now), new Date(now)), true);
+  assert.equal(purchaseEventOpen(new Date(now - 7 * day + 1000), new Date(now)), true);
+  assert.equal(purchaseEventOpen(new Date(now - 7 * day), new Date(now)), false);
+  assert.equal(purchaseEventOpen(new Date(now - 8 * day).toISOString(), new Date(now)), false);
 });
 
 function sources(dir: string): string[] {
@@ -155,4 +220,18 @@ test("page_location never carries the sign-in `next` parameter", async () => {
   window.gtag = (...args: unknown[]) => { window.dataLayer!.push(args); };
   assert.equal(track("select_item", { a: 1 }), true);
   assert.deepEqual(window.dataLayer[0], ["event", "select_item", { page_location: "https://getirbakim.com/giris", a: 1 }]);
+});
+
+test("canTrack: needs both the tag and analytics consent (#675)", async () => {
+  const { canTrack } = await import("../src/modules/analytics/track");
+  browser(`gb_consent=${serializeConsent({ analytics: true, marketing: false, savedAt: Date.now() })}`);
+  assert.equal(canTrack(), false);
+  window.gtag = () => undefined;
+  assert.equal(canTrack(), true);
+  browser("");
+  window.gtag = () => undefined;
+  assert.equal(canTrack(), false);
+  browser(`gb_consent=${serializeConsent({ analytics: false, marketing: true, savedAt: Date.now() })}`);
+  window.gtag = () => undefined;
+  assert.equal(canTrack(), false);
 });

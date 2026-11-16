@@ -9,7 +9,6 @@ import {PurchaseForm} from "@/components/purchase-form";
 import {ManufacturerBadge} from "@/components/manufacturer-badge";
 import type {ManufacturerLogo} from "@/modules/store/manufacturer-logos";
 import {displaySpecifications,translateSpecificationValue,type CardSpecification} from "@/modules/store/specification-translations";
-import {Badge} from "@/components/ui/badge";
 import {cn} from "@/lib/utils";
 import {campaignEndText,listPrice,saleUntil} from "@/modules/store/best-offer";
 import "@/app/catalog-card.css";
@@ -38,15 +37,15 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
    {brandClass&&<span className={cn("product-card-class",brandClass==="Premium"?"bg-[#d72b2b]":brandClass==="Budget"?"bg-[#f59e0b]":"bg-[#2e7d32]")} title={translateSpecificationValue(brandClass)} aria-label={"Marka sınıfı: "+translateSpecificationValue(brandClass)}>{brandClass==="Premium"||brandClass==="Budget"?<Image src={"/media/site/icons/"+brandClass.toLowerCase()+".svg"} width={16} height={16} alt="" unoptimized/>:<Gauge size={18}/>}</span>}
    <ManufacturerBadge brand={p.display_brand} logo={logo} className="product-card-maker"/>
   </div>
-  <Link className="product-card-picture" href={href} aria-label={title}>{image?<Image className="product-card-image" src={image.src} width={image.width} height={image.height} alt={title} loading="lazy" unoptimized/>:<PartArtImage kind={category?.art} className="product-card-art"/>}</Link>
+  <Link className="product-card-picture" href={href} aria-label={title}>{image?<Image className="product-card-image" src={image.src} width={240} height={240} alt={title} loading="lazy"/>:<PartArtImage kind={category?.art} className="product-card-art"/>}</Link>
   {p.supplier==="demo"&&<small className="block text-center text-[11px] text-muted-foreground">Örnek ürün</small>}
  </div>
  <div className="product-card-body">
  <div className="product-card-heading">
   <Link className="product-card-title" href={href}>{title}</Link>
   <div className="product-card-meta">
-   {fitsVehicle?<Badge className="h-auto shrink-0 rounded-[3px] border-0 bg-[#dcf2e6] px-1.5 py-0.5 text-[11px] leading-4 font-medium text-[#1e5e3e] [a]:hover:bg-[#cdebdb]" render={<Link href={href+"#uyumlu-araclar"}/>}>ARACINA UYAR</Badge>
-     :details?.vehicleSpecific&&<Badge className="h-auto shrink-0 rounded-[3px] border-0 bg-[#dfe3e8] px-1.5 py-0.5 text-[11px] leading-4 font-medium text-foreground [a]:hover:bg-[#d3d8de]" render={<Link href={href+"#uyumlu-araclar"}/>}>ARACA ÖZEL</Badge>}
+   {fitsVehicle?<Link data-slot="badge" data-variant="default" className="product-card-fit product-card-fit-match" href={href+"#uyumlu-araclar"}>ARACINA UYAR</Link>
+     :details?.vehicleSpecific&&<Link data-slot="badge" data-variant="default" className="product-card-fit product-card-fit-vehicle" href={href+"#uyumlu-araclar"}>ARACA ÖZEL</Link>}
    <span className="product-card-code" title={p.display_code}>Kod: {p.display_code}</span>
   </div>
  </div>
@@ -56,7 +55,7 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
   {p.price_kurus!==null&&<div className="product-card-vat">KDV dahil <span className="product-card-note">· Kargo hariç</span>{discounted&&<span className="product-card-note"> · Servisine özel fiyat</span>}{campaignEnd&&<span className="block">Kampanya {campaignEndText(campaignEnd)} tarihine kadar</span>}</div>}
   {p.unavailable?<Link className="product-card-stock font-medium text-[#0065c3] hover:underline" href={href+"#haber-ver"}><BellRing size={18} className="shrink-0"/>Gelince haber ver</Link>
    :<p className={cn("product-card-stock",!p.available&&"text-muted-foreground")}><Image className="shrink-0" src="/media/site/icons/calendar-check.svg" width={20} height={20} alt="" unoptimized/>{p.stock_label}</p>}
-  <PurchaseForm productId={p.offer_id??p.id} name={p.name} available={p.available&&p.price_kurus!==null} maxQuantity={p.max_quantity} className="group-data-[view=grid]/listing:order-3 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:hidden"/>
+  <PurchaseForm productId={p.offer_id??p.id} name={p.name} available={p.available&&p.price_kurus!==null} maxQuantity={p.max_quantity} className="product-card-form"/>
   <CompareCheckbox entry={{id:p.id,href,title,price,card}}/>
   <Link className="product-card-compliance" href="/bilgi/uyumluluk"><Info size={14} className="hidden"/>Güvenlik ve uyumluluk bilgileri</Link>
  </div></div></article>;

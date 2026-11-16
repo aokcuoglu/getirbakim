@@ -32,3 +32,11 @@ export async function getOverrideFitments(itemIds: string[]) {
 /** One store row's vehicle decisions, read once per request. */
 export const getItemFitments = cache(async (itemId: string): Promise<FitmentOverrides> =>
   (await getOverrideFitments([itemId])).get(itemId) ?? { added: [], removed: [] });
+
+/**
+ * The vehicle series whose model pages list a store row through its engine-level fits (storefront_model_fits, #674),
+ * read once per request. The product page links an engine-level row to its model page only when the series is here:
+ * the table follows a fitment change within seconds, and a link before that could end in the model page's 404.
+ */
+export const getItemModelFits = cache(async (itemId: string) => new Set((await db.query<{ model_id: number }>(
+  "SELECT model_id FROM storefront_model_fits WHERE supplier_item_id=$1", [itemId])).rows.map(row => row.model_id)));

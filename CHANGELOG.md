@@ -2,6 +2,37 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.28.0 — 2026-11-16
+
+Release of `dev` since v0.27.0 (22 pull requests): manufacturer and model × category pages, links from products to model pages, and a faster storefront. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Manufacturer pages** at `/marka/<slug>` listing every supplier label of a master brand; indexable from 10 products, non-manufacturer groups (orijinal, taiwan, korea…) `noindex`; `manufacturers.xml` sitemap; `/katalog?brand=` 301s to the manufacturer page ([#776](https://github.com/aokcuoglu/getirbakim/pull/776)).
+- **Model × category pages** (`/kategori/<kategori>/<marka>/<model>`), a thin-content gate for model, model × category and make × category listings (1–9 products `noindex`, 0 products 404), only non-empty categories on make and model pages, `models.xml` and `model-categories.xml` sitemaps ([#781](https://github.com/aokcuoglu/getirbakim/pull/781)).
+- **Links from fitments to model pages**, model summary with image, body types and engine codes, a motorcycle section on make pages, Turkish market names (Egea, Symbol, Clio Symbol, Accent Era, Accent Blue); make listings now include description fitments ([#779](https://github.com/aokcuoglu/getirbakim/pull/779)).
+- **Product short description** under the product title, editable in the admin, used in the meta description ([#765](https://github.com/aokcuoglu/getirbakim/pull/765)).
+- Admin-entered content (name, description, short description, images, specs, references, added vehicles) counts as an indexing signal ([#768](https://github.com/aokcuoglu/getirbakim/pull/768)).
+- Engine-oil filter honours admin specification overrides ([#761](https://github.com/aokcuoglu/getirbakim/pull/761)); equivalent search also matches enrichment OEM numbers ([#753](https://github.com/aokcuoglu/getirbakim/pull/753)); warning before leaving a product tab with unsaved input ([#748](https://github.com/aokcuoglu/getirbakim/pull/748)).
+- Cart and checkout funnel events with an exactly-once GA4 `purchase` ([#754](https://github.com/aokcuoglu/getirbakim/pull/754)); per-code Başbuğ checkout check with a marked fallback when a supplier API fails ([#769](https://github.com/aokcuoglu/getirbakim/pull/769)); clearer order detail and payment screens ([#746](https://github.com/aokcuoglu/getirbakim/pull/746)).
+
+### Changed
+- Performance: mobile LCP 6.4 s → 1.8 s on the home page and 1.5–1.8 s on category pages (Inter subsets, sized and preloaded hero images, cookie banner rendered on the server) ([#783](https://github.com/aokcuoglu/getirbakim/pull/783)); product and category images through Next image optimization (home images 4.9 MB → 0.14–0.35 MB) ([#772](https://github.com/aokcuoglu/getirbakim/pull/772)); catalog card and header/footer classes moved to component CSS (listings −121 to −144 KB HTML) ([#780](https://github.com/aokcuoglu/getirbakim/pull/780)); price-sorted listings cache their first pages' order ([#779](https://github.com/aokcuoglu/getirbakim/pull/779)).
+- Storefront sync rebuilds fitments only for the products in the bundle plus outdated matcher versions; `verify:fitment --drift-only` added ([#762](https://github.com/aokcuoglu/getirbakim/pull/762)).
+- Database tests no longer depend on the shared-links try-lock ([#760](https://github.com/aokcuoglu/getirbakim/pull/760)).
+
+### Fixed
+- Font-swap layout shift on catalog and category pages; Android Roboto fallback metrics; `/kategori/yag` mobile filter-panel shift ([#756](https://github.com/aokcuoglu/getirbakim/pull/756), [#777](https://github.com/aokcuoglu/getirbakim/pull/777)).
+- Cart dialog suggestions no longer offer parts of the same type ([#747](https://github.com/aokcuoglu/getirbakim/pull/747)); TAMI popup returns on local dev ([#745](https://github.com/aokcuoglu/getirbakim/pull/745)).
+- Spareto checkpoint streamed so it no longer runs out of memory ([#758](https://github.com/aokcuoglu/getirbakim/pull/758)); deterministic purchase-event test ([#775](https://github.com/aokcuoglu/getirbakim/pull/775)).
+
+### Deploy and operations
+- `db/*.sql`: two idempotent nullable columns (`product_overrides.short_description`, #754's commerce column); `db:setup` runs as part of the AWS release as usual. Vehicle oil specs are unchanged.
+- **Image optimization (#772):** the app task must have a writable `.next/cache` (no `readonlyRootFilesystem`, or a writable volume/tmpfs); otherwise every image is re-encoded on each request. Watch app CPU/RSS after the release; CloudFront `/_next/image*` behaviour is tracked in #633.
+- **Scoped fitment rebuild (#762):** before the first storefront import after this release, run `scripts/verify-product-fitments.ts --drift-only` as an operations task; if it reports drift, run `scripts/rebuild-product-fitments.ts` once without arguments.
+- **GA4 (#754):** update the cookie policy (#749) before enabling `GA4_MEASUREMENT_ID` in production.
+- New sitemap files `manufacturers.xml`, `models.xml`, `model-categories.xml`; the model sitemaps take seconds on a cold cache — measure on RDS and warm them (#778). Large make/manufacturer pages are slow on a cold cache (#771).
+- The cookie banner HTML now depends on the `gb_consent` cookie; if CloudFront ever caches anonymous HTML it must vary on it.
+
 ## v0.27.0 — 2026-11-15
 
 Release of `dev` since v0.26.0 (21 pull requests): admin product page tabs, cart suggestions, and a faster storefront, cart and checkout. Not deployed by this release; AWS production is released separately through `release-aws.yml`.

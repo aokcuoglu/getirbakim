@@ -1,7 +1,14 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { CONSENT_COOKIE } from "@/lib/cookie-consent";
+import { currentAccount } from "@/modules/auth/session";
+import { analyticsConfig } from "@/modules/analytics/config";
+import { purchaseClaimAllowed } from "@/modules/analytics/purchase";
+import type { PurchaseEvent } from "@/modules/analytics/events";
+import { claimPurchase } from "@/modules/store/purchase-event";
 import { currentOrder, currentOrderOwners } from "@/modules/store/order-read";
 import { INTERACTIVE_RECONCILE_MS, reconcileOrderPayments } from "@/modules/payments/checkout";
 import { cancelOrderByCustomer, type CustomerCancelResult } from "@/modules/store/customer-cancel";
@@ -42,4 +49,23 @@ export async function cancelOrder(form: FormData) {
   revalidatePath("/siparisler");
   revalidatePath("/yonetim", "layout");
   redirect(`/siparis/${orderId}?iptal=${result === "error" ? "hata" : cancelOutcome[result]}`);
+}
+
+/**
+ * The order's GA4 purchase event, at most once (#675). Refused before the once-only flag is touched when no GA4 id is
+ * configured, the visitor is an admin or the request carries no analytics consent; ownership comes from the session.
+ */
+export async function claimPurchaseEvent(orderId: string): Promise<PurchaseEvent | null> {
+  if (!z.uuid().safeParse(orderId).success) return null;
+  try {
+    const [account, cookieStore] = await Promise.all([currentAccount(), cookies()]);
+    const allowed = purchaseClaimAllowed({
+      ga4: analyticsConfig().ga4, role: account?.role, consent: cookieStore.get(CONSENT_COOKIE)?.value ?? null, now: Date.now(),
+    });
+    if (!allowed) return null;
+    return await claimPurchase(orderId, await currentOrderOwners());
+  } catch (error) {
+    console.error("Purchase event claim failed", { orderId, error: error instanceof Error ? error.message : error });
+    return null;
+  }
 }

@@ -19,13 +19,15 @@ import { applyReferenceOverrides, gtinProperty } from "@/modules/store/product-r
 import { getItemSpecs } from "@/modules/store/product-specs";
 import { translateSpecificationLabel, translateSpecificationList } from "@/modules/store/specification-translations";
 import { applySpecOverrides, mergeSpecificationRows, pageSpecifications } from "@/modules/store/product-spec-display";
-import { getItemFitments } from "@/modules/store/product-fitments";
+import { getItemFitments, getItemModelFits } from "@/modules/store/product-fitments";
+import { getModelPagePaths } from "@/modules/store/vehicle-model-groups.server";
 import { applyFitmentOverrides, modelFallbacks } from "@/modules/store/product-fitment-display";
-import { productDescription, productMeta, productTitle, shownPartNumber, withoutBrandPrefix } from "@/modules/store/product-override-display";
+import { productDescription, productMeta, productSeoText, productTitle, shownPartNumber, withoutBrandPrefix } from "@/modules/store/product-override-display";
 import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import { ManufacturerBadge } from "@/components/manufacturer-badge";
+import { manufacturerPathForLabel } from "@/modules/store/manufacturers.server";
 import { CopyCodeButton } from "@/components/copy-code-button";
 import { ProductGallery } from "@/components/product-gallery";
 import { getItemImages } from "@/modules/store/product-images";
@@ -46,7 +48,7 @@ import { TrackViewItem } from "@/components/privacy/track-events";
 import { catalogItem } from "@/modules/analytics/events";
 import { breadcrumbJsonLd, productJsonLd, productTrail } from "@/modules/seo/structured-data";
 import { campaignEndText, listPrice, saleUntil } from "@/modules/store/best-offer";
-import { hasMinimumContent, productContent, productIndexable } from "@/modules/seo/indexing";
+import { hasAdminContent, hasMinimumContent, productContent, productIndexable } from "@/modules/seo/indexing";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdFromSegment, productIdPath } from "@/modules/seo/product-id";
 
@@ -76,11 +78,19 @@ async function vehicleModels(enrichment: { vehicleModels: string[]; vehicles: { 
   if (!fallbacks.description) return { confirmed: [], all: [] };
   return { confirmed: [], all: (await descriptionFitments(productId)).map(row => `${row.brand} ${row.model}`) };
 }
-// The description models are read here only when the enrichment's signals fall short; the metadata and the page share the cached read.
-async function indexable(product: Parameters<typeof productIndexable>[0] & { id: string; oem: string }, enrichment: unknown) {
-  const content = productContent({ enrichment, descriptionModels: [], oem: product.oem });
+// The signals are read in stages, cheapest first: what the metadata already holds (enrichment, OEM, the admin's text, uploads
+// and added vehicles), then the admin's references and specifications (#664), then the description models; the metadata and
+// the page share the cached reads.
+type AdminEditsInHand = { override: Awaited<ReturnType<typeof getItemOverride>>; uploads: Awaited<ReturnType<typeof getItemImages>>;
+  fitmentOverrides: Awaited<ReturnType<typeof getItemFitments>> };
+async function indexable(product: Parameters<typeof productIndexable>[0] & { id: string; oem: string }, enrichment: unknown, edits: AdminEditsInHand) {
+  const inHand = { override: edits.override, images: edits.uploads.images, addedVehicles: edits.fitmentOverrides.added };
+  const content = productContent({ enrichment, descriptionModels: [], oem: product.oem, adminContent: hasAdminContent({ ...inHand, specs: [], references: [] }) });
   if (product.source === "store" || hasMinimumContent(content)) return productIndexable(product, content);
-  return productIndexable(product, productContent({ enrichment, descriptionModels: await descriptionFitments(product.id), oem: product.oem }));
+  const [references, specs] = await Promise.all([getItemReferences(product.id), getItemSpecs(product.id)]);
+  const withAdmin = { ...content, adminContent: hasAdminContent({ ...inHand, specs, references }) };
+  if (hasMinimumContent(withAdmin)) return productIndexable(product, withAdmin);
+  return productIndexable(product, { ...withAdmin, descriptionFitment: (await descriptionFitments(product.id)).length > 0 });
 }
 
 // The route segment is "<slug>-<id>" (#640): only the id at its end finds the product, the slug is for people and engines.
@@ -94,7 +104,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   if (!product) return { title: "Ürün bulunamadı", robots: { index: false } };
   const path = productPath(product);
   if (`/urun/${segment}` !== path) return {};
-  // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description.
+  // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description;
+  // the template's text is the admin's short description (#697) before the long description.
   const [override, enrichment, uploads, fitmentOverrides] = await Promise.all([getItemOverride(product.id),
     productEnrichment(product.id, product.code, product.brand), getItemImages(product.id), getItemFitments(product.id)]);
   const description = productDescription(override, enrichment?.description, product.description);
@@ -103,7 +114,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const hint = `${product.name} ${product.description}`;
   const meta = productMeta(override, {
     title: productSeoTitle({ brand: product.display_brand, name, partNumber: product.display_code, vehicles: vehicles.confirmed, hint }),
-    description: productSeoDescription({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles: vehicles.all, text: description, hint }),
+    description: productSeoDescription({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles: vehicles.all, text: productSeoText(override, description), hint }),
   });
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
@@ -113,7 +124,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     alternates: { canonical: path },
     openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description, url: path,
       images: [socialImage(images, meta.title, defaultSocialImage)] },
-    robots: await indexable(product, enrichment) ? undefined : { index: false, follow: true },
+    robots: await indexable(product, enrichment, { override, uploads, fitmentOverrides }) ? undefined : { index: false, follow: true },
   };
 }
 
@@ -135,8 +146,8 @@ export default async function Detail({ params, searchParams }: { params: Promise
   if (!product) notFound();
   // The same product at another spelling (bare id, stale slug, upper case id) has one permanent address.
   if (`/urun/${segment}` !== productPath(product)) permanentRedirect(withQuery(productPath(product)));
-  const [enrichment, override, uploads, referenceOverrides, specOverrides, fitmentOverrides] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id),
-    getItemImages(product.id), getItemReferences(product.id), getItemSpecs(product.id), getItemFitments(product.id)]);
+  const [enrichment, override, uploads, referenceOverrides, specOverrides, fitmentOverrides, modelFits] = await Promise.all([productEnrichment(product.id, product.code, product.brand), getItemOverride(product.id),
+    getItemImages(product.id), getItemReferences(product.id), getItemSpecs(product.id), getItemFitments(product.id), getItemModelFits(product.id)]);
   // The enrichment's vehicles without the types the admin removed, with the ones the admin added (#583).
   const vehicles = applyFitmentOverrides(enrichment?.vehicles ?? [], fitmentOverrides);
   const fallbacks = modelFallbacks(fitmentOverrides, vehicles, enrichment?.vehicleModels ?? []);
@@ -146,7 +157,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
   // The admin's uploads (#581) come first; the enrichment image follows unless the admin hid it.
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
-  const logos = await getManufacturerLogos([product.display_brand]);
+  const [logos, manufacturerHref] = await Promise.all([getManufacturerLogos([product.display_brand]), manufacturerPathForLabel(product.display_brand)]);
   const account = await currentAccount();
   const isB2B = Boolean(account?.approved && account.role === "service");
   const storeCategories=await getStoreCategories();
@@ -169,9 +180,11 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const title = productTitle(override, enrichment?.displayName, shownProductName(product));
   const heading = titleWithoutIdentity(title, brand, displayPartNumber);
   const description = productDescription(override, enrichment?.description, product.description);
+  // The admin's intro under the title (#697); without one nothing is rendered and no space is kept.
+  const intro = override?.short_description?.trim() || null;
   // The markup is the same for every visitor: it reads the product's own price, never `price`, an account or the garage.
   const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: heading, path: productPath(product) });
-  const structuredProduct = productJsonLd({ supplier: product.supplier, name: title, description: description || undefined, path: productPath(product), sku: product.code, mpn: displayPartNumber, brand,
+  const structuredProduct = productJsonLd({ supplier: product.supplier, name: title, description: description || intro || undefined, path: productPath(product), sku: product.code, mpn: displayPartNumber, brand,
     images: images.map(image => image.src), gtin: gtin ? { property: gtin, value: refs.eans[0] } : null,
     category: productCategoryPath.map(node => node.name).join(" > ") || category?.name,
     priceKurus: product.price_kurus, available: product.available, stockLabel: product.stock_label, unavailable: product.unavailable,
@@ -182,6 +195,10 @@ export default async function Detail({ params, searchParams }: { params: Promise
   // Without engine-level TecDoc data, the models named in the supplier's description (#392) can only make a garage
   // vehicle "likely": they never name an engine type.
   const descriptionModels = fallbacks.description ? await descriptionFitments(product.id) : [];
+  // Model page links (#674): an engine-level row only once the model table lists the product (until the link sync
+  // catches up the page could be a 404); the description's models are the very rows the model page reads.
+  const linkedModels = [...vehicles.flatMap(row => row.modelId && modelFits.has(row.modelId) ? [row.modelId] : []), ...descriptionModels.map(row => row.modelId)];
+  const modelPaths = linkedModels.length ? await getModelPagePaths(linkedModels) : new Map<number, string>();
   const fitment = vehicle && fitmentLevel(await fitmentVehicle(vehicle),
     vehicles.length ? vehicles : descriptionModels.map(row => ({ vehicleTypeId: null, modelId: row.modelId })), fitmentOverrides.removed);
   // The enrichment's specifications with the admin's edited, hidden and added keys (#603), labelled in Turkish like the catalog cards (#622).
@@ -238,11 +255,12 @@ export default async function Detail({ params, searchParams }: { params: Promise
     </Breadcrumb>
     <div className="grid grid-cols-2 items-start gap-4 max-[750px]:grid-cols-1 max-[750px]:gap-3">
       <div className="relative min-w-0 max-[750px]:pt-8">
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-1 flex min-h-9 items-center gap-5"><ManufacturerBadge brand={brand} logo={logos.get(brand)} className="inline-flex items-center rounded-[20px] border border-[#e12d32] bg-white px-3.5 py-1 font-medium"/>{product.supplier === "demo" && <span className="text-xs text-[#65758a]">Sentetik örnek ürün</span>}</div>
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-1 flex min-h-9 items-center gap-5"><ManufacturerBadge brand={brand} logo={logos.get(brand)} href={manufacturerHref ?? undefined} className="inline-flex items-center rounded-[20px] border border-[#e12d32] bg-white px-3.5 py-1 font-medium"/>{product.supplier === "demo" && <span className="text-xs text-[#65758a]">Sentetik örnek ürün</span>}</div>
         {images.length ? <ProductGallery key={product.id} images={images} alt={`${brand} ${displayPartNumber} ${title}`}/> : <div className="flex h-[540px] items-center justify-center p-12 max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3"><PartArt kind={category?.art} className="h-[400px] w-full"/></div>}
       </div>
       <div>
         <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{heading}</h1>
+        {intro && <p className="mb-3 text-[15px] leading-6 wrap-anywhere text-[#465a70]">{intro}</p>}
         {hasFitment && <p className="mb-3.5 text-[13px] leading-[21px] text-[#53677d]">Uyumlu araçlar: {fitmentSummary.slice(0, 3).map(vehicleSeriesLabel).join(", ")} <a className="font-medium whitespace-nowrap text-[#0069c7] hover:underline" href="#uyumlu-araclar">Tümünü göster</a></p>}
         <dl className="my-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
           {brand && <div className="flex items-center gap-2"><dt className="text-[#53677d]">Marka</dt><dd className="m-0 font-semibold">{brand}</dd></div>}
@@ -285,8 +303,13 @@ export default async function Detail({ params, searchParams }: { params: Promise
         <dl className="m-0 grid grid-flow-col grid-cols-2 grid-rows-[repeat(var(--spec-rows,5),auto)] gap-x-14 max-[1000px]:gap-x-6 max-[750px]:block" style={{ "--spec-rows": Math.ceil(specificationRows.length / 2) } as CSSProperties}>{specificationRows.map(([label, value]) => <div key={label} className="spec-row"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium wrap-anywhere">{value}</dd></div>)}</dl>
         {description && <p className="mt-6 leading-6 whitespace-pre-line text-[#53677d]">{description}</p>}
       </section>
-      {vehicles.length > 0 ? <ProductFitment vehicles={vehicles.map(row => ({ ...row, ...fitmentLabels(row, makeNames) }))}/> : fallbacks.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{fallbacks.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{vehicleSeriesLabel(model)}</span>)}</div><p>Motor ve üretim yılı uyumluluğunu OEM numarasıyla kontrol et.</p></section>}
-      {descriptionModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{descriptionModels.map(row => <span key={row.modelId} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{vehicleSeriesLabel(`${row.brand} ${row.model}`)}{describeYears(row) && <span className="text-[#53677d]"> · {describeYears(row)}</span>}</span>)}</div><p className="mt-3 text-[#53677d]">Bu liste tedarikçinin ürün açıklamasından çıkarıldı; motor tipi doğrulanmadı. Siparişten önce OEM numarasıyla kontrol et.</p></section>}
+      {vehicles.length > 0 ? <ProductFitment vehicles={vehicles.map(row => ({ ...row, ...fitmentLabels(row, makeNames), modelHref: row.modelId && modelFits.has(row.modelId) ? modelPaths.get(row.modelId) ?? null : null }))}/> : fallbacks.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{fallbacks.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{vehicleSeriesLabel(model)}</span>)}</div><p>Motor ve üretim yılı uyumluluğunu OEM numarasıyla kontrol et.</p></section>}
+      {descriptionModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{descriptionModels.map(row => {
+        const label = <>{vehicleSeriesLabel(`${row.brand} ${row.model}`)}{describeYears(row) && <span className="text-[#53677d]"> · {describeYears(row)}</span>}</>, href = modelPaths.get(row.modelId);
+        // A linked model (#674) reads as a link at rest too: blue text and an arrow, not only on hover.
+        return href ? <Link key={row.modelId} prefetch={false} href={href} className="inline-flex items-center gap-1.5 rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3 text-[#0065c3] transition-colors hover:border-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3]"><span>{label}</span><ChevronRight size={15} aria-hidden="true" className="shrink-0"/></Link>
+          : <span key={row.modelId} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{label}</span>;
+      })}</div><p className="mt-3 text-[#53677d]">Bu liste tedarikçinin ürün açıklamasından çıkarıldı; motor tipi doğrulanmadı. Siparişten önce OEM numarasıyla kontrol et.</p></section>}
       {referenceRows.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 className={sectionTitle}>{brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]" tabIndex={0} aria-label="OEM ve muadil numaraları">{referenceRows.map(([brand, codes]) => <div key={brand} className="reference-row"><dt className="text-[#53677d]">{brand}</dt><dd className="reference-codes">{codes.map(({ code, href }) => href ? <Link key={code} className="text-[#0065c3] hover:underline focus-visible:underline" href={href}>{code}</Link> : <span key={code}>{code}</span>)}</dd></div>)}</dl></section>}
       <section className="mt-[42px] flex scroll-mt-[110px] gap-5 border-t border-[#dce2e9] pt-9" id="urun-yardim"><Headphones size={30} className="shrink-0"/><div><h2 className={cn(sectionTitle, "mb-3 max-[750px]:mb-3")}>Bu ürün hakkında soruların mı var?</h2><p className="text-[#53677d]">{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link className="inline-flex items-center gap-1.5 font-medium text-[#0065c3] hover:underline" href="/bilgi/yardim">Yardım merkezine git <ChevronRight size={15}/></Link></div></section>
     </div>

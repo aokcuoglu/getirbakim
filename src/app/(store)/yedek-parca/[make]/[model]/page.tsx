@@ -15,6 +15,6 @@ export async function generateMetadata(props:Props) {
 
 // A vehicle model's parts (#639): the make page's listing narrowed to one model family and generation.
 export default async function ModelParts(props:Props) {
- const {query,make,model,modelTotal}=await load(props);
- return <CatalogView params={query} make={make} model={model} modelTotal={modelTotal}/>;
+ const {query,make,model,plainTotal}=await load(props);
+ return <CatalogView params={query} make={make} model={model} plainTotal={plainTotal}/>;
 }

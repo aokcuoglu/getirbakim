@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
-import { contentSignals, hasMinimumContent, minimumContentSql, productContent, productIndexable, productIndexPolicy, type ProductContent }
+import { contentSignals, hasAdminContent, hasMinimumContent, minimumContentSql, productContent, productIndexable, productIndexPolicy, type ProductContent }
   from "../src/modules/seo/indexing";
 import { absoluteUrl, categoryPath, makePath } from "../src/modules/seo/paths";
 import { productPath } from "../src/modules/seo/product-path";
@@ -17,28 +17,48 @@ import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources
 
 describe("sitemap helpers", () => {
   test("productIndexable: demo and unavailable cards are noindex, store rows are indexed, supplier rows need minimum content", () => {
-    const bare: ProductContent = { enrichment: false, descriptionFitment: false, supplierOem: false };
-    const full: ProductContent = { enrichment: true, descriptionFitment: true, supplierOem: true };
+    const bare: ProductContent = { enrichment: false, descriptionFitment: false, supplierOem: false, adminContent: false };
+    const full: ProductContent = { enrichment: true, descriptionFitment: true, supplierOem: true, adminContent: true };
     assert.equal(productIndexable({ supplier: "demo", source: "store" }, full), false);
     assert.equal(productIndexable({ supplier: "basbug", source: "store" }, bare), true);
     assert.equal(productIndexable({ supplier: "basbug", source: "supplier", unavailable: true }, full), false);
     assert.equal(productIndexable({ supplier: "basbug", source: "supplier" }, bare), false);
     assert.equal(productIndexable({ supplier: "dinamik", source: "supplier", unavailable: false }, full), true);
-    for (const signal of ["enrichment", "descriptionFitment", "supplierOem"] as const) {
+    for (const signal of ["enrichment", "descriptionFitment", "supplierOem", "adminContent"] as const) {
       assert.equal(productIndexable({ supplier: "basbug", source: "supplier" }, { ...bare, [signal]: true }), true, signal);
     }
-    assert.deepEqual(productIndexPolicy.minimumContent, ["enrichment", "descriptionFitment", "supplierOem"]);
+    assert.deepEqual(productIndexPolicy.minimumContent, ["enrichment", "descriptionFitment", "supplierOem", "adminContent"]);
     assert.equal(productIndexPolicy.supplierCatalog, true);
     assert.equal(productIndexPolicy.unavailable, false);
   });
 
   test("productContent reads the page's loaders; the SQL condition holds every minimum-content signal", () => {
-    assert.deepEqual(productContent({ enrichment: null, descriptionModels: [], oem: "" }), { enrichment: false, descriptionFitment: false, supplierOem: false });
-    assert.deepEqual(productContent({ enrichment: {}, descriptionModels: [{}], oem: "1K0 129 620" }), { enrichment: true, descriptionFitment: true, supplierOem: true });
-    assert.equal(hasMinimumContent({ enrichment: false, descriptionFitment: false, supplierOem: true }), true);
-    assert.equal(hasMinimumContent({ enrichment: false, descriptionFitment: false, supplierOem: false }), false);
+    assert.deepEqual(productContent({ enrichment: null, descriptionModels: [], oem: "", adminContent: false }),
+      { enrichment: false, descriptionFitment: false, supplierOem: false, adminContent: false });
+    assert.deepEqual(productContent({ enrichment: {}, descriptionModels: [{}], oem: "1K0 129 620", adminContent: true }),
+      { enrichment: true, descriptionFitment: true, supplierOem: true, adminContent: true });
+    assert.equal(hasMinimumContent({ enrichment: false, descriptionFitment: false, supplierOem: true, adminContent: false }), true);
+    assert.equal(hasMinimumContent({ enrichment: false, descriptionFitment: false, supplierOem: false, adminContent: true }), true);
+    assert.equal(hasMinimumContent({ enrichment: false, descriptionFitment: false, supplierOem: false, adminContent: false }), false);
     const sql = minimumContentSql();
     for (const signal of productIndexPolicy.minimumContent) assert.ok(sql.includes(contentSignals[signal].sql), signal);
+  });
+
+  test("hasAdminContent counts what an admin wrote or added, not SEO text or hide decisions (#664)", () => {
+    const none = { override: null, images: [], specs: [], references: [], addedVehicles: [] };
+    const override = { name: null, description: null, short_description: null };
+    assert.equal(hasAdminContent(none), false);
+    assert.equal(hasAdminContent({ ...none, override }), false);
+    assert.equal(hasAdminContent({ ...none, override: { ...override, name: "   " } }), false);
+    assert.equal(hasAdminContent({ ...none, override: { ...override, name: "\n" } }), false);
+    assert.equal(hasAdminContent({ ...none, specs: [{ action: "hide" }], references: [{ action: "hide" }] }), false);
+    assert.equal(hasAdminContent({ ...none, override: { ...override, name: "Ad" } }), true);
+    assert.equal(hasAdminContent({ ...none, override: { ...override, description: "Açıklama" } }), true);
+    assert.equal(hasAdminContent({ ...none, override: { ...override, short_description: "Kısa" } }), true);
+    assert.equal(hasAdminContent({ ...none, images: [{}] }), true);
+    assert.equal(hasAdminContent({ ...none, specs: [{ action: "hide" }, { action: "set" }] }), true);
+    assert.equal(hasAdminContent({ ...none, references: [{ action: "add" }] }), true);
+    assert.equal(hasAdminContent({ ...none, addedVehicles: [{}] }), true);
   });
 
   test("product files cover the uuid space in order, without gaps or overlaps", () => {
@@ -55,12 +75,15 @@ describe("sitemap helpers", () => {
 
   test("file names round-trip; unknown names are rejected", () => {
     const files = sitemapFiles();
-    assert.equal(files.length, 3 + productChunks);
-    assert.deepEqual(files.slice(0, 4), ["pages.xml", "categories.xml", "makes.xml", "products-00.xml"]);
+    assert.equal(files.length, 6 + productChunks);
+    assert.deepEqual(files.slice(0, 7), ["pages.xml", "categories.xml", "makes.xml", "manufacturers.xml", "models.xml", "model-categories.xml", "products-00.xml"]);
     assert.equal(files.at(-1), "products-63.xml");
     assert.deepEqual(parseSitemapFile("products-07.xml"), { kind: "products", index: 7 });
+    assert.deepEqual(parseSitemapFile("manufacturers.xml"), { kind: "manufacturers" });
+    assert.deepEqual(parseSitemapFile("models.xml"), { kind: "models" });
+    assert.deepEqual(parseSitemapFile("model-categories.xml"), { kind: "modelCategories" });
     assert.deepEqual(files.map(file => parseSitemapFile(file)).filter(Boolean).length, files.length);
-    for (const bad of ["products-64.xml", "products-7.xml", "x.xml", "pages", "products-00.xml.gz"]) assert.equal(parseSitemapFile(bad), null, bad);
+    for (const bad of ["products-64.xml", "products-7.xml", "x.xml", "pages", "products-00.xml.gz", "model_categories.xml", "models"]) assert.equal(parseSitemapFile(bad), null, bad);
   });
 
   test("XML is escaped and a file stops at the URL limit", () => {
@@ -119,6 +142,7 @@ describe("sitemap queries", () => {
   let catalog: typeof import("../src/modules/store/catalog");
   let enrichments: typeof import("../src/modules/store/product-enrichment");
   let fitments: typeof import("../src/modules/store/description-fitment.server");
+  let pageAdminContent: (itemId: string) => Promise<boolean>;
   let closeDb: () => Promise<void>;
   const ids: Record<string, string> = {};
   const [basbug, , dinamik] = storefrontCompanies();
@@ -203,19 +227,65 @@ describe("sitemap queries", () => {
     catalog = catalogModule;
     enrichments = enrichmentModule;
     fitments = fitmentModule;
+    const [overrideModule, imageModule, referenceModule, specModule, fitmentOverrideModule] = await Promise.all([import("../src/modules/store/product-overrides"),
+      import("../src/modules/store/product-images"), import("../src/modules/store/product-references"), import("../src/modules/store/product-specs"),
+      import("../src/modules/store/product-fitments")]);
+    // The page's loaders of the admin's edits, as the metadata reads them.
+    pageAdminContent = async itemId => {
+      const [override, uploads, references, specs, fitmentOverrides] = await Promise.all([overrideModule.getItemOverride(itemId), imageModule.getItemImages(itemId),
+        referenceModule.getItemReferences(itemId), specModule.getItemSpecs(itemId), fitmentOverrideModule.getItemFitments(itemId)]);
+      return hasAdminContent({ override, images: uploads.images, specs, references, addedVehicles: fitmentOverrides.added });
+    };
     closeDb = () => db.end();
+    // Admin content (#664): signal-less rows whose product carries an admin edit. Sources first, so the follow-sources
+    // trigger has no edit to project while they are linked.
+    const adminKeys = ["adminName", "adminDescription", "adminShort", "adminImage", "adminSpec", "adminRef", "adminVehicle", "adminSeoOnly", "adminHideOnly", "adminBlankName", "adminSecondary", "adminSecondaryRow"];
+    for (const [index, key] of adminKeys.entries()) await item(key, { code: `ADM ${9000 + index}`, brand: "ADMINMARKA" });
+    const product: Record<string, string> = {};
+    for (const key of adminKeys.filter(key => key !== "adminSecondaryRow")) {
+      product[key] = (await schema.pool.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code) VALUES('ADMINMARKA',$1,$2,'ADMINMARKA',$3) RETURNING id::text`,
+        [key.toUpperCase(), `ADM ${key}`, key])).rows[0].id;
+      await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [ids[key], product[key]]);
+    }
+    const override = (key: string, columns: string, values: string) => schema.pool.query(`INSERT INTO product_overrides(product_id,${columns}) VALUES($1,${values})`, [product[key]]);
+    // A grouped secondary row shares its primary's product: only the primary is listed, once.
+    await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [ids.adminSecondaryRow, product.adminSecondary]);
+    await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1)", [ids.adminSecondary, ids.adminSecondaryRow]);
+    await override("adminSecondary", "short_description", "'Kısa'");
+    // Only a line break: neither the SQL nor the page counts it.
+    await override("adminBlankName", "name", "E'\\n'");
+    await override("adminName", "name", "'Yönetici adı'");
+    await override("adminDescription", "description", "'Yönetici açıklaması'");
+    await override("adminShort", "short_description", "'Kısa açıklama'");
+    // 101 is a category with a listed product already; 102 and 200 would count as a direct category of their own.
+    await override("adminSeoOnly", "seo_title,seo_description,category_id", "'SEO başlığı','SEO açıklaması',101");
+    const media = (await schema.pool.query<{ id: string }>(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
+      VALUES('product-media','products/ad/admin.webp',$1,'image/webp',1000,'https://example.test/a.webp') RETURNING id::text`, ["a".repeat(64)])).rows[0].id;
+    await schema.pool.query("INSERT INTO product_override_images(product_id,media_id,position,width,height) VALUES($1,$2,0,600,400)", [product.adminImage, media]);
+    await schema.pool.query(`INSERT INTO product_override_specs(product_id,action,key,value) VALUES($1,'set','Genişlik','10 mm'),($2,'hide','Boy',NULL)`, [product.adminSpec, product.adminHideOnly]);
+    await schema.pool.query(`INSERT INTO product_override_references(product_id,kind,action,brand,number) VALUES($1,'oem','add','VW','1K0 129 620'),($2,'oem','hide','VW','1K0 129 621')`,
+      [product.adminRef, product.adminHideOnly]);
+    await schema.pool.query(`INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
+      VALUES(900,10,'1.6',1600,'Petrol','Benzin',100,74,'2000-01-01','golf')`);
+    await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,900,'add')", [product.adminVehicle]);
+    await schema.pool.query("INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text) VALUES(901,10,'1.8',1800,'Petrol','Benzin',120,88,'2000-01-01','golf')");
+    await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,901,'remove')", [product.adminHideOnly]);
+    await schema.pool.query("INSERT INTO product_override_image_settings(product_id,hide_automatic) VALUES($1,true)", [product.adminHideOnly]);
+    // #674: a make with a series but no fitted product of either source.
+    await schema.pool.query("INSERT INTO vehicle_brands(id,name,display_name) VALUES(3,'OPEL','OPEL'); INSERT INTO vehicle_models(id,brand_id,name) VALUES(30,3,'ASTRA J')");
   });
   after(async () => { await closeDb?.(); await schema?.drop(); });
 
   test("the product files list each listed product exactly once", async () => {
     const listed = (await allChunks()).map(row => row.id);
     assert.equal(new Set(listed).size, listed.length);
-    assert.deepEqual(listed.sort(), [ids.listed, ids.dinamik, ids.primary, ids.store, ids.fitOnly, ids.offerPrimary].sort());
+    assert.deepEqual(listed.sort(), [ids.listed, ids.dinamik, ids.primary, ids.store, ids.fitOnly, ids.offerPrimary,
+      ids.adminName, ids.adminDescription, ids.adminShort, ids.adminImage, ids.adminSpec, ids.adminRef, ids.adminVehicle, ids.adminSecondary].sort());
   });
 
   test("a listed product's address is the page's canonical one, overrides and store rows included", async () => {
     const rows = await allChunks();
-    assert.equal(rows.length, 6);
+    assert.equal(rows.length, 14);
     for (const row of rows) {
       const product = await catalog.getStorefrontProduct(row.id);
       assert.ok(product, row.id);
@@ -234,10 +304,10 @@ describe("sitemap queries", () => {
     const listed = new Set((await allChunks()).map(row => row.id));
     for (const [key, id] of Object.entries(ids)) {
       const { product } = await catalog.getStoreProduct(id);
-      // The page's loaders: its enrichment, the description's models and the OEM it shows.
+      // The page's loaders: its enrichment, the description's models, the OEM it shows and the admin's edits.
       const indexable = product ? productIndexable(product, productContent({
         enrichment: await enrichments.getProductEnrichment({ id: product.id, code: product.code, brand: product.brand }),
-        descriptionModels: await fitments.getDescriptionFitments(product.id), oem: product.oem })) : false;
+        descriptionModels: await fitments.getDescriptionFitments(product.id), oem: product.oem, adminContent: await pageAdminContent(product.id) })) : false;
       assert.equal(indexable, listed.has(id), `${key}: page indexable ⇔ in the sitemap`);
     }
   });
@@ -256,7 +326,8 @@ describe("sitemap queries", () => {
     assert.deepEqual((await queries.loadCategorySlugs()).sort(), ["balata-101", "fren", "fren-sistemi-100"]);
   });
 
-  test("makes: only makes with a fitted product", async () => {
-    assert.deepEqual(await queries.loadMakeSlugs(), ["alfa-romeo"]);
+  test("makes: only makes with a fitted product, engine-level or read from a description (#674)", async () => {
+    // VOLKSWAGEN has description fits only (product_model_fitments), ALFA ROMEO engine-level ones only, OPEL none.
+    assert.deepEqual(await queries.loadMakeSlugs(), ["volkswagen", "alfa-romeo"]);
   });
 });

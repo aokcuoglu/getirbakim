@@ -22,4 +22,18 @@
   .product-card-stock { @apply mt-4 mb-6 flex items-start gap-2 text-sm leading-5 text-foreground group-data-[view=grid]/listing:order-0 group-data-[view=grid]/listing:mt-0 group-data-[view=grid]/listing:min-h-10 max-[600px]:group-data-[view=grid]/listing:hidden; }
   .product-card-note { @apply ml-[5px] border-l border-input pl-[5px]; }
   .product-card-maker { @apply inline-flex min-h-8 items-center rounded-md border border-[#dfe3e8] bg-white/92 px-1 pt-[3px] pb-1 text-sm leading-5 font-medium [&_img]:h-[23px]! [&_img]:w-auto! [&_img]:max-w-[80px]! max-[600px]:group-data-[view=grid]/listing:min-h-6 max-[600px]:group-data-[view=grid]/listing:px-1 max-[600px]:group-data-[view=grid]/listing:py-px max-[600px]:group-data-[view=grid]/listing:text-xs max-[600px]:group-data-[view=grid]/listing:[&_img]:h-[18px]! max-[600px]:group-data-[view=grid]/listing:[&_img]:max-w-[70px]!; }
+
+  /* Specification rows (CardSpecifications) and the compare checkbox's label (CompareCheckbox, the box is .store-check). */
+  .product-card-specs { @apply col-start-1 my-4 min-w-0 self-start max-[1358px]:w-[250px] max-[1358px]:max-w-full max-[600px]:mt-8 max-[600px]:w-full group-data-[view=grid]/listing:min-h-[132px] group-data-[view=grid]/listing:w-auto max-[600px]:group-data-[view=grid]/listing:hidden; }
+  .product-card-spec-list { @apply text-sm leading-5; }
+  .product-card-spec { @apply mb-2 flex flex-wrap gap-x-[5px] wrap-anywhere; }
+  .product-card-spec-label { @apply font-normal text-muted-foreground; }
+  .product-card-spec-value { @apply font-medium text-foreground; }
+  .product-card-specs-toggle { @apply min-h-5 cursor-pointer rounded-none border-0 bg-transparent p-0 text-sm leading-5 font-medium text-brand-strong hover:underline focus-visible:outline-2 focus-visible:outline-ring; }
+  .product-card-compare { @apply mb-4 flex cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-data-disabled:cursor-not-allowed group-data-[view=grid]/listing:order-4 max-[600px]:group-data-[view=grid]/listing:hidden; }
+  /* "ARACINA UYAR" / "ARACA ÖZEL" links: the default Badge with the card's override, minus the icon, svg, invalid and
+     dark states a text-only link never has. The modifiers only set the colours. */
+  .product-card-fit { @apply inline-flex h-auto w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-[3px] border-0 border-transparent px-1.5 py-0.5 text-[11px] leading-4 font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50; }
+  .product-card-fit-match { @apply bg-[#dcf2e6] text-[#1e5e3e] hover:bg-[#cdebdb]; }
+  .product-card-fit-vehicle { @apply bg-[#dfe3e8] text-foreground hover:bg-[#d3d8de]; }
 }

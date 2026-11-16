@@ -19,6 +19,24 @@ const nextConfig: NextConfig = {
   cacheMaxMemorySize: 0,
   // Manual supplier lists are uploaded as xlsx through a server action (up to 8 MB, /yonetim/tedarikciler/manuel).
   experimental: { cpus: 2, serverActions: { bodySizeLimit: "10mb" } },
+  // Product and category images go through /_next/image (#737): resized WebP instead of the original upload. Only the
+  // media routes may be optimized (localPatterns); logos and SVG icons stay unoptimized. The optimized files live in each
+  // task's own .next/cache/images (a disk LRU); customCacheHandler stays off so they never reach Valkey. Media objects are
+  // content-addressed (sha256 unique), so a long TTL is safe.
+  images: {
+    localPatterns: [
+      { pathname: "/api/product-media/**", search: "" },
+      { pathname: "/api/category-media/**", search: "" },
+      { pathname: "/media/**", search: "" },
+    ],
+    formats: ["image/webp"],
+    qualities: [75],
+    deviceSizes: [640, 828, 1200, 1920],
+    imageSizes: [96, 144, 192, 288, 384, 480],
+    minimumCacheTTL: 2_678_400,
+    maximumDiskCacheSize: 2_000_000_000,
+    maximumResponseBody: 11_000_000,
+  },
   // On AWS nothing in front compresses pages: CloudFront's caching-disabled policy cannot, so 600-800 KB of HTML
   // went out raw (#453). The VPS edge nginx and Cloudflare leave an already compressed response as it is.
   compress: true,

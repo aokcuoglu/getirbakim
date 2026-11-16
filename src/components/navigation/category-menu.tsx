@@ -94,7 +94,7 @@ export function CategoryMenu({links}:{links:CategoryLink[]}) {
  function selectDesktop(id:number){setDesktop(previous=>previous?{...previous,selectedId:id}:null);}
  function drill(id:number|null){setSelected(id);list.current?.scrollTo(0,0);heading.current?.focus();}
  function thumb(category:StoreCategory){
-  return category.imagePath?<Image src={category.imagePath} width={45} height={30} alt="" unoptimized className="h-[30px] w-[45px] shrink-0 object-contain"/>:<Package className="w-[45px] shrink-0 text-[#9ca3af]" size={30} aria-hidden="true"/>;
+  return category.imagePath?<Image src={category.imagePath} width={45} height={30} alt="" className="h-[30px] w-[45px] shrink-0 object-contain"/>:<Package className="w-[45px] shrink-0 text-[#9ca3af]" size={30} aria-hidden="true"/>;
  }
  function row(category:StoreCategory){
   const hasChildren=categories.some(c=>c.parentId===category.id);
@@ -137,7 +137,7 @@ export function CategoryMenu({links}:{links:CategoryLink[]}) {
      <nav className="grid grid-cols-6 items-start gap-x-2 gap-y-4 max-[1100px]:grid-cols-4 max-[850px]:grid-cols-3" id="category-mega-items" aria-label={desktopCurrent.name+" alt kategorileri"}>
       {desktopChildren.map(category=><Link key={category.id} href={categoryHref(category.slug)} prefetch={false} onClick={close}
        className="flex min-h-[116px] min-w-0 flex-col items-center gap-1.5 px-1 text-center font-semibold hover:text-brand hover:underline hover:underline-offset-3 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand">
-       {category.imagePath?<Image src={category.imagePath} width={135} height={90} alt="" unoptimized className="h-[90px] w-[135px] max-w-full object-contain"/>:<span className="grid h-[90px] w-[135px] max-w-full place-items-center text-[#9ca3af]"><Package size={42} aria-hidden="true"/></span>}<span>{category.name}</span>
+       {category.imagePath?<Image src={category.imagePath} width={135} height={90} alt="" className="h-[90px] w-[135px] max-w-full object-contain"/>:<span className="grid h-[90px] w-[135px] max-w-full place-items-center text-[#9ca3af]"><Package size={42} aria-hidden="true"/></span>}<span>{category.name}</span>
       </Link>)}
      </nav>
      {desktopCurrent.id!==desktopRoot.id&&<Link className={megaLink} href={categoryHref(desktopCurrent.slug)} prefetch={false} onClick={close}>{desktopCurrent.name}: tüm ürünler <ChevronRight size={14}/></Link>}

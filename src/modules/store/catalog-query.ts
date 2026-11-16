@@ -22,7 +22,8 @@ const schema = z.object({
   page: z.string().regex(/^\d+$/).refine(value => Number.isSafeInteger(Number(value))).optional().catch(undefined),
 });
 
-export type CatalogQuery = z.infer<typeof schema>;
+// `manufacturer` (a /marka/<slug> page, #660) comes from the route only: it is not in the schema, so a query string never sets it.
+export type CatalogQuery = z.infer<typeof schema> & { manufacturer?: string };
 export function parseCatalogQuery(params: SearchParams): CatalogQuery {
   return schema.parse(normalizeSearchParams(params));
 }

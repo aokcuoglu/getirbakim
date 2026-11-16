@@ -23,7 +23,7 @@
 import { BODY, ROMAN, normalizeText } from "./description-fitment";
 import { readableProductName } from "./product-name";
 import { vehicleMakeLabel } from "./vehicle-label";
-import type { VehicleModel } from "./vehicle-catalog";
+import { vehicleBrandSlug, type VehicleModel } from "./vehicle-catalog";
 
 export type VehicleModelGroup = {
   slug: string; name: string; family: string; generation: number | null; models: VehicleModel[];
@@ -165,12 +165,85 @@ const modelTitleBudget = 60;
 // The make's reading form lives in vehicle-label.ts (#689); the model pages' import path stays.
 export { vehicleMakeLabel };
 
-/** Page texts of a model page: "Volkswagen Golf 7" (`model` "Golf 7"), its H1 with the years and the shorter <title>. */
-export function vehicleModelLabels(makeName: string, group: Pick<VehicleModelGroup, "name" | "dateFrom" | "dateTo">) {
-  const model = readableProductName(group.name), name = `${vehicleMakeLabel(makeName)} ${model}`, years = vehicleModelGroupYears(group, "");
-  const heading = `${name}${years ? ` (${years})` : ""} yedek parçaları`;
-  // The page part of a title stays within 60 characters (the site template appends " | Getirbakim"); years go first.
-  return { name, model, heading, title: heading.length <= modelTitleBudget ? heading : `${name} yedek parçaları` };
+/**
+ * Turkish market names of model page units (#674), by "<make slug>/<unit slug>" (the /yedek-parca address). TecDoc
+ * names the series by their European names; shoppers in Turkey know some by another. Only a unit that is one
+ * generation sold under that name gets one, checked against the catalog's series and production years
+ * (docs/vehicle-catalog.md). Labels only: the address and the search stay the catalog's.
+ */
+export const modelAliases: Record<string, string> = {
+  // TIPO Saloon/Hatchback/Estate (356_, 357_), 2015–: built in Bursa and sold in Turkey as Egea.
+  "fiat/tipo-356": "Egea",
+  // THALIA I (LB_), 1998–2009: the Bursa-built Clio Symbol; THALIA II (LU_), 2008–2014: its successor, Symbol.
+  "renault/thalia-1": "Clio Symbol",
+  "renault/thalia-2": "Symbol",
+  // ACCENT III (MC) hatchback + saloon, 2005–2012: Accent Era; ACCENT IV Saloon (RB), 2010–: Accent Blue.
+  "hyundai/accent-3": "Accent Era",
+  "hyundai/accent-4": "Accent Blue",
+};
+
+/**
+ * A model name with its years: "Volkswagen Golf 7 (2012–2022)". A name that already ends in a parenthesis takes the
+ * years inside it ("Fiat Egea (Tipo 356, 2015–günümüz)"), not a second pair.
+ */
+export function withModelYears(name: string, years: string | null | undefined) {
+  if (!years) return name;
+  return name.endsWith(")") ? `${name.slice(0, -1)}, ${years})` : `${name} (${years})`;
+}
+
+/** The leading words of `text` that fit in `room` characters with a trailing "…"; "" when not even one fits. */
+function clipWords(text: string, room: number) {
+  let clipped = "";
+  for (const word of text.split(" ")) {
+    const next = clipped ? `${clipped} ${word}` : word;
+    if (next.length + 1 > room) break;
+    clipped = next;
+  }
+  return clipped && clipped !== text ? `${clipped}…` : "";
+}
+
+/**
+ * The page part of a model listing's <title>, within 60 characters: the site template appends " | Getirbakim" (13
+ * more), so the page part is what the budget counts, on model and model × category pages alike. In order: the full
+ * years, the start year only (generations sharing a name keep apart titles), `shortSuffix` in place of the suffix,
+ * the suffix cut at a word (`clipSuffix`, for category names); then the same without years; at last the whole text cut
+ * at a word.
+ */
+export function modelListingTitle(name: string, group: Pick<VehicleModelGroup, "dateFrom" | "dateTo">, suffix: string,
+  { clipSuffix = false, shortSuffix }: { clipSuffix?: boolean; shortSuffix?: string } = {}) {
+  const years = vehicleModelGroupYears(group, ""), start = group.dateFrom ? `${group.dateFrom.slice(0, 4)}–` : null;
+  const candidates: string[] = [`${withModelYears(name, years)} ${suffix}`];
+  for (const prefix of [withModelYears(name, start), name]) {
+    candidates.push(`${prefix} ${suffix}`);
+    if (shortSuffix) candidates.push(`${prefix} ${shortSuffix}`);
+    if (clipSuffix) { const short = clipWords(suffix, modelTitleBudget - prefix.length - 1); if (short) candidates.push(`${prefix} ${short}`); }
+  }
+  const whole = `${name} ${suffix}`;
+  return candidates.find(title => title.length <= modelTitleBudget) ?? (clipWords(whole, modelTitleBudget) || whole.slice(0, modelTitleBudget));
+}
+
+/**
+ * Page texts of a model page: "Volkswagen Golf 7" (`model` "Golf 7"), its H1 with the years and the shorter <title>. A
+ * unit with a Turkish market name (modelAliases) leads with it and keeps the catalog's in brackets: "Fiat Egea
+ * (Tipo 356)", H1 "Fiat Egea (Tipo 356, 2015–) yedek parçaları".
+ */
+export function vehicleModelLabels(makeName: string, group: Pick<VehicleModelGroup, "name" | "dateFrom" | "dateTo"> & { slug?: string }) {
+  const catalogName = readableProductName(group.name);
+  const alias = group.slug ? modelAliases[`${vehicleBrandSlug(makeName)}/${group.slug}`] : undefined;
+  // "Tipo (356)" reads "Tipo 356" inside the alias' brackets.
+  const inner = alias && catalogName.replace(/\s*\(([^()]*)\)/g, " $1").trim();
+  const model = alias ? `${alias} (${inner})` : catalogName, name = `${vehicleMakeLabel(makeName)} ${model}`;
+  const heading = `${withModelYears(name, vehicleModelGroupYears(group, ""))} yedek parçaları`;
+  return { name, model, heading, title: modelListingTitle(name, group, "yedek parçaları", { shortSuffix: "parçaları" }) };
+}
+
+/**
+ * Page texts of a model × category page (#673): the H1 "Volkswagen Golf 7 (2012–2022) fren sistemi" and a <title>
+ * within the budget. `parts` is the category name as it reads in a sentence (categoryNameInText).
+ */
+export function vehicleModelCategoryLabels(makeName: string, group: Pick<VehicleModelGroup, "name" | "dateFrom" | "dateTo"> & { slug?: string }, parts: string) {
+  const { name } = vehicleModelLabels(makeName, group);
+  return { heading: `${withModelYears(name, vehicleModelGroupYears(group, ""))} ${parts}`, title: modelListingTitle(name, group, parts, { clipSuffix: true }) };
 }
 
 /** Production years for titles and copy: "2012–2022", "2019–günümüz" (`openEnd` "" gives "2019–"); null without a start. */

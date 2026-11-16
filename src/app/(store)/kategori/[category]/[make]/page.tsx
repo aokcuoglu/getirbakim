@@ -14,6 +14,6 @@ export async function generateMetadata(props:Props) {
 }
 
 export default async function MakeCategoryParts(props:Props) {
- const {query,make}=await load(props);
- return <CatalogView params={query} make={make}/>;
+ const {query,make,plainTotal}=await load(props);
+ return <CatalogView params={query} make={make} plainTotal={plainTotal}/>;
 }

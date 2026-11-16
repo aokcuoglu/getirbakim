@@ -3,6 +3,8 @@ import { foldText, shownProductName } from "./product-name";
 /** Store-facing edits of a product (product_overrides, #575); NULL follows the automatic sources. */
 export type StoreOverride = {
   name: string | null; description: string | null; seo_title: string | null; seo_description: string | null; category_id: number | null;
+  /** The intro paragraph under the product page title (#697); admin-only, no automatic source. */
+  short_description: string | null;
 };
 
 /** An admin's name beats the enrichment's display name, which beats the supplier's name. */
@@ -13,6 +15,14 @@ export function productTitle(override: StoreOverride | null, enrichmentName: str
 /** An admin's description beats the enrichment's, which beats the supplier's; empty when none says anything. */
 export function productDescription(override: StoreOverride | null, enrichmentDescription: string | null | undefined, productDescription: string) {
   return override?.description || enrichmentDescription || productDescription || "";
+}
+
+/**
+ * The text the meta description template is built from (#697): an admin's short description, else `description`
+ * (the shown long description). seo_description still wins over both through productMeta.
+ */
+export function productSeoText(override: StoreOverride | null, description: string) {
+  return override?.short_description || description;
 }
 
 /** Page title and meta description: the admin's SEO fields when set, else the automatic text. */

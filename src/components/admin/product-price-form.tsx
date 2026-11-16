@@ -6,6 +6,7 @@ import { saveProductPrice } from "@/app/yonetim/urunler/actions";
 import { belowCost, campaignTimeText, costWithVat, priceText, productOverrideLabels, type ProductPriceResult, type ProductPriceValues } from "@/modules/admin/product-override-fields";
 import { productPriceValuesSchema } from "@/modules/admin/product-override-schema";
 import { initialPriceForm, priceFormReducer, type PriceFormValues } from "@/modules/admin/product-price-form-state";
+import { UnsavedInputGuard } from "@/components/admin/unsaved-input-guard";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,7 @@ function effective(auto: number | null, values: Parsed, now: string) {
 /**
  * The product's fixed price and campaign (#580), VAT included. Inputs are controlled by priceFormReducer like the store
  * card form: a save shows what was stored, a revert resets its own inputs only, an error keeps the input. `now` is the
- * page's render time as Istanbul wall clock, so the preview matches the server's rendering.
+ * page's render time as Istanbul wall clock, so the preview matches the server's rendering. Leaving the tab with unsaved input asks first (#698).
  */
 export function ProductPriceForm({ productId, values, version, sources, now }: {
   productId: string; values: ProductPriceValues | null; version: string; sources: PriceFormSource[]; now: string;
@@ -103,68 +104,71 @@ export function ProductPriceForm({ productId, values, version, sources, now }: {
     onBlur={() => touch(field)}/>;
   const error = (field: keyof PriceFormValues) => errors[field] && <FieldError id={`${id(field)}-error`}>{errors[field][0]}</FieldError>;
 
-  return <form className="flex flex-col gap-6" onSubmit={event => {
-    event.preventDefault();
-    if (valid) submit(); else setTouched(["price", "sale_price", "sale_from", "sale_until"]);
-  }}>
-    <fieldset disabled={pending}>
-      <FieldGroup className="grid gap-6 md:grid-cols-2">
-        <Field data-invalid={Boolean(errors.price)} className="md:col-span-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <FieldLabel htmlFor={id("price")}>{productOverrideLabels.price_kurus}</FieldLabel>
-            {state(fixed, "price_kurus", productOverrideLabels.price_kurus)}
-          </div>
-          {money("price", selling?.auto != null ? `Formül: ${priceText(selling.auto)}` : "Formül fiyatı yok")}
-          <FieldDescription id={`${id("price")}-hint`}>KDV dahil; boş bırakılırsa formül uygulanır, oranlar kaynak satırındaki “Kâr ve KDV oranları” penceresinden yönetilir.</FieldDescription>
-          {error("price")}
-        </Field>
-        <Field data-invalid={Boolean(errors.sale_price)} className="md:col-span-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <FieldLabel htmlFor={id("sale_price")}>{productOverrideLabels.sale_price_kurus}</FieldLabel>
-            {state(campaign, "sale_price_kurus", productOverrideLabels.sale_price_kurus)}
-          </div>
-          {money("sale_price", "Kampanya yok")}
-          <FieldDescription id={`${id("sale_price")}-hint`}>KDV dahil. Mağazada normal fiyat üstü çizili gösterilir. Normal fiyattan düşük değilse uygulanmaz.</FieldDescription>
-          {error("sale_price")}
-        </Field>
-        <Field data-invalid={Boolean(errors.sale_from)}>
-          <FieldLabel htmlFor={id("sale_from")}>{productOverrideLabels.sale_from}</FieldLabel>
-          {time("sale_from")}
-          <FieldDescription id={`${id("sale_from")}-hint`}>İstanbul saati. Boş bırakılırsa kayıttan itibaren başlar.</FieldDescription>
-          {error("sale_from")}
-        </Field>
-        <Field data-invalid={Boolean(errors.sale_until)}>
-          <FieldLabel htmlFor={id("sale_until")}>{productOverrideLabels.sale_until}</FieldLabel>
-          {time("sale_until")}
-          <FieldDescription id={`${id("sale_until")}-hint`}>İstanbul saati. Boş bırakılırsa kampanya kaldırılana kadar sürer.</FieldDescription>
-          {error("sale_until")}
-        </Field>
-      </FieldGroup>
-    </fieldset>
-    {ended && <Alert variant="info"><Info aria-hidden="true"/><AlertTitle>Kampanya sona erdi</AlertTitle>
-      <AlertDescription>{campaignTimeText(ended)} (İstanbul) itibarıyla uygulanmıyor. Kaldırabilir ya da yeni bir bitiş girebilirsiniz.</AlertDescription></Alert>}
-    <Item variant="muted">
-      <ItemContent>
-        <dl className="flex flex-col gap-2">
-          <div className="flex flex-wrap justify-between gap-2"><dt className="text-muted-foreground">Otomatik fiyat (formül)</dt><dd className="tabular-nums">{selling?.auto != null ? priceText(selling.auto) : "—"}</dd></div>
-          <div className="flex flex-wrap justify-between gap-2"><dt className="text-muted-foreground">En düşük KDV dahil maliyet</dt><dd className="tabular-nums">{lowestCost !== null ? priceText(lowestCost) : "—"}</dd></div>
-          <Separator/>
-          <div className="flex flex-wrap items-center justify-between gap-2"><dt><ItemTitle>Mağazada etkili fiyat</ItemTitle></dt>
-            <dd className="text-xl font-semibold tabular-nums"><output aria-live="polite">{!shown ? <>—<span className="sr-only"> (geçersiz alanları düzeltin)</span></> : selling ? priceText(selling.price) : "—"}</output></dd></div>
-        </dl>
-        <ItemDescription>{shown ? "KDV dahil, satılan kaynak için. Servis (B2B) indirimi bu fiyatın üzerine uygulanır." : "Geçersiz alanları düzeltin; etkili fiyat ona göre hesaplanır."}</ItemDescription>
-      </ItemContent>
-    </Item>
-    {!priced.length && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Formül fiyatı yok</AlertTitle>
-      <AlertDescription>Tedarikçi maliyeti, kuru veya güncelliği eksik. Girilen fiyat ürünü satışa açmaz; tedarikçi verisi gelince uygulanır.</AlertDescription></Alert>}
-    {below.length > 0 && <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertTitle>Maliyet altı</AlertTitle>
-      <AlertDescription>Bu fiyat şu kaynakların KDV dahil maliyetinin altında: {below.map(source => source.code).join(", ")}. Kayıt engellenmez; zararına satış olmaması için kontrol edin.</AlertDescription></Alert>}
-    {showResult && result.message && <Alert variant={result.status === "error" ? "destructive" : "success"} role={result.status === "error" ? "alert" : "status"}>
-      {result.status === "error" ? <CircleAlert aria-hidden="true"/> : <CircleCheck aria-hidden="true"/>}<AlertDescription>{result.message}</AlertDescription>
-    </Alert>}
-    {showResult && result.warning && <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertDescription>{result.warning}</AlertDescription></Alert>}
-    <div className="flex justify-end">
-      <Button type="submit" disabled={pending}>{pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <Save data-icon="inline-start" aria-hidden="true"/>}{pending ? "Kaydediliyor…" : "Fiyatı kaydet"}</Button>
-    </div>
-  </form>;
+  return <>
+    <form className="flex flex-col gap-6" onSubmit={event => {
+      event.preventDefault();
+      if (valid) submit(); else setTouched(["price", "sale_price", "sale_from", "sale_until"]);
+    }}>
+      <fieldset disabled={pending}>
+        <FieldGroup className="grid gap-6 md:grid-cols-2">
+          <Field data-invalid={Boolean(errors.price)} className="md:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <FieldLabel htmlFor={id("price")}>{productOverrideLabels.price_kurus}</FieldLabel>
+              {state(fixed, "price_kurus", productOverrideLabels.price_kurus)}
+            </div>
+            {money("price", selling?.auto != null ? `Formül: ${priceText(selling.auto)}` : "Formül fiyatı yok")}
+            <FieldDescription id={`${id("price")}-hint`}>KDV dahil; boş bırakılırsa formül uygulanır, oranlar kaynak satırındaki “Kâr ve KDV oranları” penceresinden yönetilir.</FieldDescription>
+            {error("price")}
+          </Field>
+          <Field data-invalid={Boolean(errors.sale_price)} className="md:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <FieldLabel htmlFor={id("sale_price")}>{productOverrideLabels.sale_price_kurus}</FieldLabel>
+              {state(campaign, "sale_price_kurus", productOverrideLabels.sale_price_kurus)}
+            </div>
+            {money("sale_price", "Kampanya yok")}
+            <FieldDescription id={`${id("sale_price")}-hint`}>KDV dahil. Mağazada normal fiyat üstü çizili gösterilir. Normal fiyattan düşük değilse uygulanmaz.</FieldDescription>
+            {error("sale_price")}
+          </Field>
+          <Field data-invalid={Boolean(errors.sale_from)}>
+            <FieldLabel htmlFor={id("sale_from")}>{productOverrideLabels.sale_from}</FieldLabel>
+            {time("sale_from")}
+            <FieldDescription id={`${id("sale_from")}-hint`}>İstanbul saati. Boş bırakılırsa kayıttan itibaren başlar.</FieldDescription>
+            {error("sale_from")}
+          </Field>
+          <Field data-invalid={Boolean(errors.sale_until)}>
+            <FieldLabel htmlFor={id("sale_until")}>{productOverrideLabels.sale_until}</FieldLabel>
+            {time("sale_until")}
+            <FieldDescription id={`${id("sale_until")}-hint`}>İstanbul saati. Boş bırakılırsa kampanya kaldırılana kadar sürer.</FieldDescription>
+            {error("sale_until")}
+          </Field>
+        </FieldGroup>
+      </fieldset>
+      {ended && <Alert variant="info"><Info aria-hidden="true"/><AlertTitle>Kampanya sona erdi</AlertTitle>
+        <AlertDescription>{campaignTimeText(ended)} (İstanbul) itibarıyla uygulanmıyor. Kaldırabilir ya da yeni bir bitiş girebilirsiniz.</AlertDescription></Alert>}
+      <Item variant="muted">
+        <ItemContent>
+          <dl className="flex flex-col gap-2">
+            <div className="flex flex-wrap justify-between gap-2"><dt className="text-muted-foreground">Otomatik fiyat (formül)</dt><dd className="tabular-nums">{selling?.auto != null ? priceText(selling.auto) : "—"}</dd></div>
+            <div className="flex flex-wrap justify-between gap-2"><dt className="text-muted-foreground">En düşük KDV dahil maliyet</dt><dd className="tabular-nums">{lowestCost !== null ? priceText(lowestCost) : "—"}</dd></div>
+            <Separator/>
+            <div className="flex flex-wrap items-center justify-between gap-2"><dt><ItemTitle>Mağazada etkili fiyat</ItemTitle></dt>
+              <dd className="text-xl font-semibold tabular-nums"><output aria-live="polite">{!shown ? <>—<span className="sr-only"> (geçersiz alanları düzeltin)</span></> : selling ? priceText(selling.price) : "—"}</output></dd></div>
+          </dl>
+          <ItemDescription>{shown ? "KDV dahil, satılan kaynak için. Servis (B2B) indirimi bu fiyatın üzerine uygulanır." : "Geçersiz alanları düzeltin; etkili fiyat ona göre hesaplanır."}</ItemDescription>
+        </ItemContent>
+      </Item>
+      {!priced.length && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Formül fiyatı yok</AlertTitle>
+        <AlertDescription>Tedarikçi maliyeti, kuru veya güncelliği eksik. Girilen fiyat ürünü satışa açmaz; tedarikçi verisi gelince uygulanır.</AlertDescription></Alert>}
+      {below.length > 0 && <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertTitle>Maliyet altı</AlertTitle>
+        <AlertDescription>Bu fiyat şu kaynakların KDV dahil maliyetinin altında: {below.map(source => source.code).join(", ")}. Kayıt engellenmez; zararına satış olmaması için kontrol edin.</AlertDescription></Alert>}
+      {showResult && result.message && <Alert variant={result.status === "error" ? "destructive" : "success"} role={result.status === "error" ? "alert" : "status"}>
+        {result.status === "error" ? <CircleAlert aria-hidden="true"/> : <CircleCheck aria-hidden="true"/>}<AlertDescription>{result.message}</AlertDescription>
+      </Alert>}
+      {showResult && result.warning && <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertDescription>{result.warning}</AlertDescription></Alert>}
+      <div className="flex justify-end">
+        <Button type="submit" disabled={pending}>{pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <Save data-icon="inline-start" aria-hidden="true"/>}{pending ? "Kaydediliyor…" : "Fiyatı kaydet"}</Button>
+      </div>
+    </form>
+  <UnsavedInputGuard dirty={form.dirty.length > 0}/>
+  </>;
 }

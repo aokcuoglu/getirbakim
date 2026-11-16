@@ -39,7 +39,7 @@ import { SubmitButton } from "@/components/admin/submit-button";
 import { linkEquivalent, mergeProducts, splitSource, undoSplitSource, unlinkEquivalent } from "../actions";
 import { productIdPath } from "@/modules/seo/product-id";
 
-const equivalentVia = { code: "Parça no / kod", oem: "OEM numarası", reference: "Elle referans" } as const;
+const equivalentVia = { code: "Parça no / kod", enrichment: "Zenginleştirme OEM", oem: "OEM numarası", reference: "Elle referans" } as const;
 const kinds = { oem: "Ortak OEM numarası", cross: "Rakip kodu referansı", brand: "Muadil marka kararı", manual: "Elle muadil" } as const;
 
 export default async function MasterProduct({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<SearchParams> }) {
@@ -132,7 +132,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       <CardHeader><CardTitle><h2>Mağaza bilgileri</h2></CardTitle>
         <CardDescription>Elle girilen değer tedarikçi ve zenginleştirme verisinin yerine geçer; tedarikçi güncellemeleri ve yenilemeler onu değiştirmez. Boş bırakılan alan otomatik kaynaktan gelir.</CardDescription></CardHeader>
       <CardContent>
-        <ProductOverrideForm productId={product.id} values={edit && { name: edit.name, description: edit.description, seo_title: edit.seo_title,
+        <ProductOverrideForm productId={product.id} values={edit && { name: edit.name, description: edit.description, short_description: edit.short_description, seo_title: edit.seo_title,
           seo_description: edit.seo_description, category_id: edit.category_id, hidden: edit.hidden, brand: edit.brand, part_number: edit.part_number }}
           version={edit?.version ?? automaticVersion} categories={categoryOptions} brands={brandOptions}
           automatic={{ name: override.automatic.name ?? product.code, description: override.automatic.description,

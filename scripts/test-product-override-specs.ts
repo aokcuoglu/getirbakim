@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
+import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { applySpecOverrides } from "../src/modules/store/product-spec-display";
 import { productSpecLimit, specHistoryValue } from "../src/modules/admin/product-spec-fields";
@@ -70,7 +71,7 @@ before(async () => {
     ["EAN", "4027816285229"], ["Brand class", "Premium"]]);
   await enrich("mahle", "MAHLE", "20020", [["Fitting Position", "Upper Left"], ["Filter type", "Spin-on"]]);
   await enrich("stale", "TRW", "50049", [["Fitting Position", "Rear Axle Left"]], "TRW 50049");
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks(schema.pool);
   const [{ db }, storeModule, specsModule, enrichmentModule, catalogModule] = await Promise.all([import("../src/lib/db"),
     import("../src/modules/admin/product-spec-store"), import("../src/modules/store/product-specs"),
     import("../src/modules/store/product-enrichment"), import("../src/modules/store/catalog")]);
@@ -163,7 +164,7 @@ test("enrichment imports, supplier syncs and matching refreshes leave the decisi
     imported_at=now() WHERE supplier_item_id=$1`, [ids.febi]);
   await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"ac":"FEBI YENI AD"}',changed_at=now() WHERE id=ANY($1::uuid[])`, [[ids.febi, ids.febiBasbug]]);
   await schema.pool.query("SELECT refresh_product_matches()");
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks(schema.pool);
   assert.equal(await productOf("febiBasbug"), febi);
   assert.deepEqual((await schema.pool.query("SELECT action,key,value FROM product_override_specs WHERE product_id=$1 ORDER BY created_at,id", [febi])).rows.length, 4);
   // React's cache() only dedupes inside a request; the module function reads the table again here.

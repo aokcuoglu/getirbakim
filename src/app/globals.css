@@ -6,10 +6,18 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Inter, self-hosted (weights used by the design: 400, 500, 600). */
-@font-face { font-family: Inter; src: url("/media/site/fonts/Inter-Regular.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: Inter; src: url("/media/site/fonts/Inter-Medium.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
-@font-face { font-family: Inter; src: url("/media/site/fonts/Inter-SemiBold.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+/* Inter, self-hosted (weights used by the design: 400, 500, 600), subset to Latin + Latin Extended-A + punctuation/₺/€/arrows/⌘ (#736): pyftsubset Inter-<w>.woff2 --flavor=woff2 --unicodes=U+0020-007E,U+00A0-00FF,U+0100-017F,U+2010-2027,U+2030,U+2032-2033,U+2039-203A,U+20AC,U+20BA,U+2122,U+2190-2199,U+2212,U+2260,U+2264-2265,U+2318 --layout-features=kern,liga,calt,ccmp,locl,mark,mkmk,tnum,pnum,lnum,case,frac */
+@font-face { font-family: Inter; src: url("/media/site/fonts/Inter-Regular.subset.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: Inter; src: url("/media/site/fonts/Inter-Medium.subset.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: Inter; src: url("/media/site/fonts/Inter-SemiBold.subset.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+/* Metric-matched local fallback: keeps line breaks stable while Inter loads (font-display: swap), #738. */
+@font-face { font-family: "Inter Fallback"; src: local("Arial"); font-weight: 400; size-adjust: 106.2%; ascent-override: 91.2%; descent-override: 22.7%; line-gap-override: 0%; }
+@font-face { font-family: "Inter Fallback"; src: local("Arial"); font-weight: 500; size-adjust: 107.5%; ascent-override: 90.1%; descent-override: 22.4%; line-gap-override: 0%; }
+@font-face { font-family: "Inter Fallback"; src: local("Arial Bold"), local("Arial-BoldMT"); font-weight: 600 700; size-adjust: 100.5%; ascent-override: 96.4%; descent-override: 24%; line-gap-override: 0%; }
+/* Same for Android, which has no Arial: its system font is Roboto. size-adjust = Inter width / Roboto width, measured on Turkish copy (#755). */
+@font-face { font-family: "Inter Fallback Roboto"; src: local("Roboto"), local("Roboto-Regular"); font-weight: 400; size-adjust: 107.1%; ascent-override: 90.4%; descent-override: 22.5%; line-gap-override: 0%; }
+@font-face { font-family: "Inter Fallback Roboto"; src: local("Roboto Medium"), local("Roboto-Medium"), local("Roboto"); font-weight: 500; size-adjust: 106.9%; ascent-override: 90.6%; descent-override: 22.6%; line-gap-override: 0%; }
+@font-face { font-family: "Inter Fallback Roboto"; src: local("Roboto Bold"), local("Roboto-Bold"), local("Roboto"); font-weight: 600 700; size-adjust: 107%; ascent-override: 90.5%; descent-override: 22.5%; line-gap-override: 0%; }
 
 /* Payment dialog progress shimmer (animate-[payment-progress_…]). */
 @keyframes payment-progress { to { background-position: -200% 0; } }
@@ -25,7 +33,7 @@
 /* shadcn/ui theme. :root carries the storefront palette (Getirbakim brand: blue #0077c7, ink #212b36, Inter);
    the administration workspace (.admin-app) uses the IBM Carbon color language with a dark variant. */
 @theme inline {
-  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: Inter, "Inter Fallback", "Inter Fallback Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-heading: var(--font-sans);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --color-background: var(--background);
