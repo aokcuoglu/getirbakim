@@ -108,6 +108,7 @@
     "test:fitment-rebuild": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-fitment-rebuild.ts",
     "test:fitment-level": "node --import tsx --test scripts/test-fitment-level.ts",
     "test:description-fitment": "node --import tsx --test scripts/test-description-fitment.ts",
+    "test:description-fitment-sync": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-description-fitments-sync.ts",
     "verify:fitment": "node --env-file=.env.local --import tsx scripts/verify-product-fitments.ts",
     "test:matching": "node --env-file=.env.local --import tsx --test scripts/test-product-matching.ts",
     "test:matching-same": "node --import tsx --test scripts/test-product-matching-same.ts",

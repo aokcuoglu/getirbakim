@@ -1,11 +1,13 @@
 // Model-level fitment from Dinamik's product descriptions (#392).
-//   derive [--dry-run]  rebuilds product_model_fitments for products without an engine-level enrichment
+//   derive [--dry-run]  syncs product_model_fitments for products without an engine-level enrichment: only changed rows
+//                       are written, and derived_at moves only when a row's model or years change (#798)
 //   report              counts what is stored, per brand
 // A product whose shared enrichment lists vehicles, or is complete, is skipped: TecDoc data always wins, and a complete
 // enrichment without vehicles means the part is not vehicle-specific.
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { createDescriptionMatcher, type DescriptionCatalogModel } from "../src/modules/store/description-fitment";
+import { writeDescriptionFitments, type DescriptionFitmentRow } from "../src/modules/store/description-fitment-sync";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
 const command = process.argv[2];
@@ -28,7 +30,7 @@ async function derive() {
        AND COALESCE(NULLIF(s.product_data->>'ac',''),s.product_data->>'stokAdi','')<>''
        AND NOT EXISTS(SELECT 1 FROM product_enrichment_shared e WHERE e.supplier_item_id=s.id
         AND (e.status='complete' OR jsonb_array_length(COALESCE(e.payload->'vehicles','[]'::jsonb))>0))`)).rows;
-    const rows: { supplier_item_id: string; model_id: number; year_from: number | null; year_to: number | null; source_text: string }[] = [];
+    const rows: DescriptionFitmentRow[] = [];
     const statuses = new Map<string, number>(), brands = new Map<string, { items: number; matched: number }>();
     for (const item of items) {
       const result = match(item.make, item.text);
@@ -41,16 +43,11 @@ async function derive() {
       }
       brands.set(item.brand, brand);
     }
-    if (!dryRun) {
-      await client.query("DELETE FROM product_model_fitments");
-      for (let at = 0; at < rows.length; at += 5000) await client.query(`INSERT INTO product_model_fitments(supplier_item_id,model_id,year_from,year_to,source_text)
-        SELECT supplier_item_id,model_id,year_from,year_to,source_text FROM jsonb_to_recordset($1::jsonb)
-        AS r(supplier_item_id uuid,model_id integer,year_from integer,year_to integer,source_text text)`, [JSON.stringify(rows.slice(at, at + 5000))]);
-    }
+    const written = dryRun ? null : await writeDescriptionFitments(client, rows);
     await client.query(dryRun ? "ROLLBACK" : "COMMIT");
     const top = [...brands].filter(([, b]) => b.matched).sort((a, b) => b[1].matched - a[1].matched).slice(0, 25)
       .map(([brand, b]) => ({ brand, items: b.items, matched: b.matched, pct: Math.round(100 * b.matched / b.items) }));
-    console.log(JSON.stringify({ dryRun, items: items.length, statuses: Object.fromEntries(statuses), rows: rows.length, top }, null, 1));
+    console.log(JSON.stringify({ dryRun, items: items.length, statuses: Object.fromEntries(statuses), rows: rows.length, written, top }, null, 1));
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
 }
