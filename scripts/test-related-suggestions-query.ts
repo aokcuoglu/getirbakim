@@ -228,3 +228,16 @@ test("a slow lookup gives way to the budget and is reported as pending", async (
   assert.deepEqual(await purchase.withinBudget(Promise.resolve([] as string[]), 1000), []);
   assert.deepEqual(await purchase.withinBudget(Promise.resolve(["a"]), 1000), ["a"]);
 });
+
+test("a description model fits the added product until the admin hides it (#661)", async () => {
+  await schema.pool.query("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,10,'GOLF')", [ids.drumUnknown]);
+  try {
+    const fitted = await suggested("drumUnknown", {}, 5);
+    assert.ok(fitted.length > 0, "the description's Golf makes the drum's fitting parts suggestible");
+    await schema.pool.query("INSERT INTO product_override_fitment_hides(product_id,kind,model_id,label) VALUES($1,'description_model',10,'VW GOLF VII')", [await productOf("drumUnknown")]);
+    assert.deepEqual(await suggested("drumUnknown", {}, 5), []);
+  } finally {
+    await schema.pool.query("DELETE FROM product_override_fitment_hides");
+    await schema.pool.query("DELETE FROM product_model_fitments WHERE supplier_item_id=$1", [ids.drumUnknown]);
+  }
+});

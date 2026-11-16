@@ -1,14 +1,14 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useId, useState } from "react";
 import { Car, ChevronDown, CircleAlert, CircleCheck, Eye, EyeOff, GitMerge, Info, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { addProductFitments, deleteProductFitment, removeProductFitment, type ProductFitmentActionResult } from "@/app/yonetim/urunler/fitment-actions";
+import { addProductFitments, deleteProductFitment, removeProductFitment } from "@/app/yonetim/urunler/fitment-actions";
 import { productFitmentAutomaticLimit, productFitmentBatch, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
 import type { FitmentVehicle, ProductFitments } from "@/modules/admin/product-fitment-store";
 import type { CatalogVehicle } from "@/modules/store/vehicle-catalog";
 import { formatNumber } from "@/modules/admin/format";
 import { useVehicleCatalog } from "@/components/garage/use-vehicle-catalog";
+import { useFitmentChange } from "@/components/admin/use-fitment-change";
 import { OptionCombobox } from "@/components/admin/option-combobox";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -36,29 +36,12 @@ const power = (vehicle: Pick<FitmentVehicle, "ps" | "kw" | "cc">) =>
  * server action; the page refreshes with the stored list.
  */
 export function ProductFitmentsManager({ productId, fitments }: { productId: string; fitments: ProductFitments }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { pending, result, setResult, mutate, working } = useFitmentChange();
   const [adding, setAdding] = useState(false);
   // A new key per opening: the dialog starts without the last make, model and selection.
   const [opened, setOpened] = useState(0);
   const [shown, setShown] = useState(PAGE);
-  const [result, setResult] = useState<ProductFitmentActionResult | null>(null);
-  // The row whose button started the running change: it shows the spinner, the others are only disabled.
-  const [busy, setBusy] = useState<string | null>(null);
   const full = fitments.rows.length >= productFitmentLimit;
-
-  const mutate = (action: () => Promise<ProductFitmentActionResult>, onSuccess?: () => void, rowKey: string | null = null) => {
-    setResult(null);
-    setBusy(rowKey);
-    startTransition(async () => {
-      const next = await action().catch((): ProductFitmentActionResult => ({ status: "error", message: "Bağlantı kesildi; yeniden deneyin." }));
-      setResult(next);
-      if (next.status === "success") onSuccess?.();
-      router.refresh();
-      setBusy(null);
-    });
-  };
-  const working = (rowKey: string) => pending && busy === rowKey;
 
   const automaticIds = new Set([...fitments.automatic.map(vehicle => vehicle.typeId), ...fitments.rows.filter(row => row.automatic).map(row => row.typeId)]);
   const decided = new Map(fitments.rows.map(row => [row.typeId, row.mode]));

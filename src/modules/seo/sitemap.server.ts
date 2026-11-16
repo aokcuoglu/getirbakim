@@ -66,6 +66,8 @@ export const descriptionFitmentItemsSql = "(ARRAY[i.id]||ARRAY(SELECT o.item_id 
 export type ProductSitemapRow = { id: string; path: string; lastmod: string };
 
 // A secondary offer is left out even when its primary is hidden or not saleable (its page then shows itself): deliberate.
+// derived_at is read from product_model_fitments itself (storefront_description_fits has none): a hidden model (#661)
+// moves lastmod through its product_override_changes row.
 /** Product addresses of sitemap file `index` with their last change (ISO, UTC); one row past the limit shows an overflow. */
 export async function loadProductChunk(index: number): Promise<ProductSitemapRow[]> {
   const { from, to } = productChunkRange(index);
@@ -115,6 +117,6 @@ export async function loadCategorySlugs(): Promise<string[]> {
 export async function loadMakeSlugs(): Promise<string[]> {
   const { rows } = await boundedQuery<{ name: string }>(`SELECT b.display_name AS name FROM vehicle_brands b
    WHERE EXISTS (SELECT 1 FROM storefront_make_fits f WHERE f.brand_id=b.id)
-    OR EXISTS (SELECT 1 FROM vehicle_models m JOIN product_model_fitments f ON f.model_id=m.id WHERE m.brand_id=b.id) ORDER BY b.id`, []);
+    OR EXISTS (SELECT 1 FROM vehicle_models m JOIN storefront_description_fits f ON f.model_id=m.id WHERE m.brand_id=b.id) ORDER BY b.id`, []);
   return [...new Set(rows.map(row => vehicleBrandSlug(row.name)))];
 }

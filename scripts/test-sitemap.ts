@@ -344,4 +344,34 @@ describe("sitemap queries", () => {
     // VOLKSWAGEN has description fits only (product_model_fitments), ALFA ROMEO engine-level ones only, OPEL none.
     assert.deepEqual(await queries.loadMakeSlugs(), ["volkswagen", "alfa-romeo"]);
   });
+
+  test("hidden description models (#661) leave the index signal and the make file; a hide is no admin content", async () => {
+    const productOf = async (keys: string[]) => {
+      const id = (await schema.pool.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code) VALUES('TEST',$1,$1,'TEST',$1) RETURNING id::text`,
+        [keys.join("-")])).rows[0].id;
+      for (const key of keys) await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [ids[key], id]);
+      return id;
+    };
+    const hide = (productId: string) => schema.pool.query(`INSERT INTO product_override_fitment_hides(product_id,kind,model_id,label)
+      VALUES($1,'description_model',10,'VOLKSWAGEN GOLF IV')`, [productId]);
+    // fitOnly's only model, and the one offerPrimary shows through its secondary offer.
+    await hide(await productOf(["fitOnly"]));
+    await hide(await productOf(["offerPrimary", "offerSecondary"]));
+    // A product whose only edits are hide decisions stays without admin content.
+    const hideOnly = (await schema.pool.query<{ product_id: string }>("SELECT product_id::text FROM product_sources WHERE supplier_item_id=$1", [ids.adminHideOnly])).rows[0].product_id;
+    await schema.pool.query(`INSERT INTO product_override_fitment_hides(product_id,kind,source_key,label) VALUES($1,'source_model','GOLF','GOLF')`, [hideOnly]);
+    assert.equal(await pageAdminContent(ids.adminHideOnly), false);
+    const listed = new Set((await allChunks()).map(row => row.id));
+    assert.ok(!listed.has(ids.fitOnly) && !listed.has(ids.offerPrimary) && !listed.has(ids.adminHideOnly));
+    assert.equal(listed.size, 12);
+    for (const [key, id] of Object.entries(ids)) {
+      const { product } = await catalog.getStoreProduct(id);
+      const indexable = product ? productIndexable(product, productContent({
+        enrichment: await enrichments.getProductEnrichment({ id: product.id, code: product.code, brand: product.brand }),
+        descriptionModels: await fitments.getDescriptionFitments(product.id), oem: product.oem, adminContent: await pageAdminContent(product.id) })) : false;
+      assert.equal(indexable, listed.has(id), `${key}: page indexable ⇔ in the sitemap`);
+    }
+    // VOLKSWAGEN's description fits are all hidden now.
+    assert.deepEqual(await queries.loadMakeSlugs(), ["alfa-romeo"]);
+  });
 });

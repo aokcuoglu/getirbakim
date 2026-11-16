@@ -14,7 +14,8 @@ import { adminEditedAtSql, descriptionFitmentItemsSql, indexableProductsSql, pro
 // (images, specifications, references, vehicles, hide/delete: product_override_changes, #767) and a hash of the
 // description fitments (model and years). Price and stock are left out on purpose (the admin's price edits too): they
 // change with every sync and the sitemap's lastmod carries them. The fitments enter as a content hash, not derived_at:
-// the derivation rewrites every row. concat_ws skips NULLs, so a product without admin edits or fitments keeps its
+// the derivation rewrites every row. They are the models the page shows (storefront_description_fits, #661): hiding one
+// or a vehicle decision changes the hash. concat_ws skips NULLs, so a product without admin edits or fitments keeps its
 // earlier fingerprint.
 const supplierFingerprint = `md5(concat_ws(chr(31),
   COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code),
@@ -24,7 +25,7 @@ const supplierFingerprint = `md5(concat_ws(chr(31),
   CASE WHEN h.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,
   CASE WHEN ${contentSignals.enrichment.sql} THEN l.imported_at::text ELSE '' END,
   'a:'||${adminEditedAtSql(productPriceFields)}::text,
-  'f:'||(SELECT md5(string_agg(DISTINCT concat_ws(':',f.model_id,COALESCE(f.year_from::text,''),COALESCE(f.year_to::text,'')),',')) FROM product_model_fitments f
+  'f:'||(SELECT md5(string_agg(DISTINCT concat_ws(':',f.model_id,COALESCE(f.year_from::text,''),COALESCE(f.year_to::text,'')),',')) FROM storefront_description_fits f
     WHERE f.supplier_item_id=ANY(${descriptionFitmentItemsSql}))))::uuid::text`;
 const storeFingerprint = "md5(concat_ws(chr(31),p.name,p.brand,p.code,p.description))::uuid::text";
 

@@ -65,8 +65,8 @@ const modelCategoriesSql = `WITH units AS MATERIALIZED (SELECT * FROM unnest($6:
  listed AS MATERIALIZED (SELECT ids.id FROM ids JOIN LATERAL (SELECT e.id,e.unavailable FROM storefront_catalog_entries e
    WHERE e.id=ids.id AND (e.source='store' OR e.company=ANY($1::text[])) OFFSET 0) catalog ON true WHERE ${listedOnly}),
  fits AS MATERIALIZED (SELECT f.model_id,f.supplier_item_id AS id FROM listed JOIN storefront_model_fits f ON f.supplier_item_id=listed.id
-  UNION ALL SELECT f.model_id,listed.id FROM listed JOIN product_offers o ON o.primary_id=listed.id JOIN product_model_fitments f ON f.supplier_item_id=o.item_id
-  UNION ALL SELECT f.model_id,listed.id FROM listed JOIN product_model_fitments f ON f.supplier_item_id=listed.id
+  UNION ALL SELECT f.model_id,listed.id FROM listed JOIN product_offers o ON o.primary_id=listed.id JOIN storefront_description_fits f ON f.supplier_item_id=o.item_id
+  UNION ALL SELECT f.model_id,listed.id FROM listed JOIN storefront_description_fits f ON f.supplier_item_id=listed.id
    WHERE NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=listed.id))
  SELECT units.unit,label.slug FROM fits JOIN units USING (model_id) JOIN cats ON cats.id=fits.id
  ${categoryAncestorsSql("cats.category_id")}

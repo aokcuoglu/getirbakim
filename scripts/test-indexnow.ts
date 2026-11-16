@@ -377,6 +377,32 @@ describe("IndexNow runs", () => {
     const other = (await schema.pool.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code) VALUES('MAHLE','OTHER','Other','MAHLE','other') RETURNING id::text`)).rows[0].id;
     await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value) VALUES($1,'image_added','x')", [other]);
     await sends(0, "unrelated product");
+
+    // The fitment hash reads the models the page shows (storefront_description_fits, #661). The rows below are written
+    // without a history row, so only the hash can move the fingerprint.
+    const fingerprint = async () => (await indexnow.loadIndexNowChunk(20)).find(page => page.id === ids.beta)?.fingerprint;
+    const hide = (modelId: number) => schema.pool.query(`INSERT INTO product_override_fitment_hides(product_id,kind,model_id,label)
+      VALUES($1,'description_model',$2,'VOLKSWAGEN GOLF')`, [productId, modelId]);
+    await hide(10);
+    await sends(1, "description model hidden");
+    const hidden = await fingerprint();
+    // The same page without the hide and without the fitment: the same fingerprint, nothing sent.
+    await schema.pool.query("DELETE FROM product_override_fitment_hides WHERE product_id=$1", [productId]);
+    await fitment("DELETE FROM product_model_fitments WHERE supplier_item_id=$1");
+    await sends(0, "hidden model ≡ no model");
+    assert.equal(await fingerprint(), hidden);
+    // A model hidden before it is derived never reaches the page.
+    await hide(11);
+    await fitment("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,11,'GOLF V')");
+    await sends(0, "hidden model derived");
+    // A vehicle decision (#583) takes every description model off the page.
+    await fitment("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,10,'GOLF IV')");
+    await sends(1, "visible model derived");
+    await schema.pool.query(`INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
+      VALUES(900,10,'1.6',1600,'Petrol','Benzin',100,74,'2000-01-01','golf')`);
+    await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,900,'add')", [productId]);
+    await sends(1, "vehicle decision");
+    assert.equal(await fingerprint(), hidden);
   });
 
   test("a second run while the lock is held is skipped", async () => {

@@ -5,8 +5,8 @@ import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
-import { applyFitmentOverrides, modelFallbacks, type StoreVehicle } from "../src/modules/store/product-fitment-display";
-import { fitmentHistoryValue, productFitmentLimit } from "../src/modules/admin/product-fitment-fields";
+import { applyFitmentOverrides, emptyFitmentOverrides, modelFallbacks, sourceVehicleKey, type FitmentOverrides, type StoreVehicle } from "../src/modules/store/product-fitment-display";
+import { fitmentHistoryValue, productFitmentHideLimit, productFitmentLimit } from "../src/modules/admin/product-fitment-fields";
 import { fitmentLevel, type FitmentLevel } from "../src/modules/store/fitment-level";
 import type { GarageVehicle } from "../src/modules/store/garage";
 
@@ -22,6 +22,7 @@ let epoch: typeof import("../src/modules/store/listing-epoch");
 let sync: typeof import("../src/modules/store/fitment-sync");
 let enrichment: typeof import("../src/modules/store/product-enrichment");
 let description: typeof import("../src/modules/store/description-fitment.server");
+let hides: typeof import("../src/modules/admin/product-fitment-hide-store");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const codes: Record<string, { code: string; brand: string }> = {};
@@ -39,6 +40,9 @@ async function item(key: string, { supplier, code, brand, name }: Item) {
   ids[key] = rows[0].id;
   codes[key] = { code, brand };
 }
+/** Decisions without hidden source rows. */
+const overridesOf = (added: StoreVehicle[], removed: number[], hidden: Partial<FitmentOverrides["hidden"]> = {}): FitmentOverrides =>
+  ({ added, removed, hidden: { vehicles: hidden.vehicles ?? [], models: hidden.models ?? [] } });
 const vehicleOf = (typeId: number) => ({ model: "MERCEDES-BENZ 190 (W201)", engineAndCodes: `E ${typeId}`, fuel: "Petrol", kw: 90, ps: 122, cc: 1997,
   from: "09/1984", to: "08/1993", typeId });
 /** Fitments are rebuilt from the payload the way imports and rebuild-product-fitments.ts do (syncProductFitments). */
@@ -52,18 +56,18 @@ async function rebuildFitments(key: string) {
   } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
 }
 /** An enrichment of a Dinamik row; `code` other than the row's own is a stale payload the store must not show. */
-async function enrich(key: string, typeIds: number[], code = codes[key].code) {
+async function enrich(key: string, typeIds: number[], code = codes[key].code, extra: Record<string, unknown> = {}) {
   await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,$2,$3,'complete')`, [ids[key], code, codes[key].brand]);
   await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
     VALUES($1,$2,$3,'https://www.trodo.com/x','test',$4,$5,$6)`,
-  [ids[key], code, codes[key].brand, codes[key].brand, code.split(" ").at(-1), JSON.stringify({ specifications: [], vehicles: typeIds.map(vehicleOf), oemNumbers: {}, crossReferences: {} })]);
+  [ids[key], code, codes[key].brand, codes[key].brand, code.split(" ").at(-1), JSON.stringify({ specifications: [], vehicles: typeIds.map(vehicleOf), oemNumbers: {}, crossReferences: {}, ...extra })]);
 }
 const productOf = async (key: string) => (await schema.pool.query<{ product_id: string }>(
   "SELECT product_id::text FROM product_sources WHERE supplier_item_id=$1", [ids[key]])).rows[0].product_id;
 const add = (productId: string, typeIds: number[]) => store.addProductFitments(schema.pool, productId, typeIds, admin);
 const remove = (productId: string, typeId: number) => store.removeProductFitment(schema.pool, productId, typeId, admin);
 const undo = (productId: string, rowId: string) => store.deleteProductFitment(schema.pool, productId, rowId, admin);
-const merge = (source: string, target: string) => schema.pool.query<{ id: string | null; carried: { added: number; removed: number } }>(
+const merge = (source: string, target: string) => schema.pool.query<{ id: string | null; carried: { added: number; removed: number; hidden: number } }>(
   `WITH merged AS (SELECT product_merge($1,$2,$3) AS id) SELECT id::text, product_override_fitments_carry($1, id, $3) AS carried FROM merged`, [source, target, admin]);
 const history = async (productId: string) => (await schema.pool.query<{ field: string; old_value: string | null; new_value: string | null; reason: string | null }>(
   "SELECT field,old_value,new_value,reason FROM product_override_changes WHERE product_id=$1 ORDER BY id", [productId])).rows;
@@ -86,7 +90,7 @@ type Product = { id: string; code: string; brand: string };
 async function referenceLevel(product: Product, vehicle: GarageVehicle | null) {
   if (!vehicle) return fitmentLevel(null, []);
   const [resolved, enriched, overrides] = await Promise.all([level.fitmentVehicle(vehicle), enrichment.getProductEnrichment(product),
-    fitments.getOverrideFitments([product.id]).then(all => all.get(product.id) ?? { added: [], removed: [] })]);
+    fitments.getOverrideFitments([product.id]).then(all => all.get(product.id) ?? emptyFitmentOverrides())]);
   const vehicles = applyFitmentOverrides(enriched?.vehicles ?? [], overrides);
   const fallbacks = modelFallbacks(overrides, vehicles, enriched?.vehicleModels ?? []);
   if (!fallbacks.description) return fitmentLevel(resolved, vehicles, overrides.removed);
@@ -123,10 +127,11 @@ before(async () => {
   await schema.pool.query("SELECT refresh_product_matches()");
   admin = (await schema.pool.query<{ id: string }>(`INSERT INTO accounts(name,email,password_hash,role,approved)
     VALUES('Test Yönetici',$1,'x','admin',true) RETURNING id::text`, [`${randomUUID()}@example.com`])).rows[0].id;
-  const [{ db }, storeModule, fitmentsModule, catalogModule, levelModule, epochModule, syncModule, enrichmentModule, descriptionModule] = await Promise.all([
+  const [{ db }, storeModule, fitmentsModule, catalogModule, levelModule, epochModule, syncModule, enrichmentModule, descriptionModule, hideModule] = await Promise.all([
     import("../src/lib/db"), import("../src/modules/admin/product-fitment-store"), import("../src/modules/store/product-fitments"),
     import("../src/modules/store/catalog"), import("../src/modules/store/fitment-level.server"), import("../src/modules/store/listing-epoch"),
-    import("../src/modules/store/fitment-sync"), import("../src/modules/store/product-enrichment"), import("../src/modules/store/description-fitment.server")]);
+    import("../src/modules/store/fitment-sync"), import("../src/modules/store/product-enrichment"), import("../src/modules/store/description-fitment.server"),
+    import("../src/modules/admin/product-fitment-hide-store")]);
   store = storeModule;
   fitments = fitmentsModule;
   catalog = catalogModule;
@@ -135,6 +140,7 @@ before(async () => {
   sync = syncModule;
   enrichment = enrichmentModule;
   description = descriptionModule;
+  hides = hideModule;
   await enrich("febi", [340, 344]);
   await enrich("stale", [900], "TRW 50049");
   await rebuildFitments("febi");
@@ -148,20 +154,20 @@ test("removed types leave the shown vehicles, added ones follow once; the level 
   const added = (typeId: number): StoreVehicle => ({ model: "TOYOTA COROLLA CROSS", engineAndCodes: "2.0", fuel: "Petrol", kw: 1, ps: 1, cc: 0, from: "01/2020", to: null,
     vehicleTypeId: typeId, brandId: 2, modelId: 20, catalogEngine: "2.0", catalogBrand: "TOYOTA" });
   const automatic = [{ vehicleTypeId: 340, modelId: 10 }, { vehicleTypeId: null, modelId: null }, { vehicleTypeId: 344, modelId: 10 }];
-  assert.equal(applyFitmentOverrides(automatic, { added: [], removed: [] }), automatic);
-  assert.deepEqual(applyFitmentOverrides(automatic, { added: [added(344), added(802015)], removed: [340] }).map(row => row.vehicleTypeId), [null, 344, 802015]);
-  assert.deepEqual(applyFitmentOverrides([], { added: [added(802015)], removed: [] }).map(row => row.vehicleTypeId), [802015]);
+  assert.equal(applyFitmentOverrides(automatic, emptyFitmentOverrides()), automatic);
+  assert.deepEqual(applyFitmentOverrides(automatic, overridesOf([added(344), added(802015)], [340])).map(row => row.vehicleTypeId), [null, 344, 802015]);
+  assert.deepEqual(applyFitmentOverrides([], overridesOf([added(802015)], [])).map(row => row.vehicleTypeId), [802015]);
   assert.equal(fitmentLevel({ typeId: "340", modelId: "10" }, [{ vehicleTypeId: 344, modelId: 10 }], [340]), "mismatch");
   assert.equal(fitmentLevel({ typeId: "340", modelId: "10" }, [], [340]), "mismatch");
   assert.equal(fitmentLevel({ typeId: "340", modelId: "10" }, [{ vehicleTypeId: 340, modelId: 10 }], [340]), "guaranteed");
   // Model-level lists stand in only while the admin has not decided the product's vehicles.
-  const none = { added: [], removed: [] };
+  const none = emptyFitmentOverrides();
   assert.deepEqual(modelFallbacks(none, [], ["GOLF"]), { vehicleModels: ["GOLF"], description: false });
   assert.deepEqual(modelFallbacks(none, [], []), { vehicleModels: [], description: true });
   assert.deepEqual(modelFallbacks(none, automatic, []), { vehicleModels: [], description: false });
-  assert.deepEqual(modelFallbacks({ added: [], removed: [340] }, [], ["GOLF"]), { vehicleModels: [], description: false });
-  assert.deepEqual(modelFallbacks({ added: [], removed: [340] }, [], []), { vehicleModels: [], description: false });
-  assert.deepEqual(modelFallbacks({ added: [added(802015)], removed: [] }, [added(802015)], ["GOLF"]), { vehicleModels: [], description: false });
+  assert.deepEqual(modelFallbacks(overridesOf([], [340]), [], ["GOLF"]), { vehicleModels: [], description: false });
+  assert.deepEqual(modelFallbacks(overridesOf([], [340]), [], []), { vehicleModels: [], description: false });
+  assert.deepEqual(modelFallbacks(overridesOf([added(802015)], []), [added(802015)], ["GOLF"]), { vehicleModels: [], description: false });
   const names = new Map([["340", "MERCEDES-BENZ 190 (W201) 2.0"]]);
   assert.equal(fitmentHistoryValue("fitment_added", "340", names), "MERCEDES-BENZ 190 (W201) 2.0 · tip 340");
   assert.equal(fitmentHistoryValue("fitment_removed", "7", names), "Araç tipi 7");
@@ -302,7 +308,7 @@ test("a merge carries the decisions (the kept product's own row wins); undoing i
   await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode,created_at) VALUES($1,340,'remove',now()+interval '1 second')", [lemA]);
   assert.deepEqual(await add(lemB, [900]), { ok: true });
   assert.deepEqual(await makes("lemB"), [TOYOTA]);
-  assert.deepEqual((await merge(lemA, lemB)).rows[0], { id: lemB, carried: { added: 1, removed: 1 } });
+  assert.deepEqual((await merge(lemA, lemB)).rows[0], { id: lemB, carried: { added: 1, removed: 1, hidden: 0 } });
   // Carried rows keep their time in A, so the list stays in the order the admins made the decisions.
   assert.deepEqual(await decisions(lemB), [["add", 802015, true], ["add", 900, false], ["remove", 340, true]]);
   assert.deepEqual((await history(lemB)).slice(1).map(change => [change.field, change.new_value, change.reason]), [
@@ -344,6 +350,129 @@ test("description models stand in only without enrichment and admin decisions; u
   assert.deepEqual(await add(await productOf("bosch"), [900]), { ok: true });
   assert.equal(await fitLevel("bosch", 340), "mismatch");
   assert.equal(await fitLevel("bosch", 900), "guaranteed");
+  // The store reads the description models through storefront_description_fits: a decided product lists none (#661).
+  assert.deepEqual(await description.getDescriptionFitments(ids.bosch), []);
+});
+
+test("hidden source rows (#661): unlinked vehicles by their source fields, model-list entries by text; hides are no decision", () => {
+  const source = vehicleOf(555);
+  const key = sourceVehicleKey(source);
+  // The key is the fields in a fixed order: the same row read twice (or with extra fields) gives the same key.
+  assert.equal(key, JSON.stringify(["MERCEDES-BENZ 190 (W201)", "E 555", "Petrol", 90, 122, 1997, "09/1984", "08/1993", 555]));
+  assert.equal(sourceVehicleKey({ ...source, vehicleTypeId: null, extra: 1 } as typeof source), key);
+  assert.equal(sourceVehicleKey({ ...source, typeId: undefined }), JSON.stringify(["MERCEDES-BENZ 190 (W201)", "E 555", "Petrol", 90, 122, 1997, "09/1984", "08/1993", null]));
+  assert.notEqual(sourceVehicleKey({ ...source, engineAndCodes: "E 556" }), key);
+  const rows = [{ vehicleTypeId: 340, modelId: 10, sourceKey: null }, { vehicleTypeId: null, modelId: null, sourceKey: key }, { vehicleTypeId: null, modelId: null, sourceKey: "other" }];
+  assert.deepEqual(applyFitmentOverrides(rows, overridesOf([], [], { vehicles: [key] })).map(row => row.vehicleTypeId ?? row.sourceKey), [340, "other"]);
+  // A linked row is never hidden by key, only removed by type.
+  assert.deepEqual(applyFitmentOverrides([{ vehicleTypeId: 340, modelId: 10, sourceKey: key }], overridesOf([], [], { vehicles: [key] })).length, 1);
+  assert.deepEqual(modelFallbacks(overridesOf([], [], { models: ["GOLF"] }), [], ["GOLF", "POLO"]), { vehicleModels: ["POLO"], description: false });
+  // Every listed model hidden and no vehicle left: the description's models stand in (a hide is no vehicle decision).
+  assert.deepEqual(modelFallbacks(overridesOf([], [], { models: ["GOLF"] }), [], ["GOLF"]), { vehicleModels: [], description: true });
+  assert.deepEqual(modelFallbacks(overridesOf([], [340], { models: ["GOLF"] }), [], ["POLO"]), { vehicleModels: [], description: false });
+  assert.equal(fitmentHistoryValue("fitment_vehicle_hidden", "MERCEDES-BENZ 190 (W201) E 555 · 09/1984–08/1993", new Map()), "MERCEDES-BENZ 190 (W201) E 555 · 09/1984–08/1993");
+  assert.equal(fitmentHistoryValue("fitment_description_shown", null, new Map()), "—");
+});
+
+test("hiding source rows: checked against the sources, applied by the product page, the level and the description reads", async () => {
+  await item("mann", { supplier: "dinamik", code: "MANN 12012", brand: "MANN", name: "MANN FILTRE" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  // 802015 links; 555 and 556 are no catalog types and stay unlinked.
+  await enrich("mann", [802015, 555, 556], codes.mann.code, { vehicleModels: ["TOYOTA YARIS", "TOYOTA COROLLA"] });
+  await rebuildFitments("mann");
+  await schema.pool.query("INSERT INTO product_model_fitments(supplier_item_id,model_id,year_from,year_to,source_text) VALUES($1,20,2019,NULL,'COROLLA CROSS'),($1,30,NULL,NULL,'YARIS')", [ids.mann]);
+  await syncSharedLinks(schema.pool);
+  const mann = await productOf("mann"), product = { id: ids.mann, ...codes.mann };
+  const key555 = sourceVehicleKey(vehicleOf(555)), key556 = sourceVehicleKey(vehicleOf(556));
+  const sources = await hides.loadProductFitmentSources(schema.pool, mann);
+  assert.deepEqual(sources.vehicles.map(row => [row.key, row.hidden]), [[key555, null], [key556, null]]);
+  assert.equal(sources.vehiclesTotal, 2);
+  assert.deepEqual(sources.models, [{ name: "TOYOTA COROLLA", hidden: null }, { name: "TOYOTA YARIS", hidden: null }]);
+  assert.deepEqual(sources.descriptionModels.map(row => [row.modelId, row.brand, row.model, row.yearFrom]), [[20, "TOYOTA", "COROLLA CROSS", 2019], [30, "TOYOTA", "YARIS", null]]);
+  assert.deepEqual([sources.decided, sources.orphans], [false, []]);
+  assert.equal(await fitLevel("mann", 900), "unknown");
+
+  const hide = (target: Parameters<typeof hides.hideProductFitment>[2], productId = mann) => hides.hideProductFitment(schema.pool, productId, target, admin);
+  assert.deepEqual(await hide({ kind: "source_vehicle", key: key555 }), { ok: true });
+  assert.deepEqual(await hide({ kind: "source_vehicle", key: key555 }), { ok: false, reason: "unchanged" });
+  // A linked row, another product's row, a reworded row and a malformed key are not this product's unlinked rows.
+  for (const key of [sourceVehicleKey(vehicleOf(802015)), sourceVehicleKey({ ...vehicleOf(556), ps: 123 }), "{", "[1,2]"]) {
+    assert.deepEqual(await hide({ kind: "source_vehicle", key }), { ok: false, reason: "not-in-source" }, key);
+  }
+  assert.deepEqual(await hide({ kind: "source_model", key: "TOYOTA YARIS" }), { ok: true });
+  assert.deepEqual(await hide({ kind: "source_model", key: "OPEL ASTRA" }), { ok: false, reason: "not-in-source" });
+  assert.deepEqual(await hide({ kind: "description_model", modelId: 20 }), { ok: true });
+  assert.deepEqual(await hide({ kind: "description_model", modelId: 10 }), { ok: false, reason: "not-in-source" });
+  assert.deepEqual(await hide({ kind: "source_model", key: "TOYOTA YARIS" }, randomUUID()), { ok: false, reason: "not-found" });
+  assert.deepEqual((await history(mann)).map(change => [change.field, change.old_value, change.new_value]), [
+    ["fitment_vehicle_hidden", null, "MERCEDES-BENZ 190 (W201) E 555 · 09/1984–08/1993"],
+    ["fitment_model_hidden", null, "TOYOTA YARIS"],
+    ["fitment_description_hidden", null, "TOYOTA COROLLA CROSS · 2019–"]]);
+
+  // The store: the product page's vehicles and model list, the description models and the level.
+  assert.deepEqual((await fitments.getItemFitments(ids.mann)).hidden, { vehicles: [key555], models: ["TOYOTA YARIS"] });
+  const overrides = (await fitments.getOverrideFitments([ids.mann])).get(ids.mann)!;
+  const enriched = await enrichment.getProductEnrichment(product);
+  const shown = applyFitmentOverrides(enriched!.vehicles, overrides);
+  assert.deepEqual(shown.map(row => row.vehicleTypeId ?? row.engineAndCodes), [802015, "E 556"]);
+  assert.deepEqual(modelFallbacks(overrides, shown, enriched!.vehicleModels).vehicleModels, ["TOYOTA COROLLA"]);
+  assert.deepEqual((await description.getDescriptionFitments(ids.mann)).map(row => row.modelId), [30]);
+  assert.deepEqual(await description.getDescriptionModelIds([ids.mann]), new Map([[ids.mann, [30]]]));
+  assert.equal(await fitLevel("mann", 900), "unknown");
+  // With every unlinked row hidden the linked rows say it all: another type is a mismatch now, no longer unknown.
+  assert.deepEqual(await hide({ kind: "source_vehicle", key: key556 }), { ok: true });
+  assert.equal(await fitLevel("mann", 900), "mismatch");
+  assert.equal(await fitLevel("mann", 802015), "guaranteed");
+  await matchesReference([product]);
+
+  // The admin list marks the hidden rows; a hide whose source row is gone is listed apart.
+  await schema.pool.query("INSERT INTO product_override_fitment_hides(product_id,kind,source_key,label) VALUES($1,'source_model','TOYOTA AURIS','TOYOTA AURIS')", [mann]);
+  const listed = await hides.loadProductFitmentSources(schema.pool, mann);
+  assert.deepEqual(listed.vehicles.map(row => Boolean(row.hidden)), [true, true]);
+  assert.deepEqual(listed.models.map(row => [row.name, Boolean(row.hidden)]), [["TOYOTA COROLLA", false], ["TOYOTA YARIS", true]]);
+  assert.deepEqual(listed.descriptionModels.map(row => [row.modelId, Boolean(row.hidden)]), [[20, true], [30, false]]);
+  assert.deepEqual(listed.orphans.map(row => [row.kind, row.label, row.carried]), [["source_model", "TOYOTA AURIS", false]]);
+
+  // Showing a row again; a row gone already is stale.
+  const described = listed.descriptionModels[0].hidden!;
+  assert.deepEqual(await hides.showProductFitment(schema.pool, mann, described.id, admin), { ok: true });
+  assert.deepEqual(await hides.showProductFitment(schema.pool, mann, described.id, admin), { ok: false, reason: "stale" });
+  assert.deepEqual((await history(mann)).at(-1), { field: "fitment_description_shown", old_value: "TOYOTA COROLLA CROSS · 2019–", new_value: null, reason: null });
+  assert.deepEqual((await description.getDescriptionFitments(ids.mann)).map(row => row.modelId), [20, 30]);
+
+  // A vehicle decision: the description's models leave the store (storefront_description_fits), the panel says so.
+  assert.deepEqual(await add(mann, [900]), { ok: true });
+  assert.equal((await hides.loadProductFitmentSources(schema.pool, mann)).decided, true);
+  assert.deepEqual(await description.getDescriptionFitments(ids.mann), []);
+  assert.deepEqual(await description.getDescriptionModelIds([ids.mann]), new Map());
+
+  // The limit counts every kind; a merged product is refused.
+  const count = (await schema.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_override_fitment_hides WHERE product_id=$1", [mann])).rows[0].n;
+  await schema.pool.query(`INSERT INTO product_override_fitment_hides(product_id,kind,source_key,label)
+    SELECT $1,'source_model','YOK '||n,'YOK '||n FROM generate_series(1,$2::int) n`, [mann, productFitmentHideLimit - count]);
+  assert.deepEqual(await hide({ kind: "source_model", key: "TOYOTA COROLLA" }), { ok: false, reason: "hide-limit" });
+  const merged = (await schema.pool.query<{ id: string }>("SELECT id::text FROM products WHERE merged_into IS NOT NULL LIMIT 1")).rows[0].id;
+  assert.deepEqual(await hide({ kind: "source_model", key: "TOYOTA COROLLA" }, merged), { ok: false, reason: "merged" });
+});
+
+test("a merge carries the hidden rows (the kept product's own row wins); undoing it takes them back", async () => {
+  await item("hideA", { supplier: "basbug", code: "SACHS 13013", brand: "SACHS", name: "SACHS AMORTISOR" });
+  await item("hideB", { supplier: "basbug", code: "KYB 14014", brand: "KYB", name: "KYB AMORTISOR" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const a = await productOf("hideA"), b = await productOf("hideB");
+  await schema.pool.query(`INSERT INTO product_override_fitment_hides(product_id,kind,model_id,source_key,label,created_at)
+    VALUES($1,'description_model',10,NULL,'MERCEDES-BENZ 190 (W201)',now()),($1,'source_model',NULL,'GOLF','GOLF A',now()+interval '1 second'),
+     ($2,'source_model',NULL,'GOLF','GOLF B',now())`, [a, b]);
+  assert.deepEqual((await merge(a, b)).rows[0], { id: b, carried: { added: 0, removed: 0, hidden: 1 } });
+  const rows = async (productId: string) => (await schema.pool.query<{ kind: string; label: string; carried: boolean }>(
+    "SELECT kind,label,carried_from IS NOT NULL AS carried FROM product_override_fitment_hides WHERE product_id=$1 ORDER BY created_at,id", [productId])).rows;
+  assert.deepEqual((await rows(b)).map(row => [row.kind, row.label, row.carried]).sort(), [["description_model", "MERCEDES-BENZ 190 (W201)", true], ["source_model", "GOLF B", false]].sort());
+  assert.deepEqual((await history(b)).map(change => [change.field, change.new_value, change.reason]), [["fitment_description_hidden", "MERCEDES-BENZ 190 (W201)", "carry"]]);
+  assert.equal((await hides.loadProductFitmentSources(schema.pool, b)).orphans.find(row => row.kind === "description_model")?.carried, true);
+  await schema.pool.query("SELECT product_reset_item($1)", [ids.hideA]);
+  assert.deepEqual((await rows(b)).map(row => row.label), ["GOLF B"]);
+  assert.deepEqual((await history(b)).at(-1), { field: "fitment_description_shown", old_value: "MERCEDES-BENZ 190 (W201)", new_value: null, reason: "uncarry" });
+  assert.equal((await rows(a)).length, 2);
 });
 
 test("bulk levels equal the per-product reference", async () => {
@@ -369,6 +498,12 @@ test("setup can run the files again and moves an old make-list key to supplier_i
   await schema.pool.query(await readFile("db/storefront-make-fits.sql", "utf8"));
   assert.equal((await schema.pool.query(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname='product_override_fitments_products_restored'
     AND tgrelid=to_regclass($1)`, [`${schema.name}.products`])).rows[0].n, 1);
+  // The hidden rows and the description view survive the re-run.
+  const hidden = await schema.pool.query("SELECT count(*)::int AS n FROM product_override_fitment_hides");
+  await schema.pool.query(await readFile("db/product-override-fitments.sql", "utf8"));
+  assert.deepEqual((await schema.pool.query("SELECT count(*)::int AS n FROM product_override_fitment_hides")).rows, hidden.rows);
+  assert.ok(hidden.rows[0].n > 0);
+  assert.deepEqual((await description.getDescriptionFitments(ids.mann)).map(row => row.modelId), []);
   const key = async () => (await schema.pool.query<{ name: string; target: string; validated: boolean }>(`SELECT conname AS name,confrelid::regclass::text AS target,
     convalidated AS validated FROM pg_constraint WHERE contype='f' AND conrelid=to_regclass($1) AND confrelid<>to_regclass($2)`,
   [`${schema.name}.storefront_make_fits`, `${schema.name}.vehicle_brands`])).rows;
