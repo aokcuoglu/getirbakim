@@ -2,6 +2,34 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.29.0 — 2026-11-16
+
+Release of `dev` since v0.28.0 (31 pull requests): search synonyms and analytics, manual bulk CSV and admin tooling. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Search synonyms:** auto-parts synonym groups and multi-word synonyms ([#820](https://github.com/aokcuoglu/getirbakim/pull/820)); search analytics and admin-managed synonyms at `/yonetim/arama` ([#827](https://github.com/aokcuoglu/getirbakim/pull/827)); AI-suggested synonyms with an approval queue ([#835](https://github.com/aokcuoglu/getirbakim/pull/835)); reviewed AI synonym groups and Turkish consonant softening ([#847](https://github.com/aokcuoglu/getirbakim/pull/847)).
+- **Manual supplier bulk CSV:** export/import of manual product prices, discounts, margins and stock ([#837](https://github.com/aokcuoglu/getirbakim/pull/837)).
+- **Admin tooling:** master brand logos on the product matching page ([#836](https://github.com/aokcuoglu/getirbakim/pull/836)); select a whole model and copy fitments from another product ([#813](https://github.com/aokcuoglu/getirbakim/pull/813)); convert an automatic image into an upload and drag to reorder ([#804](https://github.com/aokcuoglu/getirbakim/pull/804)); hide unlinked source vehicle rows and model-level fitments per product ([#806](https://github.com/aokcuoglu/getirbakim/pull/806)).
+- Sticky listing filter sidebar ([#807](https://github.com/aokcuoglu/getirbakim/pull/807)); admin edits and description fitments move sitemap `lastmod` and the IndexNow fingerprint ([#801](https://github.com/aokcuoglu/getirbakim/pull/801)); GA4 `refund` event once for cancelled paid orders ([#799](https://github.com/aokcuoglu/getirbakim/pull/799)).
+
+### Changed
+- Checkout: `submitOrder` no longer waits on supplier rows a list import holds ([#828](https://github.com/aokcuoglu/getirbakim/pull/828)); model sitemap caches warmed in the app process ([#797](https://github.com/aokcuoglu/getirbakim/pull/797)).
+- Database tests no longer depend on try-locks or the dev server's matcher lock ([#793](https://github.com/aokcuoglu/getirbakim/pull/793), [#830](https://github.com/aokcuoglu/getirbakim/pull/830)).
+
+### Fixed
+- Vehicle oil filters read the manual supplier's oil specifications (`Viskozite`, `Onaylar ve normlar`), so approvals such as Renault RN17 match ([#845](https://github.com/aokcuoglu/getirbakim/pull/845)).
+- Codes like 5W-40 / 5W40 / 5w 40 match with any separator ([#814](https://github.com/aokcuoglu/getirbakim/pull/814)); synonym suggestions skip what the parser already matches by prefix ([#839](https://github.com/aokcuoglu/getirbakim/pull/839)).
+- Master brand name shown instead of the supplier's raw label ([#824](https://github.com/aokcuoglu/getirbakim/pull/824)); Dinamik cost applies dealer discounts and the campaign rate ([#810](https://github.com/aokcuoglu/getirbakim/pull/810)).
+- Checkout live-check follow-ups: dropped codes refused, shorter lock wait, per-row Dinamik fallback ([#800](https://github.com/aokcuoglu/getirbakim/pull/800)); GA4 `item_id` is the listing id ([#796](https://github.com/aokcuoglu/getirbakim/pull/796)).
+- Storefront header and 600px breakpoint overflows ([#821](https://github.com/aokcuoglu/getirbakim/pull/821), [#833](https://github.com/aokcuoglu/getirbakim/pull/833)); Bakım Robotu link hidden on the phone home header ([#794](https://github.com/aokcuoglu/getirbakim/pull/794)); supplier-neutral note on the admin order page ([#791](https://github.com/aokcuoglu/getirbakim/pull/791)); description fitments keep `derived_at` when unchanged ([#831](https://github.com/aokcuoglu/getirbakim/pull/831)).
+- Docs: SEO/GEO playbook and AWS requirements ([#826](https://github.com/aokcuoglu/getirbakim/pull/826)), cookie policy mentions purchase measurement ([#823](https://github.com/aokcuoglu/getirbakim/pull/823)), Dinamik AWS egress IP ([#803](https://github.com/aokcuoglu/getirbakim/pull/803)).
+
+### Deploy and operations
+- `db/*.sql`: new idempotent tables and functions (search analytics, synonyms and AI suggestions, manual supplier bulk CSV, fitment/commerce columns); `db:setup` runs as part of the AWS release. Search ranking changed only in functions, no REINDEX. Vehicle oil specs are unchanged.
+- **AI synonym suggestions (#835):** add an `ANTHROPIC_API_KEY` (or `OPENAI_API_KEY`) secret to the AWS app; without it the tab shows an info notice.
+- **IndexNow (#801):** if live, run `npm run seo:indexnow -- --dry-run --limit=0` as an operations task after the release; if `changed` is large, run `--seed` once.
+- v0.28.0's operations notes still apply if both are released together (writable `.next/cache`, `verify:fitment --drift-only`, cookie policy before GA4).
+
 ## v0.28.0 — 2026-11-16
 
 Release of `dev` since v0.27.0 (22 pull requests): manufacturer and model × category pages, links from products to model pages, and a faster storefront. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
