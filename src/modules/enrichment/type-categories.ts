@@ -140,6 +140,19 @@ export async function loadTypeCategories(db:Db,{minShare=DEFAULT_MIN_SHARE,minSu
  }
  return typeDictionary(entries);
 }
+/** The dictionary for a worker: warns (in Turkish, for the operator) when it is empty, and a database whose schema
+ *  predates it (42P01) gives an empty one, so the worker collects without categories instead of failing. */
+export async function loadTypeCategoriesOrEmpty(db:Db):Promise<TypeDictionary>{
+ try{
+  const dictionary=await loadTypeCategories(db);
+  if(!dictionary.exact.size)console.warn('Uyarı: parça tipi kategori sözlüğü boş; ürünler kategorisiz yazılacak (npm run enrichment:categories -- learn-types)');
+  return dictionary;
+ }catch(error){
+  if((error as {code?:string}).code!=='42P01')throw error;
+  console.warn('Uyarı: product_type_categories tablosu yok; ürünler kategorisiz yazılacak (npm run db:setup, sonra enrichment:categories -- learn-types)');
+  return {exact:new Map(),folded:new Map()};
+ }
+}
 /** Categories of a type: exact match, then without a numeric "-1" tail, then the plural-folded form; [] when unknown.
  *  Never a suffix or substring match ("water-pump-and-timing-belt-set" is not a "timing-belt-set"). */
 export function categoriesForType(dict:TypeDictionary,type:string|null):SourceCategory[]{
