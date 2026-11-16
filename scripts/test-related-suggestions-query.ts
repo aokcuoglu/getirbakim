@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
+import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 
 // The add-to-cart dialog's related parts (#704) in an isolated copy of the schema: the category rules, the vehicle fit,
@@ -86,7 +87,7 @@ before(async () => {
   await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',242),($1,'trodo',248)", [ids.dualFilter]);
   await schema.pool.query(`INSERT INTO product_vehicle_fitments(supplier_item_id,source_index,source_vehicle,vehicle_type_id,match_status,matcher_version)
     VALUES($1,0,'{"model":"GOLF"}',1,'matched','t')`, [ids.typedFilter]);
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks(schema.pool);
   for (const [model, key] of [[10, "disc"], [10, "pad"], [10, "pad2"], [10, "equivalentPad"], [20, "otherCarPad"], [10, "drumFit"],
     [10, "fitFilter"], [10, "fuelFilter"], [10, "miscatFilter"], [10, "gearFilter"], [10, "hydraulicFilter"], [10, "hydraulicTwin"], [10, "dualFilter"]] as const)
     await schema.pool.query("INSERT INTO storefront_model_fits(model_id,supplier_item_id) VALUES($1,$2)", [model, ids[key]]);
