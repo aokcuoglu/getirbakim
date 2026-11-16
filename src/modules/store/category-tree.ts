@@ -11,6 +11,14 @@ export function categorySlug(id:number,name:string){
 export function categoryNameInText(name:string){
  return name.split(" ").map(word=>{const letters=word.replace(/[^\p{L}]/gu,"");return letters.length>=2&&letters===letters.toLocaleUpperCase("tr")&&letters!==letters.toLocaleLowerCase("tr")?word:word.toLocaleLowerCase("tr");}).join(" ");
 }
+/**
+ * The sidebar's category search (#642): names containing `term` (lower-cased, Turkish). With `listed` (a make or model
+ * listing's categories holding products, ancestors included, #673) only those are offered: any other would be a 404.
+ */
+export function searchCategories<T extends {id:number;name:string}>(nodes:T[],term:string,listed?:readonly number[]):T[]{
+ const allowed=listed&&new Set(listed);
+ return nodes.filter(c=>c.name.toLocaleLowerCase("tr").includes(term)&&(!allowed||allowed.has(c.id)));
+}
 export function categoryPath(nodes:StoreCategory[],id:number){
  const node=nodes.find(n=>n.id===id);return node?node.path.map(i=>nodes.find(n=>n.id===i)).filter((n):n is StoreCategory=>Boolean(n)):[];
 }

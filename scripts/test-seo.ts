@@ -97,9 +97,19 @@ test("model × category texts: years in one parenthesis, a title within 60 chara
   assert.ok(title.length <= 60, title);
   assert.equal(title, "Mercedes-Benz Sprinter 3,5-T (2006–) motor soğutma sistemi…");
   assert.notEqual(title, vehicleModelCategoryLabels("MERCEDES-BENZ", { ...sprinter, dateFrom: "2018-01", dateTo: null }, parts).title);
-  // The model page keeps its rule: years while they fit, the plain name past the budget.
+  // The model page: years while they fit; past the budget the name with "parçaları" (#673: always within 60).
   assert.equal(modelListingTitle("Volkswagen Golf 7", golf, "yedek parçaları"), "Volkswagen Golf 7 (2012–2022) yedek parçaları");
-  assert.equal(vehicleModelLabels("MERCEDES-BENZ", { ...sprinter, name: "SPRINTER 3,5-T PLATFORM CHASSIS" }).title, "Mercedes-Benz Sprinter 3,5-T Platform Chassis yedek parçaları");
+  // Long category names on a long model: the page part (before " | Getirbakim") stays within 60 characters.
+  const golf7 = { name: "GOLF VII", dateFrom: "2012-08", dateTo: "2022-12" };
+  assert.equal(vehicleModelCategoryLabels("VOLKSWAGEN", golf7, categoryNameInText("ABS Sensörleri ve Halkaları")).title,
+    "Volkswagen Golf VII (2012–2022) ABS sensörleri ve halkaları");
+  const longest = { name: "BLUEBIRD SYLPHY (G10) ESTATE COMBI VAN", dateFrom: "2000-08", dateTo: "2005-12" };
+  for (const parts of ["yedek parçaları", "motor soğutma sistemi ve radyatör parçaları", "ABS sensörleri ve halkaları"]) {
+    for (const title of [vehicleModelCategoryLabels("NISSAN", longest, parts).title, vehicleModelLabels("NISSAN", longest).title]) {
+      assert.ok(title.length <= 60, `${title} (${title.length})`);
+    }
+  }
+  assert.equal(vehicleModelLabels("MERCEDES-BENZ", { ...sprinter, name: "SPRINTER 3,5-T PLATFORM CHASSIS" }).title, "Mercedes-Benz Sprinter 3,5-T Platform Chassis parçaları");
 });
 
 test("llms.txt links are absolute, cover the legal pages and categories, and avoid private paths", () => {

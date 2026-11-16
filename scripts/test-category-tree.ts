@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { headerCategoryLinks, packCategoryTree, sidebarCategoryBranch, unpackCategoryTree, type StoreCategory } from "../src/modules/store/category-tree";
+import { headerCategoryLinks, packCategoryTree, searchCategories, sidebarCategoryBranch, unpackCategoryTree, type StoreCategory } from "../src/modules/store/category-tree";
 
 // The category tree the header menu and sidebar load from /api/categories instead of every page's HTML (#642).
 
@@ -50,4 +50,12 @@ test("sidebar branch: top level, children, siblings of a leaf, unknown slug", ()
   assert.deepEqual(sidebarCategoryBranch(tree, "kategori-252").nodes[0], { id: 269, name: "Kategori 269", slug: "kategori-269", hasChildren: false });
   assert.deepEqual(ids("yok"), [252, 606, 956]);
   assert.equal(sidebarCategoryBranch(tree, "kategori-3").nodes.find(n => n.id === 252)?.hasChildren, true);
+});
+
+test("the sidebar search offers only a make or model listing's categories when given them (#673)", () => {
+  const nodes = [{ id: 252, name: "Fren" }, { id: 11008, name: "Bisiklet gidonları" }, { id: 11010, name: "Bisiklet fren diskleri" }, { id: 269, name: "Fren diskleri" }];
+  assert.deepEqual(searchCategories(nodes, "fren").map(node => node.id), [252, 11010, 269]);
+  assert.deepEqual(searchCategories(nodes, "fren", [3, 252, 269]).map(node => node.id), [252, 269]);
+  assert.deepEqual(searchCategories(nodes, "bisiklet gidon", [3, 252, 269]), []);
+  assert.deepEqual(searchCategories(nodes, "fren", []), []);
 });

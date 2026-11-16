@@ -523,13 +523,13 @@ test("model pages name the make and model readably, with the years in the headin
     heading: "Volkswagen Golf 7 (2012–2022) yedek parçaları", title: "Volkswagen Golf 7 (2012–2022) yedek parçaları" });
   const passatB8 = groups("VOLKSWAGEN").find(group => group.slug === "passat-b8")!;
   assert.equal(vehicleModelLabels("VOLKSWAGEN", passatB8).heading, "Volkswagen Passat B8 (2014–) yedek parçaları");
-  // A title over 60 characters drops the years; the heading keeps them.
+  // A title over 60 characters shortens the years, then drops them, then reads "parçaları"; the heading keeps them (#673).
   const long = { name: "SPRINTER 3,5-T", dateFrom: "2006-01", dateTo: "2018-12" };
   const labels = vehicleModelLabels("MERCEDES-BENZ", long);
   assert.equal(labels.heading, "Mercedes-Benz Sprinter 3,5-T (2006–2018) yedek parçaları");
   assert.ok(labels.title.length <= 60);
   const longer = vehicleModelLabels("MERCEDES-BENZ", { ...long, name: "SPRINTER 3,5-T PLATFORM CHASSIS" });
-  assert.equal(longer.title, "Mercedes-Benz Sprinter 3,5-T Platform Chassis yedek parçaları");
+  assert.equal(longer.title, "Mercedes-Benz Sprinter 3,5-T Platform Chassis parçaları");
   assert.ok(longer.heading.includes("(2006–2018)"));
 });
 

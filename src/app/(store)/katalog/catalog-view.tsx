@@ -85,6 +85,10 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const [categories,scopeCounts]=await Promise.all([getStoreCategories(),make?scopeCategoryCounts({make:params.make,model:params.model}):undefined]);
  const category=categories.find(c=>c.slug===params.category);
  const shownCategories=scopeCounts?categories.filter(node=>scopeCounts.has(node.id)):categories;
+ // On a make or model listing the root "Yedek parçalar" (legacy id 3) would repeat the make or model page itself: the
+ // sidebar's "Üst kategori" of its children leads back to that page instead (parent null → listingPath without category).
+ const branch=sidebarCategoryBranch(shownCategories,params.category);
+ const sidebarBranch=make&&branch.parent?.slug==="yedek-parca"?{...branch,parent:null}:branch;
  const related=category?shownCategories.filter(node=>node.parentId===category.parentId&&node.id!==category.id).slice(0,8):[];
  const isBrakeCategory=category?.path.includes(252);
  const popularOrder=["VOLKSWAGEN","AUDI","TOYOTA","BMW","OPEL","VOLVO","SKODA","RENAULT","MERCEDES-BENZ","PEUGEOT","FORD","KIA","HYUNDAI","SUBARU","MAZDA","CITROËN","NISSAN","LEXUS","HONDA","SEAT"];
@@ -158,7 +162,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
     {make&&!model&&!category&&!params.q&&!filtered&&<VehicleModelList brandId={make.id} makeName={makeName!} makeSlug={params.make!}/>}
     {!params.q&&!make&&<section className="mb-8 max-[768px]:mb-6" aria-label="Popüler araç markaları"><h2 className="mb-[15px] text-xl leading-7 font-medium tracking-[-.4px]">Popüler araç markaları</h2><ul className="flex flex-wrap gap-x-[3px] max-[600px]:h-9 max-[600px]:overflow-y-auto max-[600px]:overscroll-contain">{popularMakes.map(make=><li key={make.id} className="text-[13px] leading-[18px] not-last:after:ml-px not-last:after:content-[',']"><Link prefetch={false} className="hover:underline" href={makePath(vehicleBrandSlug(make.name))}>{vehicleMakeLabel(make.name)}</Link></li>)}</ul></section>}
     <div className="grid grid-cols-[304px_minmax(0,1fr)] items-start gap-8 max-[768px]:grid-cols-1 max-[768px]:gap-5">
-     <CatalogSidebar branch={manufacturer?null:sidebarCategoryBranch(shownCategories,params.category)} listed={scopeCounts&&[...scopeCounts.keys()]} brands={facetData.brands} facets={facetData.attributes} params={params}/>
+     <CatalogSidebar branch={manufacturer?null:sidebarBranch} listed={scopeCounts&&[...scopeCounts.keys()]} brands={facetData.brands} facets={facetData.attributes} params={params}/>
      <div className="min-w-0">
      {tooShort}{correction}{vehicleNotice}{oilBanner}{fitFilter}{fitNote}
     {!filtered&&!manufacturer&&<CategoryCards className="mt-0 mb-8" categories={shownCategories.filter(node=>category?node.parentId===category.id:node.parentId===null)} makeSlug={params.make} modelSlug={modelSlug}/>}

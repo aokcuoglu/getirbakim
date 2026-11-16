@@ -203,20 +203,23 @@ function clipWords(text: string, room: number) {
 }
 
 /**
- * The page part of a model listing's <title> (the site template appends " | Getirbakim"), within 60 characters. Years
- * go last and are shortened to the start year before they go, so generations sharing a name keep apart titles; with
- * `clipSuffix` (a category name) the suffix is cut at a word before the years are dropped. When nothing fits, the
- * name and full suffix.
+ * The page part of a model listing's <title>, within 60 characters: the site template appends " | Getirbakim" (13
+ * more), so the page part is what the budget counts, on model and model × category pages alike. In order: the full
+ * years, the start year only (generations sharing a name keep apart titles), `shortSuffix` in place of the suffix,
+ * the suffix cut at a word (`clipSuffix`, for category names); then the same without years; at last the whole text cut
+ * at a word.
  */
-export function modelListingTitle(name: string, group: Pick<VehicleModelGroup, "dateFrom" | "dateTo">, suffix: string, { clipSuffix = false } = {}) {
+export function modelListingTitle(name: string, group: Pick<VehicleModelGroup, "dateFrom" | "dateTo">, suffix: string,
+  { clipSuffix = false, shortSuffix }: { clipSuffix?: boolean; shortSuffix?: string } = {}) {
   const years = vehicleModelGroupYears(group, ""), start = group.dateFrom ? `${group.dateFrom.slice(0, 4)}–` : null;
-  const prefixes = [...new Set([withModelYears(name, years), withModelYears(name, start)])];
-  const candidates = [...prefixes.map(prefix => `${prefix} ${suffix}`)];
-  const clipped = (prefix: string) => { const short = clipWords(suffix, modelTitleBudget - prefix.length - 1); return short ? [`${prefix} ${short}`] : []; };
-  if (clipSuffix) candidates.push(...clipped(prefixes.at(-1)!));
-  candidates.push(`${name} ${suffix}`);
-  if (clipSuffix) candidates.push(...clipped(name));
-  return candidates.find(title => title.length <= modelTitleBudget) ?? `${name} ${suffix}`;
+  const candidates: string[] = [`${withModelYears(name, years)} ${suffix}`];
+  for (const prefix of [withModelYears(name, start), name]) {
+    candidates.push(`${prefix} ${suffix}`);
+    if (shortSuffix) candidates.push(`${prefix} ${shortSuffix}`);
+    if (clipSuffix) { const short = clipWords(suffix, modelTitleBudget - prefix.length - 1); if (short) candidates.push(`${prefix} ${short}`); }
+  }
+  const whole = `${name} ${suffix}`;
+  return candidates.find(title => title.length <= modelTitleBudget) ?? (clipWords(whole, modelTitleBudget) || whole.slice(0, modelTitleBudget));
 }
 
 /**
@@ -231,7 +234,7 @@ export function vehicleModelLabels(makeName: string, group: Pick<VehicleModelGro
   const inner = alias && catalogName.replace(/\s*\(([^()]*)\)/g, " $1").trim();
   const model = alias ? `${alias} (${inner})` : catalogName, name = `${vehicleMakeLabel(makeName)} ${model}`;
   const heading = `${withModelYears(name, vehicleModelGroupYears(group, ""))} yedek parçaları`;
-  return { name, model, heading, title: modelListingTitle(name, group, "yedek parçaları") };
+  return { name, model, heading, title: modelListingTitle(name, group, "yedek parçaları", { shortSuffix: "parçaları" }) };
 }
 
 /**
