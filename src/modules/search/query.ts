@@ -31,7 +31,8 @@ export function compactSearchCode(value: string) {
  */
 export type SearchAlternative = { value: string; prefix: boolean; synonym?: boolean };
 /** A query word. Required words must all match; optional ones only improve the ranking. */
-export type SearchTerm = { text: string; alternatives: SearchAlternative[]; required: boolean };
+/** `parts`: a code typed with separators ("5W-40" → ["5w", "40"]); `text` is then the parts joined ("5w40"). */
+export type SearchTerm = { text: string; alternatives: SearchAlternative[]; required: boolean; parts?: string[] };
 export type ParsedSearch = { terms: SearchTerm[]; compact: string; years: number[] };
 /** `years`: read 4-digit years as a build-year filter (vehicle search) instead of as words. */
 export type ParseOptions = { years?: boolean };
@@ -68,14 +69,53 @@ function stems(word: string) {
   return softened ? [stem, stem.slice(0, -1) + softened] : [stem];
 }
 
+/**
+ * Every spelling of a letter/digit code split at its letter↔digit boundaries ("5w40" → "5 w40", "5w 40",
+ * "5 w 40"; "320d" → "320 d"): catalogs write the same code joined, spaced or hyphenated, and the index keeps
+ * "5W40" as one word but "5W-40" as two. Beyond four runs only the fully split form is added.
+ */
+export function codeSpellings(word: string) {
+  if (!/^[a-z0-9]+$/.test(word) || !/[a-z]/.test(word) || !/\d/.test(word)) return [];
+  const runs = word.match(/[a-z]+|\d+/g)!;
+  if (runs.length > 4) return [runs.join(" ")];
+  const spellings: string[] = [];
+  for (let mask = 1; mask < 1 << (runs.length - 1); mask++)
+    spellings.push(runs.map((run, index) => index && mask & (1 << (index - 1)) ? ` ${run}` : run).join(""));
+  return spellings;
+}
+
+/**
+ * Query words, with codes typed with separators kept together as one word's parts: "5W-40", "5W/40", "C-200",
+ * and a viscosity typed with a space ("5w 40"). Only parts with a digit join: "ön-arka" stays two words.
+ */
+function queryWords(raw: string): string[][] {
+  const words: string[][] = [];
+  for (const chunk of raw.replace(/(\d),(\d)/g, "$1.$2").split(/[\s,;:()[\]{}"'+&|*!?]+/)) {
+    const parts = normalizeSearchText(chunk).split(" ").filter(Boolean);
+    if (parts.length >= 2 && parts.length <= 4 && parts.every(part => /^[a-z0-9]+$/.test(part)) && parts.some(part => /\d/.test(part))) words.push(parts);
+    else words.push(...parts.map(part => [part]));
+  }
+  // "5w 40", "10w 30": a viscosity grade typed with a space.
+  for (let index = words.length - 1; index > 0; index--) {
+    const [before, after] = [words[index - 1], words[index]];
+    if (before.length === 1 && after.length === 1 && /^\d{1,2}w$/.test(before[0]) && /^\d{2}$/.test(after[0])) words.splice(index - 1, 2, [before[0], after[0]]);
+  }
+  return words;
+}
+
 export function parseSearchQuery(raw: string, options: ParseOptions = {}): ParsedSearch {
-  const normalized = normalizeSearchText(raw.slice(0, 120));
   const years: number[] = [];
   const terms: SearchTerm[] = [];
   const seen = new Set<string>();
-  for (const word of normalized.split(" ").filter(Boolean)) {
+  for (const parts of queryWords(raw.slice(0, 120))) {
+    const word = parts.join("");
     if (seen.has(word)) continue;
     seen.add(word);
+    if (parts.length > 1) {
+      const spellings = [...new Set([parts.join(" "), word, ...codeSpellings(word)])];
+      terms.push({ text: word, parts, alternatives: spellings.map(value => ({ value, prefix: true })), required: true });
+      continue;
+    }
     const year = Number(word);
     if (options.years && /^\d{4}$/.test(word) && year >= 1950 && year <= new Date().getFullYear() + 1) { years.push(year); continue; }
     const number = Number(word);
@@ -84,9 +124,8 @@ export function parseSearchQuery(raw: string, options: ParseOptions = {}): Parse
     const alternatives: SearchAlternative[] = [{ value: word, prefix: !smallNumber }];
     for (const stem of stems(word)) alternatives.push({ value: stem, prefix: true });
     for (const synonym of synonyms.get(word) ?? []) alternatives.push({ value: synonym, prefix: true, synonym: true });
-    // "320d", "c200": TecDoc writes engine and model codes apart ("320 d", "C 200").
-    const split = word.match(/^(\d+)([a-z]+)$|^([a-z]+)(\d+)$/);
-    if (split) alternatives.push({ value: split.slice(1).filter(Boolean).join(" "), prefix: true });
+    // "320d", "c200", "5w40": TecDoc writes engine and model codes apart ("320 d", "C 200"), oils "5W-40".
+    for (const value of codeSpellings(word)) alternatives.push({ value, prefix: true });
     // "golf 7" finds "GOLF VII"; the numeral stays exact so "v" does not also match "vii".
     if (smallNumber) alternatives.push({ value: romans[number - 1], prefix: false });
     const roman = romans.indexOf(word);

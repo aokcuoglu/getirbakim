@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { db } from "../src/lib/db";
 import { compactSearchCode, exactTsQuery, normalizeSearchText, parseSearchQuery, prefixTsQuery } from "../src/modules/search/query";
+import { binder, supplierItemMatch } from "../src/modules/search/sql";
 import { searchVehicleCatalog } from "../src/modules/store/vehicle-catalog.server";
 import { browseProducts, suggestProducts } from "../src/modules/store/catalog";
 
@@ -27,6 +28,37 @@ test("parser: Turkish suffixes, synonyms, roman numerals, filler words and years
   assert.deepEqual(parseSearchQuery("balatası").terms[0].alternatives.map(a => a.value), ["balatasi", "balata"]);
   assert.deepEqual(parseSearchQuery("kapağı").terms[0].alternatives.map(a => a.value), ["kapagi", "kapag", "kapak"]);
   assert.equal(parseSearchQuery("%_\\").terms.length, 0);
+});
+
+test("parser: codes match joined, spaced or hyphenated (5W40 = 5W-40 = 5w 40)", () => {
+  const joined = prefixTsQuery(parseSearchQuery("5W40"));
+  assert.equal(joined, "('5w40':* | '5' <-> 'w40':* | '5w' <-> '40':* | '5' <-> 'w' <-> '40':*)");
+  for (const typed of ["5W-40", "5w 40", "5W/40", "5W40"]) {
+    const parsed = parseSearchQuery(`motul ${typed}`);
+    assert.equal(parsed.terms.length, 2, typed);
+    assert.deepEqual(new Set(parsed.terms[1].alternatives.map(a => a.value)), new Set(["5w40", "5 w40", "5w 40", "5 w 40"]), typed);
+  }
+  assert.deepEqual(parseSearchQuery("C-200").terms[0].alternatives.map(a => a.value), ["c 200", "c200"]);
+  assert.deepEqual(parseSearchQuery("320d").terms[0].alternatives.map(a => a.value), ["320d", "320 d"]);
+  // Plain words and decimals keep their own terms.
+  assert.equal(parseSearchQuery("ön-arka").terms.length, 2);
+  assert.equal(parseSearchQuery("golf 7 2015").terms.length, 3);
+  assert.equal(parseSearchQuery("1,6 16v").terms[0].text, "1.6");
+});
+
+test("product search: viscosity grades match with any separator", async () => {
+  const counts = await Promise.all(["5W40", "5W-40", "5w 40"].map(async q => {
+    const values: unknown[] = [];
+    const sql = `SELECT count(*)::int AS n FROM supplier_items s WHERE ${supplierItemMatch("s", parseSearchQuery(q), binder(values))}`;
+    return (await db.query<{ n: number }>(sql, values)).rows[0].n;
+  }));
+  assert.equal(new Set(counts).size, 1, `5W40/5W-40/5w 40 differ: ${counts}`);
+  const { rows } = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM supplier_items
+    WHERE product_data->>'ac' ~* '\\m5 ?W[- /]?40'`);
+  assert.ok(counts[0] >= rows[0].n, `${counts[0]} < ${rows[0].n} rows naming 5W-40`);
+  // "5w40" inside a "15W40" code is another grade: it must not outrank the 5W-40 oils.
+  const top = (await browseProducts({ q: "5W-40" })).items.slice(0, 10);
+  assert.ok(top.every(p => !/15 ?w[- ]?40/i.test(`${p.code} ${p.name}`)), top.map(p => p.code).join(", "));
 });
 
 test("vehicle search matches words, not letters inside codes", async () => {
