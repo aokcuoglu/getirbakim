@@ -4,6 +4,8 @@ import { GET } from "../src/app/llms.txt/route";
 import { aiCrawlers, privatePaths, robotsPolicy } from "../src/modules/seo/crawlers";
 import { llmsTxt } from "../src/modules/seo/llms";
 import { isGatedListing, listingIndexable, minIndexableListingProducts } from "../src/modules/seo/indexing";
+import { categoryNameInText } from "../src/modules/store/category-tree";
+import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, withModelYears } from "../src/modules/store/vehicle-model-groups";
 import { legalLinks } from "../src/content/legal";
 
 type Group = { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
@@ -75,6 +77,29 @@ test("model × category and make × category listings share the model pages' pro
   }
   assert.equal(isGatedListing({ make: "volkswagen", model: "golf-7" }), true);
   for (const query of [{}, { make: "volkswagen" }, { category: "fren" }]) assert.equal(isGatedListing(query), false);
+});
+
+test("model × category texts: years in one parenthesis, a title within 60 characters, all-caps words kept (#673)", () => {
+  assert.equal(withModelYears("Volkswagen Golf 7", "2012–2022"), "Volkswagen Golf 7 (2012–2022)");
+  assert.equal(withModelYears("Fiat Egea (Tipo 356)", "2015–günümüz"), "Fiat Egea (Tipo 356, 2015–günümüz)");
+  assert.equal(withModelYears("Volkswagen Golf 7", null), "Volkswagen Golf 7");
+  assert.equal(categoryNameInText("Fren Diskleri"), "fren diskleri");
+  assert.equal(categoryNameInText("ABS Sensörü"), "ABS sensörü");
+  assert.equal(categoryNameInText("LED Far ve AC Parçaları"), "LED far ve AC parçaları");
+  assert.equal(categoryNameInText("A Sınıfı İç Aydınlatma"), "a sınıfı iç aydınlatma");
+  const golf = { name: "GOLF VII (5G1)", dateFrom: "2012-08", dateTo: "2022-12" };
+  assert.deepEqual(vehicleModelCategoryLabels("VOLKSWAGEN", golf, "fren sistemi"),
+    { heading: "Volkswagen Golf VII (5G1, 2012–2022) fren sistemi", title: "Volkswagen Golf VII (5G1, 2012–2022) fren sistemi" });
+  // Too long: the start year stays before the category name is cut, so generations of the same name keep apart titles.
+  const sprinter = { name: "SPRINTER 3,5-T", dateFrom: "2006-01", dateTo: "2018-12" };
+  const parts = "motor soğutma sistemi ve radyatör parçaları";
+  const title = vehicleModelCategoryLabels("MERCEDES-BENZ", sprinter, parts).title;
+  assert.ok(title.length <= 60, title);
+  assert.equal(title, "Mercedes-Benz Sprinter 3,5-T (2006–) motor soğutma sistemi…");
+  assert.notEqual(title, vehicleModelCategoryLabels("MERCEDES-BENZ", { ...sprinter, dateFrom: "2018-01", dateTo: null }, parts).title);
+  // The model page keeps its rule: years while they fit, the plain name past the budget.
+  assert.equal(modelListingTitle("Volkswagen Golf 7", golf, "yedek parçaları"), "Volkswagen Golf 7 (2012–2022) yedek parçaları");
+  assert.equal(vehicleModelLabels("MERCEDES-BENZ", { ...sprinter, name: "SPRINTER 3,5-T PLATFORM CHASSIS" }).title, "Mercedes-Benz Sprinter 3,5-T Platform Chassis yedek parçaları");
 });
 
 test("llms.txt links are absolute, cover the legal pages and categories, and avoid private paths", () => {

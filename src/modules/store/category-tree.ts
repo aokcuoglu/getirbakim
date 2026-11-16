@@ -4,6 +4,13 @@ export function categorySlug(id:number,name:string){
  const legacy=Object.entries(legacyCategoryIds).find(([,value])=>value===id)?.[0];
  return legacy??name.toLocaleLowerCase('tr').replace(/ı/g,'i').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+id;
 }
+/**
+ * A category name as it reads inside a sentence or title: lower case, except all-caps words of two or more letters
+ * (ABS, LED, OEM), which stay as written. "ABS Sensörü" → "ABS sensörü".
+ */
+export function categoryNameInText(name:string){
+ return name.split(" ").map(word=>{const letters=word.replace(/[^\p{L}]/gu,"");return letters.length>=2&&letters===letters.toLocaleUpperCase("tr")&&letters!==letters.toLocaleLowerCase("tr")?word:word.toLocaleLowerCase("tr");}).join(" ");
+}
 export function categoryPath(nodes:StoreCategory[],id:number){
  const node=nodes.find(n=>n.id===id);return node?node.path.map(i=>nodes.find(n=>n.id===i)).filter((n):n is StoreCategory=>Boolean(n)):[];
 }

@@ -60,7 +60,8 @@ export const categoryAncestorsSql = (column: string) => `JOIN source_categories 
  CROSS JOIN LATERAL unnest(own.path_ids) ancestor(category_id)`;
 
 // Like the listing counts: reloaded when a listing edit moves the epoch, otherwise every 10 minutes in the background.
-const cachedCounts = staleCache<[number, number][]>(10 * 60 * 1000, 300, { epoch: listingEpoch });
+// One entry per make or model page visited (~4.4k units): 1000 keeps the popular ones warm.
+const cachedCounts = staleCache<[number, number][]>(10 * 60 * 1000, 1000, { epoch: listingEpoch });
 
 /**
  * Products per category, subcategories included, of a make's or a vehicle model's listing ($1 companies, $2-$5

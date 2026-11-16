@@ -183,19 +183,64 @@ export const modelAliases: Record<string, string> = {
 };
 
 /**
+ * A model name with its years: "Volkswagen Golf 7 (2012–2022)". A name that already ends in a parenthesis takes the
+ * years inside it ("Fiat Egea (Tipo 356, 2015–günümüz)"), not a second pair.
+ */
+export function withModelYears(name: string, years: string | null | undefined) {
+  if (!years) return name;
+  return name.endsWith(")") ? `${name.slice(0, -1)}, ${years})` : `${name} (${years})`;
+}
+
+/** The leading words of `text` that fit in `room` characters with a trailing "…"; "" when not even one fits. */
+function clipWords(text: string, room: number) {
+  let clipped = "";
+  for (const word of text.split(" ")) {
+    const next = clipped ? `${clipped} ${word}` : word;
+    if (next.length + 1 > room) break;
+    clipped = next;
+  }
+  return clipped && clipped !== text ? `${clipped}…` : "";
+}
+
+/**
+ * The page part of a model listing's <title> (the site template appends " | Getirbakim"), within 60 characters. Years
+ * go last and are shortened to the start year before they go, so generations sharing a name keep apart titles; with
+ * `clipSuffix` (a category name) the suffix is cut at a word before the years are dropped. When nothing fits, the
+ * name and full suffix.
+ */
+export function modelListingTitle(name: string, group: Pick<VehicleModelGroup, "dateFrom" | "dateTo">, suffix: string, { clipSuffix = false } = {}) {
+  const years = vehicleModelGroupYears(group, ""), start = group.dateFrom ? `${group.dateFrom.slice(0, 4)}–` : null;
+  const prefixes = [...new Set([withModelYears(name, years), withModelYears(name, start)])];
+  const candidates = [...prefixes.map(prefix => `${prefix} ${suffix}`)];
+  const clipped = (prefix: string) => { const short = clipWords(suffix, modelTitleBudget - prefix.length - 1); return short ? [`${prefix} ${short}`] : []; };
+  if (clipSuffix) candidates.push(...clipped(prefixes.at(-1)!));
+  candidates.push(`${name} ${suffix}`);
+  if (clipSuffix) candidates.push(...clipped(name));
+  return candidates.find(title => title.length <= modelTitleBudget) ?? `${name} ${suffix}`;
+}
+
+/**
  * Page texts of a model page: "Volkswagen Golf 7" (`model` "Golf 7"), its H1 with the years and the shorter <title>. A
  * unit with a Turkish market name (modelAliases) leads with it and keeps the catalog's in brackets: "Fiat Egea
  * (Tipo 356)", H1 "Fiat Egea (Tipo 356, 2015–) yedek parçaları".
  */
 export function vehicleModelLabels(makeName: string, group: Pick<VehicleModelGroup, "name" | "dateFrom" | "dateTo"> & { slug?: string }) {
-  const catalogName = readableProductName(group.name), years = vehicleModelGroupYears(group, "");
+  const catalogName = readableProductName(group.name);
   const alias = group.slug ? modelAliases[`${vehicleBrandSlug(makeName)}/${group.slug}`] : undefined;
   // "Tipo (356)" reads "Tipo 356" inside the alias' brackets.
   const inner = alias && catalogName.replace(/\s*\(([^()]*)\)/g, " $1").trim();
-  const make = vehicleMakeLabel(makeName), model = alias ? `${alias} (${inner})` : catalogName, name = `${make} ${model}`;
-  const heading = alias ? `${make} ${alias} (${inner}${years ? `, ${years}` : ""}) yedek parçaları` : `${name}${years ? ` (${years})` : ""} yedek parçaları`;
-  // The page part of a title stays within 60 characters (the site template appends " | Getirbakim"); years go first.
-  return { name, model, heading, title: heading.length <= modelTitleBudget ? heading : `${name} yedek parçaları` };
+  const model = alias ? `${alias} (${inner})` : catalogName, name = `${vehicleMakeLabel(makeName)} ${model}`;
+  const heading = `${withModelYears(name, vehicleModelGroupYears(group, ""))} yedek parçaları`;
+  return { name, model, heading, title: modelListingTitle(name, group, "yedek parçaları") };
+}
+
+/**
+ * Page texts of a model × category page (#673): the H1 "Volkswagen Golf 7 (2012–2022) fren sistemi" and a <title>
+ * within the budget. `parts` is the category name as it reads in a sentence (categoryNameInText).
+ */
+export function vehicleModelCategoryLabels(makeName: string, group: Pick<VehicleModelGroup, "name" | "dateFrom" | "dateTo"> & { slug?: string }, parts: string) {
+  const { name } = vehicleModelLabels(makeName, group);
+  return { heading: `${withModelYears(name, vehicleModelGroupYears(group, ""))} ${parts}`, title: modelListingTitle(name, group, parts, { clipSuffix: true }) };
 }
 
 /** Production years for titles and copy: "2012–2022", "2019–günümüz" (`openEnd` "" gives "2019–"); null without a start. */

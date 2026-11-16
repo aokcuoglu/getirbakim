@@ -18,11 +18,11 @@ import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import {shownVehicle,vehicleText} from "@/modules/store/vehicle-label";
 import {getVehicleBrands} from "@/modules/store/vehicle-catalog.server";
 import {vehicleBrandSlug,type ShownVehicle,type VehicleBrand} from "@/modules/store/vehicle-catalog";
-import {vehicleMakeLabel,vehicleModelGroupYears,vehicleModelLabels,type VehicleModelGroup} from "@/modules/store/vehicle-model-groups";
+import {vehicleMakeLabel,vehicleModelCategoryLabels,vehicleModelGroupYears,vehicleModelLabels,withModelYears,type VehicleModelGroup} from "@/modules/store/vehicle-model-groups";
 import {VehicleModelSummary} from "@/components/vehicle-model-summary";
 import {VehicleModelList} from "@/components/vehicle-model-list";
 import {getStoreCategories} from "@/modules/store/categories";
-import {categoryPath,sidebarCategoryBranch} from "@/modules/store/category-tree";
+import {categoryNameInText,categoryPath,sidebarCategoryBranch} from "@/modules/store/category-tree";
 import {CatalogStickyFinder} from "@/components/catalog-sticky-finder";
 import {CategoryCards} from "@/components/category-cards";
 import {VehicleOilBanner} from "@/components/vehicle-oil-banner";
@@ -91,8 +91,10 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const popularMakes=popularOrder.flatMap(name=>vehicleBrands.filter(brand=>brand.name===name));
  const makeName=make&&vehicleMakeLabel(make.name);
  const modelLabels=make&&model?vehicleModelLabels(make.name,model):undefined,modelName=modelLabels?.name,modelYears=model&&vehicleModelGroupYears(model);
+ // A category name inside a sentence keeps its all-caps words (ABS, LED); the model with its years, one parenthesis.
+ const parts=category&&categoryNameInText(category.name),modelVehicle=modelName&&withModelYears(modelName,modelYears);
  const manufacturerCopy=manufacturer&&manufacturerTexts(manufacturer.name,manufacturerTotal??result.total);
- const title=params.q ? `“${params.q.slice(0,120)}” için arama sonuçları` : manufacturerCopy ? manufacturerCopy.title : modelLabels ? (category ? `${modelLabels.name} ${category.name.toLocaleLowerCase("tr")}` : modelLabels.heading) : make ? `${makeName} ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"}` : category?.name ?? "Yedek parça ve bakım ürünleri";
+ const title=params.q ? `“${params.q.slice(0,120)}” için arama sonuçları` : manufacturerCopy ? manufacturerCopy.title : modelLabels ? (make && model && parts ? vehicleModelCategoryLabels(make.name,model,parts).heading : modelLabels.heading) : make ? `${makeName} ${parts ?? "yedek parçaları"}` : category?.name ?? "Yedek parça ve bakım ürünleri";
  // The listing itself (the code search stays inside it) and the same listing without its category.
  const modelSlug=model&&params.model;
  const manufacturerSlug=manufacturer?.slug;
@@ -125,7 +127,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const trail=manufacturer?manufacturerTrail(manufacturer):catalogTrail({make:make&&{name:makeName!,slug:params.make!},model:model&&{name:modelLabels!.model,slug:params.model!},categories:category?categoryPath(categories,category.id):[]});
  // Only the plain listings are indexed (the pages' robots rule): a search, filter, sort or page 2 is not a collection.
  // A model page says what its list is: model-level fits, which the garage vehicle narrows to an engine type.
- const intro=params.q?undefined:manufacturerCopy?manufacturerCopy.intro:modelName&&category?`${modelName}${modelYears?` (${modelYears})`:""} için ${category.name.toLocaleLowerCase("tr")} kategorisinde listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} ürün. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:modelName?`${modelName}${modelYears?` (${modelYears})`:""} için listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
+ const intro=params.q?undefined:manufacturerCopy?manufacturerCopy.intro:modelVehicle&&parts?`${modelVehicle} için ${parts} kategorisinde listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} ürün. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:modelVehicle?`${modelVehicle} için listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
  const collection=isIndexableListing(params)&&products.length>0
   ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,modelSlug,categorySlug:category?.slug,manufacturerSlug}),items:products.map(product=>({path:productPath(product),name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
  const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.q} vehicle={shown}/>;
@@ -137,9 +139,10 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
     isBrakeCategory?"bg-[linear-gradient(#212b36cc,#212b36cc),url('/media/site/images/brake-system-banner.webp')]":"bg-[url('/media/site/images/mobile-catalog.webp')]")}>
     <div className="flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/85 max-[600px]:text-xs"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
     <div className="mx-auto w-full max-w-[1384px] px-8 max-[600px]:px-[15px]">
-     <h1 className={cn("mt-3 mb-4 flex h-24 items-center justify-center text-center text-[34px] leading-[42px] font-semibold tracking-[-.7px] max-[600px]:m-0 max-[600px]:mb-3 max-[600px]:h-[72px] max-[600px]:text-[28px] max-[600px]:leading-9",
-      // A manufacturer's name can be long: the heading grows instead of overflowing the fixed height.
-      manufacturer&&"h-auto min-h-24 text-balance wrap-anywhere max-[600px]:h-auto max-[600px]:min-h-[72px]")}>{title}</h1>
+     {/* Manufacturer names and make / model headings ("Volkswagen Golf 7 (2012–2022) fren sistemi") can run to three
+      lines on a phone: they grow from the same minimum height instead of overflowing the fixed one. */}
+     <h1 className={cn("mt-3 mb-4 flex items-center justify-center text-center text-[34px] leading-[42px] font-semibold tracking-[-.7px] max-[600px]:m-0 max-[600px]:mb-3 max-[600px]:text-[28px] max-[600px]:leading-9",
+      manufacturer?"min-h-24 text-balance wrap-anywhere max-[600px]:min-h-[72px]":make?"min-h-24 py-2 text-balance max-[600px]:min-h-[72px]":"h-24 max-[600px]:h-[72px]")}>{title}</h1>
      {finder(false)}
     </div>
    </section>
@@ -151,7 +154,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
       {trail.map((crumb,index)=><Fragment key={crumb.path}>{index>0&&crumbSeparator}<BreadcrumbItem>{index===trail.length-1?<BreadcrumbPage className="text-inherit">{crumb.name}</BreadcrumbPage>:<BreadcrumbLink className={crumbLink} render={<Link href={crumb.path}/>}>{crumb.name}</BreadcrumbLink>}</BreadcrumbItem></Fragment>)}
      </BreadcrumbList>
     </Breadcrumb>
-    {!params.q&&<div className="mb-4 pb-[26px] max-[768px]:pb-4"><h2 className="mb-3 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl max-[768px]:leading-[26px]">{manufacturerCopy?manufacturerCopy.heading:modelName&&category?`${modelName} için ${category.name.toLocaleLowerCase("tr")} ürünlerini keşfet`:modelName?`${modelName} için yedek parçaları keşfet`:make&&!category?`${makeName} araçlar için yedek parçaları keşfet`:category?.id===269?"Aracın için ön ve arka fren disklerini keşfet":category?category.name+" ürünlerini keşfet":"Aracına uygun yedek parçayı bul"}</h2><p className="text-[13px] leading-[18px]">{intro}</p>{model&&modelName&&!category&&<VehicleModelSummary name={modelName} model={model} vehicle={shown}/>}</div>}
+    {!params.q&&<div className="mb-4 pb-[26px] max-[768px]:pb-4"><h2 className="mb-3 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl max-[768px]:leading-[26px]">{manufacturerCopy?manufacturerCopy.heading:modelName&&parts?`${modelName} için ${parts} seçeneklerini keşfet`:modelName?`${modelName} için yedek parçaları keşfet`:make&&!category?`${makeName} araçlar için yedek parçaları keşfet`:category?.id===269?"Aracın için ön ve arka fren disklerini keşfet":category?category.name+" ürünlerini keşfet":"Aracına uygun yedek parçayı bul"}</h2><p className="text-[13px] leading-[18px]">{intro}</p>{model&&modelName&&!category&&<VehicleModelSummary name={modelName} model={model} vehicle={shown}/>}</div>}
     {make&&!model&&!category&&!params.q&&!filtered&&<VehicleModelList brandId={make.id} makeName={makeName!} makeSlug={params.make!}/>}
     {!params.q&&!make&&<section className="mb-8 max-[768px]:mb-6" aria-label="Popüler araç markaları"><h2 className="mb-[15px] text-xl leading-7 font-medium tracking-[-.4px]">Popüler araç markaları</h2><ul className="flex flex-wrap gap-x-[3px] max-[600px]:h-9 max-[600px]:overflow-y-auto max-[600px]:overscroll-contain">{popularMakes.map(make=><li key={make.id} className="text-[13px] leading-[18px] not-last:after:ml-px not-last:after:content-[',']"><Link prefetch={false} className="hover:underline" href={makePath(vehicleBrandSlug(make.name))}>{vehicleMakeLabel(make.name)}</Link></li>)}</ul></section>}
     <div className="grid grid-cols-[304px_minmax(0,1fr)] items-start gap-8 max-[768px]:grid-cols-1 max-[768px]:gap-5">
