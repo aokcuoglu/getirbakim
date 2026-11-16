@@ -23,7 +23,7 @@
 import { BODY, ROMAN, normalizeText } from "./description-fitment";
 import { readableProductName } from "./product-name";
 import { vehicleMakeLabel } from "./vehicle-label";
-import type { VehicleModel } from "./vehicle-catalog";
+import { vehicleBrandSlug, type VehicleModel } from "./vehicle-catalog";
 
 export type VehicleModelGroup = {
   slug: string; name: string; family: string; generation: number | null; models: VehicleModel[];
@@ -165,10 +165,35 @@ const modelTitleBudget = 60;
 // The make's reading form lives in vehicle-label.ts (#689); the model pages' import path stays.
 export { vehicleMakeLabel };
 
-/** Page texts of a model page: "Volkswagen Golf 7" (`model` "Golf 7"), its H1 with the years and the shorter <title>. */
-export function vehicleModelLabels(makeName: string, group: Pick<VehicleModelGroup, "name" | "dateFrom" | "dateTo">) {
-  const model = readableProductName(group.name), name = `${vehicleMakeLabel(makeName)} ${model}`, years = vehicleModelGroupYears(group, "");
-  const heading = `${name}${years ? ` (${years})` : ""} yedek parçaları`;
+/**
+ * Turkish market names of model page units (#674), by "<make slug>/<unit slug>" (the /yedek-parca address). TecDoc
+ * names the series by their European names; shoppers in Turkey know some by another. Only a unit that is one
+ * generation sold under that name gets one, checked against the catalog's series and production years
+ * (docs/vehicle-catalog.md). Labels only: the address and the search stay the catalog's.
+ */
+export const modelAliases: Record<string, string> = {
+  // TIPO Saloon/Hatchback/Estate (356_, 357_), 2015–: built in Bursa and sold in Turkey as Egea.
+  "fiat/tipo-356": "Egea",
+  // THALIA I (LB_), 1998–2009: the Bursa-built Clio Symbol; THALIA II (LU_), 2008–2014: its successor, Symbol.
+  "renault/thalia-1": "Clio Symbol",
+  "renault/thalia-2": "Symbol",
+  // ACCENT III (MC) hatchback + saloon, 2005–2012: Accent Era; ACCENT IV Saloon (RB), 2010–: Accent Blue.
+  "hyundai/accent-3": "Accent Era",
+  "hyundai/accent-4": "Accent Blue",
+};
+
+/**
+ * Page texts of a model page: "Volkswagen Golf 7" (`model` "Golf 7"), its H1 with the years and the shorter <title>. A
+ * unit with a Turkish market name (modelAliases) leads with it and keeps the catalog's in brackets: "Fiat Egea
+ * (Tipo 356)", H1 "Fiat Egea (Tipo 356, 2015–) yedek parçaları".
+ */
+export function vehicleModelLabels(makeName: string, group: Pick<VehicleModelGroup, "name" | "dateFrom" | "dateTo"> & { slug?: string }) {
+  const catalogName = readableProductName(group.name), years = vehicleModelGroupYears(group, "");
+  const alias = group.slug ? modelAliases[`${vehicleBrandSlug(makeName)}/${group.slug}`] : undefined;
+  // "Tipo (356)" reads "Tipo 356" inside the alias' brackets.
+  const inner = alias && catalogName.replace(/\s*\(([^()]*)\)/g, " $1").trim();
+  const make = vehicleMakeLabel(makeName), model = alias ? `${alias} (${inner})` : catalogName, name = `${make} ${model}`;
+  const heading = alias ? `${make} ${alias} (${inner}${years ? `, ${years}` : ""}) yedek parçaları` : `${name}${years ? ` (${years})` : ""} yedek parçaları`;
   // The page part of a title stays within 60 characters (the site template appends " | Getirbakim"); years go first.
   return { name, model, heading, title: heading.length <= modelTitleBudget ? heading : `${name} yedek parçaları` };
 }
