@@ -4212,7 +4212,7 @@
     "title": "Çerez Politikası",
     "sourceUrl": "https://getirbakim.com/cerez-politikasi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-11-15",
+    "updatedAt": "2026-11-16",
     "description": "Sitede kullanılan çerez ve yerel depolama kayıtları, amaçları, süreleri ve tercihlerin yönetimi.",
     "sections": [
       {
@@ -4348,7 +4348,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Analiz çerezleri: “Analiz çerezleri”ne izin vermeniz hâlinde Google Analytics 4 (Google Ireland Limited / Google LLC) yüklenir ve _ga ile _ga_<kimlik> çerezlerini (2 yıla kadar) yazar. Ziyaret edilen sayfalar, görüntülenen ve sepete eklenen ürünler, yaklaşık konum, cihaz ve tarayıcı bilgileri işlenir; ad, e-posta, telefon veya adres bilgisi gönderilmez. İzin verilmediğinde bu hizmet yüklenmez ve Google’a istek gönderilmez."
+              "Analiz çerezleri: “Analiz çerezleri”ne izin vermeniz hâlinde Google Analytics 4 (Google Ireland Limited / Google LLC) yüklenir ve _ga ile _ga_<kimlik> çerezlerini (2 yıla kadar) yazar. Ziyaret edilen sayfalar, yapılan aramalar, görüntülenen, sepete eklenen ve sepetten çıkarılan ürünler, ödeme adımları, tamamlanan siparişlerde sipariş numarası, satın alınan ürünler ve adetleri, sipariş tutarı, KDV ve kargo ücreti, iptal edilen siparişlerde iade tutarı, yaklaşık konum, cihaz ve tarayıcı bilgileri işlenir; ad, e-posta, telefon, adres veya ödeme kartı bilgisi gönderilmez. İzin verilmediğinde bu hizmet yüklenmez ve Google’a istek gönderilmez."
             ]
           },
           {
