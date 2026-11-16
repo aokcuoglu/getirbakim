@@ -7,8 +7,9 @@ import { CONSENT_COOKIE } from "@/lib/cookie-consent";
 import { currentAccount } from "@/modules/auth/session";
 import { analyticsConfig } from "@/modules/analytics/config";
 import { purchaseClaimAllowed } from "@/modules/analytics/purchase";
-import type { PurchaseEvent } from "@/modules/analytics/events";
+import type { PurchaseEvent, RefundEvent } from "@/modules/analytics/events";
 import { claimPurchase } from "@/modules/store/purchase-event";
+import { claimRefund } from "@/modules/store/refund-event";
 import { currentOrder, currentOrderOwners } from "@/modules/store/order-read";
 import { INTERACTIVE_RECONCILE_MS, reconcileOrderPayments } from "@/modules/payments/checkout";
 import { cancelOrderByCustomer, type CustomerCancelResult } from "@/modules/store/customer-cancel";
@@ -66,6 +67,25 @@ export async function claimPurchaseEvent(orderId: string): Promise<PurchaseEvent
     return await claimPurchase(orderId, await currentOrderOwners());
   } catch (error) {
     console.error("Purchase event claim failed", { orderId, error: error instanceof Error ? error.message : error });
+    return null;
+  }
+}
+
+/**
+ * The cancelled paid order's GA4 refund event, at most once and only after its purchase was measured (#750). Refused on the
+ * same terms as the purchase: no GA4 id, an admin visitor or no analytics consent; ownership comes from the session.
+ */
+export async function claimRefundEvent(orderId: string): Promise<RefundEvent | null> {
+  if (!z.uuid().safeParse(orderId).success) return null;
+  try {
+    const [account, cookieStore] = await Promise.all([currentAccount(), cookies()]);
+    const allowed = purchaseClaimAllowed({
+      ga4: analyticsConfig().ga4, role: account?.role, consent: cookieStore.get(CONSENT_COOKIE)?.value ?? null, now: Date.now(),
+    });
+    if (!allowed) return null;
+    return await claimRefund(orderId, await currentOrderOwners());
+  } catch (error) {
+    console.error("Refund event claim failed", { orderId, error: error instanceof Error ? error.message : error });
     return null;
   }
 }

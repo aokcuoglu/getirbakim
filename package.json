@@ -124,6 +124,7 @@
     "test:order-progress": "node --import tsx --test scripts/test-order-progress.ts",
     "test:order-cancel": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-order-cancel.ts",
     "test:purchase-event": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-purchase-event.ts",
+    "test:refund-event": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-refund-event.ts",
     "test:supplier-checkout": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-supplier-checkout.ts",
     "storefront:sync": "node --env-file=.env.local --import tsx scripts/sync-storefront-production.ts",
     "storefront:sync:install": "node --import tsx scripts/install-storefront-sync-launchd.ts",
