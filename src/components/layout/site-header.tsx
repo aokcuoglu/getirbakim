@@ -43,7 +43,7 @@ export async function SiteHeader() {
       <MobileSearchToggle/>
       <nav aria-label="Kategoriler" className="site-header-nav">
         <CategoryMenu links={headerCategoryLinks(categories)}/>
-        <Link className="ml-auto inline-flex min-h-5 items-center gap-1.5 text-brand hover:underline hover:underline-offset-3" href="/bakim-robotu" prefetch={false}><Wrench size={14} aria-hidden="true"/> Bakım Robotu</Link>
+        <Link className="ml-auto inline-flex min-h-5 items-center gap-1.5 text-brand hover:underline hover:underline-offset-3 group-data-[route=home]/route:max-[600px]:hidden" href="/bakim-robotu" prefetch={false}><Wrench size={14} aria-hidden="true"/> Bakım Robotu</Link>
         <Link className="inline-flex min-h-5 items-center gap-1.5 text-[#923830] max-[1100px]:hidden" href="/bilgi/yardim"><SiteIcon name="help" size={14}/> Yardım al</Link>
       </nav>
     </header>
