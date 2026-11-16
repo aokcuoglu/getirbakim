@@ -94,11 +94,20 @@ npm run media:gc -- --min-age-days=14 --limit=500 --batch=200 --max-share=0.2
 
 ```sh
 npm run fitment:rebuild
+npm run fitment:rebuild -- --items=data/urunler.json
 npm run test:fitment
+npm run test:fitment-rebuild
 npm run verify:fitment
+npm run verify:fitment -- --drift-only
 ```
 
-`fitment:rebuild` tabloyu idempotent biçimde kurar ve mevcut tüm ürünleri aynı transaction içinde yeniden eşleştirir. Ürün veya kaynak verisini değiştirmez. `enrichment:prepare` de bağlantı tablosunu hazırlar. Kurulumdan sonra `enrichment:import` her ürünün kaynak verisini ve bağlantılarını aynı transaction içinde günceller. Eski araç satırları kaldırılır; tekrar aktarım çoğaltma yapmaz. `db:vehicles` de araç kataloğunu güncellediğinde kurulu ürün bağlantılarını yeniden hesaplar. Ürün ve araç aktarımları ortak advisory lock sırasıyla çalışır; eşzamanlı işlemler kısa süre sıraya girer.
+`fitment:rebuild` tabloyu idempotent biçimde kurar ve argümansız çalıştırıldığında mevcut tüm ürünleri aynı transaction içinde yeniden eşleştirir. `--items=<dosya>` (tedarikçi ürün kimliklerinden oluşan JSON dizi, boş dizi de geçerli) yalnız o ürünleri ve bağlantıları eski bir eşleştirici sürümüyle (`matcher_version`) kurulmuş ürünleri yeniden eşleştirir; zenginleştirmesi olmayan kimlikler yok sayılır. Bilinmeyen argüman ya da geçersiz kimlik hata verir, tam yeniden kuruluma dönmez. Çıktı yalnız özet JSON'dur (`mode`, `requested`, `outdated`, `products`, durum sayıları). Ürün veya kaynak verisini değiştirmez. `enrichment:prepare` de bağlantı tablosunu hazırlar. Kurulumdan sonra `enrichment:import` her ürünün kaynak verisini ve bağlantılarını aynı transaction içinde günceller. Eski araç satırları kaldırılır; tekrar aktarım çoğaltma yapmaz. `db:vehicles` de araç kataloğunu güncellediğinde kurulu ürün bağlantılarını yeniden hesaplar. Ürün ve araç aktarımları ortak advisory lock sırasıyla çalışır; eşzamanlı işlemler kısa süre sıraya girer.
+
+Bağlantılar yalnız ürün payload'ındaki `vehicles`, araç kataloğu ve `FITMENT_MATCHER_VERSION`'dan türetilir. Bu yüzden tam yeniden kurulum nadiren gerekir: eşleştirici sürümü değişince kapsamlı çalıştırma eski sürümlü satırları kendiliğinden yeniden kurar, araç kataloğu aktarımı (`db:vehicles`) tümünü zaten yeniden hesaplar. Emin değilseniz `npm run verify:fitment` ile denetleyip argümansız `npm run fitment:rebuild` çalıştırın.
+
+Kapsamlı çalıştırmanın kendiliğinden onaramadığı durum, bağlantısı payload'ından geri kalmış ve sonraki paketlerde gelmeyen üründür (ör. bağlantıları kurulmadan yarıda kalmış bir içe aktarma). `verify:fitment` önce salt-okunur bir sapma denetimi yapar: `payload->'vehicles'` uzunluğu `product_vehicle_fitments` satır sayısından farklı olan zenginleştirmeleri sayar ve ilk 20 kimliği yazar, sapma varsa hata ile çıkar. `--drift-only` yalnız bu denetimi koşar (yerelde ~9,3M satırda ~2-4 sn; AWS'de operations görevi olarak `node --import tsx scripts/verify-product-fitments.ts --drift-only`); bayraksız çalıştırma diğer denetimleri de yapar, bunlar satır kilidi alır, geri alınan bir transaction içinde yazar ve `VERIFY_URL`'den bir ürün sayfası okur. Sayı denetimi aynı uzunlukta ama farklı içerikli bir payload'ı yakalamaz; o durum bayraksız çalıştırmadaki "stale source links" denetimindedir.
+
+- **Bir ortamdaki ilk kapsamlı aktarımdan önce** ve **başarısız bir içe aktarmadan sonra filigranı ileri almadan önce** (`--baseline`/`--force`) `verify:fitment -- --drift-only` çalıştırın; sapma bildirirse argümansız `fitment:rebuild` koşun.
 
 `strict-v1`: büyük/küçük harf, aksan, boşluk ve katalog marka gösterim adı farkları normalize edilir. Model/kasa, motor adı, yakıt, cm³, PS/hp, kW ve üretim başlangıç/bitiş ayları birlikte eşleşmelidir. Motor adı kaynak metnindeki motor kodlarından ayrılarak karşılaştırılır; xDrive/4motion gibi uzun varyant adları önceliklidir. Birden fazla aynı aday varsa otomatik bağlantı kurulmaz. Motor kodları katalogda bulunmadığı için ayrıca doğrulanamaz. Bu bağlantı kaynak uyumluluk listesini yerel katalogla ilişkilendirir; üretici onayı anlamına gelmez.
 
@@ -160,7 +169,7 @@ Filigran yalnızca canlı paketi uyguladıktan sonra ilerler; başarısız bir �
 
 #### Hedefler, filigran ve bayraklar (#553)
 
-`STOREFRONT_SYNC_TARGET` (`.env.local`) `vps` (varsayılan, yukarıdaki SSH akışı) ya da `aws` olur. `aws` hedefinde parçalar S3 inbound kovasına yüklenir ve tek bir ECS görevi `scripts/import-storefront-inbound.ts`'i çalıştırır: tüm parçaların kuru çalıştırması → uygulama → `rebuild-product-fitments.ts` → paylaşılan bağlantı kuyruğunun boşaltılması (`product_enrichment_shared_sync()`) → `enrichment-states.ts sync`.
+`STOREFRONT_SYNC_TARGET` (`.env.local`) `vps` (varsayılan, yukarıdaki SSH akışı) ya da `aws` olur. `aws` hedefinde parçalar S3 inbound kovasına yüklenir ve tek bir ECS görevi `scripts/import-storefront-inbound.ts`'i çalıştırır: tüm parçaların kuru çalıştırması → uygulama → `rebuild-product-fitments.ts --items` (yalnız paketin yazdığı ürünler ve eski `matcher_version`'lı satırlar; liste görevin geçici dizinindeki `fitment-items.json`'dadır, `report.json`'a girmez) → paylaşılan bağlantı kuyruğunun boşaltılması (`product_enrichment_shared_sync()`) → `enrichment-states.ts sync`.
 
 - **Filigran hedef başına ayrıdır:** `vps` → `.local/storefront-sync/state.json` (eskisi gibi), `aws` → `.local/storefront-sync/state.aws.json`. Durum dosyası `snapshotAt`, `syncedAt`, `target`, `since`, gönderilen sayıları ve gerekiyorsa `retry` listesini tutar. Yollar komutun çalıştığı dizine göredir; başka bir worktree'den çalıştırma ana checkout'un filigranına dokunmaz.
 - **Bayraklar katıdır:** yalnız `--dry-run`, `--full`, `--force` ve `--baseline=<ISO>` kabul edilir; başka her argüman (`--dryrun`, `-n`, boşlukla yazılmış `--baseline 2026-…`) hata verir, gerçek çalıştırmaya dönüşmez.
@@ -195,7 +204,7 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
 | `product_enrichment_jobs` (yalnız `complete`/`partial` ve zenginleştirme satırı olan) | Pakette, her seferinde tam, part-00'da | `product_enrichments`'ta durum yok; `enrichment_valid_data` (`db/enrichment-products.sql`) iş durumuna JOIN yapar. İşler gitmezse yeni zenginleştirme `product_enrichment_shared_links` → `storefront_enrichments`'a ulaşmaz. Yalnız değişen satır yazılır (`IS DISTINCT FROM`), aksi halde tetikleyiciler ~69k satırı her seferinde kuyruğa alır |
 | `product_enrichment_shared_links`, `storefront_make_fits`, `storefront_model_fits` | AWS'de türetilir | İçe aktarma sonunda kuyruk boşaltılır; model tablosu (#639) marka tablosuyla aynı yenilemede yazılır |
 | `enrichment_product_states` (+ kuyruk) | AWS'de türetilir | `scripts/enrichment-states.ts sync` |
-| `product_vehicle_fitments` | AWS'de türetilir | `scripts/rebuild-product-fitments.ts` |
+| `product_vehicle_fitments` | AWS'de türetilir | `scripts/rebuild-product-fitments.ts --items`: paketin yazdığı ürünler + eski `matcher_version`'lı satırlar (#561); VPS akışı tam yeniden kurar |
 | `product_override_fitments` | Aktarılmaz | Yöneticinin araç uyumu kararları (#583) AWS panelinde yönetilir; `products.id` ortama özgüdür. Yeniden kurulum yalnız `product_vehicle_fitments`'ı yazar, kararlar kalır |
 | `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş) |
 | `vehicle_type_oil_specs` | Aktarılmaz | `data/vehicle_type_oil_specs.csv` + `npm run db:vehicle-oils` |

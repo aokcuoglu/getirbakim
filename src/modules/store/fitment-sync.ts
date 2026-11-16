@@ -27,3 +27,36 @@ export async function syncProductFitments(client: PoolClient, productId: string,
     [productId, JSON.stringify(matches.map(row => ({ source_index: row.sourceIndex, source_vehicle: row.source, vehicle_type_id: row.typeId, match_status: row.status, candidate_type_ids: row.candidateTypeIds }))), FITMENT_MATCHER_VERSION]);
   return matches.reduce<Partial<Record<FitmentMatch["status"], number>>>((counts, row) => { counts[row.status] = (counts[row.status] || 0) + 1; return counts; }, {});
 }
+
+export type FitmentRebuildResult = {
+  mode: "full" | "scoped"; requested: number; outdated: number; products: number; counts: Partial<Record<FitmentMatch["status"], number>>;
+};
+/**
+ * Re-derives product_vehicle_fitments from the stored payloads, in the caller's transaction. Without `items` every
+ * enrichment is rebuilt; with `items` only those supplier items (ids without an enrichment are ignored) plus every
+ * product whose rows came from an older matcher version. Fitments depend only on the payload's vehicles, the vehicle
+ * catalogue (whose importer rebuilds all of them) and FITMENT_MATCHER_VERSION, so this covers what a full rebuild would change.
+ */
+export async function rebuildProductFitments(client: PoolClient, options: { items?: string[] } = {}): Promise<FitmentRebuildResult> {
+  await lockFitmentSync(client);
+  const match = await loadFitmentMatcher(client);
+  const columns = "SELECT supplier_item_id,payload FROM product_enrichments";
+  let products: { supplier_item_id: string; payload: unknown }[];
+  let outdated = 0;
+  if (options.items === undefined) {
+    products = (await client.query<{ supplier_item_id: string; payload: unknown }>(`${columns} ORDER BY supplier_item_id FOR UPDATE`)).rows;
+  } else {
+    const stale = (await client.query<{ supplier_item_id: string }>(
+      "SELECT DISTINCT supplier_item_id FROM product_vehicle_fitments WHERE matcher_version<>$1", [FITMENT_MATCHER_VERSION])).rows.map(row => row.supplier_item_id);
+    outdated = stale.length;
+    const target = [...new Set([...options.items, ...stale])];
+    products = (await client.query<{ supplier_item_id: string; payload: unknown }>(
+      `${columns} WHERE supplier_item_id=ANY($1::uuid[]) ORDER BY supplier_item_id FOR UPDATE`, [target])).rows;
+  }
+  const counts: FitmentRebuildResult["counts"] = {};
+  for (const product of products) {
+    const result = await syncProductFitments(client, product.supplier_item_id, product.payload, match);
+    for (const [status, n] of Object.entries(result) as [FitmentMatch["status"], number][]) counts[status] = (counts[status] || 0) + n;
+  }
+  return { mode: options.items === undefined ? "full" : "scoped", requested: options.items?.length ?? 0, outdated, products: products.length, counts };
+}

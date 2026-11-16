@@ -2,7 +2,43 @@ import assert from "node:assert/strict";
 import { Pool } from "pg";
 import { lockFitmentSync, loadFitmentMatcher, syncProductFitments } from "../src/modules/store/fitment-sync";
 
+// npm run verify:fitment [-- --drift-only]
+// --drift-only runs only the read-only drift check below (a few seconds on ~9M fitment rows; safe on AWS) and exits
+// non-zero when it finds drift. Without it, every check runs; those take row locks and write inside a rolled-back
+// transaction, and the last one reads a product page from VERIFY_URL.
+const args = process.argv.slice(2);
+if (args.some(arg => arg !== "--drift-only")) throw new Error(`Unknown argument: ${args.join(" ")}. Usage: verify-product-fitments.ts [--drift-only]`);
+const driftOnly = args.includes("--drift-only");
+
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Enrichments whose fitment row count differs from their payload's vehicle count: fitments a scoped rebuild
+// (rebuild-product-fitments.ts --items, #561) cannot repair, because it only revisits products a bundle wrote or an
+// older matcher version built. An argument-less `npm run fitment:rebuild` repairs them.
+async function fitmentDrift() {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN READ ONLY");
+    const { rows } = await client.query<{ products: number; sample: string[] | null }>(`SELECT count(*)::int AS products,
+      (array_agg(supplier_item_id::text ORDER BY supplier_item_id))[1:20] AS sample
+      FROM (SELECT e.supplier_item_id,
+        CASE WHEN jsonb_typeof(e.payload->'vehicles')='array' THEN jsonb_array_length(e.payload->'vehicles') ELSE 0 END AS vehicles
+        FROM product_enrichments e) e
+      LEFT JOIN (SELECT supplier_item_id,count(*)::int AS n FROM product_vehicle_fitments GROUP BY 1) f USING(supplier_item_id)
+      WHERE e.vehicles<>coalesce(f.n,0)`);
+    await client.query("ROLLBACK");
+    return { products: rows[0].products, sample: rows[0].sample ?? [] };
+  } finally { client.release(); }
+}
+
+const drift = await fitmentDrift();
+console.log(JSON.stringify({ fitmentDrift: drift }));
+if (drift.products > 0) {
+  await pool.end();
+  throw new Error(`${drift.products} enrichments have fitments that do not match their vehicle count; run npm run fitment:rebuild without arguments.`);
+}
+if (driftOnly) { await pool.end(); process.exit(0); }
+
 const client = await pool.connect();
 try {
   await client.query("BEGIN");

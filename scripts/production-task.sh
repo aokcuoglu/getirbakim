@@ -23,7 +23,9 @@ case "${1:-}" in
     exec "${compose[@]}" run --rm --no-deps -T -v "${bundle}:/bundle:ro" operations node --conditions=react-server --import tsx scripts/import-storefront-bundle.ts /bundle "$@"
     ;;
   rebuild-fitments)
-    exec "${compose[@]}" run --rm --no-deps -T operations node --import tsx scripts/rebuild-product-fitments.ts
+    # Usage: rebuild-fitments [--items=FILE]; without arguments every product (the file must be readable inside the container).
+    shift
+    exec "${compose[@]}" run --rm --no-deps -T operations node --import tsx scripts/rebuild-product-fitments.ts "$@"
     ;;
   backup)
     mkdir -p .local/backups
@@ -33,5 +35,5 @@ case "${1:-}" in
     mv "${target}.partial" "$target"
     find .local/backups -maxdepth 1 -type f -name 'daily-*.dump' -mtime +14 -delete
     ;;
-  *) echo 'Usage: production-task.sh supplier-sync [--force [--group=A,B] [--mode=full|commerce]]|supplier-health|supplier-configure --group=ALL ...|import-storefront DIR [--apply]|rebuild-fitments|backup' >&2; exit 2 ;;
+  *) echo 'Usage: production-task.sh supplier-sync [--force [--group=A,B] [--mode=full|commerce]]|supplier-health|supplier-configure --group=ALL ...|import-storefront DIR [--apply]|rebuild-fitments [--items=FILE]|backup' >&2; exit 2 ;;
 esac
