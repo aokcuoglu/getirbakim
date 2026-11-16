@@ -67,7 +67,9 @@ function dinamikWordPattern(word: string) {
 export function dinamikItemMatch(alias: string, raw: string, bind: Bind) {
   const words = parseSearchQuery(raw).terms.slice(0, 8);
   const text = `concat_ws(' ',${alias}.product_data->>'stokAdi',${alias}.code,${alias}.product_data->>'oemListe',${alias}.product_data->>'esdegerListe',${alias}.product_data->>'kull8s')`;
-  const pattern = words.map(word => `(?=.*\\m${(word.parts ?? [word.text]).map(dinamikWordPattern).join(codeSeparator)})`).join("");
+  // A synonym phrase ("sogutma sivisi") needs each of its words, like separate query words did.
+  const pattern = words.flatMap(word => word.parts ? [word.parts.map(dinamikWordPattern).join(codeSeparator)] : word.text.split(" ").map(dinamikWordPattern))
+    .map(word => `(?=.*\\m${word})`).join("");
   const clauses = words.length ? [`${text} ~* ${bind(`^${pattern}`)}`] : [];
   const compact = compactSearchCode(raw);
   if (compact.length >= 3) clauses.push(`supplier_item_search_codes(${alias}.code, ${alias}.product_data) LIKE ${bind(`%${compact}%`)}`);

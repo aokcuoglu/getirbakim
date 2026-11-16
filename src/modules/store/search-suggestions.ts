@@ -24,7 +24,8 @@ export async function searchSuggestions(raw: string, mode: SearchMode): Promise<
   const leading = (category: { name: string }) => Number(prefixes[0]?.some(spelling => normalizeSearchText(category.name).startsWith(spelling)) ?? false);
   const matching = categories.filter(category => {
     const words = normalizeSearchText(category.name).split(" ");
-    return prefixes.length > 0 && prefixes.every(spellings => spellings.some(spelling => words.some(word => word.startsWith(spelling))));
+    // A multi-word spelling ("sogutma sivi") needs each of its words.
+    return prefixes.length > 0 && prefixes.every(spellings => spellings.some(spelling => spelling.split(" ").every(part => words.some(word => word.startsWith(part)))));
   }).sort((a, b) => leading(b) - leading(a) || a.path.length - b.path.length || a.name.localeCompare(b.name, "tr")).slice(0, 4);
   return {
     categories: matching.map(category => ({ name: category.name, href: categoryPath(category.slug) })),
