@@ -4,9 +4,9 @@ import Link from "next/link";
 import {X} from "lucide-react";
 import type {CardSpecification} from "@/modules/store/specification-translations";
 import {Button} from "@/components/ui/button";
-import {Checkbox} from "@/components/ui/checkbox";
 import {Dialog,DialogContent,DialogTitle} from "@/components/ui/dialog";
 import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from "@/components/ui/table";
+import {StoreCheckbox} from "@/components/site/store-checkbox";
 type Entry={id:string;href:string;title:string;price:string;card:CardSpecification[]};
 const CompareContext=createContext<{entries:Entry[];toggle:(entry:Entry)=>void}>({entries:[],toggle:()=>{}});
 const head="font-bold ";
@@ -37,8 +37,8 @@ export function ComparisonProvider({children}:{children:ReactNode}){
 }
 export function CompareCheckbox({entry}:{entry:Entry}){
  const {entries,toggle}=useContext(CompareContext),checked=entries.some(e=>e.id===entry.id);
- return <label className="mb-4 flex cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-data-disabled:cursor-not-allowed group-data-[view=grid]/listing:order-4 max-[600px]:group-data-[view=grid]/listing:hidden">
-  <Checkbox className="size-5 rounded-[4px] border-input bg-white data-checked:border-brand data-checked:bg-brand [&_svg]:size-3.5!" checked={checked} disabled={!checked&&entries.length>=3} onCheckedChange={()=>toggle(entry)}/>
+ return <label className="product-card-compare">
+  <StoreCheckbox checked={checked} disabled={!checked&&entries.length>=3} onCheckedChange={()=>toggle(entry)}/>
   <span>Karşılaştırmaya ekle ({entries.length}/3)</span>
  </label>;
 }
@@ -46,8 +46,8 @@ export function CardSpecifications({card}:{card:CardSpecification[]}){
  const [expanded,setExpanded]=useState(false);
  const priority=["Fitting Position","Brake Disc Type","Outer Diameter [mm]","Brake Disc Thickness [mm]"];
  const ordered=card.some(row=>row.key==="Brake Disc Type")?[...card].sort((a,b)=>(priority.includes(a.key)?priority.indexOf(a.key):priority.length)-(priority.includes(b.key)?priority.indexOf(b.key):priority.length)):card;
- return <div className="col-start-1 my-4 min-w-0 self-start max-[1358px]:w-[250px] max-[1358px]:max-w-full max-[600px]:mt-8 max-[600px]:w-full group-data-[view=grid]/listing:min-h-[132px] group-data-[view=grid]/listing:w-auto max-[600px]:group-data-[view=grid]/listing:hidden">
-  <dl className="text-sm leading-5">{(expanded?ordered:ordered.slice(0,4)).map(({key,label,value},index)=><div key={key+index} className="mb-2 flex flex-wrap gap-x-[5px] wrap-anywhere"><dt className="font-normal text-muted-foreground">{label}:</dt><dd className="font-medium text-foreground">{value}</dd></div>)}</dl>
-  {card.length>4&&<button type="button" className="min-h-5 cursor-pointer rounded-none border-0 bg-transparent p-0 text-sm leading-5 font-medium text-brand-strong hover:underline focus-visible:outline-2 focus-visible:outline-ring" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>{expanded?"Daha az göster":"Tümünü göster"}</button>}
+ return <div className="product-card-specs">
+  <dl className="product-card-spec-list">{(expanded?ordered:ordered.slice(0,4)).map(({key,label,value},index)=><div key={key+index} className="product-card-spec"><dt className="product-card-spec-label">{label}:</dt><dd className="product-card-spec-value">{value}</dd></div>)}</dl>
+  {card.length>4&&<button type="button" className="product-card-specs-toggle" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>{expanded?"Daha az göster":"Tümünü göster"}</button>}
  </div>;
 }
