@@ -62,6 +62,10 @@ try {
    await client.query(await readFile("db/storefront-make-fits.sql", "utf8"));
    await client.query(await readFile("db/newsletter.sql", "utf8"));
    await client.query(await readFile("db/indexnow.sql", "utf8"));
+   // The matcher / state sync lock is (20261001,5) in public; other schemas derive their own key (#792). Both functions
+   // still agree off public, so a surprise is reported rather than failing the deploy.
+   const lockKey = (await client.query<{ key: number }>("SELECT schema_lock_key(5) AS key")).rows[0].key;
+   if (lockKey !== 5) console.warn(`Matcher lock key is ${lockKey}, not 5: the schema is not public (#792)`);
    await client.query("COMMIT");
    break;
   } catch (error) {
