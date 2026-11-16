@@ -6,7 +6,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Inter, self-hosted (weights used by the design: 400, 500, 600), subset to Latin + Latin Extended-A + punctuation/₺/€/arrows (#736): pyftsubset Inter-<w>.woff2 --flavor=woff2 --unicodes=U+0020-007E,U+00A0-00FF,U+0100-017F,U+2010-2027,U+2030,U+2032-2033,U+2039-203A,U+20AC,U+20BA,U+2122,U+2190-2193,U+2212,U+2260,U+2264-2265 --layout-features=kern,liga,calt,ccmp,locl,mark,mkmk,tnum,pnum,lnum,case,frac */
+/* Inter, self-hosted (weights used by the design: 400, 500, 600), subset to Latin + Latin Extended-A + punctuation/₺/€/arrows/⌘ (#736): pyftsubset Inter-<w>.woff2 --flavor=woff2 --unicodes=U+0020-007E,U+00A0-00FF,U+0100-017F,U+2010-2027,U+2030,U+2032-2033,U+2039-203A,U+20AC,U+20BA,U+2122,U+2190-2199,U+2212,U+2260,U+2264-2265,U+2318 --layout-features=kern,liga,calt,ccmp,locl,mark,mkmk,tnum,pnum,lnum,case,frac */
 @font-face { font-family: Inter; src: url("/media/site/fonts/Inter-Regular.subset.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
 @font-face { font-family: Inter; src: url("/media/site/fonts/Inter-Medium.subset.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
 @font-face { font-family: Inter; src: url("/media/site/fonts/Inter-SemiBold.subset.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
