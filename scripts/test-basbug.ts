@@ -94,14 +94,19 @@ test("a repeated row that only fills an empty field merges instead of conflictin
 
 test("a MalzemeAra answer maps to the stored price fields and the MRK stock (#763)", () => {
   // The verified field set of one item (16 Nov 2026): numbers as JSON numbers, product fields alongside.
-  const response = { no: "FILT AP 026/5", ac: "HAVA FILTRESI", uk: "MANN", dc: "EUR", nf: 62.92, mif: 68.5, k: 0, sMrk: 1, sYol: 0 };
-  assert.deepEqual(prepareBasbugItemCheck("FILT AP 026/5", response), { price: { no: "FILT AP 026/5", nf: 62.92, mif: 68.5, k: 0 }, mrkStock: 1 });
-  // Another code in the answer, or a missing or textual stock, is a broken contract rather than a stock of zero.
+  const response = { no: "FILT AP 026/5", ac: "HAVA FILTRESI", uk: "MANN", dc: "EUR", nf: 62.92, mif: 68.5, k: 0, sMrk: 1, sIzm: 0, sAnk: 2, sAdn: 0, sErz: 0, sYol: 3 };
+  // sYol is in transit, not a depot.
+  assert.deepEqual(prepareBasbugItemCheck("FILT AP 026/5", response),
+    { price: { no: "FILT AP 026/5", nf: 62.92, mif: 68.5, k: 0 }, depots: { MRK: 1, IZM: 0, ANK: 2, ADN: 0, ERZ: 0 } });
+  // Another code in the answer, or a missing or textual depot stock, is a broken contract rather than a stock of zero.
   assert.throws(() => prepareBasbugItemCheck("FILT AP 026/6", response), (error: unknown) => error instanceof BasbugImportError && error.reason === "contract");
   const withoutStock: Record<string, unknown> = { ...response };
   delete withoutStock.sMrk;
   assert.throws(() => prepareBasbugItemCheck("FILT AP 026/5", withoutStock), (error: unknown) => fallbackReason(error) === "upstream" && error instanceof Error && error.name === "ZodError");
   assert.throws(() => prepareBasbugItemCheck("FILT AP 026/5", { ...response, sMrk: "1" }));
+  const withoutDepot: Record<string, unknown> = { ...response };
+  delete withoutDepot.sErz;
+  assert.throws(() => prepareBasbugItemCheck("FILT AP 026/5", withoutDepot));
 });
 
 test("supplier errors map to order-line fallback reasons", () => {

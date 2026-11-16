@@ -14,7 +14,7 @@ Firma adı `BASBUG`. Swagger adresleri token ile de 403 dönüyor; bu, ürün se
 | --- | --- | --- |
 | `ListeGrubuGetir` | `FirmaAdi` | `malzemeGruplariListesi`: 15 grup; `kod`, `ad` |
 | `MalzemeleriGetir` | `FirmaAdi`, `ListeGrubu=FIAT` | `malzemeListesi`: 18.921 satır, 18.918 farklı `no` |
-| `MalzemeAra` | `FirmaAdi`, `MalzemeNo=COR 82016529` | Tek ürün nesnesi; fiyat (`nf`, `mif`, `k`) ve MRK stoğu (`sMrk`) sayı olarak. Kod kayıttaki yazılışıyla gönderilmeli: boşluksuz yazılış HTTP 604, gövde düz metin "Malzeme bulunamadı!" (16 Kasım 2026). Siparişteki canlı kontrol bu uç noktayı kullanır (#763). |
+| `MalzemeAra` | `FirmaAdi`, `MalzemeNo=COR 82016529` | Tek ürün nesnesi; fiyat (`nf`, `mif`, `k`) ve depo stokları (`sMrk`, `sIzm`, `sAnk`, `sAdn`, `sErz`; `sYol` yoldaki stok) sayı olarak. Depoları (MRK/IZM/ANK/ADN/ERZ) `StokGetir`'in depolarından (MRK/IZM/IAN/KYS/TRK) farklıdır; mağazada bulunabilirlik ikisinin toplamıdır. Kod kayıttaki yazılışıyla gönderilmeli: boşluksuz yazılış HTTP 604, gövde düz metin "Malzeme bulunamadı!" (16 Kasım 2026). Siparişteki canlı kontrol bu uç noktayı kullanır (#763). |
 | `FiyatGetir` | `FirmaAdi`, `ListeGrubu=FIAT` | `fiyatListesi`: 19.106 satır, 18.917 farklı `no` |
 | `StokGetir` | `FirmaAdi`, `ListeGrubu=FIAT`, `Depo=MRK` | `stokListesi`: 18.921 satır, 18.918 farklı `no` |
 | `DovizBilgisiGetir` | `FirmaAdi` | `dovizListesi`: EUR ve USD; `alis`, `satis` sayısal metin |

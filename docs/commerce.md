@@ -45,7 +45,7 @@ Kaynak tarihleri güncellenmez. Sipariş kaleminde `checkout_mode`, `source_fres
 
 ## Stok ve sipariş
 
-Başbuğ `stok` / `sFarkliDepo` pozitif sinyalleri bulunabilirliktir; gerçek adet gösterilmez. MRK'da stok varsa “Tedarikçide mevcut”, sadece başka depoda varsa “Diğer depoda mevcut” gösterilir. Yolda sinyali tek başına siparişe açmaz. Tedarikçi ürünleri için adet 1–99 talep edilebilir; tedarikçi gerçek adedi ve teslimat süresini operasyon teyit eder. API'ye sipariş gönderilmez.
+Başbuğ `stok` / `sFarkliDepo` pozitif sinyalleri bulunabilirliktir; gerçek adet gösterilmez. MRK'da stok varsa “Tedarikçide mevcut”, sadece başka depoda varsa “Diğer depoda mevcut” gösterilir. Sipariş anındaki kontrol (#763) `sFarkliDepo`'yu MRK dışındaki tüm depoların (MalzemeAra'nın IZM/ANK/ADN/ERZ ve kayıtlı IAN/KYS/TRK) toplamı olarak yeniden hesaplar; herhangi bir depodaki stok satışa yeter. Yolda sinyali tek başına siparişe açmaz. Tedarikçi ürünleri için adet 1–99 talep edilebilir; tedarikçi gerçek adedi ve teslimat süresini operasyon teyit eder. API'ye sipariş gönderilmez.
 
 Sepet misafir ve hesap oturumlarıyla çalışır; girişte misafir sepeti birleşir. Misafir siparişleri aynı 30 günlük sepet çerezi üzerinden görülebilir; giriş yaptıktan sonra da aynı çerez varsa erişilebilir. `/siparisler` ve `/siparis/[id]` yalnız sahibinin veya yöneticinin erişimine açıktır.
 

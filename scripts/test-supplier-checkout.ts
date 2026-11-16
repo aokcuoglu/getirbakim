@@ -39,6 +39,8 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
   const unset=["SUPPLIER_EGRESS_PROXY","SUPPLIER_EGRESS_PROXY_FOR","DINAMIK_BASE","DINAMIK_APIKEY","DINAMIK_SECRETKEY"];
   const originalEnv=[...keys,...unset].map(key=>process.env[key]);
   let price=10,stock=1,fail=false,gone=false,calls=0;
+  // MalzemeAra's other depots (#763); MRK follows `stock`.
+  const depots={sIzm:0,sAnk:0,sAdn:0,sErz:0};
   const urls:string[]=[];
   // Keep the operator's real API pause marker intact; all fetches below are mocked.
   const testCwd=await mkdtemp(join(tmpdir(),"getirbakim-checkout-"));
@@ -62,7 +64,7 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
       // MalzemeAra answers a code it no longer knows with HTTP 604 and a plain-text body (new Response rejects 604).
       if(url.includes("/material/MalzemeAra") && gone) return {ok:false,status:604,json:async()=>{throw new Error("not JSON");},text:async()=>"Malzeme bulunamadı!"} as unknown as Response;
       const body=url.includes("/auth/Login") ? {token:"test",tokenTipi:"Bearer",tokenBitisSuresi:300}
-        :url.includes("/material/MalzemeAra") ? {no:new URL(url).searchParams.get("MalzemeNo"),ac:"Part",uk:"TEST",dc:"TL",nf:price,mif:price,k:0,sMrk:stock,sYol:0}
+        :url.includes("/material/MalzemeAra") ? {no:new URL(url).searchParams.get("MalzemeNo"),ac:"Part",uk:"TEST",dc:"TL",nf:price,mif:price,k:0,sMrk:stock,...depots,sYol:0}
         :url.includes("ListeGrubuGetir") ? {malzemeGruplariListesi:[{kod:"FIAT",ad:"FIAT"}]}
         :url.includes("MalzemeleriGetir") ? {malzemeListesi:[{no:"PART",ac:"Part",ac2:"",uk:"TEST",oe:"",lgk:"FIAT",m:"",mo:"",y:"",b:"ADET",dc:"TL",lf:10,mkk:""}]}
         :url.includes("FiyatGetir") ? {fiyatListesi:[{no:"PART",nf:price,mif:price,k:0}]}
@@ -95,17 +97,26 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     assert.equal((await itemRow()).price_data.nf,20);
     assert.ok((await db.query("SELECT 1 FROM supplier_item_changes WHERE item_id=$1 AND import_id IS NULL AND after_data->>'source'='checkout'",[id])).rowCount);
     assert.equal((await cartFor(owner)).length,1);
+    // Availability is cumulative over all depots: zero everywhere (MalzemeAra's and the saved StokGetir-only ones) is out of stock.
+    const savedDepots=async(values:Record<string,number>)=>{
+      for(const [depot,value] of Object.entries(values))
+        await db.query("UPDATE supplier_items SET stock_data=jsonb_set(stock_data,ARRAY['depolar',$2::text,'stok'],to_jsonb($3::numeric)) WHERE id=$1",[id,depot,value]);
+    };
+    await savedDepots({IAN:0,KYS:0,TRK:0});
     stock=0;assert.equal((await submitOrder(owner,input)).error,"stock");
     stock=1;input.quote=await cartQuote(await cartFor(owner),0);
-    // Other depots, in-transit stock and product fields belong to the list imports and stay as they were.
-    await db.query(`UPDATE supplier_items SET stock_data=jsonb_set(jsonb_set(stock_data,'{depolar,IZM,stok}','7'),'{sYol}','2') WHERE id=$1`,[id]);
+    // Depots MalzemeAra does not return, in-transit stock and product fields belong to the list imports and stay as they were.
+    await savedDepots({KYS:7});
+    await db.query(`UPDATE supplier_items SET stock_data=jsonb_set(stock_data,'{sYol}','2') WHERE id=$1`,[id]);
     const checked=await itemRow();
     urls.length=0;
     const order=await submitOrder(owner,input);assert.ok(order.id);
     assert.doesNotMatch(urls.join(" "),listUrls);assert.ok(urls.filter(url=>url.includes("/auth/Login")).length<=1);
     const after=await itemRow();
     assert.deepEqual(after.product_data,checked.product_data);
-    assert.deepEqual([after.stock_data.depolar.IZM.stok,after.stock_data.sYol,after.stock_data.stok,after.stock_data.depolar.MRK.stok],[7,2,1,1]);
+    assert.deepEqual([after.stock_data.depolar.KYS.stok,after.stock_data.sYol,after.stock_data.stok,after.stock_data.depolar.MRK.stok,after.stock_data.depolar.IZM.stok,after.stock_data.depolar.ANK.stok],[7,2,1,1,0,0]);
+    // sFarkliDepo is recomputed over every depot except MRK: only KYS has stock now.
+    assert.equal(after.stock_data.sFarkliDepo,7);
     assert.ok(after.last_seen_at>checked.last_seen_at);
     assert.equal((await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[order.id])).rows[0].pricing_snapshot.live_check,undefined);
     const before=calls;fail=true;
@@ -130,10 +141,33 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
       const goneInput=await checkoutInput(cart);
       gone=true;assert.equal((await submitOrder(cart,goneInput)).error,"stock");gone=false;
       const row=await itemRow();
-      assert.deepEqual([row.stock_data.stok,row.stock_data.sFarkliDepo,row.stock_data.depolar.MRK.stok],[0,0,0]);
+      assert.deepEqual([row.stock_data.stok,row.stock_data.sFarkliDepo],[0,0]);
+      assert.ok(Object.values(row.stock_data.depolar as Record<string,{stok:number}>).every(depot=>depot.stok===0));
       assert.equal((await db.query("SELECT presence FROM supplier_items WHERE id=$1",[id])).rows[0].presence,"present");
       // The next check sees the code again and the same quote is accepted.
       assert.ok((await submitOrder(cart,goneInput)).id);
+    }
+    {
+      // Any depot can supply the order (#763): MRK empty but ANK (MalzemeAra) or KYS (saved, StokGetir only) in stock still sells.
+      await savedDepots({IZM:0,IAN:0,KYS:0,TRK:0});
+      stock=0;depots.sAnk=2;
+      const other=await newCart();assert.equal(await setCartQuantity(other,id,1),true);
+      const otherOrder=await submitOrder(other,await checkoutInput(other));
+      assert.ok(otherOrder.id,String(otherOrder.error));
+      let row=await itemRow();
+      assert.deepEqual([row.stock_data.stok,row.stock_data.depolar.ANK.stok,row.stock_data.sFarkliDepo,row.stock_data.depolar.IAN.stok],[0,2,2,0]);
+      depots.sAnk=0;await savedDepots({KYS:1});
+      const saved=await newCart();assert.equal(await setCartQuantity(saved,id,1),true);
+      const savedOrder=await submitOrder(saved,await checkoutInput(saved));
+      assert.ok(savedOrder.id,String(savedOrder.error));
+      row=await itemRow();
+      assert.deepEqual([row.stock_data.depolar.ANK.stok,row.stock_data.depolar.KYS.stok,row.stock_data.sFarkliDepo],[0,1,1]);
+      // Nothing anywhere: out of stock.
+      const none=await newCart();assert.equal(await setCartQuantity(none,id,1),true);
+      const noneInput=await checkoutInput(none);
+      await savedDepots({KYS:0});
+      assert.equal((await submitOrder(none,noneInput)).error,"stock");
+      stock=1;await importBasbug(db,{group:"FIAT",warehouse:"MRK",company:"TEST",mode:"commerce"});
     }
     {
       // The supplier cannot be reached: the order is placed on the saved (still fresh) data and the line is marked.

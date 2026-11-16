@@ -5,14 +5,19 @@ import { supplierFetch } from "./egress-proxy";
 
 /**
  * Checkout-time check of just the cart's Başbuğ rows through the per-code MalzemeAra endpoint (verified 16 Nov 2026:
- * one JSON object per code with nf/mif/k and the MRK stock as sMrk; HTTP 604 "Malzeme bulunamadı!" for a code the
- * supplier no longer knows, so the code is sent exactly as stored). Like refreshDinamikItems it takes no import lock:
- * a second login does not invalidate a running import's token, and no database connection is held while waiting.
- * Only price and MRK stock change here; presence, product data and other depots stay with the list imports.
+ * one JSON object per code with nf/mif/k and depot stocks sMrk/sIzm/sAnk/sAdn/sErz; HTTP 604 "Malzeme bulunamadı!"
+ * for a code the supplier no longer knows, so the code is sent exactly as stored). Like refreshDinamikItems it takes no
+ * import lock: a second login does not invalidate a running import's token, and no database connection is held while
+ * waiting. Only price and depot stock change here; presence and product data stay with the list imports.
+ *
+ * Any depot can supply an order, so availability is cumulative: MalzemeAra's depots (MRK, IZM, ANK, ADN, ERZ) differ
+ * from StokGetir's (MRK, IZM, IAN, KYS, TRK); depots it does not return keep their saved stock, and sFarkliDepo is
+ * recomputed over every depot except MRK. sYol (in transit) is not a depot and never counts.
  */
 
 const basbugItemSchema = z.object({
-  no: z.string().min(1), nf: z.number().finite(), mif: z.number().finite(), k: z.number().finite(), sMrk: z.number().finite(),
+  no: z.string().min(1), nf: z.number().finite(), mif: z.number().finite(), k: z.number().finite(),
+  sMrk: z.number().finite(), sIzm: z.number().finite(), sAnk: z.number().finite(), sAdn: z.number().finite(), sErz: z.number().finite(),
 }).passthrough();
 
 /** Why a cart line could not be confirmed live; the order then sells it on its saved data and marks the line. */
@@ -27,11 +32,11 @@ export function fallbackReason(error: unknown): FallbackReason {
   return "reason" in error && isFallbackReason(error.reason) ? error.reason : "upstream";
 }
 
-/** The MalzemeAra answer for `code`, as the list imports store it: price_data fields and the MRK stock. */
+/** The MalzemeAra answer for `code`: price_data fields as the list imports store them and the stock per depot (depolar keys). */
 export function prepareBasbugItemCheck(code: string, response: unknown) {
   const item = basbugItemSchema.parse(response);
   if (item.no !== code) throw new BasbugImportError("contract", "MalzemeNo");
-  return { price: { no: item.no, nf: item.nf, mif: item.mif, k: item.k }, mrkStock: item.sMrk };
+  return { price: { no: item.no, nf: item.nf, mif: item.mif, k: item.k }, depots: { MRK: item.sMrk, IZM: item.sIzm, ANK: item.sAnk, ADN: item.sAdn, ERZ: item.sErz } };
 }
 
 export type BasbugItemFetch = (company: string, code: string) => Promise<{ status: number; json(): Promise<unknown> }>;
@@ -67,7 +72,7 @@ export function basbugItemClient(): BasbugItemFetch {
   };
 }
 
-type Observed = { id: string; gone: boolean; nf?: number; mif?: number; k?: number; sMrk?: number };
+type Observed = { id: string; gone: boolean; nf?: number; mif?: number; k?: number; depots?: Record<string, number> };
 
 export async function refreshBasbugItems(pool: Pool, ids: string[], options: { fetchItem?: BasbugItemFetch; budgetMs?: number } = {}) {
   const failed: Record<string, FallbackReason> = {};
@@ -101,7 +106,7 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
         if (response.status === 604) { observed.push({ id: row.id, gone: true }); return; }
         if (response.status !== 200) throw new BasbugImportError("upstream", `MalzemeAra HTTP ${response.status}`);
         const item = prepareBasbugItemCheck(row.code, await response.json());
-        observed.push({ id: row.id, gone: false, ...item.price, sMrk: item.mrkStock });
+        observed.push({ id: row.id, gone: false, ...item.price, depots: item.depots });
       } catch (error) {
         failed[row.id] = error instanceof z.ZodError ? "contract" : fallbackReason(error);
       }
@@ -111,21 +116,30 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    // Merged onto the current row: sYol, sFarkliDepo and the other depots keep their list values. A code the
-    // supplier no longer knows is out of stock everywhere until a list import decides its presence.
+    // Merged onto the current row: sYol and the depots MalzemeAra does not return keep their list values; stok is MRK
+    // and sFarkliDepo the sum over every other depot after the merge. A code the supplier no longer knows is out of
+    // stock in every depot until a list import decides its presence.
     // product_data is not written, so the enrichment and search triggers (UPDATE OF code,product_data) stay quiet.
     const changed = await client.query(`WITH incoming AS (
-        SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(id uuid,gone boolean,nf numeric,mif numeric,k numeric,"sMrk" numeric)),
-      observed AS (
-        SELECT o.id,CASE WHEN n.gone THEN o.price_data
-            ELSE COALESCE(o.price_data,'{}'::jsonb)||jsonb_build_object('no',o.code,'nf',n.nf,'mif',n.mif,'k',n.k) END AS price_data,
-          CASE WHEN n.gone THEN 0 ELSE n."sMrk" END AS mrk,n.gone,
-          COALESCE(o.stock_data,'{"sDepo":"MRK","sYol":0,"sFarkliDepo":0}'::jsonb) AS stock
+        SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(id uuid,gone boolean,nf numeric,mif numeric,k numeric,depots jsonb)),
+      existing AS (
+        SELECT o.id,o.code,o.price_data,n.gone,n.nf,n.mif,n.k,n.depots,
+          COALESCE(o.stock_data,'{"sDepo":"MRK","sYol":0,"sFarkliDepo":0}'::jsonb) AS stock,
+          COALESCE(o.stock_data->'depolar','{}'::jsonb) AS saved
         FROM supplier_items o JOIN incoming n ON n.id=o.id),
+      observed AS (
+        SELECT id,stock,CASE WHEN gone THEN price_data
+            ELSE COALESCE(price_data,'{}'::jsonb)||jsonb_build_object('no',code,'nf',nf,'mif',mif,'k',k) END AS price_data,
+          CASE WHEN gone
+            THEN (SELECT COALESCE(jsonb_object_agg(d.key,d.value||'{"stok":0}'::jsonb),'{}'::jsonb) FROM jsonb_each(saved) d)
+              ||jsonb_build_object('MRK',COALESCE(saved->'MRK','{"sYol":0}'::jsonb)||'{"stok":0}'::jsonb)
+            ELSE saved||(SELECT jsonb_object_agg(d.key,COALESCE(saved->d.key,'{"sYol":0}'::jsonb)||jsonb_build_object('stok',d.value)) FROM jsonb_each(depots) d)
+          END AS depolar
+        FROM existing),
       merged AS (
-        SELECT id,price_data,
-          jsonb_set(stock||jsonb_build_object('stok',mrk)||CASE WHEN gone THEN '{"sFarkliDepo":0}'::jsonb ELSE '{}'::jsonb END,'{depolar}',
-            COALESCE(stock->'depolar','{}'::jsonb)||jsonb_build_object('MRK',COALESCE(stock#>'{depolar,MRK}','{"sYol":0}'::jsonb)||jsonb_build_object('stok',mrk)),true) AS stock_data
+        SELECT id,price_data,stock||jsonb_build_object('stok',COALESCE((depolar#>>'{MRK,stok}')::numeric,0),
+          'sFarkliDepo',(SELECT COALESCE(sum((d.value->>'stok')::numeric),0) FROM jsonb_each(depolar) d WHERE d.key<>'MRK'),
+          'depolar',depolar) AS stock_data
         FROM observed),
       -- CTEs share the statement's snapshot, so this still reads the values before the update.
       before AS (
