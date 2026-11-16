@@ -14,7 +14,9 @@ const maxDensity = 2400;
 
 // SVG limits checked on the markup before librsvg renders it: sharp's timeout does not stop librsvg, so a few KB of
 // nested <use> or a filter could hold the shared image queue for many seconds. Real logos stay well below these.
-const svgLimits = { elements: 3000, uses: 16 } as const;
+const svgLimits = { elements: 3000, uses: 16, references: 8 } as const;
+// Masks, patterns and clip paths cost grows with every level nested in another (14 nested masks took 13 s).
+const paintServer = /<(\/?)(?:[\w-]+:)?(mask|pattern|clipPath)\b[^>]*?(\/?)>/g;
 
 /**
  * `complex`: an SVG with filters, entities or too many elements / <use> references; `text`: an SVG with live text
@@ -80,5 +82,15 @@ function checkSvg(raw: Buffer) {
   const count = (pattern: RegExp) => markup.match(pattern)?.length ?? 0;
   if (/<!ENTITY/i.test(markup) || /<(?:[\w-]+:)?(?:filter|fe[A-Z]\w*)[\s/>]/.test(markup)) throw new BrandLogoError("complex");
   if (count(/<(?:[\w-]+:)?[A-Za-z][\w.-]*/g) > svgLimits.elements || count(/<(?:[\w-]+:)?use[\s/>]/g) > svgLimits.uses) throw new BrandLogoError("complex");
+  // url(#…) references: mask=, clip-path=, fill/stroke and style url(…).
+  if (count(/url\(\s*['"]?#/g) > svgLimits.references) throw new BrandLogoError("complex");
+  let depth = 0;
+  for (const [, closing, , selfClosing] of markup.matchAll(paintServer)) {
+    if (closing) depth = Math.max(0, depth - 1);
+    else if (!selfClosing) {
+      if (depth > 0) throw new BrandLogoError("complex");
+      depth++;
+    }
+  }
   if (/<(?:[\w-]+:)?(?:text|tspan|textPath)[\s/>]/.test(markup)) throw new BrandLogoError("text");
 }

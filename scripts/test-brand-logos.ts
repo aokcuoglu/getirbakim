@@ -78,6 +78,17 @@ describe("prepareBrandLogo", () => {
     const many = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50">${"<rect width=\"1\" height=\"1\"/>".repeat(3001)}</svg>`;
     await rejects(prepareBrandLogo(Buffer.from(many)), "complex");
     await rejects(prepareBrandLogo(Buffer.from('<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20"/></svg>')), "complex");
+    // 14 masks, each nested in the previous: no <use>, no filter.
+    const masks = Array.from({ length: 14 }, (_, index) => `<mask id="m${index}"><rect width="200" height="50" fill="#fff" mask="url(#m${index + 1})"/>`).join("") + "</mask>".repeat(14);
+    await rejects(prepareBrandLogo(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50"><defs>${masks}</defs><rect width="200" height="50" mask="url(#m0)"/></svg>`)), "complex");
+    const patterns = '<pattern id="p0" width="2" height="2"><pattern id="p1" width="1" height="1"><rect width="1" height="1"/></pattern></pattern>';
+    await rejects(prepareBrandLogo(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50"><defs>${patterns}</defs><rect width="200" height="50" fill="url(#p0)"/></svg>`)), "complex");
+    const references = Array.from({ length: 9 }, (_, index) => `<rect x="${index}" width="1" height="1" fill="url(#g)"/>`).join("");
+    await rejects(prepareBrandLogo(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50"><defs><linearGradient id="g"/></defs>${references}</svg>`)), "complex");
+    // Sibling clip paths and a few references are fine.
+    const fine = await prepareBrandLogo(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50"><defs><clipPath id="a"><rect width="100" height="50"/></clipPath>
+      <clipPath id="b"><rect x="100" width="100" height="50"/></clipPath></defs><rect width="200" height="50" fill="#c00" clip-path="url(#a)"/><rect width="200" height="50" fill="#00c" clip-path="url(#b)"/></svg>`));
+    assert.ok(isWebp(fine.bytes));
     assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
   });
   test("refuses SVG with live text and logos that come out empty", async () => {
