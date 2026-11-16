@@ -202,6 +202,53 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
       assert.deepEqual([lines[dinamikId].live_check,lines[dinamikId].live_check_reason],["failed","config"]);
       assert.equal(lines[id].live_check,undefined);assert.equal(lines[id].checkout_mode,"live");
     }
+    {
+      // #770: rows a running import keeps locked. A code the supplier no longer knows (604) is refused even though its
+      // zeroed stock cannot be saved; nothing is written and no order is created.
+      const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
+      const lockedInput=await checkoutInput(cart);
+      const stockBefore=(await itemRow()).stock_data.stok;assert.ok(stockBefore>0);
+      const checkoutChanges=async()=>(await db.query("SELECT count(*)::int AS n FROM supplier_item_changes WHERE item_id=$1 AND after_data->>'source'='checkout'",[id])).rows[0].n;
+      const changesBefore=await checkoutChanges();
+      const holder=await db.connect();
+      // Without the #770 refusal the order transaction would wait on this lock: let go after 5 s so the test fails, not hangs.
+      let safety:ReturnType<typeof setTimeout>|undefined;
+      try {
+        await holder.query("BEGIN");
+        await holder.query("SELECT id FROM supplier_items WHERE id=$1 FOR UPDATE",[id]);
+        safety=setTimeout(()=>{holder.query("ROLLBACK").catch(()=>undefined);},5_000);
+        const started=performance.now();
+        gone=true;const refused=await submitOrder(cart,lockedInput);gone=false;
+        assert.equal(refused.error,"stock");
+        assert.ok(performance.now()-started<3_000,"the checkout does not wait on the import");
+      } finally {
+        gone=false;clearTimeout(safety);
+        await holder.query("ROLLBACK").catch(()=>undefined);holder.release();
+      }
+      assert.equal((await itemRow()).stock_data.stok,stockBefore);
+      assert.equal(await checkoutChanges(),changesBefore);
+      assert.equal((await db.query("SELECT count(*)::int AS n FROM commerce_orders WHERE owner_kind='guest' AND owner_id=$1",[cart.id])).rows[0].n,0);
+    }
+    {
+      // #770: the supplier answers but the rows stay locked past lock_timeout: the line is sold on its saved data, marked
+      // "busy", once the import (here a holder rolling back after ~1.5 s) lets the order transaction read the row.
+      const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
+      const busyInput=await checkoutInput(cart);
+      const holder=await db.connect();
+      let released:Promise<void>|undefined;
+      try {
+        await holder.query("BEGIN");
+        await holder.query("SELECT id FROM supplier_items WHERE id=$1 FOR UPDATE",[id]);
+        released=new Promise<void>(resolve=>setTimeout(()=>{holder.query("ROLLBACK").catch(()=>undefined).then(()=>resolve());},1_500));
+        const busy=await submitOrder(cart,busyInput);
+        assert.ok(busy.id,String(busy.error));
+        const marked=(await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[busy.id])).rows[0].pricing_snapshot;
+        assert.deepEqual([marked.checkout_mode,marked.live_check,marked.live_check_reason],["snapshot","failed","busy"]);
+      } finally {
+        await released;
+        await holder.query("ROLLBACK").catch(()=>undefined);holder.release();
+      }
+    }
 
     // Admin prices (#580): with nf 50 the formula sells at 78.00; a fixed 90.00 and a running 80.00 campaign override it.
     const buyer={kind:"guest" as const,id:randomBytes(32).toString("hex")};

@@ -3,7 +3,8 @@
  * - Başbuğ: checks only the cart's own codes (MalzemeAra) without an advisory lock; per-code failures come back
  *   in its own result, so its branch only rejects on an unexpected error.
  * - SETA: own lock (20261001,4) and a single list, so it runs once next to the others.
- * - Dinamik: refreshes only the cart's own rows by id without an advisory lock.
+ * - Dinamik: refreshes only the cart's own rows by id without an advisory lock; like Başbuğ, per-code failures come
+ *   back in its own result (#770).
  * Writes are filtered by supplier and staging tables are per connection, so the branches do not collide.
  * A failing branch never fails the checkout: the caller sells those lines on their saved data and marks them.
  */

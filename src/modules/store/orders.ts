@@ -72,6 +72,8 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   // A cart changed during the API call must be quoted and checked again.
   const currentItems=(await checkoutItems(owner,client)).map(item=>item.id);
   if(JSON.stringify(currentItems)!==JSON.stringify(refreshed.items)) { await client.query('ROLLBACK'); return {error:'stock'}; }
+  // (#770) The supplier no longer knows these codes (604 / empty getStock); refused even when the zeroed stock could not be saved.
+  if(refreshed.gone.length) { await client.query('ROLLBACK'); return {error:'stock'}; }
   await client.query('SELECT id FROM commerce_settings FOR SHARE');
   if(await supplierCheckoutMode(client)!==refreshed.mode) { await client.query('ROLLBACK'); return {error:'price'}; }
   // Lock saleable sources while prices are checked and store stock is reserved.
