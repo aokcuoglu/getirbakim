@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useTransition, type DragEvent, type FormEvent } from "react";
+import { useEffect, useId, useOptimistic, useRef, useState, useTransition, type DragEvent, type FormEvent } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ArrowDown, ArrowUp, CircleAlert, CircleCheck, EyeOff, GitMerge, ImagePlus, Link2, Star, Trash2 } from "lucide-react";
-import { addProductImageFromUrl, finishProductImageUpload, removeProductImage, reorderProductImages, setAutomaticImageHidden, uploadProductImage, type ProductImageActionResult } from "@/app/yonetim/urunler/image-actions";
+import { ArrowDown, ArrowUp, CircleAlert, CircleCheck, CopyPlus, EyeOff, GitMerge, GripVertical, ImagePlus, Link2, Star, Trash2 } from "lucide-react";
+import { addProductImageFromUrl, convertAutomaticProductImage, finishProductImageUpload, removeProductImage, reorderProductImages, setAutomaticImageHidden, uploadProductImage, type ProductImageActionResult } from "@/app/yonetim/urunler/image-actions";
 import { productImageLimits, productImageTypes, remoteImageUrlMaxLength } from "@/modules/admin/product-image-limits";
+import { moveImage } from "@/modules/admin/product-image-order";
 import type { ProductImages } from "@/modules/admin/product-image-store";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -21,13 +22,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 
 type Upload = ProductImages["images"][number];
+const dragType = "application/x-product-image";
 const maxMegabytes = productImageLimits.maxBytes / 1024 / 1024;
 
 /**
  * Uploads (drop or pick several files; sent one at a time) or an image URL the server downloads (#725), order, primary image, delete and the automatic image's
  * visibility (#581). Every change goes through a server action; the page refreshes with the stored gallery.
  */
-export function ProductImagesManager({ productId, images, hideAutomatic, automatic }: {
+export function ProductImagesManager({ productId, images: stored, hideAutomatic, automatic }: {
   productId: string;
   images: Upload[];
   hideAutomatic: boolean;
@@ -44,6 +46,10 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
   const [url, setUrl] = useState("");
   const [fetchingUrl, setFetchingUrl] = useState(false);
   const [pending, startTransition] = useTransition();
+  // A move shows at once and is replaced by the stored order when the refresh arrives (or undone when it fails).
+  const [images, showImages] = useOptimistic(stored, (_current, next: Upload[]) => next);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
@@ -114,10 +120,11 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
     });
   };
 
-  const mutate = (action: () => Promise<ProductImageActionResult>, success?: string) => {
+  const mutate = (action: () => Promise<ProductImageActionResult>, success?: string, optimistic?: Upload[]) => {
     setNotice(null);
     setErrors([]);
     startTransition(async () => {
+      if (optimistic) showImages(optimistic);
       const result = await action().catch((): ProductImageActionResult => ({ status: "error", message: "Bağlantı kesildi; yeniden deneyin." }));
       if (result.status === "error") setErrors([result.message]);
       else setNotice(success ?? result.message);
@@ -125,22 +132,25 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
     });
   };
   const move = (from: number, to: number, direction?: "up" | "down") => {
-    const ids = images.map(image => image.id);
-    const [moved] = ids.splice(from, 1);
-    ids.splice(to, 0, moved);
-    focusAfterMove.current = direction ? { id: moved, direction } : null;
+    if (pending || from === to || !images[from] || to < 0 || to >= images.length) return;
+    const next = moveImage(images, from, to) as Upload[];
+    focusAfterMove.current = direction ? { id: images[from].id, direction } : null;
     const name = images[from].file_name || `Görsel ${from + 1}`;
-    mutate(() => reorderProductImages({ productId, imageIds: ids }), to === 0 ? `“${name}” ana görsel yapıldı.` : `“${name}” ${to + 1}. sıraya taşındı.`);
+    mutate(() => reorderProductImages({ productId, imageIds: next.map(image => image.id) }),
+      to === 0 ? `“${name}” ana görsel yapıldı.` : `“${name}” ${to + 1}. sıraya taşındı.`, next);
   };
+  const endDrag = () => { setDragId(null); setOverId(null); };
 
+  const hasType = (event: DragEvent<HTMLElement>, type: string) => [...event.dataTransfer.types].includes(type);
   const drop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragging(false);
+    if (!hasType(event, "Files")) return;
     upload([...event.dataTransfer.files]);
   };
 
   return <div className="flex flex-col gap-4">
-    <Card size="sm" className={dragging ? "ring-2 ring-ring" : undefined} onDragOver={event => { event.preventDefault(); setDragging(true); }}
+    <Card size="sm" className={dragging ? "ring-2 ring-ring" : undefined} onDragOver={event => { if (!hasType(event, "Files")) return; event.preventDefault(); setDragging(true); }}
       onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }} onDrop={drop}>
       <CardContent>
         <Empty>
@@ -191,7 +201,29 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
     {images.length > 0 && <ItemGroup ref={list} className="gap-2" aria-label="Yüklenen görseller">
       {images.map((image, index) => {
         const name = image.file_name || `Görsel ${index + 1}`;
-        return <Item key={image.id} variant="outline" className="flex-wrap">
+        return <Item key={image.id} variant="outline" className={`flex-wrap${dragId === image.id ? " opacity-50" : ""}${overId === image.id && dragId !== image.id ? " ring-2 ring-ring" : ""}`}
+          onDragOver={event => { if (!dragId || !hasType(event, dragType)) return; event.preventDefault(); event.dataTransfer.dropEffect = "move"; setOverId(image.id); }}
+          onDrop={event => {
+            if (!dragId || !hasType(event, dragType)) return;
+            event.preventDefault();
+            const from = images.findIndex(candidate => candidate.id === event.dataTransfer.getData(dragType));
+            endDrag();
+            move(from, index);
+          }}>
+          <Button type="button" variant="ghost" size="icon" className="hidden cursor-grab sm:inline-flex" draggable={!pending} disabled={pending}
+            aria-label={`${name} görselini sürükleyerek taşı (ok tuşları da çalışır)`}
+            onDragStart={event => {
+              event.dataTransfer.setData(dragType, image.id);
+              event.dataTransfer.effectAllowed = "move";
+              const row = event.currentTarget.closest<HTMLElement>("[data-slot=item]");
+              if (row) event.dataTransfer.setDragImage(row, 0, 0);
+              setDragId(image.id);
+            }}
+            onDragEnd={endDrag}
+            onKeyDown={event => {
+              if (event.key === "ArrowUp") { event.preventDefault(); move(index, index - 1, "up"); }
+              else if (event.key === "ArrowDown") { event.preventDefault(); move(index, index + 1, "down"); }
+            }}><GripVertical aria-hidden="true"/></Button>
           <ItemMedia variant="image" className="size-16"><Image src={image.src} alt="" width={image.width} height={image.height} unoptimized/></ItemMedia>
           <ItemContent className="min-w-0">
             <ItemTitle className="max-w-full truncate" title={name}>{name}</ItemTitle>
@@ -221,19 +253,27 @@ export function ProductImagesManager({ productId, images, hideAutomatic, automat
         </Item>;
       })}
     </ItemGroup>}
+    {images.length > 1 && <p className="text-muted-foreground">Sırayı tutamaktan sürükleyerek ya da ok düğmeleriyle değiştirin; ilk görsel ana görseldir.</p>}
 
     <div className="flex flex-col gap-2">
       <h3 className="font-medium">Otomatik görsel</h3>
-      {automatic.length ? <ItemGroup className="gap-2" aria-label="Otomatik görseller">{automatic.map(image => <Item key={image.src} variant="outline">
+      {automatic.length ? <ItemGroup className="gap-2" aria-label="Otomatik görseller">{automatic.map(image => <Item key={image.mediaId} variant="outline" className="flex-wrap">
         <ItemMedia variant="image" className="size-16"><Image src={image.src} alt="" width={image.width} height={image.height} unoptimized/></ItemMedia>
         <ItemContent>
           <ItemTitle>Zenginleştirme görseli</ItemTitle>
-          <ItemDescription>{image.supplier} kaydından · {images.length ? "yüklenen görsellerin ardından gösterilir" : "yüklenen görsel olmadığı için ana görsel"}</ItemDescription>
+          <ItemDescription>{image.supplier} kaydından · {image.inGallery ? "yüklenenler arasında olduğu için mağazada bir kez gösterilir"
+            : images.length ? "yüklenen görsellerin ardından gösterilir" : "yüklenen görsel olmadığı için ana görsel"}</ItemDescription>
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline">Otomatik</Badge>
+            {image.inGallery && <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Yüklenenlerde</Badge>}
             {hideAutomatic && <Badge variant="warning"><EyeOff data-icon="inline-start" aria-hidden="true"/>Mağazada gizli</Badge>}
           </div>
         </ItemContent>
+        <ItemActions className="w-full sm:w-auto">
+          <Button type="button" variant="outline" disabled={pending || remaining <= 0 || image.inGallery} aria-label={`${image.supplier} otomatik görselini yüklemeye çevir`}
+            onClick={() => mutate(() => convertAutomaticProductImage({ productId, mediaId: image.mediaId }))}>
+            <CopyPlus data-icon="inline-start" aria-hidden="true"/>Yüklemeye çevir</Button>
+        </ItemActions>
       </Item>)}</ItemGroup>
         : <p className="text-muted-foreground">Bu ürünün otomatik görseli yok.</p>}
       {(automatic.length > 0 || hideAutomatic) && <Field orientation="horizontal">

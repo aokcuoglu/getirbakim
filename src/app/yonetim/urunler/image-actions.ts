@@ -7,6 +7,7 @@ import { requireAdmin } from "@/modules/auth/session";
 import { invalidateListings } from "@/modules/store/listing-epoch";
 import * as store from "@/modules/admin/product-image-store";
 import { productImageLimits, productImageTypes, type ProductImageErrorReason } from "@/modules/admin/product-image-upload";
+import { supplierNames } from "@/modules/admin/products";
 import { fetchRemoteImage } from "@/modules/admin/remote-image";
 import { parseRemoteImageUrl, RemoteImageError, remoteImageUrlMaxLength, type RemoteImageErrorReason } from "@/modules/admin/remote-image-url";
 
@@ -119,6 +120,15 @@ export async function reorderProductImages(input: { productId: string; imageIds:
   const data = z.object({ productId, imageIds: order }).safeParse(input);
   if (!data.success) return { status: "error", message: "Sıralama tanınmadı. Sayfayı yenileyin." };
   return run(() => store.reorderProductImages(db, data.data.productId, data.data.imageIds, admin.id), "Görsel sırası kaydedildi.");
+}
+
+/** Adds the product's automatic image to its uploads (same media object, appended at the end). */
+export async function convertAutomaticProductImage(input: { productId: string; mediaId: string }): Promise<ProductImageActionResult> {
+  const admin = await requireAdmin();
+  const data = z.object({ productId, mediaId: z.uuid() }).safeParse(input);
+  if (!data.success) return { status: "error", message: "Görsel tanınmadı. Sayfayı yenileyin." };
+  return run(() => store.convertAutomaticImage(db, data.data.productId, data.data.mediaId, admin.id, supplierNames),
+    "Otomatik görsel yüklenenlere eklendi.", { listings: true });
 }
 
 export async function setAutomaticImageHidden(input: { productId: string; hidden: boolean }): Promise<ProductImageActionResult> {

@@ -7,6 +7,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { galleryImages, socialImage } from "../src/modules/store/product-image-display";
+import { moveImage } from "../src/modules/admin/product-image-order";
 import { prepareProductImage, ProductImageError } from "../src/modules/admin/product-image-upload";
 import { automaticImageHiddenSql, hiddenAutomaticItemsSql, itemProductSql, shownImageSql, uploadedImageSql } from "../src/modules/store/product-image-sql";
 
@@ -470,4 +471,79 @@ test("setup can run the file again", async () => {
   await schema.pool.query(await readFile("db/product-override-images.sql", "utf8"));
   assert.equal((await schema.pool.query(`SELECT count(*)::int AS n FROM pg_trigger WHERE tgname='product_override_images_products_restored'
     AND tgrelid=to_regclass($1)`, [`${schema.name}.products`])).rows[0].n, 1);
+});
+
+/** A storefront item with an enrichment image of its own (its own media object). */
+async function itemWithImage(key: string, code: string, brand: string, seed: string, size?: { w: number; h: number }) {
+  await item(key, { supplier: "basbug", code, brand, name: `${brand} URUN` });
+  const mediaId = (await schema.pool.query<{ id: string }>(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
+    VALUES('product-media',$1,$2,'image/webp',1000,'https://www.trodo.com/c.webp') RETURNING id::text`,
+  [`products/cv/${seed}.webp`, createHash("sha256").update(seed).digest("hex")])).rows[0].id;
+  await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,$2,$3,'complete')`, [ids[key], code, brand]);
+  await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload)
+    VALUES($1,$2,$3,'https://www.trodo.com/c','test',$3,'1',$4,$5)`,
+  [ids[key], code, brand, mediaId, JSON.stringify({ specifications: [], oemNumbers: {}, crossReferences: {}, vehicles: [], ...(size ? { imageWidth: size.w, imageHeight: size.h } : {}) })]);
+  return mediaId;
+}
+
+test("moveImage moves one entry and returns the same array when nothing moves", () => {
+  const ids = ["a", "b", "c"];
+  assert.deepEqual(moveImage(ids, 2, 0), ["c", "a", "b"]);
+  assert.deepEqual(moveImage(ids, 0, 1), ["b", "a", "c"]);
+  for (const [from, to] of [[1, 1], [-1, 0], [0, 3], [3, 0]]) assert.equal(moveImage(ids, from, to), ids);
+  assert.deepEqual(ids, ["a", "b", "c"]);
+});
+
+test("an automatic image converts to an upload: same media object, at the end, shown once (#598)", async () => {
+  const mediaId = await itemWithImage("convA", "CVA 10101", "CONVA", "conv-a", { w: 600, h: 400 });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await syncSharedLinks(schema.pool);
+  const product = await productOf("convA");
+  const objects = async () => (await schema.pool.query("SELECT count(*)::int AS n FROM product_media_objects")).rows[0].n;
+  assert.deepEqual(await upload(product, await solid(170), "on.jpg"), { ok: true });
+  assert.deepEqual(await upload(product, await solid(171), "yan.jpg"), { ok: true });
+  const before = await store.loadProductImages(schema.pool, product);
+  assert.deepEqual(before.automatic.map(image => [image.mediaId, image.inGallery]), [[mediaId, false]]);
+  const objectsBefore = await objects();
+  assert.deepEqual(await store.convertAutomaticImage(schema.pool, product, mediaId, admin, { basbug: "Başbuğ" }), { ok: true });
+  assert.equal(await objects(), objectsBefore, "no new media object");
+  const after = await store.loadProductImages(schema.pool, product);
+  assert.deepEqual(after.images.map(image => image.file_name), ["on.jpg", "yan.jpg", "Zenginleştirme görseli (Başbuğ)"]);
+  assert.deepEqual([after.images[2].src, after.images[2].width, after.images[2].height], [`/api/product-media/${mediaId}`, 600, 400]);
+  assert.equal(after.automatic[0].inGallery, true);
+  assert.deepEqual(galleryImages(after.images, after.automatic[0], after.hideAutomatic).map(image => image.src).filter(src => src.endsWith(mediaId)).length, 1);
+  assert.deepEqual(await store.convertAutomaticImage(schema.pool, product, mediaId, admin), { ok: false, reason: "duplicate" });
+  // Reordered to the front, it is the card image; hiding the automatic image keeps it.
+  assert.deepEqual(await store.reorderProductImages(schema.pool, product, [after.images[2].id, after.images[0].id, after.images[1].id], admin), { ok: true });
+  assert.equal((await enrichment.getCatalogProductImages([card("convA", "CVA 10101", "CONVA")])).get(ids.convA)?.src, `/api/product-media/${mediaId}`);
+  await store.setAutomaticImageHidden(schema.pool, product, true, admin);
+  assert.equal((await enrichment.getCatalogProductImages([card("convA", "CVA 10101", "CONVA")])).get(ids.convA)?.src, `/api/product-media/${mediaId}`);
+  assert.deepEqual((await history(product)).filter(change => change.field.startsWith("image_")).slice(-2).map(change => [change.field, change.old_value, change.new_value]), [
+    ["image_added", null, "Zenginleştirme görseli (Başbuğ)"], ["image_primary", "on.jpg", "Zenginleştirme görseli (Başbuğ)"]]);
+  // The enrichment's image changes later: the upload stays and is still served.
+  const other = (await schema.pool.query<{ id: string }>(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
+    VALUES('product-media','products/cv/other.webp',$1,'image/webp',1000,'https://www.trodo.com/o.webp') RETURNING id::text`, [createHash("sha256").update("conv-other").digest("hex")])).rows[0].id;
+  await schema.pool.query("UPDATE product_enrichments SET image_id=$2 WHERE supplier_item_id=$1", [ids.convA, other]);
+  assert.equal((await store.loadProductImages(schema.pool, product)).images[0].src, `/api/product-media/${mediaId}`);
+  assert.ok(await images.servableProductMedia(mediaId, storefrontCompanies()));
+});
+
+test("converting refuses a foreign image, a full gallery and a merged product (#598)", async () => {
+  const mediaLimit = await itemWithImage("convL", "CVL 10102", "CONVL", "conv-l");
+  const mediaOther = await itemWithImage("convO", "CVO 10103", "CONVO", "conv-o");
+  const mediaMerged = await itemWithImage("convM", "CVM 10104", "CONVM", "conv-m");
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await syncSharedLinks(schema.pool);
+  const [limit, otherProduct, merged] = await Promise.all([productOf("convL"), productOf("convO"), productOf("convM")]);
+  assert.deepEqual(await store.convertAutomaticImage(schema.pool, limit, mediaOther, admin), { ok: false, reason: "stale" });
+  assert.deepEqual(await store.convertAutomaticImage(schema.pool, limit, randomUUID(), admin), { ok: false, reason: "stale" });
+  assert.deepEqual(await store.convertAutomaticImage(schema.pool, randomUUID(), mediaLimit, admin), { ok: false, reason: "not-found" });
+  for (let shade = 180; shade < 192; shade++) assert.deepEqual(await upload(limit, await solid(shade)), { ok: true }, String(shade));
+  assert.deepEqual(await store.convertAutomaticImage(schema.pool, limit, mediaLimit, admin), { ok: false, reason: "limit" });
+  assert.equal((await store.loadProductImages(schema.pool, limit)).automatic[0].inGallery, false);
+  assert.deepEqual(await store.convertAutomaticImage(schema.pool, merged, mediaMerged, admin), { ok: true });
+  assert.equal((await merge(merged, otherProduct)).rows[0].id, otherProduct);
+  assert.deepEqual(await store.convertAutomaticImage(schema.pool, merged, mediaMerged, admin), { ok: false, reason: "merged" });
+  // Without payload dimensions the image is 480x480.
+  assert.deepEqual((await store.loadProductImages(schema.pool, otherProduct)).images.map(image => [image.width, image.height]), [[480, 480]]);
 });
