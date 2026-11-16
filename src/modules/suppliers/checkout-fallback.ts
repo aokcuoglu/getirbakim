@@ -11,8 +11,10 @@ export function fallbackReason(error: unknown): FallbackReason {
 }
 
 /**
- * How long a checkout write waits for supplier rows a running list import holds. It must stay below Postgres' default
- * deadlock_timeout (1 s) so the checkout gives up before the import becomes the deadlock victim. NOWAIT is too strict:
+ * How long a checkout write waits for supplier rows a running list import holds. It stays below Postgres' default
+ * deadlock_timeout (1 s) so that, in a two-party wait, the checkout gives up before the deadlock check runs and the
+ * import is not chosen as the victim. lock_timeout applies per lock, so waits involving three or more parties can
+ * still exceed 1 s in total. NOWAIT is too strict:
  * submitOrder holds the cart's rows FOR SHARE, so a concurrent order would be turned away as busy for nothing.
  */
 export const CHECKOUT_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '500ms'";

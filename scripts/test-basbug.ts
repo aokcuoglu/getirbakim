@@ -216,7 +216,7 @@ test("rows a running import keeps locked are marked busy, a 604 is still gone, a
   assert.equal(result.refreshed, 0);
   assert.equal(result.changed, 0);
   assert.deepEqual(statements, ["BEGIN", "SET LOCAL", "SELECT id", "ROLLBACK"]);
-  // Below Postgres' default deadlock_timeout (1 s): the checkout gives up before an import becomes the deadlock victim.
+  // Below Postgres' default deadlock_timeout (1 s): in a two-party wait the checkout gives up before the deadlock check.
   const timeout = sent.find(sql => sql.startsWith("SET LOCAL"))?.match(/^SET LOCAL lock_timeout = '(\d+)ms'$/);
   assert.ok(timeout, "lock_timeout is set in milliseconds");
   assert.ok(Number(timeout[1]) < 1000);

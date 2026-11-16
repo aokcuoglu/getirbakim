@@ -231,21 +231,28 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     }
     {
       // #770: the supplier answers but the rows stay locked past lock_timeout: the line is sold on its saved data, marked
-      // "busy", once the import (here a holder rolling back after ~1.5 s) lets the order transaction read the row.
+      // "busy", once the import (here a holder) lets the order transaction read the row. The holder lets go only after
+      // the order transaction is seen waiting on its FOR SHARE, i.e. after the refresh has already given up.
       const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
       const busyInput=await checkoutInput(cart);
       const holder=await db.connect();
-      let released:Promise<void>|undefined;
       try {
         await holder.query("BEGIN");
         await holder.query("SELECT id FROM supplier_items WHERE id=$1 FOR UPDATE",[id]);
-        released=new Promise<void>(resolve=>setTimeout(()=>{holder.query("ROLLBACK").catch(()=>undefined).then(()=>resolve());},1_500));
-        const busy=await submitOrder(cart,busyInput);
+        const started=performance.now();
+        const pending=submitOrder(cart,busyInput);
+        let waiting=false;
+        while(!waiting && performance.now()-started<10_000) {
+          await new Promise(resolve=>setTimeout(resolve,50));
+          waiting=Boolean((await db.query("SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%FOR SHARE OF p%'")).rowCount);
+        }
+        await holder.query("ROLLBACK");
+        const busy=await pending;
+        assert.ok(waiting,"the order transaction waited on the held row");
         assert.ok(busy.id,String(busy.error));
         const marked=(await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[busy.id])).rows[0].pricing_snapshot;
         assert.deepEqual([marked.checkout_mode,marked.live_check,marked.live_check_reason],["snapshot","failed","busy"]);
       } finally {
-        await released;
         await holder.query("ROLLBACK").catch(()=>undefined);holder.release();
       }
     }
