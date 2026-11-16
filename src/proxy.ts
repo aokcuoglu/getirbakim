@@ -39,6 +39,8 @@ export const config = {
   "/yonetim", "/yonetim/:path*",
   // Constants only (Next reads them at build time); scripts/test-listing-paths.ts ties them to legacyListingPaths.
   { source: "/katalog", has: [{ type: "query", key: "category" }] }, "/automakers", "/car-parts/:path*",
+  // /katalog?brand=<label> moves to its manufacturer page /marka/<slug> (#660).
+  { source: "/katalog", has: [{ type: "query", key: "brand" }] },
   { source: "/((?!_next/static|_next/image|api/(?:categories|category-media|product-media)(?:/|$)|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
  ],
 };

@@ -26,6 +26,7 @@ import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import { ManufacturerBadge } from "@/components/manufacturer-badge";
+import { manufacturerPathForLabel } from "@/modules/store/manufacturers.server";
 import { CopyCodeButton } from "@/components/copy-code-button";
 import { ProductGallery } from "@/components/product-gallery";
 import { getItemImages } from "@/modules/store/product-images";
@@ -155,7 +156,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
   // The admin's uploads (#581) come first; the enrichment image follows unless the admin hid it.
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
-  const logos = await getManufacturerLogos([product.display_brand]);
+  const [logos, manufacturerHref] = await Promise.all([getManufacturerLogos([product.display_brand]), manufacturerPathForLabel(product.display_brand)]);
   const account = await currentAccount();
   const isB2B = Boolean(account?.approved && account.role === "service");
   const storeCategories=await getStoreCategories();
@@ -249,7 +250,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
     </Breadcrumb>
     <div className="grid grid-cols-2 items-start gap-4 max-[750px]:grid-cols-1 max-[750px]:gap-3">
       <div className="relative min-w-0 max-[750px]:pt-8">
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-1 flex min-h-9 items-center gap-5"><ManufacturerBadge brand={brand} logo={logos.get(brand)} className="inline-flex items-center rounded-[20px] border border-[#e12d32] bg-white px-3.5 py-1 font-medium"/>{product.supplier === "demo" && <span className="text-xs text-[#65758a]">Sentetik örnek ürün</span>}</div>
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-1 flex min-h-9 items-center gap-5"><ManufacturerBadge brand={brand} logo={logos.get(brand)} href={manufacturerHref ?? undefined} className="inline-flex items-center rounded-[20px] border border-[#e12d32] bg-white px-3.5 py-1 font-medium"/>{product.supplier === "demo" && <span className="text-xs text-[#65758a]">Sentetik örnek ürün</span>}</div>
         {images.length ? <ProductGallery key={product.id} images={images} alt={`${brand} ${displayPartNumber} ${title}`}/> : <div className="flex h-[540px] items-center justify-center p-12 max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3"><PartArt kind={category?.art} className="h-[400px] w-full"/></div>}
       </div>
       <div>

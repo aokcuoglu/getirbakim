@@ -13,6 +13,7 @@ import {HomeCarousel,HomeCategoryTabs,HomeGridPager,HomeScrollHeader} from "@/co
 import {getVehicleBrands} from "@/modules/store/vehicle-catalog.server";
 import {vehicleBrandSlug,popularVehicleMakes} from "@/modules/store/vehicle-catalog";
 import {catalogBrands} from "@/modules/store/catalog";
+import {manufacturerDirectory} from "@/modules/store/manufacturers.server";
 import {getHomeProducts,getHomeProductCategories} from "@/modules/store/home";
 import {getCatalogProductDetails,getCatalogProductImages} from "@/modules/store/product-enrichment";
 import {getManufacturerLogos} from "@/modules/store/manufacturer-logos";
@@ -25,7 +26,7 @@ import {Input} from "@/components/ui/input";
 import {Button} from "@/components/ui/button";
 import {cn} from "@/lib/utils";
 import {pageMetadata,siteDescription} from "@/lib/site";
-import {catalogPath,categoryPath,listingUrl,makePath,makesPath,searchPath} from "@/modules/seo/paths";
+import {catalogPath,categoryPath,makePath,makesPath,searchPath} from "@/modules/seo/paths";
 
 const manufacturerOrder=["BOSCH","FEBI","LUK","SKF","GATES","SACHS","FAG","MANN","TRW","LEMFORDER","DENSO","CONTITECH","ELRING","MOOG","PIERBURG","CTR","VALEO","INA","BLUE PRINT","LESJOFORS","DELPHI","HELLA","MAHLE","NGK","DAYCO","NRF","DEPO","PURFLUX","HENGST","ATE","BERU","CHAMPION","FERODO","JURID","TEXTAR","CORTECO","BORGWARNER","GARRETT","NTN-SNR","AISIN","GKN","STABILUS","VERNET","UFI","SHELL","TOTAL","OSRAM","VDO"];
 const promotions=[
@@ -60,14 +61,15 @@ export const metadata=pageMetadata({title:"Getirbakim | Aracın için doğru par
 export default async function Home({searchParams}:{searchParams:Promise<SearchParams>}) {
   const {q}=normalizeSearchParams(await searchParams);
   if(q)redirect(searchPath({q}));
-  const [vehicle,allCategories,vehicleBrands,brands,products,account,collections]=await Promise.all([currentVehicle(),getStoreCategories(),getVehicleBrands(),catalogBrands(),getHomeProducts(),currentAccount(),Promise.all([967,1023,11058].map(async categoryId=>({categoryId,products:await getHomeProducts(categoryId)})))]);
+  const [vehicle,allCategories,vehicleBrands,brands,products,account,collections,directory]=await Promise.all([currentVehicle(),getStoreCategories(),getVehicleBrands(),catalogBrands(),getHomeProducts(),currentAccount(),Promise.all([967,1023,11058].map(async categoryId=>({categoryId,products:await getHomeProducts(categoryId)}))),manufacturerDirectory()]);
   const categories=featuredCategoryIds.flatMap(id=>allCategories.filter(category=>category.id===id));
   const rootIds=new Set(allCategories.filter(category=>category.parentId===null).map(category=>category.id));
   const tabCategories=allCategories.filter(category=>category.parentId===null||rootIds.has(category.parentId)).map(({id,parentId,name,slug,imagePath})=>({id,parentId,name,slug,imagePath}));
   const makes=popularVehicleMakes.flatMap(name=>vehicleBrands.filter(brand=>brand.name===name));
-  const manufacturers=manufacturerOrder.filter(brand=>brands.includes(brand));
+  // Each label links its manufacturer page (#660); a label without one is left out.
+  const manufacturers=manufacturerOrder.flatMap(brand=>{const href=brands.includes(brand)&&directory.pathForLabel(brand);return href?[{brand,href}]:[];});
   const allProducts=[...new Map([...products,...collections.flatMap(collection=>collection.products)].map(product=>[product.id,product])).values()];
-  const [logos,images,details,productCategories]=await Promise.all([getManufacturerLogos(manufacturers),getCatalogProductImages(allProducts),getCatalogProductDetails(allProducts),getHomeProductCategories(allProducts)]);
+  const [logos,images,details,productCategories]=await Promise.all([getManufacturerLogos(manufacturers.map(({brand})=>brand)),getCatalogProductImages(allProducts),getCatalogProductDetails(allProducts),getHomeProductCategories(allProducts)]);
   const visibleProducts=products.filter(product=>images.has(product.id)&&details.has(product.id));
   const productCard=(product:typeof products[number])=><HomeProductCard key={product.id} product={product} image={images.get(product.id)} partNumber={details.get(product.id)?.partNumber} category={productCategories.get(product.id)} account={account}/>;
   return <div className="bg-white text-foreground">
@@ -90,7 +92,7 @@ export default async function Home({searchParams}:{searchParams:Promise<SearchPa
     {visibleProducts.length>0&&<section className={cn(shell,"mb-[30px] pb-[45px] max-md:mb-10")}><div className={sectionTitle}><h2 className={h2}>Ürünleri keşfet</h2><Link href={catalogPath} className={titleLink}>Tüm ürünler <ChevronRight size={14}/></Link></div><HomeCarousel kind="products" label="Ürünleri keşfet">{visibleProducts.slice(0,12).map(productCard)}</HomeCarousel></section>}
     {visibleProducts.length>12&&<section className={cn(shell,"mb-[30px] pb-[45px] max-md:mb-10")}><div className={sectionTitle}><h2 className={h2}>Diğer ürünler</h2><Link href={catalogPath} className={titleLink}>Kataloğa git <ChevronRight size={14}/></Link></div><HomeCarousel kind="products" label="Diğer ürünler">{visibleProducts.slice(12).map(productCard)}</HomeCarousel></section>}
     <section className={cn(shell,"mt-[60px] pb-12 max-md:mt-10 max-md:pb-14")}><div className={centeredTitle}><h2 className={h2}>Popüler araç markaları</h2><Link href={makesPath} className={titleLink}>Tüm araç markaları <ChevronRight size={14}/></Link></div><HomeGridPager kind="makes" label="Araç markaları">{makes.map(make=>{const logo=getVehicleLogo(make.name);return <Link key={make.id} prefetch={false} href={makePath(vehicleBrandSlug(make.name))} aria-label={vehicleMakeLabel(make.name)} className="flex h-[88px] min-w-0 flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary">{logo&&<Image src={logo.src} width={logo.width} height={logo.height} alt={`${vehicleMakeLabel(make.name)} logosu`} unoptimized className="h-[42px] w-[92px] max-w-full object-contain"/>}<span className="max-w-full wrap-anywhere">{vehicleMakeLabel(make.name)}</span></Link>;})}</HomeGridPager></section>
-    <section className={cn(shell,"mt-[60px] pb-12 max-md:mt-10 max-md:pb-14")}><div className={cn(centeredTitle,"mb-10 max-md:mb-6")}><h2 className={h2}>Popüler üreticiler</h2></div><HomeGridPager kind="manufacturers" label="Üreticiler">{manufacturers.map(brand=>{const logo=logos.get(brand);return <Link key={brand} prefetch={false} href={listingUrl({brand})} aria-label={brand} className="flex h-[70px] min-w-0 items-center justify-center bg-white px-[7px] text-center text-sm leading-[18px] font-medium text-foreground hover:bg-[#f8f9f9] hover:text-primary max-md:px-2 max-md:text-[13px]">{logo?<Image src={logo.src} width={logo.width} height={logo.height} alt={brand} unoptimized className="h-[50px] w-[120px] max-w-full object-contain"/>:<span>{brand}</span>}</Link>;})}</HomeGridPager></section>
+    <section className={cn(shell,"mt-[60px] pb-12 max-md:mt-10 max-md:pb-14")}><div className={cn(centeredTitle,"mb-10 max-md:mb-6")}><h2 className={h2}>Popüler üreticiler</h2></div><HomeGridPager kind="manufacturers" label="Üreticiler">{manufacturers.map(({brand,href})=>{const logo=logos.get(brand);return <Link key={brand} prefetch={false} href={href} aria-label={brand} className="flex h-[70px] min-w-0 items-center justify-center bg-white px-[7px] text-center text-sm leading-[18px] font-medium text-foreground hover:bg-[#f8f9f9] hover:text-primary max-md:px-2 max-md:text-[13px]">{logo?<Image src={logo.src} width={logo.width} height={logo.height} alt={brand} unoptimized className="h-[50px] w-[120px] max-w-full object-contain"/>:<span>{brand}</span>}</Link>;})}</HomeGridPager></section>
     <div className="mt-[60px] max-md:mt-10">{collections.map(collection=>{
       const category=allCategories.find(category=>category.id===collection.categoryId);
       if(!category)return null;

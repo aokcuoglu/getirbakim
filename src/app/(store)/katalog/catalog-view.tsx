@@ -37,6 +37,7 @@ import {siteUrl} from "@/lib/site";
 import {TrackItemList} from "@/components/privacy/track-events";
 import {catalogItem} from "@/modules/analytics/events";
 import {legacyCategoryIds} from "@/modules/store/category-tree";
+import {manufacturerTexts,manufacturerTrail} from "@/modules/store/manufacturers";
 const descriptions:Record<string,string>={
  "fren-diskleri-269":"Ön ve arka fren disklerini BOSCH, FEBI ve diğer üreticilerden seçeneklerle incele. Dolu veya havalandırmalı diskleri, ölçülerini ve montaj konumlarını karşılaştırarak aracına uygun parçayı bul. Bazı araçlarda sağ ve sol tarafta farklı diskler kullanılır; seçim yaparken OEM numarasını ve araç uyumluluğunu kontrol et. Aynı aks üzerindeki diskleri birlikte değiştir ve balataların durumunu da kontrol et.",
  "yedek-parca":"Aracının bakım ve onarımı için yedek parçaları tek yerde keşfet. Motor, fren, filtre ve diğer parça gruplarında ürünleri üreticiye göre incele; doğru parçayı bulmak için ürün kodu veya OEM numarasıyla ara. Sipariş vermeden önce parçanın araç modeli, motor tipi ve üretim yılıyla uyumluluğunu kontrol et.",
@@ -71,7 +72,8 @@ function CatalogFinder({compact,home,query,vehicle}:{compact:boolean;home:string
 export const catalogDescription=(slug:string)=>descriptions[slug];
 // Shared by /katalog, /kategori/{category}[/{make}] and /yedek-parca/{make}[/{model}]; `make` is the brand resolved from
 // params.make, `model` the model page unit resolved from params.model (#639) and `modelTotal` its unfiltered count.
-export async function CatalogView({params,make,model,modelTotal}:{params:CatalogQuery;make?:VehicleBrand;model?:VehicleModelGroup;modelTotal?:number}) {
+// /marka/{manufacturer} (#660) passes the manufacturer of params.manufacturer and its unfiltered count.
+export async function CatalogView({params,make,model,modelTotal,manufacturer,manufacturerTotal}:{params:CatalogQuery;make?:VehicleBrand;model?:VehicleModelGroup;modelTotal?:number;manufacturer?:{name:string;slug:string};manufacturerTotal?:number}) {
  const vehicle=await currentVehicle();
  const vehicleTypeId=(await fitmentVehicle(vehicle))?.typeId ?? null;
  const [result,facetData,account,vehicleBrands,fitCount,oilSpec]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId?vehicleFitCount(params,vehicleTypeId):0,getVehicleOilSpec(vehicleTypeId)]);
@@ -84,10 +86,12 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
  const popularMakes=popularOrder.flatMap(name=>vehicleBrands.filter(brand=>brand.name===name));
  const makeName=make&&vehicleMakeLabel(make.name);
  const modelLabels=make&&model?vehicleModelLabels(make.name,model):undefined,modelName=modelLabels?.name,modelYears=model&&vehicleModelGroupYears(model);
- const title=params.q ? `“${params.q.slice(0,120)}” için arama sonuçları` : modelLabels ? modelLabels.heading : make ? `${makeName} ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"}` : category?.name ?? "Yedek parça ve bakım ürünleri";
+ const manufacturerCopy=manufacturer&&manufacturerTexts(manufacturer.name,manufacturerTotal??result.total);
+ const title=params.q ? `“${params.q.slice(0,120)}” için arama sonuçları` : manufacturerCopy ? manufacturerCopy.title : modelLabels ? modelLabels.heading : make ? `${makeName} ${category?.name.toLocaleLowerCase("tr") ?? "yedek parçaları"}` : category?.name ?? "Yedek parça ve bakım ürünleri";
  // The listing itself (the code search stays inside it) and the same listing without its category.
  const modelSlug=model&&params.model;
- const home=listingPath({makeSlug:params.make,modelSlug,categorySlug:params.category}),allProducts=listingPath({makeSlug:params.make,modelSlug});
+ const manufacturerSlug=manufacturer?.slug;
+ const home=listingPath({makeSlug:params.make,modelSlug,categorySlug:params.category,manufacturerSlug}),allProducts=listingPath({makeSlug:params.make,modelSlug,manufacturerSlug});
  const filtered=Boolean(params.q || params.brand || params.brands || params.attributes || params.availability || params.fits || params.oil);
  // Same URL shape as the sidebar filters: make and category stay in the path, a page number is dropped.
  const listingHref=(updates:Partial<CatalogQuery>)=>listingUrl(params,updates);
@@ -108,17 +112,17 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
   href={(filters:OilFilter[])=>listingHref({oil:oilFilterParam(new Set(filters))})}/>;
  const correction=result.correctedQuery&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">“{params.q}” için sonuç bulunamadı, <strong>“{result.correctedQuery}”</strong> için sonuçlar gösteriliyor.</p>;
  const tooShort=result.searchTooShort&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">Aramak için en az {minSearchLength} harf veya rakam yaz.</p>;
- const scope=result.vehicleScope,partHref=scope&&listingUrl({make:params.make,model:modelSlug,category:category?.slug,q:scope.productText});
+ const scope=result.vehicleScope,partHref=scope&&listingUrl({make:params.make,model:modelSlug,category:category?.slug,manufacturer:manufacturerSlug,q:scope.productText});
  // Product names never name vehicles: a "part + vehicle" query lists the parts linked to that vehicle.
  const vehicleNotice=scope&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">
   {scope.fitted?<>“{scope.vehicleText}” aracına bağlı <strong>“{scope.productText}”</strong> ürünleri gösteriliyor. <Link className="font-semibold text-primary hover:underline" href={partHref!}>Tüm “{scope.productText}” sonuçları</Link></>
    :<>“{scope.vehicleText}” aracına bağlı <strong>“{scope.productText}”</strong> ürünü bulunamadı; tüm “{scope.productText}” sonuçları gösteriliyor. Aracına uyduğunu OEM numarasıyla kontrol et.</>}</p>;
- const trail=catalogTrail({make:make&&{name:makeName!,slug:params.make!},model:model&&{name:modelLabels!.model,slug:params.model!},categories:category?categoryPath(categories,category.id):[]});
+ const trail=manufacturer?manufacturerTrail(manufacturer):catalogTrail({make:make&&{name:makeName!,slug:params.make!},model:model&&{name:modelLabels!.model,slug:params.model!},categories:category?categoryPath(categories,category.id):[]});
  // Only the plain listings are indexed (the pages' robots rule): a search, filter, sort or page 2 is not a collection.
  // A model page says what its list is: model-level fits, which the garage vehicle narrows to an engine type.
- const intro=params.q?undefined:modelName?`${modelName}${modelYears?` (${modelYears})`:""} için listelenen ${(modelTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
+ const intro=params.q?undefined:manufacturerCopy?manufacturerCopy.intro:modelName?`${modelName}${modelYears?` (${modelYears})`:""} için listelenen ${(modelTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
  const collection=isIndexableListing(params)&&products.length>0
-  ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,modelSlug,categorySlug:category?.slug}),items:products.map(product=>({path:productPath(product),name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
+  ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,modelSlug,categorySlug:category?.slug,manufacturerSlug}),items:products.map(product=>({path:productPath(product),name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
  const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.q} vehicle={shown}/>;
  const crumbLink="min-h-0 transition-colors hover:text-primary hover:underline underline-offset-4";
  const crumbSeparator=<BreadcrumbSeparator className="[&>svg]:size-2.5"><ChevronRight/></BreadcrumbSeparator>;
@@ -132,7 +136,7 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
      {finder(false)}
     </div>
    </section>
-   <JsonLd data={breadcrumbJsonLd(trail,siteUrl)}/><JsonLd data={collection}/><TrackItemList listId={category?.slug??params.make??"katalog"} listName={title} searchTerm={params.q} items={products.flatMap((product,index)=>product.price_kurus===null||product.unavailable?[]:[catalogItem({id:product.id,name:catalogCardTitle(product,details.get(product.id)?.partNumber),brand:product.display_brand,category:category?.name},servicePrice(product.price_kurus,account?.approved&&account.role==="service"?account.discount_percent:0),{index})])}/>
+   <JsonLd data={breadcrumbJsonLd(trail,siteUrl)}/><JsonLd data={collection}/><TrackItemList listId={category?.slug??params.make??(manufacturerSlug&&`marka-${manufacturerSlug}`)??"katalog"} listName={title} searchTerm={params.q} items={products.flatMap((product,index)=>product.price_kurus===null||product.unavailable?[]:[catalogItem({id:product.id,name:catalogCardTitle(product,details.get(product.id)?.partNumber),brand:product.display_brand,category:category?.name},servicePrice(product.price_kurus,account?.approved&&account.role==="service"?account.discount_percent:0),{index})])}/>
    <CatalogStickyFinder brakes={Boolean(isBrakeCategory)}>{finder(true)}</CatalogStickyFinder>
    <section className="mx-auto w-[calc(100%-30px)] max-w-[1320px] pb-[50px]">
     <Breadcrumb aria-label="Sayfa yolu" className="min-h-[45px] pt-2 pb-4">
@@ -140,14 +144,14 @@ export async function CatalogView({params,make,model,modelTotal}:{params:Catalog
       {trail.map((crumb,index)=><Fragment key={crumb.path}>{index>0&&crumbSeparator}<BreadcrumbItem>{index===trail.length-1?<BreadcrumbPage className="text-inherit">{crumb.name}</BreadcrumbPage>:<BreadcrumbLink className={crumbLink} render={<Link href={crumb.path}/>}>{crumb.name}</BreadcrumbLink>}</BreadcrumbItem></Fragment>)}
      </BreadcrumbList>
     </Breadcrumb>
-    {!params.q&&<div className="mb-4 pb-[26px] max-[768px]:pb-4"><h2 className="mb-3 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl max-[768px]:leading-[26px]">{modelName?`${modelName} için yedek parçaları keşfet`:make&&!category?`${makeName} araçlar için yedek parçaları keşfet`:category?.id===269?"Aracın için ön ve arka fren disklerini keşfet":category?category.name+" ürünlerini keşfet":"Aracına uygun yedek parçayı bul"}</h2><p className="text-[13px] leading-[18px]">{intro}</p>{model&&modelName&&<VehicleModelSummary name={modelName} model={model} vehicle={shown}/>}</div>}
+    {!params.q&&<div className="mb-4 pb-[26px] max-[768px]:pb-4"><h2 className="mb-3 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl max-[768px]:leading-[26px]">{manufacturerCopy?manufacturerCopy.heading:modelName?`${modelName} için yedek parçaları keşfet`:make&&!category?`${makeName} araçlar için yedek parçaları keşfet`:category?.id===269?"Aracın için ön ve arka fren disklerini keşfet":category?category.name+" ürünlerini keşfet":"Aracına uygun yedek parçayı bul"}</h2><p className="text-[13px] leading-[18px]">{intro}</p>{model&&modelName&&<VehicleModelSummary name={modelName} model={model} vehicle={shown}/>}</div>}
     {make&&!model&&!category&&!params.q&&!filtered&&<VehicleModelList brandId={make.id} makeName={makeName!} makeSlug={params.make!}/>}
     {!params.q&&!make&&<section className="mb-8 max-[768px]:mb-6" aria-label="Popüler araç markaları"><h2 className="mb-[15px] text-xl leading-7 font-medium tracking-[-.4px]">Popüler araç markaları</h2><ul className="flex flex-wrap gap-x-[3px] max-[600px]:h-9 max-[600px]:overflow-y-auto max-[600px]:overscroll-contain">{popularMakes.map(make=><li key={make.id} className="text-[13px] leading-[18px] not-last:after:ml-px not-last:after:content-[',']"><Link prefetch={false} className="hover:underline" href={makePath(vehicleBrandSlug(make.name))}>{vehicleMakeLabel(make.name)}</Link></li>)}</ul></section>}
     <div className="grid grid-cols-[304px_minmax(0,1fr)] items-start gap-8 max-[768px]:grid-cols-1 max-[768px]:gap-5">
-     <CatalogSidebar branch={model?null:sidebarCategoryBranch(categories,params.category)} brands={facetData.brands} facets={facetData.attributes} params={params}/>
+     <CatalogSidebar branch={model||manufacturer?null:sidebarCategoryBranch(categories,params.category)} brands={facetData.brands} facets={facetData.attributes} params={params}/>
      <div className="min-w-0">
      {tooShort}{correction}{vehicleNotice}{oilBanner}{fitFilter}{fitNote}
-    {!filtered&&!model&&<CategoryCards className="mt-0 mb-8" categories={categories.filter(node=>category?node.parentId===category.id:node.parentId===null)} makeSlug={params.make}/>}
+    {!filtered&&!model&&!manufacturer&&<CategoryCards className="mt-0 mb-8" categories={categories.filter(node=>category?node.parentId===category.id:node.parentId===null)} makeSlug={params.make}/>}
      <CatalogResults count={result.total} page={result.page} pages={result.pages} pageSize={result.pageSize} params={params} defaultView="list">
       {products.length ? products.map(product => <CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.display_brand)} account={account} fitsVehicle={fitting.has(product.id)}/>) :
        <div className="col-span-full min-h-[300px] rounded-md border border-border px-6 py-16 text-center"><Search size={38} className="mx-auto mb-5 text-muted-foreground"/><h2 className="mb-3 text-[22px] leading-[30px] font-semibold">{params.fits ? "Bu listede aracına bağlı ürün bulunamadı." : params.oil ? "Aracının yağ önerisine uyan ürün bulunamadı." : filtered ? "Aramana uygun ürün bulunamadı." : "Bu kategoride şu an ürün bulunmuyor."}</h2><p className="mb-6 text-sm leading-[22px] text-muted-foreground">{params.fits ? "Tüm ürünlerde OEM numarasıyla arayabilir veya araç filtresini kaldırabilirsin." : params.oil ? "Yağ filtrelerinden birini kaldırarak benzer özellikteki yağları görebilirsin." : filtered ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Diğer kategorileri inceleyebilir veya aradığın parça için bize ulaşabilirsin."}</p><Button className="h-12 bg-brand px-[27px] hover:bg-brand-strong" nativeButton={false} render={<Link href={allProducts}/>}>Tüm ürünlere göz at</Button></div>}
