@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { listingIndexable } from "../src/modules/seo/indexing";
+import { listingRangeLabel } from "../src/modules/store/catalog-filters";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 
 // Vehicle model and make page listings (#639, #674) in an isolated copy of the schema: catalogFilter's model and make branches, the union of
@@ -178,4 +179,18 @@ test("a price-sorted make listing serves the cached order's pages like the live 
   const last = await catalog.browseProducts({ make: "dacia", sort: "price-asc", page: "21" });
   assert.equal(last.page, 21);
   assert.deepEqual(last.items.map(row => row.id), live.slice(600));
+});
+
+test("page 2 of a make listing is its products 31-60 in either order, with the matching range line (#674)", async () => {
+  const order = { newest: "unavailable,updated_at DESC,id", "price-asc": "unavailable,price_kurus ASC NULLS LAST,id" } as const;
+  for (const [sort, sql] of Object.entries(order)) {
+    const live = (await schema.pool.query<{ id: string }>(`SELECT id::text FROM storefront_catalog catalog
+      WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND catalog.id=ANY(ARRAY(${catalog.makeFitsSql("$2::int")})::uuid[])
+      ORDER BY ${sql}`, [storefrontCompanies(), 3])).rows.map(row => row.id);
+    const result = await catalog.browseProducts({ make: "dacia", sort: sort as keyof typeof order, page: "2" });
+    assert.deepEqual([result.page, result.pageSize, result.total], [2, 30, pricedProducts], sort);
+    assert.deepEqual(result.items.map(row => row.id), live.slice(30, 60), sort);
+    assert.equal(listingRangeLabel(result.total, result.page, result.pageSize), "31 – 60 / 620 ürün", sort);
+  }
+  assert.equal(listingRangeLabel(0, 1, 30), "0 ürün");
 });
