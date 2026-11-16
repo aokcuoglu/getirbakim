@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -12,7 +12,7 @@ import { objectStorage } from "../src/lib/object-storage";
 
 // AWS counterpart of the VPS steps in sync-storefront-production.ts. Runs in the operations task, reads the parts
 // that the sync uploaded to s3://$INBOUND_BUCKET/<prefix>/<part>/ and does what the SSH steps did on the VPS:
-// dry-run every part → apply every part → rebuild fitments → drain the derived enrichment tables → write
+// dry-run every part → apply every part → rebuild the fitments of the products the parts wrote → drain the derived enrichment tables → write
 // s3://$S3_BUCKET/internal/storefront-sync/<prefix>/report.json (the media bucket: the task may only read the inbound
 // one; summed counts and the supplier items whose enrichments were skipped because they do not exist
 // here; the sync downloads it and sends those enrichments again next run). A failed dry run stops before anything is written.
@@ -25,7 +25,8 @@ import { objectStorage } from "../src/lib/object-storage";
 // Table decisions (#553; the full table is in docs/product-enrichment.md):
 // - carried in the bundle: enrichments, mappings, media, categories, logos, REPXPERT vehicle data and the
 //   complete/partial product_enrichment_jobs (sent whole in part-00 every run; the storefront needs the job status).
-// - derived here, after the parts: product_vehicle_fitments (rebuild-product-fitments.ts), product_enrichment_shared_links
+// - derived here, after the parts: product_vehicle_fitments (rebuild-product-fitments.ts --items: the supplier items the
+//   parts wrote plus rows of an older matcher version), product_enrichment_shared_links
 //   and storefront_make_fits / storefront_model_fits (the shared-link queue the import filled is drained below), enrichment_product_states
 //   (enrichment-states.ts sync). product_model_fitments comes from production's own Dinamik items, not from this sync.
 // - not carried: vehicle_type_oil_specs (data/vehicle_type_oil_specs.csv + db:vehicle-oils), vehicle_type_trodo_oils,
@@ -113,7 +114,10 @@ try {
       }
     }
   }
-  node([], "scripts/rebuild-product-fitments.ts", []);
+  // Only the products the parts wrote (and any built by an older matcher); the rest of the table is already current.
+  const fitmentItems = resolve(work, "fitment-items.json");
+  await writeFile(fitmentItems, JSON.stringify([...new Set(applied.flatMap(part => part.items ?? []))]));
+  node([], "scripts/rebuild-product-fitments.ts", [`--items=${fitmentItems}`]);
   await drainSharedLinks();
   node([], "scripts/enrichment-states.ts", ["sync"]);
   // The data is committed by now, but without the report the sync cannot know what was skipped: the task fails, so

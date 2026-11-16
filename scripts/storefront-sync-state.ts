@@ -159,7 +159,8 @@ export function reportKey(prefix: string) {
   return `internal/storefront-sync/${prefix.replace(/^\/+|\/+$/g, "")}/report.json`;
 }
 
-export type PartReport = { report: Record<string, unknown>; skipped: BundleItem[] };
+/** One part's --report of import-storefront-bundle.ts; items (local supplier items it wrote) stay on the target, report.json never carries them. */
+export type PartReport = { report: Record<string, unknown>; skipped: BundleItem[]; items?: string[] };
 export type InboundReport = { snapshotAt?: string | null; parts: number; totals: Record<string, number>; skippedEnrichments: number; skipped: BundleItem[]; truncated: boolean };
 
 function uniqueItems(items: BundleItem[]) {
