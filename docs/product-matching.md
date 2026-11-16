@@ -166,7 +166,7 @@ Birleştirme ve geri alma referanslarla aynıdır: `product_override_specs_carry
 Bilinen sınırlar:
 
 - **Ürün sayfası ham anahtarları gösterir:** teknik bilgiler tablosu anahtarları kaynaktaki (İngilizce) yazılışla basar; Türkçeleştirme ayrı iştir.
-- **Motor yağı süzgeci** (`vehicle-oil.server.ts`) zenginleştirme verisini doğrudan okur; elle özellikler orada kullanılmaz.
+- **Motor yağı süzgeci** (`vehicle-oil.server.ts`, #623) zenginleştirme özelliklerine ürün sayfasıyla aynı `applySpecOverrides` kuralını uygular (adaylar için tek sorguda `getOverrideSpecs`): elle eklenen, düzenlenen veya gizlenen viskozite/ACEA/API özelliği yağın hangi süzgeçle eşleştiğini değiştirir. Yağ listesi 10 dakikalık süreç önbelleğinde tutulduğundan değişiklik süzgeçte birkaç dakika içinde görünür.
 - **Çok kaynaklı ürün:** kartın otomatik listesi tüm kaynakların birleşimidir; mağaza yalnız gösterilen satırın zenginleştirmesini kullanır.
 - **Ortamlar arası aktarım yok:** mağaza paketi, tedarikçi senkronları, zenginleştirme importu ve uyum yeniden kurulumu bu tabloya yazmaz (`test:product-override-specs` yapısal olarak denetler).
 
