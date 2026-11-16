@@ -46,7 +46,7 @@ import { TrackViewItem } from "@/components/privacy/track-events";
 import { catalogItem } from "@/modules/analytics/events";
 import { breadcrumbJsonLd, productJsonLd, productTrail } from "@/modules/seo/structured-data";
 import { campaignEndText, listPrice, saleUntil } from "@/modules/store/best-offer";
-import { hasMinimumContent, productContent, productIndexable } from "@/modules/seo/indexing";
+import { hasAdminContent, hasMinimumContent, productContent, productIndexable } from "@/modules/seo/indexing";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdFromSegment, productIdPath } from "@/modules/seo/product-id";
 
@@ -76,11 +76,19 @@ async function vehicleModels(enrichment: { vehicleModels: string[]; vehicles: { 
   if (!fallbacks.description) return { confirmed: [], all: [] };
   return { confirmed: [], all: (await descriptionFitments(productId)).map(row => `${row.brand} ${row.model}`) };
 }
-// The description models are read here only when the enrichment's signals fall short; the metadata and the page share the cached read.
-async function indexable(product: Parameters<typeof productIndexable>[0] & { id: string; oem: string }, enrichment: unknown) {
-  const content = productContent({ enrichment, descriptionModels: [], oem: product.oem });
+// The signals are read in stages, cheapest first: what the metadata already holds (enrichment, OEM, the admin's text, uploads
+// and added vehicles), then the admin's references and specifications (#664), then the description models; the metadata and
+// the page share the cached reads.
+type AdminEditsInHand = { override: Awaited<ReturnType<typeof getItemOverride>>; uploads: Awaited<ReturnType<typeof getItemImages>>;
+  fitmentOverrides: Awaited<ReturnType<typeof getItemFitments>> };
+async function indexable(product: Parameters<typeof productIndexable>[0] & { id: string; oem: string }, enrichment: unknown, edits: AdminEditsInHand) {
+  const inHand = { override: edits.override, images: edits.uploads.images, addedVehicles: edits.fitmentOverrides.added };
+  const content = productContent({ enrichment, descriptionModels: [], oem: product.oem, adminContent: hasAdminContent({ ...inHand, specs: [], references: [] }) });
   if (product.source === "store" || hasMinimumContent(content)) return productIndexable(product, content);
-  return productIndexable(product, productContent({ enrichment, descriptionModels: await descriptionFitments(product.id), oem: product.oem }));
+  const [references, specs] = await Promise.all([getItemReferences(product.id), getItemSpecs(product.id)]);
+  const withAdmin = { ...content, adminContent: hasAdminContent({ ...inHand, specs, references }) };
+  if (hasMinimumContent(withAdmin)) return productIndexable(product, withAdmin);
+  return productIndexable(product, { ...withAdmin, descriptionFitment: (await descriptionFitments(product.id)).length > 0 });
 }
 
 // The route segment is "<slug>-<id>" (#640): only the id at its end finds the product, the slug is for people and engines.
@@ -114,7 +122,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     alternates: { canonical: path },
     openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description, url: path,
       images: [socialImage(images, meta.title, defaultSocialImage)] },
-    robots: await indexable(product, enrichment) ? undefined : { index: false, follow: true },
+    robots: await indexable(product, enrichment, { override, uploads, fitmentOverrides }) ? undefined : { index: false, follow: true },
   };
 }
 
