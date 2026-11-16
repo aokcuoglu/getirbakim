@@ -20,7 +20,7 @@ export async function writeDescriptionFitments(client: PoolClient, rows: Descrip
   for (let at = 0; at < rows.length; at += 5000) await client.query(`INSERT INTO description_fitments_next(supplier_item_id,model_id,year_from,year_to,source_text)
     SELECT supplier_item_id,model_id,year_from,year_to,source_text FROM jsonb_to_recordset($1::jsonb)
     AS r(supplier_item_id uuid,model_id integer,year_from integer,year_to integer,source_text text)`, [JSON.stringify(rows.slice(at, at + 5000))]);
-  // Duplicate-input guard, not a plan aid: one row per key keeps `unchanged` (rows.length minus written) correct.
+  // Duplicate-input guard (one row per key keeps `unchanged` = rows.length minus written correct); the bump UPDATE also uses it.
   await client.query("CREATE UNIQUE INDEX ON description_fitments_next(supplier_item_id,model_id)");
   // Temp tables are never autoanalyzed; without statistics the joins below fall back to nested loops over every fitment.
   await client.query("ANALYZE description_fitments_next");
