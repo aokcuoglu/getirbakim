@@ -61,7 +61,7 @@ Nerede koşar:
 - **CI kotası** — repo private, CI ~3-4 dk/koşu, 2000 dk/ay kotaya sığıyor (2026-11-14 ölçümü ~700 dk/ay); gereksiz push/rerun yapılmaz.
 - **Her düzenlemeden sonra** — `.claude/settings.json` PostToolUse hook'u (`post-edit-check.mjs`) düzenlenen yönetim dosyasını, dosyanın ait olduğu checkout'ta (worktree dahil) lint'ler ve bulguyu ajana bağlam olarak verir. Engellemez.
 - **İstek üzerine** — `npm run harness:lint`, `npm run harness:test` (lint ve guard regresyon testleri).
-- **CLS ölçümü** — `npm run harness:cls -- <url> [mobile|desktop] [slow]` (başsız Chrome + CDP; toplam CLS ve her kaymanın düğümü/dikdörtgeni; CI'da koşmaz, `CHROME_PATH`/`CLS_WIDTH` ile ayarlanır).
+- **CLS ölçümü** — `npm run harness:cls -- <url> [mobile|desktop] [slow] [--quiet]` (başsız Chrome + CDP; her kaymanın düğümü/dikdörtgeni, toplam CLS en son satırda: `tail -1`; `--quiet`/`CLS_QUIET=1` yalnız toplamı basar; CI'da koşmaz, `CHROME_PATH`/`CLS_WIDTH`/`CHROME_ARGS` ile ayarlanır). Android taklidi: Arial'siz Linux (Docker `node:24-bookworm` + `apt install chromium fonts-roboto`), `CHROME_PATH=/usr/bin/chromium CHROME_ARGS="--no-sandbox --disable-dev-shm-usage"` ve hedef `http://host.docker.internal:<port>`; gerçek cihaz değildir (#755).
 - **CI** — `.github/workflows/ci.yml` lint'ten sonra `harness:lint` + `harness:test` koşar.
 
 ## Yerel ortam notları
