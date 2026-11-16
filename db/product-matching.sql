@@ -7,7 +7,7 @@
 -- server's matcher or state sync. The default is evaluated at the call site; NULL (no schema on the path) means public.
 CREATE OR REPLACE FUNCTION schema_lock_key(slot integer, namespace name DEFAULT current_schema()) RETURNS integer
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
- SELECT CASE WHEN COALESCE(namespace,'public')='public' THEN slot ELSE -1-(hashtext(namespace||':'||slot) & 2147483647) END
+ SELECT CASE WHEN COALESCE(namespace,'public')='public' THEN slot ELSE -1-(hashtext(namespace||':'||slot::text) & 2147483647) END
 $$;
 CREATE OR REPLACE FUNCTION supplier_item_brand(supplier text, product_data jsonb) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
