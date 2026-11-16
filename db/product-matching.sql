@@ -2,6 +2,13 @@
 -- Identity of a physical product = (canonical brand, part number). Codes are "BRAND-PREFIX PART-NO" in Başbuğ and
 -- Dinamik with supplier-specific prefixes (SCH = SACHS), so the prefix is dropped and the brand comes from the
 -- brand field instead. Başbuğ original parts (OE-*), SETA and manual list codes carry no prefix.
+-- Advisory lock key for a lock slot, per schema (#792). public keeps the slot itself, so production keys stay as they
+-- are; any other schema is an isolated test copy and gets its own negative key, so tests never queue behind the dev
+-- server's matcher or state sync. The default is evaluated at the call site; NULL (no schema on the path) means public.
+CREATE OR REPLACE FUNCTION schema_lock_key(slot integer, namespace name DEFAULT current_schema()) RETURNS integer
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT CASE WHEN COALESCE(namespace,'public')='public' THEN slot ELSE -1-(hashtext(namespace||':'||slot) & 2147483647) END
+$$;
 CREATE OR REPLACE FUNCTION supplier_item_brand(supplier text, product_data jsonb) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE supplier WHEN 'dinamik' THEN product_data->>'marka' ELSE product_data->>'uk' END
@@ -572,7 +579,7 @@ END $$;
 CREATE OR REPLACE FUNCTION refresh_product_matches() RETURNS jsonb LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 DECLARE started timestamptz := clock_timestamp(); result jsonb; pairing int;
 BEGIN
- PERFORM pg_advisory_xact_lock(20261001,5);
+ PERFORM pg_advisory_xact_lock(20261001,schema_lock_key(5));
  -- Also the admin regrouping lock (product_merge/split/reset take 6 before touching rows): matcher and admin then queue
  -- on the advisory lock instead of meeting on product_sources rows and the grouping version row (deadlock, #504).
  PERFORM pg_advisory_xact_lock(20261001,6);

@@ -100,7 +100,7 @@ CREATE OR REPLACE FUNCTION enrichment_product_states_sync(batch integer DEFAULT 
 LANGUAGE plpgsql AS $$
 DECLARE ids uuid[]; queued integer; everything boolean;
 BEGIN
- IF NOT pg_try_advisory_xact_lock(20261001,5) THEN RETURN 0; END IF;
+ IF NOT pg_try_advisory_xact_lock(20261001,schema_lock_key(5)) THEN RETURN 0; END IF;
  SELECT count(*),COALESCE(bool_or(product_id='00000000-0000-0000-0000-000000000000'),false) INTO queued,everything
   FROM (SELECT product_id FROM enrichment_product_state_queue LIMIT batch+1) q;
  IF queued=0 THEN RETURN 0; END IF;
