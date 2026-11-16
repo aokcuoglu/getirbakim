@@ -328,6 +328,34 @@ describe("IndexNow runs", () => {
     assert.equal(network.calls.length, 0);
   });
 
+  test("a label's master brand name moves the address and fingerprint; the same name changes nothing (#811)", async () => {
+    const before = await known();
+    const oldBeta = await pathNow("beta"), oldOmega = await pathNow("omega");
+    const brand = (await schema.pool.query<{ id: string }>("INSERT INTO brands(key,name) VALUES('MAHLE','MAHLE') RETURNING id::text")).rows[0].id;
+    await schema.pool.query("INSERT INTO supplier_brands(supplier,label,brand_id) VALUES('basbug','MAHLE',$1)", [brand]);
+    let network = fakeFetch([200]);
+    assert.equal((await run({ network })).urls, 0);
+    await schema.pool.query("UPDATE brands SET name='MAHLE AG' WHERE id=$1", [brand]);
+    network = fakeFetch([200]);
+    const result = await run({ network });
+    assert.equal(result.status, "completed");
+    const urls = sent(network.calls);
+    assert.notEqual(await pathNow("beta"), oldBeta);
+    assert.ok(urls.includes(url(oldBeta)) && urls.includes(url(await pathNow("beta"))));
+    // An admin's store brand wins over the master brand: omega's page stays.
+    assert.equal(await pathNow("omega"), oldOmega);
+    assert.ok(!urls.includes(url(oldOmega)));
+    const renamed = await known();
+    assert.notEqual(renamed.get(ids.beta), before.get(ids.beta));
+    assert.equal(renamed.get(ids.omega), before.get(ids.omega));
+    // Back to the label's own spelling: the earlier fingerprints return.
+    await schema.pool.query("UPDATE brands SET name='MAHLE' WHERE id=$1", [brand]);
+    network = fakeFetch([200]);
+    await run({ network });
+    assert.equal(await pathNow("beta"), oldBeta);
+    assert.deepEqual(await known(), before);
+  });
+
   test("admin edits and description fitments each send only their page (#767)", async () => {
     // beta carries no admin edit and no fitment yet: its fingerprint is the pre-#767 one (concat_ws skips the new NULL parts).
     const legacy = (await schema.pool.query<{ fingerprint: string }>(`SELECT md5(concat_ws(chr(31),COALESCE(NULLIF(product_data->>'ac',''),code),

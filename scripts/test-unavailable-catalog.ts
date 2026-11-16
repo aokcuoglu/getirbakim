@@ -64,6 +64,18 @@ test("one card per unavailable product; sold or unusable rows are not cards", as
   assert.deepEqual(await unavailableIds(), [ids.mannBasbug, ids.pending, ids.lemforderNew].sort());
 });
 
+test("an unavailable row shows its label's master brand name (#811)", async () => {
+  const brand = (await schema.pool.query<{ id: string }>("INSERT INTO brands(key,name) VALUES('ZFLEMFORDER','ZF LEMFORDER') RETURNING id::text")).rows[0].id;
+  await schema.pool.query(`INSERT INTO supplier_brands(supplier,label,brand_id) VALUES('basbug','LEMFORDER',$1)
+    ON CONFLICT (supplier,label) DO UPDATE SET brand_id=EXCLUDED.brand_id`, [brand]);
+  const row = await catalog.getStorefrontProduct(ids.lemforderNew);
+  assert.equal(row?.unavailable, true);
+  assert.equal(row?.brand, "LEMFORDER");
+  assert.equal(row?.display_brand, "ZF LEMFORDER");
+  const listed = (await schema.pool.query<{ display_brand: string }>("SELECT display_brand FROM storefront_catalog WHERE id=$1", [ids.lemforderNew])).rows[0];
+  assert.equal(listed.display_brand, "ZF LEMFORDER");
+});
+
 test("an unavailable row has no price, cannot be ordered and says why", async () => {
   const row = await catalog.getStorefrontProduct(ids.pending);
   assert.ok(row);
