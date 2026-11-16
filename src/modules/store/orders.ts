@@ -90,6 +90,7 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   } catch(error) {
    if((error as {code?:unknown}).code!=='55P03') throw error;
    await client.query('ROLLBACK TO SAVEPOINT supplier_rows');
+   console.warn(`submitOrder: supplier rows locked by an import, continuing with committed data (${owner.kind}, request ${input.requestKey})`);
   }
   await client.query('SET LOCAL lock_timeout = 0');
   const account=owner.kind==='account' ? (await client.query<{role:string;discount_percent:number}>('SELECT role,discount_percent FROM accounts WHERE id=$1',[owner.id])).rows[0] : null;
