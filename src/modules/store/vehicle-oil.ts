@@ -20,9 +20,10 @@ const viscosityPattern = () => new RegExp(`(?<![0-9A-Z.])${viscosityGrades}(?![0
 export const engineOilNameSql = `(^|[^0-9A-Z.])${viscosityGrades.replaceAll("(?:", "(")}([^0-9]|$)`;
 export const plainEngineOilNameSql = "MOTOR\\s*YA[GĞ]I";
 export const notEngineOilNameSql = "MOTOS[Iİ]KLET|SCOOTER|[SŞ]ANZIMAN|D[Iİ][SŞ]L[Iİ]|H[Iİ]DROL[Iİ]K|AMPUL|LAMBA|SENS[OÖ]R|F[Iİ]LTRE|\\m[24]T\\M";
-// Enrichment keys whose values describe the oil itself; the rest (EAN, volume…) would add noise to the text.
+// Enrichment keys whose values describe the oil itself; the rest (EAN, volume…) would add noise to the text. The
+// manual xlsx supplier writes its own Turkish keys (manualSpecifications in suppliers/manual-import.ts, #841).
 export const oilSpecificationKeys = ["SAE viscosity class", "Viscosity", "Oil Viscosity Classification SAE", "ACEA specification",
-  "API specification", "Oil specification", "Specification", "Trade numbers"];
+  "API specification", "Oil specification", "Specification", "Trade numbers", "Viskozite", "Onaylar ve normlar"];
 
 const upper = (value: string) => value.toLocaleUpperCase("tr").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/İ/g, "I");
 const unique = (values: string[]) => [...new Set(values)];
