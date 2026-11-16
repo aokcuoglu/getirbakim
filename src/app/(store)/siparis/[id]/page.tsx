@@ -124,7 +124,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
       {cancelAction && <div className="flex flex-wrap items-center gap-x-3 border-t border-border pt-3">{pendingCancel && <p className={cn(muted,"m-0")}>Teyitten önce siparişini iptal edebilirsin.</p>}{cancelAction}</div>}
     </Card>
     {order.payment_status==="awaiting" && <PaymentWatcher orderId={order.id} state={`${order.status}:${order.payment_status}`}/>}
-    <div className="mb-8 flex flex-col gap-6 min-[601px]:grid min-[601px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] min-[601px]:items-start">
+    <div className="mb-8 flex flex-col gap-6 min-[600px]:grid min-[600px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] min-[600px]:items-start">
       <div className="min-w-0 max-[600px]:contents"><Card className={cn(panel,"min-w-0 gap-0 ring-0 max-[600px]:order-2")}><h2 className={panelTitle}>Sipariş ürünleri</h2>{items.map(p=><div key={p.product_id} className="flex items-start justify-between gap-6 border-b border-border py-4 last:border-b-0 wrap-anywhere max-[600px]:flex-col max-[600px]:gap-2"><div className="min-w-0"><strong className="font-semibold">{p.name}</strong><p className={panelMuted}>{p.code} · {p.quantity} adet × {money(Number(p.unit_price_kurus))}</p>
         {admin && p.pricing_snapshot?.checkout_mode==="snapshot" && typeof p.pricing_snapshot.observed_at==="string" && <small className="text-sm leading-[22px] text-muted-foreground">Tedarikçi anlık görüntüsü: {time(new Date(p.pricing_snapshot.observed_at))}</small>}
         {(()=>{ const vehicle=parseGarageVehicle(p.vehicle); return vehicle && <p className={panelMuted}>Araç: {garageVehicleLabel(vehicle)}</p>; })()}
