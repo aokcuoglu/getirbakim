@@ -16,7 +16,8 @@ export type ProductFitmentActionResult = { status: "success" | "error"; message:
 const failures: Record<Exclude<store.ProductFitmentResult, { ok: true }>["reason"], string> = {
   "not-found": "Ürün bulunamadı.",
   merged: "Bu ürün başka bir ürünle birleştirildi; araç uyumunu birleştiği üründe yönetin.",
-  limit: `Bir ürüne en çok ${formatNumber(productFitmentLimit)} araç kararı eklenebilir, ${formatNumber(productFitmentHideLimit)} kaynak satırı mağazadan çıkarılabilir.`,
+  limit: `Bir ürüne en çok ${formatNumber(productFitmentLimit)} araç kararı eklenebilir.`,
+  "hide-limit": `Bir üründe en çok ${formatNumber(productFitmentHideLimit)} kaynak satırı mağazadan çıkarılabilir; yeni satır çıkarmak için önce birini yeniden gösterin.`,
   "unknown-vehicle": "Seçilen araç tiplerinden biri katalogda bulunamadı. Listeyi yenileyip yeniden seçin.",
   duplicate: "Seçilen araçlardan biri bu ürüne zaten elle eklenmiş.",
   removed: "Seçilen araçlardan biri mağazadan çıkarılmış otomatik bir uyum; eklemek yerine listede “Yeniden göster”i kullanın.",

@@ -135,7 +135,7 @@ export async function hideProductFitment(database: Pick<Pool, "connect">, produc
       : await client.query("SELECT 1 FROM product_override_fitment_hides WHERE product_id=$1 AND kind=$2 AND md5(source_key)=md5($3) AND source_key=$3", [productId, target.kind, target.key]);
     if (existing.rowCount) return { ok: false, reason: "unchanged" };
     const count = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM product_override_fitment_hides WHERE product_id=$1", [productId])).rows[0].n;
-    if (count >= productFitmentHideLimit) return { ok: false, reason: "limit" };
+    if (count >= productFitmentHideLimit) return { ok: false, reason: "hide-limit" };
     await client.query(`INSERT INTO product_override_fitment_hides(product_id,kind,model_id,source_key,label,created_by) VALUES($1,$2,$3,$4,$5,$6)`,
       [productId, target.kind, target.kind === "description_model" ? target.modelId : null, target.kind === "description_model" ? null : target.key, label, adminId]);
     await recordFitmentChange(client, productId, fitmentHideField(target.kind, "hidden"), null, label, adminId);

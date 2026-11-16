@@ -18,7 +18,7 @@ export type ProductFitments = {
   /** How many automatic types there are in all (the list stops at productFitmentAutomaticLimit). */
   automaticTotal: number;
 };
-export type ProductFitmentResult = { ok: true } | { ok: false; reason: "not-found" | "merged" | "limit" | "unknown-vehicle" | "duplicate" | "removed" | "not-automatic" | "unchanged" | "stale" | "not-in-source" };
+export type ProductFitmentResult = { ok: true } | { ok: false; reason: "not-found" | "merged" | "limit" | "unknown-vehicle" | "duplicate" | "removed" | "not-automatic" | "unchanged" | "stale" | "not-in-source" | "hide-limit" };
 
 type Queryable = Pick<Pool, "query"> | PoolClient;
 

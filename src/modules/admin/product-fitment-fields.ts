@@ -26,7 +26,7 @@ const hideChangeLabels: Record<string, string> = {
   fitment_vehicle_hidden: "Kaynak araç satırı çıkarıldı",
   fitment_vehicle_shown: "Kaynak araç satırı yeniden gösterildi",
   fitment_model_hidden: "Kaynak model listesinden çıkarıldı",
-  fitment_model_shown: "Kaynak model listesine geri alındı",
+  fitment_model_shown: "Kaynak model listesinde yeniden gösterildi",
   fitment_description_hidden: "Açıklamadan okunan model çıkarıldı",
   fitment_description_shown: "Açıklamadan okunan model yeniden gösterildi",
 };

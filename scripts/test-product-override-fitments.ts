@@ -450,7 +450,7 @@ test("hiding source rows: checked against the sources, applied by the product pa
   const count = (await schema.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_override_fitment_hides WHERE product_id=$1", [mann])).rows[0].n;
   await schema.pool.query(`INSERT INTO product_override_fitment_hides(product_id,kind,source_key,label)
     SELECT $1,'source_model','YOK '||n,'YOK '||n FROM generate_series(1,$2::int) n`, [mann, productFitmentHideLimit - count]);
-  assert.deepEqual(await hide({ kind: "source_model", key: "TOYOTA COROLLA" }), { ok: false, reason: "limit" });
+  assert.deepEqual(await hide({ kind: "source_model", key: "TOYOTA COROLLA" }), { ok: false, reason: "hide-limit" });
   const merged = (await schema.pool.query<{ id: string }>("SELECT id::text FROM products WHERE merged_into IS NOT NULL LIMIT 1")).rows[0].id;
   assert.deepEqual(await hide({ kind: "source_model", key: "TOYOTA COROLLA" }, merged), { ok: false, reason: "merged" });
 });

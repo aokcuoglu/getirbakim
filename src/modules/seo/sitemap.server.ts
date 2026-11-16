@@ -66,6 +66,8 @@ export const descriptionFitmentItemsSql = "(ARRAY[i.id]||ARRAY(SELECT o.item_id 
 export type ProductSitemapRow = { id: string; path: string; lastmod: string };
 
 // A secondary offer is left out even when its primary is hidden or not saleable (its page then shows itself): deliberate.
+// derived_at is read from product_model_fitments itself (storefront_description_fits has none): a hidden model (#661)
+// moves lastmod through its product_override_changes row.
 /** Product addresses of sitemap file `index` with their last change (ISO, UTC); one row past the limit shows an overflow. */
 export async function loadProductChunk(index: number): Promise<ProductSitemapRow[]> {
   const { from, to } = productChunkRange(index);
