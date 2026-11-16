@@ -23,7 +23,7 @@ async function order(payment: string, lines: Line[], { paidDaysAgo = 0, shipping
   [customer.kind, customer.id, randomUUID(), subtotal + shipping, subtotal, shipping, status, payment, paidDaysAgo])).rows[0];
   for (const line of lines) {
     await schema.pool.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot)
-      VALUES($1,$2,'X','Satır adı','demo',$3,$4,$5)`, [row.id, line.product, line.quantity, line.unit,
+      VALUES($1,$2::uuid,COALESCE((SELECT code FROM store_products WHERE id::text=($2::uuid)::text),'X'),'Satır adı','demo',$3,$4,$5)`, [row.id, line.product, line.quantity, line.unit,
       JSON.stringify(line.vat === undefined ? { source: "store" } : { source: "supplier", vat_percent: line.vat })]);
   }
   return row;
