@@ -88,9 +88,13 @@ export async function loadCategorySlugs(): Promise<string[]> {
   return withAncestors(nodes.rows, direct).map(node => node.slug);
 }
 
-/** Slugs of the vehicle makes with a fitted product (/yedek-parca/<slug>). */
+/**
+ * Slugs of the vehicle makes with a fitted product (/yedek-parca/<slug>): an engine-level fit or a model read from a
+ * supplier description, the two sources the make page lists (#674).
+ */
 export async function loadMakeSlugs(): Promise<string[]> {
   const { rows } = await boundedQuery<{ name: string }>(`SELECT b.display_name AS name FROM vehicle_brands b
-   WHERE EXISTS (SELECT 1 FROM storefront_make_fits f WHERE f.brand_id=b.id) ORDER BY b.id`, []);
+   WHERE EXISTS (SELECT 1 FROM storefront_make_fits f WHERE f.brand_id=b.id)
+    OR EXISTS (SELECT 1 FROM vehicle_models m JOIN product_model_fitments f ON f.model_id=m.id WHERE m.brand_id=b.id) ORDER BY b.id`, []);
   return [...new Set(rows.map(row => vehicleBrandSlug(row.name)))];
 }

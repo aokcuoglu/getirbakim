@@ -4,12 +4,13 @@ import { isolatedSchema } from "./isolated-schema";
 import { listingIndexable } from "../src/modules/seo/indexing";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 
-// Vehicle model page listings (#639) in an isolated copy of the schema: catalogFilter's model branch, the union of
+// Vehicle model and make page listings (#639, #674) in an isolated copy of the schema: catalogFilter's model and make branches, the union of
 // engine-level and description fits, and the 404 / noindex rules of findListing (listing-load.ts; the route's loadListing turns null into notFound and listingMetadata the total into robots). Nothing is written to the shared
 // database's tables.
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let catalog: typeof import("../src/modules/store/catalog");
 let load: typeof import("../src/modules/store/listing-load");
+let groups: typeof import("../src/modules/store/vehicle-model-groups.server");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const [basbug] = storefrontCompanies();
@@ -51,15 +52,48 @@ before(async () => {
   await fit("storefront_model_fits", 40, "gone");
   // The make list holds only g1: a model page must not intersect with it.
   await schema.pool.query("INSERT INTO storefront_make_fits(brand_id,supplier_item_id) VALUES(1,$1)", [ids.g1]);
-  const [{ db }, module, listing] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"), import("../src/modules/store/listing-load")]);
+  // Make × category (#674): g1 (engine-level) and g5 (description) are brake parts, so is p1, which no make list holds.
+  await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"category":"fren"}' WHERE id=ANY($1::uuid[])`, [[ids.g1, ids.g5, ids.p1]]);
+  // REPXPERT specs (#674): Golf 7's types for the model page facts; a BMW make whose R 1200 GS series is all
+  // two-wheelers, R 1250 RT mixed and 3 (E90) without specs.
+  await schema.pool.query(`INSERT INTO vehicle_brands(id,name,display_name) VALUES(2,'BMW','BMW');
+    INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(50,2,'R 1200 GS (K25)','2004-01-01','2013-12-01'),
+     (51,2,'R 1250 RT (K52)','2018-01-01',NULL),(52,2,'3 (E90)','2004-12-01','2011-12-01');
+    INSERT INTO vehicle_types(id,model_id,name,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text) VALUES
+     (100,10,'1.4 TSI','Petrol','Benzin',122,90,'2012-08-01',''),(101,10,'2.0 TDI','Diesel','Dizel',150,110,'2012-08-01',''),
+     (102,11,'1.6 TDI','Diesel','Dizel',105,77,'2013-08-01',''),(103,11,'1.2 TSI','Petrol','Benzin',105,77,'2013-08-01',''),
+     (500,50,'1200','Petrol','Benzin',98,72,'2004-01-01',''),(501,50,'1200 ABS','Petrol','Benzin',98,72,'2004-01-01',''),
+     (510,51,'1250','Petrol','Benzin',136,100,'2018-01-01',''),(511,51,'1250 Sidecar','Petrol','Benzin',136,100,'2018-01-01',''),
+     (520,52,'320 d','Diesel','Dizel',177,130,'2004-12-01','');
+    INSERT INTO vehicle_type_specs(vehicle_type_id,outcome,body_type,engine_codes) VALUES
+     (100,'found','Hatchback','{CZCA,CMBA}'),(101,'found','Hatchback','{CRBC,CZCA}'),(102,'found','Station wagon','{CLHA}'),
+     (103,'missing',NULL,'{CJZA}'),
+     (500,'found','İki tekerlekli taşıt','{}'),(501,'found','İki tekerlekli taşıt','{}'),
+     (510,'found','İki tekerlekli taşıt','{}'),(511,'found','Sedan','{}')`);
+  const [{ db }, module, listing, groupsModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"),
+    import("../src/modules/store/listing-load"), import("../src/modules/store/vehicle-model-groups.server")]);
   catalog = module;
   load = listing;
+  groups = groupsModule;
   closeDb = () => db.end();
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
 
-test("the make page lists the make's engine-level fits", async () => {
-  assert.deepEqual(await listed({ make: "vw" }), [ids.g1]);
+test("the make page lists its engine-level fits and the models read from descriptions, each product once (#674)", async () => {
+  // g1 is in both sources; g4s's description lists its primary g4; the hidden item stays out. g2, g3, g12 and p1 are
+  // only in the model table, which the make page does not read (the make table holds a make's engine-level fits).
+  const expected = ["g1", "g4", "g5", "g6", "g7", "g8", "g9", "g10", "g11", "p2"].map(key => ids[key]).sort();
+  assert.deepEqual(await listed({ make: "vw" }), expected);
+  assert.equal(await catalog.listingTotal({ make: "vw" }), expected.length);
+  assert.ok(!(await listed({ make: "vw" })).includes(ids.g4s));
+});
+
+test("a make × category listing is the intersection of both (#674)", async () => {
+  // catalogFilter's two clauses as the category page composes them (its category lookup needs a Next request scope).
+  const category = await catalog.categoryProductIds(["fren"], [252]);
+  const { rows } = await schema.pool.query<{ id: string }>(`SELECT id::text FROM storefront_catalog_entries catalog
+    WHERE catalog.id=ANY(ARRAY(${catalog.makeFitsSql("$1::int")})::uuid[]) AND catalog.id=ANY($2::uuid[]) ORDER BY 1`, [1, category]);
+  assert.deepEqual(rows.map(row => row.id), [ids.g1, ids.g5].sort());
 });
 
 test("a model page skips the make filter and lists the union of engine-level and description fits", async () => {
@@ -97,4 +131,24 @@ test("a model page with fewer than 10 products is noindex, with 10 or more it is
   const golf = (await load.findListing({ make: "vw", model: "golf-7", search: {} }))!;
   assert.equal(golf.modelTotal, 12);
   assert.equal(listingIndexable(golf.query, golf.modelTotal ?? 0), true);
+});
+
+test("each series links to its model page; merged series share it, unknown ids are absent (#674)", async () => {
+  const paths = await groups.getModelPagePaths([10, 11, 20, 999]);
+  assert.deepEqual([...paths].sort(([a], [b]) => a - b), [[10, "/yedek-parca/vw/golf-7"], [11, "/yedek-parca/vw/golf-7"], [20, "/yedek-parca/vw/polo-6"]]);
+  assert.equal((await groups.getModelPagePaths([])).size, 0);
+});
+
+test("a series is a motorcycle only when every specified type is a two-wheeler (#674)", async () => {
+  assert.deepEqual([...await groups.getMotorcycleModelIds("2")], ["50"]);
+  assert.deepEqual([...await groups.getMotorcycleModelIds("1")], []);
+});
+
+test("a model page unit's body types and engine codes, most common first (#674)", async () => {
+  const facts = await groups.getModelGroupFacts(["10", "11"]);
+  assert.deepEqual(facts.bodies, ["Hatchback", "Station wagon"]);
+  // CZCA twice, then A→Z; a type without found specs (CJZA) adds nothing.
+  assert.deepEqual(facts.engineCodes, ["CZCA", "CLHA", "CMBA", "CRBC"]);
+  assert.equal(facts.image, undefined);
+  assert.deepEqual(await groups.getModelGroupFacts(["20"]), { bodies: [], engineCodes: [] });
 });

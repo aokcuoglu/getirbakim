@@ -75,6 +75,11 @@ async function makes(key: string) {
   await syncSharedLinks(schema.pool);
   return (await schema.pool.query<{ brand_id: number }>("SELECT brand_id FROM storefront_make_fits WHERE supplier_item_id=$1 ORDER BY 1", [ids[key]])).rows.map(row => row.brand_id);
 }
+/** The series whose model pages list the row (#674), as the product page reads them, after the same drain. */
+async function modelFits(key: string) {
+  await syncSharedLinks(schema.pool);
+  return [...await fitments.getItemModelFits(ids[key])].sort((a, b) => a - b);
+}
 const garage = (typeId: number) => ({ make: "X", model: "Y", year: 2020, vehicleId: String(typeId) });
 type Product = { id: string; code: string; brand: string };
 /** The order path before #708, one product at a time. */
@@ -184,7 +189,7 @@ test("the admin list shows the automatic types of every source, guarded like the
   }
 });
 
-test("remove and add reach every row of the product: vehicle filter, make page, garage note and history", async () => {
+test("remove and add reach every row of the product: vehicle filter, make and model pages, garage note and history", async () => {
   const febi = await productOf("febi"), bare = await productOf("bare");
   assert.deepEqual(await remove(febi, 340), { ok: true });
   for (const key of ["febi", "febiBasbug"]) {
@@ -192,19 +197,24 @@ test("remove and add reach every row of the product: vehicle filter, make page, 
     // Another type of the same make keeps the row on the make page.
     assert.ok((await fitted(344)).has(ids[key]), key);
     assert.deepEqual(await makes(key), [MERCEDES], key);
+    assert.deepEqual(await modelFits(key), [10], key);
     assert.equal(await fitLevel(key, 340), "mismatch", key);
     assert.equal(await fitLevel(key, 344), "guaranteed", key);
   }
   // Removing the make's last fitment takes the product off the make page; showing it again brings it back.
   assert.deepEqual(await remove(febi, 344), { ok: true });
   assert.deepEqual(await makes("febi"), []);
+  // The product page stops linking the series' model page with it (#674).
+  assert.deepEqual(await modelFits("febi"), []);
   const removed344 = (await store.loadProductFitments(schema.pool, febi)).rows.find(row => row.typeId === 344)!;
   assert.deepEqual(await undo(febi, removed344.id), { ok: true });
   assert.deepEqual(await makes("febiBasbug"), [MERCEDES]);
+  assert.deepEqual(await modelFits("febiBasbug"), [10]);
   // A product without enrichment fits what the admin added, everywhere.
   assert.deepEqual(await add(bare, [802015]), { ok: true });
   assert.ok((await fitted(802015)).has(ids.bare));
   assert.deepEqual(await makes("bare"), [TOYOTA]);
+  assert.deepEqual(await modelFits("bare"), [20]);
   assert.equal(await fitLevel("bare", 802015), "guaranteed");
   // The same model, another engine: the model agrees, the engine is not confirmed.
   assert.equal(await fitLevel("bare", 802016), "likely");
