@@ -11,7 +11,7 @@ export async function ProductImagesCard({ productId }: { productId: string }) {
   const { images, hideAutomatic, automatic } = await loadProductImages(db, productId);
   return <Card id="gorseller">
     <CardHeader><CardTitle><h2>Görseller</h2></CardTitle>
-      <CardDescription>Yüklenen görseller mağazada otomatik (zenginleştirme) görselin önünde gösterilir; tedarikçi güncellemeleri ve yenilemeler onları değiştirmez. İlk görsel ana görseldir: ürün kartlarında, sepette ve bayi API&apos;sinde o görünür. Otomatik görseli ana görsel yapmak için &apos;Yüklemeye çevir&apos;i kullanın.</CardDescription></CardHeader>
+      <CardDescription>Yüklenen görseller mağazada otomatik (zenginleştirme) görselin önünde gösterilir; tedarikçi güncellemeleri ve yenilemeler onları değiştirmez. İlk görsel ana görseldir: ürün kartlarında, sepette ve bayi API&apos;sinde o görünür. Otomatik görseli ana görsel yapmak için “Yüklemeye çevir”i kullanın.</CardDescription></CardHeader>
     <CardContent>
       <ProductImagesManager productId={productId} images={images} hideAutomatic={hideAutomatic}
         automatic={automatic.map(image => ({ ...image, supplier: supplierNames[image.supplier] ?? image.supplier }))}/>
