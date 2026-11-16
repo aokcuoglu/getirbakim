@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, CircleAlert, Copy, Info, Link2, RotateCcw, Search, TriangleAlert } from "lucide-react";
 import type { FitmentCopyPreview, FitmentCopySource } from "@/modules/admin/product-fitment-copy";
 import { formatNumber } from "@/modules/admin/format";
@@ -27,7 +27,7 @@ function useAdminJson<T>(url: string | null, key: string, failure: string) {
     const controller = new AbortController();
     fetch(url, { cache: "no-store", signal: controller.signal })
       .then(async response => {
-        if (response.status === 403) throw new Error("Oturumun sona ermiş olabilir. Yönetici hesabınla yeniden giriş yap.");
+        if (response.status === 403) throw new Error("Oturumunuz sona ermiş olabilir. Yönetici hesabınızla yeniden giriş yapın.");
         if (!response.ok) throw new Error(((await response.json().catch(() => null)) as { error?: string } | null)?.error ?? failure);
         return response.json() as Promise<T>;
       })
@@ -44,22 +44,38 @@ const years = (vehicle: { from: string; to: string | null }) => `${vehicle.from}
  * "Başka üründen kopyala" (#662): pick a product (its linked equivalents first, or a part number, supplier code or OEM
  * search), see what its vehicle fitments would add here, then copy them as added types in one change.
  */
-export function ProductFitmentCopyDialog({ productId, open, pending, error, onOpenChange, onCopy }: {
+export function ProductFitmentCopyDialog({ productId, open, pending, error, onOpenChange, onCopy, onClearError }: {
   productId: string; open: boolean; pending: boolean; error: string | null;
   onOpenChange: (open: boolean) => void; onCopy: (sourceId: string, expected: number) => void;
+  /** Clears the last copy error (another source or back to the search). */
+  onClearError: () => void;
 }) {
   const ids = { query: useId(), summary: useId() };
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const searchInput = useRef<HTMLInputElement>(null);
+  // A refused copy (stale counts, the limit) reloads the preview, so it shows what a new attempt would write.
+  const [seenError, setSeenError] = useState(error);
+  if (error !== seenError) {
+    setSeenError(error);
+    if (error && sourceId) setAttempt(value => value + 1);
+  }
+  // Back on the search step, focus returns to the search field.
+  useEffect(() => { if (!sourceId) searchInput.current?.focus(); }, [sourceId]);
   const base = `/api/admin/product-fitment-copy/${encodeURIComponent(productId)}`;
   const list = useAdminJson<Sources>(open && !sourceId ? `${base}?q=${encodeURIComponent(submitted)}` : null,
     `list|${submitted}|${attempt}`, "Ürünler yüklenemedi.");
   const preview = useAdminJson<FitmentCopyPreview>(open && sourceId ? `${base}?source=${encodeURIComponent(sourceId)}` : null,
     `preview|${sourceId}|${attempt}`, "Kopyalama önizlemesi yüklenemedi.");
   const retry = () => setAttempt(value => value + 1);
-  const search = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setSubmitted(query.trim()); };
+  const search = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    // The same query again reloads the list.
+    if (query.trim() === submitted) retry(); else setSubmitted(query.trim());
+  };
+  const showSource = (id: string | null) => { onClearError(); setSourceId(id); };
 
   const failure = (message: string, title: string) => <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/>
     <AlertTitle>{title}</AlertTitle><AlertDescription>{message}</AlertDescription>
@@ -79,10 +95,10 @@ export function ProductFitmentCopyDialog({ productId, open, pending, error, onOp
             <div className="flex flex-col gap-2 sm:flex-row">
               <InputGroup>
                 <InputGroupAddon><Search aria-hidden="true"/></InputGroupAddon>
-                <InputGroupInput id={ids.query} type="search" autoComplete="off" spellCheck={false} maxLength={100} value={query}
+                <InputGroupInput ref={searchInput} id={ids.query} type="search" autoComplete="off" spellCheck={false} maxLength={100} value={query}
                   aria-describedby={`${ids.query}-description`} onChange={event => setQuery(event.target.value)}/>
               </InputGroup>
-              <Button type="submit" variant="outline" className="w-full sm:w-auto"><Search data-icon="inline-start" aria-hidden="true"/>Ara</Button>
+              <Button type="submit" variant="outline" className="w-full sm:w-auto" disabled={!list}><Search data-icon="inline-start" aria-hidden="true"/>Ara</Button>
             </div>
             <FieldDescription id={`${ids.query}-description`}>Boş arama bu ürüne bağlı muadilleri listeler. En az 3 karakter girin; OEM numarasıyla arama en az 5 karakter ve bir rakam ister.</FieldDescription>
           </Field>
@@ -103,7 +119,7 @@ export function ProductFitmentCopyDialog({ productId, open, pending, error, onOp
               <TableCell>{source.equivalent ? <StatusBadge tone="info" icon={Link2}>Muadil</StatusBadge> : <span className="text-muted-foreground">—</span>}</TableCell>
               <TableCell><div className="flex justify-end">
                 <Button type="button" variant="outline" size="sm" aria-label={`${source.brand_label} ${source.code} ürününden kopyala`}
-                  onClick={() => setSourceId(source.id)}>Seç</Button></div></TableCell>
+                  onClick={() => showSource(source.id)}>Seç</Button></div></TableCell>
             </TableRow>)}</TableBody></Table>}
         <DialogFooter><DialogClose render={<Button type="button" variant="outline"/>}>Vazgeç</DialogClose></DialogFooter>
       </> : <>
@@ -112,12 +128,12 @@ export function ProductFitmentCopyDialog({ productId, open, pending, error, onOp
           : preview.data && <CopyPreview preview={preview.data} summaryId={ids.summary}/>}
         {error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{error}</AlertDescription></Alert>}
         <DialogFooter>
-          <Button type="button" variant="outline" disabled={pending} onClick={() => setSourceId(null)}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Geri</Button>
+          <Button type="button" variant="outline" disabled={pending} onClick={() => showSource(null)}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Geri</Button>
           <Button type="button" aria-describedby={ids.summary}
             disabled={pending || !preview?.data || preview.data.exceeds || !preview.data.addCount}
             onClick={() => preview?.data && onCopy(preview.data.source.id, preview.data.addCount)}>
             {pending ? <><Spinner data-icon="inline-start"/>Kopyalanıyor…</>
-              : <><Copy data-icon="inline-start" aria-hidden="true"/>{formatNumber(preview?.data?.addCount ?? 0)} araç tipini kopyala</>}</Button>
+              : <><Copy data-icon="inline-start" aria-hidden="true"/>{preview?.data ? `${formatNumber(preview.data.addCount)} araç tipini kopyala` : "Kopyala"}</>}</Button>
         </DialogFooter>
       </>}
     </DialogContent>
@@ -126,6 +142,9 @@ export function ProductFitmentCopyDialog({ productId, open, pending, error, onOp
 
 function CopyPreview({ preview, summaryId }: { preview: FitmentCopyPreview; summaryId: string }) {
   const { source, skipped, addCount } = preview;
+  // The preview step starts on its summary: screen readers read the counts, Tab continues from there.
+  const summary = useRef<HTMLDivElement>(null);
+  useEffect(() => { summary.current?.focus(); }, []);
   const more = addCount - preview.add.length;
   return <div className="flex min-w-0 flex-col gap-4">
     <div className="flex flex-col gap-1">
@@ -133,7 +152,7 @@ function CopyPreview({ preview, summaryId }: { preview: FitmentCopyPreview; summ
       {source.name && <p className="truncate text-muted-foreground" title={source.name}>{source.name}</p>}
       <p className="text-muted-foreground">Kaynak üründe mağazada gösterilen {formatNumber(preview.total)} araç tipi var.</p>
     </div>
-    <Alert variant={addCount ? "info" : "warning"} id={summaryId}>{addCount ? <Info aria-hidden="true"/> : <TriangleAlert aria-hidden="true"/>}
+    <Alert ref={summary} tabIndex={-1} role="status" variant={addCount ? "info" : "warning"} id={summaryId}>{addCount ? <Info aria-hidden="true"/> : <TriangleAlert aria-hidden="true"/>}
       <AlertDescription>{addCount ? `${formatNumber(addCount)} araç tipi eklenecek.` : "Kaynak üründe bu ürüne eklenecek yeni araç tipi yok."} Atlanan: {formatNumber(skipped.added)} zaten elle ekli, {formatNumber(skipped.removed)} mağazadan çıkarılmış, {formatNumber(skipped.automatic)} zaten otomatik uyumlu.</AlertDescription></Alert>
     {addCount > 0 && !preview.targetHasDecisions && <Alert variant="info"><Info aria-hidden="true"/>
       <AlertDescription>Bu üründe henüz araç kararı yok: ilk karar eklenince mağaza bu üründe model düzeyi listeleri (kaynak model listesi, açıklamadan okunan modeller) kullanmayı bırakır.</AlertDescription></Alert>}

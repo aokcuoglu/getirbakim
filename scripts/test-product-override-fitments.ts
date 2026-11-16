@@ -489,7 +489,7 @@ test("a merge carries the hidden rows (the kept product's own row wins); undoing
   assert.equal((await rows(a)).length, 2);
 });
 
-test("a whole model is added in one change: every type in order, one history row each, one queue row (#662)", async () => {
+test("a whole model is added in one change: every type in order, one history row each, the product queued for the make pages (#662)", async () => {
   const bulk = await productOf("bulk");
   const types = Array.from({ length: 75 }, (_, index) => 20001 + index);
   await syncSharedLinks(schema.pool);
@@ -563,6 +563,7 @@ test("copy sources: the linked equivalents without a query, the equivalent searc
   const product = async (id: string) => (await schema.pool.query("SELECT id::text,brand_label,code,name,suppliers FROM products WHERE id=$1", [id])).rows[0];
   assert.deepEqual(await copies.loadFitmentCopySources(schema.pool, target, undefined), { q: "", sources: [{ ...await product(source), equivalent: true }] });
   assert.deepEqual(await copies.loadFitmentCopySources(schema.pool, target, "  "), { q: "", sources: [{ ...await product(source), equivalent: true }] });
+  assert.deepEqual(await copies.loadFitmentCopySources(schema.pool, target, " - / "), { q: "", sources: [{ ...await product(source), equivalent: true }] });
   // A code search finds the source (marked as linked); the product's own code and a merged product's code do not list them.
   const found = await copies.loadFitmentCopySources(schema.pool, target, "brembo 16016");
   assert.equal(found.q, "BREMBO16016");

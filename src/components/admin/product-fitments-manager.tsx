@@ -125,7 +125,7 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
       remaining={productFitmentLimit - fitments.rows.length} error={dialog === "add" ? dialogError : null} onOpenChange={closeDialog}
       onAdd={ids => mutate(() => addProductFitments({ productId, vehicleTypeIds: ids }), () => setDialog(null))}/>
     <ProductFitmentCopyDialog key={`copy|${opened}`} productId={productId} open={dialog === "copy"} pending={pending}
-      error={dialog === "copy" ? dialogError : null} onOpenChange={closeDialog}
+      error={dialog === "copy" ? dialogError : null} onOpenChange={closeDialog} onClearError={() => setResult(null)}
       onCopy={(sourceId, expected) => mutate(() => copyProductFitments({ productId, sourceId, expected }), () => setDialog(null))}/>
   </div>;
 }

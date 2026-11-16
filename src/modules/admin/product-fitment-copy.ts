@@ -6,7 +6,7 @@ import {
   automaticTypesSql, changeProductFitments, insertAddedFitments, recordFitmentChange, vehicleColumns, vehicleJoins,
   type FitmentVehicle, type ProductFitmentResult,
 } from "./product-fitment-store";
-import { searchEquivalentTargets } from "./product-target-search";
+import { compact, searchEquivalentTargets } from "./product-target-search";
 
 type Queryable = Pick<Pool, "query"> | PoolClient;
 
@@ -41,7 +41,8 @@ type CopyPlan = Pick<FitmentCopyPreview, "total" | "skipped" | "remaining"> & { 
  * (part number, supplier code, OEM number). The product itself and merged products are never listed.
  */
 export async function loadFitmentCopySources(database: Pick<Pool, "query">, productId: string, query: string | undefined): Promise<{ q: string; sources: FitmentCopySource[] }> {
-  if (!query?.trim()) {
+  // A query without letters or digits ("-", "/") lists the equivalents too.
+  if (!compact(query)) {
     const sources = (await database.query<FitmentCopySource>(`SELECT p.id,p.brand_label,p.code,p.name,p.suppliers,true AS equivalent
       FROM product_equivalents e JOIN products p ON p.id=e.equivalent_id AND p.merged_into IS NULL
       WHERE e.product_id=$1 ORDER BY p.suppliers='{}',p.brand_label,p.code LIMIT 30`, [productId])).rows;
