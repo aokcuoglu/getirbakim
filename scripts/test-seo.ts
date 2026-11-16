@@ -7,6 +7,8 @@ import { isGatedListing, listingIndexable, minIndexableListingProducts } from ".
 import { categoryNameInText } from "../src/modules/store/category-tree";
 import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, withModelYears } from "../src/modules/store/vehicle-model-groups";
 import { legalLinks } from "../src/content/legal";
+import { sitemapRevalidateSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
+import { startSitemapWarmup, warmSitemaps } from "../src/modules/seo/sitemap-warmup";
 
 type Group = { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
 const list = (value: string | string[] | undefined) => (value === undefined ? [] : Array.isArray(value) ? value : [value]);
@@ -138,4 +140,41 @@ test("llms.txt route answers with cacheable plain text", async () => {
   assert.equal(response.headers.get("content-type"), "text/plain; charset=utf-8");
   assert.ok(response.headers.get("cache-control"));
   assert.ok((await response.text()).startsWith("# Getirbakim"));
+});
+
+test("the sitemap warm-up runs before the cached data goes stale or is evicted (#778)", () => {
+  assert.ok(sitemapWarmIntervalMs < sitemapRevalidateSeconds * 1000);
+});
+
+test("warmSitemaps requests the slow files one after the other and never throws (#778)", async () => {
+  const calls: string[] = [];
+  let active = 0, overlapped = false;
+  const fake = (async (url: string) => {
+    calls.push(url);
+    overlapped ||= ++active > 1;
+    await new Promise(resolve => setTimeout(resolve, 1));
+    active--;
+    if (url.endsWith("model-categories.xml")) throw new Error("boom");
+    return new Response("<urlset/>", { status: url.endsWith("manufacturers.xml") ? 500 : 200 });
+  }) as unknown as typeof fetch;
+  const results = await warmSitemaps("http://127.0.0.1:3000", { fetch: fake });
+  assert.deepEqual(calls, ["models.xml", "model-categories.xml", "manufacturers.xml"].map(file => `http://127.0.0.1:3000/sitemaps/${file}`));
+  assert.deepEqual(results.map(({ file, ok }) => [file, ok]), [["models.xml", true], ["model-categories.xml", false], ["manufacturers.xml", false]]);
+  assert.equal(overlapped, false);
+});
+
+test("startSitemapWarmup ticks on its interval, skips a running round and stops (#778)", async () => {
+  let ticks = 0, active = 0, overlapped = false;
+  const stop = startSitemapWarmup("http://127.0.0.1:3000", {
+    intervalMs: 5, random: () => 0,
+    warm: async () => { ticks++; overlapped ||= ++active > 1; await new Promise(resolve => setTimeout(resolve, 18)); active--; },
+  });
+  // unref'd timers do not keep the process alive; this pending timer does.
+  await new Promise(resolve => setTimeout(resolve, 60));
+  stop();
+  const stopped = ticks;
+  assert.ok(stopped >= 2 && stopped <= 4, `ticks: ${stopped}`);
+  assert.equal(overlapped, false);
+  await new Promise(resolve => setTimeout(resolve, 40));
+  assert.equal(ticks, stopped);
 });

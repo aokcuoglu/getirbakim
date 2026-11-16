@@ -318,3 +318,10 @@ test("the model sitemaps list exactly the indexable model and model × category 
   assert.deepEqual((await sitemap.loadModelPaths()).sort(), models.sort());
   assert.deepEqual((await sitemap.loadModelCategoryPaths()).sort(), modelCategories);
 }));
+
+test("loadAllVehicleModelGroups returns the same units as the per-make read (#778)", async () => {
+  const all = await groups.loadAllVehicleModelGroups();
+  const brands = (await schema.pool.query<{ id: string }>("SELECT id::text FROM vehicle_brands ORDER BY id")).rows.map(row => row.id);
+  assert.ok(brands.length >= 3);
+  for (const brandId of brands) assert.deepEqual(all.get(brandId) ?? [], await groups.getVehicleModelGroups(brandId));
+});

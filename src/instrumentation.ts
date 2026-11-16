@@ -9,7 +9,13 @@ export async function register() {
     // The standalone server listens on HOSTNAME. ECS replaces the image's 0.0.0.0 with the task's own name
     // (ip-…compute.internal), and then nothing answers on 127.0.0.1.
     const host = process.env.HOSTNAME && !["0.0.0.0", "::"].includes(process.env.HOSTNAME) ? process.env.HOSTNAME : "127.0.0.1";
-    void warmStorefront(`http://${host}:${process.env.PORT || 3000}`)
-      .catch(error => console.error("Storefront warm-up failed", error instanceof Error ? error.message : error));
+    const origin = `http://${host}:${process.env.PORT || 3000}`;
+    const { sitemapEnabled } = await import("@/modules/seo/sitemap");
+    const { startSitemapWarmup, warmSitemaps } = await import("@/modules/seo/sitemap-warmup");
+    // The model sitemap files take tens of seconds to build; a visitor or crawler must not be the one who waits (#778).
+    void warmStorefront(origin)
+      .catch(error => console.error("Storefront warm-up failed", error instanceof Error ? error.message : error))
+      .finally(() => sitemapEnabled() ? warmSitemaps(origin) : undefined);
+    if (sitemapEnabled()) startSitemapWarmup(origin);
   }
 }

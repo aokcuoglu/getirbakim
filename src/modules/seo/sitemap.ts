@@ -5,6 +5,11 @@ import { catalogPath, makesPath } from "./paths";
 // byte of their id: ids are random uuids (gen_random_uuid), so every file holds about the same share without a count.
 // 64 files keep each well under the 50,000-URL limit (~12,000 URLs today; 45,000 is reached at ~2.9M products).
 export const sitemapUrlLimit = 45_000;
+// The sitemap data cache goes stale after `sitemapRevalidateSeconds` and is evicted at twice that (cache-handler.mjs).
+// The warm-up (sitemap-warmup.ts, #778) refreshes every half revalidate period, so it always runs before the data is
+// even stale: interval < revalidate < eviction (2 x revalidate).
+export const sitemapRevalidateSeconds = 21_600;
+export const sitemapWarmIntervalMs = sitemapRevalidateSeconds * 1000 / 2;
 export const productChunks = 64;
 
 const bytesPerChunk = 256 / productChunks;
