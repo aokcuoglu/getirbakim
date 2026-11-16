@@ -36,7 +36,7 @@ export const costNotes = {
   basbug: "Maliyet: Başbuğ NF fiyatı, kaynak para biriminde · Satış: kâr + KDV dahil",
   dinamik: "Maliyet: Dinamik liste fiyatı − %45 − %5 − kampanya (₺) · Satış: kâr + KDV dahil · Stok: var/yok",
   seta: "Maliyet: SETA bayi fiyatı · Satış: kâr + KDV dahil · Stok: var/yok",
-  manual: "Maliyet: dosyadaki alış fiyatı · Satış: kâr + KDV dahil",
+  manual: "Maliyet: liste fiyatı − iskonto (ya da dosyadaki alış fiyatı) · Satış: kâr + KDV dahil",
 } as const;
 // The "Kontrol" header filters by the list's ?quality= values.
 const checkColumn = (qualities: [string, string][]): SupplierPartColumn => ({ key: "check", label: "Kontrol", width: "medium",
