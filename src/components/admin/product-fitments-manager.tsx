@@ -1,8 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Car, ChevronDown, CircleAlert, CircleCheck, Eye, EyeOff, GitMerge, Info, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { addProductFitments, deleteProductFitment, removeProductFitment } from "@/app/yonetim/urunler/fitment-actions";
+import { Car, ChevronDown, CircleAlert, CircleCheck, Copy, Eye, EyeOff, GitMerge, Info, ListChecks, ListX, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { addProductFitments, copyProductFitments, deleteProductFitment, removeProductFitment } from "@/app/yonetim/urunler/fitment-actions";
 import { productFitmentAutomaticLimit, productFitmentBatch, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
 import type { FitmentVehicle, ProductFitments } from "@/modules/admin/product-fitment-store";
 import type { CatalogVehicle } from "@/modules/store/vehicle-catalog";
@@ -11,6 +11,7 @@ import { useVehicleCatalog } from "@/components/garage/use-vehicle-catalog";
 import { useFitmentChange } from "@/components/admin/use-fitment-change";
 import { OptionCombobox } from "@/components/admin/option-combobox";
 import { StatusBadge } from "@/components/admin/status-badge";
+import { ProductFitmentCopyDialog } from "@/components/admin/product-fitment-copy-dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,8 +38,8 @@ const power = (vehicle: Pick<FitmentVehicle, "ps" | "kw" | "cc">) =>
  */
 export function ProductFitmentsManager({ productId, fitments }: { productId: string; fitments: ProductFitments }) {
   const { pending, result, setResult, mutate, working } = useFitmentChange();
-  const [adding, setAdding] = useState(false);
-  // A new key per opening: the dialog starts without the last make, model and selection.
+  const [dialog, setDialog] = useState<"add" | "copy" | null>(null);
+  // A new key per opening: the dialog starts without the last make, model and selection (or source and search).
   const [opened, setOpened] = useState(0);
   const [shown, setShown] = useState(PAGE);
   const full = fitments.rows.length >= productFitmentLimit;
@@ -54,14 +55,21 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
     .map(vehicle => ({ ...vehicle, status: "automatic" as const, automatic: true, carried: false }));
   const rows = [...decisions, ...automatic.slice(0, shown)];
   const hidden = automatic.length - Math.min(shown, automatic.length);
+  const openDialog = (next: "add" | "copy") => { setResult(null); setOpened(count => count + 1); setDialog(next); };
+  const closeDialog = (open: boolean) => { if (!open) { setDialog(null); setResult(null); } };
+  const dialogError = dialog && result?.status === "error" ? result.message : null;
 
   return <div className="flex flex-col gap-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <p className="text-muted-foreground">
         {formatNumber(fitments.automaticTotal)} otomatik uyum · {formatNumber(decisions.filter(row => row.status === "added").length)} elle eklenen · {formatNumber(decisions.filter(row => row.status === "removed").length)} mağazadan çıkarılan
       </p>
-      <Button type="button" disabled={pending || full} onClick={() => { setResult(null); setOpened(count => count + 1); setAdding(true); }}>
-        <Plus data-icon="inline-start" aria-hidden="true"/>Araç ekle</Button>
+      <div className="flex flex-wrap gap-2">
+        <Button type="button" variant="outline" disabled={pending || full} onClick={() => openDialog("copy")}>
+          <Copy data-icon="inline-start" aria-hidden="true"/>Başka üründen kopyala</Button>
+        <Button type="button" disabled={pending || full} onClick={() => openDialog("add")}>
+          <Plus data-icon="inline-start" aria-hidden="true"/>Araç ekle</Button>
+      </div>
     </div>
     {full && <Alert variant="warning"><CircleAlert aria-hidden="true"/><AlertDescription>Bu ürün {formatNumber(productFitmentLimit)} araç kararı sınırına ulaştı; yeni karar için önce birini geri alın.</AlertDescription></Alert>}
     {fitments.automaticTotal > productFitmentAutomaticLimit && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>
@@ -70,8 +78,8 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
     <div aria-live="polite" className="empty:hidden">
       {result?.status === "success" && <Alert variant="success"><CircleCheck aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
     </div>
-    {/* While the add dialog is open, its own alert shows the error. */}
-    {result?.status === "error" && !adding && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
+    {/* While a dialog is open, its own alert shows the error. */}
+    {result?.status === "error" && !dialog && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
 
     {/* No table search or filter: they would only see the rows "Daha fazla göster" has revealed. */}
     {rows.length ? <Table controls={false}><caption className="sr-only">Araç uyumu</caption>
@@ -113,15 +121,20 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
         <ChevronDown data-icon="inline-start" aria-hidden="true"/>Daha fazla göster ({formatNumber(hidden)} otomatik uyum daha)</Button>
     </div>}
 
-    <AddFitmentsDialog key={opened} open={adding} pending={pending} decided={decided} automaticIds={automaticIds} error={adding && result?.status === "error" ? result.message : null}
-      onOpenChange={open => { setAdding(open); if (!open) setResult(null); }}
-      onAdd={ids => mutate(() => addProductFitments({ productId, vehicleTypeIds: ids }), () => setAdding(false))}/>
+    <AddFitmentsDialog key={`add|${opened}`} open={dialog === "add"} pending={pending} decided={decided} automaticIds={automaticIds}
+      remaining={productFitmentLimit - fitments.rows.length} error={dialog === "add" ? dialogError : null} onOpenChange={closeDialog}
+      onAdd={ids => mutate(() => addProductFitments({ productId, vehicleTypeIds: ids }), () => setDialog(null))}/>
+    <ProductFitmentCopyDialog key={`copy|${opened}`} productId={productId} open={dialog === "copy"} pending={pending}
+      error={dialog === "copy" ? dialogError : null} onOpenChange={closeDialog} onClearError={() => setResult(null)}
+      onCopy={(sourceId, expected) => mutate(() => copyProductFitments({ productId, sourceId, expected }), () => setDialog(null))}/>
   </div>;
 }
 
 /** Make → model → engine types (several at once) from the store's vehicle catalog (/api/vehicles). */
-function AddFitmentsDialog({ open, pending, decided, automaticIds, error, onOpenChange, onAdd }: {
-  open: boolean; pending: boolean; decided: ReadonlyMap<number, "add" | "remove">; automaticIds: ReadonlySet<number>; error: string | null;
+function AddFitmentsDialog({ open, pending, decided, automaticIds, remaining, error, onOpenChange, onAdd }: {
+  open: boolean; pending: boolean; decided: ReadonlyMap<number, "add" | "remove">; automaticIds: ReadonlySet<number>;
+  /** Decisions the product can still take (productFitmentLimit). */
+  remaining: number; error: string | null;
   onOpenChange: (open: boolean) => void; onAdd: (ids: number[]) => void;
 }) {
   const ids = { brand: useId(), model: useId(), selection: useId() };
@@ -135,12 +148,29 @@ function AddFitmentsDialog({ open, pending, decided, automaticIds, error, onOpen
   const brandOptions = (brands.data?.brands ?? []).map(brand => ({ value: brand.id, label: brand.name }));
   const modelOptions = (models.data?.models ?? []).map(model => ({ value: model.id,
     label: model.dateFrom ? `${model.name} (${model.dateFrom.slice(0, 4)}–${model.dateTo?.slice(0, 4) ?? ""})` : model.name }));
-  const full = selected.size >= productFitmentBatch;
+  // One batch at most, and no more than the product's remaining decisions.
+  const capacity = Math.max(0, Math.min(productFitmentBatch, remaining));
+  const full = selected.size >= capacity;
+  const modelVehicles = modelId ? vehicles.data?.vehicles ?? [] : [];
+  // "Modelin tüm tiplerini seç" skips decided and automatic types: an automatic type is pinned one by one.
+  const selectable = modelVehicles.filter(vehicle => !decided.has(Number(vehicle.id)) && !automaticIds.has(Number(vehicle.id)));
+  const unselected = selectable.filter(vehicle => !selected.has(Number(vehicle.id)));
+  const selectedInModel = modelVehicles.filter(vehicle => selected.has(Number(vehicle.id))).length;
 
   const toggle = (vehicle: CatalogVehicle, checked: boolean) => setSelected(current => {
     const next = new Map(current);
     if (checked) next.set(Number(vehicle.id), `${vehicle.make} ${vehicle.model} ${vehicle.engine}`);
     else next.delete(Number(vehicle.id));
+    return next;
+  });
+  const selectModel = () => setSelected(current => {
+    const next = new Map(current);
+    for (const vehicle of unselected.slice(0, Math.max(0, capacity - current.size))) next.set(Number(vehicle.id), `${vehicle.make} ${vehicle.model} ${vehicle.engine}`);
+    return next;
+  });
+  const clearModel = () => setSelected(current => {
+    const next = new Map(current);
+    for (const vehicle of modelVehicles) next.delete(Number(vehicle.id));
     return next;
   });
   const failure = (state: { error?: string; retry: () => void }) => state.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/>
@@ -150,7 +180,7 @@ function AddFitmentsDialog({ open, pending, decided, automaticIds, error, onOpen
   return <Dialog open={open} onOpenChange={onOpenChange}>
     <DialogContent className="max-h-5/6 overflow-y-auto sm:max-w-3xl">
       <DialogHeader><DialogTitle>Araç ekle</DialogTitle>
-        <DialogDescription>Markayı ve modeli seçin, ürünün uyduğu motor tiplerini işaretleyin. Bir seferde en çok {formatNumber(productFitmentBatch)} tip eklenir; farklı modellerden seçim yapabilirsiniz.</DialogDescription></DialogHeader>
+        <DialogDescription>Markayı ve modeli seçin, ürünün uyduğu motor tiplerini işaretleyin. Bir seferde en çok {formatNumber(capacity)} tip eklenir{capacity < productFitmentBatch ? " (ürünün kalan karar hakkı)" : ""}; farklı modellerden seçim yapabilirsiniz.</DialogDescription></DialogHeader>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field>
           <FieldLabel htmlFor={ids.brand}>Marka</FieldLabel>
@@ -168,7 +198,17 @@ function AddFitmentsDialog({ open, pending, decided, automaticIds, error, onOpen
       {modelId && (vehicles.loading ? <div className="flex flex-col gap-2"><Skeleton className="h-8 w-full"/><Skeleton className="h-8 w-full"/><Skeleton className="h-8 w-full"/></div>
         : failure(vehicles) || (!vehicles.data?.vehicles?.length ? <Empty><EmptyHeader><EmptyMedia variant="icon"><Car/></EmptyMedia>
           <EmptyTitle>Bu model için motor tipi bulunamadı</EmptyTitle><EmptyDescription>Başka bir model seçin.</EmptyDescription></EmptyHeader></Empty>
-        : <Table controls={false}><caption className="sr-only">Motor tipleri</caption>
+        : <><div className="flex flex-col gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" variant="outline" size="sm" disabled={pending || full || !unselected.length} onClick={selectModel}>
+              <ListChecks data-icon="inline-start" aria-hidden="true"/>Modelin tüm tiplerini seç ({formatNumber(selectable.length)})</Button>
+            <Button type="button" variant="outline" size="sm" disabled={pending || !selectedInModel} onClick={clearModel}>
+              <ListX data-icon="inline-start" aria-hidden="true"/>Bu modelin seçimini kaldır</Button>
+          </div>
+          <p className="text-muted-foreground">Kararı olan ve otomatik uyumlu tipler atlanır; otomatik bir tipi sabitlemek için tek tek işaretleyin.</p>
+          {full && unselected.length > 0 && <p className="text-muted-foreground">Seçim sınırı doldu: bu modelin seçilebilir {formatNumber(selectable.length)} tipinden {formatNumber(selectable.length - unselected.length)} tanesi seçildi.</p>}
+        </div>
+        <Table controls={false}><caption className="sr-only">Motor tipleri</caption>
           <TableHeader><TableRow><TableHead><span className="sr-only">Seç</span></TableHead><TableHead>Motor</TableHead><TableHead>Yakıt</TableHead>
             <TableHead>Güç</TableHead><TableHead>Üretim</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader>
           <TableBody>{(vehicles.data?.vehicles ?? []).map(vehicle => {
@@ -184,10 +224,10 @@ function AddFitmentsDialog({ open, pending, decided, automaticIds, error, onOpen
                 : decision === "remove" ? <StatusBadge tone="warning" icon={EyeOff}>Mağazadan çıkarıldı</StatusBadge>
                 : automaticIds.has(id) ? <StatusBadge tone="neutral">Otomatik</StatusBadge> : null}</TableCell>
             </TableRow>;
-          })}</TableBody></Table>))}
+          })}</TableBody></Table></>))}
       <p id={ids.selection} className="text-muted-foreground" aria-live="polite">
         {selected.size ? `${formatNumber(selected.size)} araç tipi seçildi: ${[...selected.values()].slice(0, 3).join(", ")}${selected.size > 3 ? ` ve ${formatNumber(selected.size - 3)} tip daha` : ""}.` : "Henüz araç tipi seçilmedi."}
-        {full && ` En çok ${formatNumber(productFitmentBatch)} tip seçilebilir.`}
+        {full && ` En çok ${formatNumber(capacity)} tip seçilebilir.`}
       </p>
       {error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{error}</AlertDescription></Alert>}
       <DialogFooter>

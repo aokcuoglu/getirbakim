@@ -18,13 +18,15 @@ export type ProductFitments = {
   /** How many automatic types there are in all (the list stops at productFitmentAutomaticLimit). */
   automaticTotal: number;
 };
-export type ProductFitmentResult = { ok: true } | { ok: false; reason: "not-found" | "merged" | "limit" | "unknown-vehicle" | "duplicate" | "removed" | "not-automatic" | "unchanged" | "stale" | "not-in-source" | "hide-limit" };
+/** `added`: how many types a copy from another product wrote (#662). */
+export type ProductFitmentResult = { ok: true; added?: number } | { ok: false; reason: "not-found" | "merged" | "limit" | "unknown-vehicle" | "duplicate" | "removed"
+  | "not-automatic" | "unchanged" | "stale" | "not-in-source" | "hide-limit" | "bad-source" | "nothing-to-copy" };
 
 type Queryable = Pick<Pool, "query"> | PoolClient;
 
-const vehicleColumns = `v.id AS "typeId",b.display_name AS brand,m.name AS model,v.name AS engine,v.fuel_name AS fuel,v.hp AS ps,v.kwt AS kw,v.cc,
+export const vehicleColumns = `v.id AS "typeId",b.display_name AS brand,m.name AS model,v.name AS engine,v.fuel_name AS fuel,v.hp AS ps,v.kwt AS kw,v.cc,
   to_char(v.year_of_constr_from,'MM/YYYY') AS "from",to_char(v.year_of_constr_to,'MM/YYYY') AS "to"`;
-const vehicleJoins = "JOIN vehicle_models m ON m.id=v.model_id JOIN vehicle_brands b ON b.id=m.brand_id";
+export const vehicleJoins = "JOIN vehicle_models m ON m.id=v.model_id JOIN vehicle_brands b ON b.id=m.brand_id";
 
 // The enrichment donors the store reads for the product's rows (src/modules/store/catalog.ts fittedProductIds): the donor
 // of a row whose payload still describes it (RAW code and brand, trusted basis), with its vehicles and model list. A
@@ -36,7 +38,8 @@ export const fitmentSourcesSql = `sources AS MATERIALIZED (
     AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
    WHERE s.product_id=$1 ORDER BY e.donor_item_id)`;
 // Only the fitments that agree with the vehicle at the same index of the donor's payload, by their primary key prefix.
-const automaticTypesSql = `${fitmentSourcesSql},
+// `automatic` of a WITH list taking the product id as $1.
+export const automaticTypesSql = `${fitmentSourcesSql},
   automatic AS (SELECT DISTINCT f.vehicle_type_id AS id FROM sources x
    JOIN product_vehicle_fitments f ON f.supplier_item_id=x.donor_item_id
    WHERE f.vehicle_type_id IS NOT NULL AND f.source_vehicle=x.vehicles->f.source_index)`;
@@ -95,8 +98,21 @@ export async function changeProductFitments(database: Pick<Pool, "connect">, pro
 export const recordFitmentChange = (client: PoolClient, productId: string, field: string, oldValue: string | null, newValue: string | null, adminId: string) =>
   client.query(`INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by) VALUES($1,$2,$3,$4,$5)`,
     [productId, field, oldValue, newValue, adminId]);
-const decisionCount = async (client: PoolClient, productId: string) =>
+export const decisionCount = async (client: PoolClient, productId: string) =>
   (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM product_override_fitments WHERE product_id=$1", [productId])).rows[0].n;
+
+/**
+ * Writes added types of a locked product in the given order, with one fitment_added history row each, in one
+ * statement: the queue triggers of product_override_fitments run once per statement, not once per type.
+ */
+export async function insertAddedFitments(client: PoolClient, productId: string, ids: number[], adminId: string) {
+  // Every row gets the same now(): a microsecond per position keeps the order the admin chose.
+  await client.query(`WITH t AS (SELECT * FROM unnest($2::int[]) WITH ORDINALITY t(id,position)),
+    added AS (INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode,created_by,created_at)
+      SELECT $1,t.id,'add',$3,now()+(t.position*interval '1 microsecond') FROM t)
+    INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by)
+    SELECT $1,'fitment_added',NULL,t.id::text,$3 FROM t ORDER BY t.position`, [productId, ids, adminId]);
+}
 
 /**
  * Adds engine types the product fits: every row of the product lists them in the store (vehicle filter, search, make
@@ -115,11 +131,7 @@ export async function addProductFitments(database: Pick<Pool, "connect">, produc
     if (existing.some(row => row.mode === "remove")) return { ok: false, reason: "removed" };
     if (existing.length) return { ok: false, reason: "duplicate" };
     if (await decisionCount(client, productId) + ids.length > productFitmentLimit) return { ok: false, reason: "limit" };
-    // One statement gives every row the same now(): a microsecond per position keeps the order the admin chose.
-    await client.query(`INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode,created_by,created_at)
-      SELECT $1,t.id,'add',$3,now()+(t.position*interval '1 microsecond') FROM unnest($2::int[]) WITH ORDINALITY t(id,position)`,
-    [productId, ids, adminId]);
-    for (const id of ids) await recordFitmentChange(client, productId, "fitment_added", null, String(id), adminId);
+    await insertAddedFitments(client, productId, ids, adminId);
     return { ok: true };
   });
 }
