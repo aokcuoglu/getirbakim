@@ -363,6 +363,10 @@ describe("IndexNow runs", () => {
     await sends(1, "fitment added");
     await fitment("UPDATE product_model_fitments SET year_from=2001 WHERE supplier_item_id=$1");
     await sends(1, "year changed");
+    await fitment("UPDATE product_model_fitments SET year_from=NULL,year_to=2001 WHERE supplier_item_id=$1");
+    await sends(1, "year_to instead of year_from");
+    await fitment("UPDATE product_model_fitments SET year_from=2001,year_to=NULL WHERE supplier_item_id=$1");
+    await sends(1, "year_from instead of year_to");
     await fitment("UPDATE product_model_fitments SET derived_at=now()+interval '1 day' WHERE supplier_item_id=$1");
     await sends(0, "derived_at only");
     await fitment("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,11,'GOLF V')");

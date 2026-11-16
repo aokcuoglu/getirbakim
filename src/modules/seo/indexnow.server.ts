@@ -24,7 +24,7 @@ const supplierFingerprint = `md5(concat_ws(chr(31),
   CASE WHEN h.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,
   CASE WHEN ${contentSignals.enrichment.sql} THEN l.imported_at::text ELSE '' END,
   'a:'||${adminEditedAtSql(productPriceFields)}::text,
-  'f:'||(SELECT md5(string_agg(DISTINCT concat_ws(':',f.model_id,f.year_from,f.year_to),',')) FROM product_model_fitments f
+  'f:'||(SELECT md5(string_agg(DISTINCT concat_ws(':',f.model_id,COALESCE(f.year_from::text,''),COALESCE(f.year_to::text,'')),',')) FROM product_model_fitments f
     WHERE f.supplier_item_id=ANY(${descriptionFitmentItemsSql}))))::uuid::text`;
 const storeFingerprint = "md5(concat_ws(chr(31),p.name,p.brand,p.code,p.description))::uuid::text";
 

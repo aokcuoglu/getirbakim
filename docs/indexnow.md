@@ -58,6 +58,8 @@ Tablolar `db:setup` ile boş kurulur. Üç seçenek:
 
 Parmak izine yönetici düzenlemesi ve açıklama uyumluluğu eklendi. Bu bileşenlere sahip olmayan ürünlerin parmak izi değişmez; ama açıklamadan okunan uyumluluğu olan her ürünün izi değişir. IndexNow yayında ise sürümden sonra `operations` görevinde `npm run seo:indexnow -- --dry-run --limit=0` koşun; `changed` büyükse bir kez `npm run seo:indexnow -- --seed` ile yeni durumu bildirmeden kaydedin.
 
+Not: açıklama uyumluluğu türetimi her satırın `derived_at` değerini yeniden yazar; türetim değişmeyen satırları korumayana kadar (takip işi) her türetimden sonra uyumluluğu olan tüm ürünlerin site haritası `lastmod`'u ilerler. IndexNow parmak izi içerik özeti kullandığı için etkilenmez.
+
 ### Ürün adresi geçişi (#640)
 
 Ürün adresi `/urun/<marka>-<ad>-<parça-no>-<id>` biçimine geçer (`productPath`, `src/modules/seo/product-path.ts`); site haritası ve IndexNow aynı SQL sütunlarını (`productAddressColumns`) ve aynı işlevi kullanır. Ad, marka ya da parça no değişen ürünün adresi de değişir: eski ve yeni adres birlikte bildirilir (eski adres kalıcı yönlendirme verir).

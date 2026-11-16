@@ -46,8 +46,9 @@ export const productAddressColumns = {
 
 /**
  * The newest admin edit of the product behind supplier row `i` (product_override_changes: every save, delete, hide and
- * merge carry writes one, #575), NULL without one; `skipFields` leaves those history fields out. Index probe per row
- * (product_override_changes_product_idx) through product_sources. Fields are inlined as a literal list: they come from
+ * merge carry writes one, #575), NULL without one; `skipFields` leaves those history fields out. Per row, through product_sources:
+ * while product_override_changes is small the planner scans it sequentially; the indexed plan
+ * (product_override_changes_product_idx) exists and takes over as the table grows. Fields are inlined as a literal list: they come from
  * code constants, never from input.
  */
 export function adminEditedAtSql(skipFields: readonly string[] = []): string {
