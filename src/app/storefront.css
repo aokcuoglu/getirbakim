@@ -19,4 +19,18 @@
   .reference-row { @apply grid grid-cols-[180px_minmax(0,1fr)] gap-6 border-b border-[#e0e5eb] px-5 py-[15px] last:border-0 max-[750px]:grid-cols-[100px_minmax(0,1fr)] max-[750px]:gap-4 max-[750px]:p-3.5 max-[750px]:text-[13px]; }
   .reference-codes { @apply m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere; }
   .spec-row { @apply grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3; }
+
+  /* PurchaseForm (every catalog card and the product page): the form, quantity select and submit button. Each
+     `-product` modifier follows its base, so it wins where both set a property, as the merged class list did. */
+  .buy-form { @apply mb-4 flex gap-2; }
+  .buy-form-product { @apply mb-5 items-center gap-2.5; }
+  /* Catalog card placement; here and not in catalog-card.css, since the product page does not load that file. */
+  .product-card-form { @apply group-data-[view=grid]/listing:order-3 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:hidden; }
+  .buy-quantity { @apply h-12 w-[66px] flex-[0_0_66px] cursor-pointer rounded-md border border-input bg-white px-3 py-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed max-[600px]:group-data-[view=grid]/listing:w-12 max-[600px]:group-data-[view=grid]/listing:flex-[0_0_48px] max-[600px]:group-data-[view=grid]/listing:px-2; }
+  .buy-quantity-product { @apply w-16 flex-[0_0_64px] rounded-[5px] py-2.5; }
+  /* ui/button with the store override, minus the svg, icon, invalid and dark states a text-only submit never has. */
+  .buy-button { @apply inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-brand bg-brand bg-clip-padding px-2 py-[13px] text-sm font-medium whitespace-nowrap text-white transition-all outline-none select-none hover:bg-brand-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100 max-[600px]:group-data-[view=grid]/listing:px-1 max-[600px]:group-data-[view=grid]/listing:text-xs; }
+  /* The disabled background is repeated so it still wins over this hover, as it did in the utility order. */
+  .buy-button-product { @apply w-60 flex-none rounded-[5px] border-[#2e78c7] bg-[#2e78c7] font-semibold hover:bg-[#2168b1] disabled:bg-[#e6e9ec] disabled:text-[#7a8490] max-[750px]:w-auto max-[750px]:flex-1; }
+
 }

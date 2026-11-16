@@ -6,6 +6,7 @@ import { CheckCircle2, LockKeyhole, Package, X } from "lucide-react";
 import { addToCart, loadCartSuggestions } from "@/app/(store)/sepet/actions";
 import { CartQuantity } from "./cart-quantity";
 import type { PurchasePreview, PurchaseState } from "@/modules/store/purchase-types";
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -63,17 +64,15 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
   },[state]);
   const product=variant==="product";
   return <>
-    <form action={action} className={cn("mb-4 flex gap-2",product&&"mb-5 items-center gap-2.5",className)}>
+    <form action={action} className={cn("buy-form",product&&"buy-form-product",className)}>
       <input type="hidden" name="productId" value={productId}/>
       <select aria-label={`${name} için adet`} name="quantity" defaultValue={1} disabled={!available || pending}
         onPointerEnter={()=>setAllQuantities(true)} onFocus={()=>setAllQuantities(true)}
-        className={cn("h-12 w-[66px] flex-[0_0_66px] cursor-pointer rounded-md border border-input bg-white px-3 py-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed max-[600px]:group-data-[view=grid]/listing:w-12 max-[600px]:group-data-[view=grid]/listing:flex-[0_0_48px] max-[600px]:group-data-[view=grid]/listing:px-2",
-          product&&"w-16 flex-[0_0_64px] rounded-[5px] py-2.5")}>
+        className={cn("buy-quantity",product&&"buy-quantity-product")}>
         {Array.from({length:allQuantities?quantities:Math.min(quantities,10)},(_,i)=><option key={i+1} value={i+1}>{i+1}</option>)}
       </select>
-      <Button type="submit" disabled={!available || pending}
-        className={cn("h-12 min-w-0 flex-1 rounded-md border-brand bg-brand px-2 py-[13px] text-sm font-medium text-white hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100 max-[600px]:group-data-[view=grid]/listing:px-1 max-[600px]:group-data-[view=grid]/listing:text-xs",
-          product&&"w-60 flex-none rounded-[5px] border-[#2e78c7] bg-[#2e78c7] font-semibold hover:bg-[#2168b1] disabled:text-[#7a8490] max-[750px]:w-auto max-[750px]:flex-1")}>{pending ? "Ekleniyor…" : "Sepete ekle"}</Button>
+      {/* ui/button's markup with one class (storefront.css) instead of ~940 characters per card. */}
+      <ButtonPrimitive type="submit" data-slot="button" disabled={!available || pending} className={cn("buy-button",product&&"buy-button-product")}>{pending ? "Ekleniyor…" : "Sepete ekle"}</ButtonPrimitive>
     </form>
     {state.error && <p className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]" role="alert">{state.error} <Link className="text-[#0065a5] underline" href="/sepet">Sepeti aç</Link></p>}
     <Dialog open={open} onOpenChange={setOpen}>
