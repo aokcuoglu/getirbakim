@@ -50,7 +50,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
     return next;
   }, { status: "idle" });
   const edit = (change: Partial<OverrideFormValues>) => { dispatch({ type: "edit", values: change }); setShowResult(false); };
-  const current = values ?? { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, brand: null, part_number: null };
+  const current = values ?? { name: null, description: null, short_description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, brand: null, part_number: null };
   const overridden = (field: ProductCardField) => field === "hidden" ? current.hidden : current[field] !== null;
   // Submitted from state (not the DOM form), so React's reset of a form action never touches what the admin typed.
   const submit = (reset?: ProductCardField) => {
@@ -59,7 +59,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
     data.set("version", form.version);
     if (reset) data.set("reset", reset);
     else {
-      for (const field of ["name", "description", "seo_title", "seo_description", "category_id", "brand", "part_number"] as const) data.set(field, form.values[field]);
+      for (const field of ["name", "description", "short_description", "seo_title", "seo_description", "category_id", "brand", "part_number"] as const) data.set(field, form.values[field]);
       if (form.values.published) data.set("published", "on");
     }
     startTransition(() => action(data));
@@ -67,7 +67,8 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
   const label = (field: ProductCardField, htmlFor: string, title = productOverrideLabels[field]) => <div className="flex flex-wrap items-center justify-between gap-2">
     <div className="flex flex-wrap items-center gap-2">
       <FieldLabel htmlFor={htmlFor}>{title}</FieldLabel>
-      {overridden(field) ? <Badge variant="info"><Pencil data-icon="inline-start" aria-hidden="true"/>Elle</Badge> : <Badge variant="outline">Otomatik</Badge>}
+      {overridden(field) ? <Badge variant="info"><Pencil data-icon="inline-start" aria-hidden="true"/>Elle</Badge>
+        : <Badge variant="outline">{field === "short_description" ? "Boş" : "Otomatik"}</Badge>}
     </div>
     {overridden(field) && <Button type="button" variant="ghost" size="sm" disabled={pending} onClick={() => submit(field)}>
       <RotateCcw data-icon="inline-start" aria-hidden="true"/>Otomatiğe dön<span className="sr-only"> ({productOverrideLabels[field]})</span>
@@ -78,7 +79,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
     id: id(field), name: field, value: form.values[field], "aria-describedby": `${id(field)}-hint`,
     onChange: (event: React.ChangeEvent<HTMLInputElement>) => edit({ [field]: event.currentTarget.value }),
   });
-  const textArea = (field: "description" | "seo_description") => ({
+  const textArea = (field: "description" | "short_description" | "seo_description") => ({
     id: id(field), name: field, value: form.values[field], "aria-describedby": `${id(field)}-hint`,
     onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => edit({ [field]: event.currentTarget.value }),
   });
@@ -111,6 +112,11 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
             <FieldDescription>Yalnız mağazada gösterilen numara değişir; tedarikçi kodu, sipariş ve eşleştirme aynı kalır.</FieldDescription>
           </Field>
           <Field className="md:col-span-2">
+            {label("short_description", id("short_description"))}
+            <Textarea {...textArea("short_description")} rows={2} maxLength={300}/>
+            <FieldDescription id={`${id("short_description")}-hint`}>Ürün sayfasında başlığın altında gösterilir (en fazla 300 karakter). Boş bırakılırsa gösterilmez; otomatik karşılığı yoktur.</FieldDescription>
+          </Field>
+          <Field className="md:col-span-2">
             {label("description", id("description"))}
             <Textarea {...textArea("description")} rows={6} maxLength={5000}/>
             <FieldDescription id={`${id("description")}-hint`}>Boş bırakılırsa: {automatic.description ? excerpt(automatic.description) : "Tedarikçi açıklaması yok."}</FieldDescription>
@@ -131,7 +137,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
           <Field>
             {label("seo_description", id("seo_description"))}
             <Textarea {...textArea("seo_description")} rows={3} maxLength={300}/>
-            <FieldDescription id={`${id("seo_description")}-hint`}>Boş bırakılırsa ürün açıklamasından oluşturulur.</FieldDescription>
+            <FieldDescription id={`${id("seo_description")}-hint`}>Boş bırakılırsa kısa açıklamadan, o da yoksa ürün açıklamasından oluşturulur.</FieldDescription>
           </Field>
         </FieldGroup>
       </fieldset>

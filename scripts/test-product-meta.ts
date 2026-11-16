@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readableProductName, vehicleLabel, primaryVehicle, modelKeyword } from "../src/modules/store/product-name";
 import { productSeoDescription, productSeoTitle } from "../src/modules/seo/product-meta";
-import { productMeta, productTitle, type StoreOverride } from "../src/modules/store/product-override-display";
+import { productMeta, productSeoText, productTitle, type StoreOverride } from "../src/modules/store/product-override-display";
 
 test("tokens: foreign words stay plain, codes and abbreviations stay", () => {
   const cases: [string, string][] = [
@@ -99,11 +99,27 @@ test("descriptions stay within 160, summarize many vehicles and cut the text at 
 });
 
 test("an admin's name and SEO fields stay in front of the automatic ones", () => {
-  const override: StoreOverride = { name: "Elle Ad", description: null, seo_title: "Elle başlık", seo_description: "Elle açıklama", category_id: null };
+  const override: StoreOverride = { name: "Elle Ad", description: null, short_description: null, seo_title: "Elle başlık", seo_description: "Elle açıklama", category_id: null };
   assert.equal(productTitle(override, "Zengin", readableProductName("YAG FILTRESI")), "Elle Ad");
   assert.equal(productTitle(null, "Zengin", readableProductName("YAG FILTRESI")), "Zengin");
   assert.equal(productTitle(null, null, readableProductName("YAG FILTRESI")), "Yağ Filtresi");
   assert.deepEqual(productMeta(override, { title: "Otomatik", description: "Otomatik" }), { title: "Elle başlık", description: "Elle açıklama" });
+});
+
+test("the short description fills the template's text slot before the long description; seo_description wins (#697)", () => {
+  const none: StoreOverride = { name: null, description: null, short_description: null, seo_title: null, seo_description: null, category_id: null };
+  const short: StoreOverride = { ...none, short_description: "Elle kısa tanıtım." };
+  assert.equal(productSeoText(short, "Uzun açıklama"), "Elle kısa tanıtım.");
+  assert.equal(productSeoText(none, "Uzun açıklama"), "Uzun açıklama");
+  assert.equal(productSeoText(null, ""), "");
+  const automatic = (override: StoreOverride) => productSeoDescription({ brand: "FEBI", name: "Yağ Filtresi", partNumber: "1234", oem: "",
+    vehicles: [], text: productSeoText(override, "Uzun açıklama") });
+  assert.match(automatic(short), /Elle kısa tanıtım\./);
+  assert.ok(!automatic(short).includes("Uzun açıklama"));
+  assert.match(automatic(none), /Uzun açıklama/);
+  const meta = productMeta({ ...short, seo_description: "Elle SEO" }, { title: "T", description: automatic(short) });
+  assert.equal(meta.description, "Elle SEO");
+  assert.equal(productMeta(short, { title: "T", description: automatic(short) }).description, automatic(short));
 });
 
 test("DIS is diş after a count or beside KALIN / INCE / SAYISI, else dış", () => {
