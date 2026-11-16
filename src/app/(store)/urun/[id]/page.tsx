@@ -21,7 +21,7 @@ import { translateSpecificationLabel, translateSpecificationList } from "@/modul
 import { applySpecOverrides, mergeSpecificationRows, pageSpecifications } from "@/modules/store/product-spec-display";
 import { getItemFitments } from "@/modules/store/product-fitments";
 import { applyFitmentOverrides, modelFallbacks } from "@/modules/store/product-fitment-display";
-import { productDescription, productMeta, productTitle, shownPartNumber, withoutBrandPrefix } from "@/modules/store/product-override-display";
+import { productDescription, productMeta, productSeoText, productTitle, shownPartNumber, withoutBrandPrefix } from "@/modules/store/product-override-display";
 import {getStoreCategories} from "@/modules/store/categories";
 import {categoryPath} from "@/modules/store/category-tree";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
@@ -94,7 +94,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   if (!product) return { title: "Ürün bulunamadı", robots: { index: false } };
   const path = productPath(product);
   if (`/urun/${segment}` !== path) return {};
-  // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description.
+  // An admin's SEO title and description (#575) replace the automatic ones, which follow the page's title and description;
+  // the template's text is the admin's short description (#697) before the long description.
   const [override, enrichment, uploads, fitmentOverrides] = await Promise.all([getItemOverride(product.id),
     productEnrichment(product.id, product.code, product.brand), getItemImages(product.id), getItemFitments(product.id)]);
   const description = productDescription(override, enrichment?.description, product.description);
@@ -103,7 +104,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const hint = `${product.name} ${product.description}`;
   const meta = productMeta(override, {
     title: productSeoTitle({ brand: product.display_brand, name, partNumber: product.display_code, vehicles: vehicles.confirmed, hint }),
-    description: productSeoDescription({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles: vehicles.all, text: description, hint }),
+    description: productSeoDescription({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles: vehicles.all, text: productSeoText(override, description), hint }),
   });
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
@@ -169,9 +170,11 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const title = productTitle(override, enrichment?.displayName, shownProductName(product));
   const heading = titleWithoutIdentity(title, brand, displayPartNumber);
   const description = productDescription(override, enrichment?.description, product.description);
+  // The admin's intro under the title (#697); without one nothing is rendered and no space is kept.
+  const intro = override?.short_description ?? null;
   // The markup is the same for every visitor: it reads the product's own price, never `price`, an account or the garage.
   const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: heading, path: productPath(product) });
-  const structuredProduct = productJsonLd({ supplier: product.supplier, name: title, description: description || undefined, path: productPath(product), sku: product.code, mpn: displayPartNumber, brand,
+  const structuredProduct = productJsonLd({ supplier: product.supplier, name: title, description: description || intro || undefined, path: productPath(product), sku: product.code, mpn: displayPartNumber, brand,
     images: images.map(image => image.src), gtin: gtin ? { property: gtin, value: refs.eans[0] } : null,
     category: productCategoryPath.map(node => node.name).join(" > ") || category?.name,
     priceKurus: product.price_kurus, available: product.available, stockLabel: product.stock_label, unavailable: product.unavailable,
@@ -243,6 +246,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
       </div>
       <div>
         <h1 className="mb-2 text-[36px] leading-[42px] font-semibold tracking-[-1px] wrap-anywhere max-[1000px]:text-[30px] max-[1000px]:leading-9 max-[750px]:text-[27px] max-[750px]:leading-[34px] max-[750px]:tracking-[-.7px]">{heading}</h1>
+        {intro && <p className="mb-3 text-[15px] leading-6 wrap-anywhere text-[#465a70]">{intro}</p>}
         {hasFitment && <p className="mb-3.5 text-[13px] leading-[21px] text-[#53677d]">Uyumlu araçlar: {fitmentSummary.slice(0, 3).map(vehicleSeriesLabel).join(", ")} <a className="font-medium whitespace-nowrap text-[#0069c7] hover:underline" href="#uyumlu-araclar">Tümünü göster</a></p>}
         <dl className="my-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px]">
           {brand && <div className="flex items-center gap-2"><dt className="text-[#53677d]">Marka</dt><dd className="m-0 font-semibold">{brand}</dd></div>}

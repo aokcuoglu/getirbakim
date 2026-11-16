@@ -76,7 +76,7 @@ Eşleşenler listesi `?linked=manual` ("Bağlantı türü" seçimi ya da "Bağl�
 
 ## Elle ürün düzenleme (override katmanı, #575)
 
-`/yonetim/urunler/[id]` "Mağaza bilgileri" kartı ürünün mağaza adını, açıklamasını, kategorisini, SEO başlığı/açıklamasını ve görünürlüğünü elle belirler. Değerler ana ürüne (`products.id`) bağlıdır ve `db/product-overrides.sql`'deki ayrı tablolarda tutulur:
+`/yonetim/urunler/[id]` "Mağaza bilgileri" kartı ürünün mağaza adını, açıklamasını, kısa açıklamasını (#697), kategorisini, SEO başlığı/açıklamasını ve görünürlüğünü elle belirler. Değerler ana ürüne (`products.id`) bağlıdır ve `db/product-overrides.sql`'deki ayrı tablolarda tutulur:
 
 - `product_overrides`: ürün başına tek satır; `NULL` alan otomatik kaynaktan (tedarikçi kaydı, zenginleştirme) gelir, dolu alan onun yerine geçer. `hidden=true` ürünü her yerde satıştan kaldırır (mağaza, sepet, bayi API'si, bakım setleri). Tüm alanlar boşa dönünce satır silinir.
 - `product_override_changes`: her kayıtta değişen her alan için eski/yeni değer, kim ve ne zaman (`NULL` = otomatik). "Otomatiğe dön" tek alanı `NULL`'a (görünürlükte yayına) çeker ve o da geçmişe yazılır.
@@ -94,6 +94,10 @@ Bilinen sınırlar (gizlilik ve diğer düzenlemeler ürün düzeyinde tutulur, 
 - **Satırın ürün değiştirmesi:** yenileme bir otomatik satırı başka ürüne taşırsa (yeni marka takma adı vb.) veya satır "Ayır" ile ayrılırsa satır yeni ürününün düzenlemelerini alır; eski ürünün gizliliği ve adı onunla gitmez. Birleştirme bunun tek istisnasıdır (yukarıdaki taşıma).
 - **Kategori:** elle kategori yalnız `categoryProductIds` okuyanları etkiler: mağazanın kategori sayfaları (`/kategori/<kategori>`) ve bakım seti yuvaları (`maintenance-kit.server.ts`), ayrıca ürün sayfasındaki kırıntı yolu. Yönetim ürün listesindeki kategori süzgeci, ana sayfa sekmeleri ve kart kategori etiketleri (`home.ts`) otomatik (zenginleştirme) kategorilerini okumaya devam eder.
 - **Yönetim ürün listesi:** `/yonetim/urunler` listesi ürün adını ve kategoriyi hâlâ tedarikçi/zenginleştirme verisinden gösterir; elle düzenlenenleri "Elle düzenlenen" ve "Mağazada gizli" süzgeçleri bulur, düzenlenmiş değerler ürün sayfasındadır.
+
+### Kısa açıklama (#697)
+
+"Mağaza bilgileri" kartındaki "Kısa açıklama" (`product_overrides.short_description`, en fazla 300 karakter; şema ve DB `CHECK` ikisi de sınırlar) ürün sayfasında başlığın (H1) hemen altında, "Uyumlu araçlar" satırından önce tek paragraf olarak gösterilir. Otomatik kaynağı yoktur: boşken sayfada hiçbir şey çizilmez ve yer ayrılmaz. Yalnız ürün sayfası okuduğu için `commerce_item_overrides`'a izdüşürülmez (`getItemOverride` doğrudan `product_overrides`'tan okur) ve liste önbelleği sayacını artırmaz. Meta açıklama sırası: `seo_description` > kısa açıklama > uzun açıklama (`productSeoText`, `src/modules/store/product-override-display.ts`; kısa/uzun metin `productSeoDescription` şablonunun metin yuvasına girer). JSON-LD `description` uzun açıklamayı, o yoksa kısa açıklamayı kullanır. Geçmiş, sürüm denetimi, "Otomatiğe dön", birleştirmede boş alana taşıma (`product_overrides_carry`) ve geri almada iade (`product_overrides_uncarry`; yalnız taşınan kısa açıklamayı tutan satır silinir) diğer metin alanlarıyla aynı kuraldır.
 
 ### Mağaza markası ve üretici parça numarası (#602)
 
