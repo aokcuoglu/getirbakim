@@ -108,7 +108,7 @@ export function BrandLogoField({ brandId, brandName, state }: { brandId: string;
         {stored && <Button type="button" variant="outline" disabled={pending} onClick={() => mutate(() => resetBrandLogo({ brandId }))}>
           <RotateCcw data-icon="inline-start" aria-hidden="true"/>{state.automatic ? "Otomatik logoya dön" : state.source === "manual" ? "Elle logoyu sil" : "Gizlemeyi kaldır"}</Button>}
       </div>
-      {stored && !state.automatic && <p className="text-muted-foreground">Otomatik logo yok; elle logo silinirse mağazada logosuz görünür.</p>}
+      {state.source === "manual" && !state.automatic && <p className="text-muted-foreground">Otomatik logo yok; elle logo silinirse mağazada logosuz görünür.</p>}
     </div>}
     <div className="flex flex-col gap-2 empty:hidden" role="status" aria-live="polite">
       {pending && <span className="flex items-center gap-2 text-muted-foreground"><Spinner aria-hidden="true"/>Logo kaydediliyor…</span>}
