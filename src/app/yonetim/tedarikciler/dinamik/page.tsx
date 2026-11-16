@@ -81,7 +81,7 @@ export default async function DinamikAdmin({ searchParams }: { searchParams: Pro
     </>}
     facts={<>
       <SupplierFactCards label="Dinamik özet" health={health} feed={feeds?.dinamik} checkoutMode={checkoutMode}
-        checkoutNote={checkoutMode === "snapshot" ? "Tüm tedarikçilerde ortak ayar · teyit bekler" : "Siparişte marka listesi yeniden çekilir"}
+        checkoutNote={checkoutMode === "snapshot" ? "Tüm tedarikçilerde ortak ayar · teyit bekler" : "Siparişte sepetteki kodlar API'den doğrulanır · hata olursa kayıtlı veri"}
         lastSuccess={lastSucceeded?.completed_at ? { at: lastSucceeded.completed_at, status: lastSucceeded.status, scope: `${lastSucceeded.list_group} · ${formatNumber(lastSucceeded.quality.uniqueProducts)} ürün` } : null}
         lastRun={lastRun ? { at: lastRun.started_at, status: lastRun.status, scope: lastRun.status === "running" ? `${lastRun.list_group} · çekiliyor` : `${lastRun.list_group}${lastRun.status === "succeeded" ? ` · ${formatNumber(lastRun.quality.uniqueProducts)} ürün` : ""}` } : null}
         notes={{ scheduler: schedule, run: [lastRun?.error_reason && runError(lastRun.error_reason)] }}/>

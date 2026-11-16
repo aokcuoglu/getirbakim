@@ -5,7 +5,7 @@ import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { isolatedSchema } from "./isolated-schema";
 import { orderListBack, orderListReturn } from "../src/modules/admin/order-list-return";
-import { lineFigures, needsProcurement, orderLineView, procurementOpenSql, procurementSummary, supplierItemHref } from "../src/modules/admin/order-procurement";
+import { lineFigures, liveCheckReasonLabel, needsProcurement, orderLineView, procurementOpenSql, procurementSummary, supplierItemHref } from "../src/modules/admin/order-procurement";
 import { carrierCodes, defaultCarrier, resolveTrackingUrl, shipmentSchema, startingCarrier, yurticiTrackingRule } from "../src/modules/store/shipment";
 
 // Admin order steps (#516) in an isolated copy of the schema; nothing touches the shared database's tables.
@@ -416,10 +416,11 @@ test("line figures, supplier links and the procurement summary", () => {
   assert.equal(supplierItemHref("manual", "abc"), "/yonetim/tedarikciler/manuel/urun/abc");
   assert.equal(supplierItemHref("basbug", "abc"), "/yonetim/tedarikciler/basbug/urun/abc");
   assert.equal(supplierItemHref("demo", "abc"), null);
-  const line = (source: string, procurement_status: "pending" | "ordered" | "procured") => ({ needsProcurement: needsProcurement({ pricing_snapshot: { source } }), procurement_status });
-  assert.deepEqual(procurementSummary([line("store", "pending"), line("supplier", "pending"), line("override", "ordered"), line("supplier", "procured")]),
-    { needed: 3, pending: 1, ordered: 1, procured: 1 });
-  assert.deepEqual(procurementSummary([line("store", "pending")]), { needed: 0, pending: 0, ordered: 0, procured: 0 });
+  const line = (source: string, procurement_status: "pending" | "ordered" | "procured", liveCheckFailed = false) =>
+    ({ needsProcurement: needsProcurement({ pricing_snapshot: { source } }), procurement_status, liveCheckFailed });
+  assert.deepEqual(procurementSummary([line("store", "pending"), line("supplier", "pending", true), line("override", "ordered"), line("supplier", "procured")]),
+    { needed: 3, pending: 1, ordered: 1, procured: 1, unverified: 1 });
+  assert.deepEqual(procurementSummary([line("store", "pending")]), { needed: 0, pending: 0, ordered: 0, procured: 0, unverified: 0 });
   // The dialog's view model carries figures and links, never the raw snapshot.
   const view = orderLineView({ product_id: "p1", code: "C", name: "N", supplier: "seta", quantity: 2, unit_price_kurus: 1200,
     pricing_snapshot: { source: "supplier", cost_kurus: 500, vat_percent: 20, company: "SETA", warehouse: "D1", nf: 4 },
@@ -427,6 +428,14 @@ test("line figures, supplier links and the procurement summary", () => {
   assert.equal(view.supplierHref, "/yonetim/tedarikciler/seta/urun/p1"); assert.equal(view.productHref, "/yonetim/urunler/m1");
   assert.equal(view.costKurus, 500); assert.equal(view.marginKurus, 500); assert.equal(view.company, "SETA"); assert.equal(view.needsProcurement, true);
   assert.equal("pricing_snapshot" in view, false);
+  assert.equal(view.liveCheckFailed, false); assert.equal(view.liveCheckReason, null);
+  // A line sold on saved data because the live check failed (#763) carries the marker and its reason.
+  const unverified = orderLineView({ product_id: "p2", code: "B", name: "N", supplier: "basbug", quantity: 1, unit_price_kurus: 1200,
+    pricing_snapshot: { source: "supplier", checkout_mode: "snapshot", live_check: "failed", live_check_reason: "timeout" },
+    procurement_status: "pending", procurement_ref: null, procurement_ordered_at: null, procured_at: null, supplier_item: true, master_id: null }, "Başbuğ");
+  assert.deepEqual([unverified.liveCheckFailed, unverified.liveCheckReason, unverified.checkoutMode], [true, "timeout", "snapshot"]);
+  assert.equal(liveCheckReasonLabel.timeout, "zaman aşımı");
+  assert.equal(procurementSummary([unverified, view]).unverified, 1);
 });
 
 test("the customer's order page never reads supplier, cost or procurement data", async () => {
@@ -435,4 +444,6 @@ test("the customer's order page never reads supplier, cost or procurement data",
   const query = source.match(/SELECT product_id,name,code[\s\S]*?FROM commerce_order_items/)?.[0] ?? "";
   assert.match(query, /jsonb_build_object\('checkout_mode',pricing_snapshot->'checkout_mode','observed_at',pricing_snapshot->'observed_at'\) AS pricing_snapshot/);
   assert.doesNotMatch(query.replace(/jsonb_build_object\([^)]*\) AS pricing_snapshot/, ""), /pricing_snapshot/);
+  // The live-check marker (#763) stays in the admin panel; the customer only sees checkout_mode.
+  assert.doesNotMatch(query, /live_check/);
 });

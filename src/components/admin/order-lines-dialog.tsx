@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { CircleAlert, Clock, Package, Save } from "lucide-react";
 import { saveLineProcurement, type ProcurementResult } from "@/modules/admin/commerce-actions";
-import { procurementLabel, procurementStatuses, procurementSummary, type OrderLineView, type ProcurementStatus } from "@/modules/admin/order-procurement";
+import { liveCheckReasonLabel, procurementLabel, procurementStatuses, procurementSummary, type OrderLineView, type ProcurementStatus } from "@/modules/admin/order-procurement";
 import { formatDateTime } from "@/modules/admin/format";
 import { money } from "@/modules/store/money";
 import { StatusBadge, type StatusTone } from "@/components/admin/status-badge";
@@ -30,6 +30,12 @@ function ProcurementSummaryBadge({ lines, active }: { lines: OrderLineView[]; ac
   return <StatusBadge tone="success">Tedarik edildi</StatusBadge>;
 }
 
+/** Lines sold on saved data because the supplier could not be asked at checkout (#763). */
+function UnverifiedBadge({ lines }: { lines: OrderLineView[] }) {
+  const { unverified } = procurementSummary(lines);
+  return unverified > 0 ? <StatusBadge tone="warning">Canlı doğrulanamadı {unverified}/{lines.length}</StatusBadge> : null;
+}
+
 function LineProcurementBadge({ line }: { line: OrderLineView }) {
   if (!line.needsProcurement) return <StatusBadge tone="neutral">Mağaza stoku</StatusBadge>;
   const status = line.procurement_status;
@@ -41,15 +47,23 @@ export function OrderLinesDialog({ number, orderId, orderStatus, editable, lines
   number: string; orderId: string; orderStatus: string; editable: boolean; lines: OrderLineView[];
 }) {
   const active = ["pending", "confirmed"].includes(orderStatus);
+  const unverified = procurementSummary(lines).unverified > 0;
   return <Dialog>
-    <DialogTrigger render={<Button variant="ghost" size="sm"/>}>
+    {/* Two badges wrap inside the trigger on narrow screens instead of overflowing the table. */}
+    <DialogTrigger render={<Button variant="ghost" size="sm" className="h-auto whitespace-normal"/>}>
       <span className="sr-only">#{number} kalemleri ve tedarik: </span>
-      <ProcurementSummaryBadge lines={lines} active={active}/>
+      <span className="flex flex-wrap gap-1">
+        <ProcurementSummaryBadge lines={lines} active={active}/>
+        <UnverifiedBadge lines={lines}/>
+      </span>
     </DialogTrigger>
     <DialogContent className="max-h-5/6 overflow-y-auto sm:max-w-5xl">
       <DialogHeader>
         <DialogTitle>#{number} kalemleri ve tedarik</DialogTitle>
-        <DialogDescription>Maliyet KDV hariç, satış KDV dahil birim fiyattır. Müşteri bu bilgileri görmez.</DialogDescription>
+        <DialogDescription>
+          Maliyet KDV hariç, satış KDV dahil birim fiyattır. Müşteri bu bilgileri görmez.
+          {unverified && " Canlı doğrulanamayan kalemler kayıtlı fiyat ve stokla satıldı; tedarikçide teyit et."}
+        </DialogDescription>
       </DialogHeader>
       <Table controls={false}>
         <TableHeader><TableRow>
@@ -70,10 +84,17 @@ export function OrderLinesDialog({ number, orderId, orderStatus, editable, lines
               </div>
             </TableCell>
             <TableCell className="whitespace-normal">
-              <div>{line.supplier_label}</div>
-              {scopeText && <div className="text-muted-foreground">{scopeText}</div>}
-              {line.checkoutMode === "snapshot" && <StatusBadge tone="warning">Kayıtlı veri</StatusBadge>}
-              {line.observedAt && <div className="text-muted-foreground">Veri: {time(line.observedAt)}</div>}
+              <div className="flex flex-col items-start gap-1">
+                <div>{line.supplier_label}</div>
+                {scopeText && <div className="text-muted-foreground">{scopeText}</div>}
+                {line.liveCheckFailed
+                  ? <>
+                    <StatusBadge tone="warning">Canlı doğrulanamadı</StatusBadge>
+                    <div className="text-muted-foreground">Neden: {(line.liveCheckReason && liveCheckReasonLabel[line.liveCheckReason]) || "bilinmeyen neden"}</div>
+                  </>
+                  : line.checkoutMode === "snapshot" && <StatusBadge tone="warning">Kayıtlı veri</StatusBadge>}
+                {line.observedAt && <div className="text-muted-foreground">Veri: {time(line.observedAt)}</div>}
+              </div>
             </TableCell>
             <TableCell className="text-right tabular-nums">{line.quantity}</TableCell>
             <TableCell className="text-right tabular-nums">{line.costKurus !== null ? money(line.costKurus) : "—"}</TableCell>
