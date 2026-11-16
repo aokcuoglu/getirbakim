@@ -320,6 +320,22 @@ describe("sitemap queries", () => {
     assert.equal(rows.get(ids.dinamik), await expected("SELECT changed_at FROM supplier_items WHERE id=$1", ids.dinamik));
     assert.equal(rows.get(ids.store), await expected("SELECT updated_at FROM store_products WHERE id=$1", ids.store));
     for (const value of rows.values()) assert.match(value, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    // Description fitments (#767): the row's own, and those of a grouped offer, both through derived_at.
+    assert.equal(rows.get(ids.fitOnly), await expected("SELECT derived_at FROM product_model_fitments WHERE supplier_item_id=$1", ids.fitOnly));
+    assert.equal(rows.get(ids.offerPrimary), await expected("SELECT derived_at FROM product_model_fitments WHERE supplier_item_id=$1", ids.offerSecondary));
+  });
+
+  test("an admin edit, a price edit included, advances lastmod (#767)", async () => {
+    const productOf = async (key: string) => (await schema.pool.query<{ product_id: string }>("SELECT product_id::text FROM product_sources WHERE supplier_item_id=$1", [ids[key]])).rows[0].product_id;
+    const lastmod = async (key: string) => (await allChunks()).find(row => row.id === ids[key])?.lastmod;
+    const at = async (offset: string) => (await schema.pool.query<{ at: string }>(
+      `SELECT to_char((now()+interval '${offset}') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at`)).rows[0].at;
+    const before = await lastmod("adminImage");
+    await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value,changed_at) VALUES($1,'image_removed','x',now()+interval '1 hour')", [await productOf("adminImage")]);
+    assert.equal(await lastmod("adminImage"), await at("1 hour"));
+    assert.notEqual(before, await lastmod("adminImage"));
+    await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value,changed_at) VALUES($1,'price_kurus','500',now()+interval '2 hours')", [await productOf("adminRef")]);
+    assert.equal(await lastmod("adminRef"), await at("2 hours"));
   });
 
   test("categories: those with listed products and their ancestors, legacy categories included", async () => {
