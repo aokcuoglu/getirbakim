@@ -12,7 +12,7 @@ export type ProductImages = {
   images: { id: string; src: string; width: number; height: number; file_name: string; carried: boolean }[];
   hideAutomatic: boolean;
   /** Enrichment images the product's store rows show without uploads (one per media object). */
-  automatic: { src: string; width: number; height: number; supplier: string }[];
+  automatic: { src: string; mediaId: string; width: number; height: number; supplier: string; inGallery: boolean }[];
 };
 export type ProductImageResult = { ok: true } | {
   ok: false; reason: "not-found" | "merged" | "limit" | "duplicate" | "stale" | "image";
@@ -34,25 +34,32 @@ export function imageHistoryValue(field: string, value: string | null): string |
 
 const media = (id: string) => `/api/product-media/${id}`;
 
+/** The enrichment images the product's store rows serve; `mediaId` narrows it to that one (authorization for a conversion). */
+async function automaticImages(database: Pick<Pool, "query">, productId: string, mediaId?: string) {
+  return (await database.query<{ image_id: string; width: number; height: number; supplier: string }>(
+    // The rows /api/product-media serves: present storefront rows with a stored enrichment image.
+    `SELECT DISTINCT ON (e.image_id) e.image_id::text,COALESCE((e.payload->>'imageWidth')::int,480) AS width,
+      COALESCE((e.payload->>'imageHeight')::int,480) AS height,i.supplier
+     FROM product_sources s JOIN storefront_enrichments e ON e.supplier_item_id=s.supplier_item_id
+     JOIN supplier_items i ON i.id=s.supplier_item_id
+     WHERE s.product_id=$1 AND e.image_id IS NOT NULL AND i.presence='present' AND i.company=ANY($2::text[])
+       AND ($3::uuid IS NULL OR e.image_id=$3::uuid)
+     ORDER BY e.image_id,storefront_supplier_rank(i.supplier),i.code`, [productId, storefrontCompanies(), mediaId ?? null])).rows;
+}
+
 export async function loadProductImages(database: Pick<Pool, "query">, productId: string): Promise<ProductImages> {
   const [images, settings, automatic] = await Promise.all([
     database.query<{ id: string; media_id: string; width: number; height: number; file_name: string; carried: boolean }>(
       `SELECT i.id::text,i.media_id::text,i.width,i.height,i.file_name,i.carried_from IS NOT NULL AS carried
        FROM product_override_images i WHERE i.product_id=$1 ORDER BY i.position,i.id`, [productId]),
     database.query<{ hide_automatic: boolean }>("SELECT hide_automatic FROM product_override_image_settings WHERE product_id=$1", [productId]),
-    // The rows /api/product-media serves: present storefront rows with a stored enrichment image.
-    database.query<{ image_id: string; width: number; height: number; supplier: string }>(
-      `SELECT DISTINCT ON (e.image_id) e.image_id::text,COALESCE((e.payload->>'imageWidth')::int,480) AS width,
-        COALESCE((e.payload->>'imageHeight')::int,480) AS height,i.supplier
-       FROM product_sources s JOIN storefront_enrichments e ON e.supplier_item_id=s.supplier_item_id
-       JOIN supplier_items i ON i.id=s.supplier_item_id
-       WHERE s.product_id=$1 AND e.image_id IS NOT NULL AND i.presence='present' AND i.company=ANY($2::text[])
-       ORDER BY e.image_id,storefront_supplier_rank(i.supplier),i.code`, [productId, storefrontCompanies()]),
+    automaticImages(database, productId),
   ]);
+  const uploaded = new Set(images.rows.map(row => row.media_id));
   return {
     images: images.rows.map(row => ({ id: row.id, src: media(row.media_id), width: row.width, height: row.height, file_name: row.file_name, carried: row.carried })),
     hideAutomatic: Boolean(settings.rows[0]?.hide_automatic),
-    automatic: automatic.rows.map(row => ({ src: media(row.image_id), width: row.width, height: row.height, supplier: row.supplier })),
+    automatic: automatic.map(row => ({ src: media(row.image_id), mediaId: row.image_id, width: row.width, height: row.height, supplier: row.supplier, inGallery: uploaded.has(row.image_id) })),
   };
 }
 
@@ -116,6 +123,30 @@ export async function addProductImage(database: Database, productId: string, fil
     const inserted = await client.query(`INSERT INTO product_override_images(product_id,media_id,position,width,height,file_name,created_by)
       VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (product_id,media_id) DO NOTHING RETURNING id`,
     [productId, mediaId, stats.next, prepared.width, prepared.height, name, adminId]);
+    if (!inserted.rowCount) return { ok: false, reason: "duplicate" };
+    await record(client, productId, "image_added", null, name, adminId);
+    return { ok: true };
+  });
+}
+
+/**
+ * "Yüklemeye çevir": adds the product's automatic image to the uploads at the end, reusing its media object (no copy,
+ * no second hash), so the admin can order it or make it primary. It keeps its image when the enrichment later changes.
+ * `supplierNames` maps supplier codes to the names the admin sees (file name "Zenginleştirme görseli (<name>)").
+ */
+export async function convertAutomaticImage(database: Pick<Pool, "connect">, productId: string, mediaId: string, adminId: string,
+  supplierNames: Record<string, string> = {}) {
+  return change(database, productId, async client => {
+    // Under the product lock, and the authorization boundary: only this product's own automatic images convert.
+    const [automatic] = await automaticImages(client, productId, mediaId);
+    if (!automatic) return { ok: false, reason: "stale" };
+    const stats = (await client.query<{ images: number; next: number }>(`SELECT count(*)::int AS images,COALESCE(max(position)+1,0)::int AS next
+      FROM product_override_images WHERE product_id=$1`, [productId])).rows[0];
+    if (stats.images >= productImageLimits.maxImages) return { ok: false, reason: "limit" };
+    const name = `Zenginleştirme görseli (${supplierNames[automatic.supplier] ?? automatic.supplier})`;
+    const inserted = await client.query(`INSERT INTO product_override_images(product_id,media_id,position,width,height,file_name,created_by)
+      VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (product_id,media_id) DO NOTHING RETURNING id`,
+    [productId, mediaId, stats.next, automatic.width, automatic.height, name, adminId]);
     if (!inserted.rowCount) return { ok: false, reason: "duplicate" };
     await record(client, productId, "image_added", null, name, adminId);
     return { ok: true };
