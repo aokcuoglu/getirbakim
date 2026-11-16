@@ -98,11 +98,16 @@ npm run fitment:rebuild -- --items=data/urunler.json
 npm run test:fitment
 npm run test:fitment-rebuild
 npm run verify:fitment
+npm run verify:fitment -- --drift-only
 ```
 
 `fitment:rebuild` tabloyu idempotent biçimde kurar ve argümansız çalıştırıldığında mevcut tüm ürünleri aynı transaction içinde yeniden eşleştirir. `--items=<dosya>` (tedarikçi ürün kimliklerinden oluşan JSON dizi, boş dizi de geçerli) yalnız o ürünleri ve bağlantıları eski bir eşleştirici sürümüyle (`matcher_version`) kurulmuş ürünleri yeniden eşleştirir; zenginleştirmesi olmayan kimlikler yok sayılır. Bilinmeyen argüman ya da geçersiz kimlik hata verir, tam yeniden kuruluma dönmez. Çıktı yalnız özet JSON'dur (`mode`, `requested`, `outdated`, `products`, durum sayıları). Ürün veya kaynak verisini değiştirmez. `enrichment:prepare` de bağlantı tablosunu hazırlar. Kurulumdan sonra `enrichment:import` her ürünün kaynak verisini ve bağlantılarını aynı transaction içinde günceller. Eski araç satırları kaldırılır; tekrar aktarım çoğaltma yapmaz. `db:vehicles` de araç kataloğunu güncellediğinde kurulu ürün bağlantılarını yeniden hesaplar. Ürün ve araç aktarımları ortak advisory lock sırasıyla çalışır; eşzamanlı işlemler kısa süre sıraya girer.
 
 Bağlantılar yalnız ürün payload'ındaki `vehicles`, araç kataloğu ve `FITMENT_MATCHER_VERSION`'dan türetilir. Bu yüzden tam yeniden kurulum nadiren gerekir: eşleştirici sürümü değişince kapsamlı çalıştırma eski sürümlü satırları kendiliğinden yeniden kurar, araç kataloğu aktarımı (`db:vehicles`) tümünü zaten yeniden hesaplar. Emin değilseniz `npm run verify:fitment` ile denetleyip argümansız `npm run fitment:rebuild` çalıştırın.
+
+Kapsamlı çalıştırmanın kendiliğinden onaramadığı durum, bağlantısı payload'ından geri kalmış ve sonraki paketlerde gelmeyen üründür (ör. bağlantıları kurulmadan yarıda kalmış bir içe aktarma). `verify:fitment` önce salt-okunur bir sapma denetimi yapar: `payload->'vehicles'` uzunluğu `product_vehicle_fitments` satır sayısından farklı olan zenginleştirmeleri sayar ve ilk 20 kimliği yazar, sapma varsa hata ile çıkar. `--drift-only` yalnız bu denetimi koşar (yerelde ~9,3M satırda ~2-4 sn; AWS'de operations görevi olarak `node --import tsx scripts/verify-product-fitments.ts --drift-only`); bayraksız çalıştırma diğer denetimleri de yapar, bunlar satır kilidi alır, geri alınan bir transaction içinde yazar ve `VERIFY_URL`'den bir ürün sayfası okur. Sayı denetimi aynı uzunlukta ama farklı içerikli bir payload'ı yakalamaz; o durum bayraksız çalıştırmadaki "stale source links" denetimindedir.
+
+- **Bir ortamdaki ilk kapsamlı aktarımdan önce** ve **başarısız bir içe aktarmadan sonra filigranı ileri almadan önce** (`--baseline`/`--force`) `verify:fitment -- --drift-only` çalıştırın; sapma bildirirse argümansız `fitment:rebuild` koşun.
 
 `strict-v1`: büyük/küçük harf, aksan, boşluk ve katalog marka gösterim adı farkları normalize edilir. Model/kasa, motor adı, yakıt, cm³, PS/hp, kW ve üretim başlangıç/bitiş ayları birlikte eşleşmelidir. Motor adı kaynak metnindeki motor kodlarından ayrılarak karşılaştırılır; xDrive/4motion gibi uzun varyant adları önceliklidir. Birden fazla aynı aday varsa otomatik bağlantı kurulmaz. Motor kodları katalogda bulunmadığı için ayrıca doğrulanamaz. Bu bağlantı kaynak uyumluluk listesini yerel katalogla ilişkilendirir; üretici onayı anlamına gelmez.
 

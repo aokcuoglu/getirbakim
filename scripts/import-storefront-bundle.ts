@@ -5,6 +5,7 @@ import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
 import { bundleItems, resolveBundleItems } from "./storefront-bundle-items";
+import { importBundleEnrichments } from "./storefront-bundle-enrichments";
 import { importBundleJobs } from "./storefront-bundle-jobs";
 import { replaceBundleMappings } from "./storefront-bundle-mappings";
 
@@ -46,17 +47,9 @@ try {
   const json = (value: unknown) => JSON.stringify(value);
   const count = async (sql: string, ...params: unknown[]) => Number((await client.query(sql, params)).rows[0].count);
   const run = async (sql: string, ...params: unknown[]) => (await client.query(sql, params)).rowCount ?? 0;
-  // The local supplier items whose enrichments this bundle wrote: their fitments are rebuilt (--items of rebuild-product-fitments.ts).
-  const writtenItems: string[] = [];
-  const upsertEnrichments = async (sql: string, ...params: unknown[]) => {
-    const result = await client.query<{ supplier_item_id: string }>(sql, params);
-    writtenItems.push(...result.rows.map(row => row.supplier_item_id));
-    return result.rowCount ?? 0;
-  };
   const keys = bundleItems(manifest);
   const items = await resolveBundleItems(client, keys);
   // bi.id is the local supplier item a bundle row belongs to; null when it does not exist here.
-  const resolvedItem = "JOIN bundle_items bi ON bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL";
   const missingItem = "NOT EXISTS (SELECT 1 FROM bundle_items bi WHERE bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL)";
   const vehicleTypeExists = "EXISTS (SELECT 1 FROM vehicle_types t WHERE t.id=r.vehicle_type_id)";
 
@@ -70,6 +63,9 @@ try {
 
   // Bundles written before job statuses were carried have none; their jobs are left as they are.
   const jobs = await importBundleJobs(client, manifest.jobs ?? []);
+  // Unconditional on purpose (see storefront-bundle-enrichments.ts): enriched.items, the local supplier items whose
+  // enrichments this bundle wrote, scope the fitment rebuild (--items of rebuild-product-fitments.ts).
+  const enriched = await importBundleEnrichments(client, manifest.enrichments);
   const written = {
     categories: await run(`INSERT INTO source_categories SELECT * FROM jsonb_populate_recordset(null::source_categories,$1::jsonb)
       ON CONFLICT (source,category_id) DO UPDATE SET parent_id=EXCLUDED.parent_id,name=EXCLUDED.name,slug=EXCLUDED.slug,path_ids=EXCLUDED.path_ids,
@@ -79,14 +75,7 @@ try {
     categoryImages: await run(`INSERT INTO source_category_images(source,category_id,media_id,width,height)
       SELECT r.source,r.category_id,bm.id,r.width,r.height FROM jsonb_populate_recordset(null::source_category_images,$1::jsonb) r JOIN bundle_media bm ON bm.bundle_id=r.media_id
       ON CONFLICT (source,category_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height`, json(manifest.images)),
-    enrichments: await upsertEnrichments(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload,imported_at,match_basis)
-      SELECT DISTINCT ON (bi.id) bi.id,r.supplier_code,r.supplier_brand,r.source_url,r.source_method,r.manufacturer,r.manufacturer_part_number,bm.id,r.payload,r.imported_at,r.match_basis
-      FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r ${resolvedItem} LEFT JOIN bundle_media bm ON bm.bundle_id=r.image_id
-      ORDER BY bi.id,r.imported_at DESC
-      ON CONFLICT (supplier_item_id) DO UPDATE SET supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,source_url=EXCLUDED.source_url,
-      source_method=EXCLUDED.source_method,manufacturer=EXCLUDED.manufacturer,manufacturer_part_number=EXCLUDED.manufacturer_part_number,image_id=EXCLUDED.image_id,
-      payload=EXCLUDED.payload,imported_at=EXCLUDED.imported_at,match_basis=EXCLUDED.match_basis
-      RETURNING supplier_item_id`, json(manifest.enrichments)),
+    enrichments: enriched.written,
   };
   // After the category tree (the mappings reference it) and the enrichments they belong to.
   const mappings = await replaceBundleMappings(client, manifest);
@@ -142,7 +131,7 @@ try {
     console.log("APPLIED", report);
     if (reportPath) {
       const byId = new Map(keys.map(item => [item.id, item]));
-      await writeFile(reportPath, JSON.stringify({ report, skipped: skippedIds.map(id => byId.get(id) ?? { id }), items: writtenItems }));
+      await writeFile(reportPath, JSON.stringify({ report, skipped: skippedIds.map(id => byId.get(id) ?? { id }), items: enriched.items }));
     }
   }
 } catch (error) { await client.query("ROLLBACK").catch(() => {}); throw error; }

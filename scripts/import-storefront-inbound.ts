@@ -116,6 +116,10 @@ try {
   }
   // Only the products the parts wrote (and any built by an older matcher); the rest of the table is already current.
   const fitmentItems = resolve(work, "fitment-items.json");
+  // A part report without items (an import older than #561) would silently rebuild nothing; stop instead (the data is
+  // committed, but the task fails, so the sync keeps its watermark and re-sends).
+  const missingItems = applied.findIndex(part => !Array.isArray(part.items));
+  if (missingItems >= 0) throw new Error(`The report of applied part ${missingItems + 1} has no items array; the fitment rebuild has no scope.`);
   await writeFile(fitmentItems, JSON.stringify([...new Set(applied.flatMap(part => part.items ?? []))]));
   node([], "scripts/rebuild-product-fitments.ts", [`--items=${fitmentItems}`]);
   await drainSharedLinks();

@@ -5,6 +5,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { parseRebuildArgs, parseRebuildItems } from "./fitment-rebuild-args";
 import { FITMENT_MATCHER_VERSION } from "../src/modules/store/fitment-matcher";
 import { rebuildProductFitments } from "../src/modules/store/fitment-sync";
+import { importBundleEnrichments } from "./storefront-bundle-enrichments";
 
 // The scoped fitment rebuild of the storefront sync (#561): rebuilding the items a bundle wrote plus the rows of an
 // older matcher version leaves product_vehicle_fitments exactly as a full rebuild would.
@@ -131,5 +132,22 @@ describe("scoped fitment rebuild", { skip: !process.env.DATABASE_URL }, () => {
       { mode: "scoped", requested: 0, outdated: 0, products: 0, counts: {} });
     assert.deepEqual(await snapshot(), before);
     assert.deepEqual(await queued(), []);
+  });
+
+  test("the bundle's enrichment upsert returns a row each time it is applied, unchanged or not", async () => {
+    const client = await schema.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const bundleId = randomUUID(), missing = randomUUID();
+      await client.query(`CREATE TEMP TABLE bundle_items ON COMMIT DROP AS
+        SELECT * FROM (VALUES ($1::uuid,$2::uuid),($3::uuid,NULL::uuid)) t(bundle_id,id)`, [bundleId, ids.D, missing]);
+      await client.query("CREATE TEMP TABLE bundle_media(bundle_id uuid,id uuid) ON COMMIT DROP");
+      const row = (supplierItemId: string) => ({ supplier_item_id: supplierItemId, supplier_code: "TST D", supplier_brand: "TST", source_url: "https://example.com/x",
+        source_method: "test", manufacturer: "TST", manufacturer_part_number: "TST D", image_id: null, payload: JSON.parse(payload([matched])),
+        imported_at: "2026-11-01T00:00:00Z", match_basis: { type: "exact_part" } });
+      const rows = [row(bundleId), row(missing)];
+      assert.deepEqual(await importBundleEnrichments(client, rows), { written: 1, items: [ids.D] });
+      assert.deepEqual(await importBundleEnrichments(client, rows), { written: 1, items: [ids.D] }, "a retried, unchanged row is written and returned again");
+    } finally { await client.query("ROLLBACK"); client.release(); }
   });
 });
