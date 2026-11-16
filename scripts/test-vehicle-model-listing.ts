@@ -14,6 +14,8 @@ let groups: typeof import("../src/modules/store/vehicle-model-groups.server");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const [basbug] = storefrontCompanies();
+// More than the 600 price-ordered rows browseProducts caches, so the last page reads live.
+const pricedProducts = 620;
 
 async function item(key: string) {
   const product = { uk: "TESTBRAND", ac: `${key} PARCA`, dc: "TL" };
@@ -36,6 +38,13 @@ before(async () => {
   // golf-7: 12 listed products. g1-g3 engine-level, g1 also from a description (counted once), g4-g10 descriptions
   // (g4 through its secondary offer g4s), g11 on the Variant series, g12 engine-level only and in no make list.
   for (const key of ["g1", "g2", "g3", "g4", "g4s", "g5", "g6", "g7", "g8", "g9", "g10", "g11", "g12", "p1", "p2", "hidden"]) await item(key);
+  // Price-sorted listings (#674): a make with more products than the cached window (20 pages of 30) and varied prices.
+  await schema.pool.query("INSERT INTO vehicle_brands(id,name,display_name) VALUES(3,'DACIA','DACIA')");
+  await schema.pool.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+     product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
+    SELECT 'basbug',$1,'G','MRK','TB D'||n,jsonb_build_object('uk','TESTBRAND','ac','D'||n||' PARCA','dc','TL'),
+     jsonb_build_object('nf',10+(n*37)%500),'{"stok":1}',1,1,1,'present',now(),now(),now() FROM generate_series(1,${pricedProducts}) n`, [basbug]);
+  await schema.pool.query("INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT 3,id FROM supplier_items WHERE code LIKE 'TB D%'");
   await schema.pool.query("SELECT refresh_product_matches()");
   await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1) ON CONFLICT (item_id) DO UPDATE SET primary_id=EXCLUDED.primary_id", [ids.g4, ids.g4s]);
   for (const key of ["g1", "g2", "g3", "g12"]) await fit("storefront_model_fits", 10, key);
@@ -151,4 +160,22 @@ test("a model page unit's body types and engine codes, most common first (#674)"
   assert.deepEqual(facts.engineCodes, ["CZCA", "CLHA", "CMBA", "CRBC"]);
   assert.equal(facts.image, undefined);
   assert.deepEqual(await groups.getModelGroupFacts(["20"]), { bodies: [], engineCodes: [] });
+});
+
+test("a price-sorted make listing serves the cached order's pages like the live query; beyond the window it reads live (#674)", async () => {
+  // The live price order, as the uncached query sorts it.
+  const live = (await schema.pool.query<{ id: string }>(`SELECT id::text FROM storefront_catalog catalog
+    WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND catalog.id=ANY(ARRAY(${catalog.makeFitsSql("$2::int")})::uuid[])
+    ORDER BY unavailable,price_kurus ASC NULLS LAST,id`, [storefrontCompanies(), 3])).rows.map(row => row.id);
+  assert.equal(live.length, pricedProducts);
+  const page = async (number: number) => (await catalog.browseProducts({ make: "dacia", sort: "price-asc", page: String(number) })).items.map(row => row.id);
+  const [first, second] = [await page(1), await page(2)];
+  assert.deepEqual(first, live.slice(0, 30));
+  assert.deepEqual(second, live.slice(30, 60));
+  assert.ok(first.every(id => !second.includes(id)));
+  // Served again from the cached order.
+  assert.deepEqual(await page(1), first);
+  const last = await catalog.browseProducts({ make: "dacia", sort: "price-asc", page: "21" });
+  assert.equal(last.page, 21);
+  assert.deepEqual(last.items.map(row => row.id), live.slice(600));
 });

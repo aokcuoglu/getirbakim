@@ -192,8 +192,11 @@ const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
  * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the models read from supplier
  * descriptions (product_model_fitments) of the make's series, a secondary offer counting as the product listing it,
  * like modelFittedIds (#674). Matching a make's fitments to the payloads per read took 20-57 s on RDS for the large
- * makes; both sides are index reads (VW: ~53k ids in ~150 ms locally). Used as `id=ANY(ARRAY(...))`, an InitPlan run
- * once per query, so a make's ids never pass through Node (large id arrays fed the heap OOMs).
+ * makes. The make table is an index read; the description side is planned as a parallel sequential scan of
+ * product_model_fitments hashed against the make's series (VW: ~53k ids, ~0.1 s warm and ~0.5 s cold locally). Used as
+ * `id=ANY(ARRAY(...))`, an InitPlan run once per query, so a make's ids never pass through Node (large id arrays fed the
+ * heap OOMs). The listing's cost grows with the id count; its counts, facets and page ids (also the price orders, see
+ * browseProducts) are cached for 10 minutes.
  */
 export const makeFitsSql=(param:string)=>`SELECT supplier_item_id FROM storefront_make_fits WHERE brand_id=${param}
   UNION SELECT COALESCE(o.primary_id,f.supplier_item_id) FROM vehicle_models m JOIN product_model_fitments f ON f.model_id=m.id
@@ -574,6 +577,17 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
    `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id));
   const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
    JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
+  return {items:await withBestOffers(items),total,page,pages,pageSize};
+ }
+ // A price order prices every listed row before it sorts (VW make page: ~50k rows, ~3 s per page). Its first
+ // cachedPages pages are ordered once and kept like the page ids above; the cards are still read live, so a card shows
+ // the current price and stock, while its position follows the prices of up to 10 minutes ago (supplier syncs, and admin
+ // price edits, which do not move the listing epoch). Deeper pages keep the live query.
+ if(!search&&pricedSort&&page<=cachedPages){
+  const ordered=await cachedPageIds(`${filterKey(query,context)}|${query.sort}`,async()=>(await db.query<{id:string}>(
+   `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values)).rows.map(row=>row.id));
+  const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
+   JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ordered.slice((page-1)*pageSize,page*pageSize)])).rows;
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
  const items = (await db.query<CatalogProduct>(pricedSort
