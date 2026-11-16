@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { db } from '@/lib/db';
 import type { PoolClient } from 'pg';
 import { cartFor,lockCartOwner,type CartOwner,type CartItem } from './cart';
-import { refreshCheckoutSources,checkoutScopes } from './supplier-checkout';
+import { refreshCheckoutSources,checkoutItems } from './supplier-checkout';
 import { supplierCheckoutMode } from './supplier-checkout-policy';
 import { servicePrice } from './catalog';
 import { paymentsEnabled,PAYMENT_WINDOW_MINUTES } from '@/modules/payments/checkout';
@@ -57,6 +57,7 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
  if(completed) return {id:completed.id};
  if(!paymentsEnabled()) return {error:'payment'};
  let refreshed:Awaited<ReturnType<typeof refreshCheckoutSources>>;
+ // Supplier failures do not throw (#763); only the refresh's own database errors end up here.
  try { refreshed=await refreshCheckoutSources(owner); }
  catch { return {error:'supplier'}; }
  // Fitment levels are read before the transaction (#708): its locks are not held while the catalog is queried.
@@ -69,8 +70,8 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   const existing=(await client.query<{id:string}>('SELECT id FROM commerce_orders WHERE owner_kind=$1 AND owner_id=$2 AND request_key=$3',[owner.kind,owner.id,input.requestKey])).rows[0];
   if(existing) { await client.query('COMMIT'); return {id:existing.id}; }
   // A cart changed during the API call must be quoted and checked again.
-  const currentScopes=await checkoutScopes(owner,client);
-  if(JSON.stringify(currentScopes)!==JSON.stringify(refreshed.scopes)) { await client.query('ROLLBACK'); return {error:'stock'}; }
+  const currentItems=(await checkoutItems(owner,client)).map(item=>item.id);
+  if(JSON.stringify(currentItems)!==JSON.stringify(refreshed.items)) { await client.query('ROLLBACK'); return {error:'stock'}; }
   await client.query('SELECT id FROM commerce_settings FOR SHARE');
   if(await supplierCheckoutMode(client)!==refreshed.mode) { await client.query('ROLLBACK'); return {error:'price'}; }
   // Lock saleable sources while prices are checked and store stock is reserved.
@@ -104,8 +105,11 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
    if(reserved && !(await client.query('UPDATE store_products SET stock=stock-$2,updated_at=now() WHERE id=$1 AND stock>=$2',[p.id,reserved])).rowCount) {
     await client.query('ROLLBACK'); return {error:'stock'};
    }
+   // A line the supplier could not confirm live was sold on its saved data (#763): operations confirm it with the supplier.
+   const reason=refreshed.unverified[p.id];
+   const snapshot={...p.pricing_snapshot,discount_percent:discount,...(reason ? {checkout_mode:'snapshot',live_check:'failed',live_check_reason:reason} : {})};
    await client.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level,reserved_quantity)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,unitPrice,JSON.stringify({...p.pricing_snapshot,discount_percent:discount}),vehicle ? JSON.stringify(vehicle) : null,levels[i],reserved]);
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,unitPrice,JSON.stringify(snapshot),vehicle ? JSON.stringify(vehicle) : null,levels[i],reserved]);
   }
   const document=buildOrderAgreement({number:order.number,createdAt:order.created_at,name:input.name,email:input.email,phone:input.phone,address:input.address,note:input.note,
    discountPercent:discount,subtotalKurus:totals.subtotal,shippingKurus:totals.shipping,totalKurus:totals.total},lines);

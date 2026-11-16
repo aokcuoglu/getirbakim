@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { prepareBasbugImport } from "../src/modules/suppliers/basbug-import";
+import { BasbugImportError, prepareBasbugImport } from "../src/modules/suppliers/basbug-import";
+import { fallbackReason, prepareBasbugItemCheck } from "../src/modules/suppliers/basbug-item-refresh";
 import { basbugStockLabel, basbugWarehouseStock } from "../src/modules/suppliers/basbug-stock";
 
 const product = { no: "TEST 001", ac: "Test", ac2: "", uk: "MARKA", oe: "60 607 218", lgk: "FIAT", m: "MODEL", mo: "", y: "07-", b: "ADET", dc: "EUR", lf: 4.05, mkk: "" };
@@ -89,4 +90,29 @@ test("a repeated row that only fills an empty field merges instead of conflictin
     prices: { fiyatListesi: [price] }, stock: { stokListesi: [stock] } });
   assert.equal(clash.items[0].conflicting, true);
   assert.equal((clash.items[0].source_variants.products as unknown[]).length, 3);
+});
+
+test("a MalzemeAra answer maps to the stored price fields and the MRK stock (#763)", () => {
+  // The verified field set of one item (16 Nov 2026): numbers as JSON numbers, product fields alongside.
+  const response = { no: "FILT AP 026/5", ac: "HAVA FILTRESI", uk: "MANN", dc: "EUR", nf: 62.92, mif: 68.5, k: 0, sMrk: 1, sYol: 0 };
+  assert.deepEqual(prepareBasbugItemCheck("FILT AP 026/5", response), { price: { no: "FILT AP 026/5", nf: 62.92, mif: 68.5, k: 0 }, mrkStock: 1 });
+  // Another code in the answer, or a missing or textual stock, is a broken contract rather than a stock of zero.
+  assert.throws(() => prepareBasbugItemCheck("FILT AP 026/6", response), (error: unknown) => error instanceof BasbugImportError && error.reason === "contract");
+  const withoutStock: Record<string, unknown> = { ...response };
+  delete withoutStock.sMrk;
+  assert.throws(() => prepareBasbugItemCheck("FILT AP 026/5", withoutStock), (error: unknown) => fallbackReason(error) === "upstream" && error instanceof Error && error.name === "ZodError");
+  assert.throws(() => prepareBasbugItemCheck("FILT AP 026/5", { ...response, sMrk: "1" }));
+});
+
+test("supplier errors map to order-line fallback reasons", () => {
+  const timeout = new Error("timed out"); timeout.name = "TimeoutError";
+  assert.equal(fallbackReason(timeout), "timeout");
+  assert.equal(fallbackReason(new DOMException("timed out", "TimeoutError")), "timeout");
+  for (const reason of ["busy", "paused", "config", "contract", "upstream"] as const)
+    assert.equal(fallbackReason(new BasbugImportError(reason)), reason);
+  // SETA and Dinamik errors carry the same `reason` field.
+  assert.equal(fallbackReason({ reason: "busy" }), "busy");
+  assert.equal(fallbackReason(new BasbugImportError("rejected")), "upstream");
+  assert.equal(fallbackReason(new Error("socket hang up")), "upstream");
+  assert.equal(fallbackReason("text"), "upstream");
 });

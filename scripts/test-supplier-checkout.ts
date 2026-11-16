@@ -13,7 +13,7 @@ test("cart lines look up the catalog per line, never one catalog-wide scan per l
   assert.doesNotMatch(cartFor,/LEFT JOIN \(\$\{catalogSql\}\)/);
 });
 
-test("checkout refresh rejects supplier failure and changed prices, preserves completed orders and snapshots", async t=> {
+test("checkout checks cart codes live, falls back on supplier failure with a marker, preserves completed orders and snapshots", async t=> {
   const originalUrl=process.env.DATABASE_URL!;
   const originalCwd=process.cwd();
   const schemaSql=await readFile("db/schema.sql","utf8");
@@ -35,8 +35,11 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
   const {cartFor,cartLineQuantity,cartQuantity,setCartQuantity}=await import("../src/modules/store/cart");
   const originalFetch=globalThis.fetch;
   const keys=["TAMI_CHECKOUT_ENABLED","BASBUG_BASE_URL","BASBUG_USERNAME","BASBUG_PASSWORD","BASBUG_CLIENT_ID","BASBUG_CLIENT_SECRET","BASBUG_FIRMA_ADI"];
-  const originalEnv=keys.map(key=>process.env[key]);
-  let price=10,stock=1,fail=false,calls=0;
+  // Unset for the whole test: requests go to the mocked fetch, and Dinamik has no configuration (its fallback below).
+  const unset=["SUPPLIER_EGRESS_PROXY","SUPPLIER_EGRESS_PROXY_FOR","DINAMIK_BASE","DINAMIK_APIKEY","DINAMIK_SECRETKEY"];
+  const originalEnv=[...keys,...unset].map(key=>process.env[key]);
+  let price=10,stock=1,fail=false,gone=false,calls=0;
+  const urls:string[]=[];
   // Keep the operator's real API pause marker intact; all fetches below are mocked.
   const testCwd=await mkdtemp(join(tmpdir(),"getirbakim-checkout-"));
   process.chdir(testCwd);
@@ -51,11 +54,15 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
       await db.query(await readFile(join(originalCwd,`db/${name}.sql`),"utf8"));
     process.env.TAMI_CHECKOUT_ENABLED="true";process.env.BASBUG_BASE_URL="https://api.basbug.com.tr";
     for (const key of keys.slice(2)) process.env[key]="TEST";
+    for (const key of unset) delete process.env[key];
     globalThis.fetch=async input=> {
       calls++;
+      const url=String(input);urls.push(url);
       if(fail) throw new Error("test failure");
-      const url=String(input);
+      // MalzemeAra answers a code it no longer knows with HTTP 604 and a plain-text body (new Response rejects 604).
+      if(url.includes("/material/MalzemeAra") && gone) return {ok:false,status:604,json:async()=>{throw new Error("not JSON");},text:async()=>"Malzeme bulunamadı!"} as unknown as Response;
       const body=url.includes("/auth/Login") ? {token:"test",tokenTipi:"Bearer",tokenBitisSuresi:300}
+        :url.includes("/material/MalzemeAra") ? {no:new URL(url).searchParams.get("MalzemeNo"),ac:"Part",uk:"TEST",dc:"TL",nf:price,mif:price,k:0,sMrk:stock,sYol:0}
         :url.includes("ListeGrubuGetir") ? {malzemeGruplariListesi:[{kod:"FIAT",ad:"FIAT"}]}
         :url.includes("MalzemeleriGetir") ? {malzemeListesi:[{no:"PART",ac:"Part",ac2:"",uk:"TEST",oe:"",lgk:"FIAT",m:"",mo:"",y:"",b:"ADET",dc:"TL",lf:10,mkk:""}]}
         :url.includes("FiyatGetir") ? {fiyatListesi:[{no:"PART",nf:price,mif:price,k:0}]}
@@ -79,13 +86,28 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     assert.equal(await setCartQuantity(owner,id,1),true);
     assert.deepEqual((await cartFor(owner))[0].vehicle,vehicle);
     const input={requestKey:randomUUID(),quote:await cartQuote(await cartFor(owner),0),name:"Test",email:"test@example.invalid",phone:"5551234567",address:"Test",note:""};
-    fail=true;assert.equal((await submitOrder(owner,input)).error,"supplier");
-    assert.equal((await db.query("SELECT count(*) FROM commerce_orders")).rows[0].count,"0");
-    fail=false;price=20;assert.equal((await submitOrder(owner,input)).error,"price");
+    const itemRow=async()=>(await db.query("SELECT product_data,price_data,stock_data,last_seen_at,changed_at FROM supplier_items WHERE id=$1",[id])).rows[0];
+    // #763: the live check asks MalzemeAra for the cart's own code only, without the list endpoints or the import lock.
+    const listUrls=/FiyatGetir|StokGetir|MalzemeleriGetir|ListeGrubuGetir|DovizBilgisiGetir/;
+    urls.length=0;price=20;assert.equal((await submitOrder(owner,input)).error,"price");
+    assert.ok(urls.some(url=>url.includes("/material/MalzemeAra")));assert.doesNotMatch(urls.join(" "),listUrls);
+    assert.ok(urls.filter(url=>url.includes("/auth/Login")).length<=1);
+    assert.equal((await itemRow()).price_data.nf,20);
+    assert.ok((await db.query("SELECT 1 FROM supplier_item_changes WHERE item_id=$1 AND import_id IS NULL AND after_data->>'source'='checkout'",[id])).rowCount);
     assert.equal((await cartFor(owner)).length,1);
     stock=0;assert.equal((await submitOrder(owner,input)).error,"stock");
     stock=1;input.quote=await cartQuote(await cartFor(owner),0);
+    // Other depots, in-transit stock and product fields belong to the list imports and stay as they were.
+    await db.query(`UPDATE supplier_items SET stock_data=jsonb_set(jsonb_set(stock_data,'{depolar,IZM,stok}','7'),'{sYol}','2') WHERE id=$1`,[id]);
+    const checked=await itemRow();
+    urls.length=0;
     const order=await submitOrder(owner,input);assert.ok(order.id);
+    assert.doesNotMatch(urls.join(" "),listUrls);assert.ok(urls.filter(url=>url.includes("/auth/Login")).length<=1);
+    const after=await itemRow();
+    assert.deepEqual(after.product_data,checked.product_data);
+    assert.deepEqual([after.stock_data.depolar.IZM.stok,after.stock_data.sYol,after.stock_data.stok,after.stock_data.depolar.MRK.stok],[7,2,1,1]);
+    assert.ok(after.last_seen_at>checked.last_seen_at);
+    assert.equal((await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[order.id])).rows[0].pricing_snapshot.live_check,undefined);
     const before=calls;fail=true;
     assert.equal((await submitOrder(owner,input)).id,order.id);assert.equal(calls,before);
     fail=false;price=50;await importBasbug(db,{group:"FIAT",warehouse:"MRK",company:"TEST",mode:"commerce"});
@@ -94,6 +116,54 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
     // Without fitment data the line is unknown, never a promise; the vehicle snapshot travels with it.
     assert.deepEqual(line.vehicle,vehicle);assert.equal(line.fitment_level,"unknown");
     assert.equal((await db.query("SELECT status FROM commerce_orders")).rows[0].status,"awaiting_payment");
+
+    // #763 fallbacks, each with its own cart and request key.
+    const newCart=async()=>{
+      const cart={kind:"guest" as const,id:randomBytes(32).toString("hex")};
+      await db.query("INSERT INTO guest_carts(token_hash) VALUES($1)",[cart.id]);
+      return cart;
+    };
+    const checkoutInput=async(cart:{kind:"guest";id:string})=>({...input,requestKey:randomUUID(),quote:await cartQuote(await cartFor(cart),0)});
+    {
+      // 604: the supplier no longer knows the code, so it is out of stock until a list import decides its presence.
+      const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
+      const goneInput=await checkoutInput(cart);
+      gone=true;assert.equal((await submitOrder(cart,goneInput)).error,"stock");gone=false;
+      const row=await itemRow();
+      assert.deepEqual([row.stock_data.stok,row.stock_data.sFarkliDepo,row.stock_data.depolar.MRK.stok],[0,0,0]);
+      assert.equal((await db.query("SELECT presence FROM supplier_items WHERE id=$1",[id])).rows[0].presence,"present");
+      // The next check sees the code again and the same quote is accepted.
+      assert.ok((await submitOrder(cart,goneInput)).id);
+    }
+    {
+      // The supplier cannot be reached: the order is placed on the saved (still fresh) data and the line is marked.
+      const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
+      const fallbackInput=await checkoutInput(cart);
+      const seen=(await itemRow()).last_seen_at;
+      fail=true;const fallback=await submitOrder(cart,fallbackInput);fail=false;
+      assert.ok(fallback.id,String(fallback.error));
+      const marked=(await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[fallback.id])).rows[0].pricing_snapshot;
+      assert.deepEqual([marked.checkout_mode,marked.live_check,marked.live_check_reason],["snapshot","failed","upstream"]);
+      assert.deepEqual((await itemRow()).last_seen_at,seen);
+      // Freshness is not relaxed: a stale record is refused even when the supplier is down.
+      const staleCart=await newCart();assert.equal(await setCartQuantity(staleCart,id,1),true);
+      const staleInput=await checkoutInput(staleCart);
+      await db.query("UPDATE supplier_items SET last_seen_at=now()-interval '10 days' WHERE id=$1",[id]);
+      fail=true;assert.equal((await submitOrder(staleCart,staleInput)).error,"stock");fail=false;
+      await db.query("UPDATE supplier_items SET last_seen_at=now() WHERE id=$1",[id]);
+    }
+    {
+      // Dinamik without configuration: its line falls back marked "config", the Başbuğ line next to it is confirmed live.
+      const dinamikId=(await db.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,product_count,price_count,stock_count,first_seen_at,last_seen_at,changed_at)
+        VALUES('dinamik','DINAMIK','TEST','ALL','DIN-763','{"ac":"Dinamik test","uk":"TEST","dc":"TRY"}','{"nf":10}','{"stok":1}',1,1,1,now(),now(),now()) RETURNING id::text`)).rows[0].id;
+      const cart=await newCart();
+      assert.equal(await setCartQuantity(cart,dinamikId,1),true);assert.equal(await setCartQuantity(cart,id,1),true);
+      const mixed=await submitOrder(cart,await checkoutInput(cart));
+      assert.ok(mixed.id,String(mixed.error));
+      const lines=Object.fromEntries((await db.query("SELECT product_id::text,pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[mixed.id])).rows.map(row=>[row.product_id,row.pricing_snapshot]));
+      assert.deepEqual([lines[dinamikId].live_check,lines[dinamikId].live_check_reason],["failed","config"]);
+      assert.equal(lines[id].live_check,undefined);assert.equal(lines[id].checkout_mode,"live");
+    }
 
     // Admin prices (#580): with nf 50 the formula sells at 78.00; a fixed 90.00 and a running 80.00 campaign override it.
     const buyer={kind:"guest" as const,id:randomBytes(32).toString("hex")};
@@ -201,7 +271,7 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
         const elapsed=performance.now()-started;
         assert.ok(mixedOrder.id,String(mixedOrder.error));
         const seta=requests.filter(r=>r.supplier==="seta"),basbug=requests.filter(r=>r.supplier==="basbug");
-        assert.equal(seta.length,1);assert.ok(basbug.length>1);
+        assert.equal(seta.length,1);assert.ok(basbug.length>=1);
         assert.ok(seta.some(a=>basbug.some(b=>a.start<b.end && b.start<a.end)),"SETA and Başbuğ requests should overlap");
         const serialMs=requests.length*150;
         t.diagnostic(`mixed cart checkout: ${Math.round(elapsed)} ms for ${requests.length} supplier requests (serial at least ~${serialMs} ms)`);
@@ -214,7 +284,7 @@ test("checkout refresh rejects supplier failure and changed prices, preserves co
   } finally {
     process.chdir(originalCwd);await rm(testCwd,{recursive:true,force:true});
     globalThis.fetch=originalFetch;process.env.DATABASE_URL=originalUrl;
-    keys.forEach((key,index)=>{if(originalEnv[index]===undefined) delete process.env[key];else process.env[key]=originalEnv[index];});
+    [...keys,...unset].forEach((key,index)=>{if(originalEnv[index]===undefined) delete process.env[key];else process.env[key]=originalEnv[index];});
     await db.end();await control.query(`DROP SCHEMA ${namespace} CASCADE`);await control.query("SELECT pg_advisory_unlock(20261001,2)");control.release();await root.end();
   }
 });
