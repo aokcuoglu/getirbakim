@@ -16,5 +16,6 @@ export function fallbackReason(error: unknown): FallbackReason {
  * import is not chosen as the victim. lock_timeout applies per lock, so waits involving three or more parties can
  * still exceed 1 s in total. NOWAIT is too strict:
  * submitOrder holds the cart's rows FOR SHARE, so a concurrent order would be turned away as busy for nothing.
+ * submitOrder's own FOR SHARE uses it too (#790): past it, the order goes on with the rows as committed before the import.
  */
 export const CHECKOUT_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '500ms'";
