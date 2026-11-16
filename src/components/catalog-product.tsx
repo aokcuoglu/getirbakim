@@ -38,7 +38,7 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
    {brandClass&&<span className={cn("product-card-class",brandClass==="Premium"?"bg-[#d72b2b]":brandClass==="Budget"?"bg-[#f59e0b]":"bg-[#2e7d32]")} title={translateSpecificationValue(brandClass)} aria-label={"Marka sınıfı: "+translateSpecificationValue(brandClass)}>{brandClass==="Premium"||brandClass==="Budget"?<Image src={"/media/site/icons/"+brandClass.toLowerCase()+".svg"} width={16} height={16} alt="" unoptimized/>:<Gauge size={18}/>}</span>}
    <ManufacturerBadge brand={p.display_brand} logo={logo} className="product-card-maker"/>
   </div>
-  <Link className="product-card-picture" href={href} aria-label={title}>{image?<Image className="product-card-image" src={image.src} width={image.width} height={image.height} alt={title} loading="lazy" unoptimized/>:<PartArtImage kind={category?.art} className="product-card-art"/>}</Link>
+  <Link className="product-card-picture" href={href} aria-label={title}>{image?<Image className="product-card-image" src={image.src} width={240} height={240} alt={title} loading="lazy"/>:<PartArtImage kind={category?.art} className="product-card-art"/>}</Link>
   {p.supplier==="demo"&&<small className="block text-center text-[11px] text-muted-foreground">Örnek ürün</small>}
  </div>
  <div className="product-card-body">
