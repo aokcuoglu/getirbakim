@@ -296,7 +296,7 @@ kategori kimlikleri atlanır, ad değil `category_id` kullanılır.
 Komutlar (`npm run enrichment:categories -- <komut>`):
 
 - `learn-types` sözlüğü yeniden öğrenir (tek işlemde `source='trodo'` satırlarını siler ve yeniden yazar).
-- `backfill-types --source spareto [--dry-run] [--min-share 0.8] [--min-support 2]` mevcut spareto zenginleştirmelerine
+- `backfill-types --source spareto [--dry-run [--min-share N] [--min-support N]]` mevcut spareto zenginleştirmelerine
   URL'deki tipten kategori yazar; sayıları ve en sık 50 eşleşmeyen tipi basar. `--dry-run` yalnız okur. Kategorisi
   değişmeyen satıra dokunulmaz; `imported_at` yalnız değişenlerde ilerler, kaynak URL'si değişmiş satır atlanır. URL'sinden
   tip çıkarılamayan satır (`noType`) yalnız sayılır, işçinin sayfa adından yazdığı kategoriler korunur.
