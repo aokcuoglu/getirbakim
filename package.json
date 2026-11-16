@@ -163,7 +163,7 @@
     "test:cache-handler": "node --import tsx --test --test-force-exit scripts/test-cache-handler.ts",
     "test:return-to": "node --import tsx --test scripts/test-return-to.ts",
     "test:enrichment-worker": "node --env-file=.env.local --import tsx --test scripts/test-enrichment-worker.ts",
-    "test:manual": "node --conditions=react-server --import tsx --test scripts/test-manual-template.ts scripts/test-manual-import.ts",
+    "test:manual": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-manual-template.ts scripts/test-manual-import.ts scripts/test-manual-bulk-csv.ts scripts/test-manual-bulk-db.ts",
     "test:storefront-split": "node --import tsx --test scripts/test-storefront-split.ts",
     "test:storefront-sync": "node --import tsx --test scripts/test-storefront-sync.ts"
   },

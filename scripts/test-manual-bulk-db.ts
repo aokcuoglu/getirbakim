@@ -1,0 +1,94 @@
+import assert from "node:assert/strict";
+import { after, before, test } from "node:test";
+import { isolatedSchema } from "./isolated-schema";
+import type { ManualRow } from "../src/modules/suppliers/manual-template";
+
+// Bulk price/stock CSV (#832) end to end in an isolated copy of the schema: an xlsx import, a CSV applied on top of it,
+// and later uploads with the same and with a changed price cell. Nothing touches the shared database's tables.
+const skip = !process.env.DATABASE_URL && "DATABASE_URL not set";
+let schema: Awaited<ReturnType<typeof isolatedSchema>>;
+let adminId = "";
+const list = "test-yaglar";
+const row = (code: string, price: number | null, stock: number | null): ManualRow => ({ sheet: "Ürünler", row: 2, code, name: `Yağ ${code}`, brand: "MOTUL",
+  categoryId: 957, price, stock, barcode: null, description: null, viscosity: null, package: "1 L", approvals: null, imageUrl: null });
+
+before(async () => {
+  if (skip) return;
+  schema = await isolatedSchema("manual_bulk_test");
+  adminId = (await schema.pool.query<{ id: string }>("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Test','admin@example.invalid','x','admin',true) RETURNING id::text")).rows[0].id;
+  await schema.pool.query(`INSERT INTO source_categories(source,category_id,name,slug,path_ids,source_url,raw) VALUES('trodo',957,'Motor oils','motor-oils','{957}','https://example.invalid','{}')`);
+  await schema.pool.query(`INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES('trodo',957,'tr','Motor yağları','motor-yaglari')`);
+});
+after(async () => { await schema?.drop(); });
+
+async function importList(rows: ManualRow[]) {
+  const { saveManualDraft, importManualDraft } = await import("../src/modules/suppliers/manual-import");
+  const id = await saveManualDraft(schema.pool, { listGroup: list, listName: "Test yağlar", fileName: "liste.xlsx", parsed: { rows, issues: [], sheets: [{ name: "Ürünler", rows: rows.length }] }, by: adminId });
+  await importManualDraft(schema.pool, id, async () => assert.fail("no downloads"));
+}
+
+async function applyCsv(lines: string[]) {
+  const { parseManualBulkCsv } = await import("../src/modules/suppliers/manual-bulk-csv");
+  const { saveManualBulkDraft, applyManualBulkDraft } = await import("../src/modules/suppliers/manual-bulk");
+  const parsed = parseManualBulkCsv(new TextEncoder().encode(["Marka;Stok Kodu;Liste Fiyatı;İskonto Oranı;Kârlılık Oranı;Stok Adedi", ...lines].join("\r\n")));
+  const id = await saveManualBulkDraft(schema.pool, { listGroup: list, listName: "Test yağlar", fileName: "fiyat.csv", parsed, by: adminId });
+  return { id, apply: () => applyManualBulkDraft(schema.pool, id, adminId) };
+}
+
+const item = async (code: string) => (await schema.pool.query<{ id: string; price_data: Record<string, number> | null; stock_data: { stok: number } | null; price: number | null; markup: string | null; vat: string | null; changes: number }>(
+  `SELECT i.id,i.price_data,i.stock_data,c.price_kurus AS price,p.markup_percent AS markup,p.vat_percent AS vat,
+    (SELECT count(*)::int FROM supplier_item_changes h WHERE h.item_id=i.id AND h.import_id IS NULL) AS changes
+  FROM supplier_items i LEFT JOIN commerce_catalog c ON c.id=i.id LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
+  WHERE i.supplier='manual' AND i.list_group=$1 AND i.code=$2`, [list, code])).rows[0];
+
+test("PostgreSQL: a confirmed CSV writes cost, list price, discount, markup and stock; later uploads follow the last edit", { skip }, async () => {
+  const { ManualImportError } = await import("../src/modules/suppliers/manual-import");
+  await schema.pool.query("UPDATE commerce_settings SET markup_percent=30,vat_percent=20");
+  await importList([row("A1", 100, 5), row("B2", 200, 1)]);
+  assert.deepEqual((await item("A1")).price_data, { nf: 100 });
+  assert.equal((await item("A1")).price, 15600);
+  // B2 has its own VAT rate: resetting the markup keeps it.
+  const b2 = (await item("B2")).id;
+  await schema.pool.query("INSERT INTO commerce_product_pricing(supplier_item_id,markup_percent,vat_percent,updated_by) VALUES($1,50,10,$2)", [b2, adminId]);
+
+  const draft = await applyCsv(["MOTUL;A1;1.000;12,5;40;9", "MOTUL;B2;;;-;"]);
+  const report = (await schema.pool.query("SELECT kind,status,report FROM manual_uploads WHERE id=$1", [draft.id])).rows[0];
+  assert.equal(report.kind, "bulk"); assert.equal(report.status, "draft"); assert.equal(report.report.updated, 2); assert.equal(report.report.errors, 0);
+  assert.equal((await item("A1")).price, 15600); // Nothing changes before the confirmation.
+  assert.deepEqual(await draft.apply(), { listGroup: list, changed: 2 });
+
+  let a1 = await item("A1");
+  assert.deepEqual(a1.price_data, { nf: 875, list: 1000, discount: 12.5 });
+  assert.deepEqual(a1.stock_data, { stok: 9 });
+  assert.equal(Number(a1.markup), 40); assert.equal(a1.vat, null);
+  assert.equal(a1.price, 147000); // 875 × 1,40 × 1,20
+  assert.equal(a1.changes, 1);
+  const b = await item("B2");
+  assert.equal(b.markup, null); assert.equal(Number(b.vat), 10);
+  assert.equal(b.price, 28600); // 200 × 1,30 × 1,10
+  assert.equal(b.changes, 0);
+  await assert.rejects(draft.apply(), (error: unknown) => error instanceof ManualImportError && error.reason === "decided");
+
+  // Resetting a markup without a VAT rate removes the product's own record.
+  await (await applyCsv(["MOTUL;A1;;;-;"])).apply();
+  assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM commerce_product_pricing WHERE supplier_item_id=$1", [a1.id])).rows[0].n, 0);
+
+  // The same file again: the CSV values still apply.
+  await importList([row("A1", 100, 5), row("B2", 200, 1)]);
+  a1 = await item("A1");
+  assert.deepEqual(a1.price_data, { nf: 875, list: 1000, discount: 12.5 });
+  assert.deepEqual(a1.stock_data, { stok: 9 });
+  // A changed price cell wins; the unchanged stock cell keeps the CSV stock.
+  await importList([row("A1", 120, 5), row("B2", 200, 1)]);
+  a1 = await item("A1");
+  assert.deepEqual(a1.price_data, { nf: 120 });
+  assert.deepEqual(a1.stock_data, { stok: 9 });
+  const fields = (await schema.pool.query("SELECT fields FROM manual_item_overrides WHERE list_group=$1 AND code='A1'", [list])).rows[0].fields;
+  assert.deepEqual(fields, { bulk: { stock: { value: 9, file: 5 } } });
+
+  // An xlsx confirmation cannot apply a CSV draft, and a CSV with errors is refused.
+  const { importManualDraft } = await import("../src/modules/suppliers/manual-import");
+  const invalid = await applyCsv(["MOTUL;ZZ;;;;1"]);
+  await assert.rejects(importManualDraft(schema.pool, invalid.id), (error: unknown) => error instanceof ManualImportError && error.reason === "not-found");
+  await assert.rejects(invalid.apply(), (error: unknown) => error instanceof ManualImportError && error.reason === "invalid");
+});

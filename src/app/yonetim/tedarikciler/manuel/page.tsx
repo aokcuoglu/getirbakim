@@ -22,7 +22,8 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { adminManualData, type ManualUpload } from "@/modules/admin/manual";
 import { manualColumns, type ManualIssue } from "@/modules/suppliers/manual-template";
-import { confirmManualDraft, discardManualDraft, uploadManualList } from "./actions";
+import { ManualBulkPreview } from "@/components/admin/manual-bulk-preview";
+import { confirmManualDraft, discardManualDraft, uploadManualBulk, uploadManualList } from "./actions";
 
 const base = "/yonetim/tedarikciler/manuel";
 const number = formatNumber;
@@ -32,6 +33,8 @@ const issueRowLimit = 500;
 const filterKeys = ["liste", "q", "category", "stock", "quality", "presence"] as const;
 const errors: Record<string, string> = {
   file: "Bir .xlsx dosyası seçin (en fazla 8 MB).",
+  "csv-file": "Bir .csv dosyası seçin (en fazla 2 MB).",
+  locked: "Ürünler şu anda başka bir işlemde (ör. ürün eşleştirme) güncelleniyor; hiçbir şey değişmedi. Bir iki dakika sonra yeniden deneyin.",
   unreadable: "Dosya okunamadı. Numbers veya Excel'den .xlsx olarak dışa aktarıp yeniden deneyin.",
   list: "Mevcut bir liste seçin ya da yeni liste için bir ad yazın.",
   invalid: "Taslakta hata var; dosyayı düzeltip yeniden yükleyin.",
@@ -50,6 +53,10 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
   const params = normalizeSearchParams(await searchParams);
   const { lists, list, uploads, draft, listCategories, products, categoryNames } = await adminManualData(params);
   const pages = products?.pages ?? 1, page = products?.page ?? 1;
+  // The CSV download follows the product tab's filters.
+  const csvQuery = new URLSearchParams(filterKeys.flatMap(key => params[key] ? [[key, params[key]!]] : []));
+  if (list) csvQuery.set("liste", list.list_group);
+  const csvHref = `${base}/csv?${csvQuery}`;
   const facts: [string, string, string][] = list ? [
     ["Listedeki ürün", number(list.present), list.list_name],
     ["Fiyatı eksik", number(list.missing_prices), "Satışa kapalı listelenir"],
@@ -71,6 +78,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
     alerts={<>
     {params.uploaded === "1" && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Dosya okundu. Önizlemeyi kontrol edip içe aktarın; onaylanana kadar hiçbir ürün değişmez.</AlertDescription></Alert>}
     {params.imported === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertTitle>Liste içe aktarıldı</AlertTitle><AlertDescription>Ürünler mağazada listelenir; kategori sayfaları 10 dakika içinde güncellenir. Mevcut ürünlerle eşleşmeleri için <Link className="underline" href="/yonetim/urun-eslestirme">Ürün eşleştirme</Link> sayfasında eşleştirmeyi yenileyin.</AlertDescription></Alert>}
+    {params.bulk === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertTitle>Fiyat ve stoklar güncellendi</AlertTitle><AlertDescription>Değişen ürünlerin maliyeti, kârlılığı ve stoğu mağazaya yansıdı. Değişiklikler ürün sayfalarının geçmişinde görünür.</AlertDescription></Alert>}
     {params.discarded === "1" && <Alert role="status"><Info aria-hidden="true"/><AlertDescription>Taslaktan vazgeçildi; hiçbir ürün değişmedi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors[params.error] || "İşlem tamamlanamadı."}{params.detail && ` (${params.detail})`}</AlertDescription></Alert>}
     </>}
@@ -81,7 +89,8 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
       </Card>)}
     </div>}
     sync={<div className="flex flex-col gap-4">
-      {draft && <Card>
+      {draft?.kind === "bulk" && <ManualBulkPreview draft={draft} status={uploadStatus(draft.status)}/>}
+      {draft && draft.kind !== "bulk" && <Card>
         <CardHeader>
           <CardTitle><h2>Önizleme · {draft.file_name}</h2></CardTitle>
           <CardDescription>{draft.list_name} listesi · {date(draft.created_at)}{draft.uploader && ` · ${draft.uploader}`}</CardDescription>
@@ -154,6 +163,22 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
           </form>
         </CardContent>
       </Card>
+      {list && <Card>
+        <CardHeader><CardTitle><h2>Toplu fiyat ve stok güncelleme (CSV)</h2></CardTitle>
+          <CardDescription>{list.list_name} listesini CSV olarak indirin, Excel&apos;de düzenleyip yükleyin; önce kontrol edilir, onayınızdan sonra uygulanır. Boş hücre değişiklik yapmaz. Kârlılık Oranı&apos;na “-” yazmak ürünü genel orana döndürür. Maliyet = Liste Fiyatı × (1 − İskonto Oranı / 100). Marka ve Stok Kodu ürünü bulmak içindir; değiştirmeyin.</CardDescription>
+          <CardAction><Badge variant="outline"><FileSpreadsheet data-icon="inline-start" aria-hidden="true"/>.csv</Badge></CardAction></CardHeader>
+        <CardContent>
+          <form action={uploadManualBulk} className="flex flex-col gap-4">
+            <input type="hidden" name="liste" value={list.list_group}/>
+            <Field><FieldLabel htmlFor="manual-bulk-file">CSV dosyası</FieldLabel><Input id="manual-bulk-file" name="file" type="file" required accept=".csv,text/csv"/>
+              <FieldDescription>Sütunlar: Marka, Stok Kodu, Liste Fiyatı, İskonto Oranı, Kârlılık Oranı, Stok Adedi. En fazla 2 MB.</FieldDescription></Field>
+            <div className="flex flex-wrap gap-2">
+              <SubmitButton icon={<Upload data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Dosya kontrol ediliyor…">CSV yükle ve kontrol et</SubmitButton>
+              <Button variant="outline" nativeButton={false} render={<a href={csvHref} download/>}><Download data-icon="inline-start" aria-hidden="true"/>CSV indir</Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>}
       <Card>
         <CardHeader><CardTitle><h2>Şablon</h2></CardTitle><CardDescription>Sütunlar başlık adıyla bulunur; sıraları ve sayfa adları serbesttir. Kategori, şablondaki Kategoriler sayfasından seçilir.</CardDescription></CardHeader>
         <CardContent><Table controls={false}><caption className="sr-only">Şablon sütunları</caption>
@@ -173,11 +198,11 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
             <TableBody>{uploads.map(upload => <TableRow key={upload.id} className="align-top">
               <TableCell className="tabular-nums"><Link className="underline-offset-4 hover:underline" href={`${base}?${new URLSearchParams({ liste: upload.list_group, taslak: upload.id })}`}>{date(upload.created_at)}</Link>{upload.uploader && <span className="block text-muted-foreground">{upload.uploader}</span>}</TableCell>
               <TableCell>{upload.list_name}</TableCell>
-              <TableCell className="max-w-56 truncate" title={upload.file_name}>{upload.file_name}</TableCell>
+              <TableCell className="max-w-56 truncate" title={upload.file_name}>{upload.kind === "bulk" && <Badge variant="outline">CSV</Badge>} {upload.file_name}</TableCell>
               <TableCell className="text-right tabular-nums">{number(upload.report.products)}</TableCell>
               <TableCell className="tabular-nums">{upload.report.errors ? <span className="text-destructive">{number(upload.report.errors)} hata</span> : "Hata yok"} · {number(upload.report.warnings)} uyarı</TableCell>
               <TableCell>{uploadStatus(upload.status)}</TableCell>
-              <TableCell className="whitespace-normal">{upload.stats ? <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-muted-foreground tabular-nums">{([["added", "yeni"], ["changed", "değişen"], ["unchanged", "aynı"], ["missing", "listede yok"], ["inactive", "pasif"], ["restored", "geri gelen"]] as const).map(([key, label]) => <span key={key}><b className="font-medium text-foreground">{number(upload.stats![key] ?? 0)}</b> {label}</span>)}</div> : "—"}
+              <TableCell className="whitespace-normal">{upload.kind === "bulk" ? <span className="text-muted-foreground tabular-nums"><b className="font-medium text-foreground">{number(upload.report.updated)}</b> {upload.status === "imported" ? "ürün değişti" : "ürün değişecek"}</span> : upload.stats ? <div className="grid grid-cols-3 gap-x-4 gap-y-1 text-muted-foreground tabular-nums">{([["added", "yeni"], ["changed", "değişen"], ["unchanged", "aynı"], ["missing", "listede yok"], ["inactive", "pasif"], ["restored", "geri gelen"]] as const).map(([key, label]) => <span key={key}><b className="font-medium text-foreground">{number(upload.stats![key] ?? 0)}</b> {label}</span>)}</div> : "—"}
                 {upload.quality?.imagesStored !== undefined && <span className="block text-muted-foreground tabular-nums">{number(upload.quality.imagesStored)} resim kaydedildi{upload.quality.imagesFailed ? ` · ${number(upload.quality.imagesFailed)} indirilemedi` : ""}</span>}</TableCell>
             </TableRow>)}</TableBody>
           </Table> : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Henüz yükleme yok</EmptyTitle></EmptyHeader></Empty>}
@@ -191,7 +216,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
       </CardHeader>}
       {!list || !products ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>Henüz manuel liste yok.</EmptyTitle><EmptyDescription>Yükleme sekmesinden şablondaki bir dosyayı yükleyin.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
-        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(products.total)}</strong> ürün · {params.category || "Tüm kategoriler"}</span><span>{costNotes.manual}</span></div>
+        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(products.total)}</strong> ürün · {params.category || "Tüm kategoriler"}</span><span className="flex flex-wrap items-center gap-2">{costNotes.manual}<Button variant="outline" size="sm" nativeButton={false} render={<a href={csvHref} download/>}><Download data-icon="inline-start" aria-hidden="true"/>CSV indir</Button></span></div>
         <SupplierPartTable {...manualPartTableProps(products.items, { categories: listCategories })} empty={supplierPartEmpty(base, params, filterKeys, ["liste"])}/>
       </CardContent>
       <CardFooter><SupplierPagination base={base} params={params} keys={filterKeys} page={page} pages={pages} capped={products?.capped}/></CardFooter>

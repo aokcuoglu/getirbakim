@@ -7,6 +7,8 @@ import { sortOrder } from "@/lib/table-sort";
 import { manualCompany } from "@/modules/suppliers/storefront-sources";
 import { manualCategories, type ManualDraftReport, type ManualOverrides } from "@/modules/suppliers/manual-import";
 import type { ManualRow } from "@/modules/suppliers/manual-template";
+import type { ManualBulkReport } from "@/modules/suppliers/manual-bulk";
+import type { ManualBulkExportRow } from "@/modules/suppliers/manual-bulk-csv";
 import { z } from "zod";
 import type { SupplierChange } from "./supplier-changes";
 import { supplierItemPage, type SaleFields } from "./supplier-items";
@@ -15,17 +17,18 @@ import { itemProductSql, shownImageSql } from "@/modules/store/product-image-sql
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 
 export type ManualParams = { liste?: string; taslak?: string; q?: string; category?: string; stock?: string; quality?: string; presence?: string;
-  page?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; error?: string; detail?: string };
+  page?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; bulk?: string; error?: string; detail?: string };
 type ManualList = { list_group: string; list_name: string; present: number; missing_prices: number; missing_packages: number; last_import: Date | null };
+/** kind "list": an xlsx list upload; "bulk": a price/stock CSV, whose report also carries the diff (report.bulk). */
 export type ManualUpload = { id: string; list_group: string; list_name: string; file_name: string; status: "draft" | "imported" | "discarded";
-  report: ManualDraftReport; created_at: Date; decided_at: Date | null; import_id: string | null; uploader: string | null;
+  kind: "list" | "bulk"; report: ManualDraftReport & Partial<Pick<ManualBulkReport, "bulk">>; created_at: Date; decided_at: Date | null; import_id: string | null; uploader: string | null;
   stats: Record<string, number> | null; quality: Record<string, number> | null };
-/** A draft upload with its first ten file rows (`preview`) and the file's row count. */
+/** A draft upload with its first ten file rows (`preview`) and the file's row count (xlsx drafts; a CSV draft reads report.bulk). */
 type ManualDraft = Omit<ManualUpload, "stats" | "quality"> & { preview: ManualRow[]; row_count: number };
 type ManualItemData = { no: string; ac: string; uk: string; category_id: number; category_name: string; barcode: string | null; description: string | null;
   viscosity: string | null; package: string | null; approvals: string | null; image_url: string | null; list_name: string; file: Omit<ManualRow, "sheet" | "row"> };
 export type ManualItem = {
-  id: string; code: string; list_group: string; product_data: ManualItemData; price_data: { nf: number } | null; stock_data: { stok: number } | null;
+  id: string; code: string; list_group: string; product_data: ManualItemData; price_data: { nf: number; list?: number; discount?: number } | null; stock_data: { stok: number } | null;
   presence: "present" | "pending_missing" | "inactive"; conflicting: boolean; product_count: number;
   sale_price_kurus: number | null; sale_available: boolean | null; sale_stock_label: string | null; has_image: boolean; overridden: boolean;
 };
@@ -49,10 +52,10 @@ export async function adminManualData(params: ManualParams) {
   // A draft keeps every file row (~100 KB); the preview shows the first ten and the row count.
   const [lists, uploads, draft, categories] = await Promise.all([
     adminManualLists(),
-    db.query<ManualUpload>(`SELECT u.id,u.list_group,u.list_name,u.file_name,u.status,u.report - 'issues' || jsonb_build_object('issues','[]'::jsonb) AS report,
+    db.query<ManualUpload>(`SELECT u.id,u.list_group,u.list_name,u.file_name,u.status,u.kind,u.report - 'issues' - 'bulk' || jsonb_build_object('issues','[]'::jsonb) AS report,
       u.created_at,u.decided_at,u.import_id,a.name AS uploader,r.stats,r.quality FROM manual_uploads u LEFT JOIN accounts a ON a.id=u.uploaded_by
       LEFT JOIN supplier_imports r ON r.id=u.import_id ORDER BY u.created_at DESC LIMIT 15`),
-    draftId ? db.query<ManualDraft>(`SELECT u.id,u.list_group,u.list_name,u.file_name,u.status,u.report,u.created_at,u.decided_at,u.import_id,a.name AS uploader,
+    draftId ? db.query<ManualDraft>(`SELECT u.id,u.list_group,u.list_name,u.file_name,u.status,u.kind,u.report,u.created_at,u.decided_at,u.import_id,a.name AS uploader,
       jsonb_path_query_array(u.rows,'$[0 to 9]') AS preview,jsonb_array_length(u.rows) AS row_count
       FROM manual_uploads u LEFT JOIN accounts a ON a.id=u.uploaded_by WHERE u.id=$1`, [draftId]) : null,
     manualCategories(db),
@@ -71,7 +74,8 @@ export async function adminManualData(params: ManualParams) {
 const shownImage = (item: string) => shownImageSql(itemProductSql(`${item}.id`),
   `EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=${item}.id AND e.image_id IS NOT NULL)`);
 
-async function manualItems(listGroup: string, params: ManualParams) {
+/** The product tab's filters (list, presence, search, category, stock, quality) as a WHERE clause on supplier_items. */
+function manualItemFilter(listGroup: string, params: ManualParams) {
   const values: unknown[] = [manualCompany, listGroup];
   const conditions = [scope, "list_group=$2"];
   const presence = ["pending_missing", "inactive", "all"].includes(params.presence ?? "") ? params.presence : "present";
@@ -85,12 +89,32 @@ async function manualItems(listGroup: string, params: ManualParams) {
   if (params.quality === "missing-price") conditions.push("price_data IS NULL");
   if (params.quality === "missing-package") conditions.push("COALESCE(product_data->>'package','')=''");
   if (params.quality === "missing-image") conditions.push(`NOT ${shownImage("supplier_items")}`);
+  return { where: conditions.join(" AND "), values };
+}
+
+async function manualItems(listGroup: string, params: ManualParams) {
+  const { where, values } = manualItemFilter(listGroup, params);
   return supplierItemPage<Omit<ManualItem, keyof SaleFields>>({
-    where: conditions.join(" AND "), values, order: sortOrder(params, itemSorts, "code,id"), page: params.page,
+    where, values, order: sortOrder(params, itemSorts, "code,id"), page: params.page,
     select: `supplier_items.*,
       ${shownImage("supplier_items")} AS has_image,
       EXISTS (SELECT 1 FROM manual_item_overrides o WHERE o.list_group=supplier_items.list_group AND o.code=supplier_items.code AND o.fields<>'{}') AS overridden`,
   });
+}
+
+/** The bulk price/stock CSV of the selected list, filtered like the product tab, without paging (#832). */
+export async function adminManualBulkExport(params: ManualParams) {
+  await requireAdmin();
+  const lists = await adminManualLists();
+  const list = lists.find(entry => entry.list_group === params.liste) ?? lists[0];
+  if (!list) return null;
+  const { where, values } = manualItemFilter(list.list_group, params);
+  const rows = (await db.query<ManualBulkExportRow>(`SELECT COALESCE(product_data->>'uk','') AS brand,code,
+      COALESCE((price_data->>'list')::float8,(price_data->>'nf')::float8) AS list,COALESCE((price_data->>'discount')::float8,0) AS discount,
+      p.markup_percent::float8 AS markup,(stock_data->>'stok')::float8 AS stock
+    FROM supplier_items LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=supplier_items.id
+    WHERE ${where} ORDER BY code`, values)).rows;
+  return { list, rows };
 }
 
 export async function adminManualItem(id: string) {

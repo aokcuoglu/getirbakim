@@ -6,9 +6,12 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { imageLink, normalizePackage, normalizeViscosity, parseDecimal, parseManualWorkbook } from "@/modules/suppliers/manual-template";
 import { importManualDraft, listSlug, ManualImportError, manualCategories, saveManualDraft, updateManualItem } from "@/modules/suppliers/manual-import";
+import { parseManualBulkCsv } from "@/modules/suppliers/manual-bulk-csv";
+import { applyManualBulkDraft, saveManualBulkDraft } from "@/modules/suppliers/manual-bulk";
 
 const base = "/yonetim/tedarikciler/manuel";
 const maxFileBytes = 8 * 1024 * 1024;
+const maxCsvBytes = 2 * 1024 * 1024;
 
 export async function uploadManualList(form: FormData) {
   const admin = await requireAdmin();
@@ -60,6 +63,46 @@ export async function confirmManualDraft(form: FormData) {
   // Every storefront listing (/katalog, /kategori, /yedek-parca) can show the imported products.
   revalidatePath("/", "layout");
   redirect(`${base}?${new URLSearchParams(error ? { liste: list, taslak: id, error, ...(detail ? { detail } : {}) } : { liste: list, imported: "1" })}`);
+}
+
+const bulkList = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).max(60);
+
+/** Reads a price/stock CSV of an existing list (#832) and stores it as a draft with its diff; nothing changes yet. */
+export async function uploadManualBulk(form: FormData) {
+  const admin = await requireAdmin();
+  const list = bulkList.safeParse(form.get("liste"));
+  if (!list.success) redirect(`${base}?error=list`);
+  const listGroup = list.data;
+  const fail = (error: string) => redirect(`${base}?${new URLSearchParams({ liste: listGroup, error })}`);
+  const file = form.get("file");
+  if (!(file instanceof File) || !file.size || !/\.csv$/i.test(file.name) || file.size > maxCsvBytes) fail("csv-file");
+  const upload = file as File;
+  const row = (await db.query<{ list_name: string }>(`SELECT product_data->>'list_name' AS list_name FROM supplier_items
+    WHERE supplier='manual' AND list_group=$1 ORDER BY changed_at DESC LIMIT 1`, [listGroup])).rows[0];
+  if (!row) fail("list");
+  const parsed = parseManualBulkCsv(new Uint8Array(await upload.arrayBuffer()));
+  const id = await saveManualBulkDraft(db, { listGroup, listName: row.list_name, fileName: upload.name, parsed, by: admin.id });
+  revalidatePath(base);
+  redirect(`${base}?${new URLSearchParams({ liste: listGroup, taslak: id, uploaded: "1" })}`);
+}
+
+/** Applies a reviewed CSV draft: list price, discount, cost, markup and stock of the changed products. */
+export async function confirmManualBulk(form: FormData) {
+  const admin = await requireAdmin();
+  const input = draftInput.safeParse(Object.fromEntries(form));
+  if (!input.success) redirect(`${base}?error=input`);
+  const { id, list } = input.data;
+  let error = "", detail = "";
+  try {
+    await applyManualBulkDraft(db, id, admin.id);
+  } catch (cause) {
+    if (!(cause instanceof ManualImportError)) throw cause;
+    error = cause.reason; detail = cause.detail ?? "";
+  }
+  revalidatePath(base);
+  // Prices and stock show on every storefront listing.
+  revalidatePath("/", "layout");
+  redirect(`${base}?${new URLSearchParams(error ? { liste: list, taslak: id, error, ...(detail ? { detail } : {}) } : { liste: list, bulk: "1" })}`);
 }
 
 export async function discardManualDraft(form: FormData) {
