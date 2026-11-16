@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Pool, PoolClient } from "pg";
 import { BasbugImportError, basbugBase, basbugLogin, basbugPaused } from "./basbug-import";
 import { supplierFetch } from "./egress-proxy";
+import { CHECKOUT_LOCK_TIMEOUT, fallbackReason, type FallbackReason } from "./checkout-fallback";
 
 /**
  * Checkout-time check of just the cart's Başbuğ rows through the per-code MalzemeAra endpoint (verified 16 Nov 2026:
@@ -19,18 +20,6 @@ const basbugItemSchema = z.object({
   no: z.string().min(1), nf: z.number().finite(), mif: z.number().finite(), k: z.number().finite(),
   sMrk: z.number().finite(), sIzm: z.number().finite(), sAnk: z.number().finite(), sAdn: z.number().finite(), sErz: z.number().finite(),
 }).passthrough();
-
-/** Why a cart line could not be confirmed live; the order then sells it on its saved data and marks the line. */
-export type FallbackReason = "timeout" | "upstream" | "busy" | "paused" | "config" | "contract";
-const fallbackReasons: readonly string[] = ["timeout", "upstream", "busy", "paused", "config", "contract"] satisfies FallbackReason[];
-const isFallbackReason = (value: unknown): value is FallbackReason => typeof value === "string" && fallbackReasons.includes(value);
-
-/** Maps a supplier error (Başbuğ, SETA and Dinamik errors all carry `reason`) to a line marker; "rejected" and unknown errors are upstream. */
-export function fallbackReason(error: unknown): FallbackReason {
-  if (typeof error !== "object" || error === null) return "upstream";
-  if ("name" in error && error.name === "TimeoutError") return "timeout";
-  return "reason" in error && isFallbackReason(error.reason) ? error.reason : "upstream";
-}
 
 /** The MalzemeAra answer for `code`: price_data fields as the list imports store them and the stock per depot (depolar keys). */
 export function prepareBasbugItemCheck(code: string, response: unknown) {
@@ -130,9 +119,9 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
   try {
     client = await pool.connect();
     await client.query("BEGIN");
-    // A running list import may hold these rows: wait briefly, in id order (no deadlock with another checkout), then
-    // merge onto what it committed. Rows locked longer are sold on their saved data, marked "busy".
-    await client.query("SET LOCAL lock_timeout = '2s'");
+    // A running list import may hold these rows: wait briefly (CHECKOUT_LOCK_TIMEOUT), in id order (no deadlock with
+    // another checkout), then merge onto what it committed. Rows locked longer are sold on their saved data, marked "busy".
+    await client.query(CHECKOUT_LOCK_TIMEOUT);
     await client.query("SELECT id FROM supplier_items WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE", [observedIds]);
     // Merged onto the current row: sYol and the depots MalzemeAra does not return keep their list values; stok is MRK
     // and sFarkliDepo the sum over every other depot after the merge. A code the supplier no longer knows is out of
@@ -180,10 +169,12 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
     result.gone = observed.filter(item => item.gone).map(item => item.id);
     return result;
   } catch (error) {
-    // Nothing was written: the checkout continues on the saved data and marks these lines.
+    // Nothing was written: lines the supplier answered are sold on saved data and marked; codes it no longer knows (604)
+    // are still reported gone so the order refuses them.
     await client?.query("ROLLBACK").catch(() => undefined);
     console.error("Başbuğ checkout check could not be saved", { reason: error instanceof Error ? error.message : error });
-    for (const id of observedIds) failed[id] = "busy";
+    result.gone = observed.filter(item => item.gone).map(item => item.id);
+    for (const item of observed) if (!item.gone) failed[item.id] = "busy";
     return result;
   } finally { client?.release(); }
 }
