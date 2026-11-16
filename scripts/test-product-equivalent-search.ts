@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
+import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 
 // The equivalent search of the admin product page (#584) in an isolated copy of the schema.
@@ -99,8 +100,7 @@ async function enrich(payload: unknown) {
   await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,'SKF 40040','SKF','complete')`, [ids.skf]);
   await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
     VALUES($1,'SKF 40040','SKF','https://www.trodo.com/skf','test','SKF','40040',$2)`, [ids.skf, JSON.stringify(payload)]);
-  await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
-  await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
+  await syncSharedLinks(schema.pool);
 }
 // Back to the plain enriched state, so one failing assertion cannot cascade into the next test.
 async function reset() {
@@ -155,13 +155,11 @@ test("an enrichment that does not describe the row, or only loosely matches it, 
   await reset();
   assert.equal((await find("febi", "7H0407621A")).length, 1);
   await schema.pool.query(`UPDATE product_enrichments SET match_basis='{"type":"oem_reference","supplierOem":"X1"}' WHERE supplier_item_id=$1`, [ids.skf]);
-  await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
-  await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
+  await syncSharedLinks(schema.pool);
   assert.equal((await find("febi", "7H0407621A")).length, 0, "a reference match to another OEM number is not the product's own enrichment");
   await reset();
   await schema.pool.query(`UPDATE product_enrichments SET match_basis='{"type":"cross_reference"}' WHERE supplier_item_id=$1`, [ids.skf]);
-  await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
-  await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
+  await syncSharedLinks(schema.pool);
   assert.equal((await find("febi", "7H0407621A")).length, 0, "a cross-reference enrichment is valid for the view but not exact: the arm excludes it");
   await reset();
   await schema.pool.query("UPDATE supplier_items SET code='SKF 99999' WHERE id=$1", [ids.skf]);

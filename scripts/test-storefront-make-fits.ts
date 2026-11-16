@@ -1,9 +1,9 @@
 import test from 'node:test';
-import { syncSharedLinks } from "./test-helpers/shared-links";
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {Pool} from 'pg';
+import {syncSharedLinks} from './test-helpers/shared-links';
 
 // The make and model lists the storefront reads (#455, #639) must equal the live computation after every write path,
 // with the admin's added and removed types (#583) applied per offer and type.

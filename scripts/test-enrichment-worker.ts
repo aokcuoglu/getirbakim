@@ -1,5 +1,4 @@
 import test from 'node:test';
-import { syncSharedLinks } from "./test-helpers/shared-links";
 import assert from 'node:assert/strict';
 import {readFile,mkdtemp,symlink,rm} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
@@ -7,6 +6,7 @@ import {spawn} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {Pool} from 'pg';
+import {syncSharedLinks} from './test-helpers/shared-links';
 import {sourceDecision,retryAfterMs,validSourcePath,quietWaitMs,pacingDelayMs} from '../src/modules/enrichment/policy';
 import {parseProduct,parseSearch,parseView,parseEngine,chooseExact,sourcePartQuery,sourcePartQueries,supplierOemQueries,verifiedOemReference,collectVehicles,imagePath,oemSearchPath,searchPath} from '../src/modules/enrichment/trodo-adapter';
 import {SourceQueue,unblockSources} from '../src/modules/enrichment/source-queue';
