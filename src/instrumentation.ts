@@ -15,7 +15,9 @@ export async function register() {
     // The model sitemap files take tens of seconds to build; a visitor or crawler must not be the one who waits (#778).
     void warmStorefront(origin)
       .catch(error => console.error("Storefront warm-up failed", error instanceof Error ? error.message : error))
-      .finally(() => sitemapEnabled() ? warmSitemaps(origin) : undefined);
+      // Random 0-60 s: the tasks of a new release must not run the heavy queries at the same moment.
+      .then(() => new Promise(resolve => setTimeout(resolve, Math.random() * 60_000)))
+      .then(() => sitemapEnabled() ? warmSitemaps(origin) : undefined);
     if (sitemapEnabled()) startSitemapWarmup(origin);
   }
 }

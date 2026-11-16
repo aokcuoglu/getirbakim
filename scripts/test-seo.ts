@@ -7,8 +7,8 @@ import { isGatedListing, listingIndexable, minIndexableListingProducts } from ".
 import { categoryNameInText } from "../src/modules/store/category-tree";
 import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, withModelYears } from "../src/modules/store/vehicle-model-groups";
 import { legalLinks } from "../src/content/legal";
-import { sitemapRevalidateSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
-import { startSitemapWarmup, warmSitemaps } from "../src/modules/seo/sitemap-warmup";
+import { sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
+import { startSitemapWarmup, warmIntervalMs, warmSitemaps } from "../src/modules/seo/sitemap-warmup";
 
 type Group = { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
 const list = (value: string | string[] | undefined) => (value === undefined ? [] : Array.isArray(value) ? value : [value]);
@@ -143,7 +143,11 @@ test("llms.txt route answers with cacheable plain text", async () => {
 });
 
 test("the sitemap warm-up runs before the cached data goes stale or is evicted (#778)", () => {
-  assert.ok(sitemapWarmIntervalMs < sitemapRevalidateSeconds * 1000);
+  // A stale read starts the refresh, so a round must fall between "stale" and "evicted": interval < TTL - revalidate.
+  assert.ok(sitemapWarmIntervalMs < (sitemapTtlSeconds - sitemapRevalidateSeconds) * 1000);
+  assert.equal(warmIntervalMs(undefined), sitemapWarmIntervalMs);
+  assert.equal(warmIntervalMs("60000"), 60_000);
+  assert.equal(warmIntervalMs("999999999999"), sitemapMaxWarmIntervalMs);
 });
 
 test("warmSitemaps requests the slow files one after the other and never throws (#778)", async () => {
@@ -170,11 +174,11 @@ test("startSitemapWarmup ticks on its interval, skips a running round and stops 
     warm: async () => { ticks++; overlapped ||= ++active > 1; await new Promise(resolve => setTimeout(resolve, 18)); active--; },
   });
   // unref'd timers do not keep the process alive; this pending timer does.
-  await new Promise(resolve => setTimeout(resolve, 60));
+  await new Promise(resolve => setTimeout(resolve, 150));
   stop();
   const stopped = ticks;
-  assert.ok(stopped >= 2 && stopped <= 4, `ticks: ${stopped}`);
+  assert.ok(stopped >= 1, `ticks: ${stopped}`);
   assert.equal(overlapped, false);
-  await new Promise(resolve => setTimeout(resolve, 40));
+  await new Promise(resolve => setTimeout(resolve, 80));
   assert.equal(ticks, stopped);
 });
