@@ -4,7 +4,10 @@ import type { PoolClient } from "pg";
 // deleted, new ones inserted and only changed ones updated, so an unchanged row keeps its derived_at (the sitemap's
 // max(derived_at) lastmod) and is not rewritten. derived_at moves when the model or its years change; a change of
 // source_text alone updates the text but keeps derived_at, since the description edit already moves lastmod through
-// supplier_items.changed_at.
+// supplier_items.changed_at. A deleted row leaves nothing for max(derived_at) to see, so the product's remaining rows
+// get derived_at=now() instead; a product whose rows are all deleted simply loses its fitments (and that lastmod term).
+// Counts: inserted/updated are rows the upsert wrote, deleted the rows removed; a remaining row whose derived_at only
+// moved because a sibling was deleted still counts as unchanged.
 
 export type DescriptionFitmentRow = { supplier_item_id: string; model_id: number; year_from: number | null; year_to: number | null; source_text: string };
 export type DescriptionFitmentWriteResult = { inserted: number; updated: number; deleted: number; unchanged: number };
@@ -17,11 +20,17 @@ export async function writeDescriptionFitments(client: PoolClient, rows: Descrip
   for (let at = 0; at < rows.length; at += 5000) await client.query(`INSERT INTO description_fitments_next(supplier_item_id,model_id,year_from,year_to,source_text)
     SELECT supplier_item_id,model_id,year_from,year_to,source_text FROM jsonb_to_recordset($1::jsonb)
     AS r(supplier_item_id uuid,model_id integer,year_from integer,year_to integer,source_text text)`, [JSON.stringify(rows.slice(at, at + 5000))]);
+  // Duplicate-input guard, not a plan aid: one row per key keeps `unchanged` (rows.length minus written) correct.
   await client.query("CREATE UNIQUE INDEX ON description_fitments_next(supplier_item_id,model_id)");
   // Temp tables are never autoanalyzed; without statistics the joins below fall back to nested loops over every fitment.
   await client.query("ANALYZE description_fitments_next");
-  const deleted = (await client.query(`DELETE FROM product_model_fitments f WHERE NOT EXISTS(SELECT 1 FROM description_fitments_next n
-    WHERE n.supplier_item_id=f.supplier_item_id AND n.model_id=f.model_id)`)).rowCount ?? 0;
+  // The UPDATE sees the rows as they were before the DELETE; the EXISTS keeps the two row sets disjoint (kept vs deleted).
+  const { deleted } = (await client.query<{ deleted: number }>(`WITH d AS (
+    DELETE FROM product_model_fitments f WHERE NOT EXISTS(SELECT 1 FROM description_fitments_next n
+     WHERE n.supplier_item_id=f.supplier_item_id AND n.model_id=f.model_id) RETURNING f.supplier_item_id),
+   bumped AS (UPDATE product_model_fitments f SET derived_at=now() WHERE f.supplier_item_id IN (SELECT supplier_item_id FROM d)
+     AND EXISTS(SELECT 1 FROM description_fitments_next n WHERE n.supplier_item_id=f.supplier_item_id AND n.model_id=f.model_id) RETURNING 1)
+   SELECT (SELECT count(*) FROM d)::int AS deleted`)).rows[0];
   // The LEFT JOIN keeps unchanged rows out of the INSERT: ON CONFLICT DO UPDATE ... WHERE false would still lock them.
   const written = (await client.query<{ inserted: number; updated: number }>(`WITH w AS (
     INSERT INTO product_model_fitments AS f(supplier_item_id,model_id,year_from,year_to,source_text)

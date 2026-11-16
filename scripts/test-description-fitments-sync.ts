@@ -41,7 +41,7 @@ describe("description fitment sync", { skip: !process.env.DATABASE_URL }, () => 
     schema = await isolatedSchema("descfit");
     await schema.pool.query("INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VOLKSWAGEN')");
     await schema.pool.query("INSERT INTO vehicle_models(id,brand_id,name) VALUES(10,1,'GOLF IV'),(11,1,'PASSAT')");
-    for (const key of ["A", "A2", "B", "B2", "B3", "C", "D", "E"]) await item(key);
+    for (const key of ["A", "A2", "B", "B2", "B3", "C", "D", "E", "F", "G"]) await item(key);
   });
   after(async () => { await schema?.drop(); });
 
@@ -50,7 +50,9 @@ describe("description fitment sync", { skip: !process.env.DATABASE_URL }, () => 
   const second = () => [row("A", 10, null, null), row("A2", 10, 2000, 2004), row("B", 10, 2001, 2004), row("B2", 10, 1999, null),
     row("B3", 10, 1998, null), row("D", 11, null, 2010), row("E", 11, 1997, 2005, "TEXT E CHANGED")];
 
+  // Each test starts from an empty table, so any of them runs alone under --test-name-pattern.
   test("only changed rows are written and derived_at moves only with the model or years", async () => {
+    await write([]);
     assert.deepEqual(await write(first()), { inserted: 7, updated: 0, deleted: 0, unchanged: 0 });
     await schema.pool.query("UPDATE product_model_fitments SET derived_at=$1", [EPOCH]);
     const before = await stored();
@@ -74,7 +76,23 @@ describe("description fitment sync", { skip: !process.env.DATABASE_URL }, () => 
     for (const [key, value] of after) assert.equal(again.get(key)?.xmin, value.xmin, `${key} is not rewritten by an identical sync`);
   });
 
+  test("dropping one of a product's models moves the derived_at of its remaining rows", async () => {
+    await write([]);
+    await write([row("F", 10, 2000, 2004), row("F", 11, 2000, 2004), row("G", 10, null, null)]);
+    await schema.pool.query("UPDATE product_model_fitments SET derived_at=$1", [EPOCH]);
+    const before = await stored();
+
+    assert.deepEqual(await write([row("F", 10, 2000, 2004), row("G", 10, null, null)]), { inserted: 0, updated: 0, deleted: 1, unchanged: 2 });
+    const after = await stored();
+    assert.deepEqual(new Set(after.keys()), new Set(["F:10", "G:10"]));
+    assert.ok(after.get("F:10")!.derived_at > EPOCH, "the product's lastmod still moves");
+    assert.equal(after.get("G:10")?.derived_at, EPOCH);
+    assert.equal(after.get("G:10")?.xmin, before.get("G:10")?.xmin, "an unrelated product is not rewritten");
+  });
+
   test("two syncs in one transaction work and an empty derivation empties the table", async () => {
+    await write([]);
+    assert.deepEqual(await write(second()), { inserted: 7, updated: 0, deleted: 0, unchanged: 0 });
     const client = await schema.pool.connect();
     try {
       await client.query("BEGIN");
