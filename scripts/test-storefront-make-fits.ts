@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { syncSharedLinks } from "./test-helpers/shared-links";
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
@@ -44,7 +45,7 @@ test('storefront make and model lists follow payloads, fitments, the vehicle cat
   const table=async(brand:number)=>(await pool.query('SELECT supplier_item_id::text AS id FROM storefront_make_fits WHERE brand_id=$1 ORDER BY 1',[brand])).rows.map(row=>row.id);
   const modelTable=async(model:number)=>(await pool.query('SELECT supplier_item_id::text AS id FROM storefront_model_fits WHERE model_id=$1 ORDER BY 1',[model])).rows.map(row=>row.id);
   const consistent=async()=>{
-   await pool.query('SELECT product_enrichment_shared_sync()');
+   await syncSharedLinks(pool);
    assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared_queue')).rows[0].n,0);
    const lists:Record<number,string[]>={};
    for(const brand of brandIds){

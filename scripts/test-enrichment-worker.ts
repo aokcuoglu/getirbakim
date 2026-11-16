@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { syncSharedLinks } from "./test-helpers/shared-links";
 import assert from 'node:assert/strict';
 import {readFile,mkdtemp,symlink,rm} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
@@ -368,7 +369,7 @@ test('master product sharing excludes equivalents, split offers and changed supp
     UNION ALL (SELECT ${stateColumns} FROM enrichment_product_states EXCEPT SELECT ${stateColumns} FROM enrichment_product_state_rows)) d`)).rows[0].n;
    assert.equal(diffs,0);
    // The storefront's materialized links (#446) must equal the live shared view, every column, after their own drain.
-   await pool.query('SELECT product_enrichment_shared_sync()');
+   await syncSharedLinks(pool);
    assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared_queue')).rows[0].n,0);
    const linkDiffs=(await pool.query(`SELECT count(*)::int AS n FROM ((SELECT * FROM product_enrichment_shared EXCEPT ALL SELECT * FROM storefront_enrichments)
     UNION ALL (SELECT * FROM storefront_enrichments EXCEPT ALL SELECT * FROM product_enrichment_shared)) d`)).rows[0].n;

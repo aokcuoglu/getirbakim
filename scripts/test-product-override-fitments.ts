@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
+import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { applyFitmentOverrides, modelFallbacks, type StoreVehicle } from "../src/modules/store/product-fitment-display";
 import { fitmentHistoryValue, productFitmentLimit } from "../src/modules/admin/product-fitment-fields";
@@ -71,7 +72,7 @@ const decisions = async (productId: string) => (await store.loadProductFitments(
 const fitted = async (typeId: number) => { await epoch.invalidateListings(); return new Set(await catalog.typeFittedIds(typeId)); };
 /** The make lists after the queue the triggers filled is drained (the actions and the background sync do it). */
 async function makes(key: string) {
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks(schema.pool);
   return (await schema.pool.query<{ brand_id: number }>("SELECT brand_id FROM storefront_make_fits WHERE supplier_item_id=$1 ORDER BY 1", [ids[key]])).rows.map(row => row.brand_id);
 }
 const garage = (typeId: number) => ({ make: "X", model: "Y", year: 2020, vehicleId: String(typeId) });
@@ -133,7 +134,7 @@ before(async () => {
   await enrich("stale", [900], "TRW 50049");
   await rebuildFitments("febi");
   await rebuildFitments("stale");
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks(schema.pool);
   closeDb = () => db.end();
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
@@ -238,7 +239,7 @@ test("enrichment imports, fitment rebuilds and matching refreshes leave the deci
   await rebuildFitments("febi");
   await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"ac":"FEBI YENI AD"}',changed_at=now() WHERE id=ANY($1::uuid[])`, [[ids.febi, ids.febiBasbug]]);
   await schema.pool.query("SELECT refresh_product_matches()");
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks(schema.pool);
   assert.equal(await productOf("febiBasbug"), febi);
   assert.deepEqual([await decisions(febi), await decisions(bare)], before);
   assert.ok(!(await fitted(340)).has(ids.febi));
@@ -322,7 +323,7 @@ test("description models stand in only without enrichment and admin decisions; u
   // 555 is no catalog type: its source row stays unlinked.
   await enrich("valeo", [802015, 555]);
   await rebuildFitments("valeo");
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks(schema.pool);
   assert.deepEqual((await description.getDescriptionModelIds([ids.bosch, ids.valeo])), new Map([[ids.bosch, [10]]]));
   assert.deepEqual(await level.productFitmentLevels([340, 900, 802015, 802016, 900].map((typeId, index) =>
     ({ product: { id: ids[index < 2 ? "bosch" : "valeo"], ...codes[index < 2 ? "bosch" : "valeo"] }, vehicle: garage(typeId) }))),

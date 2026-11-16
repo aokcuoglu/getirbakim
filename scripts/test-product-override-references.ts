@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
+import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { applyReferenceOverrides, gtinProperty, type ReferenceOverride } from "../src/modules/store/product-reference-display";
 import { referenceHistoryValue, productReferenceLimit } from "../src/modules/admin/product-reference-fields";
@@ -68,7 +69,7 @@ before(async () => {
     VALUES($1,'FEBI 10010','FEBI','https://www.trodo.com/febi','test','FEBI BILSTEIN','10010',$2)`,
   [ids.febiDinamik, JSON.stringify({ specifications: [], vehicles: [], oemNumbers: { VW: ["1K0 615 301 AA", "1K0615301AB"], AUDI: ["8E0615301Q"] },
     crossReferences: { BOSCH: ["0 986 424 797"] } })]);
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks(schema.pool);
   const [{ db }, storeModule, referencesModule, catalogModule, linksModule, overridesModule] = await Promise.all([import("../src/lib/db"),
     import("../src/modules/admin/product-reference-store"), import("../src/modules/store/product-references"),
     import("../src/modules/store/catalog"), import("../src/modules/store/reference-links"), import("../src/modules/admin/product-override-store")]);
@@ -191,7 +192,7 @@ test("enrichment imports, supplier syncs and matching refreshes leave the number
   await schema.pool.query(`UPDATE product_enrichments SET payload=jsonb_set(payload,'{oemNumbers}','{"VW":["1K0 615 301 AA","1K0615301AD"]}'),imported_at=now() WHERE supplier_item_id=$1`, [ids.febiDinamik]);
   await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"ac":"FEBI YENI AD","oe":"1K0615301ZZ"}',changed_at=now() WHERE id=ANY($1::uuid[])`, [[ids.febiBasbug, ids.febiDinamik]]);
   await schema.pool.query("SELECT refresh_product_matches()");
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks(schema.pool);
   assert.equal(await productOf("febiBasbug"), febi);
   // The OEM search index (#609) follows the rewritten payload.
   assert.ok((await found("1K0 615 301 AD")).some(id => id === ids.febiBasbug || id === ids.febiDinamik), "new enrichment OEM");
@@ -348,7 +349,7 @@ test("an enrichment OEM and an added reference with the same number still find t
   await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
     VALUES($1,'VALEO 585001','VALEO','https://www.trodo.com/valeo','test','VALEO','585001',$2)`,
   [ids.valeoDinamik, JSON.stringify({ specifications: [], vehicles: [], oemNumbers: { CITROEN: ["9816338580"] }, crossReferences: {} })]);
-  await schema.pool.query("SELECT product_enrichment_shared_sync()");
+  await syncSharedLinks(schema.pool);
   assert.ok(valeoRows(await found("98163 38580")), "enrichment OEM");
   assert.deepEqual(await add(valeo, "oem", "PSA", "9673689380"), { ok: true });
   assert.ok(valeoRows(await found("967368 9380")), "added OEM");
