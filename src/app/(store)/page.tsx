@@ -15,6 +15,7 @@ import {getVehicleBrands} from "@/modules/store/vehicle-catalog.server";
 import {vehicleBrandSlug,popularVehicleMakes} from "@/modules/store/vehicle-catalog";
 import {catalogBrands} from "@/modules/store/catalog";
 import {manufacturerDirectory} from "@/modules/store/manufacturers.server";
+import {featuredManufacturers} from "@/modules/store/manufacturers";
 import {getHomeProducts,getHomeProductCategories} from "@/modules/store/home";
 import {getCatalogProductDetails,getCatalogProductImages} from "@/modules/store/product-enrichment";
 import {getManufacturerLogos} from "@/modules/store/manufacturer-logos";
@@ -67,8 +68,8 @@ export default async function Home({searchParams}:{searchParams:Promise<SearchPa
   const rootIds=new Set(allCategories.filter(category=>category.parentId===null).map(category=>category.id));
   const tabCategories=allCategories.filter(category=>category.parentId===null||rootIds.has(category.parentId)).map(({id,parentId,name,slug,imagePath})=>({id,parentId,name,slug,imagePath}));
   const makes=popularVehicleMakes.flatMap(name=>vehicleBrands.filter(brand=>brand.name===name));
-  // Each label links its manufacturer page (#660); a label without one is left out.
-  const manufacturers=manufacturerOrder.flatMap(brand=>{const href=brands.includes(brand)&&directory.pathForLabel(brand);return href?[{brand,href}]:[];});
+  // Each entry links its manufacturer page under the master brand name (#660, #811); one without a page is left out.
+  const manufacturers=featuredManufacturers(manufacturerOrder,brands,directory);
   const allProducts=[...new Map([...products,...collections.flatMap(collection=>collection.products)].map(product=>[product.id,product])).values()];
   const [logos,images,details,productCategories]=await Promise.all([getManufacturerLogos(manufacturers.map(({brand})=>brand)),getCatalogProductImages(allProducts),getCatalogProductDetails(allProducts),getHomeProductCategories(allProducts)]);
   const visibleProducts=products.filter(product=>images.has(product.id)&&details.has(product.id));

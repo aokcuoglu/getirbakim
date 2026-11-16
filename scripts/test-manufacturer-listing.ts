@@ -10,6 +10,7 @@ let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let catalog: typeof import("../src/modules/store/catalog");
 let sitemap: typeof import("../src/modules/seo/manufacturer-sitemap.server");
 let invalidateListings: () => Promise<void>;
+let logos: typeof import("../src/modules/store/manufacturer-logos");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const [basbug, , dinamik] = storefrontCompanies();
@@ -54,6 +55,7 @@ before(async () => {
   }
   const [{ db }, catalogModule, sitemapModule, epoch] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"),
     import("../src/modules/seo/manufacturer-sitemap.server"), import("../src/modules/store/listing-epoch")]);
+  logos = await import("../src/modules/store/manufacturer-logos");
   catalog = catalogModule;
   sitemap = sitemapModule;
   invalidateListings = epoch.invalidateListings;
@@ -125,4 +127,16 @@ test("a brand rename shows at once: the page moves with the name and keeps its p
   assert.equal(await catalog.listingTotal({ manufacturer: "robert-bosch" }), 10);
   assert.deepEqual((await catalog.catalogFacets({ manufacturer: "robert-bosch" })).brands, ["ROBERT BOSCH"]);
   assert.deepEqual(await sitemap.loadManufacturerSlugs(), ["robert-bosch"]);
+});
+
+test("a master brand name without a logo of its own shows its label's logo (#811)", async () => {
+  // UFI's bundled logo (data/brand-logos.json) is filed under the label; the store shows the master name UFI FILTRE.
+  const ufi = (await schema.pool.query<{ id: string }>("INSERT INTO brands(key,name) VALUES('UFI','UFI FILTRE') RETURNING id::text")).rows[0].id;
+  await schema.pool.query("INSERT INTO supplier_brands(supplier,label,brand_id,items) VALUES('basbug','UFI',$1,1),('dinamik','UFI FILTRE',$1,1)", [ufi]);
+  await invalidateListings();
+  const found = await logos.getManufacturerLogos(["UFI FILTRE", "UFI", "YOK MARKA"]);
+  assert.match(found.get("UFI")?.src ?? "", /\/ufi\.webp/);
+  assert.deepEqual(found.get("UFI FILTRE"), found.get("UFI"));
+  // A brand without a logo and without a master brand gets none.
+  assert.equal(found.has("YOK MARKA"), false);
 });

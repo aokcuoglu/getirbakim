@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { manufacturerSlug } from "../src/modules/seo/manufacturer-path";
-import { buildManufacturerDirectory, manufacturerIndexable, manufacturerTexts, manufacturerTrail, unindexedManufacturerSlugs, type ManufacturerRow } from "../src/modules/store/manufacturers";
+import { buildManufacturerDirectory, featuredManufacturers, manufacturerIndexable, manufacturerTexts, manufacturerTrail, unindexedManufacturerSlugs, type ManufacturerRow } from "../src/modules/store/manufacturers";
 
 // Manufacturer pages (#660): slugs, the label directory, the index rule and the page texts. Pure.
 
@@ -80,6 +80,16 @@ test("a master brand name belongs to its brand first (#811: the store shows mast
   assert.deepEqual(page("dayco"), { id: "13", name: "DAYCO", slug: "dayco", labels: ["DAYCO", "DAYCO BELT"] });
   assert.equal(directory.pathForLabel("DAYCO"), "/marka/dayco");
   assert.equal(directory.pathForLabel("DAYCO BELT"), "/marka/dayco");
+});
+
+test("home tiles resolve labels to their manufacturer page under the shown master name (#811)", () => {
+  const directory = buildManufacturerDirectory(rows);
+  assert.equal(directory.manufacturerFor("BLUE PRINT")?.name, "BLUEPRINT");
+  assert.equal(directory.manufacturerFor("BOSCH-X"), null);
+  assert.deepEqual(directory.labelsOf("MANN"), ["MANN", "MANN-FILTER"]);
+  assert.deepEqual(directory.labelsOf("NO SUCH LABEL"), []);
+  assert.deepEqual(featuredManufacturers(["BLUE PRINT", "BOSCH", "BOSCH AV", "MANN-FILTER", "GATES", "NO SUCH LABEL"], ["BLUEPRINT", "BOSCH", "MANN"], directory),
+    [{ brand: "BLUEPRINT", href: "/marka/blueprint" }, { brand: "BOSCH", href: "/marka/bosch" }, { brand: "MANN", href: "/marka/mann" }]);
 });
 
 test("supplier_item_brand is declared identically in db/commerce.sql and db/product-matching.sql", () => {

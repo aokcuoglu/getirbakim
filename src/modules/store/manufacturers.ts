@@ -16,6 +16,10 @@ export type ManufacturerDirectory = {
   find(slug: string): ManufacturerMatch | null;
   /** The manufacturer page of a catalog display_brand (a master brand name or a label), null when its brand has no page. */
   pathForLabel(label: string): string | null;
+  /** The manufacturer page of a display_brand value, null when its brand has no page. */
+  manufacturerFor(label: string): Manufacturer | null;
+  /** Every label of the brand a display_brand value belongs to (its name included), empty for an unknown value. */
+  labelsOf(label: string): string[];
   all: Manufacturer[];
 };
 
@@ -84,6 +88,11 @@ export function buildManufacturerDirectory(rows: ManufacturerRow[]): Manufacture
   const manufacturer = (brand: Brand): Manufacturer => ({ id: brand.id, name: brand.name, slug: brand.slug, labels: [...brand.labels].sort() });
   const all = [...pages.values()].map(manufacturer).sort((a, b) => a.slug.localeCompare(b.slug));
   const bySlug = new Map(all.map(entry => [entry.slug, entry]));
+  const ownerOf = (label: string) => nameOwner.get(label) ?? labelOwner.get(label);
+  const manufacturerFor = (label: string) => {
+    const brand = ownerOf(label);
+    return brand && pages.get(brand.slug) === brand ? bySlug.get(brand.slug) ?? null : null;
+  };
   return {
     all,
     find(slug) {
@@ -93,10 +102,30 @@ export function buildManufacturerDirectory(rows: ManufacturerRow[]): Manufacture
       return alias ? { kind: "alias", slug: alias.slug } : null;
     },
     pathForLabel(label) {
-      const brand = nameOwner.get(label) ?? labelOwner.get(label);
-      return brand && pages.get(brand.slug) === brand ? manufacturerPath(brand.slug) : null;
+      const page = manufacturerFor(label);
+      return page ? manufacturerPath(page.slug) : null;
+    },
+    manufacturerFor,
+    labelsOf(label) {
+      const brand = ownerOf(label);
+      return brand ? [...brand.labels].sort() : [];
     },
   };
+}
+
+/**
+ * The home page's manufacturer tiles: each entry of `order` (a label or a master brand name) resolves to its
+ * manufacturer page, so a rename or merge keeps the tile (#811); tiles show the master brand name the catalog shows, only
+ * when the catalog lists it (`shown`: display_brand values), once per manufacturer, in `order`.
+ */
+export function featuredManufacturers(order: readonly string[], shown: readonly string[], directory: ManufacturerDirectory) {
+  const listed = new Set(shown), seen = new Set<string>();
+  return order.flatMap(label => {
+    const page = directory.manufacturerFor(label);
+    if (!page || seen.has(page.slug) || !listed.has(page.name)) return [];
+    seen.add(page.slug);
+    return [{ brand: page.name, href: manufacturerPath(page.slug) }];
+  });
 }
 
 /**
