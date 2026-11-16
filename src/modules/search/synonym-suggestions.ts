@@ -29,11 +29,16 @@ export function sendableQuery(query: string) {
 
 export const groupKey = (words: string[]) => [...new Set(words.map(normalizeSynonym).filter(Boolean))].sort().join("|");
 
-/** Whether the parser already reads `a` and `b` as the same word (a synonym group or a Turkish ending). */
+/**
+ * Whether the parser already finds each spelling from the other, prefixes and Turkish endings included: "traversi"
+ * (→ traver:*) and "travers" (→ travers:*) match each other, so a group adds nothing. One way only is not enough:
+ * "expres:*" finds "express", but a search for "express" misses "expres".
+ */
 export function alreadyEquivalent(a: string, b: string) {
-  const spellings = (value: string) => new Set(parseSearchQuery(value).terms.flatMap(term => term.alternatives.map(x => x.value)));
-  const left = spellings(a);
-  return [...spellings(b)].some(value => left.has(value));
+  const finds = (query: string, text: string) => parseSearchQuery(query).terms.length === 1 && parseSearchQuery(query).terms[0].alternatives
+    .some(alternative => alternative.value === text || (alternative.prefix && !alternative.loose && text.startsWith(alternative.value)));
+  const [left, right] = [normalizeSynonym(a), normalizeSynonym(b)];
+  return finds(left, right) && finds(right, left);
 }
 
 /** Products a spelling finds with the current parser. */
