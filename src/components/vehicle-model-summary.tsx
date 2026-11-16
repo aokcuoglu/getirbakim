@@ -31,7 +31,7 @@ export async function VehicleModelSummary({ name, model, vehicle }: { name: stri
       </dd></div>}
     </dl>
     <div className="flex flex-col items-start justify-center gap-3">
-      {facts.image && <div className="w-full overflow-hidden rounded-lg"><VehicleHeroImage image={facts.image} alt={name} /></div>}
+      {facts.image && <div className="w-full overflow-hidden rounded-lg"><VehicleHeroImage image={facts.image} alt={`${name} yandan görünüm`} /></div>}
       <p className="text-[13px] leading-[18px]">Bu liste model düzeyindedir. Motor tipine göre doğrulamak için aracını seç.</p>
       <GarageButton vehicle={vehicle} variant="hero" />
     </div>
