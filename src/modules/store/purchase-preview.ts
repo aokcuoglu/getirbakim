@@ -1,6 +1,6 @@
 import "server-only";
 import { shownProductName } from "./product-name";
-import { getProduct, servicePrice, type CatalogProduct } from "./catalog";
+import { getProduct, listingIds, servicePrice, type CatalogProduct } from "./catalog";
 import { getCatalogProductDetails, getCatalogProductImages } from "./product-enrichment";
 import { catalogCardTitle } from "./product-override-display";
 import { productPath } from "@/modules/seo/product-path";
@@ -25,10 +25,18 @@ export function withinBudget<T>(work: Promise<T>, ms: number): Promise<T | null>
  */
 async function previews(products: { product: CatalogProduct; quantity: number; offer: boolean }[], discount: number): Promise<PurchasePreview[]> {
   const shown = products.map(row => row.product);
-  const [images, details] = await Promise.all([getCatalogProductImages(shown), getCatalogProductDetails(shown)]);
+  const [images, details, listing] = await Promise.all([
+    getCatalogProductImages(shown), getCatalogProductDetails(shown), listingIds(products.filter(row => !row.offer).map(row => row.product.id)).catch(error => {
+      // The cart write already happened: a failed translation only keeps the line's own id in the event.
+      console.error("Purchase preview listing ids failed", { error: error instanceof Error ? error.message : error });
+      return new Map<string, string>();
+    }),
+  ]);
   return products.map(({ product: p, quantity, offer }) => ({
     // The store brand and part number (#602); the image lookup above keeps the supplier's code and brand.
-    id: offer ? p.offer_id ?? p.id : p.id, href: productPath(p), name: `${shownProductName(p)} ${p.display_brand}`, itemName: catalogCardTitle(p, details.get(p.id)?.partNumber), code: p.display_code, brand: p.display_brand,
+    id: offer ? p.offer_id ?? p.id : p.id,
+    // The listing id the storefront events use (#752); a suggestion's offer id is its own listing's best offer.
+    itemId: offer ? p.id : listing.get(p.id) ?? p.id, href: productPath(p), name: `${shownProductName(p)} ${p.display_brand}`, itemName: catalogCardTitle(p, details.get(p.id)?.partNumber), code: p.display_code, brand: p.display_brand,
     price: servicePrice(p.price_kurus!, discount), quantity, maxQuantity: p.max_quantity,
     image: images.get(p.id)?.src ?? null, stockLabel: p.stock_label,
   }));

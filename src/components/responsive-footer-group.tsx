@@ -11,7 +11,7 @@ import {cn} from "@/lib/utils";
  * everywhere else, and on wider screens, it is a plain titled column.
  */
 export function ResponsiveFooterGroup({title,children,accent=false}:{title:string;children:ReactNode;accent?:boolean}) {
-  const phone=useMediaQuery("(max-width: 600px)");
+  const phone=useMediaQuery("(max-width: 599.98px)");
   const collapsible=useStoreRoute()==="home"&&phone;
   const [open,setOpen]=useState(false);
   const links=cn("[&>a]:block [&>a]:py-1 [&>a]:text-sm [&>a]:leading-5",accent?"[&>a]:py-0 [&>a]:text-brand-strong":"[&>a]:text-foreground");

@@ -328,6 +328,111 @@ describe("IndexNow runs", () => {
     assert.equal(network.calls.length, 0);
   });
 
+  test("a label's master brand name moves the address and fingerprint; the same name changes nothing (#811)", async () => {
+    const before = await known();
+    const oldBeta = await pathNow("beta"), oldOmega = await pathNow("omega");
+    const brand = (await schema.pool.query<{ id: string }>("INSERT INTO brands(key,name) VALUES('MAHLE','MAHLE') RETURNING id::text")).rows[0].id;
+    await schema.pool.query("INSERT INTO supplier_brands(supplier,label,brand_id) VALUES('basbug','MAHLE',$1)", [brand]);
+    let network = fakeFetch([200]);
+    assert.equal((await run({ network })).urls, 0);
+    await schema.pool.query("UPDATE brands SET name='MAHLE AG' WHERE id=$1", [brand]);
+    network = fakeFetch([200]);
+    const result = await run({ network });
+    assert.equal(result.status, "completed");
+    const urls = sent(network.calls);
+    assert.notEqual(await pathNow("beta"), oldBeta);
+    assert.ok(urls.includes(url(oldBeta)) && urls.includes(url(await pathNow("beta"))));
+    // An admin's store brand wins over the master brand: omega's page stays.
+    assert.equal(await pathNow("omega"), oldOmega);
+    assert.ok(!urls.includes(url(oldOmega)));
+    const renamed = await known();
+    assert.notEqual(renamed.get(ids.beta), before.get(ids.beta));
+    assert.equal(renamed.get(ids.omega), before.get(ids.omega));
+    // Back to the label's own spelling: the earlier fingerprints return.
+    await schema.pool.query("UPDATE brands SET name='MAHLE' WHERE id=$1", [brand]);
+    network = fakeFetch([200]);
+    await run({ network });
+    assert.equal(await pathNow("beta"), oldBeta);
+    assert.deepEqual(await known(), before);
+  });
+
+  test("admin edits and description fitments each send only their page (#767)", async () => {
+    // beta carries no admin edit and no fitment yet: its fingerprint is the pre-#767 one (concat_ws skips the new NULL parts).
+    const legacy = (await schema.pool.query<{ fingerprint: string }>(`SELECT md5(concat_ws(chr(31),COALESCE(NULLIF(product_data->>'ac',''),code),
+      COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),code,COALESCE(product_data->>'ac2',''),COALESCE(product_data->>'oe',''),''))::uuid::text AS fingerprint
+      FROM supplier_items WHERE id=$1`, [ids.beta])).rows[0].fingerprint;
+    assert.equal((await indexnow.loadIndexNowChunk(20)).find(page => page.id === ids.beta)?.fingerprint, legacy);
+
+    const productId = (await schema.pool.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code)
+      VALUES('MAHLE','BETA','Beta','MAHLE','beta') RETURNING id::text`)).rows[0].id;
+    await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [ids.beta, productId]);
+    await schema.pool.query("INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VOLKSWAGEN')");
+    await schema.pool.query("INSERT INTO vehicle_models(id,brand_id,name) VALUES(10,1,'GOLF IV'),(11,1,'GOLF V')");
+    const change = (field: string) => schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value) VALUES($1,$2,'x')", [productId, field]);
+    const fitment = (sql: string, values: unknown[] = []) => schema.pool.query(sql, [ids.beta, ...values]);
+    const sends = async (expected: number, label: string) => {
+      const network = fakeFetch([200]);
+      const result = await run({ network });
+      assert.equal(result.status, "completed", label);
+      assert.equal(result.changed, expected, label);
+      assert.equal(result.urls, expected, label);
+      assert.equal(result.removed, 0, label);
+      assert.equal(network.calls.length, expected === 0 ? 0 : 1, label);
+      if (expected > 0) assert.deepEqual(sent(network.calls), [url(await pathNow("beta"))], label);
+    };
+    await sends(0, "baseline");
+    await change("image_added");
+    await sends(1, "image added");
+    await change("price_kurus");
+    await sends(0, "price edit");
+    await change("sale_until");
+    await sends(0, "campaign edit");
+    await fitment("INSERT INTO product_model_fitments(supplier_item_id,model_id,year_from,source_text) VALUES($1,10,2000,'GOLF IV')");
+    await sends(1, "fitment added");
+    await fitment("UPDATE product_model_fitments SET year_from=2001 WHERE supplier_item_id=$1");
+    await sends(1, "year changed");
+    await fitment("UPDATE product_model_fitments SET year_from=NULL,year_to=2001 WHERE supplier_item_id=$1");
+    await sends(1, "year_to instead of year_from");
+    await fitment("UPDATE product_model_fitments SET year_from=2001,year_to=NULL WHERE supplier_item_id=$1");
+    await sends(1, "year_from instead of year_to");
+    await fitment("UPDATE product_model_fitments SET derived_at=now()+interval '1 day' WHERE supplier_item_id=$1");
+    await sends(0, "derived_at only");
+    await fitment("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,11,'GOLF V')");
+    await sends(1, "second model");
+    await fitment("DELETE FROM product_model_fitments WHERE supplier_item_id=$1 AND model_id=11");
+    await sends(1, "fitment deleted");
+    // Another product's edit does not touch this page.
+    const other = (await schema.pool.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code) VALUES('MAHLE','OTHER','Other','MAHLE','other') RETURNING id::text`)).rows[0].id;
+    await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value) VALUES($1,'image_added','x')", [other]);
+    await sends(0, "unrelated product");
+
+    // The fitment hash reads the models the page shows (storefront_description_fits, #661). The rows below are written
+    // without a history row, so only the hash can move the fingerprint.
+    const fingerprint = async () => (await indexnow.loadIndexNowChunk(20)).find(page => page.id === ids.beta)?.fingerprint;
+    const hide = (modelId: number) => schema.pool.query(`INSERT INTO product_override_fitment_hides(product_id,kind,model_id,label)
+      VALUES($1,'description_model',$2,'VOLKSWAGEN GOLF')`, [productId, modelId]);
+    await hide(10);
+    await sends(1, "description model hidden");
+    const hidden = await fingerprint();
+    // The same page without the hide and without the fitment: the same fingerprint, nothing sent.
+    await schema.pool.query("DELETE FROM product_override_fitment_hides WHERE product_id=$1", [productId]);
+    await fitment("DELETE FROM product_model_fitments WHERE supplier_item_id=$1");
+    await sends(0, "hidden model ≡ no model");
+    assert.equal(await fingerprint(), hidden);
+    // A model hidden before it is derived never reaches the page.
+    await hide(11);
+    await fitment("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,11,'GOLF V')");
+    await sends(0, "hidden model derived");
+    // A vehicle decision (#583) takes every description model off the page.
+    await fitment("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,10,'GOLF IV')");
+    await sends(1, "visible model derived");
+    await schema.pool.query(`INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
+      VALUES(900,10,'1.6',1600,'Petrol','Benzin',100,74,'2000-01-01','golf')`);
+    await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,900,'add')", [productId]);
+    await sends(1, "vehicle decision");
+    assert.equal(await fingerprint(), hidden);
+  });
+
   test("a second run while the lock is held is skipped", async () => {
     const holder = await schema.pool.connect();
     try {

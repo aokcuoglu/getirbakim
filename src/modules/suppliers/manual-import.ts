@@ -8,6 +8,7 @@ import { legacyCategoryIds } from "../store/category-tree";
 import { manualCompany } from "./storefront-sources";
 import { applySupplierSnapshot, type ObservationItem } from "./sync";
 import type { ManualCategory, ManualIssue, ManualParseResult, ManualRow } from "./manual-template";
+import { manualCost } from "./manual-bulk-csv";
 
 // Manual xlsx lists (template: manual-template.ts). Each list is one supplier scope, imported like an API snapshot:
 // codes missing from a new upload go pending_missing, then inactive. What the storefront shows beyond name, price and
@@ -17,7 +18,7 @@ import type { ManualCategory, ManualIssue, ManualParseResult, ManualRow } from "
 export const manualSupplier = "manual";
 export const manualScope = (listGroup: string) => ({ supplier: manualSupplier, company: manualCompany, group: listGroup, warehouse: "MAIN" } as const);
 export const manualSourceMethod = "manual-upload";
-const lock = [20261001, 8];
+export const lock = [20261001, 8];
 
 export class ManualImportError extends Error {
   constructor(public readonly reason: "busy" | "locked" | "not-found" | "invalid" | "decided", public readonly detail?: string) {
@@ -29,14 +30,33 @@ export class ManualImportError extends Error {
 export const manualEditableFields = ["price", "stock", "barcode", "description", "viscosity", "package", "approvals", "imageUrl"] as const;
 export type ManualEditableField = (typeof manualEditableFields)[number];
 export type ManualValues = Omit<ManualRow, "sheet" | "row">;
-export type ManualOverrides = Partial<Pick<ManualValues, ManualEditableField>>;
+/**
+ * The bulk price/stock CSV's values (#832, manual-bulk.ts). `file` is the upload's cell when the CSV was applied: the
+ * last edit wins, so the CSV value holds while later uploads carry the same cell and gives way once the cell changes.
+ */
+export type ManualBulk = { price?: { list: number; discount: number; file: number | null }; stock?: { value: number; file: number | null } };
+export type ManualOverrides = Partial<Pick<ManualValues, ManualEditableField>> & { bulk?: ManualBulk };
 
 const empty = (value: unknown) => value === null || value === undefined || value === "";
-/** A filled cell of the upload wins; the admin's value fills only what the upload leaves empty. */
+const sameCell = (a: number | null | undefined, b: number | null | undefined) => (a ?? null) === (b ?? null);
+
+/** The parts of a CSV update still in force against these upload values (see ManualBulk). */
+export function activeBulk(file: Pick<ManualValues, "price" | "stock">, overrides: ManualOverrides | undefined): ManualBulk {
+  const bulk = overrides?.bulk;
+  return {
+    ...(bulk?.price && sameCell(bulk.price.file, file.price) ? { price: bulk.price } : {}),
+    ...(bulk?.stock && sameCell(bulk.stock.file, file.stock) ? { stock: bulk.stock } : {}),
+  };
+}
+
+/** A filled cell of the upload wins; the admin's value fills only what the upload leaves empty. A CSV value in force wins over both. */
 export function withOverrides(row: ManualValues, overrides: ManualOverrides | undefined): ManualValues {
   if (!overrides) return row;
   const merged = { ...row } as Record<string, unknown>;
   for (const field of manualEditableFields) if (empty(merged[field]) && !empty(overrides[field])) merged[field] = overrides[field];
+  const bulk = activeBulk(row, overrides);
+  if (bulk.price) merged.price = manualCost(bulk.price.list, bulk.price.discount);
+  if (bulk.stock) merged.stock = bulk.stock.value;
   return merged as ManualValues;
 }
 
@@ -82,11 +102,13 @@ function manualEnrichment(row: ManualValues, category: ManualCategory, image?: {
   };
 }
 
-function observation(row: ManualValues, file: ManualValues, category: ManualCategory, listName: string): ObservationItem {
+/** `pricing`: a CSV list price and discount in force; price_data then keeps them beside the cost (nf). */
+function observation(row: ManualValues, file: ManualValues, category: ManualCategory, listName: string, pricing?: ManualBulk["price"]): ObservationItem {
   return {
     code: row.code, product_data: manualProductData(row, file, category, listName),
-    price_data: row.price ? { nf: row.price } : null, stock_data: row.stock === null ? null : { stok: row.stock },
-    product_count: 1, price_count: row.price ? 1 : 0, stock_count: row.stock === null ? 0 : 1, conflicting: false, source_variants: {},
+    price_data: pricing ? { nf: row.price ?? 0, list: pricing.list, discount: pricing.discount } : row.price ? { nf: row.price } : null,
+    stock_data: row.stock === null ? null : { stok: row.stock },
+    product_count: 1, price_count: pricing || row.price ? 1 : 0, stock_count: row.stock === null ? 0 : 1, conflicting: false, source_variants: {},
   };
 }
 
@@ -209,18 +231,15 @@ export async function saveManualDraft(pool: Pool, input: { listGroup: string; li
 /** Imports a reviewed draft. A draft with errors is refused; the admin fixes the file and uploads it again. */
 export async function importManualDraft(pool: Pool, draftId: string, download: typeof downloadImage = downloadImage) {
   const draft = (await pool.query<{ list_group: string; list_name: string; file_name: string; rows: ManualRow[]; report: ManualDraftReport; status: string }>(
-    "SELECT list_group,list_name,file_name,rows,report,status FROM manual_uploads WHERE id=$1", [draftId])).rows[0];
+    "SELECT list_group,list_name,file_name,rows,report,status FROM manual_uploads WHERE id=$1 AND kind='list'", [draftId])).rows[0];
   if (!draft) throw new ManualImportError("not-found");
   if (draft.status !== "draft") throw new ManualImportError("decided");
   if (draft.report.errors || !draft.rows.length) throw new ManualImportError("invalid");
   const scope = manualScope(draft.list_group);
   const categories = new Map((await manualCategories(pool)).map(category => [category.id, category]));
-  const overrides = new Map((await pool.query<{ code: string; fields: ManualOverrides }>("SELECT code,fields FROM manual_item_overrides WHERE list_group=$1", [draft.list_group])).rows.map(row => [row.code, row.fields]));
-  const rows = draft.rows.map(source => {
-    const file: ManualValues = Object.fromEntries(Object.entries(source).filter(([key]) => key !== "sheet" && key !== "row")) as ManualValues;
-    return { file, row: withOverrides(file, overrides.get(file.code)) };
-  });
-  for (const { row } of rows) if (!categories.has(row.categoryId)) throw new ManualImportError("invalid", `category ${row.categoryId}`);
+  const files = draft.rows.map(source => Object.fromEntries(Object.entries(source).filter(([key]) => key !== "sheet" && key !== "row")) as ManualValues);
+  // The category always comes from the file.
+  for (const file of files) if (!categories.has(file.categoryId)) throw new ManualImportError("invalid", `category ${file.categoryId}`);
   const connection = await pool.connect();
   let locked = false;
   let inTransaction = false;
@@ -228,6 +247,19 @@ export async function importManualDraft(pool: Pool, draftId: string, download: t
   try {
     locked = (await connection.query("SELECT pg_try_advisory_lock($1,$2) AS locked", lock)).rows[0].locked;
     if (!locked) throw new ManualImportError("busy");
+    // Read under the lock: an item page save or a CSV confirmation (same lock) cannot change them until this import ends.
+    const overrides = new Map((await connection.query<{ code: string; fields: ManualOverrides }>("SELECT code,fields FROM manual_item_overrides WHERE list_group=$1", [draft.list_group])).rows.map(row => [row.code, row.fields]));
+    const rows = files.map(file => {
+      const fields = overrides.get(file.code);
+      return { file, row: withOverrides(file, fields), pricing: activeBulk(file, fields).price };
+    });
+    // CSV values whose upload cell changed give way to the file (last edit wins): their part of `bulk` is dropped.
+    const staleBulk = rows.flatMap(({ file }) => {
+      const bulk = overrides.get(file.code)?.bulk;
+      if (!bulk) return [];
+      const kept = activeBulk(file, overrides.get(file.code));
+      return (bulk.price && !kept.price) || (bulk.stock && !kept.stock) ? [{ code: file.code, bulk: kept.price || kept.stock ? kept : null }] : [];
+    });
     runId = (await connection.query<{ id: string }>(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,started_at,status,observations,quality,groups_data,currencies_data,run_kind)
       VALUES($1,$2,$3,$4,now(),'running',$5,'{}','{}','{}','full') RETURNING id`,
     [scope.supplier, scope.company, scope.group, scope.warehouse, JSON.stringify({ file: draft.file_name, upload: draftId })])).rows[0].id;
@@ -237,7 +269,10 @@ export async function importManualDraft(pool: Pool, draftId: string, download: t
       field: "imageUrl", level: "warning", message: `Resim indirilemedi (${reason}): ${url}` }));
     await connection.query("BEGIN"); inTransaction = true;
     const observedAt = new Date();
-    const stats = await applySupplierSnapshot(connection, scope, runId, rows.map(({ row, file }) => observation(row, file, categories.get(row.categoryId)!, draft.list_name)), observedAt, true);
+    const stats = await applySupplierSnapshot(connection, scope, runId, rows.map(({ row, file, pricing }) => observation(row, file, categories.get(row.categoryId)!, draft.list_name, pricing)), observedAt, true);
+    if (staleBulk.length) await connection.query(`UPDATE manual_item_overrides o SET updated_at=now(),
+        fields=CASE WHEN x.bulk IS NULL THEN o.fields - 'bulk' ELSE jsonb_set(o.fields,'{bulk}',x.bulk) END
+      FROM jsonb_to_recordset($2::jsonb) AS x(code text,bulk jsonb) WHERE o.list_group=$1 AND o.code=x.code`, [draft.list_group, JSON.stringify(staleBulk)]);
     await writeEnrichments(connection, draft.list_group, rows.map(({ row }) => ({ code: row.code, row, category: categories.get(row.categoryId)!,
       image: row.imageUrl ? images.stored.get(row.imageUrl) : undefined })));
     const result = { ...quality(rows.map(({ row }) => row), [...draft.report.issues, ...imageIssues]), imagesStored: rows.filter(({ row }) => row.imageUrl && images.stored.has(row.imageUrl)).length,
@@ -258,7 +293,7 @@ export async function importManualDraft(pool: Pool, draftId: string, download: t
   }
 }
 
-const saveLockTimeout = "5s";
+export const saveLockTimeout = "5s";
 
 /** Saves the item page's values and applies them to the current item at once (and to later uploads, see withOverrides). */
 export async function updateManualItem(pool: Pool, itemId: string, values: ManualOverrides, by: string | null, download: typeof downloadImage = downloadImage) {
@@ -267,11 +302,10 @@ export async function updateManualItem(pool: Pool, itemId: string, values: Manua
   if (!item) throw new ManualImportError("not-found");
   const categories = new Map((await manualCategories(pool)).map(category => [category.id, category]));
   const file = item.product_data.file;
-  // Only fields the upload leaves empty are kept (a filled cell wins anyway); an emptied field drops the override.
-  const fields = Object.fromEntries(manualEditableFields.filter(field => empty(file[field]) && !empty(values[field])).map(field => [field, values[field]]));
-  const row = withOverrides(file, fields);
-  const image = row.imageUrl ? (await storeImages(pool, [row.imageUrl], download)) : null;
-  if (row.imageUrl && image?.failed.size) throw new ManualImportError("invalid", `image: ${image.failed.get(row.imageUrl)}`);
+  // The image is downloaded before the lock (no row locks held while waiting on other servers); a filled cell wins.
+  const imageUrl = !empty(file.imageUrl) ? file.imageUrl : !empty(values.imageUrl) ? values.imageUrl : null;
+  const image = imageUrl ? (await storeImages(pool, [imageUrl], download)) : null;
+  if (imageUrl && image?.failed.size) throw new ManualImportError("invalid", `image: ${image.failed.get(imageUrl)}`);
   const connection = await pool.connect();
   let locked = false;
   try {
@@ -281,10 +315,23 @@ export async function updateManualItem(pool: Pool, itemId: string, values: Manua
     // A product-match refresh (~2 min) or a supplier import can hold rows this save writes until it commits: give up
     // after a few seconds and tell the admin, instead of keeping the request open for the whole run (#521).
     await connection.query(`SET LOCAL lock_timeout = '${saveLockTimeout}'`);
+    // Read under the lock, so a CSV confirmation (same lock) cannot slip in between this read and the write below.
+    const existing = (await connection.query<{ fields: ManualOverrides }>("SELECT fields FROM manual_item_overrides WHERE list_group=$1 AND code=$2",
+      [item.list_group, item.code])).rows[0]?.fields ?? {};
+    // A CSV price or stock in force is shown read-only on the item page: the form's value does not replace it (#832).
+    const bulk = activeBulk(file, existing);
+    const kept = (field: ManualEditableField) => field === "price" && bulk.price || field === "stock" && bulk.stock;
+    // Only fields the upload leaves empty are kept (a filled cell wins anyway); an emptied field drops the override.
+    const fields: ManualOverrides = Object.fromEntries(manualEditableFields.flatMap(field => {
+      const value = kept(field) ? existing[field] : values[field];
+      return empty(file[field]) && !empty(value) ? [[field, value]] : [];
+    }));
+    if (bulk.price || bulk.stock) fields.bulk = bulk;
+    const row = withOverrides(file, fields);
     await connection.query(`INSERT INTO manual_item_overrides(list_group,code,fields,updated_by) VALUES($1,$2,$3,$4)
       ON CONFLICT(list_group,code) DO UPDATE SET fields=EXCLUDED.fields,updated_by=EXCLUDED.updated_by,updated_at=now()`,
     [item.list_group, item.code, JSON.stringify(fields), by]);
-    const next = observation(row, file, categories.get(row.categoryId)!, item.product_data.list_name);
+    const next = observation(row, file, categories.get(row.categoryId)!, item.product_data.list_name, bulk.price);
     // NO KEY UPDATE: the matcher's foreign keys (product_match_items, product_sources…) key-share every listed row for
     // its whole run, which FOR UPDATE waits on; this UPDATE leaves the row's keys alone (#521).
     const changed = await connection.query<{ id: string }>(`WITH old AS (SELECT * FROM supplier_items WHERE id=$1 FOR NO KEY UPDATE),

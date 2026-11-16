@@ -6,7 +6,10 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb,BreadcrumbItem,BreadcrumbLink,BreadcrumbList,BreadcrumbPage,BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Search,ChevronRight,ShieldCheck,Truck,CarFront,CircleCheck,Info } from "lucide-react";
-import { browseProducts,catalogFacets,vehicleFitCount,productsFittingVehicle,servicePrice } from "@/modules/store/catalog";
+import { after } from "next/server";
+import { headers } from "next/headers";
+import { recordSearch } from "@/modules/search/analytics";
+import { browseProducts,isPlainSearch,catalogFacets,vehicleFitCount,productsFittingVehicle,servicePrice } from "@/modules/store/catalog";
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { currentAccount } from "@/modules/auth/session";
 import { currentVehicle } from "@/modules/store/garage";
@@ -57,8 +60,8 @@ const benefits=[
 // OEM code search plus the garage picker; `compact` is the smaller copy inside the sticky finder.
 function CatalogFinder({compact,home,query,vehicle}:{compact:boolean;home:string;query?:string;vehicle:ShownVehicle|null}){
  return <div className={cn("flex items-center justify-center py-1 max-[600px]:mx-auto max-[600px]:max-w-[400px] max-[600px]:flex-wrap",compact&&"h-20 px-[15px] py-4")}>
-  <form action={home} className="flex gap-2.5 max-[600px]:w-full" role="search" aria-label="OEM numarasıyla parça ara">
-   <label className={cn("flex h-14 w-[296px] overflow-hidden rounded-md border border-white bg-white min-[601px]:max-[850px]:w-60 max-[600px]:w-auto max-[600px]:min-w-0 max-[600px]:flex-1",compact&&"h-12 w-[245px]")}>
+  <form action={home} className="flex min-w-0 gap-2.5 max-[600px]:w-full" role="search" aria-label="OEM numarasıyla parça ara">
+   <label className={cn("flex h-14 w-[296px] overflow-hidden rounded-md border border-white bg-white min-[600px]:max-[850px]:w-60 max-[600px]:w-auto max-[600px]:min-w-0 max-[600px]:flex-1",compact&&"h-12 w-[245px]")}>
     <span aria-hidden="true" className="flex flex-[0_0_36px] items-center justify-center bg-[#003399] text-[11px] font-semibold text-white">OEM</span>
     <input type="search" name="q" aria-label="Ürün kodu veya OEM numarası" placeholder="Ürün kodu veya OEM numarası" defaultValue={query} minLength={2} maxLength={120} required
      className={cn("h-[54px] w-full min-w-0 border-0 bg-white px-2.5 py-3.5 text-sm text-[#54626e] outline-none placeholder:text-[#637381]",compact&&"h-[46px]")}/>
@@ -68,7 +71,7 @@ function CatalogFinder({compact,home,query,vehicle}:{compact:boolean;home:string
   </form>
   <span className="relative mx-[25px] w-4 py-[18px] text-center text-xs font-medium whitespace-nowrap text-white/75 uppercase before:absolute before:top-0 before:left-1/2 before:h-[17px] before:w-px before:bg-[#e6e9ec33] after:absolute after:bottom-0 after:left-1/2 after:h-[17px] after:w-px after:bg-[#e6e9ec33] max-[850px]:mx-4 max-[600px]:hidden">veya</span>
   {/* GarageButton belongs to the site chrome; only its size in this slot is set here. */}
-  <div className={cn("contents [&>button]:h-14 [&>button]:min-h-14 [&>button]:w-[320px] max-[850px]:[&>button]:w-[280px] max-[850px]:[&>button]:text-sm min-[601px]:max-[850px]:[&>button]:w-60 min-[601px]:max-[850px]:[&>button]:shrink-0 max-[600px]:[&>button]:mt-3 max-[600px]:[&>button]:w-full",compact&&"[&>button]:h-12 [&>button]:min-h-12 [&>button]:text-sm")}><GarageButton vehicle={vehicle} variant="catalog"/></div>
+  <div className={cn("contents [&>button]:h-14 [&>button]:min-h-14 [&>button]:w-[320px] max-[850px]:[&>button]:w-[280px] max-[850px]:[&>button]:text-sm min-[600px]:max-[850px]:[&>button]:w-60 [&>button]:min-w-0 max-[600px]:[&>button]:mt-3 max-[600px]:[&>button]:w-full",compact&&"[&>button]:h-12 [&>button]:min-h-12 [&>button]:text-sm")}><GarageButton vehicle={vehicle} variant="catalog"/></div>
  </div>;
 }
 export const catalogDescription=(slug:string)=>descriptions[slug];
@@ -81,6 +84,13 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const vehicleTypeId=(await fitmentVehicle(vehicle))?.typeId ?? null;
  const [result,facetData,account,vehicleBrands,fitCount,oilSpec]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId?vehicleFitCount(params,vehicleTypeId):0,getVehicleOilSpec(vehicleTypeId)]);
  const products=result.items;
+ // Search analytics (#822): a plain search's first page, counted after the response; crawlers and prefetches are not shoppers.
+ if(isPlainSearch(params)&&result.page===1){
+  const request=await headers();
+  const crawler=/bot|crawl|spider|slurp|preview|headless|lighthouse/i.test(request.get("user-agent")??"");
+  const prefetch=request.has("next-router-prefetch")||/prefetch/i.test(request.get("sec-purpose")??request.get("purpose")??"");
+  if(!crawler&&!prefetch)after(()=>recordSearch({query:params.q!,mode:params.searchBy==="code"?"code":"all",total:result.total,correctedQuery:result.correctedQuery}));
+ }
  const [images,logos,details,fitting]=await Promise.all([getCatalogProductImages(products),getManufacturerLogos(products.map(product=>product.display_brand)),getCatalogProductDetails(products),vehicleTypeId?productsFittingVehicle(products.map(product=>product.id),vehicleTypeId):new Set<string>()]);
  // On a make or model listing only the categories holding its products are linked: an empty one would be a 404 (#673).
  const [categories,scopeCounts]=await Promise.all([getStoreCategories(),make?scopeCategoryCounts({make:params.make,model:params.model}):undefined]);

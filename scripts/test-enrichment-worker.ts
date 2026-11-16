@@ -7,6 +7,7 @@ import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {Pool} from 'pg';
 import {syncSharedLinks} from './test-helpers/shared-links';
+import {syncProductStates} from './test-helpers/product-states';
 import {sourceDecision,retryAfterMs,validSourcePath,quietWaitMs,pacingDelayMs} from '../src/modules/enrichment/policy';
 import {parseProduct,parseSearch,parseView,parseEngine,chooseExact,sourcePartQuery,sourcePartQueries,supplierOemQueries,verifiedOemReference,collectVehicles,imagePath,oemSearchPath,searchPath} from '../src/modules/enrichment/trodo-adapter';
 import {SourceQueue,unblockSources} from '../src/modules/enrichment/source-queue';
@@ -363,7 +364,7 @@ test('master product sharing excludes equivalents, split offers and changed supp
   const queued=async()=>(await pool.query('SELECT count(*)::int AS n FROM enrichment_product_state_queue')).rows[0].n;
   const consistent=async()=>{
    assert.ok(await queued()>0,'a write must queue its products');
-   await pool.query('SELECT enrichment_product_states_sync()');
+   await syncProductStates(pool);
    assert.equal(await queued(),0);
    const diffs=(await pool.query(`SELECT count(*)::int AS n FROM ((SELECT ${stateColumns} FROM enrichment_product_state_rows EXCEPT SELECT ${stateColumns} FROM enrichment_product_states)
     UNION ALL (SELECT ${stateColumns} FROM enrichment_product_states EXCEPT SELECT ${stateColumns} FROM enrichment_product_state_rows)) d`)).rows[0].n;

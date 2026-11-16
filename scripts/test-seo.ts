@@ -7,6 +7,8 @@ import { isGatedListing, listingIndexable, minIndexableListingProducts } from ".
 import { categoryNameInText } from "../src/modules/store/category-tree";
 import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, withModelYears } from "../src/modules/store/vehicle-model-groups";
 import { legalLinks } from "../src/content/legal";
+import { sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
+import { startSitemapWarmup, warmIntervalMs, warmSitemaps } from "../src/modules/seo/sitemap-warmup";
 
 type Group = { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
 const list = (value: string | string[] | undefined) => (value === undefined ? [] : Array.isArray(value) ? value : [value]);
@@ -44,7 +46,7 @@ test("production has a general group and an AI crawler group with identical bodi
 });
 
 test("robots rules open the public store and close private and unbounded URLs", () => {
-  const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/yedek-parca/volkswagen/golf-7?page=2", "/kategori/fren/volkswagen/golf-7", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt", "/marka/bosch", "/marka/bosch?page=2"];
+  const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/yedek-parca/volkswagen/golf-7?page=2", "/kategori/fren/volkswagen/golf-7", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/api/brand-logos/12?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt", "/marka/bosch", "/marka/bosch?page=2"];
   const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/yedek-parca/volkswagen/golf-7?sort=price-asc", "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D", "/kategori/fren/volkswagen/golf-7?sort=price-asc", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code", "/marka/bosch?sort=price-asc", "/marka/bosch?q=x"];
   for (const group of groups) {
     for (const url of open) assert.equal(allowed(group, url), true, `${url} should be allowed`);
@@ -138,4 +140,45 @@ test("llms.txt route answers with cacheable plain text", async () => {
   assert.equal(response.headers.get("content-type"), "text/plain; charset=utf-8");
   assert.ok(response.headers.get("cache-control"));
   assert.ok((await response.text()).startsWith("# Getirbakim"));
+});
+
+test("the sitemap warm-up runs before the cached data goes stale or is evicted (#778)", () => {
+  // A stale read starts the refresh, so a round must fall between "stale" and "evicted": interval < TTL - revalidate.
+  assert.ok(sitemapWarmIntervalMs < (sitemapTtlSeconds - sitemapRevalidateSeconds) * 1000);
+  assert.equal(warmIntervalMs(undefined), sitemapWarmIntervalMs);
+  assert.equal(warmIntervalMs("60000"), 60_000);
+  assert.equal(warmIntervalMs("999999999999"), sitemapMaxWarmIntervalMs);
+});
+
+test("warmSitemaps requests the slow files one after the other and never throws (#778)", async () => {
+  const calls: string[] = [];
+  let active = 0, overlapped = false;
+  const fake = (async (url: string) => {
+    calls.push(url);
+    overlapped ||= ++active > 1;
+    await new Promise(resolve => setTimeout(resolve, 1));
+    active--;
+    if (url.endsWith("model-categories.xml")) throw new Error("boom");
+    return new Response("<urlset/>", { status: url.endsWith("manufacturers.xml") ? 500 : 200 });
+  }) as unknown as typeof fetch;
+  const results = await warmSitemaps("http://127.0.0.1:3000", { fetch: fake });
+  assert.deepEqual(calls, ["models.xml", "model-categories.xml", "manufacturers.xml"].map(file => `http://127.0.0.1:3000/sitemaps/${file}`));
+  assert.deepEqual(results.map(({ file, ok }) => [file, ok]), [["models.xml", true], ["model-categories.xml", false], ["manufacturers.xml", false]]);
+  assert.equal(overlapped, false);
+});
+
+test("startSitemapWarmup ticks on its interval, skips a running round and stops (#778)", async () => {
+  let ticks = 0, active = 0, overlapped = false;
+  const stop = startSitemapWarmup("http://127.0.0.1:3000", {
+    intervalMs: 5, random: () => 0,
+    warm: async () => { ticks++; overlapped ||= ++active > 1; await new Promise(resolve => setTimeout(resolve, 18)); active--; },
+  });
+  // unref'd timers do not keep the process alive; this pending timer does.
+  await new Promise(resolve => setTimeout(resolve, 150));
+  stop();
+  const stopped = ticks;
+  assert.ok(stopped >= 1, `ticks: ${stopped}`);
+  assert.equal(overlapped, false);
+  await new Promise(resolve => setTimeout(resolve, 80));
+  assert.equal(ticks, stopped);
 });

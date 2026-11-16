@@ -1,9 +1,11 @@
 import { request } from "node:https";
 import { rootCertificates } from "node:tls";
 import { z } from "zod";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { applySupplierSnapshot, rejectionReason, type ObservationItem } from "./sync";
 import { EgressProxyError, egressProxyFor, TunnelAgent } from "./egress-proxy";
+import { dinamikCost } from "./dinamik-pricing";
+import { CHECKOUT_LOCK_TIMEOUT, fallbackReason, type FallbackReason } from "./checkout-fallback";
 
 // Shared by the scheduler and CLI. Dinamik publishes one stock list (product + regional availability)
 // and one price list per brand; there is no paging, so each brand is one complete scope.
@@ -145,14 +147,15 @@ const text = (value: unknown) => typeof value === "string" ? value.replace(/\s+/
 /**
  * Storefront, search and checkout read Başbuğ's field names (ac name, ac2 description, uk brand, oe OEMs, dc currency,
  * nf cost, stok availability), so Dinamik rows also carry them next to their own fields, as SETA's do.
- * nf is Dinamik's list price, treated as the VAT-exclusive TRY cost (business decision, 2026-10-11): the shared
- * markup and VAT settings apply on top. kampanyaOrani is kept but not applied — its meaning is unverified.
+ * nf is our VAT-exclusive TRY cost: Dinamik's list price (fiyat) less the dealer discounts and the row's campaign rate,
+ * applied one after another (#809, confirmed 2026-11-16: TUDOR TL955 13.290,48 × 0,55 × 0,95 × 0,96 = 6.666,50).
+ * The shared markup and VAT settings apply on top. fiyat and kampanyaOrani stay alongside as the source values.
  * stok is 1 when any regional flag says VAR; the flags themselves stay alongside.
  */
 export function dinamikStorefrontFields(stockRow: Record<string, unknown> | undefined, priceRow: Record<string, unknown> | undefined) {
   const product = stockRow ? { no: text(stockRow.stokKodu), ac: text(stockRow.stokAdi) || text(stockRow.stokKodu), ac2: text(stockRow.ingilizceAdi),
     uk: text(stockRow.kull3s) || text(stockRow.marka), oe: text(stockRow.oemListe), dc: "TRY" } : {};
-  const price = typeof priceRow?.fiyat === "number" && priceRow.fiyat > 0 ? { nf: priceRow.fiyat } : {};
+  const price = typeof priceRow?.fiyat === "number" && priceRow.fiyat > 0 ? { nf: dinamikCost(priceRow.fiyat, stockRow?.kampanyaOrani) } : {};
   const stock = stockRow ? { stok: stockFields.some(key => text(stockRow[key]).toUpperCase() === "VAR") ? 1 : 0 } : {};
   return { product, price, stock };
 }
@@ -394,35 +397,56 @@ export async function importDinamik(pool: Pool, options: z.input<typeof dinamikI
  * verified 2026-10-11; same row shape as the stock list, [] for a code no longer listed). The brand-list
  * import took up to ~35 s (ORIJINAL) and waited on a running nightly import's lock. Only price and stock
  * change here: presence and catalog membership stay with the full brand imports. A code the endpoint no
- * longer returns is marked unavailable (every region YOK) rather than sold on its last known stock.
+ * longer returns is marked unavailable (every region YOK) rather than sold on its last known stock and comes
+ * back in `gone`, so the order refuses it even when that could not be saved.
+ *
+ * Like refreshBasbugItems it never throws for the supplier: a line it could not confirm (missing configuration,
+ * timeout, upstream or contract error, rows a running import keeps locked) comes back in `failed` with the reason
+ * and is sold on its saved data.
  */
 export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?: DinamikFetch) {
-  if (!ids.length) return { refreshed: 0, changed: 0 };
+  const failed: Record<string, FallbackReason> = {};
+  const result = { refreshed: 0, changed: 0, gone: [] as string[], failed };
+  if (!ids.length) return result;
   const rows = (await pool.query<{ id: string; code: string; list_group: string; product_data: Record<string, unknown>; price_data: Record<string, unknown> | null; stock_data: Record<string, unknown> | null }>(
-    "SELECT id,code,list_group,product_data,price_data,stock_data FROM supplier_items WHERE supplier='dinamik' AND id=ANY($1::uuid[])", [ids])).rows;
-  const get = fetchJson ?? dinamikClient();
+    "SELECT id,code,list_group,product_data,price_data,stock_data FROM supplier_items WHERE supplier='dinamik' AND id=ANY($1::uuid[]) ORDER BY id", [ids])).rows;
+  let get: DinamikFetch;
+  try { get = fetchJson ?? dinamikClient(); }
+  catch (error) {
+    for (const row of rows) failed[row.id] = fallbackReason(error);
+    return result;
+  }
   const observed: { id: string; product_data: Record<string, unknown>; price_data: Record<string, unknown> | null; stock_data: Record<string, unknown> | null }[] = [];
-  // A few at a time: carts are small, and the API serves one code per request.
+  const goneIds: string[] = [];
+  // A few at a time: carts are small, and the API serves one code per request. A failing code marks only its own line.
   for (let index = 0; index < rows.length; index += 4) {
     await Promise.all(rows.slice(index, index + 4).map(async row => {
-      let response: unknown;
-      try { response = await get("getStock", { STOK_KODU: row.code }); }
-      catch (error) { throw error instanceof DinamikImportError ? error : new DinamikImportError("upstream", "getStock"); }
-      const stock = z.array(stockRowSchema).parse(response).filter(item => item.stokKodu.trim() === row.code);
-      if (!stock.length) {
-        observed.push({ id: row.id, product_data: row.product_data, price_data: row.price_data,
-          stock_data: { ...Object.fromEntries(stockFields.map(key => [key, "YOK"])), stok: 0 } });
-        return;
+      try {
+        const response = await get("getStock", { STOK_KODU: row.code });
+        const stock = z.array(stockRowSchema).parse(response).filter(item => item.stokKodu.trim() === row.code);
+        if (!stock.length) {
+          observed.push({ id: row.id, product_data: row.product_data, price_data: row.price_data,
+            stock_data: { ...Object.fromEntries(stockFields.map(key => [key, "YOK"])), stok: 0 } });
+          goneIds.push(row.id);
+          return;
+        }
+        // The same code may come back padded as well ("X  "); the row written exactly is the one we order.
+        const match = stock.find(item => item.stokKodu === row.code) ?? stock[0];
+        const item = prepareDinamikImport({ brand: row.list_group, stock: [match], prices: [{ marka: match.marka, stokKodu: row.code, fiyat: match.fiyat }] }).items[0];
+        observed.push({ id: row.id, product_data: item.product_data, price_data: item.price_data, stock_data: item.stock_data });
+      } catch (error) {
+        failed[row.id] = error instanceof z.ZodError ? "contract" : fallbackReason(error);
       }
-      // The same code may come back padded as well ("X  "); the row written exactly is the one we order.
-      const match = stock.find(item => item.stokKodu === row.code) ?? stock[0];
-      const item = prepareDinamikImport({ brand: row.list_group, stock: [match], prices: [{ marka: match.marka, stokKodu: row.code, fiyat: match.fiyat }] }).items[0];
-      observed.push({ id: row.id, product_data: item.product_data, price_data: item.price_data, stock_data: item.stock_data });
     }));
   }
-  const client = await pool.connect();
+  if (!observed.length) return result;
+  let client: PoolClient | undefined;
   try {
+    client = await pool.connect();
     await client.query("BEGIN");
+    // Same rule as Başbuğ: wait briefly for rows a running brand import holds, in id order, then write over them.
+    await client.query(CHECKOUT_LOCK_TIMEOUT);
+    await client.query("SELECT id FROM supplier_items WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE", [observed.map(item => item.id)]);
     // JSONB equality ignores key order; only real changes get a new changed_at and a history row.
     const changed = await client.query(`WITH incoming AS (
         SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(id uuid,product_data jsonb,price_data jsonb,stock_data jsonb)),
@@ -441,7 +465,18 @@ export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?:
       FROM updated u JOIN before b ON b.id=u.id`, [JSON.stringify(observed)]);
     await client.query("UPDATE supplier_items SET last_seen_at=now() WHERE id=ANY($1::uuid[])", [observed.map(item => item.id)]);
     await client.query("COMMIT");
-    return { refreshed: observed.length, changed: changed.rowCount ?? 0 };
-  } catch (error) { await client.query("ROLLBACK"); throw error; }
-  finally { client.release(); }
+    result.refreshed = observed.length;
+    result.changed = changed.rowCount ?? 0;
+    result.gone = goneIds;
+    return result;
+  } catch (error) {
+    // Nothing was written: lines the supplier answered are sold on saved data and marked; codes it no longer lists
+    // are still reported gone so the order refuses them.
+    await client?.query("ROLLBACK").catch(() => undefined);
+    console.error("Dinamik checkout check could not be saved", { reason: error instanceof Error ? error.message : error });
+    result.gone = goneIds;
+    const gone = new Set(goneIds);
+    for (const item of observed) if (!gone.has(item.id)) failed[item.id] = "busy";
+    return result;
+  } finally { client?.release(); }
 }

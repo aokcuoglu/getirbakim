@@ -13,6 +13,7 @@ import type { FitmentLevel } from './fitment-level';
 import { buildOrderAgreement,legalTextVersion,type AgreementLine } from './order-agreement';
 import { checkoutConsentText } from './checkout-schema';
 import type { ClientEvidence } from '@/lib/client-address';
+import { CHECKOUT_LOCK_TIMEOUT } from '@/modules/suppliers/checkout-fallback';
 
 export type CommerceOrder = {
  id:string; number:string; owner_kind:'account'|'guest'; owner_id:string;
@@ -72,11 +73,26 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   // A cart changed during the API call must be quoted and checked again.
   const currentItems=(await checkoutItems(owner,client)).map(item=>item.id);
   if(JSON.stringify(currentItems)!==JSON.stringify(refreshed.items)) { await client.query('ROLLBACK'); return {error:'stock'}; }
+  // (#770) The supplier no longer knows these codes (604 / empty getStock); refused even when the zeroed stock could not be saved.
+  if(refreshed.gone.length) { await client.query('ROLLBACK'); return {error:'stock'}; }
   await client.query('SELECT id FROM commerce_settings FOR SHARE');
   if(await supplierCheckoutMode(client)!==refreshed.mode) { await client.query('ROLLBACK'); return {error:'price'}; }
   // Lock saleable sources while prices are checked and store stock is reserved.
   await client.query(`SELECT p.id FROM store_products p JOIN commerce_cart_items c ON c.product_id=p.id WHERE c.owner_kind=$1 AND c.owner_id=$2 ORDER BY p.id FOR UPDATE OF p`,[owner.kind,owner.id]);
-  await client.query(`SELECT p.id FROM supplier_items p JOIN commerce_cart_items c ON c.product_id=p.id WHERE c.owner_kind=$1 AND c.owner_id=$2 ORDER BY p.id FOR SHARE OF p`,[owner.kind,owner.id]);
+  // A supplier list import (#790) updates every row in its scope and holds them until it commits: the order waits at
+  // most CHECKOUT_LOCK_TIMEOUT, then goes on without the share lock and reads the rows as committed before the import.
+  // The quote check below still refuses a changed price; lock_timeout is reset so later writes wait normally.
+  await client.query('SAVEPOINT supplier_rows');
+  await client.query(CHECKOUT_LOCK_TIMEOUT);
+  try {
+   await client.query(`SELECT p.id FROM supplier_items p JOIN commerce_cart_items c ON c.product_id=p.id WHERE c.owner_kind=$1 AND c.owner_id=$2 ORDER BY p.id FOR SHARE OF p`,[owner.kind,owner.id]);
+   await client.query('RELEASE SAVEPOINT supplier_rows');
+  } catch(error) {
+   if((error as {code?:unknown}).code!=='55P03') throw error;
+   await client.query('ROLLBACK TO SAVEPOINT supplier_rows');
+   console.warn(`submitOrder: supplier rows locked by an import, continuing with committed data (${owner.kind}, request ${input.requestKey})`);
+  }
+  await client.query('SET LOCAL lock_timeout = 0');
   const account=owner.kind==='account' ? (await client.query<{role:string;discount_percent:number}>('SELECT role,discount_percent FROM accounts WHERE id=$1',[owner.id])).rows[0] : null;
   const discount=account?.role==='service' ? account.discount_percent : 0;
   const items=await cartFor(owner,client);

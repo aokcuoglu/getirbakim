@@ -4,7 +4,7 @@ Eski `gb` kodu, şeması, sorguları veya verileri okunmadı/taşınmadı. Yaln�
 
 ## Dinamik
 
-11 Ekim 2026: canlı bağlandı. API (`https://dinamikapp-api.dinamik.online`, `ApiKey` + `SecretKey` başlıkları) yalnız VPS IP'sine (173.249.36.2) izin verir; production konteynerleri bu IP'den çıktığı için proxy gerekmez. Lokal geliştirmede `ssh -N -L 18443:dinamikapp-api.dinamik.online:443 root@173.249.36.2` + `DINAMIK_DIRECT_TUNNEL=127.0.0.1:18443` (SNI, sertifika ve `Host` gerçek ad kalır). VPS dışından (AWS) çağrılar `SUPPLIER_EGRESS_PROXY` ile VPS'teki squid üzerinden tünellenir; bkz. [infra/squid/README.md](../infra/squid/README.md) (#411). Swagger 404; sözleşme canlı yanıtlardan doğrulandı.
+11 Ekim 2026: canlı bağlandı. API (`https://dinamikapp-api.dinamik.online`, `ApiKey` + `SecretKey` başlıkları) IP allow-list'iyle çalışır: VPS (173.249.36.2) ve 16 Kasım 2026'dan beri AWS çıkış IP'si (18.194.217.212). AWS'ten proxy'siz doğrudan çağrı aynı gün doğrulandı (tek seferlik ECS görevi, `SUPPLIER_EGRESS_PROXY` kapalı → `getBrandList` 800 marka, #802). Lokal geliştirmede `ssh -N -L 18443:dinamikapp-api.dinamik.online:443 root@173.249.36.2` + `DINAMIK_DIRECT_TUNNEL=127.0.0.1:18443` (SNI, sertifika ve `Host` gerçek ad kalır). AWS'te `SUPPLIER_EGRESS_PROXY` tanımlıyken çağrılar VPS'teki squid üzerinden tünellenir (#411); ayar kaldırılınca doğrudan çıkar, squid yedek kalır. Bkz. [infra/squid/README.md](../infra/squid/README.md). Swagger 404; sözleşme canlı yanıtlardan doğrulandı.
 
 Sunucu TLS zincirinde ara sertifikayı göndermiyor. Doğrulama kapatılmadı: Sectigo DV R36 ara sertifikası koda sabitlendi (kök, sistem güven deposundaki Sectigo Root R46; ara sertifika 2036'ya kadar geçerli).
 

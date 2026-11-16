@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { CircleAlert, CircleCheck, Maximize2, Merge, Pencil } from "lucide-react";
+import { BrandLogoField, type BrandLogoState } from "@/components/admin/brand-logo-field";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { formatNumber } from "@/modules/admin/format";
@@ -50,7 +51,7 @@ export function StockLabel({ stock }: { stock: boolean | null }): ReactNode {
 type BrandLabelRow = { supplier: string; label: string; items: number; method: "auto" | "manual" };
 const supplierNames: Record<string, string> = { basbug: "Başbuğ", dinamik: "Dinamik", seta: "SETA", manual: "Manuel liste" };
 type BrandSuggestionRow = { id: string; name: string; evidence: string };
-export type BrandRow = { id: string; key: string; name: string; items: string; pending: boolean; fresh: boolean; suggestion: BrandSuggestionRow | null };
+export type BrandRow = { id: string; key: string; name: string; items: string; pending: boolean; fresh: boolean; suggestion: BrandSuggestionRow | null; logo: BrandLogoState };
 
 /** "Onayla": the automatically placed labels stay where they are. */
 export function ConfirmBrand({ id, back }: { id: string; back: string }) {
@@ -67,7 +68,7 @@ export function MergeSuggestion({ id, suggestion, back }: { id: string; suggesti
 
 /**
  * Rename a master brand, move one of its supplier labels to another master brand (or make it a brand of its own),
- * or merge the whole brand into another. Its labels and the target-name suggestions load when it opens, so closed dialogs add nothing to the page.
+ * or merge the whole brand into another, and set its store logo (#819). Its labels and the target-name suggestions load when it opens, so closed dialogs add nothing to the page.
  */
 export function BrandDialog({ brand, back }: { brand: BrandRow; back: string }) {
   const [open, setOpen] = useState(false);
@@ -100,6 +101,8 @@ export function BrandDialog({ brand, back }: { brand: BrandRow; back: string }) 
             <Input id={`brand-name-${brand.id}`} name="name" defaultValue={brand.name} maxLength={80} required/></Field>
           <SubmitButton variant="outline">Adı kaydet</SubmitButton>
         </form>
+        <Separator/>
+        <BrandLogoField brandId={brand.id} brandName={brand.name} state={brand.logo}/>
         <Separator/>
         {error ? <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>Etiketler alınamadı</AlertTitle><AlertDescription>{error}</AlertDescription><AlertAction><Button variant="outline" onClick={() => { setError(""); setAttempt(value => value + 1); }}>Tekrar dene</Button></AlertAction></Alert>
         : !data ? <div className="flex flex-col gap-2" role="status"><span className="sr-only">Etiketler yükleniyor…</span><Skeleton className="h-8 w-full"/><Skeleton className="h-24 w-full"/></div>

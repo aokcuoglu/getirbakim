@@ -22,7 +22,7 @@ const variants = {
   // The header row: hidden on checkout and (on phones) on the home page, which opens it from MobileSearchToggle.
   header: {
     form: "h-10 min-h-10 min-w-[220px] flex-1 rounded-[3px] border-input -mr-2 max-[850px]:mr-0 max-[850px]:min-w-0 max-[600px]:order-3 max-[600px]:w-full max-[600px]:flex-[0_0_100%] group-data-[route=checkout]/route:hidden group-data-[route=home]/route:max-[600px]:hidden",
-    select: "w-[164px] min-w-[164px] max-[1100px]:w-[156px] max-[1100px]:min-w-[156px] min-[601px]:max-[850px]:hidden max-[600px]:w-[136px] max-[600px]:min-w-[136px] max-[370px]:w-[125px] max-[370px]:min-w-[125px]",
+    select: "w-[164px] min-w-[164px] max-[1100px]:w-[156px] max-[1100px]:min-w-[156px] min-[600px]:max-[850px]:hidden max-[600px]:w-[136px] max-[600px]:min-w-[136px] max-[370px]:w-[125px] max-[370px]:min-w-[125px]",
     trigger: "min-h-[38px] rounded-none bg-[#f8f9f9] py-[9px] pr-8 pl-3",
     input: "h-[38px] px-2.5 py-[9px] max-[600px]:placeholder:text-xs max-[370px]:placeholder:text-[11px]",
     button: "h-[38px] w-10 basis-10 rounded-none bg-white text-foreground hover:bg-[#f7f8fa]",

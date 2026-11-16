@@ -16,7 +16,7 @@ CREATE INDEX IF NOT EXISTS product_vehicle_fitments_type_idx
  ON product_vehicle_fitments(vehicle_type_id,supplier_item_id) WHERE vehicle_type_id IS NOT NULL;
 
 -- Model-level fitment read from the supplier's own product description (#392) for products without an engine-level
--- TecDoc enrichment. Rebuilt by `npm run fitment:descriptions`; it never names an engine type, so the storefront
+-- TecDoc enrichment. Synced by `npm run fitment:descriptions` (unchanged rows keep derived_at, #798); it never names an engine type, so the storefront
 -- shows it as "model matches, engine type not verified".
 CREATE TABLE IF NOT EXISTS product_model_fitments (
  supplier_item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,

@@ -4,9 +4,10 @@ import { sortOrder } from "@/lib/table-sort";
 import { compactCode as compact, manualKind, manualSearchTerms, pickSameProducts, sameLinked, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
 import { bulkAcceptableSql, isBulkReason, manualDeciderSql, manualKindFilterSql, manualKindSql, manualGroupsSql, offerManualSql, isPatternBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { requireAdmin } from "@/modules/auth/session";
+import { resolveBrandLogos, type BrandLogoSource, type ManufacturerLogo } from "@/modules/store/manufacturer-logos";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
-type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string; kind?: string; linked?: string };
+type MatchingParams = { tab?: string; scope?: string; names?: string; q?: string; page?: string; decided?: string; refreshed?: string; split?: string; matched?: string; count?: string; brand?: string; error?: string; sort?: string; dir?: string; kind?: string; linked?: string; logo?: string };
 // Header sorting per tab (TableHead sortKey → column); keys are only looked up here, never interpolated from the URL.
 const sorts = {
   brands: { name: "name", items: "items" },
@@ -41,9 +42,16 @@ export type BrandSuggestion = { id: string; name: string; shared_parts: number; 
  * A master brand and the supplier labels deduplicated into it; `pending` while any label was placed automatically,
  * `fresh` while every label was (a brand created by a new label), with the existing brand it may belong to.
  */
-type MasterBrand = { id: string; key: string; name: string; items: number; pending: boolean; fresh: boolean; suggestion: BrandSuggestion | null; labels: BrandLabel[] };
+type MasterBrand = { id: string; key: string; name: string; items: number; pending: boolean; fresh: boolean; suggestion: BrandSuggestion | null; labels: BrandLabel[];
+  /** The logo the store shows for the brand (#819): the admin's, a static or an enrichment one; null when none or hidden. */
+  logo: ManufacturerLogo | null; logoSource: BrandLogoSource | null;
+  /** An automatic logo exists (shown again by "Otomatik logoya dön"). */
+  automatic: boolean };
 type BrandScope = "pending" | "single" | "all";
 const brandScopes: BrandScope[] = ["pending", "single", "all"];
+/** Markalar tab's logo filter (#819): brands the store shows no logo for, or those it does. */
+export type BrandLogoFilter = "missing" | "present";
+const logoFilters: BrandLogoFilter[] = ["missing", "present"];
 export type CandidateReason = "prefix" | "leading_zero" | "suffix";
 export const candidateReasons: Record<CandidateReason, string> = { prefix: "Kod ön eki farkı", leading_zero: "Baştaki sıfır farkı", suffix: "Son ek farkı" };
 type CandidateSide = { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; price_kurus: number | null; available: boolean | null };
@@ -86,8 +94,10 @@ export async function productMatchingData(params: MatchingParams) {
   if (tab === "same") return { ...base, ...await sameProducts(params) };
   if (tab === "dinamik") return { ...base, ...await dinamikOnly(params) };
   if (tab === "seta") return { ...base, ...await setaReferences(params) };
-  const scope = brandScopes.includes(params.scope as BrandScope) ? params.scope as BrandScope : brandCount.pending ? "pending" : "all";
-  return { ...base, ...await masterBrands(scope, params) };
+  const logo = logoFilters.includes(params.logo as BrandLogoFilter) ? params.logo as BrandLogoFilter : null;
+  // A logo filter alone lists every brand, not only the pending ones.
+  const scope = brandScopes.includes(params.scope as BrandScope) ? params.scope as BrandScope : logo || !brandCount.pending ? "all" : "pending";
+  return { ...base, ...await masterBrands(scope, logo, params) };
 }
 
 /** What one brand's dialog needs, loaded when it opens: its labels and every master brand name (the move/merge inputs' suggestions). */
@@ -100,22 +110,48 @@ export async function brandDialogData(id: string) {
   return { labels: labels.rows, names: names.rows.map(row => row.name) };
 }
 
+/**
+ * Master brands the store shows a logo for (#819), by the store's own rule (resolveBrandLogos): the admin's logo, else a
+ * static or enrichment logo of the brand's name or any of its labels. Only keys and sizes are read, never image bytes.
+ */
+export async function brandLogoIds(): Promise<string[]> {
+  const brands = (await db.query<{ id: string; name: string; labels: string[] }>(`SELECT b.id::text,b.name,
+    COALESCE(array_agg(sb.label ORDER BY sb.items DESC,sb.label) FILTER (WHERE sb.label IS NOT NULL),'{}') AS labels
+    FROM brands b LEFT JOIN supplier_brands sb ON sb.brand_id=b.id GROUP BY b.id`)).rows;
+  const logos = await resolveBrandLogos(brands);
+  return brands.filter(brand => logos.get(brand.id)?.logo).map(brand => brand.id);
+}
+
 /** Master brands with their Başbuğ / Dinamik / SETA labels, largest first; `q` matches the name or any label. */
-async function masterBrands(scope: BrandScope, params: MatchingParams) {
+async function masterBrands(scope: BrandScope, logo: BrandLogoFilter | null, params: MatchingParams) {
   const q = compact(params.q);
+  const withLogo = await brandLogoIds();
   const where = `${brandFilters[scope]} AND ($1='' OR regexp_replace(upper(name),'[^A-Z0-9]','','g') LIKE '%'||$1||'%'
-    OR EXISTS (SELECT 1 FROM jsonb_array_elements(labels) l WHERE regexp_replace(upper(l->>'label'),'[^A-Z0-9]','','g') LIKE '%'||$1||'%'))`;
-  const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM (${brandRows}) b WHERE ${where}`, [q])).rows[0].count;
+    OR EXISTS (SELECT 1 FROM jsonb_array_elements(labels) l WHERE regexp_replace(upper(l->>'label'),'[^A-Z0-9]','','g') LIKE '%'||$1||'%'))
+    AND CASE $2::text WHEN 'missing' THEN NOT (id=ANY($3::text[])) WHEN 'present' THEN id=ANY($3::text[]) ELSE true END`;
+  const [count, missing] = await Promise.all([
+    db.query<{ count: number }>(`SELECT count(*)::int FROM (${brandRows}) b WHERE ${where}`, [q, logo ?? "", withLogo]),
+    // The filter option's count: the same scope and search, without a logo.
+    db.query<{ count: number }>(`SELECT count(*)::int FROM (${brandRows}) b WHERE ${where}`, [q, "missing", withLogo]),
+  ]);
+  const total = count.rows[0].count;
   const { page, pages } = pageOf(params.page, total);
   // A suggestion only stands while the brand is still new; confirming it keeps the brand separate.
   const order = sortOrder(params, sorts.brands, "items DESC,name");
-  const brands = (await db.query<MasterBrand>(`SELECT b.id,b.key,b.name,b.items,b.pending,b.fresh,b.labels,
+  const rows = (await db.query<Omit<MasterBrand, "logo" | "logoSource" | "automatic">>(`SELECT b.id,b.key,b.name,b.items,b.pending,b.fresh,b.labels,
     CASE WHEN b.fresh AND t.id IS NOT NULL THEN jsonb_build_object('id',t.id::text,'name',t.name,'shared_parts',s.shared_parts,
      'parts',s.parts,'name_similarity',s.name_similarity) END AS suggestion
     FROM (SELECT *,row_number() OVER (ORDER BY ${order}) AS position FROM (${brandRows}) b WHERE ${where}
-     ORDER BY ${order} LIMIT ${pageSize} OFFSET $2) b
-    LEFT JOIN brand_merge_suggestions s ON s.brand_id=b.id::bigint LEFT JOIN brands t ON t.id=s.target_id ORDER BY b.position`, [q, (page - 1) * pageSize])).rows;
-  return { scope, brands, total, page, pages };
+     ORDER BY ${order} LIMIT ${pageSize} OFFSET $4) b
+    LEFT JOIN brand_merge_suggestions s ON s.brand_id=b.id::bigint LEFT JOIN brands t ON t.id=s.target_id ORDER BY b.position`,
+  [q, logo ?? "", withLogo, (page - 1) * pageSize])).rows;
+  const logos = await resolveBrandLogos(rows.map(brand => ({ id: brand.id, name: brand.name,
+    labels: [...brand.labels].sort((a, b) => b.items - a.items).map(label => label.label) })));
+  const brands: MasterBrand[] = rows.map(brand => {
+    const resolved = logos.get(brand.id);
+    return { ...brand, logo: resolved?.logo ?? null, logoSource: resolved?.source ?? null, automatic: resolved?.automatic ?? false };
+  });
+  return { scope, logo, logoMissing: missing.rows[0].count, brands, total, page, pages };
 }
 
 // A group is a Başbuğ product that Dinamik also sells. The offer sold is the cheapest available one, the lower cost and

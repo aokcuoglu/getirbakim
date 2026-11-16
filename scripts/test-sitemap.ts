@@ -320,6 +320,20 @@ describe("sitemap queries", () => {
     assert.equal(rows.get(ids.dinamik), await expected("SELECT changed_at FROM supplier_items WHERE id=$1", ids.dinamik));
     assert.equal(rows.get(ids.store), await expected("SELECT updated_at FROM store_products WHERE id=$1", ids.store));
     for (const value of rows.values()) assert.match(value, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+    // Description fitments (#767): the row's own, and those of a grouped offer, both through derived_at.
+    assert.equal(rows.get(ids.fitOnly), await expected("SELECT derived_at FROM product_model_fitments WHERE supplier_item_id=$1", ids.fitOnly));
+    assert.equal(rows.get(ids.offerPrimary), await expected("SELECT derived_at FROM product_model_fitments WHERE supplier_item_id=$1", ids.offerSecondary));
+  });
+
+  test("an admin edit, a price edit included, advances lastmod (#767)", async () => {
+    const productOf = async (key: string) => (await schema.pool.query<{ product_id: string }>("SELECT product_id::text FROM product_sources WHERE supplier_item_id=$1", [ids[key]])).rows[0].product_id;
+    const lastmod = async (key: string) => (await allChunks()).find(row => row.id === ids[key])?.lastmod;
+    const before = await lastmod("adminImage");
+    await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value,changed_at) VALUES($1,'image_removed','x','2030-01-01T00:00:00Z')", [await productOf("adminImage")]);
+    assert.equal(await lastmod("adminImage"), "2030-01-01T00:00:00Z");
+    assert.notEqual(before, await lastmod("adminImage"));
+    await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value,changed_at) VALUES($1,'price_kurus','500','2030-01-02T00:00:00Z')", [await productOf("adminRef")]);
+    assert.equal(await lastmod("adminRef"), "2030-01-02T00:00:00Z");
   });
 
   test("categories: those with listed products and their ancestors, legacy categories included", async () => {
@@ -329,5 +343,51 @@ describe("sitemap queries", () => {
   test("makes: only makes with a fitted product, engine-level or read from a description (#674)", async () => {
     // VOLKSWAGEN has description fits only (product_model_fitments), ALFA ROMEO engine-level ones only, OPEL none.
     assert.deepEqual(await queries.loadMakeSlugs(), ["volkswagen", "alfa-romeo"]);
+  });
+
+  test("hidden description models (#661) leave the index signal and the make file; a hide is no admin content", async () => {
+    const productOf = async (keys: string[]) => {
+      const id = (await schema.pool.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code) VALUES('TEST',$1,$1,'TEST',$1) RETURNING id::text`,
+        [keys.join("-")])).rows[0].id;
+      for (const key of keys) await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [ids[key], id]);
+      return id;
+    };
+    const hide = (productId: string) => schema.pool.query(`INSERT INTO product_override_fitment_hides(product_id,kind,model_id,label)
+      VALUES($1,'description_model',10,'VOLKSWAGEN GOLF IV')`, [productId]);
+    // fitOnly's only model, and the one offerPrimary shows through its secondary offer.
+    await hide(await productOf(["fitOnly"]));
+    await hide(await productOf(["offerPrimary", "offerSecondary"]));
+    // A product whose only edits are hide decisions stays without admin content.
+    const hideOnly = (await schema.pool.query<{ product_id: string }>("SELECT product_id::text FROM product_sources WHERE supplier_item_id=$1", [ids.adminHideOnly])).rows[0].product_id;
+    await schema.pool.query(`INSERT INTO product_override_fitment_hides(product_id,kind,source_key,label) VALUES($1,'source_model','GOLF','GOLF')`, [hideOnly]);
+    assert.equal(await pageAdminContent(ids.adminHideOnly), false);
+    const listed = new Set((await allChunks()).map(row => row.id));
+    assert.ok(!listed.has(ids.fitOnly) && !listed.has(ids.offerPrimary) && !listed.has(ids.adminHideOnly));
+    assert.equal(listed.size, 12);
+    for (const [key, id] of Object.entries(ids)) {
+      const { product } = await catalog.getStoreProduct(id);
+      const indexable = product ? productIndexable(product, productContent({
+        enrichment: await enrichments.getProductEnrichment({ id: product.id, code: product.code, brand: product.brand }),
+        descriptionModels: await fitments.getDescriptionFitments(product.id), oem: product.oem, adminContent: await pageAdminContent(product.id) })) : false;
+      assert.equal(indexable, listed.has(id), `${key}: page indexable ⇔ in the sitemap`);
+    }
+    // VOLKSWAGEN's description fits are all hidden now.
+    assert.deepEqual(await queries.loadMakeSlugs(), ["alfa-romeo"]);
+  });
+
+  test("the address follows the label's master brand name (#811); an unmapped label keeps its address", async () => {
+    const pathOf = async () => (await allChunks()).find(row => row.id === ids.dinamik)?.path;
+    const before = await pathOf();
+    assert.equal(before, `/urun/sachs-dinamik-parca-1000-${ids.dinamik}`);
+    // A master brand whose name is the label itself leaves the address as it was.
+    const brand = (await schema.pool.query<{ id: string }>("INSERT INTO brands(key,name) VALUES('SACHSTEST','SACHS') RETURNING id::text")).rows[0].id;
+    await schema.pool.query(`INSERT INTO supplier_brands(supplier,label,brand_id) VALUES('dinamik','SACHS',$1)
+      ON CONFLICT (supplier,label) DO UPDATE SET brand_id=EXCLUDED.brand_id`, [brand]);
+    assert.equal(await pathOf(), before);
+    await schema.pool.query("UPDATE brands SET name='ZF SACHS' WHERE id=$1", [brand]);
+    const after = await pathOf();
+    assert.notEqual(after, before);
+    assert.equal(after, productPath((await catalog.getStorefrontProduct(ids.dinamik))!));
+    assert.match(after!, /^\/urun\/zf-sachs-/);
   });
 });

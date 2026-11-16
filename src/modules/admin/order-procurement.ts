@@ -46,6 +46,9 @@ export function lineFigures(snapshot: Record<string, unknown>, unitPriceKurus: n
   return { costKurus, netSaleKurus, marginKurus };
 }
 
+/** Shown when a failed live check carries no (known) reason. */
+export const unknownLiveCheckReason = "bilinmeyen neden";
+
 /** Why a live checkout could not confirm a line (#763); the line was sold on its saved price and stock. */
 export const liveCheckReasonLabel: Record<string, string> = {
   timeout: "zaman aşımı", upstream: "tedarikçi hatası", busy: "tedarikçi meşgul", paused: "çekim durdurulmuş", config: "ayar eksik", contract: "beklenmeyen yanıt",

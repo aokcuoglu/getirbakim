@@ -6,7 +6,9 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { invalidateListings } from "@/modules/store/listing-epoch";
 import * as store from "@/modules/admin/product-fitment-store";
-import { productFitmentBatch, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
+import * as hides from "@/modules/admin/product-fitment-hide-store";
+import * as copies from "@/modules/admin/product-fitment-copy";
+import { productFitmentBatch, productFitmentHideLimit, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
 import { formatNumber } from "@/modules/admin/format";
 
 /** Result of a vehicle fitment change (#583); the manager shows the message and refreshes the page. */
@@ -16,18 +18,25 @@ const failures: Record<Exclude<store.ProductFitmentResult, { ok: true }>["reason
   "not-found": "Ürün bulunamadı.",
   merged: "Bu ürün başka bir ürünle birleştirildi; araç uyumunu birleştiği üründe yönetin.",
   limit: `Bir ürüne en çok ${formatNumber(productFitmentLimit)} araç kararı eklenebilir.`,
+  "hide-limit": `Bir üründe en çok ${formatNumber(productFitmentHideLimit)} kaynak satırı mağazadan çıkarılabilir; yeni satır çıkarmak için önce birini yeniden gösterin.`,
   "unknown-vehicle": "Seçilen araç tiplerinden biri katalogda bulunamadı. Listeyi yenileyip yeniden seçin.",
   duplicate: "Seçilen araçlardan biri bu ürüne zaten elle eklenmiş.",
   removed: "Seçilen araçlardan biri mağazadan çıkarılmış otomatik bir uyum; eklemek yerine listede “Yeniden göster”i kullanın.",
   "not-automatic": "Bu araç otomatik kaynakta yok; elle eklenmişse “Kaldır”ı kullanın.",
-  unchanged: "Bu araç zaten mağazadan çıkarılmış.",
+  unchanged: "Bu araç veya kaynak satırı zaten mağazadan çıkarılmış.",
   stale: "Araç uyumu başka bir sekmede değişti. Sayfayı yenileyip yeniden deneyin.",
+  "not-in-source": "Bu satır ürünün kaynaklarında artık yok. Sayfayı yenileyin.",
+  "bad-source": "Kaynak ürün bulunamadı ya da başka bir ürünle birleştirilmiş.",
+  "nothing-to-copy": "Kaynak üründe bu ürüne eklenecek yeni araç tipi yok.",
 };
 
 const productId = z.uuid();
 const vehicleTypeId = z.number().int().positive().max(2147483647);
 
-async function run(action: () => Promise<store.ProductFitmentResult>, success: string): Promise<ProductFitmentActionResult> {
+type Success = Extract<store.ProductFitmentResult, { ok: true }>;
+
+/** Runs a change; `success` is the message, or reads it from the stored result (a copy's count). */
+async function run(action: () => Promise<store.ProductFitmentResult>, success: string | ((result: Success) => string)): Promise<ProductFitmentActionResult> {
   let result: store.ProductFitmentResult;
   try { result = await action(); } catch (error) {
     console.error("Product fitment change failed", error);
@@ -41,7 +50,7 @@ async function run(action: () => Promise<store.ProductFitmentResult>, success: s
   await invalidateListings();
   // The product page, its garage note and the listings show the fitments.
   revalidatePath("/", "layout");
-  return { status: "success", message: success };
+  return { status: "success", message: typeof success === "string" ? success : success(result) };
 }
 
 export async function addProductFitments(input: { productId: string; vehicleTypeIds: number[] }): Promise<ProductFitmentActionResult> {
@@ -51,6 +60,15 @@ export async function addProductFitments(input: { productId: string; vehicleType
   const count = new Set(data.data.vehicleTypeIds).size;
   return run(() => store.addProductFitments(db, data.data.productId, data.data.vehicleTypeIds, admin.id),
     `${formatNumber(count)} araç tipi eklendi; ürün sayfasında ve araç süzgecinde hemen, marka sayfasında birkaç saniye içinde görünür.`);
+}
+
+/** Copies another product's vehicle fitments as added types (#662); `expected` is the count the preview showed. */
+export async function copyProductFitments(input: { productId: string; sourceId: string; expected: number }): Promise<ProductFitmentActionResult> {
+  const admin = await requireAdmin();
+  const data = z.object({ productId, sourceId: z.uuid(), expected: z.number().int().min(1).max(productFitmentLimit) }).safeParse(input);
+  if (!data.success) return { status: "error", message: "Kopyalanacak ürün tanınmadı. Önizlemeyi yeniden açın." };
+  return run(() => copies.copyProductFitments(db, data.data.productId, data.data.sourceId, data.data.expected, admin.id),
+    result => `${formatNumber(result.added ?? 0)} araç tipi kopyalandı; ürün sayfasında ve araç süzgecinde hemen, marka sayfasında birkaç saniye içinde görünür.`);
 }
 
 export async function removeProductFitment(input: { productId: string; vehicleTypeId: number }): Promise<ProductFitmentActionResult> {
@@ -67,4 +85,26 @@ export async function deleteProductFitment(input: { productId: string; rowId: st
   if (!data.success) return { status: "error", message: "Araç tanınmadı. Sayfayı yenileyin." };
   return run(() => store.deleteProductFitment(db, data.data.productId, data.data.rowId, admin.id),
     data.data.restored ? "Otomatik araç uyumu yeniden gösteriliyor; marka sayfası birkaç saniye içinde güncellenir." : "Elle eklenen araç kaldırıldı; otomatik kaynak bağlıyorsa listede kalır. Marka sayfası birkaç saniye içinde güncellenir.");
+}
+
+const hideTarget = z.discriminatedUnion("kind", [
+  z.object({ kind: z.enum(["source_vehicle", "source_model"]), key: z.string().min(1).max(2000) }),
+  z.object({ kind: z.literal("description_model"), modelId: z.number().int().positive().max(2147483647) }),
+]);
+
+/** Leaves a source row the catalog does not link (#661) out of the store: an unlinked vehicle, a listed or described model. */
+export async function hideProductFitment(input: { productId: string; target: hides.FitmentHideTarget }): Promise<ProductFitmentActionResult> {
+  const admin = await requireAdmin();
+  const data = z.object({ productId, target: hideTarget }).safeParse(input);
+  if (!data.success) return { status: "error", message: "Satır tanınmadı. Sayfayı yenileyin." };
+  return run(() => hides.hideProductFitment(db, data.data.productId, data.data.target, admin.id),
+    "Satır mağazadan çıkarıldı; ürün sayfasında hemen, marka ve model sayfalarında birkaç saniye içinde kalkar.");
+}
+
+export async function showProductFitment(input: { productId: string; rowId: string }): Promise<ProductFitmentActionResult> {
+  const admin = await requireAdmin();
+  const data = z.object({ productId, rowId: z.uuid() }).safeParse(input);
+  if (!data.success) return { status: "error", message: "Satır tanınmadı. Sayfayı yenileyin." };
+  return run(() => hides.showProductFitment(db, data.data.productId, data.data.rowId, admin.id),
+    "Satır yeniden gösteriliyor; marka ve model sayfaları birkaç saniye içinde güncellenir.");
 }

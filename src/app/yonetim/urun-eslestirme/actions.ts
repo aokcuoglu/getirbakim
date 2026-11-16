@@ -6,7 +6,8 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { bulkAcceptableSql, bulkCandidateReasons } from "@/modules/admin/product-matching-sql";
 // Actions that regroup offers clear the "Eşleşenler" groups cached in this process at once; other app processes see
-// it through product_grouping_version. Brand and reject decisions do not regroup. A successful supplier import
+// it through product_grouping_version. Brand and reject decisions do not regroup; brand decisions change the store's
+// shown brand names (display_brand, #811), so they reload the cached listings. A successful supplier import
 // re-keys the cache; other price changes (markup/VAT settings, stale rows) reach it within 60 s.
 import { forgetSameProducts } from "@/modules/admin/product-matching";
 import { matchingBack, safeMatchingBack, withMatchingFlag } from "@/modules/admin/product-matching-back";
@@ -74,7 +75,7 @@ export async function decideCandidate(form: FormData) {
     // specifications (#603) and vehicle fitments (#583) follow.
     const merge = status === "same" ? (await client.query<{ id: string | null; carried: { fields: string[]; hidden: boolean } | null; carried_images: { images: number; kept: boolean } | null;
       carried_refs: { added: number; hidden: number } | null; carried_specs: { set: number; hidden: number } | null;
-      carried_fitments: { added: number; removed: number } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
+      carried_fitments: { added: number; removed: number; hidden: number } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
       SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images,
        product_override_references_carry($2, id, $3) AS carried_refs, product_override_specs_carry($2, id, $3) AS carried_specs,
        product_override_fitments_carry($2, id, $3) AS carried_fitments FROM merged`, [product_a, product_b, admin.id])).rows[0] : null;
@@ -84,7 +85,7 @@ export async function decideCandidate(form: FormData) {
     keptImages = Boolean(merge?.carried_images?.kept);
     carriedRefs = (merge?.carried_refs?.added ?? 0) + (merge?.carried_refs?.hidden ?? 0);
     carriedSpecs = (merge?.carried_specs?.set ?? 0) + (merge?.carried_specs?.hidden ?? 0);
-    carriedFitments = (merge?.carried_fitments?.added ?? 0) + (merge?.carried_fitments?.removed ?? 0);
+    carriedFitments = (merge?.carried_fitments?.added ?? 0) + (merge?.carried_fitments?.removed ?? 0) + (merge?.carried_fitments?.hidden ?? 0);
     if (merge && !merge.id) {
       await client.query("ROLLBACK");
       failed = true;
@@ -125,7 +126,7 @@ export async function acceptCandidates(form: FormData) {
       // Skipped when nothing merged; the pair stays in the list for a decision by hand.
       const merge = (await client.query<{ id: string | null; carried: { fields: string[]; hidden: boolean } | null; carried_images: { images: number; kept: boolean } | null;
         carried_refs: { added: number; hidden: number } | null; carried_specs: { set: number; hidden: number } | null;
-      carried_fitments: { added: number; removed: number } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
+      carried_fitments: { added: number; removed: number; hidden: number } | null }>(`WITH merged AS (SELECT product_merge($2,$1,$3) AS id)
         SELECT id, product_overrides_carry($2, id, $3) AS carried, product_override_images_carry($2, id, $3) AS carried_images,
          product_override_references_carry($2, id, $3) AS carried_refs, product_override_specs_carry($2, id, $3) AS carried_specs,
        product_override_fitments_carry($2, id, $3) AS carried_fitments FROM merged`, [pair.product_a, pair.product_b, admin.id])).rows[0];
@@ -136,7 +137,7 @@ export async function acceptCandidates(form: FormData) {
       carriedImages += merge.carried_images?.images ?? 0;
       carriedRefs += (merge.carried_refs?.added ?? 0) + (merge.carried_refs?.hidden ?? 0);
       carriedSpecs += (merge.carried_specs?.set ?? 0) + (merge.carried_specs?.hidden ?? 0);
-      carriedFitments += (merge.carried_fitments?.added ?? 0) + (merge.carried_fitments?.removed ?? 0);
+      carriedFitments += (merge.carried_fitments?.added ?? 0) + (merge.carried_fitments?.removed ?? 0) + (merge.carried_fitments?.hidden ?? 0);
       await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
         ON CONFLICT (product_a,product_b) DO UPDATE SET status='same',decided_by=excluded.decided_by,decided_at=now()`, [pair.product_a, pair.product_b, admin.id]);
       await client.query("DELETE FROM product_match_candidates WHERE product_a=$1 AND product_b=$2", [pair.product_a, pair.product_b]);
@@ -190,6 +191,8 @@ async function brandDecision(back: string, flag: string, run: (client: import("p
     await client.query(done ? "COMMIT" : "ROLLBACK");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+  // The store shows master brand names (#811): cached listings, facets and the manufacturer directory reload (#585).
+  if (done) await invalidateListings();
   revalidatePath("/yonetim/urun-eslestirme");
   redirect(withFlag(back, done ? `brand=${flag}` : "error=brand"));
 }

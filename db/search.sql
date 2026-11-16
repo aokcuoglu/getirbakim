@@ -50,6 +50,10 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
    -- Partial code hits count only for code-like queries: "yag" is a word, not part of "YAG5YZ9".
    WHEN compact !~ '[0-9]' THEN 0
    WHEN code_compact LIKE compact || '%' OR oem_compact LIKE compact || '%' THEN 50
+   -- A mixed code inside a longer number is another code: "5w40" inside "15w40" is a different oil grade.
+   -- Plain digits keep matching anywhere ("6494104" within "0986494104").
+   WHEN compact ~ '[a-z]' AND compact ~ '^[0-9]' THEN CASE WHEN length(compact) >= 3
+     AND (code_compact ~ ('(^|[^0-9])' || compact) OR oem_compact ~ ('(^|[^0-9])' || compact)) THEN 20 ELSE 0 END
    WHEN length(compact) >= 3 AND (code_compact LIKE '%' || compact || '%' OR oem_compact LIKE '%' || compact || '%') THEN 20
    ELSE 0 END
   + CASE WHEN exact_query IS NULL THEN 0 ELSE ts_rank(doc, exact_query) * 10 END
@@ -62,7 +66,9 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path FROM CURRENT AS $$
   search_compact(COALESCE(code, '')), search_compact(COALESCE(oem, '')), prefix_query, exact_query, compact)
 $$;
 -- The stored ranking inputs of a supplier row, from the same fields commerce_catalog_entries shows
--- (db/commerce.sql: name falls back to the code, brand to 'Belirtilmemiş'). Keep both in step.
+-- (db/commerce.sql: name falls back to the code, brand to 'Belirtilmemiş'). Keep both in step. The brand stored here is
+-- the supplier's label, not the master brand name the store shows (#811): a brand rename or merge must not rewrite
+-- every row of the brand, so the master name is not in the stored search document.
 CREATE OR REPLACE FUNCTION supplier_items_search_fields() RETURNS trigger
 LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 BEGIN

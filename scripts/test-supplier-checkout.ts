@@ -13,6 +13,13 @@ test("cart lines look up the catalog per line, never one catalog-wide scan per l
   assert.doesNotMatch(cartFor,/LEFT JOIN \(\$\{catalogSql\}\)/);
 });
 
+test("submitOrder waits CHECKOUT_LOCK_TIMEOUT for supplier rows, then goes on without the share lock (#790)", async()=> {
+  const source=await readFile("src/modules/store/orders.ts","utf8");
+  const submitOrder=source.slice(source.indexOf("export async function submitOrder"),source.indexOf("export const orderStatus"));
+  for(const part of ["CHECKOUT_LOCK_TIMEOUT","SAVEPOINT supplier_rows","ROLLBACK TO SAVEPOINT supplier_rows","SET LOCAL lock_timeout = 0"])
+    assert.ok(submitOrder.includes(part),part);
+});
+
 test("checkout checks cart codes live, falls back on supplier failure with a marker, preserves completed orders and snapshots", async t=> {
   const originalUrl=process.env.DATABASE_URL!;
   const originalCwd=process.cwd();
@@ -202,6 +209,56 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
       assert.deepEqual([lines[dinamikId].live_check,lines[dinamikId].live_check_reason],["failed","config"]);
       assert.equal(lines[id].live_check,undefined);assert.equal(lines[id].checkout_mode,"live");
     }
+    {
+      // #770: rows a running import keeps locked. A code the supplier no longer knows (604) is refused even though its
+      // zeroed stock cannot be saved; nothing is written and no order is created.
+      const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
+      const lockedInput=await checkoutInput(cart);
+      const stockBefore=(await itemRow()).stock_data.stok;assert.ok(stockBefore>0);
+      const checkoutChanges=async()=>(await db.query("SELECT count(*)::int AS n FROM supplier_item_changes WHERE item_id=$1 AND after_data->>'source'='checkout'",[id])).rows[0].n;
+      const changesBefore=await checkoutChanges();
+      const holder=await db.connect();
+      // Without the #770 refusal the order transaction would wait on this lock: let go after 5 s so the test fails, not hangs.
+      let safety:ReturnType<typeof setTimeout>|undefined;
+      try {
+        await holder.query("BEGIN");
+        await holder.query("SELECT id FROM supplier_items WHERE id=$1 FOR UPDATE",[id]);
+        safety=setTimeout(()=>{holder.query("ROLLBACK").catch(()=>undefined);},5_000);
+        const started=performance.now();
+        gone=true;const refused=await submitOrder(cart,lockedInput);gone=false;
+        assert.equal(refused.error,"stock");
+        assert.ok(performance.now()-started<3_000,"the checkout does not wait on the import");
+      } finally {
+        gone=false;clearTimeout(safety);
+        await holder.query("ROLLBACK").catch(()=>undefined);holder.release();
+      }
+      assert.equal((await itemRow()).stock_data.stok,stockBefore);
+      assert.equal(await checkoutChanges(),changesBefore);
+      assert.equal((await db.query("SELECT count(*)::int AS n FROM commerce_orders WHERE owner_kind='guest' AND owner_id=$1",[cart.id])).rows[0].n,0);
+    }
+    {
+      // #770/#790: the supplier answers but the rows stay locked past lock_timeout: the line is sold on its saved data,
+      // marked "busy", while the import (here a holder) still holds the row. The order transaction's FOR SHARE gives up
+      // after CHECKOUT_LOCK_TIMEOUT too; without that it would wait: the holder lets go after 5 s so the test fails, not hangs.
+      const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
+      const busyInput=await checkoutInput(cart);
+      const holder=await db.connect();
+      let safety:ReturnType<typeof setTimeout>|undefined;
+      try {
+        await holder.query("BEGIN");
+        await holder.query("SELECT id FROM supplier_items WHERE id=$1 FOR UPDATE",[id]);
+        safety=setTimeout(()=>{holder.query("ROLLBACK").catch(()=>undefined);},5_000);
+        const started=performance.now();
+        const busy=await submitOrder(cart,busyInput);
+        assert.ok(performance.now()-started<3_000,"the order does not wait for the import to commit");
+        assert.ok(busy.id,String(busy.error));
+        const marked=(await db.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[busy.id])).rows[0].pricing_snapshot;
+        assert.deepEqual([marked.checkout_mode,marked.live_check,marked.live_check_reason],["snapshot","failed","busy"]);
+      } finally {
+        clearTimeout(safety);
+        await holder.query("ROLLBACK").catch(()=>undefined);holder.release();
+      }
+    }
 
     // Admin prices (#580): with nf 50 the formula sells at 78.00; a fixed 90.00 and a running 80.00 campaign override it.
     const buyer={kind:"guest" as const,id:randomBytes(32).toString("hex")};
@@ -270,6 +327,34 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     assert.equal(storedLine.pricing_snapshot.markup_percent,50);assert.equal(storedLine.pricing_snapshot.vat_percent,10);
     assert.equal(storedLine.pricing_snapshot.observed_at,observedAt);assert.equal(storedLine.pricing_snapshot.rate_at,rateAt);
     assert.equal(storedLine.pricing_snapshot.checkout_mode,"snapshot");
+    {
+      // #790: a list import holds the cart's rows with an uncommitted new price. In "Kayıtlı veriler" mode the order does
+      // not wait for its commit: it is placed on the committed (pre-import) price without a supplier call.
+      const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
+      const pulledInput=await checkoutInput(cart);
+      const committedPrice=(await cartFor(cart))[0].price_kurus;
+      const holder=await db.connect();
+      let safety:ReturnType<typeof setTimeout>|undefined;
+      try {
+        await holder.query("BEGIN");
+        await holder.query("SELECT id FROM supplier_items WHERE id=$1 FOR UPDATE",[id]);
+        await holder.query("UPDATE supplier_items SET price_data=$2::jsonb WHERE id=$1",[id,JSON.stringify({nf:70,mif:70,k:0})]);
+        safety=setTimeout(()=>{holder.query("ROLLBACK").catch(()=>undefined);},5_000);
+        const callsBefore=calls,started=performance.now();
+        const pulled=await submitOrder(cart,pulledInput);
+        assert.ok(performance.now()-started<3_000,"the order does not wait for the import to commit");
+        assert.ok(pulled.id,String(pulled.error));
+        assert.equal(calls,callsBefore);
+        const pulledLine=(await db.query("SELECT unit_price_kurus,pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[pulled.id])).rows[0];
+        assert.equal(pulledLine.pricing_snapshot.checkout_mode,"snapshot");
+        assert.equal(pulledLine.pricing_snapshot.live_check,undefined);
+        assert.equal(Number(pulledLine.unit_price_kurus),committedPrice);
+        assert.equal(pulledLine.pricing_snapshot.nf,50);
+      } finally {
+        clearTimeout(safety);
+        await holder.query("ROLLBACK").catch(()=>undefined);holder.release();
+      }
+    }
     await db.query("UPDATE commerce_settings SET basbug_checkout_mode='live'");
     assert.equal((await submitOrder(owner,storedInput)).id,storedOrders[0].id);
     assert.equal(calls,snapshotCalls);

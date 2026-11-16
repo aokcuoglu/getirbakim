@@ -14,9 +14,14 @@ CREATE TABLE IF NOT EXISTS manual_uploads (
 CREATE INDEX IF NOT EXISTS manual_uploads_list_idx ON manual_uploads(list_group,created_at DESC);
 -- Values an admin entered on the item page. A filled cell in a later upload wins; these fill only the cells it leaves
 -- empty, so a re-upload of the same file keeps them. Keyed by list and code: the item row may be recreated.
+-- fields.bulk holds the bulk price/stock CSV's values (#832): {"price":{"list","discount","file"},"stock":{"value","file"}}.
+-- "file" is the upload's price/stock cell when the CSV was applied. Last edit wins: while a later upload carries the
+-- same cell, the CSV value applies (cost = list × (1 − discount/100)); a changed cell wins and drops that part.
 CREATE TABLE IF NOT EXISTS manual_item_overrides (
  list_group text NOT NULL, code text NOT NULL,
  fields jsonb NOT NULL CHECK (jsonb_typeof(fields)='object'),
  updated_by uuid REFERENCES accounts(id) ON DELETE SET NULL, updated_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY (list_group,code)
 );
+-- 'list' is an xlsx list upload; 'bulk' a price/stock CSV of an existing list (#832), whose rows are CSV lines.
+ALTER TABLE manual_uploads ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'list' CHECK (kind IN ('list','bulk'));

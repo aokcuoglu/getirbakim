@@ -318,3 +318,51 @@ test("the model sitemaps list exactly the indexable model and model × category 
   assert.deepEqual((await sitemap.loadModelPaths()).sort(), models.sort());
   assert.deepEqual((await sitemap.loadModelCategoryPaths()).sort(), modelCategories);
 }));
+
+test("loadAllVehicleModelGroups returns the same units as the per-make read (#778)", async () => {
+  const all = await groups.loadAllVehicleModelGroups();
+  const brands = (await schema.pool.query<{ id: string }>("SELECT id::text FROM vehicle_brands ORDER BY id")).rows.map(row => row.id);
+  assert.ok(brands.length >= 3);
+  for (const brandId of brands) assert.deepEqual(all.get(brandId) ?? [], await groups.getVehicleModelGroups(brandId));
+});
+
+test("hidden description models and a vehicle decision (#661, #583) leave the make, model and category pages and the model sitemaps", () => inRequest(async () => {
+  const { invalidateListings } = await import("../src/modules/store/listing-epoch");
+  // The test codes are too short for the automatic grouping: products made by hand, as an admin's split does.
+  const product = async (part: string, keys: string[]) => (await schema.pool.query<{ id: string }>(`WITH product AS (
+      INSERT INTO products(brand,part_number,name,brand_label,code) VALUES('TESTBRAND',$2,$2,'TESTBRAND',$2) RETURNING id),
+    source AS (INSERT INTO product_sources(supplier_item_id,product_id,method) SELECT unnest($1::uuid[]),id,'manual' FROM product)
+    SELECT id::text FROM product`, [keys.map(key => ids[key]), part])).rows[0].id;
+  const hideModel = (productId: string, modelId: number) => schema.pool.query(`INSERT INTO product_override_fitment_hides(product_id,kind,model_id,label)
+    VALUES($1,'description_model',$2,'test')`, [productId, modelId]);
+  // A Tiguan description fit on g7 links the unit; hiding it unlinks it again.
+  await fit("product_model_fitments", 30, "g7");
+  const g7 = await product("G7", ["g7"]);
+  await invalidateListings();
+  assert.deepEqual((await catalog.getListedModelGroups("1")).map(group => group.slug).sort(), ["golf-7", "polo-6", "tiguan-7"]);
+  await hideModel(g7, 30);
+  // g5's Golf description hidden; g4 listed only through its secondary offer g4s's description, hidden on the product
+  // they share; g6 has a vehicle decision, so none of its description models count.
+  await hideModel(await product("G5", ["g5"]), 10);
+  await hideModel(await product("G4", ["g4", "g4s"]), 11);
+  await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,100,'remove')", [await product("G6", ["g6"])]);
+  await invalidateListings();
+  assert.deepEqual((await catalog.getListedModelGroups("1")).map(group => group.slug).sort(), ["golf-7", "polo-6"]);
+  assert.deepEqual(await listed({ make: "vw" }), ["g1", "g7", "g8", "g9", "g10", "g11", "p2"].map(key => ids[key]).sort());
+  const golf = ["g1", "g2", "g3", "g7", "g8", "g9", "g10", "g11", "g12"].map(key => ids[key]).sort();
+  assert.deepEqual(await listed({ make: "vw", model: "golf-7" }), golf);
+  // Nine products: the model page and Fren × Golf 7 (eight) fall below the indexing minimum, so do their sitemap entries.
+  const page = (await load.findListing({ make: "vw", model: "golf-7", search: {} }))!;
+  assert.equal(page.plainTotal, 9);
+  assert.equal(listingIndexable(page.query, page.plainTotal ?? 0), false);
+  assert.equal((await load.findListing({ category: "fren", make: "vw", model: "golf-7", search: {} }))?.plainTotal, 8);
+  assert.deepEqual(await sitemap.loadModelPaths(), []);
+  assert.deepEqual(await sitemap.loadModelCategoryPaths(), []);
+  const nodes = (await schema.pool.query<{ id: number; slug: string }>("SELECT category_id AS id,slug FROM source_category_labels WHERE source='trodo'")).rows;
+  for (const scope of [{ make: "vw", model: "golf-7" }, { make: "vw", model: "tiguan-7" }, { make: "vw" }]) {
+    const counts = await categories.scopeCategoryCounts(scope);
+    for (const node of nodes) assert.equal(counts.get(node.id) ?? 0, await catalog.listingTotal({ ...scope, category: node.slug }), `${JSON.stringify(scope)} ${node.slug}`);
+  }
+  assert.deepEqual([...(await categories.scopeCategoryCounts({ make: "vw", model: "golf-7" })).entries()].sort((a, b) => a[0] - b[0]),
+    [[3, 9], [241, 1], [252, 8], [269, 2]]);
+}));

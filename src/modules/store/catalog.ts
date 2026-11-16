@@ -14,6 +14,7 @@ import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
 import {getVehicleModelGroup,getVehicleModelGroups} from './vehicle-model-groups.server';
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
+import {ensureCustomSynonyms} from '@/modules/search/custom-synonyms';
 import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {facetOptions} from './specification-translations';
 import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
@@ -21,6 +22,7 @@ import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
 import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
 import {compareOffers} from './best-offer';
 import {manufacturerLabels} from './manufacturers.server';
+import {displayBrandSql,masterBrandJoinSql} from './display-brand-sql';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "seta" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
  category: string | null; price_kurus: number | null; stock: number | null; oem: string; source: "store" | "supplier";
@@ -95,15 +97,25 @@ const canonicalSql = `WITH source AS (SELECT id,supplier,code FROM supplier_item
   AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=target.id AND h.hidden)
  ORDER BY step,own,supplier_rank,code,id LIMIT 1`;
 /**
+ * The listing (primary) row of each grouped offer among `ids`: the id the storefront lists and the product page lives under (#752).
+ * Primary and ungrouped rows are absent, and so is an offer whose primary is no longer sold or is hidden; callers keep `id` then.
+ * product_offers is rebuilt by the matching refresh.
+ */
+export async function listingIds(ids: string[]): Promise<Map<string, string>> {
+ if (!ids.length) return new Map();
+ const rows = (await db.query<{ item_id: string; primary_id: string }>(`SELECT o.item_id::text,o.primary_id::text FROM product_offers o
+  WHERE o.item_id=ANY($2::uuid[]) AND o.primary_id<>o.item_id AND EXISTS (SELECT 1 FROM commerce_supplier_items c WHERE c.id=o.primary_id AND c.company=ANY($1::text[]))
+  AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=o.primary_id AND h.hidden)`, [company(), ids])).rows;
+ return new Map(rows.map(row => [row.item_id, row.primary_id]));
+}
+/**
  * The store page of a catalog row: a secondary offer resolves to the product listing it (`primaryId`), and a row the
  * store does not show (a dropped duplicate, a code sold elsewhere) to the page showing that product instead of a 404.
  */
 export async function getStoreProduct(id: string): Promise<{ product?: CatalogProduct; primaryId?: string }> {
  if (!z.uuid().safeParse(id).success) return {};
- // product_offers is rebuilt by the matching refresh; a primary no longer sold is not followed (it would lead back here).
- const primaryId = (await db.query<{ primary_id: string }>(`SELECT o.primary_id::text FROM product_offers o
-  WHERE o.item_id=$2 AND o.primary_id<>o.item_id AND EXISTS (SELECT 1 FROM commerce_supplier_items c WHERE c.id=o.primary_id AND c.company=ANY($1::text[]))
-  AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=o.primary_id AND h.hidden)`, [company(), id])).rows[0]?.primary_id;
+ // A primary no longer sold is not followed (it would lead back here).
+ const primaryId = (await listingIds([id])).get(id);
  if (primaryId) return { primaryId };
  const product = await getStorefrontProduct(id);
  if (product) return { product: (await withBestOffers([product]))[0] };
@@ -190,25 +202,25 @@ const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
 /**
  * Products fitting one make (`param`: its vehicle_brands id, e.g. "$2::int"), as one id column: the engine-level fits
  * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the models read from supplier
- * descriptions (product_model_fitments) of the make's series, a secondary offer counting as the product listing it,
- * like modelFittedIds (#674). Matching a make's fitments to the payloads per read took 20-57 s on RDS for the large
- * makes. The make table is an index read; the description side is planned as a parallel sequential scan of
- * product_model_fitments hashed against the make's series (VW: ~53k ids, ~0.1 s warm and ~0.5 s cold locally). Used as
+ * descriptions (storefront_description_fits: product_model_fitments without the models the admin hid, #661) of the
+ * make's series, a secondary offer counting as the product listing it, like modelFittedIds (#674). Matching a make's
+ * fitments to the payloads per read took 20-57 s on RDS for the large makes. The make table is an index read; the description side is planned as a parallel sequential scan of
+ * the description fits hashed against the make's series (VW: ~53k ids, ~0.1 s warm and ~0.5 s cold locally). Used as
  * `id=ANY(ARRAY(...))`, an InitPlan run once per query, so a make's ids never pass through Node (large id arrays fed the
  * heap OOMs). The listing's cost grows with the id count; its counts, facets and page ids (also the price orders, see
  * browseProducts) are cached for 10 minutes.
  */
 export const makeFitsSql=(param:string)=>`SELECT supplier_item_id FROM storefront_make_fits WHERE brand_id=${param}
-  UNION SELECT COALESCE(o.primary_id,f.supplier_item_id) FROM vehicle_models m JOIN product_model_fitments f ON f.model_id=m.id
+  UNION SELECT COALESCE(o.primary_id,f.supplier_item_id) FROM vehicle_models m JOIN storefront_description_fits f ON f.model_id=m.id
   LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id WHERE m.brand_id=${param}`;
 /**
  * Every model fit as (model_id, id) rows, a pair possibly repeated: engine-level fits (storefront_model_fits, kept like
- * the make table) and models read from supplier descriptions (product_model_fitments, model level only), a secondary
+ * the make table) and models read from supplier descriptions (storefront_description_fits, model level only), a secondary
  * offer counting as the product listing it. A `model_id` condition on the subquery reaches both branches' indexes;
  * the model sitemap (src/modules/seo/sitemap-models.server.ts) and a model's category counts read the same rows (#673).
  */
 export const modelFitsSql=`SELECT model_id,supplier_item_id AS id FROM storefront_model_fits
-  UNION ALL SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM product_model_fitments f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id`;
+  UNION ALL SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM storefront_description_fits f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id`;
 /**
  * Products fitting a vehicle model page's series (#639), from modelFitsSql. Both branches are index reads (Golf 7:
  * ~25 ms for the description side); cached per process.
@@ -227,7 +239,7 @@ export async function getListedModelGroups(brandId:string) {
  const modelIds=groups.flatMap(group=>group.models.map(member=>member.id));
  const listedIds=new Set(await cachedListedModels(brandId,async()=>(await boundedQuery<{id:string}>(
   `WITH fits AS MATERIALIZED (SELECT model_id,supplier_item_id AS id FROM storefront_model_fits WHERE model_id=ANY($2::int[])
-    UNION SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM product_model_fitments f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id
+    UNION SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM storefront_description_fits f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id
     WHERE f.model_id=ANY($2::int[])),
    ids AS MATERIALIZED (SELECT DISTINCT id FROM fits),
    listed AS MATERIALIZED (SELECT catalog.id FROM (SELECT e.* FROM storefront_catalog_entries e JOIN ids ON ids.id=e.id
@@ -304,6 +316,8 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
 // query reaches supplier_items by primary key. Joined as a subquery instead, the planner hash-joined
 // the whole 320k-row price view per query (~2.5 s each on the VPS, ~60 s per page).
 const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearch>=>{
+ // Admin synonyms (#822) join the parser before the query is read.
+ await ensureCustomSynonyms();
  const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
   // DISTINCT on the uuid, text afterwards: sorting 20k+ ids as collated text took ~50 ms of the query.
   // A secondary supplier offer counts as a hit of the product listing it.
@@ -442,7 +456,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
- // A manufacturer page (#660) lists its master brand's supplier labels, the same column the brand filter reads.
+ // A manufacturer page (#660) lists its master brand's name and labels (display_brand values), the column the brand filter reads.
  if(query.manufacturer){const labels=await manufacturerLabels(query.manufacturer);if(labels.length){values.push(labels);clauses.push(`display_brand=ANY($${values.length}::text[])`);}else clauses.push('false');}
  const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`display_brand=ANY($${values.length}::text[])`);}
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
@@ -490,22 +504,24 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
  const values:unknown[]=[company(),search.ids],bind=binder(values);
  const queries=`to_tsquery('simple',${bind(prefixTsQuery(search.parsed))}::text),to_tsquery('simple',${bind(exactTsQuery(search.parsed))}::text),${bind(search.parsed.compact)}::text`;
  const row=(await db.query<{ids:string[]|null;brands:string[]|null}>(`WITH hits AS MATERIALIZED (
-   SELECT i.id,COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.updated_at,i.unavailable,
+   SELECT i.id,${displayBrandSql('i','ov')} AS brand,i.updated_at,i.unavailable,
     -- The stored ranking inputs are the supplier's; a row with an admin-edited name, description, store brand or part
     -- number ranks the edit (#575, #602), the part number as the better of it and the supplier code. A price-only edit
     -- (#580) keeps the stored inputs. A hidden supplier OEM field (#615) ranks without the OEM. Same rule as catalogRank
     -- (src/modules/search/sql.ts).
     COALESCE(CASE WHEN ov.name IS NULL AND ov.description IS NULL AND ov.brand IS NULL AND ov.part_number IS NULL AND ov.hide_oem IS NOT TRUE
       THEN catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}) END,
-     GREATEST(catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
+     GREATEST(catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),${displayBrandSql('i','ov')},
       i.code,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,COALESCE(ov.description,i.product_data->>'ac2',''),${queries}),
       CASE WHEN ov.part_number IS NOT NULL AND ov.part_number<>i.code THEN catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),
-       COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),ov.part_number,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,
+       ${displayBrandSql('i','ov')},ov.part_number,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,
        COALESCE(ov.description,i.product_data->>'ac2',''),${queries}) END)) AS rank
    FROM (SELECT s.*,s.changed_at AS updated_at,false AS unavailable FROM commerce_supplier_items s WHERE s.id=ANY($2::uuid[]) AND s.company=ANY($1::text[])
     UNION ALL
     SELECT u.*,u.last_seen_at,true FROM commerce_unavailable_items u WHERE ${includeUnavailable} AND u.id=ANY($2::uuid[]) AND u.company=ANY($1::text[])) i
    LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
+   -- The brand facet lists the shown brands (display_brand: master brand names, #811), as the generic path does.
+   ${masterBrandJoinSql('i')}
    UNION ALL
    SELECT p.id,p.brand,p.updated_at,false,catalog_search_rank(p.name,p.brand,p.code,'',p.description,${queries}) FROM store_products p WHERE p.id=ANY($2::uuid[]))
   SELECT (SELECT array_agg(id::text ORDER BY unavailable,rank DESC,updated_at DESC,id) FROM hits) AS ids,
@@ -527,7 +543,7 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
   correctedQuery:search.correctedQuery,vehicle:search.vehicle,tooShort:search.tooShort};
 });
 /** No filter but the search (mirrors the clauses catalogFilter adds). */
-function isPlainSearch(query:CatalogQuery){
+export function isPlainSearch(query:CatalogQuery){
  return Boolean(query.q?.trim())&&!query.category&&!query.make&&!query.model&&!query.manufacturer&&query.fits!=="vehicle"&&!query.oil&&!query.availability
   &&!selectedBrands(query).length&&!Object.values(selectedAttributes(query)).some(options=>options.length);
 }
@@ -609,6 +625,7 @@ export type ProductSuggestion={kind:"product";id:string;name:string;name_overrid
 const maxRankedSuggestions=500;
 /** Best matches for the header type-ahead: the catalog search's engine and readings, without prices. */
 export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
+ await ensureCustomSynonyms();
  const search=await catalogSearch(raw,mode);
  const notes={correctedQuery:search.correctedQuery,vehicleScope:search.vehicle};
  if(!search.ids.length)return {products:[] as ProductSuggestion[],...notes};

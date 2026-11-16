@@ -16,6 +16,8 @@ export type RemoteImageOptions = {
   timeoutMs?: number;
   maxBytes?: number;
   maxRedirects?: number;
+  /** Content-Types that are read (and sent as Accept); default the product image types. Brand logos add SVG (#819). */
+  types?: readonly string[];
 };
 
 const userAgent = "Mozilla/5.0 (compatible; ImageFetcher/1.0)";
@@ -53,7 +55,7 @@ async function vet(url: URL, allow: (address: string) => boolean, resolve: (host
 }
 
 /** One GET pinned to the vetted address: the socket's lookup answers with it, so DNS cannot change between check and connect. */
-function get(url: URL, target: Resolved, signal: AbortSignal): Promise<IncomingMessage> {
+function get(url: URL, target: Resolved, signal: AbortSignal, types: readonly string[]): Promise<IncomingMessage> {
   const lookup: LookupFunction = (_host, options, callback) => {
     if (options.all) callback(null, [target]);
     else callback(null, target.address, target.family);
@@ -62,7 +64,7 @@ function get(url: URL, target: Resolved, signal: AbortSignal): Promise<IncomingM
   return new Promise((resolve, reject) => {
     const req = request(url, {
       method: "GET", agent: false, lookup, signal,
-      headers: { "user-agent": userAgent, accept: productImageTypes.join(","), "accept-encoding": "identity" },
+      headers: { "user-agent": userAgent, accept: types.join(","), "accept-encoding": "identity" },
     }, resolve);
     req.once("error", () => reject(signal.aborted ? new RemoteImageError("timeout") : new RemoteImageError("unreachable")));
     req.end();
@@ -91,10 +93,11 @@ async function readCapped(response: IncomingMessage, maxBytes: number, signal: A
  * host is resolved and all its addresses must be public, only ports 80, 443, 8080 and 8443 are used, the connection is
  * pinned to a vetted address (IPv4 first, the next one on a connection failure), at most three
  * redirects are followed (each re-checked), the whole fetch has one deadline, and the body is cut off past the upload
- * size limit. Only a JPEG, PNG or WebP Content-Type is read; prepareProductImage still decodes and checks the bytes.
+ * size limit. Only a JPEG, PNG or WebP Content-Type is read (or the caller's `types`); prepareProductImage /
+ * prepareBrandLogo still decode and check the bytes.
  */
 export async function fetchRemoteImage(raw: string, options: RemoteImageOptions = {}): Promise<{ bytes: Buffer; name: string }> {
-  const { allowAddress = isPublicAddress, allowPort = isAllowedRemotePort, resolve = resolveAll, timeoutMs = 10_000, maxBytes = productImageLimits.maxBytes, maxRedirects = 3 } = options;
+  const { allowAddress = isPublicAddress, allowPort = isAllowedRemotePort, resolve = resolveAll, timeoutMs = 10_000, maxBytes = productImageLimits.maxBytes, maxRedirects = 3, types = productImageTypes } = options;
   let url = parseRemoteImageUrl(raw);
   if (!url) throw new RemoteImageError("url");
   const signal = AbortSignal.timeout(timeoutMs);
@@ -104,7 +107,7 @@ export async function fetchRemoteImage(raw: string, options: RemoteImageOptions 
     let response: IncomingMessage | undefined;
     // A connection failure moves on to the next vetted address; a timeout ends the fetch.
     for (const [index, target] of targets.entries()) {
-      try { response = await get(url, target, signal); break; } catch (error) {
+      try { response = await get(url, target, signal, types); break; } catch (error) {
         if (!(error instanceof RemoteImageError) || error.reason !== "unreachable" || index === targets.length - 1) throw error;
       }
     }
@@ -125,7 +128,7 @@ export async function fetchRemoteImage(raw: string, options: RemoteImageOptions 
       throw new RemoteImageError("status");
     }
     const type = (response.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
-    if (!productImageTypes.some(allowed => allowed === type)) {
+    if (!types.some(allowed => allowed === type)) {
       response.destroy();
       throw new RemoteImageError("not-image");
     }

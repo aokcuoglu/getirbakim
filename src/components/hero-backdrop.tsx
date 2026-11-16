@@ -1,5 +1,5 @@
-const mobileMedia = "(max-width: 600px)";
-const desktopMedia = "(min-width: 601px)";
+const mobileMedia = "(max-width: 599.98px)";
+const desktopMedia = "(min-width: 600px)";
 
 type Props = {
   /** The image (1920w when `desktop2x` is given). */

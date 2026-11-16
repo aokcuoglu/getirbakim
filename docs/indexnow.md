@@ -12,12 +12,12 @@ Mağazanın dizine açık ürün sayfalarından içeriği değişenler günde bi
 
 - Dizine yeni giren ürün (yeni ürün ya da asgari içerik eşiğini yeni geçen).
 - Dizinden çıkan ürün: pasif, çelişkili, gizlenen, birleştirmeyle ikincil teklif olan, asgari içeriğini yitiren. Sayfa artık `noindex`, 404 ya da yönlendirme döner; motor yeniden tarayıp düşürür.
-- Parmak izi değişen ürün: görünen ad, marka, parça no, açıklama, mağazada görünen OEM ve zenginleştirme içe aktarımı (`imported_at`: görsel, özellik, uyumluluk). Mağaza (`store_products`) satırlarında ad, marka, kod, açıklama.
+- Parmak izi değişen ürün: görünen ad, marka, parça no, açıklama, mağazada görünen OEM ve zenginleştirme içe aktarımı (`imported_at`: görsel, özellik, uyumluluk); ayrıca yöneticinin fiyat dışı son düzenlemesi (görsel, özellik, referans, araç, gizleme: `product_override_changes`, #767) ve açıklamadan okunan model uyumluluğunun içerik özeti (model ve yıllar; `derived_at` değil, çünkü türetme her satırı yeniden yazar). Mağaza (`store_products`) satırlarında ad, marka, kod, açıklama.
 - Adresi değişen ürün: eski ve yeni adres birlikte.
 
 ### Ne bildirilmez
 
-Salt fiyat ya da stok değişimi. Her senkronizasyonda kataloğun büyük kısmı değişir; fiyat tazeliğini site haritasındaki `lastmod` taşır. Yönetici görseli/özelliği/referansı ve açıklamadan okunan model uyumluluğu henüz parmak izinde değil (takip işi).
+Salt fiyat ya da stok değişimi; yöneticinin elle girdiği fiyat ve kampanya düzenlemeleri de dahil. Her senkronizasyonda kataloğun büyük kısmı değişir; fiyat tazeliğini site haritasındaki `lastmod` taşır (yönetici düzenlemesi ve uyumluluk türetimi de `lastmod`'a girer, #767).
 
 ### Korumalar
 
@@ -53,6 +53,12 @@ Tablolar `db:setup` ile boş kurulur. Üç seçenek:
 1. **Varsayılan:** günlük 50.000 bütçeyle damla damla geri doldurma (~532 bin adres, ~11 gün).
 2. **`--limit=0`:** tek koşuda tüm adresler (~64 istek, birkaç dakika).
 3. **`--seed`:** hiçbir şey bildirmeden mevcut durumu kaydet; sonrası yalnız fark. Mevcut adresler site haritasından zaten taranıyor.
+
+### Yönetici düzenlemesi ve uyumluluk parmak izi (#767)
+
+Parmak izine yönetici düzenlemesi ve açıklama uyumluluğu eklendi. Bu bileşenlere sahip olmayan ürünlerin parmak izi değişmez; ama açıklamadan okunan uyumluluğu olan her ürünün izi değişir. IndexNow yayında ise sürümden sonra `operations` görevinde `npm run seo:indexnow -- --dry-run --limit=0` koşun; `changed` büyükse bir kez `npm run seo:indexnow -- --seed` ile yeni durumu bildirmeden kaydedin.
+
+Not: açıklama uyumluluğu türetimi yalnız değişen satırları yazar (#798): `derived_at` yalnız modeli eklenen ya da yılları değişen satırda ilerler; bir modeli düşen ürünün kalan satırlarının `derived_at`'i de ilerler (silinen satır site haritasında iz bırakmaz). Yalnız `source_text` değişirse metin güncellenir, `derived_at` korunur (açıklama değişikliği `lastmod`'u zaten `supplier_items.changed_at` ile ilerletir). Değişmeyen ürünlerin site haritası `lastmod`'u türetimle ilerlemez. IndexNow parmak izi içerik özeti kullandığı için etkilenmez.
 
 ### Ürün adresi geçişi (#640)
 

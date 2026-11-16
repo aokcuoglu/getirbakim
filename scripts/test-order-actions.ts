@@ -446,4 +446,6 @@ test("the customer's order page never reads supplier, cost or procurement data",
   assert.doesNotMatch(query.replace(/jsonb_build_object\([^)]*\) AS pricing_snapshot/, ""), /pricing_snapshot/);
   // The live-check marker (#763) stays in the admin panel; the customer only sees checkout_mode.
   assert.doesNotMatch(query, /live_check/);
+  // The supplier / live-check lookup (#766) runs only for admins.
+  assert.match(source, /isAdmin \?\s*db\.query[^\n]*supplier[^\n]*live_check[^\n]*:\s*null/);
 });

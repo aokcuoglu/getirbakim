@@ -13,12 +13,12 @@ import { dinamikRegion, dinamikRegions, type DinamikStockData } from "@/modules/
 
 export type DinamikParams = { q?: string; brand?: string; group?: string; region?: string; stock?: string; quality?: string; presence?: string; page?: string; sort?: string; dir?: string };
 // Header sorting on the item list (TableHead sortKey → column); the same order is applied to the page and its join.
-const itemSorts = { code: "code", name: "product_data->>'stokAdi'", brand: "list_group", cost: "CASE WHEN jsonb_typeof(price_data->'fiyat')='number' THEN (price_data->>'fiyat')::numeric END" };
+const itemSorts = { code: "code", name: "product_data->>'stokAdi'", brand: "list_group", cost: "CASE WHEN jsonb_typeof(price_data->'nf')='number' THEN (price_data->>'nf')::numeric END" };
 export type DinamikItem = {
   id: string; code: string; list_group: string;
   product_data: { stokKodu: string; marka: string; stokAdi?: string | null; ingilizceAdi?: string | null; kull1s?: string; kull3s?: string; kull7s?: string; kull8s?: string;
     oemListe?: string; esdegerListe?: string; barkod1?: string; barkod2?: string; barkod3?: string; resimUrl?: string; paketMiktari?: number; koliMiktari?: number; olcuBirimi?: string; desi?: number };
-  price_data: { fiyat: number | null; kampanyaOrani?: number } | null;
+  price_data: { fiyat: number | null; nf?: number; kampanyaOrani?: number } | null;
   stock_data: DinamikStockData | null;
   product_count: number; price_count: number; stock_count: number; conflicting: boolean;
   source_variants: Record<string, unknown>;

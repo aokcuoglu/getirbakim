@@ -7,8 +7,10 @@ import { requireAdmin } from "@/modules/auth/session";
 import { invalidateListings } from "@/modules/store/listing-epoch";
 import * as store from "@/modules/admin/product-image-store";
 import { productImageLimits, productImageTypes, type ProductImageErrorReason } from "@/modules/admin/product-image-upload";
+import { supplierNames } from "@/modules/admin/products";
 import { fetchRemoteImage } from "@/modules/admin/remote-image";
-import { parseRemoteImageUrl, RemoteImageError, remoteImageUrlMaxLength, type RemoteImageErrorReason } from "@/modules/admin/remote-image-url";
+import { remoteImageMessages } from "@/modules/admin/remote-image-messages";
+import { parseRemoteImageUrl, RemoteImageError, remoteImageUrlMaxLength } from "@/modules/admin/remote-image-url";
 
 /** Result of a gallery change (#581); the manager shows the message and refreshes the page. */
 export type ProductImageActionResult = { status: "success" | "error"; message: string };
@@ -28,17 +30,7 @@ const imageFailures: Record<ProductImageErrorReason, string> = {
   unreadable: "Görsel okunamadı; dosya bozuk olabilir.",
 };
 
-const remoteFailures: Record<RemoteImageErrorReason, string> = {
-  url: `Geçerli bir http:// veya https:// görsel adresi girin (kullanıcı adı/parola olmadan, en çok ${remoteImageUrlMaxLength} karakter).`,
-  port: "Bu bağlantı noktasına izin verilmiyor: yalnız 80, 443, 8080 ve 8443 portlarındaki adresler eklenebilir.",
-  blocked: "Bu adrese erişilemez: yalnız internetteki herkese açık adreslerden görsel alınabilir.",
-  unreachable: "Adrese ulaşılamadı. Adresi kontrol edip yeniden deneyin.",
-  timeout: "Adres zamanında yanıt vermedi. Yeniden deneyin.",
-  status: "Adres görseli döndürmedi (sayfa bulunamadı veya erişim reddedildi).",
-  "not-image": "Adres bir görsel değil: yalnız JPEG, PNG veya WebP görsel adresleri eklenebilir.",
-  size: imageFailures.size,
-  redirects: "Adres çok fazla yönlendirme yaptı; görselin doğrudan adresini girin.",
-};
+const remoteFailures = remoteImageMessages({ typesText: "JPEG, PNG veya WebP", sizeText: imageFailures.size });
 
 const productId = z.uuid();
 const remoteUrl = z.string().trim().max(remoteImageUrlMaxLength).refine(value => parseRemoteImageUrl(value) !== null);
@@ -119,6 +111,15 @@ export async function reorderProductImages(input: { productId: string; imageIds:
   const data = z.object({ productId, imageIds: order }).safeParse(input);
   if (!data.success) return { status: "error", message: "Sıralama tanınmadı. Sayfayı yenileyin." };
   return run(() => store.reorderProductImages(db, data.data.productId, data.data.imageIds, admin.id), "Görsel sırası kaydedildi.");
+}
+
+/** Adds the product's automatic image to its uploads (same media object, appended at the end). */
+export async function convertAutomaticProductImage(input: { productId: string; mediaId: string }): Promise<ProductImageActionResult> {
+  const admin = await requireAdmin();
+  const data = z.object({ productId, mediaId: z.uuid() }).safeParse(input);
+  if (!data.success) return { status: "error", message: "Görsel tanınmadı. Sayfayı yenileyin." };
+  return run(() => store.convertAutomaticImage(db, data.data.productId, data.data.mediaId, admin.id, supplierNames),
+    "Otomatik görsel yüklenenlere eklendi.", { listings: true });
 }
 
 export async function setAutomaticImageHidden(input: { productId: string; hidden: boolean }): Promise<ProductImageActionResult> {

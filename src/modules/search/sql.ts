@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { compactSearchCode, exactTsQuery, normalizeSearchText, parseSearchQuery, prefixTsQuery, type ParsedSearch, type ParseOptions } from "./query";
+import { compactSearchCode, exactTsQuery, parseSearchQuery, prefixTsQuery, type ParsedSearch, type ParseOptions } from "./query";
 
 /** Appends a value to the statement's parameters and returns its placeholder ("$3"). */
 export type Bind = (value: unknown) => string;
@@ -47,6 +47,16 @@ export function enrichmentStateMatch(alias: string, parsed: ParsedSearch, bind: 
 
 // Turkish letters a normalized (ASCII) query letter stands for; ~* covers the ASCII case pair.
 const turkishVariants: Record<string, string> = { c: "cçÇ", g: "gğĞ", i: "iıİ", o: "oöÖ", s: "sşŞ", u: "uüÜ" };
+// An optional separator inside a code: "5W40" also finds "5W-40", "5W 40" and "5W/40".
+const codeSeparator = "[-/ ]?";
+/** Normalized words are [a-z0-9.] only: "." is the one regex metacharacter to escape. Letter↔digit boundaries may hold a separator. */
+function dinamikWordPattern(word: string) {
+  return [...word].map((char, index) => {
+    const pattern = char === "." ? "\\." : turkishVariants[char] ? `[${turkishVariants[char]}]` : char;
+    const boundary = index > 0 && /^(?:[a-z]\d|\d[a-z])$/.test(word[index - 1] + char);
+    return boundary ? codeSeparator + pattern : pattern;
+  }).join("");
+}
 
 /**
  * Dinamik rows keep their own field names (stokAdi, oemListe…), which the indexed supplier text above does not read.
@@ -55,10 +65,11 @@ const turkishVariants: Record<string, string> = { c: "cçÇ", g: "gğĞ", i: "i�
  * is read as is: one regex per row stays ~0.3 s over ~1M rows (per-row search_normalize took ~6 s).
  */
 export function dinamikItemMatch(alias: string, raw: string, bind: Bind) {
-  const words = normalizeSearchText(raw).split(" ").filter(Boolean).slice(0, 8);
+  const words = parseSearchQuery(raw).terms.slice(0, 8);
   const text = `concat_ws(' ',${alias}.product_data->>'stokAdi',${alias}.code,${alias}.product_data->>'oemListe',${alias}.product_data->>'esdegerListe',${alias}.product_data->>'kull8s')`;
-  // Normalized words are [a-z0-9.] only: "." is the one regex metacharacter to escape.
-  const pattern = words.map(word => `(?=.*\\m${[...word].map(char => char === "." ? "\\." : turkishVariants[char] ? `[${turkishVariants[char]}]` : char).join("")})`).join("");
+  // A synonym phrase ("sogutma sivisi") needs each of its words, like separate query words did.
+  const pattern = words.flatMap(word => word.parts ? [word.parts.map(dinamikWordPattern).join(codeSeparator)] : word.text.split(" ").map(dinamikWordPattern))
+    .map(word => `(?=.*\\m${word})`).join("");
   const clauses = words.length ? [`${text} ~* ${bind(`^${pattern}`)}`] : [];
   const compact = compactSearchCode(raw);
   if (compact.length >= 3) clauses.push(`supplier_item_search_codes(${alias}.code, ${alias}.product_data) LIKE ${bind(`%${compact}%`)}`);
@@ -126,7 +137,8 @@ export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
   // description, store brand or part number (#575, #602): the stored inputs are the supplier's, the view columns carry
   // the edit (a price edit, #580, does not). An edited part number ranks like the supplier code it stands beside: the
   // better of the two, so an exact match of either ranks first. A row whose supplier OEM field is hidden (#615) ranks
-  // on the computed path too: its view oem is empty, the stored search_oem is not.
+  // on the computed path too: its view oem is empty, the stored search_oem is not. The stored inputs carry the supplier's
+  // brand label, the computed path the shown brand (display_brand: the master brand name, #811).
   return `COALESCE((SELECT catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries})
     FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides o WHERE o.supplier_item_id = s.id

@@ -29,6 +29,8 @@ try {
    await migrateSupplierSnapshots(client);
    await client.query(await readFile("db/commerce.sql", "utf8"));
    await client.query(await readFile("db/search.sql", "utf8"));
+   // Search statistics and admin synonyms (#822): reads accounts.
+   await client.query(await readFile("db/search-analytics.sql", "utf8"));
    await client.query(await readFile("db/garage.sql", "utf8"));
    await client.query(await readFile("db/product-enrichment.sql", "utf8"));
    await client.query(await readFile("db/manual-supplier.sql", "utf8"));
@@ -60,6 +62,10 @@ try {
    await client.query(await readFile("db/storefront-make-fits.sql", "utf8"));
    await client.query(await readFile("db/newsletter.sql", "utf8"));
    await client.query(await readFile("db/indexnow.sql", "utf8"));
+   // The matcher / state sync lock is (20261001,5) in public; other schemas derive their own key (#792). Both functions
+   // still agree off public, so a surprise is reported rather than failing the deploy.
+   const lockKey = (await client.query<{ key: number }>("SELECT schema_lock_key(5) AS key")).rows[0].key;
+   if (lockKey !== 5) console.warn(`Matcher lock key is ${lockKey}, not 5: the schema is not public (#792)`);
    await client.query("COMMIT");
    break;
   } catch (error) {

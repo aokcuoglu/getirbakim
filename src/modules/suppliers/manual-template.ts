@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import type { ManualBulkColumnKey } from "./manual-bulk-csv";
 
 // Fixed xlsx template of manual supplier lists (first list: lubricants). Columns are found by their header text, in any
 // order and on any sheet; a sheet without the "Ürün Kodu" header (the category list, notes) is skipped.
@@ -25,12 +26,13 @@ export type ManualRow = {
   price: number | null; stock: number | null; barcode: string | null; description: string | null;
   viscosity: string | null; package: string | null; approvals: string | null; imageUrl: string | null;
 };
-export type ManualIssue = { sheet: string; row: number | null; code: string | null; field: ManualColumnKey | null; level: "error" | "warning"; message: string };
+export type ManualIssue = { sheet: string; row: number | null; code: string | null; field: ManualColumnKey | ManualBulkColumnKey | null; level: "error" | "warning"; message: string };
 export type ManualParseResult = { rows: ManualRow[]; issues: ManualIssue[]; sheets: { name: string; rows: number }[] };
 
 const categorySheet = "Kategoriler";
 const maxRows = 20000;
-const fold = (value: string) => value.toLocaleLowerCase("tr").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
+/** Case, accent and whitespace insensitive comparison key (headers, category and brand names). */
+export const fold = (value: string) => value.toLocaleLowerCase("tr").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
 export const categoryLabel = (category: ManualCategory) => category.path.map(node => node.name).join(" › ");
 
 function cellText(value: ExcelJS.CellValue): string | null {

@@ -655,3 +655,18 @@ test("the form schema and reducer handle the short description (#697)", () => {
     values: { ...stored, short_description: null } } });
   assert.deepEqual([state.values.short_description, state.values.name, state.dirty], ["", "Ad", ["name"]]);
 });
+
+test("the shown brand is the label's master brand name; an admin's store brand still wins (#811)", async () => {
+  // Both LUK labels and INA's label join one master brand named differently from every label.
+  const brand = (await schema.pool.query<{ id: string }>("INSERT INTO brands(key,name) VALUES('INASCHAEFFLER','INA SCHAEFFLER') RETURNING id::text")).rows[0].id;
+  await schema.pool.query(`INSERT INTO supplier_brands(supplier,label,brand_id) VALUES('basbug','INA',$1),('basbug','LUK',$1),('dinamik','LUK',$1)
+    ON CONFLICT (supplier,label) DO UPDATE SET brand_id=EXCLUDED.brand_id`, [brand]);
+  assert.deepEqual(await shown602("ina"), ["INA", "INA 5100061109", "INA SCHAEFFLER", "INA 5100061109"]);
+  const luk = await productOf("lukBasbug");
+  await persist(schema.pool, luk, { brand: "SCHAEFFLER" }, admin);
+  assert.deepEqual((await shown602("lukBasbug"))?.slice(0, 3), ["LUK", "LUK 61061", "SCHAEFFLER"]);
+  assert.equal((await catalog.getProduct(ids.lukBasbug))?.display_brand, "SCHAEFFLER");
+  // The admin form's automatic value is what the store shows without the edit: the master brand name.
+  assert.equal((await store.loadProductOverride(schema.pool, luk)).automatic.brand, "INA SCHAEFFLER");
+  assert.equal((await store.loadProductOverride(schema.pool, await productOf("ina"))).automatic.brand, "INA SCHAEFFLER");
+});

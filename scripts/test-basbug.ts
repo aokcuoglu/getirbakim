@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import { BasbugImportError, prepareBasbugImport } from "../src/modules/suppliers/basbug-import";
-import { basbugItemClient, fallbackReason, prepareBasbugItemCheck, refreshBasbugItems } from "../src/modules/suppliers/basbug-item-refresh";
+import { basbugItemClient, prepareBasbugItemCheck, refreshBasbugItems } from "../src/modules/suppliers/basbug-item-refresh";
+import { fallbackReason } from "../src/modules/suppliers/checkout-fallback";
 import { basbugStockLabel, basbugWarehouseStock } from "../src/modules/suppliers/basbug-stock";
 
 const product = { no: "TEST 001", ac: "Test", ac2: "", uk: "MARKA", oe: "60 607 218", lgk: "FIAT", m: "MODEL", mo: "", y: "07-", b: "ADET", dc: "EUR", lf: 4.05, mkk: "" };
@@ -188,18 +189,44 @@ test("a 401 renews the token once and retries the request", async () => {
   assert.deepEqual(prepareBasbugItemCheck("TEST 0", await response.json()).depots.MRK, 1);
 });
 
-test("rows a running import keeps locked are marked busy and nothing is written", async () => {
+/** A write connection whose FOR UPDATE times out, as against rows a running import holds; records what was sent. */
+function lockedClient() {
   const statements: string[] = [];
+  const sent: string[] = [];
   const client = {
     query: async (sql: string) => {
+      sent.push(sql);
       statements.push(sql.trim().split(/\s+/).slice(0, 2).join(" "));
       if (sql.includes("FOR UPDATE")) throw Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" });
       return { rows: [], rowCount: 0 };
     },
     release: () => undefined,
   };
-  const result = await refreshBasbugItems(fakePool(async () => client), ids, { fetchItem: async (_company, code) => Response.json(item(code)) });
-  assert.deepEqual(Object.values(result.failed), ids.map(() => "busy"));
+  return { client, statements, sent };
+}
+
+test("rows a running import keeps locked are marked busy, a 604 is still gone, and nothing is written", async () => {
+  const { client, statements, sent } = lockedClient();
+  const result = await refreshBasbugItems(fakePool(async () => client), ids, {
+    fetchItem: async (_company, code) => code === "TEST 0" ? { status: 604, json: async () => null } : Response.json(item(code)),
+  });
+  assert.deepEqual(result.gone, [ids[0]]);
+  assert.equal(ids[0] in result.failed, false);
+  assert.deepEqual(result.failed, Object.fromEntries(ids.slice(1).map(id => [id, "busy"])));
+  assert.equal(result.refreshed, 0);
+  assert.equal(result.changed, 0);
+  assert.deepEqual(statements, ["BEGIN", "SET LOCAL", "SELECT id", "ROLLBACK"]);
+  // Below Postgres' default deadlock_timeout (1 s): in a two-party wait the checkout gives up before the deadlock check.
+  const timeout = sent.find(sql => sql.startsWith("SET LOCAL"))?.match(/^SET LOCAL lock_timeout = '(\d+)ms'$/);
+  assert.ok(timeout, "lock_timeout is set in milliseconds");
+  assert.ok(Number(timeout[1]) < 1000);
+});
+
+test("codes the supplier no longer knows stay gone when their zeroed stock cannot be saved", async () => {
+  const { client, statements } = lockedClient();
+  const result = await refreshBasbugItems(fakePool(async () => client), ids, { fetchItem: async () => ({ status: 604, json: async () => null }) });
+  assert.deepEqual(result.gone, ids);
+  assert.deepEqual(result.failed, {});
   assert.equal(result.refreshed, 0);
   assert.deepEqual(statements, ["BEGIN", "SET LOCAL", "SELECT id", "ROLLBACK"]);
 });

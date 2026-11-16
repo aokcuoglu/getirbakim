@@ -200,6 +200,14 @@ test("the dialog's suggestion adds the best offer it shows, and nothing unrelate
   const shown = preview.suggestions.map(suggestion => name(suggestion.id));
   assert.ok(shown.includes("padOffer"), shown.join());
   assert.ok(!shown.includes("pad"), shown.join());
+  // GA4 item ids are listing rows (#752): the suggestion adds the offer but reports its listing row.
+  const suggestedOffer = preview.suggestions.find(suggestion => suggestion.id === ids.padOffer);
+  assert.equal(suggestedOffer?.itemId, ids.pad);
+  // The cart line of a secondary offer keeps its id; the event reports the listing row.
+  const added = (await purchase.purchasePreview(ids.padOffer, 1, 0, {}, unhurried))?.added;
+  assert.ok(added, "padOffer preview");
+  assert.equal(added.id, ids.padOffer);
+  assert.equal(added.itemId, ids.pad);
   // A product without a category gets no suggestions: no newest-products filler (the dialog shows one column).
   const lone = await purchase.purchasePreview(ids.lone, 1, 0, {}, unhurried);
   assert.ok(lone);
@@ -219,4 +227,17 @@ test("a slow lookup gives way to the budget and is reported as pending", async (
   assert.equal(name(pending.added.id), "disc");
   assert.deepEqual(await purchase.withinBudget(Promise.resolve([] as string[]), 1000), []);
   assert.deepEqual(await purchase.withinBudget(Promise.resolve(["a"]), 1000), ["a"]);
+});
+
+test("a description model fits the added product until the admin hides it (#661)", async () => {
+  await schema.pool.query("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,10,'GOLF')", [ids.drumUnknown]);
+  try {
+    const fitted = await suggested("drumUnknown", {}, 5);
+    assert.ok(fitted.length > 0, "the description's Golf makes the drum's fitting parts suggestible");
+    await schema.pool.query("INSERT INTO product_override_fitment_hides(product_id,kind,model_id,label) VALUES($1,'description_model',10,'VW GOLF VII')", [await productOf("drumUnknown")]);
+    assert.deepEqual(await suggested("drumUnknown", {}, 5), []);
+  } finally {
+    await schema.pool.query("DELETE FROM product_override_fitment_hides");
+    await schema.pool.query("DELETE FROM product_model_fitments WHERE supplier_item_id=$1", [ids.drumUnknown]);
+  }
 });

@@ -37,7 +37,7 @@ export default async function Cart({searchParams}:{searchParams:Promise<SearchPa
     <nav className="mb-7 flex items-center gap-2 pt-4 text-[13px] text-muted-foreground" aria-label="Sayfa yolu"><Link href="/" className="hover:text-primary hover:underline">Ana sayfa</Link><ChevronRight className="size-[13px]" aria-hidden/><span aria-current="page">Sepetim</span></nav>
     <div className="mb-9 flex items-center gap-6 max-[760px]:mb-6 max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-2"><h1 className="m-0 text-[36px] leading-[44px] font-semibold tracking-[-1px] max-[760px]:text-[30px]">Sepetim</h1><Link href="/siparisler" className="text-sm text-[#0065a5] hover:underline">Siparişlerimi görüntüle</Link></div>
     {params.error && <Alert className="mb-4 rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">Ürün fiyatı veya stok durumu uygun değil. Sepetini kontrol edip güncelle.</Alert>}
-    {items.length ? <div className="grid grid-cols-[minmax(0,1.76fr)_minmax(320px,1fr)] items-start gap-4 max-[1000px]:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)] max-[760px]:grid-cols-1"><TrackCart items={analytics}/><div>
+    {items.length ? <div className="grid grid-cols-[minmax(0,1.76fr)_minmax(320px,1fr)] items-start gap-4 max-[1000px]:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)] max-[760px]:grid-cols-1"><TrackCart lines={analytics}/><div>
       <Card className="gap-0 rounded-[10px] py-0 ring-0 border border-border">
         <div className="grid grid-cols-[1fr_64px_90px] gap-6 border-b border-border px-5 py-[18px] text-sm max-[1000px]:grid-cols-[1fr_56px_80px] max-[1000px]:gap-3 max-[1000px]:px-4 max-[760px]:hidden" aria-hidden><span>Ürün</span><span>Adet</span><span className="text-right">Fiyat</span></div>
         {items.map(p=>{
@@ -48,7 +48,7 @@ export default async function Cart({searchParams}:{searchParams:Promise<SearchPa
               {(!p.available || !p.price_kurus || p.quantity>p.max_quantity) && <p className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]">Sipariş için uygun değil; adedi güncelle veya ürünü kaldır.</p>}
               <form action={updateCart} data-cart-remove><input type="hidden" name="productId" value={p.id}/><input type="hidden" name="quantity" value="0"/><Button type="submit" variant="link" className="h-6 min-h-6 border-0 bg-transparent p-0 text-sm font-medium text-[#0065a5] hover:bg-transparent">Kaldır</Button></form>
             </div>
-            <CartQuantity refreshPage className="max-[1000px]:[&_select]:w-14 max-[760px]:col-start-2" key={`${p.id}-${p.quantity}`} productId={p.id} name={p.display_code} quantity={p.quantity} maxQuantity={p.max_quantity} analyticsItem={analytics.find(item=>item.item_id===p.id)}/>
+            <CartQuantity refreshPage className="max-[1000px]:[&_select]:w-14 max-[760px]:col-start-2" key={`${p.id}-${p.quantity}`} productId={p.id} name={p.display_code} quantity={p.quantity} maxQuantity={p.max_quantity} analyticsItem={analytics.find(line=>line.productId===p.id)?.item}/>
             <div className="pt-2 text-right wrap-anywhere max-[760px]:col-start-3 max-[760px]:row-start-2"><strong className="block text-base font-medium">{p.price_kurus ? money(unit*p.quantity) : "Fiyat bekleniyor"}</strong>{p.price_kurus && <small className="mt-1 block text-[13px] text-muted-foreground">{money(unit)} / adet</small>}</div>
           </article>;
         })}

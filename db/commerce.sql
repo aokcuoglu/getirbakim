@@ -55,6 +55,19 @@ DO $$ BEGIN
   INSERT INTO commerce_migrations VALUES('legacy-carts');
  END IF;
 END $$;
+-- #809: Dinamik's cost (price_data.nf) was its list price; it is the list price less the 45 % and 5 % dealer discounts
+-- and the row's campaign rate (dinamikCost in src/modules/suppliers/dinamik-pricing.ts, same rounding). Imports write
+-- it from now on; this recomputes the rows already stored, once. Only price_data changes, so no trigger fires.
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM commerce_migrations WHERE name='dinamik-dealer-discount') THEN
+  UPDATE supplier_items SET price_data=price_data||jsonb_build_object('nf',
+   round((price_data->>'fiyat')::numeric*55*95*(100-CASE WHEN jsonb_typeof(price_data->'kampanyaOrani')='number'
+    AND (price_data->>'kampanyaOrani')::numeric>0 AND (price_data->>'kampanyaOrani')::numeric<100
+    THEN (price_data->>'kampanyaOrani')::numeric ELSE 0 END)/1000000,2))
+  WHERE supplier='dinamik' AND jsonb_typeof(price_data->'fiyat')='number' AND (price_data->>'fiyat')::numeric>0;
+  INSERT INTO commerce_migrations VALUES('dinamik-dealer-discount');
+ END IF;
+END $$;
 CREATE OR REPLACE FUNCTION cleanup_commerce_cart() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
  IF TG_ARGV[0]='account' THEN
@@ -91,6 +104,28 @@ CREATE OR REPLACE VIEW commerce_supplier_items AS
 SELECT i.* FROM supplier_items i
 WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier IN ('seta','manual') OR (i.supplier='dinamik' AND i.stock_data IS NOT NULL)) AND i.presence='present' AND NOT i.conflicting
 AND NOT EXISTS(SELECT 1 FROM store_products p WHERE p.supplier=i.supplier AND p.code=i.code);
+-- Master brands (#811): the store shows a product's master brand name (brands.name) instead of the supplier's raw
+-- label. Declared here as well as in db/product-matching.sql (which documents them) because this file runs first
+-- (scripts/setup.ts) and some tests load it without product-matching.sql (scripts/test-payments.ts) or the other way
+-- round (scripts/match-products.ts); keep both copies identical (scripts/test-manufacturers.ts compares them).
+CREATE OR REPLACE FUNCTION supplier_item_brand(supplier text, product_data jsonb) RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT CASE supplier WHEN 'dinamik' THEN product_data->>'marka' ELSE product_data->>'uk' END
+$$;
+CREATE TABLE IF NOT EXISTS brands (
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, key text NOT NULL UNIQUE, name text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
+);
+-- Each supplier's own label and its master brand. auto: placed by the brand key when first seen (a new label joins
+-- the brand its key already belongs to); manual: confirmed or moved by an admin. Neither is ever moved automatically.
+-- `items` counts the label's present rows at the last sync.
+CREATE TABLE IF NOT EXISTS supplier_brands (
+ supplier text NOT NULL, label text NOT NULL, brand_id bigint NOT NULL REFERENCES brands(id),
+ method text NOT NULL DEFAULT 'auto' CHECK (method IN ('auto','manual')), items integer NOT NULL DEFAULT 0,
+ decided_by uuid REFERENCES accounts(id), decided_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY (supplier,label)
+);
+CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx ON supplier_brands(brand_id);
 CREATE OR REPLACE VIEW commerce_catalog_entries AS
 SELECT id,category,supplier,code,name,brand,description,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,brand AS display_brand,code AS display_code,
@@ -99,11 +134,15 @@ UNION ALL
 SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
  COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
  COALESCE(ov.description,i.product_data->>'ac2',''),i.changed_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,'supplier',i.company,
- COALESCE(ov.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,i.code),
+ -- Shown brand: the admin's, else the label's master brand (a merge or rename shows at once), else the raw label.
+ COALESCE(ov.brand,mb.name,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,i.code),
  -- An admin's name (#686) is shown as written; a supplier's is converted by readableProductName (#659).
  ov.name IS NOT NULL
 FROM commerce_supplier_items i CROSS JOIN commerce_settings s
 LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
+-- Unique keys on both sides, so the planner drops these joins from queries that do not read display_brand.
+LEFT JOIN supplier_brands sb ON sb.supplier=i.supplier AND sb.label=supplier_item_brand(i.supplier,i.product_data)
+LEFT JOIN brands mb ON mb.id=sb.brand_id
 -- Hidden by an admin (#575): not for sale anywhere.
 WHERE ov.hidden IS NOT TRUE;
 DROP INDEX IF EXISTS supplier_items_catalog_order_idx;
@@ -141,7 +180,7 @@ WITH latest AS (
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN i.last_seen_at ELSE r.completed_at END AS rate_at,
  (i.price_data->>'nf')::numeric AS cost,ov.name AS override_name,ov.description AS override_description,
  ov.price_kurus AS override_price,ov.sale_until,ov.brand AS override_brand,ov.part_number AS override_part_number,
- ov.hide_oem AS override_hide_oem,
+ ov.hide_oem AS override_hide_oem,mb.name AS master_brand,
  -- The campaign price only inside its window; a NULL end is open.
  CASE WHEN (ov.sale_from IS NULL OR ov.sale_from<=now()) AND (ov.sale_until IS NULL OR now()<ov.sale_until) THEN ov.sale_price_kurus END AS sale_price,
  -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
@@ -149,6 +188,8 @@ WITH latest AS (
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
  LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
+ LEFT JOIN supplier_brands sb ON sb.supplier=i.supplier AND sb.label=supplier_item_brand(i.supplier,i.product_data)
+ LEFT JOIN brands mb ON mb.id=sb.brand_id
  LEFT JOIN supplier_sync_scopes sc ON sc.supplier=i.supplier AND sc.company=i.company AND sc.list_group=i.list_group AND sc.warehouse=i.warehouse
  LEFT JOIN rates r ON r.supplier=i.supplier AND r.company=i.company AND r.currency=i.product_data->>'dc'
  WHERE ov.hidden IS NOT TRUE
@@ -204,7 +245,7 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
   || CASE WHEN override_price IS NOT NULL THEN jsonb_build_object('fixed_price_kurus',override_price) ELSE '{}'::jsonb END
   || CASE WHEN on_sale THEN jsonb_build_object('list_price_kurus',regular_price,'sale_until',sale_until) ELSE '{}'::jsonb END
  END,
- COALESCE(override_brand,NULLIF(product_data->>'uk',''),'Belirtilmemiş'),COALESCE(override_part_number,code),
+ COALESCE(override_brand,master_brand,NULLIF(product_data->>'uk',''),'Belirtilmemiş'),COALESCE(override_part_number,code),
  override_name IS NOT NULL
 FROM final;
 -- Prepaid checkout: card payment is collected on TAMI's hosted page before operations confirm the order.
@@ -372,3 +413,7 @@ END $$;
 -- NULL = not sent yet. No backfill: orders paid before this change can still be measured within the 7-day window.
 ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS purchase_tracked_at timestamptz;
 COMMENT ON COLUMN commerce_orders.purchase_tracked_at IS 'GA4 purchase sent for this order (#675); claimed once by the order''s own customer';
+-- GA4 refund measurement (#750). Set once by the order's own customer when the refund event is handed to the browser, only for
+-- orders whose purchase was measured; NULL = not sent yet. No backfill.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refund_tracked_at timestamptz;
+COMMENT ON COLUMN commerce_orders.refund_tracked_at IS 'GA4 refund sent for this order (#750); claimed once by the order''s own customer, only after purchase_tracked_at';

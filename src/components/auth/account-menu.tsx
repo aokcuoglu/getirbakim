@@ -26,8 +26,8 @@ export function AccountMenu({ account }: { account: { name: string; role: string
   const [phoneOffset, setPhoneOffset] = useState(0);
   const trigger = useRef<HTMLButtonElement>(null);
   const modal = useRef<{ open: (mode: AuthMode) => void }>(null);
-  const phone = useMediaQuery("(max-width: 600px)");
-  const tablet = useMediaQuery("(min-width: 601px) and (max-width: 1100px)");
+  const phone = useMediaQuery("(max-width: 599.98px)");
+  const tablet = useMediaQuery("(min-width: 600px) and (max-width: 1100px)");
 
   function openModal(mode: AuthMode) {
     setOpen(false);

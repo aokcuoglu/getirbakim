@@ -8,7 +8,8 @@ export const fitmentLevelLabels: Record<FitmentLevel, string> = {
   no_vehicle: "Araç seçilmedi",
 };
 export type FitmentVehicle = { typeId: string | null; modelId: string | null };
-export type FitmentRow = { vehicleTypeId: number | null; modelId: number | null };
+/** `sourceKey`: an unlinked enrichment row's key (sourceVehicleKey), so a row the admin hid (#661) can leave the list. */
+export type FitmentRow = { vehicleTypeId: number | null; modelId: number | null; sourceKey?: string | null };
 
 /**
  * "guaranteed" needs a strict catalog link to the selected engine type. "mismatch" is only
