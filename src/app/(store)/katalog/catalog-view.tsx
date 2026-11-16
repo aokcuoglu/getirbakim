@@ -6,7 +6,10 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb,BreadcrumbItem,BreadcrumbLink,BreadcrumbList,BreadcrumbPage,BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Search,ChevronRight,ShieldCheck,Truck,CarFront,CircleCheck,Info } from "lucide-react";
-import { browseProducts,catalogFacets,vehicleFitCount,productsFittingVehicle,servicePrice } from "@/modules/store/catalog";
+import { after } from "next/server";
+import { headers } from "next/headers";
+import { recordSearch } from "@/modules/search/analytics";
+import { browseProducts,isPlainSearch,catalogFacets,vehicleFitCount,productsFittingVehicle,servicePrice } from "@/modules/store/catalog";
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { currentAccount } from "@/modules/auth/session";
 import { currentVehicle } from "@/modules/store/garage";
@@ -81,6 +84,13 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const vehicleTypeId=(await fitmentVehicle(vehicle))?.typeId ?? null;
  const [result,facetData,account,vehicleBrands,fitCount,oilSpec]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId?vehicleFitCount(params,vehicleTypeId):0,getVehicleOilSpec(vehicleTypeId)]);
  const products=result.items;
+ // Search analytics (#822): a plain search's first page, counted after the response; crawlers and prefetches are not shoppers.
+ if(isPlainSearch(params)&&result.page===1){
+  const request=await headers();
+  const crawler=/bot|crawl|spider|slurp|preview|headless|lighthouse/i.test(request.get("user-agent")??"");
+  const prefetch=request.has("next-router-prefetch")||/prefetch/i.test(request.get("sec-purpose")??request.get("purpose")??"");
+  if(!crawler&&!prefetch)after(()=>recordSearch({query:params.q!,mode:params.searchBy==="code"?"code":"all",total:result.total,correctedQuery:result.correctedQuery}));
+ }
  const [images,logos,details,fitting]=await Promise.all([getCatalogProductImages(products),getManufacturerLogos(products.map(product=>product.display_brand)),getCatalogProductDetails(products),vehicleTypeId?productsFittingVehicle(products.map(product=>product.id),vehicleTypeId):new Set<string>()]);
  // On a make or model listing only the categories holding its products are linked: an empty one would be a 404 (#673).
  const [categories,scopeCounts]=await Promise.all([getStoreCategories(),make?scopeCategoryCounts({make:params.make,model:params.model}):undefined]);

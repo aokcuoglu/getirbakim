@@ -14,6 +14,7 @@ import {legacyCategoryIds} from './category-tree';
 import {getVehicleBrandBySlug} from './vehicle-catalog.server';
 import {getVehicleModelGroup,getVehicleModelGroups} from './vehicle-model-groups.server';
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
+import {ensureCustomSynonyms} from '@/modules/search/custom-synonyms';
 import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {facetOptions} from './specification-translations';
 import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
@@ -315,6 +316,8 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
 // query reaches supplier_items by primary key. Joined as a subquery instead, the planner hash-joined
 // the whole 320k-row price view per query (~2.5 s each on the VPS, ~60 s per page).
 const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearch>=>{
+ // Admin synonyms (#822) join the parser before the query is read.
+ await ensureCustomSynonyms();
  const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
   // DISTINCT on the uuid, text afterwards: sorting 20k+ ids as collated text took ~50 ms of the query.
   // A secondary supplier offer counts as a hit of the product listing it.
@@ -540,7 +543,7 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
   correctedQuery:search.correctedQuery,vehicle:search.vehicle,tooShort:search.tooShort};
 });
 /** No filter but the search (mirrors the clauses catalogFilter adds). */
-function isPlainSearch(query:CatalogQuery){
+export function isPlainSearch(query:CatalogQuery){
  return Boolean(query.q?.trim())&&!query.category&&!query.make&&!query.model&&!query.manufacturer&&query.fits!=="vehicle"&&!query.oil&&!query.availability
   &&!selectedBrands(query).length&&!Object.values(selectedAttributes(query)).some(options=>options.length);
 }
@@ -622,6 +625,7 @@ export type ProductSuggestion={kind:"product";id:string;name:string;name_overrid
 const maxRankedSuggestions=500;
 /** Best matches for the header type-ahead: the catalog search's engine and readings, without prices. */
 export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
+ await ensureCustomSynonyms();
  const search=await catalogSearch(raw,mode);
  const notes={correctedQuery:search.correctedQuery,vehicleScope:search.vehicle};
  if(!search.ids.length)return {products:[] as ProductSuggestion[],...notes};

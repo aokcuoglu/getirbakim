@@ -29,6 +29,8 @@ try {
    await migrateSupplierSnapshots(client);
    await client.query(await readFile("db/commerce.sql", "utf8"));
    await client.query(await readFile("db/search.sql", "utf8"));
+   // Search statistics and admin synonyms (#822): reads accounts.
+   await client.query(await readFile("db/search-analytics.sql", "utf8"));
    await client.query(await readFile("db/garage.sql", "utf8"));
    await client.query(await readFile("db/product-enrichment.sql", "utf8"));
    await client.query(await readFile("db/manual-supplier.sql", "utf8"));
