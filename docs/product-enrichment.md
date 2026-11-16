@@ -207,7 +207,7 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
 | `product_vehicle_fitments` | AWS'de türetilir | `scripts/rebuild-product-fitments.ts --items`: paketin yazdığı ürünler + eski `matcher_version`'lı satırlar (#561); VPS akışı tam yeniden kurar |
 | `product_override_fitments` | Aktarılmaz | Yöneticinin araç uyumu kararları (#583) AWS panelinde yönetilir; `products.id` ortama özgüdür. Yeniden kurulum yalnız `product_vehicle_fitments`'ı yazar, kararlar kalır |
 | `product_override_fitment_hides` | Aktarılmaz | Yöneticinin mağazadan çıkardığı bağlanmamış kaynak satırları ve modeller (#661); kararlar gibi AWS panelinde yönetilir |
-| `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş) |
+| `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş); yalnız değişen satırlar yazılır, değişmeyenin `derived_at`'i korunur (#798) — bu sürümden eski bir release ile AWS'de derive koşulmaz |
 | `vehicle_type_oil_specs` | Aktarılmaz | `data/vehicle_type_oil_specs.csv` + `npm run db:vehicle-oils` |
 | `vehicle_type_trodo_oils`, `product_enrichment_sources` | Aktarılmaz | Yerel kalır |
 

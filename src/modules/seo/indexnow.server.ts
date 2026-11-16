@@ -15,8 +15,8 @@ import { adminEditedAtSql, descriptionFitmentItemsSql, indexableProductsSql, pro
 // (images, specifications, references, vehicles, hide/delete: product_override_changes, #767) and a hash of the
 // description fitments (model and years). Price and stock are left out on purpose (the admin's price edits too): they
 // change with every sync and the sitemap's lastmod carries them. The fitments enter as a content hash, not derived_at:
-// the derivation rewrites every row. They are the models the page shows (storefront_description_fits, #661): hiding one
-// or a vehicle decision changes the hash. concat_ws skips NULLs, so a product without admin edits or fitments keeps its
+// derived_at only moves when the derivation writes a row (#798) and not when an admin hides a model. They are the
+// models the page shows (storefront_description_fits, #661): hiding one or a vehicle decision changes the hash. concat_ws skips NULLs, so a product without admin edits or fitments keeps its
 // earlier fingerprint.
 const supplierFingerprint = `md5(concat_ws(chr(31),
   COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code),
