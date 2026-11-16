@@ -68,7 +68,7 @@ try {
  for(const [k,v] of Object.entries({name:'Guest Verification',email:'guest@example.invalid',phone:'5551234567',address:'Synthetic address only, Istanbul',note:'Guest test',consent:'on'}))guestCheckout.set(k,v);
  guestOrderId=placedOrderId(await post('/siparis-olustur',guestCheckout,guestCookie));assert.equal(guestOrderId!=='',payments);
  if(payments){
- if(supplier){assert.equal((await db.query('SELECT count(*) FROM supplier_imports')).rows[0].count,beforeImports);assert.equal((await db.query('SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1',[guestOrderId])).rows[0].pricing_snapshot.checkout_mode,'snapshot');assert.ok((await get(`/siparis/${guestOrderId}`,guestCookie)).html.includes('canlı API doğrulaması yapılmadı'));}
+ if(supplier){assert.equal((await db.query('SELECT count(*) FROM supplier_imports')).rows[0].count,beforeImports);assert.equal((await db.query('SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1',[guestOrderId])).rows[0].pricing_snapshot.checkout_mode,'snapshot');assert.ok(!(await get(`/siparis/${guestOrderId}`,guestCookie)).html.includes('canlı API doğrulaması yapılmadı'));assert.ok((await get(`/siparis/${guestOrderId}`,adminCookie)).html.includes('canlı API doğrulaması yapılmadı'));}
  assert.equal((await get(`/siparis/${guestOrderId}`,guestCookie)).res.status,200);
  assert.equal((await get(`/siparis/${guestOrderId}`)).res.status,404);
  const mixedCookie=`${cookie}; ${guestCookie}`;assert.equal((await get(`/siparis/${guestOrderId}`,mixedCookie)).res.status,200);

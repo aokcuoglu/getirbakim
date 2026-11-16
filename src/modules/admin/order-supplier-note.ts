@@ -1,4 +1,4 @@
-import { liveCheckReasonLabel } from "@/modules/admin/order-procurement";
+import { liveCheckReasonLabel, unknownLiveCheckReason } from "@/modules/admin/order-procurement";
 
 export type OrderNoteLine = { code: string; supplierLabel: string | null; snapshot: Record<string, unknown> | null };
 
@@ -16,14 +16,16 @@ export function snapshotNotes(lines: OrderNoteLine[]): string[] {
   const notes: string[] = [];
   if (recorded.length) {
     const names = joinNames(unique(recorded.map(line => line.supplierLabel)));
-    notes.push(`Kayıtlı veri modu: ${names ? `${names} ürünleri` : "Ürünler"} tedarikçinin kayıtlı fiyat ve stok verileriyle satıldı. Sipariş anında canlı API doğrulaması yapılmadı.`);
+    const subject = recorded.length === 1 ? "Bu sipariş kalemi" : "Bu sipariş kalemleri";
+    notes.push(`Tedarikçi anlık görüntüsü, kayıtlı veri modu: ${subject}${names ? ` (${names})` : ""} tedarikçinin kayıtlı fiyat ve stok verileriyle satıldı. Sipariş anında canlı API doğrulaması yapılmadı.`);
   }
   if (failed.length) {
     const detail = failed.map(line => {
       const reason = typeof line.snapshot?.live_check_reason === "string" ? line.snapshot.live_check_reason : "";
-      return `${line.code}${line.supplierLabel ? ` (${line.supplierLabel})` : ""} – ${liveCheckReasonLabel[reason] ?? "neden bilinmiyor"}`;
+      return `${line.code}${line.supplierLabel ? ` (${line.supplierLabel})` : ""} – ${liveCheckReasonLabel[reason] ?? unknownLiveCheckReason}`;
     }).join("; ");
-    notes.push(`Canlı doğrulama denendi, başarısız: ${detail}. Bu ürünler kayıtlı fiyat ve stok verisiyle satıldı; tedarikçiyle teyit edilmeli.`);
+    const subject = failed.length === 1 ? "Bu kalem" : "Bu kalemler";
+    notes.push(`Tedarikçi anlık görüntüsü, canlı doğrulama denendi ama başarısız oldu: ${detail}. ${subject} kayıtlı fiyat ve stok verisiyle satıldı; tedarikçiyle teyit edilmeli.`);
   }
   return notes;
 }

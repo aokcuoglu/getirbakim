@@ -14,7 +14,7 @@ import { PAYMENT_NOTICE, paymentErrors } from "@/modules/payments/messages";
 import { currentAccount } from "@/modules/auth/session";
 import { orderReturns } from "@/modules/admin/data";
 import { supplierNames } from "@/modules/admin/products";
-import { snapshotNotes } from "@/modules/store/order-supplier-note";
+import { snapshotNotes } from "@/modules/admin/order-supplier-note";
 import { recordReturn } from "@/modules/admin/commerce-actions";
 import { garageVehicleLabel, parseGarageVehicle } from "@/modules/store/garage";
 import { fitmentLevelLabels } from "@/modules/store/fitment-level";
@@ -131,7 +131,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
           <NativeSelect className="[&>select]:h-10 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
           <Input className="h-10 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className="h-10 px-4 hover:bg-brand-strong">İade kaydet</Button></form>}
       </div><strong className="shrink-0 font-semibold tabular-nums">{money(Number(p.unit_price_kurus)*p.quantity)}</strong></div>)}
-      {snapshotNoteTexts.map(text=><p key={text} className={cn(muted,"mt-3")}>Tedarikçi anlık görüntüsü: {text}</p>)}
+      {snapshotNoteTexts.map(text=><p key={text} className={cn(muted,"mt-3")}>{text}</p>)}
       </Card></div>
       <div className="flex min-w-0 flex-col gap-6 max-[600px]:contents">
         <Card className={cn(panel,"min-w-0 gap-3 ring-0 max-[600px]:order-1")}><h2 className={panelTitle}>Ödeme özeti</h2>
