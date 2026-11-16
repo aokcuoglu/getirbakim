@@ -2,9 +2,9 @@
 //   import-tree FILE      imports the Trodo category tree
 //   backfill              fills Trodo enrichments' categories from the raw product API cache
 //   learn-types           rebuilds the part type -> category dictionary (product_type_categories) from Trodo products
-//   backfill-types --source spareto [--dry-run] [--min-share 0.8] [--min-support 2]
+//   backfill-types --source spareto [--dry-run [--min-share 0.8] [--min-support 2]]
 //                         writes the dictionary's categories to the source's enrichments by part type; prints counts
-//                         and the 50 most common unmapped types. --dry-run only reads.
+//                         and the 50 most common unmapped types. --dry-run only reads; other thresholds only with it.
 //   report-types [--min-share 0.8] [--min-support 2]
 //                         dictionary size at the thresholds and the types left out by them
 import {readFile} from 'node:fs/promises';
@@ -12,14 +12,14 @@ import {Pool} from 'pg';
 import {importCategoryTree,productCategories} from '../src/modules/enrichment/source-categories';
 import {parseProduct,safeProductSlug} from '../src/modules/enrichment/trodo-adapter';
 import {sparetoTypeFromUrl} from '../src/modules/enrichment/spareto-adapter';
-import {acceptedPairs,backfillTypeCategories,loadTypeCategories,relearnTypeCategories,type TypedEnrichment} from '../src/modules/enrichment/type-categories';
+import {DEFAULT_MIN_SHARE,DEFAULT_MIN_SUPPORT,acceptedPairs,backfillTypeCategories,loadTypeCategories,relearnTypeCategories,type TypedEnrichment} from '../src/modules/enrichment/type-categories';
 import {enrichmentDataSchema,matchBasisSchema,matchesEnrichment} from '../src/modules/store/enrichment-contract';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL});
 const args=process.argv.slice(3);
 const option=(name:string)=>{const at=args.indexOf('--'+name);return at>=0?args[at+1]:undefined;};
 function thresholds(){
- const minShare=Number(option('min-share')??0.8),minSupport=Number(option('min-support')??2);
+ const minShare=Number(option('min-share')??DEFAULT_MIN_SHARE),minSupport=Number(option('min-support')??DEFAULT_MIN_SUPPORT);
  if(!(minShare>0&&minShare<=1))throw Error('--min-share must be in (0, 1]');
  if(!Number.isInteger(minSupport)||minSupport<1)throw Error('--min-support must be a positive integer');
  return {minShare,minSupport};
@@ -74,6 +74,10 @@ try{
  }else if(process.argv[2]==='backfill-types'){
   const source=option('source')??'',rows=typedSources[source];
   if(!rows)throw Error('--source must be one of: '+Object.keys(typedSources).join(', '));
+  // The spareto worker writes with the default thresholds; a written backfill with others would be undone product by
+  // product as they are re-collected.
+  if((option('min-share')!==undefined||option('min-support')!==undefined)&&!args.includes('--dry-run'))
+   throw Error('--min-share / --min-support only with --dry-run: writes use the worker\'s thresholds ('+DEFAULT_MIN_SHARE+', '+DEFAULT_MIN_SUPPORT+')');
   const limits=thresholds(),dictionary=await loadTypeCategories(pool,limits);
   if(!dictionary.exact.size)throw Error('Empty type dictionary; run learn-types first');
   const {unmappedTypes,...counts}=await backfillTypeCategories(pool,await rows(),dictionary,{dryRun:args.includes('--dry-run')});
@@ -89,5 +93,5 @@ try{
   console.log(JSON.stringify({...limits,types:types.size,pairs:pairs.length,acceptedTypes:kept.size,acceptedPairs:accepted.length,
    multiCategoryTypes:[...kept].filter(t=>accepted.filter(p=>p.type===t).length>1).length,leftOut:left.length},null,1));
   for(const {type,total,best} of left.slice(0,50))console.log(`${best}/${total}`.padStart(9)+'  '+type);
- }else throw Error('Usage: import-tree FILE | backfill | learn-types | backfill-types --source spareto [--dry-run] [--min-share N] [--min-support N] | report-types');
+ }else throw Error('Usage: import-tree FILE | backfill | learn-types | backfill-types --source spareto [--dry-run [--min-share N] [--min-support N]] | report-types');
 }finally{await pool.end();}

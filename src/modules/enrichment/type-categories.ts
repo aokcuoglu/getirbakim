@@ -29,6 +29,11 @@ export function trodoSlugType(productSlug:string,manufacturer:string){
  return at>0?productSlug.slice(0,at):null;
 }
 
+/** Dictionary thresholds the spareto worker and every written backfill use; other values are for dry runs only, so a
+ *  backfill never writes categories a later re-collection would replace. */
+export const DEFAULT_MIN_SHARE=0.8;
+export const DEFAULT_MIN_SUPPORT=2;
+
 export type TypeObservation={type:string;categoryIds:number[]};
 export type TypeCategoryPair={type:string;categoryId:number;support:number;total:number};
 /** How often each category appears among a type's observations (support) out of the type's observations (total). */
@@ -44,7 +49,7 @@ export function learnTypeCategories(observations:TypeObservation[]):TypeCategory
   .sort((a,b)=>a.type.localeCompare(b.type)||a.categoryId-b.categoryId);
 }
 /** Pairs a dictionary keeps: the category appears in at least minShare of the type's observations, minSupport times. */
-export function acceptedPairs(pairs:TypeCategoryPair[],{minShare=0.8,minSupport=2}:{minShare?:number;minSupport?:number}={}){
+export function acceptedPairs(pairs:TypeCategoryPair[],{minShare=DEFAULT_MIN_SHARE,minSupport=DEFAULT_MIN_SUPPORT}:{minShare?:number;minSupport?:number}={}){
  return pairs.filter(p=>p.support>=minSupport&&p.support>=minShare*p.total-1e-9);
 }
 
@@ -125,7 +130,7 @@ export function typeDictionary(entries:Map<string,SourceCategory[]>):TypeDiction
  return {exact:entries,folded:byFold};
 }
 /** The dictionary's accepted pairs with full category paths. */
-export async function loadTypeCategories(db:Db,{minShare=0.8,minSupport=2}:{minShare?:number;minSupport?:number}={}){
+export async function loadTypeCategories(db:Db,{minShare=DEFAULT_MIN_SHARE,minSupport=DEFAULT_MIN_SUPPORT}:{minShare?:number;minSupport?:number}={}){
  const rows=(await db.query<{type:string;category_id:number;support:number;total:number}>(
   "SELECT type,category_id,support,total FROM product_type_categories WHERE source='trodo' ORDER BY type,category_id")).rows;
  const byId=await categoryNodes(db),entries=new Map<string,SourceCategory[]>();
@@ -146,18 +151,21 @@ export function categoriesForType(dict:TypeDictionary,type:string|null):SourceCa
 }
 
 export type TypedEnrichment={supplierItemId:string;sourceUrl:string;type:string|null};
-/** Writes each row's dictionary categories to its enrichment and category links. A row whose categories are already the
- *  same is left alone, so imported_at (and storefront:sync) moves only for real changes; a row whose source URL changed
+/** Writes each row's dictionary categories to its enrichment and category links. A row without a type (its URL does not
+ *  name one) is only counted: the worker may have stored categories from the page's own part name. A row whose
+ *  categories are already the same is left alone, so imported_at (and storefront:sync) moves only for real changes; a row whose source URL changed
  *  meanwhile is not touched. dryRun only reads. */
 export async function backfillTypeCategories(pool:Pool,rows:TypedEnrichment[],dict:TypeDictionary,{dryRun=false}:{dryRun?:boolean}={}){
  const result={rows:rows.length,mapped:0,changed:0,unchanged:0,missing:0,noType:0};
  const unmapped=new Map<string,number>();
  for(let start=0;start<rows.length;start+=500){
-  const batch=rows.slice(start,start+500).map(row=>{
+  const batch=rows.slice(start,start+500).flatMap(row=>{
+   if(!row.type){result.noType++;return [];}
    const categories=categoriesForType(dict,row.type);
-   if(!row.type)result.noType++;else if(categories.length)result.mapped++;else unmapped.set(row.type,(unmapped.get(row.type)??0)+1);
-   return {...row,categories:JSON.stringify(categories)};
+   if(categories.length)result.mapped++;else unmapped.set(row.type,(unmapped.get(row.type)??0)+1);
+   return [{...row,categories:JSON.stringify(categories)}];
   });
+  if(!batch.length)continue;
   const params=[batch.map(r=>r.supplierItemId),batch.map(r=>r.sourceUrl),batch.map(r=>r.categories)];
   const input=`unnest($1::uuid[],$2::text[],$3::jsonb[]) AS i(id,url,categories)`;
   const client=await pool.connect();

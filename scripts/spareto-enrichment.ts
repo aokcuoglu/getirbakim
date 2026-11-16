@@ -27,7 +27,7 @@ import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {acquireSourceLock,tryExclusiveRun,withSourceLock} from '../src/modules/enrichment/source-lock';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
-import {categoriesForType,loadTypeCategories,typeSlug} from '../src/modules/enrichment/type-categories';
+import {categoriesForType,loadTypeCategories,typeSlug,type TypeDictionary} from '../src/modules/enrichment/type-categories';
 import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
 import {createFitmentMatcher,type FitmentCatalogModel,type FitmentCatalogType} from '../src/modules/store/fitment-matcher';
 
@@ -168,6 +168,18 @@ async function vehicleRows(client:SparetoClient,page:ProductPage,maxModels:numbe
  }
  return {rows,fetched};
 }
+/** The part type dictionary; a database whose schema predates it (42P01) collects without categories. */
+async function typeCategories():Promise<TypeDictionary>{
+ try{
+  const dictionary=await loadTypeCategories(pool);
+  if(!dictionary.exact.size)console.warn('Uyarı: parça tipi kategori sözlüğü boş; ürünler kategorisiz yazılacak (npm run enrichment:categories -- learn-types)');
+  return dictionary;
+ }catch(error){
+  if((error as {code?:string}).code!=='42P01')throw error;
+  console.warn('Uyarı: product_type_categories tablosu yok; ürünler kategorisiz yazılacak (npm run db:setup, sonra enrichment:categories -- learn-types)');
+  return {exact:new Map(),folded:new Map()};
+ }
+}
 async function collect(){
  const dryRun=args.includes('--dry-run');
  if(!dryRun){const flushed=await flush();if(flushed.imported||flushed.skipped)console.log(JSON.stringify({pendingWritten:flushed}));}
@@ -179,7 +191,7 @@ async function collect(){
  const match=createFitmentMatcher(models,types);
  // spareto names no categories; the part type takes Trodo's (#851). Every write replaces the product's category links,
  // so a re-collection without them would drop what enrichment-categories backfill-types wrote.
- const dictionary=await loadTypeCategories(pool);
+ const dictionary=await typeCategories();
  const client=new SparetoClient(Number(process.env.SPARETO_INTERVAL_MS||1500));
  const alone=status==='pending'?await tryExclusiveRun(pool,'spareto-pending'):null;
  if(status==='pending'&&!alone){console.log(JSON.stringify({skipped:'another pending pass is running'}));return;}

@@ -277,29 +277,48 @@ Trodo kategorilerini, kaç üründe görüldüğünü (`support`) ve tipin topla
 ürün API önbelleği ile kategorili Trodo zenginleştirmelerinden ürün slug'ı başına tekil olarak öğrenilir; ağaçta olmayan
 kategori kimlikleri atlanır, ad değil `category_id` kullanılır.
 
-- Eşikler: bir kategori, tipin ürünlerinin en az `--min-share` (varsayılan 0,8) kadarında ve en az `--min-support`
-  (varsayılan 2) üründe görülmüşse tipe yazılır; eşiği geçen her kategori yazılır (bir tip birden çok kategoride olabilir).
+- Eşikler: bir kategori, tipin ürünlerinin en az 0,8'inde ve en az 2 üründe görülmüşse tipe yazılır; eşiği geçen her
+  kategori yazılır (bir tip birden çok kategoride olabilir). Değerler `type-categories.ts` içindeki
+  `DEFAULT_MIN_SHARE` / `DEFAULT_MIN_SUPPORT` sabitleridir; işçi ve yazan backfill yalnız bunları kullanır. Farklı eşikler
+  (`--min-share`, `--min-support`) yalnız `--dry-run` ile denenebilir; aksi halde yazılan kategoriler ürünler yeniden
+  toplandıkça işçinin eşikleriyle geri değişirdi. Eşik değişecekse sabit değiştirilir.
 - Eşleştirme yalnız tam tip adıyla yapılır; "-1" gibi sayısal kuyruk bir kez atılarak, sonra yalnız son kelimenin
   tekil/çoğul farkı (`v-ribbed-belts` → `v-ribbed-belt`; `glass`, `gas`, `chassis` gibi kelimeler hariç) denenir. Farklı
   kategorilere düşen çoğul katlamaları belirsiz sayılır. Sonek/alt dize eşleşmesi yoktur
   (`water-pump-and-timing-belt-set` bir `timing-belt-set` değildir).
 - spareto işçisi sözlüğü açılışta yükler ve ürün sayfasındaki parça adının kategorilerini `payload.categories` içine
   yazar. Her yazım `product_source_categories`'i yeniden kurduğu için bu şarttır; kategorisiz yeniden toplama backfill'i silerdi.
-- Mağaza sözleşmesi değişmez: kategoriler yine `source: 'trodo'` olarak saklanır; otomatik kategori mağazada yine yalnız
-  `exact_part` / donör-OEM eşleşmelerinde gösterilir.
+  Tablo yoksa (şema güncellenmemiş yerel DB) veya sözlük boşsa işçi bir satır uyarı basar ve kategorisiz devam eder.
+- Mağaza sözleşmesi değişmez: kategoriler yine `source: 'trodo'` olarak saklanır. Liste/kategori sayfası, kategori
+  ağacı sayıları ve sitemap otomatik kategoriyi yalnız `exact_part` / donör-OEM eşleşmelerinde kullanır; ilgili ürün
+  önerileri (`related-suggestions.ts`) ve bakım seti (`maintenance-kit.server.ts`) eşleşme türüne bakmaz.
 
 Komutlar (`npm run enrichment:categories -- <komut>`):
 
 - `learn-types` sözlüğü yeniden öğrenir (tek işlemde `source='trodo'` satırlarını siler ve yeniden yazar).
 - `backfill-types --source spareto [--dry-run] [--min-share 0.8] [--min-support 2]` mevcut spareto zenginleştirmelerine
   URL'deki tipten kategori yazar; sayıları ve en sık 50 eşleşmeyen tipi basar. `--dry-run` yalnız okur. Kategorisi
-  değişmeyen satıra dokunulmaz; `imported_at` yalnız değişenlerde ilerler, kaynak URL'si değişmiş satır atlanır.
+  değişmeyen satıra dokunulmaz; `imported_at` yalnız değişenlerde ilerler, kaynak URL'si değişmiş satır atlanır. URL'sinden
+  tip çıkarılamayan satır (`noType`) yalnız sayılır, işçinin sayfa adından yazdığı kategoriler korunur.
 - `report-types [--min-share] [--min-support]` eşiklerde sözlük boyutunu ve dışarıda kalan tipleri gösterir.
 
 Backfill sonrası yeniden kurma gerekmez: kategori listeleri `product_source_categories`'i canlı okur (yalnız süreç içi
 10 dakikalık önbellek var). 16 Kasım 2026 yerel ölçümü: 14.177 Trodo ürününden 660 tip; spareto'nun 36.332 kaydının
 `--min-support 2` ile %92,7'si (33.691), `--min-support 1` ile %94,0'ı (34.165) kategori alıyor; çoğul katlama 15 kayıt ekliyor.
 URL'den tip çıkarılamayan 86 kayıt var (A.B.S. `ab-s-…`, CONTINENTAL CTAM `contitech-…`).
+
+**İlk backfill'in storefront:sync maliyeti (tek seferlik):** ilk yazımda ~33,7 bin spareto kaydının `imported_at`'i
+ilerler ve sonraki `storefront:sync` bunları yeniden gönderir:
+
+- Dışa aktarım bu kayıtların görsellerini de pakete koyar (`export-storefront-bundle.ts`, `media` sorgusu); içe
+  aktarım her görsel için S3'e PUT + doğrulama GET yapar (`import-storefront-bundle.ts`). Yerelde spareto görselleri
+  ≈24 bin nesne / 2,6 GB, yani 100 MB'lık ≈25 parça.
+- AWS, yazılan kayıtlar için araç uyumluluklarını yeniden kurar (`import-storefront-inbound.ts`, `rebuild-product-fitments`).
+- IndexNow parmak izleri ve sitemap `lastmod` değerleri bu ürünlerde ilerler.
+- Ana sayfadaki "son zenginleştirilen" rafı (`home.ts`, `imported_at DESC`) geçici olarak son backfill partisinden dolar.
+
+Backfill'i bilinçli bir zamanda (gece sync'inden önce değil, izlenebilecek bir aralıkta) koşun ve önce
+`npm run storefront:sync -- --dry-run` parça özetine (yalnız dışa aktarım + bölme, aktarım yok) bakın.
 
 Canlıda komut gerekmez: `db:setup` boş tabloyu kurar, kategoriler `imported_at` ilerlediği için `storefront:sync` ile
 taşınır. Yerelde birleştirmeden sonra: `learn-types` → `backfill-types --source spareto --dry-run` →

@@ -97,7 +97,7 @@ const items: string[] = [];
 before(async () => {
   if (skip) return;
   schema = await isolatedSchema("type_categories_test");
-  for (const code of ["A1", "A2", "A3", "A4"]) items.push((await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,
+  for (const code of ["A1", "A2", "A3", "A4", "A5"]) items.push((await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,
     product_data,price_data,stock_data,product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
     VALUES('basbug',$1,'G','MRK',$2,'{"uk":"FEBI","ac":"PARCA","ac2":"","dc":"TL"}','{"nf":100}','{"stok":2}',1,1,1,false,'present',now(),now(),now())
     RETURNING id::text`, [basbug, code])).rows[0].id);
@@ -139,18 +139,23 @@ test("PostgreSQL: learning from Trodo products drops unknown categories; the bac
   await enrichment(items[0], urls[0], "FEBI BILSTEIN", { specifications: [] });
   await enrichment(items[1], urls[1], "FEBI BILSTEIN", { specifications: [] });
   await enrichment(items[2], urls[2], "FEBI BILSTEIN", { specifications: [] });
+  // The worker named this product's categories from its page; its URL names no type the backfill can strip.
+  const fromPage = [{ source: "trodo", id: 10, name: "Brake discs", path: [{ id: 3, name: "Car parts" }, { id: 10, name: "Brake discs" }] }];
+  await enrichment(items[4], "https://spareto.com/products/ab-s-brake-disc/4", "A.B.S.", { categories: fromPage });
+  await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',10)", [items[4]]);
   const rows = [
     { supplierItemId: items[0], sourceUrl: urls[0], type: "brake-disc" },
     { supplierItemId: items[1], sourceUrl: urls[1], type: "wiper" },
     // The enrichment was re-collected from another URL meanwhile: not touched.
     { supplierItemId: items[2], sourceUrl: "https://spareto.com/products/febi-bilstein-brake-disc/old", type: "brake-disc" },
+    { supplierItemId: items[4], sourceUrl: "https://spareto.com/products/ab-s-brake-disc/4", type: null },
   ];
   const state = async (item: string) => (await schema.pool.query<{ categories: unknown; fresh: boolean; links: number[] }>(`SELECT payload->'categories' AS categories,
     imported_at>now()-interval '1 hour' AS fresh,ARRAY(SELECT category_id FROM product_source_categories WHERE supplier_item_id=$1 ORDER BY 1) AS links
     FROM product_enrichments WHERE supplier_item_id=$1`, [item])).rows[0];
 
   const dry = await backfillTypeCategories(schema.pool, rows, dict, { dryRun: true });
-  assert.deepEqual(dry, { rows: 3, mapped: 2, changed: 1, unchanged: 1, missing: 1, noType: 0, unmappedTypes: [{ type: "wiper", count: 1 }] });
+  assert.deepEqual(dry, { rows: 4, mapped: 2, changed: 1, unchanged: 1, missing: 1, noType: 1, unmappedTypes: [{ type: "wiper", count: 1 }] });
   assert.equal((await state(items[0])).fresh, false);
 
   const first = await backfillTypeCategories(schema.pool, rows, dict);
@@ -161,6 +166,7 @@ test("PostgreSQL: learning from Trodo products drops unknown categories; the bac
   assert.deepEqual(written.categories, categoriesForType(dict, "brake-disc"));
   assert.deepEqual(await state(items[1]), { categories: null, fresh: false, links: [] });
   assert.deepEqual(await state(items[2]), { categories: null, fresh: false, links: [] });
+  assert.deepEqual(await state(items[4]), { categories: fromPage, fresh: false, links: [10] });
 
   await schema.pool.query("UPDATE product_enrichments SET imported_at=now()-interval '1 day' WHERE supplier_item_id=$1", [items[0]]);
   const second = await backfillTypeCategories(schema.pool, rows, dict);
@@ -168,4 +174,5 @@ test("PostgreSQL: learning from Trodo products drops unknown categories; the bac
   assert.equal(second.unchanged, 2);
   assert.equal((await state(items[0])).fresh, false);
   assert.deepEqual((await state(items[0])).links, [10]);
+  assert.deepEqual(await state(items[4]), { categories: fromPage, fresh: false, links: [10] });
 });
