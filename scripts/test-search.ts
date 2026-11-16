@@ -75,6 +75,16 @@ test("parser: synonym phrases read as one term, both ways", () => {
   assert.equal(parseSearchQuery("soğutma fanı").terms.length, 2);
 });
 
+test("parser: a final k/p/t also finds its softened suffixed forms", () => {
+  for (const [word, softened] of [["kasnak", "kasnag"], ["mesnet", "mesned"], ["destek", "desteg"], ["plastik", "plastig"]])
+    assert.ok(parseSearchQuery(word).terms[0].alternatives.some(a => a.value === softened && a.prefix), word);
+  // Short words and consonant pairs keep their spelling ("stop", "egzost").
+  for (const word of ["stop", "egzost", "kit"]) assert.equal(parseSearchQuery(word).terms[0].alternatives.filter(a => !a.synonym).length, 1, word);
+  // Reviewed AI groups (#846).
+  assert.ok(prefixTsQuery(parseSearchQuery("orjinal"))!.includes("'orijinal':*"));
+  assert.ok(prefixTsQuery(parseSearchQuery("egzost"))!.includes("'egzoz':*"));
+});
+
 test("product search: synonyms widen the hits to every spelling", async () => {
   const count = async (q: string) => {
     const values: unknown[] = [];
@@ -83,6 +93,9 @@ test("product search: synonyms widen the hits to every spelling", async () => {
   const [eksoz, egzoz, egsoz] = await Promise.all(["eksoz", "egzoz", "egsoz"].map(count));
   assert.ok(eksoz > 0 && eksoz === egzoz && egzoz === egsoz, `${eksoz}/${egzoz}/${egsoz}`);
   assert.equal(await count("soğutma sıvısı"), await count("antifriz"));
+  // "kasnak" finds the "KASNAĞI" names too.
+  const { rows } = await db.query<{ n: number }>("SELECT count(*)::int AS n FROM supplier_items WHERE product_data->>'ac' ~* '\\mKASNA(Ğ|G)I'");
+  if (rows[0].n) assert.ok(await count("kasnak") >= rows[0].n);
 });
 
 test("vehicle search matches words, not letters inside codes", async () => {

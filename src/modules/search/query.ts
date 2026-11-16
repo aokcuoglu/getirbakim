@@ -47,11 +47,11 @@ const optionalWords = new Set(["model", "seri", "serisi", "series", "sinif", "si
 const synonymGroups = [
   ["dizel", "diesel", "mazot", "motorin"], ["benzin", "benzinli", "petrol", "gasoline"], ["elektrik", "elektrikli", "electric"],
   ["hibrit", "hybrid"], ["vw", "volkswagen"], ["mercedes", "mb"], ["chevrolet", "chevy"],
-  ["filtre", "filter"], ["yag", "oil"], ["fren", "brake"], ["balata", "pad"], ["aku", "akumulator", "battery"],
+  ["filtre", "filter", "filitre"], ["yag", "oil"], ["fren", "brake"], ["balata", "pad"], ["aku", "akumulator", "battery"],
   ["silecek", "wiper"], ["ampul", "bulb"], ["amortisor", "shock"], ["kayis", "belt"], ["rulman", "bilya", "bearing"],
   ["pompa", "pump"], ["ayna", "mirror"], ["far", "headlight"], ["buji", "spark"], ["radyator", "radiator", "petek"],
   // Auto-parts names the supplier catalogs spell or call differently (word counts from search_vocabulary).
-  ["egzoz", "egsoz", "eksoz"], ["enjektor", "injektor"], ["devirdaim", "devridaim", "su pompasi"],
+  ["egzoz", "egsoz", "eksoz", "egzos", "egzost"], ["enjektor", "injektor"], ["devirdaim", "devridaim", "su pompasi"],
   ["debriyaj", "kavrama"], ["alternator", "sarj dinamosu", "dinamo"], ["mars motoru", "starter"],
   ["antifriz", "sogutma sivisi"], ["polen filtresi", "kabin filtresi", "klima filtresi"],
   ["mazot filtresi", "yakit filtresi", "dizel filtresi", "motorin filtresi"], ["benzin filtresi", "yakit filtresi"],
@@ -59,6 +59,18 @@ const synonymGroups = [
   ["rot basi", "rot ucu", "rot kafasi"], ["salincak", "tabla"], ["kizdirma bujisi", "isitma bujisi"],
   ["vantilator", "fan"], ["kardan", "saft"], ["baski balata", "debriyaj seti", "kavrama seti"],
   ["motor takozu", "motor kulagi"], ["triger kayisi", "eksantrik kayisi", "zamanlama kayisi"], ["triger seti", "eksantrik seti"],
+  // Catalog spelling variants suggested by the AI pass (#834) and reviewed by an admin (#846).
+  ["orijinal", "orjinal", "original"], ["aluminyum", "aliminyum", "aluminium"], ["diferansiyel", "difransiyel", "defransiyel"],
+  ["eksantrik", "eksantirik"], ["elektrikli", "elektirikli"], ["sanziman", "sanzuman"], ["manifold", "manifolt"],
+  ["kompresor", "kompressor"], ["davlumbaz", "davlunbaz"], ["izolator", "izalator"], ["katalizor", "katalizator"],
+  ["kondenser", "kondanser"], ["solenoid", "selenoid"], ["stabilizer", "stabilizator"], ["intercool", "intercoll", "intercol"],
+  ["marsbiyel", "marspiyel", "masbiyel", "marspiye"], ["samandirasi", "samandrasi"], ["segmanli", "sekmanli"],
+  ["senkromenc", "senkromec"], ["enjeksiyonlu", "enjeksyonlu"], ["klingrit", "klingrik"], ["konnektor", "konjektor"],
+  ["deflektor", "deflekt"], ["kontrol", "kontro"], ["teker", "tekerlek"], ["braket", "bracket"], ["exhaust", "xhaust"],
+  ["express", "expres"], ["performans", "performance"], ["classic", "clasic"], ["series", "serie"], ["cabrio", "cabriolet"],
+  ["hatchback", "hatcback"], ["avantgarde", "avangarde"], ["bridgestone", "brigestone"], ["yuceplast", "yuceplastik"],
+  // Model names the supplier lists cut or misspell.
+  ["megane", "megan"], ["octavia", "octavi"], ["kangoo", "kango"], ["trafic", "traffic"],
   // Turkish market names of models TecDoc lists under their European name.
   ["egea", "tipo"], ["symbol", "thalia"], ["albea", "siena"],
   // Spelled as pronounced, too far from the make for spelling correction.
@@ -67,6 +79,15 @@ const synonymGroups = [
 const romans = ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"];
 
 const softening: Record<string, string> = { g: "k", b: "p", d: "t" };
+/**
+ * A final k/p/t softens before a vowel ending ("kasnak" → "kasnagi", "mesnet" → "mesnedi"): the softened stem, a prefix
+ * of the suffixed forms, or null. Only from five letters ending vowel + k/p/t: short words rarely soften. An extra
+ * spelling of the query word, never a key (stemKey keeps "yakit").
+ */
+function softenedStem(word: string) {
+  if (word.length < 5 || !/[aeiou][kpt]$/.test(word)) return null;
+  return word.slice(0, -1) + Object.entries(softening).find(([, hard]) => hard === word.at(-1))![0];
+}
 // Turkish possessive/plural endings: "balatasi" → "balata", "filtreler" → "filtre", "kapagi" → "kapak".
 function stems(word: string) {
   if (/\d/.test(word)) return [];
@@ -187,6 +208,8 @@ export function parseSearchQuery(raw: string, options: ParseOptions = {}): Parse
     // "golf 7" means the seventh generation, not every "75 hp" variant: model numbers match whole.
     const alternatives: SearchAlternative[] = [{ value: word, prefix: !smallNumber }];
     for (const stem of stems(word)) alternatives.push({ value: stem, prefix: true });
+    const softened = softenedStem(word);
+    if (softened) alternatives.push({ value: softened, prefix: true });
     alternatives.push(...synonymAlternatives(stemKey(word)));
     // "320d", "c200", "5w40": TecDoc writes engine and model codes apart ("320 d", "C 200"), oils "5W-40".
     for (const value of codeSpellings(word)) alternatives.push({ value, prefix: true });
