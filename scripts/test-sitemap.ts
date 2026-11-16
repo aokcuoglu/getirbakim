@@ -374,4 +374,20 @@ describe("sitemap queries", () => {
     // VOLKSWAGEN's description fits are all hidden now.
     assert.deepEqual(await queries.loadMakeSlugs(), ["alfa-romeo"]);
   });
+
+  test("the address follows the label's master brand name (#811); an unmapped label keeps its address", async () => {
+    const pathOf = async () => (await allChunks()).find(row => row.id === ids.dinamik)?.path;
+    const before = await pathOf();
+    assert.equal(before, `/urun/sachs-dinamik-parca-1000-${ids.dinamik}`);
+    // A master brand whose name is the label itself leaves the address as it was.
+    const brand = (await schema.pool.query<{ id: string }>("INSERT INTO brands(key,name) VALUES('SACHSTEST','SACHS') RETURNING id::text")).rows[0].id;
+    await schema.pool.query(`INSERT INTO supplier_brands(supplier,label,brand_id) VALUES('dinamik','SACHS',$1)
+      ON CONFLICT (supplier,label) DO UPDATE SET brand_id=EXCLUDED.brand_id`, [brand]);
+    assert.equal(await pathOf(), before);
+    await schema.pool.query("UPDATE brands SET name='ZF SACHS' WHERE id=$1", [brand]);
+    const after = await pathOf();
+    assert.notEqual(after, before);
+    assert.equal(after, productPath((await catalog.getStorefrontProduct(ids.dinamik))!));
+    assert.match(after!, /^\/urun\/zf-sachs-/);
+  });
 });

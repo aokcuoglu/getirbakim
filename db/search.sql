@@ -66,7 +66,9 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path FROM CURRENT AS $$
   search_compact(COALESCE(code, '')), search_compact(COALESCE(oem, '')), prefix_query, exact_query, compact)
 $$;
 -- The stored ranking inputs of a supplier row, from the same fields commerce_catalog_entries shows
--- (db/commerce.sql: name falls back to the code, brand to 'Belirtilmemiş'). Keep both in step.
+-- (db/commerce.sql: name falls back to the code, brand to 'Belirtilmemiş'). Keep both in step. The brand stored here is
+-- the supplier's label, not the master brand name the store shows (#811): a brand rename or merge must not rewrite
+-- every row of the brand, so the master name is not in the stored search document.
 CREATE OR REPLACE FUNCTION supplier_items_search_fields() RETURNS trigger
 LANGUAGE plpgsql SET search_path FROM CURRENT AS $$
 BEGIN

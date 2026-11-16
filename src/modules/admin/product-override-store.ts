@@ -1,6 +1,7 @@
 import "server-only";
 import type { Pool } from "pg";
 import { productCategoriesSql } from "./product-categories-sql";
+import { masterBrandJoinSql } from "@/modules/store/display-brand-sql";
 import { costWithVat, productOverrideFields, type ProductOverrideField, type ProductOverrideValues } from "./product-override-fields";
 
 /** A product's hand-set store card values (db/product-overrides.sql); NULL follows the automatic sources. */
@@ -131,12 +132,13 @@ export async function loadProductOverride(database: Pick<Pool, "query">, product
       ${versionSql} AS version
       FROM product_overrides o LEFT JOIN accounts a ON a.id=o.updated_by WHERE o.product_id=$1`, [productId]),
     // The listed source: the product's own row, then Başbuğ, Dinamik, SETA, manual (the storefront's order). Its brand
-    // and code are what the store shows without an edit (commerce_catalog_entries' supplier branch).
+    // and code are what the store shows without an edit (commerce_catalog_entries' supplier branch): the brand is the
+    // label's master brand name (#811).
     database.query<{ name: string | null; description: string | null; brand: string | null; code: string | null }>(`SELECT p.name,
       l.description,l.brand,l.code
       FROM products p LEFT JOIN LATERAL (SELECT i.product_data->>'ac2' AS description,
-        COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.code
-       FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id WHERE s.product_id=p.id
+        COALESCE(mb.name,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS brand,i.code
+       FROM product_sources s JOIN supplier_items i ON i.id=s.supplier_item_id ${masterBrandJoinSql("i")} WHERE s.product_id=p.id
        ORDER BY i.id=p.id DESC, storefront_supplier_rank(i.supplier), i.code LIMIT 1) l ON true
       WHERE p.id=$1`, [productId]),
     database.query<{ id: number; name: string }>(`SELECT DISTINCT c.category_id AS id, c.name FROM (${productCategoriesSql} AND s.product_id=$1) c

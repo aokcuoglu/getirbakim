@@ -6,6 +6,7 @@ import { vehicleBrandSlug } from "@/modules/store/vehicle-catalog";
 import { minimumContentSql, productIndexPolicy } from "./indexing";
 import { productPath, type ProductAddress } from "./product-path";
 import { productChunkRange, sitemapUrlLimit, withAncestors } from "./sitemap";
+import { displayBrandSql, masterBrandJoinSql } from "@/modules/store/display-brand-sql";
 
 const isoUtc = (column: string) => `to_char(${column} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
 
@@ -17,6 +18,7 @@ const isoUtc = (column: string) => `to_char(${column} AT TIME ZONE 'UTC','YYYY-M
 const supplierRows = `FROM commerce_supplier_items i
  LEFT JOIN product_enrichment_shared_links l ON l.supplier_item_id=i.id
  LEFT JOIN commerce_item_overrides h ON h.supplier_item_id=i.id
+ ${masterBrandJoinSql("i")}
  WHERE i.company=ANY($1::text[]) AND i.id BETWEEN $2::uuid AND $3::uuid
   AND NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=i.id AND o.primary_id<>o.item_id)
   AND h.hidden IS NOT TRUE
@@ -40,7 +42,7 @@ export function indexableProductsSql(columns: { supplier: string; store: string 
  */
 export const productAddressColumns = {
   supplier: `i.id::text AS id,COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code) AS name,h.name IS NOT NULL AS name_overridden,
-   COALESCE(h.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş') AS display_brand,COALESCE(h.part_number,i.code) AS display_code`,
+   ${displayBrandSql("i", "h")} AS display_brand,COALESCE(h.part_number,i.code) AS display_code`,
   store: "p.id::text AS id,p.name AS name,false AS name_overridden,p.brand AS display_brand,p.code AS display_code",
 };
 

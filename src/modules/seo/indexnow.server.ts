@@ -6,6 +6,7 @@ import { contentSignals } from "./indexing";
 import { productPath, type ProductAddress } from "./product-path";
 import { productChunkRange, productChunks } from "./sitemap";
 import { productPriceFields } from "@/modules/admin/product-override-fields";
+import { displayBrandSql } from "@/modules/store/display-brand-sql";
 import { adminEditedAtSql, descriptionFitmentItemsSql, indexableProductsSql, productAddressColumns } from "./sitemap.server";
 
 // The content a search engine sees on the page: shown name, brand, part number, description, shown OEM and the
@@ -19,7 +20,7 @@ import { adminEditedAtSql, descriptionFitmentItemsSql, indexableProductsSql, pro
 // earlier fingerprint.
 const supplierFingerprint = `md5(concat_ws(chr(31),
   COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code),
-  COALESCE(h.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
+  ${displayBrandSql("i", "h")},
   COALESCE(h.part_number,i.code),
   COALESCE(h.description,i.product_data->>'ac2',''),
   CASE WHEN h.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,

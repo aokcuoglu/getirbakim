@@ -129,8 +129,9 @@ test("the admin actions that change listings bump the epoch", async () => {
   assert.equal(await calls("src/app/yonetim/urunler/actions.ts"), 4);
   // run(), shared by add, hide and remove; setSupplierOemHidden (#615).
   assert.equal(await calls("src/app/yonetim/urunler/reference-actions.ts"), 2);
-  // splitOffer, undoSplit, decideCandidate ("Aynı ürün") and acceptCandidates.
-  assert.equal(await calls("src/app/yonetim/urun-eslestirme/actions.ts"), 4);
+  // splitOffer, undoSplit, decideCandidate ("Aynı ürün"), acceptCandidates and brandDecision (confirm, rename, move and
+  // merge of master brands: the store shows master brand names, #811).
+  assert.equal(await calls("src/app/yonetim/urun-eslestirme/actions.ts"), 5);
   // run() for remove and the automatic-image switch, finishProductImageUpload (#596).
   assert.equal(await calls("src/app/yonetim/urunler/image-actions.ts"), 2);
 });

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { manufacturerSlug } from "../src/modules/seo/manufacturer-path";
-import { buildManufacturerDirectory, manufacturerIndexable, manufacturerTexts, manufacturerTrail, unindexedManufacturerSlugs, type ManufacturerRow } from "../src/modules/store/manufacturers";
+import { buildManufacturerDirectory, featuredManufacturers, manufacturerIndexable, manufacturerTexts, manufacturerTrail, unindexedManufacturerSlugs, type ManufacturerRow } from "../src/modules/store/manufacturers";
 
 // Manufacturer pages (#660): slugs, the label directory, the index rule and the page texts. Pure.
 
@@ -31,6 +32,12 @@ const rows: ManufacturerRow[] = [
   // Two equal brands on one slug: the older (smaller id) wins.
   { id: "9", name: "TRW", label: "TRW", items: 7 },
   { id: "8", name: "T.R.W", label: "T.R.W", items: 7 },
+  // A label written like another brand's name: the store shows that brand's name, so the name's brand owns it (#811).
+  { id: "10", name: "SKF", label: "SKF-AV", items: 20 },
+  { id: "11", name: "SKF VKM", label: "SKF", items: 50 },
+  // Two brands with one name: the larger owns the name (and the page).
+  { id: "12", name: "DAYCO", label: "DAYCO", items: 5 },
+  { id: "13", name: "DAYCO", label: "DAYCO BELT", items: 9 },
 ];
 
 test("the directory: label union, pages, aliases and collisions", () => {
@@ -61,6 +68,43 @@ test("the directory: label union, pages, aliases and collisions", () => {
   assert.equal(directory.pathForLabel("&"), null);
   assert.equal(directory.pathForLabel("NO SUCH LABEL"), null);
   assert.deepEqual(directory.all.map(entry => entry.slug), [...directory.all.map(entry => entry.slug)].sort());
+});
+
+test("a master brand name belongs to its brand first (#811: the store shows master names)", () => {
+  const directory = buildManufacturerDirectory(rows);
+  const page = (slug: string) => { const match = directory.find(slug); return match?.kind === "page" ? match.manufacturer : undefined; };
+  assert.deepEqual(page("skf")?.labels, ["SKF", "SKF-AV"]);
+  assert.deepEqual(page("skf-vkm")?.labels, ["SKF VKM"]);
+  assert.equal(directory.pathForLabel("SKF"), "/marka/skf");
+  assert.equal(directory.pathForLabel("SKF VKM"), "/marka/skf-vkm");
+  assert.deepEqual(page("dayco"), { id: "13", name: "DAYCO", slug: "dayco", labels: ["DAYCO", "DAYCO BELT"] });
+  assert.equal(directory.pathForLabel("DAYCO"), "/marka/dayco");
+  assert.equal(directory.pathForLabel("DAYCO BELT"), "/marka/dayco");
+});
+
+test("home tiles resolve labels to their manufacturer page under the shown master name (#811)", () => {
+  const directory = buildManufacturerDirectory(rows);
+  assert.equal(directory.manufacturerFor("BLUE PRINT")?.name, "BLUEPRINT");
+  assert.equal(directory.manufacturerFor("BOSCH-X"), null);
+  assert.deepEqual(directory.labelsOf("MANN"), ["MANN", "MANN-FILTER"]);
+  assert.deepEqual(directory.labelsOf("NO SUCH LABEL"), []);
+  assert.deepEqual(featuredManufacturers(["BLUE PRINT", "BOSCH", "BOSCH AV", "MANN-FILTER", "GATES", "NO SUCH LABEL"], ["BLUEPRINT", "BOSCH", "MANN"], directory),
+    [{ brand: "BLUEPRINT", href: "/marka/blueprint" }, { brand: "BOSCH", href: "/marka/bosch" }, { brand: "MANN", href: "/marka/mann" }]);
+});
+
+test("supplier_item_brand is declared identically in db/commerce.sql and db/product-matching.sql", () => {
+  const body = (file: string) => {
+    const sql = readFileSync(file, "utf8"), start = sql.indexOf("CREATE OR REPLACE FUNCTION supplier_item_brand(");
+    assert.ok(start >= 0, file);
+    return sql.slice(start, sql.indexOf("$$;", start) + 3);
+  };
+  assert.equal(body("db/commerce.sql"), body("db/product-matching.sql"));
+  const tables = (file: string) => {
+    const sql = readFileSync(file, "utf8"), start = sql.indexOf("CREATE TABLE IF NOT EXISTS brands (");
+    assert.ok(start >= 0, file);
+    return sql.slice(start, sql.indexOf("CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx", start));
+  };
+  assert.equal(tables("db/commerce.sql").replace(/^--.*\n/gm, ""), tables("db/product-matching.sql").replace(/^--.*\n/gm, ""));
 });
 
 test("a manufacturer page is indexed as a plain listing with enough products", () => {
