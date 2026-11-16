@@ -3,11 +3,17 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
+import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
+import type { CartItem } from "../src/modules/store/cart";
 
 // GA4 purchase event claim (#675) in an isolated copy of the schema: once per order, only for its own customer.
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let claim: typeof import("../src/modules/store/purchase-event").claimPurchase;
+let listingIds: typeof import("../src/modules/store/catalog").listingIds;
+let cartItems: typeof import("../src/modules/analytics/cart-items.server").cartAnalyticsItems;
 let closeDb: () => Promise<void>;
+// A grouped product (#752): the primary row is what the storefront lists, secondary its cheaper offer, hiddenOffer belongs to a hidden primary.
+const grouped: Record<"primary" | "secondary" | "hiddenPrimary" | "hiddenOffer" | "single", string> = { primary: "", secondary: "", hiddenPrimary: "", hiddenOffer: "", single: "" };
 let disc = "", pad = "";
 
 const customer = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
@@ -37,8 +43,19 @@ before(async () => {
     VALUES('demo',$1,$2,$3,10000,10) RETURNING id::text`, [code, name, brand]);
   disc = (await insert("PE-DISC", "Fren Diski", "BOSCH")).rows[0].id;
   pad = (await insert("PE-PAD", "Fren Balatası", "TRW")).rows[0].id;
-  const [{ db }, module] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/purchase-event")]);
+  const supplierItem = async (key: string) => (await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+    product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
+    VALUES('basbug',$1,'G','MRK',$2,$3,'{"nf":100}','{"stok":2}',1,1,1,'present',now(),now(),now()) RETURNING id::text`,
+  [storefrontCompanies()[0], `GRP ${key}`, { uk: "BOSCH", ac: `${key} PARCA`, ac2: "", dc: "TL" }])).rows[0].id;
+  for (const key of Object.keys(grouped) as (keyof typeof grouped)[]) grouped[key] = await supplierItem(key);
+  await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1),($3,$3),($4,$3)",
+    [grouped.primary, grouped.secondary, grouped.hiddenPrimary, grouped.hiddenOffer]);
+  await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [grouped.hiddenPrimary]);
+  const [{ db }, module, catalog, cart] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/purchase-event"),
+    import("../src/modules/store/catalog"), import("../src/modules/analytics/cart-items.server")]);
   claim = module.claimPurchase;
+  listingIds = catalog.listingIds;
+  cartItems = cart.cartAnalyticsItems;
   closeDb = () => db.end();
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
@@ -119,4 +136,25 @@ test("re-applying db/commerce.sql keeps the flag", async () => {
   await schema.pool.query(await readFile("db/commerce.sql", "utf8"));
   assert.deepEqual(await flag(placed.id), claimed);
   assert.equal(await claim(placed.id, [customer]), null);
+});
+
+test("listingIds maps a grouped offer to its listing row; primary, ungrouped, hidden-primary and unknown ids stay absent", async () => {
+  assert.equal((await listingIds([])).size, 0);
+  const map = await listingIds([grouped.primary, grouped.secondary, grouped.single, grouped.hiddenOffer, randomUUID()]);
+  assert.deepEqual([...map], [[grouped.secondary, grouped.primary]]);
+});
+
+test("the purchase line of a secondary offer reports the listing id; the cart line keeps the offer id", async () => {
+  const placed = await order("paid", [{ product: grouped.secondary, quantity: 2, unit: 5000 }, { product: grouped.single, quantity: 1, unit: 3000 }]);
+  const event = await claim(placed.id, [customer]);
+  assert.ok(event);
+  assert.deepEqual(event.items.map(item => item.item_id), [grouped.primary, grouped.single]);
+  const stored = await schema.pool.query<{ product_id: string }>("SELECT product_id::text FROM commerce_order_items WHERE order_id=$1 AND product_id=$2", [placed.id, grouped.secondary]);
+  assert.equal(stored.rowCount, 1);
+});
+
+test("cartAnalyticsItems: productId is the offer, item_id the listing id", async () => {
+  const line = (id: string) => ({ id, name: "Parça", name_overridden: false, code: "C", display_code: "C", brand: "BOSCH", display_brand: "BOSCH", price_kurus: 10000, quantity: 1 }) as CartItem;
+  const lines = await cartItems([line(grouped.secondary), line(grouped.single), line(grouped.hiddenOffer)], 0);
+  assert.deepEqual(lines.map(entry => [entry.productId, entry.item.item_id]), [[grouped.secondary, grouped.primary], [grouped.single, grouped.single], [grouped.hiddenOffer, grouped.hiddenOffer]]);
 });

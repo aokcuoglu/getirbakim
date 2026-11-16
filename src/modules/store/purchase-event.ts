@@ -5,7 +5,7 @@ import { catalogItem, purchase, vatIncludedKurus, type AnalyticsItem, type Purch
 import { PURCHASE_EVENT_WINDOW_DAYS } from "@/modules/analytics/purchase";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import type { CartOwner } from "./cart";
-import { catalogSql } from "./catalog";
+import { catalogSql, listingIds } from "./catalog";
 import { getCatalogProductDetails } from "./product-enrichment";
 import { catalogCardTitle } from "./product-override-display";
 
@@ -31,11 +31,11 @@ async function purchaseItems(orderId: string): Promise<{ lines: Line[]; items: A
   try {
     const lines = (await db.query<CatalogLine>(lineQuery(true), [storefrontCompanies(), orderId])).rows;
     const listed = lines.flatMap(line => line.catalog_id ? [{ id: line.catalog_id, code: line.code ?? "", brand: line.brand ?? "" }] : []);
-    const details = await getCatalogProductDetails(listed);
+    const [details, listing] = await Promise.all([getCatalogProductDetails(listed), listingIds(lines.map(line => line.product_id))]);
     return {
       lines,
       items: lines.map((line, index) => catalogItem({
-        id: line.product_id,
+        id: listing.get(line.product_id) ?? line.product_id,
         name: line.catalog_id ? catalogCardTitle({
           name: line.catalog_name ?? line.name, name_overridden: line.name_overridden ?? false, code: line.code ?? "",
           display_code: line.display_code ?? "", brand: line.brand ?? "", display_brand: line.display_brand ?? "",
@@ -46,7 +46,9 @@ async function purchaseItems(orderId: string): Promise<{ lines: Line[]; items: A
   } catch (error) {
     console.error("Purchase event catalog lookup failed", { orderId, error: error instanceof Error ? error.message : error });
     const lines = (await db.query<Line>(lineQuery(false), [orderId])).rows;
-    return { lines, items: lines.map((line, index) => catalogItem({ id: line.product_id, name: line.name, brand: "" }, Number(line.unit_price_kurus), { quantity: line.quantity, index })) };
+    // The listing ids may be what failed above; the fallback keeps its own guard.
+    const listing = await listingIds(lines.map(line => line.product_id)).catch(() => new Map<string, string>());
+    return { lines, items: lines.map((line, index) => catalogItem({ id: listing.get(line.product_id) ?? line.product_id, name: line.name, brand: "" }, Number(line.unit_price_kurus), { quantity: line.quantity, index })) };
   }
 }
 
