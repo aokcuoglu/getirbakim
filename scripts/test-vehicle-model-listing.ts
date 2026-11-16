@@ -3,6 +3,7 @@ import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { listingIndexable } from "../src/modules/seo/indexing";
 import { listingRangeLabel } from "../src/modules/store/catalog-filters";
+import { listingPath, modelPath } from "../src/modules/seo/paths";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { AsyncLocalStorage } from "node:async_hooks";
 
@@ -15,6 +16,7 @@ let catalog: typeof import("../src/modules/store/catalog");
 let load: typeof import("../src/modules/store/listing-load");
 let groups: typeof import("../src/modules/store/vehicle-model-groups.server");
 let categories: typeof import("../src/modules/store/listing-categories.server");
+let sitemap: typeof import("../src/modules/seo/sitemap-models.server");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const [basbug] = storefrontCompanies();
@@ -89,8 +91,8 @@ before(async () => {
      (510,'found','İki tekerlekli taşıt','{}'),(511,'found','Sedan','{}')`);
   // Categories (#673): 3 Yedek parçalar > 252 Fren (legacy "fren") > 269 Fren diskleri; 3 > 241 Filtre (legacy
   // "filtre"); 200 Aydınlatma, empty. Golf 7 in Fren: g1-g3 and g5-g9 by legacy slug, g10 through a Trodo category of a
-  // child (trusted enrichment), g11 an admin's category (its automatic "filtre" is dropped): 10. g12 in Filtre. Not
-  // counted: the secondary offer g4s's "fren" (g4, its primary, has none) and the hidden gh.
+  // child (trusted enrichment), g11 an admin's category (its automatic "filtre" is dropped): 10. g4 and g12 in Filtre.
+  // Not counted: the secondary offer g4s's "fren" (g4, its primary, is in Filtre) and the hidden gh.
   await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
     ('trodo',3,NULL,'Yedek parçalar','yedek-parca','{3}','','{}'),('trodo',252,3,'Fren','fren','{3,252}','','{}'),
     ('trodo',269,252,'Fren diskleri','fren-diskleri-269','{3,252,269}','','{}'),('trodo',241,3,'Filtre','filtre','{3,241}','','{}'),
@@ -104,7 +106,8 @@ before(async () => {
   const legacy = (slug: string, keys: string[]) => schema.pool.query(`UPDATE supplier_items SET product_data=product_data||jsonb_build_object('category',$1::text)
     WHERE id=ANY($2::uuid[])`, [slug, keys.map(key => ids[key])]);
   await legacy("fren", ["g1", "g2", "g3", "g5", "g6", "g7", "g8", "g9", "g4s", "gh", "p1", "p2"]);
-  await legacy("filtre", ["g11", "g12"]);
+  // g4 is fitted only through its secondary offer's description: its category still counts for Golf 7.
+  await legacy("filtre", ["g4", "g11", "g12"]);
   // g3 is in Fren twice (its legacy slug and a Trodo category): counted once.
   for (const key of ["g10", "g3"]) {
     await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
@@ -119,12 +122,14 @@ before(async () => {
     INSERT INTO product_overrides(product_id,category_id) SELECT id,252 FROM product`, [ids.g11]);
   Object.assign(globalThis, { AsyncLocalStorage });
   workStorage = (await import("next/dist/server/app-render/work-async-storage.external")).workAsyncStorage;
-  const [{ db }, module, listing, groupsModule, scoped] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"),
-    import("../src/modules/store/listing-load"), import("../src/modules/store/vehicle-model-groups.server"), import("../src/modules/store/listing-categories.server")]);
+  const [{ db }, module, listing, groupsModule, scoped, sitemapModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"),
+    import("../src/modules/store/listing-load"), import("../src/modules/store/vehicle-model-groups.server"), import("../src/modules/store/listing-categories.server"),
+    import("../src/modules/seo/sitemap-models.server")]);
   catalog = module;
   load = listing;
   groups = groupsModule;
   categories = scoped;
+  sitemap = sitemapModule;
   closeDb = () => db.end();
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
@@ -242,16 +247,16 @@ test("model × category pages: 404 without products, noindex below 10, indexable
   assert.equal(listingIndexable(golf.query, golf.plainTotal ?? 0), true);
   const expected = ["g1", "g2", "g3", "g5", "g6", "g7", "g8", "g9", "g10", "g11"].map(key => ids[key]);
   assert.deepEqual((await catalog.browseProducts(golf.query)).items.map(row => row.id).sort(), expected.sort());
-  // The child category's product counts for its parents: Yedek parçalar holds every categorised Golf 7 product (not g4).
-  assert.equal((await page("yedek-parca", "golf-7"))?.plainTotal, 11);
+  // The child category's product counts for its parents: Yedek parçalar holds every Golf 7 product.
+  assert.equal((await page("yedek-parca", "golf-7"))?.plainTotal, 12);
   const disks = (await page("fren-diskleri-269", "golf-7"))!;
   assert.equal(disks.plainTotal, 2);
   assert.equal(listingIndexable(disks.query, disks.plainTotal ?? 0), false);
   const polo = (await page("fren", "polo-6"))!;
   assert.equal(polo.plainTotal, 2);
   assert.equal(listingIndexable(polo.query, polo.plainTotal ?? 0), false);
-  // The admin moved g11 out of Filtre: only g12 is left there.
-  assert.equal((await page("filtre", "golf-7"))?.plainTotal, 1);
+  // The admin moved g11 out of Filtre: g4 and g12 are left there.
+  assert.equal((await page("filtre", "golf-7"))?.plainTotal, 2);
   for (const [category, model] of [["aydinlatma-200", "golf-7"], ["filtre", "polo-6"], ["fren", "tiguan-7"], ["fren", "golf-9"], ["yok-boyle", "golf-7"], ["fren", "Golf-7"]]) {
     assert.equal(await page(category, model), null, `${category}/${model}`);
   }
@@ -284,7 +289,25 @@ test("the category counts the make and model pages link equal the category pages
     for (const id of counts.keys()) assert.ok(nodes.some(node => node.id === id), `${id} is a store category`);
   }
   assert.deepEqual([...(await categories.scopeCategoryCounts({ make: "vw", model: "golf-7" })).entries()].sort((a, b) => a[0] - b[0]),
-    [[3, 11], [241, 1], [252, 10], [269, 2]]);
+    [[3, 12], [241, 2], [252, 10], [269, 2]]);
   assert.equal((await categories.scopeCategoryCounts({ make: "vw", model: "golf-9" })).size, 0);
   assert.equal((await categories.scopeCategoryCounts({ make: "bmw" })).size, 0);
+}));
+
+test("the model sitemaps list exactly the indexable model and model × category pages (#673)", () => inRequest(async () => {
+  const units = (await import("../src/modules/store/vehicle-model-groups.server")).getVehicleModelGroups;
+  const slugs = (await schema.pool.query<{ slug: string }>("SELECT slug FROM source_category_labels WHERE source='trodo' AND locale='tr'")).rows.map(row => row.slug);
+  const models: string[] = [], modelCategories: string[] = [];
+  for (const group of await units("1")) {
+    const page = await load.findListing({ make: "vw", model: group.slug, search: {} });
+    if (page && listingIndexable(page.query, page.plainTotal ?? 0)) models.push(modelPath("vw", group.slug));
+    for (const category of slugs) {
+      const listing = await load.findListing({ category, make: "vw", model: group.slug, search: {} });
+      if (listing && listingIndexable(listing.query, listing.plainTotal ?? 0)) modelCategories.push(listingPath({ makeSlug: "vw", modelSlug: group.slug, categorySlug: category }));
+    }
+  }
+  assert.deepEqual(models, ["/yedek-parca/vw/golf-7"]);
+  assert.deepEqual(modelCategories.sort(), ["/kategori/fren/vw/golf-7", "/kategori/yedek-parca/vw/golf-7"]);
+  assert.deepEqual((await sitemap.loadModelPaths()).sort(), models.sort());
+  assert.deepEqual((await sitemap.loadModelCategoryPaths()).sort(), modelCategories);
 }));
