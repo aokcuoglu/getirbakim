@@ -38,20 +38,20 @@
   .site-topbar { @apply h-[42px] border-b border-border bg-white max-[600px]:hidden group-data-[route=checkout]/route:hidden group-data-[route=home]/route:max-[600px]:block; }
   .site-topbar-inner { @apply mx-auto flex h-full w-full max-w-[1350px] items-center justify-between gap-6 px-[15px]; }
   .site-topbar-links { @apply flex h-full items-center gap-6 group-data-[route=home]/route:max-[600px]:hidden [&>a]:inline-flex [&>a]:items-center [&>a]:gap-1.5 [&>a:hover]:text-brand max-[850px]:[&>a:first-child]:hidden; }
-  .site-header { @apply relative border-b border-border bg-white min-[601px]:in-data-home-scrolled:h-[131px] min-[601px]:in-data-catalog-scrolled:h-[131px]; }
+  .site-header { @apply relative border-b border-border bg-white min-[600px]:in-data-home-scrolled:h-[131px] min-[600px]:in-data-catalog-scrolled:h-[131px]; }
   .site-header-row {
     @apply mx-auto flex h-[88px] w-full max-w-[1350px] items-center gap-7 px-[15px] py-6 max-[1100px]:gap-5 max-[850px]:gap-4;
     @apply max-[600px]:h-auto max-[600px]:min-h-[114px] max-[600px]:flex-wrap max-[600px]:gap-3 max-[600px]:py-[15px];
     @apply group-data-[route=home]/route:max-[600px]:h-14 group-data-[route=home]/route:max-[600px]:min-h-14 group-data-[route=home]/route:max-[600px]:flex-nowrap group-data-[route=home]/route:max-[600px]:justify-center group-data-[route=home]/route:max-[600px]:gap-0 group-data-[route=home]/route:max-[600px]:py-[14px];
     @apply group-data-[route=checkout]/route:h-[65px] group-data-[route=checkout]/route:min-h-[65px] group-data-[route=checkout]/route:py-4;
-    @apply min-[601px]:in-data-home-scrolled:fixed min-[601px]:in-data-home-scrolled:inset-x-0 min-[601px]:in-data-home-scrolled:top-0 min-[601px]:in-data-home-scrolled:z-41 min-[601px]:in-data-home-scrolled:max-w-none! min-[601px]:in-data-home-scrolled:border-b min-[601px]:in-data-home-scrolled:border-border min-[601px]:in-data-home-scrolled:bg-white min-[601px]:in-data-home-scrolled:px-[max(15px,calc((100vw-1320px)/2))]!;
-    @apply min-[601px]:in-data-catalog-scrolled:fixed min-[601px]:in-data-catalog-scrolled:inset-x-0 min-[601px]:in-data-catalog-scrolled:top-0 min-[601px]:in-data-catalog-scrolled:z-41 min-[601px]:in-data-catalog-scrolled:max-w-none! min-[601px]:in-data-catalog-scrolled:border-b min-[601px]:in-data-catalog-scrolled:border-border min-[601px]:in-data-catalog-scrolled:bg-white min-[601px]:in-data-catalog-scrolled:px-[max(15px,calc((100vw-1320px)/2))]!;
+    @apply min-[600px]:in-data-home-scrolled:fixed min-[600px]:in-data-home-scrolled:inset-x-0 min-[600px]:in-data-home-scrolled:top-0 min-[600px]:in-data-home-scrolled:z-41 min-[600px]:in-data-home-scrolled:max-w-none! min-[600px]:in-data-home-scrolled:border-b min-[600px]:in-data-home-scrolled:border-border min-[600px]:in-data-home-scrolled:bg-white min-[600px]:in-data-home-scrolled:px-[max(15px,calc((100vw-1320px)/2))]!;
+    @apply min-[600px]:in-data-catalog-scrolled:fixed min-[600px]:in-data-catalog-scrolled:inset-x-0 min-[600px]:in-data-catalog-scrolled:top-0 min-[600px]:in-data-catalog-scrolled:z-41 min-[600px]:in-data-catalog-scrolled:max-w-none! min-[600px]:in-data-catalog-scrolled:border-b min-[600px]:in-data-catalog-scrolled:border-border min-[600px]:in-data-catalog-scrolled:bg-white min-[600px]:in-data-catalog-scrolled:px-[max(15px,calc((100vw-1320px)/2))]!;
   }
   .site-header-nav {
     @apply relative mx-auto flex h-[42px] min-h-[42px] w-full max-w-[1350px] items-center gap-7 px-[15px] pt-0 pb-[14px] text-sm font-medium whitespace-nowrap max-[1358px]:gap-6 max-[1280px]:gap-5 max-[1180px]:gap-4 max-[1180px]:text-[13px] scroll-px-[15px];
     @apply max-[1100px]:gap-[18px] max-[1100px]:text-[13px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-[600px]:py-0 has-data-mega-open:z-50 group-data-[route=checkout]/route:hidden;
     @apply group-data-[route=home]/route:max-[600px]:static group-data-[route=home]/route:max-[600px]:h-0 group-data-[route=home]/route:max-[600px]:min-h-0 group-data-[route=home]/route:max-[600px]:overflow-visible group-data-[route=home]/route:max-[600px]:p-0;
-    @apply min-[601px]:in-data-home-scrolled:invisible min-[601px]:in-data-catalog-scrolled:invisible;
+    @apply min-[600px]:in-data-home-scrolled:invisible min-[600px]:in-data-catalog-scrolled:invisible;
   }
   /* HeaderTools: account, garage and cart. */
   .header-tools {
