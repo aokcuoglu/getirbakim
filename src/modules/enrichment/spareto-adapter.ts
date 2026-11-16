@@ -1,5 +1,6 @@
 import {z} from 'zod';
 import {sourcePartQueries} from './trodo-adapter';
+import {brandSlug} from './type-categories';
 import {enrichmentDataSchema,matchBasisSchema,matchesEnrichment,matchesSupplierPart,type EnrichmentData} from '../store/enrichment-contract';
 import type {FitmentCatalogModel,FitmentCatalogType} from '../store/fitment-matcher';
 
@@ -116,12 +117,26 @@ export function resolveVehicles(rows:FitmentRow[],models:FitmentCatalogModel[],t
  return {vehicles,invalid,resolved};
 }
 
-export function buildData(page:ProductPage,vehicles:EnrichmentData['vehicles']=[]):EnrichmentData{
+/** The part type slug of a stored spareto URL: "/products/<brand>-<type>/<part>" without the brand. spareto spells some
+ *  brands shorter ("dt-" / "dt-spare-parts-" for DT SPARE PARTS, "reinz-" for VICTOR REINZ), so leading and trailing runs
+ *  of the brand's words are tried after the whole brand, longest first; null when none prefixes the slug. */
+export function sparetoTypeFromUrl(sourceUrl:string,manufacturer:string){
+ let segment:string|undefined;
+ try{segment=/^\/products\/([a-z0-9-]+)\//.exec(new URL(sourceUrl).pathname)?.[1];}catch{return null;}
+ const words=brandSlug(manufacturer).split('-').filter(Boolean);
+ if(!segment||!words.length)return null;
+ const runs=new Set<string>();
+ for(let n=words.length;n>0;n--){runs.add(words.slice(0,n).join('-'));runs.add(words.slice(words.length-n).join('-'));}
+ for(const run of [...runs].sort((a,b)=>b.length-a.length))if(segment.startsWith(run+'-')&&segment.length>run.length+1)return segment.slice(run.length+1);
+ return null;
+}
+
+export function buildData(page:ProductPage,vehicles:EnrichmentData['vehicles']=[],categories:EnrichmentData['categories']=[]):EnrichmentData{
  // The donor's own number is a cross reference of ours as well.
  const crossReferences={...page.crossReferences};
  if(!Object.values(crossReferences).flat().some(v=>normalize(v)===normalize(page.partNumber)))crossReferences[page.brand]=[...(crossReferences[page.brand]||[]),page.partNumber];
  const cap=(groups:Record<string,string[]>)=>Object.fromEntries(Object.entries(groups).map(([k,v])=>[k,v.slice(0,500)]));
- return enrichmentDataSchema.parse({specifications:page.specifications,oemNumbers:cap(page.oemNumbers),crossReferences:cap(crossReferences),vehicles,vehicleModels:[]});
+ return enrichmentDataSchema.parse({specifications:page.specifications,oemNumbers:cap(page.oemNumbers),crossReferences:cap(crossReferences),vehicles,vehicleModels:[],categories});
 }
 
 const references=(oem:string)=>[...new Set(oem.split(/[,;|\n]+|-(?=\d{6,})|(?<=\d{7})\s+(?=\d{7})/).map(v=>v.trim().replace(/\s*\/\s*(?:SET|KIT|TAKIM)$/i,'')).filter(v=>normalize(v).length>=4))];

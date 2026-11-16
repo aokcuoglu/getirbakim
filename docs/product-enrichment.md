@@ -268,6 +268,44 @@ mevcut ürün URL'sine ait ham API önbelleğinden kategori verilerini tamamlar;
 tedarikçi kimliğini yeniden doğrular, görselleri veya zenginleştirme durumunu değiştirmez.
 07 Ekim aktarımında 203 kayıt tamamlandı; 62 eski kayıtta bu API önbelleği bulunmadı.
 
+## Parça tipi → kategori sözlüğü (#851)
+
+Kendi kategorisi olmayan kaynaklar (spareto; sonra parts2world) kategoriyi parça tipinden alır. Trodo ürün adı
+"<parça tipi> <marka> <parça no>" biçimindedir (ör. "Sensor, coolant temperature AUTLOG AS2078"); diğer kaynaklar aynı
+TecDoc tip adlarını kullanır. `product_type_categories` tablosu her tip slug'ı (`sensor-coolant-temperature`) için
+Trodo kategorilerini, kaç üründe görüldüğünü (`support`) ve tipin toplam ürün sayısını (`total`) tutar. Sözlük Trodo ham
+ürün API önbelleği ile kategorili Trodo zenginleştirmelerinden ürün slug'ı başına tekil olarak öğrenilir; ağaçta olmayan
+kategori kimlikleri atlanır, ad değil `category_id` kullanılır.
+
+- Eşikler: bir kategori, tipin ürünlerinin en az `--min-share` (varsayılan 0,8) kadarında ve en az `--min-support`
+  (varsayılan 2) üründe görülmüşse tipe yazılır; eşiği geçen her kategori yazılır (bir tip birden çok kategoride olabilir).
+- Eşleştirme yalnız tam tip adıyla yapılır; "-1" gibi sayısal kuyruk bir kez atılarak, sonra yalnız son kelimenin
+  tekil/çoğul farkı (`v-ribbed-belts` → `v-ribbed-belt`; `glass`, `gas`, `chassis` gibi kelimeler hariç) denenir. Farklı
+  kategorilere düşen çoğul katlamaları belirsiz sayılır. Sonek/alt dize eşleşmesi yoktur
+  (`water-pump-and-timing-belt-set` bir `timing-belt-set` değildir).
+- spareto işçisi sözlüğü açılışta yükler ve ürün sayfasındaki parça adının kategorilerini `payload.categories` içine
+  yazar. Her yazım `product_source_categories`'i yeniden kurduğu için bu şarttır; kategorisiz yeniden toplama backfill'i silerdi.
+- Mağaza sözleşmesi değişmez: kategoriler yine `source: 'trodo'` olarak saklanır; otomatik kategori mağazada yine yalnız
+  `exact_part` / donör-OEM eşleşmelerinde gösterilir.
+
+Komutlar (`npm run enrichment:categories -- <komut>`):
+
+- `learn-types` sözlüğü yeniden öğrenir (tek işlemde `source='trodo'` satırlarını siler ve yeniden yazar).
+- `backfill-types --source spareto [--dry-run] [--min-share 0.8] [--min-support 2]` mevcut spareto zenginleştirmelerine
+  URL'deki tipten kategori yazar; sayıları ve en sık 50 eşleşmeyen tipi basar. `--dry-run` yalnız okur. Kategorisi
+  değişmeyen satıra dokunulmaz; `imported_at` yalnız değişenlerde ilerler, kaynak URL'si değişmiş satır atlanır.
+- `report-types [--min-share] [--min-support]` eşiklerde sözlük boyutunu ve dışarıda kalan tipleri gösterir.
+
+Backfill sonrası yeniden kurma gerekmez: kategori listeleri `product_source_categories`'i canlı okur (yalnız süreç içi
+10 dakikalık önbellek var). 16 Kasım 2026 yerel ölçümü: 14.177 Trodo ürününden 660 tip; spareto'nun 36.332 kaydının
+`--min-support 2` ile %92,7'si (33.691), `--min-support 1` ile %94,0'ı (34.165) kategori alıyor; çoğul katlama 15 kayıt ekliyor.
+URL'den tip çıkarılamayan 86 kayıt var (A.B.S. `ab-s-…`, CONTINENTAL CTAM `contitech-…`).
+
+Canlıda komut gerekmez: `db:setup` boş tabloyu kurar, kategoriler `imported_at` ilerlediği için `storefront:sync` ile
+taşınır. Yerelde birleştirmeden sonra: `learn-types` → `backfill-types --source spareto --dry-run` →
+`backfill-types --source spareto` → tekrar koşunca `changed: 0`. spareto işçisi tabloyu okuduğu için yerel şema
+(`db:setup` veya ilk `enrichment:categories` komutu) işçiden önce güncellenmelidir.
+
 ## Trodo kategori ağacı ve görselleri
 
 Kategori kaynağı Trodo ana sayfasının /rest/V1/initial-config yanıtındaki catTree alanıdır.

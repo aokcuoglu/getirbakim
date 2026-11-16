@@ -2,7 +2,8 @@
 // the pending queue next to Trodo.
 //   collect [--status pending|not_found|review|partial] [--limit N] [--ids file] [--retry] [--max-models N] [--dry-run]
 //                 searches the part number and supplier OEM numbers, verifies the identity on the product page and
-//                 writes image, specifications, reference numbers and vehicles as each product is found. Vehicles
+//                 writes image, specifications, reference numbers, vehicles and the part type's Trodo categories
+//                 (product_type_categories dictionary) as each product is found. Vehicles
 //                 load one fitment frame per model; past --max-models (default 150) the product stays partial.
 //                 pending follows the Trodo catalog pass's tiers (in stock first), takes brands it has found before
 //                 first and walks the rest of each tier from the other end, skips Trodo's unfinished run and runs
@@ -26,6 +27,7 @@ import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {acquireSourceLock,tryExclusiveRun,withSourceLock} from '../src/modules/enrichment/source-lock';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
+import {categoriesForType,loadTypeCategories,typeSlug} from '../src/modules/enrichment/type-categories';
 import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
 import {createFitmentMatcher,type FitmentCatalogModel,type FitmentCatalogType} from '../src/modules/store/fitment-matcher';
 
@@ -38,7 +40,7 @@ const status=(option('status')||'not_found') as typeof statuses[number];
 if(!statuses.includes(status))throw Error('--status must be pending, not_found, review or partial');
 const checkpoint=resolve(option('out')||(status==='partial'?'artifacts/spareto/partial.jsonl':'artifacts/spareto/results.jsonl'));
 type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'imported'|'skipped';at:string;url?:string;error?:string;
- counts?:{image:boolean;oems:number;crossReferences:number;specifications:number;basis:string;models?:number;modelsFetched?:number;vehicles?:number;resolved?:number;matched?:number;invalid?:number};package?:unknown};
+ counts?:{image:boolean;categories?:number;oems:number;crossReferences:number;specifications:number;basis:string;models?:number;modelsFetched?:number;vehicles?:number;resolved?:number;matched?:number;invalid?:number};package?:unknown};
 const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
  // The admin page reads searches from the database; a dry run leaves no trace there.
  if(!args.includes('--dry-run')&&(entry.outcome==='collected'||entry.outcome==='not_found'||entry.outcome==='error'))
@@ -175,6 +177,9 @@ async function collect(){
  const types=(await pool.query<FitmentCatalogType>(`SELECT id,model_id,name,cc,fuel_type,hp,kwt,to_char(year_of_constr_from,'YYYY-MM') AS date_from,
   to_char(year_of_constr_to,'YYYY-MM') AS date_to FROM vehicle_types`)).rows;
  const match=createFitmentMatcher(models,types);
+ // spareto names no categories; the part type takes Trodo's (#851). Every write replaces the product's category links,
+ // so a re-collection without them would drop what enrichment-categories backfill-types wrote.
+ const dictionary=await loadTypeCategories(pool);
  const client=new SparetoClient(Number(process.env.SPARETO_INTERVAL_MS||1500));
  const alone=status==='pending'?await tryExclusiveRun(pool,'spareto-pending'):null;
  if(status==='pending'&&!alone){console.log(JSON.stringify({skipped:'another pending pass is running'}));return;}
@@ -189,7 +194,7 @@ async function collect(){
    if(!found){await record({supplierItemId:supplier.id,outcome:'not_found',error:candidates?`${candidates} unverified candidates`:undefined});
     console.log(`${index} ${supplier.code} → bulunamadı${candidates?` (${candidates} aday doğrulanamadı)`:''}`);return false;}
    const sourceRows=await vehicleRows(client,found.page,maxModels),vehicle=resolveVehicles(sourceRows.rows,models,types);
-   const data=buildData(found.page,vehicle.vehicles),image=await downloadImage(client,found.page.image,supplier.id);
+   const data=buildData(found.page,vehicle.vehicles,categoriesForType(dictionary,typeSlug(found.page.name))),image=await downloadImage(client,found.page.image,supplier.id);
    if(image){data.imageWidth=image.width;data.imageHeight=image.height;}
    const modelCount=found.page.vehicleFrames.length;
    const complete=sparetoComplete({models:modelCount,modelsFetched:sourceRows.fetched,invalid:vehicle.invalid.length,image:Boolean(image),vehicles:data.vehicles.length});
@@ -197,11 +202,11 @@ async function collect(){
     sourceMethod:`spareto.com public HTTP adapter v2; ${describe(found.basis)}; vehicle models ${sourceRows.fetched}/${modelCount}; catalog-resolved ${vehicle.resolved}/${sourceRows.rows.length}; invalid rows ${vehicle.invalid.length}${image?'':'; no image'}${data.vehicles.length?'':'; no vehicles listed'}`,
     manufacturer:found.page.brand,partNumber:found.page.partNumber,matchBasis:found.basis,imageFile:image?.file,imageSource:image?.source,completeness:complete?'complete':'partial',data});
    const matched=data.vehicles.map(match).filter(row=>row.status==='matched').length;
-   const counts={image:Boolean(image),oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,specifications:data.specifications.length,basis:found.basis.type,
+   const counts={image:Boolean(image),categories:data.categories.length,oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,specifications:data.specifications.length,basis:found.basis.type,
     models:modelCount,modelsFetched:sourceRows.fetched,vehicles:data.vehicles.length,resolved:vehicle.resolved,matched,invalid:vehicle.invalid.length};
    await record({supplierItemId:supplier.id,outcome:'collected',url:pkg.source,counts,package:pkg});
    const written=dryRun?'toplandı':await write({supplierItemId:supplier.id,package:pkg})==='imported'?`yazıldı (${pkg.completeness==='complete'?'tamamlandı':'kısmi'})`:'yazılmadı';
-   console.log(`${index} ${supplier.code} → ${pkg.source} [${found.basis.type}] ${found.page.brand} ${found.page.partNumber} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · araç ${matched}/${counts.vehicles} eşleşti (model ${sourceRows.fetched}/${modelCount}) · görsel ${image?'var':'yok'} · ${written}`);
+   console.log(`${index} ${supplier.code} → ${pkg.source} [${found.basis.type}] ${found.page.brand} ${found.page.partNumber} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · kategori ${counts.categories} · araç ${matched}/${counts.vehicles} eşleşti (model ${sourceRows.fetched}/${modelCount}) · görsel ${image?'var':'yok'} · ${written}`);
   }catch(error){
    if(error instanceof SourceBlocked&&!dryRun)await recordAttempt(pool,'spareto',status,supplier.id,'blocked');
    if(error instanceof SourceBlocked||error instanceof DatabaseUnavailable){console.error(String(error));process.exitCode=2;return true;}
@@ -226,7 +231,7 @@ async function report(){
  console.log(JSON.stringify({checkpoint,total:all.length,collected:by('collected'),imported:by('imported'),skipped:by('skipped'),notFound:by('not_found'),errors:by('error'),
   unverifiedCandidates:all.filter(e=>e.outcome==='not_found'&&e.error).length,
   byBasis:Object.fromEntries(['exact_part','oem_reference','cross_reference'].map(b=>[b,counts.filter(c=>c.basis===b).length])),
-  withImages:counts.filter(c=>c.image).length,withSpecifications:counts.filter(c=>c.specifications).length,
+  withImages:counts.filter(c=>c.image).length,withCategories:counts.filter(c=>c.categories).length,withSpecifications:counts.filter(c=>c.specifications).length,
   withVehicles:counts.filter(c=>c.vehicles).length,vehicles:sum(counts,'vehicles'),resolvedVehicles:sum(counts,'resolved'),matchedVehicles:sum(counts,'matched'),
   invalidRows:sum(counts,'invalid'),modelsCapped:counts.filter(c=>c.models!==undefined&&c.modelsFetched!==c.models).length},null,1));
 }
