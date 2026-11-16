@@ -14,6 +14,10 @@
 @font-face { font-family: "Inter Fallback"; src: local("Arial"); font-weight: 400; size-adjust: 106.2%; ascent-override: 91.2%; descent-override: 22.7%; line-gap-override: 0%; }
 @font-face { font-family: "Inter Fallback"; src: local("Arial"); font-weight: 500; size-adjust: 107.5%; ascent-override: 90.1%; descent-override: 22.4%; line-gap-override: 0%; }
 @font-face { font-family: "Inter Fallback"; src: local("Arial Bold"), local("Arial-BoldMT"); font-weight: 600 700; size-adjust: 100.5%; ascent-override: 96.4%; descent-override: 24%; line-gap-override: 0%; }
+/* Same for Android, which has no Arial: its system font is Roboto. size-adjust = Inter width / Roboto width, measured on Turkish copy (#755). */
+@font-face { font-family: "Inter Fallback Roboto"; src: local("Roboto"), local("Roboto-Regular"); font-weight: 400; size-adjust: 107.1%; ascent-override: 90.4%; descent-override: 22.5%; line-gap-override: 0%; }
+@font-face { font-family: "Inter Fallback Roboto"; src: local("Roboto Medium"), local("Roboto-Medium"), local("Roboto"); font-weight: 500; size-adjust: 106.9%; ascent-override: 90.6%; descent-override: 22.6%; line-gap-override: 0%; }
+@font-face { font-family: "Inter Fallback Roboto"; src: local("Roboto Bold"), local("Roboto-Bold"), local("Roboto"); font-weight: 600 700; size-adjust: 107%; ascent-override: 90.5%; descent-override: 22.5%; line-gap-override: 0%; }
 
 /* Payment dialog progress shimmer (animate-[payment-progress_…]). */
 @keyframes payment-progress { to { background-position: -200% 0; } }
@@ -29,7 +33,7 @@
 /* shadcn/ui theme. :root carries the storefront palette (Getirbakim brand: blue #0077c7, ink #212b36, Inter);
    the administration workspace (.admin-app) uses the IBM Carbon color language with a dark variant. */
 @theme inline {
-  --font-sans: Inter, "Inter Fallback", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: Inter, "Inter Fallback", "Inter Fallback Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-heading: var(--font-sans);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --color-background: var(--background);
