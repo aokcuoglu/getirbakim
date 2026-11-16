@@ -270,7 +270,7 @@ tedarikçi kimliğini yeniden doğrular, görselleri veya zenginleştirme durumu
 
 ## Parça tipi → kategori sözlüğü (#851)
 
-Kendi kategorisi olmayan kaynaklar (spareto; sonra parts2world) kategoriyi parça tipinden alır. Trodo ürün adı
+Kendi kategorisi olmayan kaynaklar (spareto, parts2world) kategoriyi parça tipinden alır. Trodo ürün adı
 "<parça tipi> <marka> <parça no>" biçimindedir (ör. "Sensor, coolant temperature AUTLOG AS2078"); diğer kaynaklar aynı
 TecDoc tip adlarını kullanır. `product_type_categories` tablosu her tip slug'ı (`sensor-coolant-temperature`) için
 Trodo kategorilerini, kaç üründe görüldüğünü (`support`) ve tipin toplam ürün sayısını (`total`) tutar. Sözlük Trodo ham
@@ -324,6 +324,43 @@ Canlıda komut gerekmez: `db:setup` boş tabloyu kurar, kategoriler `imported_at
 taşınır. Yerelde birleştirmeden sonra: `learn-types` → `backfill-types --source spareto --dry-run` →
 `backfill-types --source spareto` → tekrar koşunca `changed: 0`. spareto işçisi tabloyu okuduğu için yerel şema
 (`db:setup` veya ilk `enrichment:categories` komutu) işçiden önce güncellenmelidir.
+
+### parts2world parça tipleri (#852)
+
+parts2world `article-info` yanıtı makalenin TecDoc genel makale adını `data.spareInfo` içinde verir ("V-ribbed Belt",
+"Control/Trailing Arm, wheel suspension"; her zaman İngilizce). Bu ad `typeSlug` ile aynı sözlükten eşlenir.
+
+- `parts2world_article_types` (yalnız yerel, mağaza paketine girmez): makale başına (`article_id`, `link_id`) yanıtın
+  markası, parça numarası ve `spare_info`'su. Satırı olmayan makale henüz sorulmamış demektir (tablo aynı zamanda
+  kaldığı yeri tutar). `spare_info` NULL = yanıt geldi ama ad/makale yok; `--retry` olmadan yeniden sorulmaz.
+- `collect` her yanıtta adı tabloya yazar (kimlik kontrolünden önce; makalenin kendi bilgisi) ve sözlükteki
+  kategorileri pakete koyar (`· kategori N`). Her yazım `product_source_categories`'i yeniden kurduğu için şarttır.
+  Tablo yoksa bir kez uyarır ve o koşu boyunca adları saklamadan devam eder.
+- `enrichment:parts2world -- fetch-types [--limit N] [--retry]` eski kayıtların makalelerini yeniden sorar ve
+  yalnız adı saklar; zenginleştirmeye, görsele, deneme kayıtlarına dokunmaz. Varsayılan 50 makale, marka kümelenmesin
+  diye karma sırayla. Sonunda `remainingBefore`, `named`, `noArticle`, `errors`, `rowsCovered` (adı alınan makalelerin
+  kayıt sayısı), `mapped`/`mappedShare` (sözlükte karşılığı olanlar; kimlik kontrolünden önceki tahmin) ve sözlükte
+  olmayan en sık 50 adı basar. HTTP 403/429/503'te durur (çıkış kodu 2); diğer hatalar yazılmaz, sonraki koşuda yeniden
+  denenir.
+- Kategorileri `enrichment:categories -- backfill-types --source parts2world [--dry-run]` yazar. Tip yalnız saklanan
+  yanıtın markası ve parça numarası kaydın `manufacturer` / `manufacturer_part_number`'ı ile aynıysa sayılır; değilse
+  veya ad yoksa satır `noType` olarak sayılır ve dokunulmaz.
+
+**Kilit ve sıra.** `fetch-types`, `collect` ile aynı iki kilidi alır (`parts2world-collect` denemeli,
+`parts2world-source` bekleyerek); aynı host'a iki istemci yapısal olarak açılamaz. Bekleyen işçi o an koşuyorsa
+`{"skipped":"another parts2world run is going"}` ile çıkar. Sırayı almak için işçiyi durdurun:
+`launchctl kill SIGTERM gui/$(id -u)/com.getirbakim.parts2world-pending`. `fetch-types` kilidi tuttukça launchd
+tetiklemeleri atlanır, bitince işçi kendiliğinden devam eder. `dev` çekildikten sonra koşan işçi yeniden başlayana dek
+eski kodla (kategorisiz) çalışır; durdurup bıraktığınızda yeni kodla açılır.
+
+**Operasyon sırası:** `fetch-types --limit 50` (örneklem, `mappedShare`'e bakın) → `backfill-types --source parts2world
+--dry-run` → uzun koşu (≈34 bin tekil makale, 2,5 sn + jitter ile ≈22–28 saat) ya da gece dilimleri
+(`fetch-types --limit 8000`) → `backfill-types --source parts2world`. Backfill tekrar koşunca `changed: 0` olmalı.
+
+**storefront:sync maliyeti:** ilk yazımda ≈41–42 bin parts2world kaydının `imported_at`'i ilerler; ≈35 bin görsel
+≈0,95 GB, 100 MB'lık ≈10 parça. AWS bu kayıtların araç uyumluluklarını yeniden kurar (parts2world kayıtları çok araçlı
+olduğu için spareto'dan ağır); IndexNow/`lastmod` ve ana sayfa rafı da etkilenir. Yazan backfill'i 04:30 sync'inin hemen
+öncesinde ve spareto backfill'i ile aynı gece koşmayın; önce `npm run storefront:sync -- --dry-run` özetine bakın.
 
 ## Trodo kategori ağacı ve görselleri
 

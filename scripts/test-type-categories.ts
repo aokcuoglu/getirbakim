@@ -4,9 +4,11 @@ import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import type { SourceCategory } from "../src/modules/enrichment/source-categories";
 import {
-  acceptedPairs, backfillTypeCategories, brandSlug, categoriesForType, learnTypeCategories, loadTypeCategories, relearnTypeCategories,
+  acceptedPairs, backfillTypeCategories, brandSlug, categoriesForType, learnTypeCategories, loadTypeCategories, loadTypeCategoriesOrEmpty, relearnTypeCategories,
   trodoSlugType, trodoType, typeDictionary, typeSlug,
 } from "../src/modules/enrichment/type-categories";
+import { parts2worldTypedEnrichments, pendingArticleTypes, saveArticleType } from "../src/modules/enrichment/parts2world-types";
+import { productUrl } from "../src/modules/enrichment/parts2world-adapter";
 
 // Part type -> Trodo category dictionary (#851): slug helpers, thresholds and lookups in memory; learning from Trodo
 // products and the backfill in an isolated copy of the schema.
@@ -175,4 +177,65 @@ test("PostgreSQL: learning from Trodo products drops unknown categories; the bac
   assert.equal((await state(items[0])).fresh, false);
   assert.deepEqual((await state(items[0])).links, [10]);
   assert.deepEqual(await state(items[4]), { categories: fromPage, fresh: false, links: [10] });
+});
+
+test("PostgreSQL: parts2world part types (#852) are fetched once per article and backfilled when the article still matches", { skip }, async () => {
+  // The dictionary of the test above (brake-disc -> 10, oil-filter -> 20).
+  const dict = await loadTypeCategories(schema.pool);
+  const p2w: string[] = [];
+  for (const code of ["P1", "P2", "P3", "P4"]) p2w.push((await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,
+    product_data,price_data,stock_data,product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+    VALUES('basbug',$1,'G','MRK',$2,'{"uk":"FEBI","ac":"PARCA","ac2":"","dc":"TL"}','{"nf":100}','{"stok":2}',1,1,1,false,'present',now(),now(),now())
+    RETURNING id::text`, [basbug, code])).rows[0].id);
+  const write = (item: string, url: string, manufacturer: string, part: string) => schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,
+    supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload,imported_at) VALUES($1,'X','FEBI',$2,'test',$3,$4,'{"specifications":[]}',now()-interval '1 day')`,
+    [item, url, manufacturer, part]);
+  // Two rows share article 100/101 (through different vehicle types): one job, the lower type, both rows counted.
+  const shared = [productUrl({ articleId: 100, linkId: 101, vehicleTypeId: 7 }), productUrl({ articleId: 100, linkId: 101, vehicleTypeId: 5 })];
+  const other = productUrl({ articleId: 200, linkId: 201, vehicleTypeId: 9 }), none = productUrl({ articleId: 300, linkId: 300, vehicleTypeId: 9 });
+  await write(p2w[0], shared[0], "FEBI BILSTEIN", "171209");
+  await write(p2w[1], shared[1], "FEBI BILSTEIN", "171209");
+  await write(p2w[2], other, "MANN-FILTER", "W 712");
+  await write(p2w[3], none, "BOSCH", "1");
+
+  const pending = await pendingArticleTypes(schema.pool);
+  assert.equal(pending.length, 3);
+  assert.deepEqual(pending.find(p => p.articleId === 100), { articleId: 100, linkId: 101, vehicleTypeId: 5, rows: 2 });
+
+  // Upsert: a second answer replaces the first.
+  await saveArticleType(schema.pool, { articleId: 100, linkId: 101, brand: "FEBI BILSTEIN", partNumber: "171209", spareInfo: "Wiper" });
+  await saveArticleType(schema.pool, { articleId: 100, linkId: 101, brand: "FEBI BILSTEIN", partNumber: "171209", spareInfo: "Brake Disc" });
+  // The live answer names another part than the stored enrichment: no type.
+  await saveArticleType(schema.pool, { articleId: 200, linkId: 201, brand: "MANN-FILTER", partNumber: "W 713", spareInfo: "Oil Filter" });
+  // No article for these ids.
+  await saveArticleType(schema.pool, { articleId: 300, linkId: 300, brand: null, partNumber: null, spareInfo: null });
+  assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM parts2world_article_types")).rows[0].n, 3);
+  assert.deepEqual(await pendingArticleTypes(schema.pool), []);
+  assert.deepEqual((await pendingArticleTypes(schema.pool, { retry: true })).map(p => p.articleId), [300]);
+
+  const typed = await parts2worldTypedEnrichments(schema.pool);
+  const byItem = new Map(typed.map(t => [t.supplierItemId, t]));
+  assert.equal(typed.length, 4);
+  assert.deepEqual(byItem.get(p2w[0]), { supplierItemId: p2w[0], sourceUrl: shared[0], type: "brake-disc" });
+  assert.equal(byItem.get(p2w[1])?.type, "brake-disc");
+  assert.equal(byItem.get(p2w[2])?.type, null);
+  assert.equal(byItem.get(p2w[3])?.type, null);
+
+  const result = await backfillTypeCategories(schema.pool, typed, dict);
+  assert.deepEqual(result, { rows: 4, mapped: 2, changed: 2, unchanged: 0, missing: 0, noType: 2, unmappedTypes: [] });
+  const state = async (item: string) => (await schema.pool.query<{ categories: unknown; links: number[] }>(`SELECT payload->'categories' AS categories,
+    ARRAY(SELECT category_id FROM product_source_categories WHERE supplier_item_id=$1 ORDER BY 1) AS links FROM product_enrichments WHERE supplier_item_id=$1`, [item])).rows[0];
+  assert.deepEqual(await state(p2w[0]), { categories: categoriesForType(dict, "brake-disc"), links: [10] });
+  assert.deepEqual(await state(p2w[1]), { categories: categoriesForType(dict, "brake-disc"), links: [10] });
+  assert.deepEqual(await state(p2w[2]), { categories: null, links: [] });
+  assert.deepEqual(await state(p2w[3]), { categories: null, links: [] });
+});
+
+test("PostgreSQL: a worker's dictionary is empty, not an error, without learned types", { skip }, async () => {
+  const client = await schema.pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("DELETE FROM product_type_categories");
+    assert.equal((await loadTypeCategoriesOrEmpty(client)).exact.size, 0);
+  } finally { await client.query("ROLLBACK"); client.release(); }
 });

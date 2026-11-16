@@ -13,6 +13,13 @@ export const articleInfoPath=(articleId:number|string,linkId:number|string,vehic
 export const productUrl=(a:{articleId:number|string;linkId:number|string;vehicleTypeId:number|string})=>
  `${PARTS2WORLD}/tecdoc/#/product?mod=${a.vehicleTypeId}&link=${a.linkId}&id=${a.articleId}`;
 
+const productUrlPattern=/^https:\/\/www\.parts2world\.com\/tecdoc\/#\/product\?mod=(\d+)&link=(\d+)&id=(\d+)$/;
+/** The archived ids a stored source URL names (the inverse of productUrl), or null for any other URL. */
+export function articleIdsFromUrl(sourceUrl:string){
+ const m=productUrlPattern.exec(sourceUrl);
+ return m?{vehicleTypeId:Number(m[1]),linkId:Number(m[2]),articleId:Number(m[3])}:null;
+}
+
 const text=z.string().transform(value=>value.replace(/<br\s*\/?>/gi,' ').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim());
 const vehicleSchema=z.object({manuName:z.string(),modelName:z.string(),modificationId:z.number().int().positive(),modificationName:z.string(),
  cc:z.number().nullish(),fuelType:z.string().nullish(),hp:z.number().nullish(),kwt:z.number().nullish(),
@@ -88,7 +95,9 @@ const group=(pairs:[string,string][])=>{
   if(!groups[b])groups[b]=[];if(!groups[b].includes(v)&&groups[b].length<500)groups[b].push(v);}
  return groups;
 };
-export function buildData(info:ArticleInfo,vehicles:EnrichmentData['vehicles']=[]):EnrichmentData{
+/** The TecDoc generic article name of the answer ("V-ribbed Belt", always English, #852), or null. */
+export const articleType=(info:ArticleInfo)=>info.spareInfo?.trim()||null;
+export function buildData(info:ArticleInfo,vehicles:EnrichmentData['vehicles']=[],categories:EnrichmentData['categories']=[]):EnrichmentData{
  const properties=info.partProperties&&!Array.isArray(info.partProperties)?Object.entries(info.partProperties):[];
  const specifications:[string,string][]=[];
  for(const [label,value] of properties){
@@ -101,7 +110,7 @@ export function buildData(info:ArticleInfo,vehicles:EnrichmentData['vehicles']=[
  const cross=(info.compabilityParts||[]).map(p=>[p.brand,p.article] as [string,string]);
  if(!cross.some(([,v])=>normalize(v)===normalize(info.name)))cross.push([info.brand,info.name]);
  return enrichmentDataSchema.parse({specifications:specifications.slice(0,100),oemNumbers:group((info.oenNumbers||[]).map(o=>[o.brand,o.code])),
-  crossReferences:group(cross),vehicles,vehicleModels:[]});
+  crossReferences:group(cross),vehicles,vehicleModels:[],categories});
 }
 
 /** Only the supplier's own brand and part number identify an archived article: its ids came from a catalog crawl,
