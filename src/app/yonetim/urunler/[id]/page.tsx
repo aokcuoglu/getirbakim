@@ -132,7 +132,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       <CardHeader><CardTitle><h2>Mağaza bilgileri</h2></CardTitle>
         <CardDescription>Elle girilen değer tedarikçi ve zenginleştirme verisinin yerine geçer; tedarikçi güncellemeleri ve yenilemeler onu değiştirmez. Boş bırakılan alan otomatik kaynaktan gelir.</CardDescription></CardHeader>
       <CardContent>
-        <ProductOverrideForm productId={product.id} values={edit && { name: edit.name, description: edit.description, seo_title: edit.seo_title,
+        <ProductOverrideForm productId={product.id} values={edit && { name: edit.name, description: edit.description, short_description: edit.short_description, seo_title: edit.seo_title,
           seo_description: edit.seo_description, category_id: edit.category_id, hidden: edit.hidden, brand: edit.brand, part_number: edit.part_number }}
           version={edit?.version ?? automaticVersion} categories={categoryOptions} brands={brandOptions}
           automatic={{ name: override.automatic.name ?? product.code, description: override.automatic.description,

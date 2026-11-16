@@ -10,6 +10,7 @@ const text = (max: number) => z.string().trim().max(max, `En fazla ${max.toLocal
 export const productOverrideValuesSchema = z.object({
   name: text(300),
   description: text(5000),
+  short_description: text(300),
   seo_title: text(120),
   seo_description: text(300),
   category_id: z.string().trim().refine(value => value === "" || /^\d{1,9}$/.test(value), "Listeden bir kategori seçin.")

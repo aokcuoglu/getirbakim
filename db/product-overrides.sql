@@ -56,6 +56,9 @@ ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS part_number text CHECK (c
 -- empty oem and storefront search skips the stored OEM (commerce_item_overrides.hide_oem, db/commerce.sql).
 -- Matching, enrichment and the admin's supplier searches keep reading supplier_items.
 ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS hide_supplier_oem boolean NOT NULL DEFAULT false;
+-- Short description (#697): the intro paragraph under the product page title and the meta description's text before
+-- the long description. Admin-only: no automatic source and no catalog projection (the product page reads it here).
+ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS short_description text CHECK (char_length(short_description)<=300);
 CREATE INDEX IF NOT EXISTS product_override_changes_product_idx ON product_override_changes(product_id,changed_at DESC,id DESC);
 -- NULL: an admin's save. carry: copied from a product merged into this one; uncarry: that merge was undone.
 ALTER TABLE product_override_changes ADD COLUMN IF NOT EXISTS reason text;
@@ -146,6 +149,9 @@ BEGIN
  IF NOT FOUND THEN t.product_id := target; t.hidden := false; t.hide_supplier_oem := false; END IF;
  IF t.name IS NULL AND s.name IS NOT NULL THEN t.name := s.name; carried := array_append(carried,'name'); END IF;
  IF t.description IS NULL AND s.description IS NOT NULL THEN t.description := s.description; carried := array_append(carried,'description'); END IF;
+ IF t.short_description IS NULL AND s.short_description IS NOT NULL THEN
+  t.short_description := s.short_description; carried := array_append(carried,'short_description');
+ END IF;
  IF t.seo_title IS NULL AND s.seo_title IS NOT NULL THEN t.seo_title := s.seo_title; carried := array_append(carried,'seo_title'); END IF;
  IF t.seo_description IS NULL AND s.seo_description IS NOT NULL THEN t.seo_description := s.seo_description; carried := array_append(carried,'seo_description'); END IF;
  IF t.category_id IS NULL AND s.category_id IS NOT NULL THEN t.category_id := s.category_id; carried := array_append(carried,'category_id'); END IF;
@@ -169,11 +175,12 @@ BEGIN
   IF s.sale_until IS NOT NULL THEN carried := array_append(carried,'sale_until'); END IF;
  END IF;
  IF cardinality(carried)=0 THEN RETURN jsonb_build_object('fields','[]'::jsonb,'hidden',false); END IF;
- INSERT INTO product_overrides(product_id,name,description,seo_title,seo_description,category_id,hidden,
+ INSERT INTO product_overrides(product_id,name,description,short_description,seo_title,seo_description,category_id,hidden,
   price_kurus,sale_price_kurus,sale_from,sale_until,brand,part_number,hide_supplier_oem,updated_by)
- VALUES (target,t.name,t.description,t.seo_title,t.seo_description,t.category_id,t.hidden,
+ VALUES (target,t.name,t.description,t.short_description,t.seo_title,t.seo_description,t.category_id,t.hidden,
   t.price_kurus,t.sale_price_kurus,t.sale_from,t.sale_until,t.brand,t.part_number,t.hide_supplier_oem,actor)
- ON CONFLICT (product_id) DO UPDATE SET name=excluded.name,description=excluded.description,seo_title=excluded.seo_title,
+ ON CONFLICT (product_id) DO UPDATE SET name=excluded.name,description=excluded.description,
+  short_description=excluded.short_description,seo_title=excluded.seo_title,
   seo_description=excluded.seo_description,category_id=excluded.category_id,hidden=excluded.hidden,
   price_kurus=excluded.price_kurus,sale_price_kurus=excluded.sale_price_kurus,sale_from=excluded.sale_from,sale_until=excluded.sale_until,
   brand=excluded.brand,part_number=excluded.part_number,hide_supplier_oem=excluded.hide_supplier_oem,
@@ -181,7 +188,7 @@ BEGIN
  -- Every carried field was automatic (NULL; hidden false) on the target before.
  INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,reason)
  SELECT target,f.field,NULL,f.value,actor,'carry'
- FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
+ FROM (VALUES ('name',t.name),('description',t.description),('short_description',t.short_description),('seo_title',t.seo_title),('seo_description',t.seo_description),
   ('category_id',t.category_id::text),('hidden','true'),('price_kurus',t.price_kurus::text),('sale_price_kurus',t.sale_price_kurus::text),
   ('sale_from',product_override_time_text(t.sale_from)),('sale_until',product_override_time_text(t.sale_until)),
   ('brand',t.brand),('part_number',t.part_number),('hide_supplier_oem','true')) f(field,value)
@@ -189,7 +196,7 @@ BEGIN
  -- Qualified: the parameters share the table's column names.
  INSERT INTO product_override_carries(target,source,fields)
  SELECT product_overrides_carry.target,product_overrides_carry.source,jsonb_object_agg(f.field,f.value)
- FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
+ FROM (VALUES ('name',t.name),('description',t.description),('short_description',t.short_description),('seo_title',t.seo_title),('seo_description',t.seo_description),
   ('category_id',t.category_id::text),('hidden','true'),('price_kurus',t.price_kurus::text),('sale_price_kurus',t.sale_price_kurus::text),
   ('sale_from',product_override_time_text(t.sale_from)),('sale_until',product_override_time_text(t.sale_until)),
   ('brand',t.brand),('part_number',t.part_number),('hide_supplier_oem','true')) f(field,value)
@@ -209,7 +216,8 @@ BEGIN
   SELECT * INTO t FROM product_overrides WHERE product_id=c.target FOR UPDATE;
   IF FOUND THEN
    reverted := ARRAY(SELECT f.key FROM jsonb_each_text(c.fields) f WHERE f.value IS NOT DISTINCT FROM CASE f.key
-     WHEN 'name' THEN t.name WHEN 'description' THEN t.description WHEN 'seo_title' THEN t.seo_title
+     WHEN 'name' THEN t.name WHEN 'description' THEN t.description WHEN 'short_description' THEN t.short_description
+     WHEN 'seo_title' THEN t.seo_title
      WHEN 'seo_description' THEN t.seo_description WHEN 'category_id' THEN t.category_id::text
      WHEN 'hidden' THEN CASE WHEN t.hidden THEN 'true' END
      WHEN 'price_kurus' THEN t.price_kurus::text WHEN 'sale_price_kurus' THEN t.sale_price_kurus::text
@@ -228,13 +236,14 @@ BEGIN
    IF cardinality(reverted)>0 THEN
     INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,reason)
     SELECT c.target,f.field,f.value,NULL,NULL,'uncarry'
-    FROM (VALUES ('name',t.name),('description',t.description),('seo_title',t.seo_title),('seo_description',t.seo_description),
+    FROM (VALUES ('name',t.name),('description',t.description),('short_description',t.short_description),('seo_title',t.seo_title),('seo_description',t.seo_description),
      ('category_id',t.category_id::text),('hidden','true'),('price_kurus',t.price_kurus::text),('sale_price_kurus',t.sale_price_kurus::text),
      ('sale_from',product_override_time_text(t.sale_from)),('sale_until',product_override_time_text(t.sale_until)),
      ('brand',t.brand),('part_number',t.part_number),('hide_supplier_oem','true')) f(field,value)
     WHERE f.field=ANY(reverted);
     UPDATE product_overrides SET name=CASE WHEN 'name'=ANY(reverted) THEN NULL ELSE name END,
      description=CASE WHEN 'description'=ANY(reverted) THEN NULL ELSE description END,
+     short_description=CASE WHEN 'short_description'=ANY(reverted) THEN NULL ELSE short_description END,
      seo_title=CASE WHEN 'seo_title'=ANY(reverted) THEN NULL ELSE seo_title END,
      seo_description=CASE WHEN 'seo_description'=ANY(reverted) THEN NULL ELSE seo_description END,
      category_id=CASE WHEN 'category_id'=ANY(reverted) THEN NULL ELSE category_id END,
@@ -248,7 +257,8 @@ BEGIN
      hide_supplier_oem=CASE WHEN 'hide_supplier_oem'=ANY(reverted) THEN false ELSE hide_supplier_oem END,
      updated_by=NULL,updated_at=now()
     WHERE product_id=c.target;
-    DELETE FROM product_overrides WHERE product_id=c.target AND name IS NULL AND description IS NULL AND seo_title IS NULL
+    DELETE FROM product_overrides WHERE product_id=c.target AND name IS NULL AND description IS NULL
+     AND short_description IS NULL AND seo_title IS NULL
      AND seo_description IS NULL AND category_id IS NULL AND NOT hidden AND price_kurus IS NULL AND sale_price_kurus IS NULL
      AND brand IS NULL AND part_number IS NULL AND NOT hide_supplier_oem;
     PERFORM product_overrides_project(ARRAY[c.target]);

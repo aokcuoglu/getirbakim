@@ -359,48 +359,48 @@ test("a save returns the stored values and their version", async () => {
   const saved = await store.persistProductOverride(schema.pool, sachs, { name: "Sachs ön amortisör", category_id: 200 }, admin);
   assert.ok(saved.ok);
   const noPrice = { price_kurus: null, sale_price_kurus: null, sale_from: null, sale_until: null, brand: null, part_number: null, hide_supplier_oem: false };
-  assert.deepEqual(saved.values, { name: "Sachs ön amortisör", description: null, seo_title: null, seo_description: null, category_id: 200, hidden: false, ...noPrice });
+  assert.deepEqual(saved.values, { name: "Sachs ön amortisör", description: null, short_description: null, seo_title: null, seo_description: null, category_id: 200, hidden: false, ...noPrice });
   assert.equal(saved.version, (await store.loadProductOverride(schema.pool, sachs)).override?.version);
   const cleared = await store.persistProductOverride(schema.pool, sachs, { name: null, category_id: null }, admin, saved.version);
   assert.ok(cleared.ok);
   assert.equal(cleared.version, store.automaticVersion);
-  assert.deepEqual(cleared.values, { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, ...noPrice });
+  assert.deepEqual(cleared.values, { name: null, description: null, short_description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, ...noPrice });
 });
 
 test("the form shows stored values after a save, keeps other input on a revert and everything on an error", () => {
-  const stored = { name: "Ad", description: null, seo_title: null, seo_description: null, category_id: 241, hidden: true, brand: null, part_number: null };
+  const stored = { name: "Ad", description: null, short_description: null, seo_title: null, seo_description: null, category_id: 241, hidden: true, brand: null, part_number: null };
   let state = initialOverrideForm(stored, "1");
-  assert.deepEqual(state.values, { name: "Ad", description: "", seo_title: "", seo_description: "", category_id: "241", published: false, brand: "", part_number: "" });
+  assert.deepEqual(state.values, { name: "Ad", description: "", short_description: "", seo_title: "", seo_description: "", category_id: "241", published: false, brand: "", part_number: "" });
   state = overrideFormReducer(state, { type: "edit", values: { name: "Yazılan ad", seo_title: "Yazılan SEO" } });
   // Reverting the category: only the category takes the stored (automatic) value; typed text stays.
   state = overrideFormReducer(state, { type: "result", result: { status: "success", reset: "category_id", version: "2",
     values: { ...stored, category_id: null } } });
   assert.deepEqual(state, { version: "2", dirty: ["name", "seo_title"],
-    values: { name: "Yazılan ad", description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "", published: false, brand: "", part_number: "" } });
+    values: { name: "Yazılan ad", description: "", short_description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "", published: false, brand: "", part_number: "" } });
   // The page refresh after our own save carries the version already adopted: nothing changes.
   assert.equal(overrideFormReducer(state, { type: "server", values: { ...stored, category_id: null }, version: "2" }), state);
   // An error (stale, unknown category) keeps every typed value and the version.
   assert.equal(overrideFormReducer(state, { type: "result", result: { status: "error", message: "x" } }), state);
   // A full save shows every stored value, the category and the hidden switch included.
   state = overrideFormReducer(state, { type: "result", result: { status: "success", version: "3",
-    values: { name: "Yazılan ad", description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: true, brand: null, part_number: null } } });
-  assert.deepEqual(state.values, { name: "Yazılan ad", description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "241", published: false, brand: "", part_number: "" });
+    values: { name: "Yazılan ad", description: null, short_description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: true, brand: null, part_number: null } } });
+  assert.deepEqual(state.values, { name: "Yazılan ad", description: "", short_description: "", seo_title: "Yazılan SEO", seo_description: "", category_id: "241", published: false, brand: "", part_number: "" });
   // Reverting hidden publishes the switch only.
   state = overrideFormReducer(overrideFormReducer(state, { type: "edit", values: { name: "Yeni" } }),
-    { type: "result", result: { status: "success", reset: "hidden", version: "4", values: { name: "Yazılan ad", description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: false, brand: null, part_number: null } } });
+    { type: "result", result: { status: "success", reset: "hidden", version: "4", values: { name: "Yazılan ad", description: null, short_description: null, seo_title: "Yazılan SEO", seo_description: null, category_id: 241, hidden: false, brand: null, part_number: null } } });
   assert.deepEqual([state.values.name, state.values.category_id, state.values.published, state.version], ["Yeni", "241", true, "4"]);
   // Edited "Yeni" is still unsaved: another version from the page keeps it and the old version; untouched inputs follow.
   assert.deepEqual(overrideFormReducer(state, { type: "server", values: null, version: "auto" }),
-    { version: "4", dirty: ["name"], values: { name: "Yeni", description: "", seo_title: "", seo_description: "", category_id: "", published: true, brand: "", part_number: "" } });
+    { version: "4", dirty: ["name"], values: { name: "Yeni", description: "", short_description: "", seo_title: "", seo_description: "", category_id: "", published: true, brand: "", part_number: "" } });
   // Nothing edited: another version is adopted as a whole.
   const clean = initialOverrideForm(stored, "5");
   assert.deepEqual(overrideFormReducer(clean, { type: "server", values: null, version: "auto" }),
-    { version: "auto", dirty: [], values: { name: "", description: "", seo_title: "", seo_description: "", category_id: "", published: true, brand: "", part_number: "" } });
+    { version: "auto", dirty: [], values: { name: "", description: "", short_description: "", seo_title: "", seo_description: "", category_id: "", published: true, brand: "", part_number: "" } });
 });
 
 test("a second tab's stale save keeps what it typed, whatever the page refresh brings", () => {
   // Both tabs opened at version 1; tab 1 saved name "AAAx" (version 2) meanwhile.
-  const opened = { name: "Ad", description: "Eski", seo_title: null, seo_description: null, category_id: null, hidden: false, brand: null, part_number: null };
+  const opened = { name: "Ad", description: "Eski", short_description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, brand: null, part_number: null };
   let tab2 = initialOverrideForm(opened, "1");
   tab2 = overrideFormReducer(tab2, { type: "edit", values: { name: "BBB" } });
   tab2 = overrideFormReducer(tab2, { type: "edit", values: { description: "DESC-B" } });
@@ -408,15 +408,15 @@ test("a second tab's stale save keeps what it typed, whatever the page refresh b
   tab2 = overrideFormReducer(tab2, { type: "result", result: { status: "error", message: "Bu ürün siz düzenlerken … değiştirildi." } });
   assert.equal(tab2, typed);
   // The refresh after the action renders tab 1's save (name AAAx, description cleared): typed fields stay, so does version 1.
-  tab2 = overrideFormReducer(tab2, { type: "server", values: { ...opened, name: "AAAx", description: null, seo_title: "Tab 1 SEO" }, version: "2" });
+  tab2 = overrideFormReducer(tab2, { type: "server", values: { ...opened, name: "AAAx", description: null, short_description: null, seo_title: "Tab 1 SEO" }, version: "2" });
   assert.deepEqual(tab2, { version: "1", dirty: ["name", "description"],
-    values: { name: "BBB", description: "DESC-B", seo_title: "Tab 1 SEO", seo_description: "", category_id: "", published: true, brand: "", part_number: "" } });
+    values: { name: "BBB", description: "DESC-B", short_description: "", seo_title: "Tab 1 SEO", seo_description: "", category_id: "", published: true, brand: "", part_number: "" } });
 });
 
 test("the form schema trims, empties to automatic and reads the published switch", () => {
-  const base = { name: "  Ad  ", description: "", seo_title: " ", seo_description: "", category_id: "", brand: "", part_number: "" };
+  const base = { name: "  Ad  ", description: "", short_description: "  ", seo_title: " ", seo_description: "", category_id: "", brand: "", part_number: "" };
   assert.deepEqual(productOverrideValuesSchema.parse({ ...base, published: "on" }),
-    { name: "Ad", description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, brand: null, part_number: null });
+    { name: "Ad", description: null, short_description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, brand: null, part_number: null });
   assert.equal(productOverrideValuesSchema.parse(base).hidden, true);
   assert.equal(productOverrideValuesSchema.parse({ ...base, category_id: "241" }).category_id, 241);
   assert.equal(productOverrideValuesSchema.safeParse({ ...base, category_id: "12a" }).success, false);
@@ -436,7 +436,7 @@ test("supplier syncs, enrichment, fitment rebuilds and the storefront bundle nev
 });
 
 test("an edit wins over the enrichment, which wins over the supplier", () => {
-  const none: StoreOverride = { name: null, description: null, seo_title: null, seo_description: null, category_id: null };
+  const none: StoreOverride = { name: null, description: null, short_description: null, seo_title: null, seo_description: null, category_id: null };
   const edited: StoreOverride = { ...none, name: "Elle ad", description: "Elle açıklama", seo_title: "SEO", seo_description: "SEO açıklama" };
   assert.equal(productTitle(edited, "Zengin ad", "Tedarikçi"), "Elle ad");
   assert.equal(productTitle(none, "Zengin ad", "Tedarikçi"), "Zengin ad");
@@ -566,18 +566,87 @@ test("a merge carries the store brand and part number into empty fields; undoing
 });
 
 test("the form schema and reducer handle the store brand and part number (#602)", () => {
-  const base = { name: "", description: "", seo_title: "", seo_description: "", category_id: "", published: "on" };
+  const base = { name: "", description: "", short_description: "", seo_title: "", seo_description: "", category_id: "", published: "on" };
   assert.deepEqual(Object.entries(productOverrideValuesSchema.parse({ ...base, brand: " SCHAEFFLER ", part_number: " 510 0061 10 " })).filter(([key]) => key === "brand" || key === "part_number"),
     [["brand", "SCHAEFFLER"], ["part_number", "510 0061 10"]]);
   const refused = productOverrideValuesSchema.safeParse({ ...base, brand: "", part_number: "--/" });
   assert.equal(refused.success ? null : refused.error.issues[0].message, "Parça numarası harf veya rakam içermeli.");
   assert.equal(productOverrideValuesSchema.safeParse({ ...base, brand: "", part_number: "x".repeat(61) }).success, false);
   assert.equal(productOverrideValuesSchema.safeParse({ ...base, brand: "x".repeat(81), part_number: "" }).success, false);
-  const stored = { name: null, description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, brand: "SCHAEFFLER", part_number: "A1" };
+  const stored = { name: null, description: null, short_description: null, seo_title: null, seo_description: null, category_id: null, hidden: false, brand: "SCHAEFFLER", part_number: "A1" };
   let state = initialOverrideForm(stored, "1");
   assert.deepEqual([state.values.brand, state.values.part_number], ["SCHAEFFLER", "A1"]);
   state = overrideFormReducer(state, { type: "edit", values: { part_number: "B2" } });
   // Reverting the brand keeps the typed part number.
   state = overrideFormReducer(state, { type: "result", result: { status: "success", reset: "brand", version: "2", values: { ...stored, brand: null } } });
   assert.deepEqual([state.values.brand, state.values.part_number, state.dirty], ["", "B2", ["part_number"]]);
+});
+
+test("a short description is stored, recorded in the history and returns to automatic (#697)", async () => {
+  await item("shortA", { supplier: "basbug", code: "SHA 70170", brand: "SHORTA", name: "SHORTA PARCA" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const a = await productOf("shortA");
+  assert.deepEqual(await persist(schema.pool, a, { short_description: "Kısa tanıtım metni." }, admin), { ok: true, changed: ["short_description"] });
+  const details = await store.loadProductOverride(schema.pool, a);
+  assert.equal(details.override?.short_description, "Kısa tanıtım metni.");
+  assert.deepEqual(details.changes.map(change => [change.field, change.old_value, change.new_value, change.changed_by]),
+    [["short_description", null, "Kısa tanıtım metni.", "Test Yönetici"]]);
+  // Read on the product page from product_overrides only: no per-row projection for it.
+  assert.equal((await schema.pool.query("SELECT 1 FROM commerce_item_overrides WHERE supplier_item_id=$1", [ids.shortA])).rowCount, 0);
+  // The database refuses more than 300 characters whatever the caller.
+  await assert.rejects(schema.pool.query("UPDATE product_overrides SET short_description=repeat('x',301) WHERE product_id=$1", [a]),
+    (error: { code?: string }) => error.code === "23514");
+  assert.deepEqual(await persist(schema.pool, a, { short_description: null }, admin), { ok: true, changed: ["short_description"] });
+  assert.equal((await store.loadProductOverride(schema.pool, a)).override, null);
+  assert.equal(productOverrideLabels.short_description, "Kısa açıklama");
+});
+
+test("a merge carries the short description into an empty field; undoing it takes it back and drops the empty row (#697)", async () => {
+  for (const [key, code, brand] of [["shortG", "SHG 71171", "SHORTG"], ["shortH", "SHH 72172", "SHORTH"], ["shortI", "SHI 73173", "SHORTI"],
+    ["shortJ", "SHJ 74174", "SHORTJ"], ["shortK", "SHK 75175", "SHORTK"], ["shortL", "SHL 76176", "SHORTL"]] as const)
+    await item(key, { supplier: "basbug", code, brand, name: `${brand} PARCA` });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const [g, h, i, j, k, l] = await Promise.all(["shortG", "shortH", "shortI", "shortJ", "shortK", "shortL"].map(productOf));
+  // Target empty: carried and recorded; undoing the merge takes it back and the target's row (nothing else set) goes.
+  await persist(schema.pool, g, { short_description: "G kısa" }, admin);
+  assert.deepEqual((await merge602(g, h)).rows[0].carried, { fields: ["short_description"], hidden: false });
+  const carried = await store.loadProductOverride(schema.pool, h);
+  assert.equal(carried.override?.short_description, "G kısa");
+  assert.deepEqual(carried.changes.filter(change => change.reason === "carry").map(change => [change.field, change.old_value, change.new_value]),
+    [["short_description", null, "G kısa"]]);
+  await schema.pool.query("SELECT product_reset_item($1)", [ids.shortG]);
+  const back = await store.loadProductOverride(schema.pool, h);
+  assert.equal(back.override, null);
+  assert.deepEqual(back.changes.filter(change => change.reason === "uncarry").map(change => [change.field, change.old_value, change.new_value]),
+    [["short_description", "G kısa", null]]);
+  assert.equal((await store.loadProductOverride(schema.pool, g)).override?.short_description, "G kısa");
+  // Target set: it keeps its own.
+  await persist(schema.pool, i, { short_description: "I kısa" }, admin);
+  await persist(schema.pool, j, { short_description: "J kısa" }, admin);
+  assert.deepEqual((await merge602(i, j)).rows[0].carried, { fields: [], hidden: false });
+  assert.equal((await store.loadProductOverride(schema.pool, j)).override?.short_description, "J kısa");
+  // An admin's change after the carry is the target's own: undoing the merge leaves it.
+  await persist(schema.pool, k, { short_description: "K kısa" }, admin);
+  await merge602(k, l);
+  await persist(schema.pool, l, { short_description: "L kendi" }, admin);
+  await schema.pool.query("SELECT product_reset_item($1)", [ids.shortK]);
+  assert.equal((await store.loadProductOverride(schema.pool, l)).override?.short_description, "L kendi");
+});
+
+test("the form schema and reducer handle the short description (#697)", () => {
+  const base = { name: "", description: "", seo_title: "", seo_description: "", category_id: "", published: "on", brand: "", part_number: "" };
+  assert.equal(productOverrideValuesSchema.parse({ ...base, short_description: "  Kısa  " }).short_description, "Kısa");
+  assert.equal(productOverrideValuesSchema.parse({ ...base, short_description: "   " }).short_description, null);
+  assert.equal(productOverrideValuesSchema.safeParse({ ...base, short_description: "x".repeat(300) }).success, true);
+  assert.equal(productOverrideValuesSchema.safeParse({ ...base, short_description: "x".repeat(301) }).success, false);
+  const stored = { name: null, description: null, short_description: "Kayıtlı", seo_title: null, seo_description: null, category_id: null,
+    hidden: false, brand: null, part_number: null };
+  let state = initialOverrideForm(stored, "1");
+  assert.equal(state.values.short_description, "Kayıtlı");
+  state = overrideFormReducer(state, { type: "edit", values: { short_description: "Yazılan", name: "Ad" } });
+  assert.deepEqual(state.dirty, ["short_description", "name"]);
+  // Reverting the short description takes the stored (automatic, empty) value and keeps the typed name.
+  state = overrideFormReducer(state, { type: "result", result: { status: "success", reset: "short_description", version: "2",
+    values: { ...stored, short_description: null } } });
+  assert.deepEqual([state.values.short_description, state.values.name, state.dirty], ["", "Ad", ["name"]]);
 });

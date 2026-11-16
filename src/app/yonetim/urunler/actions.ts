@@ -216,7 +216,8 @@ export async function saveProductOverride(_previous: ProductOverrideResult, form
   if (reset) patch = reset === "hidden" ? { hidden: false } : { [reset]: null };
   else {
     const input = productOverrideValuesSchema.safeParse({
-      name: form.get("name") ?? "", description: form.get("description") ?? "", seo_title: form.get("seo_title") ?? "",
+      name: form.get("name") ?? "", description: form.get("description") ?? "", short_description: form.get("short_description") ?? "",
+      seo_title: form.get("seo_title") ?? "",
       seo_description: form.get("seo_description") ?? "", category_id: form.get("category_id") ?? "", published: form.get("published") ?? undefined,
       brand: form.get("brand") ?? "", part_number: form.get("part_number") ?? "",
     });
