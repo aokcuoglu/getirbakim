@@ -3,7 +3,9 @@ import test from "node:test";
 import { GET } from "../src/app/llms.txt/route";
 import { aiCrawlers, privatePaths, robotsPolicy } from "../src/modules/seo/crawlers";
 import { llmsTxt } from "../src/modules/seo/llms";
-import { listingIndexable, minIndexableListingProducts } from "../src/modules/seo/indexing";
+import { isGatedListing, listingIndexable, minIndexableListingProducts } from "../src/modules/seo/indexing";
+import { categoryNameInText } from "../src/modules/store/category-tree";
+import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, withModelYears } from "../src/modules/store/vehicle-model-groups";
 import { legalLinks } from "../src/content/legal";
 
 type Group = { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
@@ -42,8 +44,8 @@ test("production has a general group and an AI crawler group with identical bodi
 });
 
 test("robots rules open the public store and close private and unbounded URLs", () => {
-  const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/yedek-parca/volkswagen/golf-7?page=2", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt", "/marka/bosch", "/marka/bosch?page=2"];
-  const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/yedek-parca/volkswagen/golf-7?sort=price-asc", "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code", "/marka/bosch?sort=price-asc", "/marka/bosch?q=x"];
+  const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/yedek-parca/volkswagen/golf-7?page=2", "/kategori/fren/volkswagen/golf-7", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt", "/marka/bosch", "/marka/bosch?page=2"];
+  const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/yedek-parca/volkswagen/golf-7?sort=price-asc", "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D", "/kategori/fren/volkswagen/golf-7?sort=price-asc", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code", "/marka/bosch?sort=price-asc", "/marka/bosch?q=x"];
   for (const group of groups) {
     for (const url of open) assert.equal(allowed(group, url), true, `${url} should be allowed`);
     for (const url of closed) assert.equal(allowed(group, url), false, `${url} should be blocked`);
@@ -58,10 +60,61 @@ test("a model listing is indexed only as a plain listing with enough products", 
   assert.equal(listingIndexable({ ...model, page: "2" }, 500), false);
   assert.equal(listingIndexable({ ...model, brands: '["BOSCH"]' }, 500), false);
   assert.equal(listingIndexable({ ...model, sort: "price-asc" }, 500), false);
-  // Make, category and catalog listings keep their rule (#638): no product threshold in this slice.
+  // Plain make, category and catalog listings keep their rule (#638): no product threshold.
   assert.equal(listingIndexable({ make: "volkswagen" }, 0), true);
   assert.equal(listingIndexable({ category: "fren" }, 3), true);
+  assert.equal(listingIndexable({}, 0), true);
   assert.equal(listingIndexable({ q: "fren" }, 500), false);
+});
+
+test("model × category and make × category listings share the model pages' product minimum (#673)", () => {
+  for (const query of [{ category: "fren", make: "volkswagen", model: "golf-7" }, { category: "fren", make: "volkswagen" }]) {
+    assert.equal(isGatedListing(query), true);
+    assert.equal(listingIndexable(query, 9), false);
+    assert.equal(listingIndexable(query, 10), true);
+    assert.equal(listingIndexable({ ...query, page: "2" }, 500), false);
+    assert.equal(listingIndexable({ ...query, brands: '["BOSCH"]' }, 500), false);
+  }
+  assert.equal(isGatedListing({ make: "volkswagen", model: "golf-7" }), true);
+  // The root category narrowed to a make or model repeats the make or model page: never indexed, whatever its size.
+  for (const query of [{ category: "yedek-parca", make: "volkswagen", model: "golf-7" }, { category: "yedek-parca", make: "volkswagen" }]) {
+    assert.equal(listingIndexable(query, 5000), false);
+  }
+  assert.equal(listingIndexable({ category: "yedek-parca" }, 5000), true);
+  for (const query of [{}, { make: "volkswagen" }, { category: "fren" }]) assert.equal(isGatedListing(query), false);
+});
+
+test("model × category texts: years in one parenthesis, a title within 60 characters, all-caps words kept (#673)", () => {
+  assert.equal(withModelYears("Volkswagen Golf 7", "2012–2022"), "Volkswagen Golf 7 (2012–2022)");
+  assert.equal(withModelYears("Fiat Egea (Tipo 356)", "2015–günümüz"), "Fiat Egea (Tipo 356, 2015–günümüz)");
+  assert.equal(withModelYears("Volkswagen Golf 7", null), "Volkswagen Golf 7");
+  assert.equal(categoryNameInText("Fren Diskleri"), "fren diskleri");
+  assert.equal(categoryNameInText("ABS Sensörü"), "ABS sensörü");
+  assert.equal(categoryNameInText("LED Far ve AC Parçaları"), "LED far ve AC parçaları");
+  assert.equal(categoryNameInText("A Sınıfı İç Aydınlatma"), "a sınıfı iç aydınlatma");
+  const golf = { name: "GOLF VII (5G1)", dateFrom: "2012-08", dateTo: "2022-12" };
+  assert.deepEqual(vehicleModelCategoryLabels("VOLKSWAGEN", golf, "fren sistemi"),
+    { heading: "Volkswagen Golf VII (5G1, 2012–2022) fren sistemi", title: "Volkswagen Golf VII (5G1, 2012–2022) fren sistemi" });
+  // Too long: the start year stays before the category name is cut, so generations of the same name keep apart titles.
+  const sprinter = { name: "SPRINTER 3,5-T", dateFrom: "2006-01", dateTo: "2018-12" };
+  const parts = "motor soğutma sistemi ve radyatör parçaları";
+  const title = vehicleModelCategoryLabels("MERCEDES-BENZ", sprinter, parts).title;
+  assert.ok(title.length <= 60, title);
+  assert.equal(title, "Mercedes-Benz Sprinter 3,5-T (2006–) motor soğutma sistemi…");
+  assert.notEqual(title, vehicleModelCategoryLabels("MERCEDES-BENZ", { ...sprinter, dateFrom: "2018-01", dateTo: null }, parts).title);
+  // The model page: years while they fit; past the budget the name with "parçaları" (#673: always within 60).
+  assert.equal(modelListingTitle("Volkswagen Golf 7", golf, "yedek parçaları"), "Volkswagen Golf 7 (2012–2022) yedek parçaları");
+  // Long category names on a long model: the page part (before " | Getirbakim") stays within 60 characters.
+  const golf7 = { name: "GOLF VII", dateFrom: "2012-08", dateTo: "2022-12" };
+  assert.equal(vehicleModelCategoryLabels("VOLKSWAGEN", golf7, categoryNameInText("ABS Sensörleri ve Halkaları")).title,
+    "Volkswagen Golf VII (2012–2022) ABS sensörleri ve halkaları");
+  const longest = { name: "BLUEBIRD SYLPHY (G10) ESTATE COMBI VAN", dateFrom: "2000-08", dateTo: "2005-12" };
+  for (const parts of ["yedek parçaları", "motor soğutma sistemi ve radyatör parçaları", "ABS sensörleri ve halkaları"]) {
+    for (const title of [vehicleModelCategoryLabels("NISSAN", longest, parts).title, vehicleModelLabels("NISSAN", longest).title]) {
+      assert.ok(title.length <= 60, `${title} (${title.length})`);
+    }
+  }
+  assert.equal(vehicleModelLabels("MERCEDES-BENZ", { ...sprinter, name: "SPRINTER 3,5-T PLATFORM CHASSIS" }).title, "Mercedes-Benz Sprinter 3,5-T Platform Chassis parçaları");
 });
 
 test("llms.txt links are absolute, cover the legal pages and categories, and avoid private paths", () => {

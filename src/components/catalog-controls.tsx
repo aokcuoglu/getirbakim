@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, Search, SlidersHorizontal } from "lucide-react";
-import { categoryPath, type SidebarCategoryBranch } from "@/modules/store/category-tree";
+import { categoryPath, searchCategories, type SidebarCategoryBranch } from "@/modules/store/category-tree";
 import type {CatalogQuery} from "@/modules/store/catalog-query";
 import {selectedBrands,selectedAttributes,maxAttributeValues,listingRangeLabel,type CatalogFacet} from "@/modules/store/catalog-filters";
 import { Button } from "@/components/ui/button";
@@ -24,12 +24,13 @@ const searchBox="flex h-10 items-center gap-2 rounded-md border border-input bg-
 const searchInput="h-full w-full min-w-0 border-0 bg-transparent p-0 text-[13px] outline-none placeholder:text-muted-foreground";
 // Children of the active category (or the top level) from the server, with a search across the whole tree,
 // which loads from /api/categories when the search box gets focus (#642).
-function SidebarCategoryTree({nodes,selected,href}:{nodes:SidebarCategoryBranch["nodes"];selected?:string;href:(slug:string)=>string}){
+// `listed`: on a make or model listing, the categories holding its products; the search offers only those (#673).
+function SidebarCategoryTree({nodes,selected,href,listed}:{nodes:SidebarCategoryBranch["nodes"];selected?:string;href:(slug:string)=>string;listed?:number[]}){
  const [search,setSearch]=useState("");
  const tree=useCategoryTree();
  const categories=tree.categories??[];
  const term=search.trim().toLocaleLowerCase("tr");
- const matches=categories.filter(c=>c.name.toLocaleLowerCase("tr").includes(term));
+ const matches=searchCategories(categories,term,listed);
  const item="flex min-h-[30px] items-center justify-between py-[5px] pr-[35px] pl-[25px] text-sm leading-5 font-medium text-foreground transition-colors hover:text-brand aria-[current=page]:bg-[#f8f9f9] aria-[current=page]:text-foreground";
  return <div>
   <label className={cn(searchBox,"mx-[25px] mb-[15px]")}><Search size={16} aria-hidden="true" className="shrink-0"/><input type="search" className={searchInput} aria-label="Kategori ara" placeholder="Kategori ara" value={search} onFocus={tree.load} onChange={e=>{setSearch(e.target.value);tree.load();}}/></label>
@@ -58,8 +59,10 @@ function FilterGroup({label,options,selected,onToggle,searchable=true,isBlocked,
  </CollapsibleContent>
  </Collapsible>;
 }
-// `branch` null: no category links (vehicle model pages until their category routes exist, #639).
-export function CatalogSidebar({branch,brands,facets,params}:{branch:SidebarCategoryBranch|null;brands:string[];facets:CatalogFacet[];params:Query}) {
+// `branch` null: no category links (manufacturer pages, #660). `listed`: on a make or model listing, the categories
+// holding its products (#673); every category elsewhere. A listing with no category to offer (no branch nodes, nothing
+// listed) shows no category block.
+export function CatalogSidebar({branch,listed,brands,facets,params}:{branch:SidebarCategoryBranch|null;listed?:number[];brands:string[];facets:CatalogFacet[];params:Query}) {
  const router=useRouter();
  // Open on desktop, folded behind the "Filtreler" toggle on phones. The server renders it open (category links stay in the
  // HTML); until hydration the phone CSS hides the panel, so the results below do not jump up when the effect folds it (#755).
@@ -73,7 +76,7 @@ export function CatalogSidebar({branch,brands,facets,params}:{branch:SidebarCate
  return <aside className="min-w-0"><Collapsible open={open} onOpenChange={setOpen}>
  <CollapsibleTrigger className={cn("hidden min-h-12 w-full cursor-pointer justify-start text-foreground items-center gap-2 rounded-md border border-input bg-white px-4 py-3 text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 max-[768px]:flex",ready&&open&&"mb-4")}><SlidersHorizontal size={17}/><span>Filtreler</span><ChevronDown size={16} className={cn("ml-auto transition-transform",ready&&open&&"rotate-180")}/></CollapsibleTrigger>
  <CollapsibleContent className={cn(!ready&&"max-[768px]:hidden")}>
- {branch&&<section className="mb-[15px] rounded-[4px] border border-border bg-white py-[25px]"><h2 className="mb-[15px] flex items-center gap-2.5 px-[25px] text-base leading-6 font-semibold"><Link className="grid size-6 place-items-center rounded-[3px] bg-[#f1f3f5] hover:bg-[#e6e9ec]" aria-label="Üst kategori" href={parent?listingUrl(params,{category:parent.slug,attributes:undefined,brands:undefined,brand:undefined,oil:undefined}):listingPath({makeSlug:params.make,modelSlug:params.model})}><ChevronLeft size={16}/></Link>{parent?.name??"Kategoriler"}</h2><nav aria-label="Katalog kategorileri"><SidebarCategoryTree nodes={branch.nodes} selected={params.category} href={slug=>listingUrl(params,{category:slug,brand:undefined,brands:undefined,attributes:undefined,availability:undefined,oil:undefined})}/></nav></section>}
+ {branch&&(branch.nodes.length>0||listed?.length!==0)&&<section className="mb-[15px] rounded-[4px] border border-border bg-white py-[25px]"><h2 className="mb-[15px] flex items-center gap-2.5 px-[25px] text-base leading-6 font-semibold"><Link className="grid size-6 place-items-center rounded-[3px] bg-[#f1f3f5] hover:bg-[#e6e9ec]" aria-label="Üst kategori" href={parent?listingUrl(params,{category:parent.slug,attributes:undefined,brands:undefined,brand:undefined,oil:undefined}):listingPath({makeSlug:params.make,modelSlug:params.model})}><ChevronLeft size={16}/></Link>{parent?.name??"Kategoriler"}</h2><nav aria-label="Katalog kategorileri"><SidebarCategoryTree nodes={branch.nodes} listed={listed} selected={params.category} href={slug=>listingUrl(params,{category:slug,brand:undefined,brands:undefined,attributes:undefined,availability:undefined,oil:undefined})}/></nav></section>}
  <div className="overflow-hidden rounded-[4px] border border-border bg-white"><FilterGroup label="Üretici" options={brands.map(value=>({value,label:value}))} selected={selected} onToggle={value=>{const next=toggle(selected,value);change({brand:undefined,brands:next.length?JSON.stringify(next):undefined});}}/>
  {facets.map(facet=>{const current=attributes[facet.key]??[];return <FilterGroup key={facet.key} searchable={facet.key!=="Brand class"} label={facet.label} options={facet.options.map(o=>({value:o.values[0],label:o.label}))} selected={facet.options.filter(o=>o.values.some(v=>current.includes(v))).map(o=>o.values[0])} isBlocked={value=>current.length+(facet.options.find(o=>o.values[0]===value)?.values.filter(v=>!current.includes(v)).length??0)>maxAttributeValues} hint={facet.options.some(o=>!o.values.some(v=>current.includes(v))&&current.length+o.values.filter(v=>!current.includes(v)).length>maxAttributeValues)?`En fazla ${maxAttributeValues} seçim yapılabilir.`:undefined} onToggle={value=>{const option=facet.options.find(o=>o.values[0]===value);if(!option)return;const checked=option.values.some(v=>current.includes(v));const list=checked?current.filter(v=>!option.values.includes(v)):[...current,...option.values.filter(v=>!current.includes(v))];const next={...attributes,[facet.key]:list};if(!list.length)delete next[facet.key];change({attributes:Object.keys(next).length?JSON.stringify(next):undefined});}}/>;})}
  <FilterGroup label="Stok durumu" searchable={false} options={[{value:"in_stock",label:"Stokta mevcut"},{value:"out_of_stock",label:"Stokta yok"},{value:"supplied",label:"Tedarik edilebilir"}]} selected={params.availability?[params.availability]:[]} onToggle={value=>change({availability:params.availability===value?undefined:value as Query["availability"]})}/>
