@@ -61,6 +61,8 @@ test("events carry the visitor's price and a lira total", () => {
   assert.equal(added.value, 3374.73);
   assert.equal(added.items[0].quantity, 3);
   assert.equal(viewItem(item).value, 1124.91);
+  // One id across the funnel (#752).
+  assert.equal(viewItem(item).items[0].item_id, added.items[0].item_id);
   const list = viewItemList({ listId: "fren", listName: "Fren", items: [item, catalogItem(product, 1000)] });
   assert.equal(list.value, 1134.91);
   assert.equal(list.currency, "TRY");

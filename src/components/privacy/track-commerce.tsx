@@ -5,25 +5,26 @@ import { claimPurchaseEvent } from "@/app/(store)/siparis/[id]/actions";
 import { subscribeConsent } from "@/lib/cookie-consent";
 import { beginCheckout, removeFromCart, viewCart, type AnalyticsItem } from "@/modules/analytics/events";
 import { TAG_READY_EVENT, canTrack, track } from "@/modules/analytics/track";
+import type { CartAnalyticsLine } from "@/modules/analytics/cart-items.server";
 import { useSendOnce } from "./track-events";
 
 /** The cart page (#675): view_cart once, remove_from_cart when a line's "Kaldır" form (`data-cart-remove`) is submitted. */
-export function TrackCart({ items }: { items: AnalyticsItem[] }) {
-  useSendOnce(() => !items.length || track("view_cart", viewCart(items)));
+export function TrackCart({ lines }: { lines: CartAnalyticsLine[] }) {
+  useSendOnce(() => !lines.length || track("view_cart", viewCart(lines.map(line => line.item))));
   // A double click submits "Kaldır" twice; the line leaves the cart once.
   const removed = useRef(new Set<string>());
   useEffect(() => {
     const onSubmit = (event: SubmitEvent) => {
       const form = (event.target as Element | null)?.closest<HTMLFormElement>("form[data-cart-remove]");
       const id = form?.querySelector<HTMLInputElement>("input[name='productId']")?.value;
-      const item = items.find(entry => entry.item_id === id);
-      if (!item || removed.current.has(item.item_id)) return;
-      removed.current.add(item.item_id);
-      track("remove_from_cart", removeFromCart(item, item.quantity));
+      const line = lines.find(entry => entry.productId === id);
+      if (!line || removed.current.has(line.productId)) return;
+      removed.current.add(line.productId);
+      track("remove_from_cart", removeFromCart(line.item, line.item.quantity));
     };
     document.addEventListener("submit", onSubmit);
     return () => document.removeEventListener("submit", onSubmit);
-  }, [items]);
+  }, [lines]);
   return null;
 }
 
