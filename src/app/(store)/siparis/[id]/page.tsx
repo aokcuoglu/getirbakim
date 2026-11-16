@@ -25,6 +25,8 @@ import { Separator } from "@/components/ui/separator";
 import { CircleAlert, CircleCheck, Clock, Undo2 } from "lucide-react";
 import { OrderProgress } from "@/components/order-progress";
 import { TrackPurchase } from "@/components/privacy/track-commerce";
+import { TrackRefund } from "@/components/privacy/track-refund";
+import { refundEventPending } from "@/modules/store/refund-event";
 import { purchaseEventOpen } from "@/modules/analytics/purchase";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -68,6 +70,8 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const admin=Boolean(account?.approved && account.role==="admin");
   const returns=admin ? await orderReturns(order.id) : [];
   const refundedKurus=order.payment_status==="refunded" && order.refunded_at ? await orderRefundedKurus(order.id) ?? Number(order.total_kurus) : 0;
+  // A cancelled paid order's full refund, once, after its purchase was measured (#750).
+  const refundPending=mine && !admin && order.status==="cancelled" && ["refund_required","refunded"].includes(order.payment_status) && await refundEventPending(order.id);
   const snapshotNoteTexts=admin ? snapshotNotes(items.map(item=>({code:item.code,supplierLabel:item.supplier ? supplierNames[item.supplier] ?? item.supplier : null,snapshot:item.pricing_snapshot}))) : [];
   const awaiting=order.status==="awaiting_payment" && order.payment_status==="awaiting";
   // Only the order's own customer cancels, and only before operations confirm it (#607).
@@ -107,7 +111,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const cancelAction=pendingCancel ? cancelButton("pending") : awaitingCancel ? cancelButton("awaiting_payment") : null;
   return <section className="mx-auto min-h-[55vh] w-full max-w-[1280px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10"><p className={eyebrow}>SİPARİŞ #{order.number}</p><h1 className="mb-2 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">{orderStatus[order.status]}</h1>
     <p className={cn(muted,"mb-5")}><time dateTime={date.toISOString()}>{metaDate}</time>{order.discount_percent>0 && ` · %${order.discount_percent} servis indirimi`}</p>
-    <OrderProgress order={order}/>{mine && !admin && order.payment_status==="paid" && purchaseEventOpen(order.paid_at,new Date()) && <TrackPurchase orderId={order.id}/>}
+    <OrderProgress order={order}/>{mine && !admin && order.payment_status==="paid" && purchaseEventOpen(order.paid_at,new Date()) && <TrackPurchase orderId={order.id}/>}{refundPending && <TrackRefund orderId={order.id}/>}
     {error && <Alert className={cn(errorBox,"mb-3")}>{error}</Alert>}
     {admin && query.iade==="kaydedildi" && <Alert role="status" className={cn(noticeBox,"mb-3")}>İade kaydedildi.</Alert>}
     {admin && query.iade==="hata" && <Alert className={cn(errorBox,"mb-3")}>İade kaydedilemedi: sipariş sevk ya da teslim edilmemiş veya adet sipariş edilenden fazla.</Alert>}

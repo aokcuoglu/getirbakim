@@ -372,3 +372,7 @@ END $$;
 -- NULL = not sent yet. No backfill: orders paid before this change can still be measured within the 7-day window.
 ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS purchase_tracked_at timestamptz;
 COMMENT ON COLUMN commerce_orders.purchase_tracked_at IS 'GA4 purchase sent for this order (#675); claimed once by the order''s own customer';
+-- GA4 refund measurement (#750). Set once by the order's own customer when the refund event is handed to the browser, only for
+-- orders whose purchase was measured; NULL = not sent yet. No backfill.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refund_tracked_at timestamptz;
+COMMENT ON COLUMN commerce_orders.refund_tracked_at IS 'GA4 refund sent for this order (#750); claimed once by the order''s own customer, only after purchase_tracked_at';

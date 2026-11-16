@@ -64,3 +64,14 @@ export function cleanPageLocation(url: string) {
     return url.split("?")[0];
   }
 }
+
+/**
+ * A cancelled paid order's full refund (#750): the same `value` / `shipping` the purchase reported, so GA4 nets it out.
+ * No `items`: GA4 reads a refund without items as the whole transaction.
+ */
+export function refund(input: { transactionId: string; subtotalKurus: number; shippingKurus: number }) {
+  return {
+    transaction_id: input.transactionId, currency: "TRY", value: kurusToValue(input.subtotalKurus), shipping: kurusToValue(input.shippingKurus),
+  };
+}
+export type RefundEvent = ReturnType<typeof refund>;
