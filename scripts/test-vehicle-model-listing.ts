@@ -148,7 +148,9 @@ test("a make × category listing is the intersection of both (#674)", async () =
   const category = await catalog.categoryProductIds(["fren"], [252]);
   const { rows } = await schema.pool.query<{ id: string }>(`SELECT id::text FROM storefront_catalog_entries catalog
     WHERE catalog.id=ANY(ARRAY(${catalog.makeFitsSql("$1::int")})::uuid[]) AND catalog.id=ANY($2::uuid[]) ORDER BY 1`, [1, category]);
-  assert.deepEqual(rows.map(row => row.id), [ids.g1, ids.g5].sort());
+  // With the category fixtures (#673): the engine-level g1, the description-fitted g5-g9 and p2, and g11 by an admin's
+  // category; g2/g3 (engine-level model fits outside the make table) and p1 (no make fit) stay out.
+  assert.deepEqual(rows.map(row => row.id), ["g1", "g5", "g6", "g7", "g8", "g9", "g11", "p2"].map(key => ids[key]).sort());
 });
 
 test("a model page skips the make filter and lists the union of engine-level and description fits", async () => {
@@ -270,10 +272,11 @@ test("a filtered model × category request is a 404 or not by its unfiltered cou
 }));
 
 test("make × category pages share the gate: 404 without products, noindex below 10 (#673)", () => inRequest(async () => {
+  // The make's engine-level and description fits (#674) in Fren and its child: g1, g5-g10, g11 and p2.
   const fren = (await load.findListing({ category: "fren", make: "vw", search: {} }))!;
-  assert.equal(fren.plainTotal, 1);
+  assert.equal(fren.plainTotal, 9);
   assert.equal(listingIndexable(fren.query, fren.plainTotal ?? 0), false);
-  assert.equal(await load.findListing({ category: "filtre", make: "vw", search: {} }), null);
+  assert.equal(await load.findListing({ category: "aydinlatma-200", make: "vw", search: {} }), null);
   // The plain make and category pages are not gated.
   assert.equal((await load.findListing({ make: "vw", search: {} }))?.plainTotal, undefined);
   assert.equal((await load.findListing({ category: "aydinlatma-200", search: {} }))?.plainTotal, undefined);

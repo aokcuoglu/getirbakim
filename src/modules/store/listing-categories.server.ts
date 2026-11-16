@@ -3,7 +3,7 @@ import { boundedQuery } from "@/lib/db";
 import { staleCache } from "@/lib/stale-cache";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import type { CatalogQuery } from "./catalog-query";
-import { listedOnly, modelFitsSql } from "./catalog";
+import { listedOnly, makeFitsSql, modelFitsSql } from "./catalog";
 import { legacyCategoryIds } from "./category-tree";
 import { listingEpoch } from "./listing-epoch";
 import { getVehicleBrandBySlug } from "./vehicle-catalog.server";
@@ -91,8 +91,8 @@ export async function scopeCategoryCounts(query: Pick<CatalogQuery, "make" | "mo
     if (!group) return new Map();
     scope = { sql: `SELECT DISTINCT id FROM (${modelFitsSql}) fits WHERE model_id=ANY($6::int[])`, value: group.models.map(member => member.id) };
   } else {
-    // #674: switch to makeFitsSql once merged (the make listing's fits, as catalogFilter reads them).
-    scope = { sql: "SELECT supplier_item_id AS id FROM storefront_make_fits WHERE brand_id=$6", value: Number(make.id) };
+    // The make listing's fits as catalogFilter reads them: engine-level and description fits (#674).
+    scope = { sql: `SELECT supplier_item_id AS id FROM (${makeFitsSql("$6::int")}) fits`, value: Number(make.id) };
   }
   return new Map(await cachedCounts(`${query.make}|${query.model ?? ""}`, async () => (await boundedQuery<{ category_id: number; products: number }>(
     scopeCountsSql(scope.sql), [storefrontCompanies(), ...await categoryParams(), scope.value])).rows.map(row => [row.category_id, row.products])));
