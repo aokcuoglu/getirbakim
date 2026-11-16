@@ -3,6 +3,7 @@ import test from "node:test";
 import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
+import { dinamikCost } from "../src/modules/suppliers/dinamik-pricing";
 import { DinamikImportError, discoverDinamikBrands, importDinamik, prepareDinamikImport, refreshDinamikItems, type DinamikFetch } from "../src/modules/suppliers/dinamik-import";
 
 // Shapes copied from live getStockList / getPriceList responses (FEBI, 2026-10-11).
@@ -21,14 +22,14 @@ test("stock and price lists merge per code without inventing missing data", () =
   assert.equal(byCode["FEBI 1"].product_data.stokAdi, "EGZOZ ASKI LASTIGI");
   assert.ok(!("fiyat" in byCode["FEBI 1"].product_data) && !("varyok1" in byCode["FEBI 1"].product_data) && !("$type" in byCode["FEBI 1"].product_data));
   assert.deepEqual(byCode["FEBI 1"].stock_data, { varyok1: "YOK", varyok2: "YOK", varyok3: "YOK", varyok4: "VAR", varyokAll: "VAR", kaporta: "YOK", stok: 1 });
-  assert.deepEqual(byCode["FEBI 1"].price_data, { marka: "FEBI", stokKodu: "FEBI 1", fiyat: 106.09, kampanyaOrani: 0, nf: 106.09 });
+  assert.deepEqual(byCode["FEBI 1"].price_data, { marka: "FEBI", stokKodu: "FEBI 1", fiyat: 106.09, kampanyaOrani: 0, nf: 55.43 });
   // Başbuğ-shaped fields the storefront, search and checkout read (see dinamikStorefrontFields).
   assert.deepEqual(Object.fromEntries(["no", "ac", "ac2", "uk", "oe", "dc"].map(key => [key, byCode["FEBI 1"].product_data[key]])),
     { no: "FEBI 1", ac: "EGZOZ ASKI LASTIGI", ac2: "", uk: "FEBI", oe: "", dc: "TRY" });
   // Price-list-only code: minimal product, unknown stock.
   assert.deepEqual(byCode["FEBI 2"].product_data, { stokKodu: "FEBI 2", marka: "FEBI" });
   assert.equal(byCode["FEBI 2"].stock_data, null);
-  assert.equal(byCode["FEBI 2"].price_data?.nf, 9.5);
+  assert.equal(byCode["FEBI 2"].price_data?.nf, 4.96);
   // No price → no cost: the storefront hides the price instead of selling at zero.
   assert.ok(!("nf" in byCode["FEBI 4"].price_data!));
   // The two lists disagree on the price: kept visible as a conflict, not resolved.
@@ -37,6 +38,23 @@ test("stock and price lists merge per code without inventing missing data", () =
   assert.equal(quality.missingPrices, 1);
   assert.equal(quality.missingStocks, 2);
   assert.equal(quality.available, 2);
+});
+
+test("cost is the list price less 45 %, 5 % and the campaign rate, one after another (#809)", () => {
+  // TUDOR TL955, confirmed 2026-11-16: 13.290,48 × 0,55 × 0,95 × 0,96 = 6.666,50.
+  assert.equal(dinamikCost(13290.48, 4), 6666.5);
+  assert.equal(dinamikCost(13290.48, 0), 6944.28);
+  // A half-kuruş tie rounds up (130 × 0,5225 = 67,925), as the db/commerce.sql backfill's numeric round does.
+  assert.equal(dinamikCost(130, 0), 67.93);
+  // Up to 4 decimals in the list price (5.219,775 × 0,5225 = 2.727,332…; 74,865 × 0,5225 = 39,1169…) and big prices stay exact.
+  assert.equal(dinamikCost(5219.775, 0), 2727.33);
+  assert.equal(dinamikCost(74.865, 0), 39.12);
+  assert.equal(dinamikCost(1234567.8901, 50), 322530.86);
+  // Not a usable percent → no campaign.
+  for (const rate of [undefined, null, "4", -5, 100, 150, Number.NaN]) assert.equal(dinamikCost(13290.48, rate), 6944.28, String(rate));
+  const { items } = prepareDinamikImport({ brand: "FEBI", stock: [{ ...stockRow("FEBI 1", 13290.48), kampanyaOrani: 4 }], prices: [priceRow("FEBI 1", 13290.48), priceRow("FEBI 2", 13290.48)] });
+  assert.deepEqual(items.map(item => item.price_data?.nf), [6666.5, 6944.28], "the campaign comes from the stock row; a price-only code has none");
+  assert.equal(items[0].price_data?.fiyat, 13290.48, "the list price stays as the source value");
 });
 
 test("stok is 1 only when some regional flag says VAR", () => {
@@ -75,9 +93,9 @@ test("duplicate price rows only conflict when they quote different positive pric
   assert.equal(byCode["FEBI 2"].conflicting, false);
   assert.equal((byCode["FEBI 2"].price_data as { fiyat: number }).fiyat, 458.535);
   assert.equal(byCode["FEBI 3"].conflicting, false);
-  assert.equal((byCode["FEBI 3"].price_data as { nf: number }).nf, 1248.38);
+  assert.equal((byCode["FEBI 3"].price_data as { nf: number }).nf, 652.28);
   assert.equal(byCode["FEBI 4"].conflicting, false);
-  assert.equal((byCode["FEBI 4"].price_data as { nf: number }).nf, 398.77);
+  assert.equal((byCode["FEBI 4"].price_data as { nf: number }).nf, 208.36);
   assert.equal((byCode["FEBI 4"].source_variants.prices as unknown[]).length, 2, "the padded row stays visible");
   assert.equal(byCode["FEBI 4"].source_variants.usedExactCode, true);
   assert.equal(byCode["FEBI 5"].conflicting, true);
@@ -92,7 +110,7 @@ test("a padded duplicate in the stock list yields to the row written exactly", (
   assert.equal(items.length, 1);
   assert.equal(items[0].conflicting, false);
   assert.equal((items[0].product_data as { ac: string }).ac, "YAG FILTRESI");
-  assert.equal((items[0].price_data as { nf: number }).nf, 1248.38);
+  assert.equal((items[0].price_data as { nf: number }).nf, 652.28);
   assert.equal((items[0].stock_data as { stok: number }).stok, 1);
   assert.equal((items[0].source_variants.stocks as unknown[]).length, 2);
 });
@@ -170,7 +188,7 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
     assert.deepEqual(refreshed.gone, [ids["FEBI 2"]]);
     assert.deepEqual(refreshed.failed, {});
     const febi1 = (await pool.query("SELECT price_data,stock_data FROM supplier_items WHERE code='FEBI 1'")).rows[0];
-    assert.equal(febi1.price_data.nf, 120); assert.equal(febi1.stock_data.varyok1, "VAR"); assert.equal(febi1.stock_data.stok, 1);
+    assert.equal(febi1.price_data.nf, 62.7); assert.equal(febi1.stock_data.varyok1, "VAR"); assert.equal(febi1.stock_data.stok, 1);
     // A code the endpoint no longer returns is not sold on its old stock.
     const febi2 = (await pool.query("SELECT stock_data FROM supplier_items WHERE code='FEBI 2'")).rows[0];
     assert.equal(febi2.stock_data.stok, 0); assert.equal(febi2.stock_data.varyokAll, "YOK");
@@ -194,7 +212,7 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
     assert.deepEqual(timedOut.gone, []);
     assert.equal(timedOut.refreshed, 1);
     assert.equal(timedOut.changed, 1);
-    assert.equal((await rowsOf())[1].price_data.nf, 130);
+    assert.equal((await rowsOf())[1].price_data.nf, 67.93);
     assert.deepEqual((await rowsOf())[0], febi1Before);
     const upstream = await refreshDinamikItems(pool, [ids["FEBI 1"], ids["FEBI 2"]], failing(code => code === "FEBI 1" && new DinamikImportError("upstream", "getStock HTTP 500")));
     assert.deepEqual(upstream.failed, { [ids["FEBI 1"]]: "upstream" });

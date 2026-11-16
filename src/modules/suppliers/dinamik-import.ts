@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { Pool, PoolClient } from "pg";
 import { applySupplierSnapshot, rejectionReason, type ObservationItem } from "./sync";
 import { EgressProxyError, egressProxyFor, TunnelAgent } from "./egress-proxy";
+import { dinamikCost } from "./dinamik-pricing";
 import { CHECKOUT_LOCK_TIMEOUT, fallbackReason, type FallbackReason } from "./checkout-fallback";
 
 // Shared by the scheduler and CLI. Dinamik publishes one stock list (product + regional availability)
@@ -146,14 +147,15 @@ const text = (value: unknown) => typeof value === "string" ? value.replace(/\s+/
 /**
  * Storefront, search and checkout read Başbuğ's field names (ac name, ac2 description, uk brand, oe OEMs, dc currency,
  * nf cost, stok availability), so Dinamik rows also carry them next to their own fields, as SETA's do.
- * nf is Dinamik's list price, treated as the VAT-exclusive TRY cost (business decision, 2026-10-11): the shared
- * markup and VAT settings apply on top. kampanyaOrani is kept but not applied — its meaning is unverified.
+ * nf is our VAT-exclusive TRY cost: Dinamik's list price (fiyat) less the dealer discounts and the row's campaign rate,
+ * applied one after another (#809, confirmed 2026-11-16: TUDOR TL955 13.290,48 × 0,55 × 0,95 × 0,96 = 6.666,50).
+ * The shared markup and VAT settings apply on top. fiyat and kampanyaOrani stay alongside as the source values.
  * stok is 1 when any regional flag says VAR; the flags themselves stay alongside.
  */
 export function dinamikStorefrontFields(stockRow: Record<string, unknown> | undefined, priceRow: Record<string, unknown> | undefined) {
   const product = stockRow ? { no: text(stockRow.stokKodu), ac: text(stockRow.stokAdi) || text(stockRow.stokKodu), ac2: text(stockRow.ingilizceAdi),
     uk: text(stockRow.kull3s) || text(stockRow.marka), oe: text(stockRow.oemListe), dc: "TRY" } : {};
-  const price = typeof priceRow?.fiyat === "number" && priceRow.fiyat > 0 ? { nf: priceRow.fiyat } : {};
+  const price = typeof priceRow?.fiyat === "number" && priceRow.fiyat > 0 ? { nf: dinamikCost(priceRow.fiyat, stockRow?.kampanyaOrani) } : {};
   const stock = stockRow ? { stok: stockFields.some(key => text(stockRow[key]).toUpperCase() === "VAR") ? 1 : 0 } : {};
   return { product, price, stock };
 }

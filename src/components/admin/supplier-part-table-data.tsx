@@ -7,6 +7,7 @@ import { money } from "@/modules/store/catalog";
 import { formatDecimal, formatNumber } from "@/modules/admin/format";
 import { basbugStockLabel, basbugWarehouses, basbugWarehouseStock, type BasbugWarehouse } from "@/modules/suppliers/basbug-stock";
 import { dinamikRegions, dinamikRegionStock, type DinamikRegionKey } from "@/modules/suppliers/dinamik-stock";
+import { dinamikCampaignRate } from "@/modules/suppliers/dinamik-pricing";
 
 const number = formatNumber;
 const price = (value: number | null | undefined) => value == null ? null : formatDecimal(value);
@@ -33,7 +34,7 @@ const costColumn: SupplierPartColumn = { key: "cost", label: "Maliyet (KDV hari�
 /** Note line above each supplier table: what "Maliyet" is for that supplier; "Satış" is always the store price with VAT. */
 export const costNotes = {
   basbug: "Maliyet: Başbuğ NF fiyatı, kaynak para biriminde · Satış: kâr + KDV dahil",
-  dinamik: "Maliyet: Dinamik liste fiyatı (₺) · Satış: kâr + KDV dahil · Stok: var/yok",
+  dinamik: "Maliyet: Dinamik liste fiyatı − %45 − %5 − kampanya (₺) · Satış: kâr + KDV dahil · Stok: var/yok",
   seta: "Maliyet: SETA bayi fiyatı · Satış: kâr + KDV dahil · Stok: var/yok",
   manual: "Maliyet: dosyadaki alış fiyatı · Satış: kâr + KDV dahil",
 } as const;
@@ -119,15 +120,15 @@ export function dinamikPartTableProps(items: DinamikItem[], region: DinamikRegio
     ],
     rows: items.map(item => {
       const p = item.product_data;
-      const campaign = Number(item.price_data?.kampanyaOrani ?? 0);
-      const campaignLabel = campaign ? `%${new Intl.NumberFormat("tr-TR").format(campaign > 1 ? campaign : campaign * 100)}` : "—";
+      const campaign = dinamikCampaignRate(item.price_data?.kampanyaOrani);
+      const campaignLabel = campaign ? `%${new Intl.NumberFormat("tr-TR").format(campaign)}` : "—";
       const repeated = item.price_count > 1 || item.stock_count > 1;
       return {
         id: item.id, code: item.code, detailHref: `/yonetim/tedarikciler/dinamik/urun/${item.id}`,
         cells: {
           name: text(p.stokAdi || "Ürün bilgisi yok", p.stokAdi ?? "Yalnız fiyat listesinde; ürün bilgisi yok"),
           brand: text(item.list_group), vehicle: text(p.kull1s), group: text(p.kull8s || p.kull7s, [p.kull7s, p.kull8s].filter(Boolean).join(" · ")),
-          cost: text(price(item.price_data?.fiyat)), sale: text(item.sale_price_kurus ? money(item.sale_price_kurus) : null, item.sale_stock_label ?? "Satışa kapalı"),
+          cost: text(price(item.price_data?.nf), item.price_data?.fiyat == null ? undefined : `Liste fiyatı ${price(item.price_data.fiyat)}`), sale: text(item.sale_price_kurus ? money(item.sale_price_kurus) : null, item.sale_stock_label ?? "Satışa kapalı"),
           campaign: text(campaignLabel),
           ...Object.fromEntries(dinamikRegions.map(r => {
             const stock = dinamikRegionStock(item.stock_data, r.key);

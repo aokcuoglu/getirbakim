@@ -55,6 +55,19 @@ DO $$ BEGIN
   INSERT INTO commerce_migrations VALUES('legacy-carts');
  END IF;
 END $$;
+-- #809: Dinamik's cost (price_data.nf) was its list price; it is the list price less the 45 % and 5 % dealer discounts
+-- and the row's campaign rate (dinamikCost in src/modules/suppliers/dinamik-import.ts, same rounding). Imports write
+-- it from now on; this recomputes the rows already stored, once. Only price_data changes, so no trigger fires.
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM commerce_migrations WHERE name='dinamik-dealer-discount') THEN
+  UPDATE supplier_items SET price_data=price_data||jsonb_build_object('nf',
+   round((price_data->>'fiyat')::numeric*55*95*(100-CASE WHEN jsonb_typeof(price_data->'kampanyaOrani')='number'
+    AND (price_data->>'kampanyaOrani')::numeric>0 AND (price_data->>'kampanyaOrani')::numeric<100
+    THEN (price_data->>'kampanyaOrani')::numeric ELSE 0 END)/1000000,2))
+  WHERE supplier='dinamik' AND jsonb_typeof(price_data->'fiyat')='number' AND (price_data->>'fiyat')::numeric>0;
+  INSERT INTO commerce_migrations VALUES('dinamik-dealer-discount');
+ END IF;
+END $$;
 CREATE OR REPLACE FUNCTION cleanup_commerce_cart() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
  IF TG_ARGV[0]='account' THEN
