@@ -43,12 +43,20 @@ function openCookieSettings(trigger: HTMLElement | null) {
   setSettings(true);
 }
 
-/** Closes the preferences and returns focus to the button that opened them (the footer's "Çerez tercihleri" otherwise). */
+/**
+ * Closes the preferences and returns focus to the button that opened them: the footer's "Çerez tercihleri", or the banner's
+ * "Tercihleri ayarla" when the banner stays (no choice yet; the panel re-renders it). Once the banner is gone, the footer button.
+ */
 function closeCookieSettings() {
-  setSettings(false);
-  const target = opener?.isConnected ? opener : document.querySelector<HTMLElement>("[data-cookie-preferences]");
+  const footer = opener;
   opener = null;
-  target?.focus({ preventScroll: true });
+  setSettings(false);
+  // After the commit: the banner's button is a new element, rendered by the closing update.
+  requestAnimationFrame(() => {
+    const target = footer?.isConnected ? footer
+      : document.querySelector<HTMLElement>("[data-cookie-settings-opener]") ?? document.querySelector<HTMLElement>("[data-cookie-preferences]");
+    target?.focus({ preventScroll: true });
+  });
 }
 
 /** The footer's "Çerez tercihleri" link-styled button; the banner itself is <CookieBanner/>. */
@@ -119,7 +127,7 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
         <Button type="button" className={action} onClick={() => choose(true, true)}>Tümünü kabul et</Button>
         {settings
           ? <Button type="button" className={secondary} onClick={() => choose(analytics, marketing)}>Tercihleri kaydet</Button>
-          : <Button type="button" className={secondary} aria-expanded={false} aria-controls="cookie-settings" onClick={() => openCookieSettings(null)}>Tercihleri ayarla</Button>}
+          : <Button type="button" className={secondary} data-cookie-settings-opener="" aria-expanded={false} aria-controls="cookie-settings" onClick={() => openCookieSettings(null)}>Tercihleri ayarla</Button>}
         <Button type="button" className={secondary} onClick={() => choose(false, false)}>Tümünü reddet</Button>
         {settings && consent && <Button type="button" className={secondary} onClick={closeCookieSettings}>Vazgeç</Button>}
       </div>
