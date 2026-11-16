@@ -26,7 +26,11 @@ export function withinBudget<T>(work: Promise<T>, ms: number): Promise<T | null>
 async function previews(products: { product: CatalogProduct; quantity: number; offer: boolean }[], discount: number): Promise<PurchasePreview[]> {
   const shown = products.map(row => row.product);
   const [images, details, listing] = await Promise.all([
-    getCatalogProductImages(shown), getCatalogProductDetails(shown), listingIds(products.filter(row => !row.offer).map(row => row.product.id)),
+    getCatalogProductImages(shown), getCatalogProductDetails(shown), listingIds(products.filter(row => !row.offer).map(row => row.product.id)).catch(error => {
+      // The cart write already happened: a failed translation only keeps the line's own id in the event.
+      console.error("Purchase preview listing ids failed", { error: error instanceof Error ? error.message : error });
+      return new Map<string, string>();
+    }),
   ]);
   return products.map(({ product: p, quantity, offer }) => ({
     // The store brand and part number (#602); the image lookup above keeps the supplier's code and brand.

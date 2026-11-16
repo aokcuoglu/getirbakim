@@ -95,10 +95,6 @@ const canonicalSql = `WITH source AS (SELECT id,supplier,code FROM supplier_item
   AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=target.id AND h.hidden)
  ORDER BY step,own,supplier_rank,code,id LIMIT 1`;
 /**
- * The store page of a catalog row: a secondary offer resolves to the product listing it (`primaryId`), and a row the
- * store does not show (a dropped duplicate, a code sold elsewhere) to the page showing that product instead of a 404.
- */
-/**
  * The listing (primary) row of each grouped offer among `ids`: the id the storefront lists and the product page lives under (#752).
  * Primary and ungrouped rows are absent, and so is an offer whose primary is no longer sold or is hidden; callers keep `id` then.
  * product_offers is rebuilt by the matching refresh.
@@ -110,6 +106,10 @@ export async function listingIds(ids: string[]): Promise<Map<string, string>> {
   AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=o.primary_id AND h.hidden)`, [company(), ids])).rows;
  return new Map(rows.map(row => [row.item_id, row.primary_id]));
 }
+/**
+ * The store page of a catalog row: a secondary offer resolves to the product listing it (`primaryId`), and a row the
+ * store does not show (a dropped duplicate, a code sold elsewhere) to the page showing that product instead of a 404.
+ */
 export async function getStoreProduct(id: string): Promise<{ product?: CatalogProduct; primaryId?: string }> {
  if (!z.uuid().safeParse(id).success) return {};
  // A primary no longer sold is not followed (it would lead back here).

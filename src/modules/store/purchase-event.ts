@@ -31,7 +31,10 @@ async function purchaseItems(orderId: string): Promise<{ lines: Line[]; items: A
   try {
     const lines = (await db.query<CatalogLine>(lineQuery(true), [storefrontCompanies(), orderId])).rows;
     const listed = lines.flatMap(line => line.catalog_id ? [{ id: line.catalog_id, code: line.code ?? "", brand: line.brand ?? "" }] : []);
-    const [details, listing] = await Promise.all([getCatalogProductDetails(listed), listingIds(lines.map(line => line.product_id))]);
+    const [details, listing] = await Promise.all([getCatalogProductDetails(listed), listingIds(lines.map(line => line.product_id)).catch(error => {
+      console.error("Purchase event listing ids failed", { orderId, error: error instanceof Error ? error.message : error });
+      return new Map<string, string>();
+    })]);
     return {
       lines,
       items: lines.map((line, index) => catalogItem({

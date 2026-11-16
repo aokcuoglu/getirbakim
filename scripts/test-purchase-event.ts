@@ -148,7 +148,8 @@ test("the purchase line of a secondary offer reports the listing id; the cart li
   const placed = await order("paid", [{ product: grouped.secondary, quantity: 2, unit: 5000 }, { product: grouped.single, quantity: 1, unit: 3000 }]);
   const event = await claim(placed.id, [customer]);
   assert.ok(event);
-  assert.deepEqual(event.items.map(item => item.item_id), [grouped.primary, grouped.single]);
+  // Lines tie on code here (no store row), so their order follows the random ids.
+  assert.deepEqual(event.items.map(item => item.item_id).sort(), [grouped.primary, grouped.single].sort());
   const stored = await schema.pool.query<{ product_id: string }>("SELECT product_id::text FROM commerce_order_items WHERE order_id=$1 AND product_id=$2", [placed.id, grouped.secondary]);
   assert.equal(stored.rowCount, 1);
 });

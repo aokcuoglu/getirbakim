@@ -200,6 +200,14 @@ test("the dialog's suggestion adds the best offer it shows, and nothing unrelate
   const shown = preview.suggestions.map(suggestion => name(suggestion.id));
   assert.ok(shown.includes("padOffer"), shown.join());
   assert.ok(!shown.includes("pad"), shown.join());
+  // GA4 item ids are listing rows (#752): the suggestion adds the offer but reports its listing row.
+  const suggestedOffer = preview.suggestions.find(suggestion => suggestion.id === ids.padOffer);
+  assert.equal(suggestedOffer?.itemId, ids.pad);
+  // The cart line of a secondary offer keeps its id; the event reports the listing row.
+  const added = (await purchase.purchasePreview(ids.padOffer, 1, 0, {}, unhurried))?.added;
+  assert.ok(added, "padOffer preview");
+  assert.equal(added.id, ids.padOffer);
+  assert.equal(added.itemId, ids.pad);
   // A product without a category gets no suggestions: no newest-products filler (the dialog shows one column).
   const lone = await purchase.purchasePreview(ids.lone, 1, 0, {}, unhurried);
   assert.ok(lone);
