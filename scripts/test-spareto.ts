@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {buildData,identify,improvesPartial,sparetoComplete,parseFitment,parseProductPage,parseSearch,parseVehicleFrames,partQuery,resolveVehicles,searchPath} from '../src/modules/enrichment/spareto-adapter';
+import {buildData,identify,sparetoTypeFromUrl,improvesPartial,sparetoComplete,parseFitment,parseProductPage,parseSearch,parseVehicleFrames,partQuery,resolveVehicles,searchPath} from '../src/modules/enrichment/spareto-adapter';
 import {createFitmentMatcher} from '../src/modules/store/fitment-matcher';
+import {typeSlug} from '../src/modules/enrichment/type-categories';
 import {enrichmentImportSchema,matchesEnrichment} from '../src/modules/store/enrichment-contract';
 
 const fixture=(name:string)=>readFile(`tests/fixtures/${name}`,'utf8');
@@ -119,4 +120,28 @@ test('a spareto import without an image or listed vehicles stays partial',()=>{
  assert.equal(sparetoComplete({...full,models:0,modelsFetched:0,vehicles:0}),false);
  assert.equal(sparetoComplete({...full,modelsFetched:1}),false);
  assert.equal(sparetoComplete({...full,invalid:1}),false);
+});
+
+test('stored URLs give the part type without the brand prefix spareto prints',async()=>{
+ const type=(path:string,brand:string)=>sparetoTypeFromUrl('https://spareto.com/products/'+path+'/1-16046',brand);
+ assert.equal(type('dt-shaft-seal-differential','DT SPARE PARTS'),'shaft-seal-differential');
+ assert.equal(type('dt-spare-parts-flap-tow-hook','DT SPARE PARTS'),'flap-tow-hook');
+ assert.equal(type('reinz-gasket-cylinder-head','VICTOR REINZ'),'gasket-cylinder-head');
+ assert.equal(type('lemforder-tie-rod-end','LEMFÖRDER'),'tie-rod-end');
+ assert.equal(type('meat-and-doria-oil-filter','MEAT & DORIA'),'oil-filter');
+ assert.equal(type('herth-plus-buss-jakoparts-brake-disc','HERTH+BUSS JAKOPARTS'),'brake-disc');
+ assert.equal(type('valeo-air-filter-1','VALEO'),'air-filter-1');
+ assert.equal(type('ab-s-brake-disc','A.B.S.'),null);
+ assert.equal(type('febi-bilstein-v-ribbed-belts','FEBI BILSTEIN'),'v-ribbed-belts');
+ assert.equal(sparetoTypeFromUrl('https://spareto.com/vehicles/febi-bilstein-brake-disc','FEBI BILSTEIN'),null);
+ assert.equal(sparetoTypeFromUrl('not a url','FEBI BILSTEIN'),null);
+ // The worker names the type from the page's own part name.
+ assert.equal(typeSlug(parseProductPage(await fixture('spareto-product.html')).name),'shaft-seal-differential');
+});
+
+test('built data carries the part type categories, none by default',async()=>{
+ const page=parseProductPage(await fixture('spareto-product.html'));
+ assert.deepEqual(buildData(page).categories,[]);
+ const categories=[{source:'trodo' as const,id:10,name:'Brake discs',path:[{id:3,name:'Car parts'},{id:10,name:'Brake discs'}]}];
+ assert.deepEqual(buildData(page,[],categories).categories,categories);
 });

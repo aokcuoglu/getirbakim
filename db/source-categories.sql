@@ -30,3 +30,11 @@ CREATE TABLE IF NOT EXISTS category_image_jobs (
  last_error text,updated_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(source,category_id),FOREIGN KEY(source,category_id) REFERENCES source_categories(source,category_id)
 );
+-- Part type -> Trodo category dictionary (#851), learned from Trodo products; sources without categories
+-- (spareto, parts2world) take their categories from it by part type.
+CREATE TABLE IF NOT EXISTS product_type_categories (
+ type text NOT NULL, source text NOT NULL, category_id integer NOT NULL,
+ support integer NOT NULL, total integer NOT NULL, learned_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(type,source,category_id),
+ FOREIGN KEY(source,category_id) REFERENCES source_categories(source,category_id)
+);
