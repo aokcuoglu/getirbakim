@@ -36,6 +36,12 @@ test("searches are counted per day, mode and normalized query; zero-result queri
   assert.deepEqual(await analytics.loadSearchTotals(30), { searches: 5, zero_results: 2, queries: 3 });
 });
 
+test("a pair the parser already matches both ways is not worth a suggestion", async () => {
+  const { alreadyEquivalent } = await import("../src/modules/search/synonym-suggestions");
+  for (const [a, b] of [["traversi", "travers"], ["klips", "klipsi"], ["eksoz", "egzoz"], ["balatasi", "balata"]]) assert.ok(alreadyEquivalent(a, b), `${a}/${b}`);
+  for (const [a, b] of [["expres", "express"], ["tekerlek", "teker"], ["filitre", "filtre"], ["kaportaa", "kaporta"]]) assert.ok(!alreadyEquivalent(a, b), `${a}/${b}`);
+});
+
 test("synonym input is normalized and deduplicated", () => {
   assert.deepEqual(analytics.parseSynonymInput("Antifriz, SOĞUTMA sıvısı;antifriz\n a, bir iki üç dört beş"), ["antifriz", "sogutma sivisi", "bir iki uc dort"]);
 });
