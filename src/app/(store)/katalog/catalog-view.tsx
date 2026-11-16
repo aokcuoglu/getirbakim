@@ -11,6 +11,7 @@ import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { currentAccount } from "@/modules/auth/session";
 import { currentVehicle } from "@/modules/store/garage";
 import { GarageButton } from "@/components/garage/garage-button";
+import { HeroBackdrop } from "@/components/hero-backdrop";
 import { CatalogSidebar,CatalogResults } from "@/components/catalog-controls";
 import { CatalogProduct } from "@/components/catalog-product";
 import { getCatalogProductImages,getCatalogProductDetails } from "@/modules/store/product-enrichment";
@@ -139,10 +140,11 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const crumbSeparator=<BreadcrumbSeparator className="[&>svg]:size-2.5"><ChevronRight/></BreadcrumbSeparator>;
  return (
   <div data-catalog-page="" className="bg-white text-sm leading-5 text-foreground">
-   <section className={cn("relative h-[280px] bg-[#212b36] bg-cover bg-center bg-no-repeat pb-10 text-white max-[600px]:h-auto max-[600px]:min-h-[300px] max-[600px]:pb-6",
-    isBrakeCategory?"bg-[linear-gradient(#212b36cc,#212b36cc),url('/media/site/images/brake-system-banner.webp')]":"bg-[url('/media/site/images/mobile-catalog.webp')]")}>
-    <div className="flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/85 max-[600px]:text-xs"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
-    <div className="mx-auto w-full max-w-[1384px] px-8 max-[600px]:px-[15px]">
+   <section className="relative h-[280px] bg-[#212b36] pb-10 text-white max-[600px]:h-auto max-[600px]:min-h-[300px] max-[600px]:pb-6">
+    {isBrakeCategory?<HeroBackdrop mobile="/media/site/images/brake-system-banner-mobile.webp" desktop="/media/site/images/brake-system-banner.webp"/>
+     :<HeroBackdrop desktop="/media/site/images/mobile-catalog.webp" overlay={false}/>}
+    <div className="relative flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/85 max-[600px]:text-xs"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
+    <div className="relative mx-auto w-full max-w-[1384px] px-8 max-[600px]:px-[15px]">
      {/* Manufacturer names and make / model headings ("Volkswagen Golf 7 (2012–2022) fren sistemi") can run to three
       lines on a phone: they grow from the same minimum height instead of overflowing the fixed one. */}
      <h1 className={cn("mt-3 mb-4 flex items-center justify-center text-center text-[34px] leading-[42px] font-semibold tracking-[-.7px] max-[600px]:m-0 max-[600px]:mb-3 max-[600px]:text-[28px] max-[600px]:leading-9",

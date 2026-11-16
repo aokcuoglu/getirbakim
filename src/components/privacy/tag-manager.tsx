@@ -12,6 +12,11 @@ const ServicesContext = createContext<Services>({ analytics: false, marketing: f
 /** Which consent categories have a real service behind them; the banner words its options from this. */
 export const useConsentServices = () => useContext(ServicesContext);
 
+const ServerConsentContext = createContext<string | null>(null);
+
+/** The consent cookie as the server read it: the banner renders from it, so a first visit gets the banner in the HTML (#736). */
+export const useServerConsent = () => useContext(ServerConsentContext);
+
 // No advertising service is configured yet (3rd slice), so advertising consent signals stay denied.
 const MARKETING_SERVICE = false;
 const serverSnapshot = () => undefined;
@@ -59,15 +64,17 @@ function PageViewTracker() {
   return null;
 }
 
-export function TagManager({ ga4, customerType, children }: { ga4: string | null; customerType: string; children: React.ReactNode }) {
+export function TagManager({ ga4, customerType, consent: serverConsent, children }: {
+  ga4: string | null; customerType: string; consent: string | null; children: React.ReactNode;
+}) {
   const raw = useSyncExternalStore(subscribeConsent, consentSnapshot, serverSnapshot);
   const consent = parseConsent(raw ?? null);
   const active = Boolean(ga4 && consent?.analytics);
-  return <ServicesContext value={{ analytics: ga4 !== null, marketing: MARKETING_SERVICE }}>
+  return <ServicesContext value={{ analytics: ga4 !== null, marketing: MARKETING_SERVICE }}><ServerConsentContext value={serverConsent}>
     {active && ga4 && <>
       <GtagBoot ga4={ga4} customerType={customerType} marketing={consent?.marketing ?? false} marketingService={MARKETING_SERVICE} />
       <Suspense><PageViewTracker /></Suspense>
     </>}
     {children}
-  </ServicesContext>;
+  </ServerConsentContext></ServicesContext>;
 }

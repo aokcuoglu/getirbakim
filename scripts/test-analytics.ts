@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { CONSENT_MAX_AGE, consentSignals, parseConsent, serializeConsent } from "../src/lib/cookie-consent";
+import { CONSENT_MAX_AGE, consentBannerOpen, consentSignals, parseConsent, serializeConsent } from "../src/lib/cookie-consent";
 import { analyticsConfig } from "../src/modules/analytics/config";
 import {
   addPaymentInfo, addToCart, beginCheckout, catalogItem, cleanPageLocation, kurusToValue, purchase, removeFromCart, search, selectItem,
@@ -22,6 +22,16 @@ test("consent cookie: round trip, old versions, expiry and future records", () =
   assert.equal(parseConsent(serializeConsent({ analytics: true, marketing: true, savedAt: now + 600_000 }), now), null);
   assert.equal(parseConsent(null, now), null);
   assert.equal(parseConsent("2.2.0.1", now), null);
+});
+
+test("consent banner: open until a valid choice, and whenever the preferences are open", () => {
+  const valid = serializeConsent({ analytics: false, marketing: false, savedAt: now });
+  assert.equal(consentBannerOpen(null, false, now), true);
+  assert.equal(consentBannerOpen(valid, false, now), false);
+  assert.equal(consentBannerOpen(`1.1.1.${now / 1000}`, false, now), true);
+  assert.equal(consentBannerOpen(valid, false, now + CONSENT_MAX_AGE), true);
+  assert.equal(consentBannerOpen("garbage", false, now), true);
+  assert.equal(consentBannerOpen(valid, true, now), true);
 });
 
 test("consent signals follow the categories", () => {

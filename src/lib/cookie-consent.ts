@@ -40,6 +40,11 @@ export function parseConsent(raw: string | null, now = Date.now()): CookieConsen
   return { version: CONSENT_VERSION, necessary: true, analytics: match[2] === "1", marketing: match[3] === "1", savedAt };
 }
 
+/** Whether the banner shows (#736): no valid choice yet, or the visitor opened the preferences. Same answer on the server and the client. */
+export function consentBannerOpen(raw: string | null, settings: boolean, now = Date.now()) {
+  return settings || parseConsent(raw, now) === null;
+}
+
 /** The save time the server writes: the client's own time, never later than the server clock; null when it is implausible. */
 export function consentSavedAt(client: number | undefined, now: number) {
   if (client === undefined) return now;
