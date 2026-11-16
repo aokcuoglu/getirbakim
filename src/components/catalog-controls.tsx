@@ -24,12 +24,14 @@ const searchBox="flex h-10 items-center gap-2 rounded-md border border-input bg-
 const searchInput="h-full w-full min-w-0 border-0 bg-transparent p-0 text-[13px] outline-none placeholder:text-muted-foreground";
 // Children of the active category (or the top level) from the server, with a search across the whole tree,
 // which loads from /api/categories when the search box gets focus (#642).
-function SidebarCategoryTree({nodes,selected,href}:{nodes:SidebarCategoryBranch["nodes"];selected?:string;href:(slug:string)=>string}){
+// `listed`: on a make or model listing, the categories holding its products; the search offers only those (#673).
+function SidebarCategoryTree({nodes,selected,href,listed}:{nodes:SidebarCategoryBranch["nodes"];selected?:string;href:(slug:string)=>string;listed?:number[]}){
  const [search,setSearch]=useState("");
  const tree=useCategoryTree();
  const categories=tree.categories??[];
  const term=search.trim().toLocaleLowerCase("tr");
- const matches=categories.filter(c=>c.name.toLocaleLowerCase("tr").includes(term));
+ const allowed=listed&&new Set(listed);
+ const matches=categories.filter(c=>c.name.toLocaleLowerCase("tr").includes(term)&&(!allowed||allowed.has(c.id)));
  const item="flex min-h-[30px] items-center justify-between py-[5px] pr-[35px] pl-[25px] text-sm leading-5 font-medium text-foreground transition-colors hover:text-brand aria-[current=page]:bg-[#f8f9f9] aria-[current=page]:text-foreground";
  return <div>
   <label className={cn(searchBox,"mx-[25px] mb-[15px]")}><Search size={16} aria-hidden="true" className="shrink-0"/><input type="search" className={searchInput} aria-label="Kategori ara" placeholder="Kategori ara" value={search} onFocus={tree.load} onChange={e=>{setSearch(e.target.value);tree.load();}}/></label>
@@ -58,8 +60,9 @@ function FilterGroup({label,options,selected,onToggle,searchable=true,isBlocked,
  </CollapsibleContent>
  </Collapsible>;
 }
-// `branch` null: no category links (vehicle model pages until their category routes exist, #639).
-export function CatalogSidebar({branch,brands,facets,params}:{branch:SidebarCategoryBranch|null;brands:string[];facets:CatalogFacet[];params:Query}) {
+// `branch` null: no category links (manufacturer pages, #660). `listed`: on a make or model listing, the categories
+// holding its products (#673); every category elsewhere.
+export function CatalogSidebar({branch,listed,brands,facets,params}:{branch:SidebarCategoryBranch|null;listed?:number[];brands:string[];facets:CatalogFacet[];params:Query}) {
  const router=useRouter();
  // Open on desktop, folded behind the "Filtreler" toggle on phones. The server renders it open (category links stay in the
  // HTML); until hydration the phone CSS hides the panel, so the results below do not jump up when the effect folds it (#755).

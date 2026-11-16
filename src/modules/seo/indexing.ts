@@ -114,11 +114,15 @@ export function productIndexable(product: { supplier: string; source: "store" | 
  * (Numbered code-less series later became units of their own: 4,442 units; the table keeps its measured counts.)
  *
  * At 10, 74% of the model pages stay indexable (283 have no product: 404) while the one- and two-product
- * model × category pages (next slice) stay out.
+ * model × category and make × category pages (#673) stay out. The same threshold gates all three (isGatedListing); a
+ * gated listing without any product is a 404. The plain make and category pages keep the plain-listing rule.
  */
 export const minIndexableListingProducts = 10;
 
-/** A plain listing (isIndexableListing) that, on a model page, lists at least `minIndexableListingProducts`. */
+/** Listings held to the product minimum (#639, #673): a model page, with or without a category, and a make × category page. */
+export const isGatedListing = (query: Pick<CatalogQuery, "make" | "model" | "category">) => Boolean(query.model || (query.make && query.category));
+
+/** A plain listing (isIndexableListing) that, when gated, lists at least `minIndexableListingProducts` without its filters. */
 export function listingIndexable(query: CatalogQuery, total: number): boolean {
-  return isIndexableListing(query) && (!query.model || total >= minIndexableListingProducts);
+  return isIndexableListing(query) && (!isGatedListing(query) || total >= minIndexableListingProducts);
 }

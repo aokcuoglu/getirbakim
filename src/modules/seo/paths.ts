@@ -5,8 +5,8 @@
 //   /yedek-parca/<make>/<model>      a vehicle model's parts (#639; model slugs: vehicle-model-groups.ts)
 //   /kategori/<category>             a category
 //   /kategori/<category>/<make>      a category for a make
+//   /kategori/<category>/<make>/<model>  a category for a vehicle model (#673)
 //   /marka/<manufacturer>            a manufacturer's (master brand's) products (#660; slugs: manufacturer-path.ts)
-// Reserved: /kategori/<category>/<make>/<model> (#639, next slice).
 // The crawler rule `/yedek-parca/*?*<param>=` (crawlers.ts) already covers the model pages' query strings.
 
 /** Public listing routes whose query strings the crawler policy narrows (see crawlers.ts). */

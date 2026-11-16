@@ -202,14 +202,19 @@ export const makeFitsSql=(param:string)=>`SELECT supplier_item_id FROM storefron
   UNION SELECT COALESCE(o.primary_id,f.supplier_item_id) FROM vehicle_models m JOIN product_model_fitments f ON f.model_id=m.id
   LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id WHERE m.brand_id=${param}`;
 /**
- * Products fitting a vehicle model page's series (#639): engine-level fits (storefront_model_fits, kept like the make
- * table) and models read from supplier descriptions (product_model_fitments, model level only), a secondary offer
- * counting as the product listing it. Both are index reads (Golf 7: ~25 ms for the description side); cached per process.
+ * Every model fit as (model_id, id) rows, a pair possibly repeated: engine-level fits (storefront_model_fits, kept like
+ * the make table) and models read from supplier descriptions (product_model_fitments, model level only), a secondary
+ * offer counting as the product listing it. A `model_id` condition on the subquery reaches both branches' indexes;
+ * the model sitemap (src/modules/seo/sitemap-models.server.ts) and a model's category counts read the same rows (#673).
+ */
+export const modelFitsSql=`SELECT model_id,supplier_item_id AS id FROM storefront_model_fits
+  UNION ALL SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM product_model_fitments f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id`;
+/**
+ * Products fitting a vehicle model page's series (#639), from modelFitsSql. Both branches are index reads (Golf 7:
+ * ~25 ms for the description side); cached per process.
  */
 const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",")}`,async()=>(await boundedQuery<{id:string}>(
- `SELECT supplier_item_id::text AS id FROM storefront_model_fits WHERE model_id=ANY($1::int[])
-  UNION SELECT COALESCE(o.primary_id,f.supplier_item_id)::text FROM product_model_fitments f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id
-  WHERE f.model_id=ANY($1::int[])`,[modelIds])).rows.map(row=>row.id));
+ `SELECT DISTINCT id::text FROM (${modelFitsSql}) fits WHERE model_id=ANY($1::int[])`,[modelIds])).rows.map(row=>row.id));
 /**
  * A make's model page units that list at least one product (#639): the make page links only these, so no link ends in
  * the empty model page's 404. A unit counts when a fitted product (as in modelFittedIds) is in the storefront listing

@@ -52,10 +52,10 @@ Liste sayfalarının adresleri Türkçe ve yol tabanlıdır (#638); tek kaynak `
 | Araç markaları | `/arac-markalari` | |
 | Araç markası | `/yedek-parca/<marka>` | |
 | Kategori | `/kategori/<kategori>` | |
-| Kategori × araç markası | `/kategori/<kategori>/<marka>` | |
+| Kategori × araç markası | `/kategori/<kategori>/<marka>` | #673: ürünsüz `404`, 10 üründen azı `noindex,follow` (model sayfasıyla aynı eşik) |
 | Ürün | `/urun/<marka>-<ad>-<parça-no>-<id>` | #640; tek kaynak `src/modules/seo/product-path.ts` (`productPath`). Slug ASCII'dir ve yalnız okunur; ürünü sondaki 36 karakterlik kimlik bulur (`product-id.ts`). Slug boş kalırsa adres `/urun/<id>` |
 | Araç modeli | `/yedek-parca/<marka>/<model>` | #639: model ailesi + nesil (`golf-7`, `passat-b8`, `tipo-356`, `3-e90`); ürünsüz model `404`, 10 üründen azı `noindex,follow` (`minIndexableListingProducts`) |
-| Model × kategori | `/kategori/<kategori>/<marka>/<model>` | #639 sonraki dilimi için ayrıldı; model sayfasında kategori gezintisi bu yüzden kapalı |
+| Model × kategori | `/kategori/<kategori>/<marka>/<model>` | #673: modelin o kategori ve alt kategorilerindeki ürünleri; ürünsüz `404`, 10 üründen azı `noindex,follow`. Marka ve model sayfaları (kart, kenar çubuğu, kategori araması) yalnız ürünü olan kategorileri bağlar (`scopeCategoryCounts`) |
 | Üretici | `/marka/<uretici>` | #660 için ayrıldı; bugün `/katalog?brand=` |
 
 Ürün adresleri (#640): çıplak kimlik, bayat slug ya da büyük harfli kimlik sayfada tek adımda `308` ile güncel adrese gider; ikincil teklifin kimliği (`primaryId`) doğrudan birincil ürünün slug'lı adresine `307` ile gider (eşleştirme yenilenince değişebilir, kalıcılanmaz). Sorgu dizgesi (`utm_*`, `gclid`) her iki yönlendirmede korunur. `/yonetim` bağlantıları çıplak kimlik kullanır (`productIdPath`) ve bu yönlendirmelerden geçer.

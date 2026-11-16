@@ -14,14 +14,21 @@ export async function loadListing(input: { category?: string; make?: string; mod
   return await findListing(input) ?? notFound();
 }
 
-export function listingMetadata({ query, category, make, model, modelTotal }: LoadedListing): Metadata {
+export function listingMetadata({ query, category, make, model, plainTotal }: LoadedListing): Metadata {
   const path = listingPath({ makeSlug: make && query.make, modelSlug: make && model && query.model, categorySlug: category?.slug });
-  // A model page needs enough products to be indexed; the other listings keep the plain-listing rule (#638).
-  const robots = listingIndexable(query, modelTotal ?? 0) ? undefined : { index: false, follow: true };
+  // Model and make × category pages need enough products to be indexed (#639, #673); the other listings keep the
+  // plain-listing rule (#638).
+  const robots = listingIndexable(query, plainTotal ?? 0) ? undefined : { index: false, follow: true };
   if (make && model) {
     const { name, title } = vehicleModelLabels(make.name, model), years = vehicleModelGroupYears(model);
+    const count = (plainTotal ?? 0).toLocaleString("tr-TR"), vehicle = `${name}${years ? ` (${years})` : ""}`;
+    if (category) {
+      const parts = category.name.toLocaleLowerCase("tr");
+      return pageMetadata({ title: `${name} ${parts}`, path, robots,
+        description: `${vehicle} için ${count} ${parts} ürünü: üreticiye ve OEM numarasına göre incele. Motor tipine göre doğrulamak için aracını seç.`.slice(0, 180) });
+    }
     return pageMetadata({ title, path, robots,
-      description: `${name}${years ? ` (${years})` : ""} için ${(modelTotal ?? 0).toLocaleString("tr-TR")} yedek parça: üreticiye ve OEM numarasına göre incele. Motor tipine göre doğrulamak için aracını seç.`.slice(0, 180) });
+      description: `${vehicle} için ${count} yedek parça: üreticiye ve OEM numarasına göre incele. Motor tipine göre doğrulamak için aracını seç.`.slice(0, 180) });
   }
   if (make) {
     const name = vehicleMakeLabel(make.name);
