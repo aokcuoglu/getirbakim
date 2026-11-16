@@ -56,7 +56,7 @@ DO $$ BEGIN
  END IF;
 END $$;
 -- #809: Dinamik's cost (price_data.nf) was its list price; it is the list price less the 45 % and 5 % dealer discounts
--- and the row's campaign rate (dinamikCost in src/modules/suppliers/dinamik-import.ts, same rounding). Imports write
+-- and the row's campaign rate (dinamikCost in src/modules/suppliers/dinamik-pricing.ts, same rounding). Imports write
 -- it from now on; this recomputes the rows already stored, once. Only price_data changes, so no trigger fires.
 DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM commerce_migrations WHERE name='dinamik-dealer-discount') THEN
