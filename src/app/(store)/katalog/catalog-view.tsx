@@ -132,7 +132,9 @@ export async function CatalogView({params,make,model,modelTotal,manufacturer,man
     isBrakeCategory?"bg-[linear-gradient(#212b36cc,#212b36cc),url('/media/site/images/brake-system-banner.webp')]":"bg-[url('/media/site/images/mobile-catalog.webp')]")}>
     <div className="flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/85 max-[600px]:text-xs"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
     <div className="mx-auto w-full max-w-[1384px] px-8 max-[600px]:px-[15px]">
-     <h1 className="mt-3 mb-4 flex h-24 items-center justify-center text-center text-[34px] leading-[42px] font-semibold tracking-[-.7px] max-[600px]:m-0 max-[600px]:mb-3 max-[600px]:h-[72px] max-[600px]:text-[28px] max-[600px]:leading-9">{title}</h1>
+     <h1 className={cn("mt-3 mb-4 flex h-24 items-center justify-center text-center text-[34px] leading-[42px] font-semibold tracking-[-.7px] max-[600px]:m-0 max-[600px]:mb-3 max-[600px]:h-[72px] max-[600px]:text-[28px] max-[600px]:leading-9",
+      // A manufacturer's name can be long: the heading grows instead of overflowing the fixed height.
+      manufacturer&&"h-auto min-h-24 text-balance wrap-anywhere max-[600px]:h-auto max-[600px]:min-h-[72px]")}>{title}</h1>
      {finder(false)}
     </div>
    </section>

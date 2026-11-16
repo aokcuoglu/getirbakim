@@ -102,13 +102,25 @@ export function manufacturerTrail(manufacturer: { name: string; slug: string }):
   return [{ name: "Ana sayfa", path: "/" }, { name: "Katalog", path: catalogPath }, { name: manufacturer.name, path: manufacturerPath(manufacturer.slug) }];
 }
 
-/** The page's title (also its H1), section heading, intro paragraph and meta description (at most 180 characters). */
+export const manufacturerDescriptionLimit = 180;
+
+/** `text` within `limit` characters: cut at the last word boundary that leaves room for "…". */
+function fitText(text: string, limit: number) {
+  if (text.length <= limit) return text;
+  const cut = text.slice(0, limit - 1), space = cut.lastIndexOf(" ");
+  return `${(space > 0 ? cut.slice(0, space) : cut).replace(/[\s,.:;]+$/, "")}…`;
+}
+
+/**
+ * The page's title (also its H1), section heading, intro paragraph and meta description (at most 180 characters).
+ * "Üretici", not "marka": the store says "marka" for vehicle makes.
+ */
 export function manufacturerTexts(name: string, total: number) {
   const count = total.toLocaleString("tr-TR");
   return {
     title: `${name} yedek parçaları`,
     heading: `${name} ürünlerini keşfet`,
-    intro: `${name} markasının ${count} yedek parça ve bakım ürünü listeleniyor. Ürünleri kategori ve teknik özelliklerine göre süz, ürün kodu veya OEM numarasıyla ara. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`,
-    description: `${name} marka ${count} yedek parça ve bakım ürünü: ürün kodu veya OEM numarasıyla ara, fiyat ve stok bilgisini gör. Siparişten önce araç uyumluluğunu kontrol et.`.slice(0, 180),
+    intro: `${name} üreticisinin ${count} yedek parça ve bakım ürünü listeleniyor. Ürünleri kategori ve teknik özelliklerine göre süz, ürün kodu veya OEM numarasıyla ara. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`,
+    description: fitText(`${name} üreticisinin ${count} yedek parça ve bakım ürünü: ürün kodu veya OEM numarasıyla ara, fiyat ve stok bilgisini gör. Siparişten önce araç uyumluluğunu kontrol et.`, manufacturerDescriptionLimit),
   };
 }

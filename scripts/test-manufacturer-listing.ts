@@ -38,6 +38,15 @@ before(async () => {
   await item("other", "basbug", "SACHS");
   await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1)", [ids.b1, ids.a5]);
   await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.hidden]);
+  // One vehicle type an admin fitted to b1 (BOSCH) and m1 (MAHLE): the garage count of a manufacturer page counts b1 only.
+  await schema.pool.query(`INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VW');
+    INSERT INTO vehicle_models(id,brand_id,name) VALUES(10,1,'GOLF IV');
+    INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text) VALUES(100,10,'1.6',1598,'P','Benzin',101,74,'1998-01-01','golf 1.6')`);
+  for (const key of ["b1", "m1"]) {
+    const product = (await schema.pool.query<{ id: string }>("INSERT INTO products(brand,part_number,brand_label,code) VALUES($1,$1,$1,$1) RETURNING id::text", [key])).rows[0].id;
+    await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [ids[key], product]);
+    await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,100,'add')", [product]);
+  }
   const [{ db }, catalogModule, sitemapModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"),
     import("../src/modules/seo/manufacturer-sitemap.server")]);
   catalog = catalogModule;
@@ -60,6 +69,23 @@ test("filters narrow the manufacturer page and the facets stay within it", async
   const narrowed = await catalog.browseProducts({ manufacturer: "bosch", brands: '["BOSCH AV"]' });
   assert.deepEqual(narrowed.items.map(row => row.id).sort(), sorted(["a1", "a2", "a3", "a4"]));
   assert.deepEqual((await catalog.catalogFacets({ manufacturer: "bosch" })).brands, ["BOSCH", "BOSCH AV"]);
+});
+
+test("a search on a manufacturer page stays within the manufacturer's labels", async () => {
+  // Every test row is named "<key> PARCA": a plain search would list MAHLE, ORIJINAL and SACHS rows too.
+  const all = (await catalog.browseProducts({ q: "PARCA" })).items.map(row => row.display_brand);
+  assert.ok(all.includes("MAHLE"));
+  const found = await catalog.browseProducts({ manufacturer: "bosch", q: "PARCA" });
+  assert.equal(found.total, 10);
+  assert.deepEqual([...new Set(found.items.map(row => row.display_brand))].sort(), ["BOSCH", "BOSCH AV"]);
+  const code = await catalog.browseProducts({ manufacturer: "mahle", q: "BOSCH b2", searchBy: "code" });
+  assert.equal(code.total, 0);
+});
+
+test("the garage vehicle's count stays within the manufacturer page", async () => {
+  assert.equal(await catalog.vehicleFitCount({ manufacturer: "bosch" }, "100"), 1);
+  assert.equal(await catalog.vehicleFitCount({ manufacturer: "mahle" }, "100"), 1);
+  assert.equal(await catalog.vehicleFitCount({}, "100"), 2);
 });
 
 test("the sitemap lists the manufacturers the page indexes: 10 products in, 9 out, ORIJINAL never", async () => {

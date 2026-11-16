@@ -11,7 +11,7 @@ const cachedDirectory = staleCache<ManufacturerDirectory>(10 * 60 * 1000, 1, { e
 
 export function manufacturerDirectory(): Promise<ManufacturerDirectory> {
   return cachedDirectory("all", async () => buildManufacturerDirectory((await db.query<ManufacturerRow>(
-    "SELECT b.id::text AS id,b.name,sb.label,sb.items FROM brands b JOIN supplier_brands sb ON sb.brand_id=b.id")).rows));
+    "SELECT b.id::text AS id,b.name,sb.label,sb.items FROM brands b JOIN supplier_brands sb ON sb.brand_id=b.id ORDER BY b.id,sb.label")).rows));
 }
 
 export async function findManufacturer(slug: string) {

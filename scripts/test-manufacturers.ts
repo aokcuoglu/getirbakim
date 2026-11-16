@@ -79,9 +79,16 @@ test("a manufacturer page is indexed as a plain listing with enough products", (
 test("the page texts name the manufacturer and its count", () => {
   const bosch = manufacturerTexts("BOSCH", 20509), febi = manufacturerTexts("FEBI", 12);
   assert.equal(bosch.title, "BOSCH yedek parçaları");
-  assert.match(bosch.description, /^BOSCH marka 20\.509 yedek parça/);
+  assert.match(bosch.description, /^BOSCH üreticisinin 20\.509 yedek parça/);
+  assert.match(bosch.intro, /^BOSCH üreticisinin 20\.509 yedek parça/);
+  for (const text of Object.values(bosch)) assert.doesNotMatch(text, /\bmarka/);
   for (const key of ["title", "heading", "intro", "description"] as const) assert.notEqual(bosch[key], febi[key], key);
-  assert.ok(manufacturerTexts("A VERY LONG MANUFACTURER NAME ".repeat(5), 1_000_000).description.length <= 180);
+  // A long description ends at a word boundary with "…", never mid-word.
+  const long = manufacturerTexts("A VERY LONG MANUFACTURER NAME ".repeat(3).trim(), 1_000_000).description;
+  assert.ok(long.length <= 180, String(long.length));
+  assert.match(long, /[^\s,.:;]…$/);
+  const full = `A VERY LONG MANUFACTURER NAME `.repeat(3).trim() + " üreticisinin 1.000.000 yedek parça ve bakım ürünü: ürün kodu veya OEM numarasıyla ara, fiyat ve stok bilgisini gör. Siparişten önce araç uyumluluğunu kontrol et.";
+  assert.ok(full.startsWith(long.slice(0, -1)) && [" ", ",", ":", "."].includes(full[long.length - 1]), long);
   assert.ok(bosch.description.length <= 180);
   assert.deepEqual(manufacturerTrail({ name: "BOSCH", slug: "bosch" }).map(crumb => crumb.path), ["/", "/katalog", "/marka/bosch"]);
 });
