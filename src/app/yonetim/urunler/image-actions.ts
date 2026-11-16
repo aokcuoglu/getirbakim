@@ -9,7 +9,8 @@ import * as store from "@/modules/admin/product-image-store";
 import { productImageLimits, productImageTypes, type ProductImageErrorReason } from "@/modules/admin/product-image-upload";
 import { supplierNames } from "@/modules/admin/products";
 import { fetchRemoteImage } from "@/modules/admin/remote-image";
-import { parseRemoteImageUrl, RemoteImageError, remoteImageUrlMaxLength, type RemoteImageErrorReason } from "@/modules/admin/remote-image-url";
+import { remoteImageMessages } from "@/modules/admin/remote-image-messages";
+import { parseRemoteImageUrl, RemoteImageError, remoteImageUrlMaxLength } from "@/modules/admin/remote-image-url";
 
 /** Result of a gallery change (#581); the manager shows the message and refreshes the page. */
 export type ProductImageActionResult = { status: "success" | "error"; message: string };
@@ -29,17 +30,7 @@ const imageFailures: Record<ProductImageErrorReason, string> = {
   unreadable: "Görsel okunamadı; dosya bozuk olabilir.",
 };
 
-const remoteFailures: Record<RemoteImageErrorReason, string> = {
-  url: `Geçerli bir http:// veya https:// görsel adresi girin (kullanıcı adı/parola olmadan, en çok ${remoteImageUrlMaxLength} karakter).`,
-  port: "Bu bağlantı noktasına izin verilmiyor: yalnız 80, 443, 8080 ve 8443 portlarındaki adresler eklenebilir.",
-  blocked: "Bu adrese erişilemez: yalnız internetteki herkese açık adreslerden görsel alınabilir.",
-  unreachable: "Adrese ulaşılamadı. Adresi kontrol edip yeniden deneyin.",
-  timeout: "Adres zamanında yanıt vermedi. Yeniden deneyin.",
-  status: "Adres görseli döndürmedi (sayfa bulunamadı veya erişim reddedildi).",
-  "not-image": "Adres bir görsel değil: yalnız JPEG, PNG veya WebP görsel adresleri eklenebilir.",
-  size: imageFailures.size,
-  redirects: "Adres çok fazla yönlendirme yaptı; görselin doğrudan adresini girin.",
-};
+const remoteFailures = remoteImageMessages({ typesText: "JPEG, PNG veya WebP", sizeText: imageFailures.size });
 
 const productId = z.uuid();
 const remoteUrl = z.string().trim().max(remoteImageUrlMaxLength).refine(value => parseRemoteImageUrl(value) !== null);

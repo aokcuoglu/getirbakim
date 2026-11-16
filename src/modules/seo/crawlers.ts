@@ -5,7 +5,7 @@ import { listingPaths } from "./paths";
 export const privatePaths = ["/yonetim", "/api/", "/sepet", "/giris", "/garaj", "/siparis/", "/siparisler", "/siparis-olustur", "/servisler/basvuru"];
 
 /** Public, unauthenticated media routes: the store's images live under /api, so they need an explicit Allow. */
-export const publicMediaPaths = ["/api/product-media/", "/api/category-media/", "/api/vehicle-media/", "/api/manufacturer-logos/"];
+export const publicMediaPaths = ["/api/product-media/", "/api/category-media/", "/api/vehicle-media/", "/api/manufacturer-logos/", "/api/brand-logos/"];
 
 /**
  * Listing query parameters that only produce unbounded filter/search combinations. `category`, `brand` and `page` stay

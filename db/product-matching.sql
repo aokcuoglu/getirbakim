@@ -138,12 +138,32 @@ BEGIN
  WHERE sb.supplier=s.supplier AND sb.label=s.label AND sb.items IS DISTINCT FROM COALESCE(l.items,0);
  RETURN added;
 END $$;
+-- A master brand's logo set by an admin (#819): uploaded or fetched from a URL, always rasterised to WebP (SVG is never
+-- stored or served). NULL bytes = the admin hid the brand's logo (no automatic logo either); no row = the automatic
+-- logo (data/brand-logos.json, then manufacturer_logos). Supplier sync, enrichment and the storefront bundle never
+-- write here, so a logo entered on production is not overwritten.
+CREATE TABLE IF NOT EXISTS brand_logos (
+ brand_id bigint PRIMARY KEY REFERENCES brands(id) ON DELETE CASCADE,
+ image_data bytea CHECK (octet_length(image_data) BETWEEN 1 AND 1048576),
+ sha256 text CHECK (sha256 ~ '^[a-f0-9]{64}$'),
+ width integer CHECK (width BETWEEN 1 AND 2048),
+ height integer CHECK (height BETWEEN 1 AND 2048),
+ source_url text NOT NULL DEFAULT '' CHECK (char_length(source_url)<=2048),
+ file_name text NOT NULL DEFAULT '' CHECK (char_length(file_name)<=200),
+ updated_by uuid REFERENCES accounts(id) ON DELETE SET NULL,
+ updated_at timestamptz NOT NULL DEFAULT now(),
+ CHECK ((image_data IS NULL)=(sha256 IS NULL) AND (image_data IS NULL)=(width IS NULL) AND (image_data IS NULL)=(height IS NULL))
+);
 -- An admin decision: every label of brand `source` moves to `target` and `source` is removed.
 CREATE OR REPLACE FUNCTION brand_merge(source bigint, target bigint, actor uuid) RETURNS bigint LANGUAGE plpgsql AS $$
 BEGIN
  IF source IS NULL OR target IS NULL OR source=target OR NOT EXISTS (SELECT 1 FROM brands WHERE id=target) THEN RETURN NULL; END IF;
  PERFORM pg_advisory_xact_lock(20261001,7);
  UPDATE supplier_brands SET brand_id=target, method='manual', decided_by=actor, decided_at=now() WHERE brand_id=source;
+ -- The merged brand's admin logo moves along unless the target has its own; a real logo replaces the target's hidden mark.
+ DELETE FROM brand_logos WHERE brand_id=target AND image_data IS NULL
+  AND EXISTS (SELECT 1 FROM brand_logos WHERE brand_id=source AND image_data IS NOT NULL);
+ UPDATE brand_logos SET brand_id=target WHERE brand_id=source AND NOT EXISTS (SELECT 1 FROM brand_logos WHERE brand_id=target);
  DELETE FROM brands WHERE id=source;
  UPDATE brands SET updated_at=now() WHERE id=target;
  RETURN target;

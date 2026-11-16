@@ -111,6 +111,12 @@ describe("fetch", () => {
     await rejects(fetchRemoteImage(`${base}/html`, loopbackOnly), "not-image");
     await rejects(fetchRemoteImage(`${base}/svg`, loopbackOnly), "not-image");
   });
+  test("reads the caller's types (brand logos add SVG, #819)", async () => {
+    const types = ["image/png", "image/svg+xml", "image/webp", "image/jpeg"];
+    const image = await fetchRemoteImage(`${base}/svg`, { ...loopbackOnly, types });
+    assert.equal(image.bytes.toString(), "<svg/>");
+    await rejects(fetchRemoteImage(`${base}/html`, { ...loopbackOnly, types }), "not-image");
+  });
   test("refuses a body over the size cap, declared or streamed", async () => {
     await rejects(fetchRemoteImage(`${base}/big-declared`, { ...loopbackOnly, maxBytes: 1024 }), "size");
     await rejects(fetchRemoteImage(`${base}/big-stream`, { ...loopbackOnly, maxBytes: 1024 }), "size");

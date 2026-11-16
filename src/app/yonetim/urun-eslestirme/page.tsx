@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareArrows, Info, Link2, Merge, PackagePlus, RefreshCw, SearchX, Split, Store, Tags, type LucideIcon } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
@@ -6,6 +7,7 @@ import { SubmitButton } from "@/components/admin/submit-button";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { BrandLabelList } from "@/components/admin/brand-label-list";
+import { BrandLogoStatus } from "@/components/admin/brand-logo-field";
 import { BrandDialog, ConfirmBrand, MergeSuggestion, SetaDialog, StockLabel, type BrandRow } from "@/components/admin/product-matching-dialogs";
 import { ProductMatchingFilters, type MatchingFilter } from "@/components/admin/product-matching-filters";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -65,10 +67,10 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   const linked = "same" in data && data.linked ? "manual" : undefined;
   const query = (changes: Record<string, string | undefined>) => {
     const next = new URLSearchParams();
-    for (const [key, value] of Object.entries({ tab: params.tab, scope: params.scope, names: params.names, q: params.q, sort: params.sort, dir: params.dir, kind, linked, ...changes })) if (value) next.set(key, value);
+    for (const [key, value] of Object.entries({ tab: params.tab, scope: params.scope, names: params.names, logo: params.logo, q: params.q, sort: params.sort, dir: params.dir, kind, linked, ...changes })) if (value) next.set(key, value);
     return `/yonetim/urun-eslestirme${next.size ? `?${next}` : ""}`;
   };
-  const tabHref = (tab?: string) => query({ tab, page: undefined, scope: undefined, names: undefined, q: undefined, sort: undefined, dir: undefined, kind: undefined, linked: undefined });
+  const tabHref = (tab?: string) => query({ tab, page: undefined, scope: undefined, names: undefined, logo: undefined, q: undefined, sort: undefined, dir: undefined, kind: undefined, linked: undefined });
   const back = query({ page: params.page });
   const prev = data.page > 1 ? query({ page: String(data.page - 1) }) : null, next = data.page < data.pages ? query({ page: String(data.page + 1) }) : null;
   const pager = data.total > 0 && <CardFooter className="flex-wrap justify-between gap-3">
@@ -80,13 +82,14 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
     </PaginationContent></Pagination>
   </CardFooter>;
   const search = (tab: string, placeholder: string, filters?: MatchingFilter[], searchable = true) => <ProductMatchingFilters
-    key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.sort}|${params.dir}|${kind}|${linked}`}
-    params={{ tab, q: searchable ? params.q : undefined, scope: params.scope, names: params.names, sort: params.sort, dir: params.dir, kind, linked }}
-    placeholder={placeholder} filters={filters} searchable={searchable} resetHref={query({ q: undefined, scope: undefined, names: undefined, kind: undefined, linked: undefined, page: undefined })}/>;
+    key={`${tab}|${params.q}|${params.scope}|${params.names}|${params.logo}|${params.sort}|${params.dir}|${kind}|${linked}`}
+    params={{ tab, q: searchable ? params.q : undefined, scope: params.scope, names: params.names, logo: params.logo, sort: params.sort, dir: params.dir, kind, linked }}
+    placeholder={placeholder} filters={filters} searchable={searchable} resetHref={query({ q: undefined, scope: undefined, names: undefined, logo: undefined, kind: undefined, linked: undefined, page: undefined })}/>;
   let body: ReactNode = null;
   if ("brands" in data) {
     const rows: BrandRow[] = data.brands.map(brand => ({ id: brand.id, key: brand.key, name: brand.name, items: number(brand.items), pending: brand.pending,
-      fresh: brand.fresh, suggestion: brand.suggestion && { id: brand.suggestion.id, name: brand.suggestion.name, evidence: suggestionEvidence(brand.suggestion) } }));
+      fresh: brand.fresh, suggestion: brand.suggestion && { id: brand.suggestion.id, name: brand.suggestion.name, evidence: suggestionEvidence(brand.suggestion) },
+      logo: { logo: brand.logo, source: brand.logoSource, automatic: brand.automatic } }));
     body = <>
       <CardContent className="flex flex-col gap-4">
         {search("brands", "Marka veya etiket", [{ name: "scope", label: "Marka durumu", value: data.scope,
@@ -94,9 +97,13 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           { value: "pending", label: `Bekleyen (${number(data.brandCount.pending)})` },
           { value: "single", label: `Tek tedarikçi (${number(data.brandCount.single)})` },
           { value: "all", label: `Tüm markalar (${number(data.brandCount.all)})` },
+        ] }, { name: "logo", label: "Logo", value: data.logo ?? "", options: [
+          { value: "", label: "Tümü" },
+          { value: "missing", label: `Logosu olmayanlar (${number(data.logoMissing)})` },
+          { value: "present", label: "Logosu olanlar" },
         ] }])}
         {rows.length ? <Table server><caption className="sr-only">Ana markalar ve tedarikçi etiketleri</caption>
-          <TableHeader><TableRow><TableHead sortKey="name">Ana marka</TableHead>{brandSuppliers.map(supplier => <TableHead key={supplier}>{suppliers[supplier]}</TableHead>)}<TableHead sortKey="items" className="text-right">Kayıt</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead sortKey="name">Ana marka</TableHead>{brandSuppliers.map(supplier => <TableHead key={supplier}>{suppliers[supplier]}</TableHead>)}<TableHead sortKey="items" className="text-right">Kayıt</TableHead><TableHead>Logo</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
           <TableBody>{rows.map((brand, index) => <TableRow key={brand.id}>
             <TableCell className="max-w-56"><div className="flex min-w-0 flex-col gap-1"><span className="truncate font-medium" title={brand.name}>{brand.name}</span>
               {brand.suggestion && <span className="truncate text-muted-foreground" title={`${brand.suggestion.name}: ${brand.suggestion.evidence}`}>Benzer: {brand.suggestion.name} · {brand.suggestion.evidence}</span>}</div></TableCell>
@@ -104,9 +111,11 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
               return <TableCell key={supplier}><BrandLabelList brand={brand.name} supplier={suppliers[supplier]} labels={data.brands[index].labels.filter(label => label.supplier === supplier).map(({ label, items, method }) => ({ label, items: number(items), method }))}/></TableCell>;
             })}
             <TableCell className="text-right tabular-nums">{brand.items}</TableCell>
+            <TableCell><div className="flex flex-wrap items-center gap-2">{brand.logo.logo && <Image src={brand.logo.logo.src} alt=""
+              width={brand.logo.logo.width} height={brand.logo.logo.height} unoptimized className="h-8 w-16 object-contain"/>}<BrandLogoStatus state={brand.logo}/></div></TableCell>
             <TableCell>{brand.fresh ? <StatusBadge tone="info">Yeni marka</StatusBadge> : brand.pending ? <StatusBadge tone="warning">Otomatik</StatusBadge> : <StatusBadge tone="success">Onaylı</StatusBadge>}</TableCell>
             <TableCell><div className="flex flex-wrap items-center gap-1">{brand.suggestion && <MergeSuggestion id={brand.id} suggestion={brand.suggestion} back={back}/>}{brand.pending && <ConfirmBrand id={brand.id} back={back}/>}<BrandDialog key={`${brand.id}|${brand.name}|${data.brands[index].labels.length}|${data.brands[index].labels.filter(label => label.method === "auto").length}`} brand={brand} back={back}/></div></TableCell>
-          </TableRow>)}</TableBody></Table> : <EmptyState title="Bu görünümde ana marka yok." icon={<Tags/>}/>}
+          </TableRow>)}</TableBody></Table> : <EmptyState title="Bu görünümde ana marka yok." icon={<Tags/>} clearHref={data.logo ? query({ logo: undefined, page: undefined }) : undefined}/>}
       </CardContent>
       {pager}
     </>;
