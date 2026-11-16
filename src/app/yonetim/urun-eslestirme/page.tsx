@@ -111,7 +111,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
               return <TableCell key={supplier}><BrandLabelList brand={brand.name} supplier={suppliers[supplier]} labels={data.brands[index].labels.filter(label => label.supplier === supplier).map(({ label, items, method }) => ({ label, items: number(items), method }))}/></TableCell>;
             })}
             <TableCell className="text-right tabular-nums">{brand.items}</TableCell>
-            <TableCell><div className="flex flex-wrap items-center gap-2">{brand.logo.logo && <Image src={brand.logo.logo.src} alt={`${brand.name} logosu`}
+            <TableCell><div className="flex flex-wrap items-center gap-2">{brand.logo.logo && <Image src={brand.logo.logo.src} alt=""
               width={brand.logo.logo.width} height={brand.logo.logo.height} unoptimized className="h-8 w-16 object-contain"/>}<BrandLogoStatus state={brand.logo}/></div></TableCell>
             <TableCell>{brand.fresh ? <StatusBadge tone="info">Yeni marka</StatusBadge> : brand.pending ? <StatusBadge tone="warning">Otomatik</StatusBadge> : <StatusBadge tone="success">Onaylı</StatusBadge>}</TableCell>
             <TableCell><div className="flex flex-wrap items-center gap-1">{brand.suggestion && <MergeSuggestion id={brand.id} suggestion={brand.suggestion} back={back}/>}{brand.pending && <ConfirmBrand id={brand.id} back={back}/>}<BrandDialog key={`${brand.id}|${brand.name}|${data.brands[index].labels.length}|${data.brands[index].labels.filter(label => label.method === "auto").length}`} brand={brand} back={back}/></div></TableCell>

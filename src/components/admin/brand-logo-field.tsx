@@ -20,8 +20,8 @@ export type BrandLogoState = { logo: { src: string; width: number; height: numbe
 
 const sourceHints: Record<"manual" | "static" | "enrichment", { label: string; title: string }> = {
   manual: { label: "Elle", title: "Yöneticinin yüklediği logo" },
-  static: { label: "Hazır", title: "Sitenin hazır logo dosyalarından" },
-  enrichment: { label: "Otomatik", title: "Zenginleştirmede bulunan logo" },
+  static: { label: "Sitede hazır", title: "Sitenin hazır logo dosyalarından" },
+  enrichment: { label: "Zenginleştirme", title: "Zenginleştirmede bulunan logo" },
 };
 const maxMegabytes = brandLogoLimits.maxBytes / 1024 / 1024;
 const lost: BrandLogoActionResult = { status: "error", message: "Bağlantı kesildi; yeniden deneyin." };
@@ -86,7 +86,7 @@ export function BrandLogoField({ brandId, brandName, state }: { brandId: string;
         onChange={event => { upload(event.target.files?.[0]); event.target.value = ""; }}/>
       <FieldDescription>PNG, SVG, WebP veya JPEG · en çok {maxMegabytes} MB. Logo WebP&apos;ye çevrilir, kenar boşluğu kırpılır ve en çok {brandLogoLimits.maxWidth}×{brandLogoLimits.maxHeight} piksele sığdırılır.</FieldDescription>
     </Field>
-    <form className="flex flex-col gap-2" noValidate onSubmit={fetchUrl}>
+    <form noValidate onSubmit={fetchUrl}>
       <Field>
         <FieldLabel htmlFor={urlId}>Ya da logo adresi (URL)</FieldLabel>
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -96,22 +96,25 @@ export function BrandLogoField({ brandId, brandName, state }: { brandId: string;
               maxLength={remoteImageUrlMaxLength} value={url} readOnly={pending} onChange={event => setUrl(event.target.value)}/>
           </InputGroup>
           <Button type="submit" variant="outline" className="w-full sm:w-auto" disabled={pending || !url.trim()}>
-            <Link2 data-icon="inline-start" aria-hidden="true"/>Adresten al</Button>
+            Adresten al</Button>
         </div>
         <FieldDescription>Logo sunucuda indirilir; yalnız herkese açık PNG, SVG, WebP veya JPEG adresleri alınabilir.</FieldDescription>
       </Field>
     </form>
-    {(state.logo || stored) && <div className="flex flex-wrap gap-2">
-      {state.logo && <Button type="button" variant="outline" disabled={pending} onClick={() => mutate(() => removeBrandLogo({ brandId }))}>
-        <EyeOff data-icon="inline-start" aria-hidden="true"/>Logoyu kaldır</Button>}
-      {stored && <Button type="button" variant="outline" disabled={pending} title={state.automatic ? "Hazır veya zenginleştirme logosu yeniden gösterilir" : "Bu markanın otomatik logosu yok; mağazada logosuz görünür"}
-        onClick={() => mutate(() => resetBrandLogo({ brandId }))}><RotateCcw data-icon="inline-start" aria-hidden="true"/>Otomatik logoya dön</Button>}
+    {(state.logo || stored) && <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2">
+        {state.logo && <Button type="button" variant="outline" disabled={pending} onClick={() => mutate(() => removeBrandLogo({ brandId }))}>
+          <EyeOff data-icon="inline-start" aria-hidden="true"/>Logoyu kaldır</Button>}
+        {stored && <Button type="button" variant="outline" disabled={pending} onClick={() => mutate(() => resetBrandLogo({ brandId }))}>
+          <RotateCcw data-icon="inline-start" aria-hidden="true"/>{state.automatic ? "Otomatik logoya dön" : state.source === "manual" ? "Elle logoyu sil" : "Gizlemeyi kaldır"}</Button>}
+      </div>
+      {stored && !state.automatic && <p className="text-muted-foreground">Otomatik logo yok; elle logo silinirse mağazada logosuz görünür.</p>}
     </div>}
-    <div className="flex flex-col gap-2 empty:hidden" aria-live="polite">
+    <div className="flex flex-col gap-2 empty:hidden" role="status" aria-live="polite">
       {pending && <span className="flex items-center gap-2 text-muted-foreground"><Spinner aria-hidden="true"/>Logo kaydediliyor…</span>}
-      {result?.status === "success" && <Alert variant="success"><CircleCheck aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
+      {result?.status === "success" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
     </div>
-    {result?.status === "error" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/>
+    {result?.status === "error" && <Alert variant="destructive"><CircleAlert aria-hidden="true"/>
       <AlertDescription><span className="wrap-anywhere">{result.message}</span></AlertDescription></Alert>}
   </div>;
 }

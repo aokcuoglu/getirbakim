@@ -23,7 +23,7 @@ Tedarikçiden ilk kez gelen marka etiketi yenilemede `sync_supplier_brands()` il
 3. **İnceleme.** `/yonetim/urun-eslestirme` → Markalar → Bekleyen: yeni markalar "Yeni marka" rozetiyle, öneri "Benzer: X · kanıt" satırıyla görünür. "X ile birleştir" `brand_merge` çağırır; "Onayla" markayı ayrı tutar ve öneri kalkar. Kararlar ürünlere bir sonraki yenilemede yansır.
 4. **Uyarı.** Bekleyen ana marka sayısı kenar çubuğunda "Ürün eşleştirme"nin yanında ve genel bakışta "Onay bekleyen marka" olarak görünür.
 
-**Marka logosu (#819).** Markalar tablosunda "Logo" sütunu mağazanın gösterdiği logoyu ve kaynağını (Elle / Hazır / Otomatik, Gizli, Logo yok) gösterir; "Logo" filtresi logosu olan veya olmayan markaları süzer (filtre tek başına seçilince tüm markalar listelenir). Logo, marka düzenle penceresinden dosya ya da adresle değiştirilir, kaldırılır veya otomatik logoya döndürülür; ayrıntılar [marka logoları](brand-logos.md#yönetimden-marka-logosu-819).
+**Marka logosu (#819).** Markalar tablosunda "Logo" sütunu mağazanın gösterdiği logoyu ve kaynağını (Elle / Sitede hazır / Zenginleştirme, Gizli, Logo yok) gösterir; "Logo" filtresi logosu olan veya olmayan markaları süzer (filtre tek başına seçilince tüm markalar listelenir). Logo, marka düzenle penceresinden dosya ya da adresle değiştirilir, kaldırılır veya otomatik logoya döndürülür; ayrıntılar [marka logoları](brand-logos.md#yönetimden-marka-logosu-819).
 
 ## Ürün önerileri ve toplu birleştirme (#524)
 

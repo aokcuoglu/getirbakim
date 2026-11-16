@@ -131,7 +131,8 @@ async function masterBrands(scope: BrandScope, logo: BrandLogoFilter | null, par
     AND CASE $2::text WHEN 'missing' THEN NOT (id=ANY($3::text[])) WHEN 'present' THEN id=ANY($3::text[]) ELSE true END`;
   const [count, missing] = await Promise.all([
     db.query<{ count: number }>(`SELECT count(*)::int FROM (${brandRows}) b WHERE ${where}`, [q, logo ?? "", withLogo]),
-    db.query<{ count: number }>(`SELECT count(*)::int FROM (${brandRows}) b WHERE NOT (id=ANY($1::text[]))`, [withLogo]),
+    // The filter option's count: the same scope and search, without a logo.
+    db.query<{ count: number }>(`SELECT count(*)::int FROM (${brandRows}) b WHERE ${where}`, [q, "missing", withLogo]),
   ]);
   const total = count.rows[0].count;
   const { page, pages } = pageOf(params.page, total);
