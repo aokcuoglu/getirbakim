@@ -7,7 +7,7 @@ Bakım penceresi Türkiye saatiyle 03:00–08:00. Medya bir gün önce yüklendi
 ## Ön koşullar
 
 - [ ] Lokum Ops yerel kaynaklı aktarımı onayladı. İki dosya kümesi için yükleme bağlantısı verecek: **M** medya (bir gün önce, Mac'ten), **A** veritabanı + yeni medya (geçiş günü, Mac'ten). 13 Kasım'a kadar planlanan **B** (VPS işlem verisi) kaldırıldı.
-- [ ] AWS'te tedarikçi senkronizasyonu en az bir kez çalıştı ve Dinamik isteği VPS proxy'sinden geçti. Kontrol (VPS): `docker compose -f /opt/getirbakim-egress/compose.yml exec squid grep 18.194.217.212 /var/log/squid/access.log` → en az bir `CONNECT dinamikapp-api.dinamik.online:443 200`. 12 Kasım'da bu yol **hiç kullanılmamıştı**.
+- [x] AWS'ten Dinamik'e erişim: Dinamik 16 Kasım 2026'da AWS çıkış IP'sini (18.194.217.212) allow-list'e ekledi; proxy'siz doğrudan çağrı doğrulandı (#802). `SUPPLIER_EGRESS_PROXY` hâlâ tanımlıysa istek VPS squid'inden geçer (kontrol: `docker compose -f /opt/getirbakim-egress/compose.yml exec squid grep 18.194.217.212 /var/log/squid/access.log`); kaldırıldıysa doğrudan çıkar.
 - [ ] VPS'te bakım modu kurulu: `bash /opt/edge/getirbakim-maintenance.sh status` → `flag: off`. Bkz. [infra/edge](../infra/edge/README.md).
 - [ ] CloudFront getirbakim.com ve www için hazır (12 Kasım'da doğrulandı): `curl --resolve getirbakim.com:443:<CloudFront IP> https://getirbakim.com/` → 200, www → 301 apex, sertifika iki adı kapsıyor (28 Mayıs 2027'ye kadar).
 - [ ] Mac'te SSH takma adı `getirbakim-prod` (root@173.249.36.2, `~/.ssh/vps_deploy_key`).
@@ -80,7 +80,7 @@ Proxy kapalı olmalı: sertifika, önbellek ve WAF CloudFront'ta. Apex'te A kayd
 
 - `https://getirbakim.com/api/health` → `status: "ok"`, `release` yayınlanan sürüm (`vX.Y.Z`), `commit` yayınlanan commit'in kısa SHA'sı (#656; `null` ise imaj `BUILD_VERSION` build-arg'ı olmadan kurulmuş). Aynı değer site alt bilgisinde ve /yonetim kenar çubuğunda görünür (#628).
 - Katalogda Başbuğ fiyatları görünüyor ("Fiyat bilgisi güncelleniyor" yok); ürün sayfası, kodla arama, araç seçimi, üye girişi, yönetim paneli.
-- Dinamik ürünü sepete: sipariş adımındaki canlı stok kontrolü proxy'den geçer (squid loguna `18.194.217.212 … CONNECT dinamikapp-api… 200`).
+- Dinamik ürünü sepete: sipariş adımındaki canlı stok kontrolü (`getStock`) hatasız döner. `SUPPLIER_EGRESS_PROXY` tanımlıysa squid logunda `18.194.217.212 … CONNECT dinamikapp-api… 200` görünür.
 - Ödeme akışı LO ile birlikte, küçük tutarlı gerçek bir siparişle; ardından iade.
 
 ## Geri dönüş
@@ -89,7 +89,7 @@ Proxy kapalı olmalı: sertifika, önbellek ve WAF CloudFront'ta. Apex'te A kayd
 2. VPS'te `bash /opt/edge/getirbakim-maintenance.sh off`.
 3. AWS'te geçişten sonra gerçek sipariş/üyelik oluştuysa VPS'e elle aktarılır.
 
-VPS, birkaç gün sorunsuz çalışmadan ve Dinamik AWS IP'sini allow-list'e ekledikten sonra kapatılır.
+VPS, birkaç gün sorunsuz çalıştıktan sonra kapatılır (Dinamik AWS IP'sini 16 Kasım 2026'da allow-list'e ekledi). Kapatmadan önce AWS'te `SUPPLIER_EGRESS_PROXY` kaldırılmış olmalı, yoksa Dinamik çağrıları düşer.
 
 ## Prova notları (12 Kasım 2026)
 

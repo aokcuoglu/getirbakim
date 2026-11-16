@@ -1,6 +1,8 @@
 # Tedarikçi çıkış proxy'si (Contabo VPS)
 
-Dinamik API'si yalnız VPS adresine (173.249.36.2) izin veriyor. Başbuğ'da IP kısıtı yok (9 Kasım 2026); yalnız kullanıcı adı/parola ile çalışır ve proxy'den geçmez. Uygulama AWS'te çalışırken bu çağrılar VPS'teki bu squid üzerinden çıkar (#411). Tedarikçinin AWS çıkış IP'sini (18.194.217.212) allow-list'e eklemesi beklenmez. Tedarikçi yeni IP'yi eklerse proxy kapatılabilir.
+Dinamik API'si IP allow-list'iyle çalışır. Proxy, Dinamik yalnız VPS adresine (173.249.36.2) izin verirken AWS'ten çağrı yapabilmek için kuruldu (#411). Başbuğ'da IP kısıtı yok (9 Kasım 2026); yalnız kullanıcı adı/parola ile çalışır ve proxy'den geçmez.
+
+**16 Kasım 2026:** Dinamik AWS çıkış IP'sini (18.194.217.212) de allow-list'e ekledi; AWS'ten proxy'siz doğrudan çağrı doğrulandı (`getBrandList` 800 marka, #802). Proxy artık zorunlu değil: AWS'te `SUPPLIER_EGRESS_PROXY` kaldırılınca çağrılar doğrudan çıkar. Squid, Dinamik izni kalkarsa diye yedek olarak kalabilir; tamamen kapatmak için [Kaldırma](#kaldırma).
 
 Proxy yalnız HTTP CONNECT tüneli açar. TLS uygulama ile tedarikçi arasında uçtan uca kurulur; proxy API anahtarlarını ve veriyi görmez, yalnız hedef `host:443` bilgisini görür. TAMI ödeme çağrıları proxy'den geçmez.
 
@@ -90,7 +92,7 @@ docker compose -f compose.yml exec squid tail -f /var/log/squid/access.log
 
 ## Kaldırma
 
-Tedarikçiler AWS IP'sini ekleyince: önce uygulamadan `SUPPLIER_EGRESS_PROXY` kaldırılır ve senkronizasyon doğrulanır, sonra:
+Dinamik AWS IP'sini ekledi (16 Kasım 2026). Proxy kapatılacaksa: önce uygulamadan `SUPPLIER_EGRESS_PROXY` kaldırılır ve senkronizasyon doğrulanır, sonra:
 
 ```bash
 docker compose -f compose.yml down -v
