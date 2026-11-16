@@ -57,7 +57,6 @@ const groups = [
 ];
 
 const shell="mx-auto w-full max-w-[1280px] px-8 max-[600px]:px-5";
-const muted="text-muted-foreground hover:text-brand hover:underline hover:underline-offset-3";
 
 /**
  * The one site footer. Checkout keeps the full brand/link grid; every other route shows the compact
@@ -92,13 +91,13 @@ export async function SiteFooter() {
    {groups.map((group, index) => (
     <nav key={group.title} aria-labelledby={`footer-group-${index}`} className="min-w-0">
      <h2 id={`footer-group-${index}`} className="mt-0 mb-4 text-sm leading-[22px] font-semibold">{group.title}</h2>
-     {group.links.map(link => <Link key={link.href} href={link.href} className={cn(muted,"block py-[5px] text-[13px] leading-[22px] [overflow-wrap:anywhere] max-[600px]:py-2.5")}>{link.title}</Link>)}
+     {group.links.map(link => <Link key={link.href} href={link.href} className="checkout-footer-link">{link.title}</Link>)}
     </nav>
    ))}
   </div>
   <nav className={cn(shell,"flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-border py-6 text-[13px] leading-[22px]")} aria-labelledby="footer-categories-title">
    <h2 id="footer-categories-title" className="m-0 text-[13px] leading-[22px] font-semibold">Kategoriler</h2>
-   {categories.map(category => <Link key={category.slug} href={categoryPath(category.slug)} className={cn(muted,"max-[600px]:py-2")}>{category.name}</Link>)}
+   {categories.map(category => <Link key={category.slug} href={categoryPath(category.slug)} className="checkout-footer-category">{category.name}</Link>)}
   </nav>
   <div className={cn(shell,"flex items-center justify-between gap-6 border-t border-border pt-5 pb-6 text-xs leading-5 text-muted-foreground max-[600px]:flex-col max-[600px]:items-stretch max-[600px]:gap-2 max-[600px]:text-[11px]")}>
    {legal}

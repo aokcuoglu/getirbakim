@@ -41,7 +41,7 @@ export function AccountMenu({ account }: { account: { name: string; role: string
         if (next && trigger.current) setPhoneOffset(15 - trigger.current.getBoundingClientRect().left);
         setOpen(next);
       }}>
-        <PopoverTrigger ref={trigger} aria-label="Hesabım" className={cn(headerToolClass, "w-full min-w-0")}>
+        <PopoverTrigger ref={trigger} aria-label="Hesabım" className={cn("header-tool-wide", headerToolClass)}>
           <SiteIcon name="profile" size={32} />
           <span className="max-w-[164px] min-w-0">
             <strong className="max-w-none! whitespace-nowrap"><span className="min-w-0 truncate" title={account?.name}>{account ? account.name : "Hesabım"}</span><SiteIcon name="chevron" size={13} /></strong>
