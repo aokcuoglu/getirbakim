@@ -6,7 +6,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { applyFitmentOverrides, emptyFitmentOverrides, modelFallbacks, sourceVehicleKey, type FitmentOverrides, type StoreVehicle } from "../src/modules/store/product-fitment-display";
-import { fitmentHistoryValue, productFitmentHideLimit, productFitmentLimit } from "../src/modules/admin/product-fitment-fields";
+import { fitmentHistoryValue, isFitmentChange, productFitmentHideLimit, productFitmentLimit } from "../src/modules/admin/product-fitment-fields";
 import { fitmentLevel, type FitmentLevel } from "../src/modules/store/fitment-level";
 import type { GarageVehicle } from "../src/modules/store/garage";
 
@@ -23,6 +23,7 @@ let sync: typeof import("../src/modules/store/fitment-sync");
 let enrichment: typeof import("../src/modules/store/product-enrichment");
 let description: typeof import("../src/modules/store/description-fitment.server");
 let hides: typeof import("../src/modules/admin/product-fitment-hide-store");
+let copies: typeof import("../src/modules/admin/product-fitment-copy");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const codes: Record<string, { code: string; brand: string }> = {};
@@ -115,7 +116,10 @@ before(async () => {
     SELECT id,model,name,1997,'Petrol','Benzin',122,90,'1984-09-01','1993-08-01',name FROM (VALUES (340,10,'2.0'),(344,10,'2.3'),(346,10,'2.5'),
      (802015,20,'2.0 VVTi Hybrid'),(802016,20,'1.8 Hybrid'),(900,30,'1.5')) t(id,model,name);
     INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
-    SELECT 10000+n,30,'T'||n,1500,'Petrol','Benzin',100,74,'2020-01-01','t' FROM generate_series(1,${productFitmentLimit}) n;`);
+    SELECT 10000+n,30,'T'||n,1500,'Petrol','Benzin',100,74,'2020-01-01','t' FROM generate_series(1,${productFitmentLimit}) n;
+    INSERT INTO vehicle_models(id,brand_id,name) VALUES(40,2,'AURIS');
+    INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
+    SELECT 20000+n,40,'A'||lpad(n::text,2,'0'),1600,'Petrol','Benzin',110,81,'2012-01-01','a' FROM generate_series(1,75) n;`);
   await item("febiBasbug", { supplier: "basbug", code: "FEB 10010", brand: "FEBI", name: "FEBI FREN BALATASI" });
   await item("febi", { supplier: "dinamik", code: "FEBI 10010", brand: "FEBI", name: "FEBI BALATA ON" });
   await item("bare", { supplier: "dinamik", code: "AYD 30030", brand: "AYD", name: "AYD ROT BASI" });
@@ -124,6 +128,11 @@ before(async () => {
   await item("skf", { supplier: "basbug", code: "SKF 70070", brand: "SKF", name: "SKF RULMAN" });
   await item("lemA", { supplier: "basbug", code: "LEM 90090", brand: "LEMFORDER", name: "LEMFORDER ROT" });
   await item("lemB", { supplier: "basbug", code: "MOOG 91091", brand: "MOOG", name: "MOOG ROT" });
+  // #662: a whole model added at once, and copies between products.
+  await item("bulk", { supplier: "basbug", code: "CORTECO 15015", brand: "CORTECO", name: "CORTECO KECE" });
+  await item("copySource", { supplier: "dinamik", code: "BREMBO 16016", brand: "BREMBO", name: "BREMBO DISK" });
+  await item("copyTarget", { supplier: "dinamik", code: "ATE 17017", brand: "ATE", name: "ATE DISK" });
+  await item("copyFull", { supplier: "basbug", code: "TEXTAR 18018", brand: "TEXTAR", name: "TEXTAR BALATA" });
   await schema.pool.query("SELECT refresh_product_matches()");
   admin = (await schema.pool.query<{ id: string }>(`INSERT INTO accounts(name,email,password_hash,role,approved)
     VALUES('Test Yönetici',$1,'x','admin',true) RETURNING id::text`, [`${randomUUID()}@example.com`])).rows[0].id;
@@ -132,6 +141,7 @@ before(async () => {
     import("../src/modules/store/catalog"), import("../src/modules/store/fitment-level.server"), import("../src/modules/store/listing-epoch"),
     import("../src/modules/store/fitment-sync"), import("../src/modules/store/product-enrichment"), import("../src/modules/store/description-fitment.server"),
     import("../src/modules/admin/product-fitment-hide-store")]);
+  copies = await import("../src/modules/admin/product-fitment-copy");
   store = storeModule;
   fitments = fitmentsModule;
   catalog = catalogModule;
@@ -145,6 +155,10 @@ before(async () => {
   await enrich("stale", [900], "TRW 50049");
   await rebuildFitments("febi");
   await rebuildFitments("stale");
+  await enrich("copySource", [340, 344, 346]);
+  await enrich("copyTarget", [340, 344]);
+  await rebuildFitments("copySource");
+  await rebuildFitments("copyTarget");
   await syncSharedLinks(schema.pool);
   closeDb = () => db.end();
 });
@@ -473,6 +487,90 @@ test("a merge carries the hidden rows (the kept product's own row wins); undoing
   assert.deepEqual((await rows(b)).map(row => row.label), ["GOLF B"]);
   assert.deepEqual((await history(b)).at(-1), { field: "fitment_description_shown", old_value: "MERCEDES-BENZ 190 (W201)", new_value: null, reason: "uncarry" });
   assert.equal((await rows(a)).length, 2);
+});
+
+test("a whole model is added in one change: every type in order, one history row each, one queue row (#662)", async () => {
+  const bulk = await productOf("bulk");
+  const types = Array.from({ length: 75 }, (_, index) => 20001 + index);
+  await syncSharedLinks(schema.pool);
+  assert.deepEqual(await add(bulk, types), { ok: true });
+  assert.deepEqual((await decisions(bulk)).map(([mode, typeId]) => [mode, typeId]), types.map(typeId => ["add", typeId]));
+  assert.deepEqual((await history(bulk)).map(change => [change.field, change.old_value, change.new_value]), types.map(typeId => ["fitment_added", null, String(typeId)]));
+  assert.equal((await schema.pool.query("SELECT 1 FROM product_enrichment_shared_queue WHERE kind='p' AND id=$1", [bulk])).rowCount, 1);
+  assert.deepEqual(await makes("bulk"), [TOYOTA]);
+});
+
+test("copying fitments (#662): the source's shown types come, decided and automatic types of the target are skipped", async () => {
+  const source = await productOf("copySource"), target = await productOf("copyTarget");
+  // The source removes 346 and adds 900, 802016 and 802015; it hides a model-list entry. The target removed 340 and added 802015.
+  assert.deepEqual(await remove(source, 346), { ok: true });
+  assert.deepEqual(await add(source, [900, 802016, 802015]), { ok: true });
+  await schema.pool.query("INSERT INTO product_override_fitment_hides(product_id,kind,source_key,label) VALUES($1,'source_model','GOLF','GOLF')", [source]);
+  assert.deepEqual(await remove(target, 340), { ok: true });
+  assert.deepEqual(await add(target, [802015]), { ok: true });
+
+  const preview = await copies.previewFitmentCopy(schema.pool, target, source);
+  assert.ok(preview);
+  assert.deepEqual({ ...preview, add: preview.add.map(vehicle => vehicle.typeId) }, {
+    source: (await schema.pool.query("SELECT id::text,brand_label,code,name FROM products WHERE id=$1", [source])).rows[0],
+    total: 5, add: [802016, 900], addCount: 2, skipped: { added: 1, removed: 1, automatic: 1 },
+    remaining: productFitmentLimit - 2, exceeds: false, targetHasDecisions: true });
+  const merged = (await schema.pool.query<{ id: string }>("SELECT id::text FROM products WHERE merged_into IS NOT NULL LIMIT 1")).rows[0].id;
+  for (const id of [target, randomUUID(), merged]) assert.equal(await copies.previewFitmentCopy(schema.pool, target, id), null, id);
+  assert.equal(await copies.previewFitmentCopy(schema.pool, merged, source), null);
+
+  const copy = (sourceId: string, expected: number, targetId = target) => copies.copyProductFitments(schema.pool, targetId, sourceId, expected, admin);
+  for (const id of [target, randomUUID(), merged]) assert.deepEqual(await copy(id, 2), { ok: false, reason: "bad-source" }, id);
+  const before = await history(target);
+  assert.deepEqual(await copy(source, 3), { ok: false, reason: "stale" });
+  assert.deepEqual(await history(target), before);
+  assert.deepEqual(await copy(source, 2), { ok: true, added: 2 });
+  const rows = (await schema.pool.query<{ vehicle_type_id: number; mode: string; carried: boolean }>(`SELECT vehicle_type_id,mode,carried_from IS NOT NULL AS carried
+    FROM product_override_fitments WHERE product_id=$1 ORDER BY created_at,id`, [target])).rows;
+  assert.deepEqual(rows.map(row => [row.mode, row.vehicle_type_id, row.carried]), [["remove", 340, false], ["add", 802015, false], ["add", 802016, false], ["add", 900, false]]);
+  const { brand_label: brand, code } = preview.source;
+  assert.deepEqual((await history(target)).slice(before.length).map(change => [change.field, change.old_value, change.new_value]), [
+    ["fitment_added", null, "802016"], ["fitment_added", null, "900"], ["fitment_copied", null, `${brand} ${code} ürününden 2 araç tipi`]]);
+  // Hides and removes of the source stay there.
+  assert.equal((await schema.pool.query("SELECT 1 FROM product_override_fitment_hides WHERE product_id=$1", [target])).rowCount, 0);
+  assert.ok((await fitted(900)).has(ids.copyTarget));
+  assert.ok((await fitted(802016)).has(ids.copyTarget));
+  assert.ok(!(await fitted(346)).has(ids.copyTarget));
+  assert.deepEqual(await makes("copyTarget"), [MERCEDES, TOYOTA]);
+  assert.deepEqual(await copy(source, 2), { ok: false, reason: "nothing-to-copy" });
+  assert.equal((await copies.previewFitmentCopy(schema.pool, target, source))?.addCount, 0);
+
+  // Beyond the product's remaining decisions the copy is refused whole: nothing is written.
+  const full = await productOf("copyFull");
+  await schema.pool.query(`INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode)
+    SELECT $1,10000+n,'add' FROM generate_series(1,$2::int) n`, [full, productFitmentLimit - 1]);
+  const over = await copies.previewFitmentCopy(schema.pool, full, source);
+  assert.deepEqual([over?.addCount, over?.remaining, over?.exceeds], [5, 1, true]);
+  assert.deepEqual(await copy(source, 5, full), { ok: false, reason: "limit" });
+  assert.equal((await decisions(full)).length, productFitmentLimit - 1);
+  assert.deepEqual(await history(full), []);
+
+  assert.equal(fitmentHistoryValue("fitment_copied", "BREMBO 16016 ürününden 2 araç tipi", new Map()), "BREMBO 16016 ürününden 2 araç tipi");
+  assert.equal(isFitmentChange("fitment_copied"), false);
+});
+
+test("copy sources: the linked equivalents without a query, the equivalent search with one; never the product itself or a merged one", async () => {
+  const source = await productOf("copySource"), target = await productOf("copyTarget");
+  const merged = (await schema.pool.query<{ id: string }>("SELECT id::text FROM products WHERE merged_into IS NOT NULL LIMIT 1")).rows[0].id;
+  // refresh_product_matches rebuilds the table: the links are written here, after the other tests' refreshes.
+  await schema.pool.query(`INSERT INTO product_equivalents(product_id,equivalent_id,kind,brand,part_number)
+    VALUES($1,$2,'manual','BREMBO','16016'),($1,$3,'manual','SKF','70070')`, [target, source, merged]);
+  const product = async (id: string) => (await schema.pool.query("SELECT id::text,brand_label,code,name,suppliers FROM products WHERE id=$1", [id])).rows[0];
+  assert.deepEqual(await copies.loadFitmentCopySources(schema.pool, target, undefined), { q: "", sources: [{ ...await product(source), equivalent: true }] });
+  assert.deepEqual(await copies.loadFitmentCopySources(schema.pool, target, "  "), { q: "", sources: [{ ...await product(source), equivalent: true }] });
+  // A code search finds the source (marked as linked); the product's own code and a merged product's code do not list them.
+  const found = await copies.loadFitmentCopySources(schema.pool, target, "brembo 16016");
+  assert.equal(found.q, "BREMBO16016");
+  assert.deepEqual(found.sources.map(row => [row.id, row.equivalent]), [[source, true]]);
+  assert.deepEqual((await copies.loadFitmentCopySources(schema.pool, target, "ATE 17017")).sources, []);
+  assert.ok(!(await copies.loadFitmentCopySources(schema.pool, target, "70070")).sources.some(row => row.id === merged));
+  assert.deepEqual((await copies.loadFitmentCopySources(schema.pool, source, "ATE 17017")).sources.map(row => [row.id, row.equivalent]), [[target, false]]);
+  assert.deepEqual(await copies.loadFitmentCopySources(schema.pool, target, "ab"), { q: "AB", sources: [] });
 });
 
 test("bulk levels equal the per-product reference", async () => {

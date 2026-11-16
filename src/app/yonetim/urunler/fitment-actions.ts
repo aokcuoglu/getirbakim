@@ -7,6 +7,7 @@ import { requireAdmin } from "@/modules/auth/session";
 import { invalidateListings } from "@/modules/store/listing-epoch";
 import * as store from "@/modules/admin/product-fitment-store";
 import * as hides from "@/modules/admin/product-fitment-hide-store";
+import * as copies from "@/modules/admin/product-fitment-copy";
 import { productFitmentBatch, productFitmentHideLimit, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
 import { formatNumber } from "@/modules/admin/format";
 
@@ -25,12 +26,17 @@ const failures: Record<Exclude<store.ProductFitmentResult, { ok: true }>["reason
   unchanged: "Bu araç veya kaynak satırı zaten mağazadan çıkarılmış.",
   stale: "Araç uyumu başka bir sekmede değişti. Sayfayı yenileyip yeniden deneyin.",
   "not-in-source": "Bu satır ürünün kaynaklarında artık yok. Sayfayı yenileyin.",
+  "bad-source": "Kaynak ürün bulunamadı ya da başka bir ürünle birleştirilmiş.",
+  "nothing-to-copy": "Kaynak üründe bu ürüne eklenecek yeni araç tipi yok.",
 };
 
 const productId = z.uuid();
 const vehicleTypeId = z.number().int().positive().max(2147483647);
 
-async function run(action: () => Promise<store.ProductFitmentResult>, success: string): Promise<ProductFitmentActionResult> {
+type Success = Extract<store.ProductFitmentResult, { ok: true }>;
+
+/** Runs a change; `success` is the message, or reads it from the stored result (a copy's count). */
+async function run(action: () => Promise<store.ProductFitmentResult>, success: string | ((result: Success) => string)): Promise<ProductFitmentActionResult> {
   let result: store.ProductFitmentResult;
   try { result = await action(); } catch (error) {
     console.error("Product fitment change failed", error);
@@ -44,7 +50,7 @@ async function run(action: () => Promise<store.ProductFitmentResult>, success: s
   await invalidateListings();
   // The product page, its garage note and the listings show the fitments.
   revalidatePath("/", "layout");
-  return { status: "success", message: success };
+  return { status: "success", message: typeof success === "string" ? success : success(result) };
 }
 
 export async function addProductFitments(input: { productId: string; vehicleTypeIds: number[] }): Promise<ProductFitmentActionResult> {
@@ -54,6 +60,15 @@ export async function addProductFitments(input: { productId: string; vehicleType
   const count = new Set(data.data.vehicleTypeIds).size;
   return run(() => store.addProductFitments(db, data.data.productId, data.data.vehicleTypeIds, admin.id),
     `${formatNumber(count)} araç tipi eklendi; ürün sayfasında ve araç süzgecinde hemen, marka sayfasında birkaç saniye içinde görünür.`);
+}
+
+/** Copies another product's vehicle fitments as added types (#662); `expected` is the count the preview showed. */
+export async function copyProductFitments(input: { productId: string; sourceId: string; expected: number }): Promise<ProductFitmentActionResult> {
+  const admin = await requireAdmin();
+  const data = z.object({ productId, sourceId: z.uuid(), expected: z.number().int().min(1).max(productFitmentLimit) }).safeParse(input);
+  if (!data.success) return { status: "error", message: "Kopyalanacak ürün tanınmadı. Önizlemeyi yeniden açın." };
+  return run(() => copies.copyProductFitments(db, data.data.productId, data.data.sourceId, data.data.expected, admin.id),
+    result => `${formatNumber(result.added ?? 0)} araç tipi kopyalandı; ürün sayfasında ve araç süzgecinde hemen, marka sayfasında birkaç saniye içinde görünür.`);
 }
 
 export async function removeProductFitment(input: { productId: string; vehicleTypeId: number }): Promise<ProductFitmentActionResult> {
