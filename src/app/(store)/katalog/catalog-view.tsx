@@ -140,9 +140,9 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const crumbSeparator=<BreadcrumbSeparator className="[&>svg]:size-2.5"><ChevronRight/></BreadcrumbSeparator>;
  return (
   <div data-catalog-page="" className="bg-white text-sm leading-5 text-foreground">
-   <section className={cn("relative h-[280px] bg-[#212b36] bg-cover bg-center bg-no-repeat pb-10 text-white max-[600px]:h-auto max-[600px]:min-h-[300px] max-[600px]:pb-6",
-    !isBrakeCategory&&"bg-[url('/media/site/images/mobile-catalog.webp')]")}>
-    {isBrakeCategory&&<HeroBackdrop mobile="/media/site/images/brake-system-banner-mobile.webp" desktop="/media/site/images/brake-system-banner.webp"/>}
+   <section className="relative h-[280px] bg-[#212b36] pb-10 text-white max-[600px]:h-auto max-[600px]:min-h-[300px] max-[600px]:pb-6">
+    {isBrakeCategory?<HeroBackdrop mobile="/media/site/images/brake-system-banner-mobile.webp" desktop="/media/site/images/brake-system-banner.webp"/>
+     :<HeroBackdrop desktop="/media/site/images/mobile-catalog.webp" overlay={false}/>}
     <div className="relative flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/85 max-[600px]:text-xs"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
     <div className="relative mx-auto w-full max-w-[1384px] px-8 max-[600px]:px-[15px]">
      {/* Manufacturer names and make / model headings ("Volkswagen Golf 7 (2012–2022) fren sistemi") can run to three
