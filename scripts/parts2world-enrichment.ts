@@ -25,7 +25,8 @@
 //   fetch-types [--limit N] [--retry]  asks article-info again for the articles of stored enrichments (default 50, in a
 //                    hashed order) and stores only their part type names; no enrichment is written. Then
 //                    enrichment:categories -- backfill-types --source parts2world writes the categories. Holds the same
-//                    locks as collect; --retry re-asks articles answered without a name.
+//                    locks as collect; --retry re-asks articles answered without a name. A 404, an empty or an invalid
+//                    answer is stored without a name; 10 transient errors in a row stop the run.
 //   trim-oem-vehicles [--dry-run]  products written through an OE number keep only the maker's vehicles and no EAN,
 //                    properties or cross references of the other article (#422)
 //                    (#401; collect filters new ones the same way)
@@ -35,7 +36,7 @@ import {createReadStream} from 'node:fs';
 import {createInterface} from 'node:readline';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
-import {PARTS2WORLD,articleInfoPath,articleType,buildData,buildVehicles,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
+import {PARTS2WORLD,articleInfoPath,articleType,articleTypeAnswer,buildData,buildVehicles,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
 import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
@@ -264,7 +265,7 @@ async function collect(){
  const dryRun=args.includes('--dry-run');
  const alone=await tryExclusiveRun(pool,'parts2world-collect');
  if(!alone){console.log(JSON.stringify({skipped:'another parts2world run is going'}));return;}
- const lock=await acquireSourceLock(pool,'parts2world-source');
+ const lock=await acquireSourceLock(pool,'parts2world-source').catch(async error=>{await alone.release();throw error;});
  const client=new Parts2WorldClient(Number(process.env.PARTS2WORLD_INTERVAL_MS||2500));
  try{
   if(!dryRun){const flushed=await flush();if(flushed.imported||flushed.skipped)console.log(JSON.stringify({pendingWritten:flushed}));}
@@ -381,9 +382,12 @@ async function fetchTypes(){
  await pool.query(await readFile('db/source-categories.sql','utf8'));
  const alone=await tryExclusiveRun(pool,'parts2world-collect');
  if(!alone){console.log(JSON.stringify({skipped:'another parts2world run is going'}));return;}
- const lock=await acquireSourceLock(pool,'parts2world-source');
+ const lock=await acquireSourceLock(pool,'parts2world-source').catch(async error=>{await alone.release();throw error;});
  const client=new Parts2WorldClient(Number(process.env.PARTS2WORLD_INTERVAL_MS||2500));
- const counts={remainingBefore:0,fetched:0,named:0,noArticle:0,errors:0,rowsCovered:0,mapped:0};
+ const counts={remainingBefore:0,fetched:0,named:0,noArticle:0,invalid:0,errors:0,rowsCovered:0,mapped:0};
+ // Transient failures (network, HTTP 5xx) stay unwritten for the next run; a run of them is an outage, and the run stops
+ // rather than hold both locks for hours.
+ const maxConsecutiveErrors=10;let consecutiveErrors=0;
  const unmapped=new Map<string,number>();
  try{
   const dictionary=await loadTypeCategoriesOrEmpty(pool),limit=Number(option('limit')||50);
@@ -394,11 +398,12 @@ async function fetchTypes(){
   console.log(JSON.stringify({fetching:jobs.length,remainingBefore:pending.length,intervalMs:client.intervalMs}));
   for(const [index,job] of jobs.entries()){
    try{
-    const info=parseArticleInfo(await client.articleInfo(articleInfoPath(job.articleId,job.linkId,job.vehicleTypeId)));
-    const type=info&&articleType(info);
+    const answer=articleTypeAnswer(await client.articleInfo(articleInfoPath(job.articleId,job.linkId,job.vehicleTypeId)));
+    const info=answer.kind==='article'?answer.info:null,type=answer.kind==='article'?answer.type:null;
     await saveArticleType(pool,{articleId:job.articleId,linkId:job.linkId,brand:info?.brand??null,partNumber:info?.name??null,spareInfo:type});
-    counts.fetched++;
-    if(!info)counts.noArticle++;
+    counts.fetched++;consecutiveErrors=0;
+    if(answer.kind==='none')counts.noArticle++;
+    if(answer.kind==='invalid'){counts.invalid++;console.error(`${job.articleId}/${job.linkId} → geçersiz yanıt: ${answer.error}`);}
     if(type){
      counts.named++;counts.rowsCovered+=job.rows;
      if(categoriesForType(dictionary,typeSlug(type)).length)counts.mapped+=job.rows;else unmapped.set(type,(unmapped.get(type)??0)+job.rows);
@@ -406,9 +411,10 @@ async function fetchTypes(){
    }catch(error){
     if(error instanceof SourceBlocked){console.error(String(error));process.exitCode=2;break;}
     if(connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;break;}
-    counts.errors++;console.error(`${job.articleId}/${job.linkId} → hata: ${error}`);
+    counts.errors++;consecutiveErrors++;console.error(`${job.articleId}/${job.linkId} → hata: ${error}`);
+    if(consecutiveErrors>=maxConsecutiveErrors){console.error(`Art arda ${consecutiveErrors} hata; koşu durduruldu`);process.exitCode=2;break;}
    }
-   if((index+1)%100===0)console.log(`${index+1}/${jobs.length} · adlı ${counts.named} · makale yok ${counts.noArticle} · hata ${counts.errors}`);
+   if((index+1)%100===0)console.log(`${index+1}/${jobs.length} · adlı ${counts.named} · makale yok ${counts.noArticle} · geçersiz ${counts.invalid} · hata ${counts.errors}`);
   }
  }finally{await lock.release();await alone.release();}
  console.log(JSON.stringify({...counts,mappedShare:counts.rowsCovered?Number((counts.mapped/counts.rowsCovered).toFixed(3)):0,requests:client.requests},null,1));

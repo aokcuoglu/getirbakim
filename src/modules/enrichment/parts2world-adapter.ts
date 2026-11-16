@@ -41,6 +41,15 @@ export type CatalogType={id:number;brand:string;model:string;name:string;fuel_ty
 
 /** The article in the answer, or null when the API has none for these ids. */
 export function parseArticleInfo(raw:unknown):ArticleInfo|null{return articleInfoSchema.parse(raw).data;}
+export type ArticleTypeAnswer={kind:'article';info:ArticleInfo;type:string|null}|{kind:'none'}|{kind:'invalid';error:string};
+/** A fetch-types answer (#852): the client's null (HTTP 404) and an empty answer are no article; an answer the schema
+ *  rejects is invalid. Both are permanent for these ids, so they are stored without a name instead of re-asked. */
+export function articleTypeAnswer(raw:unknown):ArticleTypeAnswer{
+ if(raw===null)return {kind:'none'};
+ const parsed=articleInfoSchema.safeParse(raw);
+ if(!parsed.success)return {kind:'invalid',error:parsed.error.issues.map(i=>i.path.join('.')+': '+i.message).join('; ').slice(0,500)};
+ return parsed.data.data?{kind:'article',info:parsed.data.data,type:articleType(parsed.data.data)}:{kind:'none'};
+}
 
 const monthYear=(value:string|null|undefined)=>{const m=/^(\d{4})-(\d{2})/.exec(value||'');return m?`${m[2]}/${m[1]}`:null;};
 const normalize=(value:string)=>value.toUpperCase().replace(/[^A-Z0-9]/g,'');

@@ -10,10 +10,14 @@ const urlPattern='^https://www\\.parts2world\\.com/tecdoc/#/product\\?mod=(\\d+)
 const normalize=(value:string|null)=>(value??'').toUpperCase().replace(/[^A-Z0-9]/g,'');
 
 export type ArticleType={articleId:number|string;linkId:number|string;brand:string|null;partNumber:string|null;spareInfo:string|null};
-/** Stores (or replaces) one article's answer; brand/part/name null when the API had no article. */
+/** Stores one article's answer; brand/part/name null when the API had no article. An answer without a name never
+ *  replaces a stored name (nor the brand and part number it belongs to). */
 export async function saveArticleType(db:Db,a:ArticleType){
- await db.query(`INSERT INTO parts2world_article_types(article_id,link_id,brand,part_number,spare_info) VALUES($1,$2,$3,$4,$5)
-  ON CONFLICT(article_id,link_id) DO UPDATE SET brand=EXCLUDED.brand,part_number=EXCLUDED.part_number,spare_info=EXCLUDED.spare_info,fetched_at=now()`,
+ await db.query(`INSERT INTO parts2world_article_types AS t(article_id,link_id,brand,part_number,spare_info) VALUES($1,$2,$3,$4,$5)
+  ON CONFLICT(article_id,link_id) DO UPDATE SET
+   brand=CASE WHEN EXCLUDED.spare_info IS NULL AND t.spare_info IS NOT NULL THEN t.brand ELSE EXCLUDED.brand END,
+   part_number=CASE WHEN EXCLUDED.spare_info IS NULL AND t.spare_info IS NOT NULL THEN t.part_number ELSE EXCLUDED.part_number END,
+   spare_info=COALESCE(EXCLUDED.spare_info,t.spare_info),fetched_at=now()`,
   [a.articleId,a.linkId,a.brand,a.partNumber,a.spareInfo]);
 }
 

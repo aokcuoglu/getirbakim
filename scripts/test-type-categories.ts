@@ -210,6 +210,10 @@ test("PostgreSQL: parts2world part types (#852) are fetched once per article and
   // No article for these ids.
   await saveArticleType(schema.pool, { articleId: 300, linkId: 300, brand: null, partNumber: null, spareInfo: null });
   assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM parts2world_article_types")).rows[0].n, 3);
+  // A later answer without a name keeps the stored name with its brand and part number.
+  await saveArticleType(schema.pool, { articleId: 100, linkId: 101, brand: null, partNumber: null, spareInfo: null });
+  assert.deepEqual((await schema.pool.query("SELECT brand,part_number,spare_info FROM parts2world_article_types WHERE article_id=100")).rows,
+    [{ brand: "FEBI BILSTEIN", part_number: "171209", spare_info: "Brake Disc" }]);
   assert.deepEqual(await pendingArticleTypes(schema.pool), []);
   assert.deepEqual((await pendingArticleTypes(schema.pool, { retry: true })).map(p => p.articleId), [300]);
 

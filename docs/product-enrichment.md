@@ -340,21 +340,26 @@ parts2world `article-info` yanıtı makalenin TecDoc genel makale adını `data.
   yalnız adı saklar; zenginleştirmeye, görsele, deneme kayıtlarına dokunmaz. Varsayılan 50 makale, marka kümelenmesin
   diye karma sırayla. Sonunda `remainingBefore`, `named`, `noArticle`, `errors`, `rowsCovered` (adı alınan makalelerin
   kayıt sayısı), `mapped`/`mappedShare` (sözlükte karşılığı olanlar; kimlik kontrolünden önceki tahmin) ve sözlükte
-  olmayan en sık 50 adı basar. HTTP 403/429/503'te durur (çıkış kodu 2); diğer hatalar yazılmaz, sonraki koşuda yeniden
-  denenir.
+  olmayan en sık 50 adı basar. 404, boş yanıt (`noArticle`) ve şemaya uymayan yanıt (`invalid`) kalıcı sayılır ve adsız
+  satır olarak yazılır (`--retry` yeniden sorar); adı olan satır adsız bir yanıtla ezilmez. HTTP 403/429/503'te durur
+  (çıkış kodu 2); ağ/5xx gibi geçici hatalar yazılmaz, sonraki koşuda yeniden denenir; art arda 10 geçici hatada koşu
+  durur (çıkış kodu 2), iki kilit saatlerce tutulmaz.
 - Kategorileri `enrichment:categories -- backfill-types --source parts2world [--dry-run]` yazar. Tip yalnız saklanan
   yanıtın markası ve parça numarası kaydın `manufacturer` / `manufacturer_part_number`'ı ile aynıysa sayılır; değilse
-  veya ad yoksa satır `noType` olarak sayılır ve dokunulmaz.
+  veya ad yoksa satır `noType` olarak sayılır ve dokunulmaz. OE numarasıyla eşleşen kayıtlar (`oem_reference`, ≈%45)
+  tipi OE'yi listeleyen makaleden alır (aynı OE = aynı parça tipi); bu, #422'deki "diğer makalenin verisi atılır"
+  kuralına bilinçli bir istisnadır.
 
 **Kilit ve sıra.** `fetch-types`, `collect` ile aynı iki kilidi alır (`parts2world-collect` denemeli,
 `parts2world-source` bekleyerek); aynı host'a iki istemci yapısal olarak açılamaz. Bekleyen işçi o an koşuyorsa
 `{"skipped":"another parts2world run is going"}` ile çıkar. Sırayı almak için işçiyi durdurun:
-`launchctl kill SIGTERM gui/$(id -u)/com.getirbakim.parts2world-pending`. `fetch-types` kilidi tuttukça launchd
-tetiklemeleri atlanır, bitince işçi kendiliğinden devam eder. `dev` çekildikten sonra koşan işçi yeniden başlayana dek
+`launchctl kill SIGTERM gui/$(id -u)/com.getirbakim.parts2world-pending` ve `fetch-types`'ı hemen ardından başlatın:
+işçi `StartInterval 1800` ile tetiklenir (KeepAlive yok), yani 30 dakika içinde kilidi yeniden alır. `fetch-types`
+kilidi tuttukça launchd tetiklemeleri atlanır, bitince işçi kendiliğinden devam eder. `dev` çekildikten sonra koşan işçi yeniden başlayana dek
 eski kodla (kategorisiz) çalışır; durdurup bıraktığınızda yeni kodla açılır.
 
 **Operasyon sırası:** `fetch-types --limit 50` (örneklem, `mappedShare`'e bakın) → `backfill-types --source parts2world
---dry-run` → uzun koşu (≈34 bin tekil makale, 2,5 sn + jitter ile ≈22–28 saat) ya da gece dilimleri
+--dry-run` → uzun koşu (≈34 bin tekil makale, istek başına ≥3 sn ile ≥28 saat) ya da gece dilimleri
 (`fetch-types --limit 8000`) → `backfill-types --source parts2world`. Backfill tekrar koşunca `changed: 0` olmalı.
 
 **storefront:sync maliyeti:** ilk yazımda ≈41–42 bin parts2world kaydının `imported_at`'i ilerler; ≈35 bin görsel
