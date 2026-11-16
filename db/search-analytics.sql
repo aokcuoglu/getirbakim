@@ -23,3 +23,27 @@ CREATE TABLE IF NOT EXISTS search_synonyms (
  created_by uuid REFERENCES accounts(id) ON DELETE SET NULL,
  created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- AI-suggested synonym groups (#834) waiting for an admin's decision on /yonetim/arama. group_key is the sorted
+-- normalized spellings: a group suggested once (pending, approved or rejected) is never suggested again.
+CREATE TABLE IF NOT EXISTS search_synonym_suggestions (
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ group_key text NOT NULL UNIQUE,
+ words text[] NOT NULL CHECK (cardinality(words) BETWEEN 2 AND 12),
+ source text NOT NULL CHECK (source IN ('zero_result','vocabulary')),
+ query text,
+ reason text NOT NULL DEFAULT '',
+ hits integer NOT NULL DEFAULT 0,
+ model text NOT NULL,
+ status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+ created_at timestamptz NOT NULL DEFAULT now(),
+ decided_at timestamptz,
+ decided_by uuid REFERENCES accounts(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS search_synonym_suggestions_pending_idx ON search_synonym_suggestions (created_at DESC) WHERE status = 'pending';
+-- Inputs already sent to the model ("q:<query>", "pair:<a>|<b>"), so a run does not pay for them again; a zero-result
+-- query is retried after 30 days (new catalog words may answer it by then).
+CREATE TABLE IF NOT EXISTS search_suggestion_checks (
+ key text PRIMARY KEY,
+ checked_at timestamptz NOT NULL DEFAULT now()
+);
