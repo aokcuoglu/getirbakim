@@ -9,7 +9,7 @@ import { resolveListing } from "../src/modules/store/listing-resolve";
 import type { StoreCategory } from "../src/modules/store/category-tree";
 import type { VehicleBrand } from "../src/modules/store/vehicle-catalog";
 import type { VehicleModelGroup } from "../src/modules/store/vehicle-model-groups";
-import { catalogPath, categoryPath, legacyListingPaths, listingPath, listingPaths, listingUrl, makePath, makesPath, modelPath, searchPath } from "../src/modules/seo/paths";
+import { catalogPath, categoryPath, legacyListingPaths, listingPath, listingPaths, listingUrl, makePath, makesPath, manufacturerPath, modelPath, searchPath } from "../src/modules/seo/paths";
 
 // The Turkish listing addresses and the one-step 301s from the old ones (#638).
 
@@ -51,6 +51,16 @@ test("listingUrl keeps filters in the query, never the make or the category, and
   assert.equal(listingUrl({}), "/katalog");
 });
 
+test("a manufacturer page keeps its slug in the path and ignores category and vehicle", () => {
+  assert.equal(manufacturerPath("bosch"), "/marka/bosch");
+  assert.equal(listingPath({ manufacturerSlug: "bosch" }), "/marka/bosch");
+  assert.equal(listingPath({ manufacturerSlug: "bosch", categorySlug: "fren", makeSlug: "bmw" }), "/marka/bosch");
+  const query = { manufacturer: "bosch", brands: '["BOSCH AV"]', page: "2" };
+  assert.equal(listingUrl(query), "/marka/bosch?brands=%5B%22BOSCH+AV%22%5D");
+  assert.equal(listingUrl(query, { page: "3" }), "/marka/bosch?brands=%5B%22BOSCH+AV%22%5D&page=3");
+  assert.equal(listingUrl(query, { brands: undefined }), "/marka/bosch");
+});
+
 test("searchPath is the catalog search", () => {
   assert.equal(searchPath({ q: "fren diski" }), "/katalog?q=fren+diski");
   assert.equal(searchPath({ q: "06A115561B", searchBy: "code" }), "/katalog?q=06A115561B&searchBy=code");
@@ -81,6 +91,14 @@ test("old listing addresses move to the new ones in one step", () => {
     ["/car-parts/BMW!", null],
     ["/car-parts/bmw/x", null],
     ["/car-parts", null],
+    // A catalog brand without a category is a manufacturer page (#660); with a category it stays the category's filter.
+    ["/katalog?brand=BOSCH", "/marka/bosch"],
+    ["/katalog?brand=MANN-FILTER&page=2", "/marka/mann-filter?page=2"],
+    ["/katalog?brand=KALE%20RADYAT%C3%96R&_rsc=x", "/marka/kale-radyator"],
+    ["/katalog?category=fren&brand=BOSCH", "/kategori/fren?brand=BOSCH"],
+    ["/katalog?category=Fren%20Disk&brand=BOSCH", "/marka/bosch"],
+    ["/katalog?brand=", null],
+    ["/katalog?brand=%26", null],
   ];
   for (const [from, to] of cases) assert.equal(redirect(from), to, from);
 });
@@ -132,8 +150,8 @@ test("a model page needs its make and a known model of that make", async () => {
 });
 
 test("no redirect chain: a target and every new address is left alone", () => {
-  const targets = ["/automakers", "/car-parts/bmw?category=fren&page=2", "/katalog?category=fren&q=x", "/car-parts/bmw?sort=newest"].map(redirect);
-  const current = ["/katalog", "/katalog?q=x", "/arac-markalari", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/kategori/fren", "/kategori/fren/bmw?page=2", "/kategori/fren?category=yag"];
+  const targets = ["/automakers", "/car-parts/bmw?category=fren&page=2", "/katalog?category=fren&q=x", "/car-parts/bmw?sort=newest", "/katalog?brand=BOSCH&page=2", "/katalog?category=fren&brand=BOSCH"].map(redirect);
+  const current = ["/katalog", "/katalog?q=x", "/arac-markalari", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/kategori/fren", "/kategori/fren/bmw?page=2", "/kategori/fren?category=yag", "/marka/bosch", "/marka/bosch?page=2", "/marka/bosch?brand=BOSCH"];
   for (const path of [...targets, ...current]) {
     assert.ok(path);
     assert.equal(redirect(path), null, path);
@@ -146,13 +164,13 @@ test("the proxy matcher covers every old listing address", () => {
     const source = old.endsWith("/") ? `${old}:path*` : old;
     assert.ok(sources.includes(source), `${source} is missing from the proxy matcher`);
   }
-  const catalog = config.matcher.find(entry => typeof entry !== "string" && entry.source === catalogPath);
-  assert.deepEqual(catalog && typeof catalog !== "string" ? catalog.has : undefined, [{ type: "query", key: "category" }]);
+  const catalog = config.matcher.filter(entry => typeof entry !== "string" && entry.source === catalogPath);
+  assert.deepEqual(catalog.map(entry => typeof entry !== "string" ? entry.has : undefined), [[{ type: "query", key: "category" }], [{ type: "query", key: "brand" }]]);
 });
 
 // Next's proxy adapter turns a same-host Location into a relative one (checked with curl in the PR).
 test("the proxy answers an old address with a 301 on the request's own host", () => {
-  for (const [from, to] of [["/car-parts/bmw?category=fren&page=2", "/kategori/fren/bmw?page=2"], ["/automakers", "/arac-markalari"], ["/katalog?category=yag", "/kategori/yag"]]) {
+  for (const [from, to] of [["/car-parts/bmw?category=fren&page=2", "/kategori/fren/bmw?page=2"], ["/automakers", "/arac-markalari"], ["/katalog?category=yag", "/kategori/yag"], ["/katalog?brand=BOSCH&page=2", "/marka/bosch?page=2"]]) {
     const response = proxy(new NextRequest(new URL(from, "https://shop.example.invalid")));
     assert.equal(response.status, 301, from);
     const location = new URL(response.headers.get("location") ?? "");
@@ -164,8 +182,8 @@ test("the proxy answers an old address with a 301 on the request's own host", ()
 
 test("every listing path has its route and the old routes are gone", () => {
   const store = join(process.cwd(), "src/app/(store)");
-  assert.deepEqual([...listingPaths], ["/katalog", "/yedek-parca/", "/kategori/"]);
-  for (const route of ["katalog/page.tsx", "arac-markalari/page.tsx", "yedek-parca/[make]/page.tsx", "yedek-parca/[make]/[model]/page.tsx", "kategori/[category]/page.tsx", "kategori/[category]/[make]/page.tsx"])
+  assert.deepEqual([...listingPaths], ["/katalog", "/yedek-parca/", "/kategori/", "/marka/"]);
+  for (const route of ["katalog/page.tsx", "arac-markalari/page.tsx", "yedek-parca/[make]/page.tsx", "yedek-parca/[make]/[model]/page.tsx", "kategori/[category]/page.tsx", "kategori/[category]/[make]/page.tsx", "marka/[manufacturer]/page.tsx"])
     assert.ok(existsSync(join(store, route)), route);
   for (const route of ["automakers", "car-parts"]) assert.ok(!existsSync(join(store, route)), route);
 });

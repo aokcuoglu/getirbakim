@@ -19,15 +19,16 @@ export function productChunkRange(index: number) {
 const productFile = (index: number) => `products-${String(index).padStart(2, "0")}.xml`;
 
 export function sitemapFiles() {
-  return ["pages.xml", "categories.xml", "makes.xml", ...Array.from({ length: productChunks }, (_, index) => productFile(index))];
+  return ["pages.xml", "categories.xml", "makes.xml", "manufacturers.xml", ...Array.from({ length: productChunks }, (_, index) => productFile(index))];
 }
 
-export type SitemapFile = { kind: "pages" | "categories" | "makes" } | { kind: "products"; index: number };
+export type SitemapFile = { kind: "pages" | "categories" | "makes" | "manufacturers" } | { kind: "products"; index: number };
 
 export function parseSitemapFile(file: string): SitemapFile | null {
   if (file === "pages.xml") return { kind: "pages" };
   if (file === "categories.xml") return { kind: "categories" };
   if (file === "makes.xml") return { kind: "makes" };
+  if (file === "manufacturers.xml") return { kind: "manufacturers" };
   const match = /^products-(\d{2})\.xml$/.exec(file);
   const index = match ? Number(match[1]) : -1;
   return index >= 0 && index < productChunks ? { kind: "products", index } : null;

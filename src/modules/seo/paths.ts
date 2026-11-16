@@ -5,11 +5,12 @@
 //   /yedek-parca/<make>/<model>      a vehicle model's parts (#639; model slugs: vehicle-model-groups.ts)
 //   /kategori/<category>             a category
 //   /kategori/<category>/<make>      a category for a make
-// Reserved: /kategori/<category>/<make>/<model> (#639, next slice), /marka/<manufacturer> (#660).
+//   /marka/<manufacturer>            a manufacturer's (master brand's) products (#660; slugs: manufacturer-path.ts)
+// Reserved: /kategori/<category>/<make>/<model> (#639, next slice).
 // The crawler rule `/yedek-parca/*?*<param>=` (crawlers.ts) already covers the model pages' query strings.
 
 /** Public listing routes whose query strings the crawler policy narrows (see crawlers.ts). */
-export const listingPaths = ["/katalog", "/yedek-parca/", "/kategori/"] as const;
+export const listingPaths = ["/katalog", "/yedek-parca/", "/kategori/", "/marka/"] as const;
 
 /** The pre-#638 addresses that src/proxy.ts sends to the new ones (see legacy-redirects.ts). */
 export const legacyListingPaths = ["/automakers", "/car-parts/"] as const;
@@ -23,6 +24,7 @@ export const makesPath = "/arac-markalari";
 export const makePath = (slug: string) => `/yedek-parca/${slug}`;
 export const modelPath = (makeSlug: string, modelSlug: string) => `${makePath(makeSlug)}/${modelSlug}`;
 export const categoryPath = (slug: string) => `/kategori/${slug}`;
+export const manufacturerPath = (slug: string) => `/marka/${slug}`;
 
 export function absoluteUrl(site: string, path: string) {
   return `${site}${path}`;
@@ -30,25 +32,26 @@ export function absoluteUrl(site: string, path: string) {
 
 /**
  * A listing: the catalog, a vehicle make's or model's page, optionally narrowed to a category. A model counts only
- * with its make.
+ * with its make. A manufacturer page has no category or vehicle in its path: it ignores them.
  */
-export function listingPath({ makeSlug, modelSlug, categorySlug }: { makeSlug?: string; modelSlug?: string; categorySlug?: string } = {}) {
+export function listingPath({ makeSlug, modelSlug, categorySlug, manufacturerSlug }: { makeSlug?: string; modelSlug?: string; categorySlug?: string; manufacturerSlug?: string } = {}) {
+  if (manufacturerSlug) return manufacturerPath(manufacturerSlug);
   const vehicle = makeSlug ? (modelSlug ? `${makeSlug}/${modelSlug}` : makeSlug) : undefined;
   if (categorySlug) return vehicle ? `${categoryPath(categorySlug)}/${vehicle}` : categoryPath(categorySlug);
   return vehicle ? makePath(vehicle) : catalogPath;
 }
 
-type ListingQuery = { make?: string; model?: string; category?: string } & Record<string, string | undefined>;
+type ListingQuery = { make?: string; model?: string; category?: string; manufacturer?: string } & Record<string, string | undefined>;
 
 /**
- * A listing's address with its filters: the make, model and category go into the path, every other value into the
- * query string. A page number is dropped unless `updates` sets one, so a changed filter starts on page 1.
+ * A listing's address with its filters: the make, model, category and manufacturer go into the path, every other value
+ * into the query string. A page number is dropped unless `updates` sets one, so a changed filter starts on page 1.
  */
 export function listingUrl(query: ListingQuery, updates: ListingQuery = {}) {
-  const { make, model, category, ...rest } = { ...query, page: undefined, ...updates };
+  const { make, model, category, manufacturer, ...rest } = { ...query, page: undefined, ...updates };
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(rest)) if (value) search.set(key, value);
-  const path = listingPath({ makeSlug: make, modelSlug: model, categorySlug: category });
+  const path = listingPath({ makeSlug: make, modelSlug: model, categorySlug: category, manufacturerSlug: manufacturer });
   return search.size ? `${path}?${search}` : path;
 }
 

@@ -20,6 +20,7 @@ import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLa
 import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
 import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
 import {compareOffers} from './best-offer';
+import {manufacturerLabels} from './manufacturers.server';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "seta" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
  category: string | null; price_kurus: number | null; stock: number | null; oem: string; source: "store" | "supplier";
@@ -41,7 +42,7 @@ export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' O
 // The store's listing, search and product page also show products nobody supplies now (`unavailable`, #475); cart,
 // checkout, partner API and maintenance kits keep reading the saleable catalogSql.
 export const storefrontCatalogSql = "SELECT * FROM storefront_catalog WHERE source='store' OR company=ANY($1::text[])";
-const catalogEntriesSql = "SELECT * FROM storefront_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
+export const catalogEntriesSql = "SELECT * FROM storefront_catalog_entries WHERE source='store' OR company=ANY($1::text[])";
 const company = storefrontCompanies;
 export async function searchProducts(code: string): Promise<CatalogProduct[]> {
  if (!code.trim()) return [];
@@ -429,6 +430,8 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
+ // A manufacturer page (#660) lists its master brand's supplier labels, the same column the brand filter reads.
+ if(query.manufacturer){const labels=await manufacturerLabels(query.manufacturer);if(labels.length){values.push(labels);clauses.push(`display_brand=ANY($${values.length}::text[])`);}else clauses.push('false');}
  const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`display_brand=ANY($${values.length}::text[])`);}
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
@@ -462,7 +465,7 @@ const cachedCounts=staleCache<number>(aggregateTtl,500,listings),cachedPageIds=s
 const cachedFacets=staleCache<{brands:string[];attributes:CatalogFacet[]}>(aggregateTtl,500,listings),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
 /** Cache key of everything that narrows the listing except search, which goes uncached. */
 function filterKey(query:CatalogQuery,context:CatalogContext){
- return JSON.stringify([query.category,query.make,query.model,query.brand,query.brands,query.attributes,query.availability,query.fits,query.oil,query.fits||query.oil?context.vehicleTypeId:null]);
+ return JSON.stringify([query.category,query.make,query.model,query.manufacturer,query.brand,query.brands,query.attributes,query.availability,query.fits,query.oil,query.fits||query.oil?context.vehicleTypeId:null]);
 }
 /**
  * Everything a plain search listing needs from its matches in one pass: ids in relevance order and the
@@ -513,7 +516,7 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
 });
 /** No filter but the search (mirrors the clauses catalogFilter adds). */
 function isPlainSearch(query:CatalogQuery){
- return Boolean(query.q?.trim())&&!query.category&&!query.make&&!query.model&&query.fits!=="vehicle"&&!query.oil&&!query.availability
+ return Boolean(query.q?.trim())&&!query.category&&!query.make&&!query.model&&!query.manufacturer&&query.fits!=="vehicle"&&!query.oil&&!query.availability
   &&!selectedBrands(query).length&&!Object.values(selectedAttributes(query)).some(options=>options.length);
 }
 /**
@@ -608,7 +611,7 @@ export async function catalogBrands() {
 
 /** Products in the current search, category and make scope that are linked to the vehicle type. */
 export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
- const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,model:query.model,fits:'vehicle'};
+ const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,model:query.model,manufacturer:query.manufacturer,fits:'vehicle'};
  const {values,from,search}=await catalogFilter(scope,{vehicleTypeId});
  const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
  return search ? count() : cachedCounts(filterKey(scope,{vehicleTypeId}),count);
@@ -620,7 +623,7 @@ export async function productsFittingVehicle(ids:string[],vehicleTypeId:string) 
  return new Set(ids.filter(id=>linked.has(id)));
 }
 export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}){
- const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,model:query.model,fits:query.fits,oil:query.oil};
+ const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,model:query.model,manufacturer:query.manufacturer,fits:query.fits,oil:query.oil};
  if(isPlainSearch(scope)){
   const plain=await plainSearch(query.q!,query.searchBy==="code"?"code":"all");
   return {brands:plain.brands,attributes:plain.attributes};
