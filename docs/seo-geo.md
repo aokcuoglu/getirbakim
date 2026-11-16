@@ -22,13 +22,13 @@ Tek kaynak `src/modules/seo/paths.ts`. Ayrıntılı adres tablosu ve ölçümler
 
 Yönlendirmeler ve durum kodları:
 
-- Eski adresler tek adımda `301`: `/automakers`, `/car-parts/<marka>`, `/katalog?category=`, `/katalog?brand=` (`src/proxy.ts`, `src/modules/seo/legacy-redirects.ts`); `/yedek-parca` → `/arac-markalari`, `/kategori` → `/katalog` (`next.config.ts`); `/tr`, `/en` önekleri `308` (`next.config.ts`).
+- Eski adresler tek adımda `301`: `/automakers`, `/car-parts/<marka>`, `/katalog?category=`, `/katalog?brand=` (`src/proxy.ts`, `src/modules/seo/legacy-redirects.ts`); `/yedek-parca` → `/arac-markalari`, `/kategori` → `/katalog` (`next.config.ts`); `/tr`, `/en` önekleri `308` (`next.config.ts`). `/katalog?brand=<etiket>` adresi yazımı farklı bir ana marka diline düşerse (ör. "BLUE PRINT") ikinci bir `308` daha verir (`legacy-redirects.ts`).
 - Ürün adresi: çıplak kimlik, bayat slug ve büyük harfli kimlik `308` ile güncel adrese; ikincil teklif ve düşmüş mükerrer satır `307` ile birincil sayfaya (`src/app/(store)/urun/[id]/page.tsx`). Geçersiz id ve gizlenmiş/karşılıksız ürün gerçek `404`. `410` tanımı yok.
 - Özel yüzeyler (`/sepet`, `/giris`, `/garaj`, `/siparis*`, `/siparis-olustur`, `/servisler/basvuru`) `noindex,nofollow` (`privatePageRobots`).
 
 ### 1.2 Yapılandırılmış veri envanteri
 
-Kurucular `src/modules/seo/structured-data.ts` ve `src/lib/site.ts`; basım `src/components/json-ld.tsx` (`<` kaçışlıdır).
+Kurucular `src/modules/seo/structured-data.ts` ve `src/lib/site.ts`; basım `src/components/json-ld.tsx` (`<` kaçışlıdır); `Organization`/`WebSite` bunun dışında `(store)/layout.tsx` içinde satır içi basılır.
 
 | Sayfa | schema.org türleri | Kaynak |
 | --- | --- | --- |
@@ -61,18 +61,18 @@ Kurucular `src/modules/seo/structured-data.ts` ve `src/lib/site.ts`; basım `src
 | `models.xml`, `model-categories.xml` | Dizine açık model ve model × kategori sayfaları (#673) |
 | `products-00.xml` … `products-63.xml` | Dizine açık ürünler, kimliğin ilk baytına göre 64 parça, `lastmod` ile; parça başına üst sınır 45.000 adres |
 
-Önbellek: yanıt `Cache-Control: public, max-age=3600` (`xmlHeaders`). Veri önbelleği 6 saatte bayatlar, 12 saatte düşer; sunucu başlangıçta ve her 3 saatte bir dosyaları kendisi ısıtır (`src/modules/seo/sitemap-warmup.ts`, #778), yani veri en çok ~9 saat eskidir. Salt fiyat/stok değişimi IndexNow'a gitmez; fiyat tazeliğini `lastmod` taşır. IndexNow ayrıntıları: [indexnow.md](indexnow.md).
+Önbellek: yanıt `Cache-Control: public, max-age=3600` (`xmlHeaders`). Veri önbelleği 6 saatte bayatlar, 12 saatte düşer. Sunucunun başlangıçta ve her 3 saatte bir kendisi ısıttığı dosyalar yalnız `models.xml`, `model-categories.xml` ve `manufacturers.xml`'dir (`warmedSitemapFiles`, `src/modules/seo/sitemap-warmup.ts`, #778); ürün parçaları, `categories.xml` ve `makes.xml` ısıtılmaz, tazeliği tarayıcı isteklerine bağlıdır (en çok ~12 saat bayat + 1 saat CDN; soğuk ilk istek sorguyu bekler). Salt fiyat/stok değişimi IndexNow'a gitmez; fiyat tazeliğini `lastmod` taşır. IndexNow ayrıntıları: [indexnow.md](indexnow.md).
 
 ### 1.5 Ortam değişkenleri
 
 | Değişken | Amaç | Nerede okunur |
 | --- | --- | --- |
-| `SITE_URL` | Kanonik alan adı (varsayılan `https://getirbakim.com`); site haritası, robots, JSON-LD, TAMI geri dönüşü. Canlıda `https://getirbakim.com`; IndexNow için açıkça verilmeli | `src/lib/site.ts`, `scripts/indexnow.ts` |
-| `APP_ENV` | `staging` ise robots kapalı, site haritası boş; IndexNow yalnız `production`'da gönderir | `src/app/robots.ts`, `src/modules/seo/sitemap.ts`, `scripts/indexnow.ts` |
-| `GOOGLE_SITE_VERIFICATION` | Search Console meta doğrulaması (boşsa etiket yok) | `siteVerification()`, `src/lib/site.ts` |
-| `BING_SITE_VERIFICATION` | Bing Webmaster `msvalidate.01` değeri | `src/lib/site.ts` |
-| `YANDEX_SITE_VERIFICATION` | Yandex Webmaster meta değeri | `src/lib/site.ts` |
-| `INDEXNOW_KEY` | IndexNow anahtarı (8–128 karakter); `/<anahtar>.txt` ile sunulur. Yerelde tanımlanmaz | `src/modules/seo/indexnow.ts`, `src/app/api/indexnow/[key]/route.ts`, `scripts/indexnow.ts` |
+| `SITE_URL` | Kanonik alan adı (varsayılan `https://getirbakim.com`); site haritası, robots, JSON-LD, TAMI geri dönüşü. Canlıda `https://getirbakim.com`; IndexNow için açıkça verilmeli | `src/lib/site.ts`, `src/modules/seo/indexnow.ts` |
+| `APP_ENV` | `staging` ise robots kapalı, site haritası boş; IndexNow yalnız `production`'da gönderir | `src/app/robots.ts`, `src/modules/seo/sitemap.ts`, `src/modules/seo/indexnow.ts` |
+| `GOOGLE_SITE_VERIFICATION` | Search Console meta doğrulaması (boşsa etiket yok) | `siteVerification()` (`src/lib/site.ts`), etiketler `src/app/layout.tsx` metadata'sında basılır |
+| `BING_SITE_VERIFICATION` | Bing Webmaster `msvalidate.01` değeri | `src/lib/site.ts`, `src/app/layout.tsx` |
+| `YANDEX_SITE_VERIFICATION` | Yandex Webmaster meta değeri | `src/lib/site.ts`, `src/app/layout.tsx` |
+| `INDEXNOW_KEY` | IndexNow anahtarı (8–128 karakter); `/<anahtar>.txt` ile sunulur. Yerelde tanımlanmaz | `src/modules/seo/indexnow.ts`, `src/app/api/indexnow/[key]/route.ts` |
 | `INDEXNOW_MAX_URLS` | Günlük adres bütçesi (varsayılan 50.000, 0 = sınırsız) | `scripts/indexnow.ts` |
 | `SITEMAP_WARMUP_INTERVAL_MS` | Site haritası ısıtma aralığı (varsayılan 3 saat, 6 saatin altında kalmalı) | `src/modules/seo/sitemap-warmup.ts` |
 | `GA4_MEASUREMENT_ID` | GA4 ölçüm kimliği (`G-…`); boş ya da biçimsiz ise etiket yüklenmez ve çerez bandı "analiz kullanılmıyor" der. Yöneticiler ölçülmez | `src/modules/analytics/config.ts`, `src/components/privacy/store-tags.tsx` |
@@ -86,7 +86,7 @@ Sıra: önce hesaplar ve doğrulama değerleri hazırlanır (DNS'ten önce yapı
 **DNS'ten önce**
 
 - [ ] Search Console **alan adı mülkü** (`getirbakim.com`, DNS TXT) açılır; TXT kaydı Cloudflare zone'una eklenir (ACM ve SES DKIM CNAME'lerine dokunulmaz). Meta etiket yedeği için `GOOGLE_SITE_VERIFICATION` app görev tanımına.
-- [ ] Bing Webmaster hesabı açılır; `BING_SITE_VERIFICATION` app görev tanımına (Search Console'dan içe aktarma de kullanılabilir).
+- [ ] Bing Webmaster hesabı açılır; `BING_SITE_VERIFICATION` app görev tanımına (Search Console'dan içe aktarma da kullanılabilir).
 - [ ] Yandex Webmaster hesabı açılır; `YANDEX_SITE_VERIFICATION` app görev tanımına.
 - [ ] `INDEXNOW_KEY` üretilir (`openssl rand -hex 16`), `app` ve `operations` görevlerine secret olarak verilir; `operations`'ta `APP_ENV=production` ve `SITE_URL` bulunur. İlk koşu stratejisi (`--seed` / `--limit=0` / damla damla): [indexnow.md](indexnow.md).
 - [ ] GA4 mülkü ve Google Ads hesabı açılır. **#749 engelleyicisi:** çerez politikasına satın alma ve sipariş değeri ölçümü metni (#749) canlıya çıkmadan `GA4_MEASUREMENT_ID` prod'da **etkinleştirilmez**; değişken boş kalır.
@@ -119,7 +119,7 @@ Durum işaretleri: **Var** = repo/belgede doğrulanmış; **İstek** = ortaktan 
 | `/llms.txt` | Kaynak `s-maxage=86400` verir; kaynak başlığına uyulur | İstek |
 | `/<indexnow-anahtarı>.txt` | Kaynağa geçirilir (`/api/indexnow/*` rewrite'ı); aşırı önbelleklenmez | İstek |
 | Besleme dosyası (Merchant Center / Meta, #643) | Besleme henüz yok; yapıldığında ayrı adres (ör. `/feeds/*`) için kısa TTL ve botlara (Googlebot, `facebookexternalhit`) kısıtsız erişim | Yapılmadı (#643) |
-| Statik varlıklar | `/_next/static/*` değişmez içerik (`immutable`, 1 yıl); `/media/*`, `/brand/*` kaynağın `s-maxage=604800` değeriyle; `/_next/image` ve `/api/product-media/*`, `/api/category-media/*`, `/api/categories*` önbelleğe alınabilir ve **çerezsiz** (oturum çerezi bu yollara hiç taşınmaz; `src/proxy.ts`) | `Cache-Control` başlıkları kodda var (`next.config.ts`); CloudFront davranışları **Doğrulanmadı** |
+| Statik varlıklar | `/_next/static/*` değişmez içerik (`immutable`, Next varsayılanı). `/media/*` ve `/brand/*`: `max-age=86400, s-maxage=604800` (`next.config.ts`). `/api/product-media/*` ve `/api/category-media/*`: kendi route'ları `public, max-age=86400` verir, `s-maxage` yok, yani CloudFront TTL'i `max-age`'i izler (ETag var). `/api/vehicle-media/*`: sürümlüyse `max-age=31536000, immutable`, değilse `max-age=86400`. `/api/categories`: `max-age=300, s-maxage=3600` (`src/app/api/categories/route.ts`). `/_next/image` önbelleğe alınabilir. Yanıtın `Set-Cookie` taşımaması `/api/categories*`, `/api/category-media/*`, `/api/product-media/*` için güvence altındadır (`src/proxy.ts` bu yolları atlar); `/api/vehicle-media/*` ve `/api/manufacturer-logos/*` bu güvencenin **dışındadır**, önbellek politikasında çerez/`Set-Cookie` yine de anahtara ve önbelleğe alınmamalıdır | Başlıklar kodda var; CloudFront davranışları **Doğrulanmadı** |
 | HTML sayfaları | Kaynak başlığına uyulur; önbelleğe alma kararı (şimdilik "önbelleksiz" bırakılırsa) açıkça yazılır; oturum çerezli istek (`gb_session`) kişisel içerik taşır, paylaşımlı önbelleğe girmez | İstek |
 | Sıkıştırma ve HTTP/3 | Brotli (+ gzip) ve HTTP/3 etkin. Kodda `compress: true` kaynağı sıkıştırır (CloudFront "caching disabled" politikası sıkıştırmaz, #453); önbelleğe alınan yollarda CloudFront sıkıştırması ve politikada `Accept-Encoding` kabulü | Kaynak sıkıştırması var; CloudFront Brotli/HTTP/3 **Doğrulanmadı** |
 | WAF | Doğrulanmış arama ve yapay zekâ botlarına izin (Googlebot, Bingbot, YandexBot, Applebot, `OAI-SearchBot`, `GPTBot`, `ClaudeBot`, `PerplexityBot`… yayıncı belgelerindeki ters DNS/IP doğrulamasıyla, yalnız UA'ya güvenmeden); kötü botlara ve kazıyıcılara hız sınırı (özellikle `/katalog?q=`, `/api/*`, giriş); AWS yönetilen bot kontrolünün doğrulanmış botları engellemediği izlenir. Yanlış engel yayın günü indekslemeyi durdurur | İstek |
@@ -138,7 +138,7 @@ Haftalık (sahibi: pazarlama + geliştirici; bulgular Issue olarak açılır):
 - **IndexNow koşuları** — `indexnow_runs` tablosu: `completed|partial|failed`; `failed` alarmdır.
 - **Zengin sonuç raporları** (Search Console → Geliştirilmiş: Ürün satıcı listesi, Kırıntı) ve Merchant Center tanılamaları (besleme sonrası).
 
-Dizinlenen sayfa hedefleri (yerel ölçüm 15 Kas 2026'ya göre; ürün ölçütü `indexing.ts` açıklamasında): site haritasında ~536 bin tedarikçi ürünü + mağaza ürünleri, 6 sabit parça. Dizine alınan sayfa sayısı için ilk hedefler, **öneri olarak** ve ilk iki haftanın gerçek verisiyle yeniden ayarlanır:
+Dizinlenen sayfa hedefleri (yerel ölçüm 15 Kas 2026'ya göre; ürün ölçütü `indexing.ts` açıklamasında): site haritasında 536.560 (kod yorumundaki yerel ölçüm, `src/modules/seo/indexing.ts`; 15 Kas 2026) tedarikçi ürünü + mağaza ürünleri, 6 sabit parça. Dizine alınan sayfa sayısı için ilk hedefler, **öneri olarak** ve ilk iki haftanın gerçek verisiyle yeniden ayarlanır:
 
 | Gün | Hedef |
 | --- | --- |
