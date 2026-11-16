@@ -200,25 +200,25 @@ const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
 /**
  * Products fitting one make (`param`: its vehicle_brands id, e.g. "$2::int"), as one id column: the engine-level fits
  * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the models read from supplier
- * descriptions (product_model_fitments) of the make's series, a secondary offer counting as the product listing it,
- * like modelFittedIds (#674). Matching a make's fitments to the payloads per read took 20-57 s on RDS for the large
- * makes. The make table is an index read; the description side is planned as a parallel sequential scan of
- * product_model_fitments hashed against the make's series (VW: ~53k ids, ~0.1 s warm and ~0.5 s cold locally). Used as
+ * descriptions (storefront_description_fits: product_model_fitments without the models the admin hid, #661) of the
+ * make's series, a secondary offer counting as the product listing it, like modelFittedIds (#674). Matching a make's
+ * fitments to the payloads per read took 20-57 s on RDS for the large makes. The make table is an index read; the description side is planned as a parallel sequential scan of
+ * the description fits hashed against the make's series (VW: ~53k ids, ~0.1 s warm and ~0.5 s cold locally). Used as
  * `id=ANY(ARRAY(...))`, an InitPlan run once per query, so a make's ids never pass through Node (large id arrays fed the
  * heap OOMs). The listing's cost grows with the id count; its counts, facets and page ids (also the price orders, see
  * browseProducts) are cached for 10 minutes.
  */
 export const makeFitsSql=(param:string)=>`SELECT supplier_item_id FROM storefront_make_fits WHERE brand_id=${param}
-  UNION SELECT COALESCE(o.primary_id,f.supplier_item_id) FROM vehicle_models m JOIN product_model_fitments f ON f.model_id=m.id
+  UNION SELECT COALESCE(o.primary_id,f.supplier_item_id) FROM vehicle_models m JOIN storefront_description_fits f ON f.model_id=m.id
   LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id WHERE m.brand_id=${param}`;
 /**
  * Every model fit as (model_id, id) rows, a pair possibly repeated: engine-level fits (storefront_model_fits, kept like
- * the make table) and models read from supplier descriptions (product_model_fitments, model level only), a secondary
+ * the make table) and models read from supplier descriptions (storefront_description_fits, model level only), a secondary
  * offer counting as the product listing it. A `model_id` condition on the subquery reaches both branches' indexes;
  * the model sitemap (src/modules/seo/sitemap-models.server.ts) and a model's category counts read the same rows (#673).
  */
 export const modelFitsSql=`SELECT model_id,supplier_item_id AS id FROM storefront_model_fits
-  UNION ALL SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM product_model_fitments f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id`;
+  UNION ALL SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM storefront_description_fits f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id`;
 /**
  * Products fitting a vehicle model page's series (#639), from modelFitsSql. Both branches are index reads (Golf 7:
  * ~25 ms for the description side); cached per process.
@@ -237,7 +237,7 @@ export async function getListedModelGroups(brandId:string) {
  const modelIds=groups.flatMap(group=>group.models.map(member=>member.id));
  const listedIds=new Set(await cachedListedModels(brandId,async()=>(await boundedQuery<{id:string}>(
   `WITH fits AS MATERIALIZED (SELECT model_id,supplier_item_id AS id FROM storefront_model_fits WHERE model_id=ANY($2::int[])
-    UNION SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM product_model_fitments f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id
+    UNION SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM storefront_description_fits f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id
     WHERE f.model_id=ANY($2::int[])),
    ids AS MATERIALIZED (SELECT DISTINCT id FROM fits),
    listed AS MATERIALIZED (SELECT catalog.id FROM (SELECT e.* FROM storefront_catalog_entries e JOIN ids ON ids.id=e.id

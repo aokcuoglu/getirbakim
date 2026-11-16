@@ -8,6 +8,7 @@ import { getOverrideImages } from "./product-images";
 import { applySpecOverrides } from "./product-spec-display";
 import { getOverrideSpecs } from "./product-specs";
 import type { FitmentRow } from "./fitment-level";
+import { sourceVehicleKey } from "./product-fitment-display";
 
 export type CatalogProductImage = { src: string; width: number; height: number };
 
@@ -73,8 +74,9 @@ export async function getProductEnrichment(product: { id: string; code: string; 
   const fitmentByIndex = new Map(fitments.map(fitment => [fitment.source_index, fitment]));
   const vehicles = data.vehicles.map((source, index) => {
     const linked = fitmentByIndex.get(index);
-    if (!linked?.vehicle_type_id) return { ...source, vehicleTypeId: null, brandId: null, modelId: null, catalogEngine: null, catalogBrand: null };
-    return { ...source, vehicleTypeId: linked.vehicle_type_id, brandId: linked.brand_id, modelId: linked.model_id,
+    // An unlinked row carries its source key: the admin can hide it from the store (#661).
+    if (!linked?.vehicle_type_id) return { ...source, vehicleTypeId: null, brandId: null, modelId: null, catalogEngine: null, catalogBrand: null, sourceKey: sourceVehicleKey(source) };
+    return { ...source, vehicleTypeId: linked.vehicle_type_id, sourceKey: null, brandId: linked.brand_id, modelId: linked.model_id,
       model: `${linked.brand} ${linked.model}`, catalogEngine: linked.engine, catalogBrand: linked.brand,
       fuel: linked.fuel!, kw: linked.kw!, ps: linked.ps!, cc: linked.cc ?? source.cc, from: linked.from!, to: linked.to };
   });
@@ -151,7 +153,7 @@ export function enrichmentFitmentRows(loaded: LoadedEnrichmentFitments, product:
   if (!valid) return null;
   const { data } = valid;
   const linked = loaded.linked.get(product.id);
-  const vehicles: FitmentRow[] = data.vehicles.map((_, index) => linked?.get(index) ?? { vehicleTypeId: null, modelId: null });
+  const vehicles: FitmentRow[] = data.vehicles.map((source, index) => linked?.get(index) ?? { vehicleTypeId: null, modelId: null, sourceKey: sourceVehicleKey(source) });
   return { vehicles, vehicleModels: data.vehicleModels };
 }
 

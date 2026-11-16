@@ -186,10 +186,11 @@ export async function getMasterProduct(id: string) {
   const [override, references, specs, fitments, brands] = await Promise.all([loadProductOverride(db, id),
     db.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM product_override_references WHERE product_id=$1) AS exists", [id]),
     db.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM product_override_specs WHERE product_id=$1) AS exists", [id]),
-    db.query<{ exists: boolean }>("SELECT EXISTS (SELECT 1 FROM product_override_fitments WHERE product_id=$1) AS exists", [id]),
+    db.query<{ exists: boolean }>(`SELECT EXISTS (SELECT 1 FROM product_override_fitments WHERE product_id=$1)
+      OR EXISTS (SELECT 1 FROM product_override_fitment_hides WHERE product_id=$1) AS exists`, [id]),
     // The store brand's choices (#602): every master brand.
     loadBrandOptions(db)]);
-  // Hand-entered reference numbers (#582), specifications (#603) and vehicle fitments (#583) count as an edit for the "Elle düzenlendi" badge.
+  // Hand-entered reference numbers (#582), specifications (#603) and vehicle fitments (#583, hidden source rows #661) count as an edit for the "Elle düzenlendi" badge.
   return { product, sources: rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override, hasReferences: references.rows[0].exists,
     hasSpecs: specs.rows[0].exists, hasFitments: fitments.rows[0].exists, brands };
 }

@@ -76,7 +76,7 @@ async function equivalentPairs(ids: string[]) {
 /** The vehicle models the added product (its offer group) fits, from the storefront fits and the supplier's model fitments. */
 async function productModels(ids: string[]) {
   return (await db.query<{ model_id: number }>(`SELECT model_id FROM (SELECT model_id FROM storefront_model_fits WHERE supplier_item_id=ANY($1::uuid[])
-    UNION SELECT model_id FROM product_model_fitments WHERE supplier_item_id=ANY($1::uuid[])) m ORDER BY 1 LIMIT 200`, [ids])).rows.map(row => row.model_id);
+    UNION SELECT model_id FROM storefront_description_fits WHERE supplier_item_id=ANY($1::uuid[])) m ORDER BY 1 LIMIT 200`, [ids])).rows.map(row => row.model_id);
 }
 
 /**

@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { fitmentLevel, type FitmentLevel, type FitmentVehicle } from "./fitment-level";
 import { enrichmentFitmentRows, loadEnrichmentFitments } from "./product-enrichment";
 import { getDescriptionModelIds } from "./description-fitment.server";
-import { applyFitmentOverrides, modelFallbacks } from "./product-fitment-display";
+import { applyFitmentOverrides, emptyFitmentOverrides, modelFallbacks } from "./product-fitment-display";
 import { getOverrideFitments } from "./product-fitments";
 import type { GarageVehicle } from "./garage";
 
@@ -46,8 +46,9 @@ export async function fitmentLevelResolver(productIds: string[], vehicles: (Gara
       const resolved = typeId ? resolvedVehicles.get(typeId) : { typeId: null, modelId: null };
       if (!resolved) return null;
       const enrichment = enrichmentFitmentRows(enrichments, product);
-      const overrides = overridesById.get(product.id) ?? { added: [], removed: [] };
-      // The admin's added types count as linked rows, removed ones leave the list and are a mismatch (#583).
+      const overrides = overridesById.get(product.id) ?? emptyFitmentOverrides();
+      // The admin's added types count as linked rows, removed ones leave the list and are a mismatch (#583); hidden unlinked
+      // rows leave it too (#661).
       const rows = applyFitmentOverrides(enrichment?.vehicles ?? [], overrides);
       const fallbacks = modelFallbacks(overrides, rows, enrichment?.vehicleModels ?? []);
       if (!fallbacks.description) return fitmentLevel(resolved, rows, overrides.removed);

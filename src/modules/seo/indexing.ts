@@ -44,8 +44,8 @@ const nonBlank = String.raw`'[^[:space:]\u00a0\ufeff]'`;
  */
 export const contentSignals: Record<keyof ProductContent, { sql: string }> = {
   enrichment: { sql: "(l.supplier_item_id IS NOT NULL AND l.supplier_code=i.code AND l.supplier_brand=COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'))" },
-  descriptionFitment: { sql: `(EXISTS (SELECT 1 FROM product_model_fitments f WHERE f.supplier_item_id=i.id)
-   OR EXISTS (SELECT 1 FROM product_offers o JOIN product_model_fitments f ON f.supplier_item_id=o.item_id WHERE o.primary_id=i.id))` },
+  descriptionFitment: { sql: `(EXISTS (SELECT 1 FROM storefront_description_fits f WHERE f.supplier_item_id=i.id)
+   OR EXISTS (SELECT 1 FROM product_offers o JOIN storefront_description_fits f ON f.supplier_item_id=o.item_id WHERE o.primary_id=i.id))` },
   supplierOem: { sql: "(COALESCE(i.product_data->>'oe','')<>'' AND h.hide_oem IS NOT TRUE)" },
   // If admin edits grow to tens of thousands of products, switch to the correlated EXISTS form: the hashed SubPlan depends on work_mem.
   adminContent: { sql: `(i.id IN (SELECT ps.supplier_item_id FROM product_sources ps WHERE ps.product_id IN (
