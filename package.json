@@ -61,6 +61,7 @@
     "test:part-art": "node --import tsx --test scripts/test-part-art.tsx",
     "test:data-table": "node --import tsx --test scripts/test-data-table.tsx",
     "test:search": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-search.ts",
+    "test:search-analytics": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-search-analytics.ts",
     "test:unavailable": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-unavailable-catalog.ts",
     "test:sitemap": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-sitemap.ts",
     "test:indexnow": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-indexnow.ts",

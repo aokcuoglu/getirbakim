@@ -116,14 +116,31 @@ const stemKey = (word: string) => stems(word)[0] ?? word;
 const phraseKey = (words: string[]) => words.map(stemKey).join(" ");
 
 // Keyed by phraseKey: the stemmed words of each other spelling. A group shares a word's map entry with every other group holding it.
-const synonyms = new Map<string, Set<string>>();
-for (const group of synonymGroups) for (const entry of group) {
-  const key = phraseKey(entry.split(" "));
-  const others = synonyms.get(key) ?? new Set<string>();
-  for (const other of group) if (other !== entry) others.add(other.includes(" ") ? phraseKey(other.split(" ")) : other);
-  synonyms.set(key, others);
+let synonyms = new Map<string, Set<string>>();
+let longestPhrase = 1;
+function buildSynonyms(groups: string[][]) {
+  const map = new Map<string, Set<string>>();
+  for (const group of groups) for (const entry of group) {
+    const key = phraseKey(entry.split(" "));
+    const others = map.get(key) ?? new Set<string>();
+    for (const other of group) if (other !== entry) others.add(other.includes(" ") ? phraseKey(other.split(" ")) : other);
+    map.set(key, others);
+  }
+  synonyms = map;
+  longestPhrase = Math.max(1, ...groups.flat().map(entry => entry.split(" ").length));
 }
-const longestPhrase = Math.max(...synonymGroups.flat().map(entry => entry.split(" ").length));
+buildSynonyms(synonymGroups);
+
+/** The built-in synonym groups (read-only on /yonetim/arama). */
+export const builtInSynonymGroups: readonly (readonly string[])[] = synonymGroups;
+/** Normalizes an admin-entered spelling the way queries are read: "Soğutma Sıvısı" → "sogutma sivisi". */
+export function normalizeSynonym(value: string) {
+  return normalizeSearchText(value).split(" ").filter(Boolean).slice(0, 4).join(" ");
+}
+/** Adds admin-managed groups (search_synonyms, loaded by src/modules/search/custom-synonyms.ts) to the built-in ones. */
+export function setCustomSynonymGroups(groups: string[][]) {
+  buildSynonyms([...synonymGroups, ...groups.map(group => group.map(normalizeSynonym).filter(Boolean)).filter(group => group.length >= 2)]);
+}
 
 /** Synonyms of a word or phrase; a phrase synonym is loose (its words anywhere, as prefixes). */
 function synonymAlternatives(key: string): SearchAlternative[] {
