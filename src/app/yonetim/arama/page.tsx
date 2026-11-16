@@ -87,13 +87,15 @@ export default async function SearchAnalytics({ searchParams }: { searchParams: 
           <CardDescription>Gruptaki her yazılış diğerlerini de bulur. Bir yazılış en çok dört kelimelik bir ifade olabilir (&quot;soğutma sıvısı&quot;); Türkçe ekler ve harfler aramadaki gibi yok sayılır.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form action={addSynonymGroupAction} className="flex flex-col gap-4 md:flex-row md:items-end">
-            <Field className="md:flex-1">
-              <FieldLabel htmlFor="synonym-words">Yazılışlar</FieldLabel>
-              <Input id="synonym-words" name="words" defaultValue={params.words ?? ""} placeholder="ör. antifriz, soğutma sıvısı" maxLength={500} required/>
-              <FieldDescription>Virgülle ayırın, en az iki yazılış.</FieldDescription>
-            </Field>
-            <SubmitButton icon={<Plus data-icon="inline-start" aria-hidden="true"/>}>Ekle</SubmitButton>
+          <form action={addSynonymGroupAction} className="flex flex-col gap-2">
+            <div className="flex flex-col gap-4 md:flex-row md:items-end">
+              <Field className="md:flex-1">
+                <FieldLabel htmlFor="synonym-words">Yazılışlar</FieldLabel>
+                <Input id="synonym-words" name="words" defaultValue={params.words ?? ""} placeholder="ör. antifriz, soğutma sıvısı" maxLength={500} required aria-describedby="synonym-words-help"/>
+              </Field>
+              <SubmitButton icon={<Plus data-icon="inline-start" aria-hidden="true"/>}>Ekle</SubmitButton>
+            </div>
+            <FieldDescription id="synonym-words-help">Virgülle ayırın, en az iki yazılış.</FieldDescription>
           </form>
         </CardContent>
       </Card>
