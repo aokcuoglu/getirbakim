@@ -33,16 +33,20 @@ export async function currentOrder(id:string) {
   [id,account?.approved && account.role==='admin' || false,owner.kind,owner.id,guest?.id ?? ''],
  )).rows[0];
  if(!order) return null;
- const [items,agreement]=await Promise.all([
+ const isAdmin=Boolean(account?.approved && account.role==='admin');
+ const [items,adminLines,agreement]=await Promise.all([
   // Only what the customer's page reads from the snapshot (#606): supplier, warehouse and cost stay in the admin panel.
   db.query<OrderItem>(`SELECT product_id,name,code,quantity,unit_price_kurus,
    jsonb_build_object('checkout_mode',pricing_snapshot->'checkout_mode','observed_at',pricing_snapshot->'observed_at') AS pricing_snapshot,
    vehicle,fitment_level FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id`,[id]),
+  // Admin only (#766): which supplier a snapshot line came from and whether its live check failed.
+  isAdmin ? db.query<{product_id:string;supplier:string|null;live_check:unknown;live_check_reason:unknown}>(`SELECT product_id,supplier,pricing_snapshot->'live_check' AS live_check,pricing_snapshot->'live_check_reason' AS live_check_reason FROM commerce_order_items WHERE order_id=$1`,[id]) : null,
   db.query<{accepted_at:Date;legal_version:string}>("SELECT accepted_at,legal_version FROM commerce_order_agreements WHERE order_id=$1",[id]),
  ]);
  // false when an admin opens someone else's order: only the order's own customer may cancel it.
  const mine=(order.owner_kind===owner.kind && order.owner_id===owner.id) || (order.owner_kind==='guest' && order.owner_id===guest?.id);
- return {order,items:items.rows,agreement:agreement.rows[0] ?? null,mine};
+ const lineDetail=new Map((adminLines?.rows ?? []).map(row=>[row.product_id,row]));
+ return {order,items:items.rows.map(item=>{const d=lineDetail.get(item.product_id); return d ? {...item,supplier:d.supplier,pricing_snapshot:{...item.pricing_snapshot,live_check:d.live_check,live_check_reason:d.live_check_reason}} : {...item,supplier:null as string|null};}),agreement:agreement.rows[0] ?? null,mine};
 }
 
 /** The order's stored pre-contract copy, under the same access rule as the order page; null when none was recorded. */

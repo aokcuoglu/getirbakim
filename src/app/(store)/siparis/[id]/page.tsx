@@ -13,6 +13,8 @@ import { CancelOrderButton } from "@/components/cancel-order-button";
 import { PAYMENT_NOTICE, paymentErrors } from "@/modules/payments/messages";
 import { currentAccount } from "@/modules/auth/session";
 import { orderReturns } from "@/modules/admin/data";
+import { supplierNames } from "@/modules/admin/products";
+import { snapshotNotes } from "@/modules/admin/order-supplier-note";
 import { recordReturn } from "@/modules/admin/commerce-actions";
 import { garageVehicleLabel, parseGarageVehicle } from "@/modules/store/garage";
 import { fitmentLevelLabels } from "@/modules/store/fitment-level";
@@ -66,7 +68,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const admin=Boolean(account?.approved && account.role==="admin");
   const returns=admin ? await orderReturns(order.id) : [];
   const refundedKurus=order.payment_status==="refunded" && order.refunded_at ? await orderRefundedKurus(order.id) ?? Number(order.total_kurus) : 0;
-  const snapshotOrder=items.some(item=>item.pricing_snapshot?.checkout_mode==="snapshot");
+  const snapshotNoteTexts=admin ? snapshotNotes(items.map(item=>({code:item.code,supplierLabel:item.supplier ? supplierNames[item.supplier] ?? item.supplier : null,snapshot:item.pricing_snapshot}))) : [];
   const awaiting=order.status==="awaiting_payment" && order.payment_status==="awaiting";
   // Only the order's own customer cancels, and only before operations confirm it (#607).
   const pendingCancel=mine && order.status==="pending" && ["paid","none"].includes(order.payment_status);
@@ -129,7 +131,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
           <NativeSelect className="[&>select]:h-10 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
           <Input className="h-10 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className="h-10 px-4 hover:bg-brand-strong">İade kaydet</Button></form>}
       </div><strong className="shrink-0 font-semibold tabular-nums">{money(Number(p.unit_price_kurus)*p.quantity)}</strong></div>)}
-      {admin && snapshotOrder && <p className={cn(muted,"mt-3")}>Tedarikçi anlık görüntüsü: Bu sipariş Başbuğ’un kayıtlı fiyat ve stok verileriyle oluşturuldu. Sipariş anında canlı API doğrulaması yapılmadı.</p>}
+      {snapshotNoteTexts.map(text=><p key={text} className={cn(muted,"mt-3")}>{text}</p>)}
       </Card></div>
       <div className="flex min-w-0 flex-col gap-6 max-[600px]:contents">
         <Card className={cn(panel,"min-w-0 gap-3 ring-0 max-[600px]:order-1")}><h2 className={panelTitle}>Ödeme özeti</h2>

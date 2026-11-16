@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { CircleAlert, Clock, Package, Save } from "lucide-react";
 import { saveLineProcurement, type ProcurementResult } from "@/modules/admin/commerce-actions";
-import { liveCheckReasonLabel, procurementLabel, procurementStatuses, procurementSummary, type OrderLineView, type ProcurementStatus } from "@/modules/admin/order-procurement";
+import { liveCheckReasonLabel, unknownLiveCheckReason, procurementLabel, procurementStatuses, procurementSummary, type OrderLineView, type ProcurementStatus } from "@/modules/admin/order-procurement";
 import { formatDateTime } from "@/modules/admin/format";
 import { money } from "@/modules/store/money";
 import { StatusBadge, type StatusTone } from "@/components/admin/status-badge";
@@ -90,7 +90,7 @@ export function OrderLinesDialog({ number, orderId, orderStatus, editable, lines
                 {line.liveCheckFailed
                   ? <>
                     <StatusBadge tone="warning">Canlı doğrulanamadı</StatusBadge>
-                    <div className="text-muted-foreground">Neden: {(line.liveCheckReason && liveCheckReasonLabel[line.liveCheckReason]) || "bilinmeyen neden"}</div>
+                    <div className="text-muted-foreground">Neden: {(line.liveCheckReason && liveCheckReasonLabel[line.liveCheckReason]) || unknownLiveCheckReason}</div>
                   </>
                   : line.checkoutMode === "snapshot" && <StatusBadge tone="warning">Kayıtlı veri</StatusBadge>}
                 {line.observedAt && <div className="text-muted-foreground">Veri: {time(line.observedAt)}</div>}
