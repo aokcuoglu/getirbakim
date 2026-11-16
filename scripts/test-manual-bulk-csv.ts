@@ -101,3 +101,22 @@ test("a code Excel stripped of its leading zeros finds its single item", () => {
   // Ambiguous: two items differ only by leading zeros.
   assert.deepEqual(errors(diffManualBulk(parse(["MOTUL;123;;;;9"]).rows, [...current, item({ id: "b", code: "0123" })])), ["Marka + Stok Kodu bu listede yok"]);
 });
+
+test("Excel-sensitive cells: a lone zero before the dot is a decimal; formula-like brands and date-like codes stay text", () => {
+  assert.equal(parseBulkNumber("0.250", ","), 0.25);
+  assert.equal(parseBulkNumber("0,250", ","), 0.25);
+  const current = [item({ brand: "-ABC", code: "1E5" }), item({ id: "b", code: "3.4.2020" }), item({ id: "c", code: "12-34", brand: "=SUM" })];
+  const csv = buildManualBulkCsv(current.map(entry => ({ brand: entry.brand, code: entry.code, list: entry.list, discount: entry.discount, markup: entry.markup, stock: entry.stock })));
+  assert.match(csv, /\r\n'-ABC;="1E5";/);
+  assert.match(csv, /\r\nMOTUL;="3\.4\.2020";/);
+  assert.match(csv, /\r\n'=SUM;="12-34";/);
+  const parsed = parseManualBulkCsv(utf8(csv));
+  assert.deepEqual(parsed.rows.map(row => [row.brand, row.code]), [["-ABC", "1E5"], ["MOTUL", "3.4.2020"], ["=SUM", "12-34"]]);
+  assert.deepEqual(diffManualBulk(parsed.rows, current), { changes: [], unchanged: 3, issues: [] });
+});
+
+test("an exact code with a zero-padded twin in the list is applied with a warning", () => {
+  const result = diffManualBulk(parse(["MOTUL;0123;;;;9"]).rows, [item({ code: "0123" }), item({ id: "b", code: "123" })]);
+  assert.equal(result.changes[0].code, "0123");
+  assert.deepEqual(result.issues.map(issue => [issue.level, issue.message.replace(/;.*$/, "")]), [["warning", "Listede baştaki sıfırlar dışında aynı olan başka kod var (123)"]]);
+});

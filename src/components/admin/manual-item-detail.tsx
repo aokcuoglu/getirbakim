@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { adminManualItem } from "@/modules/admin/manual";
@@ -49,10 +50,11 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
   const bulk = activeBulk(p.file, overrides);
   const fromCsv = (field: ManualEditableField) => Boolean(field === "price" && bulk.price || field === "stock" && bulk.stock);
   const fromFile = (field: ManualEditableField) => !fromCsv(field) && p.file[field] !== null && p.file[field] !== undefined && p.file[field] !== "";
-  const csvNote = (field: ManualEditableField) => field === "price" && bulk.price
-    ? `Liste fiyatı ${formatExact(bulk.price.list)} · iskonto %${formatNumber(bulk.price.discount)}; CSV ile güncellenir.`
-    : "CSV ile güncellenir.";
   const listHref = `/yonetim/tedarikciler/manuel?liste=${item.list_group}`;
+  const csvNote = (field: ManualEditableField) => <>
+    {field === "price" && bulk.price && `Liste fiyatı ${formatExact(bulk.price.list)} · iskonto %${formatNumber(bulk.price.discount)}. `}
+    Toplu CSV ile güncellendi; değiştirmek için yeni bir CSV yükleyin (<Link className="underline underline-offset-4" href={listHref}>Manuel yükleme › Yükleme ve kontrol</Link>).
+  </>;
   return <SupplierProductDetail item={item} modal={modal} cart={p.ac} supplier={`Manuel · ${p.list_name}`} listHref={listHref}
       notice={<>
         {query.saved === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Kaydedildi; mağaza ve ürün sayfası güncellendi.</AlertDescription></Alert>}

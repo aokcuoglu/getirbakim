@@ -57,6 +57,9 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
   const csvQuery = new URLSearchParams(filterKeys.flatMap(key => params[key] ? [[key, params[key]!]] : []));
   if (list) csvQuery.set("liste", list.list_group);
   const csvHref = `${base}/csv?${csvQuery}`;
+  const filtered = filterKeys.some(key => key !== "liste" && params[key]);
+  // The upload card offers the whole list; the product tab's button follows its filters.
+  const listCsvHref = list ? `${base}/csv?${new URLSearchParams({ liste: list.list_group })}` : csvHref;
   const facts: [string, string, string][] = list ? [
     ["Listedeki ürün", number(list.present), list.list_name],
     ["Fiyatı eksik", number(list.missing_prices), "Satışa kapalı listelenir"],
@@ -76,7 +79,9 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
     badge={<Button variant="outline" nativeButton={false} render={<a href={`${base}/sablon`} download/>}><Download data-icon="inline-start" aria-hidden="true"/>Boş şablonu indir</Button>}
     attention={Boolean(draft || params.error)} hasData={Boolean(list)} tabKey={[params.taslak, params.error, params.imported].join("|")}
     alerts={<>
-    {params.uploaded === "1" && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Dosya okundu. Önizlemeyi kontrol edip içe aktarın; onaylanana kadar hiçbir ürün değişmez.</AlertDescription></Alert>}
+    {params.uploaded === "1" && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{draft?.kind === "bulk"
+      ? "Dosya okundu. Değişiklikleri kontrol edip ürünleri güncelleyin; onaylanana kadar hiçbir ürün değişmez."
+      : "Dosya okundu. Önizlemeyi kontrol edip içe aktarın; onaylanana kadar hiçbir ürün değişmez."}</AlertDescription></Alert>}
     {params.imported === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertTitle>Liste içe aktarıldı</AlertTitle><AlertDescription>Ürünler mağazada listelenir; kategori sayfaları 10 dakika içinde güncellenir. Mevcut ürünlerle eşleşmeleri için <Link className="underline" href="/yonetim/urun-eslestirme">Ürün eşleştirme</Link> sayfasında eşleştirmeyi yenileyin.</AlertDescription></Alert>}
     {params.bulk === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertTitle>Fiyat ve stoklar güncellendi</AlertTitle><AlertDescription>Değişen ürünlerin maliyeti, kârlılığı ve stoğu mağazaya yansıdı. Değişiklikler ürün sayfalarının geçmişinde görünür.</AlertDescription></Alert>}
     {params.discarded === "1" && <Alert role="status"><Info aria-hidden="true"/><AlertDescription>Taslaktan vazgeçildi; hiçbir ürün değişmedi.</AlertDescription></Alert>}
@@ -165,17 +170,22 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
       </Card>
       {list && <Card>
         <CardHeader><CardTitle><h2>Toplu fiyat ve stok güncelleme (CSV)</h2></CardTitle>
-          <CardDescription>{list.list_name} listesini CSV olarak indirin, Excel&apos;de düzenleyip yükleyin; önce kontrol edilir, onayınızdan sonra uygulanır. Boş hücre değişiklik yapmaz. Kârlılık Oranı&apos;na “-” yazmak ürünü genel orana döndürür. Maliyet = Liste Fiyatı × (1 − İskonto Oranı / 100). Marka ve Stok Kodu ürünü bulmak içindir; değiştirmeyin.</CardDescription>
+          <CardDescription>{list.list_name} listesini indirin, Excel&apos;de düzenleyip yükleyin. Dosya önce kontrol edilir; onayınız olmadan hiçbir ürün değişmez.</CardDescription>
           <CardAction><Badge variant="outline"><FileSpreadsheet data-icon="inline-start" aria-hidden="true"/>.csv</Badge></CardAction></CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-4">
+          <ul className="flex list-disc flex-col gap-1 pl-5 text-muted-foreground">
+            <li>Boş hücre değişiklik yapmaz.</li>
+            <li>Kârlılık Oranı&apos;na “-” yazarsanız ürün genel orana döner.</li>
+            <li>Maliyet, liste fiyatı eksi iskontodur: Liste Fiyatı × (1 − İskonto Oranı / 100).</li>
+            <li>Ondalık için virgül kullanın (1.234,56); 0 ile başlayan noktalı değerler (0.25) ondalık okunur.</li>
+            <li>Marka ve Stok Kodu ürünü bulmak içindir; değiştirmeyin.</li>
+          </ul>
+          <div><Button variant="outline" nativeButton={false} render={<a href={listCsvHref} download/>}><Download data-icon="inline-start" aria-hidden="true"/>CSV indir</Button></div>
           <form action={uploadManualBulk} className="flex flex-col gap-4">
             <input type="hidden" name="liste" value={list.list_group}/>
             <Field><FieldLabel htmlFor="manual-bulk-file">CSV dosyası</FieldLabel><Input id="manual-bulk-file" name="file" type="file" required accept=".csv,text/csv"/>
               <FieldDescription>Sütunlar: Marka, Stok Kodu, Liste Fiyatı, İskonto Oranı, Kârlılık Oranı, Stok Adedi. En fazla 2 MB.</FieldDescription></Field>
-            <div className="flex flex-wrap gap-2">
-              <SubmitButton icon={<Upload data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Dosya kontrol ediliyor…">CSV yükle ve kontrol et</SubmitButton>
-              <Button variant="outline" nativeButton={false} render={<a href={csvHref} download/>}><Download data-icon="inline-start" aria-hidden="true"/>CSV indir</Button>
-            </div>
+            <div><SubmitButton icon={<Upload data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Dosya kontrol ediliyor…">CSV yükle ve kontrol et</SubmitButton></div>
           </form>
         </CardContent>
       </Card>}
@@ -198,7 +208,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
             <TableBody>{uploads.map(upload => <TableRow key={upload.id} className="align-top">
               <TableCell className="tabular-nums"><Link className="underline-offset-4 hover:underline" href={`${base}?${new URLSearchParams({ liste: upload.list_group, taslak: upload.id })}`}>{date(upload.created_at)}</Link>{upload.uploader && <span className="block text-muted-foreground">{upload.uploader}</span>}</TableCell>
               <TableCell>{upload.list_name}</TableCell>
-              <TableCell className="max-w-56 truncate" title={upload.file_name}>{upload.kind === "bulk" && <Badge variant="outline">CSV</Badge>} {upload.file_name}</TableCell>
+              <TableCell className="max-w-56 truncate" title={upload.file_name}>{upload.kind === "bulk" && <Badge variant="outline"><FileSpreadsheet data-icon="inline-start" aria-hidden="true"/>CSV</Badge>} {upload.file_name}</TableCell>
               <TableCell className="text-right tabular-nums">{number(upload.report.products)}</TableCell>
               <TableCell className="tabular-nums">{upload.report.errors ? <span className="text-destructive">{number(upload.report.errors)} hata</span> : "Hata yok"} · {number(upload.report.warnings)} uyarı</TableCell>
               <TableCell>{uploadStatus(upload.status)}</TableCell>
@@ -216,7 +226,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
       </CardHeader>}
       {!list || !products ? <CardContent><Empty><EmptyHeader><EmptyMedia variant="icon"><PackageSearch/></EmptyMedia><EmptyTitle>Henüz manuel liste yok.</EmptyTitle><EmptyDescription>Yükleme sekmesinden şablondaki bir dosyayı yükleyin.</EmptyDescription></EmptyHeader></Empty></CardContent> : <>
       <CardContent className="flex flex-col gap-3 group-data-loading/browser:pointer-events-none group-data-loading/browser:opacity-50">
-        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(products.total)}</strong> ürün · {params.category || "Tüm kategoriler"}</span><span className="flex flex-wrap items-center gap-2">{costNotes.manual}<Button variant="outline" size="sm" nativeButton={false} render={<a href={csvHref} download/>}><Download data-icon="inline-start" aria-hidden="true"/>CSV indir</Button></span></div>
+        <div className="flex flex-wrap justify-between gap-2 text-muted-foreground tabular-nums"><span><strong className="text-foreground">{number(products.total)}</strong> ürün · {params.category || "Tüm kategoriler"}</span><span className="flex flex-wrap items-center gap-2">{costNotes.manual}<Button variant="outline" size="sm" nativeButton={false} render={<a href={csvHref} download/>}><Download data-icon="inline-start" aria-hidden="true"/>{filtered ? "Süzülmüş listeyi CSV indir" : "CSV indir"}</Button></span></div>
         <SupplierPartTable {...manualPartTableProps(products.items, { categories: listCategories })} empty={supplierPartEmpty(base, params, filterKeys, ["liste"])}/>
       </CardContent>
       <CardFooter><SupplierPagination base={base} params={params} keys={filterKeys} page={page} pages={pages} capped={products?.capped}/></CardFooter>

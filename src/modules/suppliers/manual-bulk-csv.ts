@@ -79,7 +79,7 @@ export function parseCsv(text: string): { delimiter: string; rows: string[][] } 
 
 /**
  * A number cell. With "," decimals (";" or tab delimiter, Turkish Excel) "," is the decimal mark and "." groups thousands ("1.234,56");
- * a dot that does not group threes ("1234.56") is still read as a decimal. With the "," delimiter "." is the decimal mark.
+ * a dot that does not group threes ("1234.56") or follows a lone zero ("0.250") is still read as a decimal. With the "," delimiter "." is the decimal mark.
  * %, TL, ₺ and spaces are dropped. Empty → null; anything else → "invalid".
  */
 export function parseBulkNumber(text: string, decimal: "," | "."): number | null | "invalid" {
@@ -90,7 +90,7 @@ export function parseBulkNumber(text: string, decimal: "," | "."): number | null
     if (value.includes(",")) {
       if (!/^-?(\d{1,3}(\.\d{3})+|\d+),\d+$/.test(value)) return "invalid";
       normalized = value.replace(/\./g, "").replace(",", ".");
-    } else if (/^-?\d{1,3}(\.\d{3})+$/.test(value)) normalized = value.replace(/\./g, "");
+    } else if (/^-?\d{1,3}(\.\d{3})+$/.test(value) && !/^-?0\./.test(value)) normalized = value.replace(/\./g, "");
     else normalized = value;
   } else normalized = /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(value) ? value.replace(/,/g, "") : value;
   return /^-?\d+(\.\d+)?$/.test(normalized) ? Number(normalized) : "invalid";
@@ -130,7 +130,8 @@ export function parseManualBulkCsv(bytes: Uint8Array): { rows: ManualBulkRow[]; 
     }
     const cell = (key: ManualBulkColumnKey) => columns.has(key) ? (line[columns.get(key)!] ?? "").trim() : "";
     const code = cell("code").replace(/^="(.*)"$/, "$1").trim();
-    const brand = cell("brand");
+    // The export writes a brand starting with = + - @ as '… so Excel keeps it text.
+    const brand = cell("brand").replace(/^'(?=[=+\-@])/, "");
     const errors: ManualIssue[] = [];
     const issue = (field: ManualBulkColumnKey, message: string) => errors.push({ sheet: "", row, code: code || null, field, level: "error", message });
     if (!code) issue("code", "Stok Kodu boş");
@@ -172,8 +173,11 @@ export function diffManualBulk(rows: ManualBulkRow[], current: ManualBulkCurrent
       issues.push({ sheet: "", row: row.row, code: row.code, field, level, message });
     // Excel drops a code's leading zeros when it opens the CSV: one item whose code differs only by them is the same item.
     const candidates = byStripped.get(stripZeros(row.code)) ?? [];
-    const item = byCode.get(row.code) ?? (candidates.length === 1 ? candidates[0] : undefined);
+    const exact = byCode.get(row.code);
+    const item = exact ?? (candidates.length === 1 ? candidates[0] : undefined);
     if (!item) { issue("code", "error", "Marka + Stok Kodu bu listede yok"); continue; }
+    if (exact && candidates.length > 1)
+      issue("code", "warning", `Listede baştaki sıfırlar dışında aynı olan başka kod var (${candidates.filter(entry => entry !== exact).map(entry => entry.code).join(", ")}); Excel sıfırları silmediyse doğru ürün güncellenir`);
     if (headerKey(item.brand) !== headerKey(row.brand)) { issue("brand", "error", `Marka bu ürünle uyuşmuyor (listede: ${item.brand})`); continue; }
     if (seen.has(item.id)) { issue("code", "error", `Ürün dosyada tekrar ediyor (ilk: satır ${seen.get(item.id)})`); continue; }
     seen.set(item.id, row.row);
@@ -209,12 +213,15 @@ const csvNumber = (value: number | null) => {
   return text.replace(".", ",");
 };
 const csvText = (value: string) => /[;"\r\n]/.test(value) ? `"${value.replace(/"/g, "\"\"")}"` : value;
-// Excel would read 00123 as 123 and long numeric codes as 1,23E+12: such codes are written as a text formula.
-const csvCode = (code: string) => /^0\d|^\d{12,}$/.test(code) && /^\d+$/.test(code) ? `="${code}"` : csvText(code);
+// Excel would read 00123 as 123, long numeric codes as 1,23E+12, 1E5 as 100000 and 1-2 or 3.4.2020 as dates: such
+// codes are written as a text formula.
+const csvCode = (code: string) => /^0\d+$|^\d{12,}$|^\d+[eE]\d+$|^\d{1,4}[-/.]\d{1,2}([-/.]\d{1,4})?$/.test(code) ? `="${code}"` : csvText(code);
+// A brand starting with = + - @ would be a formula in Excel.
+const csvBrand = (brand: string) => csvText(/^[=+\-@]/.test(brand) ? `'${brand}` : brand);
 
 /** The list as Excel (Turkish) opens it: UTF-8 BOM, ";" delimiter, "," decimals, CRLF. */
 export function buildManualBulkCsv(items: ManualBulkExportRow[]) {
   const lines = [manualBulkColumns.map(column => column.header).join(";"), ...items.map(item =>
-    [csvText(item.brand), csvCode(item.code), csvNumber(item.list), csvNumber(item.list === null ? null : item.discount), csvNumber(item.markup), csvNumber(item.stock)].join(";"))];
+    [csvBrand(item.brand), csvCode(item.code), csvNumber(item.list), csvNumber(item.list === null ? null : item.discount), csvNumber(item.markup), csvNumber(item.stock)].join(";"))];
   return `﻿${lines.join("\r\n")}\r\n`;
 }

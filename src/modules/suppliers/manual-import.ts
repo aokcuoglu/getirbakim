@@ -237,20 +237,9 @@ export async function importManualDraft(pool: Pool, draftId: string, download: t
   if (draft.report.errors || !draft.rows.length) throw new ManualImportError("invalid");
   const scope = manualScope(draft.list_group);
   const categories = new Map((await manualCategories(pool)).map(category => [category.id, category]));
-  const overrides = new Map((await pool.query<{ code: string; fields: ManualOverrides }>("SELECT code,fields FROM manual_item_overrides WHERE list_group=$1", [draft.list_group])).rows.map(row => [row.code, row.fields]));
-  const rows = draft.rows.map(source => {
-    const file: ManualValues = Object.fromEntries(Object.entries(source).filter(([key]) => key !== "sheet" && key !== "row")) as ManualValues;
-    const fields = overrides.get(file.code);
-    return { file, row: withOverrides(file, fields), pricing: activeBulk(file, fields).price };
-  });
-  // CSV values whose upload cell changed give way to the file (last edit wins): their part of `bulk` is dropped.
-  const staleBulk = rows.flatMap(({ file }) => {
-    const bulk = overrides.get(file.code)?.bulk;
-    if (!bulk) return [];
-    const kept = activeBulk(file, overrides.get(file.code));
-    return (bulk.price && !kept.price) || (bulk.stock && !kept.stock) ? [{ code: file.code, bulk: kept.price || kept.stock ? kept : null }] : [];
-  });
-  for (const { row } of rows) if (!categories.has(row.categoryId)) throw new ManualImportError("invalid", `category ${row.categoryId}`);
+  const files = draft.rows.map(source => Object.fromEntries(Object.entries(source).filter(([key]) => key !== "sheet" && key !== "row")) as ManualValues);
+  // The category always comes from the file.
+  for (const file of files) if (!categories.has(file.categoryId)) throw new ManualImportError("invalid", `category ${file.categoryId}`);
   const connection = await pool.connect();
   let locked = false;
   let inTransaction = false;
@@ -258,6 +247,19 @@ export async function importManualDraft(pool: Pool, draftId: string, download: t
   try {
     locked = (await connection.query("SELECT pg_try_advisory_lock($1,$2) AS locked", lock)).rows[0].locked;
     if (!locked) throw new ManualImportError("busy");
+    // Read under the lock: an item page save or a CSV confirmation (same lock) cannot change them until this import ends.
+    const overrides = new Map((await connection.query<{ code: string; fields: ManualOverrides }>("SELECT code,fields FROM manual_item_overrides WHERE list_group=$1", [draft.list_group])).rows.map(row => [row.code, row.fields]));
+    const rows = files.map(file => {
+      const fields = overrides.get(file.code);
+      return { file, row: withOverrides(file, fields), pricing: activeBulk(file, fields).price };
+    });
+    // CSV values whose upload cell changed give way to the file (last edit wins): their part of `bulk` is dropped.
+    const staleBulk = rows.flatMap(({ file }) => {
+      const bulk = overrides.get(file.code)?.bulk;
+      if (!bulk) return [];
+      const kept = activeBulk(file, overrides.get(file.code));
+      return (bulk.price && !kept.price) || (bulk.stock && !kept.stock) ? [{ code: file.code, bulk: kept.price || kept.stock ? kept : null }] : [];
+    });
     runId = (await connection.query<{ id: string }>(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,started_at,status,observations,quality,groups_data,currencies_data,run_kind)
       VALUES($1,$2,$3,$4,now(),'running',$5,'{}','{}','{}','full') RETURNING id`,
     [scope.supplier, scope.company, scope.group, scope.warehouse, JSON.stringify({ file: draft.file_name, upload: draftId })])).rows[0].id;
@@ -300,20 +302,10 @@ export async function updateManualItem(pool: Pool, itemId: string, values: Manua
   if (!item) throw new ManualImportError("not-found");
   const categories = new Map((await manualCategories(pool)).map(category => [category.id, category]));
   const file = item.product_data.file;
-  const existing = (await pool.query<{ fields: ManualOverrides }>("SELECT fields FROM manual_item_overrides WHERE list_group=$1 AND code=$2",
-    [item.list_group, item.code])).rows[0]?.fields ?? {};
-  // A CSV price or stock in force is shown read-only on the item page: the form's value does not replace it (#832).
-  const bulk = activeBulk(file, existing);
-  const kept = (field: ManualEditableField) => field === "price" && bulk.price || field === "stock" && bulk.stock;
-  // Only fields the upload leaves empty are kept (a filled cell wins anyway); an emptied field drops the override.
-  const fields: ManualOverrides = Object.fromEntries(manualEditableFields.flatMap(field => {
-    const value = kept(field) ? existing[field] : values[field];
-    return empty(file[field]) && !empty(value) ? [[field, value]] : [];
-  }));
-  if (bulk.price || bulk.stock) fields.bulk = bulk;
-  const row = withOverrides(file, fields);
-  const image = row.imageUrl ? (await storeImages(pool, [row.imageUrl], download)) : null;
-  if (row.imageUrl && image?.failed.size) throw new ManualImportError("invalid", `image: ${image.failed.get(row.imageUrl)}`);
+  // The image is downloaded before the lock (no row locks held while waiting on other servers); a filled cell wins.
+  const imageUrl = !empty(file.imageUrl) ? file.imageUrl : !empty(values.imageUrl) ? values.imageUrl : null;
+  const image = imageUrl ? (await storeImages(pool, [imageUrl], download)) : null;
+  if (imageUrl && image?.failed.size) throw new ManualImportError("invalid", `image: ${image.failed.get(imageUrl)}`);
   const connection = await pool.connect();
   let locked = false;
   try {
@@ -323,6 +315,19 @@ export async function updateManualItem(pool: Pool, itemId: string, values: Manua
     // A product-match refresh (~2 min) or a supplier import can hold rows this save writes until it commits: give up
     // after a few seconds and tell the admin, instead of keeping the request open for the whole run (#521).
     await connection.query(`SET LOCAL lock_timeout = '${saveLockTimeout}'`);
+    // Read under the lock, so a CSV confirmation (same lock) cannot slip in between this read and the write below.
+    const existing = (await connection.query<{ fields: ManualOverrides }>("SELECT fields FROM manual_item_overrides WHERE list_group=$1 AND code=$2",
+      [item.list_group, item.code])).rows[0]?.fields ?? {};
+    // A CSV price or stock in force is shown read-only on the item page: the form's value does not replace it (#832).
+    const bulk = activeBulk(file, existing);
+    const kept = (field: ManualEditableField) => field === "price" && bulk.price || field === "stock" && bulk.stock;
+    // Only fields the upload leaves empty are kept (a filled cell wins anyway); an emptied field drops the override.
+    const fields: ManualOverrides = Object.fromEntries(manualEditableFields.flatMap(field => {
+      const value = kept(field) ? existing[field] : values[field];
+      return empty(file[field]) && !empty(value) ? [[field, value]] : [];
+    }));
+    if (bulk.price || bulk.stock) fields.bulk = bulk;
+    const row = withOverrides(file, fields);
     await connection.query(`INSERT INTO manual_item_overrides(list_group,code,fields,updated_by) VALUES($1,$2,$3,$4)
       ON CONFLICT(list_group,code) DO UPDATE SET fields=EXCLUDED.fields,updated_by=EXCLUDED.updated_by,updated_at=now()`,
     [item.list_group, item.code, JSON.stringify(fields), by]);
