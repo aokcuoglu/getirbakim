@@ -310,7 +310,11 @@ test("the model sitemaps list exactly the indexable model and model × category 
     }
   }
   assert.deepEqual(models, ["/yedek-parca/vw/golf-7"]);
-  assert.deepEqual(modelCategories.sort(), ["/kategori/fren/vw/golf-7", "/kategori/yedek-parca/vw/golf-7"]);
+  // The root "Yedek parçalar" × Golf 7 has 12 products but repeats the model page: it answers, noindex, and is not listed.
+  assert.deepEqual(modelCategories.sort(), ["/kategori/fren/vw/golf-7"]);
+  const root = (await load.findListing({ category: "yedek-parca", make: "vw", model: "golf-7", search: {} }))!;
+  assert.equal(root.plainTotal, 12);
+  assert.equal(listingIndexable(root.query, root.plainTotal ?? 0), false);
   assert.deepEqual((await sitemap.loadModelPaths()).sort(), models.sort());
   assert.deepEqual((await sitemap.loadModelCategoryPaths()).sort(), modelCategories);
 }));

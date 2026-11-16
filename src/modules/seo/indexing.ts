@@ -1,4 +1,5 @@
 import { isIndexableListing, type CatalogQuery } from "@/modules/store/catalog-query";
+import { legacyCategoryIds } from "@/modules/store/category-tree";
 
 /**
  * Which product pages search engines may index (#634, #641). Demo rows and unavailable cards (no supplier sells the
@@ -122,7 +123,19 @@ export const minIndexableListingProducts = 10;
 /** Listings held to the product minimum (#639, #673): a model page, with or without a category, and a make × category page. */
 export const isGatedListing = (query: Pick<CatalogQuery, "make" | "model" | "category">) => Boolean(query.model || (query.make && query.category));
 
-/** A plain listing (isIndexableListing) that, when gated, lists at least `minIndexableListingProducts` without its filters. */
+/**
+ * The root category "Yedek parçalar" (legacy slug "yedek-parca", id 3) holds nearly every product: narrowed to a make or
+ * model it repeats the make or model page. Such a page answers 200 for existing links but is `noindex,follow` and stays
+ * out of the sitemap (#673).
+ */
+export const rootCategorySlug = "yedek-parca";
+export const rootCategoryId = legacyCategoryIds[rootCategorySlug];
+
+/**
+ * A plain listing (isIndexableListing) that, when gated, lists at least `minIndexableListingProducts` without its
+ * filters; the root category of a make or model is never indexed.
+ */
 export function listingIndexable(query: CatalogQuery, total: number): boolean {
+  if (query.make && query.category === rootCategorySlug) return false;
   return isIndexableListing(query) && (!isGatedListing(query) || total >= minIndexableListingProducts);
 }

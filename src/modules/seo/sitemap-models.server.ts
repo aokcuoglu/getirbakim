@@ -6,7 +6,7 @@ import { categoryAncestorsSql, categoryParams, itemCategoriesSql } from "@/modul
 import { vehicleBrandSlug } from "@/modules/store/vehicle-catalog";
 import { getVehicleBrands } from "@/modules/store/vehicle-catalog.server";
 import { getVehicleModelGroups } from "@/modules/store/vehicle-model-groups.server";
-import { minIndexableListingProducts } from "./indexing";
+import { minIndexableListingProducts, rootCategoryId } from "./indexing";
 import { listingPath, modelPath } from "./paths";
 
 // The model and model × category sitemap files (#673): the pages listingIndexable opens, i.e. a plain listing with at
@@ -49,7 +49,8 @@ export async function loadModelPaths(): Promise<string[]> {
  * Model × category pairs with enough listed products, subcategories included. Starts from the categorised products
  * (itemCategoriesSql over the whole catalog), keeps those the store lists, then reads each one's model fits through
  * the item indexes (the inverse of modelFitsSql: its engine-level fits, the description fits of its offers, and its
- * own when it groups no offer). ~1.5 s locally.
+ * own when it groups no offer). The root category ($9) is left out: on a model it repeats the model page (#673).
+ * ~1.5 s locally.
  */
 const modelCategoriesSql = `WITH units AS MATERIALIZED (SELECT * FROM unnest($6::int[],$7::int[]) u(model_id,unit)),
  cats AS MATERIALIZED (${itemCategoriesSql({ legacySlugs: "$2", legacyIds: "$3", oilIds: "$4", oilCategory: "$5" })}),
@@ -63,12 +64,13 @@ const modelCategoriesSql = `WITH units AS MATERIALIZED (SELECT * FROM unnest($6:
  SELECT units.unit,label.slug FROM fits JOIN units USING (model_id) JOIN cats ON cats.id=fits.id
  ${categoryAncestorsSql("cats.category_id")}
  JOIN source_category_labels label ON label.source='trodo' AND label.category_id=ancestor.category_id AND label.locale='tr'
+ WHERE ancestor.category_id<>$9
  GROUP BY units.unit,ancestor.category_id,label.slug HAVING count(DISTINCT fits.id)>=$8 ORDER BY 1,ancestor.category_id`;
 
 /** Addresses of the model × category pages that are indexed (/kategori/<category>/<make>/<model>). */
 export async function loadModelCategoryPaths(): Promise<string[]> {
   const { units, modelIds, unitIds } = await modelUnits();
   const { rows } = await boundedQuery<{ unit: number; slug: string }>(modelCategoriesSql,
-    [storefrontCompanies(), ...await categoryParams(), modelIds, unitIds, minIndexableListingProducts], 120_000);
+    [storefrontCompanies(), ...await categoryParams(), modelIds, unitIds, minIndexableListingProducts, rootCategoryId], 120_000);
   return rows.map(row => listingPath({ makeSlug: units[row.unit].makeSlug, modelSlug: units[row.unit].modelSlug, categorySlug: row.slug }));
 }

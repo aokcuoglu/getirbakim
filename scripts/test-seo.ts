@@ -76,6 +76,11 @@ test("model × category and make × category listings share the model pages' pro
     assert.equal(listingIndexable({ ...query, brands: '["BOSCH"]' }, 500), false);
   }
   assert.equal(isGatedListing({ make: "volkswagen", model: "golf-7" }), true);
+  // The root category narrowed to a make or model repeats the make or model page: never indexed, whatever its size.
+  for (const query of [{ category: "yedek-parca", make: "volkswagen", model: "golf-7" }, { category: "yedek-parca", make: "volkswagen" }]) {
+    assert.equal(listingIndexable(query, 5000), false);
+  }
+  assert.equal(listingIndexable({ category: "yedek-parca" }, 5000), true);
   for (const query of [{}, { make: "volkswagen" }, { category: "fren" }]) assert.equal(isGatedListing(query), false);
 });
 
