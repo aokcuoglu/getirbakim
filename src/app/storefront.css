@@ -49,7 +49,7 @@
   }
   .site-header-nav {
     @apply relative mx-auto flex h-[42px] min-h-[42px] w-full max-w-[1350px] items-center gap-7 px-[15px] pt-0 pb-[14px] text-sm font-medium whitespace-nowrap max-[1358px]:gap-6;
-    @apply max-[1100px]:gap-[18px] max-[1100px]:overflow-x-auto max-[1100px]:text-[13px] max-[600px]:py-0 has-data-mega-open:z-50 group-data-[route=checkout]/route:hidden;
+    @apply max-[1100px]:gap-[18px] max-[1100px]:text-[13px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-[600px]:py-0 has-data-mega-open:z-50 group-data-[route=checkout]/route:hidden;
     @apply group-data-[route=home]/route:max-[600px]:static group-data-[route=home]/route:max-[600px]:h-0 group-data-[route=home]/route:max-[600px]:min-h-0 group-data-[route=home]/route:max-[600px]:overflow-visible group-data-[route=home]/route:max-[600px]:p-0;
     @apply min-[601px]:in-data-home-scrolled:invisible min-[601px]:in-data-catalog-scrolled:invisible;
   }
