@@ -19,13 +19,14 @@ test("query normalisation matches the SQL side", async () => {
 test("parser: Turkish suffixes, synonyms, roman numerals, filler words and years", () => {
   const golf = parseSearchQuery("VW Golf 7 dizel 2015", { years: true });
   assert.deepEqual(golf.years, [2015]);
-  assert.equal(prefixTsQuery(golf), "('vw':* | 'volkswagen':*) & ('golf':*) & ('7' | 'vii') & ('dizel':* | 'diesel':*)");
+  assert.equal(prefixTsQuery(golf), "('vw':* | 'volkswagen':*) & ('golf':*) & ('7' | 'vii') & ('dizel':* | 'diesel':* | 'mazot':* | 'motorin':*)");
   assert.equal(parseSearchQuery("golf 2015").terms.at(-1)?.text, "2015");
   const tesla = parseSearchQuery("tesla model y");
   assert.equal(prefixTsQuery(tesla), "('tesla':*) & ('y':*)");
   assert.equal(exactTsQuery(tesla), "'tesla' | 'model' | 'y'");
   assert.equal(prefixTsQuery(parseSearchQuery("model")), "('model':*)");
-  assert.deepEqual(parseSearchQuery("balatası").terms[0].alternatives.map(a => a.value), ["balatasi", "balata"]);
+  assert.deepEqual(parseSearchQuery("balatası").terms[0].alternatives.filter(a => !a.synonym).map(a => a.value), ["balatasi", "balata"]);
+  assert.ok(parseSearchQuery("balatası").terms[0].alternatives.some(a => a.value === "pad"), "a suffixed word keeps its synonyms");
   assert.deepEqual(parseSearchQuery("kapağı").terms[0].alternatives.map(a => a.value), ["kapagi", "kapag", "kapak"]);
   assert.equal(parseSearchQuery("%_\\").terms.length, 0);
 });
@@ -59,6 +60,29 @@ test("product search: viscosity grades match with any separator", async () => {
   // "5w40" inside a "15W40" code is another grade: it must not outrank the 5W-40 oils.
   const top = (await browseProducts({ q: "5W-40" })).items.slice(0, 10);
   assert.ok(top.every(p => !/15 ?w[- ]?40/i.test(`${p.code} ${p.name}`)), top.map(p => p.code).join(", "));
+});
+
+test("parser: synonym phrases read as one term, both ways", () => {
+  assert.equal(prefixTsQuery(parseSearchQuery("soğutma sıvısı")), "(('sogutma':* & 'sivi':*) | 'antifriz':*)");
+  assert.equal(prefixTsQuery(parseSearchQuery("antifriz")), "('antifriz':* | ('sogutma':* & 'sivi':*))");
+  assert.equal(parseSearchQuery("motul soğutma sıvısı 5 lt").terms.length, 4);
+  // A word in two groups gets both: "yakıt filtresi" covers diesel and petrol filters, "benzin filtresi" not diesel ones.
+  const fuel = prefixTsQuery(parseSearchQuery("yakıt filtresi"))!;
+  assert.ok(fuel.includes("'mazot':*") && fuel.includes("'benzin':*"), fuel);
+  assert.ok(!prefixTsQuery(parseSearchQuery("benzin filtresi"))!.includes("mazot"));
+  assert.ok(prefixTsQuery(parseSearchQuery("eksoz"))!.includes("'egzoz':*"));
+  // Words outside a known phrase stay separate terms.
+  assert.equal(parseSearchQuery("soğutma fanı").terms.length, 2);
+});
+
+test("product search: synonyms widen the hits to every spelling", async () => {
+  const count = async (q: string) => {
+    const values: unknown[] = [];
+    return (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM supplier_items s WHERE ${supplierItemMatch("s", parseSearchQuery(q), binder(values))}`, values)).rows[0].n;
+  };
+  const [eksoz, egzoz, egsoz] = await Promise.all(["eksoz", "egzoz", "egsoz"].map(count));
+  assert.ok(eksoz > 0 && eksoz === egzoz && egzoz === egsoz, `${eksoz}/${egzoz}/${egsoz}`);
+  assert.equal(await count("soğutma sıvısı"), await count("antifriz"));
 });
 
 test("vehicle search matches words, not letters inside codes", async () => {
