@@ -5,7 +5,7 @@ import { listedOnly, modelFitsSql } from "@/modules/store/catalog";
 import { categoryAncestorsSql, categoryParams, itemCategoriesSql } from "@/modules/store/listing-categories.server";
 import { vehicleBrandSlug } from "@/modules/store/vehicle-catalog";
 import { getVehicleBrands } from "@/modules/store/vehicle-catalog.server";
-import { getVehicleModelGroups } from "@/modules/store/vehicle-model-groups.server";
+import { loadAllVehicleModelGroups } from "@/modules/store/vehicle-model-groups.server";
 import { minIndexableListingProducts, rootCategoryId } from "./indexing";
 import { listingPath, modelPath } from "./paths";
 
@@ -21,7 +21,8 @@ type Unit = { makeSlug: string; modelSlug: string };
 async function modelUnits() {
   const makes = new Map<string, string>();
   for (const brand of await getVehicleBrands()) if (!makes.has(vehicleBrandSlug(brand.name))) makes.set(vehicleBrandSlug(brand.name), brand.id);
-  const groups = await Promise.all([...makes].map(async ([makeSlug, brandId]) => ({ makeSlug, groups: await getVehicleModelGroups(brandId) })));
+  const all = await loadAllVehicleModelGroups();
+  const groups = [...makes].map(([makeSlug, brandId]) => ({ makeSlug, groups: all.get(brandId) ?? [] }));
   const units: Unit[] = [], modelIds: number[] = [], unitIds: number[] = [];
   for (const { makeSlug, groups: makeGroups } of groups) for (const group of makeGroups) {
     for (const member of group.models) { modelIds.push(Number(member.id)); unitIds.push(units.length); }
@@ -38,10 +39,16 @@ const modelsSql = `WITH units AS MATERIALIZED (SELECT * FROM unnest($2::int[],$3
    WHERE e.source='store' OR e.company=ANY($1::text[])) catalog WHERE ${listedOnly})
  SELECT pairs.unit FROM pairs JOIN listed ON listed.id=pairs.id GROUP BY 1 HAVING count(*)>=$4 ORDER BY 1`;
 
+/** The model pages query with its parameters; `units` maps a row's `unit` to its page (also read by seo:sitemap-timings). */
+export async function modelPathsQuery() {
+  const { units, modelIds, unitIds } = await modelUnits();
+  return { text: modelsSql, values: [storefrontCompanies(), modelIds, unitIds, minIndexableListingProducts], units };
+}
+
 /** Addresses of the model pages that are indexed (/yedek-parca/<make>/<model>). */
 export async function loadModelPaths(): Promise<string[]> {
-  const { units, modelIds, unitIds } = await modelUnits();
-  const { rows } = await boundedQuery<{ unit: number }>(modelsSql, [storefrontCompanies(), modelIds, unitIds, minIndexableListingProducts], 120_000);
+  const { text, values, units } = await modelPathsQuery();
+  const { rows } = await boundedQuery<{ unit: number }>(text, values, 120_000);
   return rows.map(row => modelPath(units[row.unit].makeSlug, units[row.unit].modelSlug));
 }
 
@@ -67,10 +74,16 @@ const modelCategoriesSql = `WITH units AS MATERIALIZED (SELECT * FROM unnest($6:
  WHERE ancestor.category_id<>$9
  GROUP BY units.unit,ancestor.category_id,label.slug HAVING count(DISTINCT fits.id)>=$8 ORDER BY 1,ancestor.category_id`;
 
+/** The model × category query with its parameters and `units` (see modelPathsQuery). */
+export async function modelCategoryPathsQuery() {
+  const { units, modelIds, unitIds } = await modelUnits();
+  return { text: modelCategoriesSql,
+    values: [storefrontCompanies(), ...await categoryParams(), modelIds, unitIds, minIndexableListingProducts, rootCategoryId], units };
+}
+
 /** Addresses of the model × category pages that are indexed (/kategori/<category>/<make>/<model>). */
 export async function loadModelCategoryPaths(): Promise<string[]> {
-  const { units, modelIds, unitIds } = await modelUnits();
-  const { rows } = await boundedQuery<{ unit: number; slug: string }>(modelCategoriesSql,
-    [storefrontCompanies(), ...await categoryParams(), modelIds, unitIds, minIndexableListingProducts, rootCategoryId], 120_000);
+  const { text, values, units } = await modelCategoryPathsQuery();
+  const { rows } = await boundedQuery<{ unit: number; slug: string }>(text, values, 120_000);
   return rows.map(row => listingPath({ makeSlug: units[row.unit].makeSlug, modelSlug: units[row.unit].modelSlug, categorySlug: row.slug }));
 }

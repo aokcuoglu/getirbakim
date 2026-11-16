@@ -14,11 +14,26 @@ const cachedMotorcycles = staleCache<string[]>(10 * 60 * 1000, 300);
 // REPXPERT's body type of two-wheelers (db/vehicle-type-specs.sql, npm run vehicles:repxpert).
 const motorcycleBody = "İki tekerlekli taşıt";
 
+const modelColumns = `id::text, brand_id::text AS "brandId", name,
+    to_char(date_from, 'YYYY-MM') AS "dateFrom", to_char(date_to, 'YYYY-MM') AS "dateTo"`;
+
 /** A make's model page units (#639), oldest first. */
 export function getVehicleModelGroups(brandId: string) {
-  return cachedGroups(brandId, async () => vehicleModelGroups((await db.query<VehicleModel>(`SELECT id::text, brand_id::text AS "brandId", name,
-    to_char(date_from, 'YYYY-MM') AS "dateFrom", to_char(date_to, 'YYYY-MM') AS "dateTo"
-    FROM vehicle_models WHERE brand_id=$1`, [brandId])).rows));
+  return cachedGroups(brandId, async () => vehicleModelGroups((await db.query<VehicleModel>(
+    `SELECT ${modelColumns} FROM vehicle_models WHERE brand_id=$1`, [brandId])).rows));
+}
+
+/**
+ * Every make's units by brand id from one query (#778), for the sitemap: it needs all ~250 makes, and one read replaces
+ * as many. Not cached and does not fill the per-make cache above.
+ */
+export async function loadAllVehicleModelGroups() {
+  const byBrand = new Map<string, VehicleModel[]>();
+  for (const row of (await db.query<VehicleModel>(`SELECT ${modelColumns} FROM vehicle_models`)).rows) {
+    const rows = byBrand.get(row.brandId);
+    if (rows) rows.push(row); else byBrand.set(row.brandId, [row]);
+  }
+  return new Map([...byBrand].map(([brandId, rows]) => [brandId, vehicleModelGroups(rows)]));
 }
 
 export async function getVehicleModelGroup(make: VehicleBrand, slug: string) {

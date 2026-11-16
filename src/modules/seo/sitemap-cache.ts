@@ -1,5 +1,6 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
+import { sitemapRevalidateSeconds } from "./sitemap";
 import { loadCategorySlugs, loadMakeSlugs, loadProductChunk } from "./sitemap.server";
 import { loadManufacturerSlugs } from "./manufacturer-sitemap.server";
 import { loadModelCategoryPaths, loadModelPaths } from "./sitemap-models.server";
@@ -10,7 +11,8 @@ import { loadModelCategoryPaths, loadModelPaths } from "./sitemap-models.server"
 // (twice the revalidate, 12 hours); after 6 hours the first request still gets the old data and Next refreshes it in the background
 // (stale-while-revalidate). The project does not use Cache Components, where unstable_cache is the documented way to
 // cache data. Kept apart from sitemap.server.ts so tests load the queries without the Next runtime.
-const options = { revalidate: 21_600, tags: ["sitemap"] };
+// The model files take tens of seconds to build, so sitemap-warmup.ts refreshes them before the TTL (#778).
+const options = { revalidate: sitemapRevalidateSeconds, tags: ["sitemap"] };
 
 export const cachedProductChunk = unstable_cache(loadProductChunk, ["sitemap-products-v2"], options);
 export const cachedCategorySlugs = unstable_cache(loadCategorySlugs, ["sitemap-categories"], options);
