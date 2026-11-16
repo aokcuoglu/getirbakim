@@ -50,6 +50,7 @@ describe("sitemap helpers", () => {
     assert.equal(hasAdminContent(none), false);
     assert.equal(hasAdminContent({ ...none, override }), false);
     assert.equal(hasAdminContent({ ...none, override: { ...override, name: "   " } }), false);
+    assert.equal(hasAdminContent({ ...none, override: { ...override, name: "\n" } }), false);
     assert.equal(hasAdminContent({ ...none, specs: [{ action: "hide" }], references: [{ action: "hide" }] }), false);
     assert.equal(hasAdminContent({ ...none, override: { ...override, name: "Ad" } }), true);
     assert.equal(hasAdminContent({ ...none, override: { ...override, description: "Açıklama" } }), true);
@@ -235,15 +236,21 @@ describe("sitemap queries", () => {
     closeDb = () => db.end();
     // Admin content (#664): signal-less rows whose product carries an admin edit. Sources first, so the follow-sources
     // trigger has no edit to project while they are linked.
-    const adminKeys = ["adminName", "adminDescription", "adminShort", "adminImage", "adminSpec", "adminRef", "adminVehicle", "adminSeoOnly", "adminHideOnly"];
+    const adminKeys = ["adminName", "adminDescription", "adminShort", "adminImage", "adminSpec", "adminRef", "adminVehicle", "adminSeoOnly", "adminHideOnly", "adminBlankName", "adminSecondary", "adminSecondaryRow"];
     for (const [index, key] of adminKeys.entries()) await item(key, { code: `ADM ${9000 + index}`, brand: "ADMINMARKA" });
     const product: Record<string, string> = {};
-    for (const key of adminKeys) {
+    for (const key of adminKeys.filter(key => key !== "adminSecondaryRow")) {
       product[key] = (await schema.pool.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code) VALUES('ADMINMARKA',$1,$2,'ADMINMARKA',$3) RETURNING id::text`,
         [key.toUpperCase(), `ADM ${key}`, key])).rows[0].id;
       await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [ids[key], product[key]]);
     }
     const override = (key: string, columns: string, values: string) => schema.pool.query(`INSERT INTO product_overrides(product_id,${columns}) VALUES($1,${values})`, [product[key]]);
+    // A grouped secondary row shares its primary's product: only the primary is listed, once.
+    await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [ids.adminSecondaryRow, product.adminSecondary]);
+    await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1)", [ids.adminSecondary, ids.adminSecondaryRow]);
+    await override("adminSecondary", "short_description", "'Kısa'");
+    // Only a line break: neither the SQL nor the page counts it.
+    await override("adminBlankName", "name", "E'\\n'");
     await override("adminName", "name", "'Yönetici adı'");
     await override("adminDescription", "description", "'Yönetici açıklaması'");
     await override("adminShort", "short_description", "'Kısa açıklama'");
@@ -268,12 +275,12 @@ describe("sitemap queries", () => {
     const listed = (await allChunks()).map(row => row.id);
     assert.equal(new Set(listed).size, listed.length);
     assert.deepEqual(listed.sort(), [ids.listed, ids.dinamik, ids.primary, ids.store, ids.fitOnly, ids.offerPrimary,
-      ids.adminName, ids.adminDescription, ids.adminShort, ids.adminImage, ids.adminSpec, ids.adminRef, ids.adminVehicle].sort());
+      ids.adminName, ids.adminDescription, ids.adminShort, ids.adminImage, ids.adminSpec, ids.adminRef, ids.adminVehicle, ids.adminSecondary].sort());
   });
 
   test("a listed product's address is the page's canonical one, overrides and store rows included", async () => {
     const rows = await allChunks();
-    assert.equal(rows.length, 13);
+    assert.equal(rows.length, 14);
     for (const row of rows) {
       const product = await catalog.getStorefrontProduct(row.id);
       assert.ok(product, row.id);

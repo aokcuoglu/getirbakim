@@ -31,6 +31,9 @@ export const productIndexPolicy = {
 
 export type ProductContent = { enrichment: boolean; descriptionFitment: boolean; supplierOem: boolean; adminContent: boolean };
 
+// A text counts when it has a character String.prototype.trim() would keep (hasAdminContent): not whitespace, NBSP or BOM.
+const nonBlank = String.raw`'[^[:space:]\u00a0\ufeff]'`;
+
 /**
  * Each signal as a SQL condition over the supplier row `i` (commerce_supplier_items), its enrichment link `l`
  * (product_enrichment_shared_links, LEFT JOIN on supplier_item_id) and its admin override `h` (commerce_item_overrides,
@@ -43,8 +46,9 @@ export const contentSignals: Record<keyof ProductContent, { sql: string }> = {
   descriptionFitment: { sql: `(EXISTS (SELECT 1 FROM product_model_fitments f WHERE f.supplier_item_id=i.id)
    OR EXISTS (SELECT 1 FROM product_offers o JOIN product_model_fitments f ON f.supplier_item_id=o.item_id WHERE o.primary_id=i.id))` },
   supplierOem: { sql: "(COALESCE(i.product_data->>'oe','')<>'' AND h.hide_oem IS NOT TRUE)" },
+  // If admin edits grow to tens of thousands of products, switch to the correlated EXISTS form: the hashed SubPlan depends on work_mem.
   adminContent: { sql: `(i.id IN (SELECT ps.supplier_item_id FROM product_sources ps WHERE ps.product_id IN (
-     SELECT po.product_id FROM product_overrides po WHERE btrim(po.name)<>'' OR btrim(po.description)<>'' OR btrim(po.short_description)<>''
+     SELECT po.product_id FROM product_overrides po WHERE po.name ~ ${nonBlank} OR po.description ~ ${nonBlank} OR po.short_description ~ ${nonBlank}
      UNION ALL SELECT pi.product_id FROM product_override_images pi
      UNION ALL SELECT sp.product_id FROM product_override_specs sp WHERE sp.action='set'
      UNION ALL SELECT pr.product_id FROM product_override_references pr WHERE pr.action='add'
