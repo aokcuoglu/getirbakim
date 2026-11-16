@@ -269,6 +269,8 @@ describe("sitemap queries", () => {
     await schema.pool.query("INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text) VALUES(901,10,'1.8',1800,'Petrol','Benzin',120,88,'2000-01-01','golf')");
     await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,901,'remove')", [product.adminHideOnly]);
     await schema.pool.query("INSERT INTO product_override_image_settings(product_id,hide_automatic) VALUES($1,true)", [product.adminHideOnly]);
+    // #674: a make with a series but no fitted product of either source.
+    await schema.pool.query("INSERT INTO vehicle_brands(id,name,display_name) VALUES(3,'OPEL','OPEL'); INSERT INTO vehicle_models(id,brand_id,name) VALUES(30,3,'ASTRA J')");
   });
   after(async () => { await closeDb?.(); await schema?.drop(); });
 
@@ -322,7 +324,8 @@ describe("sitemap queries", () => {
     assert.deepEqual((await queries.loadCategorySlugs()).sort(), ["balata-101", "fren", "fren-sistemi-100"]);
   });
 
-  test("makes: only makes with a fitted product", async () => {
-    assert.deepEqual(await queries.loadMakeSlugs(), ["alfa-romeo"]);
+  test("makes: only makes with a fitted product, engine-level or read from a description (#674)", async () => {
+    // VOLKSWAGEN has description fits only (product_model_fitments), ALFA ROMEO engine-level ones only, OPEL none.
+    assert.deepEqual(await queries.loadMakeSlugs(), ["volkswagen", "alfa-romeo"]);
   });
 });

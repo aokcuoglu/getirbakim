@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Search, ChevronRight } from "lucide-react";
+import Link from "next/link";
+import { Search, ChevronRight, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -14,6 +15,8 @@ type Vehicle = {
    * and the model in reading form, the same for every spelling of one model; `model` stays as stored. */
   makeKey: string; makeLabel: string; modelLabel: string;
   vehicleTypeId?: number | null; brandId?: number | null; modelId?: number | null; catalogEngine?: string | null; catalogBrand?: string | null;
+  /** The series' model page (#674); absent while the page does not list the product yet. */
+  modelHref?: string | null;
 };
 
 const fuelLabels: Record<string, string> = {
@@ -55,8 +58,13 @@ export function ProductFitment({ vehicles }: { vehicles: Vehicle[] }) {
       {models.map(model => {
         const rows = matches.filter(vehicle => vehicle.modelLabel === model);
         if (!rows.length) return null;
+        // A label can join several series of one model page; the first linked one stands for it.
+        const href = rows.find(vehicle => vehicle.modelHref)?.modelHref ?? vehicles.find(vehicle => vehicle.modelLabel === model && vehicle.modelHref)?.modelHref;
         return <Collapsible key={model + (normalized ? "-search" : "")} defaultOpen={Boolean(normalized)} className="border-t border-[#e0e5eb]">
-          <CollapsibleTrigger className="group/model flex w-full cursor-pointer rounded-none border-0 bg-transparent text-foreground items-center gap-3 px-4 py-5 text-left text-base leading-5 outline-none hover:bg-[#f7f8fa] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#2e78c7]"><ChevronRight size={18} aria-hidden="true" className="shrink-0 text-[#53677d] transition-transform group-data-panel-open/model:rotate-90"/><strong className="font-medium">{model}</strong><span className="ml-auto text-[11px] whitespace-nowrap text-muted-foreground">{rows.length} seçenek</span></CollapsibleTrigger>
+          <div className="flex items-center hover:bg-[#f7f8fa]">
+          <CollapsibleTrigger className="group/model flex min-w-0 flex-1 cursor-pointer rounded-none border-0 bg-transparent text-foreground items-center gap-3 px-4 py-5 text-left text-base leading-5 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#2e78c7]"><ChevronRight size={18} aria-hidden="true" className="shrink-0 text-[#53677d] transition-transform group-data-panel-open/model:rotate-90"/><strong className="font-medium">{model}</strong><span className="ml-auto text-[11px] whitespace-nowrap text-muted-foreground max-[750px]:hidden">{rows.length} seçenek</span></CollapsibleTrigger>
+          {href && <Link prefetch={false} href={href} className="mr-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-[5px] px-2 text-[13px] leading-5 font-medium whitespace-nowrap text-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2e78c7]"><span className="max-[750px]:sr-only">Model sayfası</span><span className="sr-only">: {model} parçaları</span><ArrowRight size={14} aria-hidden="true"/></Link>}
+          </div>
           <CollapsibleContent>
           <div className="overflow-x-auto border-t border-border" tabIndex={0} role="region" aria-label={`${model} motor seçenekleri`}>
             <Table className="min-w-[540px] border-collapse text-left text-xs leading-5"><TableHeader className="[&_tr]:border-0"><TableRow className="hover:bg-transparent">{["Motor / motor kodu","Güç / hacim","Üretim aralığı","Veri bağlantısı"].map(label => <TableHead key={label} scope="col" className="h-auto bg-[#f7f8fa] px-4 py-3 font-medium text-muted-foreground">{label}</TableHead>)}</TableRow></TableHeader><TableBody>

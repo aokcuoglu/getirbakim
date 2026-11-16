@@ -36,3 +36,8 @@ const lookup=(entries:[string,string][],input:string)=>entries.find(([raw])=>raw
 export function specificationKey(input:string){return lookup(Object.entries(specificationLabels),input)??input.trim();}
 /** The raw value a typed value of a known key stands for ("Ön aks" is "Front Axle"), so filters see one spelling; other values stay as typed. */
 export function specificationRawValue(key:string,input:string){return Object.hasOwn(specificationLabels,key)?lookup(Object.entries(specificationValues),input)??input.trim():input.trim();}
+
+/** The listing's range line (#674): "31 – 60 / 49.531 ürün" on page 2 of 30; "0 ürün" without results. */
+export function listingRangeLabel(count: number, page: number, pageSize: number) {
+  return count ? `${(page - 1) * pageSize + 1} – ${Math.min(page * pageSize, count)} / ${count.toLocaleString("tr-TR")} ürün` : "0 ürün";
+}

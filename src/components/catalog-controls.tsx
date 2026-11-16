@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, Search, SlidersHorizontal } from "lucide-react";
 import { categoryPath, type SidebarCategoryBranch } from "@/modules/store/category-tree";
 import type {CatalogQuery} from "@/modules/store/catalog-query";
-import {selectedBrands,selectedAttributes,maxAttributeValues,type CatalogFacet} from "@/modules/store/catalog-filters";
+import {selectedBrands,selectedAttributes,maxAttributeValues,listingRangeLabel,type CatalogFacet} from "@/modules/store/catalog-filters";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -86,7 +86,7 @@ export function CatalogResults({count,page,pages,pageSize,params,children,defaul
  const [view,setView]=useState(defaultView);const router=useRouter();
  const viewButton="h-7 min-h-7 w-[22px] rounded-none border-0 bg-transparent p-0 hover:bg-transparent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100";
  return <ComparisonProvider><div className="group/listing min-w-0" data-view={view}>
- <div className="mb-[25px] flex min-h-[42px] items-center justify-between gap-4 max-[600px]:flex-wrap max-[600px]:gap-3"><span className="text-sm leading-5 text-foreground max-[600px]:text-xs">{count ? `${(page-1)*pageSize+1} – ${Math.min(page*pageSize,count)} / ${count.toLocaleString("tr-TR")} ürün` : "0 ürün"}</span>
+ <div className="mb-[25px] flex min-h-[42px] items-center justify-between gap-4 max-[600px]:flex-wrap max-[600px]:gap-3"><span className="text-sm leading-5 text-foreground max-[600px]:text-xs">{listingRangeLabel(count,page,pageSize)}</span>
  <div className="flex items-center gap-[15px] max-[600px]:gap-2.5">
   <div className="flex h-[42px] items-center gap-3 rounded-md border border-input px-3 py-1 max-[600px]:gap-2 max-[600px]:px-2">
    <Button variant="ghost" className={viewButton} aria-label="Liste görünümü" aria-pressed={view==="list"} onClick={()=>setView("list")}><Image src="/media/site/icons/layout-list.svg" width={24} height={24} alt="" unoptimized/></Button>

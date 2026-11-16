@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { slugPattern } from "../src/modules/seo/paths";
-import type { VehicleModel } from "../src/modules/store/vehicle-catalog";
+import { vehicleBrandSlug, type VehicleModel } from "../src/modules/store/vehicle-catalog";
 import { compareSlugSnapshots, slugSnapshot } from "../src/modules/store/vehicle-model-slug-snapshot";
-import { vehicleMakeLabel, vehicleModelGroupFamilies, vehicleModelGroupYears, vehicleModelGroups, vehicleModelLabels } from "../src/modules/store/vehicle-model-groups";
+import { modelAliases, vehicleMakeLabel, vehicleModelGroupFamilies, vehicleModelGroupYears, vehicleModelGroups, vehicleModelLabels } from "../src/modules/store/vehicle-model-groups";
 
 // Model page units and their addresses (#639). The catalog rows below are copied from the local vehicle_models
 // (2026-11-15): a renamed or regrouped series would change a public address, so the slugs are pinned here.
@@ -183,8 +183,20 @@ const catalog: Record<string, Row[]> = {
     [40028,"CLIO V (B7_)","2019-06",null],
     [41293,"CLIO IV Estate Van (KH_)","2013-01","2021-08"],
     [41723,"MEGANE Scénic VAN (JA0/1_)","1996-10","2001-12"],
+    [4875,"THALIA I (LB_)","1998-02","2009-02"],
+    [9202,"THALIA II (LU_)","2008-09","2014-06"],
     [42636,"MEGANE E-TECH SUV","2021-11",null],
     [47047,"CLIO","2025-10",null],
+  ],
+  "HYUNDAI": [
+    [1294,"ACCENT I (X-3)","1994-05","2002-12"],
+    [3864,"ACCENT Saloon (X-3)","1994-04","2001-12"],
+    [4597,"ACCENT II (LC)","1999-09","2012-12"],
+    [4903,"ACCENT II Saloon (LC)","1999-09","2017-11"],
+    [5622,"ACCENT III (MC)","2005-08","2010-12"],
+    [5623,"ACCENT III Saloon (MC)","2005-11","2012-12"],
+    [10468,"ACCENT IV Saloon (RB)","2010-08",null],
+    [38807,"ACCENT V Saloon (HC)","2017-01",null],
   ],
   "TOYOTA": [
     [98,"COROLLA Compact (_E10_)","1992-05","1999-12"],
@@ -375,7 +387,8 @@ const pinned: Record<string, string[]> = {
   "FORD": ["focus-1", "focus-c-max-dm2", "focus-2", "focus-3", "focus-4"],
   "MERCEDES-BENZ": ["c-class-w202", "c-class-s202", "c-class-w203", "c-class-cl203", "c-class-s203", "c-class-w204", "c-class-s204", "c-class-c204", "c-class-w205", "c-class-s205", "c-class-c205", "c-class-a205", "c-class-w206", "c-class-s206"],
   "OPEL": ["astra-f-t92", "astra-f-classic-t92", "astra-g-t98", "astra-g-f70", "astra-h-a04", "astra-h-l70", "astra-g-classic-t98", "astra-g-classic-caravan-f35", "astra-h-gtc-a04", "astra-h-twintop-a04", "astra-h-classic-a04", "astra-j-p10", "astra-j-gtc-2011", "astra-j-2012", "astra-k-b16", "astra-k-2015", "astra-l-ov5"],
-  "RENAULT": ["clio-1", "megane-1", "megane-scenic-ja0", "clio-2", "megane-2", "clio-3", "megane-3", "megane-cc-ez0", "clio-4", "megane-4", "clio-5", "megane-e-tech-2021", "clio-2025"],
+  "RENAULT": ["clio-1", "megane-1", "megane-scenic-ja0", "thalia-1", "clio-2", "megane-2", "clio-3", "thalia-2", "megane-3", "megane-cc-ez0", "clio-4", "megane-4", "clio-5", "megane-e-tech-2021", "clio-2025"],
+  "HYUNDAI": ["accent-x3", "accent-1", "accent-2", "accent-3", "accent-4", "accent-5"],
   "TOYOTA": ["corolla-ke", "corolla-te72", "corolla-e7", "corolla-e8", "corolla-ae86", "corolla-fx-compact-e8b", "corolla-e9", "corolla-compact-e9", "corolla-e10", "corolla-compact-e10", "corolla-e11", "corolla-compact-e11", "corolla-e12", "corolla-verso-e12", "corolla-verso-zer", "corolla-e15", "corolla-e18", "corolla-e21", "corolla-cross-zvg1"],
   "VOLKSWAGEN": ["transporter-t1", "transporter-t2", "passat-b1", "golf-1", "transporter-t3", "passat-b2", "golf-2", "passat-b3-b4", "golf-3", "transporter-t4", "passat-b5", "golf-4", "passat-b5-5", "transporter-t5", "golf-5", "golf-plus-5", "passat-b6", "passat-cc-b6", "golf-6", "passat-b7", "passat-alltrack-b7", "golf-7", "golf-sportsvan-7", "passat-b8", "golf-alltrack-7", "transporter-t6", "passat-alltrack-b8", "golf-8", "golf-alltrack-8", "passat-b9", "transporter-t7"],
 };
@@ -518,6 +531,32 @@ test("model pages name the make and model readably, with the years in the headin
   const longer = vehicleModelLabels("MERCEDES-BENZ", { ...long, name: "SPRINTER 3,5-T PLATFORM CHASSIS" });
   assert.equal(longer.title, "Mercedes-Benz Sprinter 3,5-T Platform Chassis yedek parçaları");
   assert.ok(longer.heading.includes("(2006–2018)"));
+});
+
+test("units with a Turkish market name lead with it and keep the catalog's name in brackets (#674)", () => {
+  const unit = (make: string, slug: string) => groups(make).find(group => group.slug === slug)!;
+  assert.deepEqual(vehicleModelLabels("FIAT", unit("FIAT", "tipo-356")), { name: "Fiat Egea (Tipo 356)", model: "Egea (Tipo 356)",
+    heading: "Fiat Egea (Tipo 356, 2015–) yedek parçaları", title: "Fiat Egea (Tipo 356, 2015–) yedek parçaları" });
+  assert.equal(vehicleModelLabels("RENAULT", unit("RENAULT", "thalia-2")).heading, "Renault Symbol (Thalia 2, 2008–2014) yedek parçaları");
+  assert.equal(vehicleModelLabels("RENAULT", unit("RENAULT", "thalia-1")).model, "Clio Symbol (Thalia 1)");
+  assert.equal(vehicleModelLabels("HYUNDAI", unit("HYUNDAI", "accent-3")).name, "Hyundai Accent Era (Accent 3)");
+  assert.equal(vehicleModelLabels("HYUNDAI", unit("HYUNDAI", "accent-4")).model, "Accent Blue (Accent 4)");
+  // Only the aliased unit: the older Tipo, the other Accents and a group without its slug keep the catalog's name.
+  assert.equal(vehicleModelLabels("FIAT", unit("FIAT", "tipo-160")).model, "Tipo (160)");
+  assert.equal(vehicleModelLabels("HYUNDAI", unit("HYUNDAI", "accent-5")).model, "Accent 5");
+  const tipo = unit("FIAT", "tipo-356");
+  assert.equal(vehicleModelLabels("FIAT", { name: tipo.name, dateFrom: tipo.dateFrom, dateTo: tipo.dateTo }).model, "Tipo (356)");
+  assert.equal(vehicleModelLabels("VOLKSWAGEN", unit("VOLKSWAGEN", "golf-7")).name, "Volkswagen Golf 7");
+  for (const label of Object.keys(modelAliases).map(key => key.split("/")).map(([make, slug]) =>
+    vehicleModelLabels(make.toUpperCase(), { name: "X", dateFrom: "2000-01", dateTo: null, slug }))) assert.ok(label.title.length <= 60);
+});
+
+test("every alias names a pinned model page address (#674)", () => {
+  const makes = new Map(Object.keys(pinned).map(make => [vehicleBrandSlug(make), make]));
+  for (const key of Object.keys(modelAliases)) {
+    const [makeSlug, slug] = key.split("/"), make = makes.get(makeSlug);
+    assert.ok(make && pinned[make].includes(slug), key);
+  }
 });
 
 test("families list their generations newest first", () => {
