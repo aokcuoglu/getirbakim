@@ -328,14 +328,12 @@ describe("sitemap queries", () => {
   test("an admin edit, a price edit included, advances lastmod (#767)", async () => {
     const productOf = async (key: string) => (await schema.pool.query<{ product_id: string }>("SELECT product_id::text FROM product_sources WHERE supplier_item_id=$1", [ids[key]])).rows[0].product_id;
     const lastmod = async (key: string) => (await allChunks()).find(row => row.id === ids[key])?.lastmod;
-    const at = async (offset: string) => (await schema.pool.query<{ at: string }>(
-      `SELECT to_char((now()+interval '${offset}') AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at`)).rows[0].at;
     const before = await lastmod("adminImage");
-    await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value,changed_at) VALUES($1,'image_removed','x',now()+interval '1 hour')", [await productOf("adminImage")]);
-    assert.equal(await lastmod("adminImage"), await at("1 hour"));
+    await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value,changed_at) VALUES($1,'image_removed','x','2030-01-01T00:00:00Z')", [await productOf("adminImage")]);
+    assert.equal(await lastmod("adminImage"), "2030-01-01T00:00:00Z");
     assert.notEqual(before, await lastmod("adminImage"));
-    await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value,changed_at) VALUES($1,'price_kurus','500',now()+interval '2 hours')", [await productOf("adminRef")]);
-    assert.equal(await lastmod("adminRef"), await at("2 hours"));
+    await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value,changed_at) VALUES($1,'price_kurus','500','2030-01-02T00:00:00Z')", [await productOf("adminRef")]);
+    assert.equal(await lastmod("adminRef"), "2030-01-02T00:00:00Z");
   });
 
   test("categories: those with listed products and their ancestors, legacy categories included", async () => {
