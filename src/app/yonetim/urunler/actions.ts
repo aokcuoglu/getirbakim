@@ -106,10 +106,11 @@ export async function mergeProducts(form: FormData) {
         const specs = (await client.query<{ carried: { set: number; hidden: number } }>("SELECT product_override_specs_carry($1,$2,$3) AS carried",
           [drop, target, admin.id])).rows[0].carried;
         if (specs.set + specs.hidden > 0) specsFlag = `&specs=${specs.set + specs.hidden}`;
-        // Added and removed vehicle fitments (#583); the kept product's own decision wins for the same type.
-        const fitments = (await client.query<{ carried: { added: number; removed: number } }>("SELECT product_override_fitments_carry($1,$2,$3) AS carried",
+        // Added and removed vehicle fitments (#583) and hidden source rows (#661); the kept product's own row wins.
+        const fitments = (await client.query<{ carried: { added: number; removed: number; hidden: number } }>("SELECT product_override_fitments_carry($1,$2,$3) AS carried",
           [drop, target, admin.id])).rows[0].carried;
-        if (fitments.added + fitments.removed > 0) fitmentsFlag = `&fitments=${fitments.added + fitments.removed}`;
+        const carriedFitments = fitments.added + fitments.removed + fitments.hidden;
+        if (carriedFitments > 0) fitmentsFlag = `&fitments=${carriedFitments}`;
       }
       // Recorded like a reviewed candidate so the pair is not suggested again.
       if (target) await client.query(`INSERT INTO product_match_decisions(product_a,product_b,status,decided_by) VALUES($1,$2,'same',$3)
