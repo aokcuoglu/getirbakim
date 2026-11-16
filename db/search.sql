@@ -50,6 +50,10 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
    -- Partial code hits count only for code-like queries: "yag" is a word, not part of "YAG5YZ9".
    WHEN compact !~ '[0-9]' THEN 0
    WHEN code_compact LIKE compact || '%' OR oem_compact LIKE compact || '%' THEN 50
+   -- A mixed code inside a longer number is another code: "5w40" inside "15w40" is a different oil grade.
+   -- Plain digits keep matching anywhere ("6494104" within "0986494104").
+   WHEN compact ~ '[a-z]' AND compact ~ '^[0-9]' THEN CASE WHEN length(compact) >= 3
+     AND (code_compact ~ ('(^|[^0-9])' || compact) OR oem_compact ~ ('(^|[^0-9])' || compact)) THEN 20 ELSE 0 END
    WHEN length(compact) >= 3 AND (code_compact LIKE '%' || compact || '%' OR oem_compact LIKE '%' || compact || '%') THEN 20
    ELSE 0 END
   + CASE WHEN exact_query IS NULL THEN 0 ELSE ts_rank(doc, exact_query) * 10 END
