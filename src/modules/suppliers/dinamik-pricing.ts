@@ -17,6 +17,6 @@ export function dinamikCost(listPrice: number, campaignRate: unknown) {
   // 4 decimals (5.219,775) and percents up to 2, so both are scaled to integers; floats would miss half-kuruş ties.
   const factors = [...DINAMIK_DEALER_DISCOUNTS, dinamikCampaignRate(campaignRate)].map(pct => BigInt(10000 - Math.round(pct * 100)));
   const scaled = factors.reduce((n, f) => n * f, BigInt(Math.round(listPrice * 10000)));
-  const divisor = 10n ** BigInt(4 * factors.length + 2); // price scale 10⁴ · 10⁴ per factor ÷ 10² for kuruş
-  return Number((scaled * 2n + divisor) / (divisor * 2n)) / 100;
+  const divisor = BigInt(10) ** BigInt(4 * factors.length + 2); // price scale 10⁴ · 10⁴ per factor ÷ 10² for kuruş
+  return Number((scaled * BigInt(2) + divisor) / (divisor * BigInt(2))) / 100;
 }
