@@ -44,6 +44,25 @@ export const productAddressColumns = {
   store: "p.id::text AS id,p.name AS name,false AS name_overridden,p.brand AS display_brand,p.code AS display_code",
 };
 
+/**
+ * The newest admin edit of the product behind supplier row `i` (product_override_changes: every save, delete, hide and
+ * merge carry writes one, #575), NULL without one; `skipFields` leaves those history fields out. Per row, through product_sources:
+ * while product_override_changes is small the planner scans it sequentially; the indexed plan
+ * (product_override_changes_product_idx) exists and takes over as the table grows. Fields are inlined as a literal list: they come from
+ * code constants, never from input.
+ */
+export function adminEditedAtSql(skipFields: readonly string[] = []): string {
+  const skip = skipFields.length > 0 ? ` AND c.field<>ALL('{${skipFields.map(field => field.replace(/[^a-z_]/g, "")).join(",")}}'::text[])` : "";
+  return `(SELECT max(c.changed_at) FROM product_sources ps JOIN product_override_changes c ON c.product_id=ps.product_id WHERE ps.supplier_item_id=i.id${skip})`;
+}
+
+/**
+ * The supplier rows whose description fitments the page shows: the row and its grouped offers (as getDescriptionFitments).
+ * Use as `f.supplier_item_id=ANY(${descriptionFitmentItemsSql})`; never as `OR f.supplier_item_id IN (SELECT …)`, which
+ * measured over 120 s (timeout) on a chunk.
+ */
+export const descriptionFitmentItemsSql = "(ARRAY[i.id]||ARRAY(SELECT o.item_id FROM product_offers o WHERE o.primary_id=i.id))";
+
 export type ProductSitemapRow = { id: string; path: string; lastmod: string };
 
 // A secondary offer is left out even when its primary is hidden or not saleable (its page then shows itself): deliberate.
@@ -51,7 +70,8 @@ export type ProductSitemapRow = { id: string; path: string; lastmod: string };
 export async function loadProductChunk(index: number): Promise<ProductSitemapRow[]> {
   const { from, to } = productChunkRange(index);
   const branches = indexableProductsSql({
-    supplier: `${productAddressColumns.supplier},${isoUtc("GREATEST(i.changed_at,l.imported_at)")} AS lastmod`,
+    supplier: `${productAddressColumns.supplier},${isoUtc(`GREATEST(i.changed_at,l.imported_at,${adminEditedAtSql()},
+     (SELECT max(f.derived_at) FROM product_model_fitments f WHERE f.supplier_item_id=ANY(${descriptionFitmentItemsSql})))`)} AS lastmod`,
     store: `${productAddressColumns.store},${isoUtc("p.updated_at")} AS lastmod`,
   });
   const { rows } = await boundedQuery<ProductAddress & { lastmod: string }>(`SELECT id,name,name_overridden,display_brand,display_code,lastmod FROM (${branches}) u ORDER BY id LIMIT ${sitemapUrlLimit + 1}`,

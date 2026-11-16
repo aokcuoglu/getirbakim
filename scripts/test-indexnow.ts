@@ -328,6 +328,57 @@ describe("IndexNow runs", () => {
     assert.equal(network.calls.length, 0);
   });
 
+  test("admin edits and description fitments each send only their page (#767)", async () => {
+    // beta carries no admin edit and no fitment yet: its fingerprint is the pre-#767 one (concat_ws skips the new NULL parts).
+    const legacy = (await schema.pool.query<{ fingerprint: string }>(`SELECT md5(concat_ws(chr(31),COALESCE(NULLIF(product_data->>'ac',''),code),
+      COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),code,COALESCE(product_data->>'ac2',''),COALESCE(product_data->>'oe',''),''))::uuid::text AS fingerprint
+      FROM supplier_items WHERE id=$1`, [ids.beta])).rows[0].fingerprint;
+    assert.equal((await indexnow.loadIndexNowChunk(20)).find(page => page.id === ids.beta)?.fingerprint, legacy);
+
+    const productId = (await schema.pool.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code)
+      VALUES('MAHLE','BETA','Beta','MAHLE','beta') RETURNING id::text`)).rows[0].id;
+    await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [ids.beta, productId]);
+    await schema.pool.query("INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VOLKSWAGEN')");
+    await schema.pool.query("INSERT INTO vehicle_models(id,brand_id,name) VALUES(10,1,'GOLF IV'),(11,1,'GOLF V')");
+    const change = (field: string) => schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value) VALUES($1,$2,'x')", [productId, field]);
+    const fitment = (sql: string, values: unknown[] = []) => schema.pool.query(sql, [ids.beta, ...values]);
+    const sends = async (expected: number, label: string) => {
+      const network = fakeFetch([200]);
+      const result = await run({ network });
+      assert.equal(result.status, "completed", label);
+      assert.equal(result.changed, expected, label);
+      assert.equal(result.urls, expected, label);
+      assert.equal(result.removed, 0, label);
+      assert.equal(network.calls.length, expected === 0 ? 0 : 1, label);
+      if (expected > 0) assert.deepEqual(sent(network.calls), [url(await pathNow("beta"))], label);
+    };
+    await sends(0, "baseline");
+    await change("image_added");
+    await sends(1, "image added");
+    await change("price_kurus");
+    await sends(0, "price edit");
+    await change("sale_until");
+    await sends(0, "campaign edit");
+    await fitment("INSERT INTO product_model_fitments(supplier_item_id,model_id,year_from,source_text) VALUES($1,10,2000,'GOLF IV')");
+    await sends(1, "fitment added");
+    await fitment("UPDATE product_model_fitments SET year_from=2001 WHERE supplier_item_id=$1");
+    await sends(1, "year changed");
+    await fitment("UPDATE product_model_fitments SET year_from=NULL,year_to=2001 WHERE supplier_item_id=$1");
+    await sends(1, "year_to instead of year_from");
+    await fitment("UPDATE product_model_fitments SET year_from=2001,year_to=NULL WHERE supplier_item_id=$1");
+    await sends(1, "year_from instead of year_to");
+    await fitment("UPDATE product_model_fitments SET derived_at=now()+interval '1 day' WHERE supplier_item_id=$1");
+    await sends(0, "derived_at only");
+    await fitment("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,11,'GOLF V')");
+    await sends(1, "second model");
+    await fitment("DELETE FROM product_model_fitments WHERE supplier_item_id=$1 AND model_id=11");
+    await sends(1, "fitment deleted");
+    // Another product's edit does not touch this page.
+    const other = (await schema.pool.query<{ id: string }>(`INSERT INTO products(brand,part_number,name,brand_label,code) VALUES('MAHLE','OTHER','Other','MAHLE','other') RETURNING id::text`)).rows[0].id;
+    await schema.pool.query("INSERT INTO product_override_changes(product_id,field,new_value) VALUES($1,'image_added','x')", [other]);
+    await sends(0, "unrelated product");
+  });
+
   test("a second run while the lock is held is skipped", async () => {
     const holder = await schema.pool.connect();
     try {

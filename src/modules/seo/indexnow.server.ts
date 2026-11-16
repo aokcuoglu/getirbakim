@@ -5,19 +5,27 @@ import { batches, diffChunk, indexNowConfig, indexNowDisabledReason, removalAnom
 import { contentSignals } from "./indexing";
 import { productPath, type ProductAddress } from "./product-path";
 import { productChunkRange, productChunks } from "./sitemap";
-import { indexableProductsSql, productAddressColumns } from "./sitemap.server";
+import { productPriceFields } from "@/modules/admin/product-override-fields";
+import { adminEditedAtSql, descriptionFitmentItemsSql, indexableProductsSql, productAddressColumns } from "./sitemap.server";
 
 // The content a search engine sees on the page: shown name, brand, part number, description, shown OEM and the
 // enrichment import (images, specifications, vehicles; only while the page shows that enrichment, the same condition as
-// the minimum-content signal, so a stale link's import does not count). Price and stock are left out on purpose: they change with every
-// sync and the sitemap's lastmod carries them.
+// the minimum-content signal, so a stale link's import does not count), the newest admin edit other than a price
+// (images, specifications, references, vehicles, hide/delete: product_override_changes, #767) and a hash of the
+// description fitments (model and years). Price and stock are left out on purpose (the admin's price edits too): they
+// change with every sync and the sitemap's lastmod carries them. The fitments enter as a content hash, not derived_at:
+// the derivation rewrites every row. concat_ws skips NULLs, so a product without admin edits or fitments keeps its
+// earlier fingerprint.
 const supplierFingerprint = `md5(concat_ws(chr(31),
   COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code),
   COALESCE(h.brand,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
   COALESCE(h.part_number,i.code),
   COALESCE(h.description,i.product_data->>'ac2',''),
   CASE WHEN h.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,
-  CASE WHEN ${contentSignals.enrichment.sql} THEN l.imported_at::text ELSE '' END))::uuid::text`;
+  CASE WHEN ${contentSignals.enrichment.sql} THEN l.imported_at::text ELSE '' END,
+  'a:'||${adminEditedAtSql(productPriceFields)}::text,
+  'f:'||(SELECT md5(string_agg(DISTINCT concat_ws(':',f.model_id,COALESCE(f.year_from::text,''),COALESCE(f.year_to::text,'')),',')) FROM product_model_fitments f
+    WHERE f.supplier_item_id=ANY(${descriptionFitmentItemsSql}))))::uuid::text`;
 const storeFingerprint = "md5(concat_ws(chr(31),p.name,p.brand,p.code,p.description))::uuid::text";
 
 /** The indexable product pages of sitemap chunk `index` with their content fingerprint, ordered by id. */
