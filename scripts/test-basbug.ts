@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import test, { after, before } from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Pool } from "pg";
 import { BasbugImportError, prepareBasbugImport } from "../src/modules/suppliers/basbug-import";
-import { fallbackReason, prepareBasbugItemCheck } from "../src/modules/suppliers/basbug-item-refresh";
+import { basbugItemClient, fallbackReason, prepareBasbugItemCheck, refreshBasbugItems } from "../src/modules/suppliers/basbug-item-refresh";
 import { basbugStockLabel, basbugWarehouseStock } from "../src/modules/suppliers/basbug-stock";
 
 const product = { no: "TEST 001", ac: "Test", ac2: "", uk: "MARKA", oe: "60 607 218", lgk: "FIAT", m: "MODEL", mo: "", y: "07-", b: "ADET", dc: "EUR", lf: 4.05, mkk: "" };
@@ -120,4 +124,82 @@ test("supplier errors map to order-line fallback reasons", () => {
   assert.equal(fallbackReason(new BasbugImportError("rejected")), "upstream");
   assert.equal(fallbackReason(new Error("socket hang up")), "upstream");
   assert.equal(fallbackReason("text"), "upstream");
+});
+
+// Per-code checkout check (#763) without a database: a fake pool answers the row lookup, fetch is mocked.
+const env = { BASBUG_BASE_URL: "https://api.basbug.com.tr", BASBUG_USERNAME: "T", BASBUG_PASSWORD: "T", BASBUG_CLIENT_ID: "T", BASBUG_CLIENT_SECRET: "T" };
+const unsetEnv = ["SUPPLIER_EGRESS_PROXY", "SUPPLIER_EGRESS_PROXY_FOR"];
+const savedEnv = new Map([...Object.keys(env), ...unsetEnv].map(key => [key, process.env[key]]));
+const originalFetch = globalThis.fetch, originalCwd = process.cwd();
+let sandbox = "";
+before(async () => {
+  Object.assign(process.env, env);
+  for (const key of unsetEnv) delete process.env[key];
+  // Away from the operator's real pause marker (.local/basbug-paused).
+  sandbox = await mkdtemp(join(tmpdir(), "getirbakim-basbug-"));
+  process.chdir(sandbox);
+});
+after(async () => {
+  globalThis.fetch = originalFetch;
+  process.chdir(originalCwd);
+  await rm(sandbox, { recursive: true, force: true });
+  for (const [key, value] of savedEnv) if (value === undefined) delete process.env[key]; else process.env[key] = value;
+});
+
+const ids = ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003",
+  "00000000-0000-4000-8000-000000000004", "00000000-0000-4000-8000-000000000005"];
+/** Answers the row lookup only: any write would call connect(), which the read-only fake does not have unless given. */
+function fakePool(connect?: () => Promise<unknown>) {
+  return { query: async () => ({ rows: ids.map((id, index) => ({ id, code: `TEST ${index}`, company: "TEST" })) }), ...(connect ? { connect } : {}) } as unknown as Pool;
+}
+const item = (code: string) => ({ no: code, nf: 1, mif: 1, k: 0, sMrk: 1, sIzm: 0, sAnk: 0, sAdn: 0, sErz: 0 });
+
+test("a spent budget fails every row as timeout without a request or a write", async () => {
+  let requests = 0;
+  const result = await refreshBasbugItems(fakePool(), ids, { budgetMs: 0, fetchItem: async () => { requests++; return Response.json({}); } });
+  assert.equal(requests, 0);
+  assert.deepEqual(Object.values(result.failed), ids.map(() => "timeout"));
+  assert.equal(result.refreshed, 0);
+});
+
+test("a rejected login fails every row with the same reason after one attempt", async () => {
+  const urls: string[] = [];
+  globalThis.fetch = async input => { urls.push(String(input)); return new Response("no", { status: 403 }); };
+  const result = await refreshBasbugItems(fakePool(), ids);
+  assert.deepEqual(urls.map(url => new URL(url).pathname), ["/auth/Login"]);
+  assert.deepEqual(Object.values(result.failed), ids.map(() => "upstream"));
+});
+
+test("a 401 renews the token once and retries the request", async () => {
+  const calls: string[] = [];
+  let logins = 0;
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname === "/auth/Login") { logins++; return Response.json({ token: `token-${logins}`, tokenTipi: "Bearer", tokenBitisSuresi: 300 }); }
+    const bearer = new Headers(init?.headers).get("Authorization");
+    calls.push(`${url.searchParams.get("MalzemeNo")}:${bearer}`);
+    return bearer === "Bearer token-1" ? new Response("expired", { status: 401 }) : Response.json(item(url.searchParams.get("MalzemeNo")!));
+  };
+  const fetchItem = basbugItemClient();
+  const response = await fetchItem("TEST", "TEST 0");
+  assert.equal(response.status, 200);
+  assert.equal(logins, 2);
+  assert.deepEqual(calls, ["TEST 0:Bearer token-1", "TEST 0:Bearer token-2"]);
+  assert.deepEqual(prepareBasbugItemCheck("TEST 0", await response.json()).depots.MRK, 1);
+});
+
+test("rows a running import keeps locked are marked busy and nothing is written", async () => {
+  const statements: string[] = [];
+  const client = {
+    query: async (sql: string) => {
+      statements.push(sql.trim().split(/\s+/).slice(0, 2).join(" "));
+      if (sql.includes("FOR UPDATE")) throw Object.assign(new Error("canceling statement due to lock timeout"), { code: "55P03" });
+      return { rows: [], rowCount: 0 };
+    },
+    release: () => undefined,
+  };
+  const result = await refreshBasbugItems(fakePool(async () => client), ids, { fetchItem: async (_company, code) => Response.json(item(code)) });
+  assert.deepEqual(Object.values(result.failed), ids.map(() => "busy"));
+  assert.equal(result.refreshed, 0);
+  assert.deepEqual(statements, ["BEGIN", "SET LOCAL", "SELECT id", "ROLLBACK"]);
 });

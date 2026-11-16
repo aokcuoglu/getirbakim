@@ -139,8 +139,12 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
       // 604: the supplier no longer knows the code, so it is out of stock until a list import decides its presence.
       const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
       const goneInput=await checkoutInput(cart);
+      const seenBefore=(await itemRow()).last_seen_at;
       gone=true;assert.equal((await submitOrder(cart,goneInput)).error,"stock");gone=false;
       const row=await itemRow();
+      // Not a sighting: last_seen_at stays, the zeroed stock is still recorded as a checkout change.
+      assert.deepEqual(row.last_seen_at,seenBefore);
+      assert.ok((await db.query("SELECT 1 FROM supplier_item_changes WHERE item_id=$1 AND after_data->>'source'='checkout' AND (after_data#>>'{stock,stok}')::numeric=0 AND (after_data#>>'{stock,sFarkliDepo}')::numeric=0",[id])).rowCount);
       assert.deepEqual([row.stock_data.stok,row.stock_data.sFarkliDepo],[0,0]);
       assert.ok(Object.values(row.stock_data.depolar as Record<string,{stok:number}>).every(depot=>depot.stok===0));
       assert.equal((await db.query("SELECT presence FROM supplier_items WHERE id=$1",[id])).rows[0].presence,"present");

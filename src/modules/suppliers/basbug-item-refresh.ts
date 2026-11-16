@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { BasbugImportError, basbugBase, basbugLogin, basbugPaused } from "./basbug-import";
 import { supplierFetch } from "./egress-proxy";
 
@@ -39,7 +39,14 @@ export function prepareBasbugItemCheck(code: string, response: unknown) {
   return { price: { no: item.no, nf: item.nf, mif: item.mif, k: item.k }, depots: { MRK: item.sMrk, IZM: item.sIzm, ANK: item.sAnk, ADN: item.sAdn, ERZ: item.sErz } };
 }
 
-export type BasbugItemFetch = (company: string, code: string) => Promise<{ status: number; json(): Promise<unknown> }>;
+/** One MalzemeAra request; `timeoutMs` is what is left of the check's budget (each request is capped at 5 s anyway). */
+export type BasbugItemFetch = (company: string, code: string, timeoutMs?: number) =>
+  Promise<{ status: number; json(): Promise<unknown>; body?: { cancel(): Promise<void> } | null }>;
+
+const REQUEST_TIMEOUT_MS = 5_000;
+const capped = (timeoutMs = REQUEST_TIMEOUT_MS) => Math.max(1, Math.min(REQUEST_TIMEOUT_MS, timeoutMs));
+// A body nobody reads would keep the connection busy; its content is not needed.
+const discard = (response: { body?: { cancel(): Promise<void> } | null }) => response.body?.cancel().catch(() => undefined);
 
 type Session = { token: string; expires: number };
 // Shared by checkouts in this process; a token lives 300 s and is renewed 30 s before it expires.
@@ -50,25 +57,29 @@ let pendingLogin: Promise<Session> | undefined;
 export function basbugItemClient(): BasbugItemFetch {
   const base = basbugBase();
   let loginFailure: { error: unknown } | undefined;
-  async function token(stale?: string) {
+  async function token(timeoutMs: number, stale?: string) {
     if (loginFailure) throw loginFailure.error;
     if (session && session.token !== stale && Date.now() < session.expires - 30_000) return session.token;
-    pendingLogin ??= basbugLogin(base, 5_000).finally(() => { pendingLogin = undefined; });
+    pendingLogin ??= basbugLogin(base, timeoutMs).finally(() => { pendingLogin = undefined; });
     try { session = await pendingLogin; }
     catch (error) { loginFailure = { error }; throw error; }
     return session.token;
   }
-  async function request(company: string, code: string, bearer: string) {
+  async function request(company: string, code: string, bearer: string, timeoutMs: number) {
     const url = new URL("/material/MalzemeAra", base);
     url.search = new URLSearchParams({ FirmaAdi: company, MalzemeNo: code }).toString();
-    return supplierFetch("basbug", url, { headers: { Authorization: `Bearer ${bearer}` }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(5_000) });
+    return supplierFetch("basbug", url, { headers: { Authorization: `Bearer ${bearer}` }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
   }
-  return async (company, code) => {
-    const bearer = await token();
-    const response = await request(company, code, bearer);
+  return async (company, code, timeoutMs) => {
+    // Every step gets what is left of the caller's budget, so the budget is an upper bound.
+    const deadline = Date.now() + capped(timeoutMs);
+    const left = () => capped(deadline - Date.now());
+    const bearer = await token(left());
+    const response = await request(company, code, bearer, left());
     if (response.status !== 401) return response;
     // The token expired or was revoked early: log in again once.
-    return request(company, code, await token(bearer));
+    await discard(response);
+    return request(company, code, await token(left(), bearer), left());
   };
 }
 
@@ -101,8 +112,9 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
     }
     await Promise.all(slice.map(async row => {
       try {
-        const response = await fetchItem(row.company, row.code);
+        const response = await fetchItem(row.company, row.code, deadline - Date.now());
         // 604's body is plain text ("Malzeme bulunamadı!"), not JSON.
+        if (response.status !== 200) await discard(response);
         if (response.status === 604) { observed.push({ id: row.id, gone: true }); return; }
         if (response.status !== 200) throw new BasbugImportError("upstream", `MalzemeAra HTTP ${response.status}`);
         const item = prepareBasbugItemCheck(row.code, await response.json());
@@ -113,12 +125,18 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
     }));
   }
   if (!observed.length) return result;
-  const client = await pool.connect();
+  const observedIds = observed.map(item => item.id);
+  let client: PoolClient | undefined;
   try {
+    client = await pool.connect();
     await client.query("BEGIN");
+    // A running list import may hold these rows: wait briefly, in id order (no deadlock with another checkout), then
+    // merge onto what it committed. Rows locked longer are sold on their saved data, marked "busy".
+    await client.query("SET LOCAL lock_timeout = '2s'");
+    await client.query("SELECT id FROM supplier_items WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE", [observedIds]);
     // Merged onto the current row: sYol and the depots MalzemeAra does not return keep their list values; stok is MRK
     // and sFarkliDepo the sum over every other depot after the merge. A code the supplier no longer knows is out of
-    // stock in every depot until a list import decides its presence.
+    // stock in every depot until a list import decides its presence; that is not a sighting, so last_seen_at stays.
     // product_data is not written, so the enrichment and search triggers (UPDATE OF code,product_data) stay quiet.
     const changed = await client.query(`WITH incoming AS (
         SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(id uuid,gone boolean,nf numeric,mif numeric,k numeric,depots jsonb)),
@@ -128,7 +146,7 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
           COALESCE(o.stock_data->'depolar','{}'::jsonb) AS saved
         FROM supplier_items o JOIN incoming n ON n.id=o.id),
       observed AS (
-        SELECT id,stock,CASE WHEN gone THEN price_data
+        SELECT id,gone,stock,CASE WHEN gone THEN price_data
             ELSE COALESCE(price_data,'{}'::jsonb)||jsonb_build_object('no',code,'nf',nf,'mif',mif,'k',k) END AS price_data,
           CASE WHEN gone
             THEN (SELECT COALESCE(jsonb_object_agg(d.key,d.value||'{"stok":0}'::jsonb),'{}'::jsonb) FROM jsonb_each(saved) d)
@@ -137,8 +155,8 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
           END AS depolar
         FROM existing),
       merged AS (
-        SELECT id,price_data,stock||jsonb_build_object('stok',COALESCE((depolar#>>'{MRK,stok}')::numeric,0),
-          'sFarkliDepo',(SELECT COALESCE(sum((d.value->>'stok')::numeric),0) FROM jsonb_each(depolar) d WHERE d.key<>'MRK'),
+        SELECT id,gone,price_data,stock||jsonb_build_object('stok',COALESCE((depolar#>>'{MRK,stok}')::numeric,0),
+          'sFarkliDepo',(SELECT COALESCE(sum(GREATEST((d.value->>'stok')::numeric,0)),0) FROM jsonb_each(depolar) d WHERE d.key<>'MRK'),
           'depolar',depolar) AS stock_data
         FROM observed),
       -- CTEs share the statement's snapshot, so this still reads the values before the update.
@@ -147,19 +165,25 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
         FROM supplier_items o JOIN merged n ON n.id=o.id
         WHERE ROW(o.price_data,o.stock_data) IS DISTINCT FROM ROW(n.price_data,n.stock_data)),
       updated AS (
-        UPDATE supplier_items o SET price_data=n.price_data,stock_data=n.stock_data,last_seen_at=now(),changed_at=now()
+        UPDATE supplier_items o SET price_data=n.price_data,stock_data=n.stock_data,
+          last_seen_at=CASE WHEN n.gone THEN o.last_seen_at ELSE now() END,changed_at=now()
         FROM merged n JOIN before b ON b.id=n.id WHERE o.id=n.id
         RETURNING o.id,o.product_data,o.price_data,o.stock_data,o.conflicting,o.source_variants,o.presence)
       INSERT INTO supplier_item_changes(item_id,import_id,changed_at,kind,before_data,after_data)
       SELECT u.id,NULL,now(),'changed',b.data,jsonb_build_object('product',u.product_data,'price',u.price_data,'stock',u.stock_data,
         'conflicting',u.conflicting,'variants',u.source_variants,'presence',u.presence,'source','checkout')
       FROM updated u JOIN before b ON b.id=u.id`, [JSON.stringify(observed)]);
-    await client.query("UPDATE supplier_items SET last_seen_at=now() WHERE id=ANY($1::uuid[])", [observed.map(item => item.id)]);
+    await client.query("UPDATE supplier_items SET last_seen_at=now() WHERE id=ANY($1::uuid[])", [observed.filter(item => !item.gone).map(item => item.id)]);
     await client.query("COMMIT");
     result.refreshed = observed.length;
     result.changed = changed.rowCount ?? 0;
     result.gone = observed.filter(item => item.gone).map(item => item.id);
     return result;
-  } catch (error) { await client.query("ROLLBACK"); throw error; }
-  finally { client.release(); }
+  } catch (error) {
+    // Nothing was written: the checkout continues on the saved data and marks these lines.
+    await client?.query("ROLLBACK").catch(() => undefined);
+    console.error("Başbuğ checkout check could not be saved", { reason: error instanceof Error ? error.message : error });
+    for (const id of observedIds) failed[id] = "busy";
+    return result;
+  } finally { client?.release(); }
 }

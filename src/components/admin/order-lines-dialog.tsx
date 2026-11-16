@@ -33,7 +33,7 @@ function ProcurementSummaryBadge({ lines, active }: { lines: OrderLineView[]; ac
 /** Lines sold on saved data because the supplier could not be asked at checkout (#763). */
 function UnverifiedBadge({ lines }: { lines: OrderLineView[] }) {
   const { unverified } = procurementSummary(lines);
-  return unverified > 0 ? <StatusBadge tone="warning">Canlı doğrulanamadı {unverified}</StatusBadge> : null;
+  return unverified > 0 ? <StatusBadge tone="warning">Canlı doğrulanamadı {unverified}/{lines.length}</StatusBadge> : null;
 }
 
 function LineProcurementBadge({ line }: { line: OrderLineView }) {
@@ -47,8 +47,10 @@ export function OrderLinesDialog({ number, orderId, orderStatus, editable, lines
   number: string; orderId: string; orderStatus: string; editable: boolean; lines: OrderLineView[];
 }) {
   const active = ["pending", "confirmed"].includes(orderStatus);
+  const unverified = procurementSummary(lines).unverified > 0;
   return <Dialog>
-    <DialogTrigger render={<Button variant="ghost" size="sm"/>}>
+    {/* Two badges wrap inside the trigger on narrow screens instead of overflowing the table. */}
+    <DialogTrigger render={<Button variant="ghost" size="sm" className="h-auto whitespace-normal"/>}>
       <span className="sr-only">#{number} kalemleri ve tedarik: </span>
       <span className="flex flex-wrap gap-1">
         <ProcurementSummaryBadge lines={lines} active={active}/>
@@ -60,7 +62,7 @@ export function OrderLinesDialog({ number, orderId, orderStatus, editable, lines
         <DialogTitle>#{number} kalemleri ve tedarik</DialogTitle>
         <DialogDescription>
           Maliyet KDV hariç, satış KDV dahil birim fiyattır. Müşteri bu bilgileri görmez.
-          Canlı doğrulanamayan kalemler kayıtlı fiyat ve stokla satıldı; tedarikçide teyit et.
+          {unverified && " Canlı doğrulanamayan kalemler kayıtlı fiyat ve stokla satıldı; tedarikçide teyit et."}
         </DialogDescription>
       </DialogHeader>
       <Table controls={false}>
@@ -82,15 +84,17 @@ export function OrderLinesDialog({ number, orderId, orderStatus, editable, lines
               </div>
             </TableCell>
             <TableCell className="whitespace-normal">
-              <div>{line.supplier_label}</div>
-              {scopeText && <div className="text-muted-foreground">{scopeText}</div>}
-              {line.liveCheckFailed
-                ? <>
-                  <StatusBadge tone="warning">Canlı doğrulanamadı</StatusBadge>
-                  {line.liveCheckReason && <div className="text-muted-foreground">Neden: {liveCheckReasonLabel[line.liveCheckReason] ?? line.liveCheckReason}</div>}
-                </>
-                : line.checkoutMode === "snapshot" && <StatusBadge tone="warning">Kayıtlı veri</StatusBadge>}
-              {line.observedAt && <div className="text-muted-foreground">Veri: {time(line.observedAt)}</div>}
+              <div className="flex flex-col items-start gap-1">
+                <div>{line.supplier_label}</div>
+                {scopeText && <div className="text-muted-foreground">{scopeText}</div>}
+                {line.liveCheckFailed
+                  ? <>
+                    <StatusBadge tone="warning">Canlı doğrulanamadı</StatusBadge>
+                    <div className="text-muted-foreground">Neden: {(line.liveCheckReason && liveCheckReasonLabel[line.liveCheckReason]) || "bilinmeyen neden"}</div>
+                  </>
+                  : line.checkoutMode === "snapshot" && <StatusBadge tone="warning">Kayıtlı veri</StatusBadge>}
+                {line.observedAt && <div className="text-muted-foreground">Veri: {time(line.observedAt)}</div>}
+              </div>
             </TableCell>
             <TableCell className="text-right tabular-nums">{line.quantity}</TableCell>
             <TableCell className="text-right tabular-nums">{line.costKurus !== null ? money(line.costKurus) : "—"}</TableCell>
