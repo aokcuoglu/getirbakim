@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parseVehicleCsv } from "../src/modules/store/vehicle-catalog-import";
-import { approvalKey, normalizeViscosity, oilCapacity, oilFilterParam, oilMatches, parseOilFilters, parseVehicleOilRow, productOilSpec, trodoOilSheetRow, vehicleOilFilters, vehicleOilSheet, type VehicleOilSpec } from "../src/modules/store/vehicle-oil";
+import { approvalKey, normalizeViscosity, oilCapacity, oilFilterParam, oilMatches, oilSpecificationKeys, parseOilFilters, parseVehicleOilRow, productOilSpec, trodoOilSheetRow, vehicleOilFilters, vehicleOilSheet, type VehicleOilSpec } from "../src/modules/store/vehicle-oil";
 
 const row = (fields: Partial<Record<string, string>>) => ({ id: "1", viscosity: "5W-30, 5W-40", acea: "ACEA C2, C3", api: "API SN, SP", specifications: "", capacity: "4.0 Litre", ...fields });
 const golf: VehicleOilSpec = { viscosities: ["5W-30", "0W-30"], acea: ["C3"], api: ["SN"], approvals: ["VW 504.00", "VW 507.00"], capacityMin: 4.5, capacityMax: 4.5 };
@@ -107,4 +107,13 @@ test("the sheet is written back in vehicle type order", () => {
   assert.equal(sheet, '"id","viscosity","acea","api","specifications","capacity","source"\n3,"5W-30","","","","5.0 Litre","oil_capacities"\n'
     + '26,"5W-30","","","VW ""507""","3.6 Litre","trodo"\n');
   assert.deepEqual(parseVehicleCsv(sheet).map(row => row.specifications), ["", 'VW "507"']);
+});
+
+test("the manual supplier's Turkish oil keys feed the filters (#841)", () => {
+  assert.ok(oilSpecificationKeys.includes("Viskozite") && oilSpecificationKeys.includes("Onaylar ve normlar"));
+  const clio: VehicleOilSpec = { viscosities: ["0W-40", "5W-30", "0W-20"], acea: [], api: [], approvals: ["RN17", "RN17FE"], capacityMin: 3.4, capacityMax: 3.4 };
+  const oil = productOilSpec("Specific 17 5W30 1 Litre Motor Yağı", "5W-30, ACEA C3; Meets - Renault RN17");
+  assert.ok(oil && oilMatches(oil, clio, both));
+  const other = productOilSpec("Specific 17 5W30 1 Litre Motor Yağı", "5W-30, ACEA C3; Meets - Renault RN0720");
+  assert.ok(other && !oilMatches(other, clio, both));
 });
