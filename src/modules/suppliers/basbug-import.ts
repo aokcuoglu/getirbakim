@@ -109,8 +109,34 @@ export function prepareBasbugImport(input: { products: unknown; prices: unknown;
   } };
 }
 
+/** An operator's marker file pauses every Başbuğ request (imports and checkout checks). */
+export const basbugPaused = () => existsSync(resolve(".local/basbug-paused"));
+
+/** The configured API base; only the official HTTPS host is accepted, and the egress proxy must be valid. */
+export function basbugBase(): URL {
+  let base: URL;
+  try { base = new URL(required("BASBUG_BASE_URL")); }
+  catch { throw new BasbugImportError("config"); }
+  if (base.protocol !== "https:" || base.hostname !== "api.basbug.com.tr" || base.username || base.password) throw new BasbugImportError("config");
+  try { egressProxyFor("basbug"); } catch { throw new BasbugImportError("config", "SUPPLIER_EGRESS_PROXY"); }
+  return base;
+}
+
+/** A bearer token and its expiry (epoch ms, measured from before the request). */
+export async function basbugLogin(base: URL, timeoutMs = 20_000): Promise<{ token: string; expires: number }> {
+  const before = Date.now();
+  const result = await supplierFetch("basbug", new URL("/auth/Login", base), {
+    method: "POST", cache: "no-store", redirect: "error", signal: AbortSignal.timeout(timeoutMs),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kullaniciAdi: required("BASBUG_USERNAME"), parola: required("BASBUG_PASSWORD"), clientID: required("BASBUG_CLIENT_ID"), clientSecret: required("BASBUG_CLIENT_SECRET") }),
+  });
+  if (!result.ok) throw new BasbugImportError("upstream", `Auth HTTP ${result.status}`);
+  const auth = authSchema.parse(await result.json());
+  return { token: auth.token, expires: before + auth.tokenBitisSuresi * 1000 };
+}
+
 export async function importBasbug(pool: Pool, options: z.input<typeof importOptions>, progress?: (stage: string) => void) {
-  if (existsSync(resolve(".local/basbug-paused"))) throw new BasbugImportError("paused");
+  if (basbugPaused()) throw new BasbugImportError("paused");
   const { mode, group, warehouse, company: requestedCompany, acceptAnomaly } = importOptions.parse(options);
   const company = requestedCompany || process.env.BASBUG_FIRMA_ADI || "BASBUG";
   const connection = await pool.connect();
@@ -131,27 +157,15 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
     await connection.query(`UPDATE supplier_imports SET status='failed',completed_at=clock_timestamp(),error_reason='worker-interrupted'
       WHERE supplier='basbug' AND status='running' AND id<>$1`, [runId]);
     stage = "Config";
-    let base: URL;
-    try { base = new URL(required("BASBUG_BASE_URL")); }
-    catch { throw new BasbugImportError("config"); }
-    if (base.protocol !== "https:" || base.hostname !== "api.basbug.com.tr" || base.username || base.password) throw new BasbugImportError("config");
-    try { egressProxyFor("basbug"); } catch { throw new BasbugImportError("config", "SUPPLIER_EGRESS_PROXY"); }
+    const base = basbugBase();
     let token = "", expires = 0;
     async function login() {
       stage = "Auth";
       progress?.("Auth");
-      const before = Date.now();
-      const result = await supplierFetch("basbug", new URL("/auth/Login", base), {
-        method: "POST", cache: "no-store", redirect: "error", signal: AbortSignal.timeout(20_000),
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kullaniciAdi: required("BASBUG_USERNAME"), parola: required("BASBUG_PASSWORD"), clientID: required("BASBUG_CLIENT_ID"), clientSecret: required("BASBUG_CLIENT_SECRET") }),
-      });
-      if (!result.ok) throw new BasbugImportError("upstream", `Auth HTTP ${result.status}`);
-      const auth = authSchema.parse(await result.json());
-      token = auth.token; expires = before + auth.tokenBitisSuresi * 1000;
+      ({ token, expires } = await basbugLogin(base));
     }
     async function get(path: string, params: Record<string, string> = {}, optionalDepot = false) {
-      if (existsSync(resolve(".local/basbug-paused"))) throw new BasbugImportError("paused");
+      if (basbugPaused()) throw new BasbugImportError("paused");
       if (Date.now() >= expires - 70_000) await login();
       progress?.(path);
       stage = path;
