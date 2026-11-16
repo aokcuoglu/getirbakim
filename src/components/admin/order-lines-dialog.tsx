@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useActionState } from "react";
 import { CircleAlert, Clock, Package, Save } from "lucide-react";
 import { saveLineProcurement, type ProcurementResult } from "@/modules/admin/commerce-actions";
-import { procurementLabel, procurementStatuses, procurementSummary, type OrderLineView, type ProcurementStatus } from "@/modules/admin/order-procurement";
+import { liveCheckReasonLabel, procurementLabel, procurementStatuses, procurementSummary, type OrderLineView, type ProcurementStatus } from "@/modules/admin/order-procurement";
 import { formatDateTime } from "@/modules/admin/format";
 import { money } from "@/modules/store/money";
 import { StatusBadge, type StatusTone } from "@/components/admin/status-badge";
@@ -30,6 +30,12 @@ function ProcurementSummaryBadge({ lines, active }: { lines: OrderLineView[]; ac
   return <StatusBadge tone="success">Tedarik edildi</StatusBadge>;
 }
 
+/** Lines sold on saved data because the supplier could not be asked at checkout (#763). */
+function UnverifiedBadge({ lines }: { lines: OrderLineView[] }) {
+  const { unverified } = procurementSummary(lines);
+  return unverified > 0 ? <StatusBadge tone="warning">Canlı doğrulanamadı {unverified}</StatusBadge> : null;
+}
+
 function LineProcurementBadge({ line }: { line: OrderLineView }) {
   if (!line.needsProcurement) return <StatusBadge tone="neutral">Mağaza stoku</StatusBadge>;
   const status = line.procurement_status;
@@ -44,12 +50,18 @@ export function OrderLinesDialog({ number, orderId, orderStatus, editable, lines
   return <Dialog>
     <DialogTrigger render={<Button variant="ghost" size="sm"/>}>
       <span className="sr-only">#{number} kalemleri ve tedarik: </span>
-      <ProcurementSummaryBadge lines={lines} active={active}/>
+      <span className="flex flex-wrap gap-1">
+        <ProcurementSummaryBadge lines={lines} active={active}/>
+        <UnverifiedBadge lines={lines}/>
+      </span>
     </DialogTrigger>
     <DialogContent className="max-h-5/6 overflow-y-auto sm:max-w-5xl">
       <DialogHeader>
         <DialogTitle>#{number} kalemleri ve tedarik</DialogTitle>
-        <DialogDescription>Maliyet KDV hariç, satış KDV dahil birim fiyattır. Müşteri bu bilgileri görmez.</DialogDescription>
+        <DialogDescription>
+          Maliyet KDV hariç, satış KDV dahil birim fiyattır. Müşteri bu bilgileri görmez.
+          Canlı doğrulanamayan kalemler kayıtlı fiyat ve stokla satıldı; tedarikçide teyit et.
+        </DialogDescription>
       </DialogHeader>
       <Table controls={false}>
         <TableHeader><TableRow>
@@ -72,7 +84,12 @@ export function OrderLinesDialog({ number, orderId, orderStatus, editable, lines
             <TableCell className="whitespace-normal">
               <div>{line.supplier_label}</div>
               {scopeText && <div className="text-muted-foreground">{scopeText}</div>}
-              {line.checkoutMode === "snapshot" && <StatusBadge tone="warning">Kayıtlı veri</StatusBadge>}
+              {line.liveCheckFailed
+                ? <>
+                  <StatusBadge tone="warning">Canlı doğrulanamadı</StatusBadge>
+                  {line.liveCheckReason && <div className="text-muted-foreground">Neden: {liveCheckReasonLabel[line.liveCheckReason] ?? line.liveCheckReason}</div>}
+                </>
+                : line.checkoutMode === "snapshot" && <StatusBadge tone="warning">Kayıtlı veri</StatusBadge>}
               {line.observedAt && <div className="text-muted-foreground">Veri: {time(line.observedAt)}</div>}
             </TableCell>
             <TableCell className="text-right tabular-nums">{line.quantity}</TableCell>

@@ -76,7 +76,7 @@ export default async function Pricing({ searchParams }: { searchParams: Promise<
         <form action={saveCheckoutMode}><Field>
           <FieldLabel htmlFor="checkout-mode">Veri kaynağı</FieldLabel>
           <div className="flex flex-wrap gap-2"><NativeSelect id="checkout-mode" name="checkoutMode" defaultValue={checkoutMode}><NativeSelectOption value="snapshot">Kayıtlı veriler · Bakım süresince</NativeSelectOption><NativeSelectOption value="live">Canlı API doğrulaması</NativeSelectOption></NativeSelect><SubmitButton>Kaydet</SubmitButton></div>
-          <FieldDescription>{checkoutMode === "snapshot" ? "Siparişte API çağrılmaz; kayıtlar teyit bekler." : "Siparişte fiyat ve stok API’den doğrulanır; güncellik süresini aşan ürünlerin fiyatı satışta gizlenir."}</FieldDescription>
+          <FieldDescription>{checkoutMode === "snapshot" ? "Siparişte API çağrılmaz; kayıtlar teyit bekler." : "Siparişte fiyat ve stok API’den doğrulanır; tedarikçi yanıt vermezse sipariş kayıtlı veriyle oluşur ve işaretlenir. Güncellik süresini aşan ürünlerin fiyatı satışta gizlenir."}</FieldDescription>
         </Field></form>
       </CardContent>
     </Card>

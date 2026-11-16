@@ -46,11 +46,20 @@ export function lineFigures(snapshot: Record<string, unknown>, unitPriceKurus: n
   return { costKurus, netSaleKurus, marginKurus };
 }
 
-/** Where the line was sourced: supplier company, list group, warehouse and when the price/stock was observed. */
+/** Why a live checkout could not confirm a line (#763); the line was sold on its saved price and stock. */
+export const liveCheckReasonLabel: Record<string, string> = {
+  timeout: "zaman aşımı", upstream: "tedarikçi hatası", busy: "tedarikçi meşgul", paused: "çekim durdurulmuş", config: "ayar eksik", contract: "beklenmeyen yanıt",
+};
+
+/**
+ * Where the line was sourced: supplier company, list group, warehouse and when the price/stock was observed; whether
+ * the live check failed at checkout and why.
+ */
 export function lineScope(snapshot: Record<string, unknown>) {
   return {
     company: textOf(snapshot.company), listGroup: textOf(snapshot.list_group), warehouse: textOf(snapshot.warehouse),
     observedAt: textOf(snapshot.observed_at), checkoutMode: textOf(snapshot.checkout_mode),
+    liveCheckFailed: snapshot.live_check === "failed", liveCheckReason: textOf(snapshot.live_check_reason),
   };
 }
 
@@ -65,6 +74,7 @@ export function supplierItemHref(supplier: string, id: string) {
 export type OrderLineView = {
   product_id: string; code: string; name: string; supplier_label: string; quantity: number; unitPriceKurus: number;
   company: string | null; listGroup: string | null; warehouse: string | null; observedAt: string | null; checkoutMode: string | null;
+  liveCheckFailed: boolean; liveCheckReason: string | null;
   costKurus: number | null; netSaleKurus: number | null; marginKurus: number | null;
   procurement_status: ProcurementStatus; procurement_ref: string | null; procurement_ordered_at: string | null; procured_at: string | null;
   supplierHref: string | null; productHref: string | null; needsProcurement: boolean;
@@ -82,11 +92,15 @@ export function orderLineView(line: AdminOrderLine, supplierLabel: string): Orde
   };
 }
 
-/** Line counts of an order: needed = lines that need procurement, split by their status. */
-export function procurementSummary(lines: Pick<OrderLineView, "needsProcurement" | "procurement_status">[]) {
+/**
+ * Line counts of an order: needed = lines that need procurement, split by their status; unverified = lines the live
+ * checkout could not confirm with the supplier.
+ */
+export function procurementSummary(lines: Pick<OrderLineView, "needsProcurement" | "procurement_status" | "liveCheckFailed">[]) {
   const needed = lines.filter(line => line.needsProcurement);
   const count = (status: ProcurementStatus) => needed.filter(line => line.procurement_status === status).length;
-  return { needed: needed.length, pending: count("pending"), ordered: count("ordered"), procured: count("procured") };
+  return { needed: needed.length, pending: count("pending"), ordered: count("ordered"), procured: count("procured"),
+    unverified: lines.filter(line => line.liveCheckFailed).length };
 }
 
 /** Open orders (alias o) with a supplier line not yet procured. */

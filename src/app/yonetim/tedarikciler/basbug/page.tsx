@@ -79,7 +79,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
     </>}
     facts={<>
       <SupplierFactCards label="Başbuğ özet" health={data.health} feed={feeds?.basbug} checkoutMode={checkoutMode}
-        checkoutNote={checkoutMode === "snapshot" ? "Tüm tedarikçilerde ortak ayar · teyit bekler" : "Siparişte API doğrulaması"}
+        checkoutNote={checkoutMode === "snapshot" ? "Tüm tedarikçilerde ortak ayar · teyit bekler" : "Siparişte sepetteki kodlar sorulur · hata olursa kayıtlı veri"}
         lastSuccess={lastSucceeded ? { at: lastSucceeded.completed_at, status: lastSucceeded.status, scope: `${lastSucceeded.list_group} · ${runKindLabel(lastSucceeded.run_kind, "basbug")} · ${formatNumber(lastSucceeded.quality.uniqueProducts)} ürün` } : null}
         lastRun={lastRun ? { at: lastRun.started_at, status: lastRun.status, scope: `${lastRun.list_group} · ${runKindLabel(lastRun.run_kind, "basbug")}${lastRun.status === "succeeded" ? ` · ${formatNumber(lastRun.quality.uniqueProducts)} ürün` : ""}` } : null}
         notes={{
