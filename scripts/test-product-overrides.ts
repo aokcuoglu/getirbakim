@@ -637,6 +637,11 @@ test("the form schema and reducer handle the short description (#697)", () => {
   const base = { name: "", description: "", seo_title: "", seo_description: "", category_id: "", published: "on", brand: "", part_number: "" };
   assert.equal(productOverrideValuesSchema.parse({ ...base, short_description: "  Kısa  " }).short_description, "Kısa");
   assert.equal(productOverrideValuesSchema.parse({ ...base, short_description: "   " }).short_description, null);
+  // One paragraph: line breaks (and the spaces around them) become a single space; only line breaks are empty too.
+  assert.equal(productOverrideValuesSchema.parse({ ...base, short_description: " Birinci satır.  \r\n\n  İkinci satır.\n" }).short_description,
+    "Birinci satır. İkinci satır.");
+  assert.equal(productOverrideValuesSchema.parse({ ...base, short_description: "\n\r\n" }).short_description, null);
+  assert.equal(productOverrideValuesSchema.safeParse({ ...base, short_description: `${"x".repeat(150)}\n\n${"y".repeat(149)}` }).success, true);
   assert.equal(productOverrideValuesSchema.safeParse({ ...base, short_description: "x".repeat(300) }).success, true);
   assert.equal(productOverrideValuesSchema.safeParse({ ...base, short_description: "x".repeat(301) }).success, false);
   const stored = { name: null, description: null, short_description: "Kayıtlı", seo_title: null, seo_description: null, category_id: null,

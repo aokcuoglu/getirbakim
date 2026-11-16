@@ -6,11 +6,14 @@ export * from "./product-override-fields";
 const text = (max: number) => z.string().trim().max(max, `En fazla ${max.toLocaleString("tr-TR")} karakter girin.`)
   .transform(value => value === "" ? null : value);
 
+/** One paragraph (#697): line breaks and the spaces around them become a single space before trimming and the length check. */
+const paragraph = (max: number) => z.string().transform(value => value.replace(/\s*[\r\n]+\s*/g, " ")).pipe(text(max));
+
 /** The "Mağaza bilgileri" form: trimmed text, empty → automatic (NULL). */
 export const productOverrideValuesSchema = z.object({
   name: text(300),
   description: text(5000),
-  short_description: text(300),
+  short_description: paragraph(300),
   seo_title: text(120),
   seo_description: text(300),
   category_id: z.string().trim().refine(value => value === "" || /^\d{1,9}$/.test(value), "Listeden bir kategori seçin.")

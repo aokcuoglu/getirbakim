@@ -171,7 +171,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const heading = titleWithoutIdentity(title, brand, displayPartNumber);
   const description = productDescription(override, enrichment?.description, product.description);
   // The admin's intro under the title (#697); without one nothing is rendered and no space is kept.
-  const intro = override?.short_description ?? null;
+  const intro = override?.short_description?.trim() || null;
   // The markup is the same for every visitor: it reads the product's own price, never `price`, an account or the garage.
   const trail = productTrail({ categories: productCategoryPath.length ? productCategoryPath : category ? [category] : [], title: heading, path: productPath(product) });
   const structuredProduct = productJsonLd({ supplier: product.supplier, name: title, description: description || intro || undefined, path: productPath(product), sku: product.code, mpn: displayPartNumber, brand,

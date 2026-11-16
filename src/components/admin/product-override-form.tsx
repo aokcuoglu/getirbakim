@@ -67,7 +67,8 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
   const label = (field: ProductCardField, htmlFor: string, title = productOverrideLabels[field]) => <div className="flex flex-wrap items-center justify-between gap-2">
     <div className="flex flex-wrap items-center gap-2">
       <FieldLabel htmlFor={htmlFor}>{title}</FieldLabel>
-      {overridden(field) ? <Badge variant="info"><Pencil data-icon="inline-start" aria-hidden="true"/>Elle</Badge> : <Badge variant="outline">Otomatik</Badge>}
+      {overridden(field) ? <Badge variant="info"><Pencil data-icon="inline-start" aria-hidden="true"/>Elle</Badge>
+        : <Badge variant="outline">{field === "short_description" ? "Boş" : "Otomatik"}</Badge>}
     </div>
     {overridden(field) && <Button type="button" variant="ghost" size="sm" disabled={pending} onClick={() => submit(field)}>
       <RotateCcw data-icon="inline-start" aria-hidden="true"/>Otomatiğe dön<span className="sr-only"> ({productOverrideLabels[field]})</span>
@@ -113,7 +114,7 @@ export function ProductOverrideForm({ productId, values, version, automatic, cat
           <Field className="md:col-span-2">
             {label("short_description", id("short_description"))}
             <Textarea {...textArea("short_description")} rows={2} maxLength={300}/>
-            <FieldDescription id={`${id("short_description")}-hint`}>Ürün sayfasında başlığın altında gösterilir (en fazla 300 karakter). Boş bırakılırsa gösterilmez; otomatik kaynağı yoktur.</FieldDescription>
+            <FieldDescription id={`${id("short_description")}-hint`}>Ürün sayfasında başlığın altında gösterilir (en fazla 300 karakter). Boş bırakılırsa gösterilmez; otomatik karşılığı yoktur.</FieldDescription>
           </Field>
           <Field className="md:col-span-2">
             {label("description", id("description"))}
