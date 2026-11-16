@@ -1,18 +1,22 @@
-// Usage: node scripts/harness/measure-cls.mjs <url> [mobile|desktop] [slow]
-// Dependency-free CLS probe: headless system Chrome + CDP. Env: CHROME_PATH, CLS_WIDTH (mobile width, default 412).
+// Usage: node scripts/harness/measure-cls.mjs <url> [mobile|desktop] [slow] [--quiet]
+// Dependency-free CLS probe: headless system Chrome + CDP. The summary line (total CLS) is printed last, so `tail -1` gives
+// the total; consecutive shifts without a source node are collapsed into one line. --quiet (or CLS_QUIET=1) prints only the summary.
+// Env: CHROME_PATH, CLS_WIDTH (mobile width, default 412), CHROME_ARGS (space-separated extra Chrome flags, e.g. --no-sandbox in a container).
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const [url, mode = "mobile", slow] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const quiet = argv.includes("--quiet") || process.env.CLS_QUIET === "1";
+const [url, mode = "mobile", slow] = argv.filter((a) => a !== "--quiet");
 if (!url) {
-  console.error("Usage: node scripts/harness/measure-cls.mjs <url> [mobile|desktop] [slow]");
+  console.error("Usage: node scripts/harness/measure-cls.mjs <url> [mobile|desktop] [slow] [--quiet]");
   process.exit(2);
 }
 const chromePath = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const dir = mkdtempSync(join(tmpdir(), "cls-"));
-const chrome = spawn(chromePath, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${dir}`, "--no-first-run", "--disable-extensions", "about:blank"], { stdio: "ignore" });
+const chrome = spawn(chromePath, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${dir}`, "--no-first-run", "--disable-extensions", ...(process.env.CHROME_ARGS?.split(/\s+/).filter(Boolean) ?? []), "about:blank"], { stdio: "ignore" });
 let chromeError;
 chrome.once("error", (e) => {
   chromeError = e;
@@ -107,11 +111,22 @@ try {
     returnByValue: true,
   });
   const out = JSON.parse(r.result.value);
-  console.log(url, mode, slow || "", "CLS total", out.total.toFixed(4), "fonts ready at", out.fontsAt);
-  for (const e of out.cls) {
-    console.log(` t=${e.t} v=${e.v}`);
-    for (const s of e.src) console.log(`   ${s.n}  [${s.from}] -> [${s.to}]`);
+  if (!quiet) {
+    for (let i = 0; i < out.cls.length; i++) {
+      const e = out.cls[i];
+      if (e.src.length === 0) {
+        let j = i;
+        while (j + 1 < out.cls.length && out.cls[j + 1].src.length === 0) j++;
+        const run = out.cls.slice(i, j + 1);
+        console.log(` t=${run[0].t} v=${run.reduce((a, b) => a + b.v, 0).toFixed(4)} (${run.length} shift${run.length > 1 ? "s" : ""}, no source node)`);
+        i = j;
+        continue;
+      }
+      console.log(` t=${e.t} v=${e.v}`);
+      for (const s of e.src) console.log(`   ${s.n}  [${s.from}] -> [${s.to}]`);
+    }
   }
+  console.log(url, mode, slow || "", "CLS total", out.total.toFixed(4), "fonts ready at", out.fontsAt);
   ws.close();
 } catch (e) {
   console.error(e instanceof Error ? e.message : e);
