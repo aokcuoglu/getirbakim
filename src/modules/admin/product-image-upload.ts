@@ -7,9 +7,10 @@ export { productImageLimits, productImageTypes } from "./product-image-limits";
 
 const maxPixels = 25_000_000;
 
-// One image at a time per process: a 25 MP decode takes ~100 MB, so parallel uploads must not multiply it.
+// One image at a time per process: a 25 MP decode takes ~100 MB, so parallel uploads must not multiply it. Brand
+// logos (brand-logo-upload.ts) share the queue.
 let queue: Promise<unknown> = Promise.resolve();
-function oneAtATime<T>(task: () => Promise<T>): Promise<T> {
+export function oneAtATime<T>(task: () => Promise<T>): Promise<T> {
   const run = queue.then(task, task);
   queue = run.catch(() => undefined);
   return run;

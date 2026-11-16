@@ -106,9 +106,15 @@ async function logoData(src: string | undefined): Promise<Photo | null> {
     if (path.startsWith("/media/")) {
       return await photo(await readFile(join(process.cwd(), "public", path)));
     }
+    const { db } = await import("@/lib/db");
+    // An admin's logo (#819), stored as WebP.
+    const manual = /^\/api\/brand-logos\/(\d{1,18})$/.exec(path);
+    if (manual) {
+      const row = (await db.query<{ image_data: Buffer }>("SELECT image_data FROM brand_logos WHERE brand_id=$1 AND image_data IS NOT NULL", [manual[1]])).rows[0];
+      return row ? await photo(row.image_data) : null;
+    }
     const match = /^\/api\/manufacturer-logos\/([A-Z0-9]+)/.exec(path);
     if (!match) return null;
-    const { db } = await import("@/lib/db");
     const row = (await db.query<{ image_data: Buffer }>("SELECT image_data FROM manufacturer_logos WHERE brand_key=$1", [match[1]])).rows[0];
     return row ? await photo(row.image_data) : null;
   } catch { return null; }
