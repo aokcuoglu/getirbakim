@@ -66,6 +66,25 @@ describe("prepareBrandLogo", () => {
     await rejects(prepareBrandLogo(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="20000" height="20000"><rect width="10" height="10"/></svg>')), "dimensions");
     await rejects(prepareBrandLogo(await solid(10, 10).png().toBuffer()), "dimensions");
   });
+  test("refuses SVG that would be slow to render before rendering it", async () => {
+    // 16 levels of a group drawing the previous one twice: 2^16 rectangles, each blurred, in about 2 KB.
+    const levels = Array.from({ length: 16 }, (_, index) =>
+      `<g id="l${index + 1}"><use href="#l${index}"/><use href="#l${index}" x="1"/></g>`).join("");
+    const bomb = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50"><defs><filter id="f"><feGaussianBlur stdDeviation="9"/></filter>
+      <rect id="l0" width="1" height="1" filter="url(#f)"/>${levels}</defs><use href="#l16"/></svg>`);
+    const started = Date.now();
+    await rejects(prepareBrandLogo(bomb), "complex");
+    await rejects(prepareBrandLogo(Buffer.from(bomb.toString().replace(/<filter[^]*?<\/filter>/, "").replace(' filter="url(#f)"', ""))), "complex");
+    const many = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50">${"<rect width=\"1\" height=\"1\"/>".repeat(3001)}</svg>`;
+    await rejects(prepareBrandLogo(Buffer.from(many)), "complex");
+    await rejects(prepareBrandLogo(Buffer.from('<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY a "aaaa">]><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20"/></svg>')), "complex");
+    assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+  });
+  test("refuses SVG with live text and logos that come out empty", async () => {
+    await rejects(prepareBrandLogo(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="20"><text x="0" y="15">BOSCH</text></svg>')), "text");
+    await rejects(prepareBrandLogo(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="20"><text><tspan>A</tspan></text></svg>')), "text");
+    await rejects(prepareBrandLogo(await sharp({ create: { width: 100, height: 40, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer()), "empty");
+  });
 });
 
 describe("store resolution and admin list", () => {
@@ -168,6 +187,10 @@ describe("store resolution and admin list", () => {
     assert.equal(missing.scope, "all");
     assert.deepEqual(missing.brands.map(row => row.name), ["NOLOGO", "TINY"]);
     assert.equal(missing.logoMissing, 2);
+    // The option's count follows the search and scope.
+    const searched = await matching.productMatchingData({ tab: "brands", scope: "all", q: "tiny" });
+    assert.ok("brands" in searched);
+    assert.equal(searched.logoMissing, 1);
     assert.equal(missing.total, 2);
     assert.ok(missing.brands.every(row => row.logo === null && row.logoSource === null));
     const present = await matching.productMatchingData({ tab: "brands", logo: "present" });
@@ -189,6 +212,12 @@ describe("store resolution and admin list", () => {
     await schema.pool.query("SELECT brand_merge($1,$2,$3)", [brands.TINY, brands.NOLOGO, admin]);
     assert.equal(await sha(brands.NOLOGO), moved);
     assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM brand_logos WHERE brand_id=$1", [brands.TINY])).rows[0].n, 0);
+    // A real logo replaces a target that only hides its logo.
+    const hidden = await brand("HIDDEN", "HIDDEN", [["seta", "HIDDEN", 1]]);
+    await logoStore.hideBrandLogo(schema.pool, hidden, admin);
+    await schema.pool.query("SELECT brand_merge($1,$2,$3)", [brands.NOLOGO, hidden, admin]);
+    assert.equal(await sha(hidden), moved);
+    brands.NOLOGO = hidden;
     await schema.pool.query("DELETE FROM supplier_brands WHERE brand_id=$1", [brands.NOLOGO]);
     await schema.pool.query("DELETE FROM brands WHERE id=$1", [brands.NOLOGO]);
     assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM brand_logos WHERE brand_id=$1", [brands.NOLOGO])).rows[0].n, 0);

@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import sharp from "sharp";
 import { brandLogoLimits } from "./brand-logo-limits";
 import { oneAtATime } from "./product-image-upload";
@@ -11,7 +12,15 @@ const maxPixels = 25_000_000;
 const minDensity = 72;
 const maxDensity = 2400;
 
-export type BrandLogoErrorReason = "type" | "size" | "dimensions" | "unreadable";
+// SVG limits checked on the markup before librsvg renders it: sharp's timeout does not stop librsvg, so a few KB of
+// nested <use> or a filter could hold the shared image queue for many seconds. Real logos stay well below these.
+const svgLimits = { elements: 3000, uses: 16 } as const;
+
+/**
+ * `complex`: an SVG with filters, entities or too many elements / <use> references; `text`: an SVG with live text
+ * (the server has no fonts, so text must be converted to paths); `empty`: the converted logo is fully transparent.
+ */
+export type BrandLogoErrorReason = "type" | "size" | "dimensions" | "unreadable" | "complex" | "text" | "empty";
 export class BrandLogoError extends Error {
   constructor(readonly reason: BrandLogoErrorReason) {
     super(`Brand logo rejected: ${reason}`);
@@ -37,6 +46,7 @@ async function convert(raw: Buffer): Promise<PreparedBrandLogo> {
   const meta = await sharp(raw, { limitInputPixels: false }).metadata().catch(() => { throw new BrandLogoError("unreadable"); });
   if (!["jpeg", "png", "webp", "svg"].includes(meta.format ?? "") || (meta.pages ?? 1) > 1) throw new BrandLogoError("type");
   if (!meta.width || !meta.height) throw new BrandLogoError("unreadable");
+  if (meta.format === "svg") checkSvg(raw);
   const density = meta.format === "svg"
     ? Math.min(maxDensity, Math.max(minDensity, 72 * Math.min(brandLogoLimits.maxWidth / meta.width, brandLogoLimits.maxHeight / meta.height)))
     : undefined;
@@ -50,8 +60,25 @@ async function convert(raw: Buffer): Promise<PreparedBrandLogo> {
     return image.resize(brandLogoLimits.maxWidth, brandLogoLimits.maxHeight, { fit: "inside", withoutEnlargement: true })
       .webp({ quality: 90, alphaQuality: 100 }).timeout({ seconds: 10 }).toBuffer({ resolveWithObject: true });
   };
-  // A logo that is one plain colour has nothing to trim; it is kept untrimmed.
-  const { data, info } = await render(true).catch(() => render(false)).catch(() => { throw new BrandLogoError("unreadable"); });
+  // Only a failure of the trim itself is retried untrimmed; a timeout or a pixel limit is not run twice.
+  const { data, info } = await render(true)
+    .catch((error: unknown) => { if (error instanceof Error && /trim/i.test(error.message)) return render(false); throw error; })
+    .catch(() => { throw new BrandLogoError("unreadable"); });
   if (data.length > brandLogoLimits.maxBytes) throw new BrandLogoError("size");
+  const stats = await sharp(data).stats().catch(() => { throw new BrandLogoError("unreadable"); });
+  if (stats.channels.length === 4 && stats.channels[3].max === 0) throw new BrandLogoError("empty");
   return { bytes: data, width: info.width, height: info.height, sha256: createHash("sha256").update(data).digest("hex") };
+}
+
+/** Rejects SVG markup that would be slow to render or render wrong on a server without fonts (see svgLimits). */
+function checkSvg(raw: Buffer) {
+  let markup: string;
+  try {
+    // SVGZ: inflated up to the upload limit only.
+    markup = (raw[0] === 0x1f && raw[1] === 0x8b ? gunzipSync(raw, { maxOutputLength: brandLogoLimits.maxBytes }) : raw).toString("utf8");
+  } catch { throw new BrandLogoError("complex"); }
+  const count = (pattern: RegExp) => markup.match(pattern)?.length ?? 0;
+  if (/<!ENTITY/i.test(markup) || /<(?:[\w-]+:)?(?:filter|fe[A-Z]\w*)[\s/>]/.test(markup)) throw new BrandLogoError("complex");
+  if (count(/<(?:[\w-]+:)?[A-Za-z][\w.-]*/g) > svgLimits.elements || count(/<(?:[\w-]+:)?use[\s/>]/g) > svgLimits.uses) throw new BrandLogoError("complex");
+  if (/<(?:[\w-]+:)?(?:text|tspan|textPath)[\s/>]/.test(markup)) throw new BrandLogoError("text");
 }

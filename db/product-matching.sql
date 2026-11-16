@@ -160,7 +160,9 @@ BEGIN
  IF source IS NULL OR target IS NULL OR source=target OR NOT EXISTS (SELECT 1 FROM brands WHERE id=target) THEN RETURN NULL; END IF;
  PERFORM pg_advisory_xact_lock(20261001,7);
  UPDATE supplier_brands SET brand_id=target, method='manual', decided_by=actor, decided_at=now() WHERE brand_id=source;
- -- The merged brand's admin logo moves along unless the target has its own.
+ -- The merged brand's admin logo moves along unless the target has its own; a real logo replaces the target's hidden mark.
+ DELETE FROM brand_logos WHERE brand_id=target AND image_data IS NULL
+  AND EXISTS (SELECT 1 FROM brand_logos WHERE brand_id=source AND image_data IS NOT NULL);
  UPDATE brand_logos SET brand_id=target WHERE brand_id=source AND NOT EXISTS (SELECT 1 FROM brand_logos WHERE brand_id=target);
  DELETE FROM brands WHERE id=source;
  UPDATE brands SET updated_at=now() WHERE id=target;

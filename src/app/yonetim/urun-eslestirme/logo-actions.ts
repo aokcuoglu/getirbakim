@@ -19,6 +19,9 @@ const logoFailures: Record<BrandLogoErrorReason, string> = {
   size: `Logo en çok ${brandLogoLimits.maxBytes / 1024 / 1024} MB olabilir.`,
   dimensions: `Logonun iki kenarı da en az ${brandLogoLimits.minSide} piksel olmalı (en çok 25 megapiksel).`,
   unreadable: "Logo okunamadı; dosya bozuk olabilir.",
+  complex: "SVG logo çok karmaşık (filtre, çok sayıda öğe veya iç içe kullanım). Sadeleştirin ya da PNG yükleyin.",
+  text: "SVG logodaki yazılar eğriye çevrilmeli (ya da PNG yükleyin).",
+  empty: "Logo boş görünüyor.",
 };
 const remoteFailures = remoteImageMessages({ typesText: "PNG, SVG, WebP veya JPEG", sizeText: logoFailures.size });
 const notFound: BrandLogoActionResult = { status: "error", message: "Ana marka bulunamadı. Sayfayı yenileyin." };
