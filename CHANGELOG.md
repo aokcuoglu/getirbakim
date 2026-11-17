@@ -2,6 +2,40 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.30.0 — 2026-11-17
+
+Release of `dev` since v0.29.0 (41 pull requests): mobile storefront, structured checkout address and TAMI installments, product feed, hidden-OEM data rules, enrichment tombstones and admin tooling. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Mobile storefront:** consistent header with 44px controls and clean search suggestions ([#895](https://github.com/aokcuoglu/getirbakim/pull/895)); listing with products first, compact grid cards and honest stock/fitment badges ([#901](https://github.com/aokcuoglu/getirbakim/pull/901)); product page sticky purchase bar ([#892](https://github.com/aokcuoglu/getirbakim/pull/892)); cart and checkout with sticky total bar ([#887](https://github.com/aokcuoglu/getirbakim/pull/887)); home and vehicle picker polish ([#906](https://github.com/aokcuoglu/getirbakim/pull/906)); filter bottom sheet with result count and removable chips ([#920](https://github.com/aokcuoglu/getirbakim/pull/920)).
+- **Garage-vehicle fits first** on listings and search ([#927](https://github.com/aokcuoglu/getirbakim/pull/927)).
+- **Checkout:** structured delivery address (il/ilçe) and invoice details ([#907](https://github.com/aokcuoglu/getirbakim/pull/907)); payment options with installment fee on the TAMI hosted page, off until enabled in the panel ([#897](https://github.com/aokcuoglu/getirbakim/pull/897)); installment payments flagged ([#875](https://github.com/aokcuoglu/getirbakim/pull/875)).
+- **Google Merchant / Meta product feed** ([#904](https://github.com/aokcuoglu/getirbakim/pull/904)).
+- **Content:** guide section, real FAQ and expanded about page ([#863](https://github.com/aokcuoglu/getirbakim/pull/863)); founding year on the about page and Organization JSON-LD ([#872](https://github.com/aokcuoglu/getirbakim/pull/872)).
+- **Hidden supplier OEM:** no longer forms OEM equivalents ([#868](https://github.com/aokcuoglu/getirbakim/pull/868)) and OEM-matched enrichment (fitments, specs, images, category placement) is ignored while hidden ([#903](https://github.com/aokcuoglu/getirbakim/pull/903), [#930](https://github.com/aokcuoglu/getirbakim/pull/930)).
+- **Enrichment tombstones:** locally deleted enrichments are removed on AWS by the storefront sync ([#889](https://github.com/aokcuoglu/getirbakim/pull/889)).
+- **Categories:** spareto via the Trodo tree ([#853](https://github.com/aokcuoglu/getirbakim/pull/853)), parts2world via TecDoc part type ([#854](https://github.com/aokcuoglu/getirbakim/pull/854)), held backfills released in one batch ([#856](https://github.com/aokcuoglu/getirbakim/pull/856)), curated part-type aliases and manual mappings ([#867](https://github.com/aokcuoglu/getirbakim/pull/867)).
+- **Admin:** manual product list price, discount and stock editing ([#891](https://github.com/aokcuoglu/getirbakim/pull/891)); all manual lists in one bulk CSV ([#905](https://github.com/aokcuoglu/getirbakim/pull/905)); paginated bulk CSV drafts ([#874](https://github.com/aokcuoglu/getirbakim/pull/874)); list price and discount columns in the xlsx template ([#864](https://github.com/aokcuoglu/getirbakim/pull/864)); partial fitment copy by model/brand with a 1000 decision limit ([#890](https://github.com/aokcuoglu/getirbakim/pull/890)); grouped/paged fitment history with one-step undo of a bulk add or copy ([#870](https://github.com/aokcuoglu/getirbakim/pull/870)); price ratio and pack hints on suffix candidates ([#919](https://github.com/aokcuoglu/getirbakim/pull/919)).
+
+### Changed
+- Listing pages show 24 products ([#862](https://github.com/aokcuoglu/getirbakim/pull/862)).
+- Live checkout check: refuses sold-out or repriced lines, bounded Dinamik check, judged by sale price with a shared sale-price formula ([#866](https://github.com/aokcuoglu/getirbakim/pull/866), [#885](https://github.com/aokcuoglu/getirbakim/pull/885), [#926](https://github.com/aokcuoglu/getirbakim/pull/926)).
+- Supplier sync: a list that only adds products without stock/price rows is no longer rejected ([#858](https://github.com/aokcuoglu/getirbakim/pull/858)); a daily list's quality rejection waits for its next daily run and alarms once ([#917](https://github.com/aokcuoglu/getirbakim/pull/917)).
+- Enrichment worker startup and pending selection no longer block `/yonetim/urun-verileri` ([#928](https://github.com/aokcuoglu/getirbakim/pull/928)); matcher locks scoped per schema ([#859](https://github.com/aokcuoglu/getirbakim/pull/859)).
+
+### Fixed
+- Storefront export retries media reads on local MinIO clock skew ([#909](https://github.com/aokcuoglu/getirbakim/pull/909)).
+- Model years in the fitment copy picker; brand named once in product titles ([#896](https://github.com/aokcuoglu/getirbakim/pull/896)).
+- Tests and docs: Dinamik budget test clock ([#922](https://github.com/aokcuoglu/getirbakim/pull/922)), TopluMalzemeAra findings ([#918](https://github.com/aokcuoglu/getirbakim/pull/918)), suffix second-signal measurement ([#900](https://github.com/aokcuoglu/getirbakim/pull/900)).
+
+### Deploy and operations
+- **`db:setup` is required and must run before the new code** (columns for [#907](https://github.com/aokcuoglu/getirbakim/pull/907) / [#897](https://github.com/aokcuoglu/getirbakim/pull/897), views for [#901](https://github.com/aokcuoglu/getirbakim/pull/901) / [#903](https://github.com/aokcuoglu/getirbakim/pull/903) / [#930](https://github.com/aokcuoglu/getirbakim/pull/930), tombstone table and triggers for [#889](https://github.com/aokcuoglu/getirbakim/pull/889)); `release-aws` runs it first. Vehicle oil specs are unchanged.
+- **Hidden OEM ([#903](https://github.com/aokcuoglu/getirbakim/pull/903)) applies retroactively:** products whose supplier OEM is already hidden on AWS lose OEM-matched fitments/specs/images/category placement unless another valid source exists.
+- **Tombstones ([#889](https://github.com/aokcuoglu/getirbakim/pull/889)):** deletions sent before this release are applied by the first storefront sync after it. Check `npm run storefront:sync -- --dry-run` (`tombstones`); the cap is 1000 (`--max-deletions`).
+- **Installments ([#897](https://github.com/aokcuoglu/getirbakim/pull/897)):** stay off until enabled in the panel; finish the legal text (#893) first.
+- **Product feed ([#904](https://github.com/aokcuoglu/getirbakim/pull/904)):** needs operations env (`APP_ENV`, `SITE_URL`, `S3_BUCKET`, `S3_REGION`), IAM on `feeds/*`, CloudFront `/feeds/*`, WAF allowance for Merchant Center / `facebookexternalhit`, and a 4×/day schedule; first run with `--dry-run`. Merchant Center domain claim, shipping and return policy at account level.
+- Local only: after `db:setup`, restart the enrichment workers from the current checkout (they re-apply `db/enrichment-products.sql`); category backfills of [#853](https://github.com/aokcuoglu/getirbakim/pull/853) / [#854](https://github.com/aokcuoglu/getirbakim/pull/854) / [#856](https://github.com/aokcuoglu/getirbakim/pull/856) are released locally on a chosen night and reach AWS through `storefront:sync`.
+
 ## v0.29.0 — 2026-11-16
 
 Release of `dev` since v0.28.0 (31 pull requests): search synonyms and analytics, manual bulk CSV and admin tooling. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
