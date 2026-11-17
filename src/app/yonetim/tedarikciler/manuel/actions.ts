@@ -4,9 +4,10 @@ import { redirect, RedirectType } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
-import { imageLink, normalizePackage, normalizeViscosity, parseDecimal, parseManualWorkbook } from "@/modules/suppliers/manual-template";
+import { imageLink, normalizePackage, normalizeViscosity, parseManualWorkbook } from "@/modules/suppliers/manual-template";
 import { importManualDraft, listSlug, ManualImportError, manualCategories, saveManualDraft, updateManualItem } from "@/modules/suppliers/manual-import";
 import { parseManualBulkCsv } from "@/modules/suppliers/manual-bulk-csv";
+import { readManualPriceEdit } from "@/modules/suppliers/manual-item-form";
 import { applyManualBulkDraft, saveManualBulkDraft } from "@/modules/suppliers/manual-bulk";
 
 const base = "/yonetim/tedarikciler/manuel";
@@ -119,35 +120,18 @@ const text = (form: FormData, key: string, max: number) => {
   return value ? value.slice(0, max) : null;
 };
 
-/** Not edited (the form shows what it sent back as `was_*`) = undefined; emptied = null. */
-const edited = <T>(value: T | null, was: T | null, same: (a: T, b: T) => boolean) =>
-  value === null ? was === null ? undefined : null : was !== null && same(value, was) ? undefined : value;
-
 export async function saveManualItem(form: FormData) {
   const admin = await requireAdmin();
   const id = z.uuid().safeParse(form.get("id"));
   if (!id.success) redirect(base);
   const back = `${base}/urun/${id.data}`;
-  const number = (key: string) => parseDecimal(text(form, key, 40));
-  const [list, discount, stock, wasList, wasDiscount, wasStock] = ["listPrice", "discount", "stock", "was_listPrice", "was_discount", "was_stock"].map(number);
   const image = imageLink(text(form, "imageUrl", 2000));
-  const input = z.object({
-    list: z.number().positive().refine(value => Number(value.toFixed(4)) === value).nullable(),
-    discount: z.number().min(0).max(100).nullable(),
-    stock: z.number().int().min(0).nullable(),
-  }).refine(value => value.list !== null || value.discount === null).safeParse({ list, discount, stock });
-  if (!input.success || image.ignored) redirect(`${back}?error=input`, RedirectType.replace);
-  const values = input.data;
-  // A hidden value the form did not produce (tampered) counts as changed.
-  const was = (value: number | null | "invalid") => typeof value === "number" ? value : null;
-  const shownList = was(wasList);
-  const pricing = edited(values.list === null ? null : { list: values.list, discount: values.discount ?? 0 },
-    shownList === null ? null : { list: shownList, discount: was(wasDiscount) ?? 0 },
-    (a, b) => a.list === b.list && a.discount === b.discount);
+  const priceEdit = readManualPriceEdit(key => text(form, key, 40));
+  if (priceEdit === "invalid" || image.ignored) redirect(`${back}?error=input`, RedirectType.replace);
   let error = "", detail = "", changed = false;
   try {
     ({ changed } = await updateManualItem(db, id.data, {
-      pricing, stock: edited(values.stock, was(wasStock), (a, b) => a === b),
+      ...priceEdit,
       barcode: text(form, "barcode", 40)?.replace(/\s/g, "") ?? null, description: text(form, "description", 3000),
       viscosity: normalizeViscosity(text(form, "viscosity", 60)), package: normalizePackage(text(form, "package", 60)),
       approvals: text(form, "approvals", 1000), imageUrl: image.url,

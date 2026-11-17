@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Pool } from "pg";
 import { activeBulk, bulkFileCells, fileFilled, ManualImportError, manualPricing, panelOverrides, updateManualItem, withOverrides, type downloadImage, type ManualItemEdit, type ManualOverrides, type ManualValues } from "../src/modules/suppliers/manual-import";
+import { readManualPriceEdit } from "../src/modules/suppliers/manual-item-form";
 
 // updateManualItem against a recorded fake pool: no database, the statements and their order are what is checked.
 const itemId = "da883a2e-1351-430e-a296-0a46c114a546";
@@ -186,4 +187,32 @@ test("a panel price gives way once the upload's cell changes, like a CSV value",
   const changed = { ...file, price: 900 };
   assert.deepEqual(activeBulk(changed, overrides), { stock: { value: 7, file: 3, by: "panel" } });
   assert.equal(withOverrides(changed, overrides).price, 900);
+});
+
+const form = (values: Record<string, string>) => (key: string) => values[key]?.trim() || null;
+
+test("the item form saves only the price or stock group the admin changed, and validates only that group", () => {
+  const shown = { was_listPrice: "812.5", was_discount: "0", was_stock: "3", listPrice: "812.5", discount: "0", stock: "3" };
+  assert.deepEqual(readManualPriceEdit(form(shown)), {});
+  // Turkish decimals equal to the shown value are not an edit.
+  assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "812,50", discount: "" })), {});
+  assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "1.000,5", discount: "12,5" })), { pricing: { list: 1000.5, discount: 12.5 } });
+  assert.deepEqual(readManualPriceEdit(form({ ...shown, stock: "0" })), { stock: 0 });
+  assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "", discount: "", stock: "" })), { pricing: null, stock: null });
+  // Emptying the list price leaves the prefilled 0 discount: that is not a discount without a list price.
+  assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "" })), { pricing: null });
+  for (const changed of [{ discount: "120" }, { listPrice: "0" }, { listPrice: "10.12345" }, { listPrice: "", discount: "5" }, { listPrice: "abc" },
+    { stock: "1,5" }, { stock: "1.000" }, { stock: "-1" }])
+    assert.equal(readManualPriceEdit(form({ ...shown, ...changed })), "invalid", JSON.stringify(changed));
+});
+
+test("an untouched price with more than four decimals does not block saving the description", async () => {
+  const precise = { ...file, price: 812.12345 };
+  const shown = { was_listPrice: "812.12345", was_discount: "0", was_stock: "3", listPrice: "812.12345", discount: "0", stock: "3" };
+  const edit = readManualPriceEdit(form(shown));
+  assert.deepEqual(edit, {});
+  assert.notEqual(edit, "invalid");
+  const saved = await save({ ...(edit as ManualItemEdit), description: "Yeni" }, { file: precise });
+  assert.deepEqual(saved.fields, { description: "Yeni" });
+  assert.deepEqual([saved.price, saved.stock], [{ nf: 812.12345 }, { stok: 3 }]);
 });

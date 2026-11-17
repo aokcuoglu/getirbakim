@@ -27,7 +27,7 @@ const labels: Record<FormField, { label: string; hint: string }> = {
   imageUrl: { label: "Resim linki", hint: "Doğrudan resim dosyası linki; kaydederken indirilir." },
 };
 const errors: Record<string, string> = {
-  input: "Liste fiyatı sıfırdan büyük (en fazla dört ondalık), iskonto 0–100, stok sıfır ya da pozitif tam sayı olmalı; iskonto liste fiyatı olmadan girilemez; resim linki doğrudan bir resim dosyasına gitmeli.",
+  input: "Kaydedilmedi; değerleri kontrol edin. Liste fiyatı sıfırdan büyük olmalı (en fazla dört ondalık). İskonto 0–100 arasında olmalı ve liste fiyatı olmadan girilemez. Stok sıfır ya da pozitif tam sayı olmalı. Resim linki doğrudan bir resim dosyasına gitmeli.",
   invalid: "Değer kaydedilemedi",
   busy: "Başka bir manuel liste işlemi sürüyor. Biraz sonra yeniden deneyin.",
   locked: "Ürün şu anda başka bir işlemde (ör. ürün eşleştirme) güncelleniyor; kayıt yapılmadı. Bir iki dakika sonra yeniden deneyin.",
@@ -72,8 +72,8 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
           <form action={saveManualItem} className="flex flex-col gap-4">
             <input type="hidden" name="id" value={item.id}/>
             <FieldGroup className="grid gap-4 md:grid-cols-2">
-              {/* Keyed by the saved values: after a save (or a CSV) the fields start again from what is in force. */}
-              <ManualPriceFields key={`${shown.list}|${shown.discount}|${shown.stock}`} {...shown}
+              {/* Keyed by what is saved: after every save (or a CSV) the fields start again from the values in force. */}
+              <ManualPriceFields key={`${item.changed_at.getTime()}|${JSON.stringify(overrides)}|${shown.list}|${shown.discount}|${shown.stock}`} {...shown}
                 priceSource={source("price")} stockSource={source("stock")} fileNote={fileNote}/>
               {formFields.map(field => <Field key={field} className={field === "description" || field === "imageUrl" || field === "approvals" ? "md:col-span-2" : undefined}>
                 <FieldLabel htmlFor={`manual-${field}`}>{labels[field].label}{fromFile(field) ? <Badge variant="outline">Dosyadan</Badge> : overrides[field] !== undefined ? <Badge variant="info">Panelden</Badge> : null}</FieldLabel>
