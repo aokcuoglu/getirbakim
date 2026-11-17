@@ -23,7 +23,7 @@ export function CheckoutErrorAlert({ error, errors }: { error: CheckoutError; er
   if (!lines) return <Alert className={checkoutAlertClass}>{Object.hasOwn(errors, error.code) ? errors[error.code] : errors.stock}</Alert>;
   return <Alert className={checkoutAlertClass}>
     <p className="m-0 font-semibold">{lines.title}</p>
-    <ul className="my-1.5 list-disc pl-5">{error.names.map(name => <li key={name}>{name}</li>)}</ul>
+    <ul className="my-1.5 list-disc pl-5">{error.names.map((name, index) => <li key={`${index}-${name}`}>{name}</li>)}</ul>
     <p className="m-0">{lines.action}{lines.cart && <> <Link href="/sepet" className="font-semibold underline">Sepete git</Link></>}</p>
   </Alert>;
 }
