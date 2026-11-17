@@ -59,6 +59,7 @@ test("the checkout input refuses an incomplete or inconsistent address or invoic
     ["unknown invoice type", { ...valid, invoiceType: "other" }],
     ["corporate without title", { ...corporate, invoiceCompany: "" }],
     ["corporate with a nine-digit tax number", { ...corporate, invoiceTaxNo: "123456789" }],
+    ["corporate with a ten-digit number failing the VKN check digit", { ...corporate, invoiceTaxNo: "1234567891" }],
     ["corporate with an eleven-digit number failing the TC check digits", { ...corporate, invoiceTaxNo: "12345678901" }],
     ["corporate with an eleven-digit number starting with 0", { ...corporate, invoiceTaxNo: "01234567890" }],
     ["corporate with a twelve-digit tax number", { ...corporate, invoiceTaxNo: "123456789012" }],
@@ -104,16 +105,21 @@ test("the first refused field with its own message is reported, so the page can 
 });
 
 test("a corporate tax id is a 10-digit VKN or an 11-digit TC kimlik no that passes its check digits", () => {
-  for (const id of ["1234567890", "0000000000", "10000000146", "12345678950", "11111111110"]) assert.equal(validTaxId(id), true, id);
+  for (const id of [
+    "1234567890", "0000000001", "1000000000", "9999999994", "4710000005", // VKN
+    "10000000146", "12345678950", "11111111110", // TC kimlik no
+  ]) assert.equal(validTaxId(id), true, id);
   for (const id of [
     "123456789", "123456789012", "12345abcde", "", " 1234567890",
+    "0000000000", "1234567891", "9999999999", // VKN check digit wrong
     "10000000147", // 11th digit wrong
     "10000000156", // 10th digit wrong (11th recomputed: 1+5=6)
     "01234567890", // starts with 0
     "00000000000",
   ]) assert.equal(validTaxId(id), false, id);
-  // Each single-digit change of a valid TC kimlik no in its check digits is refused.
+  // Each single-digit change of a valid VKN or TC kimlik no in its check digits is refused.
   for (let digit = 0; digit <= 9; digit++) {
+    if (digit !== 0) assert.equal(validTaxId(`123456789${digit}`), false, `VKN ${digit}`);
     if (digit !== 4) assert.equal(validTaxId(`100000001${digit}6`), false, `10th ${digit}`);
     if (digit !== 6) assert.equal(validTaxId(`1000000014${digit}`), false, `11th ${digit}`);
   }

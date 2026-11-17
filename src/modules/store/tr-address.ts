@@ -38,16 +38,28 @@ export type InvoiceType = keyof typeof invoiceTypes;
 export type InvoiceDetails = { invoice_type: InvoiceType | null; invoice_company: string | null; invoice_tax_no: string | null; invoice_tax_office: string | null };
 
 /**
- * A corporate invoice's tax id: a company's 10-digit VKN, or a sole proprietor's 11-digit TC kimlik no, which must pass
- * its check digits (first digit not 0; the 10th is (7 × odd-position sum − even-position sum of the first nine) mod 10,
- * the 11th is the sum of the first ten mod 10).
+ * A corporate invoice's tax id: a company's 10-digit VKN or a sole proprietor's 11-digit TC kimlik no, each passing its
+ * check digits. VKN (#916): for each of the first nine digits d at index i, t = (d + 9 − i) mod 10 adds 0 when t is 0,
+ * else (t × 2^(9 − i)) mod 9 with 0 read as 9; the 10th digit is (10 − sum mod 10) mod 10. TC kimlik no: first digit
+ * not 0; the 10th is (7 × odd-position sum − even-position sum of the first nine) mod 10, the 11th is the sum of the
+ * first ten mod 10.
  */
 export function validTaxId(value: string) {
-  if (/^\d{10}$/.test(value)) return true;
+  if (/^\d{10}$/.test(value)) return validVkn(value);
   if (!/^[1-9]\d{10}$/.test(value)) return false;
   const d = [...value].map(Number);
   const odd = d[0] + d[2] + d[4] + d[6] + d[8], even = d[1] + d[3] + d[5] + d[7];
   return ((odd * 7 - even) % 10 + 10) % 10 === d[9] && d.slice(0, 10).reduce((sum, digit) => sum + digit, 0) % 10 === d[10];
+}
+
+function validVkn(value: string) {
+  const d = [...value].map(Number);
+  let sum = 0;
+  for (let i = 0; i < 9; i++) {
+    const t = (d[i] + 9 - i) % 10;
+    if (t !== 0) sum += (t * 2 ** (9 - i)) % 9 || 9;
+  }
+  return (10 - sum % 10) % 10 === d[9];
 }
 
 /** "<unvan> · Vergi/TC kimlik no <no> · <vergi dairesi> V.D." for a corporate invoice; null for an individual one or an order without it. */
