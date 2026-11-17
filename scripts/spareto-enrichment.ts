@@ -27,6 +27,7 @@ import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {acquireSourceLock,tryExclusiveRun,withSourceLock} from '../src/modules/enrichment/source-lock';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
+import {pendingSuppliers} from '../src/modules/enrichment/pending-queue';
 import {categoriesForType,loadTypeCategoriesOrEmpty,typeSlug} from '../src/modules/enrichment/type-categories';
 import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
 import {createFitmentMatcher,type FitmentCatalogModel,type FitmentCatalogType} from '../src/modules/store/fitment-matcher';
@@ -73,31 +74,8 @@ const partialSql=`SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)
  LEFT JOIN product_sources ps ON ps.supplier_item_id=s.id
  WHERE j.status=$1 AND e.source_url LIKE '${SPARETO}/%' AND NOT EXISTS(SELECT 1 FROM product_sources other JOIN product_enrichment_jobs done ON done.supplier_item_id=other.supplier_item_id
   WHERE other.product_id=ps.product_id AND done.status='complete')`;
-// Pending products in the Trodo catalog pass's tiers: in stock, other storefront items, then items no longer offered.
-// Within a tier, brands spareto finds and Trodo does not come first (#380): spareto's hit rate (its searches so far,
-// from enrichment_source_attempts) times Trodo's miss rate (its finished run items), so brands Trodo matches well are
-// left to it and both sources add products the other would not. While Trodo's host is blocked it collects nothing, so
-// its rates are dropped and spareto orders by its own hit rate alone (#390). A brand either source tried fewer than 5 times
-// counts as 0.5 for that source, between the known-good and the known-absent; then the tier's reverse hash order.
-// The brand rates travel as jsonb parameters: a join would make the planner walk the rate list once per pending row
-// (37 s a chunk, or minutes once the tried-id list is long). Products in an unfinished Trodo run are left to it; the
-// next chunk is read only when this one is done.
-const brandRateSql=`SELECT COALESCE(jsonb_object_agg(brand,hit),'{}'::jsonb) AS rates FROM (SELECT b.supplier_brand AS brand,
-  count(*) FILTER (WHERE a.outcome='found')::float/count(*) AS hit FROM enrichment_source_attempts a
-  JOIN product_enrichment_jobs b ON b.supplier_item_id=a.supplier_item_id
-  WHERE a.source='spareto' AND a.outcome IN ('found','not_found') GROUP BY 1 HAVING count(*)>=5) r`;
-const trodoRateSql=`SELECT COALESCE(jsonb_object_agg(supplier_brand,hit),'{}'::jsonb) AS rates FROM (SELECT supplier_brand,
-  count(*) FILTER (WHERE status IN ('complete','partial'))::float/count(*) AS hit FROM enrichment_run_items
-  WHERE status IN ('complete','partial','review','not_found') GROUP BY 1 HAVING count(*)>=5) r
-  WHERE NOT EXISTS(SELECT 1 FROM enrichment_source_hosts WHERE host='www.trodo.com' AND blocked)`;
-const pendingSql=`SELECT j.supplier_item_id AS id,s.code,
- COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
- (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)) AS "masterBrand"
- FROM enrichment_product_catalog j JOIN supplier_items s ON s.id=j.supplier_item_id LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
- WHERE j.status='pending' AND j.supplier_brand<>'' AND NOT (j.supplier_item_id=ANY($1::uuid[]))
-  AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.product_id=j.product_id AND r.status IN ('prepared','running','blocked','stopped'))
- ORDER BY CASE WHEN c.id IS NULL THEN 3 WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1 ELSE 2 END,
-  COALESCE(($3::jsonb->>j.supplier_brand)::float,0.5)*(1-COALESCE(($4::jsonb->>j.supplier_brand)::float,0.5)) DESC,md5(j.product_id::text) DESC LIMIT $2`;
+// Pending products are read through pendingSuppliers (src/modules/enrichment/pending-queue.ts): the Trodo catalog
+// pass's tiers, brands spareto finds and Trodo does not first (#380), products in an unfinished Trodo run left to it.
 
 class DatabaseUnavailable extends Error {}
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
@@ -143,7 +121,7 @@ async function downloadImage(client:SparetoClient,url:string|null,id:string){
 
 const describe=(basis:NonNullable<ReturnType<typeof identify>>)=>basis.type==='exact_part'?'exact brand/part verified'
  :basis.type==='oem_reference'?'original OEM verified: '+basis.reference:`cross reference verified: ${basis.referenceBrand} ${basis.reference}`;
-/** Suppliers to search: the status's whole list, or pending chunks read as the previous chunk is finished. */
+/** Suppliers to search: the status's whole list, or pending chunks read as the previous chunk is finished (#921). */
 async function* suppliers(done:Map<string,Entry>,limit:number,retry:boolean,ids:string[]|null):AsyncGenerator<Supplier&{id:string}>{
  if(status!=='pending'){
   const rows=(await pool.query<Supplier&{id:string}>(`SELECT * FROM (${status==='partial'?partialSql:supplierSql}${ids?' AND j.supplier_item_id=ANY($2::uuid[])':''}
@@ -151,14 +129,7 @@ async function* suppliers(done:Map<string,Entry>,limit:number,retry:boolean,ids:
    .filter(row=>retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id)).slice(0,limit);
   yield* rows;return;
  }
- const tried=new Set(done.keys());let left=limit;
- while(left>0){
-  const rates=(await pool.query<{rates:unknown}>(brandRateSql)).rows[0].rates;
-  const trodoRates=(await pool.query<{rates:unknown}>(trodoRateSql)).rows[0].rates;
-  const rows=(await pool.query<Supplier&{id:string}>(pendingSql,[[...tried],Math.min(left,200),JSON.stringify(rates),JSON.stringify(trodoRates)])).rows;
-  if(!rows.length)return;
-  for(const row of rows){tried.add(row.id);left--;yield row;}
- }
+ yield* pendingSuppliers(pool,new Set(done.keys()),limit);
 }
 async function vehicleRows(client:SparetoClient,page:ProductPage,maxModels:number){
  const rows:FitmentRow[]=[];let fetched=0;

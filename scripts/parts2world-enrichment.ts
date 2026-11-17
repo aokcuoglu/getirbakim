@@ -202,7 +202,8 @@ type Row=Supplier&{id:string;articleId:string;linkId:string;vehicleTypeId:number
 // One supplier row per master product (present rows first). A product another row already enriched is skipped; for the
 // partial queue only a complete one. Pending, like Trodo and spareto, takes only storefront catalog products still
 // pending there (a supplier row linked to no master product is not in the catalog, #386), goes in the Trodo pass's
-// stock tiers and leaves products in an unfinished Trodo run to it.
+// stock tiers and leaves products in an unfinished Trodo run to it. The pending check reads the materialized
+// enrichment_product_states (synced first): the catalog view is rebuilt per product (#921).
 const queueSql=(withIds:boolean)=>`SELECT id,code,brand,oem,make,"masterBrand","articleId","linkId","vehicleTypeId","oemReference" FROM (
  SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)) j.supplier_item_id AS id,${supplierColumns},
   a.article_id::text AS "articleId",a.link_id::text AS "linkId",a.vehicle_type_id AS "vehicleTypeId",m.oem_reference AS "oemReference",
@@ -213,7 +214,7 @@ const queueSql=(withIds:boolean)=>`SELECT id,code,brand,oem,make,"masterBrand","
  WHERE j.status=$1${withIds?' AND j.supplier_item_id=ANY($2::uuid[])':''}
   AND NOT EXISTS(SELECT 1 FROM product_sources other JOIN product_enrichment_jobs done ON done.supplier_item_id=other.supplier_item_id
    WHERE other.product_id=ps.product_id AND done.status IN (${status==='partial'?"'complete'":"'complete','partial'"}))
-  ${status==='pending'?`AND EXISTS(SELECT 1 FROM enrichment_product_catalog pc WHERE pc.product_id=ps.product_id AND pc.status='pending')
+  ${status==='pending'?`AND EXISTS(SELECT 1 FROM enrichment_product_states pc WHERE pc.product_id=ps.product_id AND pc.status='pending')
    AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id
    WHERE i.product_id=ps.product_id AND r.status IN ('prepared','running','blocked','stopped'))`:''}
  ORDER BY COALESCE(ps.product_id,j.supplier_item_id),s.presence='present' DESC,j.supplier_item_id) x
@@ -271,6 +272,7 @@ async function collect(){
   if(!dryRun){const flushed=await flush();if(flushed.imported||flushed.skipped)console.log(JSON.stringify({pendingWritten:flushed}));}
   const done=await entries(),limit=Number(option('limit')||50),retry=args.includes('--retry');
   const ids=option('ids')?(await readFile(option('ids')!,'utf8')).split(/\s+/).filter(Boolean):null;
+  if(status==='pending')await pool.query('SELECT enrichment_product_states_sync()');
   const rows=(await pool.query<Row>(queueSql(Boolean(ids)),ids?[status,ids]:[status])).rows
    .filter(row=>retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id)).slice(0,limit);
   const catalog=new Map((await pool.query<CatalogType>(`SELECT t.id,b.name AS brand,m.name AS model,t.name,t.fuel_type,t.cc,t.hp,t.kwt,
