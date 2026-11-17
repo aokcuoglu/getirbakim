@@ -107,7 +107,7 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
   const checked = { necessary: true, analytics, marketing };
   const setters = { necessary: undefined, analytics: setAnalytics, marketing: setMarketing };
 
-  return <section data-nosnippet="" aria-labelledby="cookie-title" className="fixed inset-x-0 bottom-0 z-90 max-h-[85dvh] overflow-y-auto overscroll-contain border-t border-[#cbd2d9] bg-white text-foreground shadow-[0_-4px_20px_#212b360d]">
+  return <section data-nosnippet="" aria-labelledby="cookie-title" className="fixed inset-x-0 bottom-0 z-90 max-h-[85dvh] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] overflow-y-auto overscroll-contain border-t border-[#cbd2d9] bg-white text-foreground shadow-[0_-4px_20px_#212b360d]">
     <div className="mx-auto max-w-[1404px] px-[38px] pt-[18px] pb-[calc(10px+env(safe-area-inset-bottom))] max-[600px]:p-4 max-[600px]:pb-[calc(16px+env(safe-area-inset-bottom))]">
       <h2 id="cookie-title" className="mt-0 mb-[7px] text-base leading-6 font-semibold tracking-normal">Bu web sitesi çerez kullanır</h2>
       <p className="mt-0 mb-3 text-xs leading-[21px] max-[600px]:leading-5">
