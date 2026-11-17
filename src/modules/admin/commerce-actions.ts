@@ -11,6 +11,7 @@ import { procurementInput } from './order-procurement';
 import { orderListBack,orderListReturn,type OrderListOutcome } from './order-list-return';
 import { refundPayment,checkRefund,type RefundOutcome } from '@/modules/payments/refunds';
 import { INSTALLMENT_COUNTS } from '@/modules/payments/installment-plan';
+import { installmentInput } from './installment-input';
 export async function savePricing(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({markup:z.coerce.number().min(0).max(1000).multipleOf(0.01),vat:z.coerce.number().min(0).max(100).multipleOf(0.01),age:z.coerce.number().int().min(1).max(168)}).safeParse(Object.fromEntries(form));
@@ -33,13 +34,6 @@ export async function saveShipping(form:FormData) {
  await db.query('UPDATE commerce_settings SET shipping_fee_kurus=$1,free_shipping_threshold_kurus=$2,updated_at=now(),updated_by=$3 WHERE id=true',[Math.round(input.data.fee*100),Math.round(input.data.threshold*100),admin.id]);
  revalidatePath('/','layout'); redirect('/yonetim/fiyatlandirma?saved=1');
 }
-const installmentPercent=z.coerce.number().min(0).max(50).multipleOf(0.01);
-const installmentInput=z.object({
- enabled:z.literal('on').optional(),max:z.coerce.number().int().min(2).max(12),minBasket:z.coerce.number().min(0).max(10000000).multipleOf(0.01),singleRate:installmentPercent,
- ...Object.fromEntries(INSTALLMENT_COUNTS.map(count=>[`rate_${count}`,installmentPercent])) as Record<`rate_${(typeof INSTALLMENT_COUNTS)[number]}`,typeof installmentPercent>,
-}).superRefine((input,ctx)=>{
- for(const count of INSTALLMENT_COUNTS) if(input[`rate_${count}`]<input.singleRate) ctx.addIssue({code:'custom',path:[`rate_${count}`],message:'below single rate'});
-});
 /** Installment settings (#886): on/off, the highest count, the minimum basket, the single-payment rate and each count's rate. */
 export async function saveInstallments(form:FormData) {
  const admin=await requireAdmin();

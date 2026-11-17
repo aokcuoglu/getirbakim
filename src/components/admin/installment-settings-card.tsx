@@ -1,4 +1,4 @@
-import { CircleCheck, CreditCard } from "lucide-react";
+import { CircleCheck, CircleMinus, CreditCard } from "lucide-react";
 import { saveInstallments } from "@/modules/admin/commerce-actions";
 import { INSTALLMENT_COUNTS, installmentTotal, type InstallmentSettings } from "@/modules/payments/installment-plan";
 import { money } from "@/modules/store/money";
@@ -20,10 +20,10 @@ export function InstallmentSettingsCard({ settings }: { settings: InstallmentSet
     <Card id="taksit-ayarlari" role="region" aria-labelledby="installments-title">
       <CardHeader>
         <CardTitle><h2 id="installments-title" className="flex items-center gap-2"><CreditCard className="size-4" aria-hidden="true"/>Taksit ve vade farkı</h2></CardTitle>
-        <CardDescription>Müşteri toplamı = peşin × (1 − tek çekim oranı) / (1 − taksit oranı). Tutar TAMI ortak ödeme sayfasında tahsil edilir.</CardDescription>
+        <CardDescription>Müşteri toplamı = tek çekim fiyatı × (1 − tek çekim oranı) / (1 − taksit oranı). Tutar TAMI ortak ödeme sayfasında tahsil edilir.</CardDescription>
         <CardAction>{settings.enabled
           ? <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Taksit açık</Badge>
-          : <Badge variant="secondary">Taksit kapalı</Badge>}</CardAction>
+          : <Badge variant="secondary"><CircleMinus data-icon="inline-start" aria-hidden="true"/>Taksit kapalı</Badge>}</CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-6">
         <FieldGroup className="grid gap-6 md:grid-cols-2">

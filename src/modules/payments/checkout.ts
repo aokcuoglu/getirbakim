@@ -262,7 +262,8 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
 async function installmentNote(client: PoolClient, order: { total_kurus: string; installment_count: number; installment_fee_kurus: string },
   actual: number | null, providerOrderId: string, settled: boolean) {
   const chosen = order.installment_count;
-  if (actual === null || actual === chosen) return null;
+  // An absent or malformed count (null, 0, NaN, fractional) says nothing about the installments: no note.
+  if (actual === null || !Number.isInteger(actual) || actual < 1 || actual === chosen) return null;
   if (actual > chosen) {
     return `TAMI'de ${actual} taksitle ödendi (${providerOrderId}); ${chosen > 1 ? `siparişte ${chosen} taksit seçilmişti, ` : ""}taksit komisyon farkı işyerine yansır.`;
   }

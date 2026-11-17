@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   installmentFingerprint, installmentHint, installmentOptions, installmentTotal, type InstallmentSettings,
 } from "../src/modules/payments/installment-plan";
+import { installmentInput } from "../src/modules/admin/installment-input";
 
 // Installment fee arithmetic (#886); no database.
 const seed: InstallmentSettings = {
@@ -78,4 +79,26 @@ test("the fingerprint changes with every setting that changes a total", () => {
 
 test("the hosted page hint names the count", () => {
   assert.equal(installmentHint(3), "TAMI ödeme sayfasında 3 taksit seçin");
+});
+
+test("the admin form accepts valid settings and refuses out-of-range ones", () => {
+  const form: Record<string, string> = { enabled: "on", max: "6", minBasket: "0", singleRate: "2.85",
+    ...Object.fromEntries(Object.entries(seed.ratesBp).map(([count, bp]) => [`rate_${count}`, (bp / 100).toFixed(2)])) };
+  const valid = installmentInput.safeParse(form);
+  assert.ok(valid.success);
+  assert.equal(valid.data.rate_6, 13.47); assert.equal(valid.data.singleRate, 2.85); assert.equal(valid.data.enabled, "on");
+  // Off: the switch sends nothing.
+  const { enabled: _on, ...off } = form;
+  assert.equal(_on, "on");
+  assert.equal(installmentInput.safeParse(off).data?.enabled, undefined);
+  assert.equal(installmentInput.safeParse({ ...form, rate_3: "2.84" }).success, false, "rate below the single rate");
+  assert.equal(installmentInput.safeParse({ ...form, rate_3: "" }).success, false, "empty rate");
+  assert.equal(installmentInput.safeParse({ ...form, singleRate: "" }).success, false, "empty single rate");
+  assert.equal(installmentInput.safeParse({ ...form, max: "13" }).success, false, "max 13");
+  assert.equal(installmentInput.safeParse({ ...form, max: "1" }).success, false, "max 1");
+  assert.equal(installmentInput.safeParse({ ...form, rate_12: "50.01" }).success, false, "rate above 50");
+  assert.equal(installmentInput.safeParse({ ...form, rate_12: "24.321" }).success, false, "more than two decimals");
+  assert.equal(installmentInput.safeParse({ ...form, minBasket: "10000000.01" }).success, false, "minimum basket too high");
+  assert.equal(installmentInput.safeParse({ ...form, enabled: "true" }).success, false, "switch value other than on");
+  assert.ok(installmentInput.safeParse({ ...form, rate_2: "2.85" }).success, "rate equal to the single rate");
 });

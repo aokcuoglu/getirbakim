@@ -119,7 +119,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? errorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
     <Card className={cn(panel,"mb-6 gap-3 ring-0")}>
       <p role="status" className="m-0 text-[15px] leading-6">{notice}</p>
-      {payNow && order.installment_count>1 && <Alert role="status" className={noticeBox}>{installmentHint(order.installment_count)}: siparişin {order.installment_count} taksitli vade farklı toplamla oluşturuldu.</Alert>}
+      {payNow && order.installment_count>1 && <Alert role="note" className={noticeBox}>Siparişin {order.installment_count} taksitli (vade farkı dahil) toplamla oluşturuldu. {installmentHint(order.installment_count)}.</Alert>}
       {payNow && <PayButton orderId={order.id} total={total} installments={order.installment_count}/>}
       {payNow && <p className={panelMuted}>{PAYMENT_NOTICE}{order.payment_due_at && <><br/>Son ödeme zamanı: <time dateTime={new Date(order.payment_due_at).toISOString()}>{time(order.payment_due_at)}</time></>}</p>}
       {trackUrl && <Button nativeButton={false} className="h-auto min-h-12 w-full gap-2.5 rounded-lg px-5 py-3 text-sm leading-5 font-medium hover:bg-brand-strong" render={<a href={order.tracking_url ?? undefined} target="_blank" rel="noopener noreferrer"/>}>Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span></Button>}
