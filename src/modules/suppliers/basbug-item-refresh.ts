@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Pool, PoolClient } from "pg";
 import { BasbugImportError, basbugBase, basbugLogin, basbugPaused } from "./basbug-import";
 import { supplierFetch } from "./egress-proxy";
-import { CHECKOUT_LOCK_TIMEOUT, fallbackReason, type FallbackReason } from "./checkout-fallback";
+import { CHECKOUT_LOCK_TIMEOUT, CHECKOUT_REFRESH_BUDGET_MS, fallbackReason, type FallbackReason } from "./checkout-fallback";
 
 /**
  * Checkout-time check of just the cart's Başbuğ rows through the per-code MalzemeAra endpoint (verified 16 Nov 2026:
@@ -74,23 +74,44 @@ export function basbugItemClient(): BasbugItemFetch {
 
 type Observed = { id: string; gone: boolean; nf?: number; mif?: number; k?: number; depots?: Record<string, number> };
 
+/**
+ * What a live MalzemeAra answer means for a line whose write failed, by the same rules the write and the store use:
+ * the live depots replace their saved stock, depots it does not return keep theirs, and the line is available when any
+ * depot has stock (db/commerce.sql: stok>0 or sFarkliDepo>0; sYol does not count). Otherwise a different cost is a
+ * reprice.
+ */
+export function basbugLiveVerdict(saved: { nf: number | null; depolar: Record<string, { stok?: number }> },
+  live: { nf: number; depots: Record<string, number> }): "sold_out" | "repriced" | "same" {
+  const stock = { ...Object.fromEntries(Object.entries(saved.depolar).map(([depot, value]) => [depot, Number(value?.stok ?? 0)])), ...live.depots };
+  if (!Object.values(stock).some(value => value > 0)) return "sold_out";
+  return saved.nf !== live.nf ? "repriced" : "same";
+}
+
+/**
+ * Checks the cart's Başbuğ rows live and writes price and depot stock (see the module comment). Lines it could not
+ * confirm come back in `failed` and are sold on saved data; codes the supplier no longer knows come back in `gone`.
+ * When the rows stay locked by a running import the answers are not lost (#788): a line no depot has comes back in
+ * `soldOut`, a line with a new cost in `repriced` (the order refuses both), and only an unchanged line is marked "busy".
+ * The whole check shares CHECKOUT_REFRESH_BUDGET_MS unless `budgetMs` says otherwise.
+ */
 export async function refreshBasbugItems(pool: Pool, ids: string[], options: { fetchItem?: BasbugItemFetch; budgetMs?: number } = {}) {
   const failed: Record<string, FallbackReason> = {};
-  const result = { refreshed: 0, changed: 0, gone: [] as string[], failed };
+  const result = { refreshed: 0, changed: 0, gone: [] as string[], soldOut: [] as string[], repriced: [] as string[], failed };
   if (!ids.length) return result;
   if (basbugPaused()) {
     for (const id of ids) failed[id] = "paused";
     return result;
   }
-  const rows = (await pool.query<{ id: string; code: string; company: string }>(
-    "SELECT id::text,code,company FROM supplier_items WHERE supplier='basbug' AND warehouse='MRK' AND id=ANY($1::uuid[]) ORDER BY id", [ids])).rows;
+  const rows = (await pool.query<{ id: string; code: string; company: string; nf: number | null; depolar: Record<string, { stok?: number }> }>(
+    `SELECT id::text,code,company,(price_data->>'nf')::float8 AS nf,COALESCE(stock_data->'depolar','{}'::jsonb) AS depolar
+     FROM supplier_items WHERE supplier='basbug' AND warehouse='MRK' AND id=ANY($1::uuid[]) ORDER BY id`, [ids])).rows;
   let fetchItem: BasbugItemFetch;
   try { fetchItem = options.fetchItem ?? basbugItemClient(); }
   catch (error) {
     for (const row of rows) failed[row.id] = fallbackReason(error);
     return result;
   }
-  const deadline = Date.now() + (options.budgetMs ?? 8_000);
+  const deadline = Date.now() + (options.budgetMs ?? CHECKOUT_REFRESH_BUDGET_MS);
   const observed: Observed[] = [];
   // A few at a time: carts are small, and the API serves one code per request.
   for (let index = 0; index < rows.length; index += 4) {
@@ -169,12 +190,21 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
     result.gone = observed.filter(item => item.gone).map(item => item.id);
     return result;
   } catch (error) {
-    // Nothing was written: lines the supplier answered are sold on saved data and marked; codes it no longer knows (604)
-    // are still reported gone so the order refuses them.
+    // Nothing was written, but the answers still count: codes it no longer knows (604) are reported gone, lines no depot
+    // has sold out and lines with a new cost repriced, so the order refuses them. Only unchanged lines are sold on saved
+    // data and marked.
     await client?.query("ROLLBACK").catch(() => undefined);
     console.error("Başbuğ checkout check could not be saved", { reason: error instanceof Error ? error.message : error });
     result.gone = observed.filter(item => item.gone).map(item => item.id);
-    for (const item of observed) if (!item.gone) failed[item.id] = "busy";
+    const saved = new Map(rows.map(row => [row.id, row]));
+    for (const item of observed) {
+      if (item.gone) continue;
+      const row = saved.get(item.id);
+      const verdict = row && item.nf !== undefined && item.depots ? basbugLiveVerdict(row, { nf: item.nf, depots: item.depots }) : "same";
+      if (verdict === "sold_out") result.soldOut.push(item.id);
+      else if (verdict === "repriced") result.repriced.push(item.id);
+      else failed[item.id] = "busy";
+    }
     return result;
   } finally { client?.release(); }
 }

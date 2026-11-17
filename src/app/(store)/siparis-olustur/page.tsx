@@ -25,7 +25,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { catalogPath } from "@/modules/seo/paths";
 
-const errors:Record<string,string>={supplier:"Tedarikçi fiyat ve stok bilgisi şu anda doğrulanamadı. Biraz sonra yeniden dene.",stock:"Ürün fiyatı veya stok durumu uygun değil. Sepetini kontrol edip güncelle.",price:"Fiyatlar, servis indirimi veya sipariş veri kaynağı değişti. Güncel toplamı kontrol ederek siparişini tekrar onayla.",validation:"İletişim ve teslimat bilgilerini tamamla; sözleşmeleri onayla.",session:"Sepet oturumu sona erdi.",payment:"Online ödeme şu anda kapalı. Lütfen daha sonra tekrar dene."};
+const errors:Record<string,string>={supplier:"Tedarikçi fiyat ve stok bilgisi şu anda doğrulanamadı. Biraz sonra yeniden dene.",stock:"Ürün fiyatı veya stok durumu uygun değil. Sepetini kontrol edip güncelle.",price:"Fiyatlar, servis indirimi veya sipariş veri kaynağı değişti. Güncel toplamı kontrol ederek siparişini tekrar onayla.",validation:"İletişim ve teslimat bilgilerini tamamla; sözleşmeleri onayla.",session:"Sepet oturumu sona erdi.",payment:"Online ödeme şu anda kapalı. Lütfen daha sonra tekrar dene.",
+  // #788: the order named the lines the supplier refused live; {ürünler} becomes their names from the cart.
+  stockLines:"Şu ürün tedarikçide şu anda bulunmuyor: {ürünler}. Sepetinden çıkarıp siparişi yeniden onayla.",
+  priceLines:"Şu ürünün fiyatı tedarikçide değişti: {ürünler}. Güncel fiyat birkaç saniye içinde sepetine yansıyacak; sayfayı yenileyip yeniden dene."};
 
 const alert="mb-4 rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]";
 const label="gap-1 text-sm leading-5 font-normal";
@@ -42,6 +45,11 @@ export default async function Checkout({searchParams}:{searchParams:Promise<Sear
   const discount=account?.approved && account.role==="service" ? account.discount_percent : 0;
   const analytics=await cartAnalyticsItems(items,discount);
   const enabled=paymentsEnabled();
+  const lineNames:Record<string,string>=Object.fromEntries(items.map(p=>[p.id,p.name]));
+  // Only ids of this cart's lines are named, by the cart's own names; the parameter's text is never shown.
+  const refused=[...new Set((params.urun??"").split(","))].filter(id=>Object.hasOwn(lineNames,id)).map(id=>lineNames[id]);
+  const lineTemplate=params.error ? errors[`${params.error}Lines`] : undefined;
+  const errorText=params.error && (lineTemplate && refused.length ? lineTemplate.replace("{ürünler}",refused.join(", ")) : (params.error.endsWith("Lines") ? undefined : errors[params.error])??errors.stock);
   const valid=enabled && items.length>0 && items.every(p=>p.available && p.price_kurus && p.quantity<=p.max_quantity);
   return <div className="bg-[#f8f9f9] text-foreground"><CartFreshness count={items.reduce((n,p)=>n+p.quantity,0)}/><section className="mx-auto min-h-[550px] w-full max-w-[1350px] px-[15px] pb-12 max-[760px]:px-3">
     <div className="flex items-center justify-between gap-6 py-9 max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-5 max-[760px]:py-7"><h1 className="m-0 text-[28px] leading-9 font-semibold tracking-[-0.7px]">Siparişi tamamla</h1>
@@ -50,11 +58,11 @@ export default async function Checkout({searchParams}:{searchParams:Promise<Sear
         <li className={step} aria-current="step"><span className={cn(stepMark,"border-primary text-primary")}>1</span>Teslimat</li>
         <li className={step}><span className={stepMark}>2</span>Ödeme</li>
       </ol></div>
-    {params.error && <Alert className={alert}>{errors[params.error]??errors.stock}</Alert>}
+    {errorText && <Alert className={alert}>{errorText}</Alert>}
     {!enabled && !params.error && items.length>0 && <Alert className={alert}>{errors.payment}</Alert>}
     {items.length ? <div className="grid grid-cols-[minmax(0,1.76fr)_minmax(320px,1fr)] items-start gap-4 max-[1000px]:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)] max-[760px]:grid-cols-1">{valid && <TrackBeginCheckout items={analytics.map(line=>line.item)}/>}
       <Card className="gap-0 rounded-[10px] p-5 ring-0 border border-border max-[760px]:px-4"><h2 className="mb-2 text-xl leading-7 font-semibold tracking-[-0.5px]">Müşteri ve teslimat bilgileri</h2><p className="mb-7 text-sm text-muted-foreground">{discount ? `${account!.name} · %${discount} servis indirimi uygulanıyor.` : "Üye olmadan sipariş verebilirsin."}</p>
-      <CheckoutForm analyticsItems={analytics.map(line=>line.item)} disabled={!valid} total={money(orderTotals(items,discount,shipping).total)} errors={errors}><input type="hidden" name="requestKey" value={randomUUID()}/><input type="hidden" name="quote" value={cartQuote(items,discount,shipping)}/>
+      <CheckoutForm analyticsItems={analytics.map(line=>line.item)} disabled={!valid} total={money(orderTotals(items,discount,shipping).total)} errors={errors} lineNames={lineNames}><input type="hidden" name="requestKey" value={randomUUID()}/><input type="hidden" name="quote" value={cartQuote(items,discount,shipping)}/>
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-name" className={label}>Ad soyad / Firma {required}</FieldLabel><Input id="checkout-name" className={control} name="name" autoComplete="name" minLength={2} maxLength={150} defaultValue={account?.name} required/></Field>
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-email" className={label}>E-posta {required}</FieldLabel><Input id="checkout-email" className={control} type="email" name="email" autoComplete="email" maxLength={200} defaultValue={account?.email} required/></Field>
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-phone" className={label}>Telefon {required}</FieldLabel><Input id="checkout-phone" className={control} type="tel" name="phone" autoComplete="tel" minLength={10} maxLength={20} required/></Field>

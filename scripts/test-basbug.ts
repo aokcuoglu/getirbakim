@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Pool } from "pg";
 import { BasbugImportError, prepareBasbugImport } from "../src/modules/suppliers/basbug-import";
-import { basbugItemClient, prepareBasbugItemCheck, refreshBasbugItems } from "../src/modules/suppliers/basbug-item-refresh";
+import { basbugItemClient, basbugLiveVerdict, prepareBasbugItemCheck, refreshBasbugItems } from "../src/modules/suppliers/basbug-item-refresh";
 import { fallbackReason } from "../src/modules/suppliers/checkout-fallback";
 import { basbugStockLabel, basbugWarehouseStock } from "../src/modules/suppliers/basbug-stock";
 
@@ -151,7 +151,7 @@ const ids = ["00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-00
   "00000000-0000-4000-8000-000000000004", "00000000-0000-4000-8000-000000000005"];
 /** Answers the row lookup only: any write would call connect(), which the read-only fake does not have unless given. */
 function fakePool(connect?: () => Promise<unknown>) {
-  return { query: async () => ({ rows: ids.map((id, index) => ({ id, code: `TEST ${index}`, company: "TEST" })) }), ...(connect ? { connect } : {}) } as unknown as Pool;
+  return { query: async () => ({ rows: ids.map((id, index) => ({ id, code: `TEST ${index}`, company: "TEST", nf: 1, depolar: {} })) }), ...(connect ? { connect } : {}) } as unknown as Pool;
 }
 const item = (code: string) => ({ no: code, nf: 1, mif: 1, k: 0, sMrk: 1, sIzm: 0, sAnk: 0, sAdn: 0, sErz: 0 });
 
@@ -213,6 +213,7 @@ test("rows a running import keeps locked are marked busy, a 604 is still gone, a
   assert.deepEqual(result.gone, [ids[0]]);
   assert.equal(ids[0] in result.failed, false);
   assert.deepEqual(result.failed, Object.fromEntries(ids.slice(1).map(id => [id, "busy"])));
+  assert.deepEqual([result.soldOut, result.repriced], [[], []]);
   assert.equal(result.refreshed, 0);
   assert.equal(result.changed, 0);
   assert.deepEqual(statements, ["BEGIN", "SET LOCAL", "SELECT id", "ROLLBACK"]);
@@ -220,6 +221,34 @@ test("rows a running import keeps locked are marked busy, a 604 is still gone, a
   const timeout = sent.find(sql => sql.startsWith("SET LOCAL"))?.match(/^SET LOCAL lock_timeout = '(\d+)ms'$/);
   assert.ok(timeout, "lock_timeout is set in milliseconds");
   assert.ok(Number(timeout[1]) < 1000);
+});
+
+test("a live answer that cannot be saved still refuses a sold-out or repriced line (#788)", async () => {
+  const { client, statements } = lockedClient();
+  const result = await refreshBasbugItems(fakePool(async () => client), ids, {
+    fetchItem: async (_company, code) => Response.json(code === "TEST 1" ? { ...item(code), sMrk: 0 } : code === "TEST 2" ? { ...item(code), nf: 2 } : item(code)),
+  });
+  assert.deepEqual(result.soldOut, [ids[1]]);
+  assert.deepEqual(result.repriced, [ids[2]]);
+  assert.deepEqual(result.gone, []);
+  assert.deepEqual(result.failed, Object.fromEntries([ids[0], ids[3], ids[4]].map(id => [id, "busy"])));
+  assert.deepEqual(statements, ["BEGIN", "SET LOCAL", "SELECT id", "ROLLBACK"]);
+});
+
+test("the live verdict merges depots as the write does: any depot with stock is available, sYol is not", () => {
+  const zero = { MRK: 0, IZM: 0, ANK: 0, ADN: 0, ERZ: 0 };
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: 1, depots: zero }), "sold_out");
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: { MRK: { stok: 0 } } }, { nf: 1, depots: zero }), "sold_out");
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: { MRK: { stok: 0, sYol: 4 } as { stok: number } } }, { nf: 1, depots: zero }), "sold_out");
+  // KYS is a StokGetir depot MalzemeAra does not return: its saved stock still counts.
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: { KYS: { stok: 7 } } }, { nf: 1, depots: zero }), "same");
+  // A live depot replaces its saved stock.
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: { IZM: { stok: 5 } } }, { nf: 1, depots: zero }), "sold_out");
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: { MRK: { stok: 3 } } }, { nf: 1, depots: { ...zero, MRK: 3 } }), "same");
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: 1.5, depots: { ...zero, ERZ: 2 } }), "repriced");
+  assert.equal(basbugLiveVerdict({ nf: null, depolar: {} }, { nf: 1, depots: { ...zero, MRK: 1 } }), "repriced");
+  // Sold out wins over a new price: the order refuses the line as unavailable.
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: 2, depots: zero }), "sold_out");
 });
 
 test("codes the supplier no longer knows stay gone when their zeroed stock cannot be saved", async () => {

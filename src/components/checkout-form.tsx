@@ -13,7 +13,7 @@ import { track } from "@/modules/analytics/track";
  * Creates the order and opens TAMI over this page. The popup is opened before the order request,
  * while the click still counts as a user gesture; without JS the form falls back to the order page.
  */
-export function CheckoutForm({children,disabled,total,errors,analyticsItems}:{children:ReactNode;disabled:boolean;total:string;errors:Record<string,string>;analyticsItems?:AnalyticsItem[]}) {
+export function CheckoutForm({children,disabled,total,errors,lineNames={},analyticsItems}:{children:ReactNode;disabled:boolean;total:string;errors:Record<string,string>;lineNames?:Record<string,string>;analyticsItems?:AnalyticsItem[]}) {
   const router=useRouter();
   const [pending,setPending]=useState(false);
   const [error,setError]=useState<string|null>(null);
@@ -29,7 +29,10 @@ export function CheckoutForm({children,disabled,total,errors,analyticsItems}:{ch
       if(result.error!==undefined) {
         popup?.close();
         if(result.error==="session") { router.push("/sepet?error=session"); return; }
-        setError(errors[result.error]??errors.stock);router.refresh();return;
+        // Lines the supplier refused live (#788) are named with the cart's names.
+        const names=[...new Set(result.products??[])].filter(id=>Object.hasOwn(lineNames,id)).map(id=>lineNames[id]);
+        const template=errors[`${result.error}Lines`];
+        setError(template && names.length ? template.replace("{ürünler}",names.join(", ")) : errors[result.error]??errors.stock);router.refresh();return;
       }
       // The order exists and card payment starts now (#675); nothing about the customer goes along.
       if(analyticsItems?.length) track("add_payment_info",addPaymentInfo(analyticsItems));

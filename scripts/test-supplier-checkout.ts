@@ -212,6 +212,8 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     {
       // #770: rows a running import keeps locked. A code the supplier no longer knows (604) is refused even though its
       // zeroed stock cannot be saved; nothing is written and no order is created.
+      // Only MRK has stock (the saved StokGetir-only depots are emptied), so a live MRK of 0 is out of stock everywhere.
+      await savedDepots({IZM:0,IAN:0,KYS:0,TRK:0});
       const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
       const lockedInput=await checkoutInput(cart);
       const stockBefore=(await itemRow()).stock_data.stok;assert.ok(stockBefore>0);
@@ -227,9 +229,16 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
         const started=performance.now();
         gone=true;const refused=await submitOrder(cart,lockedInput);gone=false;
         assert.equal(refused.error,"stock");
+        assert.deepEqual(refused.products,[id]);
         assert.ok(performance.now()-started<3_000,"the checkout does not wait on the import");
+        // #788: the live answer says out of stock in every depot (or a new cost) but cannot be saved: refused and named,
+        // never sold on the saved stock and price.
+        stock=0;const soldOut=await submitOrder(cart,lockedInput);stock=1;
+        assert.deepEqual([soldOut.error,soldOut.products],["stock",[id]]);
+        const savedPrice=price;price=savedPrice+1;const repriced=await submitOrder(cart,lockedInput);price=savedPrice;
+        assert.deepEqual([repriced.error,repriced.products],["price",[id]]);
       } finally {
-        gone=false;clearTimeout(safety);
+        gone=false;stock=1;clearTimeout(safety);
         await holder.query("ROLLBACK").catch(()=>undefined);holder.release();
       }
       assert.equal((await itemRow()).stock_data.stok,stockBefore);

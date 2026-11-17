@@ -58,7 +58,7 @@ export async function updateCart(form: FormData) {
 }
 
 /** Creates the awaiting-payment order; the cart is kept until TAMI confirms the payment. */
-export async function placeOrder(form:FormData):Promise<{id:string;error?:undefined}|{error:string;id?:undefined}> {
+export async function placeOrder(form:FormData):Promise<{id:string;error?:undefined;products?:undefined}|{error:string;products?:string[];id?:undefined}> {
  const input=checkoutInput.safeParse(Object.fromEntries(form));
  if(!input.success) return {error:'validation'};
  const owner=await currentCartOwner();
@@ -73,6 +73,7 @@ export async function placeOrder(form:FormData):Promise<{id:string;error?:undefi
 export async function checkout(form:FormData) {
  const result=await placeOrder(form);
  if(result.error==='session') redirect('/sepet?error=session');
- if(result.error!==undefined) redirect(`/siparis-olustur?error=${result.error}`);
+ // The order page names refused lines (#788) from the cart, never from this parameter's text.
+ if(result.error!==undefined) redirect(`/siparis-olustur?error=${result.error}${result.products?.length ? `&urun=${result.products.join(",")}` : ""}`);
  redirect(`/siparis/${result.id}?odeme=yeni`);
 }
