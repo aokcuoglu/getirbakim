@@ -1,7 +1,7 @@
 // After the Mac wakes from sleep, Docker/MinIO's clock can lag for a few minutes and every signed request fails with
 // RequestTimeTooSkewed (403). The clock catches up on its own, so only that error is retried, on a short bounded schedule;
 // AccessDenied, NoSuchKey, NoSuchBucket and everything else fail on the first attempt.
-export const SKEW_RETRY_DELAYS_MS = [30_000, 60_000] as const;
+export const SKEW_RETRY_DELAYS_MS = [30_000, 60_000, 120_000, 240_000] as const; // ~7.5 min in total
 
 export function isClockSkewError(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
