@@ -5,8 +5,9 @@ import { resolve } from "node:path";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import {
   acquireLock, checkInboundReport, type InboundReport, LOCK_PATH, nextRetry, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, statePath, summarizeParts, SYNC_DIR,
-  reportKey, type SyncState,
+  reportKey, type SyncState, tombstoneWarnings,
 } from "./storefront-sync-state";
+import { TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
 
 // Carries locally collected storefront data (Trodo enrichments, categories, logos) to production:
 // incremental export → split into parts → transfer → dry-run every part → import every part → rebuild fitments.
@@ -27,14 +28,18 @@ import {
 //                      existing state). With --dry-run: use <ISO> as this run's watermark, nothing is written.
 //   --full             send every enrichment, ignoring the watermark (the aws target refuses to start without a state
 //                      otherwise, so a full send is always deliberate).
+//   --max-deletions=<n> the most enrichments the import may delete for local deletions (#564, default 1000); more
+//                      stop the import before anything is written.
 // Any other argument is an error. Real runs and --baseline hold .local/storefront-sync/sync.lock, so two syncs
 // (launchd and a manual run) never overlap.
 // aws: the import task writes report.json (media bucket, storefront-sync-state.ts reportKey); without a report
 // matching this bundle the watermark does not move. Enrichments it skipped (supplier item not on AWS yet) are kept in
 // state.aws.json as `retry` and exported again next run whatever the watermark (export --retry-file).
+// Every bundle carries the tombstones of enrichments deleted or invalidated locally in the last 90 days
+// (storefront-bundle-tombstones.ts); an operations image older than #564 ignores them, which is only a warning.
 const target = process.env.STOREFRONT_SYNC_TARGET || "vps";
 if (target !== "vps" && target !== "aws") throw new Error("STOREFRONT_SYNC_TARGET must be vps or aws");
-const { dryRun, full, force, baseline } = parseSyncArgs(process.argv.slice(2), new Date());
+const { dryRun, full, force, baseline, maxDeletions } = parseSyncArgs(process.argv.slice(2), new Date());
 const state = resolve(statePath(target));
 // Enrichment imports that started before the last snapshot but committed after it would be missed;
 // the overlap re-sends them, and the import is an idempotent upsert.
@@ -171,28 +176,38 @@ try {
     if (retry.length) await writeFile(retryFile, JSON.stringify(parseRetryItems(JSON.stringify(retry))));
     const fullDir = resolve(local, "full");
     run(process.execPath, ["--env-file=.env.local", "--conditions=react-server", "--import", "tsx", "scripts/export-storefront-bundle.ts", fullDir,
-      ...(since ? [`--since=${since}`] : []), ...(retry.length ? [`--retry-file=${retryFile}`] : [])]);
-    const manifest = JSON.parse(await readFile(resolve(fullDir, "manifest.json"), "utf8")) as { snapshotAt: string; enrichments: unknown[]; jobs?: unknown[] };
+      ...(since ? [`--since=${since}`] : []), ...(retry.length ? [`--retry-file=${retryFile}`] : []), ...(maxDeletions ? [`--max-deletions=${maxDeletions}`] : [])]);
+    const manifest = JSON.parse(await readFile(resolve(fullDir, "manifest.json"), "utf8")) as {
+      snapshotAt: string; enrichments: unknown[]; jobs?: unknown[]; tombstones?: unknown[]; maxDeletions?: number;
+    };
+    const tombstones = manifest.tombstones?.length ?? 0;
     const partsDir = resolve(local, "parts");
     const parts = (await splitStorefrontBundle(fullDir, partsDir, PART_BYTES)).map(dir => dir.split("/").at(-1)!);
     if (!transfer) {
       const summary = await summarizeParts(partsDir);
       console.log(JSON.stringify({
-        dryRun: true, target, since, snapshotAt: manifest.snapshotAt, retried: retry.length,
+        dryRun: true, target, since, snapshotAt: manifest.snapshotAt, retried: retry.length, tombstones, maxDeletions: manifest.maxDeletions,
         totals: { ...summary.totals, mediaMB: Math.round(summary.totals.mediaBytes / 1024 / 1024 * 10) / 10 }, base: summary.base, parts: summary.parts,
       }, null, 2));
     } else {
-      console.log(JSON.stringify({ target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, retried: retry.length, parts: parts.length }));
+      console.log(JSON.stringify({
+        target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, tombstones,
+        maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length,
+      }));
       const result = await transfer(partsDir, parts);
       let next = previous?.retry;
       if (target === "aws") {
         // Throws (the watermark stays) when the report is missing or belongs to another bundle.
-        const outcome = nextRetry(checkInboundReport(result, manifest.snapshotAt));
+        const report = checkInboundReport(result, manifest.snapshotAt);
+        const outcome = nextRetry(report);
         for (const warning of outcome.warnings) console.warn(`WARNING: ${warning}`);
         next = outcome.retry;
+        const deletions = tombstoneWarnings(report, tombstones, TOMBSTONE_RETENTION_DAYS);
+        for (const warning of deletions.warnings) console.warn(`WARNING: ${warning}`);
+        for (const note of deletions.notes) console.log(note);
       }
       const written: SyncState = {
-        snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), target, since, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0,
+        snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), target, since, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, tombstones,
         ...(next?.length ? { retry: next } : {}),
       };
       await writeFile(state, JSON.stringify(written, null, 2));

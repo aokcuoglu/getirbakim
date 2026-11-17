@@ -29,6 +29,8 @@ import { objectStorage } from "../src/lib/object-storage";
 //   parts wrote plus rows of an older matcher version), product_enrichment_shared_links
 //   and storefront_make_fits / storefront_model_fits (the shared-link queue the import filled is drained below), enrichment_product_states
 //   (enrichment-states.ts sync). product_model_fitments comes from production's own Dinamik items, not from this sync.
+// - tombstones (#564): enrichments deleted locally are deleted here by part-00 (storefront-bundle-tombstones.ts);
+//   invalidated jobs are only counted.
 // - not carried: vehicle_type_oil_specs (data/vehicle_type_oil_specs.csv + db:vehicle-oils), vehicle_type_trodo_oils,
 //   product_enrichment_sources.
 const prefix = process.argv[2]?.replace(/^\/+|\/+$/g, "");
