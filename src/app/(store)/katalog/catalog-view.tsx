@@ -91,11 +91,15 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const vehicleTypeId=(await fitmentVehicle(vehicle))?.typeId ?? null;
  // Page 1 without the fit filter puts the garage vehicle's fits first (#884): the first cards of the fits=vehicle listing
  // above the results, which stay unfiltered (DESIGN.md: the vehicle does not filter the catalog). Later pages keep the
- // offer box and its count only.
- const leadPage=!params.fits&&!(Number(params.page)>1);
- const vehicleFits=async(typeId:string)=>leadPage?vehicleLead(params,typeId):{items:[],total:await vehicleFitCount(params,typeId)};
- const [result,facetData,account,vehicleBrands,fits,oilSpec]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId?vehicleFits(vehicleTypeId):{items:[],total:0},getVehicleOilSpec(vehicleTypeId)]);
- const products=result.items,fitCount=fits.total,leadProducts=fits.items;
+ // offer box and its count only; both counts are the fits=vehicle listing's, every filter kept. The lead is read next to
+ // the listing when the URL asks for page 1, afterwards when the listing clamps another page number to 1 (?page=99).
+ const askedFirstPage=!(Number(params.page)>1);
+ const vehicleFits=async(typeId:string)=>askedFirstPage?vehicleLead(params,typeId):{items:[],total:await vehicleFitCount(params,typeId)};
+ const [result,facetData,account,vehicleBrands,fitsRead,oilSpec]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId&&!params.fits?vehicleFits(vehicleTypeId):{items:[],total:0},getVehicleOilSpec(vehicleTypeId)]);
+ const leadPage=!params.fits&&result.page===1;
+ const fits=vehicleTypeId&&leadPage&&!askedFirstPage?await vehicleLead(params,vehicleTypeId):fitsRead;
+ // When every listed product fits, the lead would only repeat the results' first cards.
+ const products=result.items,fitCount=fits.total,leadProducts=leadPage&&fitCount<result.total?fits.items:[];
  // The cards of both lists; a product of the lead is listed again in the results.
  const cards=[...new Map([...products,...leadProducts].map(product=>[product.id,product])).values()];
  // Search analytics (#822): a plain search's first page, counted after the response; crawlers and prefetches are not shoppers.
@@ -135,21 +139,21 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const fitsHref=(fits:"vehicle"|undefined)=>listingHref({fits});
  const shown=shownVehicle(vehicle),vehicleName=shown&&vehicleText(shown);
  // The fit filter itself shows as a removable chip ("Aracına uyanlar"); this box only offers it, on pages without the lead.
- const fitFilter=vehicleTypeId&&!params.fits&&!leadProducts.length&&fitCount>0&&<div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground" role="status"><CircleCheck size={18} aria-hidden="true"/>
+ const fitFilter=vehicleTypeId&&!params.fits&&!leadProducts.length&&fitCount>0&&fitCount<result.total&&<div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground" role="status"><CircleCheck size={18} aria-hidden="true"/>
   <p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>
   <Link className="font-semibold whitespace-nowrap text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Yalnızca aracıma uyanları göster</Link></div>;
  const card=(product:(typeof cards)[number])=><CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.display_brand)} account={account} fitsVehicle={fitting.has(product.id)} vehicleChecked={Boolean(vehicleTypeId)}/>;
  // The vehicle's fits before the results (#884): one sideways-scrolling row on phones and tablets, two columns from 769px and
- // one row of three from 993px (the fourth card hidden there); always grid cards (its own `group/listing`), whatever view
- // the results take.
- const leadTotal=fitCount.toLocaleString("tr-TR");
+ // one row of three from 993px (the fourth card hidden there when the link leads to it); always grid cards (its own
+ // `group/listing`), whatever view the results take. Then "Tüm sonuçlar" with its toolbar and chips (CatalogResults).
+ const leadTotal=fitCount.toLocaleString("tr-TR"),moreFits=fitCount>leadProducts.length;
  const lead=leadProducts.length>0&&<>
   <section aria-labelledby="aracina-uyanlar" className="mb-8 max-[768px]:mb-6">
-   <h2 id="aracina-uyanlar" className="mb-3 flex items-start gap-2 text-lg leading-6 font-semibold max-[600px]:text-base max-[600px]:leading-[22px]"><CircleCheck size={20} className="mt-0.5 shrink-0 text-[#1e5e3e]" aria-hidden="true"/><span><strong>{vehicleName}</strong> aracına uyanlar · {leadTotal} ürün</span></h2>
-   <div className="group/listing relative max-[768px]:after:pointer-events-none max-[768px]:after:absolute max-[768px]:after:inset-y-0 max-[768px]:after:right-0 max-[768px]:after:w-6 max-[768px]:after:bg-linear-to-l max-[768px]:after:from-white" data-view="grid">
-    <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 max-[768px]:*:w-[46vw] max-[768px]:*:min-w-40 max-[768px]:*:shrink-0 max-[768px]:*:snap-start min-[769px]:grid min-[769px]:grid-cols-2 min-[769px]:gap-x-4 min-[769px]:gap-y-6 min-[769px]:overflow-visible min-[769px]:pb-0 min-[993px]:grid-cols-3 min-[993px]:[&>:nth-child(n+4)]:hidden">{leadProducts.map(card)}</div>
+   <h2 id="aracina-uyanlar" className="mb-3 flex items-start gap-2 text-lg leading-6 font-semibold max-[600px]:text-base max-[600px]:leading-[22px]"><CarFront size={20} className="mt-0.5 shrink-0 text-foreground" aria-hidden="true"/><span><strong>{vehicleName}</strong> aracına uyanlar · {leadTotal} ürün</span></h2>
+   <div className="group/listing relative max-[768px]:after:pointer-events-none max-[768px]:after:absolute max-[768px]:after:inset-y-0 max-[768px]:after:right-0 max-[768px]:after:w-4 max-[768px]:after:bg-linear-to-l max-[768px]:after:from-white" data-view="grid">
+    <div role="region" aria-label={`${vehicleName} aracına uyan ürünler`} className={cn("flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 max-[768px]:*:w-[46vw] max-[768px]:*:min-w-40 max-[768px]:*:shrink-0 max-[768px]:*:snap-start min-[769px]:mx-[-2px] min-[769px]:grid min-[769px]:grid-cols-2 min-[769px]:gap-x-4 min-[769px]:gap-y-6 min-[769px]:overflow-visible min-[769px]:pb-0 min-[993px]:grid-cols-3",moreFits&&"min-[993px]:[&>:nth-child(n+4)]:hidden")}>{leadProducts.map(card)}</div>
    </div>
-   <Link className="mt-3 inline-flex min-h-11 items-center gap-1 font-semibold text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Uyan {leadTotal} ürünün tümünü göster<ChevronRight size={16} aria-hidden="true"/></Link>
+   {moreFits&&<Link className="mt-3 inline-flex min-h-11 items-center gap-1 font-semibold text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Uyan {leadTotal} ürünün tümünü göster<ChevronRight size={16} aria-hidden="true"/></Link>}
   </section>
   <h2 className="mb-4 text-lg leading-6 font-semibold max-[600px]:text-base max-[600px]:leading-[22px]">Tüm sonuçlar</h2>
  </>;

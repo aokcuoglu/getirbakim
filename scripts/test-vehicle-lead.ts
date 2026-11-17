@@ -62,6 +62,13 @@ test("the default limit is four cards; a page number of the listing does not mov
   assert.deepEqual(idsOf(lead.items), idsOf((await catalog.vehicleLead({}, String(GOLF))).items));
 });
 
+test("a limit is a whole number of cards between one and a page", async () => {
+  assert.equal((await catalog.vehicleLead({}, String(GOLF), 2.7)).items.length, 2);
+  assert.equal((await catalog.vehicleLead({}, String(GOLF), 0)).items.length, 1);
+  assert.equal((await catalog.vehicleLead({}, String(GOLF), Number.NaN)).items.length, 7);
+  assert.equal((await catalog.vehicleLead({}, String(GOLF), Number.POSITIVE_INFINITY)).items.length, 7);
+});
+
 test("the lead keeps the listing's search, brand filter and order", async () => {
   const searched = await catalog.vehicleLead({ q: "fren balatası" }, String(GOLF), 6);
   assert.equal(searched.total, 5);
@@ -70,6 +77,10 @@ test("the lead keeps the listing's search, brand filter and order", async () => 
   const branded = await catalog.vehicleLead({ brand: "TRW" }, String(GOLF));
   assert.equal(branded.total, 2);
   assert.deepEqual(new Set(idsOf(branded.items)), new Set([ids.trw1, ids.trw2]));
+  // Later pages' offer box counts the same fits=vehicle listing, every filter kept (#884).
+  assert.equal(await catalog.vehicleFitCount({ brand: "TRW", page: "2" }, String(GOLF)), branded.total);
+  assert.equal(await catalog.vehicleFitCount({ q: "fren balatası", brand: "BOSCH" }, String(GOLF)), (await catalog.vehicleLead({ q: "fren balatası", brand: "BOSCH" }, String(GOLF))).total);
+  assert.equal(await catalog.vehicleFitCount({ availability: "out_of_stock" }, String(GOLF)), 0);
   const cheapest = await catalog.vehicleLead({ sort: "price-asc" }, String(GOLF), 2);
   const sorted = await catalog.browseProducts({ fits: "vehicle", sort: "price-asc" }, { vehicleTypeId: String(GOLF) });
   assert.deepEqual(idsOf(cheapest.items), idsOf(sorted.items).slice(0, 2));

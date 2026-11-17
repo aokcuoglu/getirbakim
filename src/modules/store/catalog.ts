@@ -594,7 +594,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const {values,where,from,search}=await catalogFilter(query,context);
  const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
  const total = search ? await count() : await countCache(query)(filterKey(query,context),count);
- const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize)), take = Math.min(pageSize,Math.max(1,limit));
+ const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize)), take = Math.min(pageSize,Math.max(1,Number.isFinite(limit)?Math.trunc(limit):pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
  // Products nobody supplies now come after every saleable one, in every order (#475).
@@ -660,12 +660,15 @@ export async function catalogBrands() {
  return cachedBrands("all",async()=>(await db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));
 }
 
-/** Products in the current search, category and make scope that are linked to the vehicle type. */
+/**
+ * Products of the listing, every filter kept, that are linked to the vehicle type: the total of its `fits=vehicle`
+ * listing, read the way browseProducts counts it (the same cache entry), so the count matches the page it links to (#884).
+ */
 export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
- const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,model:query.model,manufacturer:query.manufacturer,fits:'vehicle'};
- const {values,from,search}=await catalogFilter(scope,{vehicleTypeId});
+ const scope:CatalogQuery={...query,fits:'vehicle',page:undefined},context={vehicleTypeId};
+ const {values,from,search}=await catalogFilter(scope,context);
  const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
- return search ? count() : cachedVehicleCounts(filterKey(scope,{vehicleTypeId}),count);
+ return search ? count() : countCache(scope)(filterKey(scope,context),count);
 }
 /**
  * The first `limit` products of the listing linked to the garage vehicle's type, and how many there are (#884): the
