@@ -35,7 +35,7 @@ const pct = (value: number) => `${(value * 100).toFixed(1)}%`;
 const familyOf = (brand: string) => brand === "ORIJINAL" ? "ORIJINAL" : brand === "DAYCO" || brand === "GATES" ? "DAYCO+GATES" : brand === "RAPRO" ? "RAPRO" : brand === "SKF" ? "SKF" : "diğer";
 
 try {
-  await client.query("BEGIN TRANSACTION READ ONLY");
+  await client.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
   await client.query("SET LOCAL statement_timeout='120s'");
   const database = (await client.query("SELECT current_database() AS name")).rows[0].name as string;
   const started = Date.now();
@@ -45,7 +45,8 @@ try {
      product_suffix_verdict(a.brand,a.part_number,b.part_number) AS verdict
     FROM product_match_decisions d JOIN products a ON a.id=d.product_a JOIN products b ON b.id=d.product_b
     WHERE a.brand=b.brand AND product_suffix_verdict(a.brand,a.part_number,b.part_number) IS NOT NULL`)).rows;
-  // The suffix branch of refresh_product_matches() without its decision filter: every pair it could suggest today.
+  // The suffix branch of refresh_product_matches() (db/product-matching.sql, "suffix" UNION ALL branch near line 764) without its
+  // decision filter, Başbuğ-only x Dinamik-only (pairing 1) only; keep the conditions in sync with it.
   const universe = (await client.query<{ a: string; b: string; brand: string; pa: string; pb: string; na: string | null; nb: string | null; verdict: SuffixVerdict; decided: boolean }>(`
     SELECT a.id AS a, b.id AS b, a.brand, a.part_number AS pa, b.part_number AS pb, a.name AS na, b.name AS nb,
      product_suffix_verdict(a.brand,a.part_number,b.part_number) AS verdict,
@@ -70,6 +71,7 @@ try {
   const nameMap = new Map(names.rows.map(r => [`${r.a}|${r.b}`, r]));
 
   const ids = [...new Set(raw.flatMap(r => [r.a, r.b]))];
+  // Exchange rates: the latest per supplier and currency; the company is ignored (commerce_catalog keys them by company too).
   const rates = new Map((await client.query<{ supplier: string; currency: string; rate: string }>(`
     WITH latest AS (
      SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
@@ -219,7 +221,7 @@ try {
       combos.push({ id: `S10 ${a.id} & ${b.id}`, family: "S10", label: `${a.label} VE ${b.label}`, predicts, structural: false, fires: p => a.fires(p) && b.fires(p) });
     }
   }
-  const comboResults = combos.map(measure).sort((x, y) => y.all.wilson - x.all.wilson).slice(0, 3);
+  const comboResults = (['same', 'different'] as const).flatMap(predicts => combos.filter(c => c.predicts === predicts).map(measure).sort((x, y) => y.all.wilson - x.all.wilson).slice(0, 3));
 
   const header = `| Sinyal | Tahmin | Ateşler | Doğru | Yanlış | İsabet | Wilson alt | Kapsam | Güvenilir (doğru/yanlış) | Dış doğrulama çelişki | Evrende dokunduğu | Karar |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |`;
   const line = (r: ReturnType<typeof measure>) => `| ${r.signal.id} (${r.signal.label}) | ${r.signal.predicts === "same" ? "aynı" : "farklı"} | ${r.all.fires} | ${r.all.correct} | ${r.all.wrong} | ${pct(r.all.precision)} | ${r.all.wilson.toFixed(2)} | ${pct(r.all.coverage)} | ${r.reliable.correct}/${r.reliable.wrong} | ${r.contradictions} | ${r.touches} | ${r.decision} |`;
@@ -250,7 +252,7 @@ try {
   say(header);
   for (const r of results) say(line(r));
   say();
-  say("### Birleşimler (her yönde ailesinin en iyi üç tekili)");
+  say("### Birleşimler (her yönde, farklı ailelerden en iyi üç tekilin ikili AND'leri; yönde en çok 3)");
   say(header);
   for (const r of comboResults) say(line(r));
   say();
