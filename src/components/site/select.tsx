@@ -25,7 +25,8 @@ export function Select({name,label,options,defaultValue="",value,className="",tr
    <SelectValue className="block min-w-0 flex-1 truncate">{(selected:string)=>{
     const option=options.find(o=>o.value===selected);
     if(!option)return selected;
-    return <><span className="max-[600px]:hidden">{option.label}</span><span className="min-[601px]:hidden">{option.shortLabel??option.label}</span></>;
+    if(!option.shortLabel)return option.label;
+    return <><span className="max-[600px]:hidden">{option.label}</span><span className="min-[600.01px]:hidden">{option.shortLabel}</span></>;
    }}</SelectValue>
    <SiteIcon name="chevron" size={16} className="absolute top-[calc(50%-8px)] right-2.5 transition-transform duration-150 group-aria-expanded/select:rotate-180"/>
   </SelectTrigger>

@@ -161,7 +161,7 @@ export function CategoryMenu({links}:{links:CategoryLink[]}) {
       {selected===null&&<Link className={cn(sheetRow,"mt-3 min-h-[52px] border-t border-border px-3 py-2.5 text-sm font-medium")} href={catalogPath} onClick={close}><Menu size={18}/><span>Tüm ürünler</span><ChevronRight size={14}/></Link>}
      </nav>
      <nav className="shrink-0 border-t border-border" aria-label="Hesap ve bilgi">
-      {([["/giris",UserRound,"Giriş yap",false],["/bilgi/hakkimizda",Info,"Bilgi",true],["/iletisim",Mail,"İletişim",false]] as const).map(([href,Icon,label,more])=>
+      {([["/giris",UserRound,"Giriş yap",false],["/bilgi/teslimat",Package,"Teslimat",false],["/bilgi/hakkimizda",Info,"Hakkımızda",false],["/bilgi/yardim",Info,"Yardım merkezi",false],["/iletisim",Mail,"İletişim",false]] as const).map(([href,Icon,label,more])=>
        <Link key={href} href={href} onClick={close} className={cn(sheetRow,"min-h-[49px] border-b border-border px-4 py-3 text-sm font-normal")}><Icon size={15}/><span>{label}</span>{more&&<ChevronRight size={14}/>}</Link>)}
      </nav>
     </SheetPrimitive.Popup>

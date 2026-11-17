@@ -53,7 +53,7 @@
   }
   /* HeaderTools: account, garage and cart. */
   .header-tools {
-    @apply flex shrink-0 basis-[422px] items-center justify-between gap-0 max-[1100px]:basis-[310px] max-[1100px]:gap-[15px] max-[850px]:basis-32 max-[600px]:ml-auto max-[600px]:basis-auto max-[600px]:gap-1 group-data-[route=checkout]/route:hidden;
+    @apply flex shrink-0 basis-[422px] items-center justify-between gap-0 max-[1100px]:basis-[310px] max-[1100px]:gap-[15px] max-[850px]:basis-auto max-[600px]:ml-auto max-[600px]:basis-auto max-[600px]:gap-1 group-data-[route=checkout]/route:hidden;
   }
   .header-cart { @apply relative flex h-10 w-8 items-center justify-center max-[1100px]:size-11; }
   /* The account trigger's full width; before .header-tool so its phone width (w-11) still wins, as in the merged list. */

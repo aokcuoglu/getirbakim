@@ -9,6 +9,13 @@ test("known English type names get a Turkish name", () => {
   assert.equal(turkishTypeName("FREN DISKI"), undefined);
 });
 
+test("single English words translate, unclear ones are dropped as English", () => {
+  const pairs: [string, string][] = [["COVER", "Kapak"], ["PIPE", "Boru"], ["SEAL", "Keçe"], ["MIRROR", "Ayna"], ["HOUSING", "Gövde"], ["NUT", "Somun"], ["SPRING", "Yay"], ["BOLT", "Cıvata"], ["TENSIONER", "Gergi"], ["RADIATOR", "Radyatör"], ["JOINT", "Mafsal"], ["PLUG", "Tapa"]];
+  for (const [raw, turkish] of pairs) assert.equal(turkishTypeName(raw), turkish, raw);
+  assert.equal(turkishTypeName("LINK"), undefined);
+  assert.equal(isEnglishTypeName("LINK"), true);
+});
+
 test("plainly English names are recognised, shared words alone are not", () => {
   assert.equal(isEnglishTypeName("SWITCH"), true);
   assert.equal(isEnglishTypeName("WHEEL"), true);

@@ -31,6 +31,7 @@ jobs:
       - run: npm run lint
       - run: npm run harness:lint && npm run harness:test
       - run: npm run test:cart-checkout-ui
+      - run: npm run test:header-search
       - run: node --conditions=react-server --import tsx --test scripts/test-product-pricing.ts scripts/test-supplier-checkout.ts scripts/test-enrichment-import.ts scripts/test-storefront-bundle-items.ts scripts/test-storefront-split.ts scripts/test-storefront-sync.ts
         env:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
@@ -44,7 +45,6 @@ jobs:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
       # The Dinamik import and checkout tests need a database (#788); in the step above without one they skip.
       - run: npm run test:dinamik
-      - run: npm run test:header-search
         env:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
       - run: npm run test:media-gc

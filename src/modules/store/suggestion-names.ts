@@ -28,9 +28,21 @@ const dictionary = new Map<string, string>([
   ["bearing", "Rulman"],
   ["pump", "Pompa"],
   ["repair kit", "Tamir Takımı"],
+  ["cover", "Kapak"],
+  ["pipe", "Boru"],
+  ["seal", "Keçe"],
+  ["mirror", "Ayna"],
+  ["housing", "Gövde"],
+  ["nut", "Somun"],
+  ["spring", "Yay"],
+  ["bolt", "Cıvata"],
+  ["tensioner", "Gergi"],
+  ["radiator", "Radyatör"],
+  ["joint", "Mafsal"],
+  ["plug", "Tapa"],
 ]);
 
-const onlyEnglish = new Set(["brake", "pad", "pads", "hose", "cable", "wheel", "gasket", "switch", "valve", "belt", "bearing", "repair", "accessory", "cylinder", "caliper", "drum", "shoe", "clutch", "pump", "warning", "contact", "master", "parking", "disc", "control"]);
+const onlyEnglish = new Set(["brake", "pad", "pads", "hose", "cable", "wheel", "gasket", "switch", "valve", "belt", "bearing", "repair", "accessory", "cylinder", "caliper", "drum", "shoe", "clutch", "pump", "warning", "contact", "master", "parking", "disc", "control", "cover", "pipe", "seal", "mirror", "housing", "nut", "spring", "bolt", "tensioner", "radiator", "joint", "plug", "link"]);
 // Words English shares with Turkish names ("sensor", "kit", "set"): never enough on their own.
 const shared = new Set(["sensor", "kit", "set", "of", "and", "for", "with", "front", "rear", "left", "right", "pa", "cali"]);
 

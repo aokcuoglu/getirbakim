@@ -21,9 +21,9 @@ const variants = {
   // The header row: hidden on checkout; on phones its own full-width row.
   header: {
     form: "h-10 min-h-10 min-w-[220px] flex-1 rounded-[3px] border-input -mr-2 max-[850px]:mr-0 max-[850px]:min-w-0 max-[600px]:order-3 max-[600px]:w-full max-[600px]:flex-[0_0_100%] max-[600px]:h-11 max-[600px]:min-h-11 group-data-[route=checkout]/route:hidden",
-    select: "w-[164px] min-w-[164px] max-[1100px]:w-[156px] max-[1100px]:min-w-[156px] min-[600px]:max-[850px]:hidden max-[600px]:w-[124px] max-[600px]:min-w-[124px] max-[370px]:w-[116px] max-[370px]:min-w-[116px]",
-    trigger: "min-h-[38px] rounded-none bg-[#f8f9f9] py-[9px] pr-8 pl-3 max-[600px]:min-h-[42px] max-[370px]:pl-2",
-    input: "h-[38px] px-2.5 py-[9px] max-[600px]:h-[42px] max-[600px]:placeholder:text-xs max-[370px]:placeholder:text-[11px]",
+    select: "w-[164px] min-w-[164px] max-[1100px]:w-[156px] max-[1100px]:min-w-[156px] min-[600px]:max-[850px]:hidden max-[600px]:w-[124px] max-[600px]:min-w-[124px] max-[370px]:w-[120px] max-[370px]:min-w-[120px]",
+    trigger: "min-h-[38px] rounded-none bg-[#f8f9f9] py-[9px] pr-8 pl-3 max-[600px]:min-h-[42px] max-[370px]:pr-7 max-[370px]:pl-2",
+    input: "h-[38px] px-2.5 py-[9px] max-[600px]:h-[42px] max-[600px]:placeholder:text-[13px] max-[370px]:px-2",
     button: "h-[38px] w-10 basis-10 max-[600px]:h-[42px] max-[600px]:w-11 max-[600px]:basis-11 rounded-none bg-white text-foreground hover:bg-[#f7f8fa]",
   },
   hero: {
@@ -73,7 +73,7 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
   const suggestions = useSuggestions(query, mode);
   const [recent, setRecent] = useState<RecentSearch[]>([]);
   const showRecent = variant === "header" && query.trim() === "" && recent.length > 0;
-  const options = showRecent ? recent.map(({ q, mode: recentMode }) => ({ href: searchPath({ q, searchBy: recentMode === "code" ? "code" : undefined }), label: q, detail: recentMode === "code" ? "Kod araması" : "Son arama" })) : suggestions ? [
+  const options = showRecent ? recent.map(({ q, mode: recentMode }) => ({ href: searchPath({ q, searchBy: recentMode === "code" ? "code" : undefined }), label: q, detail: recentMode === "code" ? "Kod araması" : "" })) : suggestions ? [
     ...suggestions.categories.map(item => ({ href: item.href, label: item.name, detail: "Kategori" })),
     ...suggestions.products.map(item => ({ href: item.href, label: item.name, detail: item.detail })),
   ] : [];
@@ -93,6 +93,7 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
     : suggestions?.correctedQuery ? `“${suggestions.correctedQuery}” için öneriler` : null;
   return (
     <form ref={form} action={catalogPath} role="search" aria-label={variant === "header" ? "Site genelinde parça ara" : "Katalogda parça ara"}
+      onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}
       onSubmit={() => { setOpen(false); saveRecentSearch(query, mode); }}
       className={cn("relative flex min-w-0 items-center gap-0 border bg-white text-sm leading-5 transition-[border-color,box-shadow] duration-150 focus-within:border-brand focus-within:shadow-[0_0_0_3px_#0077c714]", v.form, className)}>
       <Select name="searchBy" label="Arama türü" value={mode} className={cn("shrink-0", v.select)}
@@ -103,15 +104,15 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
       <input type="search" name="q" aria-label="Ürün, marka veya OEM koduyla ara" autoComplete="off"
         role="combobox" aria-autocomplete="list" aria-expanded={expanded} aria-controls={listId}
         aria-activedescendant={expanded && activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined}
-        placeholder={mode === "code" ? "Ürün kodu veya OEM no" : "Parça veya marka ara"}
+        placeholder={variant === "header" ? (mode === "code" ? "Ürün kodu veya OEM no" : "Parça veya marka ara") : (mode === "code" ? "Ürün kodu veya OEM numarası" : "Hangi parçayı arıyorsun?")}
         value={query} onChange={event => { setQuery(event.target.value); setOpen(true); setActiveIndex(-1); }}
-        onFocus={() => { setRecent(readRecentSearches()); setOpen(true); }} onBlur={() => setOpen(false)} onKeyDown={onKeyDown} minLength={2} maxLength={120}
+        onFocus={() => { setRecent(readRecentSearches()); setOpen(true); }} onKeyDown={onKeyDown} minLength={2} maxLength={120}
         className={cn("w-0 min-w-0 flex-1 rounded-none border-0 bg-transparent text-sm leading-[22px] text-foreground outline-none placeholder:text-sm placeholder:text-muted-foreground focus:border-0 focus:shadow-none focus:outline-none focus-visible:outline-none", v.input)} />
       <button type="submit" aria-label="Parça ara" className={cn("grid min-h-0 shrink-0 place-items-center border-0 p-0", v.button)}><Search size={20} aria-hidden="true" /></button>
       {expanded && <div className="absolute top-[calc(100%+6px)] right-0 left-0 z-50 overflow-hidden rounded-md border border-border bg-white text-left shadow-[0_8px_24px_#212b361f]"
         // Keep focus in the input while choosing with the mouse, so blur does not close the list first.
         onMouseDown={event => event.preventDefault()}>
-        {showRecent && <div className="flex items-center justify-between gap-3 border-b border-border px-3.5 text-xs text-muted-foreground"><span>Son aramalar</span><button type="button" onClick={forgetRecent} className="min-h-11 border-0 bg-transparent px-1 text-xs font-medium text-primary hover:underline">Temizle</button></div>}
+        {showRecent && <div className="flex items-center justify-between gap-3 border-b border-border px-3.5 text-xs text-muted-foreground"><span>Son aramalar</span><button type="button" aria-label="Son aramaları temizle" onClick={forgetRecent} className="min-h-11 border-0 bg-transparent px-1 text-xs font-medium text-primary hover:underline">Temizle</button></div>}
         {!showRecent && notice && <p className="m-0 border-b border-border px-3.5 py-2 text-xs text-muted-foreground">{notice}</p>}
         <ul id={listId} role="listbox" aria-label={showRecent ? "Son aramalar" : "Arama önerileri"} className="m-0 max-h-[min(420px,60vh)] list-none overflow-y-auto p-1">
           {options.map((option, index) => <li key={option.href} id={`${listId}-${index}`} role="option" aria-selected={index === activeIndex}
