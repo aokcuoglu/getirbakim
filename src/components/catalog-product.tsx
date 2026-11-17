@@ -59,6 +59,6 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
    :<p className={cn("product-card-stock",!p.available&&"text-muted-foreground")}><Image className="shrink-0" src="/media/site/icons/calendar-check.svg" width={20} height={20} alt="" unoptimized/><span className="min-w-0"><span className="product-card-stock-status">{stock.status}</span>{stock.note&&<span className="product-card-stock-note">{stock.note}</span>}</span></p>}
   <PurchaseForm productId={p.offer_id??p.id} name={p.name} available={p.available&&p.price_kurus!==null} maxQuantity={p.max_quantity} className="product-card-buyform"/>
   <CompareCheckbox entry={{id:p.id,href,title,price,card}}/>
-  <Link className="product-card-compliance" href="/bilgi/uyumluluk"><Info size={14} className="hidden"/>Güvenlik ve uyumluluk bilgileri</Link>
+  <Link className="product-card-compliance" href="/bilgi/uyumluluk"><Info size={14} className="hidden"/><span className="product-card-compliance-full">Güvenlik ve uyumluluk bilgileri</span><span className="product-card-compliance-short">Güvenlik bilgileri</span></Link>
  </div></div></article>;
 }
