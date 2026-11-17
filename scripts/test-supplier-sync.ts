@@ -174,6 +174,10 @@ test("PostgreSQL: idempotence, changes, disappearance, return, rollback, retenti
     fail=false; codes=["A"];
     await assert.rejects(importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" }),error=>error instanceof BasbugImportError && error.reason === "rejected");
     assert.equal(Number((await client.query("SELECT count(*) FROM supplier_imports WHERE status='rejected'")).rows[0].count),1);
+    // (#910) The upstream errors above backed off; the rejection of the daily group waits for its next 03:00 run and stays failing.
+    const rejectedScope=(await client.query(`SELECT consecutive_failures,next_run_at=(((now() AT TIME ZONE 'Europe/Istanbul')::date+1)+daily_at) AT TIME ZONE 'Europe/Istanbul' AS daily
+      FROM supplier_sync_scopes WHERE company='TEST' AND list_group='FIAT'`)).rows[0];
+    assert.ok(rejectedScope.consecutive_failures>0); assert.equal(rejectedScope.daily,true);
     assert.equal(Number((await client.query("SELECT count(*) FROM supplier_items WHERE presence='present'")).rows[0].count),5);
     process.env.BASBUG_BASE_URL="http://invalid.example";
     await assert.rejects(importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" }),error=>error instanceof BasbugImportError && error.reason === "config");

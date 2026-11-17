@@ -76,17 +76,27 @@ function istanbulDay(date: Date) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(date.getTime() - 1));
 }
 
+/**
+ * The availability the page states, or null where it states none: no price, no supply, a recorded but unconfirmed
+ * stock (never published as in stock) or an unknown stock (never published as out of stock). The Offer below and the
+ * product feed (merchant-feed.ts, #643) share it.
+ */
+export function offerAvailability(input: Pick<ProductJsonLdInput, "priceKurus" | "available" | "stockLabel" | "unavailable">): "in_stock" | "out_of_stock" | null {
+  if (input.unavailable || input.priceKurus === null || !(input.priceKurus >= 1)) return null;
+  if (input.available ? unconfirmedStockLabels.has(input.stockLabel) : input.stockLabel !== outOfStockLabel) return null;
+  return input.available ? "in_stock" : "out_of_stock";
+}
+
 /** The Offer, only where the page itself states price and stock: no price, no supply, or an unknown stock gives none. */
 export function productOffer(input: ProductJsonLdInput, base: string, now = new Date()): JsonLdNode | null {
-  if (input.unavailable || input.priceKurus === null || !(input.priceKurus >= 1)) return null;
-  // A recorded but unconfirmed stock is not published as InStock; an unknown stock is not OutOfStock.
-  if (input.available ? unconfirmedStockLabels.has(input.stockLabel) : input.stockLabel !== outOfStockLabel) return null;
+  const availability = offerAvailability(input);
+  if (availability === null || input.priceKurus === null) return null;
   const until = saleUntil({ pricing_snapshot: input.pricingSnapshot });
   return {
     "@type": "Offer", url: absoluteUrl(base, input.path),
     price: (input.priceKurus / 100).toFixed(2), priceCurrency: "TRY",
     ...until && until > now ? { priceValidUntil: istanbulDay(until) } : {},
-    availability: input.available ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+    availability: availability === "in_stock" ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
     itemCondition: "https://schema.org/NewCondition",
     seller: { "@type": "Organization", "@id": organizationId, name: "Getirbakim", url: base },
     hasMerchantReturnPolicy: { "@type": "MerchantReturnPolicy", applicableCountry: returnPolicy.country,

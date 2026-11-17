@@ -5,7 +5,7 @@ import type { Pool } from "pg";
 import { canonical } from "./basbug-import";
 import { setaCompany } from "./storefront-sources";
 import { egressProxyFor, supplierFetch } from "./egress-proxy";
-import { applySupplierSnapshot, rejectionReason, type ObservationItem } from "./sync";
+import { applySupplierSnapshot, failedCatalogRunSql, nextCatalogRunSql, rejectionReason, type ObservationItem } from "./sync";
 
 // SETA (Seta Filtre) publishes its whole B2B list from one endpoint: GET /seta/products with an XApiKey header.
 // No groups, warehouses, paging or currencies: one fixed scope covers the list.
@@ -171,9 +171,7 @@ export async function importSeta(pool: Pool, options: z.input<typeof optionsSche
     if (mode === "full") {
       await connection.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,last_success_at,next_run_at)
         VALUES($1,$2,$3,$4,true,$5,((($5::timestamptz AT TIME ZONE 'Europe/Istanbul')::date+1)+time '03:00') AT TIME ZONE 'Europe/Istanbul') ON CONFLICT(supplier,company,list_group,warehouse)
-        DO UPDATE SET last_success_at=$5,consecutive_failures=0,next_run_at=CASE WHEN supplier_sync_scopes.interval_minutes=1440 THEN
-          ((($5::timestamptz AT TIME ZONE 'Europe/Istanbul')::date+1)+supplier_sync_scopes.daily_at) AT TIME ZONE 'Europe/Istanbul'
-          ELSE $5::timestamptz+supplier_sync_scopes.interval_minutes*interval '1 minute' END`, [supplier,company,group,warehouse,observedAt]);
+        DO UPDATE SET last_success_at=$5,consecutive_failures=0,next_run_at=${nextCatalogRunSql("$5")}`, [supplier,company,group,warehouse,observedAt]);
     }
     await connection.query(`UPDATE supplier_sync_scopes SET commerce_last_success_at=$5,commerce_failures=0,
       commerce_next_run_at=$5::timestamptz+commerce_interval_minutes*interval '1 minute'
@@ -196,8 +194,8 @@ export async function importSeta(pool: Pool, options: z.input<typeof optionsSche
       } else {
         await connection.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,consecutive_failures,next_run_at)
         VALUES($1,$2,$3,$4,true,1,now()+interval '15 minutes') ON CONFLICT(supplier,company,list_group,warehouse)
-        DO UPDATE SET consecutive_failures=supplier_sync_scopes.consecutive_failures+1,
-        next_run_at=now()+LEAST(360,15*power(2,LEAST(supplier_sync_scopes.consecutive_failures,5))) * interval '1 minute'`, [supplier,company,group,warehouse]);
+        DO UPDATE SET consecutive_failures=supplier_sync_scopes.consecutive_failures+1,next_run_at=${failedCatalogRunSql("$5::boolean")}`,
+        [supplier,company,group,warehouse,reason === "rejected"]);
       }
     }
     if (error instanceof SetaImportError) throw error;

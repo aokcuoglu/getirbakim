@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { dinamikCost } from "../src/modules/suppliers/dinamik-pricing";
 import { DinamikImportError, discoverDinamikBrands, importDinamik, prepareDinamikImport, refreshDinamikItems, type DinamikFetch } from "../src/modules/suppliers/dinamik-import";
+import { supplierHealth, supplierSyncAlerts } from "../src/modules/suppliers/health";
 
 // Shapes copied from live getStockList / getPriceList responses (FEBI, 2026-10-11).
 const stockRow = (code: string, fiyat = 106.09, varyok1 = "YOK") => ({ $type: "customer", varyok1, varyok2: "YOK", varyok3: "YOK", varyok4: "VAR", kaporta: "YOK", varyokAll: "VAR",
@@ -160,13 +161,43 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
     lists.FEBI = { stock: [], prices: [] };
     await assert.rejects(importDinamik(pool, { brand: "FEBI" }, fake), (error: unknown) => error instanceof DinamikImportError && error.reason === "rejected");
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_items WHERE list_group='FEBI' AND presence='present'")).rows[0].n, 9);
-    const scope = (await pool.query("SELECT consecutive_failures,next_run_at>now() AS backoff FROM supplier_sync_scopes WHERE list_group='FEBI'")).rows[0];
-    assert.equal(scope.consecutive_failures, 1); assert.equal(scope.backoff, true);
+    // (#910) The supplier's list does not change within hours: the daily brand waits for its next 04:00 run instead of
+    // backing off, still counts as failing in health, and alarms only on the tick that rejected it.
+    const nextDaily = "(((now() AT TIME ZONE 'Europe/Istanbul')::date+1)+daily_at) AT TIME ZONE 'Europe/Istanbul'";
+    const scope = (await pool.query(`SELECT consecutive_failures,next_run_at=${nextDaily} AS daily FROM supplier_sync_scopes WHERE list_group='FEBI'`)).rows[0];
+    assert.equal(scope.consecutive_failures, 1); assert.equal(scope.daily, true);
+    assert.ok((await supplierHealth(pool, undefined, false)).issues.some(issue => issue.list_group === "FEBI"));
+    assert.ok(!(await supplierSyncAlerts(pool)).some(alert => alert.list_group === "FEBI"));
+    // A deferred rejection whose data went stale alarms again.
+    await pool.query("UPDATE supplier_sync_scopes SET last_success_at=last_success_at-interval '3 days' WHERE list_group='FEBI'");
+    assert.ok((await supplierSyncAlerts(pool)).some(alert => alert.list_group === "FEBI"));
+    await pool.query("UPDATE supplier_sync_scopes SET last_success_at=last_success_at+interval '3 days' WHERE list_group='FEBI'");
+    // Once the deferred daily run is due, the failing brand alarms like any other.
+    await pool.query("UPDATE supplier_sync_scopes SET next_run_at=now()-interval '1 minute' WHERE list_group='FEBI'");
+    assert.ok((await supplierSyncAlerts(pool)).some(alert => alert.list_group === "FEBI"));
 
-    // Upstream failure: run recorded as failed without the error body.
+    // Upstream failure: run recorded as failed without the error body; it backs off and alarms every tick.
     const broken: DinamikFetch = async () => { throw new DinamikImportError("upstream", "getStockList HTTP 500"); };
     await assert.rejects(importDinamik(pool, { brand: "SCHADEK" }, broken), (error: unknown) => error instanceof DinamikImportError && error.reason === "upstream");
     assert.equal((await pool.query("SELECT error_reason FROM supplier_imports WHERE list_group='SCHADEK' ORDER BY started_at DESC LIMIT 1")).rows[0].error_reason, "upstream: getStockList: HTTP 500");
+    const backoff = (await pool.query("SELECT consecutive_failures,next_run_at>now()+interval '14 minutes' AND next_run_at<=now()+interval '15 minutes' AS backoff FROM supplier_sync_scopes WHERE list_group='SCHADEK'")).rows[0];
+    assert.equal(backoff.consecutive_failures, 1); assert.equal(backoff.backoff, true);
+    assert.ok((await supplierSyncAlerts(pool)).some(alert => alert.list_group === "SCHADEK"));
+
+    // A rejection of a brand on a shorter interval keeps the backoff (second failure: 30 minutes).
+    await pool.query("UPDATE supplier_sync_scopes SET interval_minutes=720 WHERE list_group='FEBI'");
+    await assert.rejects(importDinamik(pool, { brand: "FEBI" }, fake), (error: unknown) => error instanceof DinamikImportError && error.reason === "rejected");
+    const shorter = (await pool.query("SELECT consecutive_failures,next_run_at>now()+interval '29 minutes' AND next_run_at<=now()+interval '30 minutes' AS backoff FROM supplier_sync_scopes WHERE list_group='FEBI'")).rows[0];
+    assert.equal(shorter.consecutive_failures, 2); assert.equal(shorter.backoff, true);
+    assert.ok((await supplierSyncAlerts(pool)).some(alert => alert.list_group === "FEBI"));
+    await pool.query("UPDATE supplier_sync_scopes SET interval_minutes=1440 WHERE list_group='FEBI'");
+
+    // A reviewed anomaly takes the success path: counter reset, next nightly run, no alarm.
+    const accepted = await importDinamik(pool, { brand: "FEBI", acceptAnomaly: "Confirmed empty brand list, ticket 910" }, fake);
+    assert.equal(accepted.uniqueProducts, 0);
+    const reviewed = (await pool.query(`SELECT consecutive_failures,next_run_at=${nextDaily.replaceAll("now()", "last_success_at")} AS daily FROM supplier_sync_scopes WHERE list_group='FEBI'`)).rows[0];
+    assert.equal(reviewed.consecutive_failures, 0); assert.equal(reviewed.daily, true);
+    assert.ok(!(await supplierSyncAlerts(pool)).some(alert => alert.list_group === "FEBI"));
 
     // Success resets the failure counter and schedules the next nightly run.
     lists.FEBI = { stock: [stockRow("FEBI 1")], prices: Array.from({ length: 9 }, (_, i) => priceRow(`FEBI ${i + 1}`)) };

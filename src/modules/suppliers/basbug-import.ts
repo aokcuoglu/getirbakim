@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import type { Pool } from "pg";
-import { applySupplierSnapshot, rejectionReason } from "./sync";
+import { applySupplierSnapshot, failedCatalogRunSql, nextCatalogRunSql, rejectionReason } from "./sync";
 import { basbugWarehouses } from "./basbug-stock";
 import { egressProxyFor, supplierFetch } from "./egress-proxy";
 export { basbugWarehouses } from "./basbug-stock";
@@ -257,9 +257,7 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
     if (mode === "full") {
       await connection.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,last_success_at,next_run_at)
         VALUES('basbug',$1,$2,$3,true,$4,((($4::timestamptz AT TIME ZONE 'Europe/Istanbul')::date+1)+time '03:00') AT TIME ZONE 'Europe/Istanbul') ON CONFLICT(supplier,company,list_group,warehouse)
-        DO UPDATE SET last_success_at=$4,consecutive_failures=0,next_run_at=CASE WHEN supplier_sync_scopes.interval_minutes=1440 THEN
-          ((($4::timestamptz AT TIME ZONE 'Europe/Istanbul')::date+1)+supplier_sync_scopes.daily_at) AT TIME ZONE 'Europe/Istanbul'
-          ELSE $4::timestamptz+supplier_sync_scopes.interval_minutes*interval '1 minute' END`, [company,group,warehouse,observedAt]);
+        DO UPDATE SET last_success_at=$4,consecutive_failures=0,next_run_at=${nextCatalogRunSql("$4")}`, [company,group,warehouse,observedAt]);
     }
     // A full import also observes prices and stock and satisfies the commercial schedule.
     await connection.query(`UPDATE supplier_sync_scopes SET commerce_last_success_at=$4,commerce_failures=0,
@@ -283,8 +281,8 @@ export async function importBasbug(pool: Pool, options: z.input<typeof importOpt
       } else {
         await connection.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,consecutive_failures,next_run_at)
         VALUES('basbug',$1,$2,$3,true,1,now()+interval '15 minutes') ON CONFLICT(supplier,company,list_group,warehouse)
-        DO UPDATE SET consecutive_failures=supplier_sync_scopes.consecutive_failures+1,
-        next_run_at=now()+LEAST(360,15*power(2,LEAST(supplier_sync_scopes.consecutive_failures,5))) * interval '1 minute'`, [company,group,warehouse]);
+        DO UPDATE SET consecutive_failures=supplier_sync_scopes.consecutive_failures+1,next_run_at=${failedCatalogRunSql("$4::boolean")}`,
+        [company,group,warehouse,reason === "rejected"]);
       }
     }
     if (error instanceof BasbugImportError) throw error;
