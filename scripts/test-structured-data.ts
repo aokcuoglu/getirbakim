@@ -2,11 +2,11 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { legalDocument, type LegalNode } from "../src/content/legal";
-import { breadcrumbJsonLd, catalogTrail, collectionJsonLd, maxStructuredVehicles, outOfStockLabel, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
+import { articleJsonLd, breadcrumbJsonLd, catalogTrail, collectionJsonLd, maxStructuredVehicles, outOfStockLabel, guideTrail, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
   serializeJsonLd, unconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
 import { listingPath, makePath } from "../src/modules/seo/paths";
 import { productPath } from "../src/modules/seo/product-path";
-import { organizationId, siteJsonLd } from "../src/lib/site";
+import { defaultSocialImage, organizationId, siteJsonLd } from "../src/lib/site";
 
 const base = "https://getirbakim.com";
 const now = new Date("2026-11-15T10:00:00Z");
@@ -182,4 +182,22 @@ test("listing and product addresses", () => {
   assert.equal(listingPath({ categorySlug: "x" }), "/kategori/x");
   assert.equal(listingPath({ makeSlug: "vw" }), makePath("vw"));
   assert.equal(listingPath({ makeSlug: "vw", categorySlug: "x" }), "/kategori/x/vw");
+});
+
+test("article: organization as author and publisher, dates and canonical", () => {
+  const node = articleJsonLd({ title: "T", description: "D", path: "/rehber/x", published: "2026-11-17", updated: "2026-11-18" }, base) as Record<string, unknown>;
+  assert.equal(node["@type"], "Article");
+  assert.equal(node.headline, "T");
+  assert.equal(node.datePublished, "2026-11-17");
+  assert.equal(node.dateModified, "2026-11-18");
+  assert.equal(node.inLanguage, "tr-TR");
+  assert.deepEqual(node.mainEntityOfPage, { "@type": "WebPage", "@id": `${base}/rehber/x` });
+  assert.deepEqual(node.author, { "@id": organizationId });
+  assert.deepEqual(node.publisher, { "@id": organizationId });
+  assert.equal(node.image, `${base}${defaultSocialImage.url}`);
+});
+
+test("guide trail: home, guides, article", () => {
+  assert.deepEqual(guideTrail().map(crumb => crumb.path), ["/", "/rehber"]);
+  assert.deepEqual(guideTrail({ title: "T", slug: "x" }).map(crumb => crumb.path), ["/", "/rehber", "/rehber/x"]);
 });

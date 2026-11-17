@@ -74,6 +74,7 @@
     "test:vehicles": "node --env-file=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-catalog.ts",
     "test:app-version": "node --import tsx --test scripts/test-app-version.ts",
     "test:vehicle-repxpert": "node --import tsx --test scripts/test-vehicle-repxpert.ts",
+    "test:guides": "node --import tsx --test scripts/test-guides.ts",
     "test:structured-data": "node --import tsx --test scripts/test-structured-data.ts",
     "test:listing-paths": "node --import tsx --test scripts/test-listing-paths.ts",
     "test:manufacturers": "node --import tsx --test scripts/test-manufacturers.ts",

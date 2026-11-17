@@ -1,7 +1,8 @@
 // Pure builders of the store's schema.org JSON-LD (#637). Nothing here reads an account, a discount or a vehicle:
 // the price is the product's own list price, so a service's B2B price never reaches the markup.
 import { saleUntil } from "@/modules/store/best-offer";
-import { organizationId } from "@/lib/site";
+import { defaultSocialImage, organizationId } from "@/lib/site";
+import { guidePath, guidesPath, type Guide } from "@/content/guides";
 import { absoluteUrl, catalogPath, listingPath, makesPath } from "./paths";
 
 export type Crumb = { name: string; path: string };
@@ -32,6 +33,11 @@ export function catalogTrail(input: { make?: Named; model?: Named; categories: N
 
 export function pageTrail(title: string, path: string): Crumb[] {
   return [home, { name: title, path }];
+}
+
+/** Home, guides, and the article (when `guide` is given). */
+export function guideTrail(guide?: Pick<Guide, "title" | "slug">): Crumb[] {
+  return [home, { name: "Rehber", path: guidesPath }, ...guide ? [{ name: guide.title, path: guidePath(guide.slug) }] : []];
 }
 
 export function breadcrumbJsonLd(trail: Crumb[], base: string): JsonLdNode | null {
@@ -107,6 +113,29 @@ export function collectionJsonLd(input: { name: string; description?: string; pa
     ...input.description ? { description: input.description } : {},
     mainEntity: { "@type": "ItemList", numberOfItems: input.items.length,
       itemListElement: input.items.map((item, index) => ({ "@type": "ListItem", position: index + 1, url: absoluteUrl(base, item.path), name: item.name })) } };
+}
+
+type ArticleInput = { title: string; description: string; path: string; published: string; updated: string; image?: { url: string } };
+
+/** An Article whose author and publisher is the organization (no person is named). */
+export function articleJsonLd(input: ArticleInput, base: string): JsonLdNode {
+  return { "@context": "https://schema.org", "@type": "Article", headline: input.title, description: input.description,
+    datePublished: input.published, dateModified: input.updated, inLanguage: "tr-TR",
+    mainEntityOfPage: { "@type": "WebPage", "@id": absoluteUrl(base, input.path) },
+    author: { "@id": organizationId }, publisher: { "@id": organizationId },
+    image: absoluteUrl(base, (input.image ?? defaultSocialImage).url) };
+}
+
+/** A FAQPage; the answer text is the plain text the page shows. Null without questions. */
+export function faqJsonLd(items: { question: string; answer: string }[]): JsonLdNode | null {
+  if (!items.length) return null;
+  return { "@context": "https://schema.org", "@type": "FAQPage",
+    mainEntity: items.map(item => ({ "@type": "Question", name: item.question, acceptedAnswer: { "@type": "Answer", text: item.answer } })) };
+}
+
+/** The About page; the organization itself is printed once by the layout, so only its @id is referenced. */
+export function aboutPageJsonLd(path: string, base: string): JsonLdNode {
+  return { "@context": "https://schema.org", "@type": "AboutPage", url: absoluteUrl(base, path), inLanguage: "tr-TR", mainEntity: { "@id": organizationId } };
 }
 
 /** JSON for a script tag: `<` is escaped so no value can close the tag. */
