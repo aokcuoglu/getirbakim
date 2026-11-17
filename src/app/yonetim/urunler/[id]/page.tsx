@@ -302,7 +302,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         <CardDescription>Sayfa başına 50 kayıt; toplu araç ekleme ve kopyalar tek satırda gösterilir. “Otomatik”, alanın tedarikçi ve zenginleştirme verisinden (fiyatta formülden) geldiğini gösterir.</CardDescription></CardHeader>
       <CardContent className="flex flex-col gap-4">
         {history.batch && <div className="flex flex-col items-start gap-2">
-          <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Toplu işlemin {formatNumber(history.total)} satırı gösteriliyor.</AlertDescription></Alert>
+          <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Toplu işlemin {formatNumber(history.batchTypes ?? history.total)} araç tipi gösteriliyor.{history.batchTypes !== null && history.total > history.batchTypes && history.page === history.pages && " Son satır kopyanın özetidir."}</AlertDescription></Alert>
           <Button variant="outline" size="sm" nativeButton={false} render={<Link href={productTabHref(product.id, "gecmis", { params: { page: backPage }, merged: Boolean(merged) })} scroll={false}/>}>
             <ArrowLeft data-icon="inline-start" aria-hidden="true"/>Tüm geçmişe dön</Button>
         </div>}
