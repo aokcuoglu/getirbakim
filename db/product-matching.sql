@@ -2,9 +2,10 @@
 -- Identity of a physical product = (canonical brand, part number). Codes are "BRAND-PREFIX PART-NO" in Başbuğ and
 -- Dinamik with supplier-specific prefixes (SCH = SACHS), so the prefix is dropped and the brand comes from the
 -- brand field instead. Başbuğ original parts (OE-*), SETA and manual list codes carry no prefix.
--- Advisory lock key for a lock slot, per schema (#792). public keeps the slot itself, so production keys stay as they
--- are; any other schema is an isolated test copy and gets its own negative key, so tests never queue behind the dev
--- server's matcher or state sync. The default is evaluated at the call site; NULL (no schema on the path) means public.
+-- Advisory lock key for a lock slot, per schema (#792, #829). Slots: 5 matcher / state sync, 6 admin regrouping, 7 brand
+-- decisions. public keeps the slot itself, so production keys stay as they are; any other schema is an isolated test
+-- copy and gets its own negative key, so tests never queue behind the dev server's matcher, regrouping or brand work.
+-- The default is evaluated at the call site; NULL (no schema on the path) means public.
 CREATE OR REPLACE FUNCTION schema_lock_key(slot integer, namespace name DEFAULT current_schema()) RETURNS integer
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE WHEN COALESCE(namespace,'public')='public' THEN slot ELSE -1-(hashtext(namespace||':'||slot::text) & 2147483647) END
@@ -114,7 +115,7 @@ END $$;
 CREATE OR REPLACE FUNCTION sync_supplier_brands() RETURNS integer LANGUAGE plpgsql AS $$
 DECLARE added integer;
 BEGIN
- PERFORM pg_advisory_xact_lock(20261001,7);
+ PERFORM pg_advisory_xact_lock(20261001,schema_lock_key(7));
  DROP TABLE IF EXISTS brand_labels, new_brand_labels;
  CREATE TEMP TABLE brand_labels ON COMMIT DROP AS
  SELECT supplier, label, product_brand_key(label) AS key, count(*)::int AS items
@@ -158,7 +159,7 @@ CREATE TABLE IF NOT EXISTS brand_logos (
 CREATE OR REPLACE FUNCTION brand_merge(source bigint, target bigint, actor uuid) RETURNS bigint LANGUAGE plpgsql AS $$
 BEGIN
  IF source IS NULL OR target IS NULL OR source=target OR NOT EXISTS (SELECT 1 FROM brands WHERE id=target) THEN RETURN NULL; END IF;
- PERFORM pg_advisory_xact_lock(20261001,7);
+ PERFORM pg_advisory_xact_lock(20261001,schema_lock_key(7));
  UPDATE supplier_brands SET brand_id=target, method='manual', decided_by=actor, decided_at=now() WHERE brand_id=source;
  -- The merged brand's admin logo moves along unless the target has its own; a real logo replaces the target's hidden mark.
  DELETE FROM brand_logos WHERE brand_id=target AND image_data IS NULL
@@ -211,7 +212,7 @@ CREATE INDEX IF NOT EXISTS product_offers_primary_idx ON product_offers(primary_
 -- being transactional, a new value becomes visible together with the rows that caused it. Statement-level and only
 -- when rows changed: the matcher's bulk rewrite costs one UPDATE per statement, not per row. The row lock is held
 -- until the writer commits, so concurrent offer writers queue on it; the matcher and the admin regrouping functions
--- also share advisory lock 6, so they serialise before taking any row lock.
+-- also share advisory lock slot 6 (schema_lock_key), so they serialise before taking any row lock.
 CREATE TABLE IF NOT EXISTS product_grouping_version (
  id integer PRIMARY KEY DEFAULT 1 CHECK (id=1), version bigint NOT NULL DEFAULT 0
 );
@@ -420,7 +421,7 @@ BEGIN
   COALESCE(supplier_item_brand(i.supplier,i.product_data),'') AS label, i.code
  INTO k FROM supplier_items i WHERE i.id=item;
  IF NOT FOUND OR k.brand IS NULL THEN RETURN NULL; END IF;
- PERFORM pg_advisory_xact_lock(20261001,6);
+ PERFORM pg_advisory_xact_lock(20261001,schema_lock_key(6));
  SELECT product_id INTO old_id FROM product_sources WHERE supplier_item_id=item;
  INSERT INTO products(id,brand,part_number,variant,name,brand_label,code)
  VALUES (CASE WHEN EXISTS (SELECT 1 FROM products WHERE id=item) THEN gen_random_uuid() ELSE item END, k.brand, k.part_number,
@@ -452,7 +453,7 @@ $$;
 -- "Aynı ürün": every row of `source` joins `target` as a locked manual link; `source` redirects to `target`.
 CREATE OR REPLACE FUNCTION product_merge(source uuid, target uuid, actor uuid) RETURNS uuid LANGUAGE plpgsql AS $$
 BEGIN
- PERFORM pg_advisory_xact_lock(20261001,6);
+ PERFORM pg_advisory_xact_lock(20261001,schema_lock_key(6));
  -- A target merged earlier stands for the product it was merged into.
  SELECT COALESCE(merged_into,id) INTO target FROM products WHERE id=target;
  -- A source without rows of its own (already merged elsewhere) is left alone: relinking it would point it at a
@@ -482,7 +483,7 @@ BEGIN
   COALESCE(supplier_item_brand(i.supplier,i.product_data),'') AS label, i.code
  INTO k FROM supplier_items i WHERE i.id=item;
  IF k.brand IS NULL THEN RETURN NULL; END IF;
- PERFORM pg_advisory_xact_lock(20261001,6);
+ PERFORM pg_advisory_xact_lock(20261001,schema_lock_key(6));
  SELECT id INTO pid FROM products WHERE brand=k.brand AND part_number=k.part_number AND variant=0;
  IF pid IS NULL THEN
   INSERT INTO products(id,brand,part_number,name,brand_label,code)
@@ -513,7 +514,7 @@ DROP FUNCTION IF EXISTS product_split_offer(uuid, uuid);
 CREATE OR REPLACE FUNCTION product_split_offer(item uuid, expected_primary uuid, actor uuid) RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE src record; pid uuid;
 BEGIN
- PERFORM pg_advisory_xact_lock(20261001,6);
+ PERFORM pg_advisory_xact_lock(20261001,schema_lock_key(6));
  SELECT s.product_id, s.method INTO src FROM product_sources s WHERE s.supplier_item_id=item
   AND EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=item AND o.primary_id=expected_primary AND o.primary_id<>o.item_id);
  IF NOT FOUND THEN RETURN NULL; END IF;
@@ -600,9 +601,10 @@ CREATE OR REPLACE FUNCTION refresh_product_matches() RETURNS jsonb LANGUAGE plpg
 DECLARE started timestamptz := clock_timestamp(); result jsonb; pairing int;
 BEGIN
  PERFORM pg_advisory_xact_lock(20261001,schema_lock_key(5));
- -- Also the admin regrouping lock (product_merge/split/reset take 6 before touching rows): matcher and admin then queue
- -- on the advisory lock instead of meeting on product_sources rows and the grouping version row (deadlock, #504).
- PERFORM pg_advisory_xact_lock(20261001,6);
+ -- Also the admin regrouping lock, slot 6 (schema_lock_key): product_merge/split/reset take it before touching rows, so
+ -- matcher and admin queue on the advisory lock instead of meeting on product_sources rows and the grouping version
+ -- row (deadlock, #504).
+ PERFORM pg_advisory_xact_lock(20261001,schema_lock_key(6));
  -- DELETE, not TRUNCATE: readers (admin screen) keep seeing the previous results until this transaction commits.
  DELETE FROM product_match_groups; DELETE FROM product_equivalence_groups;
  DELETE FROM product_references; DELETE FROM product_offers; DELETE FROM product_seta_references;

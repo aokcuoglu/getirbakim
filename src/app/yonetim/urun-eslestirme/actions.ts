@@ -226,7 +226,7 @@ export async function moveBrandLabel(form: FormData) {
   if (!input.success) redirect("/yonetim/urun-eslestirme?error=input");
   const { supplier, label, mode, target, back } = input.data;
   await brandDecision(back, mode === "new" ? "created" : "moved", async client => {
-    await client.query("SELECT pg_advisory_xact_lock(20261001,7)");
+    await client.query("SELECT pg_advisory_xact_lock(20261001,schema_lock_key(7))");
     const current = (await client.query<{ brand_id: string }>("SELECT brand_id FROM supplier_brands WHERE supplier=$1 AND label=$2", [supplier, label])).rows[0];
     if (!current || (mode === "move" && !target)) return false;
     const brand = mode === "new" ? (await client.query<{ id: string | null }>("SELECT brand_create($1) AS id", [label])).rows[0]?.id

@@ -63,7 +63,7 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
     await client.query("BEGIN");
     // The admin regrouping lock (product_merge, refresh_product_matches): the projection reads product_sources and
     // writes the rows the matcher's source trigger rewrites, so both queue here instead of deadlocking.
-    await client.query("SELECT pg_advisory_xact_lock(20261001,6)");
+    await client.query("SELECT pg_advisory_xact_lock(20261001,schema_lock_key(6))");
     const product = (await client.query<{ merged_into: string | null }>("SELECT merged_into FROM products WHERE id=$1 FOR UPDATE", [productId])).rows[0];
     if (!product) { await client.query("ROLLBACK"); return { ok: false, reason: "not-found" }; }
     if (product.merged_into) { await client.query("ROLLBACK"); return { ok: false, reason: "merged" }; }
