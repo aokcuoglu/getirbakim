@@ -67,8 +67,9 @@ export function parseDecimal(value: ExcelJS.CellValue): number | null | "invalid
 export function parsePercent(cell: Pick<ExcelJS.Cell, "value" | "numFmt">): { value: number | null | "invalid"; fraction?: boolean } {
   const raw = cell.value;
   const value = raw !== null && typeof raw === "object" && "result" in raw ? (raw.result ?? null) as ExcelJS.CellValue : raw;
-  // Quoted literals ("%") and escaped characters (\%) in the format are text, not percent scaling.
-  const percentFormat = (cell.numFmt ?? "").replace(/"[^"]*"/g, "").replace(/\\./g, "").includes("%");
+  // A quoted "%" in the format is literal text, not percent scaling. (ExcelJS drops the backslash of an escaped \% when
+  // reading, so that one cannot be told apart and scales.)
+  const percentFormat = (cell.numFmt ?? "").replace(/"[^"]*"/g, "").includes("%");
   let parsed: number | null | "invalid";
   let marked = false;
   if (typeof value === "number") {
@@ -88,6 +89,13 @@ const decimals = (value: number) => {
   return text.includes("e") ? 99 : (text.split(".")[1] ?? "").length;
 };
 const formatAmount = (value: number) => value.toLocaleString("tr-TR", { maximumFractionDigits: 4 });
+
+/** A formula cell without a usable cached result (an error such as #DIV/0!, or never calculated). */
+export function formulaFailed(value: ExcelJS.CellValue) {
+  if (value === null || typeof value !== "object" || value instanceof Date || !("formula" in value || "sharedFormula" in value)) return false;
+  const result = (value as { result?: unknown }).result;
+  return result === undefined || result === null || typeof result === "object" && !(result instanceof Date);
+}
 
 // SAE grades are written one way (10W-40, as the storefront's engine-oil matching reads them); anything else as typed.
 export function normalizeViscosity(value: string | null) {
@@ -190,14 +198,19 @@ export async function parseManualWorkbook(buffer: Buffer | ArrayBuffer, categori
       else if (!category) issue("category", "error", `Kategori bulunamadı: "${categoryText}" (Kategoriler sayfasındaki adlardan biri olmalı)`);
       const filePrice = parseDecimal(raw("price"));
       if (filePrice === "invalid") issue("price", "error", `Fiyat sayı değil: "${text("price")}"`);
-      const listValue = parseDecimal(raw("listPrice"));
+      const listFailed = formulaFailed(raw("listPrice"));
+      const listValue = listFailed ? "invalid" : parseDecimal(raw("listPrice"));
       const listPrice = typeof listValue === "number" ? listValue : null;
-      if (listValue === "invalid") issue("listPrice", "error", `Liste Fiyatı sayı değil: "${text("listPrice")}"`);
+      if (listFailed) issue("listPrice", "error", "Liste Fiyatı formülü hesaplanamadı");
+      else if (listValue === "invalid") issue("listPrice", "error", `Liste Fiyatı sayı değil: "${text("listPrice")}"`);
       else if (listPrice !== null && listPrice <= 0) issue("listPrice", "error", "Liste Fiyatı sıfırdan büyük olmalı");
       else if (listPrice !== null && decimals(listPrice) > 4) issue("listPrice", "error", "Liste Fiyatı en fazla dört ondalıklı olabilir");
-      const percent = columns.has("discount") ? parsePercent(line.getCell(columns.get("discount")!)) : { value: null };
+      const discountFailed = formulaFailed(raw("discount"));
+      const percent: ReturnType<typeof parsePercent> = discountFailed ? { value: "invalid" }
+        : columns.has("discount") ? parsePercent(line.getCell(columns.get("discount")!)) : { value: null };
       const discount = typeof percent.value === "number" ? percent.value : null;
-      if (percent.value === "invalid") issue("discount", "error", `İskonto Oranı sayı değil: "${text("discount")}"`);
+      if (discountFailed) issue("discount", "error", "İskonto formülü hesaplanamadı");
+      else if (percent.value === "invalid") issue("discount", "error", `İskonto Oranı sayı değil: "${text("discount")}"`);
       else if (discount !== null && (discount < 0 || discount > 100)) issue("discount", "error", `İskonto Oranı 0–100 arasında olmalı: ${text("discount")}`);
       else if (discount !== null && listValue === null) issue("discount", "error", "İskonto girildi ama Liste Fiyatı yok; Liste Fiyatı da girin");
       else if (percent.fraction) issue("discount", "warning", "İskonto Oranı 1'den küçük okundu; yüzde olarak yazın (12,5)");

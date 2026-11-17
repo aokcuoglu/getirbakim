@@ -150,3 +150,19 @@ test("percent formula cells use their result; literal % in a format and text bel
   assert.deepEqual(parsed.rows.map(r => [r.code, r.discount, r.price]), [["A", 12.5, 875], ["B", 20, 800], ["C", 0.125, 998.75], ["D", 0.5, 995]]);
   assert.deepEqual(parsed.issues.map(issue => [issue.code, issue.field, issue.level]), [["C", "discount", "warning"], ["D", "discount", "warning"]]);
 });
+
+test("a list price or discount formula without a result is a row error, not an empty cell", async () => {
+  const book = new ExcelJS.Workbook();
+  const sheet = book.addWorksheet("Liste");
+  sheet.addRow(priceHeader);
+  sheet.addRow(["A", "Ad", "MOTUL", "Motor yağları", null, 1000, null, "4 L"]).getCell(7).value = { formula: "1/0", result: { error: "#DIV/0!" } };
+  sheet.addRow(["B", "Ad", "MOTUL", "Motor yağları", null, 1000, null, "4 L"]).getCell(7).value = { formula: "J1" } as ExcelJS.CellValue;
+  sheet.addRow(["C", "Ad", "MOTUL", "Motor yağları", null, null, 10, "4 L"]).getCell(6).value = { formula: "1/0", result: { error: "#DIV/0!" } };
+  const parsed = await parseManualWorkbook(Buffer.from(await book.xlsx.writeBuffer()), categories);
+  assert.deepEqual(parsed.rows, []);
+  assert.deepEqual(parsed.issues.map(issue => [issue.code, issue.field, issue.level, issue.message]), [
+    ["A", "discount", "error", "İskonto formülü hesaplanamadı"],
+    ["B", "discount", "error", "İskonto formülü hesaplanamadı"],
+    ["C", "listPrice", "error", "Liste Fiyatı formülü hesaplanamadı"],
+  ]);
+});
