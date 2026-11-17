@@ -15,6 +15,7 @@ const [basbug, seta, dinamik] = storefrontCompanies();
 let admin: string;
 
 const X = "9673689380", Y = "1K0615301AA", Q = "7701208266", Z = "6020030303", W = "4410020011";
+const V = "5520030044", U = "3310040055", R1 = "2210050066", R2 = "1110060077";
 type Supplier = "basbug" | "dinamik" | "seta";
 async function item(key: string, supplier: Supplier, code: string, product: Record<string, unknown>) {
   const company = supplier === "basbug" ? basbug : supplier === "seta" ? seta : dinamik;
@@ -75,9 +76,20 @@ before(async () => {
   await basbugItem("h", "FEB 80080008", "FEBI", W);
   await basbugItem("i", "LEM 90090009", "LEMFORDER", W);
   await basbugItem("k", "TRW 11011011", "TRW");
+  // Decided pairs also tied by an OEM number: a manual equivalent (M1–M2) and a brand pair (KYB–MONROE).
+  await basbugItem("m1", "DEL 13013013", "DELPHI", V);
+  await basbugItem("m2", "NIS 14014014", "NISSENS", V);
+  await basbugItem("kyb", "KYB 15015015", "KYB", U);
+  await basbugItem("monroe", "MON 15015015", "MONROE", U);
+  await schema.pool.query("INSERT INTO product_brand_pair_decisions(brand_a,brand_b,status) VALUES('KYB','MONROE','equivalent')");
+  // Merge into a hidden target: N (stating R2, shared with P) joins T.
+  await basbugItem("t", "BRE 16016016", "BREMBO", R1);
+  await basbugItem("n", "TEX 17017017", "TEXTAR", R2);
+  await basbugItem("p", "ATE 18018018", "ATE", R2);
   await refresh();
   await decide("a", "c", "equivalent");
   await decide("a", "f", "unrelated");
+  await decide("m1", "m2", "equivalent");
   await refresh();
   const [{ db }, overridesModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/admin/product-override-store")]);
   overrides = overridesModule;
@@ -179,4 +191,30 @@ test("a SETA product hiding its OEM field drops the SETA references to it", asyn
   await refresh();
   assert.equal(await setaRefsOf("seta"), 0);
   assert.deepEqual(await link("seta", "b"), none);
+});
+
+test("a pair an admin decided keeps its link without the OEM number", async () => {
+  assert.deepEqual(await link("m1", "m2"), oemLink(V));
+  assert.deepEqual(await link("kyb", "monroe"), oemLink(U));
+  await setOemHidden("m1", true);
+  await setOemHidden("kyb", true);
+  assert.deepEqual((await link("m1", "m2")).map(row => row?.[0]), ["manual", "manual"]);
+  assert.deepEqual(await link("kyb", "monroe"), [["brand", "MONROE", "15015015"], ["brand", "KYB", "15015015"]]);
+  await refresh();
+  assert.deepEqual((await link("m1", "m2")).map(row => row?.[0]), ["manual", "manual"]);
+  assert.deepEqual((await link("kyb", "monroe")).map(row => row?.[0]), ["brand", "brand"]);
+});
+
+test("rows merged into a product with a hidden OEM field lose their OEM links", async () => {
+  assert.deepEqual(await link("n", "p"), oemLink(R2));
+  await setOemHidden("t", true);
+  const [source, target] = [await productOf("n"), await productOf("t")];
+  const { carried } = (await schema.pool.query<{ carried: { fields: string[] } }>(
+    "WITH merged AS (SELECT product_merge($1,$2,$3) AS id) SELECT product_overrides_carry($1, id, $3) AS carried FROM merged", [source, target, admin])).rows[0];
+  assert.deepEqual(carried.fields, []);
+  assert.equal(await productOf("n"), target);
+  assert.deepEqual(await oemRefs("n"), []);
+  assert.deepEqual(await link("t", "p"), none);
+  await refresh();
+  assert.deepEqual(await link("t", "p"), none);
 });

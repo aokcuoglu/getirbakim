@@ -104,7 +104,7 @@ export function ProductReferencesManager({ productId, references }: { productId:
     {result?.status === "error" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
 
     {supplierControl && <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-sm text-muted-foreground">Tedarikçi OEM alanı ürün genelinde gizlenir veya gösterilir; ürünün tüm tedarikçi kayıtları etkilenir. Gizlenen OEM muadil eşleştirmesinde de kullanılmaz.</p>
+      <p className="text-sm text-muted-foreground">Tedarikçi OEM alanı ürün genelinde gizlenir veya gösterilir; ürünün tüm tedarikçi kayıtları etkilenir. Gizlenen tedarikçi OEM&apos;i muadil eşleştirmede de kullanılmaz; bu OEM&apos;den doğan muadil bağlantıları kaldırılır, elle eklenenler korunur.</p>
       <Button type="button" variant="outline" disabled={pending} onClick={() => mutate(() => setSupplierOemHidden({ productId, hidden: !supplierHidden }))}>
         {supplierHidden ? <><Eye data-icon="inline-start" aria-hidden="true"/>Tedarikçi OEM alanını yeniden göster</>
           : <><EyeOff data-icon="inline-start" aria-hidden="true"/>Tedarikçi OEM alanını mağazada gizle</>}</Button>

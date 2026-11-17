@@ -640,6 +640,7 @@ BEGIN
  UNION
  -- An original part's own number is its key already; any other number it lists is a superseded/alternative OEM.
  -- A supplier OEM field the admin hid (#615, commerce_item_overrides.hide_oem) feeds no OEM equivalents either (#631).
+ -- A row leaving a hidden product in this refresh still reads its old edit here: its OEM numbers return next run.
  SELECT m.supplier_item_id, 'oem', 'ORIJINAL', o
  FROM product_match_items m JOIN supplier_items i ON i.id=m.supplier_item_id
  CROSS JOIN LATERAL unnest(supplier_item_oem_numbers(i.supplier,i.product_data)) o

@@ -113,6 +113,6 @@ export async function setSupplierOemHidden(input: { productId: string; hidden: b
     revalidateStore();
   }
   return { status: "success", message: data.data.hidden
-    ? "Tedarikçi OEM alanı mağazada gizlendi; kod aramasından birkaç dakika içinde çıkar (aynı numara otomatik listede ya da elle eklenmiş olarak da varsa görünmeye ve aranmaya devam eder). Bu OEM'den doğan muadil bağlantıları kaldırıldı; elle eklenen muadiller korunur."
-    : "Tedarikçi OEM alanı yeniden gösteriliyor. OEM muadilleri bir sonraki eşleştirme yenilemesinde (en geç ~6 saat; Ürün eşleştirme → Yenile ile hemen) geri gelir." };
+    ? "Tedarikçi OEM alanı mağazada gizlendi; kod aramasından birkaç dakika içinde çıkar (aynı numara otomatik listede ya da elle eklenmişse görünmeye ve aranmaya devam eder). Bu OEM'den doğan muadil bağlantıları kaldırıldı; elle eklenenler korunur."
+    : "Tedarikçi OEM alanı yeniden gösteriliyor. Bu OEM'den doğan muadil bağlantıları bir sonraki eşleştirme yenilemesinde geri gelir; hemen geri getirmek için Ürün eşleştirme sayfasında Yenile'yi kullanın." };
 }

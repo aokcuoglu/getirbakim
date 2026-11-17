@@ -134,10 +134,11 @@ END $$;
 -- (refresh_product_matches leaves those numbers out from then on): its Başbuğ/SETA rows' OEM references, the SETA
 -- references and OEM equivalents (both directions) through those numbers go. Kept: numbers its Dinamik rows state
 -- (barcode-derived OEM), its own ORIJINAL key, cross/brand/manual links. A pair also tied by another key may drop
--- until the next refresh_product_matches() rebuilds it. No lock here: callers hold the regrouping lock (slot 6).
--- Not called by setup. Returns the equivalent rows removed.
+-- until the next refresh_product_matches() rebuilds it; a pair an admin decided (brand pair or manual equivalent),
+-- stored as 'oem' since OEM ranks first, is written back as refresh_product_matches() would without the OEM link. No
+-- lock here: callers hold the regrouping lock (slot 6). Not called by setup. Returns the equivalent rows removed.
 CREATE OR REPLACE FUNCTION product_hidden_oem_drop(ids uuid[]) RETURNS integer LANGUAGE plpgsql AS $$
-DECLARE p uuid; items uuid[]; sources uuid[]; keys text[]; others uuid[]; n integer; dropped integer := 0;
+DECLARE p uuid; items uuid[]; sources uuid[]; keys text[]; others uuid[]; n integer; dropped integer := 0; kept integer;
 BEGIN
  FOR p IN SELECT o.product_id FROM product_overrides o WHERE o.product_id=ANY(ids) AND o.hide_supplier_oem LOOP
   sources := ARRAY(SELECT s.supplier_item_id FROM product_sources s WHERE s.product_id=p);
@@ -155,6 +156,23 @@ BEGIN
    GET DIAGNOSTICS n = ROW_COUNT; dropped := dropped+n;
    DELETE FROM product_equivalents e WHERE e.product_id=ANY(others) AND e.equivalent_id=p;
    GET DIAGNOSTICS n = ROW_COUNT; dropped := dropped+n;
+   -- Decided pairs stay, as in refresh_product_matches(): brand pairs (priority 2), then manual equivalents.
+   INSERT INTO product_equivalents
+   SELECT DISTINCT ON (x,y) x, y, kind, brand, part_number FROM (
+    SELECT pr.x, pr.y, 'brand' AS kind, b.brand, b.part_number, 2 AS priority
+    FROM (SELECT p AS x, o AS y FROM unnest(others) o UNION ALL SELECT o, p FROM unnest(others) o) pr
+    JOIN products a ON a.id=pr.x AND a.variant=0 JOIN products b ON b.id=pr.y AND b.variant=0 AND b.brand<>a.brand
+     AND regexp_replace(b.part_number,'HD$','')=regexp_replace(a.part_number,'HD$','')
+    JOIN product_brand_pair_decisions d ON d.status='equivalent' AND d.brand_a=LEAST(a.brand,b.brand) AND d.brand_b=GREATEST(a.brand,b.brand)
+    WHERE length(regexp_replace(a.part_number,'HD$',''))>=5
+    UNION ALL
+    SELECT pr.x, pr.y, 'manual', b.brand_label, b.part_number, 3
+    FROM (SELECT p AS x, o AS y FROM unnest(others) o UNION ALL SELECT o, p FROM unnest(others) o) pr
+    JOIN product_equivalent_decisions d ON d.status='equivalent' AND d.product_a=LEAST(pr.x,pr.y) AND d.product_b=GREATEST(pr.x,pr.y)
+    JOIN products b ON b.id=pr.y
+   ) decided ORDER BY x, y, priority
+   ON CONFLICT DO NOTHING;
+   GET DIAGNOSTICS kept = ROW_COUNT; dropped := dropped-kept;
    DELETE FROM product_seta_references r WHERE r.item_id=ANY(sources) AND r.brand='ORIJINAL' AND r.part_number=ANY(keys);
    DELETE FROM product_seta_references r WHERE r.seta_item_id=ANY(sources) AND r.brand='ORIJINAL' AND r.part_number=ANY(keys);
   END IF;
@@ -176,6 +194,10 @@ END $$;
 CREATE OR REPLACE FUNCTION product_overrides_carry(source uuid, target uuid, actor uuid) RETURNS jsonb LANGUAGE plpgsql AS $$
 DECLARE s product_overrides; t product_overrides; carried text[] := '{}';
 BEGIN
+ -- Rows merged into a product whose supplier OEM is hidden lose their OEM links now (#631), carried or not.
+ IF target IS NOT NULL AND EXISTS (SELECT 1 FROM product_overrides o WHERE o.product_id=target AND o.hide_supplier_oem) THEN
+  PERFORM product_hidden_oem_drop(ARRAY[target]);
+ END IF;
  IF source IS NULL OR target IS NULL OR source=target THEN RETURN jsonb_build_object('fields','[]'::jsonb,'hidden',false); END IF;
  SELECT * INTO s FROM product_overrides WHERE product_id=source;
  IF NOT FOUND THEN RETURN jsonb_build_object('fields','[]'::jsonb,'hidden',false); END IF;
