@@ -59,6 +59,8 @@ try {
    // After enrichment-states: besides the enrichment OEM index (#609) it indexes enrichment_product_states (#617).
    await client.query(await readFile("db/enrichment-search.sql", "utf8"));
    await client.query(await readFile("db/enrichment-shared-links.sql", "utf8"));
+   // Logs deleted and invalidated enrichments for the storefront sync (#564); needs supplier_items and the enrichment tables.
+   await client.query(await readFile("db/enrichment-tombstones.sql", "utf8"));
    await client.query(await readFile("db/storefront-make-fits.sql", "utf8"));
    await client.query(await readFile("db/newsletter.sql", "utf8"));
    await client.query(await readFile("db/indexnow.sql", "utf8"));
