@@ -22,7 +22,7 @@ try {
           "db/enrichment-worker.sql", "db/source-categories.sql", "db/enrichment-products.sql", "db/enrichment-states.sql"]);
         await client.query("COMMIT");
       } catch (error) { await client.query("ROLLBACK"); throw error; }
-      // Filling the queue reads the whole catalog view (tens of seconds) and takes only row locks.
+      // Filling the queue syncs and reads enrichment_product_states (about a second, #923) and takes only row locks.
       const queued = await enqueueProductSources(client);
       console.log(JSON.stringify({ queued }));
     } finally {

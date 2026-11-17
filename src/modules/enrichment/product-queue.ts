@@ -26,10 +26,21 @@ export async function reconcileProductQueue(pool: Pool | PoolClient, runId: stri
   return result.rowCount ?? 0;
 }
 
+/**
+ * Queues each product's representative supplier row, read from the materialized enrichment_product_states (#921/#923):
+ * reading the catalog view took seconds. Only rows without a job or whose code, brand or OEM changed reach the insert.
+ * enrichment_product_states_sync() returns without syncing while another session holds its lock; a row left stale
+ * then is fixed by the next fill.
+ */
 export async function enqueueProductSources(pool: Pool | PoolClient) {
+  await pool.query("SELECT enrichment_product_states_sync()");
   return (await pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,oem)
-    SELECT c.supplier_item_id,c.supplier_code,c.supplier_brand,c.oem FROM enrichment_product_catalog c
+    SELECT c.supplier_item_id,c.supplier_code,c.supplier_brand,c.oem FROM enrichment_product_states c
+    LEFT JOIN product_enrichment_jobs pj ON pj.supplier_item_id=c.supplier_item_id
     WHERE c.supplier_item_id IS NOT NULL
+      AND (pj.supplier_item_id IS NULL OR pj.supplier_code IS DISTINCT FROM c.supplier_code
+        OR pj.supplier_brand IS DISTINCT FROM c.supplier_brand OR pj.oem IS DISTINCT FROM c.oem)
+      AND EXISTS(SELECT 1 FROM supplier_items s WHERE s.id=c.supplier_item_id)
     ON CONFLICT(supplier_item_id) DO UPDATE SET supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
       oem=EXCLUDED.oem,status='pending',last_error=NULL,updated_at=now()
     WHERE product_enrichment_jobs.supplier_code<>EXCLUDED.supplier_code

@@ -97,7 +97,18 @@ test('catalog CLI completes successive full batches, the remainder and halts on 
   const items=(await pool.query('SELECT code FROM supplier_items')).rows;
   const paths=[...new Set(items.flatMap(({code})=>sourcePartQueries('OTHER',code).map(searchPath)))];
   await pool.query(`INSERT INTO enrichment_source_cache(host,path,body,expires_at) SELECT 'www.trodo.com',path,'[{"products":[]}]'::jsonb,now()+interval '1 day' FROM unnest($1::text[]) AS path`,[paths]);
+  // An item an earlier search listed under its own brand leads the batch (#376); a listing under another brand does not
+  // (#923 only looks the listing up for brands with search products). Both are taken from the end of the first batch's
+  // hash order; the stored products are not parseable, so the worker still searches (cached, empty) for them.
+  const [listedItem,otherBrandItem]=(await pool.query(`SELECT id,code FROM products p JOIN supplier_items s USING(id) WHERE p.id<>$1
+   ORDER BY md5($2||p.id::text) DESC LIMIT 2`,[first.id,`catalog-${new Date().toISOString().slice(0,10)}-b1`])).rows.reverse();
+  await pool.query(`INSERT INTO enrichment_search_products(part_key,entity_id,brand_key,product)
+   VALUES(enrichment_part_key($1),'1',enrichment_brand_key('OTHER'),'{}'),(enrichment_part_key($2),'2','TRW','{}')`,[listedItem.code,otherBrandItem.code]);
+  assert.notEqual((await pool.query("SELECT enrichment_brand_key('OTHER') AS key")).rows[0].key,'TRW');
   const output=await startWorker().done;
+  const firstRun=(await pool.query('SELECT supplier_item_id,ordinal FROM enrichment_run_items WHERE run_id=(SELECT id FROM enrichment_runs ORDER BY created_at LIMIT 1)')).rows;
+  assert.equal(firstRun.find(r=>r.supplier_item_id===listedItem.id)?.ordinal,0);
+  assert.ok(!firstRun.some(r=>r.supplier_item_id===otherBrandItem.id),'a listing under another brand does not move the item forward');
   const runs=(await pool.query('SELECT id,status,sample_size FROM enrichment_runs ORDER BY created_at')).rows;
   assert.deepEqual(runs.map(r=>({status:r.status,size:r.sample_size})),[{status:'complete',size:batchSize},{status:'complete',size:batchSize},{status:'complete',size:1}]);
   assert.match(output,/"continue":"done","batches":3/);
