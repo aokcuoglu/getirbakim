@@ -4,6 +4,7 @@ import { dirname, resolve, sep } from "node:path";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
+import { sendWithSkewRetry } from "./storefront-media-read";
 import { EXPORTED_ENRICHMENT_IDS } from "./storefront-bundle-export";
 import type { BundleItem } from "./storefront-bundle-items";
 import { bundleTombstones, DEFAULT_MAX_DELETIONS, exportTombstones, pruneTombstones, TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
@@ -98,7 +99,8 @@ try {
   for (const object of manifest.media) {
     const path = resolve(root, "media", object.object_key);
     if (!path.startsWith(resolve(root, "media") + sep)) throw new Error("Unsafe media key");
-    const result = await storage.send(new GetObjectCommand({ Bucket: object.bucket, Key: object.object_key }));
+    const result = await sendWithSkewRetry(() => storage.send(new GetObjectCommand({ Bucket: object.bucket, Key: object.object_key })),
+      { onRetry: (attempt, delayMs) => console.warn(`MinIO clock skew reading ${object.object_key}; retry ${attempt} in ${delayMs / 1000}s`) });
     const bytes = await result.Body?.transformToByteArray();
     if (!bytes || bytes.length !== object.size_bytes || createHash("sha256").update(bytes).digest("hex") !== object.sha256) throw new Error(`Media integrity failed: ${object.object_key}`);
     await mkdir(dirname(path), { recursive: true });
