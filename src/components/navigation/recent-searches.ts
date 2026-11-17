@@ -1,5 +1,12 @@
-import { foldText } from "@/modules/store/product-name";
 import { searchTooShort } from "@/modules/search/query";
+
+/**
+ * Case- and Turkish-letter-insensitive key for de-duplicating searches. Kept local on purpose: importing the product-name
+ * module would pull its dictionary into the client bundle (guarded by test-vehicle-label).
+ */
+function foldText(text: string): string {
+  return text.replace(/İ/g, "i").toLocaleLowerCase("tr").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ı/g, "i");
+}
 
 export type RecentSearch = { q: string; mode: "all" | "code" };
 
