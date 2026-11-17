@@ -31,12 +31,17 @@ export const pendingOrderSql = `SELECT j.supplier_item_id AS id
   COALESCE(($2::jsonb->>j.supplier_brand)::float,0.5)*(1-COALESCE(($3::jsonb->>j.supplier_brand)::float,0.5)) DESC,md5(j.product_id::text) DESC
  LIMIT $1`;
 
-/** The supplier details of one chunk of ordered ids, in that order; an id no longer pending or now in a Trodo run drops out. */
+/**
+ * The supplier details of one chunk of ordered ids, in that order; an id no longer pending or now in a Trodo run drops
+ * out. The item's own job must still be open, the same check the write makes (by primary key), so a states row left
+ * stale by a skipped sync does not cost a search whose result would be discarded.
+ */
 export const pendingChunkSql = `SELECT j.supplier_item_id AS id,s.code,
  COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
  (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)) AS "masterBrand"
  FROM unnest($1::uuid[]) WITH ORDINALITY u(id,ord) JOIN enrichment_product_states j ON j.supplier_item_id=u.id JOIN supplier_items s ON s.id=u.id
  WHERE j.status='pending' AND j.supplier_brand<>'' AND ${outsideActiveRun}
+  AND EXISTS(SELECT 1 FROM product_enrichment_jobs pj WHERE pj.supplier_item_id=u.id AND pj.status IN ('pending','not_found','review'))
  ORDER BY u.ord`;
 
 const sync = (pool: Pool) => pool.query("SELECT enrichment_product_states_sync()");
@@ -46,9 +51,12 @@ const sync = (pool: Pool) => pool.query("SELECT enrichment_product_states_sync()
  * The order is read once per `reorderEvery` products, so the brand rates follow the searches; the details are read
  * in chunks of `chunk` ids just before they are searched, and the states table is synced before each read, so an item
  * another source finished meanwhile is not searched again. No query carries the tried list.
+ * enrichment_product_states_sync() returns without syncing while another session holds its lock (refresh_product_matches,
+ * db:setup), so a read may see states a few seconds old; the chunk's job check and the write's own re-check of the job
+ * keep such an item from being stored twice.
  */
 export async function* pendingSuppliers(pool: Pool, tried: Set<string>, limit: number,
-  { chunk = 200, reorderEvery = 2000 }: { chunk?: number; reorderEvery?: number } = {}): AsyncGenerator<PendingSupplier> {
+  { chunk = 200, reorderEvery = 1000 }: { chunk?: number; reorderEvery?: number } = {}): AsyncGenerator<PendingSupplier> {
   let left = limit;
   while (left > 0) {
     await sync(pool);

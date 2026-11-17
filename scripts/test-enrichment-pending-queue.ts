@@ -4,7 +4,7 @@ import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { syncProductStates } from "./test-helpers/product-states";
 import { enqueueProductSources } from "../src/modules/enrichment/product-queue";
-import { pendingSuppliers, type PendingSupplier } from "../src/modules/enrichment/pending-queue";
+import { pendingChunkSql, pendingOrderSql, pendingSuppliers, type PendingSupplier } from "../src/modules/enrichment/pending-queue";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 
 // spareto's pending selection (#921), in an isolated copy of the schema: the order comes from the materialized
@@ -97,5 +97,41 @@ test("a product in an unfinished Trodo run is left to it", { skip }, async () =>
   } finally {
     await schema.pool.query("DELETE FROM enrichment_run_items WHERE run_id=$1", [run]);
     await schema.pool.query("DELETE FROM enrichment_runs WHERE id=$1", [run]);
+  }
+});
+
+test("the order is read again every reorderEvery products and covers every pending product once", { skip }, async (t) => {
+  const query = t.mock.method(schema.pool, "query");
+  const rows = await collect(new Set(), 100, { reorderEvery: 2 });
+  assert.equal(rows.length, 7);
+  assert.equal(new Set(rows.map((row) => row.id)).size, 7);
+  assert.deepEqual(rows.map((row) => keyOf(row.id)?.replace(/[abc]$/, "")),
+    ["stock", "stock", "stock", "store", "store", "absent", "absent"]);
+  // Four rounds of at most two products, then one that finds nothing left.
+  assert.equal(query.mock.calls.filter((call) => call.arguments[0] === pendingOrderSql).length, 5);
+});
+
+test("an order list that is all tried ends the selection at once", { skip }, async (t) => {
+  const query = t.mock.method(schema.pool, "query");
+  const rows = await collect(new Set(Object.values(ids)), 100);
+  assert.deepEqual(rows, []);
+  assert.equal(query.mock.calls.filter((call) => call.arguments[0] === pendingOrderSql).length, 1);
+  assert.equal(query.mock.calls.filter((call) => call.arguments[0] === pendingChunkSql).length, 0);
+});
+
+test("a job finished while the state sync is held off is not searched", { skip }, async () => {
+  // Another session holds the sync lock (as refresh_product_matches does): the states row stays pending.
+  const holder = await schema.pool.connect();
+  try {
+    await holder.query("BEGIN");
+    await holder.query("SELECT pg_advisory_xact_lock(20261001,schema_lock_key(5))");
+    await schema.pool.query("UPDATE product_enrichment_jobs SET status='complete',updated_at=now() WHERE supplier_item_id=$1", [ids.stocka]);
+    const rows = await collect(new Set(), 100);
+    assert.equal(rows.length, 6);
+    assert.ok(!rows.some((row) => row.id === ids.stocka), "the item's own job is no longer open");
+  } finally {
+    await holder.query("ROLLBACK");
+    holder.release();
+    await schema.pool.query("UPDATE product_enrichment_jobs SET status='pending',updated_at=now()");
   }
 });

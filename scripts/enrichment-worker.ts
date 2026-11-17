@@ -27,7 +27,7 @@ const responseSchema=z.object({id:z.uuid(),token:z.uuid(),httpStatus:z.number().
 async function prepare(){
  const client=await pool.connect();try{await client.query('BEGIN');await applySchemaFiles(client,['db/enrichment-worker.sql','db/source-categories.sql','db/enrichment-products.sql']);await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
-const requireSchema=()=>requireEnrichmentSchema(pool,['enrichment_runs','enrichment_run_items','enrichment_source_hosts','enrichment_product_states','enrichment_product_catalog','product_source_categories']);
+const requireSchema=()=>requireEnrichmentSchema(pool,['enrichment_runs','enrichment_run_items','enrichment_source_hosts','enrichment_source_requests','enrichment_source_attempts','enrichment_search_products','enrichment_product_states','enrichment_product_catalog','product_source_categories']);
 async function report(runId:string){
  const run=(await pool.query('SELECT * FROM enrichment_runs WHERE id=$1',[runId])).rows[0];
  const outcomes=(await pool.query('SELECT status,count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1 GROUP BY status ORDER BY status',[runId])).rows;

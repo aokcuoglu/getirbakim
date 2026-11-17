@@ -10,18 +10,25 @@ const command = process.argv[2];
 try {
   if (command === "prepare") {
     const client = await pool.connect();
+    // A session lock keeps concurrent prepares apart across both transactions below.
+    await client.query("SELECT pg_advisory_lock(20261003,2)");
     try {
-      await client.query("BEGIN");
-      await client.query("SELECT pg_advisory_xact_lock(20261003,2)");
       // enrichment-states.sql locks with schema_lock_key() from db/product-matching.sql: run db:setup first. The DDL
-      // gives up after 5 s on a busy table instead of queueing the admin pages' reads behind it (#921).
-      await applySchemaFiles(client, ["db/product-enrichment.sql", "db/product-fitments.sql", "db/manufacturer-logos.sql",
-        "db/enrichment-worker.sql", "db/source-categories.sql", "db/enrichment-products.sql", "db/enrichment-states.sql"]);
+      // waits at most 5 s for each table lock and fails instead of queueing other readers behind it (#921); its
+      // transaction holds the locks it took only for the schema files and commits before the slow queue fill.
+      await client.query("BEGIN");
+      try {
+        await applySchemaFiles(client, ["db/product-enrichment.sql", "db/product-fitments.sql", "db/manufacturer-logos.sql",
+          "db/enrichment-worker.sql", "db/source-categories.sql", "db/enrichment-products.sql", "db/enrichment-states.sql"]);
+        await client.query("COMMIT");
+      } catch (error) { await client.query("ROLLBACK"); throw error; }
+      // Filling the queue reads the whole catalog view (tens of seconds) and takes only row locks.
       const queued = await enqueueProductSources(client);
-      await client.query("COMMIT");
       console.log(JSON.stringify({ queued }));
-    } catch (error) { await client.query("ROLLBACK"); throw error; }
-    finally { client.release(); }
+    } finally {
+      await client.query("SELECT pg_advisory_unlock(20261003,2)").catch(() => undefined);
+      client.release();
+    }
   } else if (command === "import") {
     const inputFile = process.argv[3];
     if (!inputFile) throw new Error("Usage: enrichment:import -- path/to/import.json");
