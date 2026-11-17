@@ -12,6 +12,7 @@ import { money, servicePrice, categories } from "@/modules/store/catalog";
 import { getCatalogProductImages } from "@/modules/store/product-enrichment";
 import { PartArt } from "@/components/part-art";
 import { OrderSummary } from "@/components/order-summary";
+import { cartOrderable } from "@/components/cart-orderable";
 import { CartActionBar } from "@/components/cart-action-bar";
 import { CartQuantity } from "@/components/cart-quantity";
 import { CartFreshness } from "@/components/navigation/cart-badge";
@@ -35,7 +36,7 @@ export default async function Cart({searchParams}:{searchParams:Promise<SearchPa
   const discount=account?.approved && account.role==="service" ? account.discount_percent : 0;
   const analytics=await cartAnalyticsItems(items,discount);
   const total=money(orderTotals(items,discount,shipping).total);
-  const valid=items.every(p=>p.available && p.price_kurus && p.quantity<=p.max_quantity);
+  const valid=cartOrderable(items);
   return <div className="bg-[#f8f9f9] text-foreground"><CartFreshness count={items.reduce((n,p)=>n+p.quantity,0)}/><section className="mx-auto min-h-[550px] w-full max-w-[1350px] px-[15px] pb-12 max-[760px]:px-3 max-[760px]:pb-6">
     <nav className="mb-7 flex items-center gap-2 pt-4 text-[13px] text-muted-foreground" aria-label="Sayfa yolu"><Link href="/" className="hover:text-primary hover:underline">Ana sayfa</Link><ChevronRight className="size-[13px]" aria-hidden/><span aria-current="page">Sepetim</span></nav>
     <div className="mb-9 flex items-center gap-6 max-[760px]:mb-6 max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-2"><h1 className="m-0 text-[36px] leading-[44px] font-semibold tracking-[-1px] max-[760px]:text-[30px]">Sepetim</h1><Link href="/siparisler" className="text-sm text-[#0065a5] hover:underline">Siparişlerimi görüntüle</Link></div>

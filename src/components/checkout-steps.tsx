@@ -9,7 +9,7 @@ const stepMark = "grid size-8 place-items-center rounded-full border border-inpu
 
 export function CheckoutSteps() {
   return <ol className={checkoutStepsClass}>
-    <li className={checkoutStepClass}><Link href="/sepet" className="flex items-center gap-2 hover:text-primary max-[380px]:gap-1.5"><span className={cn(stepMark,"border-[#73a985] bg-[#f1f8f3] text-[#168657]")}><Check className="size-4" aria-hidden/></span>Sepet</Link></li>
+    <li className={checkoutStepClass}><Link href="/sepet" className="flex items-center gap-2 hover:text-primary max-[760px]:min-h-11 max-[380px]:gap-1.5"><span className={cn(stepMark,"border-[#73a985] bg-[#f1f8f3] text-[#168657]")}><Check className="size-4" aria-hidden/></span>Sepet<span className="sr-only"> (tamamlandı)</span></Link></li>
     <li className={checkoutStepClass} aria-current="step"><span className={cn(stepMark,"border-primary text-primary")}>1</span>Teslimat</li>
     <li className={checkoutStepClass}><span className={stepMark}>2</span>Ödeme</li>
   </ol>;

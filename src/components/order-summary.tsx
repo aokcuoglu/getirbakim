@@ -4,6 +4,7 @@ import type { CartItem } from "@/modules/store/cart";
 import { money, servicePrice } from "@/modules/store/catalog";
 import { orderTotals, type ShippingRule } from "@/modules/store/orders";
 import { Button } from "@/components/ui/button";
+import { cartOrderable } from "@/components/cart-orderable";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { PAYMENT_NOTICE } from "@/modules/payments/messages";
@@ -28,7 +29,7 @@ function SummaryTotals({totals,discount}:{totals:ReturnType<typeof orderTotals>;
 
 export function OrderSummary({items,discount,shipping,checkout=false,className}:{items:CartItem[];discount:number;shipping:ShippingRule;checkout?:boolean;className?:string}) {
   const quantity=items.reduce((sum,p)=>sum+p.quantity,0);
-  const valid=items.every(p=>p.available && p.price_kurus && p.quantity<=p.max_quantity);
+  const valid=cartOrderable(items);
   const snapshot=items.some(p=>p.pricing_snapshot?.checkout_mode==="snapshot");
   const totals=orderTotals(items,discount,shipping);
   return <aside aria-labelledby="order-summary-title" className={cn("rounded-[10px] border border-border bg-card p-5 text-sm text-card-foreground", checkout && "max-[760px]:hidden", className)}>
@@ -56,7 +57,7 @@ export function CheckoutSummaryToggle({items,discount,shipping}:{items:CartItem[
   const snapshot=items.some(p=>p.pricing_snapshot?.checkout_mode==="snapshot");
   const totals=orderTotals(items,discount,shipping);
   return <Collapsible className="rounded-[10px] border border-border bg-card text-sm min-[761px]:hidden">
-    <CollapsibleTrigger className="flex min-h-12 w-full cursor-pointer items-center justify-between gap-3 px-4 py-3 text-left [&[data-panel-open]>svg]:rotate-180">
+    <CollapsibleTrigger className="flex min-h-12 w-full cursor-pointer items-center justify-between gap-3 rounded-[10px] px-4 py-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 [&[data-panel-open]>svg]:rotate-180">
       <span>Sipariş özeti · {quantity} ürün</span><strong className="ml-auto tabular-nums">{money(totals.total)}</strong><ChevronDown className="size-4" aria-hidden/>
     </CollapsibleTrigger>
     <CollapsibleContent className="border-t border-border px-4 pb-4">
@@ -64,6 +65,7 @@ export function CheckoutSummaryToggle({items,discount,shipping}:{items:CartItem[
       <SummaryTotals totals={totals} discount={discount}/>
       {snapshot && <p className="m-0 pb-3 text-xs leading-[18px] text-muted-foreground">Fiyat ve stok bilgileri son kayıtlara dayanır. Siparişin fiyat ve stok teyidi bekleyecek.</p>}
       <small className="block text-xs">{totals.freeShippingRemaining>0 ? `${money(totals.freeShippingRemaining)} daha ekle, kargo ücretsiz olsun.` : totals.shipping ? `Kargo ücreti ${money(totals.shipping)}.` : "Kargo ücretsiz."}</small>
+      <p className="mt-3.5 mb-0 text-center text-xs text-muted-foreground">{PAYMENT_NOTICE}</p>
     </CollapsibleContent>
   </Collapsible>;
 }

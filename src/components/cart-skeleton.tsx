@@ -17,7 +17,7 @@ export function CartSkeleton({title,label,checkout=false,rows=3}:{title:string;l
         : <><Skeleton className="mt-4 mb-7 h-5 w-36"/>
             <div className="mb-9 flex items-center gap-6 max-[760px]:mb-6 max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-2"><p className="m-0 text-[36px] leading-[44px] font-semibold tracking-[-1px] max-[760px]:text-[30px]">{title}</p><Skeleton className="h-5 w-40"/></div></>}
       <div className="grid grid-cols-[minmax(0,1.76fr)_minmax(320px,1fr)] items-start gap-4 max-[1000px]:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)] max-[760px]:grid-cols-1">
-        {checkout && <Skeleton className="h-12 w-full rounded-[10px] min-[761px]:hidden"/>}
+        {checkout && <Skeleton className="h-[50px] w-full rounded-[10px] min-[761px]:hidden"/>}
         {checkout
           ? <div className="rounded-[10px] border border-border bg-card p-5 max-[760px]:px-4">
               <Skeleton className="mb-2 h-7 w-72 max-w-full"/><Skeleton className="mb-7 h-5 w-56 max-w-full"/>
@@ -46,7 +46,7 @@ export function CartSkeleton({title,label,checkout=false,rows=3}:{title:string;l
           {!checkout && <div className="grid gap-4"><Skeleton className="h-11 w-full max-[760px]:hidden"/><Skeleton className="h-11 w-full max-[760px]:hidden"/></div>}
         </div>
       </div>
-      {!checkout && <div className={cartBarClass}><Skeleton className="h-10 w-24"/><Skeleton className="h-12 flex-1"/></div>}
+      {!checkout && <div className={cartBarClass}><Skeleton className="h-[60px] w-24"/><Skeleton className="h-12 flex-1"/></div>}
     </section>
   </div>;
 }
