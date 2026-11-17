@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Car, ChevronDown, CircleAlert, CircleCheck, Copy, Eye, EyeOff, GitMerge, Info, ListChecks, ListX, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { Car, ChevronDown, ChevronsDown, CircleAlert, CircleCheck, Copy, Eye, EyeOff, GitMerge, Info, ListChecks, ListX, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { addProductFitments, copyProductFitments, deleteProductFitment, removeProductFitment, undoProductFitmentBatch } from "@/app/yonetim/urunler/fitment-actions";
 import { productFitmentAutomaticLimit, productFitmentBatch, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
 import type { FitmentVehicle, ProductFitments } from "@/modules/admin/product-fitment-store";
@@ -24,7 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 type Row = FitmentVehicle & { status: "added" | "removed" | "automatic"; automatic: boolean; carried: boolean; id?: string };
 
-// Automatic rows are shown this many at a time: a part can fit a thousand engine types.
+// Rows are shown this many at a time: a part can fit a thousand engine types and keep a thousand decisions (#815).
 const PAGE = 50;
 
 const vehicleName = (vehicle: Pick<FitmentVehicle, "brand" | "model" | "engine">) => `${vehicle.brand} ${vehicle.model} ${vehicle.engine}`;
@@ -53,8 +53,9 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
   ];
   const automatic: Row[] = fitments.automatic.filter(vehicle => !decided.has(vehicle.typeId))
     .map(vehicle => ({ ...vehicle, status: "automatic" as const, automatic: true, carried: false }));
-  const rows = [...decisions, ...automatic.slice(0, shown)];
-  const hidden = automatic.length - Math.min(shown, automatic.length);
+  const all = [...decisions, ...automatic];
+  const rows = all.slice(0, shown);
+  const hidden = all.length - rows.length;
   const openDialog = (next: "add" | "copy") => { setResult(null); setOpened(count => count + 1); setDialog(next); };
   const closeDialog = (open: boolean) => { if (!open) { setDialog(null); setResult(null); } };
   const dialogError = dialog && result?.status === "error" ? result.message : null;
@@ -121,9 +122,11 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
       })}</TableBody></Table>
       : <Empty><EmptyHeader><EmptyMedia variant="icon"><Car/></EmptyMedia><EmptyTitle>Araç uyumu yok</EmptyTitle>
         <EmptyDescription>Bu ürünün otomatik araç uyumu yok; “Araç ekle” ile motor tipi seçerek ekleyebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}
-    {hidden > 0 && <div className="flex justify-center">
+    {hidden > 0 && <div className="flex flex-wrap justify-center gap-2">
       <Button type="button" variant="outline" onClick={() => setShown(count => count + PAGE)}>
-        <ChevronDown data-icon="inline-start" aria-hidden="true"/>Daha fazla göster ({formatNumber(hidden)} otomatik uyum daha)</Button>
+        <ChevronDown data-icon="inline-start" aria-hidden="true"/>Daha fazla göster ({formatNumber(hidden)} satır daha)</Button>
+      {hidden > PAGE && <Button type="button" variant="outline" onClick={() => setShown(Number.POSITIVE_INFINITY)}>
+        <ChevronsDown data-icon="inline-start" aria-hidden="true"/>Tümünü göster</Button>}
     </div>}
 
     <AddFitmentsDialog key={`add|${opened}`} open={dialog === "add"} pending={pending} decided={decided} automaticIds={automaticIds}
@@ -131,7 +134,7 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
       onAdd={ids => mutate(() => addProductFitments({ productId, vehicleTypeIds: ids }), () => setDialog(null))}/>
     <ProductFitmentCopyDialog key={`copy|${opened}`} productId={productId} open={dialog === "copy"} pending={pending}
       error={dialog === "copy" ? dialogError : null} onOpenChange={closeDialog} onClearError={() => setResult(null)}
-      onCopy={(sourceId, expected) => mutate(() => copyProductFitments({ productId, sourceId, expected }), () => setDialog(null))}/>
+      onCopy={(sourceId, expected, modelIds) => mutate(() => copyProductFitments({ productId, sourceId, expected, modelIds }), () => setDialog(null))}/>
   </div>;
 }
 
