@@ -131,3 +131,22 @@ test("a price within 0.01 of the computed cost is not flagged", async () => {
   const parsed = await parseManualWorkbook(await priced([["A", 101.85, 117, 12.95]]), categories);
   assert.deepEqual(parsed.issues, []);
 });
+
+test("percent formula cells use their result; literal % in a format and text below 1 are flagged", async () => {
+  const book = new ExcelJS.Workbook();
+  const sheet = book.addWorksheet("Liste");
+  sheet.addRow(priceHeader);
+  const add = (code: string, discount: ExcelJS.CellValue, numFmt?: string) => {
+    const cell = sheet.addRow([code, "Ad", "MOTUL", "Motor yağları", null, 1000, null, "4 L"]).getCell(7);
+    cell.value = discount;
+    if (numFmt) cell.numFmt = numFmt;
+  };
+  sheet.getCell("J1").value = 0.2;
+  add("A", { formula: "0.125", result: 0.125 }, "0%");
+  add("B", { formula: "J1", result: 0.2 }, "0.00%");
+  add("C", "0,125");
+  add("D", 0.5, "0.00\" %\"");
+  const parsed = await parseManualWorkbook(Buffer.from(await book.xlsx.writeBuffer()), categories);
+  assert.deepEqual(parsed.rows.map(r => [r.code, r.discount, r.price]), [["A", 12.5, 875], ["B", 20, 800], ["C", 0.125, 998.75], ["D", 0.5, 995]]);
+  assert.deepEqual(parsed.issues.map(issue => [issue.code, issue.field, issue.level]), [["C", "discount", "warning"], ["D", "discount", "warning"]]);
+});

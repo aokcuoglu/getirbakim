@@ -61,17 +61,26 @@ export function parseDecimal(value: ExcelJS.CellValue): number | null | "invalid
 }
 
 /**
- * A percent cell: a "%"-formatted number cell holds the fraction (0,125 → 12,5); text may carry "%". A plain number
- * below 1 is read as written but flagged, since it was probably meant as a fraction.
+ * A percent cell: a "%"-formatted number cell (also a formula's result) holds the fraction (0,125 → 12,5); text may
+ * carry "%". A value below 1 written without "%" is read as written but flagged, since it was probably meant as a fraction.
  */
 export function parsePercent(cell: Pick<ExcelJS.Cell, "value" | "numFmt">): { value: number | null | "invalid"; fraction?: boolean } {
-  const value = cell.value;
+  const raw = cell.value;
+  const value = raw !== null && typeof raw === "object" && "result" in raw ? (raw.result ?? null) as ExcelJS.CellValue : raw;
+  // Quoted literals ("%") and escaped characters (\%) in the format are text, not percent scaling.
+  const percentFormat = (cell.numFmt ?? "").replace(/"[^"]*"/g, "").replace(/\\./g, "").includes("%");
+  let parsed: number | null | "invalid";
+  let marked = false;
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return { value: "invalid" };
-    if (cell.numFmt?.includes("%")) return { value: Math.round(value * 1_000_000) / 10_000 };
-    return { value, ...(value > 0 && value < 1 ? { fraction: true } : {}) };
+    parsed = percentFormat ? Math.round(value * 1_000_000) / 10_000 : value;
+    marked = percentFormat;
+  } else {
+    const text = cellText(value);
+    marked = Boolean(text?.includes("%"));
+    parsed = parseDecimal(text?.replace(/%/g, "") ?? null);
   }
-  return { value: parseDecimal(cellText(value)?.replace(/%/g, "") ?? null) };
+  return { value: parsed, ...(!marked && typeof parsed === "number" && parsed > 0 && parsed < 1 ? { fraction: true } : {}) };
 }
 
 const decimals = (value: number) => {

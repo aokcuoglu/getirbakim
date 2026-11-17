@@ -180,7 +180,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
             <li>Maliyet, liste fiyatı eksi iskontodur: Liste Fiyatı × (1 − İskonto Oranı / 100).</li>
             <li>Ondalık için virgül kullanın (1.234,56); 0 ile başlayan noktalı değerler (0.25) ondalık okunur.</li>
             <li>Marka ve Stok Kodu ürünü bulmak içindir; değiştirmeyin.</li>
-            <li>Liste fiyatı ve iskonto xlsx şablonunda da girilebilir; son düzenleme geçerlidir.</li>
+            <li>Liste fiyatı ve iskonto xlsx şablonunda da girilebilir; en son yüklenen dosya geçerli olur.</li>
           </ul>
           <div><Button variant="outline" nativeButton={false} render={<a href={listCsvHref} download/>}><Download data-icon="inline-start" aria-hidden="true"/>CSV indir</Button></div>
           <form action={uploadManualBulk} className="flex flex-col gap-4">
