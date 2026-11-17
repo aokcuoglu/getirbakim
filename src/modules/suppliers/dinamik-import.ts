@@ -2,7 +2,7 @@ import { request } from "node:https";
 import { rootCertificates } from "node:tls";
 import { z } from "zod";
 import type { Pool, PoolClient } from "pg";
-import { applySupplierSnapshot, rejectionReason, type ObservationItem } from "./sync";
+import { applySupplierSnapshot, failedCatalogRunSql, nextCatalogRunSql, rejectionReason, type ObservationItem } from "./sync";
 import { EgressProxyError, egressProxyFor, TunnelAgent } from "./egress-proxy";
 import { dinamikCost } from "./dinamik-pricing";
 import { CHECKOUT_LOCK_TIMEOUT, CHECKOUT_REFRESH_BUDGET_MS, fallbackReason, type FallbackReason } from "./checkout-fallback";
@@ -381,9 +381,8 @@ export async function importDinamik(pool: Pool, options: z.input<typeof dinamikI
       [runId, observedAt, JSON.stringify(observations), JSON.stringify(prepared.quality), JSON.stringify(stats), acceptAnomaly ?? null]);
     await connection.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,daily_at,stale_minutes,last_success_at,next_run_at)
       VALUES('dinamik',$1,$2,$3,true,'04:00',2160,$4,((($4::timestamptz AT TIME ZONE 'Europe/Istanbul')::date+1)+time '04:00') AT TIME ZONE 'Europe/Istanbul')
-      ON CONFLICT(supplier,company,list_group,warehouse) DO UPDATE SET last_success_at=$4,consecutive_failures=0,next_run_at=CASE WHEN supplier_sync_scopes.interval_minutes=1440 THEN
-        ((($4::timestamptz AT TIME ZONE 'Europe/Istanbul')::date+1)+supplier_sync_scopes.daily_at) AT TIME ZONE 'Europe/Istanbul'
-        ELSE $4::timestamptz+supplier_sync_scopes.interval_minutes*interval '1 minute' END`, [company, brand, warehouse, observedAt]);
+      ON CONFLICT(supplier,company,list_group,warehouse) DO UPDATE SET last_success_at=$4,consecutive_failures=0,next_run_at=${nextCatalogRunSql("$4")}`,
+      [company, brand, warehouse, observedAt]);
     await connection.query("COMMIT"); inTransaction = false;
     return { id: runId, ...prepared.quality, stats };
   } catch (error) {
@@ -397,8 +396,8 @@ export async function importDinamik(pool: Pool, options: z.input<typeof dinamikI
         error_reason=COALESCE(error_reason,$4) WHERE id=$1`, [runId, reason === "rejected" ? "rejected" : "failed", JSON.stringify(observations), `${reason}: ${stage}${diagnostic ? `: ${diagnostic}` : ""}`]);
       await connection.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,daily_at,stale_minutes,consecutive_failures,next_run_at)
         VALUES('dinamik',$1,$2,$3,true,'04:00',2160,1,now()+interval '15 minutes') ON CONFLICT(supplier,company,list_group,warehouse)
-        DO UPDATE SET consecutive_failures=supplier_sync_scopes.consecutive_failures+1,
-        next_run_at=now()+LEAST(360,15*power(2,LEAST(supplier_sync_scopes.consecutive_failures,5))) * interval '1 minute'`, [company, brand, warehouse]);
+        DO UPDATE SET consecutive_failures=supplier_sync_scopes.consecutive_failures+1,next_run_at=${failedCatalogRunSql("$4::boolean")}`,
+        [company, brand, warehouse, reason === "rejected"]);
     }
     if (error instanceof DinamikImportError) throw error;
     if (error instanceof z.ZodError) throw new DinamikImportError("contract", stage);
