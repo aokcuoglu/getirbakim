@@ -52,6 +52,9 @@ import { campaignEndText, listPrice, saleUntil } from "@/modules/store/best-offe
 import { hasAdminContent, hasMinimumContent, productContent, productIndexable } from "@/modules/seo/indexing";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdFromSegment, productIdPath } from "@/modules/seo/product-id";
+import { currentInstallmentSettings } from "@/modules/payments/installment-settings";
+import { installmentOptions } from "@/modules/payments/installment-plan";
+import { PaymentOptions } from "@/components/payment-options";
 
 const benefits = [
   { icon: ShieldCheck, size: 23, title: "Güvenli alışveriş", text: <>Fiyat ve sipariş bilgilerini hesabından takip et.</> },
@@ -160,9 +163,12 @@ export default async function Detail({ params, searchParams }: { params: Promise
   // The admin's uploads (#581) come first; the enrichment image follows unless the admin hid it.
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
-  const [logos, manufacturerHref] = await Promise.all([getManufacturerLogos([product.display_brand]), manufacturerPathForLabel(product.display_brand)]);
+  const [logos, manufacturerHref, installments] = await Promise.all([getManufacturerLogos([product.display_brand]), manufacturerPathForLabel(product.display_brand), currentInstallmentSettings()]);
   const account = await currentAccount();
   const isB2B = Boolean(account?.approved && account.role === "service");
+  // Payment options (#886) for this item's own price; only shown when installments are on and it can be bought.
+  const paymentOptions = product.price_kurus === null || product.unavailable ? []
+    : installmentOptions(installments, servicePrice(product.price_kurus, isB2B ? account!.discount_percent : 0));
   const storeCategories=await getStoreCategories();
   // An admin's category (#575) replaces the enrichment's.
   const leafId=override?.category_id ?? enrichment?.categories[0]?.id;
@@ -296,6 +302,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
         {fitment === "mismatch" && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
         {!product.unavailable && <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><PackageCheck size={17}/>{product.stock_label}</p>}
         <Link className="flex items-center gap-4 border-y border-[#dbe0e6] py-[18px]" href="/bilgi/teslimat"><Truck size={32} className="shrink-0"/><span><strong className="flex items-center gap-1.5 text-base font-medium">Teslimat bilgileri <Info size={14} className="text-[#2e78c7]"/></strong><small className="mt-1 block text-[13px] text-[#53677d]">{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18} className="ml-auto shrink-0 text-[#53677d]"/></Link>
+        {paymentOptions.length > 1 && <PaymentOptions options={paymentOptions}/>}
         <dl className="mt-[18px] mb-1.5">{specificationRows.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
         <a className="mb-5 inline-block font-medium text-[#0065c3] hover:underline" href="#product-specifications">Tüm özellikleri göster</a>
         {!isB2B && <div className="flex flex-wrap items-center gap-3.5 border-t border-[#e0e5eb] pt-5 pb-1 text-[#0065c3]"><LoginButton className="min-h-0 cursor-pointer border-0 bg-transparent p-0 text-xs text-[#53677d] hover:text-[#0065c3]">B2B hesabınla özel fiyatlarını gör →</LoginButton></div>}

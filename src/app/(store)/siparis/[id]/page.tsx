@@ -11,6 +11,7 @@ import { PaymentWatcher } from "@/components/payment-watcher";
 import { PayButton } from "@/components/pay-button";
 import { CancelOrderButton } from "@/components/cancel-order-button";
 import { PAYMENT_NOTICE, paymentErrors } from "@/modules/payments/messages";
+import { installmentHint } from "@/modules/payments/installment-plan";
 import { currentAccount } from "@/modules/auth/session";
 import { orderReturns } from "@/modules/admin/data";
 import { supplierNames } from "@/modules/admin/products";
@@ -118,7 +119,8 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? errorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
     <Card className={cn(panel,"mb-6 gap-3 ring-0")}>
       <p role="status" className="m-0 text-[15px] leading-6">{notice}</p>
-      {payNow && <PayButton orderId={order.id} total={total}/>}
+      {payNow && order.installment_count>1 && <Alert role="status" className={noticeBox}>{installmentHint(order.installment_count)}: siparişin {order.installment_count} taksitli vade farklı toplamla oluşturuldu.</Alert>}
+      {payNow && <PayButton orderId={order.id} total={total} installments={order.installment_count}/>}
       {payNow && <p className={panelMuted}>{PAYMENT_NOTICE}{order.payment_due_at && <><br/>Son ödeme zamanı: <time dateTime={new Date(order.payment_due_at).toISOString()}>{time(order.payment_due_at)}</time></>}</p>}
       {trackUrl && <Button nativeButton={false} className="h-auto min-h-12 w-full gap-2.5 rounded-lg px-5 py-3 text-sm leading-5 font-medium hover:bg-brand-strong" render={<a href={order.tracking_url ?? undefined} target="_blank" rel="noopener noreferrer"/>}>Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span></Button>}
       {cancelAction && <div className="flex flex-wrap items-center gap-x-3 border-t border-border pt-3">{pendingCancel && <p className={cn(muted,"m-0")}>Teyitten önce siparişini iptal edebilirsin.</p>}{cancelAction}</div>}
@@ -143,6 +145,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
             <div className={row}><dt>Ürün toplamı</dt><dd className={value}>{money(Number(order.subtotal_kurus))}</dd></div>
             {order.discount_percent>0 && <div className={row}><dt>Servis indirimi</dt><dd className={value}>%{order.discount_percent} uygulandı</dd></div>}
             <div className={row}><dt>Kargo</dt><dd className={value}>{Number(order.shipping_kurus) ? money(Number(order.shipping_kurus)) : order.payment_status==="none" ? "Teyitte belirlenir" : "Ücretsiz"}</dd></div>
+            {Number(order.installment_fee_kurus)>0 && <div className={row}><dt>Vade farkı ({order.installment_count} taksit)</dt><dd className={value}>{money(Number(order.installment_fee_kurus))}</dd></div>}
             <div className={cn(row,"text-base font-semibold")}><dt>Toplam <small className="font-normal text-muted-foreground">(KDV dahil)</small></dt><dd className={cn(value,"text-lg")}>{total}</dd></div>
           </dl>
           <Separator/>
