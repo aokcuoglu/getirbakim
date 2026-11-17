@@ -208,22 +208,35 @@ DROP TRIGGER IF EXISTS enrichment_shared_enrichments_delete ON product_enrichmen
 CREATE TRIGGER enrichment_shared_enrichments_delete AFTER DELETE ON product_enrichments
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
 
--- A hidden supplier OEM drops enrichment matched through it (enrichment_valid_data, #865): an override change queues
--- its item. Created only when missing: DROP/CREATE TRIGGER would hold an ACCESS EXCLUSIVE lock on
--- commerce_item_overrides, which the storefront views read, for the rest of the setup transaction on every deploy.
--- A changed definition needs a DROP TRIGGER here first.
+-- A hidden supplier OEM drops enrichment matched through it (enrichment_valid_data, #865): an override write queues
+-- its item only when hide_oem is (or was) set; price, name and visibility edits leave the queue alone. The projection
+-- (product_overrides_project) deletes and reinserts a product's rows, so a hidden row may be queued twice (idempotent).
+CREATE OR REPLACE FUNCTION product_enrichment_shared_queue_hidden_oem() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF TG_OP='INSERT' THEN
+  INSERT INTO product_enrichment_shared_queue(kind,id) SELECT DISTINCT 'i',supplier_item_id FROM new_rows WHERE hide_oem ON CONFLICT DO NOTHING;
+ ELSIF TG_OP='DELETE' THEN
+  INSERT INTO product_enrichment_shared_queue(kind,id) SELECT DISTINCT 'i',supplier_item_id FROM old_rows WHERE hide_oem ON CONFLICT DO NOTHING;
+ ELSE
+  INSERT INTO product_enrichment_shared_queue(kind,id) SELECT DISTINCT 'i',n.supplier_item_id FROM new_rows n
+   JOIN old_rows o ON o.supplier_item_id=n.supplier_item_id WHERE o.hide_oem IS DISTINCT FROM n.hide_oem ON CONFLICT DO NOTHING;
+ END IF;
+ RETURN NULL;
+END $$;
+-- Created only when missing, so each setup does not recreate them; a changed body needs only the CREATE OR REPLACE
+-- above, a changed trigger definition a DROP TRIGGER here first.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='commerce_item_overrides'::regclass AND tgname='enrichment_shared_overrides_insert') THEN
   CREATE TRIGGER enrichment_shared_overrides_insert AFTER INSERT ON commerce_item_overrides
-   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_hidden_oem();
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='commerce_item_overrides'::regclass AND tgname='enrichment_shared_overrides_update') THEN
   CREATE TRIGGER enrichment_shared_overrides_update AFTER UPDATE ON commerce_item_overrides
-   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_hidden_oem();
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='commerce_item_overrides'::regclass AND tgname='enrichment_shared_overrides_delete') THEN
   CREATE TRIGGER enrichment_shared_overrides_delete AFTER DELETE ON commerce_item_overrides
-   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_hidden_oem();
  END IF;
 END $$;
 

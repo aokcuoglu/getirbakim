@@ -46,7 +46,10 @@ CREATE OR REPLACE VIEW enrichment_product_candidates AS
    ELSE 'pending' END AS status,
   CASE WHEN e.status='complete' THEN 0 WHEN e.status='partial' THEN 1
    WHEN j.supplier_code=s.code AND j.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
-    AND j.oem=COALESCE(s.product_data->>'oe','') AND j.status IN ('review','not_found','failed','blocked') THEN 2 ELSE 3 END AS priority,
+    AND j.oem=COALESCE(s.product_data->>'oe','') AND (j.status IN ('review','not_found','failed','blocked')
+     -- the hidden-OEM not_found above (#865) ranks like a real not_found result
+     OR (j.status IN ('complete','partial')
+      AND EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=s.id AND ho.hide_oem))) THEN 2 ELSE 3 END AS priority,
   s.presence='present' AS present,COALESCE(j.attempts,0) AS attempts,j.last_error,COALESCE(j.updated_at,p.updated_at) AS updated_at,
   e.imported_at,e.source_url,e.manufacturer,e.manufacturer_part_number,e.image_id,e.payload,e.match_basis
  FROM product_sources ps JOIN products p ON p.id=ps.product_id AND p.merged_into IS NULL

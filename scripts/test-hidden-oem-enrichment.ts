@@ -146,7 +146,7 @@ test("only supplier OEM matches drop: exact part, cross reference and own part c
   assert.equal(await donorOf("legacyOem"), ids.legacyOem);
 });
 
-test("override writes queue the item and the product for both refreshes", async () => {
+test("only hide_oem changes queue the item and the product for both refreshes", async () => {
   const queued = async () => ({
     item: (await schema.pool.query("SELECT 1 FROM product_enrichment_shared_queue WHERE kind='i' AND id=$1", [ids.single])).rowCount,
     product: (await schema.pool.query("SELECT 1 FROM enrichment_product_state_queue WHERE product_id=$1", [await productOf("single")])).rowCount,
@@ -171,6 +171,25 @@ test("override writes queue the item and the product for both refreshes", async 
     await schema.pool.query(sql, sql.startsWith("INSERT") ? [ids.single, product] : [ids.single]);
     assert.deepEqual(await queued(), { item: 1, product: 1 }, sql);
   }
+  // Writes that leave hide_oem unset or unchanged queue nothing. The row is hidden here: a name edit keeps it hidden.
+  const writes: [string, boolean][] = [
+    ["UPDATE commerce_item_overrides SET name='Yeni ad' WHERE supplier_item_id=$1", false],
+    ["UPDATE commerce_item_overrides SET hide_oem=false WHERE supplier_item_id=$1", true],
+    ["UPDATE commerce_item_overrides SET price_kurus=12345 WHERE supplier_item_id=$1", false],
+    ["DELETE FROM commerce_item_overrides WHERE supplier_item_id=$1", false],
+    ["INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hide_oem) VALUES($1,$2,false)", false],
+  ];
+  for (const [sql, queues] of writes) {
+    await clear();
+    await schema.pool.query(sql, sql.startsWith("INSERT") ? [ids.single, product] : [ids.single]);
+    assert.deepEqual(await queued(), queues ? { item: 1, product: 1 } : { item: 0, product: 0 }, sql);
+  }
+  // Through the admin: a name and price edit of a product whose OEM is shown.
+  await clear();
+  const edit = await overrides.persistProductOverride(schema.pool, await productOf("exactOnly"), { name: "MAHLE YAĞ FİLTRESİ", price_kurus: 99900 }, admin);
+  assert.ok(edit.ok);
+  assert.equal((await schema.pool.query("SELECT 1 FROM product_enrichment_shared_queue WHERE id=$1", [ids.exactOnly])).rowCount, 0);
+  assert.equal((await schema.pool.query("SELECT 1 FROM enrichment_product_state_queue WHERE product_id=$1", [await productOf("exactOnly")])).rowCount, 0);
   await schema.pool.query("DELETE FROM commerce_item_overrides WHERE supplier_item_id=$1", [ids.single]);
   await setOemHidden("single", false);
   await drain();
