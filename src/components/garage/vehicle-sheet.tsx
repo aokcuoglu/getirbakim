@@ -13,7 +13,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { cn } from "@/lib/utils";
 import { clearCatalogVehicle, garageVehicles, removeGarageVehicle, selectCatalogVehicle, switchGarageVehicle, type ShownGarageEntry } from "@/app/(store)/garaj/actions";
 import { minSearchLength, searchTooShort } from "@/modules/search/query";
-import { vehicleModelFamilies, vehicleModelFamilyKey, vehicleProductionDates, type CatalogVehicle, type ShownVehicle } from "@/modules/store/vehicle-catalog";
+import { splitPopularBrands, vehicleModelFamilies, vehicleModelFamilyKey, vehicleProductionDates, type CatalogVehicle, type ShownVehicle } from "@/modules/store/vehicle-catalog";
 import { oilCapacity } from "@/modules/store/vehicle-oil";
 import { useVehicleCatalog } from "./use-vehicle-catalog";
 import { catalogPath } from "@/modules/seo/paths";
@@ -86,6 +86,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const savedOil = savedVehicle?.oil;
   const savedSpecs = savedVehicle ? vehicleSpecRows(savedVehicle) : [];
   const vehicleBrands = brandsRequest.data?.brands ?? [];
+  const brandGroups = useMemo(() => splitPopularBrands(brandsRequest.data?.brands ?? []), [brandsRequest.data]);
   const vehicleModels = modelsRequest.data?.models ?? [];
   const variants = typesRequest.data?.vehicles ?? [];
   const families = useMemo(() => vehicleModelFamilies(modelsRequest.data?.models ?? []), [modelsRequest.data]);
@@ -150,7 +151,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   function rows(items: { key: string; label: string; action: () => void; detail?: string }[]) {
     const detailed = items.some(item => item.detail);
     return <ul className="m-0 list-none p-0">{items.map(({ key, label, action, detail }) => <li key={key}>
-      <Button type="button" onClick={action} className={cn(plain, "flex min-h-8 w-full items-center justify-between gap-3 bg-white py-[7px] text-left text-sm leading-5 whitespace-normal text-foreground hover:bg-[#f1f7fb] hover:text-brand [&>svg]:shrink-0", detailed && "border-b border-[#f1f3f5] py-3")}>
+      <Button type="button" onClick={action} className={cn(plain, "flex min-h-11 w-full items-center justify-between gap-3 bg-white py-[7px] text-left text-sm leading-5 whitespace-normal text-foreground hover:bg-[#f1f7fb] hover:text-brand [&>svg]:shrink-0", detailed && "border-b border-[#f1f3f5] py-3")}>
         <span>{label}{detail && <small className="mt-[3px] block text-xs leading-[18px] text-muted-foreground">{detail}</small>}</span><ChevronRight size={14} aria-hidden="true" />
       </Button>
     </li>)}</ul>;
@@ -159,11 +160,11 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
 
   return <Tabs value={tab} onValueChange={value => { setTab(value as Tab); setError(""); }} className="flex min-h-0 flex-1 flex-col gap-0">
     <div className="relative shrink-0 bg-[linear-gradient(90deg,rgba(20,25,33,.8),rgba(20,25,33,.4)),url('/hero-car.jpg')] bg-cover bg-[center_55%] px-5 pt-5 text-white max-[600px]:pt-[max(20px,env(safe-area-inset-top))]">
-      <SheetTitle id={`${id}-title`} className="mt-0 mr-10 mb-5 text-xl leading-7 font-semibold text-white">Araç seçimi</SheetTitle>
-      <SheetClose aria-label="Araç seçimini kapat" disabled={pending} className="absolute top-3.5 right-3.5 grid size-[30px] min-h-[30px] place-items-center rounded-[4px] border-0 bg-white/15 p-0 text-white hover:bg-white/25 disabled:bg-white/15 disabled:text-white"><X size={16} /></SheetClose>
+      <SheetTitle id={`${id}-title`} className="mt-0 mr-12 mb-5 text-xl leading-7 font-semibold text-white">Araç seçimi</SheetTitle>
+      <SheetClose aria-label="Araç seçimini kapat" disabled={pending} className="absolute top-[max(8px,env(safe-area-inset-top))] right-2 grid size-11 min-h-11 place-items-center rounded-[4px] border-0 bg-white/15 p-0 text-white hover:bg-white/25 disabled:bg-white/15 disabled:text-white"><X size={18} /></SheetClose>
       <TabsList aria-label="Araç seçimi sekmeleri" className="h-auto! gap-6 rounded-none bg-transparent p-0">
         {([["search", "Ara"], ["garage", "Garajım"]] as const).map(([value, label]) => <TabsTrigger key={value} value={value}
-          className="h-auto! min-h-9 flex-none rounded-none border-0 border-b-2 border-transparent bg-transparent px-0 pt-0 pb-2.5 text-sm font-normal text-white/70 after:hidden hover:bg-transparent hover:text-white focus-visible:ring-white/60 data-active:border-white data-active:bg-transparent data-active:text-white data-active:shadow-none">{label}</TabsTrigger>)}
+          className="h-auto! min-h-11 flex-none rounded-none border-0 border-b-2 border-transparent bg-transparent px-0 pt-0 pb-2.5 text-sm font-normal text-white/70 after:hidden hover:bg-transparent hover:text-white focus-visible:ring-white/60 data-active:border-white data-active:bg-transparent data-active:text-white data-active:shadow-none">{label}</TabsTrigger>)}
       </TabsList>
     </div>
     <div ref={content} className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]">
@@ -173,13 +174,13 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             <Search size={19} aria-hidden="true" />
             <input aria-label="Marka, model veya yakıt türü ara" placeholder="Marka, model, yakıt türü ara" value={query} maxLength={120} onChange={event => { setQuery(event.target.value); setSearchOffset(0); }}
               className="h-11 w-full min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-sm text-foreground outline-none placeholder:text-sm placeholder:text-muted-foreground focus:outline-none focus-visible:outline-none" />
-            {query && <Button type="button" aria-label="Aramayı temizle" onClick={() => { setQuery(""); setSearchOffset(0); }} className={cn(plain, "grid size-6 min-h-6 shrink-0 place-items-center text-muted-foreground hover:text-foreground")}><X size={16} /></Button>}
+            {query && <Button type="button" aria-label="Aramayı temizle" onClick={() => { setQuery(""); setSearchOffset(0); }} className={cn(plain, "-mr-2.5 grid size-11 min-h-11 shrink-0 place-items-center text-muted-foreground hover:text-foreground")}><X size={16} /></Button>}
           </label>
           <div className="mb-[18px] flex items-center gap-3">
-            {step !== "brand" && !query.trim() && <Button type="button" aria-label="Önceki seçim adımına dön" onClick={back} className={cn(plain, "grid size-6 min-h-6 place-items-center text-foreground [&_svg:not([class*='size-'])]:size-[18px]")}><ArrowLeft size={18} /></Button>}
+            {step !== "brand" && !query.trim() && <Button type="button" aria-label="Önceki seçim adımına dön" onClick={back} className={cn(plain, "-ml-2.5 grid size-11 min-h-11 place-items-center text-foreground [&_svg:not([class*='size-'])]:size-[18px]")}><ArrowLeft size={18} /></Button>}
             <h3 ref={heading} tabIndex={-1} className={stepHeading}>{query.trim() ? "Arama sonuçları" : titles[step]}</h3>
           </div>
-          {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-1.5 text-muted-foreground [&>button]:min-h-6 [&>button]:text-xs [&>button]:text-muted-foreground [&>button:hover]:text-brand [&>button:hover]:underline" aria-label="Araç seçim adımları">
+          {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-1.5 text-muted-foreground [&>button]:min-h-11 [&>button]:text-xs [&>button]:text-muted-foreground [&>button:hover]:text-brand [&>button:hover]:underline" aria-label="Araç seçim adımları">
             <Button type="button" className={plain} onClick={() => go("brand")}>{brand?.label ?? brand?.name}</Button>
             {family && step !== "family" && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("family")}>{family.label}</Button></>}
             {model && !["family", "model"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go(family?.models.length === 1 ? "family" : "model")}>{model.label ?? model.name}</Button></>}
@@ -198,9 +199,9 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
                 <Button type="button" className={cn(secondaryButton, "mt-0")} disabled={searchOffset + 60 >= searchTotal} onClick={() => { setSearchOffset(value => value + 60); content.current?.scrollTo(0, 0); }}>Sonraki</Button>
               </div>}
             </> : <>
-              {step === "brand" && [true, false].map(popular => <div className="border-[#dfe3e8] [&+&]:mt-[22px] [&+&]:border-t [&+&]:pt-[22px]" key={String(popular)}>
+              {step === "brand" && ([[true, brandGroups.popular], [false, brandGroups.others]] as const).filter(([popular, group]) => !popular || group.length > 0).map(([popular, group]) => <div className="border-[#dfe3e8] [&+&]:mt-[22px] [&+&]:border-t [&+&]:pt-[22px]" key={String(popular)}>
                 <h4 className="mt-0 mb-2 text-[11px] leading-4 font-semibold tracking-[.3px] text-[#54626e]">{popular ? "POPÜLER MARKALAR" : "TÜM MARKALAR"}</h4>
-                {rows(vehicleBrands.filter(b => b.popular === popular).map(b => ({ key: b.id, label: b.label ?? b.name, action: () => { setBrandId(b.id); setFamilyKey(""); setModelId(""); setFuel(""); go("family"); } })))}
+                {rows(group.map(b => ({ key: b.id, label: b.label ?? b.name, action: () => { setBrandId(b.id); setFamilyKey(""); setModelId(""); setFuel(""); go("family"); } })))}
               </div>)}
               {step === "family" && rows(families.map(f => ({ key: f.key, label: f.label, action: () => {
                 setFamilyKey(f.key); setFuel("");
@@ -243,8 +244,8 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
         </> : garage && !others.length && <div className={emptyBox}><CarFront size={52} strokeWidth={1.3} /><p>Aracın her zaman elinin altında olsun.</p><small>Marka ve model seçerek aracını garajına ekle.</small><Button className={saveButton} type="button" onClick={() => { setTab("search"); go("brand"); }}>Araç seç <ChevronRight size={16} /></Button></div>}
         {others.length > 0 && <div className="mt-6"><h4 className="mb-2 text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground">{vehicle ? "DİĞER KAYITLI ARAÇLAR" : "KAYITLI ARAÇLAR"}</h4>
           <ul className="m-0 list-none p-0">{others.map(entry => <li key={entry.key} className="flex items-center gap-2 border-b border-[#f1f3f5]">
-            <Button type="button" disabled={pending} onClick={() => switchTo(entry.key)} className={cn(plain, "flex min-h-8 flex-1 items-center justify-between gap-3 bg-white py-3 text-left text-sm leading-5 whitespace-normal text-foreground hover:bg-[#f1f7fb] hover:text-brand [&>svg]:shrink-0")}><span>{entry.makeLabel} {entry.modelLabel}<small className="block text-xs text-muted-foreground">{[entry.year, entry.engine, entry.fuel].filter(Boolean).join(" · ")}</small></span><ChevronRight size={14} aria-hidden="true" /></Button>
-            <Button type="button" variant="ghost" size="icon" disabled={pending} className="size-8 text-muted-foreground hover:text-[#c53333]" aria-label={`${entry.makeLabel} ${entry.modelLabel} aracını garajdan kaldır`} onClick={() => forget(entry.key)}><Trash2 size={15} /></Button>
+            <Button type="button" disabled={pending} onClick={() => switchTo(entry.key)} className={cn(plain, "flex min-h-11 flex-1 items-center justify-between gap-3 bg-white py-3 text-left text-sm leading-5 whitespace-normal text-foreground hover:bg-[#f1f7fb] hover:text-brand [&>svg]:shrink-0")}><span>{entry.makeLabel} {entry.modelLabel}<small className="block text-xs text-muted-foreground">{[entry.year, entry.engine, entry.fuel].filter(Boolean).join(" · ")}</small></span><ChevronRight size={14} aria-hidden="true" /></Button>
+            <Button type="button" variant="ghost" size="icon" disabled={pending} className="size-11 text-muted-foreground hover:text-[#c53333]" aria-label={`${entry.makeLabel} ${entry.modelLabel} aracını garajdan kaldır`} onClick={() => forget(entry.key)}><Trash2 size={15} /></Button>
           </li>)}</ul></div>}
         {!vehicle && !others.length && !garage && <p className="text-xs text-muted-foreground" role="status">Kayıtlı araçlar yükleniyor…</p>}
         {garage && !garage.signedIn && <p className="mt-[18px] mb-0 text-xs leading-5 text-muted-foreground">Araçların bu tarayıcıda saklanır (en çok 5). B2B hesabınla giriş yaparsan hesabına kaydedilir ve her cihazda görünür.</p>}

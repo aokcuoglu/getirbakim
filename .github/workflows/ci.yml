@@ -30,6 +30,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run harness:lint && npm run harness:test
+      - run: npm run test:home
       - run: npm run test:cart-checkout-ui
       - run: npm run test:header-search
       - run: node --conditions=react-server --import tsx --test scripts/test-product-pricing.ts scripts/test-supplier-checkout.ts scripts/test-enrichment-import.ts scripts/test-storefront-bundle-items.ts scripts/test-storefront-split.ts scripts/test-storefront-sync.ts scripts/test-storefront-tombstones.ts

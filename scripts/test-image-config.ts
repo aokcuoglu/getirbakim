@@ -41,7 +41,6 @@ test("an optimized response may be as large as the biggest upload and import fil
 // With localPatterns a next/image that is not `unoptimized` and whose src is not a media route fails (400 in
 // production). Every such <Image> must be listed here as "file :: src expression"; a new one fails the test.
 const optimizedImages = new Set([
-  "src/app/(store)/page.tsx :: category.imagePath",
   "src/app/(store)/page.tsx :: child.imagePath",
   "src/app/(store)/sepet/page.tsx :: image.src",
   "src/app/(store)/bakim-robotu/kit-builder.tsx :: selected.image.src",
