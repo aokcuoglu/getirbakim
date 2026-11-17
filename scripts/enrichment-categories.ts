@@ -23,6 +23,7 @@
 import {readFile} from 'node:fs/promises';
 import {Pool} from 'pg';
 import {importCategoryTree,productCategories} from '../src/modules/enrichment/source-categories';
+import {requireEnrichmentSchema} from '../src/modules/enrichment/schema';
 import {parseProduct,safeProductSlug} from '../src/modules/enrichment/trodo-adapter';
 import {sparetoTypeFromUrl} from '../src/modules/enrichment/spareto-adapter';
 import {parts2worldStoredTypes,parts2worldTypedEnrichments} from '../src/modules/enrichment/parts2world-types';
@@ -92,7 +93,7 @@ async function reportUnmapped(){
 // Read-only commands do not apply the schema file, so they run against a read-only connection as well.
 const readOnly=['report-unmapped','check-aliases'].includes(process.argv[2]??'');
 try{
- if(!readOnly)await pool.query(await readFile('db/source-categories.sql','utf8'));
+ if(!readOnly)await requireEnrichmentSchema(pool,['source_categories','source_category_labels','product_source_categories','product_type_categories']);
  if(process.argv[2]==='import-tree'){
   if(!process.argv[3])throw Error('Category tree JSON path required');
   console.log(JSON.stringify(await importCategoryTree(pool,JSON.parse(await readFile(process.argv[3],'utf8')))));

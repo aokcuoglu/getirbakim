@@ -6,8 +6,9 @@ import {S3Client} from '@aws-sdk/client-s3';
 import sharp from 'sharp';
 import {transform} from 'esbuild';
 import {storeProductImageBytes} from '../src/modules/enrichment/import';
+import {requireEnrichmentSchema} from '../src/modules/enrichment/schema';
 const pool=new Pool({connectionString:process.env.DATABASE_URL});
-await pool.query(await readFile('db/source-categories.sql','utf8'));
+await requireEnrichmentSchema(pool,['source_categories','source_category_images','category_image_jobs']);
 await pool.query(`INSERT INTO category_image_jobs(source,category_id,path)
  SELECT source,category_id,'/media/catalog/category_m2/270/'||(raw->>'d') FROM source_categories
  WHERE source='trodo' AND raw->>'d' ~ '^[a-zA-Z0-9_.-]+\\.(jpg|jpeg|png)$' ON CONFLICT DO NOTHING`);
