@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildManualBulkCsv, decodeCsv, diffManualBulk, manualCost, parseBulkNumber, parseCsv, parseManualBulkCsv,
   type ManualBulkCurrent } from "../src/modules/suppliers/manual-bulk-csv";
+import { manualBulkPage, manualBulkPageSize } from "../src/modules/suppliers/manual-bulk-paging";
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 const item = (overrides: Partial<ManualBulkCurrent> = {}): ManualBulkCurrent => ({ id: "a", code: "100047", brand: "MOTUL", list: 1000, discount: 0, markup: null,
@@ -119,4 +120,15 @@ test("an exact code with a zero-padded twin in the list is applied with a warnin
   const result = diffManualBulk(parse(["MOTUL;0123;;;;9"]).rows, [item({ code: "0123" }), item({ id: "b", code: "123" })]);
   assert.equal(result.changes[0].code, "0123");
   assert.deepEqual(result.issues.map(issue => [issue.level, issue.message.replace(/;.*$/, "")]), [["warning", "Listede baştaki sıfırlar dışında aynı olan başka kod var (123)"]]);
+});
+
+test("draft table paging clamps the page to 1..pages (#840)", () => {
+  assert.deepEqual(manualBulkPage(undefined, 0), { page: 1, pages: 1, offset: 0 });
+  assert.deepEqual(manualBulkPage("2", 250), { page: 2, pages: 3, offset: manualBulkPageSize });
+  assert.deepEqual(manualBulkPage("99", 250), { page: 3, pages: 3, offset: 2 * manualBulkPageSize });
+  assert.deepEqual(manualBulkPage("0", 250), { page: 1, pages: 3, offset: 0 });
+  assert.deepEqual(manualBulkPage("-1", 250).page, 1);
+  assert.deepEqual(manualBulkPage("abc", 250).page, 1);
+  assert.equal(manualBulkPage("1", manualBulkPageSize).pages, 1);
+  assert.equal(manualBulkPage("1", manualBulkPageSize + 1).pages, 2);
 });

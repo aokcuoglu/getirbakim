@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { PaymentDialog, loadPaymentWindow, openPaymentWindow } from "./payment-dialog";
 import { addPaymentInfo, type AnalyticsItem } from "@/modules/analytics/events";
 import { track } from "@/modules/analytics/track";
+import { money } from "@/modules/store/money";
+import { useInstallment } from "./checkout-installments";
 
 /**
  * Creates the order and opens TAMI over this page. The popup is opened before the order request,
@@ -20,6 +22,8 @@ export function CheckoutForm({children,disabled,total,errors,lineNames={},initia
   const [error,setError]=useState<CheckoutError|null>(initialError);
   const [payment,setPayment]=useState<{orderId:string;popup:Window|null}|null>(null);
   const busy=useRef(false);
+  // With payment options (#886) the dialog shows the chosen option's total and its hosted-page hint.
+  const option=useInstallment()?.selected;
   const submit=async(event:FormEvent<HTMLFormElement>)=>{
     event.preventDefault();
     if(busy.current) return;
@@ -46,6 +50,6 @@ export function CheckoutForm({children,disabled,total,errors,lineNames={},initia
     <form action={checkout} onSubmit={submit} className="grid gap-4">{children}
       <Button type="submit" className="mt-2 h-auto min-h-12 w-full gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5 font-semibold hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100" disabled={disabled || pending || payment!==null}><LockKeyhole className="size-[18px]" aria-hidden/>{pending ? "Ödeme sayfası hazırlanıyor…" : "Ödemeye geç"}</Button>
     </form>
-    {payment && <PaymentDialog orderId={payment.orderId} popup={payment.popup} total={total} onDismiss={()=>router.push(`/siparis/${payment.orderId}`)}/>}
+    {payment && <PaymentDialog orderId={payment.orderId} popup={payment.popup} total={option ? money(option.totalKurus) : total} installments={option?.count} onDismiss={()=>router.push(`/siparis/${payment.orderId}`)}/>}
   </>;
 }

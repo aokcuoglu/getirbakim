@@ -15,14 +15,22 @@ import {
 
 /**
  * "Geri al" of a bulk fitment add or copy in the product history (#817): asks first, then takes the batch's types
- * still added back in one step. The refreshed history shows the undo as its own line.
+ * still added back in one step. The refreshed history shows the undo as its own line. A refused undo (a stale tab
+ * whose batch is already taken back, #869) keeps the dialog open with its message; closing it refreshes the history.
  */
 export function ProductFitmentBatchUndo({ productId, batchId, count }: { productId: string; batchId: string; count: number }) {
-  const { pending, result, setResult, mutate } = useFitmentChange();
+  const { pending, result, setResult, mutate, refresh } = useFitmentChange({ refreshOnError: false });
   const [open, setOpen] = useState(false);
   const error = result?.status === "error" ? result.message : null;
 
-  return <AlertDialog open={open} onOpenChange={next => { if (pending) return; setOpen(next); if (!next) setResult(null); }}>
+  return <AlertDialog open={open} onOpenChange={next => {
+    if (pending) return;
+    setOpen(next);
+    if (next) return;
+    // The refused row may be stale: the history reloads once the message has been read.
+    if (error) refresh();
+    setResult(null);
+  }}>
     <AlertDialogTrigger render={<Button type="button" variant="outline" size="sm" aria-label={`Toplu işlemi geri al: ${formatNumber(count)} araç tipi`}/>}>
       <Undo2 data-icon="inline-start" aria-hidden="true"/>Geri al
     </AlertDialogTrigger>
@@ -35,11 +43,12 @@ export function ProductFitmentBatchUndo({ productId, batchId, count }: { product
       </AlertDialogHeader>
       {error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{error}</AlertDescription></Alert>}
       <AlertDialogFooter>
-        <AlertDialogCancel disabled={pending}>Vazgeç</AlertDialogCancel>
-        <AlertDialogAction type="button" variant="destructive" disabled={pending}
+        <AlertDialogCancel disabled={pending}>{error ? "Kapat" : "Vazgeç"}</AlertDialogCancel>
+        {/* A refused undo is final (nothing left to take back): "Kapat" is the only way out. */}
+        {!error && <AlertDialogAction type="button" variant="destructive" disabled={pending}
           onClick={() => mutate(() => undoProductFitmentBatch({ productId, batchId }), () => setOpen(false))}>
           {pending ? <><Spinner data-icon="inline-start"/>Geri alınıyor…</> : <><Undo2 data-icon="inline-start" aria-hidden="true"/>Geri al</>}
-        </AlertDialogAction>
+        </AlertDialogAction>}
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>;

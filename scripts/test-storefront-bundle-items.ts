@@ -8,11 +8,12 @@ import { EXPORTED_ENRICHMENT_IDS } from "./storefront-bundle-export";
 import { importBundleJobs } from "./storefront-bundle-jobs";
 import { replaceBundleMappings } from "./storefront-bundle-mappings";
 
-test("referenced ids cover enrichments, mappings, logo evidence and jobs once each", () => {
+test("referenced ids cover enrichments, mappings, logo evidence, jobs and tombstones once each", () => {
   assert.deepEqual(referencedItemIds({
     enrichments: [{ supplier_item_id: "a" }, { supplier_item_id: "b" }], products: [{ supplier_item_id: "a" }],
     logos: [{ evidence_product_id: "c" }, { evidence_product_id: null }], jobs: [{ supplier_item_id: "b" }, { supplier_item_id: "d" }],
-  }), ["a", "b", "c", "d"]);
+    tombstones: [{ supplier_item_id: "e" }, { supplier_item_id: "a" }],
+  }), ["a", "b", "c", "d", "e"]);
 });
 
 test("a bundle without items falls back to its ids", () => {

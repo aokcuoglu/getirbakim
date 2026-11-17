@@ -15,7 +15,7 @@ export function CartQuantity({ productId, name, quantity, maxQuantity = 99, clas
   const [value, setValue] = useState(quantity);
   const [error, setError] = useState("");
   const [pending, startTransition] = useTransition();
-  return <div className={className}><select aria-label={`${name} adedi`} value={value} disabled={pending} className="h-12 w-16 rounded-[5px] border border-input bg-white px-2.5 py-2 text-sm text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60" onChange={event => {
+  return <div className={className}><select aria-label={`${name} adedi`} value={value} disabled={pending} className="h-12 w-16 max-[767.98px]:w-[72px] rounded-[5px] border border-input bg-white px-2.5 py-2 text-sm text-foreground transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60" onChange={event => {
     const next=Number(event.target.value);
     startTransition(async () => {
       const result=await changeCartQuantity(productId,next,refreshPage);

@@ -51,6 +51,15 @@ test("the agreement fills both documents with the buyer, lines, totals and selle
   assert.match(free, /Ücretsiz/); assert.doesNotMatch(free, /Servis indirimi/);
 });
 
+test("an installment order names the fee and the count; a single payment does not (#886)", () => {
+  const single = text(buildOrderAgreement(order, lines));
+  assert.doesNotMatch(single, /Vade farkı/); assert.match(single, /peşin ödeme/);
+  const split = text(buildOrderAgreement({ ...order, totalKurus: 44330, installmentCount: 3, installmentFeeKurus: 2330 }, lines));
+  assert.ok(split.includes("Vade farkı (3 taksit): "), "fee label");
+  for (const value of ["₺23,30", "₺443,30", "3 taksitle ödeme"]) assert.ok(split.includes(value), value);
+  assert.doesNotMatch(split, /peşin ödeme/);
+});
+
 function editedSources(): AgreementSources {
   const sources = structuredClone(defaultSources());
   const section = sources["mesafeli-satis-sozlesmesi"].sections.at(-1)!;

@@ -35,7 +35,7 @@ export function AccountMenu({ account }: { account: { name: string; role: string
   }
 
   return <>
-    <div className="relative max-w-[206px] min-w-0 group-data-[route=home]/route:max-[600px]:hidden">
+    <div className="relative max-w-[206px] min-w-0">
       <Popover open={open} onOpenChange={next => {
         // On phones the panel spans the screen with a 15px gutter, whatever the trigger's position.
         if (next && trigger.current) setPhoneOffset(15 - trigger.current.getBoundingClientRect().left);

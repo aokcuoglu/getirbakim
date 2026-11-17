@@ -22,7 +22,7 @@ const money=(value:number)=>new Intl.NumberFormat("tr-TR",{style:"currency",curr
 const outline="h-auto min-h-12 rounded-[5px] border-input bg-white px-4 py-3 text-sm leading-5 font-medium text-foreground hover:bg-muted";
 
 // `variant="product"` is the larger product-page form; `className` adds layout classes from the caller.
-export function PurchaseForm({productId,name,available,maxQuantity=99,className,variant="listing"}:{productId:string;name:string;available:boolean;maxQuantity?:number;className?:string;variant?:"listing"|"product"}) {
+export function PurchaseForm({productId,name,available,maxQuantity=99,className,variant="listing",price}:{productId:string;name:string;available:boolean;maxQuantity?:number;className?:string;variant?:"listing"|"product";price?:string}) {
   const [state,action,pending]=useActionState(addToCart,initial);
   const [open,setOpen]=useState(false);
   // A 60-card listing rendered 99 <option>s per card (~200 kB of HTML); the rest are added before the list can open.
@@ -63,9 +63,12 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
     if(state.cartCount!==undefined) cartCount.set(state.cartCount);
   },[state]);
   const product=variant==="product";
-  return <>
-    <form action={action} className={cn("buy-form",product&&"buy-form-product",className)}>
+  // On the product page an orderable item gets a bottom bar at 600px and below (storefront.css .buy-bar); the catalog
+  // card's form stays the direct child of its card (#642).
+  const sticky=product&&available;
+  const form=<form action={action} className={cn("buy-form",product&&"buy-form-product",className)}>
       <input type="hidden" name="productId" value={productId}/>
+      {sticky&&price&&<span className="buy-bar-price" aria-hidden="true">{price}</span>}
       <select aria-label={`${name} için adet`} name="quantity" defaultValue={1} disabled={!available || pending}
         onPointerEnter={()=>setAllQuantities(true)} onFocus={()=>setAllQuantities(true)}
         className={cn("buy-quantity",product&&"buy-quantity-product")}>
@@ -73,8 +76,10 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
       </select>
       {/* ui/button's markup with one class (storefront.css) instead of ~940 characters per card. */}
       <ButtonPrimitive type="submit" data-slot="button" disabled={!available || pending} className={cn("buy-button",product&&"buy-button-product")}>{pending ? "Ekleniyor…" : "Sepete ekle"}</ButtonPrimitive>
-    </form>
-    {state.error && <p className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]" role="alert">{state.error} <Link className="text-[#0065a5] underline" href="/sepet">Sepeti aç</Link></p>}
+    </form>;
+  const error=state.error && <p className={cn("my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]",sticky&&"max-[600px]:mt-2 max-[600px]:mb-0")} role="alert">{state.error} <Link className="text-[#0065a5] underline" href="/sepet">Sepeti aç</Link></p>;
+  return <>
+    {sticky ? <div className="buy-bar">{form}{error}</div> : <>{form}{error}</>}
     <Dialog open={open} onOpenChange={setOpen}>
       {state.added && <DialogContent aria-labelledby={titleId} showCloseButton={false} overlayClassName="bg-[#212b3673] supports-backdrop-filter:backdrop-blur-none"
         className={cn("top-[10dvh] grid max-h-[calc(90dvh-24px)] w-[calc(100%-40px)] max-w-[1020px] translate-y-0 grid-cols-2 gap-0 overflow-auto rounded-[10px] bg-white p-0 text-foreground shadow-[0_12px_50px_#212b3626] ring-0 sm:max-w-[1020px] max-[760px]:top-3 max-[760px]:max-h-[calc(100dvh-24px)] max-[760px]:w-[calc(100%-24px)] max-[760px]:grid-cols-1",
@@ -97,7 +102,7 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
           <DialogTitle id={titleId} className="mb-9 flex items-center gap-2.5 text-2xl leading-8 font-semibold tracking-[-.5px] max-[760px]:mb-7 max-[760px]:text-[22px] max-[760px]:leading-7"><CheckCircle2 size={30} className="shrink-0 text-[#459938]"/>Ürün sepetine eklendi</DialogTitle>
           <div className="mb-8 flex items-start gap-6 text-sm leading-5">
             <Link className="grid size-20 shrink-0 place-items-center rounded-[5px] border border-input bg-white text-muted-foreground" href={state.added.href}>{state.added.image ? <Image className="size-16 object-contain" src={state.added.image} width={80} height={80} alt={state.added.name}/> : <Package size={36}/>}</Link>
-            <div><Link className="mb-2.5 block font-medium text-foreground hover:text-primary" href={state.added.href}>{state.added.name}</Link><div className="flex items-center gap-6 [&_select]:h-8 [&_select]:min-h-8 [&_select]:w-[54px] [&_select]:rounded-[5px] [&_select]:border [&_select]:border-input [&_select]:bg-white [&_select]:px-2 [&_select]:py-1 [&_select]:text-sm"><CartQuantity key={`${state.added.id}-${state.added.quantity}`} productId={state.added.id} name={state.added.code} quantity={state.added.quantity} maxQuantity={state.added.maxQuantity} analyticsItem={catalogItem({id:state.added.itemId,name:state.added.itemName,brand:state.added.brand},state.added.price)}/><strong className="text-sm font-medium">{money(state.added.price)}</strong></div></div>
+            <div><Link className="mb-2.5 block font-medium text-foreground hover:text-primary" href={state.added.href}>{state.added.name}</Link><div className="flex items-center gap-6 [&_select]:h-8 [&_select]:min-h-8 [&_select]:w-[54px] max-md:[&_select]:h-11 max-md:[&_select]:min-h-11 max-md:[&_select]:w-[72px] [&_select]:rounded-[5px] [&_select]:border [&_select]:border-input [&_select]:bg-white [&_select]:px-2 [&_select]:py-1 [&_select]:text-sm"><CartQuantity key={`${state.added.id}-${state.added.quantity}`} productId={state.added.id} name={state.added.code} quantity={state.added.quantity} maxQuantity={state.added.maxQuantity} analyticsItem={catalogItem({id:state.added.itemId,name:state.added.itemName,brand:state.added.brand},state.added.price)}/><strong className="text-sm font-medium">{money(state.added.price)}</strong></div></div>
           </div>
           <DialogClose render={<Button variant="outline" className={cn(outline,"mb-4 w-full")}/>}>Alışverişe devam et</DialogClose>
           <Button className="h-auto min-h-12 w-full gap-2.5 rounded-[5px] border-[#007bc4] bg-[#007bc4] px-4 py-3 text-sm leading-5 font-semibold text-white hover:bg-[#006bb0]" nativeButton={false} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]"/>Siparişi tamamla</Button>

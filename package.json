@@ -19,6 +19,7 @@
     "supplier:basbug:import": "node --env-file=.env.local --import tsx scripts/import-basbug.ts",
     "supplier:dinamik:import": "node --env-file=.env.local --import tsx scripts/import-dinamik.ts",
     "test:seo": "node --import tsx --test scripts/test-seo.ts",
+    "test:installments": "node --import tsx --test scripts/test-installments.ts",
     "test:pick-key": "node --import tsx --test scripts/test-pick-key.ts",
     "test:dinamik": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-dinamik.ts",
     "test:product-pricing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-pricing.ts",
@@ -129,6 +130,7 @@
     "test:checkout-refresh": "node --import tsx --test scripts/test-checkout-refresh.ts",
     "test:checkout-error-alert": "node --import tsx --test scripts/test-checkout-error-alert.tsx",
     "test:order-supplier-note": "node --import tsx --test scripts/test-order-supplier-note.ts",
+    "test:cart-checkout-ui": "node --import tsx --test scripts/test-cart-checkout-ui.tsx",
     "test:order-progress": "node --import tsx --test scripts/test-order-progress.ts",
     "test:order-cancel": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-order-cancel.ts",
     "test:purchase-event": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-purchase-event.ts",
@@ -169,8 +171,10 @@
     "test:cache-handler": "node --import tsx --test --test-force-exit scripts/test-cache-handler.ts",
     "test:return-to": "node --import tsx --test scripts/test-return-to.ts",
     "test:enrichment-worker": "node --env-file=.env.local --import tsx --test scripts/test-enrichment-worker.ts",
+    "test:header-search": "node --import tsx --test scripts/test-header-search.ts",
     "test:manual": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-manual-template.ts scripts/test-manual-import.ts scripts/test-manual-bulk-csv.ts scripts/test-manual-bulk-db.ts",
     "test:storefront-split": "node --import tsx --test scripts/test-storefront-split.ts",
+    "test:storefront-tombstones": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-storefront-tombstones.ts",
     "test:storefront-sync": "node --import tsx --test scripts/test-storefront-sync.ts"
   },
   "dependencies": {

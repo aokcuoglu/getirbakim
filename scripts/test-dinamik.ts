@@ -243,8 +243,9 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
         (body as { STOK_KODU: string }).STOK_KODU === "FEBI 1" ? [] : [stockRow("FEBI 2", 140, "VAR")]);
       assert.ok(Date.now() - started < 2_000, "the checkout does not wait on the import");
       assert.deepEqual(locked.gone, [ids["FEBI 1"]]);
-      // (#788) FEBI 2 is saved at 130 (nf 67.93): a live 140 is a new cost the order must refuse, not sell at 67.93.
-      assert.deepEqual(locked.repriced, [ids["FEBI 2"]]);
+      // (#788) FEBI 2 is saved at 130 (nf 67.93): a live 140 is a new cost reported with its live nf; the order judges it
+      // by the sale price (#861).
+      assert.deepEqual(locked.recosted, { [ids["FEBI 2"]]: dinamikCost(140, 0) });
       assert.deepEqual(locked.soldOut, []);
       assert.deepEqual(locked.failed, {});
       assert.equal(locked.refreshed, 0);
@@ -252,12 +253,12 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
       // The same price live: sold on saved data, marked busy.
       const same = await refreshDinamikItems(pool, [ids["FEBI 2"]], async () => [stockRow("FEBI 2", 130, "VAR")]);
       assert.deepEqual(same.failed, { [ids["FEBI 2"]]: "busy" });
-      assert.deepEqual([same.soldOut, same.repriced, same.gone], [[], [], []]);
+      assert.deepEqual([same.soldOut, same.recosted, same.gone], [[], {}, []]);
       // Every region YOK live: sold out, refused, whatever the price.
       const allYok = { ...stockRow("FEBI 2", 130), varyok4: "YOK", varyokAll: "YOK" };
       const soldOut = await refreshDinamikItems(pool, [ids["FEBI 2"]], async () => [allYok]);
       assert.deepEqual(soldOut.soldOut, [ids["FEBI 2"]]);
-      assert.deepEqual([soldOut.repriced, soldOut.gone, soldOut.failed], [[], [], {}]);
+      assert.deepEqual([soldOut.recosted, soldOut.gone, soldOut.failed], [{}, [], {}]);
     } finally {
       await holder.query("ROLLBACK").catch(() => undefined);
       holder.release();

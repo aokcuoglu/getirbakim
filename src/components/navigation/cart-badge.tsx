@@ -11,7 +11,7 @@ export function CartBadge({ count, renderedAt, className }: { count: number; ren
   const shown = useSyncExternalStore(cartCount.subscribe, () => cartCount.get() ?? count, () => count);
   return <Link href="/sepet" className={className} aria-label={`Sepetim, ${shown} ürün`}>
     <SiteIcon name="cart" size={32} />
-    {shown > 0 && <b className="absolute -top-0.5 -right-1 h-4 min-w-4 rounded-full bg-[#d7452f] px-[3px] text-center text-[10px] leading-4 font-bold text-white">{shown}</b>}
+    {shown > 0 && <b className="absolute -top-0.5 -right-1 max-[1100px]:top-1 max-[1100px]:right-0.5 h-4 min-w-4 rounded-full bg-[#d7452f] px-[3px] text-center text-[10px] leading-4 font-bold text-white">{shown}</b>}
   </Link>;
 }
 

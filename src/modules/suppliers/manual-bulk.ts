@@ -2,7 +2,9 @@ import type { Pool } from "pg";
 import { manualCompany } from "./storefront-sources";
 import { diffManualBulk, manualCost, type ManualBulkChange, type ManualBulkCurrent, type ManualBulkRow } from "./manual-bulk-csv";
 import { bulkFileCells, lock, ManualImportError, manualSupplier, saveLockTimeout, type ManualBulk, type ManualDraftReport } from "./manual-import";
-import type { ManualIssue } from "./manual-template";
+import type { ManualIssue, ManualRow } from "./manual-template";
+import { manualBulkPageSize } from "./manual-bulk-paging";
+import type { ManualUpload } from "../admin/manual";
 
 // Bulk price/stock CSV of one manual list (#832; file format: manual-bulk-csv.ts). An upload is stored as a draft
 // (manual_uploads.kind='bulk') with its diff; confirming recomputes the diff against the current rows and writes only
@@ -132,4 +134,30 @@ export async function applyManualBulkDraft(pool: Pool, draftId: string, adminId:
     try { if (locked) await connection.query("SELECT pg_advisory_unlock($1,$2)", lock); }
     finally { connection.release(); }
   }
+}
+
+/** A draft upload with its first ten file rows (`preview`) and the file's row count (xlsx drafts). */
+export type ManualDraft = Omit<ManualUpload, "stats" | "quality"> & { preview: ManualRow[]; row_count: number;
+  /** CSV drafts: report.bulk.changes / report.issues carry only the requested page; these are the full counts. */
+  change_count: number; issue_count: number };
+
+/**
+ * One draft for the review page (#840). A CSV draft returns a page of `manualBulkPageSize` changes and of findings
+ * (errors first, then file order) sliced in SQL; the requested pages are clamped to the last one. Other drafts come back whole.
+ */
+export async function manualDraft(pool: Pick<Pool, "query">, id: string, changesPage: number, issuesPage: number) {
+  return (await pool.query<ManualDraft>(`SELECT u.id,u.list_group,u.list_name,u.file_name,u.status,u.kind,
+      CASE WHEN u.kind='bulk' THEN jsonb_set(jsonb_set(u.report,'{bulk,changes}',
+        coalesce(jsonb_path_query_array(u.report#>'{bulk,changes}','$[$from to $to]',jsonb_build_object('from',p.change_offset,'to',p.change_offset+$3::int-1)),'[]'::jsonb)),'{issues}',
+        (SELECT coalesce(jsonb_agg(i.issue ORDER BY i.warning,i.ord),'[]'::jsonb) FROM (SELECT t.issue,t.issue->>'level'='warning' AS warning,t.ord
+          FROM jsonb_array_elements(u.report->'issues') WITH ORDINALITY AS t(issue,ord) ORDER BY warning,t.ord OFFSET p.issue_offset LIMIT $3::int) i))
+        ELSE u.report END AS report,
+      coalesce(jsonb_array_length(u.report#>'{bulk,changes}'),0) AS change_count,jsonb_array_length(u.report->'issues') AS issue_count,
+      u.created_at,u.decided_at,u.import_id,a.name AS uploader,
+      jsonb_path_query_array(u.rows,'$[0 to 9]') AS preview,jsonb_array_length(u.rows) AS row_count
+      FROM manual_uploads u LEFT JOIN accounts a ON a.id=u.uploaded_by
+      CROSS JOIN LATERAL (SELECT -- the requested pages, clamped to the last one (same math as manualBulkPage)
+        (least(greatest($2::int,1),greatest(ceil(coalesce(jsonb_array_length(u.report#>'{bulk,changes}'),0)/$3::numeric),1)::int)-1)*$3::int AS change_offset,
+        (least(greatest($4::int,1),greatest(ceil(jsonb_array_length(u.report->'issues')/$3::numeric),1)::int)-1)*$3::int AS issue_offset) p
+      WHERE u.id=$1`, [id, changesPage, manualBulkPageSize, issuesPage])).rows[0];
 }

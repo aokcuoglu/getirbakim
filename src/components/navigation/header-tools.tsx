@@ -7,7 +7,6 @@ import { cartQuantity, currentCartOwner } from "@/modules/store/cart";
 import { AccountMenu } from "@/components/auth/account-menu";
 import { GarageButton } from "@/components/garage/garage-button";
 import { SiteIcon } from "@/components/site/site-icon";
-import { cn } from "@/lib/utils";
 import { headerToolClass } from "./header-tool";
 import { CartBadge } from "./cart-badge";
 
@@ -34,7 +33,7 @@ async function HeaderCart() {
 }
 
 function LoadingTool({ name, label }: { name: "profile" | "garage"; label: string }) {
-  return <button className={cn(headerToolClass, name === "profile" && "group-data-[route=home]/route:max-[600px]:hidden")} disabled aria-busy="true" aria-label={`${label} yükleniyor`}>
+  return <button className={headerToolClass} disabled aria-busy="true" aria-label={`${label} yükleniyor`}>
     <SiteIcon name={name} size={32} /><span><strong>{label}</strong><small>Yükleniyor…</small></span>
   </button>;
 }
