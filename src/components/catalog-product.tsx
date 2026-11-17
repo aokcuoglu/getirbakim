@@ -44,10 +44,10 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
  </div>
  <div className="product-card-body">
  <div className="product-card-heading">
-  <Link className="product-card-title" href={href}>{title}</Link>
+  <Link className="product-card-title" href={href} title={title}>{title}</Link>
   <div className="product-card-meta">
    {fit==="match"?<Link data-slot="badge" data-variant="default" className="product-card-fit product-card-fit-match" href={href+"#uyumlu-araclar"}>ARACINA UYAR</Link>
-     :fit==="listed"&&<Link data-slot="badge" data-variant="default" className="product-card-fit product-card-fit-vehicle" href={href+"#uyumlu-araclar"}>UYUMLU ARAÇLAR</Link>}
+     :fit==="listed"&&<Link data-slot="badge" data-variant="default" className="product-card-fit product-card-fit-vehicle" href={href+"#uyumlu-araclar"}>ARAÇ LİSTESİ</Link>}
    <span className="product-card-code" title={p.display_code}>Kod: {p.display_code}</span>
   </div>
  </div>

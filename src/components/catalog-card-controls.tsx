@@ -1,5 +1,5 @@
 "use client";
-import {createContext,useContext,useState,type ReactNode} from "react";
+import {createContext,useContext,useId,useState,type ReactNode} from "react";
 import Link from "next/link";
 import {X} from "lucide-react";
 import type {CardSpecification} from "@/modules/store/specification-translations";
@@ -44,12 +44,14 @@ export function CompareCheckbox({entry}:{entry:Entry}){
 }
 export function CardSpecifications({card}:{card:CardSpecification[]}){
  const [expanded,setExpanded]=useState(false);
+ const listId=useId();
  const priority=["Fitting Position","Brake Disc Type","Outer Diameter [mm]","Brake Disc Thickness [mm]"];
  const ordered=card.some(row=>row.key==="Brake Disc Type")?[...card].sort((a,b)=>(priority.includes(a.key)?priority.indexOf(a.key):priority.length)-(priority.includes(b.key)?priority.indexOf(b.key):priority.length)):card;
  // The toggle is always rendered: a phone's grid card folds every row behind it and its list card shows two rows (#878);
- // from 600px it shows only with more than four rows (data-many, catalog-card.css).
+ // from 600px it shows only with more than four rows (data-many, catalog-card.css). Folded, it reads "Tümünü göster"
+ // where some rows show and "Teknik özellikleri göster" in the phone grid, where none do.
  return <div className="product-card-specs" data-expanded={expanded}>
-  <dl className="product-card-spec-list">{(expanded?ordered:ordered.slice(0,4)).map(({key,label,value},index)=><div key={key+index} className="product-card-spec"><dt className="product-card-spec-label">{label}:</dt><dd className="product-card-spec-value">{value}</dd></div>)}</dl>
-  {card.length>0&&<button type="button" className="product-card-specs-toggle" data-many={card.length>4} data-few={card.length<=2} aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>{expanded?"Daha az göster":card.length>4?"Tümünü göster":"Teknik özellikler"}</button>}
+  <dl id={listId} className="product-card-spec-list">{(expanded?ordered:ordered.slice(0,4)).map(({key,label,value},index)=><div key={key+index} className="product-card-spec"><dt className="product-card-spec-label">{label}:</dt><dd className="product-card-spec-value">{value}</dd></div>)}</dl>
+  {card.length>0&&<button type="button" className="product-card-specs-toggle" data-many={card.length>4} data-few={card.length<=2} aria-expanded={expanded} aria-controls={listId} onClick={()=>setExpanded(!expanded)}>{expanded?"Daha az göster":<><span className="product-card-specs-more">Tümünü göster</span><span className="product-card-specs-show">Teknik özellikleri göster</span></>}</button>}
  </div>;
 }

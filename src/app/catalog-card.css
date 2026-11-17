@@ -20,9 +20,9 @@
   .product-card-class { @apply grid size-8 shrink-0 place-items-center rounded-full text-white max-[600px]:group-data-[view=grid]/listing:size-6; }
   .product-card-price { @apply mt-2 text-2xl leading-7 font-medium text-foreground tabular-nums max-[600px]:text-xl group-data-[view=grid]/listing:order-1 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:mt-2 max-[600px]:group-data-[view=grid]/listing:text-base max-[600px]:group-data-[view=grid]/listing:leading-[22px]; }
   .product-card-stock { @apply mt-4 mb-6 flex items-start gap-2 text-sm leading-5 text-foreground group-data-[view=grid]/listing:order-0 group-data-[view=grid]/listing:mt-0 group-data-[view=grid]/listing:min-h-10 max-[600px]:group-data-[view=grid]/listing:mt-1 max-[600px]:group-data-[view=grid]/listing:mb-2 max-[600px]:group-data-[view=grid]/listing:min-h-0 max-[600px]:group-data-[view=grid]/listing:text-xs max-[600px]:group-data-[view=grid]/listing:leading-4 max-[600px]:group-data-[view=grid]/listing:[&>img]:size-4 max-[600px]:group-data-[view=grid]/listing:[&>svg]:size-4; }
-  /* "Stokta · Siparişten sonra tedarikçiden teyit edilir": the status, then its note on a line of its own (stockLabelParts). */
+  /* "Stokta · Siparişten sonra teyit edilir": the status, then its note on a line of its own (stockLabelParts). */
   .product-card-stock-status { @apply font-medium; }
-  .product-card-stock-note { @apply block text-muted-foreground max-[600px]:group-data-[view=grid]/listing:line-clamp-2 max-[600px]:group-data-[view=grid]/listing:text-[11px]; }
+  .product-card-stock-note { @apply block text-muted-foreground max-[600px]:group-data-[view=grid]/listing:text-[11px]; }
   /* PurchaseForm: in the phone grid a full-width "Sepete ekle" of one unit (the quantity stays on the product page). */
   .product-card-buyform { @apply group-data-[view=grid]/listing:order-3 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:mt-2 max-[600px]:group-data-[view=grid]/listing:mb-2 max-[600px]:group-data-[view=grid]/listing:[&_.buy-quantity]:hidden max-[600px]:group-data-[view=grid]/listing:[&_.buy-button]:h-11 max-[600px]:group-data-[view=grid]/listing:[&_.buy-button]:w-full max-[600px]:group-data-[view=grid]/listing:[&_.buy-button]:text-sm; }
   .product-card-note { @apply ml-[5px] border-l border-input pl-[5px]; }
@@ -36,8 +36,10 @@
   .product-card-spec-label { @apply font-normal text-muted-foreground; }
   .product-card-spec-value { @apply font-medium text-foreground; }
   .product-card-specs-toggle { @apply min-h-5 cursor-pointer rounded-none border-0 bg-transparent p-0 text-sm leading-5 font-medium text-brand-strong hover:underline focus-visible:outline-2 focus-visible:outline-ring min-[600px]:data-[many=false]:hidden max-[600px]:min-h-11 max-[600px]:group-data-[view=list]/listing:data-[few=true]:hidden max-[600px]:group-data-[view=grid]/listing:text-xs; }
+  .product-card-specs-more { @apply max-[600px]:group-data-[view=grid]/listing:hidden; }
+  .product-card-specs-show { @apply hidden max-[600px]:group-data-[view=grid]/listing:inline; }
   .product-card-compare { @apply mb-4 flex cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-data-disabled:cursor-not-allowed group-data-[view=grid]/listing:order-4 max-[600px]:group-data-[view=grid]/listing:hidden; }
-  /* "ARACINA UYAR" / "UYUMLU ARAÇLAR" links: the default Badge with the card's override, minus the icon, svg, invalid and
+  /* "ARACINA UYAR" / "ARAÇ LİSTESİ" links: the default Badge with the card's override, minus the icon, svg, invalid and
      dark states a text-only link never has. The modifiers only set the colours. */
   .product-card-fit { @apply inline-flex h-auto w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-[3px] border-0 border-transparent px-1.5 py-0.5 text-[11px] leading-4 font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50; }
   .product-card-fit-match { @apply bg-[#dcf2e6] text-[#1e5e3e] hover:bg-[#cdebdb]; }

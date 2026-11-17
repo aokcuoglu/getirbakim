@@ -66,7 +66,7 @@ export const returnPolicy = { days: 14, country: "TR" } as const;
 
 /** The stock labels of db/commerce.sql the markup depends on (a test ties both to the SQL). */
 export const outOfStockLabel = "Stokta yok";
-export const unconfirmedStockLabel = "Stokta · Siparişten sonra tedarikçiden teyit edilir";
+export const unconfirmedStockLabel = "Stokta · Siparişten sonra teyit edilir";
 /** The label before #878: a page cached or a view not yet re-created still carries it. */
 export const legacyUnconfirmedStockLabel = "Kayıtlı stokta mevcut · Teyit bekliyor";
 const unconfirmedStockLabels = new Set([unconfirmedStockLabel, legacyUnconfirmedStockLabel]);

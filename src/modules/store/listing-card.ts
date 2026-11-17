@@ -1,7 +1,7 @@
 // Listing card rules (#878), pure so both the server card and the tests use them.
 import type {Account} from "@/modules/auth/session";
 
-/** A stock label "Stokta · Siparişten sonra tedarikçiden teyit edilir" splits into the status and its note at the first " · ". */
+/** A stock label "Stokta · Siparişten sonra teyit edilir" splits into the status and its note at the first " · ". */
 export function stockLabelParts(label:string):{status:string;note?:string}{
  const at=label.indexOf(" · ");
  return at<0?{status:label}:{status:label.slice(0,at),note:label.slice(at+3)};

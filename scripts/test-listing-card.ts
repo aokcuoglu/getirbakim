@@ -4,7 +4,7 @@ import {cardFitBadge,defaultListingView,stockLabelParts} from "../src/modules/st
 import {legacyUnconfirmedStockLabel,unconfirmedStockLabel} from "../src/modules/seo/structured-data";
 
 test("a stock label splits into its status and note at the first separator", () => {
-  assert.deepEqual(stockLabelParts(unconfirmedStockLabel),{status:"Stokta",note:"Siparişten sonra tedarikçiden teyit edilir"});
+  assert.deepEqual(stockLabelParts(unconfirmedStockLabel),{status:"Stokta",note:"Siparişten sonra teyit edilir"});
   assert.deepEqual(stockLabelParts(legacyUnconfirmedStockLabel),{status:"Kayıtlı stokta mevcut",note:"Teyit bekliyor"});
   assert.deepEqual(stockLabelParts("Tedarikçide mevcut"),{status:"Tedarikçide mevcut"});
   assert.deepEqual(stockLabelParts("A · B · C"),{status:"A",note:"B · C"});
