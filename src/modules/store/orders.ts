@@ -52,7 +52,7 @@ export type CheckoutInput = {requestKey:string;quote:string;name:string;email:st
  * `garage` is used for cart lines added before a vehicle was recorded on them. `evidence` is who accepted the
  * pre-contract documents; the consent and the order-specific copy of those documents are stored with the order.
  */
-export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:GarageVehicle|null=null,evidence:ClientEvidence={ip:null,forwardedFor:null,userAgent:null}):Promise<{id:string;error?:undefined}|{error:string;id?:undefined}> {
+export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:GarageVehicle|null=null,evidence:ClientEvidence={ip:null,forwardedFor:null,userAgent:null}):Promise<{id:string;error?:undefined;products?:undefined}|{error:string;products?:string[];id?:undefined}> {
  // Completed retries must not require another supplier call.
  const completed=(await db.query<{id:string}>('SELECT id FROM commerce_orders WHERE owner_kind=$1 AND owner_id=$2 AND request_key=$3',[owner.kind,owner.id,input.requestKey])).rows[0];
  if(completed) return {id:completed.id};
@@ -73,8 +73,11 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   // A cart changed during the API call must be quoted and checked again.
   const currentItems=(await checkoutItems(owner,client)).map(item=>item.id);
   if(JSON.stringify(currentItems)!==JSON.stringify(refreshed.items)) { await client.query('ROLLBACK'); return {error:'stock'}; }
-  // (#770) The supplier no longer knows these codes (604 / empty getStock); refused even when the zeroed stock could not be saved.
-  if(refreshed.gone.length) { await client.query('ROLLBACK'); return {error:'stock'}; }
+  // (#770) The supplier no longer knows these codes (604 / empty getStock), and (#788) the live answer said sold out or
+  // quoted a new cost but rows locked by an import kept it from being saved: refused and named, never sold on saved data.
+  const unavailable=[...refreshed.gone,...refreshed.soldOut];
+  if(unavailable.length) { await client.query('ROLLBACK'); return {error:'stock',products:unavailable}; }
+  if(refreshed.repriced.length) { await client.query('ROLLBACK'); return {error:'price',products:refreshed.repriced}; }
   await client.query('SELECT id FROM commerce_settings FOR SHARE');
   if(await supplierCheckoutMode(client)!==refreshed.mode) { await client.query('ROLLBACK'); return {error:'price'}; }
   // Lock saleable sources while prices are checked and store stock is reserved.
