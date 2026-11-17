@@ -88,6 +88,7 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,o.refunded_at,
      o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,o.cancelled_by,o.cancelled_at,o.installment_count,o.installment_fee_kurus,
+     o.delivery_province,o.delivery_district,o.delivery_address_line,o.delivery_postal_code,o.invoice_type,o.invoice_company,o.invoice_tax_no,o.invoice_tax_office,
      a.accepted_at AS agreement_at,a.ip AS agreement_ip,a.user_agent AS agreement_user_agent,a.legal_version AS agreement_version,
      COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
       'bank_reference',p.bank_reference,'paid_at',p.paid_at,'installment_count',p.installment_count) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments,

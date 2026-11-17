@@ -7,7 +7,7 @@ import { money } from "./money";
  * buyer, lines, prices and totals filled in, built once when the order is placed and stored as an immutable copy.
  * Bump AGREEMENT_TEMPLATE_VERSION whenever the code-generated sections below change wording or structure.
  */
-export const AGREEMENT_TEMPLATE_VERSION = 2;
+export const AGREEMENT_TEMPLATE_VERSION = 3;
 export const agreementSlugs = ["on-bilgilendirme-formu", "mesafeli-satis-sozlesmesi"] as const;
 type AgreementSlug = (typeof agreementSlugs)[number];
 type LegalSection = LegalDocument["sections"][number];
@@ -18,6 +18,8 @@ export type OrderAgreementDocument = {
 };
 export type AgreementOrder = {
   number: string | number; createdAt: Date; name: string; email: string; phone: string; address: string; note: string;
+  /** Corporate invoice details (#881); absent or null for an individual invoice. */
+  invoice?: { company: string; taxNo: string; taxOffice: string } | null;
   discountPercent: number; subtotalKurus: number; shippingKurus: number; totalKurus: number;
   /** Set only for an installment order (#886); totalKurus then includes installmentFeeKurus. */
   installmentCount?: number; installmentFeeKurus?: number;
@@ -52,7 +54,8 @@ const istanbulTime = (value: Date) => value.toLocaleString("tr-TR", { timeZone: 
 
 function buyerSection(order: AgreementOrder): LegalSection {
   return { title: "Alıcı Bilgileri", blocks: [
-    field("Ad soyad / unvan", order.name), field("E-posta", order.email), field("Telefon", order.phone), field("Teslimat adresi", order.address),
+    field("Ad soyad", order.name), field("E-posta", order.email), field("Telefon", order.phone), field("Teslimat adresi", order.address),
+    ...(order.invoice ? [field("Fatura unvanı", order.invoice.company), field("Vergi/TC kimlik no", order.invoice.taxNo), field("Vergi dairesi", order.invoice.taxOffice)] : []),
   ] };
 }
 

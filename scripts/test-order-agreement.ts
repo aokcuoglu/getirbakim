@@ -8,13 +8,16 @@ import { buildOrderAgreement, defaultSources, legalTextVersion, type AgreementSo
 import { clientEvidence } from "../src/lib/client-address";
 
 // Checkout consent evidence and the order-specific pre-contract copy (#604).
-const form = { requestKey: randomUUID(), quote: "a".repeat(64), name: "Ayşe Yılmaz", email: "ayse@example.invalid", phone: "0555 123 45 67",
-  address: "Test Mahallesi 1. Sokak No 2, Kadıköy İstanbul", note: "" };
+const fields = { requestKey: randomUUID(), quote: "a".repeat(64), name: "Ayşe Yılmaz", email: "ayse@example.invalid", phone: "0555 123 45 67",
+  province: "İstanbul", district: "Kadıköy", addressLine: "Test Mahallesi 1. Sokak No 2", postalCode: "34710", note: "", invoiceType: "individual" };
+// What the checkout action hands to submitOrder (#881).
+const form = checkoutInput.parse({ ...fields, consent: "on" });
 
 test("no order input without the pre-contract consent", () => {
-  assert.equal(checkoutInput.safeParse(form).success, false);
-  assert.equal(checkoutInput.safeParse({ ...form, consent: "off" }).success, false);
-  assert.equal(checkoutInput.safeParse({ ...form, consent: "on" }).success, true);
+  assert.equal(checkoutInput.safeParse(fields).success, false);
+  assert.equal(checkoutInput.safeParse({ ...fields, consent: "off" }).success, false);
+  assert.equal(checkoutInput.safeParse({ ...fields, consent: "on" }).success, true);
+  assert.equal(form.address, "Test Mahallesi 1. Sokak No 2, 34710 Kadıköy/İstanbul");
 });
 
 test("the stored consent text is the checkbox label shown at checkout", async () => {
@@ -49,6 +52,18 @@ test("the agreement fills both documents with the buyer, lines, totals and selle
   }
   const free = text(buildOrderAgreement({ ...order, shippingKurus: 0, discountPercent: 0 }, lines));
   assert.match(free, /Ücretsiz/); assert.doesNotMatch(free, /Servis indirimi/);
+});
+
+test("a corporate invoice names the title, tax number and office in the buyer section; an individual one does not (#881)", () => {
+  const invoice = { company: "Yılmaz Otomotiv Ltd. Şti.", taxNo: "1234567890", taxOffice: "Kadıköy" };
+  for (const document of buildOrderAgreement({ ...order, invoice }, lines).documents) {
+    const buyer = text(document.sections.find(section => section.title === "Alıcı Bilgileri"));
+    for (const value of ["Fatura unvanı: ", invoice.company, "Vergi/TC kimlik no: ", invoice.taxNo, "Vergi dairesi: ", invoice.taxOffice]) assert.ok(buyer.includes(value), value);
+  }
+  for (const individual of [buildOrderAgreement(order, lines), buildOrderAgreement({ ...order, invoice: null }, lines)]) {
+    for (const document of individual.documents)
+      assert.doesNotMatch(text(document.sections.find(section => section.title === "Alıcı Bilgileri")), /Fatura unvanı|kimlik no|Vergi dairesi/);
+  }
 });
 
 test("an installment order names the fee and the count; a single payment does not (#886)", () => {
@@ -124,13 +139,26 @@ test("placing an order stores the consent and an immutable order-specific copy",
     const orderRow = (await schema.pool.query("SELECT * FROM commerce_orders WHERE id=$1", [placed.id])).rows[0];
     assert.equal(row.accepted_at.getTime(), orderRow.created_at.getTime());
     assert.deepEqual(row.document, buildOrderAgreement({ number: orderRow.number, createdAt: orderRow.created_at, name: form.name, email: form.email,
-      phone: form.phone, address: form.address, note: form.note, discountPercent: 0, subtotalKurus: 20000, shippingKurus: 15000, totalKurus: 35000 },
+      phone: form.phone, address: form.address, note: form.note, invoice: null, discountPercent: 0, subtotalKurus: 20000, shippingKurus: 15000, totalKurus: 35000 },
     [{ name: "Agreement part", brand: "TEST", code: "AGR-1", quantity: 2, unitPriceKurus: 10000 }]));
+
+    assert.equal(orderRow.address, "Test Mahallesi 1. Sokak No 2, 34710 Kadıköy/İstanbul");
+    assert.deepEqual([orderRow.delivery_province, orderRow.delivery_district, orderRow.delivery_address_line, orderRow.delivery_postal_code, orderRow.invoice_type, orderRow.invoice_company],
+      ["İstanbul", "Kadıköy", "Test Mahallesi 1. Sokak No 2", "34710", "individual", null]);
+
+    // A corporate order stores its invoice details and names them in its copy.
+    const corporate = checkoutInput.parse({ ...fields, consent: "on", requestKey: randomUUID(), quote: cartQuote(await cartFor(owner), 0, await shippingRule()),
+      invoiceType: "corporate", invoiceCompany: "Yılmaz Otomotiv Ltd. Şti.", invoiceTaxNo: "10000000146", invoiceTaxOffice: "Kadıköy" });
+    const corporateOrder = await submitOrder(owner, corporate, null, evidence);
+    assert.ok(corporateOrder.id, String(corporateOrder.error));
+    const corporateRow = (await schema.pool.query("SELECT invoice_type,invoice_company,invoice_tax_no,invoice_tax_office FROM commerce_orders WHERE id=$1", [corporateOrder.id])).rows[0];
+    assert.deepEqual(corporateRow, { invoice_type: "corporate", invoice_company: "Yılmaz Otomotiv Ltd. Şti.", invoice_tax_no: "10000000146", invoice_tax_office: "Kadıköy" });
+    assert.match(JSON.stringify((await agreementRow(corporateOrder.id))[0].document), /Vergi\/TC kimlik no: "\]\},"10000000146"/);
 
     // A retried submit returns the same order and writes nothing new.
     assert.deepEqual(await submitOrder(owner, first, null, { ip: "198.51.100.1", forwardedFor: null, userAgent: "other" }), { id: placed.id });
     assert.equal((await agreementRow(placed.id)).length, 1);
-    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM commerce_order_agreements")).rows[0].n, 1);
+    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM commerce_order_agreements")).rows[0].n, 2);
 
     // The copy cannot be changed, and later legal page edits do not touch it.
     await assert.rejects(schema.pool.query("UPDATE commerce_order_agreements SET legal_version='x' WHERE order_id=$1", [placed.id]), /immutable/);

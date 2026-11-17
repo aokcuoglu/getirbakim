@@ -8,7 +8,7 @@ import { purchasePreview, suggestionPreviews } from "@/modules/store/purchase-pr
 import type { PurchasePreview, PurchaseState } from "@/modules/store/purchase-types";
 import { currentVehicle } from "@/modules/store/garage";
 import { headers } from "next/headers";
-import { checkoutInput } from "@/modules/store/checkout-schema";
+import { checkoutErrorField, checkoutInput } from "@/modules/store/checkout-schema";
 import { clientEvidence } from "@/lib/client-address";
 
 export async function addToCart(_state: PurchaseState, form: FormData): Promise<PurchaseState> {
@@ -58,9 +58,10 @@ export async function updateCart(form: FormData) {
 }
 
 /** Creates the awaiting-payment order; the cart is kept until TAMI confirms the payment. */
-export async function placeOrder(form:FormData):Promise<{id:string;error?:undefined;products?:undefined}|{error:string;products?:string[];id?:undefined}> {
+export async function placeOrder(form:FormData):Promise<{id:string;error?:undefined;products?:undefined;field?:undefined}|{error:string;products?:string[];field?:string;id?:undefined}> {
  const input=checkoutInput.safeParse(Object.fromEntries(form));
- if(!input.success) return {error:'validation'};
+ // The first refused field (#881) lets the page say what to fix; only names from checkoutFieldErrors are returned.
+ if(!input.success) return {error:'validation',field:checkoutErrorField(input.error.issues)};
  const owner=await currentCartOwner();
  if(!owner) return {error:'session'};
  const {submitOrder}=await import('@/modules/store/orders');
@@ -69,11 +70,13 @@ export async function placeOrder(form:FormData):Promise<{id:string;error?:undefi
  return result;
 }
 
-// Without JS the form posts here; the order page then opens TAMI in a new tab.
+// The form's fallback when its JS submit did not run. Checkout needs JS since #881 (the province and district lists;
+// the form says so in <noscript>), but this path still handles a post that arrives without it: errors go back to the
+// form as ?error= (and ?alan= for a refused field), an order goes to its page, which opens TAMI in a new tab.
 export async function checkout(form:FormData) {
  const result=await placeOrder(form);
  if(result.error==='session') redirect('/sepet?error=session');
  // The order page names refused lines (#788) from the cart, never from this parameter's text.
- if(result.error!==undefined) redirect(`/siparis-olustur?error=${result.error}${result.products?.length ? `&urun=${result.products.join(",")}` : ""}`);
+ if(result.error!==undefined) redirect(`/siparis-olustur?error=${result.error}${result.products?.length ? `&urun=${result.products.join(",")}` : ""}${result.field ? `&alan=${result.field}` : ""}`);
  redirect(`/siparis/${result.id}?odeme=yeni`);
 }

@@ -432,3 +432,12 @@ ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_rates jsonb N
 -- total_kurus − installment_fee_kurus. Orders placed before this change are single payments without a fee.
 ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS installment_count integer NOT NULL DEFAULT 1 CHECK(installment_count BETWEEN 1 AND 12);
 ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS installment_fee_kurus bigint NOT NULL DEFAULT 0 CHECK(installment_fee_kurus>=0);
+-- Structured delivery address and invoice details (#881); NULL on orders placed before it. `address` keeps the combined text.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_province text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_district text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_address_line text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_postal_code text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_type text CHECK(invoice_type IN ('individual','corporate'));
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_company text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_tax_no text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_tax_office text;

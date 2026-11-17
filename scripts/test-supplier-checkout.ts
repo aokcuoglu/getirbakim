@@ -94,7 +94,7 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     // A later quantity change keeps the vehicle recorded when the product was added.
     assert.equal(await setCartQuantity(owner,id,1),true);
     assert.deepEqual((await cartFor(owner))[0].vehicle,vehicle);
-    const input={requestKey:randomUUID(),quote:await cartQuote(await cartFor(owner),0),name:"Test",email:"test@example.invalid",phone:"5551234567",address:"Test",note:""};
+    const input={requestKey:randomUUID(),quote:await cartQuote(await cartFor(owner),0),name:"Test",email:"test@example.invalid",phone:"5551234567",address:"Test Mahallesi 1. Sokak No 2, Kadıköy/İstanbul",note:"",province:"İstanbul",district:"Kadıköy",addressLine:"Test Mahallesi 1. Sokak No 2",postalCode:null,invoiceType:"individual" as const,invoiceCompany:null,invoiceTaxNo:null,invoiceTaxOffice:null};
     const itemRow=async()=>(await db.query("SELECT product_data,price_data,stock_data,last_seen_at,changed_at FROM supplier_items WHERE id=$1",[id])).rows[0];
     // #763: the live check asks MalzemeAra for the cart's own code only, without the list endpoints or the import lock.
     const listUrls=/FiyatGetir|StokGetir|MalzemeleriGetir|ListeGrubuGetir|DovizBilgisiGetir/;

@@ -9,6 +9,7 @@ import { changeOrderStatus, checkTamiRefund, recordRefund } from "@/modules/admi
 import { refundablePayments, refundKindLabel, refundStatusLabel, reversalKind, type RefundStatus } from "@/modules/payments/refund-rules";
 import { carrierLabel } from "@/modules/store/shipment";
 import { OrderShipmentDialog } from "@/components/admin/order-shipment-dialog";
+import { OrderDeliveryDetails, OrderRecipient } from "@/components/admin/order-address";
 import { OrderDeliveredDialog } from "@/components/admin/order-delivered-dialog";
 import { OrderRefundDialog } from "@/components/admin/order-refund-dialog";
 import { OrderLinesDialog } from "@/components/admin/order-lines-dialog";
@@ -103,7 +104,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                 <AccordionTrigger>Teslimat ve ödeme</AccordionTrigger>
                 <AccordionContent>
                   <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
-                    <div><dt className="text-muted-foreground">Adres</dt><dd>{o.address}</dd></div>
+                    <OrderDeliveryDetails order={o}/>
                     {o.note && <div><dt className="text-muted-foreground">Not</dt><dd>{o.note}</dd></div>}
                     {o.payments.length > 0 && <div><dt className="text-muted-foreground">TAMI</dt><dd className="break-all">{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""})`).join(", ")}</dd></div>}
                     {o.paid_at && <div><dt className="text-muted-foreground">Ödeme zamanı</dt><dd>{time(o.paid_at)}</dd></div>}
@@ -159,7 +160,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                 && <Badge variant="warning" className="mt-1" title="Ödenen taksit sayısı siparişten farklı"><TriangleAlert data-icon="inline-start"/>Taksit sayısı farklı<span className="sr-only">: ödenen taksit sayısı siparişten farklı</span></Badge>}</TableCell>
             <TableCell>
               {["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
-                {o.status === "confirmed" && <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="ship"/>}
+                {o.status === "confirmed" && <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="ship" recipient={<OrderRecipient order={o}/>}/>}
                 <form action={changeOrderStatus} className="flex justify-end gap-2">
                   <input type="hidden" name="id" value={o.id}/>
                   <input type="hidden" name="back" value={back}/>
@@ -169,7 +170,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               </div>}
               {o.status === "shipped" && ["paid", "none"].includes(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
                 <OrderDeliveredDialog orderId={o.id} number={o.number} back={back}/>
-                <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="edit"
+                <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="edit" recipient={<OrderRecipient order={o}/>}
                   initial={{ carrier: o.carrier, carrierName: o.carrier_name, trackingNo: o.tracking_no, trackingUrl: o.tracking_url }}/>
               </div>}
               {(refundable.length > 0 || pendingRefunds.length > 0) && <div className="mt-2 flex flex-col items-end gap-2">

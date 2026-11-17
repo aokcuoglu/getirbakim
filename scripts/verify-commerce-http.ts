@@ -29,7 +29,7 @@ try {
  assert.equal((await post(new URL(detail.res.url).pathname,add)).status,200);
  const cart=await get('/sepet');assert.equal(cart.res.status,200);assert.ok(cart.html.includes('/siparis-olustur'));
  const checkout=fields((await get('/siparis-olustur')).html,'requestKey');
- for(const [k,v] of Object.entries({name:'Verification Buyer',email:'verify@example.invalid',phone:'5551234567',address:'Synthetic address only, Istanbul',note:'HTTP test',consent:'on'}))checkout.set(k,v);
+ for(const [k,v] of Object.entries({name:'Verification Buyer',email:'verify@example.invalid',phone:'5551234567',province:'İstanbul',district:'Kadıköy',addressLine:'Synthetic address only',invoiceType:'individual',note:'HTTP test',consent:'on'}))checkout.set(k,v);
  orderId=placedOrderId(await post('/siparis-olustur',checkout));const payments=orderId!=='';
  if(payments){
  assert.equal((await db.query('SELECT total_kurus,discount_percent FROM commerce_orders WHERE id=$1',[orderId])).rows[0].total_kurus,'9000');
@@ -65,7 +65,7 @@ try {
  guestHash=createHash('sha256').update(guestCookie.slice('gb_cart='.length)).digest('hex');
  const guestCart=await get('/sepet',guestCookie);assert.ok(guestCart.html.includes('Sepetim'));
  const guestCheckout=fields((await get('/siparis-olustur',guestCookie)).html,'requestKey');
- for(const [k,v] of Object.entries({name:'Guest Verification',email:'guest@example.invalid',phone:'5551234567',address:'Synthetic address only, Istanbul',note:'Guest test',consent:'on'}))guestCheckout.set(k,v);
+ for(const [k,v] of Object.entries({name:'Guest Verification',email:'guest@example.invalid',phone:'5551234567',province:'İstanbul',district:'Kadıköy',addressLine:'Synthetic address only',invoiceType:'individual',note:'Guest test',consent:'on'}))guestCheckout.set(k,v);
  guestOrderId=placedOrderId(await post('/siparis-olustur',guestCheckout,guestCookie));assert.equal(guestOrderId!=='',payments);
  if(payments){
  if(supplier){assert.equal((await db.query('SELECT count(*) FROM supplier_imports')).rows[0].count,beforeImports);assert.equal((await db.query('SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1',[guestOrderId])).rows[0].pricing_snapshot.checkout_mode,'snapshot');assert.ok(!(await get(`/siparis/${guestOrderId}`,guestCookie)).html.includes('canlı API doğrulaması yapılmadı'));assert.ok((await get(`/siparis/${guestOrderId}`,adminCookie)).html.includes('canlı API doğrulaması yapılmadı'));}
