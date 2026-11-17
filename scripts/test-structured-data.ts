@@ -7,7 +7,7 @@ import { aboutPageJsonLd, articleJsonLd, breadcrumbJsonLd, catalogTrail, collect
   serializeJsonLd, unconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
 import { listingPath, makePath } from "../src/modules/seo/paths";
 import { productPath } from "../src/modules/seo/product-path";
-import { defaultSocialImage, organizationId, siteJsonLd } from "../src/lib/site";
+import { defaultSocialImage, foundingYear, organizationId, siteJsonLd } from "../src/lib/site";
 
 const base = "https://getirbakim.com";
 const now = new Date("2026-11-15T10:00:00Z");
@@ -176,6 +176,7 @@ test("the seller is the site's Organization", () => {
   const organization = siteJsonLd["@graph"].find(node => node["@type"] === "Organization");
   assert.equal((offers(product({}))!.seller as { "@id": string })["@id"], organization?.["@id"]);
   assert.equal(organization?.["@id"], organizationId);
+  assert.equal((organization as { foundingDate?: string } | undefined)?.foundingDate, String(foundingYear));
 });
 
 test("listing and product addresses", () => {
