@@ -7,7 +7,7 @@
      field/dark/invalid states the store never uses. */
   .store-check { @apply relative flex size-5 shrink-0 items-center justify-center rounded-[4px] border border-input bg-white transition-colors outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 data-checked:border-brand data-checked:bg-brand data-checked:text-primary-foreground; }
   .store-check-indicator { @apply grid place-content-center text-current transition-none [&>svg]:size-3.5; }
-  .facet-option { @apply mb-2.5 flex min-h-5 cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-data-disabled:cursor-not-allowed has-data-disabled:opacity-60; }
+  .facet-option { @apply mb-2.5 flex min-h-5 max-[768px]:mb-0 max-[768px]:min-h-11 cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-data-disabled:cursor-not-allowed has-data-disabled:opacity-60; }
 
   /* /arac-markalari tiles. */
   .make-tile { @apply flex h-[88px] flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary max-md:h-20; }

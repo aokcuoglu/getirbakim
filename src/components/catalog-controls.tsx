@@ -1,19 +1,21 @@
 "use client";
-import { useState, useEffect, type ReactNode } from "react";
+import { useOptimistic, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Search, SlidersHorizontal } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, SlidersHorizontal, X } from "lucide-react";
 import { categoryPath, searchCategories, type SidebarCategoryBranch } from "@/modules/store/category-tree";
 import type {CatalogQuery} from "@/modules/store/catalog-query";
-import {selectedBrands,selectedAttributes,maxAttributeValues,listingRangeLabel,type CatalogFacet} from "@/modules/store/catalog-filters";
+import {selectedBrands,selectedAttributes,maxAttributeValues,listingRangeLabel,activeFilters,availabilityLabels,clearPanelFilters,toggleAttribute,toggleBrand,type CatalogFacet,type FilterUpdate} from "@/modules/store/catalog-filters";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import { StoreCheckbox } from "@/components/site/store-checkbox";
 import { useCategoryTree } from "@/components/navigation/use-category-tree";
+import { storeDialogOverlay } from "@/components/store-dialog-classes";
 // Make, model and category live in the path (/kategori/{category}/{make}, /yedek-parca/{make}/{model}), every other
 // filter in the query string.
 import {listingPath,listingUrl} from "@/modules/seo/paths";
@@ -48,61 +50,95 @@ function FilterGroup({label,options,selected,onToggle,searchable=true,isBlocked,
  const matching=options.filter(o=>o.label.toLocaleLowerCase("tr").includes(search.toLocaleLowerCase("tr")));
  const visible=search||showAll?matching:matching.filter((option,index)=>index<collapsedOptions||selected.includes(option.value));
  return <Collapsible defaultOpen className="border-b border-border last:border-b-0">
- <CollapsibleTrigger className="group/facet flex min-h-[50px] w-full cursor-pointer rounded-none border-0 bg-transparent text-foreground items-center justify-between px-[25px] py-[15px] text-left text-base leading-5 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"><strong className="font-bold">{label}</strong><span aria-hidden="true" className="text-xl font-medium group-data-panel-open/facet:hidden">+</span><span aria-hidden="true" className="hidden text-xl font-medium group-data-panel-open/facet:inline">−</span></CollapsibleTrigger>
+ <CollapsibleTrigger className="group/facet flex min-h-[50px] w-full cursor-pointer rounded-none border-0 bg-transparent text-foreground items-center justify-between px-[25px] py-[15px] max-[768px]:px-5 text-left text-base leading-5 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"><strong className="font-bold">{label}</strong><span aria-hidden="true" className="text-xl font-medium group-data-panel-open/facet:hidden">+</span><span aria-hidden="true" className="hidden text-xl font-medium group-data-panel-open/facet:inline">−</span></CollapsibleTrigger>
  <CollapsibleContent>
- {searchable&&<label className="relative mx-[25px] mb-[15px] block pt-[5px]"><Image className="absolute top-[15px] left-2.5" src="/media/site/icons/search.svg" width={20} height={20} alt="" unoptimized/><input type="search" className="h-10 w-full rounded-md border border-input bg-white py-2 pr-2.5 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50" aria-label={label+" ara"} placeholder="Ara" value={search} onChange={e=>setSearch(e.target.value)}/></label>}
- <div className="max-h-[300px] overflow-auto px-[25px] pt-[5px] pb-[25px]">{visible.map(option=><label key={option.value} className="facet-option">
+ {searchable&&<label className="relative mx-[25px] mb-[15px] block pt-[5px]"><Image className="absolute top-[15px] left-2.5 max-[768px]:top-[17px]" src="/media/site/icons/search.svg" width={20} height={20} alt="" unoptimized/><input type="search" className="h-10 w-full max-[768px]:h-11 rounded-md border border-input bg-white py-2 pr-2.5 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50" aria-label={label+" ara"} placeholder="Ara" value={search} onChange={e=>setSearch(e.target.value)}/></label>}
+ <div className="max-h-[300px] overflow-auto px-[25px] pt-[5px] pb-[25px] max-[768px]:max-h-none max-[768px]:overflow-visible max-[768px]:px-5 max-[768px]:pb-4">{visible.map(option=><label key={option.value} className="facet-option">
   <StoreCheckbox checked={selected.includes(option.value)} disabled={!selected.includes(option.value)&&(isBlocked?isBlocked(option.value):selected.length>=30)} onCheckedChange={()=>onToggle(option.value)}/><span>{option.label}</span></label>)}
-  {visible.length<matching.length&&<button type="button" className="mt-1 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-brand-strong hover:underline" onClick={()=>setShowAll(true)}>Tümünü göster ({matching.length.toLocaleString("tr-TR")})</button>}</div>
+  {visible.length<matching.length&&<button type="button" className="mt-1 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-brand-strong hover:underline max-[768px]:min-h-11" onClick={()=>setShowAll(true)}>Tümünü göster ({matching.length.toLocaleString("tr-TR")})</button>}</div>
  {hint&&<p className="px-[25px] pb-[15px] text-[13px] text-muted-foreground">{hint}</p>}
  {!options.length&&<p className="px-[25px] pb-[25px] text-[13px] text-muted-foreground">Bu kategoride kayıt bulunamadı.</p>}
  </CollapsibleContent>
  </Collapsible>;
 }
+type FilterProps={brands:string[];facets:CatalogFacet[];params:Query};
+// Manufacturers, the facets and the stock state: the desktop sidebar's lower box and the phone filter panel's body.
+function CatalogFilterGroups({brands,facets,params,onChange}:FilterProps&{onChange:(updates:FilterUpdate)=>void}){
+ const selected=selectedBrands(params),attributes=selectedAttributes(params);
+ return <>
+  <FilterGroup label="Üretici" options={brands.map(value=>({value,label:value}))} selected={selected} onToggle={value=>onChange(toggleBrand(params,value))}/>
+  {facets.map(facet=>{const current=attributes[facet.key]??[];return <FilterGroup key={facet.key} searchable={facet.key!=="Brand class"} label={facet.label} options={facet.options.map(o=>({value:o.values[0],label:o.label}))} selected={facet.options.filter(o=>o.values.some(v=>current.includes(v))).map(o=>o.values[0])} isBlocked={value=>current.length+(facet.options.find(o=>o.values[0]===value)?.values.filter(v=>!current.includes(v)).length??0)>maxAttributeValues} hint={facet.options.some(o=>!o.values.some(v=>current.includes(v))&&current.length+o.values.filter(v=>!current.includes(v)).length>maxAttributeValues)?`En fazla ${maxAttributeValues} seçim yapılabilir.`:undefined} onToggle={value=>{const option=facet.options.find(o=>o.values[0]===value);if(option)onChange(toggleAttribute(params,facet.key,option.values));}}/>;})}
+  <FilterGroup label="Stok durumu" searchable={false} options={Object.entries(availabilityLabels).map(([value,label])=>({value,label}))} selected={params.availability?[params.availability]:[]} onToggle={value=>onChange({availability:params.availability===value?undefined:value as keyof typeof availabilityLabels})}/>
+ </>;
+}
 // `branch` null: no category links (manufacturer pages, #660). `listed`: on a make or model listing, the categories
 // holding its products (#673); every category elsewhere. A listing with no category to offer (no branch nodes, nothing
 // listed) shows no category block.
-export function CatalogSidebar({branch,listed,brands,facets,params}:{branch:SidebarCategoryBranch|null;listed?:number[];brands:string[];facets:CatalogFacet[];params:Query}) {
+// Desktop only: phones (≤768px) filter in CatalogFilterSheet. The server still renders it there, hidden, so the category
+// links stay in the HTML (#755).
+export function CatalogSidebar({branch,listed,brands,facets,params}:FilterProps&{branch:SidebarCategoryBranch|null;listed?:number[]}) {
  const router=useRouter();
- // Open on desktop, folded behind the "Filtreler" toggle on phones. The server renders it open (category links stay in the
- // HTML); until hydration the phone CSS hides the panel, so the results below do not jump up when the effect folds it (#755).
- const [open,setOpen]=useState(true);
- const [ready,setReady]=useState(false);
- useEffect(()=>{const mobile=window.matchMedia("(max-width: 768px)");const update=()=>{setOpen(!mobile.matches);setReady(true);};update();mobile.addEventListener("change",update);return()=>mobile.removeEventListener("change",update);},[]);
- const selected=selectedBrands(params),attributes=selectedAttributes(params);
  const parent=branch?.parent;
- function toggle(list:string[],value:string){return list.includes(value)?list.filter(v=>v!==value):[...list,value];}
- function change(updates:Partial<Query>){router.push(listingUrl(params,updates),{scroll:false});}
  // Desktop: stays pinned under the compact header (88px) + finder bar (80px) and scrolls on its own when taller than the
  // viewport (#805). Padding/negative margin keep focus rings from being clipped by the scroll container.
- return <aside className="min-w-0 min-[769px]:sticky min-[769px]:top-[184px] min-[769px]:-mx-1 min-[769px]:max-h-[calc(100dvh-200px)] min-[769px]:overflow-y-auto min-[769px]:overscroll-contain min-[769px]:p-1"><Collapsible open={open} onOpenChange={setOpen}>
- <CollapsibleTrigger className={cn("hidden min-h-12 w-full cursor-pointer justify-start text-foreground items-center gap-2 rounded-md border border-input bg-white px-4 py-3 text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/50 max-[768px]:flex",ready&&open&&"mb-4")}><SlidersHorizontal size={17}/><span>Filtreler</span><ChevronDown size={16} className={cn("ml-auto transition-transform",ready&&open&&"rotate-180")}/></CollapsibleTrigger>
- <CollapsibleContent className={cn(!ready&&"max-[768px]:hidden")}>
+ return <aside className="sticky top-[184px] -mx-1 max-h-[calc(100dvh-200px)] min-w-0 overflow-y-auto overscroll-contain p-1 max-[768px]:hidden">
  {branch&&(branch.nodes.length>0||listed?.length!==0)&&<section className="mb-[15px] rounded-[4px] border border-border bg-white py-[25px]"><h2 className="mb-[15px] flex items-center gap-2.5 px-[25px] text-base leading-6 font-semibold"><Link className="grid size-6 place-items-center rounded-[3px] bg-[#f1f3f5] hover:bg-[#e6e9ec]" aria-label="Üst kategori" href={parent?listingUrl(params,{category:parent.slug,attributes:undefined,brands:undefined,brand:undefined,oil:undefined}):listingPath({makeSlug:params.make,modelSlug:params.model})}><ChevronLeft size={16}/></Link>{parent?.name??"Kategoriler"}</h2><nav aria-label="Katalog kategorileri"><SidebarCategoryTree nodes={branch.nodes} listed={listed} selected={params.category} href={slug=>listingUrl(params,{category:slug,brand:undefined,brands:undefined,attributes:undefined,availability:undefined,oil:undefined})}/></nav></section>}
- <div className="overflow-hidden rounded-[4px] border border-border bg-white"><FilterGroup label="Üretici" options={brands.map(value=>({value,label:value}))} selected={selected} onToggle={value=>{const next=toggle(selected,value);change({brand:undefined,brands:next.length?JSON.stringify(next):undefined});}}/>
- {facets.map(facet=>{const current=attributes[facet.key]??[];return <FilterGroup key={facet.key} searchable={facet.key!=="Brand class"} label={facet.label} options={facet.options.map(o=>({value:o.values[0],label:o.label}))} selected={facet.options.filter(o=>o.values.some(v=>current.includes(v))).map(o=>o.values[0])} isBlocked={value=>current.length+(facet.options.find(o=>o.values[0]===value)?.values.filter(v=>!current.includes(v)).length??0)>maxAttributeValues} hint={facet.options.some(o=>!o.values.some(v=>current.includes(v))&&current.length+o.values.filter(v=>!current.includes(v)).length>maxAttributeValues)?`En fazla ${maxAttributeValues} seçim yapılabilir.`:undefined} onToggle={value=>{const option=facet.options.find(o=>o.values[0]===value);if(!option)return;const checked=option.values.some(v=>current.includes(v));const list=checked?current.filter(v=>!option.values.includes(v)):[...current,...option.values.filter(v=>!current.includes(v))];const next={...attributes,[facet.key]:list};if(!list.length)delete next[facet.key];change({attributes:Object.keys(next).length?JSON.stringify(next):undefined});}}/>;})}
- <FilterGroup label="Stok durumu" searchable={false} options={[{value:"in_stock",label:"Stokta mevcut"},{value:"out_of_stock",label:"Stokta yok"},{value:"supplied",label:"Tedarik edilebilir"}]} selected={params.availability?[params.availability]:[]} onToggle={value=>change({availability:params.availability===value?undefined:value as Query["availability"]})}/>
- </div>
- {(selected.length>0||Object.keys(attributes).length>0||params.availability)&&<Link className="mt-[15px] block text-[13px] text-brand-strong hover:underline" href={listingUrl(params,{brand:undefined,brands:undefined,attributes:undefined,availability:undefined})}>Filtreleri temizle</Link>}
- </CollapsibleContent></Collapsible></aside>;
+ <div className="overflow-hidden rounded-[4px] border border-border bg-white"><CatalogFilterGroups brands={brands} facets={facets} params={params} onChange={updates=>router.push(listingUrl(params,updates),{scroll:false})}/></div>
+ </aside>;
+}
+// Phones (≤768px): "Filtrele" opens the filter groups in a bottom sheet. Every tick navigates at once (the URL stays the
+// filter state, #883) and the sheet stays open: the server's new count fills "N ürünü göster", which only closes it. The
+// optimistic query ticks the box before the response, and quick successive ticks build on each other.
+export function CatalogFilterSheet({brands,facets,params,count}:FilterProps&{count:number}){
+ const router=useRouter();
+ const [open,setOpen]=useState(false);
+ const [pending,startTransition]=useTransition();
+ const [query,applyQuery]=useOptimistic(params,(current:Query,updates:FilterUpdate)=>({...current,...updates,page:undefined}));
+ const chips=activeFilters(query,facets).filter(item=>!item.key.startsWith("fits")&&!item.key.startsWith("oil"));
+ function change(updates:FilterUpdate){startTransition(()=>{applyQuery(updates);router.push(listingUrl(query,updates),{scroll:false});});}
+ const plain="h-auto min-h-11 rounded-md text-sm font-medium";
+ return <Sheet open={open} onOpenChange={setOpen}>
+  <SheetTrigger render={<Button type="button" variant="outline" className={cn(plain,"w-full gap-2 border-input bg-white px-3 text-foreground")}/>}><SlidersHorizontal size={17} aria-hidden="true"/>Filtrele{chips.length>0&&<span className="tabular-nums">({chips.length})</span>}</SheetTrigger>
+  <SheetContent side="bottom" showCloseButton={false} overlayClassName={storeDialogOverlay} className="max-h-[85dvh] gap-0 rounded-t-[14px] border-0 bg-white p-0 text-foreground">
+   <div className="flex shrink-0 items-center justify-between border-b border-border py-1 pr-1.5 pl-5">
+    <SheetTitle className="text-lg leading-6 font-semibold">Filtreler</SheetTitle>
+    <SheetClose aria-label="Filtreleri kapat" render={<Button type="button" variant="ghost" className="size-11 min-h-11 rounded-md p-0 text-foreground"/>}><X size={20} aria-hidden="true"/></SheetClose>
+   </div>
+   <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+    {chips.length>0&&<ul aria-label="Seçili filtreler" className="flex flex-wrap gap-2 border-b border-border px-5 py-3">{chips.map(chip=><li key={chip.key}><Button type="button" variant="outline" aria-label={`${chip.label} filtresini kaldır`} className={cn(plain,"max-w-full gap-1.5 rounded-full border-input bg-white px-3 font-normal whitespace-normal text-foreground")} onClick={()=>change(chip.remove)}><span className="text-left">{chip.label}</span><X size={14} aria-hidden="true"/></Button></li>)}</ul>}
+    <CatalogFilterGroups brands={brands} facets={facets} params={query} onChange={change}/>
+   </div>
+   <div className="flex shrink-0 gap-3 border-t border-border bg-white px-5 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))]">
+    <Button type="button" variant="outline" className={cn(plain,"flex-1 border-input bg-white px-4 text-foreground")} disabled={!chips.length} onClick={()=>change(clearPanelFilters)}>Temizle</Button>
+    <Button type="button" className={cn(plain,"flex-2 border-brand bg-brand px-4 text-white hover:bg-brand-strong")} aria-busy={pending||undefined} onClick={()=>setOpen(false)}>{pending?"Güncelleniyor…":`${count.toLocaleString("tr-TR")} ürünü göster`}</Button>
+   </div>
+  </SheetContent>
+ </Sheet>;
 }
 const pageButton="h-12 rounded-md border-brand bg-brand px-[27px] text-sm text-white hover:bg-brand-strong";
-export function CatalogResults({count,page,pages,pageSize,params,children,defaultView="grid"}:{count:number;page:number;pages:number;pageSize:number;params:Query;children:ReactNode;defaultView?:"list"|"grid"}) {
+// `filters`: the phone filter button (CatalogFilterSheet), first in the toolbar's top row with the sort beside it; `active`:
+// the selected filters as removable chips (CatalogActiveFilters), under the toolbar.
+export function CatalogResults({count,page,pages,pageSize,params,children,defaultView="grid",filters,active}:{count:number;page:number;pages:number;pageSize:number;params:Query;children:ReactNode;defaultView?:"list"|"grid";filters?:ReactNode;active?:ReactNode}) {
  const [view,setView]=useState(defaultView);const router=useRouter();
  // 44px touch targets on a phone (#878).
- const viewButton="h-7 min-h-7 w-[22px] rounded-none border-0 bg-transparent p-0 hover:bg-transparent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100 max-[600px]:size-11 max-[600px]:min-h-11";
+ const viewButton="h-7 min-h-7 w-[22px] rounded-none border-0 bg-transparent p-0 hover:bg-transparent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100 max-[768px]:size-11 max-[768px]:min-h-11";
+ // Phones (≤768px): filter and sort share the top row, the range and the view buttons the second (the right-hand group
+ // dissolves into the toolbar so its items can be ordered).
+ const half="max-[768px]:order-1 max-[768px]:grow max-[768px]:basis-[calc(50%-6px)]";
  return <ComparisonProvider><div className="group/listing min-w-0" data-view={view}>
- <div className="mb-[25px] flex min-h-[42px] items-center justify-between gap-4 max-[600px]:flex-wrap max-[600px]:gap-3"><span className="text-sm leading-5 text-foreground max-[600px]:text-xs">{listingRangeLabel(count,page,pageSize)}</span>
- <div className="flex items-center gap-[15px] max-[600px]:gap-2.5">
-  <div className="flex h-[42px] items-center gap-3 rounded-md border border-input px-3 py-1 max-[600px]:h-11 max-[600px]:gap-0 max-[600px]:p-0">
+ <div className="mb-[25px] flex min-h-[42px] items-center justify-between gap-4 max-[768px]:mb-4 max-[768px]:flex-wrap max-[768px]:gap-3"><span className="text-sm leading-5 text-foreground max-[768px]:order-2 max-[768px]:flex-1 max-[600px]:text-xs">{listingRangeLabel(count,page,pageSize)}</span>
+ <div className="flex items-center gap-[15px] max-[768px]:contents">
+  <div className="flex h-[42px] items-center gap-3 rounded-md border border-input px-3 py-1 max-[768px]:order-2 max-[768px]:h-11 max-[768px]:gap-0 max-[768px]:p-0">
    <Button variant="ghost" className={viewButton} aria-label="Liste görünümü" aria-pressed={view==="list"} onClick={()=>setView("list")}><Image src="/media/site/icons/layout-list.svg" width={24} height={24} alt="" unoptimized/></Button>
    <Button variant="ghost" className={viewButton} aria-label="Izgara görünümü" aria-pressed={view==="grid"} onClick={()=>setView("grid")}><Image src="/media/site/icons/layout-grid.svg" width={24} height={24} alt="" unoptimized/></Button>
   </div>
+  {filters&&<div className={cn("min-[769px]:hidden",half)}>{filters}</div>}
   <NativeSelect name="sort" aria-label="Ürünleri sırala" value={params.sort ?? (params.q ? "relevance" : "newest")} onChange={event=>router.push(listingUrl(params,{sort:event.target.value as Query["sort"]}))}
-   className="w-[180px] max-[600px]:w-[150px] max-[380px]:w-[145px] [&>select]:h-[42px] max-[600px]:[&>select]:h-11 [&>select]:rounded-md [&>select]:bg-white [&>select]:pr-[30px] [&>select]:pl-3 [&>select]:text-sm [&>svg]:text-foreground">
+   className={cn("w-[180px] max-[768px]:w-auto [&>select]:h-[42px] max-[768px]:[&>select]:h-11 [&>select]:rounded-md [&>select]:bg-white [&>select]:pr-[30px] [&>select]:pl-3 [&>select]:text-sm [&>svg]:text-foreground",half)}>
    {params.q&&<NativeSelectOption value="relevance">En alakalı</NativeSelectOption>}<NativeSelectOption value="newest">Son eklenenler</NativeSelectOption><NativeSelectOption value="price-asc">Fiyat: düşükten yükseğe</NativeSelectOption><NativeSelectOption value="price-desc">Fiyat: yüksekten düşüğe</NativeSelectOption>
   </NativeSelect>
  </div></div>
+ {active}
  <div className="flex flex-col gap-4 group-data-[view=grid]/listing:mx-[-2px] group-data-[view=grid]/listing:grid group-data-[view=grid]/listing:grid-cols-3 group-data-[view=grid]/listing:items-stretch group-data-[view=grid]/listing:gap-x-4 group-data-[view=grid]/listing:gap-y-6 max-[992px]:group-data-[view=grid]/listing:grid-cols-2 max-[600px]:group-data-[view=grid]/listing:mx-0 max-[600px]:group-data-[view=grid]/listing:gap-x-2 max-[600px]:group-data-[view=grid]/listing:gap-y-4">{children}</div>
  {pages>1 && <Pagination aria-label="Katalog sayfaları" className="mt-[25px]"><PaginationContent className="flex-wrap justify-center gap-4 text-sm">
   {page>1 && <PaginationItem><Button className={pageButton} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page-1)})}/>}>Önceki sayfa</Button></PaginationItem>}
