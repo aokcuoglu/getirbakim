@@ -11,6 +11,7 @@ Tek kaynak `src/modules/seo/paths.ts`. Ayrıntılı adres tablosu ve ölçümler
 | Sayfa | Adres | Dizin kuralı |
 | --- | --- | --- |
 | Ana sayfa, katalog, araç markaları, bakım robotu, servisler, bilgi ve hukuki sayfalar | `/`, `/katalog`, `/arac-markalari`, `/bakim-robotu`, `/servisler`, `/bilgi/<slug>`, `/<hukuki-slug>` | Dizine açık; `staticPaths` ile site haritasında (`src/modules/seo/sitemap.ts`) |
+| Rehber | `/rehber`, `/rehber/<slug>` | Dizine açık; `staticPaths` ile site haritasında (`lastModified` = yazının `updated` tarihi); `dynamicParams = false`, bilinmeyen slug `404` |
 | Kategori | `/kategori/<kategori>` | Yalın liste dizine açık (`isIndexableListing`: arama, süzgeç, sıralama, 2. sayfa yok) |
 | Araç markası | `/yedek-parca/<marka>` | Yalın liste kuralı |
 | Araç modeli | `/yedek-parca/<marka>/<model>` | Yalın liste + en az 10 ürün (`minIndexableListingProducts`, `src/modules/seo/indexing.ts`); ürünsüz `404`, 10'dan azı `noindex,follow` |
@@ -37,6 +38,10 @@ Kurucular `src/modules/seo/structured-data.ts` ve `src/lib/site.ts`; basım `src
 | Kategori, marka, model, model × kategori, üretici, katalog | `BreadcrumbList`; yalın ve boş olmayan listede `CollectionPage` + `ItemList` | `katalog/catalog-view.tsx` |
 | Araç markaları | `BreadcrumbList` | `arac-markalari/page.tsx` |
 | Bilgi ve hukuki sayfalar | `BreadcrumbList` | `bilgi/[slug]/page.tsx`, `src/components/legal-page.tsx` |
+| Rehber listesi | `BreadcrumbList`, `CollectionPage` + `ItemList` | `rehber/page.tsx` |
+| Rehber yazısı | `Article` (yazar ve yayıncı Organization `@id`; kişi adı yok), `BreadcrumbList` | `rehber/[slug]/page.tsx`, `articleJsonLd` |
+| Yardım (`/bilgi/yardim`) | `FAQPage` (görünen cevapla aynı düz metin; Accordion yok) | `src/content/faq.ts`, `faqJsonLd` |
+| Hakkımızda (`/bilgi/hakkimizda`) | `AboutPage` (`mainEntity` = Organization `@id`; Organization yeniden basılmaz) | `aboutPageJsonLd` |
 
 `Offer` yalnız sayfanın kendi bireysel KDV dahil fiyatı ve kesin stok durumu varken basılır; fiyatsız, tedarik edilemeyen veya stoku belirsiz üründe yoktur; B2B fiyatı hiç girmez. Puan/yorum ve `shippingDetails` basılmaz (ücret ve teslim süresi onayı bekliyor). Demo ürün JSON-LD basmaz.
 
@@ -78,6 +83,13 @@ Kurucular `src/modules/seo/structured-data.ts` ve `src/lib/site.ts`; basım `src
 | `GA4_MEASUREMENT_ID` | GA4 ölçüm kimliği (`G-…`); boş ya da biçimsiz ise etiket yüklenmez ve çerez bandı "analiz kullanılmıyor" der. Yöneticiler ölçülmez | `src/modules/analytics/config.ts`, `src/components/privacy/store-tags.tsx` |
 
 Google Ads ve Meta Pixel (#676) ve ürün beslemesi (#643) için henüz kod ve değişken yok.
+
+### 1.2.1 Yeni rehber yazısı ekleme (#646)
+
+1. `src/content/guides/index.ts` içindeki `guides` listesine kayıt ekle: `slug` (küçük harf, tire), `title`, `description`, `answer` (2–3 cümle, en çok 400 karakter), `published`/`updated` (YYYY-MM-DD), `categories` (`legacyCategoryIds` anahtarları), `sources` (en az bir; teknik iddia kaynaksız yazılmaz), isteğe bağlı `related`.
+2. Gövdeyi `src/content/guides/bodies.tsx` içine aynı slug'la bir bileşen olarak ekle: H1 yok, soru biçiminde `<h2>`, tablolar `<div tabIndex={0} role="region" aria-label="Tablo" className="overflow-x-auto">` içinde düz `<table>`.
+3. Kuralları `npm run test:guides` denetler; site haritası ve `llms.txt` listeden otomatik beslenir. İçeriği değiştirince `updated` tarihini güncelle.
+4. Şirket olgusu (kuruluş yılı, personel, fatura türü, kargo firması, ücret) yalnızca depodaki kaynaklardan yazılır; yazar adı yerine Getirbakim ekibi gösterilir, `reviewedBy` onaylı bir gözden geçiren olana kadar boş kalır.
 
 ## 2. Yayın günü kontrol listesi
 

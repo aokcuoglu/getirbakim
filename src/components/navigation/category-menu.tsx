@@ -180,7 +180,7 @@ export function MobileInformationMenu() {
   <DropdownMenu>
    <DropdownMenuTrigger className={cn(reset,"flex min-h-8 cursor-pointer items-center gap-3 text-sm")}>Bilgi <SiteIcon name="chevron" size={13}/></DropdownMenuTrigger>
    <DropdownMenuContent align="start" sideOffset={4} aria-label="Alışveriş bilgileri" className="w-[220px] rounded-md border border-border bg-white p-2 text-foreground shadow-[0_4px_16px_#0002] ring-0">
-    {([["/bilgi/teslimat","Teslimat"],["/bilgi/hakkimizda","Hakkımızda"],["/bilgi/yardim","Yardım merkezi"],["/teslimat-ve-iade","İade koşulları"],["/giris","Hesabım"]] as const).map(([href,label])=>
+    {([["/bilgi/teslimat","Teslimat"],["/bilgi/hakkimizda","Hakkımızda"],["/bilgi/yardim","Yardım merkezi"],["/rehber","Rehber"],["/teslimat-ve-iade","İade koşulları"],["/giris","Hesabım"]] as const).map(([href,label])=>
      <DropdownMenuItem key={href} render={<Link href={href}/>} className="rounded-sm px-3 py-2 text-sm leading-5 focus:bg-[#f7f8fa] focus:text-foreground">{label}</DropdownMenuItem>)}
    </DropdownMenuContent>
   </DropdownMenu>

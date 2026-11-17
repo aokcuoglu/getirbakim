@@ -34,3 +34,13 @@ Instagram’da ilk üç açıklayıcı gönderiyi sabitleyin. LinkedIn’de iki 
 Google başlık adayları: “Getirbakim Yedek Parça”, “Ürün ve OEM Koduyla Parça Ara”, “Servisler İçin Parça Tedariki”. Açıklama: “Aradığın parçaya birlikte bakalım. Ürün kodu ve teknik özellikleri incele.” Ürün kampanyası gerçek ürün sayfasına gider; yerel akü kampanyası yalnız doğrulanmış hizmet alanına hedeflenir.
 
 Meta: Gerçek ustanın parçayı karşılaştırdığı kısa video. İlk cümle “Aynı model, farklı motor, farklı parça.” Son cümle “Bir bakalım, doğru parçayı bulalım.” CTA stok ve ödeme doğrulandıktan sonra ilgili ürün/kategoriye gider. Süre, ücretsiz kargo veya indirim iddiası ticari onaya bağlıdır.
+
+## Rehber yazıları (#646)
+
+| Yazı | Adres | Kategori | Durum |
+| --- | --- | --- | --- |
+| OEM numarası nedir, nasıl bulunur? | `/rehber/oem-numarasi-nedir-nasil-bulunur` | Yedek parçalar | Yayında (ilk dilim) |
+| Yağ filtresi ne zaman değişir? | `/rehber/yag-filtresi-ne-zaman-degisir` | Filtreler, Yağlar ve sıvılar | Yayında (ilk dilim) |
+| Kalan 6–8 yazı | — | — | Planlanacak |
+
+Yeni yazı ekleme adımları: [seo-geo.md](seo-geo.md#121-yeni-rehber-yazısı-ekleme-646).

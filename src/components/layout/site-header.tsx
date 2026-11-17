@@ -24,7 +24,7 @@ export async function SiteHeader() {
       <div className="site-topbar-inner">
         <MobileInformationMenu/>
         <div className="site-topbar-links">
-          <Link href="/bilgi/teslimat">Teslimat</Link><Link href="/bilgi/hakkimizda">Hakkımızda</Link><Link href="/bilgi/yardim">Yardım merkezi</Link>
+          <Link href="/bilgi/teslimat">Teslimat</Link><Link href="/bilgi/hakkimizda">Hakkımızda</Link><Link href="/bilgi/yardim">Yardım merkezi</Link><Link href="/rehber">Rehber</Link>
         </div>
         <div className="flex h-full items-center">
           <Select name="country" label="Ülke" defaultValue="TR" align="end" className="w-[112px] min-w-0 max-[600px]:w-[100px]" triggerClassName={localeTrigger} contentClassName="min-w-[130px]" options={[{ value: "TR", label: "🇹🇷 Türkiye" }]}/>

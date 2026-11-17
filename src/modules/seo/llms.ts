@@ -1,5 +1,6 @@
 import { contactEmail } from "@/lib/site";
 import { legalDocument, legalLinks } from "@/content/legal";
+import { guidePath, guides, guidesPath } from "@/content/guides";
 import { absoluteUrl, categoryPath, catalogPath, makesPath } from "./paths";
 
 const categories = [
@@ -42,9 +43,14 @@ Aynı modelin farklı motor, üretim yılı ve donanım seçeneklerinde farklı 
 
 ${link("Doğru parçayı nasıl bulursun?", "/bilgi/uyumluluk", "Ürün kodu, OEM numarası ve araç bilgisiyle uyumluluk kontrolü.")}
 
+## Rehber
+
+${link("Rehber", guidesPath, "Yedek parça seçimi ve araç bakımı hakkında kaynaklı kısa yanıtlar.")}
+${guides.map(guide => link(guide.title, guidePath(guide.slug), guide.description)).join("\n")}
+
 ## Yardım, teslimat ve iletişim
 
-${link("Yardım merkezi", "/bilgi/yardim", "Ürün arama, bireysel alışveriş ve servis hesabı hakkında yardım.")}
+${link("Yardım merkezi", "/bilgi/yardim", "Sıkça sorulan sorular: sipariş, kargo, iade, uyumluluk, fatura, servis hesabı.")}
 ${legal("teslimat-ve-iade")}
 ${legal("iletisim").replace(/\.$/, "")}. E-posta: ${contactEmail}
 ${link("Hakkımızda", "/bilgi/hakkimizda", "Getirbakim'in kim olduğu ve nasıl çalıştığı.")}
