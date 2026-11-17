@@ -54,7 +54,8 @@ ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS brand text CHECK (char_le
 ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS part_number text CHECK (char_length(part_number) BETWEEN 1 AND 60);
 -- Supplier OEM field hidden on the store (#615), for every source row of the product: the catalog views show an
 -- empty oem and storefront search skips the stored OEM (commerce_item_overrides.hide_oem, db/commerce.sql).
--- Matching, enrichment and the admin's supplier searches keep reading supplier_items.
+-- Enrichment and the admin's supplier searches keep reading supplier_items; matching drops the hidden number from
+-- OEM equivalents (#631, product_hidden_oem_drop below and refresh_product_matches).
 ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS hide_supplier_oem boolean NOT NULL DEFAULT false;
 -- Short description (#697): the intro paragraph under the product page title and the meta description's text before
 -- the long description. Admin-only: no automatic source and no catalog projection (the product page reads it here).
@@ -127,6 +128,39 @@ DO $$ BEGIN
   CREATE TRIGGER product_overrides_sources_delete AFTER DELETE ON product_sources
    REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_overrides_follow_sources();
  END IF;
+END $$;
+
+-- A product's hidden supplier OEM (#631) stops tying it to other products at once, without waiting for the matcher
+-- (refresh_product_matches leaves those numbers out from then on): its Başbuğ/SETA rows' OEM references, the SETA
+-- references and OEM equivalents (both directions) through those numbers go. Kept: numbers its Dinamik rows state
+-- (barcode-derived OEM), its own ORIJINAL key, cross/brand/manual links. A pair also tied by another key may drop
+-- until the next refresh_product_matches() rebuilds it. No lock here: callers hold the regrouping lock (slot 6).
+-- Not called by setup. Returns the equivalent rows removed.
+CREATE OR REPLACE FUNCTION product_hidden_oem_drop(ids uuid[]) RETURNS integer LANGUAGE plpgsql AS $$
+DECLARE p uuid; items uuid[]; sources uuid[]; keys text[]; others uuid[]; n integer; dropped integer := 0;
+BEGIN
+ FOR p IN SELECT o.product_id FROM product_overrides o WHERE o.product_id=ANY(ids) AND o.hide_supplier_oem LOOP
+  sources := ARRAY(SELECT s.supplier_item_id FROM product_sources s WHERE s.product_id=p);
+  items := ARRAY(SELECT i.id FROM supplier_items i WHERE i.id=ANY(sources) AND i.supplier IN ('basbug','seta'));
+  keys := ARRAY(
+   SELECT r.part_number FROM product_references r WHERE r.supplier_item_id=ANY(items) AND r.kind='oem' AND r.brand='ORIJINAL'
+   EXCEPT SELECT r.part_number FROM product_references r JOIN supplier_items i ON i.id=r.supplier_item_id AND i.supplier='dinamik'
+    WHERE r.supplier_item_id=ANY(sources) AND r.kind='oem' AND r.brand='ORIJINAL'
+   EXCEPT SELECT x.part_number FROM products x WHERE x.id=p AND x.brand='ORIJINAL');
+  IF cardinality(keys)>0 THEN
+   -- By primary key only (product_id first): equivalent_id has no index.
+   others := ARRAY(SELECT e.equivalent_id FROM product_equivalents e
+    WHERE e.product_id=p AND e.kind='oem' AND e.brand='ORIJINAL' AND e.part_number=ANY(keys));
+   DELETE FROM product_equivalents e WHERE e.product_id=p AND e.equivalent_id=ANY(others);
+   GET DIAGNOSTICS n = ROW_COUNT; dropped := dropped+n;
+   DELETE FROM product_equivalents e WHERE e.product_id=ANY(others) AND e.equivalent_id=p;
+   GET DIAGNOSTICS n = ROW_COUNT; dropped := dropped+n;
+   DELETE FROM product_seta_references r WHERE r.item_id=ANY(sources) AND r.brand='ORIJINAL' AND r.part_number=ANY(keys);
+   DELETE FROM product_seta_references r WHERE r.seta_item_id=ANY(sources) AND r.brand='ORIJINAL' AND r.part_number=ANY(keys);
+  END IF;
+  DELETE FROM product_references r WHERE r.supplier_item_id=ANY(items) AND r.kind='oem';
+ END LOOP;
+ RETURN dropped;
 END $$;
 
 -- "Aynı ürün" (product_merge): the merged product's rows now sell as `target`, so `target` takes the merged product's
@@ -203,6 +237,7 @@ BEGIN
  WHERE f.field=ANY(carried)
  ON CONFLICT ON CONSTRAINT product_override_carries_pkey DO UPDATE SET fields=product_override_carries.fields||excluded.fields,carried_at=now();
  PERFORM product_overrides_project(ARRAY[target]);
+ IF 'hide_supplier_oem'=ANY(carried) THEN PERFORM product_hidden_oem_drop(ARRAY[target]); END IF;
  RETURN jsonb_build_object('fields',to_jsonb(carried),'hidden','hidden'=ANY(carried));
 END $$;
 

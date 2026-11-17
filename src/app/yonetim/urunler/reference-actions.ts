@@ -92,7 +92,8 @@ export async function removeProductReference(input: { productId: string; referen
 /**
  * Hides the supplier rows' OEM field on the store (#615), or shows it again, for every source row of the product: the
  * product page, cards, cart, partner API and storefront code search. Stored as a product edit (history, merge carry and
- * undo); supplier data, matching and enrichment keep the number.
+ * undo); supplier data and enrichment keep the number. Hiding also drops the OEM equivalents that number formed
+ * (#631, product_hidden_oem_drop; manual equivalents stay); shown again, they return with the next matching refresh.
  */
 export async function setSupplierOemHidden(input: { productId: string; hidden: boolean }): Promise<ProductReferenceActionResult> {
   const admin = await requireAdmin();
@@ -112,6 +113,6 @@ export async function setSupplierOemHidden(input: { productId: string; hidden: b
     revalidateStore();
   }
   return { status: "success", message: data.data.hidden
-    ? "Tedarikçi OEM alanı mağazada gizlendi; kod aramasından birkaç dakika içinde çıkar (aynı numara otomatik listede ya da elle eklenmiş olarak da varsa görünmeye ve aranmaya devam eder)."
-    : "Tedarikçi OEM alanı yeniden gösteriliyor." };
+    ? "Tedarikçi OEM alanı mağazada gizlendi; kod aramasından birkaç dakika içinde çıkar (aynı numara otomatik listede ya da elle eklenmiş olarak da varsa görünmeye ve aranmaya devam eder). Bu OEM'den doğan muadil bağlantıları kaldırıldı; elle eklenen muadiller korunur."
+    : "Tedarikçi OEM alanı yeniden gösteriliyor. OEM muadilleri bir sonraki eşleştirme yenilemesinde (en geç ~6 saat; Ürün eşleştirme → Yenile ile hemen) geri gelir." };
 }
