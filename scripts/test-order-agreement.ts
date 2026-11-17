@@ -58,11 +58,11 @@ test("a corporate invoice names the title, tax number and office in the buyer se
   const invoice = { company: "Yılmaz Otomotiv Ltd. Şti.", taxNo: "1234567890", taxOffice: "Kadıköy" };
   for (const document of buildOrderAgreement({ ...order, invoice }, lines).documents) {
     const buyer = text(document.sections.find(section => section.title === "Alıcı Bilgileri"));
-    for (const value of ["Fatura unvanı: ", invoice.company, "Vergi kimlik no: ", invoice.taxNo, "Vergi dairesi: ", invoice.taxOffice]) assert.ok(buyer.includes(value), value);
+    for (const value of ["Fatura unvanı: ", invoice.company, "Vergi/TC kimlik no: ", invoice.taxNo, "Vergi dairesi: ", invoice.taxOffice]) assert.ok(buyer.includes(value), value);
   }
   for (const individual of [buildOrderAgreement(order, lines), buildOrderAgreement({ ...order, invoice: null }, lines)]) {
     for (const document of individual.documents)
-      assert.doesNotMatch(text(document.sections.find(section => section.title === "Alıcı Bilgileri")), /Fatura unvanı|Vergi kimlik no|Vergi dairesi/);
+      assert.doesNotMatch(text(document.sections.find(section => section.title === "Alıcı Bilgileri")), /Fatura unvanı|kimlik no|Vergi dairesi/);
   }
 });
 
@@ -148,12 +148,12 @@ test("placing an order stores the consent and an immutable order-specific copy",
 
     // A corporate order stores its invoice details and names them in its copy.
     const corporate = checkoutInput.parse({ ...fields, consent: "on", requestKey: randomUUID(), quote: cartQuote(await cartFor(owner), 0, await shippingRule()),
-      invoiceType: "corporate", invoiceCompany: "Yılmaz Otomotiv Ltd. Şti.", invoiceTaxNo: "1234567890", invoiceTaxOffice: "Kadıköy" });
+      invoiceType: "corporate", invoiceCompany: "Yılmaz Otomotiv Ltd. Şti.", invoiceTaxNo: "10000000146", invoiceTaxOffice: "Kadıköy" });
     const corporateOrder = await submitOrder(owner, corporate, null, evidence);
     assert.ok(corporateOrder.id, String(corporateOrder.error));
     const corporateRow = (await schema.pool.query("SELECT invoice_type,invoice_company,invoice_tax_no,invoice_tax_office FROM commerce_orders WHERE id=$1", [corporateOrder.id])).rows[0];
-    assert.deepEqual(corporateRow, { invoice_type: "corporate", invoice_company: "Yılmaz Otomotiv Ltd. Şti.", invoice_tax_no: "1234567890", invoice_tax_office: "Kadıköy" });
-    assert.match(JSON.stringify((await agreementRow(corporateOrder.id))[0].document), /Vergi kimlik no: "\]\},"1234567890"/);
+    assert.deepEqual(corporateRow, { invoice_type: "corporate", invoice_company: "Yılmaz Otomotiv Ltd. Şti.", invoice_tax_no: "10000000146", invoice_tax_office: "Kadıköy" });
+    assert.match(JSON.stringify((await agreementRow(corporateOrder.id))[0].document), /Vergi\/TC kimlik no: "\]\},"10000000146"/);
 
     // A retried submit returns the same order and writes nothing new.
     assert.deepEqual(await submitOrder(owner, first, null, { ip: "198.51.100.1", forwardedFor: null, userAgent: "other" }), { id: placed.id });

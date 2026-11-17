@@ -21,7 +21,7 @@ export function OrderDeliveryDetails({ order }: { order: DeliveryOrder }) {
         <Badge variant="outline">{invoiceTypes[order.invoice_type]}</Badge>
         {order.invoice_type === "corporate" && <>
           <span className="break-words">{order.invoice_company}</span>
-          <span className="tabular-nums">VKN {order.invoice_tax_no} · {order.invoice_tax_office} V.D.</span>
+          <span className="tabular-nums">Vergi/TC kimlik no {order.invoice_tax_no} · {order.invoice_tax_office} V.D.</span>
         </>}
       </dd> : <dd className="text-muted-foreground">Kayıtlı değil</dd>}
     </div>

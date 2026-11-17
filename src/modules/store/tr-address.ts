@@ -37,8 +37,21 @@ export type InvoiceType = keyof typeof invoiceTypes;
 
 export type InvoiceDetails = { invoice_type: InvoiceType | null; invoice_company: string | null; invoice_tax_no: string | null; invoice_tax_office: string | null };
 
-/** "<unvan> · VKN <no> · <vergi dairesi> V.D." for a corporate invoice; null for an individual one or an order without it. */
+/**
+ * A corporate invoice's tax id: a company's 10-digit VKN, or a sole proprietor's 11-digit TC kimlik no, which must pass
+ * its check digits (first digit not 0; the 10th is (7 × odd-position sum − even-position sum of the first nine) mod 10,
+ * the 11th is the sum of the first ten mod 10).
+ */
+export function validTaxId(value: string) {
+  if (/^\d{10}$/.test(value)) return true;
+  if (!/^[1-9]\d{10}$/.test(value)) return false;
+  const d = [...value].map(Number);
+  const odd = d[0] + d[2] + d[4] + d[6] + d[8], even = d[1] + d[3] + d[5] + d[7];
+  return ((odd * 7 - even) % 10 + 10) % 10 === d[9] && d.slice(0, 10).reduce((sum, digit) => sum + digit, 0) % 10 === d[10];
+}
+
+/** "<unvan> · Vergi/TC kimlik no <no> · <vergi dairesi> V.D." for a corporate invoice; null for an individual one or an order without it. */
 export function invoiceSummary(order: InvoiceDetails) {
   if (order.invoice_type !== "corporate") return null;
-  return `${order.invoice_company} · VKN ${order.invoice_tax_no} · ${order.invoice_tax_office} V.D.`;
+  return `${order.invoice_company} · Vergi/TC kimlik no ${order.invoice_tax_no} · ${order.invoice_tax_office} V.D.`;
 }

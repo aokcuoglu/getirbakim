@@ -79,7 +79,7 @@ test("a saved address outside the lists starts empty; a valid one fills the fiel
   assert.doesNotMatch(stale, /value="Istanbul"|value="Kadıköy"/);
 });
 
-test("the invoice is individual by default with no tax fields; corporate asks for title, VKN and tax office, never a TC number", () => {
+test("the invoice is individual by default with no tax fields; corporate asks for title, VKN or TC kimlik no and tax office", () => {
   const individual = renderToStaticMarkup(<CheckoutInvoiceFields/>);
   assert.match(individual, /Bireysel/); assert.match(individual, /Kurumsal/);
   assert.match(individual, /name="invoiceType"[^>]*value="individual"|value="individual"[^>]*name="invoiceType"/);
@@ -88,10 +88,13 @@ test("the invoice is individual by default with no tax fields; corporate asks fo
   const inputTag = (name: string) => corporate.match(new RegExp(`<input[^>]*name="${name}"[^>]*>`))?.[0] ?? "";
   for (const name of ["invoiceCompany", "invoiceTaxNo", "invoiceTaxOffice"]) assert.match(inputTag(name), /required=""/, name);
   assert.match(corporate, /autoComplete="organization"/i);
-  assert.match(corporate, /pattern="\\d\{10\}"/);
+  assert.match(corporate, /pattern="\\d\{10,11\}"/);
   assert.match(corporate, /value="1234567890"/);
-  assert.match(corporate, /title="10 haneli vergi kimlik numarası"/);
-  assert.match(corporate, />10 haneli vergi kimlik numarası</);
+  assert.match(corporate, /Vergi kimlik no \/ TC kimlik no/);
+  assert.match(corporate, /title="Şirketler için 10 haneli VKN, şahıs işletmeleri için 11 haneli TC kimlik no"/);
+  assert.match(corporate, />Şirketler için 10 haneli VKN, şahıs işletmeleri için 11 haneli TC kimlik no</);
+  assert.match(inputTag("invoiceTaxNo"), /maxLength="11"/i);
   assert.equal(individual.match(/min-h-11/g)?.length, 4);
-  for (const html of [individual, corporate]) assert.doesNotMatch(html, /TC kimlik|T\.C\./i);
+  // An individual invoice asks for no identity number at all.
+  assert.doesNotMatch(individual, /kimlik|VKN|T\.C\./i);
 });

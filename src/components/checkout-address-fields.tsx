@@ -101,10 +101,10 @@ export function CheckoutInvoiceFields({ initial }: { initial?: InvoiceInitial | 
         <Input id="checkout-invoice-company" className={checkoutControl} name="invoiceCompany" autoComplete="organization" minLength={2} maxLength={200}
           defaultValue={initial?.company ?? undefined} required/></Field>
       <div className="grid grid-cols-2 gap-4 max-[480px]:grid-cols-1">
-        <Field className="gap-1.5"><FieldLabel htmlFor="checkout-invoice-tax-no" className={checkoutLabel}>Vergi kimlik no {required}</FieldLabel>
-          <Input id="checkout-invoice-tax-no" className={checkoutControl} name="invoiceTaxNo" autoComplete="off" inputMode="numeric" pattern="\d{10}" minLength={10} maxLength={10}
-            title="10 haneli vergi kimlik numarası" aria-describedby="checkout-invoice-tax-no-hint" defaultValue={initial?.taxNo ?? undefined} required/>
-          <FieldDescription id="checkout-invoice-tax-no-hint">10 haneli vergi kimlik numarası</FieldDescription></Field>
+        <Field className="gap-1.5"><FieldLabel htmlFor="checkout-invoice-tax-no" className={checkoutLabel}>Vergi kimlik no / TC kimlik no {required}</FieldLabel>
+          <Input id="checkout-invoice-tax-no" className={checkoutControl} name="invoiceTaxNo" autoComplete="off" inputMode="numeric" pattern="\d{10,11}" minLength={10} maxLength={11}
+            title="Şirketler için 10 haneli VKN, şahıs işletmeleri için 11 haneli TC kimlik no" aria-describedby="checkout-invoice-tax-no-hint" defaultValue={initial?.taxNo ?? undefined} required/>
+          <FieldDescription id="checkout-invoice-tax-no-hint">Şirketler için 10 haneli VKN, şahıs işletmeleri için 11 haneli TC kimlik no</FieldDescription></Field>
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-invoice-tax-office" className={checkoutLabel}>Vergi dairesi {required}</FieldLabel>
           <Input id="checkout-invoice-tax-office" className={checkoutControl} name="invoiceTaxOffice" minLength={2} maxLength={100}
             defaultValue={initial?.taxOffice ?? undefined} required/></Field>

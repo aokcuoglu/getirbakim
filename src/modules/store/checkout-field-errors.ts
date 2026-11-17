@@ -8,7 +8,7 @@ export const checkoutFieldErrors:Record<string,string>={
  name:"Ad soyadını yaz.",email:"Geçerli bir e-posta adresi yaz.",phone:"Telefon numarasını kontrol et.",
  province:"Teslimat ili seç.",district:"Seçili ile ait bir ilçe seç.",addressLine:"Açık adresi en az 10 karakterle yaz.",
  postalCode:"Posta kodu seçili ille uyuşmuyor; 5 haneli ve ilin plaka koduyla başlamalı ya da boş kalmalı.",
- invoiceType:"Fatura türünü seç.",invoiceCompany:"Fatura unvanını yaz.",invoiceTaxNo:"Vergi kimlik numarası 10 haneli olmalı.",invoiceTaxOffice:"Vergi dairesini yaz.",
+ invoiceType:"Fatura türünü seç.",invoiceCompany:"Fatura unvanını yaz.",invoiceTaxNo:"Şirketler için 10 haneli VKN, şahıs işletmeleri için geçerli 11 haneli TC kimlik no gir.",invoiceTaxOffice:"Vergi dairesini yaz.",
  consent:"Ön bilgilendirme formunu ve mesafeli satış sözleşmesini onayla.",
 };
 

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { checkoutErrorField, checkoutInput } from "../src/modules/store/checkout-schema";
-import { composeAddress, districtsOf, findProvince, invoiceSummary, matchName, postalCodeFits, provinces } from "../src/modules/store/tr-address";
+import { composeAddress, districtsOf, findProvince, invoiceSummary, matchName, postalCodeFits, provinces, validTaxId } from "../src/modules/store/tr-address";
 
 // Structured checkout address and invoice (#881); no database.
 
@@ -37,7 +37,7 @@ test("the combined address and the corporate invoice summary", () => {
     "Caferağa Mah. Moda Cad. No 1 D 2, 34710 Kadıköy/İstanbul");
   assert.equal(composeAddress({ line: "Atatürk Bulvarı No 1", district: "Çankaya", province: "Ankara", postalCode: null }), "Atatürk Bulvarı No 1, Çankaya/Ankara");
   assert.equal(invoiceSummary({ invoice_type: "corporate", invoice_company: "Yılmaz Otomotiv", invoice_tax_no: "1234567890", invoice_tax_office: "Kadıköy" }),
-    "Yılmaz Otomotiv · VKN 1234567890 · Kadıköy V.D.");
+    "Yılmaz Otomotiv · Vergi/TC kimlik no 1234567890 · Kadıköy V.D.");
   assert.equal(invoiceSummary({ invoice_type: "individual", invoice_company: null, invoice_tax_no: null, invoice_tax_office: null }), null);
   assert.equal(invoiceSummary({ invoice_type: null, invoice_company: null, invoice_tax_no: null, invoice_tax_office: null }), null);
 });
@@ -59,7 +59,9 @@ test("the checkout input refuses an incomplete or inconsistent address or invoic
     ["unknown invoice type", { ...valid, invoiceType: "other" }],
     ["corporate without title", { ...corporate, invoiceCompany: "" }],
     ["corporate with a nine-digit tax number", { ...corporate, invoiceTaxNo: "123456789" }],
-    ["corporate with an eleven-digit tax number", { ...corporate, invoiceTaxNo: "12345678901" }],
+    ["corporate with an eleven-digit number failing the TC check digits", { ...corporate, invoiceTaxNo: "12345678901" }],
+    ["corporate with an eleven-digit number starting with 0", { ...corporate, invoiceTaxNo: "01234567890" }],
+    ["corporate with a twelve-digit tax number", { ...corporate, invoiceTaxNo: "123456789012" }],
     ["corporate with a non-numeric tax number", { ...corporate, invoiceTaxNo: "12345abcde" }],
     ["corporate without tax office", { ...corporate, invoiceTaxOffice: " " }],
     ["no consent", { ...valid, consent: undefined }],
@@ -83,6 +85,10 @@ test("the checkout input combines the address and drops what does not apply", ()
   const business = checkoutInput.parse({ ...corporate, invoiceCompany: "  Yılmaz Otomotiv Ltd. Şti. " });
   assert.deepEqual([business.invoiceType, business.invoiceCompany, business.invoiceTaxNo, business.invoiceTaxOffice], ["corporate", "Yılmaz Otomotiv Ltd. Şti.", "1234567890", "Kadıköy"]);
   assert.equal(checkoutInput.safeParse({ ...valid, province: "Ankara", district: "Çankaya", postalCode: "06690" }).success, true);
+  // A sole proprietor invoices with a valid 11-digit TC kimlik no (kept in the same column).
+  const soleProprietor = checkoutInput.parse({ ...corporate, invoiceTaxNo: "10000000146" });
+  assert.equal(soleProprietor.invoiceTaxNo, "10000000146");
+  assert.equal(checkoutInput.parse({ ...valid, invoiceTaxNo: "10000000146" }).invoiceTaxNo, null);
 });
 
 test("the first refused field with its own message is reported, so the page can say what to fix", () => {
@@ -95,4 +101,20 @@ test("the first refused field with its own message is reported, so the page can 
   assert.equal(postalCodeFits("34710", findProvince("İstanbul")!), true);
   assert.equal(postalCodeFits("06100", findProvince("İstanbul")!), false);
   assert.equal(postalCodeFits("01100", findProvince("Adana")!), true);
+});
+
+test("a corporate tax id is a 10-digit VKN or an 11-digit TC kimlik no that passes its check digits", () => {
+  for (const id of ["1234567890", "0000000000", "10000000146", "12345678950", "11111111110"]) assert.equal(validTaxId(id), true, id);
+  for (const id of [
+    "123456789", "123456789012", "12345abcde", "", " 1234567890",
+    "10000000147", // 11th digit wrong
+    "10000000156", // 10th digit wrong (11th recomputed: 1+5=6)
+    "01234567890", // starts with 0
+    "00000000000",
+  ]) assert.equal(validTaxId(id), false, id);
+  // Each single-digit change of a valid TC kimlik no in its check digits is refused.
+  for (let digit = 0; digit <= 9; digit++) {
+    if (digit !== 4) assert.equal(validTaxId(`100000001${digit}6`), false, `10th ${digit}`);
+    if (digit !== 6) assert.equal(validTaxId(`1000000014${digit}`), false, `11th ${digit}`);
+  }
 });
