@@ -121,6 +121,7 @@
     "test:matching": "node --env-file=.env.local --import tsx --test scripts/test-product-matching.ts",
     "test:matching-same": "node --import tsx --test scripts/test-product-matching-same.ts",
     "test:suffix-signals": "node --import tsx --test scripts/test-suffix-signals.ts",
+    "test:candidate-hints": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-candidate-hints.ts",
     "products:match": "node --env-file=.env.local --import tsx scripts/match-products.ts",
     "products:suffix-signals": "node --env-file=.env.local --import tsx scripts/measure-suffix-signals.ts",
     "supplier:health": "node --env-file=.env.local --import tsx scripts/supplier-health.ts",
