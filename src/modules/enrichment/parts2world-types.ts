@@ -51,3 +51,10 @@ export async function parts2worldTypedEnrichments(db:Db):Promise<TypedEnrichment
   return {supplierItemId:r.supplier_item_id,sourceUrl:r.source_url,type:same&&r.spare_info?typeSlug(r.spare_info)||null:null};
  });
 }
+
+/** The stored part type names (#860, report-unmapped): each name with its slug and how many articles carry it. */
+export async function parts2worldStoredTypes(db:Db){
+ const rows=(await db.query<{name:string;articles:number}>(
+  'SELECT spare_info AS name,count(*)::int AS articles FROM parts2world_article_types WHERE spare_info IS NOT NULL GROUP BY spare_info ORDER BY 2 DESC,1')).rows;
+ return rows.map(r=>({type:typeSlug(r.name),name:r.name,articles:r.articles}));
+}

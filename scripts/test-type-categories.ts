@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
-import type { SourceCategory } from "../src/modules/enrichment/source-categories";
+import type { CategoryNode, SourceCategory } from "../src/modules/enrichment/source-categories";
 import {
-  acceptedPairs, backfillTypeCategories, brandSlug, categoriesForType, learnTypeCategories, loadTypeCategories, loadTypeCategoriesOrEmpty, releaseTypeCategories, relearnTypeCategories,
-  trodoSlugType, trodoType, typeDictionary, typeSlug,
+  acceptedPairs, backfillTypeCategories, brandSlug, categoriesForType, curatedDictionary, learnTypeCategories, loadTypeCategories, loadTypeCategoriesOrEmpty, releaseTypeCategories,
+  relearnTypeCategories, resolveCuratedTypes, trodoSlugType, trodoType, typeDictionary, typeMatch, typeSlug,
 } from "../src/modules/enrichment/type-categories";
+import { typeAliases, type CuratedType } from "../src/modules/enrichment/type-aliases";
+import { suggestTypeCategories } from "../src/modules/enrichment/type-suggestions";
 import { parts2worldTypedEnrichments, pendingArticleTypes, saveArticleType } from "../src/modules/enrichment/parts2world-types";
 import { productUrl } from "../src/modules/enrichment/parts2world-adapter";
 
@@ -91,6 +93,106 @@ test("lookups: exact, numeric tail, conservative plural folding, never a suffix"
   assert.deepEqual(ids(categoriesForType(ambiguous, "lamp-batteries")), [3]);
 });
 
+// Curated list (#860): a small tree (3 > 10, 3 > 20, 3 > 30) and learned types pointing into it.
+const tree = new Map<number, CategoryNode>([
+  [3, { category_id: 3, name: "Car parts", path_ids: [3] }],
+  [10, { category_id: 10, name: "Brake discs", path_ids: [3, 10] }],
+  [20, { category_id: 20, name: "Oil filters", path_ids: [3, 20] }],
+  [30, { category_id: 30, name: "Lambda sensors", path_ids: [3, 30] }],
+]);
+const node = (id: number): SourceCategory => ({ source: "trodo", id, name: tree.get(id)!.name, path: tree.get(id)!.path_ids.map(i => ({ id: i, name: tree.get(i)!.name })) });
+const learned = () => new Map<string, SourceCategory[]>([["brake-disc", [node(10)]], ["oil-filter", [node(20)]], ["lambda-sensor", [node(30)]], ["wiper", [node(10)]]]);
+
+test("curated list: aliases inherit, manual entries map, learned types win unless override", () => {
+  const list: CuratedType[] = [
+    { type: "oxygen-sensor", alias: "lambda-sensor" },
+    { type: "bulb-headlight", categories: [{ id: 20, name: "Oil filters" }] },
+    { type: "wiper", categories: [{ id: 20, name: "Oil filters" }] },
+    { type: "oil-filter", categories: [{ id: 30, name: "Lambda sensors" }], override: true },
+    { type: "brake-discs", categories: [{ id: 20, name: "Oil filters" }] },
+  ];
+  const dict = curatedDictionary(learned(), tree, list, { strict: true });
+  assert.deepEqual(typeMatch(dict, "oxygen-sensor"), { categories: [node(30)], via: "curated" });
+  assert.deepEqual(typeMatch(dict, "bulb-headlight"), { categories: [node(20)], via: "curated" });
+  // Not shadowed without override (reported as redundant), shadowed with it.
+  assert.deepEqual(typeMatch(dict, "wiper"), { categories: [node(10)], via: "learned" });
+  assert.deepEqual(typeMatch(dict, "oil-filter"), { categories: [node(30)], via: "curated" });
+  assert.deepEqual(typeMatch(dict, "oil-filter-2"), { categories: [node(30)], via: "curated" });
+  // A numeric tail on a curated type; the curated exact type comes before the learned plural fold.
+  assert.deepEqual(ids(categoriesForType(dict, "oxygen-sensor-1")), [30]);
+  assert.deepEqual(typeMatch(dict, "brake-discs"), { categories: [node(20)], via: "curated" });
+  assert.deepEqual(typeMatch(dict, "lambda-sensors"), { categories: [node(30)], via: "learned" });
+  // No suffix or prefix matching on curated types either.
+  assert.deepEqual(typeMatch(dict, "bulb-headlight-left"), { categories: [], via: null });
+  assert.deepEqual(typeMatch(dict, "headlight"), { categories: [], via: null });
+  assert.deepEqual(typeMatch(dict, "front-oxygen-sensor"), { categories: [], via: null });
+  assert.deepEqual(typeMatch(dict, null), { categories: [], via: null });
+  assert.deepEqual(resolveCuratedTypes(learned(), tree, list).redundant, ["wiper"]);
+});
+
+test("curated list: every problem is listed together; workers drop broken entries with one warning", () => {
+  const list: CuratedType[] = [
+    { type: "a-type", categories: [{ id: 99, name: "Nope" }] },
+    { type: "b-type", categories: [{ id: 10, name: "Brake disks" }] },
+    { type: "c-type", alias: "unknown-type" },
+    { type: "d-type", alias: "e-type" },
+    { type: "e-type", alias: "lambda-sensor" },
+    { type: "f-type", categories: [] },
+    { type: "G Type", categories: [{ id: 10, name: "Brake discs" }] },
+    { type: "h-type", categories: [{ id: 10, name: "Brake discs" }] },
+    { type: "h-type", categories: [{ id: 20, name: "Oil filters" }] },
+    { type: "good-type", categories: [{ id: 10, name: "Brake discs" }] },
+  ];
+  const { problems, curated } = resolveCuratedTypes(learned(), tree, list);
+  assert.deepEqual(problems, [
+    { type: "a-type", error: "unknown category id 99" },
+    { type: "b-type", error: 'category 10 is "Brake discs", not "Brake disks"' },
+    { type: "c-type", error: "alias target unknown-type is not an accepted learned type" },
+    { type: "d-type", error: "alias chain: target e-type is itself curated" },
+    { type: "f-type", error: "empty category list" },
+    { type: "G Type", error: 'type is not a slug (typeSlug gives "g-type")' },
+    { type: "h-type", error: "duplicate type" },
+    { type: "h-type", error: "duplicate type" },
+  ]);
+  assert.deepEqual([...curated.keys()], ["e-type", "good-type"]);
+  assert.throws(() => curatedDictionary(learned(), tree, list, { strict: true }), /a-type: unknown category id 99; b-type/);
+  const warnings: string[] = [], warn = console.warn;
+  console.warn = (message: string) => { warnings.push(message); };
+  try {
+    const dict = curatedDictionary(learned(), tree, list);
+    assert.deepEqual(ids(categoriesForType(dict, "good-type")), [10]);
+    assert.deepEqual(categoriesForType(dict, "a-type"), []);
+    assert.deepEqual(categoriesForType(dict, "h-type"), []);
+  } finally { console.warn = warn; }
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /7 sorunlu kayıt atlandı/);
+});
+
+test("the seed list: slugs, no duplicates, no alias target curated, non-empty categories", () => {
+  const types = typeAliases.map(e => e.type), keys = new Set(types);
+  assert.equal(keys.size, types.length);
+  for (const entry of typeAliases) {
+    assert.equal(typeSlug(entry.type), entry.type, entry.type);
+    assert.ok(entry.note, entry.type);
+    if ("alias" in entry) assert.ok(!keys.has(entry.alias) && typeSlug(entry.alias) === entry.alias, entry.type);
+    else assert.ok(entry.categories.length && entry.categories.every(c => Number.isInteger(c.id) && c.name), entry.type);
+    assert.equal(entry.override, undefined, entry.type);
+  }
+});
+
+test("suggestions: shared words with learned types and leaf categories, best first, at most 3", () => {
+  const dict = typeDictionary(learned());
+  const suggestions = suggestTypeCategories("sensor-lambda-front", dict, tree);
+  assert.deepEqual(suggestions[0], { kind: "type", type: "lambda-sensor", categories: [node(30)], score: 0.67 });
+  assert.ok(suggestions.length <= 3 && suggestions.every(s => s.score > 0));
+  assert.deepEqual(suggestions.map(s => s.score), [...suggestions.map(s => s.score)].sort((a, b) => b - a));
+  // Leaf category names, plural-folded; the parent "Car parts" is no candidate.
+  assert.deepEqual(suggestTypeCategories("oil-filters", typeDictionary(new Map()), tree), [{ kind: "category", categories: [node(20)], score: 1 }]);
+  assert.deepEqual(suggestTypeCategories("car-part", typeDictionary(new Map()), tree), []);
+  assert.deepEqual(suggestTypeCategories("kit-set-system", dict, tree), []);
+  assert.equal(suggestTypeCategories("sensor", dict, tree, { limit: 1 }).length, 1);
+});
+
 const skip = !process.env.DATABASE_URL && "DATABASE_URL not set";
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 const [basbug] = storefrontCompanies();
@@ -133,9 +235,9 @@ test("PostgreSQL: learning from Trodo products drops unknown categories; the bac
   // Relearning replaces the dictionary.
   assert.deepEqual(await relearnTypeCategories(schema.pool), learned);
 
-  const dict = await loadTypeCategories(schema.pool);
+  const dict = await loadTypeCategories(schema.pool, { curated: [] });
   assert.deepEqual(categoriesForType(dict, "brake-discs"), [{ source: "trodo", id: 10, name: "Brake discs", path: [{ id: 3, name: "Car parts" }, { id: 10, name: "Brake discs" }] }]);
-  assert.equal((await loadTypeCategories(schema.pool, { minSupport: 3 })).exact.size, 0);
+  assert.equal((await loadTypeCategories(schema.pool, { minSupport: 3, curated: [] })).exact.size, 0);
 
   const urls = ["https://spareto.com/products/febi-bilstein-brake-disc/1", "https://spareto.com/products/febi-bilstein-wiper/2", "https://spareto.com/products/febi-bilstein-brake-disc/3"];
   await enrichment(items[0], urls[0], "FEBI BILSTEIN", { specifications: [] });
@@ -157,7 +259,7 @@ test("PostgreSQL: learning from Trodo products drops unknown categories; the bac
     FROM product_enrichments WHERE supplier_item_id=$1`, [item])).rows[0];
 
   const dry = await backfillTypeCategories(schema.pool, rows, dict, { dryRun: true });
-  assert.deepEqual(dry, { rows: 4, mapped: 2, changed: 1, unchanged: 1, missing: 1, noType: 1, unmappedTypes: [{ type: "wiper", count: 1 }] });
+  assert.deepEqual(dry, { rows: 4, mapped: 2, curated: 0, changed: 1, unchanged: 1, missing: 1, noType: 1, unmappedTypes: [{ type: "wiper", count: 1 }] });
   assert.equal((await state(items[0])).fresh, false);
 
   const first = await backfillTypeCategories(schema.pool, rows, dict);
@@ -181,7 +283,7 @@ test("PostgreSQL: learning from Trodo products drops unknown categories; the bac
 
 test("PostgreSQL: parts2world part types (#852) are fetched once per article and backfilled when the article still matches", { skip }, async () => {
   // The dictionary of the test above (brake-disc -> 10, oil-filter -> 20).
-  const dict = await loadTypeCategories(schema.pool);
+  const dict = await loadTypeCategories(schema.pool, { curated: [] });
   const p2w: string[] = [];
   for (const code of ["P1", "P2", "P3", "P4"]) p2w.push((await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,
     product_data,price_data,stock_data,product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
@@ -226,7 +328,7 @@ test("PostgreSQL: parts2world part types (#852) are fetched once per article and
   assert.equal(byItem.get(p2w[3])?.type, null);
 
   const result = await backfillTypeCategories(schema.pool, typed, dict);
-  assert.deepEqual(result, { rows: 4, mapped: 2, changed: 2, unchanged: 0, missing: 0, noType: 2, unmappedTypes: [] });
+  assert.deepEqual(result, { rows: 4, mapped: 2, curated: 0, changed: 2, unchanged: 0, missing: 0, noType: 2, unmappedTypes: [] });
   const state = async (item: string) => (await schema.pool.query<{ categories: unknown; links: number[] }>(`SELECT payload->'categories' AS categories,
     ARRAY(SELECT category_id FROM product_source_categories WHERE supplier_item_id=$1 ORDER BY 1) AS links FROM product_enrichments WHERE supplier_item_id=$1`, [item])).rows[0];
   assert.deepEqual(await state(p2w[0]), { categories: categoriesForType(dict, "brake-disc"), links: [10] });
@@ -275,6 +377,24 @@ test("PostgreSQL: a hold backfill keeps imported_at; release moves it for the so
   assert.deepEqual(await releaseTypeCategories(schema.pool, { sources: ["parts2world"] }), [{ source: "parts2world", rows: p2wBefore + 1 }]);
   assert.equal((await state(other)).fresh, true);
   assert.equal((await state(trodo)).fresh, false);
+});
+
+test("PostgreSQL: the curated list maps and writes types the learned dictionary does not know", { skip }, async () => {
+  const [item] = (await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,
+    product_data,price_data,stock_data,product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+    VALUES('basbug',$1,'G','MRK','C1','{"uk":"FEBI","ac":"PARCA","ac2":"","dc":"TL"}','{"nf":100}','{"stok":2}',1,1,1,false,'present',now(),now(),now())
+    RETURNING id::text`, [basbug])).rows;
+  const url = "https://spareto.com/products/febi-bilstein-brake-rotor/c1";
+  await enrichment(item.id, url, "FEBI BILSTEIN", { specifications: [] });
+  const curated: CuratedType[] = [{ type: "brake-rotor", alias: "brake-disc" }, { type: "oil-cartridge", categories: [{ id: 20, name: "Oil filters" }] }];
+  const dict = await loadTypeCategories(schema.pool, { curated, strict: true });
+  await assert.rejects(loadTypeCategories(schema.pool, { curated: [{ type: "x", categories: [{ id: 20, name: "Oil filter" }] }], strict: true }), /x: category 20 is "Oil filters"/);
+  const rows = [{ supplierItemId: item.id, sourceUrl: url, type: "brake-rotor" }, { supplierItemId: item.id, sourceUrl: url + "-other", type: "oil-cartridge" }];
+  const result = await backfillTypeCategories(schema.pool, rows, dict);
+  assert.deepEqual(result, { rows: 2, mapped: 2, curated: 2, changed: 1, unchanged: 0, missing: 1, noType: 0, unmappedTypes: [] });
+  const state = (await schema.pool.query<{ categories: unknown; links: number[] }>(`SELECT payload->'categories' AS categories,
+    ARRAY(SELECT category_id FROM product_source_categories WHERE supplier_item_id=$1 ORDER BY 1) AS links FROM product_enrichments WHERE supplier_item_id=$1`, [item.id])).rows[0];
+  assert.deepEqual(state, { categories: categoriesForType(dict, "brake-disc"), links: [10] });
 });
 
 test("PostgreSQL: a worker's dictionary is empty, not an error, without learned types", { skip }, async () => {
