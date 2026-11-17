@@ -327,14 +327,17 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
     const budgetBefore = await budgetRows();
     const budgetChanges = await changeCount();
     let slowRequests = 0, lateAnswers = 0;
+    // An injected clock keeps the deadline logic off the wall clock: the first request pushes it far past the budget.
+    let clock = 0;
     const slow: DinamikFetch = async (_path, body) => {
       slowRequests++;
+      clock = 10_000;
       await new Promise(resolve => setTimeout(resolve, 300));
       lateAnswers++;
       return [stockRow((body as { STOK_KODU: string }).STOK_KODU, 999, "VAR")];
     };
     const budgetStarted = Date.now();
-    const overBudget = await refreshDinamikItems(pool, budgetIds, slow, { budgetMs: 100 });
+    const overBudget = await refreshDinamikItems(pool, budgetIds, slow, { budgetMs: 100, now: () => clock });
     assert.ok(Date.now() - budgetStarted < 1_000, "the budget bounds the check");
     assert.deepEqual(overBudget.failed, Object.fromEntries(budgetIds.map(id => [id, "timeout"])));
     assert.equal(slowRequests, 4, "the second slice is not asked once the budget is spent");
@@ -344,7 +347,7 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
     assert.deepEqual(await budgetRows(), budgetBefore);
     assert.equal(await changeCount(), budgetChanges);
     slowRequests = 0;
-    const noBudget = await refreshDinamikItems(pool, budgetIds, slow, { budgetMs: 0 });
+    const noBudget = await refreshDinamikItems(pool, budgetIds, slow, { budgetMs: 0, now: () => clock });
     assert.equal(slowRequests, 0);
     assert.deepEqual(Object.values(noBudget.failed), budgetIds.map(() => "timeout"));
 
