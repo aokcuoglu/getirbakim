@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -112,8 +112,15 @@ export function CatalogFilterSheet({brands,facets,chipFacets,params,count,vehicl
  const panelSelected=chips.some(isPanelFilter);
  // The first change after opening pushes a history entry and the rest replace it: Back returns to the listing as it was
  // before the sheet, one step however many boxes were tried. The chips above the results and the desktop sidebar push:
- // each is one deliberate change that Back undoes.
+ // each is one deliberate change that Back undoes. Back or Forward while the sheet is open moves off that entry, so the
+// next change pushes again instead of overwriting the entry Back landed on.
  const pushed=useRef(false);
+ useEffect(()=>{
+  if(!open)return;
+  const moved=()=>{pushed.current=false;};
+  window.addEventListener("popstate",moved);
+  return()=>window.removeEventListener("popstate",moved);
+ },[open]);
  function change(updates:FilterUpdate){
   const next={...query,...updates,page:undefined};
   setDraft(next);
