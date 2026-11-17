@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, ExternalLink, EyeOff, GitFork, History, Info, Link2, Merge, Pencil, Search, Tag, TriangleAlert, Unlink } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,6 +53,8 @@ export default async function MasterProduct({ params, searchParams }: { params: 
   // Only the open tab's data is read: the merge and equivalent searches need just the id (without a query they return at once).
   // The history (#816) is paged by `?page=`; `?toplu=` lists one bulk fitment change's rows.
   const batch = query.toplu && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query.toplu) ? query.toplu : null;
+  // The history page "Ayrıntı" was opened from (`?geri=`): "Tüm geçmişe dön" goes back to it.
+  const backPage = batch && /^[1-9]\d{0,5}$/.test(query.geri ?? "") ? query.geri : undefined;
   const [merge, equivalentSearch, storeCategories, history] = await Promise.all([
     tab === "eslestirme" ? findMergeTargets(id, query.merge_q) : null,
     tab === "eslestirme" ? findEquivalentTargets(id, query.eq_q) : null,
@@ -60,8 +62,9 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     tab === "gecmis" ? getProductHistory(id, { page: Number(query.page) || 1, batch }) : null,
   ]);
   // Fitment history stores the vehicle type id: the names of the ones on the page (a bulk line's first types), in one query.
-  const vehicleNames = history ? await fitmentVehicleNames(db, history.entries.flatMap(entry => [...entry.sample,
-    ...isFitmentChange(entry.field) ? [entry.old_value, entry.new_value] : []]).filter(value => value !== null)) : new Map<string, string>();
+  // Only fitment lines hold type ids (a price line's sample is its price).
+  const vehicleNames = history ? await fitmentVehicleNames(db, history.entries.flatMap(entry => isFitmentChange(entry.field) || entry.field === "fitment_copied"
+    ? [...entry.sample, entry.old_value, entry.new_value] : []).filter(value => value !== null)) : new Map<string, string>();
   const multiple = sources.length > 1;
   const edit = override.override;
   // Category choices as their path in the store tree ("Fren sistemi › Balata").
@@ -298,9 +301,11 @@ export default async function MasterProduct({ params, searchParams }: { params: 
       <CardHeader><CardTitle><h2>Değişiklik geçmişi</h2></CardTitle>
         <CardDescription>Sayfa başına 50 kayıt; toplu araç ekleme ve kopyalar tek satırda gösterilir. “Otomatik”, alanın tedarikçi ve zenginleştirme verisinden (fiyatta formülden) geldiğini gösterir.</CardDescription></CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {history.batch && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Toplu işlemin {formatNumber(history.total)} satırı gösteriliyor.</AlertDescription>
-          <AlertAction><Button variant="outline" size="sm" nativeButton={false} render={<Link href={productTabHref(product.id, "gecmis", { merged: Boolean(merged) })} scroll={false}/>}>
-            <ArrowLeft data-icon="inline-start" aria-hidden="true"/>Tüm geçmişe dön</Button></AlertAction></Alert>}
+        {history.batch && <div className="flex flex-col items-start gap-2">
+          <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Toplu işlemin {formatNumber(history.total)} satırı gösteriliyor.</AlertDescription></Alert>
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link href={productTabHref(product.id, "gecmis", { params: { page: backPage }, merged: Boolean(merged) })} scroll={false}/>}>
+            <ArrowLeft data-icon="inline-start" aria-hidden="true"/>Tüm geçmişe dön</Button>
+        </div>}
         {history.entries.length ? <Table server><caption className="sr-only">Değişiklik geçmişi</caption>
         <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Alan</TableHead><TableHead>Eski değer</TableHead><TableHead>Yeni değer</TableHead><TableHead>Kim</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
         <TableBody>{history.entries.map(change => {
@@ -320,9 +325,9 @@ export default async function MasterProduct({ params, searchParams }: { params: 
           </>}
           <TableCell>{change.reason === "uncarry" ? <span className="text-muted-foreground">Sistem: birleştirme geri alındı</span>
             : <>{change.changed_by ?? <span className="text-muted-foreground">Silinmiş hesap</span>}{change.reason === "carry" && <span className="text-muted-foreground"> · birleştirmeden taşındı</span>}</>}</TableCell>
-          <TableCell>{grouped && change.batch_id && <div className="flex flex-wrap justify-end gap-2">
+          <TableCell>{grouped && change.batch_id && <div className="flex flex-col items-end gap-2">
             <Button variant="outline" size="sm" nativeButton={false} aria-label={`${fitmentBatchLabels[change.field] ?? "Toplu işlem"}: ayrıntı`}
-              render={<Link href={productTabHref(product.id, "gecmis", { params: { toplu: change.batch_id }, merged: Boolean(merged) })} scroll={false}/>}>Ayrıntı</Button>
+              render={<Link href={productTabHref(product.id, "gecmis", { params: { toplu: change.batch_id, geri: history.page > 1 ? String(history.page) : undefined }, merged: Boolean(merged) })} scroll={false}/>}>Ayrıntı</Button>
             {change.undoable > 0 && !merged && <ProductFitmentBatchUndo productId={product.id} batchId={change.batch_id} count={change.undoable}/>}
           </div>}</TableCell>
         </TableRow>;
@@ -335,11 +340,11 @@ export default async function MasterProduct({ params, searchParams }: { params: 
         <span className="text-muted-foreground tabular-nums">{formatNumber(history.total)} kayıt</span>
         <Pagination aria-label="Geçmiş sayfaları" className="mx-0 w-auto"><PaginationContent>
           <PaginationItem>{history.page > 1
-            ? <Button variant="outline" size="icon" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={productTabHref(product.id, "gecmis", { params: { page: String(history.page - 1), toplu: history.batch ?? undefined }, merged: Boolean(merged) })} scroll={false}/>}><ChevronLeft/></Button>
+            ? <Button variant="outline" size="icon" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={productTabHref(product.id, "gecmis", { params: { page: String(history.page - 1), toplu: history.batch ?? undefined, geri: backPage }, merged: Boolean(merged) })} scroll={false}/>}><ChevronLeft/></Button>
             : <Button variant="outline" size="icon" aria-label="Önceki sayfa" disabled><ChevronLeft/></Button>}</PaginationItem>
           <PaginationItem><span className="px-2 text-muted-foreground tabular-nums" aria-label={`Sayfa ${history.page} / ${history.pages}`}>{formatNumber(history.page)} / {formatNumber(history.pages)}</span></PaginationItem>
           <PaginationItem>{history.page < history.pages
-            ? <Button variant="outline" size="icon" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={productTabHref(product.id, "gecmis", { params: { page: String(history.page + 1), toplu: history.batch ?? undefined }, merged: Boolean(merged) })} scroll={false}/>}><ChevronRight/></Button>
+            ? <Button variant="outline" size="icon" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={productTabHref(product.id, "gecmis", { params: { page: String(history.page + 1), toplu: history.batch ?? undefined, geri: backPage }, merged: Boolean(merged) })} scroll={false}/>}><ChevronRight/></Button>
             : <Button variant="outline" size="icon" aria-label="Sonraki sayfa" disabled><ChevronRight/></Button>}</PaginationItem>
         </PaginationContent></Pagination>
       </CardFooter>}

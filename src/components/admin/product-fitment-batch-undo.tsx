@@ -28,7 +28,7 @@ export function ProductFitmentBatchUndo({ productId, batchId, count }: { product
     </AlertDialogTrigger>
     <AlertDialogContent>
       <AlertDialogHeader>
-        <AlertDialogTitle>Toplu araç ekleme geri alınsın mı?</AlertDialogTitle>
+        <AlertDialogTitle>Toplu işlem geri alınsın mı?</AlertDialogTitle>
         <AlertDialogDescription>
           Bu işlemle eklenen {formatNumber(count)} araç tipi üründen kaldırılacak. Sonradan tek tek kaldırdığınız veya mağazadan çıkardığınız tipler etkilenmez; otomatik kaynakta da bulunan tipler otomatik uyum olarak kalır.
         </AlertDialogDescription>

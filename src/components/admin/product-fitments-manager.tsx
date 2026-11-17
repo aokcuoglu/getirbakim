@@ -12,7 +12,7 @@ import { useFitmentChange } from "@/components/admin/use-fitment-change";
 import { OptionCombobox } from "@/components/admin/option-combobox";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { ProductFitmentCopyDialog } from "@/components/admin/product-fitment-copy-dialog";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -78,10 +78,10 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
     <div aria-live="polite" className="empty:hidden">
       {/* A bulk add or copy can be taken back at once (#817); the undo's own result offers nothing more. */}
       {result?.status === "success" && <Alert variant="success"><CircleCheck aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription>
-        {result.undo && <AlertAction><Button type="button" variant="outline" size="sm" disabled={pending}
+        {result.undo && <div className="mt-2 flex"><Button type="button" variant="outline" size="sm" disabled={pending}
           aria-label={`Az önce eklenen ${formatNumber(result.undo.count)} araç tipini geri al`}
           onClick={() => { const batchId = result.undo?.batchId; if (batchId) mutate(() => undoProductFitmentBatch({ productId, batchId })); }}>
-          <Undo2 data-icon="inline-start" aria-hidden="true"/>Geri al</Button></AlertAction>}</Alert>}
+          <Undo2 data-icon="inline-start" aria-hidden="true"/>Geri al</Button></div>}</Alert>}
     </div>
     {/* While a dialog is open, its own alert shows the error. */}
     {result?.status === "error" && !dialog && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
