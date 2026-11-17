@@ -44,10 +44,11 @@ export function ProductFitmentBatchUndo({ productId, batchId, count }: { product
       {error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{error}</AlertDescription></Alert>}
       <AlertDialogFooter>
         <AlertDialogCancel disabled={pending}>{error ? "Kapat" : "Vazgeç"}</AlertDialogCancel>
-        <AlertDialogAction type="button" variant="destructive" disabled={pending}
+        {/* A refused undo is final (nothing left to take back): "Kapat" is the only way out. */}
+        {!error && <AlertDialogAction type="button" variant="destructive" disabled={pending}
           onClick={() => mutate(() => undoProductFitmentBatch({ productId, batchId }), () => setOpen(false))}>
           {pending ? <><Spinner data-icon="inline-start"/>Geri alınıyor…</> : <><Undo2 data-icon="inline-start" aria-hidden="true"/>Geri al</>}
-        </AlertDialogAction>
+        </AlertDialogAction>}
       </AlertDialogFooter>
     </AlertDialogContent>
   </AlertDialog>;

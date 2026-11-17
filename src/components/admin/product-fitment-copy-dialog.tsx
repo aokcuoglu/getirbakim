@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
@@ -207,16 +208,17 @@ function CopyPreview({ preview, summaryId, selected, disabled, onChange }: {
       <p className="text-muted-foreground">Kaynak üründe mağazada gösterilen {formatNumber(preview.total)} araç tipi var.</p>
     </div>
     <Alert ref={summary} tabIndex={-1} role="status" variant={addCount ? "info" : "warning"} id={summaryId}>{addCount ? <Info aria-hidden="true"/> : <TriangleAlert aria-hidden="true"/>}
-      <AlertDescription>{addCount ? `${formatNumber(selectedCount)} araç tipi eklenecek (${formatNumber(selected.length)} model seçili).` : "Kaynak üründe bu ürüne eklenecek yeni araç tipi yok."} Atlanan: {formatNumber(skipped.added)} zaten elle ekli, {formatNumber(skipped.removed)} mağazadan çıkarılmış, {formatNumber(skipped.automatic)} zaten otomatik uyumlu.</AlertDescription></Alert>
+      <AlertDescription>{addCount ? `${formatNumber(selectedCount)} araç tipi eklenecek.` : "Kaynak üründe bu ürüne eklenecek yeni araç tipi yok."}</AlertDescription></Alert>
+    <p className="text-muted-foreground">Atlanan: {formatNumber(skipped.added)} araç tipi zaten elle ekli, {formatNumber(skipped.removed)} mağazadan çıkarılmış, {formatNumber(skipped.automatic)} zaten otomatik uyumlu.</p>
     {addCount > 0 && !preview.targetHasDecisions && <Alert variant="info"><Info aria-hidden="true"/>
       <AlertDescription>Bu üründe henüz araç kararı yok: ilk karar eklenince mağaza bu üründe model düzeyi listeleri (kaynak model listesi, açıklamadan okunan modeller) kullanmayı bırakır.</AlertDescription></Alert>}
     {preview.exceeds && !selectedCount && <Alert variant="info"><Info aria-hidden="true"/>
-      <AlertDescription>Kaynakta eklenecek {formatNumber(addCount)} tip var; bu üründe kalan karar hakkı {formatNumber(preview.remaining)}. Kopyalanacak marka ve modelleri seçin.</AlertDescription></Alert>}
+      <AlertDescription>Kaynakta eklenecek {formatNumber(addCount)} araç tipi var; bu üründe kalan karar hakkı {formatNumber(preview.remaining)}. Kopyalanacak marka ve modelleri seçin.</AlertDescription></Alert>}
     {over && <Alert variant="warning"><TriangleAlert aria-hidden="true"/>
-      <AlertDescription>Seçilen {formatNumber(selectedCount)} tip kalan karar hakkını ({formatNumber(preview.remaining)}) aşıyor; seçimi azaltın.</AlertDescription></Alert>}
+      <AlertDescription>Seçilen {formatNumber(selectedCount)} araç tipi kalan karar hakkını ({formatNumber(preview.remaining)}) aşıyor; seçimi azaltın.</AlertDescription></Alert>}
     {addCount > 0 && <>
       <div className="flex flex-col gap-2">
-        <h3 className="font-medium">Kopyalanacak modeller</h3>
+        <h3 className="font-medium">Kopyalanacak modeller <span className="font-normal text-muted-foreground tabular-nums">({formatNumber(selected.length)} / {formatNumber(groups.length)} seçili)</span></h3>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" size="sm" disabled={disabled || selected.length === groups.length}
             onClick={() => setModels(groups.map(group => group.modelId), true)}>
@@ -225,14 +227,16 @@ function CopyPreview({ preview, summaryId, selected, disabled, onChange }: {
             <ListX data-icon="inline-start" aria-hidden="true"/>Seçimi temizle</Button>
         </div>
       </div>
+      {/* A long tree scrolls on its own: the summary and the copy button stay in reach (mobile). */}
+      <ScrollArea className={groups.length > 8 ? "h-64" : undefined}>
       <Table controls={false}><caption className="sr-only">Kopyalanacak marka ve modeller</caption>
-        <TableHeader><TableRow><TableHead><span className="sr-only">Seç</span></TableHead><TableHead>Marka / Model</TableHead><TableHead>Tip sayısı</TableHead></TableRow></TableHeader>
+        <TableHeader><TableRow><TableHead><span className="sr-only">Seç</span></TableHead><TableHead>Marka / Model</TableHead><TableHead>Araç tipi</TableHead></TableRow></TableHeader>
         <TableBody>{brands.map(brand => {
           const open = expanded.has(brand.brandId);
           const models = brand.models.map(group => group.modelId);
           const picked = models.filter(id => chosen.has(id)).length;
           return [<TableRow key={`b|${brand.brandId}`}>
-            <TableCell><Checkbox checked={picked === models.length} disabled={disabled}
+            <TableCell><Checkbox checked={picked === models.length} indeterminate={picked > 0 && picked < models.length} disabled={disabled}
               aria-label={`${brand.brand} markasının tüm modellerini seç`} onCheckedChange={value => setModels(models, value)}/></TableCell>
             <TableCell><div className="flex flex-wrap items-center gap-2">
               <span className="font-medium">{brand.brand}</span>
@@ -244,13 +248,14 @@ function CopyPreview({ preview, summaryId, selected, disabled, onChange }: {
             <TableCell className="tabular-nums">{formatNumber(brand.count)}</TableCell>
           </TableRow>, ...(open ? brand.models.map(group => <TableRow key={`m|${group.modelId}`}>
             <TableCell className="pl-6"><Checkbox checked={chosen.has(group.modelId)} disabled={disabled}
-              aria-label={`${group.brand} ${group.model} modelini seç (${formatNumber(group.count)} tip)`} onCheckedChange={value => setModels([group.modelId], value)}/></TableCell>
+              aria-label={`${group.brand} ${group.model} modelini seç (${formatNumber(group.count)} araç tipi)`} onCheckedChange={value => setModels([group.modelId], value)}/></TableCell>
             <TableCell className="pl-6">{group.model}</TableCell>
             <TableCell className="tabular-nums">{formatNumber(group.count)}</TableCell>
           </TableRow>) : [])];
         })}</TableBody></Table>
+      </ScrollArea>
     </>}
-    {shown.length > 0 && <>
+    {shown.length > 0 && <ScrollArea className={shown.length > 8 ? "h-64" : undefined}>
       <Table controls={false}><caption className="sr-only">Eklenecek araç tipleri</caption>
         <TableHeader><TableRow><TableHead>Marka</TableHead><TableHead>Model</TableHead><TableHead>Motor</TableHead><TableHead>Üretim</TableHead></TableRow></TableHeader>
         <TableBody>{shown.map(vehicle => <TableRow key={vehicle.typeId}>
@@ -259,7 +264,7 @@ function CopyPreview({ preview, summaryId, selected, disabled, onChange }: {
           <TableCell><div className="flex flex-col gap-1"><span>{vehicle.engine}</span><span className="text-muted-foreground">{vehicle.fuel} · tip {vehicle.typeId}</span></div></TableCell>
           <TableCell className="tabular-nums">{years(vehicle)}</TableCell>
         </TableRow>)}</TableBody></Table>
-    </>}
-    {selectedCount > 0 && more > 0 && <p className="text-muted-foreground">{shown.length ? `ve ${formatNumber(more)} tip daha` : `Seçilen ${formatNumber(selectedCount)} tip önizlemenin ilk ${formatNumber(preview.add.length)} satırında değil; kopyalanınca araç uyumu listesinde görünür.`}</p>}
+    </ScrollArea>}
+    {selectedCount > 0 && more > 0 && <p className="text-muted-foreground">{shown.length ? `ve ${formatNumber(more)} araç tipi daha` : `Seçilen ${formatNumber(selectedCount)} araç tipi önizlemenin ilk ${formatNumber(preview.add.length)} satırında değil; kopyalanınca araç uyumu listesinde görünür.`}</p>}
   </div>;
 }

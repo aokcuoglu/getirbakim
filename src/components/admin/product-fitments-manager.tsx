@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useCallback, useId, useRef, useState } from "react";
 import { Car, ChevronDown, ChevronsDown, CircleAlert, CircleCheck, Copy, Eye, EyeOff, GitMerge, Info, ListChecks, ListX, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { addProductFitments, copyProductFitments, deleteProductFitment, removeProductFitment, undoProductFitmentBatch } from "@/app/yonetim/urunler/fitment-actions";
 import { productFitmentAutomaticLimit, productFitmentBatch, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
@@ -46,16 +46,27 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
 
   const automaticIds = new Set([...fitments.automatic.map(vehicle => vehicle.typeId), ...fitments.rows.filter(row => row.automatic).map(row => row.typeId)]);
   const decided = new Map(fitments.rows.map(row => [row.typeId, row.mode]));
-  // Fixed display order (added, removed, automatic), so a refresh after a change never moves rows under the pointer.
+  // Fixed display order (removed, added, automatic), so a refresh after a change never moves rows under the pointer;
+  // the few removals come first, not behind "Daha fazla göster" after a long copy (#815).
   const decisions: Row[] = [
-    ...fitments.rows.filter(row => row.mode === "add").map(row => ({ ...row, status: "added" as const })),
     ...fitments.rows.filter(row => row.mode === "remove").map(row => ({ ...row, status: "removed" as const })),
+    ...fitments.rows.filter(row => row.mode === "add").map(row => ({ ...row, status: "added" as const })),
   ];
   const automatic: Row[] = fitments.automatic.filter(vehicle => !decided.has(vehicle.typeId))
     .map(vehicle => ({ ...vehicle, status: "automatic" as const, automatic: true, carried: false }));
   const all = [...decisions, ...automatic];
   const rows = all.slice(0, shown);
   const hidden = all.length - rows.length;
+  // When the last reveal removes its button, focus moves to the first revealed row instead of the page start.
+  const [revealedFrom, setRevealedFrom] = useState<number | null>(null);
+  const focusReveal = useRef(false);
+  const focusRevealed = useCallback((node: HTMLSpanElement | null) => {
+    if (node && focusReveal.current) { focusReveal.current = false; node.focus(); }
+  }, []);
+  const reveal = (next: number) => {
+    if (next >= all.length) { focusReveal.current = true; setRevealedFrom(rows.length); }
+    setShown(next);
+  };
   const openDialog = (next: "add" | "copy") => { setResult(null); setOpened(count => count + 1); setDialog(next); };
   const closeDialog = (open: boolean) => { if (!open) { setDialog(null); setResult(null); } };
   const dialogError = dialog && result?.status === "error" ? result.message : null;
@@ -91,10 +102,11 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
     {rows.length ? <Table controls={false}><caption className="sr-only">Araç uyumu</caption>
       <TableHeader><TableRow><TableHead>Marka</TableHead><TableHead>Model</TableHead><TableHead>Motor</TableHead><TableHead>Güç / hacim</TableHead>
         <TableHead>Üretim</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
-      <TableBody>{rows.map(row => {
+      <TableBody>{rows.map((row, index) => {
         const name = vehicleName(row), rowKey = row.id ?? `a|${row.typeId}`;
+        const first = index === revealedFrom;
         return <TableRow key={rowKey}>
-          <TableCell>{row.brand}</TableCell>
+          <TableCell>{first ? <span ref={focusRevealed} tabIndex={-1}>{row.brand}</span> : row.brand}</TableCell>
           <TableCell>{row.model}</TableCell>
           <TableCell><div className="flex flex-col gap-1"><span>{row.engine}</span><span className="text-muted-foreground">{row.fuel} · tip {row.typeId}</span></div></TableCell>
           <TableCell className="tabular-nums">{power(row)}</TableCell>
@@ -123,10 +135,10 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
       : <Empty><EmptyHeader><EmptyMedia variant="icon"><Car/></EmptyMedia><EmptyTitle>Araç uyumu yok</EmptyTitle>
         <EmptyDescription>Bu ürünün otomatik araç uyumu yok; “Araç ekle” ile motor tipi seçerek ekleyebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}
     {hidden > 0 && <div className="flex flex-wrap justify-center gap-2">
-      <Button type="button" variant="outline" onClick={() => setShown(count => count + PAGE)}>
+      <Button type="button" variant="outline" onClick={() => reveal(shown + PAGE)}>
         <ChevronDown data-icon="inline-start" aria-hidden="true"/>Daha fazla göster ({formatNumber(hidden)} satır daha)</Button>
-      {hidden > PAGE && <Button type="button" variant="outline" onClick={() => setShown(Number.POSITIVE_INFINITY)}>
-        <ChevronsDown data-icon="inline-start" aria-hidden="true"/>Tümünü göster</Button>}
+      {hidden > PAGE && <Button type="button" variant="outline" onClick={() => reveal(Number.POSITIVE_INFINITY)}>
+        <ChevronsDown data-icon="inline-start" aria-hidden="true"/>Tümünü göster ({formatNumber(hidden)} satır)</Button>}
     </div>}
 
     <AddFitmentsDialog key={`add|${opened}`} open={dialog === "add"} pending={pending} decided={decided} automaticIds={automaticIds}
