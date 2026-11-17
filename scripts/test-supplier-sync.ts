@@ -18,6 +18,12 @@ test("quality guards distinguish a normal fluctuation from a suspect full respon
   assert.match(rejectionReason({ ...old, missingPrices: 11 }, old)!, /missing-prices/);
   assert.match(rejectionReason({ ...old, missingStocks: 11 }, old)!, /missing-stocks/);
   assert.ok(rejectionReason({ ...old, uniqueProducts: 0 }));
+  // New products without a stock or price row lose no data (#857); fewer products with that data still do.
+  const alternator = { uniqueProducts: 189, missingPrices: 0, missingStocks: 25 };
+  assert.equal(rejectionReason({ uniqueProducts: 243, missingPrices: 0, missingStocks: 79 }, alternator), null);
+  assert.equal(rejectionReason({ uniqueProducts: 7, missingPrices: 0, missingStocks: 2 }, { uniqueProducts: 6, missingPrices: 0, missingStocks: 1 }), null);
+  assert.equal(rejectionReason({ uniqueProducts: 120, missingPrices: 20, missingStocks: 0 }, old), null);
+  assert.match(rejectionReason({ uniqueProducts: 919, missingPrices: 0, missingStocks: 349 }, { uniqueProducts: 919, missingPrices: 0, missingStocks: 244 })!, /missing-stocks/);
 });
 
 test("PostgreSQL: idempotence, changes, disappearance, return, rollback, retention, replay and importer lifecycle", async () => {
