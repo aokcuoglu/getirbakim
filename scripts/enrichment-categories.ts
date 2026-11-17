@@ -90,7 +90,7 @@ async function reportUnmapped(){
  for(const t of types)console.log(`${String(t.spareto).padStart(7)}  ${String(t.parts2world).padStart(8)}  ${String(t.articles).padStart(12)}  ${t.type}  ->  `+
   (t.suggestions.map(s=>`${s.kind==='type'?s.type:'['+s.categories.map(c=>c.id+' '+c.name).join(', ')+']'} (${s.score})`).join(' | ')||'-'));
 }
-// Read-only commands do not apply the schema file, so they run against a read-only connection as well.
+// Read-only commands skip the schema check, so they run against a read-only connection as well; the schema comes from db:setup (#924).
 const readOnly=['report-unmapped','check-aliases'].includes(process.argv[2]??'');
 try{
  if(!readOnly)await requireEnrichmentSchema(pool,['source_categories','source_category_labels','product_source_categories','product_type_categories']);
