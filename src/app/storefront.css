@@ -32,8 +32,6 @@
      `-product` modifier follows its base, so it wins where both set a property, as the merged class list did. */
   .buy-form { @apply mb-4 flex gap-2; }
   .buy-form-product { @apply mb-5 items-center gap-2.5; }
-  /* Catalog card placement; here and not in catalog-card.css, since the product page does not load that file. */
-  .product-card-form { @apply group-data-[view=grid]/listing:order-3 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:hidden; }
   .buy-quantity { @apply h-12 w-[66px] flex-[0_0_66px] cursor-pointer rounded-md border border-input bg-white px-2.5 py-2 max-[767.98px]:w-[72px] max-[767.98px]:flex-[0_0_72px] text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed; }
   .buy-quantity-product { @apply w-16 flex-[0_0_64px] rounded-[5px] py-2.5 max-[767.98px]:w-[72px] max-[767.98px]:flex-[0_0_72px]; }
   /* ui/button with the store override, minus the svg, icon, invalid and dark states a text-only submit never has. */
