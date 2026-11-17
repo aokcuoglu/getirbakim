@@ -44,6 +44,7 @@ jobs:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
       # The Dinamik import and checkout tests need a database (#788); in the step above without one they skip.
       - run: npm run test:dinamik
+      - run: npm run test:header-search
         env:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
       - run: npm run test:media-gc
