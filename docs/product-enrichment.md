@@ -377,15 +377,24 @@ sonraki `storefront:sync` hepsini görselleriyle birlikte gönderir. Bunu zamanl
 2. Yerelde kontrol edin (kategori listeleri, `changed: 0` ile tekrar koşu).
 3. `release-categories --source spareto|parts2world|all [--dry-run]`: kaynağın kategorili (`payload->'categories'` boş
    değil) tüm kayıtlarının `imported_at`'ini şimdiye çeker; 5000'er satırlık ayrı işlemlerle çalışır, `--dry-run`
-   yalnız sayar. Çıktı `{source, rows}`. Kaynağın işçilerin zaten gönderdiği kategorili kayıtlarını da yeniden gönderir
+   yalnız sayar. Çıktı `{source, rows, dryRun}`. Kaynağın işçilerin zaten gönderdiği kategorili kayıtlarını da yeniden gönderir
    (zararsız, içe aktarım idempotent); kategorisiz satırlara ve diğer kaynaklara dokunmaz. Kaynak URL ön ekleri
    `backfill-types` ile ortaktır (`typedSourceUrlPrefix`).
 4. `npm run storefront:sync -- --dry-run` ile parça özetine bakın, sonra sync'in taşımasına izin verin.
 
 Tek seferlik maliyet yukarıdaki "storefront:sync maliyeti" bölümleriyle aynıdır: kayıt sayısı (≈75 bin), görseller
 (spareto ≈2,6 GB, parts2world ≈0,95 GB), AWS'de araç uyumluluklarının yeniden kurulması, IndexNow/`lastmod` ve ana sayfa
-rafı. `--hold` ile bekletilenler, release edilene kadar sync'e girmez; ama işçi aynı satırı yeniden toplarsa o satırın
-`imported_at`'i normal akışla ilerler.
+rafı.
+
+**`--hold` sınırları.** Hold yalnız `imported_at`'i sync filtresinin (durum `snapshotAt` eksi 1 saatlik `OVERLAP_MS`)
+altında kalan satırları bekletir; son sync'ten beri değişmiş satırlar (yerelde şu an ≈9,6 bin, işçilerle artıyor)
+kategorileriyle bir sonraki sync'te yine de gider. Tam bekletme için önce bir sync koşup işçileri durdurmak gerekir.
+Bekletilen satırın `imported_at`'ini başka yeniden yazan akışlar da ilerletir (işçinin yeniden toplaması,
+`image-fill.ts`, `otoparcasan-enrichment.ts`, `manual-import.ts`); ayrıca sync'in yeniden deneme listesi
+(`--retry-file`) satırları `imported_at`'e bakmadan gönderir.
+
+**Release tekrarı.** `release-categories`'i yeniden koşmak tüm kümeyi yeniden gönderir (maliyet baştan ödenir). Release
+ile yazan bir `backfill-types`'ı aynı anda koşmayın (kilitlenme olabilir; işlem temiz geri alınır, yeniden koşmak güvenli).
 
 ## Trodo kategori ağacı ve görselleri
 

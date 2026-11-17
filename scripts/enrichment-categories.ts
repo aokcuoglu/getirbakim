@@ -104,5 +104,5 @@ try{
   console.log(JSON.stringify({...limits,types:types.size,pairs:pairs.length,acceptedTypes:kept.size,acceptedPairs:accepted.length,
    multiCategoryTypes:[...kept].filter(t=>accepted.filter(p=>p.type===t).length>1).length,leftOut:left.length},null,1));
   for(const {type,total,best} of left.slice(0,50))console.log(`${best}/${total}`.padStart(9)+'  '+type);
- }else throw Error('Usage: import-tree FILE | backfill | learn-types | backfill-types --source spareto|parts2world [--dry-run [--min-share N] [--min-support N]] | release-categories --source spareto|parts2world|all [--dry-run] | report-types');
+ }else throw Error('Usage: import-tree FILE | backfill | learn-types | backfill-types --source spareto|parts2world [--hold] [--dry-run [--min-share N] [--min-support N]] | release-categories --source spareto|parts2world|all [--dry-run] | report-types');
 }finally{await pool.end();}
