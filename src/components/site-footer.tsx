@@ -35,6 +35,7 @@ const groups = [
       { href: "/sepet", title: "Sepetim" },
       { href: "/bilgi/yardim", title: "Yardım merkezi" },
       { href: "/bilgi/uyumluluk", title: "Parça uyumluluğu" },
+      { href: "/rehber", title: "Rehber" },
       legalLink("teslimat-ve-iade"),
     ],
   },

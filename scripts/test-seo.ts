@@ -3,6 +3,7 @@ import test from "node:test";
 import { GET } from "../src/app/llms.txt/route";
 import { aiCrawlers, privatePaths, robotsPolicy } from "../src/modules/seo/crawlers";
 import { llmsTxt } from "../src/modules/seo/llms";
+import { guides } from "../src/content/guides";
 import { isGatedListing, listingIndexable, minIndexableListingProducts } from "../src/modules/seo/indexing";
 import { categoryNameInText } from "../src/modules/store/category-tree";
 import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, withModelYears } from "../src/modules/store/vehicle-model-groups";
@@ -46,7 +47,7 @@ test("production has a general group and an AI crawler group with identical bodi
 });
 
 test("robots rules open the public store and close private and unbounded URLs", () => {
-  const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/yedek-parca/volkswagen/golf-7?page=2", "/kategori/fren/volkswagen/golf-7", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/api/brand-logos/12?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt", "/marka/bosch", "/marka/bosch?page=2"];
+  const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/yedek-parca/volkswagen/golf-7?page=2", "/kategori/fren/volkswagen/golf-7", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/api/brand-logos/12?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt", "/marka/bosch", "/marka/bosch?page=2", "/rehber", "/rehber/oem-numarasi-nedir-nasil-bulunur"];
   const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/yedek-parca/volkswagen/golf-7?sort=price-asc", "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D", "/kategori/fren/volkswagen/golf-7?sort=price-asc", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code", "/marka/bosch?sort=price-asc", "/marka/bosch?q=x"];
   for (const group of groups) {
     for (const url of open) assert.equal(allowed(group, url), true, `${url} should be allowed`);
@@ -128,6 +129,8 @@ test("llms.txt links are absolute, cover the legal pages and categories, and avo
   for (const target of targets) assert.ok(target.startsWith(`${site}/`), target);
   for (const { slug } of legalLinks) assert.ok(text.includes(`${site}/${slug})`), slug);
   for (const slug of ["yedek-parca", "fren", "filtre", "yag", "silecek", "aksesuar"]) assert.ok(text.includes(`/kategori/${slug})`), slug);
+  assert.ok(text.includes(`${site}/rehber)`));
+  for (const guide of guides) assert.ok(text.includes(`${site}/rehber/${guide.slug})`), guide.slug);
   for (const target of targets) {
     const path = target.slice(site.length);
     for (const blocked of privatePaths) assert.ok(!path.startsWith(blocked), `${path} is private`);
