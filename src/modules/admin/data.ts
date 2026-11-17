@@ -9,6 +9,7 @@ import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupp
 import type { CommerceOrder } from "@/modules/store/orders";
 import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules";
 import { restockDueCount } from "./restock";
+import { installmentSettings } from "@/modules/payments/installment-settings";
 import { procurementOpenSql, type AdminOrderLine } from "./order-procurement";
 import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 
@@ -38,15 +39,16 @@ export async function adminServiceAccounts() {
 
 export async function adminPricing() {
   await requireAdmin();
-  const [settings, latest] = await Promise.all([
+  const [settings, latest, installments] = await Promise.all([
     db.query<PricingSettings>("SELECT markup_percent,vat_percent,max_age_hours,shipping_fee_kurus,free_shipping_threshold_kurus FROM commerce_settings WHERE id=true"),
     db.query<CurrencySnapshot>("SELECT currencies_data,completed_at FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1", [process.env.BASBUG_FIRMA_ADI || "BASBUG"]),
+    installmentSettings(),
   ]);
   if (!settings.rows[0]) throw new Error("Satış ayarları bulunamadı.");
-  return { settings: settings.rows[0], latest: latest.rows[0], rates: latest.rows[0]?.currencies_data.dovizListesi ?? [] };
+  return { settings: settings.rows[0], latest: latest.rows[0], rates: latest.rows[0]?.currencies_data.dovizListesi ?? [], installments };
 }
 
-type AdminPayment = { id: string; provider_order_id: string; status: string; amount_kurus: number; bank_reference: string | null; paid_at: string | null };
+type AdminPayment = { id: string; provider_order_id: string; status: string; amount_kurus: number; bank_reference: string | null; paid_at: string | null; installment_count: number | null };
 /** TAMI void/refund calls of an order (#619), oldest first. */
 export type AdminRefund = {
   id: string; payment_id: string; provider_order_id: string; kind: ReversalKind; status: RefundStatus; amount_kurus: number;
@@ -85,10 +87,10 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
   const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[]; lines: AdminOrderLine[] } & OrderAgreementSummary>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,o.refunded_at,
-     o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,o.cancelled_by,o.cancelled_at,
+     o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,o.cancelled_by,o.cancelled_at,o.installment_count,o.installment_fee_kurus,
      a.accepted_at AS agreement_at,a.ip AS agreement_ip,a.user_agent AS agreement_user_agent,a.legal_version AS agreement_version,
      COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
-      'bank_reference',p.bank_reference,'paid_at',p.paid_at) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments,
+      'bank_reference',p.bank_reference,'paid_at',p.paid_at,'installment_count',p.installment_count) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments,
      COALESCE((SELECT jsonb_agg(jsonb_build_object('id',r.id,'payment_id',r.payment_id,'provider_order_id',p.provider_order_id,'kind',r.kind,'status',r.status,
       'amount_kurus',r.amount_kurus,'bank_reference',r.bank_reference,'error_code',r.error_code,'error_message',r.error_message,
       'requested_at',r.requested_at,'completed_at',r.completed_at) ORDER BY r.requested_at,r.id)

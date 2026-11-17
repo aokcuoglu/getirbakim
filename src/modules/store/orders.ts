@@ -14,6 +14,8 @@ import { buildOrderAgreement,legalTextVersion,type AgreementLine } from './order
 import { checkoutConsentText } from './checkout-schema';
 import type { ClientEvidence } from '@/lib/client-address';
 import { CHECKOUT_LOCK_TIMEOUT } from '@/modules/suppliers/checkout-fallback';
+import { installmentFingerprint,installmentOptions,type InstallmentSettings } from '@/modules/payments/installment-plan';
+import { installmentSettings } from '@/modules/payments/installment-settings';
 
 export type CommerceOrder = {
  id:string; number:string; owner_kind:'account'|'guest'; owner_id:string;
@@ -26,6 +28,8 @@ export type CommerceOrder = {
  carrier:string|null; carrier_name:string|null; tracking_no:string|null; tracking_url:string|null; shipped_at:Date|null; delivered_at:Date|null;
  // Who cancelled and when (#607); NULL on orders cancelled before it was recorded and on open orders.
  cancelled_by:'customer'|'admin'|'expiry'|null; cancelled_at:Date|null;
+ // Chosen payment option (#886): 1 = single payment. total_kurus includes the fee.
+ installment_count:number; installment_fee_kurus:string;
 };
 export type OrderItem = {product_id:string; name:string; code:string; quantity:number; unit_price_kurus:string; pricing_snapshot:Record<string,unknown>; vehicle:GarageVehicle|null; fitment_level:FitmentLevel|null};
 
@@ -34,8 +38,11 @@ export async function shippingRule(connection:Pick<PoolClient,'query'>=db):Promi
  const row=(await connection.query<{shipping_fee_kurus:number;free_shipping_threshold_kurus:number}>('SELECT shipping_fee_kurus,free_shipping_threshold_kurus FROM commerce_settings WHERE id=true')).rows[0];
  return {fee:row?.shipping_fee_kurus ?? 0,threshold:row?.free_shipping_threshold_kurus ?? 0};
 }
-export function cartQuote(items: CartItem[],discount:number,shipping:ShippingRule) {
- return createHash('sha256').update(JSON.stringify([items.map(p=>[p.id,p.quantity,p.price_kurus,discount,p.pricing_snapshot?.checkout_mode]),shipping.fee,shipping.threshold])).digest('hex');
+/** With installments on (#886) the quote also covers their settings; off, it is the same hash as before. */
+export function cartQuote(items: CartItem[],discount:number,shipping:ShippingRule,installments?:InstallmentSettings) {
+ const parts:unknown[]=[items.map(p=>[p.id,p.quantity,p.price_kurus,discount,p.pricing_snapshot?.checkout_mode]),shipping.fee,shipping.threshold];
+ if(installments?.enabled) parts.push(installmentFingerprint(installments));
+ return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 }
 export function cartTotal(items:CartItem[],discount:number) {
  return items.reduce((total,p)=>total+servicePrice(p.price_kurus ?? 0,discount)*p.quantity,0);
@@ -47,7 +54,7 @@ export function orderTotals(items:CartItem[],discount:number,shipping:ShippingRu
  const fee=items.length && !free ? shipping.fee : 0;
  return {subtotal,shipping:fee,total:subtotal+fee,freeShippingRemaining:!free && shipping.threshold>0 ? shipping.threshold-subtotal : 0};
 }
-export type CheckoutInput = {requestKey:string;quote:string;name:string;email:string;phone:string;address:string;note:string};
+export type CheckoutInput = {requestKey:string;quote:string;name:string;email:string;phone:string;address:string;note:string;installments?:number};
 /**
  * `garage` is used for cart lines added before a vehicle was recorded on them. `evidence` is who accepted the
  * pre-contract documents; the consent and the order-specific copy of those documents are stored with the order.
@@ -109,16 +116,20 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   const repriced=await livePriceChanges(client,items.flatMap(p=>refreshed.recosted[p.id]===undefined ? [] : [{id:p.id,nf:refreshed.recosted[p.id],price:p.price_kurus}]));
   if(repriced.length) { await client.query('ROLLBACK'); return {error:'price',products:repriced}; }
   const shipping=await shippingRule(client);
-  if(cartQuote(items,discount,shipping)!==input.quote) { await client.query('ROLLBACK'); return {error:'price'}; }
+  const installments=await installmentSettings(client);
+  if(cartQuote(items,discount,shipping,installments)!==input.quote) { await client.query('ROLLBACK'); return {error:'price'}; }
   const totals=orderTotals(items,discount,shipping);
+  // The chosen option is recomputed here (#886); a count the settings do not offer for this basket is refused.
+  const plan=installmentOptions(installments,totals.total,totals.subtotal).find(option=>option.count===(input.installments ?? 1));
+  if(!plan) { await client.query('ROLLBACK'); return {error:'price'}; }
   const vehicles=items.map(p=>parseGarageVehicle(p.vehicle) ?? garage);
   let levels=items.map((p,i)=>preloaded.level(p,vehicles[i]));
   // The cart changed after the preload: resolve again, once, for all lines.
   if(levels.includes(null)) levels=await productFitmentLevels(items.map((p,i)=>({product:p,vehicle:vehicles[i]})));
   const order=(await client.query<{id:string;number:string;created_at:Date}>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,note,total_kurus,discount_percent,
-   subtotal_kurus,shipping_kurus,status,payment_status,payment_due_at)
-   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment','awaiting',now()+make_interval(mins=>$13)) RETURNING id,number,created_at`,
-   [owner.kind,owner.id,input.requestKey,input.name,input.email,input.phone,input.address,input.note,totals.total,discount,totals.subtotal,totals.shipping,PAYMENT_WINDOW_MINUTES])).rows[0];
+   subtotal_kurus,shipping_kurus,status,payment_status,payment_due_at,installment_count,installment_fee_kurus)
+   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment','awaiting',now()+make_interval(mins=>$13),$14,$15) RETURNING id,number,created_at`,
+   [owner.kind,owner.id,input.requestKey,input.name,input.email,input.phone,input.address,input.note,plan.totalKurus,discount,totals.subtotal,totals.shipping,PAYMENT_WINDOW_MINUTES,plan.count,plan.feeKurus])).rows[0];
   const lines:AgreementLine[]=[];
   for(const [i,p] of items.entries()) {
    const unitPrice=servicePrice(p.price_kurus!,discount);
@@ -140,7 +151,8 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,unitPrice,JSON.stringify(snapshot),vehicle ? JSON.stringify(vehicle) : null,levels[i],reserved]);
   }
   const document=buildOrderAgreement({number:order.number,createdAt:order.created_at,name:input.name,email:input.email,phone:input.phone,address:input.address,note:input.note,
-   discountPercent:discount,subtotalKurus:totals.subtotal,shippingKurus:totals.shipping,totalKurus:totals.total},lines);
+   discountPercent:discount,subtotalKurus:totals.subtotal,shippingKurus:totals.shipping,totalKurus:plan.totalKurus,
+   ...(plan.count>1 ? {installmentCount:plan.count,installmentFeeKurus:plan.feeKurus} : {})},lines);
   await client.query(`INSERT INTO commerce_order_agreements(order_id,ip,forwarded_for,user_agent,consent_text,legal_version,document) VALUES($1,$2,$3,$4,$5,$6,$7)`,
    [order.id,evidence.ip,evidence.forwardedFor,evidence.userAgent,checkoutConsentText,legalTextVersion(),JSON.stringify(document)]);
   // The cart stays until TAMI confirms payment, so a declined card can be retried.

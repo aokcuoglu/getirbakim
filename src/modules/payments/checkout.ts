@@ -4,6 +4,9 @@ import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
 import { cancelLockedOrder } from "@/modules/store/order-cancel";
+import { money } from "@/modules/store/money";
+import { installmentTotal } from "./installment-plan";
+import { installmentSettings } from "./installment-settings";
 import {
   createHostedToken, buildHostedPaymentUrl, queryPaymentByOrderId, verifiedPaymentSuccess, verifySecurityHash,
   TamiRequestError, type TamiQueryResponse,
@@ -207,8 +210,8 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const order = (await client.query<{ status: string; payment_status: string; number: string; cancelled_by: string | null }>(
-      "SELECT status,payment_status,number,cancelled_by FROM commerce_orders WHERE id=$1 FOR UPDATE", [orderId],
+    const order = (await client.query<{ status: string; payment_status: string; number: string; cancelled_by: string | null; total_kurus: string; installment_count: number; installment_fee_kurus: string }>(
+      "SELECT status,payment_status,number,cancelled_by,total_kurus,installment_count,installment_fee_kurus FROM commerce_orders WHERE id=$1 FOR UPDATE", [orderId],
     )).rows[0];
     const updated = await client.query(
       `UPDATE commerce_payments SET status='succeeded',paid_at=now(),checked_at=now(),provider_result=$2,
@@ -216,6 +219,8 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
       [attempt.id, JSON.stringify(providerResult(query)), query.bankReferenceNumber, query.bankAuthCode, query.installmentCount],
     );
     if (!order || !updated.rowCount) { await client.query("COMMIT"); return; }
+    // Whether this capture settles the order; other branches already ask for the whole payment back.
+    let settled = false;
     if (order.payment_status === "refunded") {
       // The order's money was already returned; this capture must be refunded too, so the refund step reopens.
       await client.query("UPDATE commerce_orders SET payment_status='refund_required' WHERE id=$1", [orderId]);
@@ -225,6 +230,7 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
     } else if (order.status === "awaiting_payment") {
       await client.query("UPDATE commerce_orders SET status='pending',payment_status='paid',paid_at=now() WHERE id=$1", [orderId]);
       await clearPurchasedCart(client, orderId);
+      settled = true;
     } else if (order.status === "cancelled" && order.payment_status === "cancelled") {
       // Cancelled unpaid (by the customer, #607) before this capture landed: the order stays cancelled and the money goes back.
       await client.query("UPDATE commerce_orders SET payment_status='refund_required',paid_at=now() WHERE id=$1", [orderId]);
@@ -237,16 +243,39 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
         ? "Ödeme süre dolduktan sonra alındı ve mağaza stoku yetersiz; stok/iade kararı verin."
         : "Ödeme süre dolduktan sonra alındı; fiyat ve stok teyidini yapın.");
       await clearPurchasedCart(client, orderId);
+      settled = true;
     } else {
       await appendNote(client, orderId, `Beklenmeyen durumda ödeme alındı (${attempt.provider_order_id}); siparişi inceleyin.`);
     }
-    // The hosted page lets the buyer pick installments on its own; the merchant carries that commission (#873).
-    if (query.installmentCount !== null && query.installmentCount > 1) {
-      await appendNote(client, orderId, `TAMI'de ${query.installmentCount} taksitle ödendi (${attempt.provider_order_id}); taksit komisyonu işyerine yansır.`);
-    }
+    const note = await installmentNote(client, order, query.installmentCount, attempt.provider_order_id, settled);
+    if (note) await appendNote(client, orderId, note);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
+}
+
+/**
+ * The hosted page lets the buyer pick installments on its own (#873), so the count actually paid may differ from the
+ * option chosen at checkout (#886). More installments: the merchant carries the extra commission. Fewer on a settled
+ * order: the buyer paid the fee for installments they did not use, so the difference is refunded by hand.
+ */
+async function installmentNote(client: PoolClient, order: { total_kurus: string; installment_count: number; installment_fee_kurus: string },
+  actual: number | null, providerOrderId: string, settled: boolean) {
+  const chosen = order.installment_count;
+  // An absent or malformed count (null, 0, NaN, fractional) says nothing about the installments: no note.
+  if (actual === null || !Number.isInteger(actual) || actual < 1 || actual === chosen) return null;
+  if (actual > chosen) {
+    return `TAMI'de ${actual} taksitle ödendi (${providerOrderId}); ${chosen > 1 ? `siparişte ${chosen} taksit seçilmişti, ` : ""}taksit komisyon farkı işyerine yansır.`;
+  }
+  if (!settled) return null;
+  const total = Number(order.total_kurus), fee = Number(order.installment_fee_kurus);
+  let refund: number | null = fee;
+  if (actual > 1) {
+    const settings = await installmentSettings(client);
+    const rate = settings.ratesBp[actual];
+    refund = rate === undefined ? null : Math.max(0, total - installmentTotal(total - fee, settings.singleRateBp, rate));
+  }
+  return `Siparişte ${chosen} taksit seçildi, TAMI'de ${actual === 1 ? "tek çekim" : `${actual} taksitle`} ödendi (${providerOrderId}); vade farkı iadesi gerekir${refund === null ? "" : ` (≈ ${money(refund)})`}.`;
 }
 
 export async function appendNote(client: PoolClient, orderId: string, note: string) {

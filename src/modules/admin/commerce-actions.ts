@@ -10,6 +10,8 @@ import { transitionOrder,recordOrderRefund,shipOrder,updateShipment,recordOrderR
 import { procurementInput } from './order-procurement';
 import { orderListBack,orderListReturn,type OrderListOutcome } from './order-list-return';
 import { refundPayment,checkRefund,type RefundOutcome } from '@/modules/payments/refunds';
+import { INSTALLMENT_COUNTS } from '@/modules/payments/installment-plan';
+import { installmentInput } from './installment-input';
 export async function savePricing(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({markup:z.coerce.number().min(0).max(1000).multipleOf(0.01),vat:z.coerce.number().min(0).max(100).multipleOf(0.01),age:z.coerce.number().int().min(1).max(168)}).safeParse(Object.fromEntries(form));
@@ -30,6 +32,16 @@ export async function saveShipping(form:FormData) {
  const input=z.object({fee:z.coerce.number().min(0).max(100000).multipleOf(0.01),threshold:z.coerce.number().min(0).max(10000000).multipleOf(0.01)}).safeParse(Object.fromEntries(form));
  if(!input.success) redirect('/yonetim/fiyatlandirma?error=1');
  await db.query('UPDATE commerce_settings SET shipping_fee_kurus=$1,free_shipping_threshold_kurus=$2,updated_at=now(),updated_by=$3 WHERE id=true',[Math.round(input.data.fee*100),Math.round(input.data.threshold*100),admin.id]);
+ revalidatePath('/','layout'); redirect('/yonetim/fiyatlandirma?saved=1');
+}
+/** Installment settings (#886): on/off, the highest count, the minimum basket, the single-payment rate and each count's rate. */
+export async function saveInstallments(form:FormData) {
+ const admin=await requireAdmin();
+ const input=installmentInput.safeParse(Object.fromEntries(form));
+ if(!input.success) redirect('/yonetim/fiyatlandirma?error=installments');
+ const rates=Object.fromEntries(INSTALLMENT_COUNTS.map(count=>[String(count),input.data[`rate_${count}`]]));
+ await db.query(`UPDATE commerce_settings SET installments_enabled=$1,installment_max=$2,installment_min_basket_kurus=$3,installment_single_rate=$4,installment_rates=$5::jsonb,
+  updated_at=now(),updated_by=$6 WHERE id=true`,[input.data.enabled==='on',input.data.max,Math.round(input.data.minBasket*100),input.data.singleRate,JSON.stringify(rates),admin.id]);
  revalidatePath('/','layout'); redirect('/yonetim/fiyatlandirma?saved=1');
 }
 export async function saveService(form:FormData) {

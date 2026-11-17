@@ -153,7 +153,10 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               editable={["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status)}
               lines={lines}/></TableCell>
             <TableCell><PaymentStatusBadge status={o.payment_status}/></TableCell>
-            <TableCell className="text-right"><div className="font-medium tabular-nums">{money(Number(o.total_kurus))}</div>{Number(o.shipping_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Kargo {money(Number(o.shipping_kurus))} dahil</div>}</TableCell>
+            <TableCell className="text-right"><div className="font-medium tabular-nums">{money(Number(o.total_kurus))}</div>{Number(o.shipping_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Kargo {money(Number(o.shipping_kurus))} dahil</div>}
+              {Number(o.installment_fee_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Vade farkı {money(Number(o.installment_fee_kurus))} · {o.installment_count} taksit</div>}
+              {o.payments.some(p => p.status === "succeeded" && Number.isInteger(p.installment_count) && p.installment_count! >= 1 && p.installment_count !== o.installment_count)
+                && <Badge variant="warning" className="mt-1" title="Ödenen taksit sayısı siparişten farklı"><TriangleAlert data-icon="inline-start"/>Taksit sayısı farklı<span className="sr-only">: ödenen taksit sayısı siparişten farklı</span></Badge>}</TableCell>
             <TableCell>
               {["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
                 {o.status === "confirmed" && <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="ship"/>}
