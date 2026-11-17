@@ -58,7 +58,9 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
   // so brands of similar value are still interleaved. Items an earlier search already listed come first in their
   // tier: they cost no search of their own (#376). Pending products come from the dashboard's materialized states
   // (synced before the transaction); the catalog view rebuilt for every pending row took minutes (#921). serve()
-  // re-checks each item against the view before visiting the source.
+  // re-checks each item against the view before visiting the source. The listed lookup only runs for brands that have
+  // any search product (listed_brands), and the batch is cut to `size` before numbering: ranking every pending row
+  // first took seconds (#923). The per-brand window still sees every pending row.
   await client.query(`WITH finished AS (
     SELECT supplier_brand,count(*) AS n,count(*) FILTER(WHERE status IN ('complete','partial')) AS ok
     FROM enrichment_run_items WHERE status IN ('complete','partial','review','not_found') GROUP BY supplier_brand),
@@ -66,13 +68,16 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
    spareto AS (SELECT b.supplier_brand,count(*) FILTER(WHERE a.outcome='found')::numeric/count(*) AS rate FROM enrichment_source_attempts a
     JOIN product_enrichment_jobs b ON b.supplier_item_id=a.supplier_item_id WHERE a.source='spareto' AND a.outcome IN ('found','not_found')
     GROUP BY 1 HAVING count(*)>=5),
-   spareto_missed AS (SELECT DISTINCT supplier_item_id FROM enrichment_source_attempts WHERE source='spareto' AND outcome='not_found')
+   spareto_missed AS (SELECT DISTINCT supplier_item_id FROM enrichment_source_attempts WHERE source='spareto' AND outcome='not_found'),
+   listed_brands AS MATERIALIZED (SELECT b.supplier_brand,enrichment_brand_key(b.supplier_brand) AS brand_key
+    FROM (SELECT DISTINCT supplier_brand FROM enrichment_product_states WHERE status='pending' AND supplier_item_id IS NOT NULL AND supplier_brand<>'') b
+    WHERE enrichment_brand_key(b.supplier_brand) IN (SELECT brand_key FROM enrichment_search_products))
    INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
-   SELECT $1,product_id,supplier_item_id,row_number() OVER(ORDER BY priority,listed DESC,yield_bucket DESC,hash)-1,supplier_code,supplier_brand,oem FROM (
+   SELECT $1,product_id,supplier_item_id,row_number() OVER(ORDER BY priority,listed DESC,yield_bucket DESC,hash)-1,supplier_code,supplier_brand,oem FROM (SELECT * FROM (
     SELECT j.*,md5($2||j.product_id::text) AS hash,
      round(20*(COALESCE(f.ok,0)+10*o.rate)/(COALESCE(f.n,0)+10)*(1-CASE WHEN m.supplier_item_id IS NULL THEN COALESCE(sp.rate,0.5) ELSE 0 END)) AS yield_bucket,
-     EXISTS(SELECT 1 FROM enrichment_search_products sp WHERE sp.brand_key=enrichment_brand_key(j.supplier_brand)
-      AND sp.part_key IN (enrichment_part_key(j.supplier_code),enrichment_part_key(substring(btrim(j.supplier_code) from '[[:space:]]+(.+)$')))) AS listed,
+     CASE WHEN lb.brand_key IS NULL THEN false ELSE EXISTS(SELECT 1 FROM enrichment_search_products sp WHERE sp.brand_key=lb.brand_key
+      AND sp.part_key IN (enrichment_part_key(j.supplier_code),enrichment_part_key(substring(btrim(j.supplier_code) from '[[:space:]]+(.+)$')))) END AS listed,
      CASE WHEN $4 AND row_number() OVER(PARTITION BY j.supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
       WHEN c.id IS NULL THEN 3
       WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1
@@ -80,8 +85,9 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
     FROM enrichment_product_states j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
      LEFT JOIN finished f ON f.supplier_brand=j.supplier_brand CROSS JOIN overall o
      LEFT JOIN spareto sp ON sp.supplier_brand=j.supplier_brand LEFT JOIN spareto_missed m ON m.supplier_item_id=j.supplier_item_id
+     LEFT JOIN listed_brands lb ON lb.supplier_brand=j.supplier_brand
     WHERE j.status='pending' AND j.supplier_item_id IS NOT NULL AND j.supplier_brand<>'' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.product_id=j.product_id AND r.status IN ('prepared','running','blocked','stopped'))
-   ) s ORDER BY priority,listed DESC,yield_bucket DESC,hash LIMIT $3`,[run.id,seed,size,spreadBrands]);
+   ) s ORDER BY priority,listed DESC,yield_bucket DESC,hash LIMIT $3) t`,[run.id,seed,size,spreadBrands]);
   const count=(await client.query('SELECT count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1',[run.id])).rows[0].count;
   if(!count||(count!==size&&!allowShort))throw Error('Not enough pending jobs');
   if(count!==size)await client.query('UPDATE enrichment_runs SET sample_size=$2 WHERE id=$1',[run.id,count]);await client.query('COMMIT');
