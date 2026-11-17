@@ -43,7 +43,8 @@ function Pager({label, grid}: {label: string; grid?: boolean}) {
   return <>
     <CarouselPrevious aria-label={label+": önceki"} className={cn(arrow, "-left-3 max-md:left-0", position, gridPosition)}/>
     <CarouselNext aria-label={label+": sonraki"} className={cn(arrow, "-right-3 max-md:right-0", position, gridPosition)}/>
-    <div aria-hidden="true" className="absolute inset-x-0 top-[calc(100%+25px)] flex justify-center gap-2 max-[48.0625rem]:inset-x-14">
+    <p className="sr-only" aria-live="polite">{label}: sayfa {page+1} / {pages}</p>
+    <div aria-hidden="true" className={cn("absolute inset-x-0 top-[calc(100%+25px)] flex justify-center max-[48.0625rem]:inset-x-14", pages>=8?"gap-1":"gap-2")}>
       {Array.from({length: pages}, (_, index) => <span key={index} className={cn("h-0.5 min-w-0 max-w-8 flex-1", page===index?"bg-foreground":"bg-input")}/>)}
     </div>
   </>;

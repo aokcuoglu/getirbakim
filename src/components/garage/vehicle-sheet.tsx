@@ -161,7 +161,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   return <Tabs value={tab} onValueChange={value => { setTab(value as Tab); setError(""); }} className="flex min-h-0 flex-1 flex-col gap-0">
     <div className="relative shrink-0 bg-[linear-gradient(90deg,rgba(20,25,33,.8),rgba(20,25,33,.4)),url('/hero-car.jpg')] bg-cover bg-[center_55%] px-5 pt-5 text-white max-[600px]:pt-[max(20px,env(safe-area-inset-top))]">
       <SheetTitle id={`${id}-title`} className="mt-0 mr-12 mb-5 text-xl leading-7 font-semibold text-white">Araç seçimi</SheetTitle>
-      <SheetClose aria-label="Araç seçimini kapat" disabled={pending} className="absolute top-2 right-2 grid size-11 min-h-11 place-items-center rounded-[4px] border-0 bg-white/15 p-0 text-white hover:bg-white/25 disabled:bg-white/15 disabled:text-white"><X size={18} /></SheetClose>
+      <SheetClose aria-label="Araç seçimini kapat" disabled={pending} className="absolute top-[max(8px,env(safe-area-inset-top))] right-2 grid size-11 min-h-11 place-items-center rounded-[4px] border-0 bg-white/15 p-0 text-white hover:bg-white/25 disabled:bg-white/15 disabled:text-white"><X size={18} /></SheetClose>
       <TabsList aria-label="Araç seçimi sekmeleri" className="h-auto! gap-6 rounded-none bg-transparent p-0">
         {([["search", "Ara"], ["garage", "Garajım"]] as const).map(([value, label]) => <TabsTrigger key={value} value={value}
           className="h-auto! min-h-11 flex-none rounded-none border-0 border-b-2 border-transparent bg-transparent px-0 pt-0 pb-2.5 text-sm font-normal text-white/70 after:hidden hover:bg-transparent hover:text-white focus-visible:ring-white/60 data-active:border-white data-active:bg-transparent data-active:text-white data-active:shadow-none">{label}</TabsTrigger>)}
@@ -180,7 +180,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             {step !== "brand" && !query.trim() && <Button type="button" aria-label="Önceki seçim adımına dön" onClick={back} className={cn(plain, "-ml-2.5 grid size-11 min-h-11 place-items-center text-foreground [&_svg:not([class*='size-'])]:size-[18px]")}><ArrowLeft size={18} /></Button>}
             <h3 ref={heading} tabIndex={-1} className={stepHeading}>{query.trim() ? "Arama sonuçları" : titles[step]}</h3>
           </div>
-          {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-1.5 text-muted-foreground [&>button]:min-h-6 [&>button]:text-xs [&>button]:text-muted-foreground [&>button:hover]:text-brand [&>button:hover]:underline" aria-label="Araç seçim adımları">
+          {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-1.5 text-muted-foreground [&>button]:min-h-11 [&>button]:text-xs [&>button]:text-muted-foreground [&>button:hover]:text-brand [&>button:hover]:underline" aria-label="Araç seçim adımları">
             <Button type="button" className={plain} onClick={() => go("brand")}>{brand?.label ?? brand?.name}</Button>
             {family && step !== "family" && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("family")}>{family.label}</Button></>}
             {model && !["family", "model"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go(family?.models.length === 1 ? "family" : "model")}>{model.label ?? model.name}</Button></>}
