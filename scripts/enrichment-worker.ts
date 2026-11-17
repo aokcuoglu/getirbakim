@@ -16,13 +16,18 @@ import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
 import {productCategories} from '../src/modules/enrichment/source-categories';
 import {startChromeCollectors} from '../src/modules/enrichment/chrome-driver';
 import {recordSearchProducts,knownSearchProducts} from '../src/modules/enrichment/search-products';
+import {applySchemaFiles,requireEnrichmentSchema} from '../src/modules/enrichment/schema';
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
 const command=process.argv[2];
 const LONG_VEHICLE_LIST=150;
 const responseSchema=z.object({id:z.uuid(),token:z.uuid(),httpStatus:z.number().int().min(0).max(599),elapsedMs:z.number().int().min(0).max(120000),bytes:z.number().int().min(0).max(15*1024*1024),retryAfter:z.string().nullable(),error:z.string().max(2000).optional(),challenge:z.boolean().optional(),body:z.unknown().optional()});
+// Only the hand-run `prepare` alters the schema, and gives up after 5 s on a busy table. Every other command (launchd
+// restarts `continue` every 15 minutes) only checks that db:setup created the tables: an ALTER TABLE queued behind a
+// long read would queue the admin pages' reads behind it (#921).
 async function prepare(){
- const client=await pool.connect();try{await client.query('BEGIN');await client.query(await readFile('db/enrichment-worker.sql','utf8'));await client.query(await readFile('db/source-categories.sql','utf8'));await client.query(await readFile('db/enrichment-products.sql','utf8'));await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
+ const client=await pool.connect();try{await client.query('BEGIN');await applySchemaFiles(client,['db/enrichment-worker.sql','db/source-categories.sql','db/enrichment-products.sql']);await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
+const requireSchema=()=>requireEnrichmentSchema(pool,['enrichment_runs','enrichment_run_items','enrichment_source_hosts','enrichment_product_states','enrichment_product_catalog','product_source_categories']);
 async function report(runId:string){
  const run=(await pool.query('SELECT * FROM enrichment_runs WHERE id=$1',[runId])).rows[0];
  const outcomes=(await pool.query('SELECT status,count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1 GROUP BY status ORDER BY status',[runId])).rows;
@@ -37,6 +42,7 @@ async function report(runId:string){
 // Each unmerged master product contributes at most one source visit to the full catalog pass.
 async function createRun(size:number,seed:string,allowShort=false,spreadBrands=true){
  if(!Number.isInteger(size)||size<1||size>1000)throw Error('Pilot size must be 1..1000');
+ await pool.query('SELECT enrichment_product_states_sync()');
  const client=await pool.connect();try{
   await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock(20261004,1)');
   const active=(await client.query("SELECT id FROM enrichment_runs WHERE kind='products' AND status IN ('prepared','running','blocked','stopped') LIMIT 1")).rows[0];if(active)throw Error('Resume existing unfinished run '+active.id);
@@ -50,7 +56,9 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
   // with few finished items stay in the middle until measured; spareto's counts once it searched a brand 5 times
   // (else 0.5, as in spareto-enrichment.ts) and is 0 for an item spareto already missed. The product is bucketed
   // so brands of similar value are still interleaved. Items an earlier search already listed come first in their
-  // tier: they cost no search of their own (#376).
+  // tier: they cost no search of their own (#376). Pending products come from the dashboard's materialized states
+  // (synced before the transaction); the catalog view rebuilt for every pending row took minutes (#921). serve()
+  // re-checks each item against the view before visiting the source.
   await client.query(`WITH finished AS (
     SELECT supplier_brand,count(*) AS n,count(*) FILTER(WHERE status IN ('complete','partial')) AS ok
     FROM enrichment_run_items WHERE status IN ('complete','partial','review','not_found') GROUP BY supplier_brand),
@@ -69,7 +77,7 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
       WHEN c.id IS NULL THEN 3
       WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1
       ELSE 2 END AS priority
-    FROM enrichment_product_catalog j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
+    FROM enrichment_product_states j LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
      LEFT JOIN finished f ON f.supplier_brand=j.supplier_brand CROSS JOIN overall o
      LEFT JOIN spareto sp ON sp.supplier_brand=j.supplier_brand LEFT JOIN spareto_missed m ON m.supplier_item_id=j.supplier_item_id
     WHERE j.status='pending' AND j.supplier_item_id IS NOT NULL AND j.supplier_brand<>'' AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.product_id=j.product_id AND r.status IN ('prepared','running','blocked','stopped'))
@@ -306,7 +314,7 @@ async function serve(runId:string,port:number,chrome=false){
 // Works through every pending job in batches: an unfinished run is resumed first, then new batches are drawn until the
 // queue is empty. A blocked source or a stop signal ends the loop with the batch's checkpoints preserved.
 async function continueAll(port:number,chrome:boolean,batchSize:number){
- await prepare();
+ await requireSchema();
  for(let batch=1;;batch++){
   // An open circuit means the site blocked us: stop before Chrome visits it again. launchd restarts this command every
   // 15 minutes, so only a hand-run `unblock` may send the worker back to a site that blocked it.
@@ -317,7 +325,8 @@ async function continueAll(port:number,chrome:boolean,batchSize:number){
   if(!runId){
    const queued=await enqueueProductSources(pool);
    if(queued)console.log(JSON.stringify({continue:'queued-new-items',queued}));
-   const pending=(await pool.query("SELECT count(*)::int AS n FROM enrichment_product_catalog WHERE status='pending' AND supplier_item_id IS NOT NULL AND supplier_brand<>''")).rows[0].n;
+   await pool.query('SELECT enrichment_product_states_sync()');
+   const pending=(await pool.query("SELECT count(*)::int AS n FROM enrichment_product_states WHERE status='pending' AND supplier_item_id IS NOT NULL AND supplier_brand<>''")).rows[0].n;
    if(!pending){console.log(JSON.stringify({continue:'done',batches:batch-1}));return;}
    runId=await createRun(Math.min(batchSize,1000),`catalog-${new Date().toISOString().slice(0,10)}-b${batch}`,true,false);
   }
@@ -415,17 +424,17 @@ async function indexSearches(){
 }
 try{
  if(command==='prepare'){await prepare();console.log('Durable enrichment queue ready');}
- else if(command==='pilot'){await prepare();await enqueueProductSources(pool);console.log(JSON.stringify({runId:await createRun(Number(process.argv[3]||1000),process.argv[4]||'pilot-2026-10-04-v1')}));}
- else if(command==='run'){await prepare();const args=process.argv.slice(3).filter(a=>a!=='--chrome');await serve(z.uuid().parse(args[0]),Number(args[1]||4318),process.argv.includes('--chrome'));}
+ else if(command==='pilot'){await requireSchema();await enqueueProductSources(pool);console.log(JSON.stringify({runId:await createRun(Number(process.argv[3]||1000),process.argv[4]||'pilot-2026-10-04-v1')}));}
+ else if(command==='run'){await requireSchema();const args=process.argv.slice(3).filter(a=>a!=='--chrome');await serve(z.uuid().parse(args[0]),Number(args[1]||4318),process.argv.includes('--chrome'));}
  else if(command==='continue'){const args=process.argv.slice(3).filter(a=>a!=='--chrome');await continueAll(Number(args[0]||4318),process.argv.includes('--chrome'),Number(args[1]||1000));}
- else if(command==='index-searches'){await prepare();console.log(JSON.stringify(await indexSearches()));}
+ else if(command==='index-searches'){await requireSchema();console.log(JSON.stringify(await indexSearches()));}
  else if(command==='unblock')console.log(JSON.stringify({unblocked:await unblockSources(pool)}));
  else if(command==='retire')console.log(JSON.stringify({retired:await retireRuns()}));
  else if(command==='report')console.log(JSON.stringify(await report(z.uuid().parse(process.argv[3])),null,2));
- else if(command==='retry-review'){await prepare();console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));}
+ else if(command==='retry-review'){await requireSchema();console.log(JSON.stringify(await requeueReview(z.uuid().parse(process.argv[3]))));}
  else if(command==='retry-partial'){
   const at=process.argv.indexOf('--source'),source=z.enum(['trodo','spareto','otoparcasan','all']).parse(at>=0?process.argv[at+1]:'trodo');
-  await prepare();console.log(JSON.stringify(await requeuePartial(z.uuid().parse(process.argv[3]),source)));}
+  await requireSchema();console.log(JSON.stringify(await requeuePartial(z.uuid().parse(process.argv[3]),source)));}
  else throw Error('Usage: prepare | pilot [size] [seed] | run RUN_ID [port] [--chrome] | continue [port] [batch] [--chrome] | index-searches | unblock | retire | report RUN_ID | retry-review RUN_ID | retry-partial RUN_ID [--source trodo|spareto|otoparcasan|all]');
 }finally{await pool.end();}
 // Lingering browser sockets or timers must not keep a finished command alive.

@@ -3,6 +3,7 @@ import { Pool } from "pg";
 import { enrichmentImportSchema } from "../src/modules/store/enrichment-contract";
 import { enqueueProductSources } from "../src/modules/enrichment/product-queue";
 import { importEnrichments } from "../src/modules/enrichment/import";
+import { applySchemaFiles } from "../src/modules/enrichment/schema";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const command = process.argv[2];
@@ -12,14 +13,10 @@ try {
     try {
       await client.query("BEGIN");
       await client.query("SELECT pg_advisory_xact_lock(20261003,2)");
-      await client.query(await readFile("db/product-enrichment.sql", "utf8"));
-      await client.query(await readFile("db/product-fitments.sql", "utf8"));
-      await client.query(await readFile("db/manufacturer-logos.sql", "utf8"));
-      await client.query(await readFile("db/enrichment-worker.sql", "utf8"));
-      await client.query(await readFile("db/source-categories.sql", "utf8"));
-      await client.query(await readFile("db/enrichment-products.sql", "utf8"));
-      // enrichment-states.sql locks with schema_lock_key() from db/product-matching.sql: run db:setup first.
-      await client.query(await readFile("db/enrichment-states.sql", "utf8"));
+      // enrichment-states.sql locks with schema_lock_key() from db/product-matching.sql: run db:setup first. The DDL
+      // gives up after 5 s on a busy table instead of queueing the admin pages' reads behind it (#921).
+      await applySchemaFiles(client, ["db/product-enrichment.sql", "db/product-fitments.sql", "db/manufacturer-logos.sql",
+        "db/enrichment-worker.sql", "db/source-categories.sql", "db/enrichment-products.sql", "db/enrichment-states.sql"]);
       const queued = await enqueueProductSources(client);
       await client.query("COMMIT");
       console.log(JSON.stringify({ queued }));
