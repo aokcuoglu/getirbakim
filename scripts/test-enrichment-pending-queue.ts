@@ -156,3 +156,48 @@ test("the queue fill reads the materialized states", { skip }, async (t) => {
     await schema.pool.query("UPDATE product_enrichment_jobs SET status='pending',oem='',updated_at=now()");
   }
 });
+
+/** Runs `body` while another session holds the state sync lock, as refresh_product_matches does. */
+async function syncHeldOff(body: () => Promise<void>) {
+  const holder = await schema.pool.connect();
+  try {
+    await holder.query("BEGIN");
+    await holder.query("SELECT pg_advisory_xact_lock(20261001,schema_lock_key(5))");
+    await body();
+  } finally {
+    await holder.query("ROLLBACK");
+    holder.release();
+  }
+}
+
+test("the queue fill skips a stale states row whose supplier row is gone", { skip }, async () => {
+  await item("gone", "stock");
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await enqueueProductSources(schema.pool);
+  await syncHeldOff(async () => {
+    await schema.pool.query("DELETE FROM supplier_items WHERE id=$1", [ids.gone]);
+    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM enrichment_product_states WHERE supplier_item_id=$1", [ids.gone])).rows[0].n, 1,
+      "the states row is stale while the sync is held off");
+    assert.equal(await enqueueProductSources(schema.pool), 0);
+    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_enrichment_jobs WHERE supplier_item_id=$1", [ids.gone])).rows[0].n, 0);
+  });
+  delete ids.gone;
+});
+
+test("the queue fill does not write a stale identity back over a newer job", { skip }, async () => {
+  // As a manual import does: the supplier row and its finished job take a new code while the states keep the old one.
+  try {
+    await syncHeldOff(async () => {
+      await schema.pool.query("UPDATE supplier_items SET code='STOCKA 2000' WHERE id=$1", [ids.stocka]);
+      await schema.pool.query("UPDATE product_enrichment_jobs SET supplier_code='STOCKA 2000',status='complete',updated_at=now() WHERE supplier_item_id=$1", [ids.stocka]);
+      assert.equal((await schema.pool.query("SELECT supplier_code FROM enrichment_product_states WHERE supplier_item_id=$1", [ids.stocka])).rows[0].supplier_code,
+        "STOCKA 1000", "the states row is stale while the sync is held off");
+      assert.equal(await enqueueProductSources(schema.pool), 0);
+      assert.deepEqual((await schema.pool.query("SELECT supplier_code,status FROM product_enrichment_jobs WHERE supplier_item_id=$1", [ids.stocka])).rows[0],
+        { supplier_code: "STOCKA 2000", status: "complete" });
+    });
+  } finally {
+    await schema.pool.query("UPDATE supplier_items SET code='STOCKA 1000' WHERE id=$1", [ids.stocka]);
+    await schema.pool.query("UPDATE product_enrichment_jobs SET supplier_code='STOCKA 1000',status='pending',updated_at=now() WHERE supplier_item_id=$1", [ids.stocka]);
+  }
+});

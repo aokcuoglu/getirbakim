@@ -28,19 +28,28 @@ export async function reconcileProductQueue(pool: Pool | PoolClient, runId: stri
 
 /**
  * Queues each product's representative supplier row, read from the materialized enrichment_product_states (#921/#923):
- * reading the catalog view took seconds. Only rows without a job or whose code, brand or OEM changed reach the insert.
- * enrichment_product_states_sync() returns without syncing while another session holds its lock; a row left stale
- * then is fixed by the next fill.
+ * reading the catalog view took seconds. Only rows without a job or whose code, brand or OEM changed are candidates.
+ * enrichment_product_states_sync() returns without syncing while another session holds its lock, so a states row may
+ * carry an identity the supplier row no longer has (or a deleted supplier row): a candidate is written only while its
+ * code, brand and OEM still equal the live supplier row (the expressions of enrichment_product_candidates), so a stale
+ * row never resets a finished job or writes an old identity back; the next fill after a sync queues it.
+ * The candidates are narrowed first, then each is looked up in supplier_items by primary key (the OFFSET 0 keeps the
+ * lookup from being flattened into a hash join that scans every supplier row): the equalities inside an EXISTS dropped
+ * the row estimate to 1 and planned a nested loop over the jobs.
  */
 export async function enqueueProductSources(pool: Pool | PoolClient) {
   await pool.query("SELECT enrichment_product_states_sync()");
-  return (await pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,oem)
-    SELECT c.supplier_item_id,c.supplier_code,c.supplier_brand,c.oem FROM enrichment_product_states c
-    LEFT JOIN product_enrichment_jobs pj ON pj.supplier_item_id=c.supplier_item_id
-    WHERE c.supplier_item_id IS NOT NULL
-      AND (pj.supplier_item_id IS NULL OR pj.supplier_code IS DISTINCT FROM c.supplier_code
-        OR pj.supplier_brand IS DISTINCT FROM c.supplier_brand OR pj.oem IS DISTINCT FROM c.oem)
-      AND EXISTS(SELECT 1 FROM supplier_items s WHERE s.id=c.supplier_item_id)
+  return (await pool.query(`WITH changed AS MATERIALIZED (
+      SELECT c.supplier_item_id,c.supplier_code,c.supplier_brand,c.oem FROM enrichment_product_states c
+      LEFT JOIN product_enrichment_jobs pj ON pj.supplier_item_id=c.supplier_item_id
+      WHERE c.supplier_item_id IS NOT NULL
+        AND (pj.supplier_item_id IS NULL OR pj.supplier_code IS DISTINCT FROM c.supplier_code
+          OR pj.supplier_brand IS DISTINCT FROM c.supplier_brand OR pj.oem IS DISTINCT FROM c.oem))
+    INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,oem)
+    SELECT c.supplier_item_id,c.supplier_code,c.supplier_brand,c.oem FROM changed c
+    CROSS JOIN LATERAL (SELECT s.code,COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,
+      COALESCE(s.product_data->>'oe','') AS oem FROM supplier_items s WHERE s.id=c.supplier_item_id OFFSET 0) s
+    WHERE s.code=c.supplier_code AND s.brand=c.supplier_brand AND s.oem=c.oem
     ON CONFLICT(supplier_item_id) DO UPDATE SET supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
       oem=EXCLUDED.oem,status='pending',last_error=NULL,updated_at=now()
     WHERE product_enrichment_jobs.supplier_code<>EXCLUDED.supplier_code
