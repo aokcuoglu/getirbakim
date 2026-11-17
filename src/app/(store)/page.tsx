@@ -1,14 +1,13 @@
 import {normalizeSearchParams,type SearchParams} from "@/lib/search-params";
 import Image from "next/image";
 import Link from "next/link";
-import {Search,ChevronRight} from "lucide-react";
+import {ChevronRight} from "lucide-react";
 import {redirect} from "next/navigation";
 import {getStoreCategories} from "@/modules/store/categories";
 import {currentVehicle} from "@/modules/store/garage";
 import {shownVehicle} from "@/modules/store/vehicle-label";
 import {currentAccount} from "@/modules/auth/session";
 import {GarageButton} from "@/components/garage/garage-button";
-import {HomeHeroSearch} from "@/components/home-hero-search";
 import {HeroBackdrop} from "@/components/hero-backdrop";
 import {HomeCarousel,HomeCategoryTabs,HomeGridPager,HomeScrollHeader} from "@/components/home-controls";
 import {getVehicleBrands} from "@/modules/store/vehicle-catalog.server";
@@ -73,12 +72,10 @@ export default async function Home({searchParams}:{searchParams:Promise<SearchPa
   const productCard=(product:typeof products[number])=><HomeProductCard key={product.id} product={product} image={images.get(product.id)} partNumber={details.get(product.id)?.partNumber} category={productCategories.get(product.id)} account={account}/>;
   return <div className="bg-white text-foreground">
     <HomeScrollHeader/>
-    <section className="relative h-[280px] bg-[#212b36] pb-10 text-white max-[37.5rem]:h-[288px] max-[37.5rem]:min-h-[288px] max-[37.5rem]:pb-6">
+    <section className="relative h-[280px] bg-[#212b36] pb-10 text-white max-[37.5rem]:h-[200px] max-[37.5rem]:pb-6">
       <HeroBackdrop mobile="/media/site/images/Hero_image-mobile.webp" desktop="/media/site/images/Hero_image-1920.webp" desktop2x="/media/site/images/Hero_image-3840.webp"/>
-      <div className="relative flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/86 max-[37.5rem]:h-10 max-[37.5rem]:text-xs"><Search size={18} aria-hidden="true"/><span>Parça adı, marka veya OEM koduyla ara</span></div>
-      <div className="relative mx-auto w-full max-w-[1384px] px-8 max-[37.5rem]:px-4"><h1 className="mt-3 mb-4 flex h-24 items-center justify-center text-center text-[34px] leading-[42px] font-semibold tracking-[-.7px] max-[37.5rem]:mt-4 max-[37.5rem]:mb-5 max-[37.5rem]:h-[34px] max-[37.5rem]:text-[26px] max-[37.5rem]:leading-[34px]">Yedek parça alışverişi</h1><div className="flex items-center justify-center py-1 max-[37.5rem]:mx-auto max-[37.5rem]:max-w-[400px] max-[37.5rem]:flex-wrap max-[37.5rem]:p-0">
-        <HomeHeroSearch className="w-[296px] max-[53.125rem]:w-60 max-[37.5rem]:w-full max-[37.5rem]:flex-1 min-[37.5rem]:hidden"/>
-        <span className="relative mx-[25px] min-[37.5rem]:hidden w-4 py-[18px] text-center text-xs font-medium whitespace-nowrap text-white/75 uppercase before:absolute before:top-0 before:left-1/2 before:h-[17px] before:w-px before:bg-[#e6e9ec33] after:absolute after:bottom-0 after:left-1/2 after:h-[17px] after:w-px after:bg-[#e6e9ec33] max-[53.125rem]:mx-4 max-[37.5rem]:m-0 max-[37.5rem]:block max-[37.5rem]:h-[42px] max-[37.5rem]:w-full max-[37.5rem]:py-3 max-[37.5rem]:leading-[18px] max-[37.5rem]:before:top-1/2 max-[37.5rem]:before:left-0 max-[37.5rem]:before:h-px max-[37.5rem]:before:w-[calc(50%-20px)] max-[37.5rem]:after:top-1/2 max-[37.5rem]:after:right-0 max-[37.5rem]:after:bottom-auto max-[37.5rem]:after:left-auto max-[37.5rem]:after:h-px max-[37.5rem]:after:w-[calc(50%-20px)]">veya</span><GarageButton vehicle={shownVehicle(vehicle)} variant="catalog"/>
+      <div className="relative mx-auto w-full max-w-[1384px] px-8 max-[37.5rem]:px-4"><h1 className="mt-16 mb-4 flex h-24 items-center justify-center text-center text-[34px] leading-[42px] font-semibold tracking-[-.7px] max-[37.5rem]:mt-8 max-[37.5rem]:mb-5 max-[37.5rem]:h-[34px] max-[37.5rem]:text-[26px] max-[37.5rem]:leading-[34px]">Yedek parça alışverişi</h1><div className="flex items-center justify-center py-1 max-[37.5rem]:mx-auto max-[37.5rem]:max-w-[400px] max-[37.5rem]:flex-wrap max-[37.5rem]:p-0">
+        <GarageButton vehicle={shownVehicle(vehicle)} variant="catalog"/>
       </div></div>
     </section>
     <section className="mb-[87px] bg-[#fafafa] pt-14 pb-[77px] max-md:mb-12 max-md:pt-10 max-md:pb-12">
