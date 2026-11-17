@@ -21,16 +21,20 @@ before(async () => {
 });
 after(async () => { await schema?.drop(); });
 
-async function importList(rows: ManualRow[], listGroup = list) {
+async function importList(rows: ManualRow[], listGroup = list, listName = "Test yağlar") {
   const { saveManualDraft, importManualDraft } = await import("../src/modules/suppliers/manual-import");
-  const id = await saveManualDraft(schema.pool, { listGroup, listName: "Test yağlar", fileName: "liste.xlsx", parsed: { rows, issues: [], sheets: [{ name: "Ürünler", rows: rows.length }] }, by: adminId });
+  const id = await saveManualDraft(schema.pool, { listGroup, listName, fileName: "liste.xlsx", parsed: { rows, issues: [], sheets: [{ name: "Ürünler", rows: rows.length }] }, by: adminId });
   await importManualDraft(schema.pool, id, async () => assert.fail("no downloads"));
 }
 
-async function applyCsv(lines: string[], listGroup = list) {
+const bulkHeader = "Marka;Stok Kodu;Liste Fiyatı;İskonto Oranı;Kârlılık Oranı;Stok Adedi";
+
+/** A CSV draft uploaded on `listGroup`'s page; `combined` adds the leading Liste column, resolved against the schema's lists. */
+async function applyCsv(lines: string[], listGroup = list, combined = false) {
   const { parseManualBulkCsv } = await import("../src/modules/suppliers/manual-bulk-csv");
-  const { saveManualBulkDraft, applyManualBulkDraft } = await import("../src/modules/suppliers/manual-bulk");
-  const parsed = parseManualBulkCsv(new TextEncoder().encode(["Marka;Stok Kodu;Liste Fiyatı;İskonto Oranı;Kârlılık Oranı;Stok Adedi", ...lines].join("\r\n")));
+  const { saveManualBulkDraft, applyManualBulkDraft, manualBulkLists } = await import("../src/modules/suppliers/manual-bulk");
+  const parsed = parseManualBulkCsv(new TextEncoder().encode([combined ? `Liste;${bulkHeader}` : bulkHeader, ...lines].join("\r\n")),
+    combined ? await manualBulkLists(schema.pool) : []);
   const id = await saveManualBulkDraft(schema.pool, { listGroup, listName: "Test yağlar", fileName: "fiyat.csv", parsed, by: adminId });
   return { id, apply: () => applyManualBulkDraft(schema.pool, id, adminId) };
 }
@@ -185,4 +189,91 @@ test("PostgreSQL: a list price, discount and stock saved on the item page act li
   await updateManualItem(schema.pool, id, { stock: null }, adminId, noDownload);
   assert.deepEqual((await item("P1", group)).stock_data, { stok: 5 });
   assert.equal((await fieldsOf())?.bulk, undefined);
+});
+
+test("PostgreSQL: an all-lists CSV writes every list under one lock and in one transaction (#844)", { skip }, async () => {
+  const { ManualImportError, lock, updateManualItem } = await import("../src/modules/suppliers/manual-import");
+  const { manualDraft } = await import("../src/modules/suppliers/manual-bulk");
+  const [a, b] = ["test-tum-a", "test-tum-b"];
+  // The same code in both lists.
+  await importList([row("T1", 100, 5), row("T2", 50, 1)], a, "Tüm A");
+  await importList([row("T1", 300, 2)], b, "Tüm B");
+  const fieldsOf = async (group: string, code: string) => (await schema.pool.query("SELECT fields FROM manual_item_overrides WHERE list_group=$1 AND code=$2", [group, code])).rows[0]?.fields;
+
+  // Unchanged values: no change; names match regardless of case, slugs too.
+  const same = await applyCsv(["Tüm A;MOTUL;T1;;;;", "tüm a;MOTUL;T2;;;;", "test-tum-b;MOTUL;T1;;;;"], a, true);
+  const sameReport = (await schema.pool.query("SELECT list_group,list_name,report FROM manual_uploads WHERE id=$1", [same.id])).rows[0];
+  assert.deepEqual([sameReport.report.updated, sameReport.report.errors, sameReport.report.bulk.unchanged], [0, 0, 3]);
+  assert.deepEqual(sameReport.report.bulk.lists, [{ group: a, name: "Tüm A", rows: 2 }, { group: b, name: "Tüm B", rows: 1 }]);
+  assert.deepEqual([sameReport.list_group, sameReport.list_name], [a, "Tüm A, Tüm B"]);
+
+  // The panel stock of A's T1 keeps its mark when the CSV changes only the price (#842).
+  const t1 = (await item("T1", a)).id;
+  await updateManualItem(schema.pool, t1, { stock: 8 }, adminId, async () => assert.fail("no downloads"));
+  const draft = await applyCsv(["Tüm A;MOTUL;T1;1.000;10;;", "Tüm B;MOTUL;T1;;;;4"], b, true);
+  // A file of two lists stays on the page's list for routing.
+  assert.equal((await schema.pool.query("SELECT list_group FROM manual_uploads WHERE id=$1", [draft.id])).rows[0].list_group, b);
+  // The paged review keeps the lists and each change's list name (page 2 of one page clamps to it).
+  const page = await manualDraft(schema.pool, draft.id, 2, 1);
+  assert.equal(page.change_count, 2);
+  assert.deepEqual(page.report.bulk!.lists!.map(entry => entry.name), ["Tüm A", "Tüm B"]);
+  assert.deepEqual(page.report.bulk!.changes.map(change => [change.listName, change.code]), [["Tüm A", "T1"], ["Tüm B", "T1"]]);
+
+  assert.deepEqual(await draft.apply(), { listGroup: b, changed: 2 });
+  assert.deepEqual((await item("T1", a)).price_data, { nf: 900, list: 1000, discount: 10 });
+  assert.deepEqual((await item("T1", a)).stock_data, { stok: 8 });
+  assert.deepEqual((await item("T1", b)).price_data, { nf: 300 });
+  assert.deepEqual((await item("T1", b)).stock_data, { stok: 4 });
+  const aBulk = (await fieldsOf(a, "T1")).bulk;
+  assert.deepEqual(aBulk.stock, { value: 8, file: 5, by: "panel" });
+  assert.equal(aBulk.price.by, undefined);
+  assert.deepEqual((await fieldsOf(b, "T1")).bulk, { stock: { value: 4, file: 2 } });
+  // The lists stay on the decided draft.
+  assert.equal((await schema.pool.query("SELECT report->'bulk'->'lists' AS lists FROM manual_uploads WHERE id=$1", [draft.id])).rows[0].lists.length, 2);
+
+  // Atomic: B's item changes under the draft → the recheck refuses it and A is untouched.
+  const broken = await applyCsv(["Tüm A;MOTUL;T2;;;;7", "Tüm B;MOTUL;T1;;;;9"], a, true);
+  await schema.pool.query("UPDATE supplier_items SET product_data=jsonb_set(product_data,'{uk}','\"CASTROL\"') WHERE supplier='manual' AND list_group=$1 AND code='T1'", [b]);
+  await assert.rejects(broken.apply(), (error: unknown) => error instanceof ManualImportError && error.reason === "invalid" && error.detail === "recheck");
+  assert.deepEqual((await item("T2", a)).stock_data, { stok: 1 });
+  await schema.pool.query("UPDATE supplier_items SET product_data=jsonb_set(product_data,'{uk}','\"MOTUL\"') WHERE supplier='manual' AND list_group=$1 AND code='T1'", [b]);
+
+  // An unknown list blocks the draft.
+  const unknown = await applyCsv(["Yok;MOTUL;T2;;;;7", "Tüm A;MOTUL;T2;;;;7"], a, true);
+  const unknownReport = (await schema.pool.query("SELECT report FROM manual_uploads WHERE id=$1", [unknown.id])).rows[0].report;
+  assert.equal(unknownReport.errors, 1);
+  assert.equal(unknownReport.issues[0].message, "Liste bulunamadı: \"Yok\"");
+  await assert.rejects(unknown.apply(), (error: unknown) => error instanceof ManualImportError && error.reason === "invalid");
+
+  // One lock for the whole file: while another session holds it the draft is refused.
+  const busy = await applyCsv(["Tüm A;MOTUL;T2;;;;7", "Tüm B;MOTUL;T1;;;;6"], a, true);
+  const holder = await schema.pool.connect();
+  try {
+    await holder.query("SELECT pg_advisory_lock($1,$2)", lock);
+    await assert.rejects(busy.apply(), (error: unknown) => error instanceof ManualImportError && error.reason === "busy");
+    await holder.query("SELECT pg_advisory_unlock($1,$2)", lock);
+  } finally { holder.release(); }
+  assert.deepEqual(await busy.apply(), { listGroup: a, changed: 2 });
+  assert.deepEqual([(await item("T2", a)).stock_data, (await item("T1", b)).stock_data], [{ stok: 7 }, { stok: 6 }]);
+});
+
+test("PostgreSQL: the all-lists download uploaded back unchanged changes nothing (#844)", { skip }, async () => {
+  const { buildManualBulkCsv, parseManualBulkCsv } = await import("../src/modules/suppliers/manual-bulk-csv");
+  const { manualBulkExportAll, manualBulkLists, saveManualBulkDraft } = await import("../src/modules/suppliers/manual-bulk");
+  // The same code in two lists, a zero-padded code and a list name Excel would read as a formula; the schema's
+  // earlier lists share the name "Test yağlar", which the download writes as their slugs.
+  await importList([row("R1", 100, 5), row("00123", 40, null)], "test-geri-a", "Geri; A");
+  await importList([row("R1", 300, 2)], "test-geri-b", "=Geri B");
+  const all = await manualBulkExportAll(schema.pool);
+  const ours = all.rows.filter(entry => entry.listName === "Geri; A" || entry.listName === "=Geri B");
+  assert.deepEqual(ours.map(entry => [entry.listName, entry.code]), [["Geri; A", "00123"], ["Geri; A", "R1"], ["=Geri B", "R1"]]);
+  const csv = buildManualBulkCsv(all.rows, true);
+  assert.ok(csv.startsWith("\ufeffListe;Marka;Stok Kodu;"));
+  assert.ok(all.rows.some(entry => entry.listName === "test-yaglar"));
+  const parsed = parseManualBulkCsv(new TextEncoder().encode(csv), await manualBulkLists(schema.pool));
+  assert.equal(parsed.combined, true);
+  assert.deepEqual(parsed.issues, []);
+  const id = await saveManualBulkDraft(schema.pool, { listGroup: "test-geri-a", listName: "Geri; A", fileName: "tum.csv", parsed, by: adminId });
+  const report = (await schema.pool.query("SELECT report FROM manual_uploads WHERE id=$1", [id])).rows[0].report;
+  assert.deepEqual([report.updated, report.errors, report.warnings, report.bulk.unchanged], [0, 0, 0, all.rows.length]);
 });

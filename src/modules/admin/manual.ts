@@ -10,7 +10,7 @@ import type { ManualRow } from "@/modules/suppliers/manual-template";
 import type { ManualBulkReport } from "@/modules/suppliers/manual-bulk";
 import type { ManualBulkExportRow } from "@/modules/suppliers/manual-bulk-csv";
 import { manualBulkPageNumber as pageNumber } from "@/modules/suppliers/manual-bulk-paging";
-import { manualDraft } from "@/modules/suppliers/manual-bulk";
+import { manualBulkExportAll, manualBulkExportColumns, manualBulkExportFrom, manualDraft } from "@/modules/suppliers/manual-bulk";
 import { z } from "zod";
 import type { SupplierChange } from "./supplier-changes";
 import { supplierItemPage, type SaleFields } from "./supplier-items";
@@ -19,7 +19,9 @@ import { itemProductSql, shownImageSql } from "@/modules/store/product-image-sql
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 
 export type ManualParams = { liste?: string; taslak?: string; q?: string; category?: string; stock?: string; quality?: string; presence?: string;
-  page?: string; degisiklik?: string; bulgu?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; bulk?: string; error?: string; detail?: string };
+  page?: string; degisiklik?: string; bulgu?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; bulk?: string; error?: string; detail?: string;
+  /** "1": the bulk CSV of every list (#844). */
+  tum?: string };
 type ManualList = { list_group: string; list_name: string; present: number; missing_prices: number; missing_packages: number; last_import: Date | null };
 /** kind "list": an xlsx list upload; "bulk": a price/stock CSV, whose report also carries the diff (report.bulk). */
 export type ManualUpload = { id: string; list_group: string; list_name: string; file_name: string; status: "draft" | "imported" | "discarded";
@@ -100,19 +102,23 @@ async function manualItems(listGroup: string, params: ManualParams) {
   });
 }
 
-/** The bulk price/stock CSV of the selected list, filtered like the product tab, without paging (#832). */
+/**
+ * The bulk price/stock CSV of the selected list, filtered like the product tab, without paging (#832). `tum=1`: every
+ * list's present items in one file with the list name (#844); the tab's filters belong to one list and are ignored.
+ */
 export async function adminManualBulkExport(params: ManualParams) {
   await requireAdmin();
+  if (params.tum === "1") {
+    const all = await manualBulkExportAll(db);
+    return all.lists.length ? { list: null, combined: true, rows: all.rows } : null;
+  }
   const lists = await adminManualLists();
   const list = lists.find(entry => entry.list_group === params.liste) ?? lists[0];
   if (!list) return null;
   const { where, values } = manualItemFilter(list.list_group, params);
-  const rows = (await db.query<ManualBulkExportRow>(`SELECT COALESCE(product_data->>'uk','') AS brand,code,
-      COALESCE((price_data->>'list')::float8,(price_data->>'nf')::float8) AS list,COALESCE((price_data->>'discount')::float8,0) AS discount,
-      p.markup_percent::float8 AS markup,(stock_data->>'stok')::float8 AS stock
-    FROM supplier_items LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=supplier_items.id
+  const rows = (await db.query<ManualBulkExportRow>(`SELECT ${manualBulkExportColumns} FROM ${manualBulkExportFrom}
     WHERE ${where} ORDER BY code`, values)).rows;
-  return { list, rows };
+  return { list, combined: false, rows };
 }
 
 export async function adminManualItem(id: string) {

@@ -23,7 +23,7 @@ export function categoryPath(nodes:StoreCategory[],id:number){
  const node=nodes.find(n=>n.id===id);return node?node.path.map(i=>nodes.find(n=>n.id===i)).filter((n):n is StoreCategory=>Boolean(n)):[];
 }
 
-/** The six categories on the header bar and the home page tiles. */
+/** The six categories on the header bar. */
 export const featuredCategoryIds=[3,607,956,967,1023,11058];
 /** What the server sends for a category it links to without the full tree. */
 export type CategoryLink={id:number;name:string;slug:string;hasChildren:boolean};
