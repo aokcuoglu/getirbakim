@@ -285,7 +285,8 @@ kategori kimlikleri atlanır, ad değil `category_id` kullanılır.
 - Eşleştirme yalnız tam tip adıyla yapılır; "-1" gibi sayısal kuyruk bir kez atılarak, sonra yalnız son kelimenin
   tekil/çoğul farkı (`v-ribbed-belts` → `v-ribbed-belt`; `glass`, `gas`, `chassis` gibi kelimeler hariç) denenir. Farklı
   kategorilere düşen çoğul katlamaları belirsiz sayılır. Sonek/alt dize eşleşmesi yoktur
-  (`water-pump-and-timing-belt-set` bir `timing-belt-set` değildir).
+  (`water-pump-and-timing-belt-set` bir `timing-belt-set` değildir; bu tip artık küratörlü listede
+  `water-pump-timing-belt-set`'in takma adıdır, aşağıdaki #860 bölümü).
 - spareto işçisi sözlüğü açılışta yükler ve ürün sayfasındaki parça adının kategorilerini `payload.categories` içine
   yazar. Her yazım `product_source_categories`'i yeniden kurduğu için bu şarttır; kategorisiz yeniden toplama backfill'i silerdi.
   Tablo yoksa (şema güncellenmemiş yerel DB) veya sözlük boşsa işçi bir satır uyarı basar ve kategorisiz devam eder.
@@ -301,11 +302,14 @@ Komutlar (`npm run enrichment:categories -- <komut>`):
   değişmeyen satıra dokunulmaz; `imported_at` yalnız değişenlerde ilerler, kaynak URL'si değişmiş satır atlanır. URL'sinden
   tip çıkarılamayan satır (`noType`) yalnız sayılır, işçinin sayfa adından yazdığı kategoriler korunur.
 - `report-types [--min-share] [--min-support]` eşiklerde sözlük boyutunu ve dışarıda kalan tipleri gösterir.
+- `report-unmapped`, `check-aliases`: küratörlü liste (#860, aşağıda). `backfill-types` çıktısındaki `curated`, küratörlü
+  listeyle eşlenen kayıtları sayar.
 
 Backfill sonrası yeniden kurma gerekmez: kategori listeleri `product_source_categories`'i canlı okur (yalnız süreç içi
 10 dakikalık önbellek var). 16 Kasım 2026 yerel ölçümü: 14.177 Trodo ürününden 660 tip; spareto'nun 36.332 kaydının
 `--min-support 2` ile %92,7'si (33.691), `--min-support 1` ile %94,0'ı (34.165) kategori alıyor; çoğul katlama 15 kayıt ekliyor.
-URL'den tip çıkarılamayan 86 kayıt var (A.B.S. `ab-s-…`, CONTINENTAL CTAM `contitech-…`).
+URL'den tip çıkarılamayan 86 kayıt vardı (A.B.S. `ab-s-…`, CONTINENTAL CTAM `contitech-…`); #860'tan beri bu ön ekler
+ve MAHLE'nin `mahle-original-…` ön eki `sparetoTypeFromUrl`'de markaya özel tanımlıdır.
 
 **İlk backfill'in storefront:sync maliyeti (tek seferlik):** ilk yazımda ~33,7 bin spareto kaydının `imported_at`'i
 ilerler ve sonraki `storefront:sync` bunları yeniden gönderir:
@@ -324,6 +328,51 @@ Canlıda komut gerekmez: `db:setup` boş tabloyu kurar, kategoriler `imported_at
 taşınır. Yerelde birleştirmeden sonra: `learn-types` → `backfill-types --source spareto --dry-run` →
 `backfill-types --source spareto` → tekrar koşunca `changed: 0`. spareto işçisi tabloyu okuduğu için yerel şema
 (`db:setup` veya ilk `enrichment:categories` komutu) işçiden önce güncellenmelidir.
+
+### Küratörlü tip eşlemeleri (#860)
+
+Öğrenilmiş sözlüğün eşleyemediği uzun kuyruk (eşanlamlılar ve Trodo'nun hiç görmediği tipler) elle tutulan, sürümlü bir
+listeyle kapatılır: `src/modules/enrichment/type-aliases.ts` (`typeAliases`). Her kayıt bir tip slug'ı ve kısa bir
+gerekçe notu (`note`) taşır; iki tür vardır:
+
+- **Takma ad** (`alias`): aynı parçanın başka adı; hedef, eşikleri geçmiş öğrenilmiş bir tiptir ve kategorilerini ondan
+  alır (`oxygen-sensor` → `lambda-sensor`, `multi-belt` → `v-ribbed-belt`).
+- **Elle kategori** (`categories`): Trodo'nun hiç görmediği tip için `{id, name}` listesi; `name`
+  `source_categories.name` ile birebir aynı olmalıdır (yanlış kimlik böyle yakalanır).
+
+**Arama sırası** (`typeMatch` / `categoriesForType`): `override: true` kayıtlar → öğrenilmiş tam tip → sayısal kuyruk
+("-1") atılmış öğrenilmiş tip → küratörlü liste (tam, sonra kuyruksuz) → öğrenilmiş çoğul katlama → boş. Öğrenilmiş veri
+kazanır: öğrenilmiş bir tiple çakışan küratörlü kayıt `override` olmadıkça uygulanmaz ve `redundant` olarak raporlanır
+(hata değil). Başlangıç listesinde `override` yoktur. Sonek eşleşmesi burada da yoktur.
+
+**Doğrulama** (hepsi birlikte listelenir): bilinmeyen kategori kimliği, kimlik/ad uyuşmazlığı, hedefi öğrenilmiş tip
+olmayan takma ad, takma ad zinciri (hedef de küratörlü), yinelenen tip, slug olmayan tip, boş kategori listesi.
+`check-aliases`, `learn-types` (yeniden öğrenmeden sonra; öğrenme geri alınmaz) ve `backfill-types` katıdır: sorun
+varsa hata/çıkış kodu 1. İşçiler (spareto, parts2world) liste yüzünden durmaz: tek satırlık bir uyarıyla sorunlu
+kayıtları atlar, geçerlileri uygular. Öğrenilmiş sözlük boşsa liste de uygulanmaz.
+
+Komutlar (`npm run enrichment:categories -- <komut>`; ikisi de yalnız okur ve şema dosyasını uygulamaz):
+
+- `report-unmapped [--source spareto|parts2world|all] [--limit 80] [--json]`: kaynak başına `rows`, `noType`,
+  `learned`, `curated`, `unmapped` (spareto kayıtları, parts2world kayıtları ve saklanan parts2world makale adları
+  — `parts2worldArticles`); sonra en sık eşleşmeyen tipler (spareto / parts2world kayıt / makale sayısı) ve en çok 3
+  öneri: kelime örtüşmesi (Jaccard; son kelime tekilleştirilir, `and/for/of/the/system/kit/set` atılır) en yüksek
+  öğrenilmiş tipler ve Trodo yaprak kategorileri. Öneriler yalnız yardımcıdır.
+- `check-aliases`: listeyi öğrenilmiş sözlüğe ve ağaca karşı doğrular; `applied`, `redundant`, `problems` basar.
+
+**Listeyi büyütme:** `report-unmapped` → tipin gerçekten tek anlamlı olduğunu (Trodo'da aynı parçanın kategorisi, birkaç
+ürün adı) kontrol edin → kaydı notuyla ekleyin → `check-aliases` → `npm run test:type-categories` →
+`backfill-types --dry-run` ile `curated` sayısına bakın. Belirsiz tipler (`fuse`, `bulb`) ve Trodo'nun kendi
+kategorisi olmayan setler eşlenmeden kalır.
+
+**Ölçüm (17 Kasım 2026, yerel, yalnız okuma):** başlangıç listesi 97 kayıt (33 takma ad, 64 elle). spareto 36.845
+kaydın eşlenen payı %92,7 → %96,6 (öğrenilmiş 34.169 → 34.349, küratörlü 1.229; eşleşmeyen 2.589 → 1.265; tipsiz
+87 → 2, marka ön ekleri sayesinde). parts2world tipli kayıtlarda %91,6 → %96,5 (1.081 tipli kaydın 53'ü küratörlü),
+saklanan makale adlarında %90,6 → %96,3 (820 makalenin 47'si).
+
+**Operasyon:** canlıda komut yok (liste koddadır). Yerelde birleştirmeden sonra, son sürüme kadar bekletmeli:
+`check-aliases` → `backfill-types --source spareto --hold` ve `backfill-types --source parts2world --hold`; yayın
+`release-categories` ile (yukarıdaki #855 bölümü).
 
 ### parts2world parça tipleri (#852)
 
