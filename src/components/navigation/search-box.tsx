@@ -20,8 +20,8 @@ type SearchBoxProps = {
 const variants = {
   // The header row: hidden on checkout; on phones its own full-width row.
   header: {
-    form: "h-10 min-h-10 min-w-[220px] flex-1 rounded-[3px] border-input -mr-2 max-[850px]:mr-0 max-[850px]:min-w-0 max-[600px]:order-3 max-[600px]:w-full max-[600px]:flex-[0_0_100%] max-[600px]:h-11 max-[600px]:min-h-11 group-data-[route=checkout]/route:hidden",
-    select: "w-[164px] min-w-[164px] max-[1100px]:w-[156px] max-[1100px]:min-w-[156px] min-[600px]:max-[850px]:hidden max-[600px]:w-[124px] max-[600px]:min-w-[124px] max-[370px]:w-[120px] max-[370px]:min-w-[120px]",
+    form: "h-10 min-h-10 min-w-[220px] flex-1 rounded-[3px] border-input -mr-2 max-[850.98px]:mr-0 max-[850.98px]:min-w-0 max-[600px]:order-3 max-[600px]:w-full max-[600px]:flex-[0_0_100%] max-[600px]:h-11 max-[600px]:min-h-11 group-data-[route=checkout]/route:hidden",
+    select: "w-[164px] min-w-[164px] max-[1100px]:w-[156px] max-[1100px]:min-w-[156px] min-[600px]:max-[850.98px]:hidden max-[600px]:w-[124px] max-[600px]:min-w-[124px] max-[370px]:w-[120px] max-[370px]:min-w-[120px]",
     trigger: "min-h-[38px] rounded-none bg-[#f8f9f9] py-[9px] pr-8 pl-3 max-[600px]:min-h-[42px] max-[370px]:pr-7 max-[370px]:pl-2",
     input: "h-[38px] px-2.5 py-[9px] max-[600px]:h-[42px] max-[600px]:placeholder:text-[13px] max-[370px]:px-2",
     button: "h-[38px] w-10 basis-10 max-[600px]:h-[42px] max-[600px]:w-11 max-[600px]:basis-11 rounded-none bg-white text-foreground hover:bg-[#f7f8fa]",
