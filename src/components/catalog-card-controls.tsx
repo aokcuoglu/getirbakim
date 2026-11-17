@@ -46,8 +46,10 @@ export function CardSpecifications({card}:{card:CardSpecification[]}){
  const [expanded,setExpanded]=useState(false);
  const priority=["Fitting Position","Brake Disc Type","Outer Diameter [mm]","Brake Disc Thickness [mm]"];
  const ordered=card.some(row=>row.key==="Brake Disc Type")?[...card].sort((a,b)=>(priority.includes(a.key)?priority.indexOf(a.key):priority.length)-(priority.includes(b.key)?priority.indexOf(b.key):priority.length)):card;
- return <div className="product-card-specs">
+ // The toggle is always rendered: a phone's grid card folds every row behind it and its list card shows two rows (#878);
+ // from 600px it shows only with more than four rows (data-many, catalog-card.css).
+ return <div className="product-card-specs" data-expanded={expanded}>
   <dl className="product-card-spec-list">{(expanded?ordered:ordered.slice(0,4)).map(({key,label,value},index)=><div key={key+index} className="product-card-spec"><dt className="product-card-spec-label">{label}:</dt><dd className="product-card-spec-value">{value}</dd></div>)}</dl>
-  {card.length>4&&<button type="button" className="product-card-specs-toggle" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>{expanded?"Daha az göster":"Tümünü göster"}</button>}
+  {card.length>0&&<button type="button" className="product-card-specs-toggle" data-many={card.length>4} data-few={card.length<=2} aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>{expanded?"Daha az göster":card.length>4?"Tümünü göster":"Teknik özellikler"}</button>}
  </div>;
 }

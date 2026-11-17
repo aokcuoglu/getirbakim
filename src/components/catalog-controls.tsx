@@ -89,20 +89,21 @@ export function CatalogSidebar({branch,listed,brands,facets,params}:{branch:Side
 const pageButton="h-12 rounded-md border-brand bg-brand px-[27px] text-sm text-white hover:bg-brand-strong";
 export function CatalogResults({count,page,pages,pageSize,params,children,defaultView="grid"}:{count:number;page:number;pages:number;pageSize:number;params:Query;children:ReactNode;defaultView?:"list"|"grid"}) {
  const [view,setView]=useState(defaultView);const router=useRouter();
- const viewButton="h-7 min-h-7 w-[22px] rounded-none border-0 bg-transparent p-0 hover:bg-transparent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100";
+ // 44px touch targets on a phone (#878).
+ const viewButton="h-7 min-h-7 w-[22px] rounded-none border-0 bg-transparent p-0 hover:bg-transparent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100 max-[600px]:size-11 max-[600px]:min-h-11";
  return <ComparisonProvider><div className="group/listing min-w-0" data-view={view}>
  <div className="mb-[25px] flex min-h-[42px] items-center justify-between gap-4 max-[600px]:flex-wrap max-[600px]:gap-3"><span className="text-sm leading-5 text-foreground max-[600px]:text-xs">{listingRangeLabel(count,page,pageSize)}</span>
  <div className="flex items-center gap-[15px] max-[600px]:gap-2.5">
-  <div className="flex h-[42px] items-center gap-3 rounded-md border border-input px-3 py-1 max-[600px]:gap-2 max-[600px]:px-2">
+  <div className="flex h-[42px] items-center gap-3 rounded-md border border-input px-3 py-1 max-[600px]:h-11 max-[600px]:gap-0 max-[600px]:p-0">
    <Button variant="ghost" className={viewButton} aria-label="Liste görünümü" aria-pressed={view==="list"} onClick={()=>setView("list")}><Image src="/media/site/icons/layout-list.svg" width={24} height={24} alt="" unoptimized/></Button>
    <Button variant="ghost" className={viewButton} aria-label="Izgara görünümü" aria-pressed={view==="grid"} onClick={()=>setView("grid")}><Image src="/media/site/icons/layout-grid.svg" width={24} height={24} alt="" unoptimized/></Button>
   </div>
   <NativeSelect name="sort" aria-label="Ürünleri sırala" value={params.sort ?? (params.q ? "relevance" : "newest")} onChange={event=>router.push(listingUrl(params,{sort:event.target.value as Query["sort"]}))}
-   className="w-[180px] max-[600px]:w-[150px] max-[380px]:w-[145px] [&>select]:h-[42px] [&>select]:rounded-md [&>select]:bg-white [&>select]:pr-[30px] [&>select]:pl-3 [&>select]:text-sm [&>svg]:text-foreground">
+   className="w-[180px] max-[600px]:w-[150px] max-[380px]:w-[145px] [&>select]:h-[42px] max-[600px]:[&>select]:h-11 [&>select]:rounded-md [&>select]:bg-white [&>select]:pr-[30px] [&>select]:pl-3 [&>select]:text-sm [&>svg]:text-foreground">
    {params.q&&<NativeSelectOption value="relevance">En alakalı</NativeSelectOption>}<NativeSelectOption value="newest">Son eklenenler</NativeSelectOption><NativeSelectOption value="price-asc">Fiyat: düşükten yükseğe</NativeSelectOption><NativeSelectOption value="price-desc">Fiyat: yüksekten düşüğe</NativeSelectOption>
   </NativeSelect>
  </div></div>
- <div className="flex flex-col gap-4 group-data-[view=grid]/listing:mx-[-2px] group-data-[view=grid]/listing:grid group-data-[view=grid]/listing:grid-cols-3 group-data-[view=grid]/listing:items-stretch group-data-[view=grid]/listing:gap-x-4 group-data-[view=grid]/listing:gap-y-6 max-[992px]:group-data-[view=grid]/listing:grid-cols-2 max-[600px]:group-data-[view=grid]/listing:mx-0 max-[600px]:group-data-[view=grid]/listing:gap-x-2 max-[600px]:group-data-[view=grid]/listing:gap-y-4 max-[380px]:group-data-[view=grid]/listing:grid-cols-1">{children}</div>
+ <div className="flex flex-col gap-4 group-data-[view=grid]/listing:mx-[-2px] group-data-[view=grid]/listing:grid group-data-[view=grid]/listing:grid-cols-3 group-data-[view=grid]/listing:items-stretch group-data-[view=grid]/listing:gap-x-4 group-data-[view=grid]/listing:gap-y-6 max-[992px]:group-data-[view=grid]/listing:grid-cols-2 max-[600px]:group-data-[view=grid]/listing:mx-0 max-[600px]:group-data-[view=grid]/listing:gap-x-2 max-[600px]:group-data-[view=grid]/listing:gap-y-4">{children}</div>
  {pages>1 && <Pagination aria-label="Katalog sayfaları" className="mt-[25px]"><PaginationContent className="flex-wrap justify-center gap-4 text-sm">
   {page>1 && <PaginationItem><Button className={pageButton} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page-1)})}/>}>Önceki sayfa</Button></PaginationItem>}
   <PaginationItem><span>Sayfa {page} / {pages}</span></PaginationItem>
