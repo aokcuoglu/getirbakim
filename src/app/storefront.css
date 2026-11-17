@@ -25,6 +25,8 @@
   .buy-bar .buy-form.buy-form-product { @apply max-[600px]:mb-0; }
   .buy-bar-price { @apply hidden shrink-0 text-base leading-5 font-semibold text-foreground max-[600px]:block; }
   body:has(.buy-bar) { @apply max-[600px]:pb-[calc(72px+env(safe-area-inset-bottom))]; }
+  /* A cart error shows inside the bar and makes it taller: the body keeps more room. */
+  body:has(.buy-bar [role=alert]) { @apply max-[600px]:pb-[calc(120px+env(safe-area-inset-bottom))]; }
 
   /* PurchaseForm (every catalog card and the product page): the form, quantity select and submit button. Each
      `-product` modifier follows its base, so it wins where both set a property, as the merged class list did. */
