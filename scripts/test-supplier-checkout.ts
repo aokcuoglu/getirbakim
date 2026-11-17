@@ -413,7 +413,7 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     assert.equal(stored.pricing_snapshot.exchange_rate,40);
     assert.equal(stored.pricing_snapshot.checkout_mode,"snapshot");
     assert.equal(stored.pricing_snapshot.source_fresh,false);
-    assert.match(stored.stock_label,/Kayıtlı stok/);
+    assert.match(stored.stock_label,/^Stokta · /);
     const observedAt=stored.pricing_snapshot.observed_at,rateAt=stored.pricing_snapshot.rate_at;
     for(const [field,value] of [["price_data","null"],["stock_data","null"],["stock_data",'{"stok":0,"sFarkliDepo":0,"sYol":1}']]) {
       await db.query(`UPDATE supplier_items SET ${field}=$2::jsonb WHERE id=$1`,[id,value]);
