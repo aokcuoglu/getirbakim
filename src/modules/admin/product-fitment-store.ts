@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { productFitmentAutomaticLimit, productFitmentLimit } from "./product-fitment-fields";
 
@@ -18,9 +19,13 @@ export type ProductFitments = {
   /** How many automatic types there are in all (the list stops at productFitmentAutomaticLimit). */
   automaticTotal: number;
 };
-/** `added`: how many types a copy from another product wrote (#662). */
-export type ProductFitmentResult = { ok: true; added?: number } | { ok: false; reason: "not-found" | "merged" | "limit" | "unknown-vehicle" | "duplicate" | "removed"
-  | "not-automatic" | "unchanged" | "stale" | "not-in-source" | "hide-limit" | "bad-source" | "nothing-to-copy" };
+/**
+ * `added`: how many types an add or a copy from another product wrote (#662); `batchId`: the id the rows of a bulk add
+ * or a copy share (#817), which "Geri al" takes back; `undone`: how many types that undo removed.
+ */
+export type ProductFitmentResult = { ok: true; added?: number; batchId?: string; undone?: number } | { ok: false; reason: "not-found" | "merged" | "limit"
+  | "unknown-vehicle" | "duplicate" | "removed" | "not-automatic" | "unchanged" | "stale" | "not-in-source" | "hide-limit" | "bad-source" | "nothing-to-copy"
+  | "nothing-to-undo" };
 
 type Queryable = Pick<Pool, "query"> | PoolClient;
 
@@ -94,31 +99,33 @@ export async function changeProductFitments(database: Pick<Pool, "connect">, pro
   } finally { client.release(); }
 }
 
-/** One history row of a fitment change, written by the admin. */
-export const recordFitmentChange = (client: PoolClient, productId: string, field: string, oldValue: string | null, newValue: string | null, adminId: string) =>
-  client.query(`INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by) VALUES($1,$2,$3,$4,$5)`,
-    [productId, field, oldValue, newValue, adminId]);
+/** One history row of a fitment change, written by the admin; `batchId` joins it to a bulk change's rows (#816). */
+export const recordFitmentChange = (client: PoolClient, productId: string, field: string, oldValue: string | null, newValue: string | null, adminId: string,
+  batchId: string | null = null) =>
+  client.query(`INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,batch_id) VALUES($1,$2,$3,$4,$5,$6)`,
+    [productId, field, oldValue, newValue, adminId, batchId]);
 export const decisionCount = async (client: PoolClient, productId: string) =>
   (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM product_override_fitments WHERE product_id=$1", [productId])).rows[0].n;
 
 /**
  * Writes added types of a locked product in the given order, with one fitment_added history row each, in one
- * statement: the queue triggers of product_override_fitments run once per statement, not once per type.
+ * statement: the queue triggers of product_override_fitments run once per statement, not once per type. A bulk change
+ * gives every row and history row its `batchId` (#816, #817); a single type is written with NULL.
  */
-export async function insertAddedFitments(client: PoolClient, productId: string, ids: number[], adminId: string) {
+export async function insertAddedFitments(client: PoolClient, productId: string, ids: number[], adminId: string, batchId: string | null) {
   // Every row gets the same now(): a microsecond per position keeps the order the admin chose.
   await client.query(`WITH t AS (SELECT * FROM unnest($2::int[]) WITH ORDINALITY t(id,position)),
-    added AS (INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode,created_by,created_at)
-      SELECT $1,t.id,'add',$3,now()+(t.position*interval '1 microsecond') FROM t)
-    INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by)
-    SELECT $1,'fitment_added',NULL,t.id::text,$3 FROM t ORDER BY t.position`, [productId, ids, adminId]);
+    added AS (INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode,created_by,created_at,batch_id)
+      SELECT $1,t.id,'add',$3,now()+(t.position*interval '1 microsecond'),$4 FROM t)
+    INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,batch_id)
+    SELECT $1,'fitment_added',NULL,t.id::text,$3,$4 FROM t ORDER BY t.position`, [productId, ids, adminId, batchId]);
 }
 
 /**
  * Adds engine types the product fits: every row of the product lists them in the store (vehicle filter, search, make
  * page, product page), with or without enrichment. A type the automatic sources link already may be added too: the
  * decision keeps it if the source drops it. The whole batch is refused when one type is unknown, added already or
- * removed by an admin (that one is shown again with "Yeniden göster").
+ * removed by an admin (that one is shown again with "Yeniden göster"). Several types share a batch id (#817).
  */
 export async function addProductFitments(database: Pick<Pool, "connect">, productId: string, typeIds: number[], adminId: string) {
   const ids = [...new Set(typeIds)];
@@ -131,8 +138,9 @@ export async function addProductFitments(database: Pick<Pool, "connect">, produc
     if (existing.some(row => row.mode === "remove")) return { ok: false, reason: "removed" };
     if (existing.length) return { ok: false, reason: "duplicate" };
     if (await decisionCount(client, productId) + ids.length > productFitmentLimit) return { ok: false, reason: "limit" };
-    await insertAddedFitments(client, productId, ids, adminId);
-    return { ok: true };
+    const batchId = ids.length > 1 ? randomUUID() : null;
+    await insertAddedFitments(client, productId, ids, adminId, batchId);
+    return batchId ? { ok: true, added: ids.length, batchId } : { ok: true, added: ids.length };
   });
 }
 
@@ -145,7 +153,7 @@ export async function removeProductFitment(database: Pick<Pool, "connect">, prod
     if (previous?.mode === "remove") return { ok: false, reason: "unchanged" };
     if (!previous && await decisionCount(client, productId) >= productFitmentLimit) return { ok: false, reason: "limit" };
     await client.query(`INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode,created_by) VALUES($1,$2,'remove',$3)
-      ON CONFLICT (product_id,vehicle_type_id) DO UPDATE SET mode='remove',carried_from=NULL,created_by=excluded.created_by,created_at=now()`,
+      ON CONFLICT (product_id,vehicle_type_id) DO UPDATE SET mode='remove',carried_from=NULL,batch_id=NULL,created_by=excluded.created_by,created_at=now()`,
     [productId, typeId, adminId]);
     await recordFitmentChange(client, productId, "fitment_removed", previous ? String(typeId) : null, String(typeId), adminId);
     return { ok: true };
@@ -163,5 +171,21 @@ export async function deleteProductFitment(database: Pick<Pool, "connect">, prod
     if (!removed) return { ok: false, reason: "stale" };
     await recordFitmentChange(client, productId, removed.mode === "add" ? "fitment_unadded" : "fitment_restored", String(removed.vehicle_type_id), null, adminId);
     return { ok: true };
+  });
+}
+
+/**
+ * Takes a bulk add or copy back in one step (#817): the batch's types still added to the product leave it, with one
+ * fitment_unadded history row each under a new batch id. Types removed one by one since, or turned into "remove"
+ * decisions, are no longer in the batch and stay as they are; an automatic source still linking a type keeps it as an
+ * automatic fitment. "nothing-to-undo" when none of the batch is left.
+ */
+export async function undoFitmentBatch(database: Pick<Pool, "connect">, productId: string, batchId: string, adminId: string) {
+  return changeProductFitments(database, productId, async (client): Promise<ProductFitmentResult> => {
+    const { rowCount } = await client.query(`WITH removed AS (DELETE FROM product_override_fitments WHERE product_id=$1 AND batch_id=$2 AND mode='add'
+        RETURNING vehicle_type_id,created_at)
+      INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,batch_id)
+      SELECT $1,'fitment_unadded',vehicle_type_id::text,NULL,$3,$4 FROM removed ORDER BY created_at`, [productId, batchId, adminId, randomUUID()]);
+    return rowCount ? { ok: true, undone: rowCount } : { ok: false, reason: "nothing-to-undo" };
   });
 }

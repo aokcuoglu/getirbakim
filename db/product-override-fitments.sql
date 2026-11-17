@@ -22,6 +22,12 @@ CREATE TABLE IF NOT EXISTS product_override_fitments (
 -- The store's vehicle filter and search read the decisions of the selected types.
 CREATE INDEX IF NOT EXISTS product_override_fitments_type_idx ON product_override_fitments(vehicle_type_id,product_id);
 CREATE INDEX IF NOT EXISTS product_override_fitments_carried_idx ON product_override_fitments(carried_from) WHERE carried_from IS NOT NULL;
+-- One bulk change (#816, #817): the rows of one "Araç ekle" with several types, or of one copy from another product,
+-- share an id in the decisions and in their history rows, so the history shows them as one line and "Geri al" takes
+-- the batch back in one step (its fitment_unadded history rows get a new id of their own). Single decisions and the
+-- rows a merge carries (product_override_fitments_carry) keep NULL; rows written before #816 have none (no backfill).
+ALTER TABLE product_override_fitments ADD COLUMN IF NOT EXISTS batch_id uuid;
+ALTER TABLE product_override_changes ADD COLUMN IF NOT EXISTS batch_id uuid;
 
 -- Source rows the admin leaves out of the store (#661), per master product like the decisions above:
 --  source_vehicle    an enrichment vehicle (payload.vehicles) linked to no catalog type; source_key is the row's fields

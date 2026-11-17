@@ -1,18 +1,19 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, CircleAlert, CircleCheck, ExternalLink, EyeOff, GitFork, History, Info, Link2, Merge, Pencil, Search, Tag, TriangleAlert, Unlink } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, ExternalLink, EyeOff, GitFork, History, Info, Link2, Merge, Pencil, Search, Tag, TriangleAlert, Unlink } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { findEquivalentTargets, findMergeTargets, getMasterProduct, supplierNames } from "@/modules/admin/products";
+import { findEquivalentTargets, findMergeTargets, getMasterProduct, getProductHistory, supplierNames } from "@/modules/admin/products";
 import { overrideValueText, productOverrideFields, productOverrideLabels, type ProductOverrideField } from "@/modules/admin/product-override-fields";
 import { productTab, productTabHref, visibleProductTabs } from "@/modules/admin/product-tabs";
 import { ProductTabAnchor } from "@/components/admin/product-tab-anchor";
@@ -28,7 +29,8 @@ import { productReferenceChangeLabels, referenceHistoryValue } from "@/modules/a
 import { ProductSpecsCard } from "@/components/admin/product-specs-card";
 import { productSpecChangeLabels, specHistoryValue } from "@/modules/admin/product-spec-fields";
 import { ProductFitmentsCard } from "@/components/admin/product-fitments-card";
-import { fitmentHistoryValue, isFitmentChange, productFitmentChangeLabels } from "@/modules/admin/product-fitment-fields";
+import { fitmentBatchLabels, fitmentBatchSummary, fitmentHistoryValue, isFitmentChange, productFitmentChangeLabels } from "@/modules/admin/product-fitment-fields";
+import { ProductFitmentBatchUndo } from "@/components/admin/product-fitment-batch-undo";
 import { fitmentVehicleNames } from "@/modules/admin/product-fitment-store";
 import { db } from "@/lib/db";
 import { automaticVersion } from "@/modules/admin/product-override-store";
@@ -49,14 +51,20 @@ export default async function MasterProduct({ params, searchParams }: { params: 
   const { product, sources, equivalents, merged, storeId, override, hasReferences, hasSpecs, hasFitments, brands } = data;
   const tab = productTab(query.tab, Boolean(merged));
   // Only the open tab's data is read: the merge and equivalent searches need just the id (without a query they return at once).
-  const [merge, equivalentSearch, storeCategories, vehicleNames] = await Promise.all([
+  // The history (#816) is paged by `?page=`; `?toplu=` lists one bulk fitment change's rows.
+  const batch = query.toplu && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(query.toplu) ? query.toplu : null;
+  // The history page "Ayrıntı" was opened from (`?geri=`): "Tüm geçmişe dön" goes back to it.
+  const backPage = batch && /^[1-9]\d{0,5}$/.test(query.geri ?? "") ? query.geri : undefined;
+  const [merge, equivalentSearch, storeCategories, history] = await Promise.all([
     tab === "eslestirme" ? findMergeTargets(id, query.merge_q) : null,
     tab === "eslestirme" ? findEquivalentTargets(id, query.eq_q) : null,
     tab === "bilgiler" || tab === "gecmis" ? getStoreCategories() : [],
-    // Fitment history stores the vehicle type id: the names of the ones in the history, in one query.
-    tab === "gecmis" ? fitmentVehicleNames(db, override.changes
-      .filter(change => isFitmentChange(change.field)).flatMap(change => [change.old_value, change.new_value]).filter(value => value !== null)) : new Map<string, string>(),
+    tab === "gecmis" ? getProductHistory(id, { page: Number(query.page) || 1, batch }) : null,
   ]);
+  // Fitment history stores the vehicle type id: the names of the ones on the page (a bulk line's first types), in one query.
+  // Only fitment lines hold type ids (a price line's sample is its price).
+  const vehicleNames = history ? await fitmentVehicleNames(db, history.entries.flatMap(entry => isFitmentChange(entry.field) || entry.field === "fitment_copied"
+    ? [...entry.sample, entry.old_value, entry.new_value] : []).filter(value => value !== null)) : new Map<string, string>();
   const multiple = sources.length > 1;
   const edit = override.override;
   // Category choices as their path in the store tree ("Fren sistemi › Balata").
@@ -288,22 +296,58 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     </Card>
     </>}
 
-    {tab === "gecmis" && <>
+    {tab === "gecmis" && history && <>
     <Card id="gecmis">
       <CardHeader><CardTitle><h2>Değişiklik geçmişi</h2></CardTitle>
-        <CardDescription>Mağaza bilgilerinde ve fiyatta yapılan son 50 değişiklik. “Otomatik”, alanın tedarikçi ve zenginleştirme verisinden (fiyatta formülden) geldiğini gösterir.</CardDescription></CardHeader>
-      <CardContent>{override.changes.length ? <Table><caption className="sr-only">Değişiklik geçmişi</caption>
-        <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Alan</TableHead><TableHead>Eski değer</TableHead><TableHead>Yeni değer</TableHead><TableHead>Kim</TableHead></TableRow></TableHeader>
-        <TableBody>{override.changes.map(change => <TableRow key={change.id}>
+        <CardDescription>Sayfa başına 50 kayıt; toplu araç ekleme ve kopyalar tek satırda gösterilir. “Otomatik”, alanın tedarikçi ve zenginleştirme verisinden (fiyatta formülden) geldiğini gösterir.</CardDescription></CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {history.batch && <div className="flex flex-col items-start gap-2">
+          <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Toplu işlemin {formatNumber(history.total)} satırı gösteriliyor.</AlertDescription></Alert>
+          <Button variant="outline" size="sm" nativeButton={false} render={<Link href={productTabHref(product.id, "gecmis", { params: { page: backPage }, merged: Boolean(merged) })} scroll={false}/>}>
+            <ArrowLeft data-icon="inline-start" aria-hidden="true"/>Tüm geçmişe dön</Button>
+        </div>}
+        {history.entries.length ? <Table server><caption className="sr-only">Değişiklik geçmişi</caption>
+        <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Alan</TableHead><TableHead>Eski değer</TableHead><TableHead>Yeni değer</TableHead><TableHead>Kim</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead></TableRow></TableHeader>
+        <TableBody>{history.entries.map(change => {
+          // A bulk fitment change (#816): one line with its count and first types, its rows behind "Ayrıntı".
+          const grouped = change.count > 1 || change.summary !== null;
+          const summary = grouped ? fitmentBatchSummary(change, vehicleNames) : null;
+          return <TableRow key={change.id}>
           <TableCell className="tabular-nums">{formatDateTime(change.changed_at, { year: true })}</TableCell>
-          <TableCell>{productImageChangeLabels[change.field] ?? productReferenceChangeLabels[change.field] ?? productSpecChangeLabels[change.field] ?? productFitmentChangeLabels[change.field] ?? (productOverrideFields.includes(change.field as ProductOverrideField) ? productOverrideLabels[change.field as ProductOverrideField] : change.field)}</TableCell>
-          <TableCell className="max-w-72 truncate" title={change.old_value ?? undefined}>{historyValue(change.field, change.old_value)}</TableCell>
-          <TableCell className="max-w-72 truncate" title={change.new_value ?? undefined}>{historyValue(change.field, change.new_value)}</TableCell>
+          <TableCell>{grouped ? fitmentBatchLabels[change.field] ?? productFitmentChangeLabels[change.field] ?? change.field
+            : productImageChangeLabels[change.field] ?? productReferenceChangeLabels[change.field] ?? productSpecChangeLabels[change.field] ?? productFitmentChangeLabels[change.field] ?? (productOverrideFields.includes(change.field as ProductOverrideField) ? productOverrideLabels[change.field as ProductOverrideField] : change.field)}</TableCell>
+          {grouped ? <>
+            <TableCell className="max-w-72 truncate" title={change.field === "fitment_unadded" ? summary ?? undefined : undefined}>{change.field === "fitment_unadded" ? summary : <span className="text-muted-foreground">—</span>}</TableCell>
+            <TableCell className="max-w-72 truncate" title={change.field === "fitment_unadded" ? undefined : summary ?? undefined}>{change.field === "fitment_unadded" ? <span className="text-muted-foreground">—</span> : summary}</TableCell>
+          </> : <>
+            <TableCell className="max-w-72 truncate" title={change.old_value ?? undefined}>{historyValue(change.field, change.old_value)}</TableCell>
+            <TableCell className="max-w-72 truncate" title={change.new_value ?? undefined}>{historyValue(change.field, change.new_value)}</TableCell>
+          </>}
           <TableCell>{change.reason === "uncarry" ? <span className="text-muted-foreground">Sistem: birleştirme geri alındı</span>
             : <>{change.changed_by ?? <span className="text-muted-foreground">Silinmiş hesap</span>}{change.reason === "carry" && <span className="text-muted-foreground"> · birleştirmeden taşındı</span>}</>}</TableCell>
-        </TableRow>)}</TableBody></Table>
+          <TableCell>{grouped && change.batch_id && <div className="flex flex-col items-end gap-2">
+            <Button variant="outline" size="sm" nativeButton={false} aria-label={`${fitmentBatchLabels[change.field] ?? "Toplu işlem"}: ayrıntı`}
+              render={<Link href={productTabHref(product.id, "gecmis", { params: { toplu: change.batch_id, geri: history.page > 1 ? String(history.page) : undefined }, merged: Boolean(merged) })} scroll={false}/>}>Ayrıntı</Button>
+            {change.undoable > 0 && !merged && <ProductFitmentBatchUndo productId={product.id} batchId={change.batch_id} count={change.undoable}/>}
+          </div>}</TableCell>
+        </TableRow>;
+        })}</TableBody></Table>
+        : history.batch ? <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Bu toplu işlemin kaydı bulunamadı.</EmptyTitle>
+          <EmptyDescription>Bağlantı başka bir ürüne ait olabilir; tüm geçmişe dönün.</EmptyDescription></EmptyHeader></Empty>
         : <Empty><EmptyHeader><EmptyMedia variant="icon"><History/></EmptyMedia><EmptyTitle>Henüz elle değişiklik yok.</EmptyTitle>
           <EmptyDescription>Mağaza bilgileri tamamen otomatik kaynaklardan geliyor.</EmptyDescription></EmptyHeader></Empty>}</CardContent>
+      {history.pages > 1 && <CardFooter className="flex-wrap justify-between gap-3">
+        <span className="text-muted-foreground tabular-nums">{formatNumber(history.total)} kayıt</span>
+        <Pagination aria-label="Geçmiş sayfaları" className="mx-0 w-auto"><PaginationContent>
+          <PaginationItem>{history.page > 1
+            ? <Button variant="outline" size="icon" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={productTabHref(product.id, "gecmis", { params: { page: String(history.page - 1), toplu: history.batch ?? undefined, geri: backPage }, merged: Boolean(merged) })} scroll={false}/>}><ChevronLeft/></Button>
+            : <Button variant="outline" size="icon" aria-label="Önceki sayfa" disabled><ChevronLeft/></Button>}</PaginationItem>
+          <PaginationItem><span className="px-2 text-muted-foreground tabular-nums" aria-label={`Sayfa ${history.page} / ${history.pages}`}>{formatNumber(history.page)} / {formatNumber(history.pages)}</span></PaginationItem>
+          <PaginationItem>{history.page < history.pages
+            ? <Button variant="outline" size="icon" aria-label="Sonraki sayfa" nativeButton={false} render={<Link href={productTabHref(product.id, "gecmis", { params: { page: String(history.page + 1), toplu: history.batch ?? undefined, geri: backPage }, merged: Boolean(merged) })} scroll={false}/>}><ChevronRight/></Button>
+            : <Button variant="outline" size="icon" aria-label="Sonraki sayfa" disabled><ChevronRight/></Button>}</PaginationItem>
+        </PaginationContent></Pagination>
+      </CardFooter>}
     </Card>
     </>}
 
