@@ -8,7 +8,7 @@ import { imageLink, normalizePackage, normalizeViscosity, parseManualWorkbook } 
 import { importManualDraft, listSlug, ManualImportError, manualCategories, saveManualDraft, updateManualItem } from "@/modules/suppliers/manual-import";
 import { parseManualBulkCsv } from "@/modules/suppliers/manual-bulk-csv";
 import { readManualPriceEdit } from "@/modules/suppliers/manual-item-form";
-import { applyManualBulkDraft, saveManualBulkDraft } from "@/modules/suppliers/manual-bulk";
+import { applyManualBulkDraft, manualBulkLists, saveManualBulkDraft } from "@/modules/suppliers/manual-bulk";
 
 const base = "/yonetim/tedarikciler/manuel";
 const maxFileBytes = 8 * 1024 * 1024;
@@ -68,7 +68,7 @@ export async function confirmManualDraft(form: FormData) {
 
 const bulkList = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).max(60);
 
-/** Reads a price/stock CSV of an existing list (#832) and stores it as a draft with its diff; nothing changes yet. */
+/** Reads a price/stock CSV of an existing list (#832) or of all lists (#844) and stores it as a draft with its diff; nothing changes yet. */
 export async function uploadManualBulk(form: FormData) {
   const admin = await requireAdmin();
   const list = bulkList.safeParse(form.get("liste"));
@@ -78,11 +78,12 @@ export async function uploadManualBulk(form: FormData) {
   const file = form.get("file");
   if (!(file instanceof File) || !file.size || !/\.csv$/i.test(file.name) || file.size > maxCsvBytes) fail("csv-file");
   const upload = file as File;
-  const row = (await db.query<{ list_name: string }>(`SELECT product_data->>'list_name' AS list_name FROM supplier_items
-    WHERE supplier='manual' AND list_group=$1 ORDER BY changed_at DESC LIMIT 1`, [listGroup])).rows[0];
-  if (!row) fail("list");
-  const parsed = parseManualBulkCsv(new Uint8Array(await upload.arrayBuffer()));
-  const id = await saveManualBulkDraft(db, { listGroup, listName: row.list_name, fileName: upload.name, parsed, by: admin.id });
+  // Every list: an all-lists file's Liste cells are resolved against them (#844).
+  const lists = await manualBulkLists(db);
+  const pageList = lists.find(entry => entry.group === listGroup);
+  if (!pageList) fail("list");
+  const parsed = parseManualBulkCsv(new Uint8Array(await upload.arrayBuffer()), lists);
+  const id = await saveManualBulkDraft(db, { listGroup, listName: pageList!.name, fileName: upload.name, parsed, by: admin.id });
   revalidatePath(base);
   redirect(`${base}?${new URLSearchParams({ liste: listGroup, taslak: id, uploaded: "1" })}`);
 }

@@ -19,7 +19,9 @@ import { itemProductSql, shownImageSql } from "@/modules/store/product-image-sql
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 
 export type ManualParams = { liste?: string; taslak?: string; q?: string; category?: string; stock?: string; quality?: string; presence?: string;
-  page?: string; degisiklik?: string; bulgu?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; bulk?: string; error?: string; detail?: string };
+  page?: string; degisiklik?: string; bulgu?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; bulk?: string; error?: string; detail?: string;
+  /** "1": the bulk CSV of every list (#844). */
+  tum?: string };
 type ManualList = { list_group: string; list_name: string; present: number; missing_prices: number; missing_packages: number; last_import: Date | null };
 /** kind "list": an xlsx list upload; "bulk": a price/stock CSV, whose report also carries the diff (report.bulk). */
 export type ManualUpload = { id: string; list_group: string; list_name: string; file_name: string; status: "draft" | "imported" | "discarded";
@@ -72,10 +74,11 @@ export async function adminManualData(params: ManualParams) {
 const shownImage = (item: string) => shownImageSql(itemProductSql(`${item}.id`),
   `EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=${item}.id AND e.image_id IS NOT NULL)`);
 
-/** The product tab's filters (list, presence, search, category, stock, quality) as a WHERE clause on supplier_items. */
-function manualItemFilter(listGroup: string, params: ManualParams) {
-  const values: unknown[] = [manualCompany, listGroup];
-  const conditions = [scope, "list_group=$2"];
+/** The product tab's filters (list, presence, search, category, stock, quality) as a WHERE clause on supplier_items; null: every list. */
+function manualItemFilter(listGroup: string | null, params: ManualParams) {
+  const values: unknown[] = [manualCompany];
+  const conditions = [scope];
+  if (listGroup !== null) { values.push(listGroup); conditions.push(`list_group=$${values.length}`); }
   const presence = ["pending_missing", "inactive", "all"].includes(params.presence ?? "") ? params.presence : "present";
   if (presence !== "all") { values.push(presence); conditions.push(`presence=$${values.length}`); }
   const q = params.q?.trim().slice(0, 120);
@@ -100,19 +103,33 @@ async function manualItems(listGroup: string, params: ManualParams) {
   });
 }
 
-/** The bulk price/stock CSV of the selected list, filtered like the product tab, without paging (#832). */
+/**
+ * The bulk price/stock CSV of the selected list, filtered like the product tab, without paging (#832). `tum=1`: every
+ * list's present items in one file with the list name (#844); the tab's filters belong to one list and are ignored.
+ */
 export async function adminManualBulkExport(params: ManualParams) {
   await requireAdmin();
   const lists = await adminManualLists();
+  if (params.tum === "1") {
+    if (!lists.length) return null;
+    // The same names the upload resolves the Liste cells against.
+    const names = new Map(lists.map(entry => [entry.list_group, entry.list_name]));
+    const rows = await manualBulkExportRows(null, {});
+    return { list: null, combined: true, rows: rows.map(row => ({ ...row, listName: names.get(row.listGroup) ?? row.listGroup })) };
+  }
   const list = lists.find(entry => entry.list_group === params.liste) ?? lists[0];
   if (!list) return null;
-  const { where, values } = manualItemFilter(list.list_group, params);
-  const rows = (await db.query<ManualBulkExportRow>(`SELECT COALESCE(product_data->>'uk','') AS brand,code,
+  return { list, combined: false, rows: await manualBulkExportRows(list.list_group, params) };
+}
+
+async function manualBulkExportRows(listGroup: string | null, params: ManualParams) {
+  const { where, values } = manualItemFilter(listGroup, params);
+  return (await db.query<ManualBulkExportRow & { listGroup: string }>(`SELECT COALESCE(product_data->>'uk','') AS brand,code,
+      supplier_items.list_group AS "listGroup",
       COALESCE((price_data->>'list')::float8,(price_data->>'nf')::float8) AS list,COALESCE((price_data->>'discount')::float8,0) AS discount,
       p.markup_percent::float8 AS markup,(stock_data->>'stok')::float8 AS stock
     FROM supplier_items LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=supplier_items.id
-    WHERE ${where} ORDER BY code`, values)).rows;
-  return { list, rows };
+    WHERE ${where} ORDER BY supplier_items.list_group,code`, values)).rows;
 }
 
 export async function adminManualItem(id: string) {
