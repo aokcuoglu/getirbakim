@@ -22,6 +22,26 @@ export function rejectionReason(current: { uniqueProducts: number; missingPrices
   return null;
 }
 
+/**
+ * SQL for a scope's next catalog run after a full fetch at `at` (an SQL expression, e.g. `$4`), used inside an
+ * `ON CONFLICT … DO UPDATE` on supplier_sync_scopes: daily (1440 min) scopes run again tomorrow at their Istanbul
+ * `daily_at`, other intervals `interval_minutes` later.
+ */
+export const nextCatalogRunSql = (at: string) => `CASE WHEN supplier_sync_scopes.interval_minutes=1440 THEN
+  ((((${at})::timestamptz AT TIME ZONE 'Europe/Istanbul')::date+1)+supplier_sync_scopes.daily_at) AT TIME ZONE 'Europe/Istanbul'
+  ELSE (${at})::timestamptz+supplier_sync_scopes.interval_minutes*interval '1 minute' END`;
+
+/**
+ * SQL for a scope's next catalog run after a failed full fetch, read before `consecutive_failures` is incremented.
+ * Network, HTTP, timeout and contract errors retry with exponential backoff (15 min doubling up to 6 h). A quality
+ * rejection (`rejected`, an SQL boolean such as `$4::boolean`) of a daily scope waits for its next daily run (#910):
+ * the guard judged the supplier's own list, which does not change within hours, so earlier retries only refetch it.
+ * The failure still counts: the scope stays an issue in supplier health and the admin pages until a run succeeds.
+ */
+export const failedCatalogRunSql = (rejected: string) => `CASE WHEN ${rejected} AND supplier_sync_scopes.interval_minutes=1440
+  THEN ${nextCatalogRunSql("now()")}
+  ELSE now()+LEAST(360,15*power(2,LEAST(supplier_sync_scopes.consecutive_failures,5))) * interval '1 minute' END`;
+
 const snapshotChunk = 2000;
 
 // Caller owns the transaction and supplier lock. No API calls inside this transaction.
