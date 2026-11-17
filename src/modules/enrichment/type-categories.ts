@@ -163,12 +163,19 @@ export function categoriesForType(dict:TypeDictionary,type:string|null):SourceCa
  return [];
 }
 
+/** Source URL prefix of each source whose enrichments take their categories from the dictionary (backfill-types and
+ *  release-categories select rows by it). */
+export const typedSourceUrlPrefix={spareto:'https://spareto.com/products/',parts2world:'https://www.parts2world.com/'} as const;
+export type TypedSource=keyof typeof typedSourceUrlPrefix;
+export const typedSourceUrlLike=(source:TypedSource)=>typedSourceUrlPrefix[source].replace(/[\\%_]/g,'\\$&')+'%';
+
 export type TypedEnrichment={supplierItemId:string;sourceUrl:string;type:string|null};
 /** Writes each row's dictionary categories to its enrichment and category links. A row without a type (its URL does not
  *  name one) is only counted: the worker may have stored categories from the page's own part name. A row whose
  *  categories are already the same is left alone, so imported_at (and storefront:sync) moves only for real changes; a row whose source URL changed
- *  meanwhile is not touched. dryRun only reads. */
-export async function backfillTypeCategories(pool:Pool,rows:TypedEnrichment[],dict:TypeDictionary,{dryRun=false}:{dryRun?:boolean}={}){
+ *  meanwhile is not touched. dryRun only reads. hold writes the same categories but leaves imported_at as it is, so
+ *  storefront:sync does not carry them until releaseTypeCategories. */
+export async function backfillTypeCategories(pool:Pool,rows:TypedEnrichment[],dict:TypeDictionary,{dryRun=false,hold=false}:{dryRun?:boolean;hold?:boolean}={}){
  const result={rows:rows.length,mapped:0,changed:0,unchanged:0,missing:0,noType:0};
  const unmapped=new Map<string,number>();
  for(let start=0;start<rows.length;start+=500){
@@ -180,6 +187,7 @@ export async function backfillTypeCategories(pool:Pool,rows:TypedEnrichment[],di
   });
   if(!batch.length)continue;
   const params=[batch.map(r=>r.supplierItemId),batch.map(r=>r.sourceUrl),batch.map(r=>r.categories)];
+  const writeParams=[...params,hold];
   const input=`unnest($1::uuid[],$2::text[],$3::jsonb[]) AS i(id,url,categories)`;
   const client=await pool.connect();
   try{
@@ -190,10 +198,10 @@ export async function backfillTypeCategories(pool:Pool,rows:TypedEnrichment[],di
    let changed=seen.differs;
    if(!dryRun&&changed){
     const updated=(await client.query<{id:string;categories:unknown}>(`UPDATE product_enrichments e
-      SET payload=jsonb_set(e.payload,'{categories}',i.categories),imported_at=now()
+      SET payload=jsonb_set(e.payload,'{categories}',i.categories),imported_at=CASE WHEN $4::boolean THEN e.imported_at ELSE now() END
      FROM ${input} WHERE e.supplier_item_id=i.id AND e.source_url=i.url
       AND COALESCE(e.payload->'categories','[]'::jsonb) IS DISTINCT FROM i.categories
-     RETURNING e.supplier_item_id::text AS id,i.categories`,params)).rows;
+     RETURNING e.supplier_item_id::text AS id,i.categories`,writeParams)).rows;
     changed=updated.length;
     const ids=updated.map(r=>r.id);
     await client.query('DELETE FROM product_source_categories WHERE supplier_item_id=ANY($1::uuid[])',[ids]);
@@ -208,4 +216,34 @@ export async function backfillTypeCategories(pool:Pool,rows:TypedEnrichment[],di
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
  }
  return {...result,unmappedTypes:[...unmapped].map(([type,count])=>({type,count})).sort((a,b)=>b.count-a.count||a.type.localeCompare(b.type))};
+}
+
+/** Marks every categorised enrichment of the sources as imported now, so the next storefront:sync carries them (the
+ *  second half of a hold backfill). It re-sends all of a source's categorised rows, including ones a worker already sent
+ *  (harmless, the import is idempotent). Batches of 5000 rows by supplier_item_id, one transaction each; dryRun only counts. */
+export async function releaseTypeCategories(db:Pool,{sources,dryRun=false}:{sources:TypedSource[];dryRun?:boolean}){
+ const result:{source:TypedSource;rows:number}[]=[];
+ for(const source of sources){
+  const like=typedSourceUrlLike(source),where="source_url LIKE $1 AND jsonb_typeof(payload->'categories')='array' AND payload->'categories'<>'[]'::jsonb";
+  let rows=0;
+  if(dryRun)rows=(await db.query<{n:number}>(`SELECT count(*)::int AS n FROM product_enrichments WHERE ${where}`,[like])).rows[0].n;
+  else for(let after:string|null=null;;){
+   const client=await db.connect();
+   try{
+    await client.query('BEGIN');
+    const batch:{id:string}[]=(await client.query<{id:string}>(`SELECT supplier_item_id::text AS id FROM product_enrichments WHERE ${where}
+     AND ($2::uuid IS NULL OR supplier_item_id>$2::uuid) ORDER BY supplier_item_id LIMIT 5000`,[like,after])).rows;
+    if(batch.length){
+     const last=batch[batch.length-1].id;
+     rows+=(await client.query(`UPDATE product_enrichments SET imported_at=now() WHERE ${where}
+      AND ($2::uuid IS NULL OR supplier_item_id>$2::uuid) AND supplier_item_id<=$3::uuid`,[like,after,last])).rowCount??0;
+     after=last;
+    }
+    await client.query('COMMIT');
+    if(batch.length<5000)break;
+   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+  }
+  result.push({source,rows});
+ }
+ return result;
 }

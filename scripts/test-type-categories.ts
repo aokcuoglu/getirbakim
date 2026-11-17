@@ -4,7 +4,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import type { SourceCategory } from "../src/modules/enrichment/source-categories";
 import {
-  acceptedPairs, backfillTypeCategories, brandSlug, categoriesForType, learnTypeCategories, loadTypeCategories, loadTypeCategoriesOrEmpty, relearnTypeCategories,
+  acceptedPairs, backfillTypeCategories, brandSlug, categoriesForType, learnTypeCategories, loadTypeCategories, loadTypeCategoriesOrEmpty, releaseTypeCategories, relearnTypeCategories,
   trodoSlugType, trodoType, typeDictionary, typeSlug,
 } from "../src/modules/enrichment/type-categories";
 import { parts2worldTypedEnrichments, pendingArticleTypes, saveArticleType } from "../src/modules/enrichment/parts2world-types";
@@ -233,6 +233,48 @@ test("PostgreSQL: parts2world part types (#852) are fetched once per article and
   assert.deepEqual(await state(p2w[1]), { categories: categoriesForType(dict, "brake-disc"), links: [10] });
   assert.deepEqual(await state(p2w[2]), { categories: null, links: [] });
   assert.deepEqual(await state(p2w[3]), { categories: null, links: [] });
+});
+
+test("PostgreSQL: a hold backfill keeps imported_at; release moves it for the source's categorised rows only", { skip }, async () => {
+  const added: string[] = [];
+  for (const code of ["H1", "H2", "H3", "H4"]) added.push((await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,
+    product_data,price_data,stock_data,product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+    VALUES('basbug',$1,'G','MRK',$2,'{"uk":"FEBI","ac":"PARCA","ac2":"","dc":"TL"}','{"nf":100}','{"stok":2}',1,1,1,false,'present',now(),now(),now())
+    RETURNING id::text`, [basbug, code])).rows[0].id);
+  const [held, bare, other, trodo] = added;
+  // Earlier tests left categorised rows of both sources; the release counts them too.
+  const before = async (like: string) => (await schema.pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM product_enrichments WHERE source_url LIKE $1
+    AND jsonb_typeof(payload->'categories')='array' AND payload->'categories'<>'[]'::jsonb`, [like])).rows[0].n;
+  const sparetoBefore = await before("https://spareto.com/%"), p2wBefore = await before("https://www.parts2world.com/%");
+  const sparetoUrl = (n: number) => `https://spareto.com/products/febi-bilstein-brake-disc/${n}`;
+  const otherUrl = "https://www.parts2world.com/tecdoc/#/product?mod=1&link=2&id=3";
+  const trodoUrl = "https://www.trodo.com/brake-disc-febi-9";
+  await enrichment(held, sparetoUrl(11), "FEBI BILSTEIN", { specifications: [] });
+  await enrichment(bare, sparetoUrl(12), "FEBI BILSTEIN", { specifications: [] });
+  await enrichment(other, otherUrl, "FEBI BILSTEIN", { categories: [category(10)] });
+  await enrichment(trodo, trodoUrl, "FEBI BILSTEIN", { categories: [category(10)] });
+  const dict = dictionary({ "brake-disc": [10] });
+  const rows = [{ supplierItemId: held, sourceUrl: sparetoUrl(11), type: "brake-disc" }];
+  const state = async (item: string) => (await schema.pool.query<{ categories: unknown; fresh: boolean; links: number[] }>(`SELECT payload->'categories' AS categories,
+    imported_at>now()-interval '1 hour' AS fresh,ARRAY(SELECT category_id FROM product_source_categories WHERE supplier_item_id=$1 ORDER BY 1) AS links
+    FROM product_enrichments WHERE supplier_item_id=$1`, [item])).rows[0];
+
+  const written = await backfillTypeCategories(schema.pool, rows, dict, { hold: true });
+  assert.equal(written.changed, 1);
+  assert.deepEqual(await state(held), { categories: categoriesForType(dict, "brake-disc"), fresh: false, links: [10] });
+
+  const dry = await releaseTypeCategories(schema.pool, { sources: ["spareto"], dryRun: true });
+  assert.deepEqual(dry, [{ source: "spareto", rows: sparetoBefore + 1 }]);
+  assert.equal((await state(held)).fresh, false);
+
+  assert.deepEqual(await releaseTypeCategories(schema.pool, { sources: ["spareto"] }), [{ source: "spareto", rows: sparetoBefore + 1 }]);
+  assert.equal((await state(held)).fresh, true);
+  // Uncategorised rows of the source and other sources' rows keep their imported_at.
+  for (const item of [bare, other, trodo]) assert.equal((await state(item)).fresh, false);
+
+  assert.deepEqual(await releaseTypeCategories(schema.pool, { sources: ["parts2world"] }), [{ source: "parts2world", rows: p2wBefore + 1 }]);
+  assert.equal((await state(other)).fresh, true);
+  assert.equal((await state(trodo)).fresh, false);
 });
 
 test("PostgreSQL: a worker's dictionary is empty, not an error, without learned types", { skip }, async () => {
