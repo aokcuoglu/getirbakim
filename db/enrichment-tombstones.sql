@@ -15,6 +15,7 @@ CREATE INDEX IF NOT EXISTS product_enrichment_tombstones_recorded_idx ON product
 
 -- A supplier item deleted with its enrichment (ON DELETE CASCADE) is no longer visible here, so nothing is logged:
 -- the target's supplier sync owns the item's existence, not the storefront sync.
+-- CREATE OR REPLACE TRIGGER (PostgreSQL 14+) takes a lighter lock than DROP + CREATE on these busy tables.
 CREATE OR REPLACE FUNCTION product_enrichment_tombstone_log() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
  item record;
@@ -33,14 +34,11 @@ BEGIN
  RETURN NULL;
 END $$;
 
-DROP TRIGGER IF EXISTS product_enrichment_tombstone_delete ON product_enrichments;
-CREATE TRIGGER product_enrichment_tombstone_delete AFTER DELETE ON product_enrichments
+CREATE OR REPLACE TRIGGER product_enrichment_tombstone_delete AFTER DELETE ON product_enrichments
  FOR EACH ROW EXECUTE FUNCTION product_enrichment_tombstone_log();
-DROP TRIGGER IF EXISTS product_enrichment_job_tombstone_update ON product_enrichment_jobs;
-CREATE TRIGGER product_enrichment_job_tombstone_update AFTER UPDATE OF status ON product_enrichment_jobs
+CREATE OR REPLACE TRIGGER product_enrichment_job_tombstone_update AFTER UPDATE OF status ON product_enrichment_jobs
  FOR EACH ROW WHEN (OLD.status IN ('complete','partial') AND NEW.status NOT IN ('complete','partial'))
  EXECUTE FUNCTION product_enrichment_tombstone_log();
-DROP TRIGGER IF EXISTS product_enrichment_job_tombstone_delete ON product_enrichment_jobs;
-CREATE TRIGGER product_enrichment_job_tombstone_delete AFTER DELETE ON product_enrichment_jobs
+CREATE OR REPLACE TRIGGER product_enrichment_job_tombstone_delete AFTER DELETE ON product_enrichment_jobs
  FOR EACH ROW WHEN (OLD.status IN ('complete','partial'))
  EXECUTE FUNCTION product_enrichment_tombstone_log();

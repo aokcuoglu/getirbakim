@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { after, before, beforeEach, test } from "node:test";
 import type { PoolClient } from "pg";
 import { isolatedSchema } from "./isolated-schema";
 import { resolveBundleItems } from "./storefront-bundle-items";
 import {
-  applyBundleTombstones, exportTombstones, MANUAL_SOURCE_METHOD, pruneTombstones, REMOVED_JOB_ERROR, TOMBSTONE_RETENTION_DAYS, type Tombstone,
+  applyBundleTombstones, bundleTombstones, exportTombstones, MANUAL_SOURCE_METHOD, pruneTombstones, REMOVED_JOB_ERROR, TOMBSTONE_RETENTION_DAYS, type Tombstone,
 } from "./storefront-bundle-tombstones";
 import { manualSourceMethod } from "../src/modules/suppliers/manual-import";
 
@@ -75,7 +79,8 @@ test("PostgreSQL: deletions and jobs leaving complete/partial are logged with th
 test("PostgreSQL: the export carries the latest entry per item, its kind from the current state, without manual uploads or old entries", { skip }, async () => {
   const deleted = await item("E-DELETED"), invalid = await item("E-INVALID"), both = await item("E-BOTH"), again = await item("E-AGAIN");
   const manual = await item("E-MANUAL"), old = await item("E-OLD"), recreated = await item("E-RECREATED");
-  for (const id of [deleted, invalid, both, again, old, recreated]) await enrich(id);
+  const invalidGone = await item("E-INVALID-GONE"), deletedGone = await item("E-DELETED-GONE");
+  for (const id of [deleted, invalid, both, again, old, recreated, invalidGone, deletedGone]) await enrich(id);
   await enrich(manual, { method: MANUAL_SOURCE_METHOD });
 
   await client.query("DELETE FROM product_enrichments WHERE supplier_item_id=ANY($1::uuid[])", [[deleted, manual, old]]);
@@ -89,9 +94,14 @@ test("PostgreSQL: the export carries the latest entry per item, its kind from th
   await client.query("DELETE FROM product_enrichments WHERE supplier_item_id=$1", [recreated]);
   await client.query("DELETE FROM supplier_items WHERE id=$1", [recreated]);
   await enrich(await item("E-RECREATED"));
+  // The supplier item went after its job was invalidated: the enrichment cascaded, which is no deletion to repeat.
+  await client.query("UPDATE product_enrichment_jobs SET status='pending' WHERE supplier_item_id=$1", [invalidGone]);
+  await client.query("DELETE FROM product_enrichments WHERE supplier_item_id=$1", [deletedGone]);
+  await client.query("DELETE FROM supplier_items WHERE id=ANY($1::uuid[])", [[invalidGone, deletedGone]]);
 
   assert.deepEqual((await exported()).sort((a, b) => a.code.localeCompare(b.code)), [
-    { code: "E-BOTH", kind: "enrichment_deleted" }, { code: "E-DELETED", kind: "enrichment_deleted" }, { code: "E-INVALID", kind: "job_invalidated" },
+    { code: "E-BOTH", kind: "enrichment_deleted" }, { code: "E-DELETED", kind: "enrichment_deleted" }, { code: "E-DELETED-GONE", kind: "enrichment_deleted" },
+    { code: "E-INVALID", kind: "job_invalidated" }, { code: "E-INVALID-GONE", kind: "job_invalidated" },
   ]);
   // Without the window (a --full run) the old entry goes too.
   assert.ok((await exported(true)).some(row => row.code === "E-OLD"));
@@ -165,4 +175,59 @@ test("PostgreSQL: entries past the retention are pruned; a database without the 
   await client.query("DROP TABLE product_enrichment_tombstones CASCADE");
   assert.equal(await pruneTombstones(client), 0);
   await client.query("ROLLBACK");
+});
+
+test("job_invalidated entries travel as a count while the target only reports them", () => {
+  const row = (kind: Tombstone["kind"]): Tombstone => ({ supplier_item_id: randomUUID(), ...key("B"), kind, source_method: null, recorded_at: "2026-11-10T00:00:00Z" });
+  const rows = [row("enrichment_deleted"), row("job_invalidated"), row("job_invalidated")];
+  assert.deepEqual(bundleTombstones(rows, false), { tombstones: [rows[0]], invalidatedJobs: 2 });
+  assert.deepEqual(bundleTombstones(rows, true), { tombstones: rows, invalidatedJobs: 0 });
+});
+
+test("PostgreSQL: import-storefront-bundle applies tombstones before the part's jobs and enrichments, stops above the cap even in a dry run", { skip }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "storefront-tombstones-"));
+  try {
+    // Target ids differ from the bundle's.
+    const removed = await item("I-REMOVED"), added = await item("I-ADDED");
+    await enrich(removed);
+    const bundleRemoved = randomUUID(), bundleAdded = randomUUID();
+    const enrichment = { supplier_item_id: bundleAdded, supplier_code: "X", supplier_brand: "FEBI", source_url: "https://www.trodo.com/y", source_method: "trodo",
+      manufacturer: "FEBI", manufacturer_part_number: "2", image_id: null, payload: {}, imported_at: "2026-11-11T00:00:00Z", match_basis: { type: "exact_part" } };
+    const manifest = (maxDeletions: number) => ({
+      snapshotAt: "2026-11-12T00:00:00Z", categories: [], labels: [], images: [], logos: [], vehicleSpecs: [], vehicleImages: [], media: [], products: [],
+      enrichments: [enrichment],
+      jobs: [{ supplier_item_id: bundleAdded, supplier_code: "X", supplier_brand: "FEBI", oem: "", status: "complete", candidate_url: null, last_attempt_at: "2026-11-11T00:00:00Z" }],
+      tombstones: [{ supplier_item_id: bundleRemoved, ...key("I-REMOVED"), kind: "enrichment_deleted", source_method: "trodo", recorded_at: "2026-11-10T00:00:00Z" }],
+      invalidatedJobs: 2, maxDeletions,
+      items: [{ id: bundleRemoved, ...key("I-REMOVED") }, { id: bundleAdded, ...key("I-ADDED") }],
+    });
+    const run = async (maxDeletions: number, args: string[] = []) => {
+      await writeFile(join(dir, "manifest.json"), JSON.stringify(manifest(maxDeletions)));
+      return spawnSync(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/import-storefront-bundle.ts", dir, ...args],
+        { encoding: "utf8", env: { ...process.env, S3_BUCKET: "test-media", S3_REGION: process.env.S3_REGION || "eu-central-1" } });
+    };
+    const has = async (id: string) => (await client.query("SELECT 1 FROM product_enrichments WHERE supplier_item_id=$1", [id])).rowCount === 1;
+
+    // Above the cap: a dry run fails (the inbound task dry-runs every part first), nothing is written.
+    const capped = await run(0);
+    assert.notEqual(capped.status, 0);
+    assert.match(capped.stderr, /would delete 1 enrichments, more than --max-deletions=0/);
+    assert.equal(await has(removed), true);
+    const dry = await run(1000);
+    assert.equal(dry.status, 0, dry.stderr);
+    assert.match(dry.stdout, /DRY RUN/);
+    assert.deepEqual([await has(removed), await has(added)], [true, false]);
+
+    const reportFile = join(dir, "report.json");
+    const applied = await run(1000, ["--apply", `--report=${reportFile}`]);
+    assert.equal(applied.status, 0, applied.stderr);
+    const { report, items } = JSON.parse(await readFile(reportFile, "utf8")) as { report: Record<string, number>; items: string[] };
+    assert.deepEqual(
+      [report.tombstones, report.removedEnrichments, report.resetJobs, report.invalidatedJobsReported, report.tombstonesKept, report.enrichments, report.jobs],
+      [1, 1, 1, 2, 0, 1, 1]);
+    assert.deepEqual(items, [added]);
+    assert.deepEqual([await has(removed), await has(added)], [false, true]);
+    const status = async (id: string) => (await client.query<{ status: string }>("SELECT status FROM product_enrichment_jobs WHERE supplier_item_id=$1", [id])).rows[0].status;
+    assert.deepEqual([await status(removed), await status(added)], ["pending", "complete"]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

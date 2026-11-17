@@ -6,7 +6,7 @@ import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
 import { EXPORTED_ENRICHMENT_IDS } from "./storefront-bundle-export";
 import type { BundleItem } from "./storefront-bundle-items";
-import { DEFAULT_MAX_DELETIONS, exportTombstones, pruneTombstones, TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
+import { bundleTombstones, DEFAULT_MAX_DELETIONS, exportTombstones, pruneTombstones, TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
 import { parsePositiveInteger, parseRetryItems } from "./storefront-sync-state";
 
 // Writes storefront data produced locally (Trodo category tree, labels, images, product
@@ -21,8 +21,9 @@ import { parsePositiveInteger, parseRetryItems } from "./storefront-sync-state";
 // manifest.tombstones (#564, storefront-bundle-tombstones.ts) lists the enrichments deleted or invalidated here in the
 // last TOMBSTONE_RETENTION_DAYS (the whole log without --since), whatever the watermark; their supplier item keys come
 // from the log, so a deleted item is still found on the target. manifest.maxDeletions (--max-deletions=<n>, default
-// DEFAULT_MAX_DELETIONS) caps the enrichments the import may delete. Log entries past the retention are pruned after
-// the export.
+// DEFAULT_MAX_DELETIONS) caps the enrichments the import may delete. Invalidated jobs travel as a count
+// (manifest.invalidatedJobs) while the target only reports them. --prune (the sync's real runs, not --dry-run) deletes
+// log entries past the retention after the export.
 //
 // Where each enrichment table comes from on the target (#553):
 // - carried: source categories, product enrichments + mappings + media, logos, vehicle_type_specs/images and
@@ -42,6 +43,7 @@ const since = sinceArg ? new Date(sinceArg) : null;
 if (since && Number.isNaN(since.getTime())) throw new Error("--since must be an ISO timestamp");
 const retryFile = process.argv.find(arg => arg.startsWith("--retry-file="))?.slice("--retry-file=".length);
 const retry = retryFile ? parseRetryItems(await readFile(retryFile, "utf8")) : [];
+const prune = process.argv.includes("--prune");
 const maxDeletionsArg = process.argv.find(arg => arg.startsWith("--max-deletions="))?.slice("--max-deletions=".length);
 const maxDeletions = maxDeletionsArg === undefined ? DEFAULT_MAX_DELETIONS : parsePositiveInteger(maxDeletionsArg, "--max-deletions");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -52,7 +54,7 @@ try {
   await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
   const read = async (sql: string, params: unknown[] = []) => (await client.query(sql, params)).rows;
   const changed = [since ?? new Date(0), JSON.stringify(retry)];
-  const tombstones = await exportTombstones(client, since === null);
+  const { tombstones, invalidatedJobs } = bundleTombstones(await exportTombstones(client, since === null));
   const items: BundleItem[] = await read(`SELECT id,supplier,company,list_group,warehouse,code FROM supplier_items WHERE id IN (
       ${EXPORTED_ENRICHMENT_IDS} UNION SELECT evidence_product_id FROM manufacturer_logos
       UNION SELECT j.supplier_item_id FROM product_enrichment_jobs j JOIN product_enrichments e USING(supplier_item_id) WHERE j.status IN ('complete','partial'))
@@ -87,11 +89,12 @@ try {
     jobs: await read(`SELECT j.supplier_item_id,j.supplier_code,j.supplier_brand,j.oem,j.status,j.candidate_url,j.last_attempt_at
       FROM product_enrichment_jobs j JOIN product_enrichments e USING(supplier_item_id) WHERE j.status IN ('complete','partial') ORDER BY j.supplier_item_id`),
     tombstones,
+    invalidatedJobs,
     maxDeletions,
     items,
   };
   await client.query("COMMIT");
-  const pruned = await pruneTombstones(client);
+  const pruned = prune ? await pruneTombstones(client) : 0;
   for (const object of manifest.media) {
     const path = resolve(root, "media", object.object_key);
     if (!path.startsWith(resolve(root, "media") + sep)) throw new Error("Unsafe media key");
@@ -102,5 +105,5 @@ try {
     await writeFile(path, bytes);
   }
   await writeFile(resolve(root, "manifest.json"), JSON.stringify(manifest));
-  console.log(`Exported ${manifest.categories.length} categories, ${manifest.labels.length} labels, ${manifest.images.length} category images, ${manifest.products.length} product mappings, ${manifest.enrichments.length} enrichments, ${manifest.jobs.length} enrichment jobs, ${manifest.logos.length} logos, ${manifest.vehicleSpecs.length} vehicle specs, ${manifest.vehicleImages.length} vehicle images, ${manifest.media.length} media objects, ${tombstones.length} tombstones (max ${maxDeletions} deletions, ${pruned} log entries older than ${TOMBSTONE_RETENTION_DAYS} days pruned)${retry.length ? ` (${retry.length} retried supplier items)` : ""} to ${root}`);
+  console.log(`Exported ${manifest.categories.length} categories, ${manifest.labels.length} labels, ${manifest.images.length} category images, ${manifest.products.length} product mappings, ${manifest.enrichments.length} enrichments, ${manifest.jobs.length} enrichment jobs, ${manifest.logos.length} logos, ${manifest.vehicleSpecs.length} vehicle specs, ${manifest.vehicleImages.length} vehicle images, ${manifest.media.length} media objects, ${tombstones.length} tombstones, ${invalidatedJobs} invalidated jobs (max ${maxDeletions} deletions, ${pruned} log entries older than ${TOMBSTONE_RETENTION_DAYS} days pruned)${retry.length ? ` (${retry.length} retried supplier items)` : ""} to ${root}`);
 } finally { client.release(); storage.destroy(); await pool.end(); }

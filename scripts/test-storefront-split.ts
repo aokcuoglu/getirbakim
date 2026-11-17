@@ -105,11 +105,11 @@ test("enrichment job statuses go whole in part 0 with their supplier item keys",
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("tombstones go whole in part 0 with their supplier item keys; later parts carry none", async () => {
+test("tombstones and the invalidated job count go whole in part 0; later parts carry none", async () => {
   const key = (id: string) => ({ id, supplier: "basbug", company: "C", list_group: "L", warehouse: "MRK", code: `CODE ${id}` });
   const tombstones = [{ supplier_item_id: "i7", kind: "enrichment_deleted" }, { supplier_item_id: "i8", kind: "job_invalidated" }];
   const { root, source } = await bundle([{ id: "a", key: "p/a.jpg", size: 60 }, { id: "b", key: "p/b.jpg", size: 60 }], {
-    categories: [], labels: [], images: [], logos: [], tombstones, maxDeletions: 25,
+    categories: [], labels: [], images: [], logos: [], tombstones, invalidatedJobs: 3, maxDeletions: 25,
     enrichments: [{ supplier_item_id: "i1", image_id: "a" }, { supplier_item_id: "i2", image_id: "b" }], products: [],
     items: [key("i1"), key("i2"), key("i7"), key("i8")],
   });
@@ -120,5 +120,7 @@ test("tombstones go whole in part 0 with their supplier item keys; later parts c
     assert.deepEqual(parts.slice(1).map(part => part.tombstones), [[], []]);
     assert.deepEqual(parts.map(part => part.items.map((item: { id: string }) => item.id)), [["i7", "i8"], ["i1"], ["i2"]]);
     assert.deepEqual(parts.map(part => part.maxDeletions), [25, 25, 25]);
+    // Counted once: the inbound report sums every part.
+    assert.deepEqual(parts.map(part => part.invalidatedJobs), [3, 0, 0]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

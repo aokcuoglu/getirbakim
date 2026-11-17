@@ -176,9 +176,11 @@ try {
     if (retry.length) await writeFile(retryFile, JSON.stringify(parseRetryItems(JSON.stringify(retry))));
     const fullDir = resolve(local, "full");
     run(process.execPath, ["--env-file=.env.local", "--conditions=react-server", "--import", "tsx", "scripts/export-storefront-bundle.ts", fullDir,
-      ...(since ? [`--since=${since}`] : []), ...(retry.length ? [`--retry-file=${retryFile}`] : []), ...(maxDeletions ? [`--max-deletions=${maxDeletions}`] : [])]);
+      ...(since ? [`--since=${since}`] : []), ...(retry.length ? [`--retry-file=${retryFile}`] : []), ...(maxDeletions ? [`--max-deletions=${maxDeletions}`] : []),
+      // Pruning the local log is a write: only real runs do it.
+      ...(dryRun ? [] : ["--prune"])]);
     const manifest = JSON.parse(await readFile(resolve(fullDir, "manifest.json"), "utf8")) as {
-      snapshotAt: string; enrichments: unknown[]; jobs?: unknown[]; tombstones?: unknown[]; maxDeletions?: number;
+      snapshotAt: string; enrichments: unknown[]; jobs?: unknown[]; tombstones?: unknown[]; invalidatedJobs?: number; maxDeletions?: number;
     };
     const tombstones = manifest.tombstones?.length ?? 0;
     const partsDir = resolve(local, "parts");
@@ -186,13 +188,13 @@ try {
     if (!transfer) {
       const summary = await summarizeParts(partsDir);
       console.log(JSON.stringify({
-        dryRun: true, target, since, snapshotAt: manifest.snapshotAt, retried: retry.length, tombstones, maxDeletions: manifest.maxDeletions,
+        dryRun: true, target, since, snapshotAt: manifest.snapshotAt, retried: retry.length, tombstones, invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions,
         totals: { ...summary.totals, mediaMB: Math.round(summary.totals.mediaBytes / 1024 / 1024 * 10) / 10 }, base: summary.base, parts: summary.parts,
       }, null, 2));
     } else {
       console.log(JSON.stringify({
         target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, tombstones,
-        maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length,
+        invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length,
       }));
       const result = await transfer(partsDir, parts);
       let next = previous?.retry;

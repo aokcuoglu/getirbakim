@@ -8,9 +8,10 @@ import type { PoolClient } from "pg";
 // - enrichment_deleted: deletes the target's enrichment unless it is a manual upload (the target's own data) or was
 //   imported after the deletion here (newer data there). Fitments and shared links cascade; the enrichment's category
 //   mappings of the bundle's sources go too, and its complete/partial job becomes pending. Images are left to media:gc.
-// - job_invalidated: only counted (invalidatedJobsReported). A local job also falls back to pending when the supplier
-//   item's OEM or code changes (enqueueProductSources), and those identities can differ on the target, where the
-//   enrichment may still be right. Setting INVALIDATE_JOBS_ON_TARGET to true resets those jobs to pending as well.
+// - job_invalidated: only counted (invalidatedJobsReported); the bundle carries their number (manifest.invalidatedJobs),
+//   not the rows (bundleTombstones). A local job also falls back to pending when the supplier item's OEM or code changes
+//   (enqueueProductSources), and those identities can differ on the target, where the enrichment may still be right.
+//   Setting INVALIDATE_JOBS_ON_TARGET to true ships the rows and resets those jobs to pending as well.
 // More than maxDeletions removed enrichments stop the import (manifest.maxDeletions, sync --max-deletions).
 
 export const TOMBSTONE_RETENTION_DAYS = 90;
@@ -29,28 +30,38 @@ export type Tombstone = {
 
 /**
  * The tombstones an export carries: the latest entry per supplier item, $1 true for the whole log, otherwise the last
- * $2 days; $3 is MANUAL_SOURCE_METHOD. The kind follows the item's current state (found by natural key, as on the
- * target): no enrichment → enrichment_deleted, an enrichment whose job is not complete/partial → job_invalidated.
- * Items enriched and valid again, and manual uploads, are left out.
+ * $2 days; $3 is MANUAL_SOURCE_METHOD. The kind follows the item's current state when the item still exists here
+ * (found by natural key, as on the target): no enrichment → enrichment_deleted, an enrichment whose job is not
+ * complete/partial → job_invalidated. An item gone here keeps the logged kind: its enrichment went with it by cascade,
+ * which is not a deletion to repeat on the target. Items enriched and valid again, and manual uploads, are left out.
  */
 export const EXPORTED_TOMBSTONES = `WITH latest AS (
-  SELECT DISTINCT ON (supplier_item_id) supplier_item_id,supplier,company,list_group,warehouse,code,source_method,recorded_at
+  SELECT DISTINCT ON (supplier_item_id) supplier_item_id,supplier,company,list_group,warehouse,code,kind,source_method,recorded_at
   FROM product_enrichment_tombstones WHERE $1::boolean OR recorded_at > now() - make_interval(days => $2::int)
   ORDER BY supplier_item_id,recorded_at DESC,id DESC)
 SELECT t.supplier_item_id,t.supplier,t.company,t.list_group,t.warehouse,t.code,
-  CASE WHEN c.supplier_item_id IS NULL THEN 'enrichment_deleted' ELSE 'job_invalidated' END AS kind,
-  coalesce(c.source_method,t.source_method) AS source_method,t.recorded_at
+  CASE WHEN s.id IS NULL THEN t.kind WHEN e.supplier_item_id IS NULL THEN 'enrichment_deleted' ELSE 'job_invalidated' END AS kind,
+  coalesce(e.source_method,t.source_method) AS source_method,t.recorded_at
 FROM latest t
-LEFT JOIN LATERAL (SELECT e.supplier_item_id,e.source_method,j.status FROM supplier_items s
-  JOIN product_enrichments e ON e.supplier_item_id=s.id LEFT JOIN product_enrichment_jobs j ON j.supplier_item_id=s.id
-  WHERE (s.supplier,s.company,s.list_group,s.warehouse,s.code)=(t.supplier,t.company,t.list_group,t.warehouse,t.code)) c ON true
-WHERE c.status IS DISTINCT FROM 'complete' AND c.status IS DISTINCT FROM 'partial'
-  AND t.source_method IS DISTINCT FROM $3 AND c.source_method IS DISTINCT FROM $3
+LEFT JOIN supplier_items s ON (s.supplier,s.company,s.list_group,s.warehouse,s.code)=(t.supplier,t.company,t.list_group,t.warehouse,t.code)
+LEFT JOIN product_enrichments e ON e.supplier_item_id=s.id
+LEFT JOIN product_enrichment_jobs j ON j.supplier_item_id=s.id
+WHERE NOT (e.supplier_item_id IS NOT NULL AND j.status IS NOT NULL AND j.status IN ('complete','partial'))
+  AND t.source_method IS DISTINCT FROM $3 AND e.source_method IS DISTINCT FROM $3
 ORDER BY t.supplier_item_id`;
 
 /** Reads the tombstones to export; `all` drops the retention window (a --full run). */
 export async function exportTombstones(client: PoolClient, all: boolean) {
   return (await client.query<Tombstone>(EXPORTED_TOMBSTONES, [all, TOMBSTONE_RETENTION_DAYS, MANUAL_SOURCE_METHOD])).rows;
+}
+
+/**
+ * What a bundle ships: job_invalidated entries only while the target applies them (INVALIDATE_JOBS_ON_TARGET);
+ * otherwise just their count (manifest.invalidatedJobs), so part-00 does not carry rows the target ignores.
+ */
+export function bundleTombstones(rows: Tombstone[], invalidateJobs = INVALIDATE_JOBS_ON_TARGET) {
+  const tombstones = invalidateJobs ? rows : rows.filter(row => row.kind === "enrichment_deleted");
+  return { tombstones, invalidatedJobs: rows.length - tombstones.length };
 }
 
 const TOMBSTONES = "jsonb_to_recordset($1::jsonb) AS r(supplier_item_id uuid, kind text, recorded_at timestamptz)";
@@ -87,7 +98,7 @@ export async function applyBundleTombstones(client: PoolClient, tombstones: Tomb
     removedEnrichments: removed.length,
     removedMappings: mappings.rowCount ?? 0,
     resetJobs: jobs.rowCount ?? 0,
-    invalidatedJobsReported: tombstones.filter(row => row.kind === "job_invalidated").length,
+    invalidatedJobsReported: invalidateJobs ? 0 : tombstones.filter(row => row.kind === "job_invalidated").length,
     // Deletions the target did not follow: product not there, no enrichment, a manual upload or newer data.
     tombstonesKept: kept.rows[0].count,
   };

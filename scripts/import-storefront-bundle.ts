@@ -122,7 +122,8 @@ try {
     removedEnrichments: tombstones.removedEnrichments,
     removedEnrichmentMappings: tombstones.removedMappings,
     resetJobs: tombstones.resetJobs,
-    invalidatedJobsReported: tombstones.invalidatedJobsReported,
+    // Shipped as a count (manifest.invalidatedJobs, part-00) while this side only reports them.
+    invalidatedJobsReported: tombstones.invalidatedJobsReported + (manifest.invalidatedJobs ?? 0),
     tombstonesKept: tombstones.tombstonesKept,
   };
   if (report.categoryImages !== manifest.images.length) throw new Error(`Category image rows mismatch: ${report.categoryImages}/${manifest.images.length}`);
