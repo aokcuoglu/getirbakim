@@ -139,14 +139,15 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
   <p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>
   <Link className="font-semibold whitespace-nowrap text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Yalnızca aracıma uyanları göster</Link></div>;
  const card=(product:(typeof cards)[number])=><CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.display_brand)} account={account} fitsVehicle={fitting.has(product.id)} vehicleChecked={Boolean(vehicleTypeId)}/>;
- // The vehicle's fits before the results (#884): one sideways-scrolling row on phones and tablets, the results' grid from 769px;
- // always grid cards (its own `group/listing`), whatever view the results take.
+ // The vehicle's fits before the results (#884): one sideways-scrolling row on phones and tablets, two columns from 769px and
+ // one row of three from 993px (the fourth card hidden there); always grid cards (its own `group/listing`), whatever view
+ // the results take.
  const leadTotal=fitCount.toLocaleString("tr-TR");
  const lead=leadProducts.length>0&&<>
   <section aria-labelledby="aracina-uyanlar" className="mb-8 max-[768px]:mb-6">
    <h2 id="aracina-uyanlar" className="mb-3 flex items-start gap-2 text-lg leading-6 font-semibold max-[600px]:text-base max-[600px]:leading-[22px]"><CircleCheck size={20} className="mt-0.5 shrink-0 text-[#1e5e3e]" aria-hidden="true"/><span><strong>{vehicleName}</strong> aracına uyanlar · {leadTotal} ürün</span></h2>
    <div className="group/listing relative max-[768px]:after:pointer-events-none max-[768px]:after:absolute max-[768px]:after:inset-y-0 max-[768px]:after:right-0 max-[768px]:after:w-6 max-[768px]:after:bg-linear-to-l max-[768px]:after:from-white" data-view="grid">
-    <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 max-[768px]:*:w-[46vw] max-[768px]:*:min-w-40 max-[768px]:*:shrink-0 max-[768px]:*:snap-start min-[769px]:grid min-[769px]:grid-cols-2 min-[769px]:gap-x-4 min-[769px]:gap-y-6 min-[769px]:overflow-visible min-[769px]:pb-0 min-[993px]:grid-cols-3">{leadProducts.map(card)}</div>
+    <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 max-[768px]:*:w-[46vw] max-[768px]:*:min-w-40 max-[768px]:*:shrink-0 max-[768px]:*:snap-start min-[769px]:grid min-[769px]:grid-cols-2 min-[769px]:gap-x-4 min-[769px]:gap-y-6 min-[769px]:overflow-visible min-[769px]:pb-0 min-[993px]:grid-cols-3 min-[993px]:[&>:nth-child(n+4)]:hidden">{leadProducts.map(card)}</div>
    </div>
    <Link className="mt-3 inline-flex min-h-11 items-center gap-1 font-semibold text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Uyan {leadTotal} ürünün tümünü göster<ChevronRight size={16} aria-hidden="true"/></Link>
   </section>

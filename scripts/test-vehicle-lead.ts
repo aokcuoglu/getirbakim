@@ -56,14 +56,14 @@ test("the lead is the first cards of the fits=vehicle listing, with its total", 
   assert.deepEqual(new Set(idsOf(listing.items)), new Set(fittingKeys.map(key => ids[key])));
 });
 
-test("the default limit is six cards; a page number of the listing does not move the lead", async () => {
+test("the default limit is four cards; a page number of the listing does not move the lead", async () => {
   const lead = await catalog.vehicleLead({ page: "2" }, String(GOLF));
-  assert.equal(lead.items.length, 6);
+  assert.equal(lead.items.length, 4);
   assert.deepEqual(idsOf(lead.items), idsOf((await catalog.vehicleLead({}, String(GOLF))).items));
 });
 
 test("the lead keeps the listing's search, brand filter and order", async () => {
-  const searched = await catalog.vehicleLead({ q: "fren balatası" }, String(GOLF));
+  const searched = await catalog.vehicleLead({ q: "fren balatası" }, String(GOLF), 6);
   assert.equal(searched.total, 5);
   assert.deepEqual(new Set(idsOf(searched.items)), new Set(["trw1", "trw2", "bosch1", "bosch2", "febi1"].map(key => ids[key])));
   assert.equal(searched.total, await catalog.vehicleFitCount({ q: "fren balatası" }, String(GOLF)));

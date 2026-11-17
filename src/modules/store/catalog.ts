@@ -671,8 +671,9 @@ export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
  * The first `limit` products of the listing linked to the garage vehicle's type, and how many there are (#884): the
  * listing's `fits=vehicle` page 1 (every filter and the order kept), shown above the full results. The vehicle does not
  * filter the catalog (DESIGN.md); its fits are put first. Its count and page ids share the `fits=vehicle` listing's cache.
+ * Four cards: a card is ~7.5 KB of HTML, and the 24-card page sits near the 350 KB target (#642, #739).
  */
-export async function vehicleLead(query:CatalogQuery,vehicleTypeId:string,limit=6) {
+export async function vehicleLead(query:CatalogQuery,vehicleTypeId:string,limit=4) {
  const {items,total}=await browseProducts({...query,fits:'vehicle',page:undefined},{vehicleTypeId},{limit});
  return {items,total};
 }
