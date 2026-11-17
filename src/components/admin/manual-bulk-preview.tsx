@@ -33,6 +33,8 @@ export function ManualBulkPreview({ draft, status, params }: { draft: Draft; sta
   const { report } = draft;
   const changes = report.bulk?.changes ?? [];
   const issues = report.issues;
+  // All-lists file (#844): the lists it names; its rows and findings show their list.
+  const lists = report.bulk?.lists?.length ? report.bulk.lists : undefined;
   const changePage = manualBulkPage(params[manualBulkPageParams.changes], draft.change_count);
   const issuePage = manualBulkPage(params[manualBulkPageParams.issues], draft.issue_count);
   const hrefFor = (key: string) => (page: number) => {
@@ -46,7 +48,7 @@ export function ManualBulkPreview({ draft, status, params }: { draft: Draft; sta
   return <Card>
     <CardHeader>
       <CardTitle><h2>Toplu fiyat ve stok önizlemesi</h2></CardTitle>
-      <CardDescription className="break-all">{draft.file_name} · {draft.list_name} listesi · {formatDate(draft.created_at)}{draft.uploader && ` · ${draft.uploader}`}</CardDescription>
+      <CardDescription className="break-all">{draft.file_name} · {lists ? `${formatNumber(lists.length)} liste` : `${draft.list_name} listesi`} · {formatDate(draft.created_at)}{draft.uploader && ` · ${draft.uploader}`}</CardDescription>
       <CardAction>{status}</CardAction>
     </CardHeader>
     <CardContent className="flex flex-col gap-4">
@@ -56,12 +58,14 @@ export function ManualBulkPreview({ draft, status, params }: { draft: Draft; sta
             ? <p className="flex items-center gap-2 text-2xl font-semibold text-destructive tabular-nums"><CircleAlert aria-hidden="true"/>{formatNumber(count)}<span className="sr-only">hata, güncelleme engelli</span></p>
             : <p className="text-2xl font-semibold tabular-nums">{formatNumber(count)}</p>}</CardContent></Card>)}
       </div>
+      {lists && <p className="break-words text-muted-foreground">Listeler: {lists.map(list => `${list.name} (${formatNumber(list.rows)} satır)`).join(" · ")}</p>}
       {report.errors > 0 && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{formatNumber(report.errors)} hata var</AlertTitle>
         <AlertDescription>Hatalı dosya uygulanamaz. Dosyayı düzeltip yeniden yükleyin.</AlertDescription></Alert>}
       {issuePage.pages > 1 && <p className="text-muted-foreground">{formatNumber(draft.issue_count)} bulgu · hatalar önce listelenir.</p>}
       {issues.length > 0 && <Table server><caption className="sr-only">Kontrol bulguları</caption>
-        <TableHeader><TableRow><TableHead>Seviye</TableHead><TableHead className="text-right">Satır</TableHead><TableHead>Stok Kodu</TableHead><TableHead>Bulgu</TableHead></TableRow></TableHeader>
+        <TableHeader><TableRow>{lists && <TableHead>Liste</TableHead>}<TableHead>Seviye</TableHead><TableHead className="text-right">Satır</TableHead><TableHead>Stok Kodu</TableHead><TableHead>Bulgu</TableHead></TableRow></TableHeader>
         <TableBody>{issues.map((issue, index) => <TableRow key={index}>
+          {lists && <TableCell>{issue.sheet || "—"}</TableCell>}
           <TableCell>{issue.level === "error" ? <StatusBadge tone="error">Hata</StatusBadge> : <StatusBadge tone="warning">Uyarı</StatusBadge>}</TableCell>
           <TableCell className="text-right tabular-nums">{issue.row ?? "—"}</TableCell>
           <TableCell className="font-mono">{issue.code ?? "—"}</TableCell>
@@ -71,9 +75,10 @@ export function ManualBulkPreview({ draft, status, params }: { draft: Draft; sta
       {issues.length > 0 && <ManualBulkPager label="Bulgu sayfaları" total={draft.issue_count} {...issuePage} href={hrefFor(manualBulkPageParams.issues)}/>}
       {changes.length > 0 && <p className="text-muted-foreground">Her hücre eski değer → yeni değeri gösterir; — o alanın değişmediğini belirtir.</p>}
       {changes.length > 0 && <Table server><caption className="sr-only">Değişecek ürünler</caption>
-        <TableHeader><TableRow><TableHead className="text-right">Satır</TableHead><TableHead>Marka</TableHead><TableHead>Stok Kodu</TableHead>
+        <TableHeader><TableRow>{lists && <TableHead>Liste</TableHead>}<TableHead className="text-right">Satır</TableHead><TableHead>Marka</TableHead><TableHead>Stok Kodu</TableHead>
           <TableHead>Liste Fiyatı</TableHead><TableHead>İskonto</TableHead><TableHead>Maliyet</TableHead><TableHead>Kârlılık</TableHead><TableHead>Stok</TableHead></TableRow></TableHeader>
         <TableBody>{changes.map(change => <TableRow key={change.id}>
+          {lists && <TableCell>{change.listName || "—"}</TableCell>}
           <TableCell className="text-right tabular-nums">{change.row}</TableCell>
           <TableCell>{change.brand}</TableCell>
           <TableCell className="font-mono">{change.code}</TableCell>

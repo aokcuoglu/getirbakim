@@ -4,6 +4,8 @@ import { manualCost } from "./manual-cost";
 // Bulk price/stock CSV of one manual list (#832): the admin downloads the list, edits list price, discount, markup and
 // stock in Excel and uploads it back. Kept free of server imports like manual-template.ts; the database side is
 // manual-bulk.ts. An empty cell changes nothing; "-" in the markup column returns the product to the global rate.
+// The all-lists file (#844) adds a leading "Liste" column with the list's name (its slug is accepted too): the key
+// is then Liste + Marka + Stok Kodu; without it the rows belong to the list the upload page shows.
 export const manualBulkColumns = [
   { key: "brand", header: "Marka" },
   { key: "code", header: "Stok Kodu" },
@@ -13,10 +15,15 @@ export const manualBulkColumns = [
   { key: "stock", header: "Stok Adedi" },
 ] as const;
 export type ManualBulkColumnKey = (typeof manualBulkColumns)[number]["key"];
+export const manualBulkListHeader = "Liste";
+/** A manual list as the all-lists file names it: list_group slug and its display name. */
+export type ManualBulkList = { group: string; name: string };
 
 export type ManualBulkRow = {
   row: number; brand: string; code: string; listPrice: number | null; discount: number | null;
   markup: number | "reset" | null; stock: number | null;
+  /** All-lists file (#844): the list the row's Liste cell names. Absent: the page's list. */
+  listGroup?: string; listName?: string;
 };
 /** One list item as the diff sees it: list/discount from price_data (old rows: list = nf, discount 0), markup per product. */
 export type ManualBulkCurrent = {
@@ -24,11 +31,15 @@ export type ManualBulkCurrent = {
   cost: number | null; filePrice: number | null; fileStock: number | null; fixedPrice: boolean;
   /** The upload's list price and discount cells (#843). */
   fileList?: number | null; fileDiscount?: number | null;
+  /** The item's list (`list` above is its list price). */
+  listGroup?: string;
 };
 export type ManualBulkChange = {
   id: string; row: number; code: string; brand: string;
   listPrice?: [number | null, number]; discount?: [number, number]; cost?: [number | null, number];
   markup?: [number | null, number | null]; stock?: [number | null, number];
+  /** All-lists file (#844): the list's name. */
+  listName?: string;
 };
 export type ManualBulkDiff = { changes: ManualBulkChange[]; unchanged: number; issues: ManualIssue[] };
 
@@ -103,12 +114,31 @@ const decimals = (value: number) => {
 };
 const columnHeader = (key: ManualBulkColumnKey) => manualBulkColumns.find(column => column.key === key)!.header;
 
-export function parseManualBulkCsv(bytes: Uint8Array): { rows: ManualBulkRow[]; issues: ManualIssue[] } {
+/** The list a Liste cell names: its slug, else its name regardless of case and accents; a name of several lists is ambiguous. */
+function findList(lists: ManualBulkList[], cell: string): ManualBulkList | "ambiguous" | undefined {
+  const bySlug = lists.find(list => list.group === cell);
+  if (bySlug) return bySlug;
+  const matches = lists.filter(list => headerKey(list.name) === headerKey(cell));
+  return matches.length > 1 ? "ambiguous" : matches[0];
+}
+
+/** What the all-lists download writes in a list's Liste cell: its name, or its slug when the name would not read back as this list. */
+export function manualBulkListCell(lists: ManualBulkList[], list: ManualBulkList) {
+  return findList(lists, list.name) === list ? list.name : list.group;
+}
+
+/**
+ * Reads a bulk CSV. A "Liste" header column makes it an all-lists file (`combined`): each row's list is resolved
+ * against `lists`; an empty or unknown Liste cell is a row error.
+ */
+export function parseManualBulkCsv(bytes: Uint8Array, lists: ManualBulkList[] = []): { rows: ManualBulkRow[]; issues: ManualIssue[]; combined: boolean } {
   const { delimiter, rows: lines } = parseCsv(decodeCsv(bytes));
   const issues: ManualIssue[] = [];
   const rows: ManualBulkRow[] = [];
-  const fail = (message: string) => ({ rows, issues: [...issues, { sheet: "", row: null, code: null, field: null, level: "error" as const, message }] });
   const header = lines[0];
+  const listIndex = header?.findIndex(cell => headerKey(cell) === headerKey(manualBulkListHeader)) ?? -1;
+  const combined = listIndex >= 0;
+  const fail = (message: string) => ({ rows, combined, issues: [...issues, { sheet: "", row: null, code: null, field: null, level: "error" as const, message }] });
   if (!header || header.every(cell => !cell.trim())) return fail("Dosya boş");
   const columns = new Map<ManualBulkColumnKey, number>();
   header.forEach((cell, index) => {
@@ -130,10 +160,20 @@ export function parseManualBulkCsv(bytes: Uint8Array): { rows: ManualBulkRow[]; 
     }
     const cell = (key: ManualBulkColumnKey) => columns.has(key) ? (line[columns.get(key)!] ?? "").trim() : "";
     const code = cell("code").replace(/^="(.*)"$/, "$1").trim();
-    // The export writes a brand starting with = + - @ as '… so Excel keeps it text.
+    // The export writes a brand (and a list name) starting with = + - @ as '… so Excel keeps it text.
     const brand = cell("brand").replace(/^'(?=[=+\-@])/, "");
     const errors: ManualIssue[] = [];
-    const issue = (field: ManualBulkColumnKey, message: string) => errors.push({ sheet: "", row, code: code || null, field, level: "error", message });
+    let list: ManualBulkList | undefined;
+    if (combined) {
+      const listCell = (line[listIndex] ?? "").trim().replace(/^'(?=[=+\-@])/, "");
+      const found = listCell ? findList(lists, listCell) : undefined;
+      if (found === "ambiguous") errors.push({ sheet: listCell, row, code: code || null, field: null, level: "error",
+        message: "Liste adı birden fazla listeyle eşleşiyor; liste kodunu (slug) yazın." });
+      else if (found) list = found;
+      else errors.push({ sheet: listCell, row, code: code || null, field: null, level: "error", message: listCell ? `Liste bulunamadı: "${listCell}"` : "Liste boş" });
+    }
+    const sheet = list?.name ?? "";
+    const issue = (field: ManualBulkColumnKey, message: string) => errors.push({ sheet, row, code: code || null, field, level: "error", message });
     if (!code) issue("code", "Stok Kodu boş");
     if (!brand) issue("brand", "Marka boş");
     const number = (key: ManualBulkColumnKey) => {
@@ -151,29 +191,36 @@ export function parseManualBulkCsv(bytes: Uint8Array): { rows: ManualBulkRow[]; 
     const stock = number("stock");
     if (stock !== null && (stock < 0 || !Number.isInteger(stock))) issue("stock", `Stok Adedi sıfır ya da pozitif tam sayı olmalı: ${cell("stock")}`);
     issues.push(...errors);
-    if (!errors.length) rows.push({ row, brand, code, listPrice, discount, markup, stock });
+    if (!errors.length) rows.push({ row, brand, code, listPrice, discount, markup, stock, ...(list ? { listGroup: list.group, listName: list.name } : {}) });
   }
   if (!rows.length && !issues.length) return fail("Dosyada ürün satırı yok");
-  return { rows, issues };
+  return { rows, issues, combined };
 }
 
 const stripZeros = (code: string) => code.replace(/^0+(?=.)/, "");
 
-/** What confirming the rows would change, checked against the list's current items (every presence state). */
-export function diffManualBulk(rows: ManualBulkRow[], current: ManualBulkCurrent[]): ManualBulkDiff {
-  const byCode = new Map(current.map(item => [item.code, item]));
+/**
+ * What confirming the rows would change, checked against the lists' current items (every presence state). Items and
+ * rows are keyed by list + code; one without a list (single-list file, old draft) belongs to `defaultList`.
+ */
+export function diffManualBulk(rows: ManualBulkRow[], current: ManualBulkCurrent[], defaultList = ""): ManualBulkDiff {
+  const key = (listGroup: string | undefined, code: string) => `${listGroup ?? defaultList}\u0000${code}`;
+  const byCode = new Map(current.map(item => [key(item.listGroup, item.code), item]));
   const byStripped = new Map<string, ManualBulkCurrent[]>();
-  for (const item of current) byStripped.set(stripZeros(item.code), [...byStripped.get(stripZeros(item.code)) ?? [], item]);
+  for (const item of current) {
+    const stripped = key(item.listGroup, stripZeros(item.code));
+    byStripped.set(stripped, [...byStripped.get(stripped) ?? [], item]);
+  }
   const seen = new Map<string, number>();
   const changes: ManualBulkChange[] = [];
   const issues: ManualIssue[] = [];
   let unchanged = 0;
   for (const row of rows) {
     const issue = (field: ManualBulkColumnKey | null, level: ManualIssue["level"], message: string) =>
-      issues.push({ sheet: "", row: row.row, code: row.code, field, level, message });
+      issues.push({ sheet: row.listName ?? "", row: row.row, code: row.code, field, level, message });
     // Excel drops a code's leading zeros when it opens the CSV: one item whose code differs only by them is the same item.
-    const candidates = byStripped.get(stripZeros(row.code)) ?? [];
-    const exact = byCode.get(row.code);
+    const candidates = byStripped.get(key(row.listGroup, stripZeros(row.code))) ?? [];
+    const exact = byCode.get(key(row.listGroup, row.code));
     const item = exact ?? (candidates.length === 1 ? candidates[0] : undefined);
     if (!item) { issue("code", "error", "Marka + Stok Kodu bu listede yok"); continue; }
     if (exact && candidates.length > 1)
@@ -184,7 +231,7 @@ export function diffManualBulk(rows: ManualBulkRow[], current: ManualBulkCurrent
     const list = row.listPrice ?? item.list;
     const discount = row.discount ?? item.discount;
     if (row.discount !== null && list === null) { issue("discount", "error", "İskonto girildi ama ürünün liste fiyatı yok; Liste Fiyatı da girin"); continue; }
-    const change: ManualBulkChange = { id: item.id, row: row.row, code: item.code, brand: item.brand };
+    const change: ManualBulkChange = { id: item.id, row: row.row, code: item.code, brand: item.brand, ...(row.listName ? { listName: row.listName } : {}) };
     if (list !== null && (list !== item.list || discount !== item.discount)) {
       if (list !== item.list && decimals(list) > 4) { issue("listPrice", "error", "Liste Fiyatı en fazla dört ondalıklı olabilir"); continue; }
       if (list !== item.list) change.listPrice = [item.list, list];
@@ -205,7 +252,9 @@ export function diffManualBulk(rows: ManualBulkRow[], current: ManualBulkCurrent
   return { changes, unchanged, issues };
 }
 
-export type ManualBulkExportRow = { brand: string; code: string; list: number | null; discount: number | null; markup: number | null; stock: number | null };
+export type ManualBulkExportRow = { brand: string; code: string; list: number | null; discount: number | null; markup: number | null; stock: number | null;
+  /** All-lists file (#844): the item's list name. */
+  listName?: string };
 
 const csvNumber = (value: number | null) => {
   if (value === null) return "";
@@ -219,9 +268,11 @@ const csvCode = (code: string) => /^0\d+$|^\d{12,}$|^\d+[eE]\d+$|^\d{1,4}[-/.]\d
 // A brand starting with = + - @ would be a formula in Excel.
 const csvBrand = (brand: string) => csvText(/^[=+\-@]/.test(brand) ? `'${brand}` : brand);
 
-/** The list as Excel (Turkish) opens it: UTF-8 BOM, ";" delimiter, "," decimals, CRLF. */
-export function buildManualBulkCsv(items: ManualBulkExportRow[]) {
-  const lines = [manualBulkColumns.map(column => column.header).join(";"), ...items.map(item =>
-    [csvBrand(item.brand), csvCode(item.code), csvNumber(item.list), csvNumber(item.list === null ? null : item.discount), csvNumber(item.markup), csvNumber(item.stock)].join(";"))];
+/** The list as Excel (Turkish) opens it: UTF-8 BOM, ";" delimiter, "," decimals, CRLF; `combined` leads with the Liste column (#844). */
+export function buildManualBulkCsv(items: ManualBulkExportRow[], combined = false) {
+  const lead = (cell: string) => combined ? [cell] : [];
+  const lines = [[...lead(manualBulkListHeader), ...manualBulkColumns.map(column => column.header)].join(";"), ...items.map(item =>
+    [...lead(csvBrand(item.listName ?? "")), csvBrand(item.brand), csvCode(item.code), csvNumber(item.list), csvNumber(item.list === null ? null : item.discount),
+      csvNumber(item.markup), csvNumber(item.stock)].join(";"))];
   return `﻿${lines.join("\r\n")}\r\n`;
 }

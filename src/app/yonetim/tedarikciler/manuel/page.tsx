@@ -179,14 +179,18 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
             <li>Kârlılık Oranı&apos;na “-” yazarsanız ürün genel orana döner.</li>
             <li>Maliyet, liste fiyatı eksi iskontodur: Liste Fiyatı × (1 − İskonto Oranı / 100).</li>
             <li>Ondalık için virgül kullanın (1.234,56); 0 ile başlayan noktalı değerler (0.25) ondalık okunur.</li>
-            <li>Marka ve Stok Kodu ürünü bulmak içindir; değiştirmeyin.</li>
+            <li>Liste, Marka ve Stok Kodu ürünü bulmak içindir; değiştirmeyin.</li>
+            <li>Birden çok liste varsa &quot;Tüm listeleri indir&quot; hepsini tek dosyada verir; bu dosyada baştaki Liste sütunu ürünün listesini belirler. Liste sütunu yoksa yalnız {list.list_name} listesi güncellenir.</li>
             <li>Liste fiyatı ve iskonto xlsx şablonunda da girilebilir; son değiştirilen değer geçerli olur.</li>
           </ul>
-          <div><Button variant="outline" nativeButton={false} render={<a href={listCsvHref} download/>}><Download data-icon="inline-start" aria-hidden="true"/>CSV indir</Button></div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" nativeButton={false} render={<a href={listCsvHref} download/>}><Download data-icon="inline-start" aria-hidden="true"/>CSV indir</Button>
+            {lists.length > 1 && <Button variant="outline" nativeButton={false} render={<a href={`${base}/csv?tum=1`} download/>}><Download data-icon="inline-start" aria-hidden="true"/>Tüm listeleri indir (CSV)</Button>}
+          </div>
           <form action={uploadManualBulk} className="flex flex-col gap-4">
             <input type="hidden" name="liste" value={list.list_group}/>
             <Field><FieldLabel htmlFor="manual-bulk-file">CSV dosyası</FieldLabel><Input id="manual-bulk-file" name="file" type="file" required accept=".csv,text/csv"/>
-              <FieldDescription>Sütunlar: Marka, Stok Kodu, Liste Fiyatı, İskonto Oranı, Kârlılık Oranı, Stok Adedi. En fazla 2 MB.</FieldDescription></Field>
+              <FieldDescription>Sütunlar: (Liste), Marka, Stok Kodu, Liste Fiyatı, İskonto Oranı, Kârlılık Oranı, Stok Adedi. En fazla 2 MB.</FieldDescription></Field>
             <div><SubmitButton icon={<Upload data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Dosya kontrol ediliyor…">CSV yükle ve kontrol et</SubmitButton></div>
           </form>
         </CardContent>
@@ -209,7 +213,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
             <TableHeader><TableRow><TableHead>Tarih</TableHead><TableHead>Liste</TableHead><TableHead>Dosya</TableHead><TableHead className="text-right">Ürün</TableHead><TableHead>Kontrol</TableHead><TableHead>Durum</TableHead><TableHead>Sonuç</TableHead></TableRow></TableHeader>
             <TableBody>{uploads.map(upload => <TableRow key={upload.id} className="align-top">
               <TableCell className="tabular-nums"><Link className="underline-offset-4 hover:underline" href={`${base}?${new URLSearchParams({ liste: upload.list_group, taslak: upload.id })}`}>{date(upload.created_at)}</Link>{upload.uploader && <span className="block text-muted-foreground">{upload.uploader}</span>}</TableCell>
-              <TableCell>{upload.list_name}</TableCell>
+              <TableCell className="whitespace-normal">{upload.list_name}</TableCell>
               <TableCell className="max-w-56 truncate" title={upload.file_name}>{upload.kind === "bulk" && <Badge variant="outline"><FileSpreadsheet data-icon="inline-start" aria-hidden="true"/>CSV</Badge>} {upload.file_name}</TableCell>
               <TableCell className="text-right tabular-nums">{number(upload.report.products)}</TableCell>
               <TableCell className="tabular-nums">{upload.report.errors ? <span className="text-destructive">{number(upload.report.errors)} hata</span> : "Hata yok"} · {number(upload.report.warnings)} uyarı</TableCell>
