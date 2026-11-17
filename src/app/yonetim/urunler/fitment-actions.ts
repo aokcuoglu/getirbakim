@@ -8,7 +8,7 @@ import { invalidateListings } from "@/modules/store/listing-epoch";
 import * as store from "@/modules/admin/product-fitment-store";
 import * as hides from "@/modules/admin/product-fitment-hide-store";
 import * as copies from "@/modules/admin/product-fitment-copy";
-import { productFitmentBatch, productFitmentHideLimit, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
+import { fitmentCopyModelLimit, productFitmentBatch, productFitmentHideLimit, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
 import { formatNumber } from "@/modules/admin/format";
 
 /**
@@ -67,12 +67,18 @@ export async function addProductFitments(input: { productId: string; vehicleType
     `${formatNumber(count)} araç tipi eklendi; ürün sayfasında ve araç süzgecinde hemen, marka sayfasında birkaç saniye içinde görünür.`);
 }
 
-/** Copies another product's vehicle fitments as added types (#662); `expected` is the count the preview showed. */
-export async function copyProductFitments(input: { productId: string; sourceId: string; expected: number }): Promise<ProductFitmentActionResult> {
+/**
+ * Copies another product's vehicle fitments as added types (#662); `expected` is the count the preview showed for the
+ * choice, `modelIds` the vehicle models chosen (#815; without it every new type).
+ */
+export async function copyProductFitments(input: { productId: string; sourceId: string; expected: number; modelIds?: number[] }): Promise<ProductFitmentActionResult> {
   const admin = await requireAdmin();
-  const data = z.object({ productId, sourceId: z.uuid(), expected: z.number().int().min(1).max(productFitmentLimit) }).safeParse(input);
+  const data = z.object({
+    productId, sourceId: z.uuid(), expected: z.number().int().min(1).max(productFitmentLimit),
+    modelIds: z.array(z.number().int().positive().max(2147483647)).min(1).max(fitmentCopyModelLimit).optional(),
+  }).safeParse(input);
   if (!data.success) return { status: "error", message: "Kopyalanacak ürün tanınmadı. Önizlemeyi yeniden açın." };
-  return run(() => copies.copyProductFitments(db, data.data.productId, data.data.sourceId, data.data.expected, admin.id),
+  return run(() => copies.copyProductFitments(db, data.data.productId, data.data.sourceId, data.data.expected, admin.id, data.data.modelIds),
     result => `${formatNumber(result.added ?? 0)} araç tipi kopyalandı; ürün sayfasında ve araç süzgecinde hemen, marka sayfasında birkaç saniye içinde görünür.`);
 }
 

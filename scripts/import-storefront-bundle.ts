@@ -7,7 +7,8 @@ import { objectStorage } from "../src/lib/object-storage";
 import { bundleItems, resolveBundleItems } from "./storefront-bundle-items";
 import { importBundleEnrichments } from "./storefront-bundle-enrichments";
 import { importBundleJobs } from "./storefront-bundle-jobs";
-import { replaceBundleMappings } from "./storefront-bundle-mappings";
+import { bundleSources, replaceBundleMappings } from "./storefront-bundle-mappings";
+import { applyBundleTombstones, DEFAULT_MAX_DELETIONS, pruneTombstones } from "./storefront-bundle-tombstones";
 
 // Loads a bundle from scripts/export-storefront-bundle.ts. Dry run by default; --apply writes.
 // Idempotent: rows are upserted (the bundle is the source of truth for these tables), media is
@@ -15,6 +16,9 @@ import { replaceBundleMappings } from "./storefront-bundle-mappings";
 // and rows whose supplier item does not exist here are skipped and counted.
 // manifest.jobs (complete/partial enrichment job statuses) is upserted only where it changes (storefront-bundle-jobs.ts).
 // The bundle's category mappings replace those of its enrichments' products (storefront-bundle-mappings.ts).
+// manifest.tombstones (#564, part-00 only) deletes the enrichments deleted at the source, before anything is written;
+// more than manifest.maxDeletions deletions stop the import, in a dry run too (storefront-bundle-tombstones.ts).
+// With --apply, log entries past the retention are pruned here as well (this database logs its own deletions).
 // --report=<path> (with --apply) writes the counts, the supplier items whose enrichments were skipped, so the
 // sync can send them again (import-storefront-inbound.ts → report.json → the sync's retry list), and the local supplier
 // items whose enrichments it wrote (items).
@@ -61,6 +65,10 @@ try {
     JOIN product_media_objects m ON m.sha256=b.sha256`, [json(manifest.media)]);
   if (await count("SELECT count(*) FROM bundle_media") !== manifest.media.length) throw new Error("Media rows could not be resolved by sha256");
 
+  // Bundles written before #564 carry no tombstones. Applied before the jobs and enrichments: the export leaves out
+  // items enriched again, and a deletion must never undo a row this bundle writes.
+  const tombstones = await applyBundleTombstones(client, manifest.tombstones ?? [], bundleSources(manifest),
+    { maxDeletions: manifest.maxDeletions ?? DEFAULT_MAX_DELETIONS });
   // Bundles written before job statuses were carried have none; their jobs are left as they are.
   const jobs = await importBundleJobs(client, manifest.jobs ?? []);
   // Unconditional on purpose (see storefront-bundle-enrichments.ts): enriched.items, the local supplier items whose
@@ -109,6 +117,14 @@ try {
     skippedMappings: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r WHERE ${missingItem}`, json(manifest.products)),
     // Products found here by supplier key under a different id (listed after the cutover on each side separately).
     itemsByKey: items.rekeyed,
+    // Always present (0 without tombstones): the sync tells an image older than #564 by its absence.
+    tombstones: tombstones.tombstones,
+    removedEnrichments: tombstones.removedEnrichments,
+    removedEnrichmentMappings: tombstones.removedMappings,
+    resetJobs: tombstones.resetJobs,
+    // Shipped as a count (manifest.invalidatedJobs, part-00) while this side only reports them.
+    invalidatedJobsReported: tombstones.invalidatedJobsReported + (manifest.invalidatedJobs ?? 0),
+    tombstonesKept: tombstones.tombstonesKept,
   };
   if (report.categoryImages !== manifest.images.length) throw new Error(`Category image rows mismatch: ${report.categoryImages}/${manifest.images.length}`);
   const logoMismatch = await count(`SELECT count(*) FROM jsonb_populate_recordset(null::manufacturer_logos,$1::jsonb) r JOIN manufacturer_logos l USING(brand_key)
@@ -127,6 +143,7 @@ try {
     }
     const skippedIds = (await client.query<{ id: string }>(`SELECT DISTINCT r.supplier_item_id AS id
       FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, [json(manifest.enrichments)])).rows.map(row => row.id);
+    await pruneTombstones(client);
     await client.query("COMMIT");
     console.log("APPLIED", report);
     if (reportPath) {

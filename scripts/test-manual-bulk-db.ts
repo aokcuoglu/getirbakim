@@ -154,3 +154,35 @@ test("PostgreSQL: a CSV draft is read one page at a time, errors first, pages cl
   const xlsx = await manualDraft(schema.pool, await insert("list", { sheets: [], issues: list, errors: 0, warnings: 120, products: 0, added: 0, updated: 0, removed: 0, removedCodes: [] }), 1, 1);
   assert.equal(xlsx.report.issues.length, 120); assert.equal(xlsx.report.bulk, undefined);
 });
+
+test("PostgreSQL: a list price, discount and stock saved on the item page act like a CSV edit (#842)", { skip }, async () => {
+  const { updateManualItem } = await import("../src/modules/suppliers/manual-import");
+  const group = "test-panel-fiyat";
+  const fieldsOf = async () => (await schema.pool.query("SELECT fields FROM manual_item_overrides WHERE list_group=$1 AND code='P1'", [group])).rows[0]?.fields;
+  await importList([row("P1", 100, 5)], group);
+  const id = (await item("P1", group)).id;
+  const noDownload = async () => assert.fail("no downloads");
+  await updateManualItem(schema.pool, id, { pricing: { list: 1000, discount: 20 }, stock: 8 }, adminId, noDownload);
+  let p1 = await item("P1", group);
+  assert.deepEqual(p1.price_data, { nf: 800, list: 1000, discount: 20 });
+  assert.deepEqual(p1.stock_data, { stok: 8 });
+  assert.equal(p1.price, 124800); // 800 × 1,30 × 1,20 (settings of the first test)
+  assert.equal(p1.changes, 1);
+  assert.deepEqual((await fieldsOf()).bulk, { price: { list: 1000, discount: 20, file: 100, by: "panel" }, stock: { value: 8, file: 5, by: "panel" } });
+
+  // The same file again: the panel values stay; a changed price cell wins, the unchanged stock cell keeps the panel stock.
+  await importList([row("P1", 100, 5)], group);
+  assert.deepEqual((await item("P1", group)).price_data, { nf: 800, list: 1000, discount: 20 });
+  await importList([row("P1", 120, 5)], group);
+  p1 = await item("P1", group);
+  assert.deepEqual([p1.price_data, p1.stock_data], [{ nf: 120 }, { stok: 8 }]);
+  assert.deepEqual((await fieldsOf()).bulk, { stock: { value: 8, file: 5, by: "panel" } });
+
+  // A later CSV is the last edit: its record carries no panel mark.
+  await (await applyCsv(["MOTUL;P1;;;;6"], group)).apply();
+  assert.deepEqual((await fieldsOf()).bulk.stock, { value: 6, file: 5 });
+  // Emptying the stock on the item page returns to the file's cell.
+  await updateManualItem(schema.pool, id, { stock: null }, adminId, noDownload);
+  assert.deepEqual((await item("P1", group)).stock_data, { stok: 5 });
+  assert.equal((await fieldsOf())?.bulk, undefined);
+});

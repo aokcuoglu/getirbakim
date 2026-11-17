@@ -11,6 +11,8 @@ export type SyncState = {
   snapshotAt: string; syncedAt?: string; target?: SyncTarget; since?: string | null; baseline?: boolean; enrichments?: number; jobs?: number;
   // Supplier items whose enrichments the target skipped (item not there yet); the next export sends them again.
   retry?: BundleItem[];
+  // Deleted/invalidated enrichments the run sent (#564; storefront-bundle-tombstones.ts).
+  tombstones?: number;
 };
 type Lock = { pid: number; startedAt: string; target: SyncTarget };
 
@@ -44,17 +46,28 @@ export function parseBaseline(iso: string, now: Date) {
   return at.toISOString();
 }
 
-export type SyncArgs = { dryRun: boolean; full: boolean; force: boolean; baseline: string | null };
+/** A flag's value that must be a positive integer (digits only, no sign, exponent or fraction). */
+export function parsePositiveInteger(value: string, flag: string) {
+  const number = Number(value);
+  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(number)) throw new Error(`${flag} must be a positive integer: ${value}`);
+  return number;
+}
+
+// maxDeletions null: the export's default (storefront-bundle-tombstones.ts DEFAULT_MAX_DELETIONS).
+export type SyncArgs = { dryRun: boolean; full: boolean; force: boolean; baseline: string | null; maxDeletions: number | null };
 
 /** The sync's flags, strictly: a mistyped flag must never turn into a real run. */
 export function parseSyncArgs(argv: string[], now: Date): SyncArgs {
-  const parsed: SyncArgs = { dryRun: false, full: false, force: false, baseline: null };
-  const usage = "Usage: sync-storefront-production.ts [--dry-run] [--full] [--baseline=<ISO> [--force]]";
+  const parsed: SyncArgs = { dryRun: false, full: false, force: false, baseline: null, maxDeletions: null };
+  const usage = "Usage: sync-storefront-production.ts [--dry-run] [--full] [--max-deletions=<n>] [--baseline=<ISO> [--force]]";
   for (const arg of argv) {
     if (arg === "--dry-run" && !parsed.dryRun) parsed.dryRun = true;
     else if (arg === "--full" && !parsed.full) parsed.full = true;
     else if (arg === "--force" && !parsed.force) parsed.force = true;
     else if (arg.startsWith("--baseline=") && parsed.baseline === null) parsed.baseline = parseBaseline(arg.slice("--baseline=".length), now);
+    else if (arg.startsWith("--max-deletions=") && parsed.maxDeletions === null) {
+      parsed.maxDeletions = parsePositiveInteger(arg.slice("--max-deletions=".length), "--max-deletions");
+    }
     else throw new Error(`Unknown or repeated argument: ${arg}. ${usage}`);
   }
   if (parsed.full && parsed.baseline) throw new Error("--full and --baseline exclude each other");
@@ -107,7 +120,7 @@ export function releaseLock(path: string, pid = process.pid) {
   }
 }
 
-type PartSummary = { part: string; enrichments: number; mappings: number; jobs: number; media: number; mediaBytes: number };
+type PartSummary = { part: string; enrichments: number; mappings: number; jobs: number; tombstones: number; media: number; mediaBytes: number };
 
 /** Row and media counts of every part split-storefront-bundle.ts wrote; part-00 (always-complete data) apart. */
 export async function summarizeParts(partsDir: string) {
@@ -115,16 +128,17 @@ export async function summarizeParts(partsDir: string) {
   const parts: PartSummary[] = [];
   for (const part of names) {
     const manifest = JSON.parse(await readFile(resolve(partsDir, part, "manifest.json"), "utf8")) as {
-      enrichments?: unknown[]; products?: unknown[]; jobs?: unknown[]; media?: { size_bytes: number | string }[];
+      enrichments?: unknown[]; products?: unknown[]; jobs?: unknown[]; tombstones?: unknown[]; media?: { size_bytes: number | string }[];
     };
     parts.push({
       part, enrichments: manifest.enrichments?.length ?? 0, mappings: manifest.products?.length ?? 0, jobs: manifest.jobs?.length ?? 0,
+      tombstones: manifest.tombstones?.length ?? 0,
       media: manifest.media?.length ?? 0, mediaBytes: (manifest.media ?? []).reduce((sum, object) => sum + Number(object.size_bytes), 0),
     });
   }
-  const totals = { parts: parts.length, enrichments: 0, mappings: 0, jobs: 0, media: 0, mediaBytes: 0 };
+  const totals = { parts: parts.length, enrichments: 0, mappings: 0, jobs: 0, tombstones: 0, media: 0, mediaBytes: 0 };
   for (const part of parts) {
-    totals.enrichments += part.enrichments; totals.mappings += part.mappings; totals.jobs += part.jobs;
+    totals.enrichments += part.enrichments; totals.mappings += part.mappings; totals.jobs += part.jobs; totals.tombstones += part.tombstones;
     totals.media += part.media; totals.mediaBytes += part.mediaBytes;
   }
   const base = parts.find(part => part.part === "part-00") ?? null;
@@ -206,4 +220,23 @@ export function nextRetry(report: InboundReport, limit = RETRY_LIMIT) {
       + "or when the target has their products and a run with --full sends everything.");
   }
   return { retry, warnings };
+}
+
+/**
+ * What the sync prints about the tombstones it sent (#564). A report without a tombstones count comes from an
+ * operations image older than #564, which ignores them: a warning, not an error (the watermark still moves; the
+ * export sends tombstones whatever the watermark until they leave the retention window).
+ */
+export function tombstoneWarnings(report: InboundReport, sent: number, retentionDays: number) {
+  const warnings: string[] = [], notes: string[] = [];
+  const totals = report.totals;
+  if (sent > 0 && totals.tombstones === undefined) {
+    warnings.push(`The operations image predates #564: ${sent} deletions were not applied on the target. Run release-aws; `
+      + `they are sent again on every run for ${retentionDays} days.`);
+  } else if ((totals.removedEnrichments ?? 0) > 0 || (totals.invalidatedJobsReported ?? 0) > 0) {
+    notes.push(`Tombstones: ${totals.removedEnrichments ?? 0} enrichments removed on the target (${totals.removedEnrichmentMappings ?? 0} mappings, `
+      + `${totals.resetJobs ?? 0} jobs back to pending), ${totals.tombstonesKept ?? 0} kept there, `
+      + `${totals.invalidatedJobsReported ?? 0} invalidated jobs only reported.`);
+  }
+  return { warnings, notes };
 }
