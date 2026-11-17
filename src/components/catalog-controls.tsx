@@ -1,5 +1,5 @@
 "use client";
-import { useOptimistic, useState, useTransition, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -47,9 +47,11 @@ const collapsedOptions=12;
 function FilterGroup({label,options,selected,onToggle,searchable=true,isBlocked,hint,defaultOpen=true}:{defaultOpen?:boolean;label:string;options:{value:string;label:string}[];selected:string[];onToggle:(value:string)=>void;searchable?:boolean;isBlocked?:(value:string)=>boolean;hint?:string}){
  const [search,setSearch]=useState("");
  const [showAll,setShowAll]=useState(false);
+ // Controlled from its first value: the sheet's default (open when something is selected) changes with every tick.
+ const [open,setOpen]=useState(defaultOpen);
  const matching=options.filter(o=>o.label.toLocaleLowerCase("tr").includes(search.toLocaleLowerCase("tr")));
  const visible=search||showAll?matching:matching.filter((option,index)=>index<collapsedOptions||selected.includes(option.value));
- return <Collapsible defaultOpen={defaultOpen} className="border-b border-border last:border-b-0">
+ return <Collapsible open={open} onOpenChange={setOpen} className="border-b border-border last:border-b-0">
  <CollapsibleTrigger className="group/facet flex min-h-[50px] w-full cursor-pointer rounded-none border-0 bg-transparent text-foreground items-center justify-between px-[25px] py-[15px] max-[768px]:px-5 text-left text-base leading-5 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"><strong className="font-bold">{label}</strong><span aria-hidden="true" className="text-xl font-medium group-data-panel-open/facet:hidden">+</span><span aria-hidden="true" className="hidden text-xl font-medium group-data-panel-open/facet:inline">−</span></CollapsibleTrigger>
  <CollapsibleContent>
  {searchable&&<label className="relative mx-[25px] mb-[15px] block pt-[5px]"><Image className="absolute top-[15px] left-2.5 max-[768px]:top-[17px]" src="/media/site/icons/search.svg" width={20} height={20} alt="" unoptimized/><input type="search" className="h-10 w-full max-[768px]:h-11 rounded-md border border-input bg-white py-2 pr-2.5 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50" aria-label={label+" ara"} placeholder="Ara" value={search} onChange={e=>setSearch(e.target.value)}/></label>}
@@ -62,14 +64,17 @@ function FilterGroup({label,options,selected,onToggle,searchable=true,isBlocked,
  </CollapsibleContent>
  </Collapsible>;
 }
+// One listing whatever the order of its query string, to tell whether the shown listing is the one a tick asked for.
+function listingKey(query:Query){const url=new URL(listingUrl(query),"https://getirbakim.invalid");url.searchParams.sort();return url.pathname+url.search;}
 type FilterProps={brands:string[];facets:CatalogFacet[];params:Query};
 // Manufacturers, the facets and the stock state: the desktop sidebar's lower box and the phone filter panel's body.
 // `panel`: in the phone sheet only the manufacturers and the groups with a selection start open, so the groups fit on
 // one screen; the desktop sidebar opens every group.
 function CatalogFilterGroups({brands,facets,params,onChange,panel=false}:FilterProps&{onChange:(updates:FilterUpdate)=>void;panel?:boolean}){
  const selected=selectedBrands(params),attributes=selectedAttributes(params);
+ // A product without a display brand (NULL or blank in the facet query) would be an unnamed box.
  return <>
-  <FilterGroup label="Üretici" options={brands.map(value=>({value,label:value}))} selected={selected} onToggle={value=>onChange(toggleBrand(params,value))}/>
+  <FilterGroup label="Üretici" options={brands.filter(value=>Boolean(value?.trim())).map(value=>({value,label:value}))} selected={selected} onToggle={value=>onChange(toggleBrand(params,value))}/>
   {facets.map(facet=>{const current=attributes[facet.key]??[];return <FilterGroup key={facet.key} defaultOpen={!panel||current.length>0} searchable={facet.key!=="Brand class"} label={facet.label} options={facet.options.map(o=>({value:o.values[0],label:o.label}))} selected={facet.options.filter(o=>o.values.some(v=>current.includes(v))).map(o=>o.values[0])} isBlocked={value=>current.length+(facet.options.find(o=>o.values[0]===value)?.values.filter(v=>!current.includes(v)).length??0)>maxAttributeValues} hint={facet.options.some(o=>!o.values.some(v=>current.includes(v))&&current.length+o.values.filter(v=>!current.includes(v)).length>maxAttributeValues)?`En fazla ${maxAttributeValues} seçim yapılabilir.`:undefined} onToggle={value=>{const option=facet.options.find(o=>o.values[0]===value);if(option)onChange(toggleAttribute(params,facet.key,option.values));}}/>;})}
   <FilterGroup label="Stok durumu" defaultOpen={!panel||Boolean(params.availability)} searchable={false} options={Object.entries(availabilityLabels).map(([value,label])=>({value,label}))} selected={params.availability?[params.availability]:[]} onToggle={value=>onChange({availability:params.availability===value?undefined:value as keyof typeof availabilityLabels})}/>
  </>;
@@ -90,23 +95,36 @@ export function CatalogSidebar({branch,listed,brands,facets,params}:FilterProps&
  </aside>;
 }
 // Phones (≤768px): "Filtrele" opens the filter groups in a bottom sheet. Every tick navigates at once (the URL stays the
-// filter state, #883) and the sheet stays open: the server's new count fills "N ürünü göster", which only closes it. The
-// optimistic query ticks the box before the response, and quick successive ticks build on each other.
-// The sheet's ticks replace the history entry: trying filters out is one step, and Back leaves the listing as it was
-// before the sheet. The chips above the results and the desktop sidebar push: each is one deliberate change Back undoes.
+// filter state, #883) and the sheet stays open: the server's new count fills "N ürünü göster", which only closes it.
 // `chipFacets`: the facets with the selected values they no longer offer (withSelectedOptions), for the chips only.
 export function CatalogFilterSheet({brands,facets,chipFacets,params,count,vehicleName}:FilterProps&{chipFacets:CatalogFacet[];count:number;vehicleName?:string}){
  const router=useRouter();
  const [open,setOpen]=useState(false);
- const [pending,startTransition]=useTransition();
- const [query,applyQuery]=useOptimistic(params,(current:Query,updates:FilterUpdate)=>({...current,...updates,page:undefined}));
+ // The query the last tick asked for. Every server response (the asked one, an earlier one or a Back) ends it, and it
+ // only counts while it differs from the listing shown, so "Güncelleniyor…" cannot outlive the navigation. Ticks build
+ // on it, so quick successive ticks (and "Temizle") never act on a stale query.
+ const [draft,setDraft]=useState<Query|null>(null);
+ const [shown,setShown]=useState(params);
+ if(shown!==params){setShown(params);setDraft(null);}
+ const pending=draft!==null&&listingKey(draft)!==listingKey(params);
+ const query=pending?draft:params;
  const chips=activeFilters(query,chipFacets,{vehicleName});
  const panelSelected=chips.some(isPanelFilter);
- function change(updates:FilterUpdate){startTransition(()=>{applyQuery(updates);router.replace(listingUrl(query,updates),{scroll:false});});}
+ // The first change after opening pushes a history entry and the rest replace it: Back returns to the listing as it was
+ // before the sheet, one step however many boxes were tried. The chips above the results and the desktop sidebar push:
+ // each is one deliberate change that Back undoes.
+ const pushed=useRef(false);
+ function change(updates:FilterUpdate){
+  const next={...query,...updates,page:undefined};
+  setDraft(next);
+  if(pushed.current)router.replace(listingUrl(next),{scroll:false});
+  else{pushed.current=true;router.push(listingUrl(next),{scroll:false});}
+ }
+ function openChange(next:boolean){setOpen(next);if(next)pushed.current=false;else setDraft(null);}
  const plain="h-auto min-h-11 rounded-md text-sm font-medium";
  const primary="border-brand bg-brand text-white hover:bg-brand-strong",secondary="border-input bg-white text-foreground";
  const empty=count===0&&!pending;
- return <Sheet open={open} onOpenChange={setOpen}>
+ return <Sheet open={open} onOpenChange={openChange}>
   <SheetTrigger render={<Button type="button" variant="outline" className={cn(plain,secondary,"w-full gap-2 px-3")}/>}><SlidersHorizontal size={17} aria-hidden="true"/>Filtrele{chips.length>0&&<span className="tabular-nums">({chips.length})</span>}</SheetTrigger>
   <SheetContent side="bottom" showCloseButton={false} overlayClassName={storeDialogOverlay} className="max-h-[85dvh] gap-0 rounded-t-[14px] border-0 bg-white p-0 text-foreground">
    <div className="flex shrink-0 items-center justify-between border-b border-border py-1 pr-1.5 pl-5">
@@ -121,7 +139,7 @@ export function CatalogFilterSheet({brands,facets,chipFacets,params,count,vehicl
    {/* No result: "Temizle" becomes the main action; the other button still closes the sheet. */}
    <div className="flex shrink-0 gap-3 border-t border-border bg-white px-5 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))]">
     <Button type="button" variant="outline" className={cn(plain,empty&&panelSelected?primary:secondary,"flex-1 px-4")} disabled={!panelSelected} onClick={()=>change(clearPanelFilters)}>Temizle</Button>
-    <Button type="button" variant="outline" className={cn(plain,empty&&panelSelected?secondary:primary,"flex-2 px-4")} onClick={()=>setOpen(false)}>{pending?"Güncelleniyor…":empty?"Sonuç yok — filtreleri değiştir":`${count.toLocaleString("tr-TR")} ürünü göster`}</Button>
+    <Button type="button" variant="outline" className={cn(plain,empty&&panelSelected?secondary:primary,"flex-2 px-4")} onClick={()=>openChange(false)}>{pending?"Güncelleniyor…":empty?"Sonuç yok — filtreleri değiştir":`${count.toLocaleString("tr-TR")} ürünü göster`}</Button>
    </div>
   </SheetContent>
  </Sheet>;
