@@ -22,10 +22,13 @@ CREATE OR REPLACE VIEW enrichment_valid_data AS
  AND (e.match_basis->>'type' IN ('exact_part','cross_reference') OR
    (e.match_basis->>'type'='oem_reference' AND e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe','')))
 -- A hidden supplier OEM (commerce_item_overrides.hide_oem) also stops data matched through it (#865); the raw
--- rows stay so unhiding brings them back. Kept as NOT (... AND EXISTS) rather than an anti-join so the planner
--- uses one hashed SubPlan over the small override table instead of reordering the joins.
+-- rows stay so unhiding brings them back. Written as NOT (... AND IN (SELECT ...)): one hashed SubPlan over the small
+-- override table, costed as such. A correlated EXISTS is costed as a rescan per row (8x this scan's cost locally,
+-- growing with the table), and enrichment_product_candidates, which already expects one row here, then nested this
+-- view under every source row: a quadratic plan (#929). A left join or anti-join instead pins the join order and
+-- turns per-product lookups into full scans. Both ids are primary keys, so NOT IN's NULL caveat does not apply.
 AND NOT (e.match_basis->>'type'='oem_reference' AND COALESCE(e.match_basis->>'referenceSource','supplier_oem')='supplier_oem'
-  AND EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=e.supplier_item_id AND ho.hide_oem));
+  AND e.supplier_item_id IN (SELECT ho.supplier_item_id FROM commerce_item_overrides ho WHERE ho.hide_oem));
 
 -- A flat candidate view lets point lookups and legacy-batch reconciliation restrict the supplier rows first.
 CREATE OR REPLACE VIEW enrichment_product_candidates AS
@@ -39,10 +42,11 @@ CREATE OR REPLACE VIEW enrichment_product_candidates AS
    WHEN j.supplier_code=s.code AND j.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
     AND j.oem=COALESCE(s.product_data->>'oe','') AND j.status NOT IN ('complete','partial') THEN j.status
    -- A finished job whose data is dropped by a hidden OEM (#865) is not pending again: collectors would loop on it.
+   -- IN (SELECT ...) rather than EXISTS for the costing reason given in enrichment_valid_data (#929).
    WHEN j.status IN ('complete','partial') AND j.supplier_code=s.code
     AND j.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
     AND j.oem=COALESCE(s.product_data->>'oe','')
-    AND EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=s.id AND ho.hide_oem) THEN 'not_found'
+    AND s.id IN (SELECT ho.supplier_item_id FROM commerce_item_overrides ho WHERE ho.hide_oem) THEN 'not_found'
    ELSE 'pending' END AS status,
   CASE WHEN e.status='complete' THEN 0 WHEN e.status='partial' THEN 1
    WHEN j.supplier_code=s.code AND j.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
@@ -52,7 +56,7 @@ CREATE OR REPLACE VIEW enrichment_product_candidates AS
    WHEN j.status IN ('complete','partial') AND j.supplier_code=s.code
     AND j.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
     AND j.oem=COALESCE(s.product_data->>'oe','')
-    AND EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=s.id AND ho.hide_oem) THEN 4
+    AND s.id IN (SELECT ho.supplier_item_id FROM commerce_item_overrides ho WHERE ho.hide_oem) THEN 4
    ELSE 3 END AS priority,
   s.presence='present' AS present,COALESCE(j.attempts,0) AS attempts,j.last_error,COALESCE(j.updated_at,p.updated_at) AS updated_at,
   e.imported_at,e.source_url,e.manufacturer,e.manufacturer_part_number,e.image_id,e.payload,e.match_basis
