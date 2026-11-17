@@ -201,6 +201,7 @@ WITH latest AS (
  THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer ELSE NULL END AS auto_price
  FROM supplier_prices
 ), sold AS (
+ -- priced/sold/final are copied by livePriceChanges (src/modules/store/supplier-checkout.ts, #861): keep both the same.
  -- These CTEs are inlined, so each column below is its expression wherever it is used: auto_price is evaluated in
  -- CASE branches only, the formula's branch first, so a row without an admin price computes it exactly once (as
  -- before #580). Rows with one recompute it a few times. A campaign at or above the regular price is ignored.

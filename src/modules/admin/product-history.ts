@@ -28,6 +28,8 @@ export type ProductHistory = {
   total: number; page: number; pages: number;
   /** The batch whose rows are listed one by one (`?toplu=`), or null for the grouped history. */
   batch: string | null;
+  /** The listed batch's vehicle type rows (#869: a copy's summary row not counted); null for the grouped history. */
+  batchTypes: number | null;
 };
 
 const pageOf = (requested: number, total: number) => {
@@ -55,14 +57,15 @@ const groupedSql = `SELECT max(c.id)::text AS id,c.batch_id::text AS batch_id,ma
 export async function loadProductHistory(database: Pick<Pool, "query">, productId: string, options: { page?: number; batch?: string | null } = {}): Promise<ProductHistory> {
   const batch = options.batch ?? null;
   if (batch) {
-    const total = (await database.query<{ n: number }>("SELECT count(*)::int AS n FROM product_override_changes WHERE product_id=$1 AND batch_id=$2",
-      [productId, batch])).rows[0].n;
+    const { n: total, types } = (await database.query<{ n: number; types: number }>(`SELECT count(*)::int AS n,
+      count(*) FILTER (WHERE field<>'fitment_copied')::int AS types FROM product_override_changes WHERE product_id=$1 AND batch_id=$2`,
+    [productId, batch])).rows[0];
     const { page, pages, offset } = pageOf(options.page ?? 1, total);
     const entries = (await database.query<ProductHistoryEntry>(`SELECT c.id::text,c.batch_id::text AS batch_id,c.field,c.old_value,c.new_value,c.changed_at,
        a.name AS changed_by,c.reason,1 AS count,NULL AS summary,'{}'::text[] AS sample,0 AS undoable
       FROM product_override_changes c LEFT JOIN accounts a ON a.id=c.changed_by WHERE c.product_id=$1 AND c.batch_id=$2
       ORDER BY c.id LIMIT ${productHistoryPageSize} OFFSET $3`, [productId, batch, offset])).rows;
-    return { entries, total, page, pages, batch };
+    return { entries, total, page, pages, batch, batchTypes: types };
   }
   const total = (await database.query<{ n: number }>(`SELECT count(DISTINCT COALESCE(batch_id::text,'c'||id))::int AS n
     FROM product_override_changes WHERE product_id=$1`, [productId])).rows[0].n;
@@ -70,5 +73,5 @@ export async function loadProductHistory(database: Pick<Pool, "query">, productI
   const entries = (await database.query<ProductHistoryEntry>(`WITH g AS (${groupedSql})
     SELECT g.*,(SELECT count(*)::int FROM product_override_fitments f WHERE f.product_id=$1 AND f.batch_id=g.batch_id::uuid AND f.mode='add') AS undoable
     FROM g ORDER BY g.changed_at DESC,g.id::bigint DESC LIMIT ${productHistoryPageSize} OFFSET $2`, [productId, offset])).rows;
-  return { entries, total, page, pages, batch: null };
+  return { entries, total, page, pages, batch: null, batchTypes: null };
 }

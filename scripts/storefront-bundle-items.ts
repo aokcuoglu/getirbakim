@@ -2,7 +2,7 @@ import type { PoolClient } from "pg";
 
 export type BundleItem = { id: string; supplier?: string; company?: string; list_group?: string; warehouse?: string; code?: string };
 type Row = Record<string, unknown>;
-type Manifest = { items?: BundleItem[]; enrichments?: Row[]; products?: Row[]; logos?: Row[]; jobs?: Row[] };
+type Manifest = { items?: BundleItem[]; enrichments?: Row[]; products?: Row[]; logos?: Row[]; jobs?: Row[]; tombstones?: Row[] };
 
 // supplier_items.id is gen_random_uuid(), assigned by whichever database ran the supplier sync. After the AWS
 // cutover production and the local catalog sync suppliers separately, so a product listed after the cutover has a
@@ -16,6 +16,7 @@ export function referencedItemIds(manifest: Manifest) {
     ...(manifest.products ?? []).map(row => row.supplier_item_id),
     ...(manifest.logos ?? []).map(row => row.evidence_product_id),
     ...(manifest.jobs ?? []).map(row => row.supplier_item_id),
+    ...(manifest.tombstones ?? []).map(row => row.supplier_item_id),
   ];
   return [...new Set(ids.filter((id): id is string => typeof id === "string"))];
 }

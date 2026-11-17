@@ -427,12 +427,13 @@ export async function importDinamik(pool: Pool, options: z.input<typeof dinamikI
  * Like refreshBasbugItems it never throws for the supplier: a line it could not confirm (missing configuration,
  * timeout, upstream or contract error) comes back in `failed` with the reason and is sold on its saved data. When the
  * rows stay locked by a running import, the live answers are not lost (#788): a line the supplier no longer has in
- * stock (or quotes no price for) comes back in `soldOut`, a line whose cost changed in `repriced`, and the order
- * refuses both; only a line whose live answer matches what is saved is sold on that data, marked "busy".
+ * stock (or quotes no price for) comes back in `soldOut` and the order refuses it; a line whose cost changed comes back
+ * in `recosted` with its live `nf`, and the order refuses it only if its sale price would change (#861). Only a line
+ * whose live answer matches what is saved is sold on that data, marked "busy".
  */
 export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?: DinamikFetch, options: { budgetMs?: number } = {}) {
   const failed: Record<string, FallbackReason> = {};
-  const result = { refreshed: 0, changed: 0, gone: [] as string[], soldOut: [] as string[], repriced: [] as string[], failed };
+  const result = { refreshed: 0, changed: 0, gone: [] as string[], soldOut: [] as string[], recosted: {} as Record<string, number>, failed };
   if (!ids.length) return result;
   type Row = { id: string; code: string; list_group: string; price_data: Record<string, unknown> | null };
   const rows = (await pool.query<Row>(
@@ -518,8 +519,8 @@ export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?:
     return result;
   } catch (error) {
     // Nothing was written, but the answers still count: codes it no longer lists are reported gone, lines it has no
-    // stock or price for sold out and lines with a new cost repriced, so the order refuses them. Only lines whose live
-    // answer matches the saved price are sold on saved data and marked.
+    // stock or price for sold out (the order refuses them) and lines with a new cost come back with it, for the order to
+    // judge by the sale price. Only lines whose live answer matches the saved price are sold on saved data and marked.
     await client?.query("ROLLBACK").catch(() => undefined);
     // 55P03 is the expected case (a running import holds the rows); anything else is a fault worth telling apart.
     const lockTimeout = typeof error === "object" && error !== null && "code" in error && error.code === "55P03";
@@ -530,7 +531,7 @@ export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?:
       if (item.gone) continue;
       const nf = item.price_data?.nf;
       if (item.stock_data?.stok !== 1 || typeof nf !== "number" || !(nf > 0)) result.soldOut.push(item.id);
-      else if (nf !== Number(saved.get(item.id)?.price_data?.nf)) result.repriced.push(item.id);
+      else if (nf !== Number(saved.get(item.id)?.price_data?.nf)) result.recosted[item.id] = nf;
       else failed[item.id] = "busy";
     }
     return result;

@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
-import { manualCost, type ManualBulkColumnKey } from "./manual-bulk-csv";
+import { type ManualBulkColumnKey } from "./manual-bulk-csv";
+import { manualCost, parseDecimalText } from "./manual-cost";
 
 // Fixed xlsx template of manual supplier lists (first list: lubricants). Columns are found by their header text, in any
 // order and on any sheet; a sheet without the "Ürün Kodu" header (the category list, notes) is skipped.
@@ -54,10 +55,7 @@ function cellText(value: ExcelJS.CellValue): string | null {
 // Turkish ("1.234,56") and plain ("1234.56") decimals; a bare number cell arrives as a number already.
 export function parseDecimal(value: ExcelJS.CellValue): number | null | "invalid" {
   if (typeof value === "number") return Number.isFinite(value) ? value : "invalid";
-  const text = cellText(value)?.replace(/\s|TL|₺/gi, "");
-  if (!text) return null;
-  const normalized = /,\d{1,4}$/.test(text) ? text.replace(/\./g, "").replace(",", ".") : text.replace(/,/g, "");
-  return /^\d+(\.\d+)?$/.test(normalized) ? Number(normalized) : "invalid";
+  return parseDecimalText(cellText(value));
 }
 
 /**
