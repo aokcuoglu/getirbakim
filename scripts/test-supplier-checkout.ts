@@ -20,6 +20,14 @@ test("submitOrder waits CHECKOUT_LOCK_TIMEOUT for supplier rows, then goes on wi
     assert.ok(submitOrder.includes(part),part);
 });
 
+test("livePriceChanges prices a live cost with the view's own commerce_*_price functions, not a copy (#882)", async()=> {
+  const source=await readFile("src/modules/store/supplier-checkout.ts","utf8");
+  const live=source.slice(source.indexOf("export async function livePriceChanges"));
+  for(const name of ["commerce_formula_price(","commerce_campaign_price(","commerce_regular_price(","commerce_final_price("])
+    assert.ok(live.includes(name),name);
+  assert.doesNotMatch(live,/round\(/);
+});
+
 test("checkout checks cart codes live, falls back on supplier failure with a marker, preserves completed orders and snapshots", async t=> {
   const originalUrl=process.env.DATABASE_URL!;
   const originalCwd=process.cwd();
@@ -264,6 +272,14 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
         // Compared with the price the order charges: a stale one (a pull committed after cartFor) is a change.
         assert.deepEqual(await livePriceChanges(db,[{id,nf:savedNf,price:price-1}]),[id]);
       };
+      // #882: the view inlines the formula and campaign-window functions (a per-row call would make full scans slower;
+      // a SET/STRICT clause or an expensive argument used twice breaks the inline silently) and calls the fixed/final
+      // price functions only behind its admin_priced branch.
+      const plan=(await db.query("EXPLAIN (VERBOSE, COSTS OFF) SELECT price_kurus FROM commerce_catalog WHERE id=$1::uuid",[id])).rows
+        .map(row=>row["QUERY PLAN"]).join("\n");
+      assert.doesNotMatch(plan,/commerce_formula_price\(/);
+      assert.doesNotMatch(plan,/commerce_campaign_price\(/);
+      assert.match(plan,/commerce_regular_price\(/);
       assert.deepEqual(await livePriceChanges(db,[]),[]);
       await parity(7800,1,true);
       await setPrices(9000,null);await parity(9000,1,false);
