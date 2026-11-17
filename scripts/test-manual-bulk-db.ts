@@ -112,3 +112,45 @@ test("PostgreSQL: xlsx list price and discount cells are stored and compared wit
   assert.deepEqual((await item("L1", group)).price_data, { nf: 850, list: 1000, discount: 15 });
   assert.equal((await fieldsOf())?.bulk?.price, undefined);
 });
+
+test("PostgreSQL: a CSV draft is read one page at a time, errors first, pages clamped (#840)", { skip }, async () => {
+  const { manualDraft } = await import("../src/modules/suppliers/manual-bulk");
+  const { manualBulkPageSize } = await import("../src/modules/suppliers/manual-bulk-paging");
+  const insert = async (kind: "bulk" | "list", report: object) => (await schema.pool.query<{ id: string }>(
+    `INSERT INTO manual_uploads(list_group,list_name,file_name,rows,report,uploaded_by,kind) VALUES('paging','Paging','x.csv','[]',$1,$2,$3) RETURNING id`,
+    [JSON.stringify(report), adminId, kind])).rows[0].id;
+  const changes = Array.from({ length: 250 }, (_, i) => ({ id: `c${i}`, row: i + 2 }));
+  // 150 findings alternating warning (even index) and error (odd index): 75 errors then 75 warnings.
+  const issues = Array.from({ length: 150 }, (_, i) => ({ level: i % 2 ? "error" : "warning", row: i + 2, message: `m${i}` }));
+  const id = await insert("bulk", { sheets: [], issues, errors: 75, warnings: 75, products: 250, added: 0, updated: 250, removed: 0, removedCodes: [], bulk: { unchanged: 0, changes } });
+  const rows = (draft: Awaited<ReturnType<typeof manualDraft>>) => ({ changes: draft.report.bulk!.changes.map(change => change.row), issues: draft.report.issues });
+
+  const first = await manualDraft(schema.pool, id, 1, 1);
+  assert.equal(first.change_count, 250); assert.equal(first.issue_count, 150);
+  assert.equal(rows(first).changes.length, manualBulkPageSize);
+  assert.deepEqual(rows(first).changes.slice(0, 2), [2, 3]);
+  assert.equal(rows(first).issues.length, manualBulkPageSize);
+  assert.ok(rows(first).issues.slice(0, 75).every(issue => issue.level === "error"));
+  assert.ok(rows(first).issues.slice(75).every(issue => issue.level === "warning"));
+
+  const second = await manualDraft(schema.pool, id, 2, 2);
+  assert.equal(rows(second).changes[0], 102);
+  assert.deepEqual(rows(second).issues.map(issue => issue.level), Array(50).fill("warning"));
+  // Stable: pages are consecutive slices of one order, so together they cover every finding once.
+  const seen = [...rows(first).issues, ...rows(second).issues].map(issue => issue.row);
+  assert.equal(new Set(seen).size, 150);
+
+  // Past the last page → the last page; 0 → the first.
+  const over = await manualDraft(schema.pool, id, 99, 99);
+  assert.equal(rows(over).changes.length, 50); assert.equal(rows(over).changes[0], 202);
+  assert.equal(rows(over).issues.length, 50);
+  assert.equal(rows(await manualDraft(schema.pool, id, 0, 0)).changes[0], 2);
+
+  const empty = await manualDraft(schema.pool, await insert("bulk", { sheets: [], issues: [], errors: 0, warnings: 0, products: 0, added: 0, updated: 0, removed: 0, removedCodes: [], bulk: { unchanged: 3, changes: [] } }), 1, 1);
+  assert.deepEqual(rows(empty), { changes: [], issues: [] }); assert.equal(empty.change_count, 0); assert.equal(empty.issue_count, 0);
+
+  // An xlsx draft is returned whole.
+  const list = Array.from({ length: 120 }, (_, i) => ({ level: "warning", row: i, message: "w" }));
+  const xlsx = await manualDraft(schema.pool, await insert("list", { sheets: [], issues: list, errors: 0, warnings: 120, products: 0, added: 0, updated: 0, removed: 0, removedCodes: [] }), 1, 1);
+  assert.equal(xlsx.report.issues.length, 120); assert.equal(xlsx.report.bulk, undefined);
+});

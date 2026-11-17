@@ -66,14 +66,14 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
     ["Ambalajı eksik", number(list.missing_packages), "Ürün sayfasından girilebilir"],
     ["Son içe aktarma", list.last_import ? date(list.last_import) : "Henüz yok", `${number(lists.length)} liste`],
   ] : [];
-  const grouped = draft ? [...draft.report.issues.reduce((groups, issue) => {
+  const grouped = draft && draft.kind !== "bulk" ? [...draft.report.issues.reduce((groups, issue) => {
     const key = issueKind(issue);
     const group = groups.get(key) ?? { issue, count: 0, codes: [] as string[] };
     group.count++;
     if (issue.code && group.codes.length < 5) group.codes.push(issue.code);
     return groups.set(key, group);
   }, new Map<string, { issue: ManualIssue; count: number; codes: string[] }>()).values()].sort((a, b) => Number(a.issue.level === "warning") - Number(b.issue.level === "warning") || b.count - a.count) : [];
-  const detailed = draft ? [...draft.report.issues].sort((a, b) => Number(a.level === "warning") - Number(b.level === "warning")).slice(0, issueRowLimit) : [];
+  const detailed = draft && draft.kind !== "bulk" ? [...draft.report.issues].sort((a, b) => Number(a.level === "warning") - Number(b.level === "warning")).slice(0, issueRowLimit) : [];
   return <SupplierPage title="Manuel yükleme" tabsLabel="Manuel yükleme" syncLabel="Yükleme ve kontrol"
     description="Şablondaki .xlsx listeleri bir tedarikçi listesi gibi içe aktarılır: önce kontrol edilir, onaydan sonra mağazaya yansır."
     badge={<Button variant="outline" nativeButton={false} render={<a href={`${base}/sablon`} download/>}><Download data-icon="inline-start" aria-hidden="true"/>Boş şablonu indir</Button>}

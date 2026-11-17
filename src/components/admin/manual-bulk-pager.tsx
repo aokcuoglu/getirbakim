@@ -12,7 +12,7 @@ export function ManualBulkPager({ label, page, pages, total, href }: { label: st
   const numbers = pageWindow(page, pages);
   return <div className="flex flex-wrap items-center justify-between gap-3">
     <span className="text-muted-foreground tabular-nums">Sayfa {formatNumber(page)} / {formatNumber(pages)} · toplam {formatNumber(total)}</span>
-    <Pagination className="mx-0 w-auto" aria-label={label}><PaginationContent>
+    <Pagination className="mx-0 w-auto" aria-label={label}><PaginationContent className="flex-wrap justify-center">
       <PaginationItem>{page > 1 ? <Button variant="ghost" aria-label="Önceki sayfa" nativeButton={false} render={<Link href={href(page - 1)} scroll={false}/>}><ChevronLeft data-icon="inline-start" aria-hidden="true"/><span className="hidden sm:block">Önceki</span></Button>
         : <Button variant="ghost" aria-label="Önceki sayfa" disabled><ChevronLeft data-icon="inline-start" aria-hidden="true"/><span className="hidden sm:block">Önceki</span></Button>}</PaginationItem>
       {numbers.map((n, i) => <Fragment key={n}>

@@ -58,6 +58,7 @@ export function ManualBulkPreview({ draft, status, params }: { draft: Draft; sta
       </div>
       {report.errors > 0 && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{formatNumber(report.errors)} hata var</AlertTitle>
         <AlertDescription>Hatalı dosya uygulanamaz. Dosyayı düzeltip yeniden yükleyin.</AlertDescription></Alert>}
+      {issuePage.pages > 1 && <p className="text-muted-foreground">{formatNumber(draft.issue_count)} bulgu · hatalar önce listelenir.</p>}
       {issues.length > 0 && <Table server><caption className="sr-only">Kontrol bulguları</caption>
         <TableHeader><TableRow><TableHead>Seviye</TableHead><TableHead className="text-right">Satır</TableHead><TableHead>Stok Kodu</TableHead><TableHead>Bulgu</TableHead></TableRow></TableHeader>
         <TableBody>{issues.map((issue, index) => <TableRow key={index}>
@@ -68,8 +69,7 @@ export function ManualBulkPreview({ draft, status, params }: { draft: Draft; sta
         </TableRow>)}</TableBody>
       </Table>}
       {issues.length > 0 && <ManualBulkPager label="Bulgu sayfaları" total={draft.issue_count} {...issuePage} href={hrefFor(manualBulkPageParams.issues)}/>}
-      {issuePage.pages > 1 && <p className="text-muted-foreground">Hatalar önce listelenir.</p>}
-      {changes.length > 0 && <p className="text-muted-foreground">{formatNumber(draft.change_count)} ürün değişecek. Her hücre eski değer → yeni değeri gösterir; — o alanın değişmediğini belirtir.</p>}
+      {changes.length > 0 && <p className="text-muted-foreground">Her hücre eski değer → yeni değeri gösterir; — o alanın değişmediğini belirtir.</p>}
       {changes.length > 0 && <Table server><caption className="sr-only">Değişecek ürünler</caption>
         <TableHeader><TableRow><TableHead className="text-right">Satır</TableHead><TableHead>Marka</TableHead><TableHead>Stok Kodu</TableHead>
           <TableHead>Liste Fiyatı</TableHead><TableHead>İskonto</TableHead><TableHead>Maliyet</TableHead><TableHead>Kârlılık</TableHead><TableHead>Stok</TableHead></TableRow></TableHeader>
