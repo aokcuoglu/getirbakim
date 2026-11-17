@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { invalidateListings } from "@/modules/store/listing-epoch";
+import { syncEnrichmentLinks } from "@/modules/store/enrichment-links.server";
 import { persistProductOverride } from "@/modules/admin/product-override-store";
 import * as store from "@/modules/admin/product-reference-store";
 import { productReferenceLimit, referenceKinds } from "@/modules/admin/product-reference-fields";
@@ -92,8 +93,12 @@ export async function removeProductReference(input: { productId: string; referen
 /**
  * Hides the supplier rows' OEM field on the store (#615), or shows it again, for every source row of the product: the
  * product page, cards, cart, partner API and storefront code search. Stored as a product edit (history, merge carry and
- * undo); supplier data and enrichment keep the number. Hiding also drops the OEM equivalents that number formed
- * (#631, product_hidden_oem_drop; manual equivalents stay); shown again, they return with the next matching refresh.
+ * undo); supplier data keeps the number. Hiding also drops the OEM equivalents that number formed (#631,
+ * product_hidden_oem_drop; manual equivalents stay); shown again, they return with the next matching refresh.
+ * Enrichment matched through that OEM (vehicle fitments, specifications, image) leaves the store with it and comes back
+ * when shown (#865, enrichment_valid_data); the raw enrichment rows are kept. The override triggers queue the product,
+ * and the queues are drained here so the store and the enrichment dashboard follow at once; a failed drain is left to
+ * the background link sync and the dashboard's own drain, so it does not fail the saved change.
  */
 export async function setSupplierOemHidden(input: { productId: string; hidden: boolean }): Promise<ProductReferenceActionResult> {
   const admin = await requireAdmin();
@@ -108,11 +113,15 @@ export async function setSupplierOemHidden(input: { productId: string; hidden: b
   }
   if (!result.ok) return { status: "error", message: result.reason === "merged" ? failures.merged : failures["not-found"] };
   if (result.changed.length) {
+    try { await syncEnrichmentLinks(); }
+    catch (error) { console.error("Storefront enrichment link sync after a supplier OEM change failed", error); }
+    try { await db.query("SELECT enrichment_product_states_sync()"); }
+    catch (error) { console.error("enrichment_product_states_sync after a supplier OEM change failed", error); }
     // Code search lists products by their supplier OEM: cached searches reload (#585).
     await invalidateListings();
     revalidateStore();
   }
   return { status: "success", message: data.data.hidden
-    ? "Tedarikçi OEM alanı mağazada gizlendi; kod aramasından birkaç dakika içinde çıkar (aynı numara otomatik listede ya da elle eklenmişse görünmeye ve aranmaya devam eder). Bu OEM'den doğan muadil bağlantıları kaldırıldı; elle eklenenler korunur."
-    : "Tedarikçi OEM alanı yeniden gösteriliyor. Bu OEM'den doğan muadil bağlantıları bir sonraki eşleştirme yenilemesinde geri gelir; hemen geri getirmek için Ürün eşleştirme sayfasında Yenile'yi kullanın." };
+    ? "Tedarikçi OEM alanı mağazada gizlendi; kod aramasından birkaç dakika içinde çıkar (aynı numara otomatik listede ya da elle eklenmişse görünmeye ve aranmaya devam eder). Bu OEM'den doğan muadil bağlantıları kaldırıldı; elle eklenenler korunur. Yalnız bu OEM ile eşleşen kaynak verisi (araç uyumluluğu, özellikler, görsel) de mağazada kullanılmaz; birebir parça ve muadil kod eşleşmeleri etkilenmez."
+    : "Tedarikçi OEM alanı yeniden gösteriliyor. Bu OEM'den doğan muadil bağlantıları bir sonraki eşleştirme yenilemesinde geri gelir; hemen geri getirmek için Ürün eşleştirme sayfasında Yenile'yi kullanın. Bu OEM ile eşleşen kaynak verisi birkaç saniye içinde geri gelir." };
 }

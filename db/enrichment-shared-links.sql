@@ -208,6 +208,25 @@ DROP TRIGGER IF EXISTS enrichment_shared_enrichments_delete ON product_enrichmen
 CREATE TRIGGER enrichment_shared_enrichments_delete AFTER DELETE ON product_enrichments
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
 
+-- A hidden supplier OEM drops enrichment matched through it (enrichment_valid_data, #865): an override change queues
+-- its item. Created only when missing: DROP/CREATE TRIGGER would hold an ACCESS EXCLUSIVE lock on
+-- commerce_item_overrides, which the storefront views read, for the rest of the setup transaction on every deploy.
+-- A changed definition needs a DROP TRIGGER here first.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='commerce_item_overrides'::regclass AND tgname='enrichment_shared_overrides_insert') THEN
+  CREATE TRIGGER enrichment_shared_overrides_insert AFTER INSERT ON commerce_item_overrides
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='commerce_item_overrides'::regclass AND tgname='enrichment_shared_overrides_update') THEN
+  CREATE TRIGGER enrichment_shared_overrides_update AFTER UPDATE ON commerce_item_overrides
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='commerce_item_overrides'::regclass AND tgname='enrichment_shared_overrides_delete') THEN
+  CREATE TRIGGER enrichment_shared_overrides_delete AFTER DELETE ON commerce_item_overrides
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+END $$;
+
 -- Price and stock syncs rewrite supplier rows constantly; only identity matters here. Deleted rows cascade.
 DROP TRIGGER IF EXISTS enrichment_shared_supplier_items_update ON supplier_items;
 CREATE TRIGGER enrichment_shared_supplier_items_update AFTER UPDATE OF code, product_data ON supplier_items FOR EACH ROW

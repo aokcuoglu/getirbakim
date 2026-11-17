@@ -81,6 +81,7 @@ test('catalog CLI completes successive full batches, the remainder and halts on 
    CREATE TABLE product_sources(supplier_item_id uuid PRIMARY KEY,product_id uuid,method text DEFAULT 'auto');
    CREATE INDEX ON product_sources(product_id);CREATE TABLE brands(id bigint PRIMARY KEY,key text,name text);CREATE TABLE supplier_brands(supplier text,label text,brand_id bigint,PRIMARY KEY(supplier,label));
    CREATE TABLE commerce_supplier_items(id uuid PRIMARY KEY,stock_data jsonb);
+   CREATE TABLE commerce_item_overrides(supplier_item_id uuid PRIMARY KEY,product_id uuid,hide_oem boolean NOT NULL DEFAULT false);
    CREATE TABLE vehicle_brands(id uuid PRIMARY KEY);CREATE TABLE vehicle_models(id uuid PRIMARY KEY);CREATE TABLE vehicle_types(id uuid PRIMARY KEY);`);
   const matching=await readFile('db/product-matching.sql','utf8');
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
@@ -355,6 +356,7 @@ test('master product sharing excludes equivalents, split offers and changed supp
    CREATE TABLE products(id uuid PRIMARY KEY,brand text,part_number text,name text,merged_into uuid,updated_at timestamptz DEFAULT now());
    CREATE TABLE product_sources(supplier_item_id uuid PRIMARY KEY,product_id uuid,method text DEFAULT 'auto');
    CREATE TABLE brands(id bigint PRIMARY KEY,key text,name text);CREATE TABLE supplier_brands(supplier text,label text,brand_id bigint,PRIMARY KEY(supplier,label));
+   CREATE TABLE commerce_item_overrides(supplier_item_id uuid PRIMARY KEY,product_id uuid,hide_oem boolean NOT NULL DEFAULT false);
    CREATE TABLE vehicle_brands(id uuid PRIMARY KEY);CREATE TABLE vehicle_models(id uuid PRIMARY KEY);CREATE TABLE vehicle_types(id uuid PRIMARY KEY);`);
   const matching=await readFile('db/product-matching.sql','utf8');
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));

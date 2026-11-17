@@ -20,7 +20,12 @@ CREATE OR REPLACE VIEW enrichment_valid_data AS
  AND e.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
  AND j.status IN ('complete','partial')
  AND (e.match_basis->>'type' IN ('exact_part','cross_reference') OR
-   (e.match_basis->>'type'='oem_reference' AND e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe','')));
+   (e.match_basis->>'type'='oem_reference' AND e.match_basis->>'supplierOem'=COALESCE(s.product_data->>'oe','')))
+-- A hidden supplier OEM (commerce_item_overrides.hide_oem) also stops data matched through it (#865); the raw
+-- rows stay so unhiding brings them back. Kept as NOT (... AND EXISTS) rather than an anti-join so the planner
+-- uses one hashed SubPlan over the small override table instead of reordering the joins.
+AND NOT (e.match_basis->>'type'='oem_reference' AND COALESCE(e.match_basis->>'referenceSource','supplier_oem')='supplier_oem'
+  AND EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=e.supplier_item_id AND ho.hide_oem));
 
 -- A flat candidate view lets point lookups and legacy-batch reconciliation restrict the supplier rows first.
 CREATE OR REPLACE VIEW enrichment_product_candidates AS
@@ -32,7 +37,13 @@ CREATE OR REPLACE VIEW enrichment_product_candidates AS
    AND p.part_number=supplier_item_part_number(s.supplier,s.code,s.product_data))) AS coherent,
   CASE WHEN e.supplier_item_id IS NOT NULL THEN e.status
    WHEN j.supplier_code=s.code AND j.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
-    AND j.oem=COALESCE(s.product_data->>'oe','') AND j.status NOT IN ('complete','partial') THEN j.status ELSE 'pending' END AS status,
+    AND j.oem=COALESCE(s.product_data->>'oe','') AND j.status NOT IN ('complete','partial') THEN j.status
+   -- A finished job whose data is dropped by a hidden OEM (#865) is not pending again: collectors would loop on it.
+   WHEN j.status IN ('complete','partial') AND j.supplier_code=s.code
+    AND j.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
+    AND j.oem=COALESCE(s.product_data->>'oe','')
+    AND EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=s.id AND ho.hide_oem) THEN 'not_found'
+   ELSE 'pending' END AS status,
   CASE WHEN e.status='complete' THEN 0 WHEN e.status='partial' THEN 1
    WHEN j.supplier_code=s.code AND j.supplier_brand=COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'')
     AND j.oem=COALESCE(s.product_data->>'oe','') AND j.status IN ('review','not_found','failed','blocked') THEN 2 ELSE 3 END AS priority,

@@ -54,8 +54,9 @@ ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS brand text CHECK (char_le
 ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS part_number text CHECK (char_length(part_number) BETWEEN 1 AND 60);
 -- Supplier OEM field hidden on the store (#615), for every source row of the product: the catalog views show an
 -- empty oem and storefront search skips the stored OEM (commerce_item_overrides.hide_oem, db/commerce.sql).
--- Enrichment and the admin's supplier searches keep reading supplier_items; matching drops the hidden number from
--- OEM equivalents (#631, product_hidden_oem_drop below and refresh_product_matches).
+-- The admin's supplier searches keep reading supplier_items; matching drops the hidden number from OEM equivalents
+-- (#631, product_hidden_oem_drop below and refresh_product_matches) and enrichment matched through it is ignored
+-- (#865, enrichment_valid_data in db/enrichment-products.sql; the raw rows stay for unhiding).
 ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS hide_supplier_oem boolean NOT NULL DEFAULT false;
 -- Short description (#697): the intro paragraph under the product page title and the meta description's text before
 -- the long description. Admin-only: no automatic source and no catalog projection (the product page reads it here).
