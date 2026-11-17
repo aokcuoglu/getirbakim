@@ -93,7 +93,7 @@ async function reportUnmapped(){
 // Read-only commands skip the schema check, so they run against a read-only connection as well; the schema comes from db:setup (#924).
 const readOnly=['report-unmapped','check-aliases'].includes(process.argv[2]??'');
 try{
- if(!readOnly)await requireEnrichmentSchema(pool,['source_categories','source_category_labels','product_source_categories','product_type_categories']);
+ if(!readOnly)await requireEnrichmentSchema(pool,['source_categories','source_category_labels','product_source_categories','product_type_categories','parts2world_article_types']);
  if(process.argv[2]==='import-tree'){
   if(!process.argv[3])throw Error('Category tree JSON path required');
   console.log(JSON.stringify(await importCategoryTree(pool,JSON.parse(await readFile(process.argv[3],'utf8')))));

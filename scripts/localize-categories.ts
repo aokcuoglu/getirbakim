@@ -1,10 +1,11 @@
 import {readFile} from 'node:fs/promises';
 import {Pool} from 'pg';
 import {categorySlug} from '../src/modules/store/category-tree';
-import {applySchemaFiles} from '../src/modules/enrichment/schema';
+import {requireEnrichmentSchema} from '../src/modules/enrichment/schema';
 const pool=new Pool({connectionString:process.env.DATABASE_URL});
 const client=await pool.connect();try{
- await client.query('BEGIN');await applySchemaFiles(client,['db/source-categories.sql']);
+ await requireEnrichmentSchema(client,['source_categories','source_category_labels','product_source_categories','product_enrichments']);
+ await client.query('BEGIN');
  const names=new Map((await readFile('data/trodo-categories-tr.tsv','utf8')).trim().split('\n').map(line=>{const [id,name]=line.split('|');if(!name)throw Error('Missing translation: '+id);return [Number(id),name] as const;}));
  const categories=(await client.query("SELECT category_id FROM source_categories WHERE source='trodo'")).rows;
  for(const c of categories){const name=names.get(c.category_id);if(!name)throw Error('Missing translation: '+c.category_id);
