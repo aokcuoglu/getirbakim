@@ -10,15 +10,13 @@ import {Dialog as SheetPrimitive} from "@base-ui/react/dialog";
 import {Menu,ChevronRight,ArrowLeft,X,UserRound,Info,Mail,Package} from "lucide-react";
 import {Sheet,SheetClose,SheetTitle} from "@/components/ui/sheet";
 import {DialogOverlay as SheetOverlay,DialogPortal as SheetPortal} from "@/components/ui/dialog";
-import {DropdownMenu,DropdownMenuContent,DropdownMenuItem,DropdownMenuTrigger} from "@/components/ui/dropdown-menu";
-import {SiteIcon} from "@/components/site/site-icon";
 import {cn} from "@/lib/utils";
 import {catalogPath,categoryPath as categoryHref} from "@/modules/seo/paths";
 
 const reset="min-h-0 rounded-none border-0 bg-transparent p-0 font-[inherit] text-inherit hover:bg-transparent";
-const navItem="inline-flex min-h-5 shrink-0 items-center gap-1.5 text-[length:inherit] leading-[inherit] font-medium hover:text-brand aria-expanded:text-brand group-data-[route=home]/route:max-[600px]:hidden";
+const navItem="inline-flex min-h-5 shrink-0 items-center gap-1.5 text-[length:inherit] leading-[inherit] font-medium hover:text-brand aria-expanded:text-brand max-[600px]:min-h-11 max-[600px]:min-w-11 max-[600px]:justify-center";
 const megaLink="flex min-h-9 items-center gap-1.5 px-4 pt-3 pb-0 text-xs font-medium text-brand hover:underline hover:underline-offset-3";
-const sheetIconButton=cn(reset,"absolute top-4 grid size-8 min-h-8 place-items-center rounded-[3px] bg-white/14 text-white hover:bg-white/27");
+const sheetIconButton=cn(reset,"absolute top-2.5 grid size-11 min-h-11 place-items-center rounded-[3px] bg-white/14 text-white hover:bg-white/27");
 const sheetRow="flex w-full items-center gap-3 text-left text-foreground hover:bg-[#f4f5f6] hover:text-brand [&>svg:last-child]:ml-auto [&>svg:last-child]:shrink-0";
 
 /** The tree's error (with a retry when the request failed) or, while it loads, placeholder rows as tall as the real ones. */
@@ -102,9 +100,9 @@ export function CategoryMenu({links}:{links:CategoryLink[]}) {
   const cls=cn(reset,sheetRow,"min-h-[45px] bg-white px-4 py-[7px] text-sm leading-5 font-semibold",selected===null&&category.parentId===null&&"border-t border-[#e5e7eb]");
   return hasChildren?<button className={cls} key={category.id} type="button" onClick={()=>drill(category.id)}>{content}</button>:<Link className={cls} href={categoryHref(category.slug)} key={category.id} onClick={close}>{content}</Link>;
  }
- return <><div ref={menu} data-mega-open={desktopOpen?"":undefined} className="w-[101px] shrink-0 border-r border-input max-[1100px]:w-[60px] group-data-[route=home]/route:max-[600px]:absolute group-data-[route=home]/route:max-[600px]:top-4 group-data-[route=home]/route:max-[600px]:left-[15px] group-data-[route=home]/route:max-[600px]:w-6 group-data-[route=home]/route:max-[600px]:border-0">
+ return <><div ref={menu} data-mega-open={desktopOpen?"":undefined} className="w-[101px] shrink-0 border-r border-input max-[1100px]:w-[60px]">
   <button data-category-trigger type="button" aria-label="Tüm kategoriler" aria-expanded={open||desktop!==null} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={tree.load} onFocus={tree.load} onClick={event=>show(3,event.currentTarget,true)}
-   className={cn(reset,"flex h-7 min-h-7 w-[76px] items-center justify-center gap-2 bg-white text-sm font-medium text-foreground hover:bg-[#f7f8fa] hover:text-brand max-[1100px]:w-11 group-data-[route=home]/route:max-[600px]:size-6 group-data-[route=home]/route:max-[600px]:min-h-6 group-data-[route=home]/route:max-[600px]:justify-start")}>
+   className={cn(reset,"flex h-7 min-h-7 w-[76px] items-center justify-center gap-2 bg-white text-sm font-medium text-foreground hover:bg-[#f7f8fa] hover:text-brand max-[1100px]:w-11 max-[600px]:h-11 max-[600px]:min-h-11")}>
    <Menu size={18}/><span className="text-sm font-semibold max-[1100px]:hidden">Katalog</span>
   </button>
   {desktop&&<>
@@ -157,8 +155,8 @@ export function CategoryMenu({links}:{links:CategoryLink[]}) {
       <span className="flex shrink-0 gap-2 text-[11px] text-white max-[600px]:text-[10px]">🇹🇷 Türkiye <span>TRY ₺</span></span>
      </div>
      <nav ref={list} className="min-h-0 flex-1 overflow-auto overscroll-contain" aria-label="Ürün kategorileri">
-      {path.length>0&&<div className="flex flex-wrap gap-1 px-4 pt-3 pb-1">{path.map(node=><button key={node.id} type="button" onClick={()=>drill(node.id)} className={cn(reset,"min-h-6 cursor-pointer rounded-[2px] bg-[#f0f1f2] px-2 py-1 text-xs leading-4 font-medium text-foreground hover:bg-[#e6e8ea]")}>{node.name}</button>)}</div>}
-      {currentLink&&<Link className={cn(sheetRow,"min-h-9 px-4 py-2 text-xs font-medium text-brand")} href={categoryHref(currentLink.slug)} onClick={close}>{currentLink.name}: tüm ürünler <ChevronRight size={14}/></Link>}
+      {path.length>0&&<div className="flex flex-wrap gap-1 px-4 pt-3 pb-1">{path.map(node=><button key={node.id} type="button" onClick={()=>drill(node.id)} className={cn(reset,"min-h-11 cursor-pointer rounded-[2px] bg-[#f0f1f2] px-3 py-1 text-xs leading-4 font-medium text-foreground hover:bg-[#e6e8ea]")}>{node.name}</button>)}</div>}
+      {currentLink&&<Link className={cn(sheetRow,"min-h-11 px-4 py-2 text-xs font-medium text-brand")} href={categoryHref(currentLink.slug)} onClick={close}>{currentLink.name}: tüm ürünler <ChevronRight size={14}/></Link>}
       {tree.categories?(selected!==null&&!current?<TreeStatus error={false} missing retry={tree.retry} rows={0} rowClass=""/>:children.map(row)):<TreeStatus error={tree.error} retry={tree.retry} rows={10} rowClass="min-h-[45px] py-[7px]"/>}
       {selected===null&&<Link className={cn(sheetRow,"mt-3 min-h-[52px] border-t border-border px-3 py-2.5 text-sm font-medium")} href={catalogPath} onClick={close}><Menu size={18}/><span>Tüm ürünler</span><ChevronRight size={14}/></Link>}
      </nav>
@@ -172,17 +170,4 @@ export function CategoryMenu({links}:{links:CategoryLink[]}) {
  </div>{links.map(category=>category.hasChildren
   ?<button data-category-trigger className={cn(reset,navItem)} key={category.id} type="button" aria-expanded={desktop?.rootId===category.id||(open&&(selected===category.id||path.some(c=>c.id===category.id)))} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={tree.load} onFocus={tree.load} onClick={event=>show(category.id,event.currentTarget)}>{category.name}</button>
   :<Link className={navItem} key={category.id} href={categoryHref(category.slug)}>{category.name}</Link>)}</>;
-}
-
-/** Phones on the home page: the utility bar's "Bilgi" menu with the shopping information links. */
-export function MobileInformationMenu() {
- return <div className="relative hidden group-data-[route=home]/route:max-[600px]:block">
-  <DropdownMenu>
-   <DropdownMenuTrigger className={cn(reset,"flex min-h-8 cursor-pointer items-center gap-3 text-sm")}>Bilgi <SiteIcon name="chevron" size={13}/></DropdownMenuTrigger>
-   <DropdownMenuContent align="start" sideOffset={4} aria-label="Alışveriş bilgileri" className="w-[220px] rounded-md border border-border bg-white p-2 text-foreground shadow-[0_4px_16px_#0002] ring-0">
-    {([["/bilgi/teslimat","Teslimat"],["/bilgi/hakkimizda","Hakkımızda"],["/bilgi/yardim","Yardım merkezi"],["/rehber","Rehber"],["/teslimat-ve-iade","İade koşulları"],["/giris","Hesabım"]] as const).map(([href,label])=>
-     <DropdownMenuItem key={href} render={<Link href={href}/>} className="rounded-sm px-3 py-2 text-sm leading-5 focus:bg-[#f7f8fa] focus:text-foreground">{label}</DropdownMenuItem>)}
-   </DropdownMenuContent>
-  </DropdownMenu>
- </div>;
 }
