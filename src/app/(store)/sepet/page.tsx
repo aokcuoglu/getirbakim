@@ -52,7 +52,7 @@ export default async function Cart({searchParams}:{searchParams:Promise<SearchPa
               {(!p.available || !p.price_kurus || p.quantity>p.max_quantity) && <p className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]">Sipariş için uygun değil; adedi güncelle veya ürünü kaldır.</p>}
               <form action={updateCart} data-cart-remove><input type="hidden" name="productId" value={p.id}/><input type="hidden" name="quantity" value="0"/><Button type="submit" variant="link" className="-ml-2 h-11 min-h-11 border-0 bg-transparent px-2 text-sm font-medium text-[#0065a5] hover:bg-transparent">Kaldır</Button></form>
             </div>
-            <CartQuantity refreshPage className="max-[1000px]:[&_select]:w-14 max-[760px]:col-start-2" key={`${p.id}-${p.quantity}`} productId={p.id} name={p.display_code} quantity={p.quantity} maxQuantity={p.max_quantity} analyticsItem={analytics.find(line=>line.productId===p.id)?.item}/>
+            <CartQuantity refreshPage className="max-[1000px]:min-[768px]:[&_select]:w-14 max-[760px]:col-start-2" key={`${p.id}-${p.quantity}`} productId={p.id} name={p.display_code} quantity={p.quantity} maxQuantity={p.max_quantity} analyticsItem={analytics.find(line=>line.productId===p.id)?.item}/>
             <div className="pt-2 text-right wrap-anywhere max-[760px]:col-start-3 max-[760px]:row-start-2"><strong className="block text-base font-medium">{p.price_kurus ? money(unit*p.quantity) : "Fiyat bekleniyor"}</strong>{p.price_kurus && <small className="mt-1 block text-[13px] text-muted-foreground">{money(unit)} / adet</small>}</div>
           </article>;
         })}

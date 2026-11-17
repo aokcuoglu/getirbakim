@@ -4,7 +4,7 @@ import { Select as SelectRoot, SelectContent, SelectItem, SelectTrigger, SelectV
 import { cn } from "@/lib/utils";
 import { SiteIcon } from "./site-icon";
 
-export type SelectOption={value:string;label:string};
+export type SelectOption={value:string;label:string;shortLabel?:string};
 
 /**
  * The storefront's compact dropdown (header search mode, locale menus).
@@ -22,7 +22,12 @@ export function Select({name,label,options,defaultValue="",value,className="",tr
   <SelectTrigger aria-label={label} className={cn(
    "group/select relative flex min-h-[52px] data-[size=default]:h-auto w-full min-w-[120px] max-w-full items-center justify-start gap-0 rounded-lg border border-input bg-white py-[13px] pr-9 pl-3.5 text-left text-sm leading-5 font-normal whitespace-nowrap text-foreground *:data-[slot=select-value]:block hover:border-[#54626e] hover:bg-[#f8f9f9] focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand max-[600px]:text-[13px] [&>svg:last-child]:hidden",
    className,triggerClassName)}>
-   <SelectValue className="block min-w-0 flex-1 truncate"/>
+   <SelectValue className="block min-w-0 flex-1 truncate">{(selected:string)=>{
+    const option=options.find(o=>o.value===selected);
+    if(!option)return selected;
+    if(!option.shortLabel)return option.label;
+    return <><span className="max-[600px]:hidden">{option.label}</span><span className="min-[600px]:hidden">{option.shortLabel}</span></>;
+   }}</SelectValue>
    <SiteIcon name="chevron" size={16} className="absolute top-[calc(50%-8px)] right-2.5 transition-transform duration-150 group-aria-expanded/select:rotate-180"/>
   </SelectTrigger>
   <SelectContent align={align} alignItemWithTrigger={false} sideOffset={4} className={cn(
