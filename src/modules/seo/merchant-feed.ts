@@ -25,7 +25,7 @@ export type FeedItem = {
   availability: "in_stock"; condition: "new";
   /** "1234.50 TRY"; during a campaign the regular price, with the campaign price in salePrice. */
   price: string; salePrice?: string; salePriceEffectiveDate?: string;
-  brand?: string; mpn: string; gtin?: string; identifierExists?: "no";
+  brand?: string; mpn?: string; gtin?: string; identifierExists?: "no";
   googleProductCategory: number; productType?: string;
 };
 
@@ -39,6 +39,9 @@ export const titleLimit = 150;
 export const descriptionLimit = 1000;
 const productTypeLimit = 750;
 const unspecifiedBrand = "Belirtilmemiş";
+const mpnLimit = 70;
+/** ISO 8601 in UTC without milliseconds (2026-11-20T21:00:00Z). */
+const isoSeconds = (date: Date) => date.toISOString().replace(/\.\d{3}Z$/, "Z");
 
 /** The feed files the route serves, by public name; the object key in S3_BUCKET. */
 export const feedFiles: Readonly<Record<string, { key: string }>> = { "google.xml.gz": { key: "feeds/google.xml.gz" } };
@@ -96,6 +99,7 @@ export function feedItem(source: FeedSource, base: string, now = new Date()): Fe
   const onSale = regular !== null && regular > source.price_kurus;
   const until = onSale ? saleUntil(source) : null;
   const productType = source.productType.join(" > ").slice(0, productTypeLimit);
+  const mpn = numberWithoutBrand(source.display_code, source.display_brand).slice(0, mpnLimit).trim();
   return {
     id: source.id,
     title: productSeoTitle({ brand, name, partNumber: source.display_code, vehicles: [], hint, max: titleLimit }).slice(0, titleLimit),
@@ -106,9 +110,9 @@ export function feedItem(source: FeedSource, base: string, now = new Date()): Fe
     availability: "in_stock", condition: "new",
     price: money(onSale ? regular : source.price_kurus),
     ...onSale ? { salePrice: money(source.price_kurus) } : {},
-    ...until && until > now ? { salePriceEffectiveDate: `${now.toISOString()}/${until.toISOString()}` } : {},
+    ...until && until > now ? { salePriceEffectiveDate: `${isoSeconds(now)}/${isoSeconds(until)}` } : {},
     ...brand ? { brand } : {},
-    mpn: numberWithoutBrand(source.display_code, source.display_brand),
+    ...mpn ? { mpn } : {},
     ...source.gtin ? { gtin: source.gtin } : {},
     ...!source.gtin && !brand ? { identifierExists: "no" as const } : {},
     googleProductCategory: merchantCategoryId,

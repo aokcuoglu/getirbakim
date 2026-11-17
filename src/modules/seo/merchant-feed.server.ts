@@ -29,16 +29,16 @@ export async function loadCategoryNames(): Promise<Map<number, string>> {
   return new Map(rows.map(row => [row.id, row.name]));
 }
 
-// The barcode of a supplier row: the admin's first barcode (as the product page's gtin), else the one GTIN with a valid
-// check digit among Dinamik's barkod1..3 that the admin did not hide. Several different valid barcodes give none: a
-// wrong GTIN gets an item rejected, a missing one only weakens it.
+// The barcode of a supplier row: the admin's first valid barcode (GTIN-8/12/13/14 with its check digit, the lengths the
+// product page's gtinProperty knows), else the one valid GTIN among Dinamik's barkod1..3. Several different valid
+// barcodes give none: a wrong GTIN gets an item rejected, a missing one only weakens it. A wrong Dinamik barcode is
+// overridden by adding the right barcode as the admin's (an admin barcode can only be added, never hidden).
 const gtinSql = `SELECT i.id::text AS id,
  (SELECT r.number_key FROM product_sources ps JOIN product_override_references r ON r.product_id=ps.product_id
-   WHERE ps.supplier_item_id=i.id AND r.kind='ean' AND r.action='add' ORDER BY r.created_at,r.id LIMIT 1) AS admin_ean,
+   WHERE ps.supplier_item_id=i.id AND r.kind='ean' AND r.action='add' AND gtin_valid(r.number_key) ORDER BY r.created_at,r.id LIMIT 1) AS admin_ean,
  CASE WHEN i.supplier='dinamik' THEN ARRAY(SELECT DISTINCT b.code FROM unnest(ARRAY[i.product_data->>'barkod1',i.product_data->>'barkod2',i.product_data->>'barkod3']) v
    CROSS JOIN LATERAL (SELECT regexp_replace(upper(v),'[^A-Z0-9]','','g') AS code) b
-   WHERE gtin_valid(b.code) AND NOT EXISTS (SELECT 1 FROM product_sources ps JOIN product_override_references r ON r.product_id=ps.product_id
-    WHERE ps.supplier_item_id=i.id AND r.kind='ean' AND r.action='hide' AND r.number_key=b.code)) ELSE '{}' END AS barcodes
+   WHERE gtin_valid(b.code)) ELSE '{}' END AS barcodes
  FROM supplier_items i WHERE i.id=ANY($1::uuid[])`;
 
 // The category of a supplier row as the listing files it (categoryProductIds in catalog.ts): a trusted enrichment's
@@ -178,6 +178,9 @@ export async function runMerchantFeed(options: MerchantFeedRunOptions = {}): Pro
       const file = join(dir, "google.xml.gz");
       const gzip = createGzip();
       const written = pipeline(gzip, createWriteStream(file));
+      // A write error mid-loop rejects `written` before it is awaited; the handler keeps it from becoming an unhandled
+      // rejection (which would end the process past the finally below). The error itself is still awaited.
+      written.catch(() => {});
       const write = async (text: string) => { if (!gzip.write(text)) await once(gzip, "drain"); };
       try {
         await write(renderFeedHeader(base));

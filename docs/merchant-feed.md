@@ -53,10 +53,10 @@ Snapshot modunda (`commerce_settings.basbug_checkout_mode='snapshot'`) her tedar
 | `g:condition` | `new` |
 | `g:price` | KDV dahil TRY, `1234.50 TRY` biçiminde. Kampanyada kampanyanın yerini aldığı liste fiyatı yazılır. |
 | `g:sale_price` | Yalnız kampanyada: kampanya fiyatı. |
-| `g:sale_price_effective_date` | Kampanyanın bitişi varsa: `<üretim anı>/<bitiş>` (ISO 8601, UTC). |
+| `g:sale_price_effective_date` | Kampanyanın bitişi varsa: `<üretim anı>/<bitiş>` (ISO 8601, UTC, saniye hassasiyetinde: `2026-11-17T10:00:00Z/2026-11-20T21:00:00Z`). |
 | `g:brand` | Mağazada görünen marka. "Belirtilmemiş" ise yazılmaz. |
-| `g:mpn` | Görünen parça no, marka öneki olmadan (`numberWithoutBrand`). |
-| `g:gtin` | Yöneticinin girdiği ilk barkod. Yoksa Dinamik `barkod1..3` içinde kontrol basamağı geçerli **tek** GTIN (`gtin_valid`; yöneticinin gizlediği barkod hariç). Birden çok farklı geçerli barkod varsa yazılmaz. |
+| `g:mpn` | Görünen parça no, marka öneki olmadan (`numberWithoutBrand`), en çok 70 karakter; boşsa yazılmaz. |
+| `g:gtin` | Yöneticinin girdiği ilk geçerli barkod (GTIN-8/12/13/14, kontrol basamağıyla, `gtin_valid`). Yoksa Dinamik `barkod1..3` içinde geçerli **tek** GTIN. Birden çok farklı geçerli barkod varsa yazılmaz. Dinamik'in yanlış barkodu gizlenemez; doğrusu yönetici barkodu olarak eklenince o kullanılır. |
 | `g:identifier_exists` | GTIN yoksa ve marka da yoksa `no`. |
 | `g:google_product_category` | `899` = Vehicles & Parts > Vehicle Parts & Accessories > Motor Vehicle Parts (Google taksonomisi 2021-09-21). |
 | `g:product_type` | Mağaza kategori yolu, `Fren Sistemi > Balata` biçiminde. Yöneticinin kategorisi, yoksa güvenilir zenginleştirmenin Trodo kategorisi kullanılır. |
@@ -137,3 +137,12 @@ Commerce Manager'da "Katalog → Veri kaynakları → Veri akışı → Zamanlan
 2. Sonra gerçek koşu yapılır.
 3. `curl -sI https://getirbakim.com/feeds/google.xml.gz` → `200 application/gzip`, `Set-Cookie` yok.
 4. Merchant Center'a adres verilir.
+
+## Takip işleri
+
+- Meta kataloğu doğrulaması (`in_stock` yazımı, WebP ve 500 px altı görseller), gerekirse ayrı dosya.
+- Başlık ve açıklamada uyumlu araç adları.
+- GTIN kaynaklarını genişletme (zenginleştirme `EAN` özelliği, manuel liste barkodu) ve ürün sayfasında gösterme.
+- `/yonetim`'de besleme durumu kartı: manifestten son koşu, öğe sayısı ve elenme nedenleri; manifest N saatten eskiyse (zamanlanmış koşu durmuşsa) uyarı.
+- Kargo onaylanınca `g:shipping` ve JSON-LD `shippingDetails`.
+- Kategoriye göre `google_product_category` eşlemesi (yağ, aksesuar).

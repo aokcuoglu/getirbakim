@@ -48,7 +48,7 @@ describe("feed items", () => {
     const entry = item({ price_kurus: 99900, pricing_snapshot: { source: "override", price_kind: "sale", list_price_kurus: 124950, sale_until: "2026-11-20T21:00:00Z" } })!;
     assert.equal(entry.price, "1249.50 TRY");
     assert.equal(entry.salePrice, "999.00 TRY");
-    assert.equal(entry.salePriceEffectiveDate, "2026-11-17T10:00:00.000Z/2026-11-20T21:00:00.000Z");
+    assert.equal(entry.salePriceEffectiveDate, "2026-11-17T10:00:00Z/2026-11-20T21:00:00Z");
     const open = item({ price_kurus: 99900, pricing_snapshot: { price_kind: "sale", list_price_kurus: 124950 } })!;
     assert.equal(open.salePrice, "999.00 TRY");
     assert.equal(open.salePriceEffectiveDate, undefined);
@@ -61,6 +61,8 @@ describe("feed items", () => {
     assert.equal(unbranded.brand, undefined);
     assert.equal(unbranded.identifierExists, "no");
     assert.equal(unbranded.mpn, "XY 123");
+    assert.equal(item({ display_code: "   " })!.mpn, undefined);
+    assert.equal(item({ display_code: "A".repeat(90) })!.mpn, "A".repeat(70));
     assert.doesNotMatch(unbranded.title, /Belirtilmemiş/);
     const barcoded = item({ display_brand: "Belirtilmemiş", gtin: "4006381333931" })!;
     assert.equal(barcoded.gtin, "4006381333931");
