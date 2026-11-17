@@ -240,6 +240,10 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
     } else {
       await appendNote(client, orderId, `Beklenmeyen durumda ödeme alındı (${attempt.provider_order_id}); siparişi inceleyin.`);
     }
+    // The hosted page lets the buyer pick installments on its own; the merchant carries that commission (#873).
+    if (query.installmentCount !== null && query.installmentCount > 1) {
+      await appendNote(client, orderId, `TAMI'de ${query.installmentCount} taksitle ödendi (${attempt.provider_order_id}); taksit komisyonu işyerine yansır.`);
+    }
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
