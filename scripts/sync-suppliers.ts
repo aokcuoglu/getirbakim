@@ -3,6 +3,7 @@ import { z } from "zod";
 import { BasbugImportError, importBasbug } from "../src/modules/suppliers/basbug-import";
 import { DinamikImportError, discoverDinamikBrands, dinamikBrandPattern, importDinamik } from "../src/modules/suppliers/dinamik-import";
 import { SetaImportError, importSeta, setaScope } from "../src/modules/suppliers/seta-import";
+import { supplierSyncAlerts } from "../src/modules/suppliers/health";
 import { refreshProductMatchesIfDue } from "../src/modules/suppliers/product-match-schedule";
 import { pruneSupplierHistory } from "../src/modules/suppliers/sync";
 
@@ -145,10 +146,7 @@ try {
         restockRequests: (await worker.query<{ pruned: unknown }>("SELECT prune_restock_requests() AS pruned")).rows[0].pruned });
       await worker.query("COMMIT");
     } catch (error) { await worker.query("ROLLBACK"); throw error; }
-    const alerts = (await worker.query(`SELECT supplier,company,list_group,warehouse,consecutive_failures,last_success_at
-      FROM supplier_sync_scopes WHERE (enabled AND (consecutive_failures>0 OR last_success_at IS NULL
-      OR last_success_at<now()-stale_minutes*interval '1 minute')) OR (commerce_enabled AND
-      (commerce_failures>0 OR commerce_last_success_at IS NULL OR commerce_last_success_at<now()-commerce_stale_minutes*interval '1 minute'))`)).rows;
+    const alerts = await supplierSyncAlerts(worker);
     if (alerts.length) { console.error({ alerts }); process.exitCode = 1; }
   }
 } catch {

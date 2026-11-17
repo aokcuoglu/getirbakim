@@ -406,9 +406,13 @@ export type CatalogContext={vehicleTypeId?:string|null};
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: unknown[] = [company()]; const clauses: string[] = [listedOnly];
  let search:CatalogSearch|undefined;
+ const fitted=query.fits==='vehicle'&&context.vehicleTypeId?await typeFittedIds(Number(context.vehicleTypeId)):undefined;
  if(query.q?.trim()) {
   search=await catalogSearch(query.q,query.searchBy==="code"?"code":"all");
-  clauses.push(`catalog.id=ANY(${binder(values)(search.ids)}::uuid[])`);
+  // A search for the vehicle's fits passes their intersection as one small array (#884): the two id arrays (a broad
+  // search's 20k+ and a type's ~2k) took ~0.1 s per query, twice per page with the "Aracına uyanlar" lead.
+  const linked=fitted&&new Set(fitted);
+  clauses.push(`catalog.id=ANY(${binder(values)(linked?search.ids.filter(id=>linked.has(id)):search.ids)}::uuid[])`);
  }
  if(query.category) {
   const selected=(await getStoreCategories()).find(c=>c.slug===query.category);
@@ -442,9 +446,9 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   }
  }
  if(query.fits==='vehicle') {
-  if(!context.vehicleTypeId)clauses.push('false');
-  else {
-   values.push(await typeFittedIds(Number(context.vehicleTypeId)));
+  if(!fitted)clauses.push('false');
+  else if(!search) {
+   values.push(fitted);
    clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
@@ -488,6 +492,12 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
 // (name, category, hidden, brand, part number, references, merge/split) bump the listing epoch instead (#585).
 const aggregateTtl=10*60*1000;
 const cachedCounts=staleCache<number>(aggregateTtl,500,listings),cachedPageIds=staleCache<string[]>(aggregateTtl,500,listings);
+// A garage vehicle's fit and oil filters key their entries per vehicle type (#884): kept apart, so every page view with a
+// vehicle (its "Aracına uyanlar" lead) does not push the plain listings, 0.5-1.5 s each to recompute, out of the LRU above.
+const cachedVehicleCounts=staleCache<number>(aggregateTtl,500,listings),cachedVehiclePageIds=staleCache<string[]>(aggregateTtl,500,listings);
+const vehicleScoped=(query:CatalogQuery)=>Boolean(query.fits||query.oil);
+const countCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehicleCounts:cachedCounts;
+const pageIdCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehiclePageIds:cachedPageIds;
 const cachedFacets=staleCache<{brands:string[];attributes:CatalogFacet[]}>(aggregateTtl,500,listings),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
 /** Cache key of everything that narrows the listing except search, which goes uncached. */
 function filterKey(query:CatalogQuery,context:CatalogContext){
@@ -532,8 +542,8 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
 // reading the matched rows, and their answer changes only with supplier syncs — like the listings above,
 // it is served stale-while-revalidate for 10 minutes (admin edits reload it at once through the listing epoch, #585). Prices and stock are still read live for the listed
 // ids. The first pages are kept (deeper pages are recomputed); facets need every match, so they are kept too.
-// 30 cards keep a listing page near 0.6 MB of HTML (60 made it 1.15 MB); 20 cached pages still cover 600 results.
-const catalogPageSize=30;
+// 24 cards (#739, was 30) keep a listing page closer to the 350 KB HTML target (#642); 20 cached pages cover 480 results.
+const catalogPageSize=24;
 const cachedPages=20,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300,listings);
 type PlainSearch={ids:string[];total:number;brands:string[];attributes:CatalogFacet[];correctedQuery?:string;vehicle?:VehicleSearchScope;tooShort?:boolean};
 const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`,async()=>{
@@ -563,12 +573,13 @@ export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalo
  * pages' metadata and their 404 and index rules read it before the page renders.
  */
 export function listingTotal(query:CatalogQuery,context:CatalogContext={}){
- return cachedCounts(filterKey(query,context),async()=>{
+ return countCache(query)(filterKey(query,context),async()=>{
   const {values,from}=await catalogFilter({...query,q:undefined},context);
   return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
  });
 }
-export async function browseProducts(query:CatalogQuery,context:CatalogContext={}){
+/** `limit`: read only the first `limit` cards of the page (vehicleLead); counts, pages and cached page ids stay the page's. */
+export async function browseProducts(query:CatalogQuery,context:CatalogContext={},{limit=catalogPageSize}:{limit?:number}={}){
  if(isPlainSearch(query)&&(query.sort??"relevance")==="relevance"){
   const mode=query.searchBy==="code"?"code":"all",plain=await plainSearch(query.q!,mode);
   const pageSize=catalogPageSize,total=plain.total,pages=Math.max(1,Math.ceil(total/pageSize));
@@ -582,8 +593,8 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  }
  const {values,where,from,search}=await catalogFilter(query,context);
  const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
- const total = search ? await count() : await cachedCounts(filterKey(query,context),count);
- const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize));
+ const total = search ? await count() : await countCache(query)(filterKey(query,context),count);
+ const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize)), take = Math.min(pageSize,Math.max(1,Number.isFinite(limit)?Math.trunc(limit):pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
  // Products nobody supplies now come after every saleable one, in every order (#475).
@@ -594,10 +605,10 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const rank=search&&(query.sort??"relevance")==="relevance"?catalogRank("catalog",search.parsed,bind):"0";
  const offset=bind((page-1)*pageSize);
  if(!search&&!pricedSort){
-  const ids=await cachedPageIds(`${filterKey(query,context)}|${page}`,async()=>(await db.query<{id:string}>(
+  const ids=await pageIdCache(query)(`${filterKey(query,context)}|${page}`,async()=>(await db.query<{id:string}>(
    `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id));
   const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
-   JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
+   JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids.slice(0,take)])).rows;
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
  // A price order prices every listed row before it sorts (VW make page: ~50k rows, ~3 s per page). Its first
@@ -605,15 +616,15 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // the current price and stock, while its position follows the prices of up to 10 minutes ago (supplier syncs, and admin
  // price edits, which do not move the listing epoch). Deeper pages keep the live query.
  if(!search&&pricedSort&&page<=cachedPages){
-  const ordered=await cachedPageIds(`${filterKey(query,context)}|${query.sort}`,async()=>(await db.query<{id:string}>(
+  const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>(await db.query<{id:string}>(
    `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values)).rows.map(row=>row.id));
   const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
-   JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ordered.slice((page-1)*pageSize,page*pageSize)])).rows;
+   JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ordered.slice((page-1)*pageSize,(page-1)*pageSize+take)])).rows;
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
  const items = (await db.query<CatalogProduct>(pricedSort
-  ? `SELECT * FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${offset}`
-  : `WITH page AS MATERIALIZED (SELECT id,updated_at,unavailable,${rank} AS rank ${from} ORDER BY unavailable,rank DESC,${order} LIMIT ${pageSize} OFFSET ${offset})
+  ? `SELECT * FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`
+  : `WITH page AS MATERIALIZED (SELECT id,updated_at,unavailable,${rank} AS rank ${from} ORDER BY unavailable,rank DESC,${order} LIMIT ${take} OFFSET ${offset})
      SELECT catalog.* FROM page JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true
      ORDER BY page.unavailable,page.rank DESC,page.updated_at DESC,page.id`, pageValues)).rows;
  return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
@@ -649,12 +660,25 @@ export async function catalogBrands() {
  return cachedBrands("all",async()=>(await db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));
 }
 
-/** Products in the current search, category and make scope that are linked to the vehicle type. */
+/**
+ * Products of the listing, every filter kept, that are linked to the vehicle type: the total of its `fits=vehicle`
+ * listing, read the way browseProducts counts it (the same cache entry), so the count matches the page it links to (#884).
+ */
 export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
- const scope:CatalogQuery={q:query.q,searchBy:query.searchBy,category:query.category,make:query.make,model:query.model,manufacturer:query.manufacturer,fits:'vehicle'};
- const {values,from,search}=await catalogFilter(scope,{vehicleTypeId});
+ const scope:CatalogQuery={...query,fits:'vehicle',page:undefined},context={vehicleTypeId};
+ const {values,from,search}=await catalogFilter(scope,context);
  const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
- return search ? count() : cachedCounts(filterKey(scope,{vehicleTypeId}),count);
+ return search ? count() : countCache(scope)(filterKey(scope,context),count);
+}
+/**
+ * The first `limit` products of the listing linked to the garage vehicle's type, and how many there are (#884): the
+ * listing's `fits=vehicle` page 1 (every filter and the order kept), shown above the full results. The vehicle does not
+ * filter the catalog (DESIGN.md); its fits are put first. Its count and page ids share the `fits=vehicle` listing's cache.
+ * Four cards: a card is ~7.5 KB of HTML, and the 24-card page sits near the 350 KB target (#642, #739).
+ */
+export async function vehicleLead(query:CatalogQuery,vehicleTypeId:string,limit=4) {
+ const {items,total}=await browseProducts({...query,fits:'vehicle',page:undefined},{vehicleTypeId},{limit});
+ return {items,total};
 }
 /** Which of the listed products are linked to the vehicle type, for the card badge. */
 export async function productsFittingVehicle(ids:string[],vehicleTypeId:string) {

@@ -1,4 +1,5 @@
 import { legalDocument, legalLinks } from "@/content/legal";
+import { guidePath, guides, guidesPath } from "@/content/guides";
 import { catalogPath, makesPath } from "./paths";
 
 // The sitemap is an index (/sitemap.xml) of fixed files (/sitemaps/<file>, #634). Products are split by the first
@@ -58,7 +59,7 @@ export function withAncestors<T extends { id: number; path: number[] }>(nodes: T
 
 export type SitemapEntry = { url: string; lastModified?: string };
 
-const escapeXml = (value: string) => value.replace(/[&<>"']/g, char =>
+export const escapeXml = (value: string) => value.replace(/[&<>"']/g, char =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[char] ?? char);
 
 export function renderUrlset(entries: SitemapEntry[]) {
@@ -75,7 +76,8 @@ export function renderSitemapIndex(urls: string[]) {
 
 /** Fixed store pages; legal pages carry the date their text last changed. */
 export const staticPaths: { path: string; lastModified?: string }[] = [
-  ...["", catalogPath, "/bakim-robotu", makesPath, "/servisler", "/bilgi/hakkimizda", "/bilgi/uyumluluk", "/bilgi/yardim"].map(path => ({ path })),
+  ...["", catalogPath, "/bakim-robotu", makesPath, "/servisler", "/bilgi/hakkimizda", "/bilgi/uyumluluk", "/bilgi/yardim", guidesPath].map(path => ({ path })),
+  ...guides.map(guide => ({ path: guidePath(guide.slug), lastModified: guide.updated })),
   ...legalLinks.map(page => ({ path: `/${page.slug}`, lastModified: legalDocument(page.slug)?.updatedAt })),
 ];
 

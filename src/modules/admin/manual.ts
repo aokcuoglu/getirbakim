@@ -9,6 +9,8 @@ import { manualCategories, type ManualDraftReport, type ManualOverrides } from "
 import type { ManualRow } from "@/modules/suppliers/manual-template";
 import type { ManualBulkReport } from "@/modules/suppliers/manual-bulk";
 import type { ManualBulkExportRow } from "@/modules/suppliers/manual-bulk-csv";
+import { manualBulkPageNumber as pageNumber } from "@/modules/suppliers/manual-bulk-paging";
+import { manualBulkExportAll, manualBulkExportColumns, manualBulkExportFrom, manualDraft } from "@/modules/suppliers/manual-bulk";
 import { z } from "zod";
 import type { SupplierChange } from "./supplier-changes";
 import { supplierItemPage, type SaleFields } from "./supplier-items";
@@ -17,14 +19,14 @@ import { itemProductSql, shownImageSql } from "@/modules/store/product-image-sql
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 
 export type ManualParams = { liste?: string; taslak?: string; q?: string; category?: string; stock?: string; quality?: string; presence?: string;
-  page?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; bulk?: string; error?: string; detail?: string };
+  page?: string; degisiklik?: string; bulgu?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; bulk?: string; error?: string; detail?: string;
+  /** "1": the bulk CSV of every list (#844). */
+  tum?: string };
 type ManualList = { list_group: string; list_name: string; present: number; missing_prices: number; missing_packages: number; last_import: Date | null };
 /** kind "list": an xlsx list upload; "bulk": a price/stock CSV, whose report also carries the diff (report.bulk). */
 export type ManualUpload = { id: string; list_group: string; list_name: string; file_name: string; status: "draft" | "imported" | "discarded";
   kind: "list" | "bulk"; report: ManualDraftReport & Partial<Pick<ManualBulkReport, "bulk">>; created_at: Date; decided_at: Date | null; import_id: string | null; uploader: string | null;
   stats: Record<string, number> | null; quality: Record<string, number> | null };
-/** A draft upload with its first ten file rows (`preview`) and the file's row count (xlsx drafts; a CSV draft reads report.bulk). */
-type ManualDraft = Omit<ManualUpload, "stats" | "quality"> & { preview: ManualRow[]; row_count: number };
 type ManualItemData = { no: string; ac: string; uk: string; category_id: number; category_name: string; barcode: string | null; description: string | null;
   viscosity: string | null; package: string | null; approvals: string | null; image_url: string | null; list_name: string; file: Omit<ManualRow, "sheet" | "row"> };
 export type ManualItem = {
@@ -55,9 +57,7 @@ export async function adminManualData(params: ManualParams) {
     db.query<ManualUpload>(`SELECT u.id,u.list_group,u.list_name,u.file_name,u.status,u.kind,u.report - 'issues' - 'bulk' || jsonb_build_object('issues','[]'::jsonb) AS report,
       u.created_at,u.decided_at,u.import_id,a.name AS uploader,r.stats,r.quality FROM manual_uploads u LEFT JOIN accounts a ON a.id=u.uploaded_by
       LEFT JOIN supplier_imports r ON r.id=u.import_id ORDER BY u.created_at DESC LIMIT 15`),
-    draftId ? db.query<ManualDraft>(`SELECT u.id,u.list_group,u.list_name,u.file_name,u.status,u.kind,u.report,u.created_at,u.decided_at,u.import_id,a.name AS uploader,
-      jsonb_path_query_array(u.rows,'$[0 to 9]') AS preview,jsonb_array_length(u.rows) AS row_count
-      FROM manual_uploads u LEFT JOIN accounts a ON a.id=u.uploaded_by WHERE u.id=$1`, [draftId]) : null,
+    draftId ? manualDraft(db, draftId, pageNumber(params.degisiklik), pageNumber(params.bulgu)) : null,
     manualCategories(db),
   ]);
   const list = lists.find(entry => entry.list_group === params.liste) ?? lists[0];
@@ -66,7 +66,7 @@ export async function adminManualData(params: ManualParams) {
     db.query<{ value: string }>(`SELECT DISTINCT product_data->>'category_name' AS value FROM supplier_items
       WHERE ${scope} AND list_group=$2 AND presence='present' ORDER BY value`, [manualCompany, list.list_group]).then(result => result.rows.map(row => row.value)),
   ]) : [null, [] as string[]];
-  return { lists, list, uploads: uploads.rows, draft: draft?.rows[0], listCategories, products,
+  return { lists, list, uploads: uploads.rows, draft, listCategories, products,
     categoryNames: new Map(categories.map(category => [category.id, category.name])) };
 }
 
@@ -102,19 +102,23 @@ async function manualItems(listGroup: string, params: ManualParams) {
   });
 }
 
-/** The bulk price/stock CSV of the selected list, filtered like the product tab, without paging (#832). */
+/**
+ * The bulk price/stock CSV of the selected list, filtered like the product tab, without paging (#832). `tum=1`: every
+ * list's present items in one file with the list name (#844); the tab's filters belong to one list and are ignored.
+ */
 export async function adminManualBulkExport(params: ManualParams) {
   await requireAdmin();
+  if (params.tum === "1") {
+    const all = await manualBulkExportAll(db);
+    return all.lists.length ? { list: null, combined: true, rows: all.rows } : null;
+  }
   const lists = await adminManualLists();
   const list = lists.find(entry => entry.list_group === params.liste) ?? lists[0];
   if (!list) return null;
   const { where, values } = manualItemFilter(list.list_group, params);
-  const rows = (await db.query<ManualBulkExportRow>(`SELECT COALESCE(product_data->>'uk','') AS brand,code,
-      COALESCE((price_data->>'list')::float8,(price_data->>'nf')::float8) AS list,COALESCE((price_data->>'discount')::float8,0) AS discount,
-      p.markup_percent::float8 AS markup,(stock_data->>'stok')::float8 AS stock
-    FROM supplier_items LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=supplier_items.id
+  const rows = (await db.query<ManualBulkExportRow>(`SELECT ${manualBulkExportColumns} FROM ${manualBulkExportFrom}
     WHERE ${where} ORDER BY code`, values)).rows;
-  return { list, rows };
+  return { list, combined: false, rows };
 }
 
 export async function adminManualItem(id: string) {
@@ -124,8 +128,8 @@ export async function adminManualItem(id: string) {
   const [result, changes, categories, sale, pricing] = await Promise.all([
     db.query<ManualItem & {
       first_seen_at: Date; last_seen_at: Date; changed_at: Date; price_count: number; stock_count: number; source_variants: Record<string, unknown>;
-      overrides: ManualOverrides | null;
-    }>(`SELECT i.*,${shownImage("i")} AS has_image,o.fields AS overrides FROM supplier_items i
+      overrides: ManualOverrides | null; overrides_updated_at: Date | null;
+    }>(`SELECT i.*,${shownImage("i")} AS has_image,o.fields AS overrides,o.updated_at AS overrides_updated_at FROM supplier_items i
       LEFT JOIN manual_item_overrides o ON o.list_group=i.list_group AND o.code=i.code
       WHERE i.supplier='manual' AND i.company=$1 AND i.id=$2`, [manualCompany, id]),
     db.query<SupplierChange>("SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id]),

@@ -18,6 +18,12 @@ test("quality guards distinguish a normal fluctuation from a suspect full respon
   assert.match(rejectionReason({ ...old, missingPrices: 11 }, old)!, /missing-prices/);
   assert.match(rejectionReason({ ...old, missingStocks: 11 }, old)!, /missing-stocks/);
   assert.ok(rejectionReason({ ...old, uniqueProducts: 0 }));
+  // New products without a stock or price row lose no data (#857); fewer products with that data still do.
+  const alternator = { uniqueProducts: 189, missingPrices: 0, missingStocks: 25 };
+  assert.equal(rejectionReason({ uniqueProducts: 243, missingPrices: 0, missingStocks: 79 }, alternator), null);
+  assert.equal(rejectionReason({ uniqueProducts: 7, missingPrices: 0, missingStocks: 2 }, { uniqueProducts: 6, missingPrices: 0, missingStocks: 1 }), null);
+  assert.equal(rejectionReason({ uniqueProducts: 120, missingPrices: 20, missingStocks: 0 }, old), null);
+  assert.match(rejectionReason({ uniqueProducts: 919, missingPrices: 0, missingStocks: 349 }, { uniqueProducts: 919, missingPrices: 0, missingStocks: 244 })!, /missing-stocks/);
 });
 
 test("PostgreSQL: idempotence, changes, disappearance, return, rollback, retention, replay and importer lifecycle", async () => {
@@ -168,6 +174,10 @@ test("PostgreSQL: idempotence, changes, disappearance, return, rollback, retenti
     fail=false; codes=["A"];
     await assert.rejects(importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" }),error=>error instanceof BasbugImportError && error.reason === "rejected");
     assert.equal(Number((await client.query("SELECT count(*) FROM supplier_imports WHERE status='rejected'")).rows[0].count),1);
+    // (#910) The upstream errors above backed off; the rejection of the daily group waits for its next 03:00 run and stays failing.
+    const rejectedScope=(await client.query(`SELECT consecutive_failures,next_run_at=(((now() AT TIME ZONE 'Europe/Istanbul')::date+1)+daily_at) AT TIME ZONE 'Europe/Istanbul' AS daily
+      FROM supplier_sync_scopes WHERE company='TEST' AND list_group='FIAT'`)).rows[0];
+    assert.ok(rejectedScope.consecutive_failures>0); assert.equal(rejectedScope.daily,true);
     assert.equal(Number((await client.query("SELECT count(*) FROM supplier_items WHERE presence='present'")).rows[0].count),5);
     process.env.BASBUG_BASE_URL="http://invalid.example";
     await assert.rejects(importBasbug(pool,{ group:"FIAT",warehouse:"MRK",company:"TEST" }),error=>error instanceof BasbugImportError && error.reason === "config");

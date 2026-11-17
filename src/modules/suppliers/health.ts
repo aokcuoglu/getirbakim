@@ -22,6 +22,25 @@ export function schedulerLabel(health: { manual: boolean; heartbeat: { alive: bo
   return health.manual ? "Kapalı (elle)" : health.heartbeat?.alive ? "Çalışıyor" : "Sinyal yok";
 }
 
+/**
+ * Scopes that fail the scheduler run (exit 1, which mails in production): failing, never succeeded, or stale.
+ * A daily scope whose latest full run was a quality rejection is deferred to its next daily run (#910). It alarmed
+ * on the tick that rejected it (the import error fails that run) and alarms again if the next daily run rejects or
+ * the data goes stale, but not on every tick in between; supplierHealth, /api/health/suppliers and the admin pages
+ * keep showing it through consecutive_failures until a run succeeds or the anomaly is accepted.
+ */
+export async function supplierSyncAlerts(pool: Pick<Pool, "query">) {
+  return (await pool.query<{ supplier: string; company: string; list_group: string; warehouse: string; consecutive_failures: number; last_success_at: Date | null }>(
+    `SELECT supplier,company,list_group,warehouse,consecutive_failures,last_success_at FROM supplier_sync_scopes s
+    WHERE (enabled AND ((consecutive_failures>0 AND NOT (interval_minutes=1440 AND next_run_at>now() AND (
+        SELECT r.status FROM supplier_imports r WHERE r.supplier=s.supplier AND r.company=s.company AND r.list_group=s.list_group
+          AND r.warehouse=s.warehouse AND r.run_kind='full' AND r.status<>'running' ORDER BY r.started_at DESC,r.id DESC LIMIT 1
+      ) IS NOT DISTINCT FROM 'rejected'))
+      OR last_success_at IS NULL OR last_success_at<now()-stale_minutes*interval '1 minute'))
+    OR (commerce_enabled AND (commerce_failures>0 OR commerce_last_success_at IS NULL
+      OR commerce_last_success_at<now()-commerce_stale_minutes*interval '1 minute'))`)).rows;
+}
+
 // Read independently of the scheduler: a stopped process cannot report its own absence.
 export async function supplierHealth(pool: Pick<Pool, "query">, company?: string, manual = supplierSchedulerManual()) {
   const heartbeat = (await pool.query<{started_at:Date;finished_at:Date|null;succeeded:boolean|null;alive:boolean}>(`

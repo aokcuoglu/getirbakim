@@ -7,7 +7,8 @@ import { submitOrder,cartQuote,shippingRule } from '../src/modules/store/orders'
 process.env.TAMI_CHECKOUT_ENABLED='true';
 const owner:CartOwner={kind:'guest',id:randomUUID().replaceAll('-','')};
 let productId='', supplierFixture='';const orderIds:string[]=[];
-const input={requestKey:randomUUID(),quote:'',name:'Commerce verification',email:'commerce@example.invalid',phone:'5551234567',address:'Test address only, Istanbul',note:'Synthetic verification; delete after run'};
+const input={requestKey:randomUUID(),quote:'',name:'Commerce verification',email:'commerce@example.invalid',phone:'5551234567',address:'Test address only, Kadıköy/İstanbul',note:'Synthetic verification; delete after run',
+ province:'İstanbul',district:'Kadıköy',addressLine:'Test address only',postalCode:null,invoiceType:'individual' as const,invoiceCompany:null,invoiceTaxNo:null,invoiceTaxOffice:null};
 try {
  const supplier=(await db.query<{id:string}>('SELECT id FROM commerce_catalog WHERE code=$1',["AE FOL214"])).rows[0];
  assert.ok(supplier);

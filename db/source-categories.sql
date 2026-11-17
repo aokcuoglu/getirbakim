@@ -30,3 +30,21 @@ CREATE TABLE IF NOT EXISTS category_image_jobs (
  last_error text,updated_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(source,category_id),FOREIGN KEY(source,category_id) REFERENCES source_categories(source,category_id)
 );
+-- Part type -> Trodo category dictionary (#851), learned from Trodo products; sources without categories
+-- (spareto, parts2world) take their categories from it by part type.
+CREATE TABLE IF NOT EXISTS product_type_categories (
+ type text NOT NULL, source text NOT NULL, category_id integer NOT NULL,
+ support integer NOT NULL, total integer NOT NULL, learned_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(type,source,category_id),
+ FOREIGN KEY(source,category_id) REFERENCES source_categories(source,category_id)
+);
+-- parts2world article part type names (#852): TecDoc's generic article name (article-info spareInfo) per archived
+-- article, mapped through product_type_categories. Local only (not in the storefront bundle); an article without a row
+-- is still to be fetched. spare_info NULL = answered without a name or an article. No FK: the index command truncates
+-- parts2world_articles with CASCADE.
+CREATE TABLE IF NOT EXISTS parts2world_article_types (
+ article_id bigint NOT NULL, link_id bigint NOT NULL,
+ brand text, part_number text, spare_info text,
+ fetched_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(article_id,link_id)
+);

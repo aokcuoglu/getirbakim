@@ -11,6 +11,7 @@ import { PaymentWatcher } from "@/components/payment-watcher";
 import { PayButton } from "@/components/pay-button";
 import { CancelOrderButton } from "@/components/cancel-order-button";
 import { PAYMENT_NOTICE, paymentErrors } from "@/modules/payments/messages";
+import { installmentHint } from "@/modules/payments/installment-plan";
 import { currentAccount } from "@/modules/auth/session";
 import { orderReturns } from "@/modules/admin/data";
 import { supplierNames } from "@/modules/admin/products";
@@ -33,6 +34,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { cn } from "@/lib/utils";
 import { returnReasonLabels, returnReasons, type ReturnReason } from "@/modules/store/returns";
 import { carrierLabel } from "@/modules/store/shipment";
+import { invoiceSummary, invoiceTypes } from "@/modules/store/tr-address";
 import { catalogPath } from "@/modules/seo/paths";
 
 const eyebrow="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]";
@@ -78,6 +80,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const pendingCancel=mine && order.status==="pending" && ["paid","none"].includes(order.payment_status);
   const awaitingCancel=mine && awaiting;
   const total=money(Number(order.total_kurus));
+  const invoice=invoiceSummary(order);
   const cancelButton=(expected:"awaiting_payment"|"pending")=><CancelOrderButton orderId={order.id} number={order.number} expected={expected} total={total} paid={order.payment_status==="paid"}/>;
   const returned=query.odeme==="sonuc",created=query.odeme==="yeni";
   const shipment=order.status==="shipped" || order.status==="delivered";
@@ -118,7 +121,8 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? errorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
     <Card className={cn(panel,"mb-6 gap-3 ring-0")}>
       <p role="status" className="m-0 text-[15px] leading-6">{notice}</p>
-      {payNow && <PayButton orderId={order.id} total={total}/>}
+      {payNow && order.installment_count>1 && <Alert role="note" className={noticeBox}>Siparişin {order.installment_count} taksitli (vade farkı dahil) toplamla oluşturuldu. {installmentHint(order.installment_count)}.</Alert>}
+      {payNow && <PayButton orderId={order.id} total={total} installments={order.installment_count}/>}
       {payNow && <p className={panelMuted}>{PAYMENT_NOTICE}{order.payment_due_at && <><br/>Son ödeme zamanı: <time dateTime={new Date(order.payment_due_at).toISOString()}>{time(order.payment_due_at)}</time></>}</p>}
       {trackUrl && <Button nativeButton={false} className="h-auto min-h-12 w-full gap-2.5 rounded-lg px-5 py-3 text-sm leading-5 font-medium hover:bg-brand-strong" render={<a href={order.tracking_url ?? undefined} target="_blank" rel="noopener noreferrer"/>}>Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span></Button>}
       {cancelAction && <div className="flex flex-wrap items-center gap-x-3 border-t border-border pt-3">{pendingCancel && <p className={cn(muted,"m-0")}>Teyitten önce siparişini iptal edebilirsin.</p>}{cancelAction}</div>}
@@ -143,6 +147,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
             <div className={row}><dt>Ürün toplamı</dt><dd className={value}>{money(Number(order.subtotal_kurus))}</dd></div>
             {order.discount_percent>0 && <div className={row}><dt>Servis indirimi</dt><dd className={value}>%{order.discount_percent} uygulandı</dd></div>}
             <div className={row}><dt>Kargo</dt><dd className={value}>{Number(order.shipping_kurus) ? money(Number(order.shipping_kurus)) : order.payment_status==="none" ? "Teyitte belirlenir" : "Ücretsiz"}</dd></div>
+            {Number(order.installment_fee_kurus)>0 && <div className={row}><dt>Vade farkı ({order.installment_count} taksit)</dt><dd className={value}>{money(Number(order.installment_fee_kurus))}</dd></div>}
             <div className={cn(row,"text-base font-semibold")}><dt>Toplam <small className="font-normal text-muted-foreground">(KDV dahil)</small></dt><dd className={cn(value,"text-lg")}>{total}</dd></div>
           </dl>
           <Separator/>
@@ -153,7 +158,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
           </dl>
           {order.payment_status==="paid" && <p className={cn(panelMuted,"m-0")}>Ödeme TAMI güvenli ödeme sayfasında kartla alındı.</p>}
         </Card>
-        <Card className={cn(panel,"min-w-0 gap-1 ring-0 max-[600px]:order-3")}><h2 className={panelTitle}>Teslimat bilgileri</h2><p className={panelText}>{order.customer_name}</p><p className={panelText}>{order.email} · {order.phone}</p><p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>{order.address}</p>{order.note && <p className={panelText}>Not: {order.note}</p>}</Card>
+        <Card className={cn(panel,"min-w-0 gap-1 ring-0 max-[600px]:order-3")}><h2 className={panelTitle}>Teslimat bilgileri</h2><p className={panelText}>{order.customer_name}</p><p className={panelText}>{order.email} · {order.phone}</p><p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>{order.address}</p>{order.note && <p className={panelText}>Not: {order.note}</p>}{invoice && <p className={cn(panelText,"wrap-anywhere")}>Fatura: {invoiceTypes.corporate} · {invoice}</p>}</Card>
         {shipment && <Card className={cn(panel,"min-w-0 gap-1 ring-0 max-[600px]:order-4")}><h2 className={panelTitle}>Kargo takibi</h2>
           {order.carrier ? <><p className={panelText}>{carrierLabel(order.carrier,order.carrier_name)}</p>{order.tracking_no && <p className={cn(panelText,"wrap-anywhere")}>Takip no: <strong className="font-semibold">{order.tracking_no}</strong></p>}
             {!order.tracking_url && <p className={panelMuted}>Takip numarasıyla kargo firmasının sitesinden sorgulayabilirsin.</p>}</>

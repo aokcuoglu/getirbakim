@@ -3,28 +3,32 @@ import { Pool } from "pg";
 import { enrichmentImportSchema } from "../src/modules/store/enrichment-contract";
 import { enqueueProductSources } from "../src/modules/enrichment/product-queue";
 import { importEnrichments } from "../src/modules/enrichment/import";
+import { applySchemaFiles } from "../src/modules/enrichment/schema";
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const command = process.argv[2];
 try {
   if (command === "prepare") {
     const client = await pool.connect();
+    // A session lock keeps concurrent prepares apart across both transactions below.
     try {
+      await client.query("SELECT pg_advisory_lock(20261003,2)");
+      // enrichment-states.sql locks with schema_lock_key() from db/product-matching.sql: run db:setup first. The DDL
+      // waits at most 5 s for each table lock and fails instead of queueing other readers behind it (#921); its
+      // transaction holds the locks it took only for the schema files and commits before the slow queue fill.
       await client.query("BEGIN");
-      await client.query("SELECT pg_advisory_xact_lock(20261003,2)");
-      await client.query(await readFile("db/product-enrichment.sql", "utf8"));
-      await client.query(await readFile("db/product-fitments.sql", "utf8"));
-      await client.query(await readFile("db/manufacturer-logos.sql", "utf8"));
-      await client.query(await readFile("db/enrichment-worker.sql", "utf8"));
-      await client.query(await readFile("db/source-categories.sql", "utf8"));
-      await client.query(await readFile("db/enrichment-products.sql", "utf8"));
-      // enrichment-states.sql locks with schema_lock_key() from db/product-matching.sql: run db:setup first.
-      await client.query(await readFile("db/enrichment-states.sql", "utf8"));
+      try {
+        await applySchemaFiles(client, ["db/product-enrichment.sql", "db/product-fitments.sql", "db/manufacturer-logos.sql",
+          "db/enrichment-worker.sql", "db/source-categories.sql", "db/enrichment-products.sql", "db/enrichment-states.sql"]);
+        await client.query("COMMIT");
+      } catch (error) { await client.query("ROLLBACK"); throw error; }
+      // Filling the queue reads the whole catalog view (tens of seconds) and takes only row locks.
       const queued = await enqueueProductSources(client);
-      await client.query("COMMIT");
       console.log(JSON.stringify({ queued }));
-    } catch (error) { await client.query("ROLLBACK"); throw error; }
-    finally { client.release(); }
+    } finally {
+      await client.query("SELECT pg_advisory_unlock(20261003,2)").catch(() => undefined);
+      client.release();
+    }
   } else if (command === "import") {
     const inputFile = process.argv[3];
     if (!inputFile) throw new Error("Usage: enrichment:import -- path/to/import.json");

@@ -11,13 +11,17 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 
 export type ShipmentInitial = { carrier: string | null; carrierName: string | null; trackingNo: string | null; trackingUrl: string | null };
 
-/** Kargoya ver (#605): carrier and tracking number for a confirmed order, or a correction while it is shipped. */
-export function OrderShipmentDialog({ orderId, number, back, mode, initial }: {
-  orderId: string; number: string; back: string; mode: "ship" | "edit"; initial?: ShipmentInitial;
+/**
+ * Kargoya ver (#605): carrier and tracking number for a confirmed order, or a correction while it is shipped.
+ * `recipient` is the read-only recipient, address and invoice (#881), rendered by the page.
+ */
+export function OrderShipmentDialog({ orderId, number, back, mode, initial, recipient }: {
+  orderId: string; number: string; back: string; mode: "ship" | "edit"; initial?: ShipmentInitial; recipient?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const initialFocus = useRef<HTMLSelectElement>(null);
@@ -32,6 +36,7 @@ export function OrderShipmentDialog({ orderId, number, back, mode, initial }: {
           ? "Kargo firmasını ve takip numarasını girin. Müşteri kargosunu sipariş sayfasında bu bilgilerle izler."
           : "Yanlış girilen firma, takip numarası veya bağlantıyı düzeltin. Kargoya veriliş zamanı değişmez."}</DialogDescription>
       </DialogHeader>
+      {recipient && <>{recipient}<Separator/></>}
       <ShipmentForm orderId={orderId} back={back} mode={mode} initial={initial} initialFocus={initialFocus} onSaved={() => setOpen(false)}/>
     </DialogContent>
   </Dialog>;

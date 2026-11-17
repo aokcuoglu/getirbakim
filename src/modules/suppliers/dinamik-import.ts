@@ -2,10 +2,13 @@ import { request } from "node:https";
 import { rootCertificates } from "node:tls";
 import { z } from "zod";
 import type { Pool, PoolClient } from "pg";
-import { applySupplierSnapshot, rejectionReason, type ObservationItem } from "./sync";
+import { applySupplierSnapshot, failedCatalogRunSql, nextCatalogRunSql, rejectionReason, type ObservationItem } from "./sync";
 import { EgressProxyError, egressProxyFor, TunnelAgent } from "./egress-proxy";
 import { dinamikCost } from "./dinamik-pricing";
-import { CHECKOUT_LOCK_TIMEOUT, fallbackReason, type FallbackReason } from "./checkout-fallback";
+import { CHECKOUT_LOCK_TIMEOUT, CHECKOUT_REFRESH_BUDGET_MS, fallbackReason, type FallbackReason } from "./checkout-fallback";
+
+// Each checkout getStock request stops after this long, whatever is left of the budget.
+const CHECKOUT_REQUEST_TIMEOUT_MS = 5_000;
 
 // Shared by the scheduler and CLI. Dinamik publishes one stock list (product + regional availability)
 // and one price list per brand; there is no paging, so each brand is one complete scope.
@@ -77,8 +80,11 @@ export class DinamikImportError extends Error {
   }
 }
 
-/** GET `path`, or POST `body` as JSON when given (getStock). */
-export type DinamikFetch = (path: string, body?: unknown) => Promise<unknown>;
+/**
+ * GET `path`, or POST `body` as JSON when given (getStock). `timeoutMs` bounds the whole request (connect, send,
+ * answer) and fails it with a TimeoutError; without it only an idle socket times out (list imports).
+ */
+export type DinamikFetch = (path: string, body?: unknown, timeoutMs?: number) => Promise<unknown>;
 
 /**
  * Production egress is the VPS address Dinamik allow-lists. Local development can reach the API
@@ -105,11 +111,18 @@ export function dinamikClient(): DinamikFetch {
   if (proxy && tunnel) throw new DinamikImportError("config", "DINAMIK_DIRECT_TUNNEL with SUPPLIER_EGRESS_PROXY");
   const agent = proxy ? new TunnelAgent(proxy) : undefined;
   const ca = [...rootCertificates, SECTIGO_DV_R36];
-  return (path, body) => new Promise((resolve, reject) => {
+  const timeoutError = () => Object.assign(new Error("timeout"), { name: "TimeoutError" });
+  return (path, body, timeoutMs) => new Promise((resolve, reject) => {
     const payload = body === undefined ? undefined : JSON.stringify(body);
+    const idle = payload ? 20_000 : 120_000;
+    let total: ReturnType<typeof setTimeout> | undefined, timedOut = false;
+    const settle = () => clearTimeout(total);
+    // A destroyed request can also surface as the response's "aborted" error; a timeout is reported as one either way.
+    const fail = (error: unknown) => { settle(); reject(timedOut ? timeoutError() : error); };
     const req = request({
       host: tunnel?.[1] ?? DINAMIK_HOST, port: tunnel ? Number(tunnel[2]) : 443, servername: DINAMIK_HOST, ca, agent,
-      path: `/api/Dnmk_Customer/${path}`, method: payload ? "POST" : "GET", timeout: payload ? 20_000 : 120_000,
+      path: `/api/Dnmk_Customer/${path}`, method: payload ? "POST" : "GET",
+      timeout: timeoutMs === undefined ? idle : Math.max(1, Math.min(idle, timeoutMs)),
       headers: { Host: DINAMIK_HOST, Accept: "application/json", ApiKey: apiKey, SecretKey: secretKey,
         ...(payload ? { "Content-Type": "application/json", "Content-Length": String(Buffer.byteLength(payload)) } : {}) },
     }, response => {
@@ -122,16 +135,21 @@ export function dinamikClient(): DinamikFetch {
         else chunks.push(chunk);
       });
       response.on("end", () => {
+        settle();
         const name = path.split("/")[0];
         if (response.statusCode !== 200) return reject(new DinamikImportError("upstream", `${name} HTTP ${response.statusCode}`));
         if (!String(response.headers["content-type"] ?? "").includes("application/json")) return reject(new DinamikImportError("contract", `${name} content-type`));
         try { resolve(JSON.parse(Buffer.concat(chunks).toString("utf8"))); }
         catch { reject(new DinamikImportError("contract", `${name} JSON`)); }
       });
-      response.on("error", reject);
+      response.on("error", fail);
     });
-    req.on("timeout", () => req.destroy(Object.assign(new Error("timeout"), { name: "TimeoutError" })));
-    req.on("error", reject);
+    // The socket timeout only fires on silence; a slow trickle is stopped by the total budget.
+    const expire = () => { timedOut = true; req.destroy(timeoutError()); };
+    if (timeoutMs !== undefined) total = setTimeout(expire, Math.max(1, timeoutMs));
+    req.on("timeout", expire);
+    req.on("error", fail);
+    req.on("close", settle);
     req.end(payload);
   });
 }
@@ -363,9 +381,8 @@ export async function importDinamik(pool: Pool, options: z.input<typeof dinamikI
       [runId, observedAt, JSON.stringify(observations), JSON.stringify(prepared.quality), JSON.stringify(stats), acceptAnomaly ?? null]);
     await connection.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,daily_at,stale_minutes,last_success_at,next_run_at)
       VALUES('dinamik',$1,$2,$3,true,'04:00',2160,$4,((($4::timestamptz AT TIME ZONE 'Europe/Istanbul')::date+1)+time '04:00') AT TIME ZONE 'Europe/Istanbul')
-      ON CONFLICT(supplier,company,list_group,warehouse) DO UPDATE SET last_success_at=$4,consecutive_failures=0,next_run_at=CASE WHEN supplier_sync_scopes.interval_minutes=1440 THEN
-        ((($4::timestamptz AT TIME ZONE 'Europe/Istanbul')::date+1)+supplier_sync_scopes.daily_at) AT TIME ZONE 'Europe/Istanbul'
-        ELSE $4::timestamptz+supplier_sync_scopes.interval_minutes*interval '1 minute' END`, [company, brand, warehouse, observedAt]);
+      ON CONFLICT(supplier,company,list_group,warehouse) DO UPDATE SET last_success_at=$4,consecutive_failures=0,next_run_at=${nextCatalogRunSql("$4")}`,
+      [company, brand, warehouse, observedAt]);
     await connection.query("COMMIT"); inTransaction = false;
     return { id: runId, ...prepared.quality, stats };
   } catch (error) {
@@ -379,8 +396,8 @@ export async function importDinamik(pool: Pool, options: z.input<typeof dinamikI
         error_reason=COALESCE(error_reason,$4) WHERE id=$1`, [runId, reason === "rejected" ? "rejected" : "failed", JSON.stringify(observations), `${reason}: ${stage}${diagnostic ? `: ${diagnostic}` : ""}`]);
       await connection.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,enabled,daily_at,stale_minutes,consecutive_failures,next_run_at)
         VALUES('dinamik',$1,$2,$3,true,'04:00',2160,1,now()+interval '15 minutes') ON CONFLICT(supplier,company,list_group,warehouse)
-        DO UPDATE SET consecutive_failures=supplier_sync_scopes.consecutive_failures+1,
-        next_run_at=now()+LEAST(360,15*power(2,LEAST(supplier_sync_scopes.consecutive_failures,5))) * interval '1 minute'`, [company, brand, warehouse]);
+        DO UPDATE SET consecutive_failures=supplier_sync_scopes.consecutive_failures+1,next_run_at=${failedCatalogRunSql("$4::boolean")}`,
+        [company, brand, warehouse, reason === "rejected"]);
     }
     if (error instanceof DinamikImportError) throw error;
     if (error instanceof z.ZodError) throw new DinamikImportError("contract", stage);
@@ -398,48 +415,71 @@ export async function importDinamik(pool: Pool, options: z.input<typeof dinamikI
  * import took up to ~35 s (ORIJINAL) and waited on a running nightly import's lock. Only price and stock
  * change here: presence and catalog membership stay with the full brand imports. A code the endpoint no
  * longer returns is marked unavailable (every region YOK) rather than sold on its last known stock and comes
- * back in `gone`, so the order refuses it even when that could not be saved.
+ * back in `gone`, so the order refuses it even when that could not be saved. That write touches only stock_data,
+ * merged onto the locked row, so a brand import that committed meanwhile keeps its product and price data, and
+ * last_seen_at stays: an empty answer is not a sighting.
+ *
+ * The whole check shares one budget (CHECKOUT_REFRESH_BUDGET_MS by default, at most 5 s per request, #789): lines
+ * not asked or not answered in time come back in `failed` as "timeout", and an answer arriving after its request's
+ * time is dropped.
  *
  * Like refreshBasbugItems it never throws for the supplier: a line it could not confirm (missing configuration,
- * timeout, upstream or contract error, rows a running import keeps locked) comes back in `failed` with the reason
- * and is sold on its saved data.
+ * timeout, upstream or contract error) comes back in `failed` with the reason and is sold on its saved data. When the
+ * rows stay locked by a running import, the live answers are not lost (#788): a line the supplier no longer has in
+ * stock (or quotes no price for) comes back in `soldOut` and the order refuses it; a line whose cost changed comes back
+ * in `recosted` with its live `nf`, and the order refuses it only if its sale price would change (#861). Only a line
+ * whose live answer matches what is saved is sold on that data, marked "busy".
  */
-export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?: DinamikFetch) {
+export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?: DinamikFetch, options: { budgetMs?: number; now?: () => number } = {}) {
+  const now = options.now ?? Date.now;
   const failed: Record<string, FallbackReason> = {};
-  const result = { refreshed: 0, changed: 0, gone: [] as string[], failed };
+  const result = { refreshed: 0, changed: 0, gone: [] as string[], soldOut: [] as string[], recosted: {} as Record<string, number>, failed };
   if (!ids.length) return result;
-  const rows = (await pool.query<{ id: string; code: string; list_group: string; product_data: Record<string, unknown>; price_data: Record<string, unknown> | null; stock_data: Record<string, unknown> | null }>(
-    "SELECT id,code,list_group,product_data,price_data,stock_data FROM supplier_items WHERE supplier='dinamik' AND id=ANY($1::uuid[]) ORDER BY id", [ids])).rows;
+  type Row = { id: string; code: string; list_group: string; price_data: Record<string, unknown> | null };
+  const rows = (await pool.query<Row>(
+    "SELECT id,code,list_group,price_data FROM supplier_items WHERE supplier='dinamik' AND id=ANY($1::uuid[]) ORDER BY id", [ids])).rows;
   let get: DinamikFetch;
   try { get = fetchJson ?? dinamikClient(); }
   catch (error) {
     for (const row of rows) failed[row.id] = fallbackReason(error);
     return result;
   }
-  const observed: { id: string; product_data: Record<string, unknown>; price_data: Record<string, unknown> | null; stock_data: Record<string, unknown> | null }[] = [];
-  const goneIds: string[] = [];
+  const saved = new Map(rows.map(row => [row.id, row]));
+  type Observed = { id: string; gone: boolean; product_data?: Record<string, unknown>; price_data?: Record<string, unknown> | null; stock_data: Record<string, unknown> | null };
+  const observed: Observed[] = [];
+  const deadline = now() + (options.budgetMs ?? CHECKOUT_REFRESH_BUDGET_MS);
   // A few at a time: carts are small, and the API serves one code per request. A failing code marks only its own line.
   for (let index = 0; index < rows.length; index += 4) {
-    await Promise.all(rows.slice(index, index + 4).map(async row => {
+    const slice = rows.slice(index, index + 4);
+    if (now() >= deadline) {
+      for (const row of slice) failed[row.id] = "timeout";
+      continue;
+    }
+    await Promise.all(slice.map(async row => {
+      const timeoutMs = Math.max(1, Math.min(CHECKOUT_REQUEST_TIMEOUT_MS, deadline - now()));
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        const response = await get("getStock", { STOK_KODU: row.code });
+        // The race also bounds a client that ignores timeoutMs; the losing answer is never recorded.
+        const response = await Promise.race([
+          get("getStock", { STOK_KODU: row.code }, timeoutMs),
+          new Promise<never>((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error("timeout"), { name: "TimeoutError" })), timeoutMs); }),
+        ]);
         const stock = z.array(stockRowSchema).parse(response).filter(item => item.stokKodu.trim() === row.code);
         if (!stock.length) {
-          observed.push({ id: row.id, product_data: row.product_data, price_data: row.price_data,
-            stock_data: { ...Object.fromEntries(stockFields.map(key => [key, "YOK"])), stok: 0 } });
-          goneIds.push(row.id);
+          observed.push({ id: row.id, gone: true, stock_data: { ...Object.fromEntries(stockFields.map(key => [key, "YOK"])), stok: 0 } });
           return;
         }
         // The same code may come back padded as well ("X  "); the row written exactly is the one we order.
         const match = stock.find(item => item.stokKodu === row.code) ?? stock[0];
         const item = prepareDinamikImport({ brand: row.list_group, stock: [match], prices: [{ marka: match.marka, stokKodu: row.code, fiyat: match.fiyat }] }).items[0];
-        observed.push({ id: row.id, product_data: item.product_data, price_data: item.price_data, stock_data: item.stock_data });
+        observed.push({ id: row.id, gone: false, product_data: item.product_data, price_data: item.price_data, stock_data: item.stock_data });
       } catch (error) {
         failed[row.id] = error instanceof z.ZodError ? "contract" : fallbackReason(error);
-      }
+      } finally { clearTimeout(timer); }
     }));
   }
   if (!observed.length) return result;
+  const goneIds = observed.filter(item => item.gone).map(item => item.id);
   let client: PoolClient | undefined;
   try {
     client = await pool.connect();
@@ -447,36 +487,53 @@ export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?:
     // Same rule as Başbuğ: wait briefly for rows a running brand import holds, in id order, then write over them.
     await client.query(CHECKOUT_LOCK_TIMEOUT);
     await client.query("SELECT id FROM supplier_items WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE", [observed.map(item => item.id)]);
+    // A gone code keeps the locked row's product and price data and gets only its stock flags zeroed.
     // JSONB equality ignores key order; only real changes get a new changed_at and a history row.
     const changed = await client.query(`WITH incoming AS (
-        SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(id uuid,product_data jsonb,price_data jsonb,stock_data jsonb)),
+        SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(id uuid,gone boolean,product_data jsonb,price_data jsonb,stock_data jsonb)),
+      merged AS (
+        SELECT o.id,n.gone,
+          CASE WHEN n.gone THEN o.product_data ELSE n.product_data END AS product_data,
+          CASE WHEN n.gone THEN o.price_data ELSE n.price_data END AS price_data,
+          CASE WHEN n.gone THEN COALESCE(o.stock_data,'{}'::jsonb)||n.stock_data ELSE n.stock_data END AS stock_data
+        FROM supplier_items o JOIN incoming n ON n.id=o.id),
       -- CTEs share the statement's snapshot, so this still reads the values before the update.
       before AS (
         SELECT o.id,jsonb_build_object('product',o.product_data,'price',o.price_data,'stock',o.stock_data) AS data
-        FROM supplier_items o JOIN incoming n ON n.id=o.id
+        FROM supplier_items o JOIN merged n ON n.id=o.id
         WHERE ROW(o.product_data,o.price_data,o.stock_data) IS DISTINCT FROM ROW(n.product_data,n.price_data,n.stock_data)),
       updated AS (
-        UPDATE supplier_items o SET product_data=n.product_data,price_data=n.price_data,stock_data=n.stock_data,last_seen_at=now(),changed_at=now()
-        FROM incoming n JOIN before b ON b.id=n.id WHERE o.id=n.id
+        UPDATE supplier_items o SET product_data=n.product_data,price_data=n.price_data,stock_data=n.stock_data,
+          last_seen_at=CASE WHEN n.gone THEN o.last_seen_at ELSE now() END,changed_at=now()
+        FROM merged n JOIN before b ON b.id=n.id WHERE o.id=n.id
         RETURNING o.id,o.product_data,o.price_data,o.stock_data,o.conflicting,o.source_variants,o.presence)
       INSERT INTO supplier_item_changes(item_id,import_id,changed_at,kind,before_data,after_data)
       SELECT u.id,NULL,now(),'changed',b.data,jsonb_build_object('product',u.product_data,'price',u.price_data,'stock',u.stock_data,
         'conflicting',u.conflicting,'variants',u.source_variants,'presence',u.presence,'source','checkout')
       FROM updated u JOIN before b ON b.id=u.id`, [JSON.stringify(observed)]);
-    await client.query("UPDATE supplier_items SET last_seen_at=now() WHERE id=ANY($1::uuid[])", [observed.map(item => item.id)]);
+    await client.query("UPDATE supplier_items SET last_seen_at=now() WHERE id=ANY($1::uuid[])", [observed.filter(item => !item.gone).map(item => item.id)]);
     await client.query("COMMIT");
     result.refreshed = observed.length;
     result.changed = changed.rowCount ?? 0;
     result.gone = goneIds;
     return result;
   } catch (error) {
-    // Nothing was written: lines the supplier answered are sold on saved data and marked; codes it no longer lists
-    // are still reported gone so the order refuses them.
+    // Nothing was written, but the answers still count: codes it no longer lists are reported gone, lines it has no
+    // stock or price for sold out (the order refuses them) and lines with a new cost come back with it, for the order to
+    // judge by the sale price. Only lines whose live answer matches the saved price are sold on saved data and marked.
     await client?.query("ROLLBACK").catch(() => undefined);
-    console.error("Dinamik checkout check could not be saved", { reason: error instanceof Error ? error.message : error });
+    // 55P03 is the expected case (a running import holds the rows); anything else is a fault worth telling apart.
+    const lockTimeout = typeof error === "object" && error !== null && "code" in error && error.code === "55P03";
+    console.error(lockTimeout ? "Dinamik checkout check could not be saved: rows locked by an import" : "Dinamik checkout check could not be saved: write failed",
+      { reason: error instanceof Error ? error.message : error });
     result.gone = goneIds;
-    const gone = new Set(goneIds);
-    for (const item of observed) if (!gone.has(item.id)) failed[item.id] = "busy";
+    for (const item of observed) {
+      if (item.gone) continue;
+      const nf = item.price_data?.nf;
+      if (item.stock_data?.stok !== 1 || typeof nf !== "number" || !(nf > 0)) result.soldOut.push(item.id);
+      else if (nf !== Number(saved.get(item.id)?.price_data?.nf)) result.recosted[item.id] = nf;
+      else failed[item.id] = "busy";
+    }
     return result;
   } finally { client?.release(); }
 }

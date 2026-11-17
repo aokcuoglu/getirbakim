@@ -19,3 +19,9 @@ export function fallbackReason(error: unknown): FallbackReason {
  * submitOrder's own FOR SHARE uses it too (#790): past it, the order goes on with the rows as committed before the import.
  */
 export const CHECKOUT_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '500ms'";
+
+/**
+ * Total time a checkout's live check may spend on one supplier's per-code endpoint (Başbuğ MalzemeAra, Dinamik
+ * getStock); each request also stops after at most 5 s. Lines not answered in time are sold on saved data as "timeout".
+ */
+export const CHECKOUT_REFRESH_BUDGET_MS = 8_000;

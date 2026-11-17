@@ -37,6 +37,7 @@ import { currentVehicle } from "@/modules/store/garage";
 import { getVehicleBrands } from "@/modules/store/vehicle-catalog.server";
 import { fitmentLabels, shownVehicle, vehicleSeriesLabel } from "@/modules/store/vehicle-label";
 import { fitmentLevel } from "@/modules/store/fitment-level";
+import { notListedInput, vehicleNotListed } from "@/modules/store/fitment-notice";
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { describeYears, getDescriptionFitments } from "@/modules/store/description-fitment.server";
 import { ProductFitment } from "@/components/product-fitment";
@@ -51,6 +52,9 @@ import { campaignEndText, listPrice, saleUntil } from "@/modules/store/best-offe
 import { hasAdminContent, hasMinimumContent, productContent, productIndexable } from "@/modules/seo/indexing";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdFromSegment, productIdPath } from "@/modules/seo/product-id";
+import { currentInstallmentSettings } from "@/modules/payments/installment-settings";
+import { installmentOptions } from "@/modules/payments/installment-plan";
+import { PaymentOptions } from "@/components/payment-options";
 
 const benefits = [
   { icon: ShieldCheck, size: 23, title: "Güvenli alışveriş", text: <>Fiyat ve sipariş bilgilerini hesabından takip et.</> },
@@ -159,9 +163,12 @@ export default async function Detail({ params, searchParams }: { params: Promise
   // The admin's uploads (#581) come first; the enrichment image follows unless the admin hid it.
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
-  const [logos, manufacturerHref] = await Promise.all([getManufacturerLogos([product.display_brand]), manufacturerPathForLabel(product.display_brand)]);
+  const [logos, manufacturerHref, installments] = await Promise.all([getManufacturerLogos([product.display_brand]), manufacturerPathForLabel(product.display_brand), currentInstallmentSettings()]);
   const account = await currentAccount();
   const isB2B = Boolean(account?.approved && account.role === "service");
+  // Payment options (#886) for this item's own price; only shown when installments are on and it can be bought.
+  const paymentOptions = product.price_kurus === null || product.unavailable ? []
+    : installmentOptions(installments, servicePrice(product.price_kurus, isB2B ? account!.discount_percent : 0));
   const storeCategories=await getStoreCategories();
   // An admin's category (#575) replaces the enrichment's.
   const leafId=override?.category_id ?? enrichment?.categories[0]?.id;
@@ -193,7 +200,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
     pricingSnapshot: product.pricing_snapshot,
     vehicleModels: vehicles.length ? vehicles.map(vehicle => vehicle.model) : fallbacks.vehicleModels }, siteUrl);
   const vehicle = await currentVehicle(), shown = shownVehicle(vehicle);
-  const makeNames = vehicles.length ? (await getVehicleBrands()).map(brand => brand.name) : [];
+  const makeNames = vehicles.length || fallbacks.vehicleModels.length ? (await getVehicleBrands()).map(brand => brand.name) : [];
   // Without engine-level TecDoc data, the models named in the supplier's description (#392) can only make a garage
   // vehicle "likely": they never name an engine type.
   const descriptionModels = fallbacks.description ? await descriptionFitments(product.id) : [];
@@ -201,8 +208,13 @@ export default async function Detail({ params, searchParams }: { params: Promise
   // catches up the page could be a 404); the description's models are the very rows the model page reads.
   const linkedModels = [...vehicles.flatMap(row => row.modelId && modelFits.has(row.modelId) ? [row.modelId] : []), ...descriptionModels.map(row => row.modelId)];
   const modelPaths = linkedModels.length ? await getModelPagePaths(linkedModels) : new Map<number, string>();
-  const fitment = vehicle && fitmentLevel(await fitmentVehicle(vehicle),
+  const garageVehicle = vehicle ? await fitmentVehicle(vehicle) : null;
+  const fitment = vehicle && fitmentLevel(garageVehicle,
     vehicles.length ? vehicles : descriptionModels.map(row => ({ vehicleTypeId: null, modelId: row.modelId })), fitmentOverrides.removed);
+  // "Unknown" because of unlinked rows of other makes only (a Golf against LADA rows) is a plain "not listed" (#876).
+  const makeOf = (text: string) => fitmentLabels({ model: text }, makeNames).makeKey;
+  const notListed = vehicleNotListed(notListedInput({ level: fitment, vehicle: garageVehicle, vehicleMake: vehicle ? makeOf(vehicle.make) : "",
+    rows: vehicles, vehicleModels: fallbacks.vehicleModels, makeOf }));
   // The enrichment's specifications with the admin's edited, hidden and added keys (#603), labelled in Turkish like the catalog cards (#622).
   const specifications: [string, string][] = [...applySpecOverrides(pageSpecifications(enrichment?.specifications || [], enrichment?.matchBasis.type === "exact_part", refs.eans.length > 0), specOverrides).map(([key, value]): [string, string] => [translateSpecificationLabel(key), translateSpecificationList(value)]), ["Üretici", brand], ["Üretici parça numarası", displayPartNumber]];
   if (product.oem) specifications.unshift(["OEM numarası", product.oem]);
@@ -241,18 +253,18 @@ export default async function Detail({ params, searchParams }: { params: Promise
   for (const item of decided.filter(item => !seta.some(row => row.id === item.id))) decidedBrands.set(item.brand, [...(decidedBrands.get(item.brand) || []), item]);
   for (const [brand, items] of decidedBrands) linkEquivalents(brand, items);
   referenceRows.sort(([a], [b]) => a.localeCompare(b));
-  const crumbLink = "transition-colors hover:text-[#2d78c7]";
-  const crumbSeparator = <BreadcrumbSeparator className="[&>svg]:size-[13px]"><ChevronRight/></BreadcrumbSeparator>;
+  const crumbLink = "transition-colors hover:text-[#2d78c7] max-[750px]:inline-flex max-[750px]:min-h-11 max-[750px]:items-center";
+  const crumbSeparator = <BreadcrumbSeparator className="max-[750px]:shrink-0 [&>svg]:size-[13px]"><ChevronRight/></BreadcrumbSeparator>;
   const sectionTitle = "mb-7 text-[26px] leading-[34px] font-semibold tracking-[-.6px] max-[750px]:mb-5 max-[750px]:text-[23px] max-[750px]:leading-[30px]";
   const shell = "mx-auto w-full max-w-[1440px] px-3.5 min-[1450px]:px-8 max-[750px]:px-4";
   const garageNote = "flex items-start gap-2 text-[13px] leading-5 [&>svg]:mt-0.5 [&>svg]:shrink-0";
   return <div className="text-sm leading-5 text-foreground"><section className={shell}>
     <JsonLd data={structuredProduct}/>{product.price_kurus !== null && !product.unavailable && <TrackViewItem item={catalogItem({ id: product.id, name: `${title} ${brand} ${displayPartNumber}`, brand, category: productCategoryPath.map(node => node.name).join(" > ") || category?.name }, servicePrice(product.price_kurus, isB2B ? account!.discount_percent : 0))}/>}{product.supplier !== "demo" && <JsonLd data={breadcrumbJsonLd(trail, siteUrl)}/>}
-    <Breadcrumb aria-label="Sayfa yolu" className="py-3">
-      <BreadcrumbList className="gap-[7px] text-[13px] leading-5 text-[#53677d] max-[750px]:text-[11px]">
+    <Breadcrumb aria-label="Sayfa yolu" className="py-3 max-[750px]:py-0">
+      <BreadcrumbList className="gap-[7px] text-[13px] leading-5 text-[#53677d] max-[750px]:flex-nowrap max-[750px]:overflow-x-auto max-[750px]:whitespace-nowrap max-[750px]:[scrollbar-width:none] max-[750px]:[&::-webkit-scrollbar]:hidden">
         {trail.map((crumb, index) => index === trail.length - 1
-          ? <BreadcrumbItem key={crumb.path}><BreadcrumbPage className="text-inherit">{crumb.name}</BreadcrumbPage></BreadcrumbItem>
-          : <Fragment key={crumb.path}><BreadcrumbItem><BreadcrumbLink className={crumbLink} render={<Link href={crumb.path}/>}>{crumb.name}</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}</Fragment>)}
+          ? <BreadcrumbItem key={crumb.path} className="max-[750px]:shrink-0"><BreadcrumbPage className="text-inherit max-[750px]:block max-[750px]:max-w-[60vw] max-[750px]:truncate">{crumb.name}</BreadcrumbPage></BreadcrumbItem>
+          : <Fragment key={crumb.path}><BreadcrumbItem className="max-[750px]:shrink-0"><BreadcrumbLink className={crumbLink} render={<Link href={crumb.path}/>}>{crumb.name}</BreadcrumbLink></BreadcrumbItem>{crumbSeparator}</Fragment>)}
       </BreadcrumbList>
     </Breadcrumb>
     <div className="grid grid-cols-2 items-start gap-4 max-[750px]:grid-cols-1 max-[750px]:gap-3">
@@ -274,21 +286,23 @@ export default async function Detail({ params, searchParams }: { params: Promise
           <RestockRequestForm productId={product.id} email={account?.email}/>
         </> : product.price_kurus === null ? <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Fiyat bilgisi güncelleniyor</h2><p>Güncel fiyat alındığında siparişe açılacak.</p></div> : <>
           {isB2B && <span className="text-xs text-[#53677d]">Servisine özel B2B fiyatı</span>}
-          <p className="mt-2.5 mb-0.5 text-[32px] leading-10 font-semibold tracking-[-.7px] text-[#ed3821]">{price}</p>
+          <p className="mt-2.5 mb-0.5 text-[32px] leading-10 font-semibold tracking-[-.7px]">{price}</p>
           {previousPrice && <p className="mb-1 text-[15px] text-muted-foreground"><span className="sr-only">Önceki fiyat: </span><s>{previousPrice}</s>
             {campaignEnd && <span className="block text-[13px]">Kampanya {campaignEndText(campaignEnd)} tarihine kadar</span>}</p>}
           <p className="mb-[18px] flex items-center gap-2 text-[13px] text-[#53677d]">KDV dahil <span className="h-3.5 border-l border-[#dbe0e6]"/> <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">Kargo ücreti hariç</Link></p>
-          <PurchaseForm productId={product.offer_id ?? product.id} name={product.display_code} available={product.available} maxQuantity={product.max_quantity} variant="product"/>
+          <PurchaseForm productId={product.offer_id ?? product.id} name={product.display_code} available={product.available} maxQuantity={product.max_quantity} variant="product" price={price!}/>
         </>}
         <div className={cn("flex min-h-[54px] items-center gap-4 rounded-[5px] border px-4 py-3", vehicle ? "border-border bg-[#f8fafc]" : "border-[#ffb380] bg-[#fffaee]")}>{vehicle ? <CarFront size={20} className="shrink-0 text-primary"/> : <CircleAlert size={20} className="shrink-0 text-[#fb8c00]"/>}<GarageButton vehicle={shown} variant="product"/></div>
         {fitment === "guaranteed" && <p className={cn(garageNote, "text-[#26734d]")}><ClipboardCheck size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel}, bu ürünün uyumluluk listesinde yer alıyor.</p>}
         {fitment === "likely" && (descriptionModels.length
           ? <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel} modeli ürün açıklamasında geçiyor; motor tipi doğrulanmadı, siparişten önce OEM kodunu kontrol et.</p>
           : <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel} modeli listede; motor tipini <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> tablosundan doğrula.</p>)}
-        {vehicle && fitment === "unknown" && <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Bu ürünün aracınla uyumu doğrulanamadı; siparişten önce {product.oem || referenceRows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</p>}
+        {vehicle && fitment === "unknown" && !notListed && <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Bu ürünün aracınla uyumu doğrulanamadı; siparişten önce {product.oem || referenceRows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</p>}
+        {notListed && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/><span>Seçili aracınla uyumlu görünmüyor: garajındaki {shown!.makeLabel} {shown!.modelLabel}, bu ürünün <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> listesinde görünmüyor. Siparişten önce {product.oem || referenceRows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</span></p>}
         {fitment === "mismatch" && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
         {!product.unavailable && <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><PackageCheck size={17}/>{product.stock_label}</p>}
         <Link className="flex items-center gap-4 border-y border-[#dbe0e6] py-[18px]" href="/bilgi/teslimat"><Truck size={32} className="shrink-0"/><span><strong className="flex items-center gap-1.5 text-base font-medium">Teslimat bilgileri <Info size={14} className="text-[#2e78c7]"/></strong><small className="mt-1 block text-[13px] text-[#53677d]">{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18} className="ml-auto shrink-0 text-[#53677d]"/></Link>
+        {paymentOptions.length > 1 && <PaymentOptions options={paymentOptions}/>}
         <dl className="mt-[18px] mb-1.5">{specificationRows.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
         <a className="mb-5 inline-block font-medium text-[#0065c3] hover:underline" href="#product-specifications">Tüm özellikleri göster</a>
         {!isB2B && <div className="flex flex-wrap items-center gap-3.5 border-t border-[#e0e5eb] pt-5 pb-1 text-[#0065c3]"><LoginButton className="min-h-0 cursor-pointer border-0 bg-transparent p-0 text-xs text-[#53677d] hover:text-[#0065c3]">B2B hesabınla özel fiyatlarını gör →</LoginButton></div>}
@@ -315,11 +329,11 @@ export default async function Detail({ params, searchParams }: { params: Promise
       {referenceRows.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 className={sectionTitle}>{brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]" tabIndex={0} aria-label="OEM ve muadil numaraları">{referenceRows.map(([brand, codes]) => <div key={brand} className="reference-row"><dt className="text-[#53677d]">{brand}</dt><dd className="reference-codes">{codes.map(({ code, href }) => href ? <Link key={code} className="text-[#0065c3] hover:underline focus-visible:underline" href={href}>{code}</Link> : <span key={code}>{code}</span>)}</dd></div>)}</dl></section>}
       <section className="mt-[42px] flex scroll-mt-[110px] gap-5 border-t border-[#dce2e9] pt-9" id="urun-yardim"><Headphones size={30} className="shrink-0"/><div><h2 className={cn(sectionTitle, "mb-3 max-[750px]:mb-3")}>Bu ürün hakkında soruların mı var?</h2><p className="text-[#53677d]">{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link className="inline-flex items-center gap-1.5 font-medium text-[#0065c3] hover:underline" href="/bilgi/yardim">Yardım merkezine git <ChevronRight size={15}/></Link></div></section>
     </div>
-    <nav className="sticky top-[110px] overflow-hidden rounded-[11px] border border-[#dce2e9] bg-white py-2 max-[750px]:static max-[750px]:order-first max-[750px]:flex max-[750px]:w-full max-[750px]:flex-wrap max-[750px]:rounded-md max-[750px]:p-1.5" aria-label="Ürün bilgileri">{[
+    <nav className="sticky top-[110px] overflow-hidden rounded-[11px] border border-[#dce2e9] bg-white py-2 max-[750px]:static max-[750px]:order-first max-[750px]:flex max-[750px]:w-full max-[750px]:flex-nowrap max-[750px]:overflow-x-auto max-[750px]:[scrollbar-width:none] max-[750px]:[&::-webkit-scrollbar]:hidden max-[750px]:mask-r-from-[calc(100%-24px)] max-[750px]:rounded-md max-[750px]:p-1.5" aria-label="Ürün bilgileri">{[
       ["#product-specifications", "Ürün detayları", true],
       ["#uyumlu-araclar", "Uyumlu araçlar", hasFitment],
       ["#oem-numaralari", "OEM ve muadil numaraları", referenceRows.length > 0],
       ["#urun-yardim", "Bu ürün hakkında sorular", true],
-    ].filter(([, , shown]) => shown).map(([href, label]) => <a key={String(href)} href={String(href)} className="block px-5 py-2 text-sm leading-[18px] font-medium first:bg-[#f7f8fa] hover:bg-[#f7f8fa] max-[750px]:px-2.5 max-[750px]:text-xs">{label}</a>)}</nav>
+    ].filter(([, , shown]) => shown).map(([href, label]) => <a key={String(href)} href={String(href)} className="block px-5 py-2 text-sm leading-[18px] font-medium hover:bg-[#f7f8fa] max-[750px]:inline-flex max-[750px]:min-h-11 max-[750px]:shrink-0 max-[750px]:items-center max-[750px]:whitespace-nowrap max-[750px]:rounded-[5px] max-[750px]:px-3 max-[750px]:text-[13px]">{label}</a>)}</nav>
   </div></div></div>;
 }

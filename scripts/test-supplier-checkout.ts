@@ -20,6 +20,14 @@ test("submitOrder waits CHECKOUT_LOCK_TIMEOUT for supplier rows, then goes on wi
     assert.ok(submitOrder.includes(part),part);
 });
 
+test("livePriceChanges prices a live cost with the view's own commerce_*_price functions, not a copy (#882)", async()=> {
+  const source=await readFile("src/modules/store/supplier-checkout.ts","utf8");
+  const live=source.slice(source.indexOf("export async function livePriceChanges"));
+  for(const name of ["commerce_formula_price(","commerce_campaign_price(","commerce_regular_price(","commerce_final_price("])
+    assert.ok(live.includes(name),name);
+  assert.doesNotMatch(live,/round\(/);
+});
+
 test("checkout checks cart codes live, falls back on supplier failure with a marker, preserves completed orders and snapshots", async t=> {
   const originalUrl=process.env.DATABASE_URL!;
   const originalCwd=process.cwd();
@@ -94,7 +102,7 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     // A later quantity change keeps the vehicle recorded when the product was added.
     assert.equal(await setCartQuantity(owner,id,1),true);
     assert.deepEqual((await cartFor(owner))[0].vehicle,vehicle);
-    const input={requestKey:randomUUID(),quote:await cartQuote(await cartFor(owner),0),name:"Test",email:"test@example.invalid",phone:"5551234567",address:"Test",note:""};
+    const input={requestKey:randomUUID(),quote:await cartQuote(await cartFor(owner),0),name:"Test",email:"test@example.invalid",phone:"5551234567",address:"Test Mahallesi 1. Sokak No 2, Kadıköy/İstanbul",note:"",province:"İstanbul",district:"Kadıköy",addressLine:"Test Mahallesi 1. Sokak No 2",postalCode:null,invoiceType:"individual" as const,invoiceCompany:null,invoiceTaxNo:null,invoiceTaxOffice:null};
     const itemRow=async()=>(await db.query("SELECT product_data,price_data,stock_data,last_seen_at,changed_at FROM supplier_items WHERE id=$1",[id])).rows[0];
     // #763: the live check asks MalzemeAra for the cart's own code only, without the list endpoints or the import lock.
     const listUrls=/FiyatGetir|StokGetir|MalzemeleriGetir|ListeGrubuGetir|DovizBilgisiGetir/;
@@ -212,6 +220,8 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     {
       // #770: rows a running import keeps locked. A code the supplier no longer knows (604) is refused even though its
       // zeroed stock cannot be saved; nothing is written and no order is created.
+      // Only MRK has stock (the saved StokGetir-only depots are emptied), so a live MRK of 0 is out of stock everywhere.
+      await savedDepots({IZM:0,IAN:0,KYS:0,TRK:0});
       const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
       const lockedInput=await checkoutInput(cart);
       const stockBefore=(await itemRow()).stock_data.stok;assert.ok(stockBefore>0);
@@ -227,14 +237,138 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
         const started=performance.now();
         gone=true;const refused=await submitOrder(cart,lockedInput);gone=false;
         assert.equal(refused.error,"stock");
+        assert.deepEqual(refused.products,[id]);
         assert.ok(performance.now()-started<3_000,"the checkout does not wait on the import");
+        // #788: the live answer says out of stock in every depot (or a new cost) but cannot be saved: refused and named,
+        // never sold on the saved stock and price.
+        stock=0;const soldOut=await submitOrder(cart,lockedInput);stock=1;
+        assert.deepEqual([soldOut.error,soldOut.products],["stock",[id]]);
+        const savedPrice=price;price=savedPrice+1;const repriced=await submitOrder(cart,lockedInput);price=savedPrice;
+        assert.deepEqual([repriced.error,repriced.products],["price",[id]]);
       } finally {
-        gone=false;clearTimeout(safety);
+        gone=false;stock=1;clearTimeout(safety);
         await holder.query("ROLLBACK").catch(()=>undefined);holder.release();
       }
       assert.equal((await itemRow()).stock_data.stok,stockBefore);
       assert.equal(await checkoutChanges(),changesBefore);
       assert.equal((await db.query("SELECT count(*)::int AS n FROM commerce_orders WHERE owner_kind='guest' AND owner_id=$1",[cart.id])).rows[0].n,0);
+    }
+    {
+      // #861: a live cost the locked rows keep from being saved refuses its line only if the sale price would change.
+      // Saved nf is 50: the formula (×1.3 profit, ×1.2 VAT) sells at 7800 kuruş. The override row is created before
+      // any lock (its FK to supplier_items would wait on the holder); later price edits leave the key alone.
+      const {livePriceChanges}=await import("../src/modules/store/supplier-checkout");
+      const savedNf=(await itemRow()).price_data.nf;assert.equal(savedNf,50);
+      await db.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id) VALUES($1,$2)",[id,randomUUID()]);
+      const setPrices=(fixed:number|null,sale:number|null)=>db.query("UPDATE commerce_item_overrides SET price_kurus=$2,sale_price_kurus=$3 WHERE supplier_item_id=$1",[id,fixed,sale]);
+      const catalogPrice=async()=>(await db.query("SELECT price_kurus FROM commerce_catalog WHERE id=$1",[id])).rows[0].price_kurus;
+      // Parity: the saved cost recomputed by livePriceChanges is the catalog's own price, whatever priced it, and a
+      // cost moved by `delta` changes it exactly when the view's rules say so.
+      const parity=async(expected:number,delta:number,changes:boolean)=>{
+        const price=await catalogPrice();
+        assert.equal(price,expected);
+        assert.deepEqual(await livePriceChanges(db,[{id,nf:savedNf,price}]),[]);
+        assert.deepEqual(await livePriceChanges(db,[{id,nf:savedNf+delta,price}]),changes ? [id] : []);
+        // Compared with the price the order charges: a stale one (a pull committed after cartFor) is a change.
+        assert.deepEqual(await livePriceChanges(db,[{id,nf:savedNf,price:price-1}]),[id]);
+      };
+      // #882: the view inlines the formula and campaign-window functions (a per-row call would make full scans slower;
+      // a SET/STRICT clause or an expensive argument used twice breaks the inline silently) and calls the fixed/final
+      // price functions only behind its admin_priced branch.
+      const plan=(await db.query("EXPLAIN (VERBOSE, COSTS OFF) SELECT price_kurus FROM commerce_catalog WHERE id=$1::uuid",[id])).rows
+        .map(row=>row["QUERY PLAN"]).join("\n");
+      assert.doesNotMatch(plan,/commerce_formula_price\(/);
+      assert.doesNotMatch(plan,/commerce_campaign_price\(/);
+      assert.match(plan,/commerce_regular_price\(/);
+      assert.deepEqual(await livePriceChanges(db,[]),[]);
+      await parity(7800,1,true);
+      await setPrices(9000,null);await parity(9000,1,false);
+      await setPrices(null,7500);await parity(7500,1,false);
+      await setPrices(null,null);
+      const pricingAdmin=(await db.query("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Test','parity@example.invalid','test','admin',true) RETURNING id")).rows[0].id;
+      await db.query("INSERT INTO commerce_product_pricing(supplier_item_id,markup_percent,vat_percent,updated_by) VALUES($1,50,10,$2)",[id,pricingAdmin]);
+      // 50 × 1.5 × 1.1: 8250; 50.001 rounds to the same price, 50.01 does not.
+      await parity(8250,0.001,false);
+      await parity(8250,0.01,true);
+      await db.query("DELETE FROM commerce_product_pricing WHERE supplier_item_id=$1",[id]);
+      await db.query("DELETE FROM accounts WHERE id=$1",[pricingAdmin]);
+      // A EUR row with a rate that is not a whole number: 50 × 41.3579 × 156 = 322591.62 -> 322592.
+      const currencies=(await db.query("SELECT DISTINCT currencies_data FROM supplier_imports WHERE supplier='basbug'")).rows;
+      assert.equal(currencies.length,1);
+      await db.query(`UPDATE supplier_imports SET currencies_data='{"dovizListesi":[{"dovizCinsi":"EUR","alis":"41","satis":"41.3579"}]}' WHERE supplier='basbug'`);
+      await db.query(`UPDATE supplier_items SET product_data=jsonb_set(product_data,'{dc}','"EUR"') WHERE id=$1`,[id]);
+      const setCampaign=(fixed:number|null,sale:number|null,from:string|null,until:string|null)=>db.query(
+        "UPDATE commerce_item_overrides SET price_kurus=$2,sale_price_kurus=$3,sale_from=now()+$4::interval,sale_until=now()+$5::interval WHERE supplier_item_id=$1",[id,fixed,sale,from,until]);
+      try {
+        await setCampaign(null,null,null,null);await parity(322592,0.01,true);
+        await setCampaign(400000,null,null,null);await parity(400000,0.01,false);
+        // Campaign in its window, below the regular price.
+        await setCampaign(null,300000,"-1 day","1 day");await parity(300000,0.01,false);
+        // Not started yet, or already over: the formula's price.
+        await setCampaign(null,300000,"1 day",null);await parity(322592,0.01,true);
+        await setCampaign(null,300000,null,"-1 second");await parity(322592,0.01,true);
+        // At or above the regular price: ignored.
+        await setCampaign(null,400000,null,null);await parity(322592,0.01,true);
+        // Equal to it: ignored while it is, so a lower cost moves the price, but a higher one brings the campaign in at
+        // the same price.
+        await setCampaign(null,322592,null,null);await parity(322592,-0.01,true);await parity(322592,0.01,false);
+        // Fixed plus a campaign below it: the campaign; a cost the campaign cannot drop under does not move it.
+        await setCampaign(400000,350000,null,null);await parity(350000,0.01,false);
+        // Fixed plus a campaign above it: the fixed price.
+        await setCampaign(300000,350000,null,null);await parity(300000,0.01,false);
+      } finally {
+        await setCampaign(null,null,null,null);
+        await db.query(`UPDATE supplier_items SET product_data=jsonb_set(product_data,'{dc}','"TL"') WHERE id=$1`,[id]);
+        await db.query("UPDATE supplier_imports SET currencies_data=$1::jsonb WHERE supplier='basbug'",[JSON.stringify(currencies[0].currencies_data)]);
+      }
+      assert.equal(await catalogPrice(),7800);
+
+      const checkoutChanges=async()=>(await db.query("SELECT count(*)::int AS n FROM supplier_item_changes WHERE item_id=$1 AND after_data->>'source'='checkout'",[id])).rows[0].n;
+      const changesBefore=await checkoutChanges();
+      // A fresh cart and quote, then the order while a holder keeps the row locked and MalzemeAra quotes `livePrice`.
+      const lockedOrder=async(livePrice:number)=>{
+        const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
+        const lockedInput=await checkoutInput(cart);
+        const holder=await db.connect();
+        let safety:ReturnType<typeof setTimeout>|undefined;
+        const savedPrice=price;
+        try {
+          await holder.query("BEGIN");
+          await holder.query("SELECT id FROM supplier_items WHERE id=$1 FOR UPDATE",[id]);
+          safety=setTimeout(()=>{holder.query("ROLLBACK").catch(()=>undefined);},5_000);
+          price=livePrice;return await submitOrder(cart,lockedInput);
+        } finally {
+          price=savedPrice;clearTimeout(safety);
+          await holder.query("ROLLBACK").catch(()=>undefined);holder.release();
+        }
+      };
+      const soldLine=async(order:{id?:string;error?:string})=>{
+        assert.ok(order.id,String(order.error));
+        return (await db.query("SELECT unit_price_kurus,pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[order.id])).rows[0];
+      };
+      const marks=(line:{pricing_snapshot:Record<string,unknown>})=>[line.pricing_snapshot.checkout_mode,line.pricing_snapshot.live_check,line.pricing_snapshot.live_check_reason,line.pricing_snapshot.live_check_nf];
+      // A cost that rounds to the same price (50.001 × 156 = 7800.156): sold at 7800, marked busy with the live cost.
+      let line=await soldLine(await lockedOrder(50.001));
+      assert.equal(Number(line.unit_price_kurus),7800);
+      assert.deepEqual(marks(line),["snapshot","failed","busy",50.001]);
+      assert.equal(line.pricing_snapshot.nf,50);
+      // A fixed price: a new cost does not move it, so the line is sold at 9000.
+      await setPrices(9000,null);
+      line=await soldLine(await lockedOrder(51));
+      assert.equal(Number(line.unit_price_kurus),9000);
+      assert.deepEqual(marks(line),["snapshot","failed","busy",51]);
+      // A campaign below the regular price: 51 prices at 7956, still above 7500, so the campaign holds.
+      await setPrices(null,7500);
+      line=await soldLine(await lockedOrder(51));
+      assert.equal(Number(line.unit_price_kurus),7500);
+      assert.deepEqual(marks(line),["snapshot","failed","busy",51]);
+      // 48 prices at 7488, below the campaign: the campaign no longer applies and the price would change.
+      const refused=await lockedOrder(48);
+      assert.deepEqual([refused.error,refused.products],["price",[id]]);
+      await db.query("DELETE FROM commerce_item_overrides WHERE supplier_item_id=$1",[id]);
+      // Nothing was written: the saved cost stays and no checkout change was recorded.
+      assert.equal((await itemRow()).price_data.nf,savedNf);
+      assert.equal(await checkoutChanges(),changesBefore);
     }
     {
       // #770/#790: the supplier answers but the rows stay locked past lock_timeout: the line is sold on its saved data,
@@ -295,7 +429,7 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     assert.equal(stored.pricing_snapshot.exchange_rate,40);
     assert.equal(stored.pricing_snapshot.checkout_mode,"snapshot");
     assert.equal(stored.pricing_snapshot.source_fresh,false);
-    assert.match(stored.stock_label,/Kayıtlı stok/);
+    assert.match(stored.stock_label,/^Stokta · /);
     const observedAt=stored.pricing_snapshot.observed_at,rateAt=stored.pricing_snapshot.rate_at;
     for(const [field,value] of [["price_data","null"],["stock_data","null"],["stock_data",'{"stok":0,"sFarkliDepo":0,"sYol":1}']]) {
       await db.query(`UPDATE supplier_items SET ${field}=$2::jsonb WHERE id=$1`,[id,value]);

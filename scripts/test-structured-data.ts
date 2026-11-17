@@ -2,11 +2,12 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { legalDocument, type LegalNode } from "../src/content/legal";
-import { breadcrumbJsonLd, catalogTrail, collectionJsonLd, maxStructuredVehicles, outOfStockLabel, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
-  serializeJsonLd, unconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
+import { faqGroups } from "../src/content/faq";
+import { aboutPageJsonLd, articleJsonLd, breadcrumbJsonLd, catalogTrail, collectionJsonLd, faqJsonLd, maxStructuredVehicles, outOfStockLabel, guideTrail, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
+  serializeJsonLd, unconfirmedStockLabel, legacyUnconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
 import { listingPath, makePath } from "../src/modules/seo/paths";
 import { productPath } from "../src/modules/seo/product-path";
-import { organizationId, siteJsonLd } from "../src/lib/site";
+import { defaultSocialImage, foundingYear, organizationId, siteJsonLd } from "../src/lib/site";
 
 const base = "https://getirbakim.com";
 const now = new Date("2026-11-15T10:00:00Z");
@@ -171,10 +172,16 @@ test("every stock label is in the SQL and maps to InStock, OutOfStock or no offe
   }
 });
 
+test("the label before #878 is still an unconfirmed stock, not InStock", () => {
+  assert.ok(!sql.includes(`'${legacyUnconfirmedStockLabel}'`));
+  assert.ok(!offers(product({ available: true, stockLabel: legacyUnconfirmedStockLabel })));
+});
+
 test("the seller is the site's Organization", () => {
   const organization = siteJsonLd["@graph"].find(node => node["@type"] === "Organization");
   assert.equal((offers(product({}))!.seller as { "@id": string })["@id"], organization?.["@id"]);
   assert.equal(organization?.["@id"], organizationId);
+  assert.equal((organization as { foundingDate?: string } | undefined)?.foundingDate, String(foundingYear));
 });
 
 test("listing and product addresses", () => {
@@ -182,4 +189,48 @@ test("listing and product addresses", () => {
   assert.equal(listingPath({ categorySlug: "x" }), "/kategori/x");
   assert.equal(listingPath({ makeSlug: "vw" }), makePath("vw"));
   assert.equal(listingPath({ makeSlug: "vw", categorySlug: "x" }), "/kategori/x/vw");
+});
+
+test("article: organization as author and publisher, dates and canonical", () => {
+  const node = articleJsonLd({ title: "T", description: "D", path: "/rehber/x", published: "2026-11-17", updated: "2026-11-18" }, base) as Record<string, unknown>;
+  assert.equal(node["@type"], "Article");
+  assert.equal(node.headline, "T");
+  assert.equal(node.datePublished, "2026-11-17");
+  assert.equal(node.dateModified, "2026-11-18");
+  assert.equal(node.inLanguage, "tr-TR");
+  assert.deepEqual(node.mainEntityOfPage, { "@type": "WebPage", "@id": `${base}/rehber/x` });
+  const org = { "@type": "Organization", "@id": organizationId, name: "Getirbakim" };
+  assert.deepEqual(node.author, org);
+  assert.deepEqual(node.publisher, org);
+  assert.equal(node.image, `${base}${defaultSocialImage.url}`);
+});
+
+test("guide trail: home, guides, article", () => {
+  assert.deepEqual(guideTrail().map(crumb => crumb.path), ["/", "/rehber"]);
+  assert.deepEqual(guideTrail({ title: "T", slug: "x" }).map(crumb => crumb.path), ["/", "/rehber", "/rehber/x"]);
+});
+
+test("FAQ: one question per item with the visible answer text; none gives null", () => {
+  assert.equal(faqJsonLd([]), null);
+  const items = faqGroups.flatMap(group => group.items);
+  const node = faqJsonLd(items) as { "@type": string; mainEntity: { name: string; acceptedAnswer: { text: string } }[] };
+  assert.equal(node["@type"], "FAQPage");
+  assert.equal(node.mainEntity.length, items.length);
+  node.mainEntity.forEach((question, index) => {
+    assert.equal(question.name, items[index].question);
+    assert.equal(question.acceptedAnswer.text, items[index].answer);
+  });
+});
+
+test("FAQ questions are unique and answers are plain text", () => {
+  const items = faqGroups.flatMap(group => group.items);
+  assert.equal(new Set(items.map(item => item.question)).size, items.length);
+  for (const item of items) assert.ok(!item.answer.includes("<"), item.question);
+});
+
+test("about page references the organization instead of reprinting it", () => {
+  const node = aboutPageJsonLd("/bilgi/hakkimizda", base) as Record<string, unknown>;
+  assert.equal(node["@type"], "AboutPage");
+  assert.equal(node.url, `${base}/bilgi/hakkimizda`);
+  assert.deepEqual(node.mainEntity, { "@id": organizationId });
 });

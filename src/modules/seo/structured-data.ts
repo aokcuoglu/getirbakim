@@ -1,7 +1,8 @@
 // Pure builders of the store's schema.org JSON-LD (#637). Nothing here reads an account, a discount or a vehicle:
 // the price is the product's own list price, so a service's B2B price never reaches the markup.
 import { saleUntil } from "@/modules/store/best-offer";
-import { organizationId } from "@/lib/site";
+import { defaultSocialImage, organizationId, siteName } from "@/lib/site";
+import { guidePath, guidesPath, type Guide } from "@/content/guides";
 import { absoluteUrl, catalogPath, listingPath, makesPath } from "./paths";
 
 export type Crumb = { name: string; path: string };
@@ -34,6 +35,11 @@ export function pageTrail(title: string, path: string): Crumb[] {
   return [home, { name: title, path }];
 }
 
+/** Home, guides, and the article (when `guide` is given). */
+export function guideTrail(guide?: Pick<Guide, "title" | "slug">): Crumb[] {
+  return [home, { name: "Rehber", path: guidesPath }, ...guide ? [{ name: guide.title, path: guidePath(guide.slug) }] : []];
+}
+
 export function breadcrumbJsonLd(trail: Crumb[], base: string): JsonLdNode | null {
   if (trail.length < 2) return null;
   return { "@context": "https://schema.org", "@type": "BreadcrumbList",
@@ -60,24 +66,37 @@ export const returnPolicy = { days: 14, country: "TR" } as const;
 
 /** The stock labels of db/commerce.sql the markup depends on (a test ties both to the SQL). */
 export const outOfStockLabel = "Stokta yok";
-export const unconfirmedStockLabel = "Kayıtlı stokta mevcut · Teyit bekliyor";
+export const unconfirmedStockLabel = "Stokta · Siparişten sonra teyit edilir";
+/** The label before #878: a page cached or a view not yet re-created still carries it. */
+export const legacyUnconfirmedStockLabel = "Kayıtlı stokta mevcut · Teyit bekliyor";
+const unconfirmedStockLabels = new Set([unconfirmedStockLabel, legacyUnconfirmedStockLabel]);
 
 function istanbulDay(date: Date) {
   // The last moment of the offer: a campaign ending at midnight ends on the day before.
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(date.getTime() - 1));
 }
 
+/**
+ * The availability the page states, or null where it states none: no price, no supply, a recorded but unconfirmed
+ * stock (never published as in stock) or an unknown stock (never published as out of stock). The Offer below and the
+ * product feed (merchant-feed.ts, #643) share it.
+ */
+export function offerAvailability(input: Pick<ProductJsonLdInput, "priceKurus" | "available" | "stockLabel" | "unavailable">): "in_stock" | "out_of_stock" | null {
+  if (input.unavailable || input.priceKurus === null || !(input.priceKurus >= 1)) return null;
+  if (input.available ? unconfirmedStockLabels.has(input.stockLabel) : input.stockLabel !== outOfStockLabel) return null;
+  return input.available ? "in_stock" : "out_of_stock";
+}
+
 /** The Offer, only where the page itself states price and stock: no price, no supply, or an unknown stock gives none. */
 export function productOffer(input: ProductJsonLdInput, base: string, now = new Date()): JsonLdNode | null {
-  if (input.unavailable || input.priceKurus === null || !(input.priceKurus >= 1)) return null;
-  // A recorded but unconfirmed stock is not published as InStock; an unknown stock is not OutOfStock.
-  if (input.available ? input.stockLabel === unconfirmedStockLabel : input.stockLabel !== outOfStockLabel) return null;
+  const availability = offerAvailability(input);
+  if (availability === null || input.priceKurus === null) return null;
   const until = saleUntil({ pricing_snapshot: input.pricingSnapshot });
   return {
     "@type": "Offer", url: absoluteUrl(base, input.path),
     price: (input.priceKurus / 100).toFixed(2), priceCurrency: "TRY",
     ...until && until > now ? { priceValidUntil: istanbulDay(until) } : {},
-    availability: input.available ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+    availability: availability === "in_stock" ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
     itemCondition: "https://schema.org/NewCondition",
     seller: { "@type": "Organization", "@id": organizationId, name: "Getirbakim", url: base },
     hasMerchantReturnPolicy: { "@type": "MerchantReturnPolicy", applicableCountry: returnPolicy.country,
@@ -107,6 +126,30 @@ export function collectionJsonLd(input: { name: string; description?: string; pa
     ...input.description ? { description: input.description } : {},
     mainEntity: { "@type": "ItemList", numberOfItems: input.items.length,
       itemListElement: input.items.map((item, index) => ({ "@type": "ListItem", position: index + 1, url: absoluteUrl(base, item.path), name: item.name })) } };
+}
+
+type ArticleInput = { title: string; description: string; path: string; published: string; updated: string; image?: { url: string } };
+
+/** An Article whose author and publisher is the organization (no person is named). */
+export function articleJsonLd(input: ArticleInput, base: string): JsonLdNode {
+  const org = { "@type": "Organization", "@id": organizationId, name: siteName };
+  return { "@context": "https://schema.org", "@type": "Article", headline: input.title, description: input.description,
+    datePublished: input.published, dateModified: input.updated, inLanguage: "tr-TR",
+    mainEntityOfPage: { "@type": "WebPage", "@id": absoluteUrl(base, input.path) },
+    author: org, publisher: org,
+    image: absoluteUrl(base, (input.image ?? defaultSocialImage).url) };
+}
+
+/** A FAQPage; the answer text is the plain text the page shows. Null without questions. */
+export function faqJsonLd(items: { question: string; answer: string }[]): JsonLdNode | null {
+  if (!items.length) return null;
+  return { "@context": "https://schema.org", "@type": "FAQPage",
+    mainEntity: items.map(item => ({ "@type": "Question", name: item.question, acceptedAnswer: { "@type": "Answer", text: item.answer } })) };
+}
+
+/** The About page; the organization itself is printed once by the layout, so only its @id is referenced. */
+export function aboutPageJsonLd(path: string, base: string): JsonLdNode {
+  return { "@context": "https://schema.org", "@type": "AboutPage", url: absoluteUrl(base, path), inLanguage: "tr-TR", mainEntity: { "@id": organizationId } };
 }
 
 /** JSON for a script tag: `<` is escaped so no value can close the tag. */

@@ -8,11 +8,14 @@ import { invalidateListings } from "@/modules/store/listing-epoch";
 import * as store from "@/modules/admin/product-fitment-store";
 import * as hides from "@/modules/admin/product-fitment-hide-store";
 import * as copies from "@/modules/admin/product-fitment-copy";
-import { productFitmentBatch, productFitmentHideLimit, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
+import { fitmentCopyModelLimit, productFitmentBatch, productFitmentHideLimit, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
 import { formatNumber } from "@/modules/admin/format";
 
-/** Result of a vehicle fitment change (#583); the manager shows the message and refreshes the page. */
-export type ProductFitmentActionResult = { status: "success" | "error"; message: string };
+/**
+ * Result of a vehicle fitment change (#583); the manager shows the message and refreshes the page. `undo`: the bulk
+ * add or copy just written, which the success alert offers to take back (#817).
+ */
+export type ProductFitmentActionResult = { status: "success" | "error"; message: string; undo?: { batchId: string; count: number } };
 
 const failures: Record<Exclude<store.ProductFitmentResult, { ok: true }>["reason"], string> = {
   "not-found": "Ürün bulunamadı.",
@@ -28,6 +31,7 @@ const failures: Record<Exclude<store.ProductFitmentResult, { ok: true }>["reason
   "not-in-source": "Bu satır ürünün kaynaklarında artık yok. Sayfayı yenileyin.",
   "bad-source": "Kaynak ürün bulunamadı ya da başka bir ürünle birleştirilmiş.",
   "nothing-to-copy": "Kaynak üründe bu ürüne eklenecek yeni araç tipi yok.",
+  "nothing-to-undo": "Bu toplu işlemin geri alınacak aracı kalmadı.",
 };
 
 const productId = z.uuid();
@@ -50,7 +54,8 @@ async function run(action: () => Promise<store.ProductFitmentResult>, success: s
   await invalidateListings();
   // The product page, its garage note and the listings show the fitments.
   revalidatePath("/", "layout");
-  return { status: "success", message: typeof success === "string" ? success : success(result) };
+  const message = typeof success === "string" ? success : success(result);
+  return result.batchId ? { status: "success", message, undo: { batchId: result.batchId, count: result.added ?? 0 } } : { status: "success", message };
 }
 
 export async function addProductFitments(input: { productId: string; vehicleTypeIds: number[] }): Promise<ProductFitmentActionResult> {
@@ -62,12 +67,18 @@ export async function addProductFitments(input: { productId: string; vehicleType
     `${formatNumber(count)} araç tipi eklendi; ürün sayfasında ve araç süzgecinde hemen, marka sayfasında birkaç saniye içinde görünür.`);
 }
 
-/** Copies another product's vehicle fitments as added types (#662); `expected` is the count the preview showed. */
-export async function copyProductFitments(input: { productId: string; sourceId: string; expected: number }): Promise<ProductFitmentActionResult> {
+/**
+ * Copies another product's vehicle fitments as added types (#662); `expected` is the count the preview showed for the
+ * choice, `modelIds` the vehicle models chosen (#815; without it every new type).
+ */
+export async function copyProductFitments(input: { productId: string; sourceId: string; expected: number; modelIds?: number[] }): Promise<ProductFitmentActionResult> {
   const admin = await requireAdmin();
-  const data = z.object({ productId, sourceId: z.uuid(), expected: z.number().int().min(1).max(productFitmentLimit) }).safeParse(input);
+  const data = z.object({
+    productId, sourceId: z.uuid(), expected: z.number().int().min(1).max(productFitmentLimit),
+    modelIds: z.array(z.number().int().positive().max(2147483647)).min(1).max(fitmentCopyModelLimit).optional(),
+  }).safeParse(input);
   if (!data.success) return { status: "error", message: "Kopyalanacak ürün tanınmadı. Önizlemeyi yeniden açın." };
-  return run(() => copies.copyProductFitments(db, data.data.productId, data.data.sourceId, data.data.expected, admin.id),
+  return run(() => copies.copyProductFitments(db, data.data.productId, data.data.sourceId, data.data.expected, admin.id, data.data.modelIds),
     result => `${formatNumber(result.added ?? 0)} araç tipi kopyalandı; ürün sayfasında ve araç süzgecinde hemen, marka sayfasında birkaç saniye içinde görünür.`);
 }
 
@@ -85,6 +96,15 @@ export async function deleteProductFitment(input: { productId: string; rowId: st
   if (!data.success) return { status: "error", message: "Araç tanınmadı. Sayfayı yenileyin." };
   return run(() => store.deleteProductFitment(db, data.data.productId, data.data.rowId, admin.id),
     data.data.restored ? "Otomatik araç uyumu yeniden gösteriliyor; marka sayfası birkaç saniye içinde güncellenir." : "Elle eklenen araç kaldırıldı; otomatik kaynak bağlıyorsa listede kalır. Marka sayfası birkaç saniye içinde güncellenir.");
+}
+
+/** Takes a bulk add or copy back in one step (#817): the batch's types still added leave the product. */
+export async function undoProductFitmentBatch(input: { productId: string; batchId: string }): Promise<ProductFitmentActionResult> {
+  const admin = await requireAdmin();
+  const data = z.object({ productId, batchId: z.uuid() }).safeParse(input);
+  if (!data.success) return { status: "error", message: "Toplu işlem tanınmadı. Sayfayı yenileyin." };
+  return run(() => store.undoFitmentBatch(db, data.data.productId, data.data.batchId, admin.id),
+    result => `${formatNumber(result.undone ?? 0)} araç tipi geri alındı; marka sayfası birkaç saniye içinde güncellenir.`);
 }
 
 const hideTarget = z.discriminatedUnion("kind", [

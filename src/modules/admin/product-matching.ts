@@ -2,7 +2,8 @@ import "server-only";
 import { db } from "@/lib/db";
 import { sortOrder } from "@/lib/table-sort";
 import { compactCode as compact, manualKind, manualSearchTerms, pickSameProducts, sameLinked, sameScope, type SameEntry } from "@/modules/admin/product-matching-same";
-import { bulkAcceptableSql, isBulkReason, manualDeciderSql, manualKindFilterSql, manualKindSql, manualGroupsSql, offerManualSql, isPatternBulkReason, multiNumberCandidateSql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+import { bulkAcceptableSql, isBulkReason, manualDeciderSql, manualKindFilterSql, manualKindSql, manualGroupsSql, offerManualSql, isPatternBulkReason, multiNumberCandidateSql, productCostTrySql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
+import { suffixHints, type SuffixHints } from "@/modules/admin/product-suffix-signals";
 import { requireAdmin } from "@/modules/auth/session";
 import { resolveBrandLogos, type BrandLogoSource, type ManufacturerLogo } from "@/modules/store/manufacturer-logos";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
@@ -54,10 +55,12 @@ export type BrandLogoFilter = "missing" | "present";
 const logoFilters: BrandLogoFilter[] = ["missing", "present"];
 export type CandidateReason = "prefix" | "leading_zero" | "suffix";
 export const candidateReasons: Record<CandidateReason, string> = { prefix: "Kod ön eki farkı", leading_zero: "Baştaki sıfır farkı", suffix: "Son ek farkı" };
-type CandidateSide = { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; price_kurus: number | null; available: boolean | null };
+type CandidateSide = { id: string; brand_label: string; code: string; part_number: string; name: string | null; suppliers: string[]; price_kurus: number | null; available: boolean | null };
 /** A Başbuğ-only (a) and a Dinamik-only product (b), or a Başbuğ/Dinamik product (a) and a manual-list-only one (b), that
  *  look the same; "Aynı ürün" merges b into a. */
-export type Candidate = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; suffix_bulk: boolean; brand: string; a: CandidateSide; b: CandidateSide };
+export type Candidate = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; suffix_bulk: boolean; brand: string; a: CandidateSide; b: CandidateSide;
+  /** Review hints of a suffix candidate (#899); null for other reasons. Informational: no decision or bulk rule reads them. */
+  hints: SuffixHints | null };
 /** Candidates split by whether the two part names name the same kind of part (db product_names_conflict). */
 export type CandidateNames = "consistent" | "conflict";
 export const candidateNames: Record<CandidateNames, string> = { consistent: "Tanımı uyumlu", conflict: "Tanımı farklı" };
@@ -283,20 +286,30 @@ async function matchCandidates(params: MatchingParams) {
   ]);
   const { page, pages } = pageOf(params.page, total.rows[0].count);
   type Row = { reason: CandidateReason; name_similarity: number | null; name_conflict: boolean; shared_b: boolean; multi_a: boolean; suffix_bulk: boolean; brand: string; a: Omit<CandidateSide, "price_kurus" | "available">; b: Omit<CandidateSide, "price_kurus" | "available"> };
-  const side = (alias: string) => `jsonb_build_object('id',${alias}.id,'brand_label',${alias}.brand_label,'code',${alias}.code,'name',${alias}.name,'suppliers',${alias}.suppliers)`;
+  const side = (alias: string) => `jsonb_build_object('id',${alias}.id,'brand_label',${alias}.brand_label,'code',${alias}.code,'part_number',${alias}.part_number,'name',${alias}.name,'suppliers',${alias}.suppliers)`;
   const rows = (await db.query<Row>(`SELECT c.reason,c.name_similarity,COALESCE(c.name_conflict,false) AS name_conflict,${sharedCandidateSql} AS shared_b,${multiNumberCandidateSql} AS multi_a,(c.reason='suffix' AND ${bulkAcceptableSql}) AS suffix_bulk,a.brand,${side("a")} AS a,${side("b")} AS b FROM ${from} WHERE ${where}
     ORDER BY ${sortOrder(params, sorts.candidates, "c.name_similarity DESC NULLS LAST,a.brand,a.part_number")} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, values)).rows;
   // Priced in one pass for the page (commerce_catalog per id is fast; per row in a subquery it is not). Each side is
   // a single-supplier product; its cheapest available row stands for it.
   const ids = rows.flatMap(row => [row.a.id, row.b.id]);
-  const prices = ids.length ? (await db.query<{ product_id: string; price_kurus: number | null; available: boolean }>(`WITH s AS (
+  const pricesQuery = () => db.query<{ product_id: string; price_kurus: number | null; available: boolean }>(`WITH s AS (
       SELECT product_id,supplier_item_id FROM product_sources WHERE product_id=ANY($1::uuid[]))
     SELECT DISTINCT ON (s.product_id) s.product_id,k.price_kurus,k.available FROM s
     JOIN commerce_catalog k ON k.id=s.supplier_item_id AND k.id=ANY(ARRAY(SELECT supplier_item_id FROM s))
-    ORDER BY s.product_id,k.available DESC,k.price_kurus NULLS LAST`, [ids])).rows : [];
+    ORDER BY s.product_id,k.available DESC,k.price_kurus NULLS LAST`, [ids]);
+  // Hints only for suffix rows: the buying cost in TRY of each side (like the #587 measurement), not the sale price.
+  const suffixIds = rows.filter(row => row.reason === "suffix").flatMap(row => [row.a.id, row.b.id]);
+  const [prices, costs] = await Promise.all([
+    ids.length ? pricesQuery().then(result => result.rows) : [],
+    suffixIds.length ? db.query<{ product_id: string; cost_try: string }>(productCostTrySql, [suffixIds]).then(result => result.rows) : [],
+  ]);
+  const costOf = new Map(costs.map(row => [row.product_id, Number(row.cost_try)]));
+  const hinted = (row: Row): SuffixHints | null => row.reason !== "suffix" ? null : suffixHints(
+    { partNumber: row.a.part_number, name: row.a.name, costTry: costOf.get(row.a.id) ?? null },
+    { partNumber: row.b.part_number, name: row.b.name, costTry: costOf.get(row.b.id) ?? null });
   const priceOf = new Map(prices.map(row => [row.product_id, { price_kurus: row.price_kurus, available: row.available }]));
   const priced = (item: Row["a"]): CandidateSide => ({ ...item, ...(priceOf.get(item.id) ?? { price_kurus: null, available: null }) });
-  const candidates: Candidate[] = rows.map(row => ({ ...row, a: priced(row.a), b: priced(row.b) }));
+  const candidates: Candidate[] = rows.map(row => ({ ...row, a: priced(row.a), b: priced(row.b), hints: hinted(row) }));
   const byReason = Object.fromEntries(counts.rows.map(row => [row.reason, row.count])) as Partial<Record<CandidateReason, number>>;
   return { candidates, reason, names, byReason, byNames: nameCounts.rows[0], total: total.rows[0].count, acceptableTotal: total.rows[0].acceptable,
     bulkAllowed: reason !== null && isBulkReason(reason), bulkPartial: reason !== null && isPatternBulkReason(reason),

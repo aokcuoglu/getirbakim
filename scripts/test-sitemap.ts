@@ -10,6 +10,7 @@ import { parseSitemapFile, productChunkRange, productChunks, renderSitemapIndex,
   sitemapUrlLimit, staticPaths, withAncestors } from "../src/modules/seo/sitemap";
 import { siteUrl } from "../src/lib/site";
 import { legalLinks } from "../src/content/legal";
+import { guidePath, guides } from "../src/content/guides";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 
 // The chunked sitemap (#634): pure helpers, then the queries against an isolated copy of the schema. Nothing is written
@@ -131,7 +132,8 @@ describe("sitemap helpers", () => {
     assert.equal(makePath("alfa-romeo"), "/yedek-parca/alfa-romeo");
     assert.equal(absoluteUrl(siteUrl, "/katalog"), `${siteUrl}/katalog`);
     assert.equal(staticPaths[0].path, "");
-    assert.equal(staticPaths.length, 8 + legalLinks.length);
+    assert.equal(staticPaths.length, 9 + guides.length + legalLinks.length);
+    for (const guide of guides) assert.equal(staticPaths.find(page => page.path === guidePath(guide.slug))?.lastModified, guide.updated);
     for (const link of legalLinks) assert.match(staticPaths.find(page => page.path === `/${link.slug}`)?.lastModified ?? "", /^\d{4}-\d{2}-\d{2}/);
   });
 });

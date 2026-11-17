@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { storeDialogAction, storeDialogContent, storeDialogOverlay } from "./store-dialog-classes";
 import { paymentState } from "@/app/(store)/siparis/[id]/actions";
 import { PAYMENT_NOTICE, PAYMENT_WINDOW, paymentErrors } from "@/modules/payments/messages";
+import { installmentHint } from "@/modules/payments/installment-plan";
 
 type Phase = "open" | "returned" | "closed" | "paid" | "blocked" | { error: string };
 
@@ -40,8 +41,8 @@ export function loadPaymentWindow(orderId: string) {
  * Keeps the site open behind TAMI's hosted page: the page runs in a popup (it refuses to be framed)
  * while this dialog tracks it. The provider query decides the outcome, never the popup's return.
  */
-export function PaymentDialog({ orderId, popup, total, onDismiss }: {
-  orderId: string; popup: Window | null; total: string; onDismiss: () => void;
+export function PaymentDialog({ orderId, popup, total, installments = 1, onDismiss }: {
+  orderId: string; popup: Window | null; total: string; installments?: number; onDismiss: () => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(true);
@@ -103,6 +104,7 @@ export function PaymentDialog({ orderId, popup, total, onDismiss }: {
         <div className={cn("mx-auto grid size-14 place-items-center rounded-full", paid ? "bg-[#ebf5ed] text-[#2e7d32]" : "bg-[#e5f2fa] text-primary")}>{paid ? <CheckCircle2 className="size-8" aria-hidden/> : <LockKeyhole className="size-7" aria-hidden/>}</div>
         <DialogTitle id="payment-dialog-title" className="mt-4 mb-1 text-[22px] leading-7 font-semibold tracking-[-0.4px]">{title}</DialogTitle>
         <p className="mb-4 text-xl font-semibold text-primary">{total}</p>
+        {!paid && installments > 1 && <p className="-mt-2 mb-4 text-sm leading-[22px] font-medium text-[#454f5b]">{installmentHint(installments)}.</p>}
         {error ? <Alert role="status" className="rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">{text}</Alert>
           : <p className="m-0 text-sm leading-[22px] text-[#454f5b]" role="status">{text}</p>}
         {phase === "open" && <>

@@ -21,13 +21,15 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
   const originalEnv = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
   Object.assign(process.env, env);
   const { db } = await import("../src/lib/db");
-  const { submitOrder, cartQuote, shippingRule, orderTotals } = await import("../src/modules/store/orders");
+  const { submitOrder, cartQuote, shippingRule, orderTotals, lastCheckoutDetails } = await import("../src/modules/store/orders");
   const { cartFor, setCartQuantity } = await import("../src/modules/store/cart");
   const payments = await import("../src/modules/payments/checkout");
   const { buildSecurityHash } = await import("../src/modules/payments/tami");
+  const { money } = await import("../src/modules/store/money");
   const originalFetch = globalThis.fetch;
   const paid = new Map<string, number>(); // provider orderId -> amount in TL
   const incomplete = new Set<string>(); // sandbox-observed shape of a declined/abandoned 3D attempt
+  const installments = new Map<string, number>(); // provider orderId -> installment count picked on the hosted page
   let tokens = 0, queryDown = false, forgeMissing = false;
   // Slow-provider simulation (#711): every /payment/query waits delayMs and honours the caller's abort signal.
   let delayMs = 0;
@@ -58,7 +60,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
       const payload = { errorMessage: "Bu sipariş üye işyerine ait değildir.", success: false, errorCode: 2013 };
       return Response.json({ ...payload, securityHash: forgeMissing ? "aaa.bbb.ccc" : buildSecurityHash(payload) }, { status: 400 });
     }
-    const payload = { success: true, orderId: body.orderId, currency: "TRY", amount, orderStatus: "AUTH", installmentCount: 1,
+    const payload = { success: true, orderId: body.orderId, currency: "TRY", amount, orderStatus: "AUTH", installmentCount: installments.get(body.orderId) ?? 1,
       transactions: [{ transactionType: "AUTH", transactionStatus: "SUCCESS", bankReferenceNumber: `REF-${body.orderId}`, bankAuthCode: "123456" }] };
     return Response.json({ ...payload, securityHash: buildSecurityHash(payload) });
   };
@@ -74,17 +76,20 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
 
     const owner = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
     await db.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [owner.id]);
+    // The checkout schema's output (#881): structured address with its combined text, individual invoice.
+    const delivery = { address: "Test Mahallesi 1. Sokak No 2, 34710 Kadıköy/İstanbul", note: "", province: "İstanbul", district: "Kadıköy", addressLine: "Test Mahallesi 1. Sokak No 2",
+      postalCode: "34710", invoiceType: "individual" as const, invoiceCompany: null, invoiceTaxNo: null, invoiceTaxOffice: null };
     const place = async (quantity: number) => {
       assert.equal(await setCartQuantity(owner, product, quantity), true);
       const items = await cartFor(owner), shipping = await shippingRule();
-      const result = await submitOrder(owner, { requestKey: randomUUID(), quote: cartQuote(items, 0, shipping), name: "Test", email: "t@example.invalid", phone: "0555 123 45 67", address: "Test address, Istanbul", note: "" });
+      const result = await submitOrder(owner, { requestKey: randomUUID(), quote: cartQuote(items, 0, shipping), name: "Test", email: "t@example.invalid", phone: "0555 123 45 67", ...delivery });
       assert.ok(result.id, String(result.error)); return result.id;
     };
 
     assert.deepEqual(orderTotals(await cartFor(owner), 0, { fee: 15000, threshold: 150000 }), { subtotal: 0, shipping: 0, total: 0, freeShippingRemaining: 150000 });
     process.env.TAMI_CHECKOUT_ENABLED = "false";
     assert.equal(await setCartQuantity(owner, product, 1), true);
-    assert.equal((await submitOrder(owner, { requestKey: randomUUID(), quote: "x", name: "T", email: "t@example.invalid", phone: "5551234567", address: "x", note: "" })).error, "payment");
+    assert.equal((await submitOrder(owner, { requestKey: randomUUID(), quote: "x", name: "T", email: "t@example.invalid", phone: "5551234567", ...delivery })).error, "payment");
     process.env.TAMI_CHECKOUT_ENABLED = "true";
 
     // Order is created unpaid with shipping, reserves store stock and keeps the cart.
@@ -94,6 +99,21 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     assert.equal(Number(row.subtotal_kurus), 20000); assert.equal(Number(row.shipping_kurus), 15000); assert.equal(Number(row.total_kurus), 35000);
     assert.equal(await stock(), 3); assert.equal((await cartFor(owner)).length, 1);
     assert.equal(await reserved(first), 2);
+    assert.equal(row.address, delivery.address);
+    assert.deepEqual([row.delivery_province, row.delivery_district, row.delivery_address_line, row.delivery_postal_code, row.invoice_type, row.invoice_company, row.invoice_tax_no, row.invoice_tax_office],
+      ["İstanbul", "Kadıköy", "Test Mahallesi 1. Sokak No 2", "34710", "individual", null, null, null]);
+
+    // The next checkout of an account is filled from its latest structured order (#881); guests and free-text orders give nothing.
+    const account = randomUUID();
+    const accountOrder = (values: (string | null)[]) => db.query(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,total_kurus,subtotal_kurus,discount_percent,
+      phone,address,created_at,delivery_province,delivery_district,delivery_address_line,delivery_postal_code,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office)
+      VALUES('account',$1,gen_random_uuid(),'Test','t@example.invalid',1000,1000,0,$2,$3,now()-make_interval(days=>$4::int),$5,$6,$7,$8,$9,$10,$11,$12)`, [account, ...values]);
+    assert.equal(await lastCheckoutDetails(account), null);
+    assert.equal(await lastCheckoutDetails(owner.id), null);
+    await accountOrder(["0555 000 00 01", "Eski adres", "2", "Ankara", "Çankaya", "Atatürk Bulvarı No 1", null, "corporate", "Firma", "1234567890", "Çankaya"]);
+    await accountOrder(["0555 000 00 02", "Serbest metin adres", "1", null, null, null, null, null, null, null, null]);
+    assert.deepEqual(await lastCheckoutDetails(account), { phone: "0555 000 00 01", delivery_province: "Ankara", delivery_district: "Çankaya", delivery_address_line: "Atatürk Bulvarı No 1",
+      delivery_postal_code: null, invoice_type: "corporate", invoice_company: "Firma", invoice_tax_no: "1234567890", invoice_tax_office: "Çankaya" });
 
     // Hosted page: one token, reused while fresh; callback URLs are signed per order.
     const started = await payments.startPayment(first);
@@ -270,6 +290,99 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     assert.match(row.payment_note, new RegExp(`Mükerrer ödeme alındı \\(${doubledIds[1]}\\)`));
     assert.doesNotMatch(row.payment_note, new RegExp(doubledIds[0]));
     assert.equal((await db.query("SELECT count(*) FROM commerce_payments WHERE order_id=$1 AND status='succeeded'", [doubled])).rows[0].count, "2");
+
+    // #873: an installment payment picked on the hosted page still settles the order but is flagged for the merchant's commission.
+    const split = await place(1);
+    const splitId = await addAttempt(split, 1);
+    paid.set(splitId, Number((await order(split)).total_kurus) / 100); installments.set(splitId, 6);
+    await payments.reconcileOrderPayments(split);
+    row = await order(split);
+    assert.equal(row.status, "pending"); assert.equal(row.payment_status, "paid");
+    assert.match(row.payment_note, new RegExp(`TAMI'de 6 taksitle ödendi \\(${splitId}\\)`));
+    assert.equal((await db.query("SELECT installment_count FROM commerce_payments WHERE provider_order_id=$1", [splitId])).rows[0].installment_count, 6);
+
+    // #886: installments off leave the quote as before; on, the chosen option is recomputed and charged with its fee.
+    const { installmentSettings } = await import("../src/modules/payments/installment-settings");
+    const { installmentTotal } = await import("../src/modules/payments/installment-plan");
+    assert.equal(await setCartQuantity(owner, product, 1), true);
+    const quoteItems = await cartFor(owner), quoteShipping = await shippingRule();
+    const disabled = await installmentSettings();
+    assert.equal(disabled.enabled, false);
+    assert.equal(cartQuote(quoteItems, 0, quoteShipping), cartQuote(quoteItems, 0, quoteShipping, disabled));
+    await db.query("UPDATE commerce_settings SET installments_enabled=true");
+    try {
+      const settings = await installmentSettings();
+      assert.deepEqual([settings.max, settings.singleRateBp, settings.ratesBp[3], settings.ratesBp[6]], [6, 285, 795, 1347]);
+      const checkout = (installmentsChosen: number, quote: string) => submitOrder(owner, { requestKey: randomUUID(), quote, name: "Test", email: "t@example.invalid",
+        phone: "0555 123 45 67", ...delivery, installments: installmentsChosen });
+      const freshQuote = async () => cartQuote(await cartFor(owner), 0, await shippingRule(), await installmentSettings());
+      // A form quoted before installments were switched on, or a count the settings do not offer, is refused.
+      assert.equal((await checkout(3, cartQuote(await cartFor(owner), 0, await shippingRule()))).error, "price");
+      assert.equal((await checkout(9, await freshQuote())).error, "price");
+      const placeInstallments = async (count: number) => {
+        assert.equal(await setCartQuantity(owner, product, 1), true);
+        const result = await checkout(count, await freshQuote());
+        assert.ok(result.id, String(result.error)); return result.id;
+      };
+      const cash = 10000 + 15000, threeTotal = installmentTotal(cash, 285, 795);
+      const chosenThree = await placeInstallments(3);
+      row = await order(chosenThree);
+      assert.equal(row.installment_count, 3); assert.equal(Number(row.installment_fee_kurus), threeTotal - cash); assert.equal(Number(row.total_kurus), threeTotal);
+      assert.equal(Number(row.subtotal_kurus), 10000); assert.equal(Number(row.shipping_kurus), 15000);
+      assert.ok("url" in await payments.startPayment(chosenThree));
+      const threeAttempt = (await db.query("SELECT provider_order_id,amount_kurus FROM commerce_payments WHERE order_id=$1", [chosenThree])).rows[0];
+      assert.equal(Number(threeAttempt.amount_kurus), threeTotal);
+      // Paid with the chosen count: no note.
+      paid.set(threeAttempt.provider_order_id, threeTotal / 100); installments.set(threeAttempt.provider_order_id, 3);
+      await payments.reconcileOrderPayments(chosenThree);
+      row = await order(chosenThree);
+      assert.equal(row.payment_status, "paid"); assert.equal(row.payment_note, "");
+      // Fewer installments on the hosted page: the fee goes back to the buyer.
+      const fewer = await placeInstallments(3);
+      const fewerId = await addAttempt(fewer, 1);
+      paid.set(fewerId, threeTotal / 100); installments.set(fewerId, 1);
+      await payments.reconcileOrderPayments(fewer);
+      row = await order(fewer);
+      assert.equal(row.payment_status, "paid");
+      assert.match(row.payment_note, /Siparişte 3 taksit seçildi, TAMI'de tek çekim ödendi/);
+      assert.match(row.payment_note, /vade farkı iadesi gerekir/);
+      assert.ok(row.payment_note.includes(`(≈ ${money(threeTotal - cash)})`), row.payment_note);
+      // More installments: the extra commission stays with the merchant.
+      const more = await placeInstallments(3);
+      const moreId = await addAttempt(more, 1);
+      paid.set(moreId, threeTotal / 100); installments.set(moreId, 6);
+      await payments.reconcileOrderPayments(more);
+      row = await order(more);
+      assert.equal(row.payment_status, "paid");
+      assert.match(row.payment_note, new RegExp(`TAMI'de 6 taksitle ödendi \\(${moreId}\\); siparişte 3 taksit seçilmişti`));
+      assert.doesNotMatch(row.payment_note, /iadesi/);
+      // Fewer but still split (3 chosen, 2 paid): the refund is the difference to the 2-installment total at current rates.
+      const twoPaid = await placeInstallments(3);
+      const twoPaidId = await addAttempt(twoPaid, 1);
+      paid.set(twoPaidId, threeTotal / 100); installments.set(twoPaidId, 2);
+      await payments.reconcileOrderPayments(twoPaid);
+      row = await order(twoPaid);
+      assert.equal(row.payment_status, "paid");
+      assert.match(row.payment_note, /Siparişte 3 taksit seçildi, TAMI'de 2 taksitle ödendi/);
+      assert.ok(row.payment_note.includes(`vade farkı iadesi gerekir (≈ ${money(threeTotal - installmentTotal(cash, 285, 589))})`), row.payment_note);
+      // A capture that does not settle the order (a duplicate on a paid order) gets no fee-refund note: the whole capture goes back.
+      const duplicateId = `GB2-886-dup-${chosenThree}`;
+      await db.query("INSERT INTO commerce_payments(order_id,provider_order_id,amount_kurus,status) VALUES($1,$2,$3,'pending')", [chosenThree, duplicateId, threeTotal]);
+      paid.set(duplicateId, threeTotal / 100); installments.set(duplicateId, 1);
+      await payments.reconcileOrderPayments(chosenThree);
+      row = await order(chosenThree);
+      assert.match(row.payment_note, /Mükerrer ödeme alındı/);
+      assert.doesNotMatch(row.payment_note, /vade farkı iadesi/);
+      // A count TAMI did not report as a positive integer adds no note.
+      const oddCount = await placeInstallments(3);
+      const oddId = await addAttempt(oddCount, 1);
+      paid.set(oddId, threeTotal / 100); installments.set(oddId, 0);
+      await payments.reconcileOrderPayments(oddCount);
+      row = await order(oddCount);
+      assert.equal(row.payment_status, "paid"); assert.equal(row.payment_note, "");
+    } finally {
+      await db.query("UPDATE commerce_settings SET installments_enabled=false");
+    }
 
     assert.equal(payments.tamiPhone("+90 (555) 123 45 67"), "905551234567");
     assert.equal(payments.tamiPhone("05551234567"), "905551234567");

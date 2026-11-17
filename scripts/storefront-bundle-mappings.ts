@@ -7,9 +7,14 @@ type Row = Record<string, unknown>;
 // sources the bundle carries (its category tree and mappings) are replaced. Products whose enrichment is not in this
 // bundle (or not resolved here) keep their mappings. Call after resolveBundleItems in the same transaction.
 
+/** The category sources a bundle carries (its category tree and mappings); only these mappings are replaced or removed. */
+export function bundleSources(manifest: { products?: Row[]; categories?: Row[] }) {
+  return [...new Set([...(manifest.categories ?? []), ...(manifest.products ?? [])].map(row => row.source).filter((source): source is string => typeof source === "string"))];
+}
+
 /** Replaces the mappings of the bundle's enrichments; returns the rows removed and inserted. */
 export async function replaceBundleMappings(client: PoolClient, manifest: { enrichments?: Row[]; products?: Row[]; categories?: Row[] }) {
-  const sources = [...new Set([...(manifest.categories ?? []), ...(manifest.products ?? [])].map(row => row.source).filter(source => typeof source === "string"))];
+  const sources = bundleSources(manifest);
   const removed = await client.query(`DELETE FROM product_source_categories p USING bundle_items bi
     WHERE p.supplier_item_id=bi.id AND p.source=ANY($2::text[])
     AND bi.bundle_id IN (SELECT r.supplier_item_id FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r)`,

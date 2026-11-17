@@ -41,3 +41,54 @@ export function specificationRawValue(key:string,input:string){return Object.has
 export function listingRangeLabel(count: number, page: number, pageSize: number) {
   return count ? `${(page - 1) * pageSize + 1} – ${Math.min(page * pageSize, count)} / ${count.toLocaleString("tr-TR")} ürün` : "0 ürün";
 }
+
+type FilterQuery={brand?:string;brands?:string;attributes?:string;availability?:"in_stock"|"out_of_stock"|"supplied";fits?:"vehicle";oil?:string};
+/** A change to a listing's filters; an `undefined` value drops that filter. */
+export type FilterUpdate={[K in keyof FilterQuery]?:FilterQuery[K]|undefined};
+/** The query change that ticks or unticks a manufacturer; a legacy single `brand` moves into `brands`. */
+export function toggleBrand(query:FilterQuery,value:string):FilterUpdate{
+ const current=selectedBrands(query),next=current.includes(value)?current.filter(v=>v!==value):[...current,value];
+ return {brand:undefined,brands:next.length?JSON.stringify(next):undefined};
+}
+/** The query change that ticks or unticks one sidebar option: all of its raw spellings (`values`, #703) go in or out together. */
+export function toggleAttribute(query:FilterQuery,key:string,values:string[]):FilterUpdate{
+ const attributes=selectedAttributes(query),current=attributes[key]??[];
+ const list=values.some(v=>current.includes(v))?current.filter(v=>!values.includes(v)):[...current,...values.filter(v=>!current.includes(v))];
+ const next={...attributes,[key]:list};
+ if(!list.length)delete next[key];
+ return {attributes:Object.keys(next).length?JSON.stringify(next):undefined};
+}
+export const availabilityLabels={in_stock:"Stokta mevcut",out_of_stock:"Stokta yok",supplied:"Tedarik edilebilir"} as const;
+const oilLabels:Record<string,string>={viscosity:"Önerilen viskozite",approval:"Önerilen yağ onayı"};
+/** A selected filter shown as a removable chip; `remove` is the query change that drops it (listingUrl also drops the page). */
+export type ActiveFilter={key:string;label:string;remove:FilterUpdate};
+/** Whether a chip is one of the filter panel's own groups (manufacturer, option, stock) rather than the vehicle fit or engine oil. */
+export const isPanelFilter=(item:ActiveFilter)=>!item.key.startsWith("fits")&&!item.key.startsWith("oil:");
+/**
+ * The filters a listing's query has selected, in sidebar order: manufacturers, options, stock, vehicle fit, engine oil.
+ * A selected value the facets do not offer still gets a chip; the server adds those to `facets` with the sidebar's
+ * translation and grouping (withSelectedOptions), and this fallback only groups values that read the same.
+ */
+export function activeFilters(query:FilterQuery,facets:CatalogFacet[],{vehicleName}:{vehicleName?:string}={}):ActiveFilter[]{
+ const items:ActiveFilter[]=selectedBrands(query).map(brand=>({key:`brand:${brand}`,label:brand,remove:toggleBrand(query,brand)}));
+ for(const [key,current] of Object.entries(selectedAttributes(query))){
+  const facet=facets.find(f=>f.key===key),label=facet?.label??specificationLabel(key);
+  const options=facet?.options.filter(o=>o.values.some(v=>current.includes(v)))??[];
+  const covered=new Set(options.flatMap(o=>o.values));
+  const loose=new Map<string,string[]>();
+  for(const value of current.filter(v=>!covered.has(v))){const text=specificationValue(value);loose.set(text,[...loose.get(text)??[],value]);}
+  for(const option of [...options,...[...loose].map(([text,values])=>({label:text,values}))])items.push({key:`attribute:${key}:${option.values[0]}`,label:`${label}: ${option.label}`,remove:toggleAttribute(query,key,option.values)});
+ }
+ if(query.availability)items.push({key:"availability",label:availabilityLabels[query.availability],remove:{availability:undefined}});
+ if(query.fits)items.push({key:"fits",label:vehicleName?`Aracına uyanlar: ${vehicleName}`:"Aracına uyanlar",remove:{fits:undefined}});
+ const oil=(query.oil??"").split(",").filter(filter=>Object.hasOwn(oilLabels,filter));
+ for(const filter of oil)items.push({key:`oil:${filter}`,label:oilLabels[filter],remove:{oil:oil.filter(other=>other!==filter).join(",")||undefined}});
+ return items;
+}
+/**
+ * What the filter panel's "Temizle" clears: its own groups. The vehicle-fit and engine-oil filters are switched on from
+ * their own boxes on the listing and come off one by one from their chips (or with "Tümünü temizle").
+ */
+export const clearPanelFilters:FilterUpdate={brand:undefined,brands:undefined,attributes:undefined,availability:undefined};
+/** Every filter a chip can remove ("Tümünü temizle"). */
+export const clearAllFilters:FilterUpdate={...clearPanelFilters,fits:undefined,oil:undefined};

@@ -5,10 +5,11 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { isClockSkewError, sendWithSkewRetry } from "./storefront-media-read";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import {
-  acquireLock, buildInboundReport, checkInboundReport, nextRetry, parseBaseline, parseRetryItems, parseSyncArgs, releaseLock, reportKey, sinceFrom,
-  statePath, summarizeParts,
+  acquireLock, buildInboundReport, checkInboundReport, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
+  sinceFrom, statePath, summarizeParts, tombstoneWarnings,
 } from "./storefront-sync-state";
 
 test("each target keeps its own watermark; the VPS keeps state.json", () => {
@@ -38,13 +39,16 @@ test("a baseline must be an ISO timestamp that is not in the future", () => {
 
 test("sync arguments are parsed strictly; a mistyped flag never becomes a real run", () => {
   const now = new Date("2026-11-14T12:00:00Z");
-  assert.deepEqual(parseSyncArgs([], now), { dryRun: false, full: false, force: false, baseline: null });
+  assert.deepEqual(parseSyncArgs([], now), { dryRun: false, full: false, force: false, baseline: null, maxDeletions: null });
   assert.deepEqual(parseSyncArgs(["--dry-run", "--baseline=2026-11-13T05:47:24Z"], now),
-    { dryRun: true, full: false, force: false, baseline: "2026-11-13T05:47:24.000Z" });
+    { dryRun: true, full: false, force: false, baseline: "2026-11-13T05:47:24.000Z", maxDeletions: null });
   assert.deepEqual(parseSyncArgs(["--baseline=2026-11-13T05:47:24Z", "--force"], now),
-    { dryRun: false, full: false, force: true, baseline: "2026-11-13T05:47:24.000Z" });
-  assert.deepEqual(parseSyncArgs(["--full"], now), { dryRun: false, full: true, force: false, baseline: null });
-  for (const argv of [["--dryrun"], ["-n"], ["--baseline", "2026-11-13T05:47:24Z"], ["--dry-run", "--dry-run"], ["dry-run"], ["--baseline="]]) {
+    { dryRun: false, full: false, force: true, baseline: "2026-11-13T05:47:24.000Z", maxDeletions: null });
+  assert.deepEqual(parseSyncArgs(["--full"], now), { dryRun: false, full: true, force: false, baseline: null, maxDeletions: null });
+  assert.deepEqual(parseSyncArgs(["--max-deletions=5000", "--dry-run"], now), { dryRun: true, full: false, force: false, baseline: null, maxDeletions: 5000 });
+  for (const argv of [["--dryrun"], ["-n"], ["--baseline", "2026-11-13T05:47:24Z"], ["--dry-run", "--dry-run"], ["dry-run"], ["--baseline="],
+    ["--max-deletions=0"], ["--max-deletions=-1"], ["--max-deletions=1e3"], ["--max-deletions=10.5"], ["--max-deletions="], ["--max-deletions", "10"],
+    ["--max-deletions=10", "--max-deletions=20"]]) {
     assert.throws(() => parseSyncArgs(argv, now), Error, argv.join(" "));
   }
   assert.throws(() => parseSyncArgs(["--full", "--baseline=2026-11-13T05:47:24Z"], now), /exclude/);
@@ -104,6 +108,7 @@ test("the dry-run summary counts every part, part-00 apart", async () => {
       snapshotAt: "2026-11-14T00:00:00Z", categories: [], labels: [], logos: [],
       images: [{ source: "trodo", category_id: 1, media_id: "c" }],
       jobs: [{ supplier_item_id: "i1", status: "complete" }, { supplier_item_id: "i9", status: "partial" }],
+      tombstones: [{ supplier_item_id: "i8", kind: "enrichment_deleted" }],
       enrichments: [{ supplier_item_id: "i1", image_id: "a" }, { supplier_item_id: "i2", image_id: "b" }, { supplier_item_id: "i3", image_id: null }],
       products: [{ supplier_item_id: "i1", category_id: 1 }, { supplier_item_id: "i3", category_id: 1 }],
       media: media.map(object => ({ id: object.id, object_key: object.key, size_bytes: object.size })),
@@ -111,12 +116,12 @@ test("the dry-run summary counts every part, part-00 apart", async () => {
     const partsDir = join(root, "parts");
     await splitStorefrontBundle(source, partsDir, 100);
     const summary = await summarizeParts(partsDir);
-    assert.deepEqual(summary.base, { part: "part-00", enrichments: 0, mappings: 0, jobs: 2, media: 1, mediaBytes: 10 });
+    assert.deepEqual(summary.base, { part: "part-00", enrichments: 0, mappings: 0, jobs: 2, tombstones: 1, media: 1, mediaBytes: 10 });
     assert.deepEqual(summary.parts, [
-      { part: "part-01", enrichments: 1, mappings: 1, jobs: 0, media: 1, mediaBytes: 60 },
-      { part: "part-02", enrichments: 2, mappings: 1, jobs: 0, media: 1, mediaBytes: 70 },
+      { part: "part-01", enrichments: 1, mappings: 1, jobs: 0, tombstones: 0, media: 1, mediaBytes: 60 },
+      { part: "part-02", enrichments: 2, mappings: 1, jobs: 0, tombstones: 0, media: 1, mediaBytes: 70 },
     ]);
-    assert.deepEqual(summary.totals, { parts: 3, enrichments: 3, mappings: 2, jobs: 2, media: 3, mediaBytes: 140 });
+    assert.deepEqual(summary.totals, { parts: 3, enrichments: 3, mappings: 2, jobs: 2, tombstones: 1, media: 3, mediaBytes: 140 });
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -176,4 +181,54 @@ test("only this bundle's report lets the watermark move", () => {
 test("the report lives in the media bucket under a private prefix keyed by the inbound prefix", () => {
   assert.equal(reportKey("storefront/current"), "internal/storefront-sync/storefront/current/report.json");
   assert.equal(reportKey("/storefront/current/"), "internal/storefront-sync/storefront/current/report.json");
+});
+
+test("a positive integer flag accepts digits only", () => {
+  assert.equal(parsePositiveInteger("1000", "--max-deletions"), 1000);
+  for (const value of ["0", "-5", "07", "1e3", "2.5", " 3", "", "99999999999999999999"]) {
+    assert.throws(() => parsePositiveInteger(value, "--max-deletions"), /--max-deletions must be a positive integer/, value);
+  }
+});
+
+test("tombstones an operations image older than #564 ignored are a warning; applied ones a note", () => {
+  const report = (totals: Record<string, number>) => ({ snapshotAt: "x", parts: 1, totals, skippedEnrichments: 0, skipped: [], truncated: false });
+  const old = tombstoneWarnings(report({ enrichments: 3 }), 4, 90);
+  assert.equal(old.warnings.length, 1);
+  assert.match(old.warnings[0], /predates #564: 4 deletions were not applied/);
+  assert.match(old.warnings[0], /release-aws/);
+  assert.match(old.warnings[0], /90 days/);
+  assert.deepEqual(old.notes, []);
+  // Nothing sent: an old image is not worth a warning.
+  assert.deepEqual(tombstoneWarnings(report({ enrichments: 3 }), 0, 90), { warnings: [], notes: [] });
+  const applied = tombstoneWarnings(report({ tombstones: 4, removedEnrichments: 2, removedEnrichmentMappings: 3, resetJobs: 2, tombstonesKept: 1, invalidatedJobsReported: 1 }), 4, 90);
+  assert.deepEqual(applied.warnings, []);
+  assert.deepEqual(applied.notes, ["Tombstones: 2 enrichments removed on the target (3 mappings, 2 jobs back to pending), 1 kept there, 1 invalidated jobs only reported."]);
+  assert.deepEqual(tombstoneWarnings(report({ tombstones: 4, removedEnrichments: 0, tombstonesKept: 4, invalidatedJobsReported: 0 }), 4, 90), { warnings: [], notes: [] });
+});
+
+test("a clock-skew error is retried and the read then succeeds", async () => {
+  let calls = 0;
+  const waits: number[] = [];
+  const skew = Object.assign(new Error("The difference between the request time and the server's time is too large."), { name: "RequestTimeTooSkewed", $metadata: { httpStatusCode: 403, attempts: 1 } });
+  const value = await sendWithSkewRetry(async () => { if (++calls === 1) throw skew; return "bytes"; }, { delaysMs: [5, 10], wait: async (ms) => { waits.push(ms); } });
+  assert.equal(value, "bytes");
+  assert.equal(calls, 2);
+  assert.deepEqual(waits, [5]);
+});
+
+test("clock skew that never clears gives up after the bounded retries", async () => {
+  let calls = 0;
+  const skew = Object.assign(new Error("skew"), { name: "RequestTimeTooSkewed" });
+  await assert.rejects(sendWithSkewRetry(async () => { calls++; throw skew; }, { delaysMs: [1, 1], wait: async () => {} }), skew);
+  assert.equal(calls, 3);
+});
+
+test("AccessDenied, NoSuchKey and NoSuchBucket fail on the first attempt", async () => {
+  for (const name of ["AccessDenied", "NoSuchKey", "NoSuchBucket"]) {
+    let calls = 0;
+    const failure = Object.assign(new Error(name), { name });
+    await assert.rejects(sendWithSkewRetry(async () => { calls++; throw failure; }, { delaysMs: [1, 1], wait: async () => {} }), failure);
+    assert.equal(calls, 1);
+    assert.equal(isClockSkewError(failure), false);
+  }
 });

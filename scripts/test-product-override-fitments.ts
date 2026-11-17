@@ -6,7 +6,8 @@ import { isolatedSchema } from "./isolated-schema";
 import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { applyFitmentOverrides, emptyFitmentOverrides, modelFallbacks, sourceVehicleKey, type FitmentOverrides, type StoreVehicle } from "../src/modules/store/product-fitment-display";
-import { fitmentHistoryValue, isFitmentChange, productFitmentHideLimit, productFitmentLimit } from "../src/modules/admin/product-fitment-fields";
+import { modelLabel, modelYearRange } from "../src/modules/admin/product-label";
+import { fitmentBatchSummary, fitmentHistoryValue, fitmentSourceLabel, isFitmentChange, productFitmentHideLimit, productFitmentLimit } from "../src/modules/admin/product-fitment-fields";
 import { fitmentLevel, type FitmentLevel } from "../src/modules/store/fitment-level";
 import type { GarageVehicle } from "../src/modules/store/garage";
 
@@ -24,6 +25,7 @@ let enrichment: typeof import("../src/modules/store/product-enrichment");
 let description: typeof import("../src/modules/store/description-fitment.server");
 let hides: typeof import("../src/modules/admin/product-fitment-hide-store");
 let copies: typeof import("../src/modules/admin/product-fitment-copy");
+let productHistory: typeof import("../src/modules/admin/product-history");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const codes: Record<string, { code: string; brand: string }> = {};
@@ -68,6 +70,21 @@ const productOf = async (key: string) => (await schema.pool.query<{ product_id: 
 const add = (productId: string, typeIds: number[]) => store.addProductFitments(schema.pool, productId, typeIds, admin);
 const remove = (productId: string, typeId: number) => store.removeProductFitment(schema.pool, productId, typeId, admin);
 const undo = (productId: string, rowId: string) => store.deleteProductFitment(schema.pool, productId, rowId, admin);
+const undoBatch = (productId: string, batchId: string) => store.undoFitmentBatch(schema.pool, productId, batchId, admin);
+/** The batch ids of a product's decisions and history rows, by vehicle type id (#816). */
+const batchesOf = async (productId: string) => {
+  const [decided, logged] = await Promise.all([
+    schema.pool.query<{ type: string; batch: string | null }>("SELECT vehicle_type_id::text AS type,batch_id::text AS batch FROM product_override_fitments WHERE product_id=$1", [productId]),
+    schema.pool.query<{ field: string; value: string | null; batch: string | null }>(`SELECT field,COALESCE(new_value,old_value) AS value,batch_id::text AS batch
+      FROM product_override_changes WHERE product_id=$1 ORDER BY id`, [productId])]);
+  return { decided: new Map(decided.rows.map(row => [row.type, row.batch])), logged: logged.rows };
+};
+/** The bulk result's batch id; fails on a refusal or a result without one. */
+const batchOf = (result: Awaited<ReturnType<typeof store.addProductFitments>>) => {
+  assert.ok(result.ok && result.batchId, JSON.stringify(result));
+  return result.batchId;
+};
+const queued = async (productId: string) => (await schema.pool.query("SELECT 1 FROM product_enrichment_shared_queue WHERE kind='p' AND id=$1", [productId])).rowCount;
 const merge = (source: string, target: string) => schema.pool.query<{ id: string | null; carried: { added: number; removed: number; hidden: number } }>(
   `WITH merged AS (SELECT product_merge($1,$2,$3) AS id) SELECT id::text, product_override_fitments_carry($1, id, $3) AS carried FROM merged`, [source, target, admin]);
 const history = async (productId: string) => (await schema.pool.query<{ field: string; old_value: string | null; new_value: string | null; reason: string | null }>(
@@ -142,6 +159,7 @@ before(async () => {
     import("../src/modules/store/fitment-sync"), import("../src/modules/store/product-enrichment"), import("../src/modules/store/description-fitment.server"),
     import("../src/modules/admin/product-fitment-hide-store")]);
   copies = await import("../src/modules/admin/product-fitment-copy");
+  productHistory = await import("../src/modules/admin/product-history");
   store = storeModule;
   fitments = fitmentsModule;
   catalog = catalogModule;
@@ -231,7 +249,7 @@ test("remove and add reach every row of the product: vehicle filter, make and mo
   assert.deepEqual(await makes("febiBasbug"), [MERCEDES]);
   assert.deepEqual(await modelFits("febiBasbug"), [10]);
   // A product without enrichment fits what the admin added, everywhere.
-  assert.deepEqual(await add(bare, [802015]), { ok: true });
+  assert.deepEqual(await add(bare, [802015]), { ok: true, added: 1 });
   assert.ok((await fitted(802015)).has(ids.bare));
   assert.deepEqual(await makes("bare"), [TOYOTA]);
   assert.deepEqual(await modelFits("bare"), [20]);
@@ -249,7 +267,7 @@ test("remove and add reach every row of the product: vehicle filter, make and mo
 
 test("an automatic type can be pinned: it stays when the source drops it", async () => {
   const febi = await productOf("febi");
-  assert.deepEqual(await add(febi, [344]), { ok: true });
+  assert.deepEqual(await add(febi, [344]), { ok: true, added: 1 });
   assert.deepEqual(await decisions(febi), [["remove", 340, false], ["add", 344, false]]);
   assert.deepEqual((await store.loadProductFitments(schema.pool, febi)).rows.map(row => row.automatic), [true, true]);
   await schema.pool.query(`UPDATE product_enrichments SET payload=jsonb_set(payload,'{vehicles}',$2::jsonb),imported_at=now() WHERE supplier_item_id=$1`,
@@ -300,7 +318,7 @@ test("refused: missing or merged product, unknown vehicle, duplicate, removed, n
   assert.deepEqual(await decisions(bare), [["add", 802015, false]]);
   // 344 left the source: only "Kaldır" takes the pin back. A pinned automatic type is removed in place.
   assert.deepEqual(await remove(febi, 344), { ok: false, reason: "not-automatic" });
-  assert.deepEqual(await add(febi, [346]), { ok: true });
+  assert.deepEqual(await add(febi, [346]), { ok: true, added: 1 });
   assert.deepEqual(await remove(febi, 346), { ok: true });
   assert.deepEqual(await decisions(febi), [["remove", 340, false], ["add", 344, false], ["remove", 346, false]]);
   assert.ok(!(await fitted(346)).has(ids.febi));
@@ -309,7 +327,7 @@ test("refused: missing or merged product, unknown vehicle, duplicate, removed, n
   await schema.pool.query(`INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode)
     SELECT $1,10000+n,'add' FROM generate_series(1,$2::int) n`, [ngk, productFitmentLimit - 1]);
   assert.deepEqual(await add(ngk, [802015, 802016]), { ok: false, reason: "limit" });
-  assert.deepEqual(await add(ngk, [802015]), { ok: true });
+  assert.deepEqual(await add(ngk, [802015]), { ok: true, added: 1 });
   assert.equal((await merge(skf, ngk)).rows[0].id, ngk);
   assert.deepEqual(await add(skf, [802015]), { ok: false, reason: "merged" });
   assert.deepEqual(await remove(skf, 340), { ok: false, reason: "merged" });
@@ -317,16 +335,22 @@ test("refused: missing or merged product, unknown vehicle, duplicate, removed, n
 
 test("a merge carries the decisions (the kept product's own row wins); undoing it takes them back", async () => {
   const lemA = await productOf("lemA"), lemB = await productOf("lemB");
-  assert.deepEqual(await add(lemA, [802015, 900]), { ok: true });
+  const lemBatch = batchOf(await add(lemA, [802015, 900]));
   // A removed type (the products have no enrichment here, so the row is written directly).
   await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode,created_at) VALUES($1,340,'remove',now()+interval '1 second')", [lemA]);
-  assert.deepEqual(await add(lemB, [900]), { ok: true });
+  assert.deepEqual(await add(lemB, [900]), { ok: true, added: 1 });
   assert.deepEqual(await makes("lemB"), [TOYOTA]);
   assert.deepEqual((await merge(lemA, lemB)).rows[0], { id: lemB, carried: { added: 1, removed: 1, hidden: 0 } });
   // Carried rows keep their time in A, so the list stays in the order the admins made the decisions.
   assert.deepEqual(await decisions(lemB), [["add", 802015, true], ["add", 900, false], ["remove", 340, true]]);
   assert.deepEqual((await history(lemB)).slice(1).map(change => [change.field, change.new_value, change.reason]), [
     ["fitment_added", "802015", "carry"], ["fitment_removed", "340", "carry"]]);
+  // A carried row and its history leave A's batch behind (#816): the kept product has no batch to undo.
+  const carried = await batchesOf(lemB);
+  assert.equal(carried.decided.get("802015"), null);
+  assert.deepEqual(carried.logged.map(row => row.batch), [null, null, null]);
+  assert.equal((await batchesOf(lemA)).decided.get("802015"), lemBatch);
+  assert.deepEqual(await undoBatch(lemB, lemBatch), { ok: false, reason: "nothing-to-undo" });
   // Both rows sell as B now and fit the carried type.
   for (const key of ["lemA", "lemB"]) assert.ok((await fitted(802015)).has(ids[key]), key);
   assert.deepEqual(await makes("lemA"), [TOYOTA]);
@@ -361,7 +385,7 @@ test("description models stand in only without enrichment and admin decisions; u
   assert.deepEqual(await level.productFitmentLevels([{ product: { id: ids.bosch, ...codes.bosch }, vehicle: null }]), ["no_vehicle"]);
   await matchesReference([{ id: ids.bosch, ...codes.bosch }, { id: ids.valeo, ...codes.valeo }]);
   // Once the admin decided the product's vehicles, the description's models no longer count.
-  assert.deepEqual(await add(await productOf("bosch"), [900]), { ok: true });
+  assert.deepEqual(await add(await productOf("bosch"), [900]), { ok: true, added: 1 });
   assert.equal(await fitLevel("bosch", 340), "mismatch");
   assert.equal(await fitLevel("bosch", 900), "guaranteed");
   // The store reads the description models through storefront_description_fits: a decided product lists none (#661).
@@ -455,7 +479,7 @@ test("hiding source rows: checked against the sources, applied by the product pa
   assert.deepEqual((await description.getDescriptionFitments(ids.mann)).map(row => row.modelId), [20, 30]);
 
   // A vehicle decision: the description's models leave the store (storefront_description_fits), the panel says so.
-  assert.deepEqual(await add(mann, [900]), { ok: true });
+  assert.deepEqual(await add(mann, [900]), { ok: true, added: 1 });
   assert.equal((await hides.loadProductFitmentSources(schema.pool, mann)).decided, true);
   assert.deepEqual(await description.getDescriptionFitments(ids.mann), []);
   assert.deepEqual(await description.getDescriptionModelIds([ids.mann]), new Map());
@@ -493,28 +517,147 @@ test("a whole model is added in one change: every type in order, one history row
   const bulk = await productOf("bulk");
   const types = Array.from({ length: 75 }, (_, index) => 20001 + index);
   await syncSharedLinks(schema.pool);
-  assert.deepEqual(await add(bulk, types), { ok: true });
+  const result = await add(bulk, types);
+  const batch = batchOf(result);
+  assert.deepEqual(result, { ok: true, added: 75, batchId: batch });
   assert.deepEqual((await decisions(bulk)).map(([mode, typeId]) => [mode, typeId]), types.map(typeId => ["add", typeId]));
   assert.deepEqual((await history(bulk)).map(change => [change.field, change.old_value, change.new_value]), types.map(typeId => ["fitment_added", null, String(typeId)]));
-  assert.equal((await schema.pool.query("SELECT 1 FROM product_enrichment_shared_queue WHERE kind='p' AND id=$1", [bulk])).rowCount, 1);
+  assert.equal(await queued(bulk), 1);
   assert.deepEqual(await makes("bulk"), [TOYOTA]);
+  // One batch id in both tables (#816); a single type is written without one.
+  const batches = await batchesOf(bulk);
+  assert.deepEqual(new Set(batches.decided.values()), new Set([batch]));
+  assert.deepEqual(new Set(batches.logged.map(row => row.batch)), new Set([batch]));
+  const single = (await batchesOf(await productOf("bare"))).decided.get("802015");
+  assert.equal(single, null);
+
+  // The history shows the 75 rows as one line, its first three types named; "Ayrıntı" lists them one by one.
+  const grouped = await productHistory.loadProductHistory(schema.pool, bulk, { page: 1 });
+  assert.deepEqual([grouped.total, grouped.page, grouped.pages, grouped.batch, grouped.batchTypes], [1, 1, 1, null, null]);
+  assert.deepEqual(grouped.entries.map(entry => [entry.field, entry.batch_id, entry.count, entry.summary, entry.sample, entry.undoable, entry.changed_by]),
+    [["fitment_added", batch, 75, null, ["20001", "20002", "20003"], 75, "Test Yönetici"]]);
+  const names = await store.fitmentVehicleNames(schema.pool, grouped.entries[0].sample);
+  assert.equal(fitmentBatchSummary(grouped.entries[0], names), "75 araç tipi: TOYOTA AURIS A01, TOYOTA AURIS A02, TOYOTA AURIS A03 ve 72 tip daha");
+  const rows = await productHistory.loadProductHistory(schema.pool, bulk, { page: 2, batch });
+  assert.deepEqual([rows.total, rows.page, rows.pages, rows.batch, rows.batchTypes, rows.entries.length], [75, 2, 2, batch, 75, 25]);
+  assert.deepEqual(rows.entries.map(entry => entry.new_value), types.slice(50).map(String));
+  assert.ok(rows.entries.every(entry => entry.field === "fitment_added" && entry.count === 1 && entry.summary === null));
+  // A page past the end shows the last one.
+  assert.equal((await productHistory.loadProductHistory(schema.pool, bulk, { page: 9, batch })).page, 2);
+
+  // "Geri al" takes the whole model back in one step and writes one batch of fitment_unadded rows.
+  assert.deepEqual(await undoBatch(bulk, batch), { ok: true, undone: 75 });
+  assert.deepEqual(await decisions(bulk), []);
+  const after = await productHistory.loadProductHistory(schema.pool, bulk, {});
+  assert.deepEqual(after.entries.map(entry => [entry.field, entry.count, entry.undoable]), [["fitment_unadded", 75, 0], ["fitment_added", 75, 0]]);
+  assert.notEqual(after.entries[0].batch_id, batch);
+  assert.deepEqual(after.entries[0].sample, ["20001", "20002", "20003"]);
+  assert.deepEqual(await makes("bulk"), []);
+  assert.deepEqual(await undoBatch(bulk, batch), { ok: false, reason: "nothing-to-undo" });
+});
+
+test("undoing a bulk add (#817): only the batch's types still added leave; removed ones and other products stay", async () => {
+  await item("undoAuto", { supplier: "dinamik", code: "FERODO 19019", brand: "FERODO", name: "FERODO BALATA" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await enrich("undoAuto", [340, 344]);
+  await rebuildFitments("undoAuto");
+  await syncSharedLinks(schema.pool);
+  const product = await productOf("undoAuto");
+  // 340 and 344 are automatic (pinned), 900 and 802016 are new.
+  const batch = batchOf(await add(product, [340, 344, 900, 802016]));
+  // Since then: 344 is left out of the store (a "remove" decision, out of the batch), 802016 taken back on its own.
+  assert.deepEqual(await remove(product, 344), { ok: true });
+  assert.equal((await batchesOf(product)).decided.get("344"), null);
+  const row802016 = (await store.loadProductFitments(schema.pool, product)).rows.find(row => row.typeId === 802016)!;
+  assert.deepEqual(await undo(product, row802016.id), { ok: true });
+  assert.deepEqual(await makes("undoAuto"), [MERCEDES, TOYOTA]);
+  assert.ok((await fitted(900)).has(ids.undoAuto));
+  assert.equal((await productHistory.loadProductHistory(schema.pool, product, {})).entries.find(entry => entry.batch_id === batch)?.undoable, 2);
+
+  // Refused: an unknown batch, another product's batch, a merged product.
+  assert.deepEqual(await undoBatch(product, randomUUID()), { ok: false, reason: "nothing-to-undo" });
+  assert.deepEqual(await undoBatch(await productOf("lemA"), batch), { ok: false, reason: "nothing-to-undo" });
+  const merged = (await schema.pool.query<{ id: string }>("SELECT id::text FROM products WHERE merged_into IS NOT NULL LIMIT 1")).rows[0].id;
+  assert.deepEqual(await undoBatch(merged, batch), { ok: false, reason: "merged" });
+  assert.deepEqual(await undoBatch(randomUUID(), batch), { ok: false, reason: "not-found" });
+
+  const logged = (await batchesOf(product)).logged.length;
+  assert.deepEqual(await undoBatch(product, batch), { ok: true, undone: 2 });
+  // 344 stays removed; 340 is automatic again, 900 leaves the store.
+  assert.deepEqual(await decisions(product), [["remove", 344, false]]);
+  assert.equal(await queued(product), 1);
+  assert.ok((await fitted(340)).has(ids.undoAuto));
+  assert.ok(!(await fitted(900)).has(ids.undoAuto));
+  assert.ok(!(await fitted(344)).has(ids.undoAuto));
+  assert.deepEqual(await makes("undoAuto"), [MERCEDES]);
+  const written = (await batchesOf(product)).logged.slice(logged);
+  assert.deepEqual(written.map(row => [row.field, row.value]), [["fitment_unadded", "340"], ["fitment_unadded", "900"]]);
+  assert.equal(new Set(written.map(row => row.batch)).size, 1);
+  assert.ok(written[0].batch && written[0].batch !== batch);
+  assert.deepEqual(await undoBatch(product, batch), { ok: false, reason: "nothing-to-undo" });
+});
+
+test("history pages (#816): 50 lines a page, newest first, a page past the end shows the last one", async () => {
+  await item("historyMany", { supplier: "basbug", code: "DAYCO 21021", brand: "DAYCO", name: "DAYCO KAYIS" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const product = await productOf("historyMany");
+  await schema.pool.query(`INSERT INTO product_override_changes(product_id,field,old_value,new_value,changed_by,changed_at)
+    SELECT $1,'name','Ad '||(n-1),'Ad '||n,$2,now()-interval '1 day'+n*interval '1 second' FROM generate_series(1,120) n`, [product, admin]);
+  const load = (page: number) => productHistory.loadProductHistory(schema.pool, product, { page });
+  const [first, second, third, beyond, before] = await Promise.all([load(1), load(2), load(3), load(9), load(0)]);
+  assert.deepEqual([first, second, third].map(page => [page.total, page.page, page.pages, page.entries.length]), [[120, 1, 3, 50], [120, 2, 3, 50], [120, 3, 3, 20]]);
+  assert.deepEqual([first.entries[0].new_value, first.entries[0].old_value, third.entries.at(-1)?.new_value], ["Ad 120", "Ad 119", "Ad 1"]);
+  assert.ok(first.entries.every(entry => entry.count === 1 && entry.batch_id === null && entry.summary === null && entry.undoable === 0));
+  assert.deepEqual([beyond.page, beyond.entries.map(entry => entry.id)], [3, third.entries.map(entry => entry.id)]);
+  assert.equal(before.page, 1);
+  assert.equal(productHistory.productHistoryPageSize, 50);
+  const empty = await productHistory.loadProductHistory(schema.pool, randomUUID(), { page: 4 });
+  assert.deepEqual([empty.total, empty.page, empty.pages, empty.entries], [0, 1, 1, []]);
+});
+
+test("a copy names the source's brand once (#869)", () => {
+  assert.equal(fitmentSourceLabel("SWAG", "SWAG 20928617"), "SWAG 20928617");
+  assert.equal(fitmentSourceLabel("BREMBO", "16016"), "BREMBO 16016");
+  assert.equal(fitmentSourceLabel("Febi", "FEBI 10010"), "FEBI 10010");
+  assert.equal(fitmentSourceLabel("İPEK", "ipek 123"), "ipek 123");
+  assert.equal(fitmentSourceLabel("SWAG", "SWAGX 1"), "SWAG SWAGX 1");
+  assert.equal(fitmentSourceLabel("", "16016"), "16016");
+  assert.equal(modelYearRange("2006-03", "2013-12"), "2006–2013");
+  assert.equal(modelYearRange("2019-01-01", null), "2019–");
+  assert.equal(modelYearRange(null, "2013-12"), null);
+  assert.equal(modelLabel("YARIS", "2006–2013"), "YARIS (2006–2013)");
+  assert.equal(modelLabel("YARIS", null), "YARIS");
+});
+
+test("bulk history text (#816): a copy shows its summary, a bulk add its count and first types", () => {
+  const names = new Map([["340", "MERCEDES-BENZ 190 (W201) 2.0"], ["344", "MERCEDES-BENZ 190 (W201) 2.3"]]);
+  assert.equal(fitmentBatchSummary({ field: "fitment_copied", count: 2, summary: "BREMBO 16016 ürününden 2 araç tipi", sample: ["340", "344"] }, names),
+    "BREMBO 16016 ürününden 2 araç tipi");
+  assert.equal(fitmentBatchSummary({ field: "fitment_added", count: 2, summary: null, sample: ["340", "7"] }, names),
+    "2 araç tipi: MERCEDES-BENZ 190 (W201) 2.0, Araç tipi 7");
+  assert.equal(fitmentBatchSummary({ field: "fitment_unadded", count: 1250, summary: null, sample: ["340", "344", "7"] }, names),
+    "1.250 araç tipi: MERCEDES-BENZ 190 (W201) 2.0, MERCEDES-BENZ 190 (W201) 2.3, Araç tipi 7 ve 1.247 tip daha");
 });
 
 test("copying fitments (#662): the source's shown types come, decided and automatic types of the target are skipped", async () => {
   const source = await productOf("copySource"), target = await productOf("copyTarget");
   // The source removes 346 and adds 900, 802016 and 802015; it hides a model-list entry. The target removed 340 and added 802015.
   assert.deepEqual(await remove(source, 346), { ok: true });
-  assert.deepEqual(await add(source, [900, 802016, 802015]), { ok: true });
+  batchOf(await add(source, [900, 802016, 802015]));
   await schema.pool.query("INSERT INTO product_override_fitment_hides(product_id,kind,source_key,label) VALUES($1,'source_model','GOLF','GOLF')", [source]);
   assert.deepEqual(await remove(target, 340), { ok: true });
-  assert.deepEqual(await add(target, [802015]), { ok: true });
+  assert.deepEqual(await add(target, [802015]), { ok: true, added: 1 });
 
+  await schema.pool.query("UPDATE vehicle_models SET date_from='2019-01-01',date_to=NULL WHERE id=20");
+  await schema.pool.query("UPDATE vehicle_models SET date_from='2006-01-01',date_to='2013-01-01' WHERE id=30");
   const preview = await copies.previewFitmentCopy(schema.pool, target, source);
   assert.ok(preview);
   assert.deepEqual({ ...preview, add: preview.add.map(vehicle => vehicle.typeId) }, {
     source: (await schema.pool.query("SELECT id::text,brand_label,code,name FROM products WHERE id=$1", [source])).rows[0],
     total: 5, add: [802016, 900], addCount: 2, skipped: { added: 1, removed: 1, automatic: 1 },
+    groups: [{ brandId: TOYOTA, brand: "TOYOTA", modelId: 20, model: "COROLLA CROSS", years: "2019–", count: 1 }, { brandId: TOYOTA, brand: "TOYOTA", modelId: 30, model: "YARIS", years: "2006–2013", count: 1 }],
     remaining: productFitmentLimit - 2, exceeds: false, targetHasDecisions: true });
+  assert.deepEqual(preview.add.map(vehicle => [vehicle.modelId, vehicle.brandId]), [[20, TOYOTA], [30, TOYOTA]]);
   const merged = (await schema.pool.query<{ id: string }>("SELECT id::text FROM products WHERE merged_into IS NOT NULL LIMIT 1")).rows[0].id;
   for (const id of [target, randomUUID(), merged]) assert.equal(await copies.previewFitmentCopy(schema.pool, target, id), null, id);
   assert.equal(await copies.previewFitmentCopy(schema.pool, merged, source), null);
@@ -524,13 +667,29 @@ test("copying fitments (#662): the source's shown types come, decided and automa
   const before = await history(target);
   assert.deepEqual(await copy(source, 3), { ok: false, reason: "stale" });
   assert.deepEqual(await history(target), before);
-  assert.deepEqual(await copy(source, 2), { ok: true, added: 2 });
+  const copied = await copy(source, 2);
+  assert.ok(copied.ok && copied.batchId);
+  assert.deepEqual(copied, { ok: true, added: 2, batchId: copied.batchId });
   const rows = (await schema.pool.query<{ vehicle_type_id: number; mode: string; carried: boolean }>(`SELECT vehicle_type_id,mode,carried_from IS NOT NULL AS carried
     FROM product_override_fitments WHERE product_id=$1 ORDER BY created_at,id`, [target])).rows;
   assert.deepEqual(rows.map(row => [row.mode, row.vehicle_type_id, row.carried]), [["remove", 340, false], ["add", 802015, false], ["add", 802016, false], ["add", 900, false]]);
-  const { brand_label: brand, code } = preview.source;
+  // The Dinamik code starts with the brand: it is named once (#869).
+  assert.deepEqual([preview.source.brand_label, preview.source.code], ["BREMBO", "BREMBO 16016"]);
+  const copiedText = "BREMBO 16016 ürününden 2 araç tipi";
   assert.deepEqual((await history(target)).slice(before.length).map(change => [change.field, change.old_value, change.new_value]), [
-    ["fitment_added", null, "802016"], ["fitment_added", null, "900"], ["fitment_copied", null, `${brand} ${code} ürününden 2 araç tipi`]]);
+    ["fitment_added", null, "802016"], ["fitment_added", null, "900"], ["fitment_copied", null, copiedText]]);
+  // The copied rows and the summary share the copy's batch (#816); the history shows them as one line.
+  const copyBatches = await batchesOf(target);
+  assert.deepEqual([copyBatches.decided.get("802016"), copyBatches.decided.get("900"), copyBatches.decided.get("802015"), copyBatches.decided.get("340")],
+    [copied.batchId, copied.batchId, null, null]);
+  assert.deepEqual(copyBatches.logged.slice(before.length).map(row => row.batch), [copied.batchId, copied.batchId, copied.batchId]);
+  const copyLine = (await productHistory.loadProductHistory(schema.pool, target, {})).entries[0];
+  assert.deepEqual([copyLine.field, copyLine.batch_id, copyLine.count, copyLine.summary, copyLine.sample, copyLine.undoable, copyLine.new_value],
+    ["fitment_copied", copied.batchId, 2, copiedText, ["802016", "900"], 2, null]);
+  assert.equal(fitmentBatchSummary(copyLine, new Map()), copiedText);
+  // "Ayrıntı" counts the copied types, not the summary row (#869).
+  const copyRows = await productHistory.loadProductHistory(schema.pool, target, { batch: copied.batchId });
+  assert.deepEqual([copyRows.total, copyRows.batchTypes, copyRows.entries.at(-1)?.field], [3, 2, "fitment_copied"]);
   // Hides and removes of the source stay there.
   assert.equal((await schema.pool.query("SELECT 1 FROM product_override_fitment_hides WHERE product_id=$1", [target])).rowCount, 0);
   assert.ok((await fitted(900)).has(ids.copyTarget));
@@ -540,15 +699,40 @@ test("copying fitments (#662): the source's shown types come, decided and automa
   assert.deepEqual(await copy(source, 2), { ok: false, reason: "nothing-to-copy" });
   assert.equal((await copies.previewFitmentCopy(schema.pool, target, source))?.addCount, 0);
 
-  // Beyond the product's remaining decisions the copy is refused whole: nothing is written.
+  // Beyond the product's remaining decisions the whole copy is refused: nothing is written.
   const full = await productOf("copyFull");
   await schema.pool.query(`INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode)
     SELECT $1,10000+n,'add' FROM generate_series(1,$2::int) n`, [full, productFitmentLimit - 1]);
   const over = await copies.previewFitmentCopy(schema.pool, full, source);
   assert.deepEqual([over?.addCount, over?.remaining, over?.exceeds], [5, 1, true]);
+  assert.deepEqual(over?.groups.map(group => [group.brand, group.model, group.count]),
+    [["MERCEDES-BENZ", "190 (W201)", 2], ["TOYOTA", "COROLLA CROSS", 2], ["TOYOTA", "YARIS", 1]]);
   assert.deepEqual(await copy(source, 5, full), { ok: false, reason: "limit" });
   assert.equal((await decisions(full)).length, productFitmentLimit - 1);
   assert.deepEqual(await history(full), []);
+
+  // A partial copy (#815): only the chosen models' new types, checked against the server's own plan.
+  const copySome = (expected: number, modelIds: number[]) => copies.copyProductFitments(schema.pool, full, source, expected, admin, modelIds);
+  assert.deepEqual(await copySome(2, [10]), { ok: false, reason: "limit" });
+  assert.deepEqual(await copySome(1, [10]), { ok: false, reason: "stale" });
+  assert.deepEqual(await copySome(1, [40]), { ok: false, reason: "stale" });
+  assert.deepEqual(await copySome(1, [999]), { ok: false, reason: "stale" });
+  assert.equal((await decisions(full)).length, productFitmentLimit - 1);
+  assert.deepEqual(await history(full), []);
+  const partial = await copySome(1, [30]);
+  assert.ok(partial.ok && partial.batchId);
+  assert.deepEqual(partial, { ok: true, added: 1, batchId: partial.batchId });
+  const fullDecisions = await decisions(full);
+  assert.equal(fullDecisions.length, productFitmentLimit);
+  assert.deepEqual(fullDecisions.at(-1), ["add", 900, false]);
+  const partialText = "BREMBO 16016 ürününden 1 araç tipi (1 model seçildi)";
+  const partialRows = (await batchesOf(full)).logged;
+  assert.deepEqual(partialRows.map(row => [row.field, row.value, row.batch]),
+    [["fitment_added", "900", partial.batchId], ["fitment_copied", partialText, partial.batchId]]);
+  // Taken back as one batch: only the copied type leaves.
+  assert.deepEqual(await undoBatch(full, partial.batchId), { ok: true, undone: 1 });
+  assert.equal((await decisions(full)).length, productFitmentLimit - 1);
+  assert.ok(!(await decisions(full)).some(([, typeId]) => typeId === 900));
 
   assert.equal(fitmentHistoryValue("fitment_copied", "BREMBO 16016 ürününden 2 araç tipi", new Map()), "BREMBO 16016 ürününden 2 araç tipi");
   assert.equal(isFitmentChange("fitment_copied"), false);

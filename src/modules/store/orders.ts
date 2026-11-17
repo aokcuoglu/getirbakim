@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { db } from '@/lib/db';
 import type { PoolClient } from 'pg';
 import { cartFor,lockCartOwner,type CartOwner,type CartItem } from './cart';
-import { refreshCheckoutSources,checkoutItems } from './supplier-checkout';
+import { refreshCheckoutSources,checkoutItems,livePriceChanges } from './supplier-checkout';
 import { supplierCheckoutMode } from './supplier-checkout-policy';
 import { servicePrice } from './catalog';
 import { paymentsEnabled,PAYMENT_WINDOW_MINUTES } from '@/modules/payments/checkout';
@@ -12,8 +12,11 @@ import { fitmentLevelResolver,productFitmentLevels } from './fitment-level.serve
 import type { FitmentLevel } from './fitment-level';
 import { buildOrderAgreement,legalTextVersion,type AgreementLine } from './order-agreement';
 import { checkoutConsentText } from './checkout-schema';
+import type { InvoiceDetails, InvoiceType } from './tr-address';
 import type { ClientEvidence } from '@/lib/client-address';
 import { CHECKOUT_LOCK_TIMEOUT } from '@/modules/suppliers/checkout-fallback';
+import { installmentFingerprint,installmentOptions,type InstallmentSettings } from '@/modules/payments/installment-plan';
+import { installmentSettings } from '@/modules/payments/installment-settings';
 
 export type CommerceOrder = {
  id:string; number:string; owner_kind:'account'|'guest'; owner_id:string;
@@ -26,7 +29,11 @@ export type CommerceOrder = {
  carrier:string|null; carrier_name:string|null; tracking_no:string|null; tracking_url:string|null; shipped_at:Date|null; delivered_at:Date|null;
  // Who cancelled and when (#607); NULL on orders cancelled before it was recorded and on open orders.
  cancelled_by:'customer'|'admin'|'expiry'|null; cancelled_at:Date|null;
-};
+ // Structured delivery address and invoice (#881); NULL on orders placed before it, whose `address` is free text.
+ delivery_province:string|null; delivery_district:string|null; delivery_address_line:string|null; delivery_postal_code:string|null;
+ // Chosen payment option (#886): 1 = single payment. total_kurus includes the fee.
+ installment_count:number; installment_fee_kurus:string;
+} & InvoiceDetails;
 export type OrderItem = {product_id:string; name:string; code:string; quantity:number; unit_price_kurus:string; pricing_snapshot:Record<string,unknown>; vehicle:GarageVehicle|null; fitment_level:FitmentLevel|null};
 
 export type ShippingRule = {fee:number;threshold:number};
@@ -34,8 +41,11 @@ export async function shippingRule(connection:Pick<PoolClient,'query'>=db):Promi
  const row=(await connection.query<{shipping_fee_kurus:number;free_shipping_threshold_kurus:number}>('SELECT shipping_fee_kurus,free_shipping_threshold_kurus FROM commerce_settings WHERE id=true')).rows[0];
  return {fee:row?.shipping_fee_kurus ?? 0,threshold:row?.free_shipping_threshold_kurus ?? 0};
 }
-export function cartQuote(items: CartItem[],discount:number,shipping:ShippingRule) {
- return createHash('sha256').update(JSON.stringify([items.map(p=>[p.id,p.quantity,p.price_kurus,discount,p.pricing_snapshot?.checkout_mode]),shipping.fee,shipping.threshold])).digest('hex');
+/** With installments on (#886) the quote also covers their settings; off, it is the same hash as before. */
+export function cartQuote(items: CartItem[],discount:number,shipping:ShippingRule,installments?:InstallmentSettings) {
+ const parts:unknown[]=[items.map(p=>[p.id,p.quantity,p.price_kurus,discount,p.pricing_snapshot?.checkout_mode]),shipping.fee,shipping.threshold];
+ if(installments?.enabled) parts.push(installmentFingerprint(installments));
+ return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 }
 export function cartTotal(items:CartItem[],discount:number) {
  return items.reduce((total,p)=>total+servicePrice(p.price_kurus ?? 0,discount)*p.quantity,0);
@@ -47,12 +57,15 @@ export function orderTotals(items:CartItem[],discount:number,shipping:ShippingRu
  const fee=items.length && !free ? shipping.fee : 0;
  return {subtotal,shipping:fee,total:subtotal+fee,freeShippingRemaining:!free && shipping.threshold>0 ? shipping.threshold-subtotal : 0};
 }
-export type CheckoutInput = {requestKey:string;quote:string;name:string;email:string;phone:string;address:string;note:string};
+/** `address` is the combined delivery text (composeAddress) the contract, operations and older orders read. */
+export type CheckoutInput = {requestKey:string;quote:string;name:string;email:string;phone:string;address:string;note:string;installments?:number;
+ province:string;district:string;addressLine:string;postalCode:string|null;
+ invoiceType:InvoiceType;invoiceCompany:string|null;invoiceTaxNo:string|null;invoiceTaxOffice:string|null};
 /**
  * `garage` is used for cart lines added before a vehicle was recorded on them. `evidence` is who accepted the
  * pre-contract documents; the consent and the order-specific copy of those documents are stored with the order.
  */
-export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:GarageVehicle|null=null,evidence:ClientEvidence={ip:null,forwardedFor:null,userAgent:null}):Promise<{id:string;error?:undefined}|{error:string;id?:undefined}> {
+export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:GarageVehicle|null=null,evidence:ClientEvidence={ip:null,forwardedFor:null,userAgent:null}):Promise<{id:string;error?:undefined;products?:undefined}|{error:string;products?:string[];id?:undefined}> {
  // Completed retries must not require another supplier call.
  const completed=(await db.query<{id:string}>('SELECT id FROM commerce_orders WHERE owner_kind=$1 AND owner_id=$2 AND request_key=$3',[owner.kind,owner.id,input.requestKey])).rows[0];
  if(completed) return {id:completed.id};
@@ -73,8 +86,11 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   // A cart changed during the API call must be quoted and checked again.
   const currentItems=(await checkoutItems(owner,client)).map(item=>item.id);
   if(JSON.stringify(currentItems)!==JSON.stringify(refreshed.items)) { await client.query('ROLLBACK'); return {error:'stock'}; }
-  // (#770) The supplier no longer knows these codes (604 / empty getStock); refused even when the zeroed stock could not be saved.
-  if(refreshed.gone.length) { await client.query('ROLLBACK'); return {error:'stock'}; }
+  // (#770) The supplier no longer knows these codes (604 / empty getStock), and (#788) the live answer said sold out but
+  // rows locked by an import kept it from being saved: refused and named, never sold on saved data. A new live cost that
+  // could not be saved is judged by the sale price below (#861).
+  const unavailable=[...refreshed.gone,...refreshed.soldOut];
+  if(unavailable.length) { await client.query('ROLLBACK'); return {error:'stock',products:unavailable}; }
   await client.query('SELECT id FROM commerce_settings FOR SHARE');
   if(await supplierCheckoutMode(client)!==refreshed.mode) { await client.query('ROLLBACK'); return {error:'price'}; }
   // Lock saleable sources while prices are checked and store stock is reserved.
@@ -99,17 +115,29 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   if(!items.length || items.some(p=>!p.available || !p.price_kurus || p.quantity>p.max_quantity || servicePrice(p.price_kurus,discount)<1)) {
    await client.query('ROLLBACK'); return {error:'stock'};
   }
+  // (#788, #861) A live cost the locked rows kept from being saved refuses its line only if the sale price would change;
+  // checked before the quote so the error names the lines. A fixed or campaign price, or a cost that rounds to the same
+  // price, is sold on saved data and marked "busy" below. Compared with the price this order charges (cartFor's), so a
+  // pull committing in between cannot make a stale price look current.
+  const repriced=await livePriceChanges(client,items.flatMap(p=>refreshed.recosted[p.id]===undefined ? [] : [{id:p.id,nf:refreshed.recosted[p.id],price:p.price_kurus}]));
+  if(repriced.length) { await client.query('ROLLBACK'); return {error:'price',products:repriced}; }
   const shipping=await shippingRule(client);
-  if(cartQuote(items,discount,shipping)!==input.quote) { await client.query('ROLLBACK'); return {error:'price'}; }
+  const installments=await installmentSettings(client);
+  if(cartQuote(items,discount,shipping,installments)!==input.quote) { await client.query('ROLLBACK'); return {error:'price'}; }
   const totals=orderTotals(items,discount,shipping);
+  // The chosen option is recomputed here (#886); a count the settings do not offer for this basket is refused.
+  const plan=installmentOptions(installments,totals.total,totals.subtotal).find(option=>option.count===(input.installments ?? 1));
+  if(!plan) { await client.query('ROLLBACK'); return {error:'price'}; }
   const vehicles=items.map(p=>parseGarageVehicle(p.vehicle) ?? garage);
   let levels=items.map((p,i)=>preloaded.level(p,vehicles[i]));
   // The cart changed after the preload: resolve again, once, for all lines.
   if(levels.includes(null)) levels=await productFitmentLevels(items.map((p,i)=>({product:p,vehicle:vehicles[i]})));
   const order=(await client.query<{id:string;number:string;created_at:Date}>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,note,total_kurus,discount_percent,
-   subtotal_kurus,shipping_kurus,status,payment_status,payment_due_at)
-   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment','awaiting',now()+make_interval(mins=>$13)) RETURNING id,number,created_at`,
-   [owner.kind,owner.id,input.requestKey,input.name,input.email,input.phone,input.address,input.note,totals.total,discount,totals.subtotal,totals.shipping,PAYMENT_WINDOW_MINUTES])).rows[0];
+   subtotal_kurus,shipping_kurus,status,payment_status,payment_due_at,installment_count,installment_fee_kurus,
+   delivery_province,delivery_district,delivery_address_line,delivery_postal_code,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office)
+   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment','awaiting',now()+make_interval(mins=>$13),$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING id,number,created_at`,
+   [owner.kind,owner.id,input.requestKey,input.name,input.email,input.phone,input.address,input.note,plan.totalKurus,discount,totals.subtotal,totals.shipping,PAYMENT_WINDOW_MINUTES,plan.count,plan.feeKurus,
+    input.province,input.district,input.addressLine,input.postalCode,input.invoiceType,input.invoiceCompany,input.invoiceTaxNo,input.invoiceTaxOffice])).rows[0];
   const lines:AgreementLine[]=[];
   for(const [i,p] of items.entries()) {
    const unitPrice=servicePrice(p.price_kurus!,discount);
@@ -122,19 +150,30 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
     await client.query('ROLLBACK'); return {error:'stock'};
    }
    // A line the supplier could not confirm live was sold on its saved data (#763): operations confirm it with the supplier.
-   const reason=refreshed.unverified[p.id];
-   const snapshot={...p.pricing_snapshot,discount_percent:discount,...(reason ? {checkout_mode:'snapshot',live_check:'failed',live_check_reason:reason} : {})};
+   // A live cost that could not be saved keeps the sale price (#861) and is recorded as live_check_nf for operations.
+   const liveNf=refreshed.recosted[p.id];
+   const reason=refreshed.unverified[p.id] ?? (liveNf!==undefined ? 'busy' : undefined);
+   const snapshot={...p.pricing_snapshot,discount_percent:discount,...(reason ? {checkout_mode:'snapshot',live_check:'failed',live_check_reason:reason} : {}),
+    ...(liveNf!==undefined ? {live_check_nf:liveNf} : {})};
    await client.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level,reserved_quantity)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,unitPrice,JSON.stringify(snapshot),vehicle ? JSON.stringify(vehicle) : null,levels[i],reserved]);
   }
   const document=buildOrderAgreement({number:order.number,createdAt:order.created_at,name:input.name,email:input.email,phone:input.phone,address:input.address,note:input.note,
-   discountPercent:discount,subtotalKurus:totals.subtotal,shippingKurus:totals.shipping,totalKurus:totals.total},lines);
+   invoice:input.invoiceType==='corporate' ? {company:input.invoiceCompany ?? '',taxNo:input.invoiceTaxNo ?? '',taxOffice:input.invoiceTaxOffice ?? ''} : null,
+   discountPercent:discount,subtotalKurus:totals.subtotal,shippingKurus:totals.shipping,totalKurus:plan.totalKurus,
+   ...(plan.count>1 ? {installmentCount:plan.count,installmentFeeKurus:plan.feeKurus} : {})},lines);
   await client.query(`INSERT INTO commerce_order_agreements(order_id,ip,forwarded_for,user_agent,consent_text,legal_version,document) VALUES($1,$2,$3,$4,$5,$6,$7)`,
    [order.id,evidence.ip,evidence.forwardedFor,evidence.userAgent,checkoutConsentText,legalTextVersion(),JSON.stringify(document)]);
   // The cart stays until TAMI confirms payment, so a declined card can be retried.
   await client.query('COMMIT'); return {id:order.id};
  } catch(error) { await client.query('ROLLBACK'); throw error; }
  finally {client.release();}
+}
+export type CheckoutDetails = Pick<CommerceOrder,'phone'|'delivery_province'|'delivery_district'|'delivery_address_line'|'delivery_postal_code'|'invoice_type'|'invoice_company'|'invoice_tax_no'|'invoice_tax_office'>;
+/** The account's latest structured checkout details (#881), to fill its next checkout; null before its first such order. Guests get none. */
+export async function lastCheckoutDetails(accountId:string):Promise<CheckoutDetails|null> {
+ return (await db.query<CheckoutDetails>(`SELECT phone,delivery_province,delivery_district,delivery_address_line,delivery_postal_code,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office
+  FROM commerce_orders WHERE owner_kind='account' AND owner_id=$1 AND delivery_province IS NOT NULL ORDER BY created_at DESC LIMIT 1`,[accountId])).rows[0] ?? null;
 }
 export const orderStatus:Record<string,string>={awaiting_payment:'Ödeme bekleniyor',pending:'Teyit bekliyor',confirmed:'Onaylandı',shipped:'Kargoya verildi',delivered:'Teslim edildi',cancelled:'İptal edildi'};
 export const paymentStatus:Record<string,string>={none:'Ödeme alınmadı',awaiting:'Ödeme bekleniyor',paid:'Ödendi',expired:'Ödeme süresi doldu',cancelled:'Ödeme alınmadı',refund_required:'İade bekliyor',refunded:'İade edildi'};

@@ -4,10 +4,11 @@ import { redirect, RedirectType } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
-import { imageLink, normalizePackage, normalizeViscosity, parseDecimal, parseManualWorkbook } from "@/modules/suppliers/manual-template";
+import { imageLink, normalizePackage, normalizeViscosity, parseManualWorkbook } from "@/modules/suppliers/manual-template";
 import { importManualDraft, listSlug, ManualImportError, manualCategories, saveManualDraft, updateManualItem } from "@/modules/suppliers/manual-import";
 import { parseManualBulkCsv } from "@/modules/suppliers/manual-bulk-csv";
-import { applyManualBulkDraft, saveManualBulkDraft } from "@/modules/suppliers/manual-bulk";
+import { readManualPriceEdit } from "@/modules/suppliers/manual-item-form";
+import { applyManualBulkDraft, manualBulkLists, saveManualBulkDraft } from "@/modules/suppliers/manual-bulk";
 
 const base = "/yonetim/tedarikciler/manuel";
 const maxFileBytes = 8 * 1024 * 1024;
@@ -67,7 +68,7 @@ export async function confirmManualDraft(form: FormData) {
 
 const bulkList = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).max(60);
 
-/** Reads a price/stock CSV of an existing list (#832) and stores it as a draft with its diff; nothing changes yet. */
+/** Reads a price/stock CSV of an existing list (#832) or of all lists (#844) and stores it as a draft with its diff; nothing changes yet. */
 export async function uploadManualBulk(form: FormData) {
   const admin = await requireAdmin();
   const list = bulkList.safeParse(form.get("liste"));
@@ -77,11 +78,12 @@ export async function uploadManualBulk(form: FormData) {
   const file = form.get("file");
   if (!(file instanceof File) || !file.size || !/\.csv$/i.test(file.name) || file.size > maxCsvBytes) fail("csv-file");
   const upload = file as File;
-  const row = (await db.query<{ list_name: string }>(`SELECT product_data->>'list_name' AS list_name FROM supplier_items
-    WHERE supplier='manual' AND list_group=$1 ORDER BY changed_at DESC LIMIT 1`, [listGroup])).rows[0];
-  if (!row) fail("list");
-  const parsed = parseManualBulkCsv(new Uint8Array(await upload.arrayBuffer()));
-  const id = await saveManualBulkDraft(db, { listGroup, listName: row.list_name, fileName: upload.name, parsed, by: admin.id });
+  // Every list: an all-lists file's Liste cells are resolved against them (#844).
+  const lists = await manualBulkLists(db);
+  const pageList = lists.find(entry => entry.group === listGroup);
+  if (!pageList) fail("list");
+  const parsed = parseManualBulkCsv(new Uint8Array(await upload.arrayBuffer()), lists);
+  const id = await saveManualBulkDraft(db, { listGroup, listName: pageList!.name, fileName: upload.name, parsed, by: admin.id });
   revalidatePath(base);
   redirect(`${base}?${new URLSearchParams({ liste: listGroup, taslak: id, uploaded: "1" })}`);
 }
@@ -124,25 +126,25 @@ export async function saveManualItem(form: FormData) {
   const id = z.uuid().safeParse(form.get("id"));
   if (!id.success) redirect(base);
   const back = `${base}/urun/${id.data}`;
-  const price = parseDecimal(text(form, "price", 40));
-  const stock = parseDecimal(text(form, "stock", 40));
   const image = imageLink(text(form, "imageUrl", 2000));
-  if (price === "invalid" || stock === "invalid" || (typeof stock === "number" && !Number.isInteger(stock)) || image.ignored)
-    redirect(`${back}?error=input`, RedirectType.replace);
-  let error = "", detail = "";
+  const priceEdit = readManualPriceEdit(key => text(form, key, 40));
+  if (priceEdit === "invalid" || image.ignored) redirect(`${back}?error=input`, RedirectType.replace);
+  let error = "", detail = "", changed = false;
   try {
-    await updateManualItem(db, id.data, {
-      price: typeof price === "number" && price > 0 ? price : null, stock: typeof stock === "number" ? stock : null,
+    ({ changed } = await updateManualItem(db, id.data, {
+      ...priceEdit,
       barcode: text(form, "barcode", 40)?.replace(/\s/g, "") ?? null, description: text(form, "description", 3000),
       viscosity: normalizeViscosity(text(form, "viscosity", 60)), package: normalizePackage(text(form, "package", 60)),
       approvals: text(form, "approvals", 1000), imageUrl: image.url,
-    }, admin.id);
+    }, admin.id));
   } catch (cause) {
     if (!(cause instanceof ManualImportError)) throw cause;
     error = cause.reason; detail = cause.detail ?? "";
   }
   revalidatePath(base);
   revalidatePath(back);
+  // Price and stock show on every storefront listing.
+  if (changed) revalidatePath("/", "layout");
   // Replace, not push: in the list's product dialog a pushed entry would make closing (router.back) land on the
   // unsaved product URL with the dialog gone.
   redirect(`${back}?${new URLSearchParams(error ? { error, ...(detail ? { detail } : {}) } : { saved: "1" })}`, RedirectType.replace);

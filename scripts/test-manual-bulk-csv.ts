@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildManualBulkCsv, decodeCsv, diffManualBulk, manualCost, parseBulkNumber, parseCsv, parseManualBulkCsv,
+import { buildManualBulkCsv, decodeCsv, diffManualBulk, manualBulkListCell, manualCost, parseBulkNumber, parseCsv, parseManualBulkCsv,
   type ManualBulkCurrent } from "../src/modules/suppliers/manual-bulk-csv";
+import { manualBulkPage, manualBulkPageSize } from "../src/modules/suppliers/manual-bulk-paging";
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 const item = (overrides: Partial<ManualBulkCurrent> = {}): ManualBulkCurrent => ({ id: "a", code: "100047", brand: "MOTUL", list: 1000, discount: 0, markup: null,
@@ -119,4 +120,79 @@ test("an exact code with a zero-padded twin in the list is applied with a warnin
   const result = diffManualBulk(parse(["MOTUL;0123;;;;9"]).rows, [item({ code: "0123" }), item({ id: "b", code: "123" })]);
   assert.equal(result.changes[0].code, "0123");
   assert.deepEqual(result.issues.map(issue => [issue.level, issue.message.replace(/;.*$/, "")]), [["warning", "Listede baştaki sıfırlar dışında aynı olan başka kod var (123)"]]);
+});
+
+test("draft table paging clamps the page to 1..pages (#840)", () => {
+  assert.deepEqual(manualBulkPage(undefined, 0), { page: 1, pages: 1, offset: 0 });
+  assert.deepEqual(manualBulkPage("2", 250), { page: 2, pages: 3, offset: manualBulkPageSize });
+  assert.deepEqual(manualBulkPage("99", 250), { page: 3, pages: 3, offset: 2 * manualBulkPageSize });
+  assert.deepEqual(manualBulkPage("0", 250), { page: 1, pages: 3, offset: 0 });
+  assert.deepEqual(manualBulkPage("-1", 250).page, 1);
+  assert.deepEqual(manualBulkPage("abc", 250).page, 1);
+  assert.equal(manualBulkPage("1", manualBulkPageSize).pages, 1);
+  assert.equal(manualBulkPage("1", manualBulkPageSize + 1).pages, 2);
+});
+
+// All-lists file (#844): a leading Liste column with the list's name keys rows by Liste + Marka + Stok Kodu.
+const lists = [{ group: "madeni-yaglar", name: "Madeni Yağlar" }, { group: "filtreler", name: "Filtre; Hava" }, { group: "formul", name: "=Formül" }];
+
+test("all-lists CSV: header, list column and the single-list output kept byte for byte (#844)", () => {
+  const rows = [{ brand: "MOTUL", code: "100047", list: 1000, discount: 0, markup: null, stock: 3 }];
+  assert.equal(buildManualBulkCsv(rows), "﻿Marka;Stok Kodu;Liste Fiyatı;İskonto Oranı;Kârlılık Oranı;Stok Adedi\r\nMOTUL;100047;1000;0;;3\r\n");
+  const combined = buildManualBulkCsv([{ ...rows[0], listName: "Filtre; Hava" }, { ...rows[0], listName: "=Formül" }], true);
+  assert.equal(combined, "﻿Liste;Marka;Stok Kodu;Liste Fiyatı;İskonto Oranı;Kârlılık Oranı;Stok Adedi\r\n\"Filtre; Hava\";MOTUL;100047;1000;0;;3\r\n'=Formül;MOTUL;100047;1000;0;;3\r\n");
+});
+
+test("all-lists CSV round trip: the same code in two lists changes nothing (#844)", () => {
+  const current = [item({ listGroup: "madeni-yaglar" }), item({ id: "b", listGroup: "filtreler", stock: 7 }), item({ id: "c", listGroup: "formul", code: "00123", list: null, cost: null })];
+  const name = (group: string) => lists.find(list => list.group === group)!.name;
+  const csv = buildManualBulkCsv(current.map(entry => ({ brand: entry.brand, code: entry.code, list: entry.list, discount: entry.discount, markup: entry.markup,
+    stock: entry.stock, listName: name(entry.listGroup!) })), true);
+  const parsed = parseManualBulkCsv(utf8(csv), lists);
+  assert.equal(parsed.combined, true);
+  assert.deepEqual(parsed.issues, []);
+  assert.deepEqual(parsed.rows.map(row => [row.listGroup, row.listName]), [["madeni-yaglar", "Madeni Yağlar"], ["filtreler", "Filtre; Hava"], ["formul", "=Formül"]]);
+  assert.deepEqual(diffManualBulk(parsed.rows, current), { changes: [], unchanged: 3, issues: [] });
+});
+
+test("all-lists CSV: unknown or empty list is a row error; names match regardless of case, slugs too (#844)", () => {
+  const read = (lines: string[]) => parseManualBulkCsv(utf8([`Liste;${header}`, ...lines].join("\r\n")), lists);
+  const unknown = read(["Yok Liste;MOTUL;100047;;;;1", ";MOTUL;100047;;;;1"]);
+  assert.deepEqual(unknown.rows, []);
+  assert.deepEqual(errors(unknown), ["Liste bulunamadı: \"Yok Liste\"", "Liste boş"]);
+  assert.deepEqual(unknown.issues.map(issue => [issue.sheet, issue.field]), [["Yok Liste", null], ["", null]]);
+  const found = read(["madeni yağlar;MOTUL;1;;;;1", "MADENİ YAĞLAR;MOTUL;2;;;;1", "filtreler;MOTUL;3;;;;1"]);
+  assert.deepEqual(found.issues, []);
+  assert.deepEqual(found.rows.map(row => row.listGroup), ["madeni-yaglar", "madeni-yaglar", "filtreler"]);
+  // Row errors name the list.
+  assert.deepEqual(read(["Madeni Yağlar;MOTUL;1;abc;;;"]).issues.map(issue => issue.sheet), ["Madeni Yağlar"]);
+  // Without the Liste column the file is a single list's.
+  const single = parse(["MOTUL;100047;;;;1"]);
+  assert.equal(single.combined, false);
+  assert.equal(single.rows[0].listGroup, undefined);
+});
+
+test("all-lists diff: a change goes only to the named list's item; a repeated item is an error (#844)", () => {
+  const current = [item({ listGroup: "madeni-yaglar" }), item({ id: "b", listGroup: "filtreler" })];
+  const read = (lines: string[]) => parseManualBulkCsv(utf8([`Liste;${header}`, ...lines].join("\r\n")), lists).rows;
+  const result = diffManualBulk(read(["\"Filtre; Hava\";MOTUL;100047;;;;9"]), current);
+  assert.deepEqual(result.issues, []);
+  assert.deepEqual(result.changes, [{ id: "b", row: 2, code: "100047", brand: "MOTUL", listName: "Filtre; Hava", stock: [3, 9] }]);
+  const repeated = diffManualBulk(read(["filtreler;MOTUL;100047;;;;9", "filtreler;MOTUL;100047;;;;8", "madeni-yaglar;MOTUL;999;;;;1"]), current);
+  assert.deepEqual(errors(repeated), ["Ürün dosyada tekrar ediyor (ilk: satır 2)", "Marka + Stok Kodu bu listede yok"]);
+  assert.deepEqual(repeated.issues.map(issue => issue.sheet), ["Filtre; Hava", "Madeni Yağlar"]);
+  // A single-list draft's rows belong to the default list.
+  assert.equal(diffManualBulk(parse(["MOTUL;100047;;;;9"]).rows, current, "madeni-yaglar").changes[0].id, "a");
+});
+
+test("all-lists CSV: a name shared by two lists asks for the slug (#844)", () => {
+  const twins = [{ group: "yaglar-1", name: "Yağlar" }, { group: "yaglar-2", name: "yağlar" }];
+  const read = (cell: string) => parseManualBulkCsv(utf8([`Liste;${header}`, `${cell};MOTUL;1;;;;1`].join("\r\n")), twins);
+  assert.deepEqual(errors(read("Yağlar")), ["Liste adı birden fazla listeyle eşleşiyor; liste kodunu (slug) yazın."]);
+  assert.deepEqual(read("yaglar-2").rows.map(row => row.listGroup), ["yaglar-2"]);
+});
+
+test("all-lists download writes the slug for a name shared by several lists (#844)", () => {
+  const twins = [{ group: "yaglar-1", name: "Yağlar" }, { group: "yaglar-2", name: "yağlar" }, { group: "filtre", name: "Filtre" }];
+  assert.deepEqual(twins.map(list => manualBulkListCell(twins, list)), ["yaglar-1", "yaglar-2", "Filtre"]);
 });

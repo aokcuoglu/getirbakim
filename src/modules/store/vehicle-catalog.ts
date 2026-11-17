@@ -116,4 +116,13 @@ export function vehicleBrandSlug(name: string) {
 }
 
 // Storefront order for the popular make grids (home page, /arac-markalari).
-export const popularVehicleMakes=["VOLKSWAGEN","AUDI","TOYOTA","BMW","OPEL","VOLVO","SKODA","RENAULT","MERCEDES-BENZ","PEUGEOT","FORD","KIA","HYUNDAI","SUBARU","MAZDA","CITROËN","NISSAN","LEXUS","HONDA","SEAT","FIAT","SUZUKI","JEEP","LAND ROVER","MITSUBISHI","CHEVROLET","DACIA","CHRYSLER","ALFA ROMEO","JAGUAR","PORSCHE","TESLA","DODGE","BENTLEY","MINI","CUPRA"];
+export const turkeyPopularMakes=["FIAT","RENAULT","VOLKSWAGEN","TOYOTA","HYUNDAI","FORD","DACIA","OPEL","PEUGEOT","CITROËN"];
+export const popularVehicleMakes=[...new Set([...turkeyPopularMakes,"VOLKSWAGEN","AUDI","TOYOTA","BMW","OPEL","VOLVO","SKODA","RENAULT","MERCEDES-BENZ","PEUGEOT","FORD","KIA","HYUNDAI","SUBARU","MAZDA","CITROËN","NISSAN","LEXUS","HONDA","SEAT","FIAT","SUZUKI","JEEP","LAND ROVER","MITSUBISHI","CHEVROLET","DACIA","CHRYSLER","ALFA ROMEO","JAGUAR","PORSCHE","TESLA","DODGE","BENTLEY","MINI","CUPRA"])];
+
+const makeKey=(name:string)=>normalizeVehicleSearch(name);
+// Brand picker split: the most common makes in Türkiye first (in that order), the rest in the order received.
+export function splitPopularBrands<T extends {name:string}>(brands:T[]):{popular:T[];others:T[]}{
+  const rank=new Map(turkeyPopularMakes.map((name,index)=>[makeKey(name),index]));
+  const popular=brands.filter(brand=>rank.has(makeKey(brand.name))).sort((a,b)=>rank.get(makeKey(a.name))!-rank.get(makeKey(b.name))!);
+  return {popular,others:brands.filter(brand=>!rank.has(makeKey(brand.name)))};
+}

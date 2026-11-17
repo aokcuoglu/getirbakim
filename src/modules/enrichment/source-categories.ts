@@ -27,15 +27,23 @@ export async function importCategoryTree(pool:Pool,raw:unknown){
   await client.query('COMMIT');return {categories:nodes.length,roots:nodes.filter(n=>n.parentId===null).map(n=>({id:n.id,name:n.name}))};
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
+export type SourceCategory={source:'trodo';id:number;name:string;path:{id:number;name:string}[]};
+export type CategoryNode={category_id:number;name:string;path_ids:number[]};
+/** The Trodo tree by id, for building category references with their full path. */
+export async function categoryNodes(db:Pool|PoolClient){
+ const nodes=(await db.query<CategoryNode>('SELECT category_id,name,path_ids FROM source_categories WHERE source=$1',['trodo'])).rows;
+ return new Map(nodes.map(n=>[n.category_id,n]));
+}
+/** A category as enrichment payloads store it; a category missing from the tree keeps its source name and no path. */
+export function categoryRef(byId:Map<number,CategoryNode>,id:number,fallbackName?:string):SourceCategory{
+ const node=byId.get(id),name=node?.name??fallbackName;
+ if(!name)throw Error('Unknown source category without name: '+id);
+ return {source:'trodo',id,name,path:node?node.path_ids.map(i=>{const ancestor=byId.get(i);if(!ancestor)throw Error('Missing category ancestor: '+i);return {id:i,name:ancestor.name};}):[]};
+}
 export async function productCategories(db:Pool|PoolClient,product:SourceProduct){
  const refs=new Map((product.category??[]).map(c=>[Number(c.category_id),c.name]));
  const ids=[...new Set([...(product.category_ids??[]).map(Number),...refs.keys()])];
  if(!ids.length)return [];
- const nodes=(await db.query<{category_id:number;name:string;path_ids:number[]}>('SELECT category_id,name,path_ids FROM source_categories WHERE source=$1',['trodo'])).rows;
- const byId=new Map(nodes.map(n=>[n.category_id,n]));
- return ids.map(id=>{
-  const node=byId.get(id),name=node?.name??refs.get(id);
-  if(!name)throw Error('Unknown source category without name: '+id);
-  return {source:'trodo' as const,id,name,path:node?node.path_ids.map(i=>{const ancestor=byId.get(i);if(!ancestor)throw Error('Missing category ancestor: '+i);return {id:i,name:ancestor.name};}):[]};
- });
+ const byId=await categoryNodes(db);
+ return ids.map(id=>categoryRef(byId,id,refs.get(id)));
 }

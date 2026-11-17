@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 import { Pool } from "pg";
 import { dinamikCost } from "../src/modules/suppliers/dinamik-pricing";
 import { DinamikImportError, discoverDinamikBrands, importDinamik, prepareDinamikImport, refreshDinamikItems, type DinamikFetch } from "../src/modules/suppliers/dinamik-import";
+import { supplierHealth, supplierSyncAlerts } from "../src/modules/suppliers/health";
 
 // Shapes copied from live getStockList / getPriceList responses (FEBI, 2026-10-11).
 const stockRow = (code: string, fiyat = 106.09, varyok1 = "YOK") => ({ $type: "customer", varyok1, varyok2: "YOK", varyok3: "YOK", varyok4: "VAR", kaporta: "YOK", varyokAll: "VAR",
@@ -160,13 +161,43 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
     lists.FEBI = { stock: [], prices: [] };
     await assert.rejects(importDinamik(pool, { brand: "FEBI" }, fake), (error: unknown) => error instanceof DinamikImportError && error.reason === "rejected");
     assert.equal((await pool.query("SELECT count(*)::int AS n FROM supplier_items WHERE list_group='FEBI' AND presence='present'")).rows[0].n, 9);
-    const scope = (await pool.query("SELECT consecutive_failures,next_run_at>now() AS backoff FROM supplier_sync_scopes WHERE list_group='FEBI'")).rows[0];
-    assert.equal(scope.consecutive_failures, 1); assert.equal(scope.backoff, true);
+    // (#910) The supplier's list does not change within hours: the daily brand waits for its next 04:00 run instead of
+    // backing off, still counts as failing in health, and alarms only on the tick that rejected it.
+    const nextDaily = "(((now() AT TIME ZONE 'Europe/Istanbul')::date+1)+daily_at) AT TIME ZONE 'Europe/Istanbul'";
+    const scope = (await pool.query(`SELECT consecutive_failures,next_run_at=${nextDaily} AS daily FROM supplier_sync_scopes WHERE list_group='FEBI'`)).rows[0];
+    assert.equal(scope.consecutive_failures, 1); assert.equal(scope.daily, true);
+    assert.ok((await supplierHealth(pool, undefined, false)).issues.some(issue => issue.list_group === "FEBI"));
+    assert.ok(!(await supplierSyncAlerts(pool)).some(alert => alert.list_group === "FEBI"));
+    // A deferred rejection whose data went stale alarms again.
+    await pool.query("UPDATE supplier_sync_scopes SET last_success_at=last_success_at-interval '3 days' WHERE list_group='FEBI'");
+    assert.ok((await supplierSyncAlerts(pool)).some(alert => alert.list_group === "FEBI"));
+    await pool.query("UPDATE supplier_sync_scopes SET last_success_at=last_success_at+interval '3 days' WHERE list_group='FEBI'");
+    // Once the deferred daily run is due, the failing brand alarms like any other.
+    await pool.query("UPDATE supplier_sync_scopes SET next_run_at=now()-interval '1 minute' WHERE list_group='FEBI'");
+    assert.ok((await supplierSyncAlerts(pool)).some(alert => alert.list_group === "FEBI"));
 
-    // Upstream failure: run recorded as failed without the error body.
+    // Upstream failure: run recorded as failed without the error body; it backs off and alarms every tick.
     const broken: DinamikFetch = async () => { throw new DinamikImportError("upstream", "getStockList HTTP 500"); };
     await assert.rejects(importDinamik(pool, { brand: "SCHADEK" }, broken), (error: unknown) => error instanceof DinamikImportError && error.reason === "upstream");
     assert.equal((await pool.query("SELECT error_reason FROM supplier_imports WHERE list_group='SCHADEK' ORDER BY started_at DESC LIMIT 1")).rows[0].error_reason, "upstream: getStockList: HTTP 500");
+    const backoff = (await pool.query("SELECT consecutive_failures,next_run_at>now()+interval '14 minutes' AND next_run_at<=now()+interval '15 minutes' AS backoff FROM supplier_sync_scopes WHERE list_group='SCHADEK'")).rows[0];
+    assert.equal(backoff.consecutive_failures, 1); assert.equal(backoff.backoff, true);
+    assert.ok((await supplierSyncAlerts(pool)).some(alert => alert.list_group === "SCHADEK"));
+
+    // A rejection of a brand on a shorter interval keeps the backoff (second failure: 30 minutes).
+    await pool.query("UPDATE supplier_sync_scopes SET interval_minutes=720 WHERE list_group='FEBI'");
+    await assert.rejects(importDinamik(pool, { brand: "FEBI" }, fake), (error: unknown) => error instanceof DinamikImportError && error.reason === "rejected");
+    const shorter = (await pool.query("SELECT consecutive_failures,next_run_at>now()+interval '29 minutes' AND next_run_at<=now()+interval '30 minutes' AS backoff FROM supplier_sync_scopes WHERE list_group='FEBI'")).rows[0];
+    assert.equal(shorter.consecutive_failures, 2); assert.equal(shorter.backoff, true);
+    assert.ok((await supplierSyncAlerts(pool)).some(alert => alert.list_group === "FEBI"));
+    await pool.query("UPDATE supplier_sync_scopes SET interval_minutes=1440 WHERE list_group='FEBI'");
+
+    // A reviewed anomaly takes the success path: counter reset, next nightly run, no alarm.
+    const accepted = await importDinamik(pool, { brand: "FEBI", acceptAnomaly: "Confirmed empty brand list, ticket 910" }, fake);
+    assert.equal(accepted.uniqueProducts, 0);
+    const reviewed = (await pool.query(`SELECT consecutive_failures,next_run_at=${nextDaily.replaceAll("now()", "last_success_at")} AS daily FROM supplier_sync_scopes WHERE list_group='FEBI'`)).rows[0];
+    assert.equal(reviewed.consecutive_failures, 0); assert.equal(reviewed.daily, true);
+    assert.ok(!(await supplierSyncAlerts(pool)).some(alert => alert.list_group === "FEBI"));
 
     // Success resets the failure counter and schedules the next nightly run.
     lists.FEBI = { stock: [stockRow("FEBI 1")], prices: Array.from({ length: 9 }, (_, i) => priceRow(`FEBI ${i + 1}`)) };
@@ -243,9 +274,22 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
         (body as { STOK_KODU: string }).STOK_KODU === "FEBI 1" ? [] : [stockRow("FEBI 2", 140, "VAR")]);
       assert.ok(Date.now() - started < 2_000, "the checkout does not wait on the import");
       assert.deepEqual(locked.gone, [ids["FEBI 1"]]);
-      assert.deepEqual(locked.failed, { [ids["FEBI 2"]]: "busy" });
+      // (#788) FEBI 2 is saved at 130 (nf 67.93): a live 140 is a new cost reported with its live nf; the order judges it
+      // by the sale price (#861).
+      assert.deepEqual(locked.recosted, { [ids["FEBI 2"]]: dinamikCost(140, 0) });
+      assert.deepEqual(locked.soldOut, []);
+      assert.deepEqual(locked.failed, {});
       assert.equal(locked.refreshed, 0);
       assert.equal(locked.changed, 0);
+      // The same price live: sold on saved data, marked busy.
+      const same = await refreshDinamikItems(pool, [ids["FEBI 2"]], async () => [stockRow("FEBI 2", 130, "VAR")]);
+      assert.deepEqual(same.failed, { [ids["FEBI 2"]]: "busy" });
+      assert.deepEqual([same.soldOut, same.recosted, same.gone], [[], {}, []]);
+      // Every region YOK live: sold out, refused, whatever the price.
+      const allYok = { ...stockRow("FEBI 2", 130), varyok4: "YOK", varyokAll: "YOK" };
+      const soldOut = await refreshDinamikItems(pool, [ids["FEBI 2"]], async () => [allYok]);
+      assert.deepEqual(soldOut.soldOut, [ids["FEBI 2"]]);
+      assert.deepEqual([soldOut.recosted, soldOut.gone, soldOut.failed], [{}, [], {}]);
     } finally {
       await holder.query("ROLLBACK").catch(() => undefined);
       holder.release();
@@ -257,6 +301,55 @@ test("PostgreSQL: discovery, import lifecycle, empty brands and anomaly rejectio
     assert.deepEqual(written.gone, [ids["FEBI 1"]]);
     assert.equal(written.refreshed, 1);
     assert.equal((await rowsOf())[0].stock_data.stok, 0);
+
+    // A gone code writes only its stock, merged onto the locked row: a brand import that committed while getStock was
+    // answering keeps its product and price data, and an empty answer is not a sighting (last_seen_at stays).
+    await pool.query("UPDATE supplier_items SET last_seen_at=now()-interval '1 day' WHERE code='FEBI 1'");
+    const seenBefore = (await pool.query("SELECT last_seen_at FROM supplier_items WHERE code='FEBI 1'")).rows[0].last_seen_at;
+    const concurrent = await refreshDinamikItems(pool, [ids["FEBI 1"]], async () => {
+      await pool.query(`UPDATE supplier_items SET product_data=product_data||'{"ac":"YENI AD"}',price_data=price_data||'{"nf":99.5}',
+        stock_data=stock_data||'{"stok":1,"varyok1":"VAR","varyokAll":"VAR"}' WHERE code='FEBI 1'`);
+      return [];
+    });
+    assert.deepEqual(concurrent.gone, [ids["FEBI 1"]]);
+    const afterPull = (await pool.query("SELECT product_data,price_data,stock_data,last_seen_at FROM supplier_items WHERE code='FEBI 1'")).rows[0];
+    assert.equal(afterPull.product_data.ac, "YENI AD");
+    assert.equal(afterPull.price_data.nf, 99.5);
+    assert.equal(afterPull.stock_data.stok, 0);
+    for (const key of ["varyok1", "varyok2", "varyok3", "varyok4", "varyokAll", "kaporta"]) assert.equal(afterPull.stock_data[key], "YOK", key);
+    assert.equal(afterPull.last_seen_at.getTime(), seenBefore.getTime());
+
+    // (#789) One budget for the whole check: lines not answered in time are "timeout", later slices are not asked,
+    // nothing is written, and an answer arriving after its request's time is dropped.
+    const budgetCodes = ["FEBI 3", "FEBI 4", "FEBI 5", "FEBI 6", "FEBI 7", "FEBI 8"];
+    const budgetIds = (await pool.query<{ id: string }>("SELECT id FROM supplier_items WHERE code=ANY($1) ORDER BY id", [budgetCodes])).rows.map(row => row.id);
+    const budgetRows = async () => (await pool.query("SELECT code,price_data,stock_data,changed_at FROM supplier_items WHERE code=ANY($1) ORDER BY code", [budgetCodes])).rows;
+    const budgetBefore = await budgetRows();
+    const budgetChanges = await changeCount();
+    let slowRequests = 0, lateAnswers = 0;
+    // An injected clock keeps the deadline logic off the wall clock: the first request pushes it far past the budget.
+    let clock = 0;
+    const slow: DinamikFetch = async (_path, body) => {
+      slowRequests++;
+      clock = 10_000;
+      await new Promise(resolve => setTimeout(resolve, 300));
+      lateAnswers++;
+      return [stockRow((body as { STOK_KODU: string }).STOK_KODU, 999, "VAR")];
+    };
+    const budgetStarted = Date.now();
+    const overBudget = await refreshDinamikItems(pool, budgetIds, slow, { budgetMs: 100, now: () => clock });
+    assert.ok(Date.now() - budgetStarted < 1_000, "the budget bounds the check");
+    assert.deepEqual(overBudget.failed, Object.fromEntries(budgetIds.map(id => [id, "timeout"])));
+    assert.equal(slowRequests, 4, "the second slice is not asked once the budget is spent");
+    assert.equal(overBudget.refreshed, 0);
+    await new Promise(resolve => setTimeout(resolve, 400));
+    assert.equal(lateAnswers, 4, "the late answers did arrive");
+    assert.deepEqual(await budgetRows(), budgetBefore);
+    assert.equal(await changeCount(), budgetChanges);
+    slowRequests = 0;
+    const noBudget = await refreshDinamikItems(pool, budgetIds, slow, { budgetMs: 0, now: () => clock });
+    assert.equal(slowRequests, 0);
+    assert.deepEqual(Object.values(noBudget.failed), budgetIds.map(() => "timeout"));
 
     // A brand list that shrinks past the guard disables nothing.
     brands = ["FEBI"];

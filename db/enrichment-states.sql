@@ -202,6 +202,44 @@ DROP TRIGGER IF EXISTS enrichment_states_enrichments_delete ON product_enrichmen
 CREATE TRIGGER enrichment_states_enrichments_delete AFTER DELETE ON product_enrichments
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
 
+-- A hidden supplier OEM drops enrichment matched through it (enrichment_valid_data, #865): an override write queues
+-- the item's product only when hide_oem is (or was) set; price, name and visibility edits leave the queue alone. The
+-- projection (product_overrides_project) deletes and reinserts a product's rows, so it may be queued twice (idempotent).
+CREATE OR REPLACE FUNCTION enrichment_product_states_queue_hidden_oem() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF TG_OP='INSERT' THEN
+  INSERT INTO enrichment_product_state_queue(product_id) SELECT DISTINCT ps.product_id FROM new_rows n
+   JOIN product_sources ps ON ps.supplier_item_id=n.supplier_item_id WHERE n.hide_oem ON CONFLICT DO NOTHING;
+ ELSIF TG_OP='DELETE' THEN
+  INSERT INTO enrichment_product_state_queue(product_id) SELECT DISTINCT ps.product_id FROM old_rows o
+   JOIN product_sources ps ON ps.supplier_item_id=o.supplier_item_id WHERE o.hide_oem ON CONFLICT DO NOTHING;
+ ELSE
+  INSERT INTO enrichment_product_state_queue(product_id) SELECT DISTINCT ps.product_id FROM new_rows n
+   JOIN old_rows o ON o.supplier_item_id=n.supplier_item_id JOIN product_sources ps ON ps.supplier_item_id=n.supplier_item_id
+   WHERE o.hide_oem IS DISTINCT FROM n.hide_oem ON CONFLICT DO NOTHING;
+ END IF;
+ RETURN NULL;
+END $$;
+-- Created only when missing, so each setup does not recreate them; a changed body needs only the CREATE OR REPLACE
+-- above, a changed trigger definition a DROP TRIGGER here first. The run that adds them also queues the products
+-- already hidden, whose state rows predate the rule.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='commerce_item_overrides'::regclass AND tgname='enrichment_states_overrides_insert') THEN
+  CREATE TRIGGER enrichment_states_overrides_insert AFTER INSERT ON commerce_item_overrides
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_hidden_oem();
+  INSERT INTO enrichment_product_state_queue(product_id)
+   SELECT DISTINCT product_id FROM commerce_item_overrides WHERE hide_oem ON CONFLICT DO NOTHING;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='commerce_item_overrides'::regclass AND tgname='enrichment_states_overrides_update') THEN
+  CREATE TRIGGER enrichment_states_overrides_update AFTER UPDATE ON commerce_item_overrides
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_hidden_oem();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='commerce_item_overrides'::regclass AND tgname='enrichment_states_overrides_delete') THEN
+  CREATE TRIGGER enrichment_states_overrides_delete AFTER DELETE ON commerce_item_overrides
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_hidden_oem();
+ END IF;
+END $$;
+
 -- Deleted supplier rows cascade into product_sources, whose own trigger queues the product.
 DROP TRIGGER IF EXISTS enrichment_states_supplier_items_update ON supplier_items;
 CREATE TRIGGER enrichment_states_supplier_items_update AFTER UPDATE OF code, product_data, presence ON supplier_items FOR EACH ROW

@@ -23,7 +23,7 @@ node --import tsx --test scripts/test-product-enrichment.ts
 
 `storage:setup` yerel gizli değişkenleri üretir ve `.env.local` dosyasına S3 bağlantısını ekler. Tekrar çalıştırıldığında aynı kimlik bilgilerini ve volume’u kullanır. Mevcut OrbStack konteynerlerini kaldırmaz. `createbuckets` tek seferlik kurulum işidir; MinIO sürekli çalışır.
 
-`enrichment:prepare` şemayı oluşturur ve `supplier_items` kayıtlarını takip tablosuna ekler. Tekrar çalıştırılması tamamlanan kayıtları sıfırlamaz. Bu **kuyruk hazırlığıdır**; bekleyen ürünlerin kaynaktan çekildiği anlamına gelmez. Yeni tedarikçi kayıtları geldikten sonra yeniden çalıştırılabilir.
+`enrichment:prepare` şemayı oluşturur ve `supplier_items` kayıtlarını takip tablosuna ekler. Tekrar çalıştırılması tamamlanan kayıtları sıfırlamaz. Şema dosyalarını 5 sn'lik `lock_timeout` ile uygular: her tablo kilidi için en fazla 5 sn bekler, alamazsa "schema is busy" hatasıyla çıkar; sonra yeniden deneyin. Alınan şema kilitleri yalnız şema dosyalarının transaction'ı boyunca tutulur; kuyruğu dolduran ve tüm katalog görünümünü okuyan (onlarca saniye) adım ayrı transaction'da, yalnız satır kilitleriyle koşar. İki `prepare` aynı anda koşmaz (oturum düzeyinde advisory lock). İşçiler (`enrichment:continue`, spareto, parts2world, `vehicles:oil-trodo`) açılışta şema uygulamaz, yalnız tabloların var olduğunu kilitsiz denetler; eksikse `npm run db:setup` ister (#921). Önceden her açılıştaki `ALTER TABLE`, uzun bir okumanın arkasında beklerken `/yonetim/urun-verileri` okumalarını da sıraya sokuyordu. Bu **kuyruk hazırlığıdır**; bekleyen ürünlerin kaynaktan çekildiği anlamına gelmez. Yeni tedarikçi kayıtları geldikten sonra yeniden çalıştırılabilir.
 
 ## Veriler
 
@@ -172,10 +172,11 @@ Filigran yalnızca canlı paketi uyguladıktan sonra ilerler; başarısız bir �
 `STOREFRONT_SYNC_TARGET` (`.env.local`) `vps` (varsayılan, yukarıdaki SSH akışı) ya da `aws` olur. `aws` hedefinde parçalar S3 inbound kovasına yüklenir ve tek bir ECS görevi `scripts/import-storefront-inbound.ts`'i çalıştırır: tüm parçaların kuru çalıştırması → uygulama → `rebuild-product-fitments.ts --items` (yalnız paketin yazdığı ürünler ve eski `matcher_version`'lı satırlar; liste görevin geçici dizinindeki `fitment-items.json`'dadır, `report.json`'a girmez) → paylaşılan bağlantı kuyruğunun boşaltılması (`product_enrichment_shared_sync()`) → `enrichment-states.ts sync`.
 
 - **Filigran hedef başına ayrıdır:** `vps` → `.local/storefront-sync/state.json` (eskisi gibi), `aws` → `.local/storefront-sync/state.aws.json`. Durum dosyası `snapshotAt`, `syncedAt`, `target`, `since`, gönderilen sayıları ve gerekiyorsa `retry` listesini tutar. Yollar komutun çalıştığı dizine göredir; başka bir worktree'den çalıştırma ana checkout'un filigranına dokunmaz.
-- **Bayraklar katıdır:** yalnız `--dry-run`, `--full`, `--force` ve `--baseline=<ISO>` kabul edilir; başka her argüman (`--dryrun`, `-n`, boşlukla yazılmış `--baseline 2026-…`) hata verir, gerçek çalıştırmaya dönüşmez.
+- **Bayraklar katıdır:** yalnız `--dry-run`, `--full`, `--force`, `--max-deletions=<n>` ve `--baseline=<ISO>` kabul edilir; başka her argüman (`--dryrun`, `-n`, boşlukla yazılmış `--baseline 2026-…`) hata verir, gerçek çalıştırmaya dönüşmez.
 - **`--baseline=<ISO>`:** `--dry-run` olmadan hedefin son anlık görüntüsünü `<ISO>` olarak kaydeder (`baseline: true`) ve çıkar; kilit altında çalışır, var olan durumu yalnızca `--force` ile ezer (varsa `retry` listesi korunur). Zaman dilimi açık yazılmalıdır (`Z` ya da `±hh:mm`); dilimsiz, gelecekteki ya da geçersiz zaman reddedilir. `--dry-run` ile birlikte yalnızca o çalıştırmanın filigranıdır, hiçbir şey yazılmaz.
 - **`aws` hedefinde durum dosyası yoksa** çalıştırma durur: `--baseline=<ISO>` ile son aktarılan anı kaydedin ya da bilinçli olarak her şeyi göndermek için `--full` kullanın. `vps` hedefi eskisi gibi filigransız ilk çalıştırmada her şeyi gönderir.
 - **`--full`:** filigranı yok sayıp tüm zenginleştirmeleri gönderir; `--baseline` ile birlikte kullanılamaz.
+- **`--max-deletions=<n>`:** içe aktarmanın yerel silmeler için canlıda silebileceği en fazla zenginleştirme sayısı (varsayılan 1000, pozitif tam sayı); aşağıdaki bölüme bakın.
 - **`--dry-run`:** dışa aktarır ve parçalara böler, hedefi, `since`, `snapshotAt`, satır sayılarını, MB'ı ve parça dökümünü (part-00 ayrı) JSON olarak yazar. Aktarım yapmaz, filigran yazmaz, kilit almaz; AWS profili ya da SSH ayarı istemez. Yerel veritabanı ve yerel nesne deposu (MinIO) okunur.
 - **Kilit:** gerçek çalıştırmalar ve `--baseline` `.local/storefront-sync/sync.lock` (`{pid, startedAt, target}`) alır; launchd ve elle çalıştırma çakışmaz. Kilidi tutan süreç ölmüşse ya da kilit 24 saatten eskiyse devralınır; `startedAt` geçersizse devralınmaz, hata verilir; Ctrl-C/SIGTERM kilidi bırakır. Hata mesajı kilit dosyasının yolunu verir; o süreç bir aktarım değilse dosyayı silin.
 - **Atlanan zenginleştirmeler (`retry`):** tedarikçi ürünü canlıda henüz yoksa (canlı ve yerel tedarikçi senkronları ayrı) zenginleştirme atlanır. İçe aktarma görevi uygulamadan sonra medya kovasına (`S3_BUCKET`, herkese kapalı) `internal/storefront-sync/storefront/current/report.json` anahtarıyla toplam sayıları ve atlanan ürünlerin anahtarlarını (`id`, `supplier`, `company`, `list_group`, `warehouse`, `code`) yazar. Yerel aktarım görev başarıyla bitince raporu indirir, atlanan varsa uyarır ve anahtarları `state.aws.json`'da `retry` olarak saklar. Sonraki dışa aktarım bu ürünlerin zenginleştirmelerini filigrandan bağımsız olarak yeniden gönderir (`export-storefront-bundle.ts --retry-file`, kimlik ya da doğal anahtar eşleşmesi); liste her çalıştırmada yeni raporun atlanan kümesiyle değiştirilir ve 10.000 anahtarla sınırlıdır (sayı her zaman tam raporlanır). Raporu yazamayan görev başarısız biter (veri yazılmış olsa da). Görev başarıyla bitmiş ama rapor yoksa (eski operations imajı) ya da rapordaki `snapshotAt` bu paketinkiyle uyuşmuyorsa aktarım iki durumu ayrı mesajla belirterek hata verir; filigran ve `retry` listesi ilerlemez, sonraki çalıştırma aynı veriyi yeniden gönderir (içe aktarma idempotent). Atlanan anahtar sayısı 10.000'i aşarsa uyarı, ürünler canlıya geldiğinde `--full` ile çalıştırmayı önerir. Rapor her çalıştırmada üzerine yazılır.
@@ -210,12 +211,23 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
 | `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş); yalnız değişen satırlar yazılır, değişmeyenin `derived_at`'i korunur (#798) — bu sürümden eski bir release ile AWS'de derive koşulmaz |
 | `vehicle_type_oil_specs` | Aktarılmaz | `data/vehicle_type_oil_specs.csv` + `npm run db:vehicle-oils` |
 | `vehicle_type_trodo_oils`, `product_enrichment_sources` | Aktarılmaz | Yerel kalır |
+| `product_enrichment_tombstones` (#564) | Pakette, son 90 gün her seferinde, part-00'da | Yerelde silinen/geçersizleşen zenginleştirmelerin günlüğü; canlıda yalnız `enrichment_deleted` uygulanır, `job_invalidated` sayılır. Tablo her ortamda kendi silmelerini de günlükler; 90 günden eski satırlar dışa aktarımdan ve `--apply`'dan sonra silinir |
 
 İş durumlarının doğruluk kaynağı yereldir: paketteki ürünlerin canlıdaki `product_enrichment_jobs` durumu (ve `supplier_code`, `supplier_brand`, `candidate_url`) paketteki değerle ezilir; canlıda o ürün için başka bir durum yazılmışsa korunmaz.
 
 `enrichment-categories.ts backfill` `imported_at`'i yalnız kategoriler gerçekten değiştiğinde ilerletir; böylece bir backfill tüm Trodo zenginleştirmelerini yeniden göndermez.
 
-Aktarılmayan değişiklikler: yerelde silinen zenginleştirmeler canlıda kalır; `complete`/`partial`'dan başka bir duruma düşen iş paketten çıkar ama canlıdaki satırı değişmez.
+#### Silinen/geçersizleşen zenginleştirmeler (#564)
+
+Aktarım `imported_at`'e göre çalıştığı için yerelde silinen bir satır kendiliğinden canlıya ulaşmaz. `db/enrichment-tombstones.sql` bu yüzden yereldeki her `product_enrichments` silmesini (`enrichment_deleted`) ve `complete`/`partial`'dan çıkan ya da silinen her işi (`job_invalidated`) tedarikçi ürününün doğal anahtarıyla (`supplier`, `company`, `list_group`, `warehouse`, `code`) `product_enrichment_tombstones` tablosuna yazar. Tedarikçi ürünü silindiği için zincirleme silinen satırlar günlüğe girmez: ürünün varlığı canlıdaki tedarikçi senkronunun işidir.
+
+- **Dışa aktarım:** her pakette son 90 günün günlüğü filigrandan bağımsız olarak `manifest.tombstones` olarak gider (`--full` ile tamamı); ürün başına en son satır, türü ürün yerelde hâlâ varsa bugünkü durumundan (zenginleştirme yok → `enrichment_deleted`, zenginleştirme var ama iş geçerli değil → `job_invalidated`); tedarikçi ürünü yerelde artık yoksa günlükteki tür korunur (zenginleştirmesi zincirleme gitmiştir, canlıda tekrarlanacak bir silme değildir). Yeniden zenginleştirilip geçerli olan ürünler (aynı doğal anahtarla yeni bir kimlik altında olsa da) ve `manual-upload` zenginleştirmeleri gönderilmez. Anahtarlar günlükten `manifest.items`'a eklenir; yerelde artık olmayan ürün de canlıda bulunur. Satırlar yalnız part-00'da taşınır; `job_invalidated` satırları canlı onları uygulamadığı sürece gönderilmez, yalnız sayıları (`manifest.invalidatedJobs`) gider. 90 günden eski günlük satırları yalnız gerçek çalıştırmada dışa aktarımdan sonra silinir (`--prune`); `--dry-run` yerel veritabanına yazmaz.
+- **Canlıda (`import-storefront-bundle.ts`):** iş durumlarından ve zenginleştirmelerden önce, aynı işlemde: `enrichment_deleted` ürünün canlıdaki zenginleştirmesini siler; `manual-upload` olanlar ve silmeden sonra (`imported_at > recorded_at`) yazılmış olanlar kalır. Araç uyumları (`product_vehicle_fitments`) ve paylaşılan bağlantılar zincirleme gider, paylaşılan bağlantı kuyruğu içe aktarma sonunda boşaltılır; paketin kaynaklarının (`trodo` vb.) kategori eşlemeleri silinir, diğer kaynaklarınki kalır; `complete`/`partial` iş `pending` olur (`last_error`: `Enrichment removed locally (storefront sync #564)`). Tekrar uygulamak zararsızdır. Rapor `tombstones`, `removedEnrichments`, `removedEnrichmentMappings`, `resetJobs`, `invalidatedJobsReported` ve `tombstonesKept` (ürün canlıda yok, zenginleştirmesi yok, elle yüklenmiş ya da daha yeni) sayılarını taşır; yerel aktarım uygulanan silmeleri bir satırla yazar.
+- **`job_invalidated` şimdilik yalnız raporlanır:** yerelde iş, tedarikçi ürününün OEM'i ya da kodu değişince de `pending`'e döner (`enqueueProductSources`); bu kimlikler canlıda farklı olabilir ve oradaki doğru zenginleştirme gizlenirdi. Uygulamak için `scripts/storefront-bundle-tombstones.ts`'teki `INVALIDATE_JOBS_ON_TARGET`'ı `true` yapın: satırlar pakete girer ve canlıdaki iş, geçersizleşmeden sonra güncellenmemişse ve elle yüklenmiş değilse `pending` olur (yerel ve canlı imajın ikisi de yeni değerle olmalı).
+- **Silme sınırı:** paket `maxDeletions` (sync `--max-deletions=<n>`, varsayılan 1000) taşır. Canlıda bundan fazla zenginleştirme silinecekse içe aktarma kuru çalıştırmada da durur; görev başarısız biter, hiçbir parça uygulanmaz, filigran ilerlemez. Sınır aşılırsa önce yerel silmelerin bilinçli olduğunu doğrulayın (`SELECT kind, count(*) FROM product_enrichment_tombstones WHERE recorded_at > now() - interval '90 days' GROUP BY 1`), sonra `npm run storefront:sync -- --max-deletions=<n>` ile tekrar çalıştırın; istenmeyen silmeleri önce yerelde geri alın (yeniden zenginleştirilen ürün gönderilmez).
+- **Eski operations imajı:** `manifest.tombstones`'u yok sayar ve raporunda `tombstones` sayısı olmaz; aktarım bunu hata değil uyarı olarak yazar ("operations image predates #564 … run release-aws"), filigran ilerler. Silmeler 90 gün boyunca her çalıştırmada yeniden gönderilir; `release-aws`'den sonraki ilk aktarım uygular.
+- **Yayın sırası:** PR merge → yerel şemayı kullanıcı ana checkout'tan `npm run db:setup` ile günceller (tetikleyiciler ancak o andan sonraki silmeleri günlükler) → `release-aws` (canlıda `db:setup` aynı tabloyu kurar, yeni içe aktarma imajı silmeleri uygular). Sıra bozulursa veri kaybolmaz: günlük yoksa gönderilecek bir şey yoktur, eski imaj yalnız uyarı üretir.
+- **Kapsam dışı:** silinen zenginleştirmelerin görselleri canlıda `npm run media:gc`'ye kalır (#597/#649). Tetikleyiciler kurulmadan önceki silmeler (#564 öncesi) günlükte yoktur ve kurtarılmaz; ayrı bir iş olarak ele alınmalıdır.
 
 ### Tarayıcı bağlantısı
 
@@ -267,6 +279,191 @@ mevcut mağaza kategorilerinin üzerine yazılmaz; çeviri ve mağaza kategorisi
 mevcut ürün URL'sine ait ham API önbelleğinden kategori verilerini tamamlar; ürün ve
 tedarikçi kimliğini yeniden doğrular, görselleri veya zenginleştirme durumunu değiştirmez.
 07 Ekim aktarımında 203 kayıt tamamlandı; 62 eski kayıtta bu API önbelleği bulunmadı.
+
+## Parça tipi → kategori sözlüğü (#851)
+
+Kendi kategorisi olmayan kaynaklar (spareto, parts2world) kategoriyi parça tipinden alır. Trodo ürün adı
+"<parça tipi> <marka> <parça no>" biçimindedir (ör. "Sensor, coolant temperature AUTLOG AS2078"); diğer kaynaklar aynı
+TecDoc tip adlarını kullanır. `product_type_categories` tablosu her tip slug'ı (`sensor-coolant-temperature`) için
+Trodo kategorilerini, kaç üründe görüldüğünü (`support`) ve tipin toplam ürün sayısını (`total`) tutar. Sözlük Trodo ham
+ürün API önbelleği ile kategorili Trodo zenginleştirmelerinden ürün slug'ı başına tekil olarak öğrenilir; ağaçta olmayan
+kategori kimlikleri atlanır, ad değil `category_id` kullanılır.
+
+- Eşikler: bir kategori, tipin ürünlerinin en az 0,8'inde ve en az 2 üründe görülmüşse tipe yazılır; eşiği geçen her
+  kategori yazılır (bir tip birden çok kategoride olabilir). Değerler `type-categories.ts` içindeki
+  `DEFAULT_MIN_SHARE` / `DEFAULT_MIN_SUPPORT` sabitleridir; işçi ve yazan backfill yalnız bunları kullanır. Farklı eşikler
+  (`--min-share`, `--min-support`) yalnız `--dry-run` ile denenebilir; aksi halde yazılan kategoriler ürünler yeniden
+  toplandıkça işçinin eşikleriyle geri değişirdi. Eşik değişecekse sabit değiştirilir.
+- Eşleştirme yalnız tam tip adıyla yapılır; "-1" gibi sayısal kuyruk bir kez atılarak, sonra yalnız son kelimenin
+  tekil/çoğul farkı (`v-ribbed-belts` → `v-ribbed-belt`; `glass`, `gas`, `chassis` gibi kelimeler hariç) denenir. Farklı
+  kategorilere düşen çoğul katlamaları belirsiz sayılır. Sonek/alt dize eşleşmesi yoktur
+  (`water-pump-and-timing-belt-set` bir `timing-belt-set` değildir; bu tip artık küratörlü listede
+  `water-pump-timing-belt-set`'in takma adıdır, aşağıdaki #860 bölümü).
+- spareto işçisi sözlüğü açılışta yükler ve ürün sayfasındaki parça adının kategorilerini `payload.categories` içine
+  yazar. Her yazım `product_source_categories`'i yeniden kurduğu için bu şarttır; kategorisiz yeniden toplama backfill'i silerdi.
+  Tablo yoksa (şema güncellenmemiş yerel DB) veya sözlük boşsa işçi bir satır uyarı basar ve kategorisiz devam eder.
+- Mağaza sözleşmesi değişmez: kategoriler yine `source: 'trodo'` olarak saklanır. Liste/kategori sayfası, kategori
+  ağacı sayıları ve sitemap otomatik kategoriyi yalnız `exact_part` / donör-OEM eşleşmelerinde kullanır; ilgili ürün
+  önerileri (`related-suggestions.ts`) ve bakım seti (`maintenance-kit.server.ts`) eşleşme türüne bakmaz.
+
+Komutlar (`npm run enrichment:categories -- <komut>`):
+
+- `learn-types` sözlüğü yeniden öğrenir (tek işlemde `source='trodo'` satırlarını siler ve yeniden yazar).
+- `backfill-types --source spareto [--dry-run [--min-share N] [--min-support N]]` mevcut spareto zenginleştirmelerine
+  URL'deki tipten kategori yazar; sayıları ve en sık 50 eşleşmeyen tipi basar. `--dry-run` yalnız okur. Kategorisi
+  değişmeyen satıra dokunulmaz; `imported_at` yalnız değişenlerde ilerler, kaynak URL'si değişmiş satır atlanır. URL'sinden
+  tip çıkarılamayan satır (`noType`) yalnız sayılır, işçinin sayfa adından yazdığı kategoriler korunur.
+- `report-types [--min-share] [--min-support]` eşiklerde sözlük boyutunu ve dışarıda kalan tipleri gösterir.
+- `report-unmapped`, `check-aliases`: küratörlü liste (#860, aşağıda). `backfill-types` çıktısındaki `curated`, küratörlü
+  listeyle eşlenen kayıtları sayar.
+
+Backfill sonrası yeniden kurma gerekmez: kategori listeleri `product_source_categories`'i canlı okur (yalnız süreç içi
+10 dakikalık önbellek var). 16 Kasım 2026 yerel ölçümü: 14.177 Trodo ürününden 660 tip; spareto'nun 36.332 kaydının
+`--min-support 2` ile %92,7'si (33.691), `--min-support 1` ile %94,0'ı (34.165) kategori alıyor; çoğul katlama 15 kayıt ekliyor.
+URL'den tip çıkarılamayan 86 kayıt vardı (A.B.S. `ab-s-…`, CONTINENTAL CTAM `contitech-…`); #860'tan beri bu ön ekler
+ve MAHLE'nin `mahle-original-…` ön eki `sparetoTypeFromUrl`'de markaya özel tanımlıdır.
+
+**İlk backfill'in storefront:sync maliyeti (tek seferlik):** ilk yazımda ~33,7 bin spareto kaydının `imported_at`'i
+ilerler ve sonraki `storefront:sync` bunları yeniden gönderir:
+
+- Dışa aktarım bu kayıtların görsellerini de pakete koyar (`export-storefront-bundle.ts`, `media` sorgusu); içe
+  aktarım her görsel için S3'e PUT + doğrulama GET yapar (`import-storefront-bundle.ts`). Yerelde spareto görselleri
+  ≈24 bin nesne / 2,6 GB, yani 100 MB'lık ≈25 parça.
+- AWS, yazılan kayıtlar için araç uyumluluklarını yeniden kurar (`import-storefront-inbound.ts`, `rebuild-product-fitments`).
+- IndexNow parmak izleri ve sitemap `lastmod` değerleri bu ürünlerde ilerler.
+- Ana sayfadaki "son zenginleştirilen" rafı (`home.ts`, `imported_at DESC`) geçici olarak son backfill partisinden dolar.
+
+Backfill'i bilinçli bir zamanda (gece sync'inden önce değil, izlenebilecek bir aralıkta) koşun ve önce
+`npm run storefront:sync -- --dry-run` parça özetine (yalnız dışa aktarım + bölme, aktarım yok) bakın.
+
+Canlıda komut gerekmez: `db:setup` boş tabloyu kurar, kategoriler `imported_at` ilerlediği için `storefront:sync` ile
+taşınır. Yerelde birleştirmeden sonra: `learn-types` → `backfill-types --source spareto --dry-run` →
+`backfill-types --source spareto` → tekrar koşunca `changed: 0`. spareto işçisi tabloyu okuduğu için yerel şema
+(`db:setup` veya ilk `enrichment:categories` komutu) işçiden önce güncellenmelidir.
+
+### Küratörlü tip eşlemeleri (#860)
+
+Öğrenilmiş sözlüğün eşleyemediği uzun kuyruk (eşanlamlılar ve Trodo'nun hiç görmediği tipler) elle tutulan, sürümlü bir
+listeyle kapatılır: `src/modules/enrichment/type-aliases.ts` (`typeAliases`). Her kayıt bir tip slug'ı ve kısa bir
+gerekçe notu (`note`) taşır; iki tür vardır:
+
+- **Takma ad** (`alias`): aynı parçanın başka adı; hedef, eşikleri geçmiş öğrenilmiş bir tiptir ve kategorilerini ondan
+  alır (`oxygen-sensor` → `lambda-sensor`, `multi-belt` → `v-ribbed-belt`).
+- **Elle kategori** (`categories`): Trodo'nun hiç görmediği tip için `{id, name}` listesi; `name`
+  `source_categories.name` ile birebir aynı olmalıdır (yanlış kimlik böyle yakalanır).
+
+**Arama sırası** (`typeMatch` / `categoriesForType`): `override: true` kayıtlar → öğrenilmiş tam tip → sayısal kuyruk
+("-1") atılmış öğrenilmiş tip → küratörlü liste (tam, sonra kuyruksuz) → öğrenilmiş çoğul katlama → boş. Öğrenilmiş veri
+kazanır: öğrenilmiş bir tiple çakışan küratörlü kayıt `override` olmadıkça uygulanmaz ve `redundant` olarak raporlanır
+(hata değil). Başlangıç listesinde `override` yoktur. Sonek eşleşmesi burada da yoktur.
+
+**Doğrulama** (hepsi birlikte listelenir): bilinmeyen kategori kimliği, kimlik/ad uyuşmazlığı, hedefi öğrenilmiş tip
+olmayan takma ad, takma ad zinciri (hedef de küratörlü), yinelenen tip, slug olmayan tip, boş kategori listesi.
+`check-aliases`, `learn-types` (yeniden öğrenmeden sonra; öğrenme geri alınmaz) ve `backfill-types` katıdır: sorun
+varsa hata/çıkış kodu 1. İstisna: `backfill-types --dry-run` özel `--min-share`/`--min-support` ile koşarsa takma ad
+hedefi o eşikte kabul edilmemiş olabilir; o zaman uyarıp kaydı atlar (varsayılan eşikler katı kalır). İşçiler (spareto, parts2world) liste yüzünden durmaz: tek satırlık bir uyarıyla sorunlu
+kayıtları atlar, geçerlileri uygular. Öğrenilmiş sözlük boşsa liste de uygulanmaz.
+
+Komutlar (`npm run enrichment:categories -- <komut>`; ikisi de yalnız okur ve şema dosyasını uygulamaz):
+
+- `report-unmapped [--source spareto|parts2world|all] [--limit 80] [--json]`: kaynak başına `rows`, `noType`,
+  `learned`, `curated`, `unmapped` (spareto kayıtları, parts2world kayıtları ve saklanan parts2world makale adları
+  — `parts2worldArticles`); sonra en sık eşleşmeyen tipler (spareto / parts2world kayıt / makale sayısı) ve en çok 3
+  öneri: kelime örtüşmesi (Jaccard; son kelime tekilleştirilir, `and/for/of/the/system/kit/set` atılır) en yüksek
+  öğrenilmiş tipler ve Trodo yaprak kategorileri. Öneriler yalnız yardımcıdır.
+- `check-aliases`: listeyi öğrenilmiş sözlüğe ve ağaca karşı doğrular; `applied`, `redundant`, `resolvedWithout`
+  (öğrenilmiş tipin sayısal kuyruk ya da çoğul katlamayla zaten eşlediği kayıtlar; bilgi, hata değil) ve `problems` basar.
+
+**Listeyi büyütme:** `report-unmapped` → tipin gerçekten tek anlamlı olduğunu (Trodo'da aynı parçanın kategorisi, birkaç
+ürün adı) kontrol edin → kaydı notuyla ekleyin → `check-aliases` → `npm run test:type-categories` →
+`backfill-types --dry-run` ile `curated` sayısına bakın. Belirsiz tipler ve Trodo'nun kendi kategorisi olmayan setler
+eşlenmeden kalır. Bilinçli olarak eklenmeyenler (tip adı altında karışık ürünler var):
+
+- `fuse`: Trodo ağacında sigorta kategorisi yok. `bulb`: ampulün yeri (far, sinyal, sis…) adda yok, kategori belirsiz.
+- `sway-bar-suspension`: 5 üründen bir kısmı DELPHI salıncak ve burçları, stabilizatör değil.
+- `bulb-fog-light`: 14 üründen en az 6'sı H4 far ampulü.
+- `mounting-stabilizer-coupling-rod`: 18 üründen ~11'i stabilizatör burcu, yalnız 4'ü gerçek z-rot.
+- `trim-protection-strip-wing`: 6 üründen 4'ü FAST basamak/tampon parçası.
+
+**Ölçüm (17 Kasım 2026, yerel, yalnız okuma):** başlangıç listesi 93 kayıt (33 takma ad, 60 elle). spareto 36.908
+kaydın eşlenen payı %92,7 → %96,4 (öğrenilmiş 34.225 → 34.406, küratörlü 1.188; eşleşmeyen 2.596 → 1.312; tipsiz
+87 → 2, marka ön ekleri sayesinde). parts2world tipli kayıtlarda %91,5 → %96,4 (1.437 tipli kaydın 70'i küratörlü),
+saklanan makale adlarında %90,2 → %95,9 (1.091 makalenin 62'si; `fetch-types` sürerken).
+
+**Operasyon:** canlıda komut yok (liste koddadır). Yerelde birleştirmeden sonra, son sürüme kadar bekletmeli:
+`check-aliases` → `backfill-types --source spareto --hold` ve `backfill-types --source parts2world --hold`; yayın
+`release-categories` ile (yukarıdaki #855 bölümü).
+
+### parts2world parça tipleri (#852)
+
+parts2world `article-info` yanıtı makalenin TecDoc genel makale adını `data.spareInfo` içinde verir ("V-ribbed Belt",
+"Control/Trailing Arm, wheel suspension"; her zaman İngilizce). Bu ad `typeSlug` ile aynı sözlükten eşlenir.
+
+- `parts2world_article_types` (yalnız yerel, mağaza paketine girmez): makale başına (`article_id`, `link_id`) yanıtın
+  markası, parça numarası ve `spare_info`'su. Satırı olmayan makale henüz sorulmamış demektir (tablo aynı zamanda
+  kaldığı yeri tutar). `spare_info` NULL = yanıt geldi ama ad/makale yok; `--retry` olmadan yeniden sorulmaz.
+- `collect` her yanıtta adı tabloya yazar (kimlik kontrolünden önce; makalenin kendi bilgisi) ve sözlükteki
+  kategorileri pakete koyar (`· kategori N`). Her yazım `product_source_categories`'i yeniden kurduğu için şarttır.
+  Tablo yoksa bir kez uyarır ve o koşu boyunca adları saklamadan devam eder.
+- `enrichment:parts2world -- fetch-types [--limit N] [--retry]` eski kayıtların makalelerini yeniden sorar ve
+  yalnız adı saklar; zenginleştirmeye, görsele, deneme kayıtlarına dokunmaz. Varsayılan 50 makale, marka kümelenmesin
+  diye karma sırayla. Sonunda `remainingBefore`, `named`, `noArticle`, `errors`, `rowsCovered` (adı alınan makalelerin
+  kayıt sayısı), `mapped`/`mappedShare` (sözlükte karşılığı olanlar; kimlik kontrolünden önceki tahmin) ve sözlükte
+  olmayan en sık 50 adı basar. 404, boş yanıt (`noArticle`) ve şemaya uymayan yanıt (`invalid`) kalıcı sayılır ve adsız
+  satır olarak yazılır (`--retry` yeniden sorar); adı olan satır adsız bir yanıtla ezilmez. HTTP 403/429/503'te durur
+  (çıkış kodu 2); ağ/5xx gibi geçici hatalar yazılmaz, sonraki koşuda yeniden denenir; art arda 10 geçici hatada koşu
+  durur (çıkış kodu 2), iki kilit saatlerce tutulmaz.
+- Kategorileri `enrichment:categories -- backfill-types --source parts2world [--dry-run]` yazar. Tip yalnız saklanan
+  yanıtın markası ve parça numarası kaydın `manufacturer` / `manufacturer_part_number`'ı ile aynıysa sayılır; değilse
+  veya ad yoksa satır `noType` olarak sayılır ve dokunulmaz. OE numarasıyla eşleşen kayıtlar (`oem_reference`, ≈%45)
+  tipi OE'yi listeleyen makaleden alır (aynı OE = aynı parça tipi); bu, #422'deki "diğer makalenin verisi atılır"
+  kuralına bilinçli bir istisnadır.
+
+**Kilit ve sıra.** `fetch-types`, `collect` ile aynı iki kilidi alır (`parts2world-collect` denemeli,
+`parts2world-source` bekleyerek); aynı host'a iki istemci yapısal olarak açılamaz. Bekleyen işçi o an koşuyorsa
+`{"skipped":"another parts2world run is going"}` ile çıkar. Sırayı almak için işçiyi durdurun:
+`launchctl kill SIGTERM gui/$(id -u)/com.getirbakim.parts2world-pending` ve `fetch-types`'ı hemen ardından başlatın:
+işçi `StartInterval 1800` ile tetiklenir (KeepAlive yok), yani 30 dakika içinde kilidi yeniden alır. `fetch-types`
+kilidi tuttukça launchd tetiklemeleri atlanır, bitince işçi kendiliğinden devam eder. `dev` çekildikten sonra koşan işçi yeniden başlayana dek
+eski kodla (kategorisiz) çalışır; durdurup bıraktığınızda yeni kodla açılır.
+
+**Operasyon sırası:** `fetch-types --limit 50` (örneklem, `mappedShare`'e bakın) → `backfill-types --source parts2world
+--dry-run` → uzun koşu (≈34 bin tekil makale, istek başına ≥3 sn ile ≥28 saat) ya da gece dilimleri
+(`fetch-types --limit 8000`) → `backfill-types --source parts2world`. Backfill tekrar koşunca `changed: 0` olmalı.
+
+**storefront:sync maliyeti:** ilk yazımda ≈41–42 bin parts2world kaydının `imported_at`'i ilerler; ≈35 bin görsel
+≈0,95 GB, 100 MB'lık ≈10 parça. AWS bu kayıtların araç uyumluluklarını yeniden kurar (parts2world kayıtları çok araçlı
+olduğu için spareto'dan ağır); IndexNow/`lastmod` ve ana sayfa rafı da etkilenir. Yazan backfill'i 04:30 sync'inin hemen
+öncesinde ve spareto backfill'i ile aynı gece koşmayın; önce `npm run storefront:sync -- --dry-run` özetine bakın.
+
+### Bekletmeli yazım: `--hold` ve `release-categories` (#855)
+
+Yukarıdaki iki backfill (spareto ≈33,7 bin, parts2world ≈41–42 bin kayıt) ilk yazımda `imported_at`'i ilerletir ve
+sonraki `storefront:sync` hepsini görselleriyle birlikte gönderir. Bunu zamanlamak için:
+
+1. `backfill-types --source spareto|parts2world --hold [--dry-run]`: aynı kategori ve `product_source_categories` yazımı,
+   ama `imported_at` yerinde kalır (çıktıda `hold: true`); sync henüz bir şey taşımaz.
+2. Yerelde kontrol edin (kategori listeleri, `changed: 0` ile tekrar koşu).
+3. `release-categories --source spareto|parts2world|all [--dry-run]`: kaynağın kategorili (`payload->'categories'` boş
+   değil) tüm kayıtlarının `imported_at`'ini şimdiye çeker; 5000'er satırlık ayrı işlemlerle çalışır, `--dry-run`
+   yalnız sayar. Çıktı `{source, rows, dryRun}`. Kaynağın işçilerin zaten gönderdiği kategorili kayıtlarını da yeniden gönderir
+   (zararsız, içe aktarım idempotent); kategorisiz satırlara ve diğer kaynaklara dokunmaz. Kaynak URL ön ekleri
+   `backfill-types` ile ortaktır (`typedSourceUrlPrefix`).
+4. `npm run storefront:sync -- --dry-run` ile parça özetine bakın, sonra sync'in taşımasına izin verin.
+
+Tek seferlik maliyet yukarıdaki "storefront:sync maliyeti" bölümleriyle aynıdır: kayıt sayısı (≈75 bin), görseller
+(spareto ≈2,6 GB, parts2world ≈0,95 GB), AWS'de araç uyumluluklarının yeniden kurulması, IndexNow/`lastmod` ve ana sayfa
+rafı.
+
+**`--hold` sınırları.** Hold yalnız `imported_at`'i sync filtresinin (durum `snapshotAt` eksi 1 saatlik `OVERLAP_MS`)
+altında kalan satırları bekletir; son sync'ten beri değişmiş satırlar (yerelde şu an ≈9,6 bin, işçilerle artıyor)
+kategorileriyle bir sonraki sync'te yine de gider. Tam bekletme için önce bir sync koşup işçileri durdurmak gerekir.
+Bekletilen satırın `imported_at`'ini başka yeniden yazan akışlar da ilerletir (işçinin yeniden toplaması,
+`image-fill.ts`, `otoparcasan-enrichment.ts`, `manual-import.ts`); ayrıca sync'in yeniden deneme listesi
+(`--retry-file`) satırları `imported_at`'e bakmadan gönderir.
+
+**Release tekrarı.** `release-categories`'i yeniden koşmak tüm kümeyi yeniden gönderir (maliyet baştan ödenir). Release
+ile yazan bir `backfill-types`'ı aynı anda koşmayın (kilitlenme olabilir; işlem temiz geri alınır, yeniden koşmak güvenli).
 
 ## Trodo kategori ağacı ve görselleri
 
@@ -331,7 +528,9 @@ Trodo kapsamı `products` tablosundaki, başka ürüne yönlendirilmemiş ana ü
 
 Mevcut koşular `product_id` ile ilişkilendirilir. Başlangıçta gereksiz bekleyen tekrarlar ve kapsam dışı teklifler `skipped` olur; eski sonuçlar, checkpoint ve kaynak önbelleği silinmez. Durdur/devam komutu aynıdır: `npm run enrichment:continue -- 4318 1000 --chrome`. Yeni partiler her ana ürünü bir kez seçer. Eski `product_enrichment_jobs` tablosu tedarikçi düzeyindeki geçmişi saklar; operasyonun toplam/kalan sayacı olarak kullanılmaz.
 
-`/yonetim/urun-verileri` görünümü doğrudan okumaz: `db/enrichment-states.sql` her ana ürün için `enrichment_product_catalog` satırının materyalize hâlini `enrichment_product_states` tablosunda tutar (durum, temsilci tedarikçi satırı, OEM/araç/özellik sayıları, sıralama anahtarı). `products`, `product_sources`, `supplier_items` (kod, ürün verisi, varlık), `product_enrichment_jobs` ve `product_enrichments` üzerindeki trigger'lar etkilenen ürün kimliklerini `enrichment_product_state_queue` kuyruğuna yazar; `brands`/`supplier_brands` eşleme değişikliği tam yeniden kurma işareti bırakır. Sayfa her okumadan önce `enrichment_product_states_sync()` ile kuyruğu boşaltır: küçük kuyruk nokta nokta yenilenir, 20 binden büyük kuyruk veya işaret tüm tabloyu yeniden kurar (yerelde ~5 sn; görünüm için nested loop kapatılır, aksi hâlde dakikalar sürer). `npm run db:setup` ve `npm run enrichment:prepare` şemayı uygular; ilk kurulumda `db:setup` şema işleminden sonra bir senkron koşar. `npm run enrichment:states` tam yeniden kurar (`sync` argümanı yalnız kuyruğu boşaltır). Sayfadaki arama (#617) üç indeksli kimlik kümesinin birleşimidir: mağazayla aynı tedarikçi satırı eşleşmesi (`db/search.sql`), üretici parça numarası (`db/enrichment-search.sql` içindeki kısmi `enrichment_product_states_part_number_search_idx`) ve yalnız zenginleştirilmiş satırlarda OEM numaraları (`product_enrichments_oem_search_idx`); her küme birincil anahtardan okunur. `search_compact` değişirse bu indeks de `REINDEX INDEX enrichment_product_states_part_number_search_idx` ile yeniden kurulur.
+`/yonetim/urun-verileri` görünümü doğrudan okumaz: `db/enrichment-states.sql` her ana ürün için `enrichment_product_catalog` satırının materyalize hâlini `enrichment_product_states` tablosunda tutar (durum, temsilci tedarikçi satırı, OEM/araç/özellik sayıları, sıralama anahtarı). `products`, `product_sources`, `supplier_items` (kod, ürün verisi, varlık), `product_enrichment_jobs` ve `product_enrichments` üzerindeki trigger'lar etkilenen ürün kimliklerini `enrichment_product_state_queue` kuyruğuna yazar; `brands`/`supplier_brands` eşleme değişikliği tam yeniden kurma işareti bırakır. Sayfa her okumadan önce `enrichment_product_states_sync()` ile kuyruğu boşaltır: küçük kuyruk nokta nokta yenilenir, 20 binden büyük kuyruk veya işaret tüm tabloyu yeniden kurar (yerelde ~5 sn; görünüm için nested loop kapatılır, aksi hâlde dakikalar sürer). `npm run db:setup` ve `npm run enrichment:prepare` şemayı uygular; ilk kurulumda `db:setup` şema işleminden sonra bir senkron koşar. `npm run enrichment:states` tam yeniden kurar (`sync` argümanı yalnız kuyruğu boşaltır). Bekleyen ürün seçimleri de görünümü değil bu tabloyu okur (#921): Trodo katalog turunun parti seçimi ve kalan sayacı, spareto'nun bekleyen sırası (`src/modules/enrichment/pending-queue.ts`) ve parts2world'ün bekleyen kuyruğu önce `enrichment_product_states_sync()` koşar. Görünüm her bekleyen satır için yeniden hesaplandığından spareto'nun 200'lük seçimi bir dakikayı aşıyordu. spareto sırayı yalnız kimlik olarak okur (en fazla 1.000 yeni ürün için), denenmişleri bellekte eler ve ayrıntıları aramadan hemen önce 200'lük parçalarla, durumu yeniden denetleyerek okur; denenen kimlik listesi sorguya gönderilmez; parça okuması ürünün kendi işinin hâlâ açık (`pending`/`not_found`/`review`) olduğunu da birincil anahtardan denetler. `enrichment_product_states_sync()` kilidi başka bir oturumdayken (`refresh_product_matches`, `db:setup`) senkron yapmadan döner; seçim o arada birkaç saniyelik eski durumu okuyabilir. Bu bilinçli bir ödünleşimdir: bekleyen seçimi kilidi beklemez; spareto ve parts2world yazmadan önce işin durumunu yeniden denetler, Trodo işçisi her ürünü ziyaretten önce görünüme karşı denetler. Sayfadaki arama (#617) üç indeksli kimlik kümesinin birleşimidir: mağazayla aynı tedarikçi satırı eşleşmesi (`db/search.sql`), üretici parça numarası (`db/enrichment-search.sql` içindeki kısmi `enrichment_product_states_part_number_search_idx`) ve yalnız zenginleştirilmiş satırlarda OEM numaraları (`product_enrichments_oem_search_idx`); her küme birincil anahtardan okunur. `search_compact` değişirse bu indeks de `REINDEX INDEX enrichment_product_states_part_number_search_idx` ile yeniden kurulur.
+
+Gizlenen tedarikçi OEM'i (#865): `enrichment_valid_data`, OEM'i gizli tedarikçi satırlarının (`commerce_item_overrides.hide_oem`, ürün düzeyinde `product_overrides.hide_supplier_oem`'dan izdüşer) tedarikçi OEM'iyle eşleşmiş kayıtlarını (`match_basis.type='oem_reference'` ve `referenceSource` `supplier_oem` ya da boş) dışarıda bırakır; birebir parça, muadil kod ve kendi parça kodu (`original_manufacturer_part_code`, `replica_part_code`) eşleşmeleri kalır. Koşul `NOT (… AND EXISTS …)` biçimindedir: planlayıcı küçük override tablosunu tek bir hash'li SubPlan olarak okur, anti-join gibi join sırasını değiştirmez. Böylece paylaşım (`product_enrichment_shared_links`), marka/model listeleri (`storefront_make_fits`/`storefront_model_fits`), `storefront_enrichments`'tan okunan kategori yerleşimi (kategori listeleri, Bakım Robotu, ilgili ürün önerileri) ve panel durumu (`enrichment_product_states`) aynı kuralı izler; ürünün başka geçerli kaynağı yoksa bu yerlerden de düşer; ham `product_enrichments` ve `product_vehicle_fitments` satırları silinmez, gizlilik kalkınca veri geri gelir. İşi bitmiş (`complete`/`partial`) ama verisi bu yüzden düşen satır `enrichment_product_candidates`'te `not_found` sayılır, yani yeniden `pending` olmaz ve toplayıcılar (Trodo, spareto) onu döngüde yeniden toplamaz; önceliği `pending`'in arkasındadır, böylece aynı ürünün bekleyen başka bir teklifi varsa temsilci o olur ve toplanır. `commerce_item_overrides` üzerindeki deyim düzeyi trigger'lar yalnız `hide_oem` açık olan ya da değişen satırları (fiyat/ad/gizlilik düzenlemelerini değil) paylaşım kuyruğuna, ürünlerini durum kuyruğuna yazar. Trigger'lar her kurulumda yeniden yaratılmasın diye yalnız yoksa oluşturulur (gövde değişikliği için `CREATE OR REPLACE FUNCTION` yeter); trigger'ları ilk kuran kurulum o anda gizli olan ürünleri durum kuyruğuna bir kez ekler. Yönetimdeki "Tedarikçi OEM alanını gizle/yeniden göster" eylemi kuyrukları kendisi boşaltmaz (kuyrukta tam yeniden kurma işareti varsa istek içinde çalışırdı): mağaza bağlantılarını uygulama sürecindeki 5 sn'lik arka plan senkronu (`src/instrumentation.ts`), panel durumunu sayfanın okuma öncesi boşaltması uygular; değişiklik birkaç saniye içinde görünür. `storefront:sync` aynı kaydı yeni `imported_at` ile yeniden yazsa da kayıt gizli kaldıkça dışarıda kalır. Operasyon: görünüm tanımları yalnız `npm run db:setup` (ya da `enrichment:prepare`) ile değişir; işçiler açılışta şema uygulamaz (#921). `db:setup` sonrası yerel zenginleştirme işçileri yine güncel checkout'tan yeniden başlatılmalıdır, eski checkout'un sorguları yeni şemayla uyuşmayabilir.
 
 `/yonetim/urun-verileri` kapsamı, durumları, zenginleştirme metrikleri ve son 24 saat hızını tekil ana ürünlerle hesaplar. Katalog turu hızı kartı süreç içinde bir dakika önbelleklenir. Parti kartı atlanan teklifleri ayrıca gösterir. Yerel şema geçişi için işçi önce SIGTERM ile durdurulur, `npm run enrichment:prepare` uygulanır ve aynı devam komutu yeniden başlatılır. Bu işlem deploy değildir; production şeması yalnız ayrıca istenen manuel yayın kapsamında uygulanır.
 

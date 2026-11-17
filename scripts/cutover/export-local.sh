@@ -35,7 +35,7 @@ if [ "$MODE" != media ]; then
   # tables, which start empty on AWS. accounts is kept (the admin that catalog decisions point to). commerce_settings
   # is left out so setup.ts writes the defaults (Başbuğ checkout live; local runs in snapshot mode).
   EXCL=(enrichment_run_items enrichment_source_cache enrichment_source_requests enrichment_search_products
-    enrichment_request_events parts2world_article_oems parts2world_job_articles parts2world_articles
+    enrichment_request_events parts2world_article_oems parts2world_job_articles parts2world_articles parts2world_article_types
     supplier_item_changes account_vehicles sessions login_attempts commerce_orders commerce_order_items
     commerce_payments commerce_returns commerce_cart_items guest_carts guest_cart_items cart_items
     newsletter_subscriptions newsletter_subscription_attempts service_application_attempts commerce_settings)

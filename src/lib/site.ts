@@ -18,6 +18,8 @@ export const socialProfiles = {
 };
 
 export const siteName = "Getirbakim";
+/** The year Getirbakim was founded (owner-confirmed, #646). */
+export const foundingYear = 2025;
 export const siteDescription = "Aracın için, parçadan anlayan insanların yedek parça mağazası. Bir bakalım, doğru parçayı bulalım.";
 export const contactPhone = "+902163870078";
 
@@ -72,6 +74,8 @@ export const siteJsonLd = {
       "@id": organizationId,
       name: siteName,
       legalName: "ERGUL ENERJI SAN TIC LTD STI",
+      taxID: "3570422249",
+      foundingDate: String(foundingYear),
       url: siteUrl,
       logo: `${siteUrl}/brand/logo-light.png`,
       email: contactEmail,

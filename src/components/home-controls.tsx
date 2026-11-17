@@ -37,13 +37,15 @@ function Pager({label, grid}: {label: string; grid?: boolean}) {
     return () => {api.off("select", update).off("reInit", update);};
   }, [api]);
   if (pages < 2) return null;
-  const position = grid ? "inset-y-auto top-[calc(100%+26px)] my-0 -translate-y-1/2" : "";
+  // Under 769px the arrows drop onto the indicator row (the grid variant always sits there).
+  const position = "max-[48.0625rem]:inset-y-auto max-[48.0625rem]:top-[calc(100%+26px)] max-[48.0625rem]:my-0 max-[48.0625rem]:-translate-y-1/2 max-[48.0625rem]:size-11";
+  const gridPosition = grid ? "inset-y-auto top-[calc(100%+26px)] my-0 -translate-y-1/2" : "";
   return <>
-    <CarouselPrevious aria-label={label+": önceki"} className={cn(arrow, "-left-3 max-md:left-0", position)}/>
-    <CarouselNext aria-label={label+": sonraki"} className={cn(arrow, "-right-3 max-md:right-0", position)}/>
-    <div className="absolute inset-x-0 top-[calc(100%+20px)] flex justify-center gap-2" aria-label={label+" sayfaları"}>
-      {Array.from({length: pages}, (_, index) => <button key={index} type="button" aria-label={label+": "+(index+1)+". sayfa"} aria-current={page===index?"true":undefined} onClick={() => api?.scrollTo(index)}
-        className="group h-3 min-h-0 w-8 cursor-pointer rounded-none border-0 bg-transparent px-0 py-[5px]"><span className={cn("block h-0.5 w-full", page===index?"bg-foreground":"bg-input group-hover:bg-muted-foreground")}/></button>)}
+    <CarouselPrevious aria-label={label+": önceki"} className={cn(arrow, "-left-3 max-md:left-0", position, gridPosition)}/>
+    <CarouselNext aria-label={label+": sonraki"} className={cn(arrow, "-right-3 max-md:right-0", position, gridPosition)}/>
+    <p className="sr-only" aria-live="polite">{label}: sayfa {page+1} / {pages}</p>
+    <div aria-hidden="true" className={cn("absolute inset-x-0 top-[calc(100%+25px)] flex justify-center max-[48.0625rem]:inset-x-14", pages>=8?"gap-1":"gap-2")}>
+      {Array.from({length: pages}, (_, index) => <span key={index} className={cn("h-0.5 min-w-0 max-w-8 flex-1", page===index?"bg-foreground":"bg-input")}/>)}
     </div>
   </>;
 }
@@ -77,7 +79,7 @@ export function HomeCategoryTabs({categories}:{categories:Pick<StoreCategory,"id
   return <section className="mt-[100px] max-md:mt-[76px]" aria-label="Ürün kategorileri">
     <Tabs value={selected} onValueChange={value=>setSelected(value as number)} className="gap-0">
       <TabsList variant="line" activateOnFocus aria-label="Ana kategoriler" className="mb-[42px] flex h-auto w-full justify-start gap-4 overflow-x-auto rounded-none p-0 [scrollbar-width:none] max-md:mb-6 [&::-webkit-scrollbar]:hidden">
-        {roots.map(category=><TabsTrigger key={category.id} value={category.id} className="h-8 min-h-0 flex-none rounded-none border-0 px-0 pt-0 pb-3 text-base leading-5 font-medium text-[#54626e] hover:text-foreground data-active:text-foreground max-md:text-sm group-data-horizontal/tabs:after:bottom-0 group-data-horizontal/tabs:after:h-[3px] after:rounded-[2px] after:bg-brand focus-visible:ring-0 focus-visible:outline-2">{category.name}</TabsTrigger>)}
+        {roots.map(category=><TabsTrigger key={category.id} value={category.id} className="h-8 max-md:h-11 min-h-0 flex-none rounded-none border-0 px-0 pt-0 pb-3 text-base leading-5 font-medium text-[#54626e] hover:text-foreground data-active:text-foreground max-md:text-sm group-data-horizontal/tabs:after:bottom-0 group-data-horizontal/tabs:after:h-[3px] after:rounded-[2px] after:bg-brand focus-visible:ring-0 focus-visible:outline-2">{category.name}</TabsTrigger>)}
       </TabsList>
       {roots.map(root=>{
         const children=categories.filter(category=>category.parentId===root.id);

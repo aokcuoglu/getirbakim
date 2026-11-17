@@ -2,7 +2,8 @@
 // the pending queue next to Trodo.
 //   collect [--status pending|not_found|review|partial] [--limit N] [--ids file] [--retry] [--max-models N] [--dry-run]
 //                 searches the part number and supplier OEM numbers, verifies the identity on the product page and
-//                 writes image, specifications, reference numbers and vehicles as each product is found. Vehicles
+//                 writes image, specifications, reference numbers, vehicles and the part type's Trodo categories
+//                 (product_type_categories dictionary) as each product is found. Vehicles
 //                 load one fitment frame per model; past --max-models (default 150) the product stays partial.
 //                 pending follows the Trodo catalog pass's tiers (in stock first), takes brands it has found before
 //                 first and walks the rest of each tier from the other end, skips Trodo's unfinished run and runs
@@ -26,6 +27,8 @@ import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {acquireSourceLock,tryExclusiveRun,withSourceLock} from '../src/modules/enrichment/source-lock';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
+import {pendingSuppliers} from '../src/modules/enrichment/pending-queue';
+import {categoriesForType,loadTypeCategoriesOrEmpty,typeSlug} from '../src/modules/enrichment/type-categories';
 import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
 import {createFitmentMatcher,type FitmentCatalogModel,type FitmentCatalogType} from '../src/modules/store/fitment-matcher';
 
@@ -38,7 +41,7 @@ const status=(option('status')||'not_found') as typeof statuses[number];
 if(!statuses.includes(status))throw Error('--status must be pending, not_found, review or partial');
 const checkpoint=resolve(option('out')||(status==='partial'?'artifacts/spareto/partial.jsonl':'artifacts/spareto/results.jsonl'));
 type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'imported'|'skipped';at:string;url?:string;error?:string;
- counts?:{image:boolean;oems:number;crossReferences:number;specifications:number;basis:string;models?:number;modelsFetched?:number;vehicles?:number;resolved?:number;matched?:number;invalid?:number};package?:unknown};
+ counts?:{image:boolean;categories?:number;oems:number;crossReferences:number;specifications:number;basis:string;models?:number;modelsFetched?:number;vehicles?:number;resolved?:number;matched?:number;invalid?:number};package?:unknown};
 const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
  // The admin page reads searches from the database; a dry run leaves no trace there.
  if(!args.includes('--dry-run')&&(entry.outcome==='collected'||entry.outcome==='not_found'||entry.outcome==='error'))
@@ -71,31 +74,8 @@ const partialSql=`SELECT DISTINCT ON (COALESCE(ps.product_id,j.supplier_item_id)
  LEFT JOIN product_sources ps ON ps.supplier_item_id=s.id
  WHERE j.status=$1 AND e.source_url LIKE '${SPARETO}/%' AND NOT EXISTS(SELECT 1 FROM product_sources other JOIN product_enrichment_jobs done ON done.supplier_item_id=other.supplier_item_id
   WHERE other.product_id=ps.product_id AND done.status='complete')`;
-// Pending products in the Trodo catalog pass's tiers: in stock, other storefront items, then items no longer offered.
-// Within a tier, brands spareto finds and Trodo does not come first (#380): spareto's hit rate (its searches so far,
-// from enrichment_source_attempts) times Trodo's miss rate (its finished run items), so brands Trodo matches well are
-// left to it and both sources add products the other would not. While Trodo's host is blocked it collects nothing, so
-// its rates are dropped and spareto orders by its own hit rate alone (#390). A brand either source tried fewer than 5 times
-// counts as 0.5 for that source, between the known-good and the known-absent; then the tier's reverse hash order.
-// The brand rates travel as jsonb parameters: a join would make the planner walk the rate list once per pending row
-// (37 s a chunk, or minutes once the tried-id list is long). Products in an unfinished Trodo run are left to it; the
-// next chunk is read only when this one is done.
-const brandRateSql=`SELECT COALESCE(jsonb_object_agg(brand,hit),'{}'::jsonb) AS rates FROM (SELECT b.supplier_brand AS brand,
-  count(*) FILTER (WHERE a.outcome='found')::float/count(*) AS hit FROM enrichment_source_attempts a
-  JOIN product_enrichment_jobs b ON b.supplier_item_id=a.supplier_item_id
-  WHERE a.source='spareto' AND a.outcome IN ('found','not_found') GROUP BY 1 HAVING count(*)>=5) r`;
-const trodoRateSql=`SELECT COALESCE(jsonb_object_agg(supplier_brand,hit),'{}'::jsonb) AS rates FROM (SELECT supplier_brand,
-  count(*) FILTER (WHERE status IN ('complete','partial'))::float/count(*) AS hit FROM enrichment_run_items
-  WHERE status IN ('complete','partial','review','not_found') GROUP BY 1 HAVING count(*)>=5) r
-  WHERE NOT EXISTS(SELECT 1 FROM enrichment_source_hosts WHERE host='www.trodo.com' AND blocked)`;
-const pendingSql=`SELECT j.supplier_item_id AS id,s.code,
- COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,COALESCE(s.product_data->>'oe','') AS oem,
- (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id WHERE sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)) AS "masterBrand"
- FROM enrichment_product_catalog j JOIN supplier_items s ON s.id=j.supplier_item_id LEFT JOIN commerce_supplier_items c ON c.id=j.supplier_item_id
- WHERE j.status='pending' AND j.supplier_brand<>'' AND NOT (j.supplier_item_id=ANY($1::uuid[]))
-  AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id WHERE i.product_id=j.product_id AND r.status IN ('prepared','running','blocked','stopped'))
- ORDER BY CASE WHEN c.id IS NULL THEN 3 WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1 ELSE 2 END,
-  COALESCE(($3::jsonb->>j.supplier_brand)::float,0.5)*(1-COALESCE(($4::jsonb->>j.supplier_brand)::float,0.5)) DESC,md5(j.product_id::text) DESC LIMIT $2`;
+// Pending products are read through pendingSuppliers (src/modules/enrichment/pending-queue.ts): the Trodo catalog
+// pass's tiers, brands spareto finds and Trodo does not first (#380), products in an unfinished Trodo run left to it.
 
 class DatabaseUnavailable extends Error {}
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
@@ -141,7 +121,7 @@ async function downloadImage(client:SparetoClient,url:string|null,id:string){
 
 const describe=(basis:NonNullable<ReturnType<typeof identify>>)=>basis.type==='exact_part'?'exact brand/part verified'
  :basis.type==='oem_reference'?'original OEM verified: '+basis.reference:`cross reference verified: ${basis.referenceBrand} ${basis.reference}`;
-/** Suppliers to search: the status's whole list, or pending chunks read as the previous chunk is finished. */
+/** Suppliers to search: the status's whole list, or pending chunks read as the previous chunk is finished (#921). */
 async function* suppliers(done:Map<string,Entry>,limit:number,retry:boolean,ids:string[]|null):AsyncGenerator<Supplier&{id:string}>{
  if(status!=='pending'){
   const rows=(await pool.query<Supplier&{id:string}>(`SELECT * FROM (${status==='partial'?partialSql:supplierSql}${ids?' AND j.supplier_item_id=ANY($2::uuid[])':''}
@@ -149,14 +129,7 @@ async function* suppliers(done:Map<string,Entry>,limit:number,retry:boolean,ids:
    .filter(row=>retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id)).slice(0,limit);
   yield* rows;return;
  }
- const tried=new Set(done.keys());let left=limit;
- while(left>0){
-  const rates=(await pool.query<{rates:unknown}>(brandRateSql)).rows[0].rates;
-  const trodoRates=(await pool.query<{rates:unknown}>(trodoRateSql)).rows[0].rates;
-  const rows=(await pool.query<Supplier&{id:string}>(pendingSql,[[...tried],Math.min(left,200),JSON.stringify(rates),JSON.stringify(trodoRates)])).rows;
-  if(!rows.length)return;
-  for(const row of rows){tried.add(row.id);left--;yield row;}
- }
+ yield* pendingSuppliers(pool,new Set(done.keys()),limit);
 }
 async function vehicleRows(client:SparetoClient,page:ProductPage,maxModels:number){
  const rows:FitmentRow[]=[];let fetched=0;
@@ -175,6 +148,9 @@ async function collect(){
  const types=(await pool.query<FitmentCatalogType>(`SELECT id,model_id,name,cc,fuel_type,hp,kwt,to_char(year_of_constr_from,'YYYY-MM') AS date_from,
   to_char(year_of_constr_to,'YYYY-MM') AS date_to FROM vehicle_types`)).rows;
  const match=createFitmentMatcher(models,types);
+ // spareto names no categories; the part type takes Trodo's (#851). Every write replaces the product's category links,
+ // so a re-collection without them would drop what enrichment-categories backfill-types wrote.
+ const dictionary=await loadTypeCategoriesOrEmpty(pool);
  const client=new SparetoClient(Number(process.env.SPARETO_INTERVAL_MS||1500));
  const alone=status==='pending'?await tryExclusiveRun(pool,'spareto-pending'):null;
  if(status==='pending'&&!alone){console.log(JSON.stringify({skipped:'another pending pass is running'}));return;}
@@ -189,7 +165,7 @@ async function collect(){
    if(!found){await record({supplierItemId:supplier.id,outcome:'not_found',error:candidates?`${candidates} unverified candidates`:undefined});
     console.log(`${index} ${supplier.code} → bulunamadı${candidates?` (${candidates} aday doğrulanamadı)`:''}`);return false;}
    const sourceRows=await vehicleRows(client,found.page,maxModels),vehicle=resolveVehicles(sourceRows.rows,models,types);
-   const data=buildData(found.page,vehicle.vehicles),image=await downloadImage(client,found.page.image,supplier.id);
+   const data=buildData(found.page,vehicle.vehicles,categoriesForType(dictionary,typeSlug(found.page.name))),image=await downloadImage(client,found.page.image,supplier.id);
    if(image){data.imageWidth=image.width;data.imageHeight=image.height;}
    const modelCount=found.page.vehicleFrames.length;
    const complete=sparetoComplete({models:modelCount,modelsFetched:sourceRows.fetched,invalid:vehicle.invalid.length,image:Boolean(image),vehicles:data.vehicles.length});
@@ -197,11 +173,11 @@ async function collect(){
     sourceMethod:`spareto.com public HTTP adapter v2; ${describe(found.basis)}; vehicle models ${sourceRows.fetched}/${modelCount}; catalog-resolved ${vehicle.resolved}/${sourceRows.rows.length}; invalid rows ${vehicle.invalid.length}${image?'':'; no image'}${data.vehicles.length?'':'; no vehicles listed'}`,
     manufacturer:found.page.brand,partNumber:found.page.partNumber,matchBasis:found.basis,imageFile:image?.file,imageSource:image?.source,completeness:complete?'complete':'partial',data});
    const matched=data.vehicles.map(match).filter(row=>row.status==='matched').length;
-   const counts={image:Boolean(image),oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,specifications:data.specifications.length,basis:found.basis.type,
+   const counts={image:Boolean(image),categories:data.categories.length,oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,specifications:data.specifications.length,basis:found.basis.type,
     models:modelCount,modelsFetched:sourceRows.fetched,vehicles:data.vehicles.length,resolved:vehicle.resolved,matched,invalid:vehicle.invalid.length};
    await record({supplierItemId:supplier.id,outcome:'collected',url:pkg.source,counts,package:pkg});
    const written=dryRun?'toplandı':await write({supplierItemId:supplier.id,package:pkg})==='imported'?`yazıldı (${pkg.completeness==='complete'?'tamamlandı':'kısmi'})`:'yazılmadı';
-   console.log(`${index} ${supplier.code} → ${pkg.source} [${found.basis.type}] ${found.page.brand} ${found.page.partNumber} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · araç ${matched}/${counts.vehicles} eşleşti (model ${sourceRows.fetched}/${modelCount}) · görsel ${image?'var':'yok'} · ${written}`);
+   console.log(`${index} ${supplier.code} → ${pkg.source} [${found.basis.type}] ${found.page.brand} ${found.page.partNumber} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · kategori ${counts.categories} · araç ${matched}/${counts.vehicles} eşleşti (model ${sourceRows.fetched}/${modelCount}) · görsel ${image?'var':'yok'} · ${written}`);
   }catch(error){
    if(error instanceof SourceBlocked&&!dryRun)await recordAttempt(pool,'spareto',status,supplier.id,'blocked');
    if(error instanceof SourceBlocked||error instanceof DatabaseUnavailable){console.error(String(error));process.exitCode=2;return true;}
@@ -226,7 +202,7 @@ async function report(){
  console.log(JSON.stringify({checkpoint,total:all.length,collected:by('collected'),imported:by('imported'),skipped:by('skipped'),notFound:by('not_found'),errors:by('error'),
   unverifiedCandidates:all.filter(e=>e.outcome==='not_found'&&e.error).length,
   byBasis:Object.fromEntries(['exact_part','oem_reference','cross_reference'].map(b=>[b,counts.filter(c=>c.basis===b).length])),
-  withImages:counts.filter(c=>c.image).length,withSpecifications:counts.filter(c=>c.specifications).length,
+  withImages:counts.filter(c=>c.image).length,withCategories:counts.filter(c=>c.categories).length,withSpecifications:counts.filter(c=>c.specifications).length,
   withVehicles:counts.filter(c=>c.vehicles).length,vehicles:sum(counts,'vehicles'),resolvedVehicles:sum(counts,'resolved'),matchedVehicles:sum(counts,'matched'),
   invalidRows:sum(counts,'invalid'),modelsCapped:counts.filter(c=>c.models!==undefined&&c.modelsFetched!==c.models).length},null,1));
 }

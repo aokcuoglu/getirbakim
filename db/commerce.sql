@@ -37,7 +37,8 @@ ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS brand text;
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS part_number text;
 -- Supplier OEM field hidden on the store (#615): the views show an empty oem, so the product page, cards, cart,
 -- partner API and reference links drop it; storefront search skips these rows' stored OEM (src/modules/store/catalog.ts).
--- supplier_items keeps the value: matching, enrichment and the admin's supplier searches still read it.
+-- supplier_items keeps the value: the admin's supplier searches still read it; enrichment matched through this OEM
+-- is ignored (enrichment_valid_data, #865) and matching drops it (#631, db/product-overrides.sql).
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS hide_oem boolean NOT NULL DEFAULT false;
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS basbug_checkout_mode text NOT NULL DEFAULT 'live'
  CHECK(basbug_checkout_mode IN ('live','snapshot'));
@@ -161,6 +162,33 @@ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SET search_path FROM CURRENT AS $$ S
 CREATE INDEX IF NOT EXISTS supplier_items_part_key_idx ON supplier_items(part_number_key(substring(code from position(' ' in code)+1)));
 CREATE INDEX IF NOT EXISTS supplier_items_oem_key_idx ON supplier_items(part_number_key(product_data->>'oe'))
 WHERE product_data->>'oe'<>'';
+-- The sale-price rules (#882), defined once and called by commerce_catalog and by livePriceChanges
+-- (src/modules/store/supplier-checkout.ts). Plain SQL bodies without SET or STRICT so the planner can inline them
+-- (as supplier_item_brand); PARALLEL SAFE so a call that is not inlined keeps reads of the view parallel. A SET or
+-- STRICT clause, or an expensive argument used twice in a body, turns the inline into a per-row call (same result,
+-- slower full scans; scripts/test-supplier-checkout.ts checks the plan). now() is the caller's `at` argument, so
+-- the functions stay IMMUTABLE. A changed signature cannot be replaced while the view uses it: add a new name.
+-- The formula price in kuruş: NULL unless it rounds into 1..integer max.
+CREATE OR REPLACE FUNCTION commerce_formula_price(cost numeric,exchange_rate numeric,markup_percent numeric,vat_percent numeric) RETURNS integer
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT CASE WHEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647
+ THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer END
+$$;
+-- The campaign price only inside its window [sale_from, sale_until); a NULL end is open.
+CREATE OR REPLACE FUNCTION commerce_campaign_price(sale_price integer,sale_from timestamptz,sale_until timestamptz,at timestamptz) RETURNS integer
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT CASE WHEN (sale_from IS NULL OR sale_from<=at) AND (sale_until IS NULL OR at<sale_until) THEN sale_price END
+$$;
+-- The admin's fixed price over the formula; a row the formula cannot price is not sold at a fixed price either.
+CREATE OR REPLACE FUNCTION commerce_regular_price(auto_price integer,fixed_price integer) RETURNS integer
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT CASE WHEN auto_price IS NOT NULL THEN COALESCE(fixed_price,auto_price) END
+$$;
+-- A campaign at or above the regular price is ignored.
+CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price integer) RETURNS integer
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
+$$;
 CREATE OR REPLACE VIEW commerce_catalog AS
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
@@ -182,7 +210,7 @@ WITH latest AS (
  ov.price_kurus AS override_price,ov.sale_until,ov.brand AS override_brand,ov.part_number AS override_part_number,
  ov.hide_oem AS override_hide_oem,mb.name AS master_brand,
  -- The campaign price only inside its window; a NULL end is open.
- CASE WHEN (ov.sale_from IS NULL OR ov.sale_from<=now()) AND (ov.sale_until IS NULL OR now()<ov.sale_until) THEN ov.sale_price_kurus END AS sale_price,
+ commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now()) AS sale_price,
  -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
  (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
@@ -197,17 +225,20 @@ WITH latest AS (
  -- The formula price (auto_price) is the only gate: an admin price never sells a row the formula cannot price.
  SELECT *,CASE WHEN cost>0 AND exchange_rate>0
  AND (basbug_checkout_mode='snapshot' OR ((supplier='manual' OR rate_at>now()-make_interval(hours=>max_age_hours)) AND source_fresh))
- AND round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647
- THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer ELSE NULL END AS auto_price
+ THEN commerce_formula_price(cost,exchange_rate,markup_percent,vat_percent) END AS auto_price
  FROM supplier_prices
 ), sold AS (
- -- These CTEs are inlined, so each column below is its expression wherever it is used: auto_price is evaluated in
- -- CASE branches only, the formula's branch first, so a row without an admin price computes it exactly once (as
- -- before #580). Rows with one recompute it a few times. A campaign at or above the regular price is ignored.
- SELECT *,CASE WHEN NOT admin_priced THEN NULL WHEN auto_price IS NOT NULL THEN COALESCE(override_price,auto_price) END AS regular_price
+ -- The price rules live in the commerce_*_price functions above; livePriceChanges (src/modules/store/supplier-checkout.ts,
+ -- #861) calls the same functions (#882). These CTEs are inlined, so each column below is its expression wherever it
+ -- is used: auto_price is evaluated in CASE branches only, the formula's branch first, so a row without an admin
+ -- price computes it exactly once (as before #580). Rows with one recompute it a few times. The NOT admin_priced
+ -- branches only save time (the functions give the same result for a NULL fixed and campaign price); keep
+ -- commerce_regular_price/commerce_final_price behind them: they are not inlined (auto_price is used twice), and
+ -- calling them on every row made full scans ~15% slower when measured (#882).
+ SELECT *,CASE WHEN NOT admin_priced THEN NULL ELSE commerce_regular_price(auto_price,override_price) END AS regular_price
  FROM priced
 ), final AS (
- SELECT *,CASE WHEN NOT admin_priced THEN auto_price WHEN sale_price<regular_price THEN sale_price ELSE regular_price END AS final_price,
+ SELECT *,CASE WHEN NOT admin_priced THEN auto_price ELSE commerce_final_price(regular_price,sale_price) END AS final_price,
  CASE WHEN NOT admin_priced THEN false ELSE COALESCE(regular_price IS NOT NULL AND sale_price<regular_price,false) END AS on_sale,
  CASE WHEN NOT admin_priced THEN false ELSE regular_price IS NOT NULL AND (override_price IS NOT NULL OR COALESCE(sale_price<regular_price,false)) END AS overridden,
  jsonb_build_object('source','supplier','nf',cost,'currency',product_data->>'dc','exchange_rate',exchange_rate,
@@ -232,7 +263,7 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  (basbug_checkout_mode='snapshot' OR source_fresh) AND
  (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0),
  99,
- CASE WHEN basbug_checkout_mode='snapshot' AND (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0) THEN 'Kayıtlı stokta mevcut · Teyit bekliyor'
+ CASE WHEN basbug_checkout_mode='snapshot' AND (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0) THEN 'Stokta · Siparişten sonra teyit edilir'
  WHEN NOT source_fresh AND basbug_checkout_mode='live' THEN 'Stok bilgisi güncelleniyor'
  WHEN stock_data IS NULL THEN 'Stok bilgisi bulunamadı'
  WHEN (stock_data->>'stok')::numeric>0 THEN 'Tedarikçide mevcut'
@@ -417,3 +448,25 @@ COMMENT ON COLUMN commerce_orders.purchase_tracked_at IS 'GA4 purchase sent for 
 -- orders whose purchase was measured; NULL = not sent yet. No backfill.
 ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refund_tracked_at timestamptz;
 COMMENT ON COLUMN commerce_orders.refund_tracked_at IS 'GA4 refund sent for this order (#750); claimed once by the order''s own customer, only after purchase_tracked_at';
+-- Payment options with an installment fee (#886). Off by default: checkout then behaves as before (single payment).
+-- Rates are the merchant commission percentages of the TAMI portal; the customer total of an n-installment order is
+-- cash × (1 − single rate) / (1 − n rate). installment_rates keys are "2".."12"; a missing key hides that option.
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installments_enabled boolean NOT NULL DEFAULT false;
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_max integer NOT NULL DEFAULT 6 CHECK(installment_max BETWEEN 2 AND 12);
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_min_basket_kurus integer NOT NULL DEFAULT 0 CHECK(installment_min_basket_kurus BETWEEN 0 AND 1000000000);
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_single_rate numeric(5,2) NOT NULL DEFAULT 2.85 CHECK(installment_single_rate BETWEEN 0 AND 50);
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_rates jsonb NOT NULL
+ DEFAULT '{"2":5.89,"3":7.95,"4":9.88,"5":11.72,"6":13.47,"7":15.39,"8":17.23,"9":18.97,"10":20.85,"11":22.71,"12":24.32}';
+-- The installment count chosen at checkout and its fee. total_kurus includes the fee; the cash price is
+-- total_kurus − installment_fee_kurus. Orders placed before this change are single payments without a fee.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS installment_count integer NOT NULL DEFAULT 1 CHECK(installment_count BETWEEN 1 AND 12);
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS installment_fee_kurus bigint NOT NULL DEFAULT 0 CHECK(installment_fee_kurus>=0);
+-- Structured delivery address and invoice details (#881); NULL on orders placed before it. `address` keeps the combined text.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_province text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_district text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_address_line text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_postal_code text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_type text CHECK(invoice_type IN ('individual','corporate'));
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_company text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_tax_no text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_tax_office text;
