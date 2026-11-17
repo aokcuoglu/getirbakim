@@ -1,4 +1,5 @@
 /** Admin vehicle fitment decisions (db/product-override-fitments.sql, #583): limits, labels and history text. */
+import { formatNumber } from "./format";
 
 /** Most decisions (added and removed types together) one product keeps. */
 export const productFitmentLimit = 500;
@@ -38,6 +39,27 @@ const copyChangeLabels: Record<string, string> = {
   fitment_copied: "Araç uyumu başka üründen kopyalandı",
 };
 export const productFitmentChangeLabels: Record<string, string> = { ...typeChangeLabels, ...hideChangeLabels, ...copyChangeLabels };
+
+/** History label of a grouped bulk change (#816): a copy (its summary row), a bulk add, the undo of one (#817). */
+export const fitmentBatchLabels: Record<string, string> = {
+  fitment_copied: "Araç uyumu başka üründen kopyalandı",
+  fitment_added: "Araçlar toplu eklendi",
+  fitment_unadded: "Toplu ekleme geri alındı",
+};
+
+/** How many named types a grouped history line shows before "ve N tip daha". */
+export const fitmentBatchSampleSize = 3;
+
+/**
+ * History text of a grouped bulk change (#816): a copy shows its summary row's text; a bulk add or its undo its count
+ * and the first types' names ("75 araç tipi: A, B, C ve 72 tip daha"), "Araç tipi <id>" for a type without a name.
+ */
+export function fitmentBatchSummary(entry: { field: string; count: number; summary: string | null; sample: string[] }, names: ReadonlyMap<string, string>): string {
+  if (entry.field === "fitment_copied" && entry.summary) return entry.summary;
+  const shown = entry.sample.slice(0, fitmentBatchSampleSize).map(id => names.get(id) ?? `Araç tipi ${id}`);
+  const rest = entry.count - shown.length;
+  return `${formatNumber(entry.count)} araç tipi${shown.length ? `: ${shown.join(", ")}` : ""}${rest > 0 ? ` ve ${formatNumber(rest)} tip daha` : ""}`;
+}
 
 /** Whether a history row is a vehicle type decision (its value is a vehicle type id). */
 export const isFitmentChange = (field: string) => Object.hasOwn(typeChangeLabels, field);

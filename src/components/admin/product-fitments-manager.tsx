@@ -1,8 +1,8 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Car, ChevronDown, CircleAlert, CircleCheck, Copy, Eye, EyeOff, GitMerge, Info, ListChecks, ListX, Plus, RotateCcw, Trash2 } from "lucide-react";
-import { addProductFitments, copyProductFitments, deleteProductFitment, removeProductFitment } from "@/app/yonetim/urunler/fitment-actions";
+import { Car, ChevronDown, CircleAlert, CircleCheck, Copy, Eye, EyeOff, GitMerge, Info, ListChecks, ListX, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { addProductFitments, copyProductFitments, deleteProductFitment, removeProductFitment, undoProductFitmentBatch } from "@/app/yonetim/urunler/fitment-actions";
 import { productFitmentAutomaticLimit, productFitmentBatch, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
 import type { FitmentVehicle, ProductFitments } from "@/modules/admin/product-fitment-store";
 import type { CatalogVehicle } from "@/modules/store/vehicle-catalog";
@@ -12,7 +12,7 @@ import { useFitmentChange } from "@/components/admin/use-fitment-change";
 import { OptionCombobox } from "@/components/admin/option-combobox";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { ProductFitmentCopyDialog } from "@/components/admin/product-fitment-copy-dialog";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -76,7 +76,12 @@ export function ProductFitmentsManager({ productId, fitments }: { productId: str
       Ürün {formatNumber(fitments.automaticTotal)} otomatik araç tipine bağlı; burada marka ve model sırasıyla ilk {formatNumber(productFitmentAutomaticLimit)} tanesi listeleniyor. Listede olmayan bir tipi “Araç ekle” ile seçip ekleyebilirsiniz.</AlertDescription></Alert>}
 
     <div aria-live="polite" className="empty:hidden">
-      {result?.status === "success" && <Alert variant="success"><CircleCheck aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
+      {/* A bulk add or copy can be taken back at once (#817); the undo's own result offers nothing more. */}
+      {result?.status === "success" && <Alert variant="success"><CircleCheck aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription>
+        {result.undo && <AlertAction><Button type="button" variant="outline" size="sm" disabled={pending}
+          aria-label={`Az önce eklenen ${formatNumber(result.undo.count)} araç tipini geri al`}
+          onClick={() => { const batchId = result.undo?.batchId; if (batchId) mutate(() => undoProductFitmentBatch({ productId, batchId })); }}>
+          <Undo2 data-icon="inline-start" aria-hidden="true"/>Geri al</Button></AlertAction>}</Alert>}
     </div>
     {/* While a dialog is open, its own alert shows the error. */}
     {result?.status === "error" && !dialog && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}

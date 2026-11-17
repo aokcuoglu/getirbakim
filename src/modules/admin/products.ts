@@ -5,6 +5,7 @@ import { pickKey, sortOrder } from "@/lib/table-sort";
 import { productCategoriesSql } from "./product-categories-sql";
 import { loadBrandOptions, loadProductOverride } from "./product-override-store";
 import { loadProductPricing } from "./product-pricing-store";
+import { loadProductHistory } from "./product-history";
 import type { ProductPricing } from "./product-pricing-schema";
 import { compareOffers } from "@/modules/store/best-offer";
 import { belowCost } from "./product-override-fields";
@@ -193,6 +194,12 @@ export async function getMasterProduct(id: string) {
   // Hand-entered reference numbers (#582), specifications (#603) and vehicle fitments (#583, hidden source rows #661) count as an edit for the "Elle düzenlendi" badge.
   return { product, sources: rows, equivalents: equivalents.rows, merged, storeId: listed?.id ?? null, override, hasReferences: references.rows[0].exists,
     hasSpecs: specs.rows[0].exists, hasFitments: fitments.rows[0].exists, brands };
+}
+
+/** The product page's "Geçmiş" tab (#816): grouped bulk fitment changes, a page of lines, or one batch's rows. */
+export async function getProductHistory(id: string, options: { page?: number; batch?: string | null }) {
+  await requireAdmin();
+  return loadProductHistory(db, id, options);
 }
 
 type MergeTarget = {

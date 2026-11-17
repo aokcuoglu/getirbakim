@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { formatNumber } from "./format";
 import { productFitmentLimit } from "./product-fitment-fields";
@@ -114,9 +115,11 @@ export async function copyProductFitments(database: Pick<Pool, "connect">, targe
     if (!plan.add.length) return { ok: false, reason: "nothing-to-copy" };
     if (plan.add.length !== expected) return { ok: false, reason: "stale" };
     if (plan.add.length > plan.remaining) return { ok: false, reason: "limit" };
-    await insertAddedFitments(client, targetId, plan.add.map(vehicle => vehicle.typeId), adminId);
+    // The copied rows and the summary share one batch: the history shows them as one line, "Geri al" takes them back (#816, #817).
+    const batchId = randomUUID();
+    await insertAddedFitments(client, targetId, plan.add.map(vehicle => vehicle.typeId), adminId, batchId);
     await recordFitmentChange(client, targetId, "fitment_copied", null,
-      `${source.brand_label} ${source.code} ürününden ${formatNumber(plan.add.length)} araç tipi`, adminId);
-    return { ok: true, added: plan.add.length };
+      `${source.brand_label} ${source.code} ürününden ${formatNumber(plan.add.length)} araç tipi`, adminId, batchId);
+    return { ok: true, added: plan.add.length, batchId };
   });
 }
