@@ -59,7 +59,7 @@ export function withAncestors<T extends { id: number; path: number[] }>(nodes: T
 
 export type SitemapEntry = { url: string; lastModified?: string };
 
-const escapeXml = (value: string) => value.replace(/[&<>"']/g, char =>
+export const escapeXml = (value: string) => value.replace(/[&<>"']/g, char =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[char] ?? char);
 
 export function renderUrlset(entries: SitemapEntry[]) {

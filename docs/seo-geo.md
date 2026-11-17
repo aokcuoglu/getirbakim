@@ -82,7 +82,7 @@ Kurucular `src/modules/seo/structured-data.ts` ve `src/lib/site.ts`; basım `src
 | `SITEMAP_WARMUP_INTERVAL_MS` | Site haritası ısıtma aralığı (varsayılan 3 saat, 6 saatin altında kalmalı) | `src/modules/seo/sitemap-warmup.ts` |
 | `GA4_MEASUREMENT_ID` | GA4 ölçüm kimliği (`G-…`); boş ya da biçimsiz ise etiket yüklenmez ve çerez bandı "analiz kullanılmıyor" der. Yöneticiler ölçülmez | `src/modules/analytics/config.ts`, `src/components/privacy/store-tags.tsx` |
 
-Google Ads ve Meta Pixel (#676) ve ürün beslemesi (#643) için henüz kod ve değişken yok.
+Ürün beslemesi (#643) yeni değişken istemez: `SITE_URL` (açıkça verilmeli), `APP_ENV` ve `S3_BUCKET` / `S3_REGION` kullanır. Ayrıntılar: [merchant-feed.md](merchant-feed.md). Google Ads ve Meta Pixel (#676) için henüz kod ve değişken yok.
 
 ### 1.2.1 Yeni rehber yazısı ekleme (#646)
 
@@ -102,7 +102,7 @@ Sıra: önce hesaplar ve doğrulama değerleri hazırlanır (DNS'ten önce yapı
 - [ ] Yandex Webmaster hesabı açılır; `YANDEX_SITE_VERIFICATION` app görev tanımına.
 - [ ] `INDEXNOW_KEY` üretilir (`openssl rand -hex 16`), `app` ve `operations` görevlerine secret olarak verilir; `operations`'ta `APP_ENV=production` ve `SITE_URL` bulunur. İlk koşu stratejisi (`--seed` / `--limit=0` / damla damla): [indexnow.md](indexnow.md).
 - [ ] GA4 mülkü ve Google Ads hesabı açılır. **#749 engelleyicisi:** çerez politikasına satın alma ve sipariş değeri ölçümü metni (#749) canlıya çıkmadan `GA4_MEASUREMENT_ID` prod'da **etkinleştirilmez**; değişken boş kalır.
-- [ ] Merchant Center hesabı açılır, alan adı doğrulanır ve talep edilir. Besleme (#643) yapılmadan ürün yüklenmez; kod tarafında uygunluk iddiası yok.
+- [ ] Merchant Center hesabı açılır, alan adı doğrulanır ve talep edilir; kargo ve iade ayarları hesapta girilir ([merchant-feed.md](merchant-feed.md#merchant-center-kurulumu-kullanıcı)). Sipariş modu "Kayıtlı veriler" (snapshot) iken besleme bilerek boştur.
 - [ ] Meta Business hesabı (Pixel için #676 bekler).
 - [ ] Google İşletme Profili (Kartal Oto Sanayi Sitesi adresi, telefon, çalışma saatleri) doğrulama kartı/aramasıyla açılır; adres ve telefon `Organization` verisi ile (`src/lib/site.ts`) aynı olmalı.
 
@@ -114,6 +114,7 @@ Sıra: önce hesaplar ve doğrulama değerleri hazırlanır (DNS'ten önce yapı
 - [ ] Eski adres örnekleri tek adım `301`: `/automakers`, `/car-parts/bmw`, `/katalog?category=fren-diskleri-269`. Bilinmeyen adres ve geçersiz ürün id gerçek `404` (ve `200` "soft 404" değil).
 - [ ] Zengin sonuç testi (search.google.com/test/rich-results) ve Schema Markup Validator: bir ürün (Offer: fiyat, stok, iade), bir kategori (`BreadcrumbList`, `CollectionPage`), ana sayfa (`Organization`).
 - [ ] Search Console: `https://getirbakim.com/sitemap.xml` gönderilir; "URL denetimi" ile ana sayfa, bir kategori, bir model, bir ürün ve bir üretici sayfası denetlenip dizine eklenmesi istenir. Bing ve Yandex'e de aynı site haritası gönderilir.
+- [ ] Ürün beslemesi (#643): `operations` görevinde `--dry-run` sayaçları, sonra gerçek koşu; `curl -sI https://getirbakim.com/feeds/google.xml.gz` → `200 application/gzip`, `Set-Cookie` yok; adres Merchant Center'a zamanlanmış getirme olarak verilir.
 - [ ] IndexNow: `https://getirbakim.com/<anahtar>.txt` anahtarı döndürür; `npm run seo:indexnow -- --dry-run` (operations) sayaçları verir, sonra seçilen ilk yayın modu koşulur.
 - [ ] `https://getirbakim.com/api/health` yayınlanan sürümü gösterir ([aws-cutover.md](aws-cutover.md#doğrulama)).
 - [ ] GA4 yalnızca #749 metni yayında ve rıza akışı (#644) doğrulandıysa açılır: değişken eklenir, DebugView'da `view_item` ve rıza öncesi isteğin gitmediği (Ağ sekmesi) kontrol edilir.
@@ -130,13 +131,13 @@ Durum işaretleri: **Var** = repo/belgede doğrulanmış; **İstek** = ortaktan 
 | `/robots.txt` | Kısa TTL (≤ 1 saat), çerez/sorgu anahtarda yok; kaynak staging'te `Disallow: /` döndüğü için üretimde yanlış kaynağa yönlenmediği doğrulanmalı | İstek |
 | `/llms.txt` | Kaynak `s-maxage=86400` verir; kaynak başlığına uyulur | İstek |
 | `/<indexnow-anahtarı>.txt` | Kaynağa geçirilir (`/api/indexnow/*` rewrite'ı); aşırı önbelleklenmez | İstek |
-| Besleme dosyası (Merchant Center / Meta, #643) | Besleme henüz yok; yapıldığında ayrı adres (ör. `/feeds/*`) için kısa TTL ve botlara (Googlebot, `facebookexternalhit`) kısıtsız erişim | Yapılmadı (#643) |
+| Besleme dosyası (Merchant Center / Meta, #643) | `/feeds/google.xml.gz`: kaynağın `max-age=3600` değerine uyulur, çerez/sorgu/`Authorization` anahtarda yok, ek sıkıştırma yok; Merchant Center getirmesi, `Storebot-Google` ve `facebookexternalhit` engellenmez. `operations` rolünde `feeds/*` için `s3:GetObject`/`s3:PutObject`, `app` rolünde `s3:GetObject` ([merchant-feed.md](merchant-feed.md#aws-gereksinimleri-altyapı-ortağı)) | Kod var; CloudFront/IAM **İstek** |
 | Statik varlıklar | `/_next/static/*` değişmez içerik (`immutable`, Next varsayılanı). `/media/*` ve `/brand/*`: `max-age=86400, s-maxage=604800` (`next.config.ts`). `/api/product-media/*` ve `/api/category-media/*`: kendi route'ları `public, max-age=86400` verir, `s-maxage` yok, yani CloudFront TTL'i `max-age`'i izler (ETag var). `/api/vehicle-media/*`: sürümlüyse `max-age=31536000, immutable`, değilse `max-age=86400`. `/api/categories`: `max-age=300, s-maxage=3600` (`src/app/api/categories/route.ts`). `/_next/image` önbelleğe alınabilir. Yanıtın `Set-Cookie` taşımaması `/api/categories*`, `/api/category-media/*`, `/api/product-media/*` için güvence altındadır (`src/proxy.ts` bu yolları atlar); `/api/vehicle-media/*` ve `/api/manufacturer-logos/*` bu güvencenin **dışındadır**, önbellek politikasında çerez/`Set-Cookie` yine de anahtara ve önbelleğe alınmamalıdır | Başlıklar kodda var; CloudFront davranışları **Doğrulanmadı** |
 | HTML sayfaları | Kaynak başlığına uyulur; önbelleğe alma kararı (şimdilik "önbelleksiz" bırakılırsa) açıkça yazılır; oturum çerezli istek (`gb_session`) kişisel içerik taşır, paylaşımlı önbelleğe girmez | İstek |
 | Sıkıştırma ve HTTP/3 | Brotli (+ gzip) ve HTTP/3 etkin. Kodda `compress: true` kaynağı sıkıştırır (CloudFront "caching disabled" politikası sıkıştırmaz, #453); önbelleğe alınan yollarda CloudFront sıkıştırması ve politikada `Accept-Encoding` kabulü | Kaynak sıkıştırması var; CloudFront Brotli/HTTP/3 **Doğrulanmadı** |
 | WAF | Doğrulanmış arama ve yapay zekâ botlarına izin (Googlebot, Bingbot, YandexBot, Applebot, `OAI-SearchBot`, `GPTBot`, `ClaudeBot`, `PerplexityBot`… yayıncı belgelerindeki ters DNS/IP doğrulamasıyla, yalnız UA'ya güvenmeden); kötü botlara ve kazıyıcılara hız sınırı (özellikle `/katalog?q=`, `/api/*`, giriş); AWS yönetilen bot kontrolünün doğrulanmış botları engellemediği izlenir. Yanlış engel yayın günü indekslemeyi durdurur | İstek |
 | Günlükler | CloudFront standart günlükleri S3'e; Athena tablosu ve "bot tarama raporu" sorgusu (UA'ya göre istek, durum kodu, URL grubu, günlük) | İstek |
-| Zamanlanmış operations görevi | IndexNow: EventBridge `getirbakim-production-indexnow`, günde bir 06:30 Europe/Istanbul, komut `node --conditions=react-server --import tsx scripts/indexnow.ts`, çıkış 1 = alarm; `INDEXNOW_KEY`, `APP_ENV=production`, `SITE_URL` görevde. Besleme üretimi (#643) aynı görev tanımına eklenir. Site haritası ısıtması uygulama içindedir, ayrı görev gerekmez | Zamanlayıcı [indexnow.md](indexnow.md#aws-gereksinimleri) belgesinde istendi; kurulduğu **Doğrulanmadı** |
+| Zamanlanmış operations görevi | IndexNow: EventBridge `getirbakim-production-indexnow`, günde bir 06:30 Europe/Istanbul, komut `node --conditions=react-server --import tsx scripts/indexnow.ts`, çıkış 1 = alarm; `INDEXNOW_KEY`, `APP_ENV=production`, `SITE_URL` görevde. Besleme üretimi (#643): aynı görev tanımında günde 4 kez `node --conditions=react-server --import tsx scripts/merchant-feed.ts`, çıkış 1 = alarm ([merchant-feed.md](merchant-feed.md)). Site haritası ısıtması uygulama içindedir, ayrı görev gerekmez | Zamanlayıcı [indexnow.md](indexnow.md#aws-gereksinimleri) belgesinde istendi; kurulduğu **Doğrulanmadı** |
 | Hata sayfaları | `404` `404`, `5xx` `5xx` kalmalı; CloudFront özel hata sayfaları (ör. 404 → `200` ana sayfa) tanımlanmaz; bakım sayfası `503` (+ `Retry-After`) döner, `200` değil | İstek (uygulama `notFound()` ile gerçek `404` verir) |
 | Çıkış | `api.indexnow.org:443` doğrudan (tedarikçi proxy'si kullanılmaz) | İstek |
 
@@ -162,7 +163,7 @@ Eşikler: Core Web Vitals "iyi" oranı mobilde ≥ %75 (#642 açık iş); tarama
 
 ## 5. Açık işler ve ilgili belgeler
 
-- Açık iş kalemleri: #642 (HTML ağırlığı, Core Web Vitals), #643 (ürün beslemesi), #646 (rehber/SSS), #676 (Ads + Pixel), #749 (çerez politikası ölçüm metni).
+- Açık iş kalemleri: #642 (HTML ağırlığı, Core Web Vitals), #646 (rehber/SSS), #676 (Ads + Pixel), #749 (çerez politikası ölçüm metni).
 - [launch-roadmap.md](launch-roadmap.md) — lansman kabul listesi ve adres düzeni.
 - [aws-cutover.md](aws-cutover.md) — geçiş günü ve DNS.
 - [indexnow.md](indexnow.md) — IndexNow çalışma ve AWS ayrıntıları.
