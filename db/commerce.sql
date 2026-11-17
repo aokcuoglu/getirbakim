@@ -233,7 +233,7 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  (basbug_checkout_mode='snapshot' OR source_fresh) AND
  (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0),
  99,
- CASE WHEN basbug_checkout_mode='snapshot' AND (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0) THEN 'Kayıtlı stokta mevcut · Teyit bekliyor'
+ CASE WHEN basbug_checkout_mode='snapshot' AND (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0) THEN 'Stokta · Siparişten sonra teyit edilir'
  WHEN NOT source_fresh AND basbug_checkout_mode='live' THEN 'Stok bilgisi güncelleniyor'
  WHEN stock_data IS NULL THEN 'Stok bilgisi bulunamadı'
  WHEN (stock_data->>'stok')::numeric>0 THEN 'Tedarikçide mevcut'
