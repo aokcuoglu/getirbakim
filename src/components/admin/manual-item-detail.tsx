@@ -1,9 +1,10 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { adminManualItem } from "@/modules/admin/manual";
 import { categoryLabel } from "@/modules/suppliers/manual-template";
 import { activeBulk, fileFilled, manualEditableFields, type ManualEditableField } from "@/modules/suppliers/manual-import";
+import { ManualPriceFields, type ManualValueSource } from "@/components/admin/manual-price-fields";
+import { panelDecimalText } from "@/modules/suppliers/manual-cost";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Fields, SupplierProductDetail, Timestamp } from "@/components/admin/supplier-product-detail";
 import { formatExact, formatNumber } from "@/modules/admin/format";
@@ -16,9 +17,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { saveManualItem } from "@/app/yonetim/tedarikciler/manuel/actions";
 
-const labels: Record<ManualEditableField, { label: string; hint: string }> = {
-  price: { label: "Fiyat (KDV hariç alış, TL)", hint: "Boşsa ürün satışa kapalı listelenir." },
-  stock: { label: "Stok (adet)", hint: "Boşsa “stok bilgisi yok” görünür." },
+type FormField = Exclude<ManualEditableField, "price" | "stock">;
+const formFields = manualEditableFields.filter((field): field is FormField => field !== "price" && field !== "stock");
+const labels: Record<FormField, { label: string; hint: string }> = {
   barcode: { label: "Barkod", hint: "EAN/GTIN." },
   description: { label: "Açıklama", hint: "Ürün sayfasında görünür (en fazla 3.000 karakter)." },
   viscosity: { label: "Viskozite", hint: "Örn. 5W-30." },
@@ -27,7 +28,7 @@ const labels: Record<ManualEditableField, { label: string; hint: string }> = {
   imageUrl: { label: "Resim linki", hint: "Doğrudan resim dosyası linki; kaydederken indirilir." },
 };
 const errors: Record<string, string> = {
-  input: "Fiyat ve stok sayı olmalı; resim linki doğrudan bir resim dosyasına gitmeli.",
+  input: "Kaydedilmedi; değerleri kontrol edin. Liste fiyatı sıfırdan büyük olmalı (en fazla dört ondalık). Binlik ayracı kullanmayın; ondalık için virgül kullanın. İskonto 0–100 arasında olmalı ve liste fiyatı olmadan girilemez. Stok sıfır ya da pozitif tam sayı olmalı. Resim linki doğrudan bir resim dosyasına gitmeli.",
   invalid: "Değer kaydedilemedi",
   busy: "Başka bir manuel liste işlemi sürüyor. Biraz sonra yeniden deneyin.",
   locked: "Ürün şu anda başka bir işlemde (ör. ürün eşleştirme) güncelleniyor; kayıt yapılmadı. Bir iki dakika sonra yeniden deneyin.",
@@ -42,23 +43,25 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
   const { sale, pricing } = item;
   const category = item.categories.find(entry => entry.id === p.category_id);
   const overrides = item.overrides ?? {};
-  const value = (field: ManualEditableField) => {
-    const current = field === "price" ? item.price_data?.nf : field === "stock" ? item.stock_data?.stok : overrides[field] ?? p.file[field];
-    return current === null || current === undefined ? "" : String(current);
-  };
-  // A CSV value in force (#832) wins over the file and the form; it changes only through another CSV or a changed file cell.
+  const text = (value: number | string | null | undefined) => value === null || value === undefined ? "" : String(value);
+  const value = (field: FormField) => text(overrides[field] ?? p.file[field]);
+  const fromFile = (field: FormField) => fileFilled(p.file, field);
+  // List price, discount and stock in force (#842): a CSV's or the item page's record, else the upload's cells, else
+  // an older panel value (read like the CSV export: list = cost, no discount).
   const bulk = activeBulk(p.file, overrides);
-  const fromCsv = (field: ManualEditableField) => Boolean(field === "price" && bulk.price || field === "stock" && bulk.stock);
-  const fromFile = (field: ManualEditableField) => !fromCsv(field) && fileFilled(p.file, field);
-  const fileNote = (field: ManualEditableField) => <>
-    {field === "price" && p.file.listPrice != null && `Liste fiyatı ${formatExact(p.file.listPrice)} · iskonto %${formatNumber(p.file.discount ?? 0)}. `}
-    Dosyadan geliyor; değiştirmek için dosyayı güncelleyip yeniden yükleyin.
-  </>;
+  const source = (field: "price" | "stock"): ManualValueSource => {
+    const record = bulk[field];
+    if (record) return record.by === "panel" ? "panel" : "csv";
+    if (fileFilled(p.file, field)) return "file";
+    return overrides[field] !== undefined ? "panel" : null;
+  };
+  const list = item.price_data?.list ?? item.price_data?.nf;
+  // Comma decimals as typed in Turkish; `was_*` sends the same text back, so an untouched field stays untouched.
+  const amount = (value: number | undefined) => value === undefined ? "" : panelDecimalText(value);
+  const shown = { list: amount(list), discount: amount(item.price_data?.discount ?? (list === undefined ? undefined : 0)), stock: text(item.stock_data?.stok) };
+  const fileNote = p.file.listPrice != null ? `Dosyada: liste ${formatExact(p.file.listPrice)} · iskonto %${formatNumber(p.file.discount ?? 0)}.`
+    : p.file.price != null ? `Dosyada: alış fiyatı ${formatExact(p.file.price)}.` : undefined;
   const listHref = `/yonetim/tedarikciler/manuel?liste=${item.list_group}`;
-  const csvNote = (field: ManualEditableField) => <>
-    {field === "price" && bulk.price && `Liste fiyatı ${formatExact(bulk.price.list)} · iskonto %${formatNumber(bulk.price.discount)}. `}
-    Toplu CSV ile güncellendi; değiştirmek için yeni bir CSV yükleyin (<Link className="underline underline-offset-4" href={listHref}>Manuel yükleme › Yükleme ve kontrol</Link>).
-  </>;
   return <SupplierProductDetail item={item} modal={modal} cart={p.ac} supplier={`Manuel · ${p.list_name}`} listHref={listHref}
       notice={<>
         {query.saved === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Kaydedildi; mağaza ve ürün sayfası güncellendi.</AlertDescription></Alert>}
@@ -66,18 +69,21 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
       </>}
       description={<>{p.ac} · {p.uk}</>} sale={sale} pricing={pricing} cost={item.price_data?.nf ?? null} sourcePriceLabel="Alış fiyatı"
       noSaleMessage={!item.price_data ? "Fiyat girilmediği için satışa kapalı; mağazada “Fiyat bilgisi güncelleniyor” görünür." : undefined}
-      productInfo={<Card><CardHeader><CardTitle><h2>Ürün bilgileri</h2></CardTitle><CardDescription>Ürün kodu, ad, marka ve kategori yüklenen dosyadan gelir. Dosyada boş kalan alanları buradan tamamlayabilirsiniz; dosyada dolu olan alanlar dosyadaki değeri korur.</CardDescription></CardHeader>
+      productInfo={<Card><CardHeader><CardTitle><h2>Ürün bilgileri</h2></CardTitle><CardDescription>Ürün kodu, ad, marka ve kategori yüklenen dosyadan gelir. Liste fiyatı, iskonto ve stok buradan düzenlenebilir; ürüne özel kârlılık için yukarıdaki Kâr ve KDV oranları düğmesini kullanın. Diğer alanlardan dosyada boş kalanları buradan tamamlayabilirsiniz; dosyada dolu olanlar dosyadaki değeri korur.</CardDescription></CardHeader>
         <CardContent className="flex flex-col gap-4">
           <Fields values={{ Marka: p.uk, Kategori: category ? categoryLabel(category) : p.category_name, Liste: p.list_name, Resim: item.has_image ? <StatusBadge tone="success">Var</StatusBadge> : <StatusBadge tone="neutral">Yok</StatusBadge> }}/>
           <form action={saveManualItem} className="flex flex-col gap-4">
             <input type="hidden" name="id" value={item.id}/>
             <FieldGroup className="grid gap-4 md:grid-cols-2">
-              {manualEditableFields.map(field => <Field key={field} className={field === "description" || field === "imageUrl" || field === "approvals" ? "md:col-span-2" : undefined}>
-                <FieldLabel htmlFor={`manual-${field}`}>{labels[field].label}{fromCsv(field) ? <Badge variant="info">Toplu CSV</Badge> : fromFile(field) ? <Badge variant="outline">Dosyadan</Badge> : overrides[field] !== undefined ? <Badge variant="info">Panelden</Badge> : null}</FieldLabel>
+              {/* Keyed by what is saved: after every save (or a CSV) the fields start again from the values in force. */}
+              <ManualPriceFields key={`${item.changed_at.getTime()}|${item.overrides_updated_at?.getTime() ?? 0}|${JSON.stringify(overrides)}|${shown.list}|${shown.discount}|${shown.stock}`} {...shown}
+                priceSource={source("price")} stockSource={source("stock")} fileNote={fileNote}/>
+              {formFields.map(field => <Field key={field} className={field === "description" || field === "imageUrl" || field === "approvals" ? "md:col-span-2" : undefined}>
+                <FieldLabel htmlFor={`manual-${field}`}>{labels[field].label}{fromFile(field) ? <Badge variant="outline">Dosyadan</Badge> : overrides[field] !== undefined ? <Badge variant="info">Panelden</Badge> : null}</FieldLabel>
                 {field === "description"
                   ? <Textarea id={`manual-${field}`} name={field} defaultValue={value(field)} maxLength={3000} readOnly={fromFile(field)} rows={5}/>
-                  : <Input id={`manual-${field}`} name={field} defaultValue={value(field)} readOnly={fromFile(field) || fromCsv(field)} inputMode={field === "price" ? "decimal" : field === "stock" ? "numeric" : undefined}/>}
-                <FieldDescription>{fromCsv(field) ? csvNote(field) : fromFile(field) ? fileNote(field) : labels[field].hint}</FieldDescription>
+                  : <Input id={`manual-${field}`} name={field} defaultValue={value(field)} readOnly={fromFile(field)}/>}
+                <FieldDescription>{fromFile(field) ? "Dosyadan geliyor; değiştirmek için dosyayı güncelleyip yeniden yükleyin." : labels[field].hint}</FieldDescription>
               </Field>)}
             </FieldGroup>
             <div><SubmitButton icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Kaydediliyor…">Kaydet</SubmitButton></div>
