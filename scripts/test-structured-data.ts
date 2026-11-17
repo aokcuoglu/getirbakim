@@ -2,7 +2,8 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { legalDocument, type LegalNode } from "../src/content/legal";
-import { articleJsonLd, breadcrumbJsonLd, catalogTrail, collectionJsonLd, maxStructuredVehicles, outOfStockLabel, guideTrail, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
+import { faqGroups } from "../src/content/faq";
+import { aboutPageJsonLd, articleJsonLd, breadcrumbJsonLd, catalogTrail, collectionJsonLd, faqJsonLd, maxStructuredVehicles, outOfStockLabel, guideTrail, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
   serializeJsonLd, unconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
 import { listingPath, makePath } from "../src/modules/seo/paths";
 import { productPath } from "../src/modules/seo/product-path";
@@ -200,4 +201,29 @@ test("article: organization as author and publisher, dates and canonical", () =>
 test("guide trail: home, guides, article", () => {
   assert.deepEqual(guideTrail().map(crumb => crumb.path), ["/", "/rehber"]);
   assert.deepEqual(guideTrail({ title: "T", slug: "x" }).map(crumb => crumb.path), ["/", "/rehber", "/rehber/x"]);
+});
+
+test("FAQ: one question per item with the visible answer text; none gives null", () => {
+  assert.equal(faqJsonLd([]), null);
+  const items = faqGroups.flatMap(group => group.items);
+  const node = faqJsonLd(items) as { "@type": string; mainEntity: { name: string; acceptedAnswer: { text: string } }[] };
+  assert.equal(node["@type"], "FAQPage");
+  assert.equal(node.mainEntity.length, items.length);
+  node.mainEntity.forEach((question, index) => {
+    assert.equal(question.name, items[index].question);
+    assert.equal(question.acceptedAnswer.text, items[index].answer);
+  });
+});
+
+test("FAQ questions are unique and answers are plain text", () => {
+  const items = faqGroups.flatMap(group => group.items);
+  assert.equal(new Set(items.map(item => item.question)).size, items.length);
+  for (const item of items) assert.ok(!item.answer.includes("<"), item.question);
+});
+
+test("about page references the organization instead of reprinting it", () => {
+  const node = aboutPageJsonLd("/bilgi/hakkimizda", base) as Record<string, unknown>;
+  assert.equal(node["@type"], "AboutPage");
+  assert.equal(node.url, `${base}/bilgi/hakkimizda`);
+  assert.deepEqual(node.mainEntity, { "@id": organizationId });
 });

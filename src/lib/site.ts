@@ -72,6 +72,7 @@ export const siteJsonLd = {
       "@id": organizationId,
       name: siteName,
       legalName: "ERGUL ENERJI SAN TIC LTD STI",
+      taxID: "3570422249",
       url: siteUrl,
       logo: `${siteUrl}/brand/logo-light.png`,
       email: contactEmail,
