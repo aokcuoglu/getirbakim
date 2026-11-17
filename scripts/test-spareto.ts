@@ -131,7 +131,13 @@ test('stored URLs give the part type without the brand prefix spareto prints',as
  assert.equal(type('meat-and-doria-oil-filter','MEAT & DORIA'),'oil-filter');
  assert.equal(type('herth-plus-buss-jakoparts-brake-disc','HERTH+BUSS JAKOPARTS'),'brake-disc');
  assert.equal(type('valeo-air-filter-1','VALEO'),'air-filter-1');
- assert.equal(type('ab-s-brake-disc','A.B.S.'),null);
+ // Brands spareto prints under its own prefix (#860); the plain brand words still work.
+ assert.equal(type('ab-s-brake-disc','A.B.S.'),'brake-disc');
+ assert.equal(type('mahle-original-radiator-engine-cooling','MAHLE'),'radiator-engine-cooling');
+ assert.equal(type('mahle-piston','MAHLE'),'piston');
+ assert.equal(type('contitech-timing-belt','CONTINENTAL CTAM'),'timing-belt');
+ assert.equal(type('continental-ctam-v-ribbed-belt','CONTINENTAL CTAM'),'v-ribbed-belt');
+ assert.equal(type('mahle-original-piston','KNECHT'),null);
  assert.equal(type('febi-bilstein-v-ribbed-belts','FEBI BILSTEIN'),'v-ribbed-belts');
  assert.equal(sparetoTypeFromUrl('https://spareto.com/vehicles/febi-bilstein-brake-disc','FEBI BILSTEIN'),null);
  assert.equal(sparetoTypeFromUrl('not a url','FEBI BILSTEIN'),null);
