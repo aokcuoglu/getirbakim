@@ -104,8 +104,9 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   }
   // (#788, #861) A live cost the locked rows kept from being saved refuses its line only if the sale price would change;
   // checked before the quote so the error names the lines. A fixed or campaign price, or a cost that rounds to the same
-  // price, is sold on saved data and marked "busy" below.
-  const repriced=await livePriceChanges(client,refreshed.recosted);
+  // price, is sold on saved data and marked "busy" below. Compared with the price this order charges (cartFor's), so a
+  // pull committing in between cannot make a stale price look current.
+  const repriced=await livePriceChanges(client,items.flatMap(p=>refreshed.recosted[p.id]===undefined ? [] : [{id:p.id,nf:refreshed.recosted[p.id],price:p.price_kurus}]));
   if(repriced.length) { await client.query('ROLLBACK'); return {error:'price',products:repriced}; }
   const shipping=await shippingRule(client);
   if(cartQuote(items,discount,shipping)!==input.quote) { await client.query('ROLLBACK'); return {error:'price'}; }

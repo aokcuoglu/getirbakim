@@ -61,30 +61,34 @@ export async function refreshCheckoutSources(owner:CartOwner) {
   return { items: cart.map(item => item.id), mode, unverified, gone, soldOut, recosted };
 }
 
+/** A line whose live cost could not be saved: its live `nf` (in the row's currency) and the price the order charges. */
+export type LiveCost = {id:string;nf:number;price:number|null};
 /**
- * The lines whose sale price would change if their live cost (`costs`: id -> live `nf`, in the row's currency) were
- * saved (#861). The price is recomputed with the values the catalog used for the current one (pricing_snapshot's
- * exchange_rate, markup_percent and vat_percent, kept exactly as numeric in jsonb), in SQL so it rounds like the view.
- * `line`/`regular` and the final CASE copy the `priced`, `sold` and `final` CTEs of commerce_catalog (db/commerce.sql):
- * an admin's fixed price replaces the formula's, a campaign counts only below the regular price, and a cost the
- * formula cannot price leaves the line unpriced (a change). Keep both copies the same; scripts/test-supplier-checkout.ts
- * compares them. Read-only, no locks.
+ * The lines whose sale price would change if their live cost were saved (#861). `price` is what the order charges
+ * (cartFor's price_kurus, read earlier in the same transaction): comparing with it, not with a fresh catalog read,
+ * keeps a supplier pull that commits in between from making a stale price look current. The new price is recomputed
+ * with the catalog's pricing_snapshot values (exchange_rate, markup_percent, vat_percent, kept exactly as numeric in
+ * jsonb), in SQL so it rounds like the view. `line`/`regular` and the final CASE copy the `priced`, `sold` and `final`
+ * CTEs of commerce_catalog (db/commerce.sql): an admin's fixed price replaces the formula's, a campaign counts only
+ * inside its window and below the regular price, and a cost the formula cannot price leaves the line unpriced (a
+ * change). The view's cost>0/exchange_rate>0/freshness gates are not copied: it is only called for lines cartFor found
+ * priced and sellable, and the refresh reports a non-positive live cost as sold out. A line missing from the catalog by
+ * now counts as changed. Keep both copies the same; scripts/test-supplier-checkout.ts compares them. Read-only, no locks.
  */
-export async function livePriceChanges(connection:Pick<PoolClient,"query">, costs:Record<string,number>) {
-  const live = Object.entries(costs).map(([id, nf]) => ({ id, nf }));
-  if (!live.length) return [];
-  return (await connection.query<{id:string}>(`WITH live AS (SELECT * FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,nf numeric)),
+export async function livePriceChanges(connection:Pick<PoolClient,"query">, lines:LiveCost[]) {
+  if (!lines.length) return [];
+  return (await connection.query<{id:string}>(`WITH live AS (SELECT * FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,nf numeric,price integer)),
     line AS (
-      SELECT l.id,p.price_kurus,ov.price_kurus AS fixed,
+      SELECT l.id,l.price,ov.price_kurus AS fixed,
         CASE WHEN (ov.sale_from IS NULL OR ov.sale_from<=now()) AND (ov.sale_until IS NULL OR now()<ov.sale_until) THEN ov.sale_price_kurus END AS sale,
         round(l.nf*(p.pricing_snapshot->>'exchange_rate')::numeric*(1+(p.pricing_snapshot->>'markup_percent')::numeric/100)
           *(1+(p.pricing_snapshot->>'vat_percent')::numeric/100)*100) AS auto
       FROM live l
       -- LATERAL + OFFSET 0 keeps the view from being planned as one catalog-wide scan per line (#705).
-      JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=l.id OFFSET 0) p ON true
+      LEFT JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=l.id OFFSET 0) p ON true
       LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=l.id),
-    regular AS (SELECT id,price_kurus,sale,CASE WHEN auto BETWEEN 1 AND 2147483647 THEN COALESCE(fixed,auto) END AS regular FROM line)
+    regular AS (SELECT id,price,sale,CASE WHEN auto BETWEEN 1 AND 2147483647 THEN COALESCE(fixed,auto) END AS regular FROM line)
     SELECT id::text FROM regular
-    WHERE price_kurus IS DISTINCT FROM CASE WHEN sale<regular THEN sale ELSE regular END ORDER BY id`,
-    [storefrontCompanies(), JSON.stringify(live)])).rows.map(row => row.id);
+    WHERE price IS DISTINCT FROM CASE WHEN sale<regular THEN sale ELSE regular END ORDER BY id`,
+    [storefrontCompanies(), JSON.stringify(lines)])).rows.map(row => row.id);
 }

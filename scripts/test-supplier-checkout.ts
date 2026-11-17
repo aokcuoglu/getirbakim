@@ -254,25 +254,58 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
       await db.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id) VALUES($1,$2)",[id,randomUUID()]);
       const setPrices=(fixed:number|null,sale:number|null)=>db.query("UPDATE commerce_item_overrides SET price_kurus=$2,sale_price_kurus=$3 WHERE supplier_item_id=$1",[id,fixed,sale]);
       const catalogPrice=async()=>(await db.query("SELECT price_kurus FROM commerce_catalog WHERE id=$1",[id])).rows[0].price_kurus;
-      // Parity: the saved cost recomputed by livePriceChanges is the catalog's own price, whatever priced it.
-      assert.deepEqual(await livePriceChanges(db,{}),[]);
-      assert.equal(await catalogPrice(),7800);
-      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf}),[]);
-      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf+1}),[id]);
-      await setPrices(9000,null);assert.equal(await catalogPrice(),9000);
-      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf}),[]);
-      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf+1}),[]);
-      await setPrices(null,7500);assert.equal(await catalogPrice(),7500);
-      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf}),[]);
+      // Parity: the saved cost recomputed by livePriceChanges is the catalog's own price, whatever priced it, and a
+      // cost moved by `delta` changes it exactly when the view's rules say so.
+      const parity=async(expected:number,delta:number,changes:boolean)=>{
+        const price=await catalogPrice();
+        assert.equal(price,expected);
+        assert.deepEqual(await livePriceChanges(db,[{id,nf:savedNf,price}]),[]);
+        assert.deepEqual(await livePriceChanges(db,[{id,nf:savedNf+delta,price}]),changes ? [id] : []);
+        // Compared with the price the order charges: a stale one (a pull committed after cartFor) is a change.
+        assert.deepEqual(await livePriceChanges(db,[{id,nf:savedNf,price:price-1}]),[id]);
+      };
+      assert.deepEqual(await livePriceChanges(db,[]),[]);
+      await parity(7800,1,true);
+      await setPrices(9000,null);await parity(9000,1,false);
+      await setPrices(null,7500);await parity(7500,1,false);
       await setPrices(null,null);
       const pricingAdmin=(await db.query("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Test','parity@example.invalid','test','admin',true) RETURNING id")).rows[0].id;
       await db.query("INSERT INTO commerce_product_pricing(supplier_item_id,markup_percent,vat_percent,updated_by) VALUES($1,50,10,$2)",[id,pricingAdmin]);
-      assert.equal(await catalogPrice(),8250);
-      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf}),[]);
-      assert.deepEqual(await livePriceChanges(db,{[id]:50.001}),[]);
-      assert.deepEqual(await livePriceChanges(db,{[id]:50.01}),[id]);
+      // 50 × 1.5 × 1.1: 8250; 50.001 rounds to the same price, 50.01 does not.
+      await parity(8250,0.001,false);
+      await parity(8250,0.01,true);
       await db.query("DELETE FROM commerce_product_pricing WHERE supplier_item_id=$1",[id]);
       await db.query("DELETE FROM accounts WHERE id=$1",[pricingAdmin]);
+      // A EUR row with a rate that is not a whole number: 50 × 41.3579 × 156 = 322591.62 -> 322592.
+      const currencies=(await db.query("SELECT DISTINCT currencies_data FROM supplier_imports WHERE supplier='basbug'")).rows;
+      assert.equal(currencies.length,1);
+      await db.query(`UPDATE supplier_imports SET currencies_data='{"dovizListesi":[{"dovizCinsi":"EUR","alis":"41","satis":"41.3579"}]}' WHERE supplier='basbug'`);
+      await db.query(`UPDATE supplier_items SET product_data=jsonb_set(product_data,'{dc}','"EUR"') WHERE id=$1`,[id]);
+      const setCampaign=(fixed:number|null,sale:number|null,from:string|null,until:string|null)=>db.query(
+        "UPDATE commerce_item_overrides SET price_kurus=$2,sale_price_kurus=$3,sale_from=now()+$4::interval,sale_until=now()+$5::interval WHERE supplier_item_id=$1",[id,fixed,sale,from,until]);
+      try {
+        await setCampaign(null,null,null,null);await parity(322592,0.01,true);
+        await setCampaign(400000,null,null,null);await parity(400000,0.01,false);
+        // Campaign in its window, below the regular price.
+        await setCampaign(null,300000,"-1 day","1 day");await parity(300000,0.01,false);
+        // Not started yet, or already over: the formula's price.
+        await setCampaign(null,300000,"1 day",null);await parity(322592,0.01,true);
+        await setCampaign(null,300000,null,"-1 second");await parity(322592,0.01,true);
+        // At or above the regular price: ignored.
+        await setCampaign(null,400000,null,null);await parity(322592,0.01,true);
+        // Equal to it: ignored while it is, so a lower cost moves the price, but a higher one brings the campaign in at
+        // the same price.
+        await setCampaign(null,322592,null,null);await parity(322592,-0.01,true);await parity(322592,0.01,false);
+        // Fixed plus a campaign below it: the campaign; a cost the campaign cannot drop under does not move it.
+        await setCampaign(400000,350000,null,null);await parity(350000,0.01,false);
+        // Fixed plus a campaign above it: the fixed price.
+        await setCampaign(300000,350000,null,null);await parity(300000,0.01,false);
+      } finally {
+        await setCampaign(null,null,null,null);
+        await db.query(`UPDATE supplier_items SET product_data=jsonb_set(product_data,'{dc}','"TL"') WHERE id=$1`,[id]);
+        await db.query("UPDATE supplier_imports SET currencies_data=$1::jsonb WHERE supplier='basbug'",[JSON.stringify(currencies[0].currencies_data)]);
+      }
+      assert.equal(await catalogPrice(),7800);
 
       const checkoutChanges=async()=>(await db.query("SELECT count(*)::int AS n FROM supplier_item_changes WHERE item_id=$1 AND after_data->>'source'='checkout'",[id])).rows[0].n;
       const changesBefore=await checkoutChanges();
