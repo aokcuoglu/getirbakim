@@ -5,7 +5,7 @@ import { Boxes, ChevronLeft, ChevronRight, CircleAlert, CircleCheck, GitCompareA
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { StatusBadge } from "@/components/admin/status-badge";
-import { formatDateTime, formatNumber } from "@/modules/admin/format";
+import { formatDateTime, formatDecimal, formatNumber } from "@/modules/admin/format";
 import { BrandLabelList } from "@/components/admin/brand-label-list";
 import { BrandLogoStatus } from "@/components/admin/brand-logo-field";
 import { BrandDialog, ConfirmBrand, MergeSuggestion, SetaDialog, StockLabel, type BrandRow } from "@/components/admin/product-matching-dialogs";
@@ -20,6 +20,7 @@ import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { candidateNames, candidateReasons, productMatchingData, type BrandSuggestion, type CandidateNames, type CandidateReason, type Offer } from "@/modules/admin/product-matching";
+import type { SuffixHints } from "@/modules/admin/product-suffix-signals";
 import { productTabHref } from "@/modules/admin/product-tabs";
 import { money } from "@/modules/store/catalog";
 import { acceptCandidates, decideCandidate, rejectCandidates, refreshMatches, splitOffer, undoSplit } from "./actions";
@@ -122,6 +123,20 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
   } else if ("candidates" in data) {
     const reasons = Object.keys(candidateReasons) as CandidateReason[], nameKinds = Object.keys(candidateNames) as CandidateNames[];
     const bulkBrand = data.brandFilter && data.reason && data.candidates.length > 0 && data.candidates.every(item => item.brand === data.brandFilter) ? data.brandFilter : null;
+    const showHints = data.candidates.some(item => item.hints);
+    // #899: review hints of suffix candidates; they only inform, no decision or bulk rule reads them.
+    const hintBadges = (hints: SuffixHints) => {
+      const ratioTitle = "Tedarikçi alış fiyatları (TL) arasındaki oran; mağaza satış fiyatı değil, maliyet karşılaştırılır.";
+      const { pack } = hints;
+      return <div className="flex flex-col items-start gap-1">
+        {hints.priceRatio === null
+          ? <StatusBadge tone="neutral" title="İki taraftan birinde tedarikçi alış fiyatı veya kur yok">Alış fiyatı yok</StatusBadge>
+          : hints.priceWarning
+            ? <StatusBadge tone="warning" title={`${ratioTitle} Oran 2 katı aşıyor; farklı parça veya paket olabilir.`}>Alış fiyatı {formatDecimal(hints.priceRatio, 1)} kat</StatusBadge>
+            : <StatusBadge tone="neutral" title={ratioTitle}>Alış fiyatı {formatDecimal(hints.priceRatio, 1)} kat</StatusBadge>}
+        {pack.differs && <StatusBadge tone="warning" icon={Boxes} title={`Mevcut: ${pack.a.join(", ") || "yok"} · Önerilen: ${pack.b.join(", ") || "yok"}`}>Paket farkı: {[...new Set([...pack.a, ...pack.b])].join(", ")}</StatusBadge>}
+      </div>;
+    };
     const side = (item: { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; price_kurus: number | null; available: boolean | null }) =>
       <div className="flex min-w-0 flex-col gap-1">
         <span className="flex flex-wrap gap-1">{item.suppliers.map(supplier => <Badge key={supplier} variant="secondary">{suppliers[supplier] ?? supplier}</Badge>)}</span>
@@ -141,7 +156,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             ...nameKinds.map(kind => ({ value: kind, label: `${candidateNames[kind]} (${number(data.byNames[kind])})` })),
           ] },
         ])}
-        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Yalnız incelenmiş güvenli ek desenleri (ör. Ford renk ekleri, MAYSAN MM/WM/PM, OSRAM 1BL) topluca birleştirilebilir; diğerlerini tek tek karara bağlayın. Bilinen farklı parça desenleri (ör. FEBI 100261 ve 1002610, OSRAM -2HB/-2BL) önerilmez.</AlertDescription></Alert>}
+        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Yalnız incelenmiş güvenli ek desenleri (ör. Ford renk ekleri, MAYSAN MM/WM/PM, OSRAM 1BL) topluca birleştirilebilir; diğerlerini tek tek karara bağlayın. İpuçları (alış fiyatı oranı, paket sözcüğü) yalnız yardımcıdır; toplu birleştirme kuralını değiştirmez. Bilinen farklı parça desenleri (ör. FEBI 100261 ve 1002610, OSRAM -2HB/-2BL) önerilmez.</AlertDescription></Alert>}
         {(bulkBrand || data.names === "conflict") && <div className="flex flex-wrap items-center gap-2">
           {bulkBrand && data.reason && data.bulkAllowed && data.names !== "conflict" && <div className="flex flex-wrap items-center gap-2">
             {data.acceptableTotal > 0 && <form action={acceptCandidates}>
@@ -156,7 +171,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           </form>}
         </div>}
         {data.candidates.length ? <Table server><caption className="sr-only">Olası aynı ürünler</caption>
-          <TableHeader><TableRow><TableHead sortKey="reason" filter={{ param: "scope", options: reasons.map(reason => ({ value: reason, label: candidateReasons[reason] })) }}>Neden</TableHead><TableHead title="Aynı ürün denirse bu ürün korunur">Mevcut ürün</TableHead><TableHead title="Aynı ürün denirse bu ürün mevcut ürüne katılır">Önerilen eş</TableHead><TableHead sortKey="similarity" className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead><TableHead>Karar</TableHead></TableRow></TableHeader>
+          <TableHeader><TableRow><TableHead sortKey="reason" filter={{ param: "scope", options: reasons.map(reason => ({ value: reason, label: candidateReasons[reason] })) }}>Neden</TableHead><TableHead title="Aynı ürün denirse bu ürün korunur">Mevcut ürün</TableHead><TableHead title="Aynı ürün denirse bu ürün mevcut ürüne katılır">Önerilen eş</TableHead><TableHead sortKey="similarity" className="text-center" title="Ürün adı benzerliği">Benzerlik</TableHead>{showHints && <TableHead title="Yalnız inceleme ipucu; karar ve toplu birleştirme kuralını değiştirmez">İpuçları</TableHead>}<TableHead>Karar</TableHead></TableRow></TableHeader>
           <TableBody>{data.candidates.map(item => <TableRow key={`${item.a.id}|${item.b.id}`}>
             <TableCell><div className="flex flex-col items-start gap-1"><span>{candidateReasons[item.reason]}</span><span className="text-muted-foreground">{item.a.brand_label}</span>
               {item.name_conflict && <StatusBadge tone="error" title="İki tanım farklı parça türü söylüyor">Tanımı farklı</StatusBadge>}
@@ -165,7 +180,8 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
               {item.suffix_bulk && <StatusBadge tone="success" title="İncelenmiş güvenli ek deseni; topluca birleştirilebilir">Güvenli ek</StatusBadge>}</div></TableCell>
             <TableCell>{side(item.a)}</TableCell>
             <TableCell>{side(item.b)}</TableCell>
-            <TableCell className="text-center">{item.name_similarity === null ? "—" : <StatusBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"}>{percent(item.name_similarity)}</StatusBadge>}</TableCell>
+            <TableCell className="text-center">{item.name_similarity === null ? "—" : <StatusBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"} title="Ürün adlarının trigram benzerliği; tek başına karar ölçütü değil">{percent(item.name_similarity)}</StatusBadge>}</TableCell>
+            {showHints && <TableCell>{item.hints ? hintBadges(item.hints) : "—"}</TableCell>}
             <TableCell><div className="flex flex-wrap gap-2">{(["same", "different"] as const).map(status => <form key={status} action={decideCandidate}>
               <input type="hidden" name="product_a" value={item.a.id}/><input type="hidden" name="product_b" value={item.b.id}/>
               <input type="hidden" name="status" value={status}/><input type="hidden" name="back" value={back}/>

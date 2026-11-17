@@ -1,9 +1,10 @@
 import { writeFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import {
-  evaluateSignal, modelTokens, packTokens, signalDecision, tokenOverlap, yearRange, yearsOverlap,
+  evaluateSignal, modelTokens, packHint, priceRatio, signalDecision, suffixExtension, tokenOverlap, yearRange, yearsOverlap,
   type SignalMetrics, type SignalPrediction, type SuffixPair, type SuffixStatus, type SuffixVerdict, type YearRange,
 } from "../src/modules/admin/product-suffix-signals";
+import { latestSupplierRatesSql } from "../src/modules/admin/product-matching-sql";
 
 // Measures second signals for ambiguous part-number suffix pairs (#587). Strictly read-only: one READ ONLY transaction
 // with a statement timeout, no temporary tables, no advisory locks, always rolled back. Prints Markdown.
@@ -71,16 +72,8 @@ try {
   const nameMap = new Map(names.rows.map(r => [`${r.a}|${r.b}`, r]));
 
   const ids = [...new Set(raw.flatMap(r => [r.a, r.b]))];
-  // Exchange rates: the latest per supplier and currency; the company is ignored (commerce_catalog keys them by company too).
-  const rates = new Map((await client.query<{ supplier: string; currency: string; rate: string }>(`
-    WITH latest AS (
-     SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
-     FROM supplier_imports WHERE status='succeeded' ORDER BY supplier,company,completed_at DESC,id DESC
-    ), rates AS (
-     SELECT supplier,completed_at,r->>'dovizCinsi' AS currency,(r->>'satis')::numeric AS rate
-     FROM latest CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(currencies_data->'dovizListesi')='array' THEN currencies_data->'dovizListesi' ELSE '[]'::jsonb END) r
-    )
-    SELECT DISTINCT ON (supplier,currency) supplier,currency,rate FROM rates ORDER BY supplier,currency,completed_at DESC`)).rows.map(r => [`${r.supplier}|${r.currency}`, Number(r.rate)]));
+  // Exchange rates: the latest per supplier and currency (shared with the candidates page, #899).
+  const rates = new Map((await client.query<{ supplier: string; currency: string; rate: string }>(latestSupplierRatesSql)).rows.map(r => [`${r.supplier}|${r.currency}`, Number(r.rate)]));
 
   const itemRows = (await client.query<{ pid: string; item_id: string; supplier: string; m: string | null; y: string | null; unit: string | null; name: string | null; nterms: string[]; kterms: string[];
     qty: string | null; dc: string | null; nf: string | null; enriched: boolean }>(`
@@ -122,17 +115,13 @@ try {
   const pairs: Features[] = raw.map(r => {
     const n = nameMap.get(`${r.a}|${r.b}`);
     const [shortNo, longNo] = r.pa.length <= r.pb.length ? [r.pa, r.pb] : [r.pb, r.pa];
-    const ext = longNo.slice(shortNo.length);
+    const { ext } = suffixExtension(r.pa, r.pb);
     const ra = rowsOf.get(r.a) ?? [];
     const rb = rowsOf.get(r.b) ?? [];
     const all = [...ra, ...rb];
     const basbug = all.filter(x => x.supplier === "basbug");
     const dinamik = all.filter(x => x.supplier === "dinamik");
-    const costA = minCost(ra);
-    const costB = minCost(rb);
-    const aLonger = r.pa.length > r.pb.length;
-    const tokensA = packTokens(r.na ?? "", aLonger ? ext : "").join(",");
-    const tokensB = packTokens(r.nb ?? "", aLonger ? "" : ext).join(",");
+    const pack = packHint({ partNumber: r.pa, name: r.na }, { partNumber: r.pb, name: r.nb });
     const basbugYears = basbug.map(x => yearRange(x.y)).filter((x): x is YearRange => x !== null);
     const dinamikYears = dinamik.map(x => yearRange(x.name ?? "", false)).filter((x): x is YearRange => x !== null);
     const basbugModels = [...new Set(basbug.flatMap(x => modelTokens(x.m)))];
@@ -150,8 +139,8 @@ try {
       status: (r.status ?? "different") as SuffixStatus, verdict: r.verdict, brand: r.brand, numbers: [shortNo, longNo], ext, decidedAt: r.decidedAt,
       idA: r.a, idB: r.b, nameA: r.na, nameB: r.nb, decided: r.status !== null,
       sim: n?.sim ?? 0, conflict: n?.conflict ?? false, jaccard: n?.jaccard ?? 0, resolved: ra.length > 0 && rb.length > 0, family: familyOf(r.brand),
-      ratio: costA !== null && costB !== null ? Math.max(costA, costB) / Math.min(costA, costB) : null,
-      packDiff: tokensA !== tokensB,
+      ratio: priceRatio(minCost(ra), minCost(rb)),
+      packDiff: pack.differs,
       unitsDiffer: unitsA.length && unitsB.length ? !overlap(unitsA, unitsB) : null,
       qtyDiff: qtyA.length && qtyB.length ? (Math.max(...qtyA.map(x => x.qty)) > 1) !== (Math.max(...qtyB.map(x => x.qty)) > 1) : null,
       coexist: overlap(ra.map(x => x.supplier), rb.map(x => x.supplier)),

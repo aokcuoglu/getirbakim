@@ -49,3 +49,34 @@ export const manualDeciderSql = "COALESCE(NULLIF(a.name,''),a.email)";
 export const offerManualSql = "EXISTS (SELECT 1 FROM product_sources s WHERE s.supplier_item_id=offers.id AND s.method='manual')";
 /** The groups (product_offers.primary_id) with at least one offer linked by hand; a group counts even if only its primary row is manual (as the row badge shows); read with the matched groups index. */
 export const manualGroupsSql = "SELECT DISTINCT o.primary_id::text AS primary_id FROM product_sources s JOIN product_offers o ON o.item_id=s.supplier_item_id WHERE s.method='manual'";
+
+/**
+ * The latest exchange rate per supplier and currency (`supplier`, `currency`, `rate`) from the last succeeded import of
+ * each supplier and company; the company is ignored (commerce_catalog keys rates by company too). Shared by
+ * productCostTrySql and scripts/measure-suffix-signals.ts (#587, #899).
+ */
+export const latestSupplierRatesSql = `
+    WITH latest AS (
+     SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
+     FROM supplier_imports WHERE status='succeeded' ORDER BY supplier,company,completed_at DESC,id DESC
+    ), rates AS (
+     SELECT supplier,completed_at,r->>'dovizCinsi' AS currency,(r->>'satis')::numeric AS rate
+     FROM latest CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(currencies_data->'dovizListesi')='array' THEN currencies_data->'dovizListesi' ELSE '[]'::jsonb END) r
+    )
+    SELECT DISTINCT ON (supplier,currency) supplier,currency,rate FROM rates ORDER BY supplier,currency,completed_at DESC`;
+
+/**
+ * `$1::uuid[]` product ids -> the lowest supplier cost in TRY per product (`product_id`, `cost_try`), the #587 price
+ * signal. A blank/TL/TRY currency counts as 1, otherwise the supplier's latest rate; rows without a rate or with
+ * `nf<=0` are skipped. This is the buying cost, not the store sale price.
+ */
+export const productCostTrySql = `
+  WITH s AS (SELECT product_id,supplier_item_id FROM product_sources WHERE product_id=ANY($1::uuid[])),
+  r AS (${latestSupplierRatesSql})
+  SELECT s.product_id, min(v.nf*v.rate) AS cost_try
+  FROM s JOIN supplier_items i ON i.id=s.supplier_item_id
+  LEFT JOIN r ON r.supplier=i.supplier AND r.currency=i.product_data->>'dc'
+  CROSS JOIN LATERAL (SELECT (i.price_data->>'nf')::numeric AS nf,
+   CASE WHEN COALESCE(i.product_data->>'dc','') IN ('','TL','TRY') THEN 1 ELSE r.rate END AS rate) v
+  WHERE v.nf>0 AND v.rate>0
+  GROUP BY s.product_id`;

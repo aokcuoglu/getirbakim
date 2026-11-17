@@ -1,5 +1,6 @@
 // Pure helpers for the second-signal measurement on ambiguous part-number suffix pairs (#587). No database access:
 // scripts/measure-suffix-signals.ts reads the labelled pairs and feeds them through these functions.
+// The #899 review hints on the suffix candidates page (price ratio, pack words) come from here too.
 
 export type SuffixStatus = "same" | "different";
 export type SuffixVerdict = "same" | "different" | "review";
@@ -84,6 +85,40 @@ export function packTokens(name: string, ext: string): string[] {
   const extMatch = /^\d(?:BL|HB)$/.exec(fold(ext));
   if (extMatch) found.add(extMatch[0]);
   return [...found].sort();
+}
+
+/** The shorter/longer part number pair: the extension the longer adds, and which side is longer ("b" when equal). */
+export function suffixExtension(a: string, b: string): { ext: string; longer: "a" | "b" } {
+  const aLonger = a.length > b.length;
+  const [short, long] = aLonger ? [b, a] : [a, b];
+  return { ext: long.slice(short.length), longer: aLonger ? "a" : "b" };
+}
+
+type NamedPart = { partNumber: string; name: string | null };
+
+/** Pack words of each side (the extension's own marker goes to the longer side) and whether the two sides differ. */
+export function packHint(a: NamedPart, b: NamedPart): { a: string[]; b: string[]; differs: boolean } {
+  const { ext, longer } = suffixExtension(a.partNumber, b.partNumber);
+  const tokensA = packTokens(a.name ?? "", longer === "a" ? ext : "");
+  const tokensB = packTokens(b.name ?? "", longer === "b" ? ext : "");
+  return { a: tokensA, b: tokensB, differs: tokensA.join(",") !== tokensB.join(",") };
+}
+
+/** Larger cost over the smaller; null when either side has no positive cost. */
+export function priceRatio(costA: number | null, costB: number | null): number | null {
+  if (costA === null || costB === null || !(costA > 0) || !(costB > 0)) return null;
+  return Math.max(costA, costB) / Math.min(costA, costB);
+}
+
+/** Cost ratios above this are flagged (the S6 "different" signal of #587). */
+export const PRICE_RATIO_WARNING = 2;
+
+export type SuffixHints = { priceRatio: number | null; priceWarning: boolean; pack: { a: string[]; b: string[]; differs: boolean } };
+
+/** Review hints for a suffix candidate. They only inform the reviewer; no decision or bulk rule reads them. */
+export function suffixHints(a: NamedPart & { costTry: number | null }, b: NamedPart & { costTry: number | null }): SuffixHints {
+  const ratio = priceRatio(a.costTry, b.costTry);
+  return { priceRatio: ratio, priceWarning: ratio !== null && ratio > PRICE_RATIO_WARNING, pack: packHint(a, b) };
 }
 
 export type YearRange = [from: number, to: number | null];

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { evaluateSignal, modelTokens, packTokens, signalDecision, tokenOverlap, wilsonLower, yearRange, yearsOverlap, type SignalMetrics, type SuffixStatus } from "../src/modules/admin/product-suffix-signals";
+import { evaluateSignal, modelTokens, packHint, packTokens, priceRatio, signalDecision, suffixExtension, suffixHints, tokenOverlap, wilsonLower, yearRange, yearsOverlap, type SignalMetrics, type SuffixStatus } from "../src/modules/admin/product-suffix-signals";
 
 const metrics = (correct: number, wrong: number): SignalMetrics => ({
   fires: correct + wrong, correct, wrong, precision: correct / (correct + wrong || 1), recall: 0, coverage: 0, wilson: wilsonLower(correct, correct + wrong),
@@ -74,4 +74,38 @@ test("modelTokens keeps model words and drops digits", () => {
   assert.deepEqual(modelTokens(""), []);
   assert.equal(tokenOverlap(modelTokens("GOLF5-JETTA"), modelTokens("VW GOLF 5 ON AMORTISOR")), 1);
   assert.equal(tokenOverlap([], ["GOLF"]), 0);
+});
+
+test("suffixExtension names the extension and the longer side", () => {
+  assert.deepEqual(suffixExtension("64210NL", "64210NLHCB"), { ext: "HCB", longer: "b" });
+  assert.deepEqual(suffixExtension("64210NLHCB", "64210NL"), { ext: "HCB", longer: "a" });
+  assert.deepEqual(suffixExtension("ABC", "ABC"), { ext: "", longer: "b" });
+});
+
+test("priceRatio is symmetric and empty without two positive costs", () => {
+  assert.equal(priceRatio(10, null), null);
+  assert.equal(priceRatio(null, 10), null);
+  assert.equal(priceRatio(0, 10), null);
+  assert.equal(priceRatio(10, 25), 2.5);
+  assert.equal(priceRatio(25, 10), 2.5);
+  assert.equal(priceRatio(10, 10), 1);
+});
+
+test("packHint compares pack words per side and puts the extension marker on the longer one", () => {
+  const plain = { partNumber: "1234", name: "FILTRE" };
+  assert.deepEqual(packHint(plain, { partNumber: "12342", name: "FILTRE IKILI" }), { a: [], b: ["IKILI"], differs: true });
+  assert.deepEqual(packHint({ partNumber: "1234", name: "AMPUL" }, { partNumber: "12342BL", name: "AMPUL" }), { a: [], b: ["2BL"], differs: true });
+  assert.deepEqual(packHint({ partNumber: "12342BL", name: "AMPUL" }, { partNumber: "1234", name: "AMPUL" }), { a: ["2BL"], b: [], differs: true });
+  assert.equal(packHint({ partNumber: "1234", name: "FILTRE SETI" }, { partNumber: "12342", name: "FILTRE SETI" }).differs, false);
+  assert.deepEqual(packHint({ partNumber: "1234", name: null }, { partNumber: "12342", name: null }), { a: [], b: [], differs: false });
+});
+
+test("suffixHints flags a price ratio above 2 and keeps the boundary quiet", () => {
+  const hints = suffixHints({ partNumber: "64210NL", name: "OSRAM AMPUL", costTry: 100 }, { partNumber: "64210NLHCB", name: "OSRAM AMPUL", costTry: 240 });
+  assert.ok(hints.priceRatio !== null && Math.abs(hints.priceRatio - 2.4) < 1e-9);
+  assert.equal(hints.priceWarning, true);
+  assert.equal(hints.pack.differs, false);
+  assert.equal(suffixHints({ partNumber: "A", name: null, costTry: 100 }, { partNumber: "AB", name: null, costTry: 200 }).priceWarning, false, "exactly 2 is not above 2");
+  assert.equal(suffixHints({ partNumber: "A", name: null, costTry: 100 }, { partNumber: "AB", name: null, costTry: 201 }).priceWarning, true);
+  assert.equal(suffixHints({ partNumber: "A", name: null, costTry: null }, { partNumber: "AB", name: null, costTry: 201 }).priceWarning, false);
 });
