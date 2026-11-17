@@ -521,7 +521,10 @@ export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?:
     // stock or price for sold out and lines with a new cost repriced, so the order refuses them. Only lines whose live
     // answer matches the saved price are sold on saved data and marked.
     await client?.query("ROLLBACK").catch(() => undefined);
-    console.error("Dinamik checkout check could not be saved", { reason: error instanceof Error ? error.message : error });
+    // 55P03 is the expected case (a running import holds the rows); anything else is a fault worth telling apart.
+    const lockTimeout = typeof error === "object" && error !== null && "code" in error && error.code === "55P03";
+    console.error(lockTimeout ? "Dinamik checkout check could not be saved: rows locked by an import" : "Dinamik checkout check could not be saved: write failed",
+      { reason: error instanceof Error ? error.message : error });
     result.gone = goneIds;
     for (const item of observed) {
       if (item.gone) continue;

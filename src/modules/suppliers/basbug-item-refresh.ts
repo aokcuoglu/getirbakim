@@ -77,13 +77,14 @@ type Observed = { id: string; gone: boolean; nf?: number; mif?: number; k?: numb
 /**
  * What a live MalzemeAra answer means for a line whose write failed, by the same rules the write and the store use:
  * the live depots replace their saved stock, depots it does not return keep theirs, and the line is available when any
- * depot has stock (db/commerce.sql: stok>0 or sFarkliDepo>0; sYol does not count). Otherwise a different cost is a
- * reprice.
+ * depot has stock (db/commerce.sql: stok>0 or sFarkliDepo>0; sYol does not count) and the live cost is positive.
+ * Otherwise a different cost is a reprice.
  */
 export function basbugLiveVerdict(saved: { nf: number | null; depolar: Record<string, { stok?: number }> },
   live: { nf: number; depots: Record<string, number> }): "sold_out" | "repriced" | "same" {
   const stock = { ...Object.fromEntries(Object.entries(saved.depolar).map(([depot, value]) => [depot, Number(value?.stok ?? 0)])), ...live.depots };
-  if (!Object.values(stock).some(value => value > 0)) return "sold_out";
+  // A cost of 0 or less cannot be sold either (db/commerce.sql prices only a positive cost).
+  if (!(live.nf > 0) || !Object.values(stock).some(value => value > 0)) return "sold_out";
   return saved.nf !== live.nf ? "repriced" : "same";
 }
 

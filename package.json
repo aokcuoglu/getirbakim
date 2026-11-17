@@ -126,6 +126,7 @@
     "test:order-actions": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-order-actions.ts",
     "test:order-agreement": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-order-agreement.ts",
     "test:checkout-refresh": "node --import tsx --test scripts/test-checkout-refresh.ts",
+    "test:checkout-error-alert": "node --import tsx --test scripts/test-checkout-error-alert.tsx",
     "test:order-supplier-note": "node --import tsx --test scripts/test-order-supplier-note.ts",
     "test:order-progress": "node --import tsx --test scripts/test-order-progress.ts",
     "test:order-cancel": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-order-cancel.ts",

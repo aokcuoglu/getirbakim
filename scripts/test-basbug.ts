@@ -247,6 +247,9 @@ test("the live verdict merges depots as the write does: any depot with stock is 
   assert.equal(basbugLiveVerdict({ nf: 1, depolar: { MRK: { stok: 3 } } }, { nf: 1, depots: { ...zero, MRK: 3 } }), "same");
   assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: 1.5, depots: { ...zero, ERZ: 2 } }), "repriced");
   assert.equal(basbugLiveVerdict({ nf: null, depolar: {} }, { nf: 1, depots: { ...zero, MRK: 1 } }), "repriced");
+  // No positive cost live: not saleable, like a Dinamik line without a price.
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: 0, depots: { ...zero, MRK: 3 } }), "sold_out");
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: -1, depots: { ...zero, MRK: 3 } }), "sold_out");
   // Sold out wins over a new price: the order refuses the line as unavailable.
   assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: 2, depots: zero }), "sold_out");
 });
