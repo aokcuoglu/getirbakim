@@ -1,4 +1,4 @@
-import { specificationLabel, specificationValue } from "./catalog-filters";
+import { specificationLabel, specificationValue, type CatalogFacet } from "./catalog-filters";
 
 /**
  * Turkish names for the enrichment's English specification keys (#622), keyed by the lower-cased name without its
@@ -425,6 +425,24 @@ export function facetOptions(rawValues: string[]) {
     else groups.set(key, { label: [...new Map(parts.map(part => [keyOf(part), part])).values()].join(", ") || raw, values: [raw] });
   }
   return [...groups.values()].sort((a, b) => a.label.localeCompare(b.label, "tr"));
+}
+
+/**
+ * The facets plus every selected value they no longer offer (no product left under the other filters), grouped and
+ * translated like the sidebar's options, so the listing's chips name those values the same way and one chip removes
+ * every spelling of a value (#883).
+ */
+export function withSelectedOptions(facets: CatalogFacet[], attributes: Record<string, string[]>): CatalogFacet[] {
+  const result = facets.map(facet => ({ ...facet }));
+  for (const [key, current] of Object.entries(attributes)) {
+    const facet = result.find(f => f.key === key);
+    const offered = new Set(facet?.options.flatMap(option => option.values));
+    const loose = current.filter(value => !offered.has(value));
+    if (!loose.length) continue;
+    if (facet) facet.options = [...facet.options, ...facetOptions(loose)];
+    else result.push({ key, label: specificationLabel(key), options: facetOptions(loose) });
+  }
+  return result;
 }
 
 export type CardSpecification = { key: string; label: string; value: string };

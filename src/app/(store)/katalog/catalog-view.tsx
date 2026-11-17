@@ -15,7 +15,10 @@ import { currentAccount } from "@/modules/auth/session";
 import { currentVehicle } from "@/modules/store/garage";
 import { GarageButton } from "@/components/garage/garage-button";
 import { HeroBackdrop } from "@/components/hero-backdrop";
-import { CatalogSidebar,CatalogResults } from "@/components/catalog-controls";
+import { CatalogSidebar,CatalogResults,CatalogFilterSheet } from "@/components/catalog-controls";
+import { CatalogActiveFilters } from "@/components/catalog-active-filters";
+import { activeFilters,clearAllFilters,selectedAttributes } from "@/modules/store/catalog-filters";
+import { withSelectedOptions } from "@/modules/store/specification-translations";
 import { CatalogProduct } from "@/components/catalog-product";
 import { getCatalogProductImages,getCatalogProductDetails } from "@/modules/store/product-enrichment";
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
@@ -124,10 +127,13 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const listingHref=(updates:Partial<CatalogQuery>)=>listingUrl(params,updates);
  const fitsHref=(fits:"vehicle"|undefined)=>listingHref({fits});
  const shown=shownVehicle(vehicle),vehicleName=shown&&vehicleText(shown);
- const fitFilter=vehicleTypeId&&(params.fits||fitCount>0)&&<div className={cn("mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground",params.fits&&"border-[#9fd3b5] bg-[#e8f6ee]")} role="status"><CircleCheck size={18} aria-hidden="true"/>
-  {params.fits?<p>Yalnızca garajındaki <strong>{vehicleName}</strong> aracına bağlı ürünler gösteriliyor ({result.total.toLocaleString("tr-TR")} ürün).</p>
-   :<p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>}
-  <Link className="font-semibold whitespace-nowrap text-primary hover:underline" href={fitsHref(params.fits?undefined:"vehicle")} scroll={false}>{params.fits?"Tüm ürünleri göster":"Yalnızca aracıma uyanları göster"}</Link></div>;
+ // The fit filter itself shows as a removable chip ("Aracına uyanlar"); this box only offers it.
+ const fitFilter=vehicleTypeId&&!params.fits&&fitCount>0&&<div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground" role="status"><CircleCheck size={18} aria-hidden="true"/>
+  <p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>
+  <Link className="font-semibold whitespace-nowrap text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Yalnızca aracıma uyanları göster</Link></div>;
+ // Chips name a selected value the facets no longer offer the way the sidebar would.
+ const chipFacets=withSelectedOptions(facetData.attributes,selectedAttributes(params));
+ const chips=activeFilters(params,chipFacets,{vehicleName:vehicleName||undefined}).map(item=>({key:item.key,label:item.label,href:listingHref(item.remove)}));
  const oilFilters=parseOilFilters(params.oil);
  // Engine-oil listings: the oil categories, an oil filter, or a search for engine oil or a grade ("5w30").
  const oilListing=oilFilters.size>0||Boolean(category&&(category.path.includes(engineOilCategoryId)||category.id===legacyCategoryIds.yag))||/motor\s*ya[gğ]|\b\d{1,2}w-?\d{2}\b/i.test(params.q??"");
@@ -189,7 +195,9 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
      <div className="min-w-0">
      {tooShort}{correction}{vehicleNotice}{oilBanner}{fitFilter}{fitNote}
     {!filtered&&!manufacturer&&<><CatalogCategoryChips categories={subcategories} makeSlug={params.make} modelSlug={modelSlug}/><CategoryCards className="mt-0 mb-8 max-[768px]:hidden" categories={subcategories} makeSlug={params.make} modelSlug={modelSlug}/></>}
-     <CatalogResults count={result.total} page={result.page} pages={result.pages} pageSize={result.pageSize} params={params} defaultView={defaultListingView(account)}>
+     <CatalogResults count={result.total} page={result.page} pages={result.pages} pageSize={result.pageSize} params={params} defaultView={defaultListingView(account)}
+      filters={<CatalogFilterSheet brands={facetData.brands} facets={facetData.attributes} chipFacets={chipFacets} params={params} count={result.total} vehicleName={vehicleName||undefined}/>}
+      active={<CatalogActiveFilters items={chips} clearHref={listingHref(clearAllFilters)}/>}>
       {products.length ? products.map(product => <CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.display_brand)} account={account} fitsVehicle={fitting.has(product.id)} vehicleChecked={Boolean(vehicleTypeId)}/>) :
        <div className="col-span-full min-h-[300px] rounded-md border border-border px-6 py-16 text-center"><Search size={38} className="mx-auto mb-5 text-muted-foreground"/><h2 className="mb-3 text-[22px] leading-[30px] font-semibold">{params.fits ? "Bu listede aracına bağlı ürün bulunamadı." : params.oil ? "Aracının yağ önerisine uyan ürün bulunamadı." : filtered ? "Aramana uygun ürün bulunamadı." : "Bu kategoride şu an ürün bulunmuyor."}</h2><p className="mb-6 text-sm leading-[22px] text-muted-foreground">{params.fits ? "Tüm ürünlerde OEM numarasıyla arayabilir veya araç filtresini kaldırabilirsin." : params.oil ? "Yağ filtrelerinden birini kaldırarak benzer özellikteki yağları görebilirsin." : filtered ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Diğer kategorileri inceleyebilir veya aradığın parça için bize ulaşabilirsin."}</p><Button className="h-12 bg-brand px-[27px] hover:bg-brand-strong" nativeButton={false} render={<Link href={allProducts}/>}>Tüm ürünlere göz at</Button></div>}
      </CatalogResults>
