@@ -1,5 +1,6 @@
 import type {Pool,PoolClient} from 'pg';
-import {categoryNodes,categoryRef,type SourceCategory} from './source-categories';
+import {categoryNodes,categoryRef,type CategoryNode,type SourceCategory} from './source-categories';
+import {typeAliases,type CuratedType} from './type-aliases';
 
 // Part type -> Trodo category dictionary (#851). Trodo names each product "<part type> <brand> <part number>" and lists
 // its categories; sources without categories (spareto, parts2world) name the same TecDoc part types, so a type Trodo
@@ -109,7 +110,7 @@ export async function relearnTypeCategories(pool:Pool){
 // Plural folding of the last word only, for sources that name types in the plural ("v-ribbed-belts"). Words that end
 // in s as singulars stay as they are.
 const singularS=new Set(['glass','gas','bus','axis','brass','chassis','bias','lens','canvas','series','abs','plus','atlas','news']);
-function singular(word:string){
+export function singular(word:string){
  if(singularS.has(word)||/(ss|us|is)$/.test(word)||word.length<4)return word;
  if(/ies$/.test(word))return word.slice(0,-3)+'y';
  if(/(ches|shes|xes|sses)$/.test(word))return word.slice(0,-2);
@@ -118,19 +119,74 @@ function singular(word:string){
 const folded=(type:string)=>{const at=type.lastIndexOf('-');return at<0?singular(type):type.slice(0,at+1)+singular(type.slice(at+1));};
 const setKey=(categories:SourceCategory[])=>categories.map(c=>c.id).sort((a,b)=>a-b).join(',');
 
-export type TypeDictionary={exact:Map<string,SourceCategory[]>;folded:Map<string,SourceCategory[]|null>};
+/** exact/folded: the learned Trodo types; curated: the curated list's entries a learned type does not shadow; overrides:
+ *  curated entries that shadow learned types on purpose (#860). */
+export type TypeDictionary={exact:Map<string,SourceCategory[]>;folded:Map<string,SourceCategory[]|null>;curated:Map<string,SourceCategory[]>;overrides:Map<string,SourceCategory[]>};
 /** Exact types plus a plural-folded index; folded keys that would pick different category sets are ambiguous (null). */
-export function typeDictionary(entries:Map<string,SourceCategory[]>):TypeDictionary{
+export function typeDictionary(entries:Map<string,SourceCategory[]>,{curated=new Map(),overrides=new Map()}:{curated?:Map<string,SourceCategory[]>;overrides?:Map<string,SourceCategory[]>}={}):TypeDictionary{
  const byFold=new Map<string,SourceCategory[]|null>();
  for(const [type,categories] of entries){
   const key=folded(type);
   if(!byFold.has(key))byFold.set(key,categories);
   else{const seen=byFold.get(key);if(seen&&setKey(seen)!==setKey(categories))byFold.set(key,null);}
  }
- return {exact:entries,folded:byFold};
+ return {exact:entries,folded:byFold,curated,overrides};
 }
-/** The dictionary's accepted pairs with full category paths. */
-export async function loadTypeCategories(db:Db,{minShare=DEFAULT_MIN_SHARE,minSupport=DEFAULT_MIN_SUPPORT}:{minShare?:number;minSupport?:number}={}){
+
+export type CuratedProblem={type:string;error:string};
+/** Resolves the curated list (#860) against the learned types and the category tree. Every problem is listed: an unknown
+ *  category id, an id whose name differs from the tree, an alias whose target is not an accepted learned type or is
+ *  itself curated (a chain), a duplicate or non-slug type, an empty category list. Broken entries are left out of the
+ *  maps. An entry whose type is learned and that is no override is redundant (learned data wins): reported, not applied.
+ *  resolvedWithout lists applied entries the learned types already resolve through a numeric tail or the plural fold. */
+export function resolveCuratedTypes(entries:Map<string,SourceCategory[]>,byId:Map<number,CategoryNode>,list:CuratedType[]){
+ const curated=new Map<string,SourceCategory[]>(),overrides=new Map<string,SourceCategory[]>(),redundant:string[]=[],resolvedWithout:string[]=[],problems:CuratedProblem[]=[];
+ const learnedOnly=typeDictionary(entries);
+ const counts=new Map<string,number>();for(const entry of list)counts.set(entry.type,(counts.get(entry.type)??0)+1);
+ for(const entry of list){
+  const own:string[]=[];
+  if(!entry.type||typeSlug(entry.type)!==entry.type)own.push('type is not a slug (typeSlug gives "'+typeSlug(entry.type)+'")');
+  if((counts.get(entry.type)??0)>1)own.push('duplicate type');
+  let categories:SourceCategory[]=[];
+  if('alias' in entry){
+   if(counts.has(entry.alias))own.push('alias chain: target '+entry.alias+' is itself curated');
+   else if(!entries.has(entry.alias))own.push('alias target '+entry.alias+' is not an accepted learned type');
+   else categories=entries.get(entry.alias)!;
+  }else{
+   if(!entry.categories.length)own.push('empty category list');
+   for(const {id,name} of entry.categories){
+    const node=byId.get(id);
+    if(!node)own.push('unknown category id '+id);
+    else if(node.name!==name)own.push(`category ${id} is "${node.name}", not "${name}"`);
+   }
+   if(!own.length)categories=entry.categories.map(c=>categoryRef(byId,c.id));
+  }
+  if(own.length){problems.push(...own.map(error=>({type:entry.type,error})));continue;}
+  if(entry.override)overrides.set(entry.type,categories);
+  else if(entries.has(entry.type))redundant.push(entry.type);
+  else{
+   curated.set(entry.type,categories);
+   // Learned data already gives the type through a numeric tail or the plural fold: worth a look, not an error.
+   if(typeMatch(learnedOnly,entry.type).via)resolvedWithout.push(entry.type);
+  }
+ }
+ return {curated,overrides,redundant,resolvedWithout,problems};
+}
+const problemList=(problems:CuratedProblem[])=>problems.map(p=>p.type+': '+p.error).join('; ');
+/** The learned dictionary with the curated list applied. strict throws on any problem (check-aliases, learn-types,
+ *  backfills); otherwise (workers) one warning lists them and only the valid entries apply, so a list mistake does not
+ *  stop collection. */
+export function curatedDictionary(entries:Map<string,SourceCategory[]>,byId:Map<number,CategoryNode>,list:CuratedType[],{strict=false}:{strict?:boolean}={}){
+ const {curated,overrides,problems}=resolveCuratedTypes(entries,byId,list);
+ if(problems.length){
+  if(strict)throw Error('Curated type list (src/modules/enrichment/type-aliases.ts) has problems: '+problemList(problems));
+  console.warn(`Uyarı: küratörlü tip listesinde ${new Set(problems.map(p=>p.type)).size} sorunlu kayıt atlandı (npm run enrichment:categories -- check-aliases): `+problemList(problems));
+ }
+ return typeDictionary(entries,{curated,overrides});
+}
+type DictionaryOptions={minShare?:number;minSupport?:number;curated?:CuratedType[];strict?:boolean};
+/** The accepted learned pairs with full category paths, and the category tree. */
+export async function loadLearnedTypes(db:Db,{minShare=DEFAULT_MIN_SHARE,minSupport=DEFAULT_MIN_SUPPORT}:{minShare?:number;minSupport?:number}={}){
  const rows=(await db.query<{type:string;category_id:number;support:number;total:number}>(
   "SELECT type,category_id,support,total FROM product_type_categories WHERE source='trodo' ORDER BY type,category_id")).rows;
  const byId=await categoryNodes(db),entries=new Map<string,SourceCategory[]>();
@@ -138,29 +194,42 @@ export async function loadTypeCategories(db:Db,{minShare=DEFAULT_MIN_SHARE,minSu
   if(!byId.has(p.categoryId))continue;
   entries.set(p.type,[...(entries.get(p.type)??[]),categoryRef(byId,p.categoryId)]);
  }
- return typeDictionary(entries);
+ return {entries,byId};
+}
+/** The dictionary: accepted learned pairs plus the curated list (#860). Without learned types it stays empty (aliases
+ *  have nothing to point at). */
+export async function loadTypeCategories(db:Db,{curated=typeAliases,strict=false,...limits}:DictionaryOptions={}){
+ const {entries,byId}=await loadLearnedTypes(db,limits);
+ return entries.size?curatedDictionary(entries,byId,curated,{strict}):typeDictionary(entries);
 }
 /** The dictionary for a worker: warns (in Turkish, for the operator) when it is empty, and a database whose schema
  *  predates it (42P01) gives an empty one, so the worker collects without categories instead of failing. */
-export async function loadTypeCategoriesOrEmpty(db:Db):Promise<TypeDictionary>{
+export async function loadTypeCategoriesOrEmpty(db:Db,options:DictionaryOptions={}):Promise<TypeDictionary>{
  try{
-  const dictionary=await loadTypeCategories(db);
+  const dictionary=await loadTypeCategories(db,options);
   if(!dictionary.exact.size)console.warn('Uyarı: parça tipi kategori sözlüğü boş; ürünler kategorisiz yazılacak (npm run enrichment:categories -- learn-types)');
   return dictionary;
  }catch(error){
   if((error as {code?:string}).code!=='42P01')throw error;
   console.warn('Uyarı: product_type_categories tablosu yok; ürünler kategorisiz yazılacak (npm run db:setup, sonra enrichment:categories -- learn-types)');
-  return {exact:new Map(),folded:new Map()};
+  return typeDictionary(new Map());
  }
 }
-/** Categories of a type: exact match, then without a numeric "-1" tail, then the plural-folded form; [] when unknown.
- *  Never a suffix or substring match ("water-pump-and-timing-belt-set" is not a "timing-belt-set"). */
-export function categoriesForType(dict:TypeDictionary,type:string|null):SourceCategory[]{
- if(!type)return [];
+/** How a type resolves: override entries, the learned exact type, then without a numeric "-1" tail, the curated list
+ *  (exact, then without the tail), last the learned plural-folded form. Never a suffix or substring match
+ *  ("water-pump-and-timing-belt-set" is not a "timing-belt-set"). */
+export function typeMatch(dict:TypeDictionary,type:string|null):{categories:SourceCategory[];via:'learned'|'curated'|null}{
+ if(!type)return {categories:[],via:null};
  const candidates=[type,...(/-\d+$/.test(type)?[type.replace(/-\d+$/,'')]:[])];
- for(const candidate of candidates){const hit=dict.exact.get(candidate);if(hit)return hit;}
- for(const candidate of candidates){const hit=dict.folded.get(folded(candidate));if(hit)return hit;}
- return [];
+ for(const candidate of candidates){const hit=dict.overrides.get(candidate);if(hit)return {categories:hit,via:'curated'};}
+ for(const candidate of candidates){const hit=dict.exact.get(candidate);if(hit)return {categories:hit,via:'learned'};}
+ for(const candidate of candidates){const hit=dict.curated.get(candidate);if(hit)return {categories:hit,via:'curated'};}
+ for(const candidate of candidates){const hit=dict.folded.get(folded(candidate));if(hit)return {categories:hit,via:'learned'};}
+ return {categories:[],via:null};
+}
+/** Categories of a type (typeMatch); [] when unknown. */
+export function categoriesForType(dict:TypeDictionary,type:string|null):SourceCategory[]{
+ return typeMatch(dict,type).categories;
 }
 
 /** Source URL prefix of each source whose enrichments take their categories from the dictionary (backfill-types and
@@ -174,15 +243,16 @@ export type TypedEnrichment={supplierItemId:string;sourceUrl:string;type:string|
  *  name one) is only counted: the worker may have stored categories from the page's own part name. A row whose
  *  categories are already the same is left alone, so imported_at (and storefront:sync) moves only for real changes; a row whose source URL changed
  *  meanwhile is not touched. dryRun only reads. hold writes the same categories but leaves imported_at as it is, so
- *  storefront:sync does not carry them until releaseTypeCategories. */
+ *  storefront:sync does not carry them until releaseTypeCategories. curated counts the mapped rows the curated list (#860) mapped. */
 export async function backfillTypeCategories(pool:Pool,rows:TypedEnrichment[],dict:TypeDictionary,{dryRun=false,hold=false}:{dryRun?:boolean;hold?:boolean}={}){
- const result={rows:rows.length,mapped:0,changed:0,unchanged:0,missing:0,noType:0};
+ const result={rows:rows.length,mapped:0,curated:0,changed:0,unchanged:0,missing:0,noType:0};
  const unmapped=new Map<string,number>();
  for(let start=0;start<rows.length;start+=500){
   const batch=rows.slice(start,start+500).flatMap(row=>{
    if(!row.type){result.noType++;return [];}
-   const categories=categoriesForType(dict,row.type);
+   const {categories,via}=typeMatch(dict,row.type);
    if(categories.length)result.mapped++;else unmapped.set(row.type,(unmapped.get(row.type)??0)+1);
+   if(via==='curated')result.curated++;
    return [{...row,categories:JSON.stringify(categories)}];
   });
   if(!batch.length)continue;

@@ -28,7 +28,7 @@ export async function importCategoryTree(pool:Pool,raw:unknown){
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
 export type SourceCategory={source:'trodo';id:number;name:string;path:{id:number;name:string}[]};
-type CategoryNode={category_id:number;name:string;path_ids:number[]};
+export type CategoryNode={category_id:number;name:string;path_ids:number[]};
 /** The Trodo tree by id, for building category references with their full path. */
 export async function categoryNodes(db:Pool|PoolClient){
  const nodes=(await db.query<CategoryNode>('SELECT category_id,name,path_ids FROM source_categories WHERE source=$1',['trodo'])).rows;

@@ -117,15 +117,18 @@ export function resolveVehicles(rows:FitmentRow[],models:FitmentCatalogModel[],t
  return {vehicles,invalid,resolved};
 }
 
+/** URL prefixes spareto uses for brands that its words do not give (#860): "mahle-original-piston" is a MAHLE piston. */
+const sparetoBrandPrefixes:Record<string,string[]>={MAHLE:['mahle-original'],'A.B.S.':['ab-s'],'CONTINENTAL CTAM':['contitech']};
 /** The part type slug of a stored spareto URL: "/products/<brand>-<type>/<part>" without the brand. spareto spells some
  *  brands shorter ("dt-" / "dt-spare-parts-" for DT SPARE PARTS, "reinz-" for VICTOR REINZ), so leading and trailing runs
- *  of the brand's words are tried after the whole brand, longest first; null when none prefixes the slug. */
+ *  of the brand's words and the brand's own prefixes are tried after the whole brand, longest first; null when none
+ *  prefixes the slug. */
 export function sparetoTypeFromUrl(sourceUrl:string,manufacturer:string){
  let segment:string|undefined;
  try{segment=/^\/products\/([a-z0-9-]+)\//.exec(new URL(sourceUrl).pathname)?.[1];}catch{return null;}
  const words=brandSlug(manufacturer).split('-').filter(Boolean);
  if(!segment||!words.length)return null;
- const runs=new Set<string>();
+ const runs=new Set<string>(sparetoBrandPrefixes[manufacturer.trim().toUpperCase()]??[]);
  for(let n=words.length;n>0;n--){runs.add(words.slice(0,n).join('-'));runs.add(words.slice(words.length-n).join('-'));}
  for(const run of [...runs].sort((a,b)=>b.length-a.length))if(segment.startsWith(run+'-')&&segment.length>run.length+1)return segment.slice(run.length+1);
  return null;
