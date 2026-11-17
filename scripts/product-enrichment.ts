@@ -11,8 +11,8 @@ try {
   if (command === "prepare") {
     const client = await pool.connect();
     // A session lock keeps concurrent prepares apart across both transactions below.
-    await client.query("SELECT pg_advisory_lock(20261003,2)");
     try {
+      await client.query("SELECT pg_advisory_lock(20261003,2)");
       // enrichment-states.sql locks with schema_lock_key() from db/product-matching.sql: run db:setup first. The DDL
       // waits at most 5 s for each table lock and fails instead of queueing other readers behind it (#921); its
       // transaction holds the locks it took only for the schema files and commits before the slow queue fill.
