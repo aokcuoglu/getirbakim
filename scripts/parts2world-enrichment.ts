@@ -38,6 +38,7 @@ import {resolve} from 'node:path';
 import {Pool} from 'pg';
 import {PARTS2WORLD,articleInfoPath,articleType,articleTypeAnswer,buildData,buildVehicles,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
 import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
+import {requireEnrichmentSchema} from '../src/modules/enrichment/schema';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt,startSourceRun,type RunOutcome} from '../src/modules/enrichment/source-attempts';
@@ -381,7 +382,7 @@ async function trimOemVehicles(){
 /** Part type names for the articles of enrichments written before #852: one article-info call per article, only the
  *  name is stored. Runs under collect's locks, so it never adds to another parts2world client. */
 async function fetchTypes(){
- await pool.query(await readFile('db/source-categories.sql','utf8'));
+ await requireEnrichmentSchema(pool,['source_categories','source_category_labels','product_type_categories','parts2world_article_types']);
  const alone=await tryExclusiveRun(pool,'parts2world-collect');
  if(!alone){console.log(JSON.stringify({skipped:'another parts2world run is going'}));return;}
  const lock=await acquireSourceLock(pool,'parts2world-source').catch(async error=>{await alone.release();throw error;});
