@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { legalDocument, type LegalNode } from "../src/content/legal";
 import { faqGroups } from "../src/content/faq";
 import { aboutPageJsonLd, articleJsonLd, breadcrumbJsonLd, catalogTrail, collectionJsonLd, faqJsonLd, maxStructuredVehicles, outOfStockLabel, guideTrail, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
-  serializeJsonLd, unconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
+  serializeJsonLd, unconfirmedStockLabel, legacyUnconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
 import { listingPath, makePath } from "../src/modules/seo/paths";
 import { productPath } from "../src/modules/seo/product-path";
 import { defaultSocialImage, foundingYear, organizationId, siteJsonLd } from "../src/lib/site";
@@ -170,6 +170,11 @@ test("every stock label is in the SQL and maps to InStock, OutOfStock or no offe
     const offer = offers(product({ available, stockLabel: label }));
     assert.equal(offer ? String(offer.availability).split("/").pop() : null, expected, `${label} / ${available}`);
   }
+});
+
+test("the label before #878 is still an unconfirmed stock, not InStock", () => {
+  assert.ok(!sql.includes(`'${legacyUnconfirmedStockLabel}'`));
+  assert.ok(!offers(product({ available: true, stockLabel: legacyUnconfirmedStockLabel })));
 });
 
 test("the seller is the site's Organization", () => {
