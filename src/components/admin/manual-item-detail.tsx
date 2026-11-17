@@ -27,7 +27,7 @@ const labels: Record<FormField, { label: string; hint: string }> = {
   imageUrl: { label: "Resim linki", hint: "Doğrudan resim dosyası linki; kaydederken indirilir." },
 };
 const errors: Record<string, string> = {
-  input: "Kaydedilmedi; değerleri kontrol edin. Liste fiyatı sıfırdan büyük olmalı (en fazla dört ondalık). İskonto 0–100 arasında olmalı ve liste fiyatı olmadan girilemez. Stok sıfır ya da pozitif tam sayı olmalı. Resim linki doğrudan bir resim dosyasına gitmeli.",
+  input: "Kaydedilmedi; değerleri kontrol edin. Liste fiyatı sıfırdan büyük olmalı (en fazla dört ondalık). Binlik ayracı kullanmayın; ondalık için virgül kullanın. İskonto 0–100 arasında olmalı ve liste fiyatı olmadan girilemez. Stok sıfır ya da pozitif tam sayı olmalı. Resim linki doğrudan bir resim dosyasına gitmeli.",
   invalid: "Değer kaydedilemedi",
   busy: "Başka bir manuel liste işlemi sürüyor. Biraz sonra yeniden deneyin.",
   locked: "Ürün şu anda başka bir işlemde (ör. ürün eşleştirme) güncelleniyor; kayıt yapılmadı. Bir iki dakika sonra yeniden deneyin.",

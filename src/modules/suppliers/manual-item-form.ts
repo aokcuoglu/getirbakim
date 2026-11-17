@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseDecimalText } from "./manual-cost";
+import { parsePanelDecimal } from "./manual-cost";
 import type { ManualItemEdit } from "./manual-import";
 
 const priceGroup = z.object({
@@ -11,10 +11,10 @@ const stockValue = z.string().regex(/^\d{1,9}$/).transform(Number).nullable();
 /**
  * The item page's list price, discount and stock (#842). Only a group that differs from what the form showed (`was_*`)
  * is validated and returned: an untouched value an upload or a CSV set (no decimal limit there) never blocks saving
- * the other fields. Emptied = null; with no list price a discount of 0 counts as empty. `invalid`: a changed group fails.
+ * the other fields. Amounts are read strictly (parsePanelDecimal: one separator, no thousands grouping). Emptied = null; with no list price a discount of 0 counts as empty. `invalid`: a changed group fails.
  */
 export function readManualPriceEdit(field: (key: string) => string | null): Pick<ManualItemEdit, "pricing" | "stock"> | "invalid" {
-  const number = (key: string) => parseDecimalText(field(key));
+  const number = (key: string) => parsePanelDecimal(field(key));
   // A hidden value the form did not produce (tampered) reads as empty, so its group counts as changed.
   const was = (key: string) => { const value = number(key); return typeof value === "number" ? value : null; };
   const list = number("listPrice");

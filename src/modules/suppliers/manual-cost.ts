@@ -13,3 +13,18 @@ export function parseDecimalText(value: string | null | undefined): number | nul
   const normalized = /,\d{1,4}$/.test(text) ? text.replace(/\./g, "").replace(",", ".") : text.replace(/,/g, "");
   return /^\d+(\.\d+)?$/.test(normalized) ? Number(normalized) : "invalid";
 }
+
+/**
+ * A hand-typed panel amount (#842): digits with at most one separator, where "," and "." both mean the decimal point.
+ * Thousands separators are refused rather than guessed ("10,12345" is 10.12345, never 1.012.345); spaces are ignored.
+ * Uploads and the CSV keep parseDecimalText, which reads Excel's grouping.
+ */
+export function parsePanelDecimal(value: string | null | undefined): number | null | "invalid" {
+  const text = value?.replace(/\s/g, "");
+  if (!text) return null;
+  return /^\d+([.,]\d+)?$/.test(text) ? Number(text.replace(",", ".")) : "invalid";
+}
+
+/** Shown for a panel amount with more than one separator. */
+export const panelDecimalHint = "Binlik ayracı kullanmayın; ondalık için virgül kullanın.";
+export const hasGrouping = (value: string) => /[.,].*[.,]/.test(value);

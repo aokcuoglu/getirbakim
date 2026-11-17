@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { FileText, Info, Pencil, TriangleAlert } from "lucide-react";
-import { manualCost, parseDecimalText } from "@/modules/suppliers/manual-cost";
+import { hasGrouping, manualCost, panelDecimalHint, parsePanelDecimal } from "@/modules/suppliers/manual-cost";
 import { formatExact } from "@/modules/admin/format";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -23,10 +23,10 @@ function SourceBadge({ source }: { source: ManualValueSource }) {
 
 type PriceProblem = { field: "list" | "discount"; message: string } | null;
 
-/** Mirrors readManualPriceEdit (manual-item-form.ts): with no list price a discount of 0 counts as empty. */
-function priceProblem(list: number | null | "invalid", discount: number | null | "invalid"): PriceProblem {
-  if (list === "invalid") return { field: "list", message: "Liste fiyatı sayı olmalı." };
-  if (discount === "invalid") return { field: "discount", message: "İskonto sayı olmalı." };
+/** Mirrors readManualPriceEdit (manual-item-form.ts): strict amounts, and with no list price a discount of 0 counts as empty. */
+function priceProblem(text: { list: string; discount: string }, list: number | null | "invalid", discount: number | null | "invalid"): PriceProblem {
+  if (list === "invalid") return { field: "list", message: hasGrouping(text.list) ? panelDecimalHint : "Liste fiyatı sayı olmalı." };
+  if (discount === "invalid") return { field: "discount", message: hasGrouping(text.discount) ? panelDecimalHint : "İskonto sayı olmalı." };
   if (list === null) return discount === null || discount === 0 ? null : { field: "discount", message: "İskonto liste fiyatı olmadan girilemez." };
   if (list <= 0 || Number(list.toFixed(4)) !== list) return { field: "list", message: "Liste fiyatı sıfırdan büyük olmalı, en fazla dört ondalık." };
   if (discount !== null && discount > 100) return { field: "discount", message: "İskonto 0–100 arasında olmalı." };
@@ -42,11 +42,11 @@ export function ManualPriceFields({ list, discount, stock, priceSource, stockSou
 }) {
   const id = useId();
   const [values, setValues] = useState({ list, discount, stock });
-  const parsedList = parseDecimalText(values.list);
-  const parsedDiscount = parseDecimalText(values.discount);
+  const parsedList = parsePanelDecimal(values.list);
+  const parsedDiscount = parsePanelDecimal(values.discount);
     // An untouched value (from the upload or a CSV, which have no decimal limit) is not checked: the save leaves it as is.
   const untouched = values.list === list && values.discount === discount;
-  const invalid = priceProblem(parsedList, parsedDiscount);
+  const invalid = priceProblem(values, parsedList, parsedDiscount);
   const problem = untouched ? null : invalid;
   const cost = !invalid && typeof parsedList === "number" ? manualCost(parsedList, typeof parsedDiscount === "number" ? parsedDiscount : 0) : null;
   const stockProblem = values.stock !== stock && !/^\d*$/.test(values.stock.replace(/\s/g, "")) ? "Stok sıfır ya da pozitif tam sayı olmalı (yalnız rakam)." : null;

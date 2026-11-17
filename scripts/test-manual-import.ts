@@ -3,6 +3,7 @@ import { test } from "node:test";
 import type { Pool } from "pg";
 import { activeBulk, bulkFileCells, fileFilled, ManualImportError, manualPricing, panelOverrides, updateManualItem, withOverrides, type downloadImage, type ManualItemEdit, type ManualOverrides, type ManualValues } from "../src/modules/suppliers/manual-import";
 import { readManualPriceEdit } from "../src/modules/suppliers/manual-item-form";
+import { hasGrouping, parseDecimalText, parsePanelDecimal } from "../src/modules/suppliers/manual-cost";
 
 // updateManualItem against a recorded fake pool: no database, the statements and their order are what is checked.
 const itemId = "da883a2e-1351-430e-a296-0a46c114a546";
@@ -196,7 +197,12 @@ test("the item form saves only the price or stock group the admin changed, and v
   assert.deepEqual(readManualPriceEdit(form(shown)), {});
   // Turkish decimals equal to the shown value are not an edit.
   assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "812,50", discount: "" })), {});
-  assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "1.000,5", discount: "12,5" })), { pricing: { list: 1000.5, discount: 12.5 } });
+  assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "1000,5", discount: "12,5" })), { pricing: { list: 1000.5, discount: 12.5 } });
+  // One separator, "," or "." as the decimal point; thousands grouping is refused, not guessed (100 000× risk).
+  assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "10,5" })), { pricing: { list: 10.5, discount: 0 } });
+  assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "10.5" })), { pricing: { list: 10.5, discount: 0 } });
+  for (const listPrice of ["10,12345", "1.000,50", "1,000.5", "1.000.000"])
+    assert.equal(readManualPriceEdit(form({ ...shown, listPrice })), "invalid", listPrice);
   assert.deepEqual(readManualPriceEdit(form({ ...shown, stock: "0" })), { stock: 0 });
   assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "", discount: "", stock: "" })), { pricing: null, stock: null });
   // Emptying the list price leaves the prefilled 0 discount: that is not a discount without a list price.
@@ -215,4 +221,17 @@ test("an untouched price with more than four decimals does not block saving the 
   const saved = await save({ ...(edit as ManualItemEdit), description: "Yeni" }, { file: precise });
   assert.deepEqual(saved.fields, { description: "Yeni" });
   assert.deepEqual([saved.price, saved.stock], [{ nf: 812.12345 }, { stok: 3 }]);
+});
+
+test("panel amounts take one separator as the decimal point and refuse thousands grouping; uploads keep their reading", () => {
+  assert.equal(parsePanelDecimal("10,5"), 10.5);
+  assert.equal(parsePanelDecimal("10.5"), 10.5);
+  assert.equal(parsePanelDecimal("10,12345"), 10.12345);
+  assert.equal(parsePanelDecimal(" 1 000 "), 1000);
+  assert.equal(parsePanelDecimal(""), null);
+  for (const text of ["1.000,50", "1,000.5", "1.000.000", "-5", "12 TL", ",5"]) assert.equal(parsePanelDecimal(text), "invalid", text);
+  assert.ok(hasGrouping("1.000,50") && hasGrouping("1,000.5") && !hasGrouping("10,5"));
+  // The xlsx/CSV parser is unchanged.
+  assert.equal(parseDecimalText("1.000,50"), 1000.5);
+  assert.equal(parseDecimalText("10,12345"), 1012345);
 });
