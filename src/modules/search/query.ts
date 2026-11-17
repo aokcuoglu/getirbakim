@@ -25,6 +25,15 @@ export function compactSearchCode(value: string) {
   return normalizeSearchText(value).replace(/[^a-z0-9]/g, "");
 }
 
+/** True for what looks like a part or OEM number ("06A115561B", "W 712/75"), false for words, viscosities, engines and years. */
+export function looksLikePartCode(raw: string) {
+  if (compactSearchCode(raw).length < 5) return false;
+  if (/\d[.,]\d/.test(raw)) return false;
+  const text = normalizeSearchText(raw);
+  if ((text.match(/\d/g) ?? []).length < 4) return false;
+  return !text.split(" ").some(part => /^[a-z]{3,}$/.test(part));
+}
+
 /**
  * One accepted spelling of a query word; `prefix` also matches longer words ("fren" → "frenler").
  * A value with a space is a phrase of adjacent words ("320 d").
