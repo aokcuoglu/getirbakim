@@ -5,6 +5,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { isClockSkewError, sendWithSkewRetry } from "./storefront-media-read";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import {
   acquireLock, buildInboundReport, checkInboundReport, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
@@ -203,4 +204,31 @@ test("tombstones an operations image older than #564 ignored are a warning; appl
   assert.deepEqual(applied.warnings, []);
   assert.deepEqual(applied.notes, ["Tombstones: 2 enrichments removed on the target (3 mappings, 2 jobs back to pending), 1 kept there, 1 invalidated jobs only reported."]);
   assert.deepEqual(tombstoneWarnings(report({ tombstones: 4, removedEnrichments: 0, tombstonesKept: 4, invalidatedJobsReported: 0 }), 4, 90), { warnings: [], notes: [] });
+});
+
+test("a clock-skew error is retried and the read then succeeds", async () => {
+  let calls = 0;
+  const waits: number[] = [];
+  const skew = Object.assign(new Error("The difference between the request time and the server's time is too large."), { name: "RequestTimeTooSkewed", $metadata: { httpStatusCode: 403, attempts: 1 } });
+  const value = await sendWithSkewRetry(async () => { if (++calls === 1) throw skew; return "bytes"; }, { delaysMs: [5, 10], wait: async (ms) => { waits.push(ms); } });
+  assert.equal(value, "bytes");
+  assert.equal(calls, 2);
+  assert.deepEqual(waits, [5]);
+});
+
+test("clock skew that never clears gives up after the bounded retries", async () => {
+  let calls = 0;
+  const skew = Object.assign(new Error("skew"), { name: "RequestTimeTooSkewed" });
+  await assert.rejects(sendWithSkewRetry(async () => { calls++; throw skew; }, { delaysMs: [1, 1], wait: async () => {} }), skew);
+  assert.equal(calls, 3);
+});
+
+test("AccessDenied, NoSuchKey and NoSuchBucket fail on the first attempt", async () => {
+  for (const name of ["AccessDenied", "NoSuchKey", "NoSuchBucket"]) {
+    let calls = 0;
+    const failure = Object.assign(new Error(name), { name });
+    await assert.rejects(sendWithSkewRetry(async () => { calls++; throw failure; }, { delaysMs: [1, 1], wait: async () => {} }), failure);
+    assert.equal(calls, 1);
+    assert.equal(isClockSkewError(failure), false);
+  }
 });
