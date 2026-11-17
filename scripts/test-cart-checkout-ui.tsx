@@ -60,6 +60,14 @@ test("the checkout address asks for province, district, street address and posta
   // Without a province the district cannot be chosen.
   assert.match(html, /<input[^>]*id="checkout-district"[^>]*disabled=""|<input[^>]*disabled=""[^>]*id="checkout-district"/);
   assert.match(html, /Önce il seç/);
+  // The hints stay visible: the district's under its label while it is disabled, the postal code's format under the field.
+  assert.match(html, /id="checkout-district-hint"[^>]*>Önce il seç\./);
+  assert.match(html, /aria-describedby="checkout-district-hint"/);
+  assert.match(html, /title="5 haneli posta kodu"/);
+  assert.match(html, /id="checkout-postal-code-hint"[^>]*>5 haneli</);
+  // The visible boxes carry the autofill hints too, not only the submitted hidden inputs.
+  for (const [id, hint] of [["checkout-province", "address-level1"], ["checkout-district", "address-level2"]])
+    assert.match(html.match(new RegExp(`<input[^>]*id="${id}"[^>]*>`))?.[0] ?? "", new RegExp(`autoComplete="${hint}"`, "i"), id);
   assert.match(html, /grid-cols-2[^"]*max-\[480px\]:grid-cols-1/);
 });
 
@@ -82,5 +90,8 @@ test("the invoice is individual by default with no tax fields; corporate asks fo
   assert.match(corporate, /autoComplete="organization"/i);
   assert.match(corporate, /pattern="\\d\{10\}"/);
   assert.match(corporate, /value="1234567890"/);
+  assert.match(corporate, /title="10 haneli vergi kimlik numarası"/);
+  assert.match(corporate, />10 haneli vergi kimlik numarası</);
+  assert.equal(individual.match(/min-h-11/g)?.length, 4);
   for (const html of [individual, corporate]) assert.doesNotMatch(html, /TC kimlik|T\.C\./i);
 });

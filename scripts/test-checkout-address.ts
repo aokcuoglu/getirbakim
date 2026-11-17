@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
-import { checkoutInput } from "../src/modules/store/checkout-schema";
-import { composeAddress, districtsOf, findProvince, invoiceSummary, matchName, provinces } from "../src/modules/store/tr-address";
+import { checkoutErrorField, checkoutInput } from "../src/modules/store/checkout-schema";
+import { composeAddress, districtsOf, findProvince, invoiceSummary, matchName, postalCodeFits, provinces } from "../src/modules/store/tr-address";
 
 // Structured checkout address and invoice (#881); no database.
 
@@ -83,4 +83,16 @@ test("the checkout input combines the address and drops what does not apply", ()
   const business = checkoutInput.parse({ ...corporate, invoiceCompany: "  Yılmaz Otomotiv Ltd. Şti. " });
   assert.deepEqual([business.invoiceType, business.invoiceCompany, business.invoiceTaxNo, business.invoiceTaxOffice], ["corporate", "Yılmaz Otomotiv Ltd. Şti.", "1234567890", "Kadıköy"]);
   assert.equal(checkoutInput.safeParse({ ...valid, province: "Ankara", district: "Çankaya", postalCode: "06690" }).success, true);
+});
+
+test("the first refused field with its own message is reported, so the page can say what to fix", () => {
+  const field = (input: Record<string, unknown>) => { const result = checkoutInput.safeParse(input); return result.success ? "ok" : checkoutErrorField(result.error.issues); };
+  assert.equal(field({ ...valid, postalCode: "06100" }), "postalCode");
+  assert.equal(field({ ...valid, district: "Çankaya" }), "district");
+  assert.equal(field({ ...corporate, invoiceTaxNo: "123" }), "invoiceTaxNo");
+  assert.equal(field({ ...valid, addressLine: "kısa" }), "addressLine");
+  assert.equal(field({ ...valid, requestKey: "x" }), undefined);
+  assert.equal(postalCodeFits("34710", findProvince("İstanbul")!), true);
+  assert.equal(postalCodeFits("06100", findProvince("İstanbul")!), false);
+  assert.equal(postalCodeFits("01100", findProvince("Adana")!), true);
 });

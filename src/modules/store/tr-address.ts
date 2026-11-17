@@ -22,6 +22,11 @@ export function matchName(options: readonly string[], text: string) {
   return wanted ? options.find(option => option.toLocaleLowerCase("tr") === wanted) ?? null : null;
 }
 
+/** Whether a 5-digit postal code belongs to the province: its first two digits are the plate code (34xxx is İstanbul). */
+export function postalCodeFits(postalCode: string, province: Province) {
+  return Number(postalCode.slice(0, 2)) === province.plate;
+}
+
 /** "<açık adres>, <posta kodu> <İlçe>/<İl>": the combined text kept in commerce_orders.address and the agreement. */
 export function composeAddress({ line, district, province, postalCode }: { line: string; district: string; province: string; postalCode: string | null }) {
   return `${line}, ${[postalCode, `${district}/${province}`].filter(Boolean).join(" ")}`;

@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { composeAddress, districtsOf, findProvince } from "./tr-address";
+import { composeAddress, districtsOf, findProvince, postalCodeFits } from "./tr-address";
+export { checkoutErrorField, checkoutFieldErrors } from "./checkout-field-errors";
 
 const optionalText = (max: number) => z.string().trim().max(max).optional().default("");
 
@@ -16,7 +17,7 @@ export const checkoutInput=z.object({requestKey:z.uuid(),quote:z.string().regex(
  if(!province) ctx.addIssue({code:"custom",path:["province"],message:"İl seç."});
  else if(!districtsOf(province.name).includes(input.district)) ctx.addIssue({code:"custom",path:["district"],message:"İlçe seç."});
  // A postal code starts with the province's plate code (34xxx is İstanbul).
- if(province && input.postalCode && Number(input.postalCode.slice(0,2))!==province.plate) ctx.addIssue({code:"custom",path:["postalCode"],message:"Posta kodu ille uyuşmuyor."});
+ if(province && input.postalCode && !postalCodeFits(input.postalCode,province)) ctx.addIssue({code:"custom",path:["postalCode"],message:"Posta kodu ille uyuşmuyor."});
  if(input.invoiceType==="corporate") {
   if(input.invoiceCompany.length<2) ctx.addIssue({code:"custom",path:["invoiceCompany"],message:"Fatura unvanını yaz."});
   if(!/^\d{10}$/.test(input.invoiceTaxNo)) ctx.addIssue({code:"custom",path:["invoiceTaxNo"],message:"Vergi kimlik numarası 10 hanedir."});

@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 
 export type ShipmentInitial = { carrier: string | null; carrierName: string | null; trackingNo: string | null; trackingUrl: string | null };
@@ -35,7 +36,7 @@ export function OrderShipmentDialog({ orderId, number, back, mode, initial, reci
           ? "Kargo firmasını ve takip numarasını girin. Müşteri kargosunu sipariş sayfasında bu bilgilerle izler."
           : "Yanlış girilen firma, takip numarası veya bağlantıyı düzeltin. Kargoya veriliş zamanı değişmez."}</DialogDescription>
       </DialogHeader>
-      {recipient}
+      {recipient && <>{recipient}<Separator/></>}
       <ShipmentForm orderId={orderId} back={back} mode={mode} initial={initial} initialFocus={initialFocus} onSaved={() => setOpen(false)}/>
     </DialogContent>
   </Dialog>;

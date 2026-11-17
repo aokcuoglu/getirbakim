@@ -45,7 +45,7 @@ export default async function Checkout({searchParams}:{searchParams:Promise<Sear
   const enabled=paymentsEnabled();
   const lineNames:Record<string,string>=Object.fromEntries(items.map(p=>[p.id,p.name]));
   // Only ids of this cart's lines are named, by the cart's own names; the parameter's text is never shown (#788).
-  const pageError:CheckoutError|null=params.error ? {code:params.error,names:cartLineNames((params.urun??"").split(","),lineNames)} : null;
+  const pageError:CheckoutError|null=params.error ? {code:params.error,names:cartLineNames((params.urun??"").split(","),lineNames),field:params.alan} : null;
   const valid=enabled && items.length>0 && cartOrderable(items);
   return <div className="bg-[#f8f9f9] text-foreground"><CartFreshness count={items.reduce((n,p)=>n+p.quantity,0)}/><section className="mx-auto min-h-[550px] w-full max-w-[1350px] px-[15px] pb-12 max-[760px]:px-3">
     <div className="flex items-center justify-between gap-6 py-9 max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-5 max-[760px]:py-7"><h1 className="m-0 text-[28px] leading-9 font-semibold tracking-[-0.7px]">Siparişi tamamla</h1>

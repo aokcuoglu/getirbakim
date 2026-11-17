@@ -28,3 +28,13 @@ test("without matching lines or a line template the code's general text shows, a
   for (const code of ["nonsense", "constructor", "__proto__"])
     assert.match(renderToStaticMarkup(<CheckoutErrorAlert error={{ code, names: [] }} errors={errors}/>), /Genel stok metni\./, code);
 });
+
+test("a refused checkout field names what to fix; an unknown or missing field keeps the general text (#881)", () => {
+  const general = { ...errors, validation: "Genel doğrulama metni." };
+  const alert = (field?: string) => renderToStaticMarkup(<CheckoutErrorAlert error={{ code: "validation", names: [], field }} errors={general}/>);
+  assert.match(alert("postalCode"), /Posta kodu seçili ille uyuşmuyor/);
+  assert.match(alert("invoiceTaxNo"), /Vergi kimlik numarası 10 haneli olmalı/);
+  for (const field of [undefined, "requestKey", "constructor", "<b>x</b>"]) assert.match(alert(field), /Genel doğrulama metni\./, String(field));
+  // A field only changes the validation error's text.
+  assert.match(renderToStaticMarkup(<CheckoutErrorAlert error={{ code: "supplier", names: [], field: "postalCode" }} errors={general}/>), /Tedarikçi metni\./);
+});

@@ -31,7 +31,7 @@ export function CheckoutForm({children,disabled,total,errors,lineNames={},initia
         popup?.close();
         if(result.error==="session") { router.push("/sepet?error=session"); return; }
         // Lines the supplier refused live (#788) are named with the cart's names.
-        setError({code:result.error,names:cartLineNames(result.products??[],lineNames)});router.refresh();return;
+        setError({code:result.error,names:cartLineNames(result.products??[],lineNames),field:result.field});router.refresh();return;
       }
       // The order exists and card payment starts now (#675); nothing about the customer goes along.
       if(analyticsItems?.length) track("add_payment_info",addPaymentInfo(analyticsItems));
@@ -44,6 +44,7 @@ export function CheckoutForm({children,disabled,total,errors,lineNames={},initia
   return <>
     {error && <CheckoutErrorAlert error={error} errors={errors}/>}
     <form action={checkout} onSubmit={submit} className="grid gap-4">{children}
+      <noscript><p className="m-0 text-sm leading-5 text-destructive">Siparişi tamamlamak için JavaScript gerekir. Tarayıcında JavaScript&apos;i açıp sayfayı yenile.</p></noscript>
       <Button type="submit" className="mt-2 h-auto min-h-12 w-full gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5 font-semibold hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100" disabled={disabled || pending || payment!==null}><LockKeyhole className="size-[18px]" aria-hidden/>{pending ? "Ödeme sayfası hazırlanıyor…" : "Ödemeye geç"}</Button>
     </form>
     {payment && <PaymentDialog orderId={payment.orderId} popup={payment.popup} total={total} onDismiss={()=>router.push(`/siparis/${payment.orderId}`)}/>}
