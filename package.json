@@ -128,6 +128,7 @@
     "test:checkout-refresh": "node --import tsx --test scripts/test-checkout-refresh.ts",
     "test:checkout-error-alert": "node --import tsx --test scripts/test-checkout-error-alert.tsx",
     "test:order-supplier-note": "node --import tsx --test scripts/test-order-supplier-note.ts",
+    "test:cart-checkout-ui": "node --import tsx --test scripts/test-cart-checkout-ui.tsx",
     "test:order-progress": "node --import tsx --test scripts/test-order-progress.ts",
     "test:order-cancel": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-order-cancel.ts",
     "test:purchase-event": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-purchase-event.ts",
