@@ -367,6 +367,26 @@ eski kodla (kategorisiz) çalışır; durdurup bıraktığınızda yeni kodla a�
 olduğu için spareto'dan ağır); IndexNow/`lastmod` ve ana sayfa rafı da etkilenir. Yazan backfill'i 04:30 sync'inin hemen
 öncesinde ve spareto backfill'i ile aynı gece koşmayın; önce `npm run storefront:sync -- --dry-run` özetine bakın.
 
+### Bekletmeli yazım: `--hold` ve `release-categories` (#855)
+
+Yukarıdaki iki backfill (spareto ≈33,7 bin, parts2world ≈41–42 bin kayıt) ilk yazımda `imported_at`'i ilerletir ve
+sonraki `storefront:sync` hepsini görselleriyle birlikte gönderir. Bunu zamanlamak için:
+
+1. `backfill-types --source spareto|parts2world --hold [--dry-run]`: aynı kategori ve `product_source_categories` yazımı,
+   ama `imported_at` yerinde kalır (çıktıda `hold: true`); sync henüz bir şey taşımaz.
+2. Yerelde kontrol edin (kategori listeleri, `changed: 0` ile tekrar koşu).
+3. `release-categories --source spareto|parts2world|all [--dry-run]`: kaynağın kategorili (`payload->'categories'` boş
+   değil) tüm kayıtlarının `imported_at`'ini şimdiye çeker; 5000'er satırlık ayrı işlemlerle çalışır, `--dry-run`
+   yalnız sayar. Çıktı `{source, rows}`. Kaynağın işçilerin zaten gönderdiği kategorili kayıtlarını da yeniden gönderir
+   (zararsız, içe aktarım idempotent); kategorisiz satırlara ve diğer kaynaklara dokunmaz. Kaynak URL ön ekleri
+   `backfill-types` ile ortaktır (`typedSourceUrlPrefix`).
+4. `npm run storefront:sync -- --dry-run` ile parça özetine bakın, sonra sync'in taşımasına izin verin.
+
+Tek seferlik maliyet yukarıdaki "storefront:sync maliyeti" bölümleriyle aynıdır: kayıt sayısı (≈75 bin), görseller
+(spareto ≈2,6 GB, parts2world ≈0,95 GB), AWS'de araç uyumluluklarının yeniden kurulması, IndexNow/`lastmod` ve ana sayfa
+rafı. `--hold` ile bekletilenler, release edilene kadar sync'e girmez; ama işçi aynı satırı yeniden toplarsa o satırın
+`imported_at`'i normal akışla ilerler.
+
 ## Trodo kategori ağacı ve görselleri
 
 Kategori kaynağı Trodo ana sayfasının /rest/V1/initial-config yanıtındaki catTree alanıdır.
