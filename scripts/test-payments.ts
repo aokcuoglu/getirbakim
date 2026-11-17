@@ -28,6 +28,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
   const originalFetch = globalThis.fetch;
   const paid = new Map<string, number>(); // provider orderId -> amount in TL
   const incomplete = new Set<string>(); // sandbox-observed shape of a declined/abandoned 3D attempt
+  const installments = new Map<string, number>(); // provider orderId -> installment count picked on the hosted page
   let tokens = 0, queryDown = false, forgeMissing = false;
   // Slow-provider simulation (#711): every /payment/query waits delayMs and honours the caller's abort signal.
   let delayMs = 0;
@@ -58,7 +59,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
       const payload = { errorMessage: "Bu sipariş üye işyerine ait değildir.", success: false, errorCode: 2013 };
       return Response.json({ ...payload, securityHash: forgeMissing ? "aaa.bbb.ccc" : buildSecurityHash(payload) }, { status: 400 });
     }
-    const payload = { success: true, orderId: body.orderId, currency: "TRY", amount, orderStatus: "AUTH", installmentCount: 1,
+    const payload = { success: true, orderId: body.orderId, currency: "TRY", amount, orderStatus: "AUTH", installmentCount: installments.get(body.orderId) ?? 1,
       transactions: [{ transactionType: "AUTH", transactionStatus: "SUCCESS", bankReferenceNumber: `REF-${body.orderId}`, bankAuthCode: "123456" }] };
     return Response.json({ ...payload, securityHash: buildSecurityHash(payload) });
   };
@@ -270,6 +271,16 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     assert.match(row.payment_note, new RegExp(`Mükerrer ödeme alındı \\(${doubledIds[1]}\\)`));
     assert.doesNotMatch(row.payment_note, new RegExp(doubledIds[0]));
     assert.equal((await db.query("SELECT count(*) FROM commerce_payments WHERE order_id=$1 AND status='succeeded'", [doubled])).rows[0].count, "2");
+
+    // #873: an installment payment picked on the hosted page still settles the order but is flagged for the merchant's commission.
+    const split = await place(1);
+    const splitId = await addAttempt(split, 1);
+    paid.set(splitId, Number((await order(split)).total_kurus) / 100); installments.set(splitId, 6);
+    await payments.reconcileOrderPayments(split);
+    row = await order(split);
+    assert.equal(row.status, "pending"); assert.equal(row.payment_status, "paid");
+    assert.match(row.payment_note, new RegExp(`TAMI'de 6 taksitle ödendi \\(${splitId}\\)`));
+    assert.equal((await db.query("SELECT installment_count FROM commerce_payments WHERE provider_order_id=$1", [splitId])).rows[0].installment_count, 6);
 
     assert.equal(payments.tamiPhone("+90 (555) 123 45 67"), "905551234567");
     assert.equal(payments.tamiPhone("05551234567"), "905551234567");
