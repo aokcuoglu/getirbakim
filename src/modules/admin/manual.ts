@@ -9,6 +9,7 @@ import { manualCategories, type ManualDraftReport, type ManualOverrides } from "
 import type { ManualRow } from "@/modules/suppliers/manual-template";
 import type { ManualBulkReport } from "@/modules/suppliers/manual-bulk";
 import type { ManualBulkExportRow } from "@/modules/suppliers/manual-bulk-csv";
+import { manualBulkPageSize } from "@/modules/suppliers/manual-bulk-paging";
 import { z } from "zod";
 import type { SupplierChange } from "./supplier-changes";
 import { supplierItemPage, type SaleFields } from "./supplier-items";
@@ -17,14 +18,16 @@ import { itemProductSql, shownImageSql } from "@/modules/store/product-image-sql
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 
 export type ManualParams = { liste?: string; taslak?: string; q?: string; category?: string; stock?: string; quality?: string; presence?: string;
-  page?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; bulk?: string; error?: string; detail?: string };
+  page?: string; degisiklik?: string; bulgu?: string; sort?: string; dir?: string; uploaded?: string; imported?: string; discarded?: string; bulk?: string; error?: string; detail?: string };
 type ManualList = { list_group: string; list_name: string; present: number; missing_prices: number; missing_packages: number; last_import: Date | null };
 /** kind "list": an xlsx list upload; "bulk": a price/stock CSV, whose report also carries the diff (report.bulk). */
 export type ManualUpload = { id: string; list_group: string; list_name: string; file_name: string; status: "draft" | "imported" | "discarded";
   kind: "list" | "bulk"; report: ManualDraftReport & Partial<Pick<ManualBulkReport, "bulk">>; created_at: Date; decided_at: Date | null; import_id: string | null; uploader: string | null;
   stats: Record<string, number> | null; quality: Record<string, number> | null };
 /** A draft upload with its first ten file rows (`preview`) and the file's row count (xlsx drafts; a CSV draft reads report.bulk). */
-type ManualDraft = Omit<ManualUpload, "stats" | "quality"> & { preview: ManualRow[]; row_count: number };
+type ManualDraft = Omit<ManualUpload, "stats" | "quality"> & { preview: ManualRow[]; row_count: number;
+  /** CSV drafts: report.bulk.changes / report.issues carry only the requested page; these are the full counts. */
+  change_count: number; issue_count: number };
 type ManualItemData = { no: string; ac: string; uk: string; category_id: number; category_name: string; barcode: string | null; description: string | null;
   viscosity: string | null; package: string | null; approvals: string | null; image_url: string | null; list_name: string; file: Omit<ManualRow, "sheet" | "row"> };
 export type ManualItem = {
@@ -46,6 +49,9 @@ export async function adminManualLists() {
     FROM supplier_items i WHERE ${scope} GROUP BY list_group ORDER BY list_group`, [manualCompany])).rows;
 }
 
+// A page number from the URL; the query clamps it to the last page.
+const pageNumber = (raw: string | undefined) => /^\d{1,9}$/.test(raw ?? "") ? Number(raw) : 1;
+
 export async function adminManualData(params: ManualParams) {
   await requireAdmin();
   const draftId = z.uuid().safeParse(params.taslak).success ? params.taslak! : null;
@@ -55,9 +61,20 @@ export async function adminManualData(params: ManualParams) {
     db.query<ManualUpload>(`SELECT u.id,u.list_group,u.list_name,u.file_name,u.status,u.kind,u.report - 'issues' - 'bulk' || jsonb_build_object('issues','[]'::jsonb) AS report,
       u.created_at,u.decided_at,u.import_id,a.name AS uploader,r.stats,r.quality FROM manual_uploads u LEFT JOIN accounts a ON a.id=u.uploaded_by
       LEFT JOIN supplier_imports r ON r.id=u.import_id ORDER BY u.created_at DESC LIMIT 15`),
-    draftId ? db.query<ManualDraft>(`SELECT u.id,u.list_group,u.list_name,u.file_name,u.status,u.kind,u.report,u.created_at,u.decided_at,u.import_id,a.name AS uploader,
+    draftId ? db.query<ManualDraft>(`SELECT u.id,u.list_group,u.list_name,u.file_name,u.status,u.kind,
+      CASE WHEN u.kind='bulk' THEN jsonb_set(jsonb_set(u.report,'{bulk,changes}',
+        jsonb_path_query_array(u.report#>'{bulk,changes}','$[$from to $to]',jsonb_build_object('from',p.change_offset,'to',p.change_offset+$3::int-1))),'{issues}',
+        (SELECT coalesce(jsonb_agg(i.issue ORDER BY i.warning,i.ord),'[]'::jsonb) FROM (SELECT t.issue,t.issue->>'level'='warning' AS warning,t.ord
+          FROM jsonb_array_elements(u.report->'issues') WITH ORDINALITY AS t(issue,ord) ORDER BY warning,t.ord OFFSET p.issue_offset LIMIT $3::int) i))
+        ELSE u.report END AS report,
+      coalesce(jsonb_array_length(u.report#>'{bulk,changes}'),0) AS change_count,jsonb_array_length(u.report->'issues') AS issue_count,
+      u.created_at,u.decided_at,u.import_id,a.name AS uploader,
       jsonb_path_query_array(u.rows,'$[0 to 9]') AS preview,jsonb_array_length(u.rows) AS row_count
-      FROM manual_uploads u LEFT JOIN accounts a ON a.id=u.uploaded_by WHERE u.id=$1`, [draftId]) : null,
+      FROM manual_uploads u LEFT JOIN accounts a ON a.id=u.uploaded_by
+      CROSS JOIN LATERAL (SELECT -- the requested pages, clamped to the last one (same math as manualBulkPage)
+        (least(greatest($2::int,1),greatest(ceil(coalesce(jsonb_array_length(u.report#>'{bulk,changes}'),0)/$3::numeric),1)::int)-1)*$3::int AS change_offset,
+        (least(greatest($4::int,1),greatest(ceil(jsonb_array_length(u.report->'issues')/$3::numeric),1)::int)-1)*$3::int AS issue_offset) p
+      WHERE u.id=$1`, [draftId, pageNumber(params.degisiklik), manualBulkPageSize, pageNumber(params.bulgu)]) : null,
     manualCategories(db),
   ]);
   const list = lists.find(entry => entry.list_group === params.liste) ?? lists[0];

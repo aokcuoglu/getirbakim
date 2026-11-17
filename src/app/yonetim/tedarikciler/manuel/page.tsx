@@ -94,7 +94,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
       </Card>)}
     </div>}
     sync={<div className="flex flex-col gap-4">
-      {draft?.kind === "bulk" && <ManualBulkPreview draft={draft} status={uploadStatus(draft.status)}/>}
+      {draft?.kind === "bulk" && <ManualBulkPreview draft={draft} status={uploadStatus(draft.status)} params={params}/>}
       {draft && draft.kind !== "bulk" && <Card>
         <CardHeader>
           <CardTitle><h2>Önizleme · {draft.file_name}</h2></CardTitle>
