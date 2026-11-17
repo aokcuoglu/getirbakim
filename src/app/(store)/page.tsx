@@ -4,11 +4,11 @@ import Link from "next/link";
 import {Search,ChevronRight} from "lucide-react";
 import {redirect} from "next/navigation";
 import {getStoreCategories} from "@/modules/store/categories";
-import {featuredCategoryIds} from "@/modules/store/category-tree";
 import {currentVehicle} from "@/modules/store/garage";
 import {shownVehicle} from "@/modules/store/vehicle-label";
 import {currentAccount} from "@/modules/auth/session";
 import {GarageButton} from "@/components/garage/garage-button";
+import {HomeHeroSearch} from "@/components/home-hero-search";
 import {HeroBackdrop} from "@/components/hero-backdrop";
 import {HomeCarousel,HomeCategoryTabs,HomeGridPager,HomeScrollHeader} from "@/components/home-controls";
 import {getVehicleBrands} from "@/modules/store/vehicle-catalog.server";
@@ -24,8 +24,6 @@ import {vehicleMakeLabel} from "@/modules/store/vehicle-model-groups";
 import {HomeProductCard} from "@/components/home-product-card";
 import {NewsletterSignup} from "@/components/newsletter-signup";
 import {MaintenanceRobotBanner} from "@/components/maintenance-robot-banner";
-import {Input} from "@/components/ui/input";
-import {Button} from "@/components/ui/button";
 import {cn} from "@/lib/utils";
 import {pageMetadata,siteDescription} from "@/lib/site";
 import {catalogPath,categoryPath,makePath,makesPath,searchPath} from "@/modules/seo/paths";
@@ -64,7 +62,6 @@ export default async function Home({searchParams}:{searchParams:Promise<SearchPa
   const {q}=normalizeSearchParams(await searchParams);
   if(q)redirect(searchPath({q}));
   const [vehicle,allCategories,vehicleBrands,brands,products,account,collections,directory]=await Promise.all([currentVehicle(),getStoreCategories(),getVehicleBrands(),catalogBrands(),getHomeProducts(),currentAccount(),Promise.all([967,1023,11058].map(async categoryId=>({categoryId,products:await getHomeProducts(categoryId)}))),manufacturerDirectory()]);
-  const categories=featuredCategoryIds.flatMap(id=>allCategories.filter(category=>category.id===id));
   const rootIds=new Set(allCategories.filter(category=>category.parentId===null).map(category=>category.id));
   const tabCategories=allCategories.filter(category=>category.parentId===null||rootIds.has(category.parentId)).map(({id,parentId,name,slug,imagePath})=>({id,parentId,name,slug,imagePath}));
   const makes=popularVehicleMakes.flatMap(name=>vehicleBrands.filter(brand=>brand.name===name));
@@ -78,17 +75,16 @@ export default async function Home({searchParams}:{searchParams:Promise<SearchPa
     <HomeScrollHeader/>
     <section className="relative h-[280px] bg-[#212b36] pb-10 text-white max-[37.5rem]:h-[288px] max-[37.5rem]:min-h-[288px] max-[37.5rem]:pb-6">
       <HeroBackdrop mobile="/media/site/images/Hero_image-mobile.webp" desktop="/media/site/images/Hero_image-1920.webp" desktop2x="/media/site/images/Hero_image-3840.webp"/>
-      <div className="relative flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/86 max-[37.5rem]:h-10 max-[37.5rem]:text-xs"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
+      <div className="relative flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/86 max-[37.5rem]:h-10 max-[37.5rem]:text-xs"><Search size={18} aria-hidden="true"/><span>Parça adı, marka veya OEM koduyla ara</span></div>
       <div className="relative mx-auto w-full max-w-[1384px] px-8 max-[37.5rem]:px-4"><h1 className="mt-3 mb-4 flex h-24 items-center justify-center text-center text-[34px] leading-[42px] font-semibold tracking-[-.7px] max-[37.5rem]:mt-4 max-[37.5rem]:mb-5 max-[37.5rem]:h-[34px] max-[37.5rem]:text-[26px] max-[37.5rem]:leading-[34px]">Yedek parça alışverişi</h1><div className="flex items-center justify-center py-1 max-[37.5rem]:mx-auto max-[37.5rem]:max-w-[400px] max-[37.5rem]:flex-wrap max-[37.5rem]:p-0">
-        <form action={catalogPath} className="flex min-w-0 gap-2.5 max-[37.5rem]:w-full" role="search" aria-label="OEM numarasıyla parça ara"><label className="flex h-14 w-[296px] overflow-hidden rounded-md border border-white bg-white max-[53.125rem]:w-60 max-[37.5rem]:w-auto max-[37.5rem]:min-w-0 max-[37.5rem]:flex-1"><span aria-hidden="true" className="flex flex-[0_0_36px] items-center justify-center bg-[#003399] text-[11px] font-semibold text-white">OEM</span><Input type="search" name="q" aria-label="Ürün kodu veya OEM numarası" placeholder="Ürün kodu veya OEM numarası" minLength={2} maxLength={120} required className="h-[54px] min-h-0 rounded-none border-0 bg-white px-2.5 py-3.5 text-sm text-[#54626e] focus-visible:ring-0 md:text-sm"/></label><input type="hidden" name="searchBy" value="code"/><Button type="submit" aria-label="OEM ile ara" className="size-14 min-h-0 rounded-md border-brand bg-brand text-white hover:border-brand-strong hover:bg-brand-strong [&_svg:not([class*='size-'])]:size-5"><Search aria-hidden="true"/></Button></form>
-        <span className="relative mx-[25px] w-4 py-[18px] text-center text-xs font-medium whitespace-nowrap text-white/75 uppercase before:absolute before:top-0 before:left-1/2 before:h-[17px] before:w-px before:bg-[#e6e9ec33] after:absolute after:bottom-0 after:left-1/2 after:h-[17px] after:w-px after:bg-[#e6e9ec33] max-[53.125rem]:mx-4 max-[37.5rem]:m-0 max-[37.5rem]:block max-[37.5rem]:h-[42px] max-[37.5rem]:w-full max-[37.5rem]:py-3 max-[37.5rem]:leading-[18px] max-[37.5rem]:before:top-1/2 max-[37.5rem]:before:left-0 max-[37.5rem]:before:h-px max-[37.5rem]:before:w-[calc(50%-20px)] max-[37.5rem]:after:top-1/2 max-[37.5rem]:after:right-0 max-[37.5rem]:after:bottom-auto max-[37.5rem]:after:left-auto max-[37.5rem]:after:h-px max-[37.5rem]:after:w-[calc(50%-20px)]">veya</span><GarageButton vehicle={shownVehicle(vehicle)} variant="catalog"/>
+        <HomeHeroSearch className="w-[296px] max-[53.125rem]:w-60 max-[37.5rem]:w-full max-[37.5rem]:flex-1 min-[37.5rem]:hidden"/>
+        <span className="relative mx-[25px] min-[37.5rem]:hidden w-4 py-[18px] text-center text-xs font-medium whitespace-nowrap text-white/75 uppercase before:absolute before:top-0 before:left-1/2 before:h-[17px] before:w-px before:bg-[#e6e9ec33] after:absolute after:bottom-0 after:left-1/2 after:h-[17px] after:w-px after:bg-[#e6e9ec33] max-[53.125rem]:mx-4 max-[37.5rem]:m-0 max-[37.5rem]:block max-[37.5rem]:h-[42px] max-[37.5rem]:w-full max-[37.5rem]:py-3 max-[37.5rem]:leading-[18px] max-[37.5rem]:before:top-1/2 max-[37.5rem]:before:left-0 max-[37.5rem]:before:h-px max-[37.5rem]:before:w-[calc(50%-20px)] max-[37.5rem]:after:top-1/2 max-[37.5rem]:after:right-0 max-[37.5rem]:after:bottom-auto max-[37.5rem]:after:left-auto max-[37.5rem]:after:h-px max-[37.5rem]:after:w-[calc(50%-20px)]">veya</span><GarageButton vehicle={shownVehicle(vehicle)} variant="catalog"/>
       </div></div>
     </section>
     <section className="mb-[87px] bg-[#fafafa] pt-14 pb-[77px] max-md:mb-12 max-md:pt-10 max-md:pb-12">
-      <nav className={cn(shell,"flex items-start justify-between gap-4 max-[68.75rem]:gap-2 max-md:grid max-md:grid-cols-2 max-md:gap-x-4 max-md:gap-y-[15px] max-md:pb-[15px]")} aria-label="Popüler kategoriler">{categories.map(category=><Link key={category.id} href={categoryPath(category.slug)} className="flex min-w-0 flex-1 flex-col items-center text-center text-sm leading-5 font-medium text-foreground hover:text-primary">{category.imagePath&&<Image src={category.imagePath} width={135} height={90} alt="" className="h-[90px] w-[135px] max-w-full object-contain mix-blend-darken"/>}<span className="mt-[15px] whitespace-nowrap max-[68.75rem]:min-h-10 max-[68.75rem]:whitespace-normal max-md:min-h-5">{category.id===1023?"El aletleri":category.name}</span></Link>)}</nav>
-      <div className={cn(shell,"mt-14 max-md:mt-8")}><HomeCarousel label="Öne çıkan kategoriler"><MaintenanceRobotBanner/>{promotions.map(promotion=>{
+      <div className={cn(shell,"mt-0")}><HomeCarousel label="Öne çıkan kategoriler"><MaintenanceRobotBanner/>{promotions.map(promotion=>{
         const category=allCategories.find(category=>category.id===promotion.category);
-        return <Link className="relative block h-[292px] overflow-hidden rounded-md bg-foreground text-white after:absolute after:inset-[65%_0_0] after:bg-[linear-gradient(transparent,#0008_30%,#000_90%)] max-md:h-[250px]" key={promotion.image} href={promotion.href??(category?categoryPath(category.slug):catalogPath)}><Image src={"/media/site/images/"+promotion.image} fill sizes="(max-width:768px) 100vw, (max-width:1350px) 50vw, 656px" alt="" unoptimized className="object-cover"/>{promotion.label&&<span className="absolute top-5 left-8 z-[1] rounded-[2px] bg-[#c94037] px-3 py-2 text-[17px] leading-6 font-semibold text-white max-md:left-5 max-md:px-2.5 max-md:py-1.5 max-md:text-sm">{promotion.label}</span>}<div className="absolute inset-x-0 bottom-5 z-[1] px-8 [text-shadow:1px_1px_2px_black] max-md:px-5"><h2 className="mb-1 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-md:text-xl max-md:leading-[26px]">{promotion.title}</h2><p className="text-sm leading-5">{promotion.description}</p></div></Link>;
+        return <Link className="relative block h-[292px] overflow-hidden rounded-md bg-foreground text-white after:absolute after:inset-[65%_0_0] after:bg-[linear-gradient(transparent,#0008_30%,#000_90%)] max-md:h-[250px]" key={promotion.image} href={promotion.href??(category?categoryPath(category.slug):catalogPath)}><Image src={"/media/site/images/"+promotion.image} fill sizes="(max-width:768px) 100vw, (max-width:1350px) 50vw, 656px" alt="" unoptimized className="object-cover"/>{promotion.label&&<span className="absolute top-5 left-8 z-[1] rounded-[2px] bg-brand px-3 py-2 text-[17px] leading-6 font-semibold text-white max-md:left-5 max-md:px-2.5 max-md:py-1.5 max-md:text-sm">{promotion.label}</span>}<div className="absolute inset-x-0 bottom-5 z-[1] px-8 [text-shadow:1px_1px_2px_black] max-md:px-5"><h2 className="mb-1 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-md:text-xl max-md:leading-[26px]">{promotion.title}</h2><p className="text-sm leading-5">{promotion.description}</p></div></Link>;
       })}</HomeCarousel></div>
       <div className={shell}><HomeCategoryTabs categories={tabCategories}/></div>
     </section>

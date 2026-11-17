@@ -10,7 +10,7 @@ export function MaintenanceRobotBanner() {
     <span aria-hidden="true" className="pointer-events-none absolute -bottom-32 left-[38%] size-[260px] rounded-full bg-[#4fb3ff]/[.12]"/>
     <div className="relative z-[1] min-w-0">
       <p className="mb-3 flex items-center gap-2 max-md:mb-2">
-        <span className="rounded-[2px] bg-[#c94037] px-2 py-1 text-[11px] leading-4 font-bold tracking-[.6px]">YENİ</span>
+        <span className="rounded-[2px] bg-[#eef7fd] px-2 py-1 text-[11px] leading-4 font-bold tracking-[.6px] text-[#0b4a85]">YENİ</span>
         <span className="inline-flex items-center gap-1.5 text-[13px] leading-5 font-semibold tracking-[.8px] text-[#9fd3ff] max-md:text-xs"><Wrench size={15} aria-hidden="true"/>BAKIM ROBOTU</span>
       </p>
       <h2 className="mb-2 text-[27px] text-balance leading-[33px] font-semibold tracking-[-.6px] max-[1100px]:text-[23px] max-[1100px]:leading-[29px] max-md:mb-1.5 max-md:text-xl max-md:leading-[25px]">Bakım setini aracına göre kur</h2>
