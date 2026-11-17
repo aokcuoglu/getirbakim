@@ -68,27 +68,25 @@ export type LiveCost = {id:string;nf:number;price:number|null};
  * (cartFor's price_kurus, read earlier in the same transaction): comparing with it, not with a fresh catalog read,
  * keeps a supplier pull that commits in between from making a stale price look current. The new price is recomputed
  * with the catalog's pricing_snapshot values (exchange_rate, markup_percent, vat_percent, kept exactly as numeric in
- * jsonb), in SQL so it rounds like the view. `line`/`regular` and the final CASE copy the `priced`, `sold` and `final`
- * CTEs of commerce_catalog (db/commerce.sql): an admin's fixed price replaces the formula's, a campaign counts only
- * inside its window and below the regular price, and a cost the formula cannot price leaves the line unpriced (a
- * change). The view's cost>0/exchange_rate>0/freshness gates are not copied: it is only called for lines cartFor found
- * priced and sellable, and the refresh reports a non-positive live cost as sold out. A line missing from the catalog by
- * now counts as changed. Keep both copies the same; scripts/test-supplier-checkout.ts compares them. Read-only, no locks.
+ * jsonb) by the commerce_*_price functions that commerce_catalog itself calls (db/commerce.sql, #882): an admin's
+ * fixed price replaces the formula's, a campaign counts only inside its window and below the regular price, and a
+ * cost the formula cannot price leaves the line unpriced (a change). The view's cost>0/exchange_rate>0/freshness
+ * gates are not repeated: it is only called for lines cartFor found priced and sellable, and the refresh reports a
+ * non-positive live cost as sold out. A line missing from the catalog by now counts as changed (no snapshot, so no
+ * formula price). scripts/test-supplier-checkout.ts compares it with the view. Read-only, no locks.
  */
 export async function livePriceChanges(connection:Pick<PoolClient,"query">, lines:LiveCost[]) {
   if (!lines.length) return [];
   return (await connection.query<{id:string}>(`WITH live AS (SELECT * FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,nf numeric,price integer)),
     line AS (
-      SELECT l.id,l.price,ov.price_kurus AS fixed,
-        CASE WHEN (ov.sale_from IS NULL OR ov.sale_from<=now()) AND (ov.sale_until IS NULL OR now()<ov.sale_until) THEN ov.sale_price_kurus END AS sale,
-        round(l.nf*(p.pricing_snapshot->>'exchange_rate')::numeric*(1+(p.pricing_snapshot->>'markup_percent')::numeric/100)
-          *(1+(p.pricing_snapshot->>'vat_percent')::numeric/100)*100) AS auto
+      SELECT l.id,l.price,commerce_final_price(
+        commerce_regular_price(commerce_formula_price(l.nf,(p.pricing_snapshot->>'exchange_rate')::numeric,
+          (p.pricing_snapshot->>'markup_percent')::numeric,(p.pricing_snapshot->>'vat_percent')::numeric),ov.price_kurus),
+        commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now())) AS live_price
       FROM live l
       -- LATERAL + OFFSET 0 keeps the view from being planned as one catalog-wide scan per line (#705).
       LEFT JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=l.id OFFSET 0) p ON true
-      LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=l.id),
-    regular AS (SELECT id,price,sale,CASE WHEN auto BETWEEN 1 AND 2147483647 THEN COALESCE(fixed,auto) END AS regular FROM line)
-    SELECT id::text FROM regular
-    WHERE price IS DISTINCT FROM CASE WHEN sale<regular THEN sale ELSE regular END ORDER BY id`,
+      LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=l.id)
+    SELECT id::text FROM line WHERE price IS DISTINCT FROM live_price ORDER BY id`,
     [storefrontCompanies(), JSON.stringify(lines)])).rows.map(row => row.id);
 }

@@ -50,6 +50,26 @@ test("PostgreSQL: per-product rates, inheritance, catalog prices and reset stay 
     const sql = await readFile("db/commerce.sql", "utf8");
     await pool.query(sql);
     await pool.query(sql); // Migration is repeatable and preserves records.
+    // The shared sale-price rules (#882) at their bounds.
+    const one = async (expression: string) => (await pool.query(`SELECT ${expression} AS v`)).rows[0].v as number | null;
+    assert.equal(await one("commerce_formula_price(0.004,1,0,0)"), null); // rounds to 0
+    assert.equal(await one("commerce_formula_price(21474836.47,1,0,0)"), 2147483647);
+    assert.equal(await one("commerce_formula_price(21474836.48,1,0,0)"), null);
+    assert.equal(await one("commerce_formula_price(1.005,1,0,0)"), 101);
+    assert.equal(await one("commerce_formula_price(50,1,30,20)"), 7800);
+    assert.equal(await one("commerce_formula_price(50,NULL,30,20)"), null);
+    const campaign = (from: string, until: string) => one(`commerce_campaign_price(7500,${from},${until},'2026-01-01 00:00+00')`);
+    assert.equal(await campaign("'2026-01-01 00:00+00'", "NULL"), 7500); // starts at `at`
+    assert.equal(await campaign("NULL", "'2026-01-01 00:00+00'"), null); // ends at `at`
+    assert.equal(await campaign("NULL", "NULL"), 7500);
+    assert.equal(await campaign("'2026-01-01 00:00:01+00'", "NULL"), null);
+    assert.equal(await one("commerce_regular_price(NULL,9000)"), null); // the formula cannot price it: no fixed price either
+    assert.equal(await one("commerce_regular_price(7800,NULL)"), 7800);
+    assert.equal(await one("commerce_regular_price(7800,9000)"), 9000);
+    assert.equal(await one("commerce_final_price(7800,7800)"), 7800);
+    assert.equal(await one("commerce_final_price(7800,7500)"), 7500);
+    assert.equal(await one("commerce_final_price(7800,NULL)"), 7800);
+    assert.equal(await one("commerce_final_price(NULL,7500)"), null);
     const admin = (await pool.query("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Test','admin@example.invalid','test','admin',true) RETURNING id")).rows[0].id;
     const ids = [randomUUID(), randomUUID(), randomUUID(), randomUUID()];
     for (const [index, id] of ids.entries()) await pool.query(`INSERT INTO supplier_items(id,supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,product_count,price_count,stock_count,first_seen_at,last_seen_at,changed_at)
