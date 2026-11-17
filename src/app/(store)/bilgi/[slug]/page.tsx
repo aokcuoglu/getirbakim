@@ -12,7 +12,7 @@ import { catalogPath } from "@/modules/seo/paths";
 const pages:Record<string,{title:string;seoTitle:string;description:string;paragraphs:string[]}>={
  hakkimizda:{title:aboutTitle,seoTitle:"Hakkımızda",description:aboutDescription,paragraphs:[]},
  uyumluluk:{title:"Doğru parçayı nasıl bulursun?",seoTitle:"Parça uyumluluğu rehberi",description:"Aracına uyan parçayı OEM kodu, motor kodu, üretim yılı ve Garajım ile nasıl doğrulayacağını adım adım öğren.",paragraphs:["Ürün veya OEM kodunu biliyorsan arama alanına yaz. Katalogda ürün adı ve markasıyla da arama yapabilirsin.","Aynı modelin farklı motor, üretim yılı ve donanım seçeneklerinde farklı parçalar kullanılır. OEM kodu, motor kodu ve araç özelliklerini karşılaştırmadan uyumluluğu varsayma.","Garajım alanına aracını eklediğinde katalog o araca göre filtrelenir. Siparişten önce ürün sayfasındaki OEM numaralarını ve uyumlu araç listesini kontrol et; emin olamadığında bize danışabilirsin."]},
- yardim:{title:"Sıkça sorulan sorular",seoTitle:"Sıkça sorulan sorular ve yardım",description:"Sipariş, ödeme, kargo, iade, parça uyumluluğu, fatura ve servis hesabı hakkında kısa yanıtlar; 09:00–17:30 arası telefon ve e-posta desteği.",paragraphs:[]}
+ yardim:{title:"Sıkça sorulan sorular",seoTitle:"Sıkça sorulan sorular ve yardım",description:"Sipariş, ödeme, kargo, iade, parça uyumluluğu, fatura ve servis hesabı hakkında kısa yanıtlar; 09.00–17.30 arası telefon ve e-posta desteği.",paragraphs:[]}
 };
 export async function generateMetadata({params}:{params:Promise<{slug:string}>}) {
  const {slug}=await params;

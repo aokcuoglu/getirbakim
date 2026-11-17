@@ -37,7 +37,7 @@
      rules pin the main row while home and the catalog set body[data-home-scrolled] / body[data-catalog-scrolled]. */
   .site-topbar { @apply h-[42px] border-b border-border bg-white max-[600px]:hidden group-data-[route=checkout]/route:hidden group-data-[route=home]/route:max-[600px]:block; }
   .site-topbar-inner { @apply mx-auto flex h-full w-full max-w-[1350px] items-center justify-between gap-6 px-[15px]; }
-  .site-topbar-links { @apply flex h-full items-center gap-6 group-data-[route=home]/route:max-[600px]:hidden [&>a]:inline-flex [&>a]:items-center [&>a]:gap-1.5 [&>a:hover]:text-brand max-[850px]:[&>a:first-child]:hidden; }
+  .site-topbar-links { @apply flex h-full items-center gap-6 group-data-[route=home]/route:max-[600px]:hidden [&>a]:inline-flex [&>a]:items-center [&>a]:gap-1.5 [&>a:hover]:text-brand max-[850px]:[&>a:first-child]:hidden max-[640px]:[&>a:last-child]:hidden; }
   .site-header { @apply relative border-b border-border bg-white min-[600px]:in-data-home-scrolled:h-[131px] min-[600px]:in-data-catalog-scrolled:h-[131px]; }
   .site-header-row {
     @apply mx-auto flex h-[88px] w-full max-w-[1350px] items-center gap-7 px-[15px] py-6 max-[1100px]:gap-5 max-[850px]:gap-4;

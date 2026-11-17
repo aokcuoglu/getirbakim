@@ -1,7 +1,7 @@
 // Pure builders of the store's schema.org JSON-LD (#637). Nothing here reads an account, a discount or a vehicle:
 // the price is the product's own list price, so a service's B2B price never reaches the markup.
 import { saleUntil } from "@/modules/store/best-offer";
-import { defaultSocialImage, organizationId } from "@/lib/site";
+import { defaultSocialImage, organizationId, siteName } from "@/lib/site";
 import { guidePath, guidesPath, type Guide } from "@/content/guides";
 import { absoluteUrl, catalogPath, listingPath, makesPath } from "./paths";
 
@@ -119,10 +119,11 @@ type ArticleInput = { title: string; description: string; path: string; publishe
 
 /** An Article whose author and publisher is the organization (no person is named). */
 export function articleJsonLd(input: ArticleInput, base: string): JsonLdNode {
+  const org = { "@type": "Organization", "@id": organizationId, name: siteName };
   return { "@context": "https://schema.org", "@type": "Article", headline: input.title, description: input.description,
     datePublished: input.published, dateModified: input.updated, inLanguage: "tr-TR",
     mainEntityOfPage: { "@type": "WebPage", "@id": absoluteUrl(base, input.path) },
-    author: { "@id": organizationId }, publisher: { "@id": organizationId },
+    author: org, publisher: org,
     image: absoluteUrl(base, (input.image ?? defaultSocialImage).url) };
 }
 

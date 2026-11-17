@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-const tableWrap = "my-5 overflow-x-auto";
+const tableWrap = "my-5 overflow-x-auto focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none";
 
 function OemNumber() {
   return <>
@@ -10,7 +10,7 @@ function OemNumber() {
 
     <h2>OEM numarası ile ürün kodu aynı şey midir?</h2>
     <p>Hayır. Ürün kodu, parçayı üreten markanın kendi numarasıdır; OEM numarası ise aracı veya parçayı ilk üreten firmanın referansıdır. Bir ürünün birden fazla OEM numarası olabilir, bir OEM numarası da farklı markaların ürünlerine karşılık gelebilir.</p>
-    <div className={tableWrap} tabIndex={0} role="region" aria-label="Tablo">
+    <div className={tableWrap} tabIndex={0} role="region" aria-label="Numara türleri karşılaştırması">
       <table>
         <thead><tr><th scope="col">Numara</th><th scope="col">Kimin numarası</th><th scope="col">Nerede görülür</th></tr></thead>
         <tbody>
@@ -43,7 +43,7 @@ function OilFilter() {
 
     <h2>Yağ filtresi ne zaman değişir?</h2>
     <p>Yağ filtresi genellikle motor yağı değişimiyle birlikte değiştirilir. Değişim aralığı için araç üreticisinin bakım planı esas alınır; kilometre ve süre aralığı motora, kullanılan yağa ve kullanım koşullarına göre farklıdır. Aracının planını kullanım kılavuzunda veya yetkili serviste bulabilirsin.</p>
-    <div className={tableWrap} tabIndex={0} role="region" aria-label="Tablo">
+    <div className={tableWrap} tabIndex={0} role="region" aria-label="Yağ filtresi değişim durumları">
       <table>
         <thead><tr><th scope="col">Durum</th><th scope="col">Ne yapılır</th></tr></thead>
         <tbody>

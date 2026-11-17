@@ -41,7 +41,7 @@ export const faqGroups: FaqGroup[] = [
         answer: "Ürünü teslim aldığın tarihten itibaren 14 gün içinde gerekçe göstermeden ve cezai şart ödemeden sözleşmeden cayabilirsin. Cayma bildirimini yazılı olarak veya kalıcı veri saklayıcısıyla iletmen gerekir; ayrıntılar ve örnek bildirim Teslimat ve İade sayfasındadır.",
         links: [returns] },
       { question: "Ödemem ne zaman iade edilir?",
-        answer: "Tahsil edilen bedeller, Teslimat ve İade sayfasında açıklanan koşullarda 14 gün içinde, satın alma sırasında kullanılan ödeme aracına geri ödenir.",
+        answer: "Tahsil edilen bedeller, Teslimat ve İade sayfasında açıklanan koşullarda 14 gün içinde, satın alma sırasında kullanılan ödeme aracına uygun biçimde geri ödenir.",
         links: [returns] },
     ],
   },

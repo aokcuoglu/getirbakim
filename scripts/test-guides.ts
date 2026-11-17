@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { guideBySlug, guideCategoryKeys, guidePath, guides, guidesForCategory } from "../src/content/guides";
+import { guideBySlug, guideCategoryKeys, guideCategoryLabels, guidePath, guides, guidesForCategory } from "../src/content/guides";
 import { guideBodies } from "../src/content/guides/bodies";
 import { slugPattern } from "../src/modules/seo/paths";
 import { legacyCategoryIds } from "../src/modules/store/category-tree";
@@ -26,7 +26,7 @@ test("dates, answer, sources, categories and related paths are well formed", () 
     assert.ok(guide.answer.length > 0 && guide.answer.length <= 400, `${guide.slug} answer length ${guide.answer.length}`);
     assert.ok(guide.sources.length > 0, guide.slug);
     assert.ok(guide.categories.length > 0, guide.slug);
-    for (const category of guide.categories) assert.ok(category in legacyCategoryIds, `${guide.slug}: ${category}`);
+    for (const category of guide.categories) { assert.ok(category in legacyCategoryIds, `${guide.slug}: ${category}`); assert.ok(guideCategoryLabels[category], `label for ${category}`); }
     for (const link of guide.related ?? []) assert.ok(link.path.startsWith("/"), link.path);
   }
 });

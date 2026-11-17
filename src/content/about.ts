@@ -9,7 +9,7 @@ export const aboutIntro = [
   "Getirbakim, günlük dildeki ‘getir bir bakayım’dan geliyor. Bir parçayı eline alıp inceleyen, sorunu dinleyen ve çözüm arayan ustanın yaklaşımını taşıyor. Bir bakalım, doğru parçayı bulalım.",
 ];
 export const aboutSections = {
-  contact: ["Müşteri hizmetleri çalışma saatleri 09.00–17.30’dur. Siparişin varsa sipariş numaranı paylaşman talebinin bulunmasını kolaylaştırır."],
+  contact: ["Siparişin varsa sipariş numaranı paylaşman talebinin bulunmasını kolaylaştırır."],
   experience: [
     "Mutlu Akü distribütörlüğümüz akü alanındaki deneyimimizin bir parçasıdır.",
     "Bireysel müşteriler katalog fiyatlarını giriş yapmadan görebilir ve sepet oluşturabilir. Onaylı servis hesapları B2B fiyatlarına erişir.",
@@ -20,4 +20,4 @@ export const aboutSections = {
     "Siparişten önce ürün sayfasındaki OEM numaralarını ve uyumlu araç listesini kontrol et. Emin olamadığında bize danışabilirsin.",
   ],
 };
-export const aboutContact = { phone: "0216 387 00 78", phoneHref: contactPhone, email: contactEmail };
+export const aboutContact = { phone: "0216 387 00 78", phoneHref: contactPhone, email: contactEmail, hours: "09.00–17.30" };

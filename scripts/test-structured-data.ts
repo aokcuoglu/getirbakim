@@ -193,8 +193,9 @@ test("article: organization as author and publisher, dates and canonical", () =>
   assert.equal(node.dateModified, "2026-11-18");
   assert.equal(node.inLanguage, "tr-TR");
   assert.deepEqual(node.mainEntityOfPage, { "@type": "WebPage", "@id": `${base}/rehber/x` });
-  assert.deepEqual(node.author, { "@id": organizationId });
-  assert.deepEqual(node.publisher, { "@id": organizationId });
+  const org = { "@type": "Organization", "@id": organizationId, name: "Getirbakim" };
+  assert.deepEqual(node.author, org);
+  assert.deepEqual(node.publisher, org);
   assert.equal(node.image, `${base}${defaultSocialImage.url}`);
 });
 

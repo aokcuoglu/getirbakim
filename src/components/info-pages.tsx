@@ -7,9 +7,10 @@ import { legalDocument } from "@/content/legal";
 import { faqJsonLd } from "@/modules/seo/structured-data";
 import { siteName } from "@/lib/site";
 
-const h2 = "mt-9 mb-3 text-[22px] leading-8 font-semibold tracking-[-.4px]";
-const text = "mb-4 text-sm leading-[1.9] text-[#546371]";
+const h2 = "scroll-mt-6 mt-9 mb-3 text-[22px] leading-8 font-semibold tracking-[-.4px]";
+const text = "mb-4 text-sm leading-[1.9] text-muted-foreground";
 const link = "text-primary underline underline-offset-3";
+const anchor = `${link} inline-block py-2`;
 
 export function Paragraphs({ items }: { items: string[] }) {
   return <>{items.map(item => <p key={item} className={text}>{item}</p>)}</>;
@@ -17,7 +18,7 @@ export function Paragraphs({ items }: { items: string[] }) {
 
 /** Support lines of the contact page of the legal set, shared by the FAQ and the about page. */
 function ContactLines() {
-  return <>Telefon: <a className={link} href={`tel:${aboutContact.phoneHref}`}>{aboutContact.phone}</a> · E-posta: <a className={link} href={`mailto:${aboutContact.email}`}>{aboutContact.email}</a> · Çalışma saatleri: 09.00–17.30</>;
+  return <>Telefon: <a className={link} href={`tel:${aboutContact.phoneHref}`}>{aboutContact.phone}</a> · E-posta: <a className={link} href={`mailto:${aboutContact.email}`}>{aboutContact.email}</a> · Çalışma saatleri: {aboutContact.hours}</>;
 }
 
 /** The help page: every answer is in the HTML (no accordion) and the FAQPage markup repeats the same strings. */
@@ -26,22 +27,21 @@ export function FaqContent() {
     <JsonLd data={faqJsonLd(faqGroups.flatMap(group => group.items))}/>
     <nav aria-label="Bu sayfada" className="mb-8 rounded-lg border border-border p-5">
       <h2 className="mb-2 text-base leading-6 font-semibold">Bu sayfada</h2>
-      <ul className="list-disc pl-6 text-sm leading-[1.9]">{faqGroups.map(group => <li key={group.id}><a className={link} href={`#${group.id}`}>{group.title}</a></li>)}</ul>
+      <ul className="list-disc pl-6 text-sm leading-[1.9]">{faqGroups.map(group => <li key={group.id}><a className={anchor} href={`#${group.id}`}>{group.title}</a></li>)}</ul>
     </nav>
     {faqGroups.map(group => <section key={group.id} aria-labelledby={group.id}>
       <h2 id={group.id} className={h2}>{group.title}</h2>
       {group.items.map((item, index) => {
-        const id = `${group.id}-${index + 1}`;
-        return <div key={id} className="mb-6">
-          <h3 id={id} className="mb-2 text-base leading-6 font-semibold">{item.question}</h3>
+        return <div key={`${group.id}-${index}`} className="mb-6">
+          <h3 className="mb-2 text-base leading-6 font-semibold">{item.question}</h3>
           <p className={`${text} mb-2`}>{item.answer}</p>
-          {item.links?.length ? <p className="text-sm leading-6">{item.links.map((entry, i) => <span key={entry.href}>{i > 0 && " · "}<Link className={link} href={entry.href}>{entry.title}</Link></span>)}</p> : null}
+          {item.links?.length ? <p className="text-sm leading-6">{item.links.map((entry, i) => <span key={entry.href}>{i > 0 && " · "}<Link className={anchor} href={entry.href}>{entry.title}</Link></span>)}</p> : null}
         </div>;
       })}
     </section>)}
     <section aria-labelledby="destek" className="mt-10 mb-8 rounded-lg border border-border bg-[#f7f8fa] p-5">
       <h2 id="destek" className="mb-2 text-base leading-6 font-semibold">Aradığın yanıtı bulamadın mı?</h2>
-      <p className="text-sm leading-[1.9] text-[#546371]"><ContactLines/></p>
+      <p className="text-sm leading-[1.9] text-muted-foreground"><ContactLines/></p>
     </section>
   </>;
 }
