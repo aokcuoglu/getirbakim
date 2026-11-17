@@ -36,6 +36,7 @@ import { db } from "@/lib/db";
 import { automaticVersion } from "@/modules/admin/product-override-store";
 import { money } from "@/modules/store/catalog";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
+import { fitmentSourceLabel } from "@/modules/admin/product-label";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { linkEquivalent, mergeProducts, splitSource, undoSplitSource, unlinkEquivalent } from "../actions";
@@ -93,11 +94,15 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     </dl></CardContent>
   </Card>;
 
+  // The code alone when it starts with the brand already (#888).
+  const brand = product.brand_label || product.brand || "";
+  const label = fitmentSourceLabel(brand, product.code);
+
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{product.name ?? product.code}</h1>
-        <p className="text-muted-foreground">{product.brand_label || product.brand} · <span className="font-mono">{product.code}</span></p>
+        <p className="text-muted-foreground">{label === product.code ? null : <>{brand} · </>}<span className="font-mono">{product.code}</span></p>
         {(edit || hasReferences || hasSpecs || hasFitments) && <div className="flex flex-wrap gap-2">
           {edit?.hidden && <StatusBadge tone="warning" icon={EyeOff}>Mağazada gizli</StatusBadge>}
           <Badge variant="info"><Pencil data-icon="inline-start" aria-hidden="true"/>Elle düzenlendi</Badge>
@@ -124,7 +129,7 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     {query.unlinked && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Muadil bağlantısı kaldırıldı; yenilemeler bu çifti yeniden bağlamaz.</AlertDescription></Alert>}
     {query.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>İşlem kaydedilemedi.</AlertDescription></Alert>}
     {merged && <Alert variant="info"><Info aria-hidden="true"/><AlertTitle>Bu ürün birleştirildi</AlertTitle>
-      <AlertDescription>Kayıtları <Link className="underline underline-offset-4" href={`/yonetim/urunler/${merged.id}`}>{merged.brand_label} {merged.code}</Link> ürününe taşındı (marka eşleştirme kararı).</AlertDescription></Alert>}
+      <AlertDescription>Kayıtları <Link className="underline underline-offset-4" href={`/yonetim/urunler/${merged.id}`}>{fitmentSourceLabel(merged.brand_label, merged.code)}</Link> ürününe taşındı (marka eşleştirme kararı).</AlertDescription></Alert>}
     {edit?.hidden && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertTitle>Mağazada gizli</AlertTitle>
       <AlertDescription>Ürün mağazada, sepette, bayi API&apos;sinde ve bakım setlerinde görünmez; kaynaklar satışa kapalı görünür.</AlertDescription></Alert>}
 

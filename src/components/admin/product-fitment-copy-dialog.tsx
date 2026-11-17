@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, ChevronDown, ChevronRight, CircleAlert, Copy, Info, Link2, ListChecks, ListX, RotateCcw, Search, TriangleAlert } from "lucide-react";
 import type { FitmentCopyGroup, FitmentCopyPreview, FitmentCopySource } from "@/modules/admin/product-fitment-copy";
-import { fitmentSourceLabel } from "@/modules/admin/product-fitment-fields";
+import { fitmentSourceLabel, modelLabel } from "@/modules/admin/product-label";
 import { formatNumber } from "@/modules/admin/format";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -114,11 +114,12 @@ export function ProductFitmentCopyDialog({ productId, open, pending, error, onOp
     <Skeleton className="h-8 w-full"/><Skeleton className="h-8 w-full"/><Skeleton className="h-8 w-full"/></div>;
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-5/6 overflow-y-auto sm:max-w-3xl">
+    <DialogContent className="flex max-h-5/6 flex-col sm:max-w-3xl">
       <DialogHeader><DialogTitle>Başka üründen kopyala</DialogTitle>
         <DialogDescription>Araç uyumunu kopyalayacağınız ürünü seçin. Kaynağın mağazada gösterdiği araç tipleri bu ürüne elle eklenmiş olarak yazılır; kaynağın mağazadan çıkardığı araçlar ve kaynak satırları kopyalanmaz.</DialogDescription></DialogHeader>
 
       {!sourceId ? <>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
         <form className="flex flex-col gap-2" role="search" onSubmit={search}>
           <Field>
             <FieldLabel htmlFor={ids.query}>Parça no, tedarikçi kodu veya OEM</FieldLabel>
@@ -151,13 +152,17 @@ export function ProductFitmentCopyDialog({ productId, open, pending, error, onOp
                 <Button type="button" variant="outline" size="sm" aria-label={`${fitmentSourceLabel(source.brand_label, source.code)} ürününden kopyala`}
                   onClick={() => showSource(source.id)}>Seç</Button></div></TableCell>
             </TableRow>)}</TableBody></Table>}
+        </div>
         <DialogFooter><DialogClose render={<Button type="button" variant="outline"/>}>Vazgeç</DialogClose></DialogFooter>
       </> : <>
+        {/* The body scrolls, the footer with the copy button stays below it. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
         {!preview ? loading
           : preview.error ? failure(preview.error, "Önizleme alınamadı")
           : preview.data && <CopyPreview preview={preview.data} summaryId={ids.summary} selected={selected} disabled={pending}
             onChange={next => setPicked(next)}/>}
         {error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{error}</AlertDescription></Alert>}
+        </div>
         <DialogFooter>
           <Button type="button" variant="outline" disabled={pending} onClick={() => showSource(null)}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Geri</Button>
           <Button type="button" aria-describedby={ids.summary}
@@ -248,8 +253,8 @@ function CopyPreview({ preview, summaryId, selected, disabled, onChange }: {
             <TableCell className="tabular-nums">{formatNumber(brand.count)}</TableCell>
           </TableRow>, ...(open ? brand.models.map(group => <TableRow key={`m|${group.modelId}`}>
             <TableCell className="pl-6"><Checkbox checked={chosen.has(group.modelId)} disabled={disabled}
-              aria-label={`${group.brand} ${group.model} modelini seç (${formatNumber(group.count)} araç tipi)`} onCheckedChange={value => setModels([group.modelId], value)}/></TableCell>
-            <TableCell className="pl-6">{group.model}</TableCell>
+              aria-label={`${group.brand} ${modelLabel(group.model, group.years?.endsWith("–") ? `${group.years}günümüz` : group.years)} modelini seç (${formatNumber(group.count)} araç tipi)`} onCheckedChange={value => setModels([group.modelId], value)}/></TableCell>
+            <TableCell className="pl-6">{modelLabel(group.model, group.years)}</TableCell>
             <TableCell className="tabular-nums">{formatNumber(group.count)}</TableCell>
           </TableRow>) : [])];
         })}</TableBody></Table>

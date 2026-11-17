@@ -17,17 +17,7 @@ export const productFitmentBatch = 200;
 /** Most vehicle model ids one partial copy sends (#815); vehicle_models has about 5,800 rows. */
 export const fitmentCopyModelLimit = 10000;
 
-/**
- * A product's name as "<brand> <code>" (#869): a supplier code often starts with the brand already ("SWAG 20928617"),
- * then the code alone, so the brand is not printed twice.
- */
-export function fitmentSourceLabel(brandLabel: string, code: string): string {
-  const brand = brandLabel.trim();
-  if (!brand) return code;
-  // Turkish upper case, dotted and dotless I alike: "Febi" and "FEBI", "ipek" and "İPEK" are the same brand.
-  const upper = (text: string) => text.toLocaleUpperCase("tr").replaceAll("İ", "I");
-  return upper(code).startsWith(`${upper(brand)} `) ? code : `${brand} ${code}`;
-}
+export { fitmentSourceLabel } from "./product-label";
 
 /** Most source rows (unlinked vehicles, model-list entries, description models together) one product hides (#661). */
 export const productFitmentHideLimit = 500;
