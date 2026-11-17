@@ -37,7 +37,8 @@ ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS brand text;
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS part_number text;
 -- Supplier OEM field hidden on the store (#615): the views show an empty oem, so the product page, cards, cart,
 -- partner API and reference links drop it; storefront search skips these rows' stored OEM (src/modules/store/catalog.ts).
--- supplier_items keeps the value: matching, enrichment and the admin's supplier searches still read it.
+-- supplier_items keeps the value: the admin's supplier searches still read it; enrichment matched through this OEM
+-- is ignored (enrichment_valid_data, #865) and matching drops it (#631, db/product-overrides.sql).
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS hide_oem boolean NOT NULL DEFAULT false;
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS basbug_checkout_mode text NOT NULL DEFAULT 'live'
  CHECK(basbug_checkout_mode IN ('live','snapshot'));

@@ -36,6 +36,7 @@ test('storefront make and model lists follow payloads, fitments, the vehicle cat
    CREATE TABLE vehicle_models(id integer PRIMARY KEY,brand_id integer NOT NULL REFERENCES vehicle_brands(id),name text);
    CREATE TABLE vehicle_types(id integer PRIMARY KEY,model_id integer NOT NULL REFERENCES vehicle_models(id),name text);
    CREATE TABLE accounts(id uuid PRIMARY KEY);
+   CREATE TABLE commerce_item_overrides(supplier_item_id uuid PRIMARY KEY,product_id uuid,hide_oem boolean NOT NULL DEFAULT false);
    CREATE TABLE product_override_changes(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,product_id uuid,field text,old_value text,new_value text,changed_by uuid,reason text);`);
   const matching=await readFile('db/product-matching.sql','utf8');
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
