@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import { manualCompany } from "./storefront-sources";
 import { diffManualBulk, manualCost, type ManualBulkChange, type ManualBulkCurrent, type ManualBulkRow } from "./manual-bulk-csv";
-import { lock, ManualImportError, manualSupplier, saveLockTimeout, type ManualBulk, type ManualDraftReport } from "./manual-import";
+import { bulkFileCells, lock, ManualImportError, manualSupplier, saveLockTimeout, type ManualBulk, type ManualDraftReport } from "./manual-import";
 import type { ManualIssue } from "./manual-template";
 
 // Bulk price/stock CSV of one manual list (#832; file format: manual-bulk-csv.ts). An upload is stored as a draft
@@ -19,6 +19,7 @@ export async function manualBulkCurrent(pool: Pick<Pool, "query">, listGroup: st
       COALESCE((i.price_data->>'list')::float8,(i.price_data->>'nf')::float8) AS list,COALESCE((i.price_data->>'discount')::float8,0) AS discount,
       p.markup_percent::float8 AS markup,(i.stock_data->>'stok')::float8 AS stock,(i.price_data->>'nf')::float8 AS cost,
       (i.product_data->'file'->>'price')::float8 AS "filePrice",(i.product_data->'file'->>'stock')::float8 AS "fileStock",
+      (i.product_data->'file'->>'listPrice')::float8 AS "fileList",(i.product_data->'file'->>'discount')::float8 AS "fileDiscount",
       COALESCE(ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL,false) AS "fixedPrice",
       o.fields->'bulk' AS bulk,i.price_data AS "priceData",i.stock_data AS "stockData"
     FROM supplier_items i LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
@@ -75,7 +76,7 @@ export async function applyManualBulkDraft(pool: Pool, draftId: string, adminId:
       if (change.listPrice || change.discount) {
         const list = change.listPrice?.[1] ?? item.list!;
         const discount = change.discount?.[1] ?? item.discount;
-        bulk.price = { list, discount, file: item.filePrice };
+        bulk.price = { list, discount, ...bulkFileCells({ price: item.filePrice, listPrice: item.fileList ?? undefined, discount: item.fileDiscount ?? undefined }) };
         priceData = { ...item.priceData, nf: manualCost(list, discount), list, discount };
       }
       if (change.stock) {

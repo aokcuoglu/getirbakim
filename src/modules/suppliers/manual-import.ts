@@ -33,27 +33,50 @@ export type ManualValues = Omit<ManualRow, "sheet" | "row">;
 /**
  * The bulk price/stock CSV's values (#832, manual-bulk.ts). `file` is the upload's cell when the CSV was applied: the
  * last edit wins, so the CSV value holds while later uploads carry the same cell and gives way once the cell changes.
+ * The price compares the upload's list price and discount cells too (#843; absent in older records = empty cells).
  */
-export type ManualBulk = { price?: { list: number; discount: number; file: number | null }; stock?: { value: number; file: number | null } };
+export type ManualBulk = {
+  price?: { list: number; discount: number; file: number | null; fileList?: number | null; fileDiscount?: number | null };
+  stock?: { value: number; file: number | null };
+};
 export type ManualOverrides = Partial<Pick<ManualValues, ManualEditableField>> & { bulk?: ManualBulk };
 
 const empty = (value: unknown) => value === null || value === undefined || value === "";
 const sameCell = (a: number | null | undefined, b: number | null | undefined) => (a ?? null) === (b ?? null);
 
+/** The upload's price cells a CSV price is recorded against (see ManualBulk). */
+export function bulkFileCells(file: Pick<ManualValues, "price" | "listPrice" | "discount">) {
+  return { file: file.price, ...(file.listPrice != null ? { fileList: file.listPrice, fileDiscount: file.discount ?? null } : {}) };
+}
+
 /** The parts of a CSV update still in force against these upload values (see ManualBulk). */
-export function activeBulk(file: Pick<ManualValues, "price" | "stock">, overrides: ManualOverrides | undefined): ManualBulk {
+export function activeBulk(file: Pick<ManualValues, "price" | "stock" | "listPrice" | "discount">, overrides: ManualOverrides | undefined): ManualBulk {
   const bulk = overrides?.bulk;
+  const samePrice = bulk?.price && sameCell(bulk.price.file, file.price) && sameCell(bulk.price.fileList, file.listPrice)
+    && sameCell(bulk.price.fileDiscount, file.discount);
   return {
-    ...(bulk?.price && sameCell(bulk.price.file, file.price) ? { price: bulk.price } : {}),
+    ...(bulk?.price && samePrice ? { price: bulk.price } : {}),
     ...(bulk?.stock && sameCell(bulk.stock.file, file.stock) ? { stock: bulk.stock } : {}),
   };
+}
+
+/** Whether the upload fills a field; a list price fills the price even when its discount (100%) leaves no cost. */
+export function fileFilled(file: Pick<ManualValues, ManualEditableField | "listPrice">, field: ManualEditableField) {
+  return field === "price" ? !empty(file.price) || file.listPrice != null : !empty(file[field]);
+}
+
+/** The list price and discount price_data keeps beside the cost: a CSV's in force, else the upload's own. */
+export function manualPricing(file: ManualValues, overrides: ManualOverrides | undefined): { list: number; discount: number } | undefined {
+  const bulk = activeBulk(file, overrides).price;
+  if (bulk) return { list: bulk.list, discount: bulk.discount };
+  return file.listPrice != null ? { list: file.listPrice, discount: file.discount ?? 0 } : undefined;
 }
 
 /** A filled cell of the upload wins; the admin's value fills only what the upload leaves empty. A CSV value in force wins over both. */
 export function withOverrides(row: ManualValues, overrides: ManualOverrides | undefined): ManualValues {
   if (!overrides) return row;
   const merged = { ...row } as Record<string, unknown>;
-  for (const field of manualEditableFields) if (empty(merged[field]) && !empty(overrides[field])) merged[field] = overrides[field];
+  for (const field of manualEditableFields) if (!fileFilled(row, field) && !empty(overrides[field])) merged[field] = overrides[field];
   const bulk = activeBulk(row, overrides);
   if (bulk.price) merged.price = manualCost(bulk.price.list, bulk.price.discount);
   if (bulk.stock) merged.stock = bulk.stock.value;
@@ -102,8 +125,8 @@ function manualEnrichment(row: ManualValues, category: ManualCategory, image?: {
   };
 }
 
-/** `pricing`: a CSV list price and discount in force; price_data then keeps them beside the cost (nf). */
-function observation(row: ManualValues, file: ManualValues, category: ManualCategory, listName: string, pricing?: ManualBulk["price"]): ObservationItem {
+/** `pricing`: the list price and discount in force (manualPricing); price_data then keeps them beside the cost (nf). */
+function observation(row: ManualValues, file: ManualValues, category: ManualCategory, listName: string, pricing?: { list: number; discount: number }): ObservationItem {
   return {
     code: row.code, product_data: manualProductData(row, file, category, listName),
     price_data: pricing ? { nf: row.price ?? 0, list: pricing.list, discount: pricing.discount } : row.price ? { nf: row.price } : null,
@@ -251,7 +274,7 @@ export async function importManualDraft(pool: Pool, draftId: string, download: t
     const overrides = new Map((await connection.query<{ code: string; fields: ManualOverrides }>("SELECT code,fields FROM manual_item_overrides WHERE list_group=$1", [draft.list_group])).rows.map(row => [row.code, row.fields]));
     const rows = files.map(file => {
       const fields = overrides.get(file.code);
-      return { file, row: withOverrides(file, fields), pricing: activeBulk(file, fields).price };
+      return { file, row: withOverrides(file, fields), pricing: manualPricing(file, fields) };
     });
     // CSV values whose upload cell changed give way to the file (last edit wins): their part of `bulk` is dropped.
     const staleBulk = rows.flatMap(({ file }) => {
@@ -324,14 +347,15 @@ export async function updateManualItem(pool: Pool, itemId: string, values: Manua
     // Only fields the upload leaves empty are kept (a filled cell wins anyway); an emptied field drops the override.
     const fields: ManualOverrides = Object.fromEntries(manualEditableFields.flatMap(field => {
       const value = kept(field) ? existing[field] : values[field];
-      return empty(file[field]) && !empty(value) ? [[field, value]] : [];
+      return !fileFilled(file, field) && !empty(value) ? [[field, value]] : [];
     }));
     if (bulk.price || bulk.stock) fields.bulk = bulk;
     const row = withOverrides(file, fields);
     await connection.query(`INSERT INTO manual_item_overrides(list_group,code,fields,updated_by) VALUES($1,$2,$3,$4)
       ON CONFLICT(list_group,code) DO UPDATE SET fields=EXCLUDED.fields,updated_by=EXCLUDED.updated_by,updated_at=now()`,
     [item.list_group, item.code, JSON.stringify(fields), by]);
-    const next = observation(row, file, categories.get(row.categoryId)!, item.product_data.list_name, bulk.price);
+    // The CSV's or the upload's list price and discount: price_data keeps them on every save (#843).
+    const next = observation(row, file, categories.get(row.categoryId)!, item.product_data.list_name, manualPricing(file, fields));
     // NO KEY UPDATE: the matcher's foreign keys (product_match_items, product_sources…) key-share every listed row for
     // its whole run, which FOR UPDATE waits on; this UPDATE leaves the row's keys alone (#521).
     const changed = await connection.query<{ id: string }>(`WITH old AS (SELECT * FROM supplier_items WHERE id=$1 FOR NO KEY UPDATE),

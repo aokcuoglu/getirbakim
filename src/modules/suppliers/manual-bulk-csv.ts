@@ -21,6 +21,8 @@ export type ManualBulkRow = {
 export type ManualBulkCurrent = {
   id: string; code: string; brand: string; list: number | null; discount: number; markup: number | null; stock: number | null;
   cost: number | null; filePrice: number | null; fileStock: number | null; fixedPrice: boolean;
+  /** The upload's list price and discount cells (#843). */
+  fileList?: number | null; fileDiscount?: number | null;
 };
 export type ManualBulkChange = {
   id: string; row: number; code: string; brand: string;

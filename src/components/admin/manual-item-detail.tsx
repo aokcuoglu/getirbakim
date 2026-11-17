@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { CircleAlert, CircleCheck } from "lucide-react";
 import { adminManualItem } from "@/modules/admin/manual";
 import { categoryLabel } from "@/modules/suppliers/manual-template";
-import { activeBulk, manualEditableFields, type ManualEditableField } from "@/modules/suppliers/manual-import";
+import { activeBulk, fileFilled, manualEditableFields, type ManualEditableField } from "@/modules/suppliers/manual-import";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Fields, SupplierProductDetail, Timestamp } from "@/components/admin/supplier-product-detail";
 import { formatExact, formatNumber } from "@/modules/admin/format";
@@ -49,7 +49,11 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
   // A CSV value in force (#832) wins over the file and the form; it changes only through another CSV or a changed file cell.
   const bulk = activeBulk(p.file, overrides);
   const fromCsv = (field: ManualEditableField) => Boolean(field === "price" && bulk.price || field === "stock" && bulk.stock);
-  const fromFile = (field: ManualEditableField) => !fromCsv(field) && p.file[field] !== null && p.file[field] !== undefined && p.file[field] !== "";
+  const fromFile = (field: ManualEditableField) => !fromCsv(field) && fileFilled(p.file, field);
+  const fileNote = (field: ManualEditableField) => <>
+    {field === "price" && p.file.listPrice != null && `Liste fiyatı ${formatExact(p.file.listPrice)} · iskonto %${formatNumber(p.file.discount ?? 0)}. `}
+    Dosyadan geliyor; değiştirmek için dosyayı güncelleyip yeniden yükleyin.
+  </>;
   const listHref = `/yonetim/tedarikciler/manuel?liste=${item.list_group}`;
   const csvNote = (field: ManualEditableField) => <>
     {field === "price" && bulk.price && `Liste fiyatı ${formatExact(bulk.price.list)} · iskonto %${formatNumber(bulk.price.discount)}. `}
@@ -73,7 +77,7 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
                 {field === "description"
                   ? <Textarea id={`manual-${field}`} name={field} defaultValue={value(field)} maxLength={3000} readOnly={fromFile(field)} rows={5}/>
                   : <Input id={`manual-${field}`} name={field} defaultValue={value(field)} readOnly={fromFile(field) || fromCsv(field)} inputMode={field === "price" ? "decimal" : field === "stock" ? "numeric" : undefined}/>}
-                <FieldDescription>{fromCsv(field) ? csvNote(field) : fromFile(field) ? "Dosyadan geliyor; değiştirmek için dosyayı güncelleyip yeniden yükleyin." : labels[field].hint}</FieldDescription>
+                <FieldDescription>{fromCsv(field) ? csvNote(field) : fromFile(field) ? fileNote(field) : labels[field].hint}</FieldDescription>
               </Field>)}
             </FieldGroup>
             <div><SubmitButton icon={<CircleCheck data-icon="inline-start" aria-hidden="true"/>} pendingLabel="Kaydediliyor…">Kaydet</SubmitButton></div>
