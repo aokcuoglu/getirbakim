@@ -66,6 +66,7 @@
     "search:suggest": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/suggest-search-synonyms.ts",
     "test:search-analytics": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-search-analytics.ts",
     "test:unavailable": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-unavailable-catalog.ts",
+    "test:vehicle-lead": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-lead.ts",
     "test:sitemap": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-sitemap.ts",
     "test:indexnow": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-indexnow.ts",
     "test:merchant-feed": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-merchant-feed.ts",
