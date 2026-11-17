@@ -85,8 +85,8 @@ test('catalog CLI completes successive full batches, the remainder and halts on 
    CREATE TABLE vehicle_brands(id uuid PRIMARY KEY);CREATE TABLE vehicle_models(id uuid PRIMARY KEY);CREATE TABLE vehicle_types(id uuid PRIMARY KEY);`);
   const matching=await readFile('db/product-matching.sql','utf8');
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
-  await pool.query(await readFile('db/product-enrichment.sql','utf8'));
-  await pool.query(await readFile('db/enrichment-worker.sql','utf8'));
+  // The worker no longer applies its schema (#921): the fixture holds what db:setup would have created.
+  for(const file of ['product-enrichment','enrichment-worker','source-categories','enrichment-products','enrichment-states'])await pool.query(await readFile(`db/${file}.sql`,'utf8'));
   await pool.query(`INSERT INTO supplier_items(code,product_data) SELECT (1000000000+n)::text,'{"uk":"OTHER"}'::jsonb FROM generate_series(1,${total}) AS n`);
   await pool.query("INSERT INTO products(id,brand,part_number) SELECT id,'OTHER',code FROM supplier_items;INSERT INTO product_sources(supplier_item_id,product_id) SELECT id,id FROM supplier_items");
   // A duplicate offer and an unlinked price-list row must never create additional source visits.
@@ -108,7 +108,16 @@ test('catalog CLI completes successive full batches, the remainder and halts on 
   await pool.query(`INSERT INTO supplier_items(code,product_data) VALUES('2000000000','{"uk":"OTHER"}');UPDATE enrichment_source_hosts SET blocked=true WHERE host='www.trodo.com'`);
   await pool.query("INSERT INTO products(id,brand,part_number) SELECT id,'OTHER',code FROM supplier_items WHERE code='2000000000';INSERT INTO product_sources(supplier_item_id,product_id) SELECT id,id FROM supplier_items WHERE code='2000000000'");
   // An open circuit stops `continue` before it opens a batch or Chrome, so launchd never revisits a blocking site (#407).
-  const halted=await startWorker().done;
+  // It also takes no lock on the way out: a long read holding enrichment_runs must not make the worker queue an
+  // exclusive lock that the admin pages' reads would then wait behind (#921).
+  const reader=await pool.connect();
+  let halted='';
+  try{
+   await reader.query('BEGIN');await reader.query('LOCK TABLE enrichment_runs IN ACCESS SHARE MODE');
+   const started=Date.now();
+   halted=await startWorker().done;
+   assert.ok(Date.now()-started<20000,'a blocked worker exits without waiting for the reader');
+  }finally{await reader.query('ROLLBACK');reader.release();}
   assert.match(halted,/"continue":"source-blocked","hosts":\["www.trodo.com"\]/);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM enrichment_runs')).rows[0].n,3);
   // A stop while waiting for an uncached request keeps the same batch and its checkpoint.

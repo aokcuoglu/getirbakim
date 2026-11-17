@@ -162,6 +162,33 @@ LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SET search_path FROM CURRENT AS $$ S
 CREATE INDEX IF NOT EXISTS supplier_items_part_key_idx ON supplier_items(part_number_key(substring(code from position(' ' in code)+1)));
 CREATE INDEX IF NOT EXISTS supplier_items_oem_key_idx ON supplier_items(part_number_key(product_data->>'oe'))
 WHERE product_data->>'oe'<>'';
+-- The sale-price rules (#882), defined once and called by commerce_catalog and by livePriceChanges
+-- (src/modules/store/supplier-checkout.ts). Plain SQL bodies without SET or STRICT so the planner can inline them
+-- (as supplier_item_brand); PARALLEL SAFE so a call that is not inlined keeps reads of the view parallel. A SET or
+-- STRICT clause, or an expensive argument used twice in a body, turns the inline into a per-row call (same result,
+-- slower full scans; scripts/test-supplier-checkout.ts checks the plan). now() is the caller's `at` argument, so
+-- the functions stay IMMUTABLE. A changed signature cannot be replaced while the view uses it: add a new name.
+-- The formula price in kuruş: NULL unless it rounds into 1..integer max.
+CREATE OR REPLACE FUNCTION commerce_formula_price(cost numeric,exchange_rate numeric,markup_percent numeric,vat_percent numeric) RETURNS integer
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT CASE WHEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647
+ THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer END
+$$;
+-- The campaign price only inside its window [sale_from, sale_until); a NULL end is open.
+CREATE OR REPLACE FUNCTION commerce_campaign_price(sale_price integer,sale_from timestamptz,sale_until timestamptz,at timestamptz) RETURNS integer
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT CASE WHEN (sale_from IS NULL OR sale_from<=at) AND (sale_until IS NULL OR at<sale_until) THEN sale_price END
+$$;
+-- The admin's fixed price over the formula; a row the formula cannot price is not sold at a fixed price either.
+CREATE OR REPLACE FUNCTION commerce_regular_price(auto_price integer,fixed_price integer) RETURNS integer
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT CASE WHEN auto_price IS NOT NULL THEN COALESCE(fixed_price,auto_price) END
+$$;
+-- A campaign at or above the regular price is ignored.
+CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price integer) RETURNS integer
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
+$$;
 CREATE OR REPLACE VIEW commerce_catalog AS
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
@@ -183,7 +210,7 @@ WITH latest AS (
  ov.price_kurus AS override_price,ov.sale_until,ov.brand AS override_brand,ov.part_number AS override_part_number,
  ov.hide_oem AS override_hide_oem,mb.name AS master_brand,
  -- The campaign price only inside its window; a NULL end is open.
- CASE WHEN (ov.sale_from IS NULL OR ov.sale_from<=now()) AND (ov.sale_until IS NULL OR now()<ov.sale_until) THEN ov.sale_price_kurus END AS sale_price,
+ commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now()) AS sale_price,
  -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
  (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
@@ -198,18 +225,20 @@ WITH latest AS (
  -- The formula price (auto_price) is the only gate: an admin price never sells a row the formula cannot price.
  SELECT *,CASE WHEN cost>0 AND exchange_rate>0
  AND (basbug_checkout_mode='snapshot' OR ((supplier='manual' OR rate_at>now()-make_interval(hours=>max_age_hours)) AND source_fresh))
- AND round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100) BETWEEN 1 AND 2147483647
- THEN round(cost*exchange_rate*(1+markup_percent/100)*(1+vat_percent/100)*100)::integer ELSE NULL END AS auto_price
+ THEN commerce_formula_price(cost,exchange_rate,markup_percent,vat_percent) END AS auto_price
  FROM supplier_prices
 ), sold AS (
- -- priced/sold/final are copied by livePriceChanges (src/modules/store/supplier-checkout.ts, #861): keep both the same.
- -- These CTEs are inlined, so each column below is its expression wherever it is used: auto_price is evaluated in
- -- CASE branches only, the formula's branch first, so a row without an admin price computes it exactly once (as
- -- before #580). Rows with one recompute it a few times. A campaign at or above the regular price is ignored.
- SELECT *,CASE WHEN NOT admin_priced THEN NULL WHEN auto_price IS NOT NULL THEN COALESCE(override_price,auto_price) END AS regular_price
+ -- The price rules live in the commerce_*_price functions above; livePriceChanges (src/modules/store/supplier-checkout.ts,
+ -- #861) calls the same functions (#882). These CTEs are inlined, so each column below is its expression wherever it
+ -- is used: auto_price is evaluated in CASE branches only, the formula's branch first, so a row without an admin
+ -- price computes it exactly once (as before #580). Rows with one recompute it a few times. The NOT admin_priced
+ -- branches only save time (the functions give the same result for a NULL fixed and campaign price); keep
+ -- commerce_regular_price/commerce_final_price behind them: they are not inlined (auto_price is used twice), and
+ -- calling them on every row made full scans ~15% slower when measured (#882).
+ SELECT *,CASE WHEN NOT admin_priced THEN NULL ELSE commerce_regular_price(auto_price,override_price) END AS regular_price
  FROM priced
 ), final AS (
- SELECT *,CASE WHEN NOT admin_priced THEN auto_price WHEN sale_price<regular_price THEN sale_price ELSE regular_price END AS final_price,
+ SELECT *,CASE WHEN NOT admin_priced THEN auto_price ELSE commerce_final_price(regular_price,sale_price) END AS final_price,
  CASE WHEN NOT admin_priced THEN false ELSE COALESCE(regular_price IS NOT NULL AND sale_price<regular_price,false) END AS on_sale,
  CASE WHEN NOT admin_priced THEN false ELSE regular_price IS NOT NULL AND (override_price IS NOT NULL OR COALESCE(sale_price<regular_price,false)) END AS overridden,
  jsonb_build_object('source','supplier','nf',cost,'currency',product_data->>'dc','exchange_rate',exchange_rate,

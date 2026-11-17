@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { Pool } from "pg";
 import { z } from "zod";
 import { startChromeCollectors } from "../src/modules/enrichment/chrome-driver";
+import { requireEnrichmentSchema } from "../src/modules/enrichment/schema";
 import { SourceBlocked, SourceQueue, WorkerStopped } from "../src/modules/enrichment/source-queue";
 import { parseVehicleCsv } from "../src/modules/store/vehicle-catalog-import";
 import { parseVehicleOilRow, trodoOilSheetRow, vehicleOilSheet, type VehicleOilSheetRow } from "../src/modules/store/vehicle-oil";
@@ -44,7 +45,8 @@ const CARS = `SELECT DISTINCT ON ((e->>'tecdoc_id')::int) (e->>'tecdoc_id')::int
 async function checkDatabase() {
   const { rows } = await pool.query("SELECT current_database() AS name, current_user AS owner");
   if (rows[0].name !== "getirbakim" || rows[0].owner !== "getirbakim_app") throw new Error("Independent database check failed");
-  for (const file of ["db/enrichment-worker.sql", "db/vehicle-oil-specs.sql"]) await pool.query(await readFile(file, "utf8"));
+  // The schema comes from db:setup; altering it here would queue the admin pages' reads behind a long query (#921).
+  await requireEnrichmentSchema(pool, ["enrichment_runs", "enrichment_source_requests", "vehicle_type_oil_specs", "vehicle_type_trodo_oils"]);
 }
 
 async function collect() {

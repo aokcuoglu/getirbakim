@@ -217,7 +217,7 @@ test("a fresh copy of the hidden enrichment (storefront sync) stays out", async 
 });
 
 test("collectors do not pick the hidden product up again", async () => {
-  // enrichment-worker.ts and spareto-enrichment.ts select status 'pending' from enrichment_product_catalog.
+  // The collectors' pending selections read enrichment_product_states, the materialized rows of enrichment_product_catalog.
   const { rows } = await schema.pool.query<{ status: string }>("SELECT status FROM enrichment_product_catalog WHERE product_id=$1", [await productOf("single")]);
   assert.deepEqual(rows, [{ status: "not_found" }]);
   await setOemHidden("single", false);
