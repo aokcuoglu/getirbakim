@@ -21,7 +21,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
   const originalEnv = Object.fromEntries(Object.keys(env).map(key => [key, process.env[key]]));
   Object.assign(process.env, env);
   const { db } = await import("../src/lib/db");
-  const { submitOrder, cartQuote, shippingRule, orderTotals } = await import("../src/modules/store/orders");
+  const { submitOrder, cartQuote, shippingRule, orderTotals, lastCheckoutDetails } = await import("../src/modules/store/orders");
   const { cartFor, setCartQuantity } = await import("../src/modules/store/cart");
   const payments = await import("../src/modules/payments/checkout");
   const { buildSecurityHash } = await import("../src/modules/payments/tami");
@@ -75,17 +75,20 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
 
     const owner = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
     await db.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [owner.id]);
+    // The checkout schema's output (#881): structured address with its combined text, individual invoice.
+    const delivery = { address: "Test Mahallesi 1. Sokak No 2, 34710 Kadıköy/İstanbul", note: "", province: "İstanbul", district: "Kadıköy", addressLine: "Test Mahallesi 1. Sokak No 2",
+      postalCode: "34710", invoiceType: "individual" as const, invoiceCompany: null, invoiceTaxNo: null, invoiceTaxOffice: null };
     const place = async (quantity: number) => {
       assert.equal(await setCartQuantity(owner, product, quantity), true);
       const items = await cartFor(owner), shipping = await shippingRule();
-      const result = await submitOrder(owner, { requestKey: randomUUID(), quote: cartQuote(items, 0, shipping), name: "Test", email: "t@example.invalid", phone: "0555 123 45 67", address: "Test address, Istanbul", note: "" });
+      const result = await submitOrder(owner, { requestKey: randomUUID(), quote: cartQuote(items, 0, shipping), name: "Test", email: "t@example.invalid", phone: "0555 123 45 67", ...delivery });
       assert.ok(result.id, String(result.error)); return result.id;
     };
 
     assert.deepEqual(orderTotals(await cartFor(owner), 0, { fee: 15000, threshold: 150000 }), { subtotal: 0, shipping: 0, total: 0, freeShippingRemaining: 150000 });
     process.env.TAMI_CHECKOUT_ENABLED = "false";
     assert.equal(await setCartQuantity(owner, product, 1), true);
-    assert.equal((await submitOrder(owner, { requestKey: randomUUID(), quote: "x", name: "T", email: "t@example.invalid", phone: "5551234567", address: "x", note: "" })).error, "payment");
+    assert.equal((await submitOrder(owner, { requestKey: randomUUID(), quote: "x", name: "T", email: "t@example.invalid", phone: "5551234567", ...delivery })).error, "payment");
     process.env.TAMI_CHECKOUT_ENABLED = "true";
 
     // Order is created unpaid with shipping, reserves store stock and keeps the cart.
@@ -95,6 +98,21 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     assert.equal(Number(row.subtotal_kurus), 20000); assert.equal(Number(row.shipping_kurus), 15000); assert.equal(Number(row.total_kurus), 35000);
     assert.equal(await stock(), 3); assert.equal((await cartFor(owner)).length, 1);
     assert.equal(await reserved(first), 2);
+    assert.equal(row.address, delivery.address);
+    assert.deepEqual([row.delivery_province, row.delivery_district, row.delivery_address_line, row.delivery_postal_code, row.invoice_type, row.invoice_company, row.invoice_tax_no, row.invoice_tax_office],
+      ["İstanbul", "Kadıköy", "Test Mahallesi 1. Sokak No 2", "34710", "individual", null, null, null]);
+
+    // The next checkout of an account is filled from its latest structured order (#881); guests and free-text orders give nothing.
+    const account = randomUUID();
+    const accountOrder = (values: (string | null)[]) => db.query(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,total_kurus,subtotal_kurus,discount_percent,
+      phone,address,created_at,delivery_province,delivery_district,delivery_address_line,delivery_postal_code,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office)
+      VALUES('account',$1,gen_random_uuid(),'Test','t@example.invalid',1000,1000,0,$2,$3,now()-make_interval(days=>$4::int),$5,$6,$7,$8,$9,$10,$11,$12)`, [account, ...values]);
+    assert.equal(await lastCheckoutDetails(account), null);
+    assert.equal(await lastCheckoutDetails(owner.id), null);
+    await accountOrder(["0555 000 00 01", "Eski adres", "2", "Ankara", "Çankaya", "Atatürk Bulvarı No 1", null, "corporate", "Firma", "1234567890", "Çankaya"]);
+    await accountOrder(["0555 000 00 02", "Serbest metin adres", "1", null, null, null, null, null, null, null, null]);
+    assert.deepEqual(await lastCheckoutDetails(account), { phone: "0555 000 00 01", delivery_province: "Ankara", delivery_district: "Çankaya", delivery_address_line: "Atatürk Bulvarı No 1",
+      delivery_postal_code: null, invoice_type: "corporate", invoice_company: "Firma", invoice_tax_no: "1234567890", invoice_tax_office: "Çankaya" });
 
     // Hosted page: one token, reused while fresh; callback URLs are signed per order.
     const started = await payments.startPayment(first);

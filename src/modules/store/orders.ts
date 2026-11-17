@@ -12,6 +12,7 @@ import { fitmentLevelResolver,productFitmentLevels } from './fitment-level.serve
 import type { FitmentLevel } from './fitment-level';
 import { buildOrderAgreement,legalTextVersion,type AgreementLine } from './order-agreement';
 import { checkoutConsentText } from './checkout-schema';
+import type { InvoiceDetails, InvoiceType } from './tr-address';
 import type { ClientEvidence } from '@/lib/client-address';
 import { CHECKOUT_LOCK_TIMEOUT } from '@/modules/suppliers/checkout-fallback';
 
@@ -26,7 +27,9 @@ export type CommerceOrder = {
  carrier:string|null; carrier_name:string|null; tracking_no:string|null; tracking_url:string|null; shipped_at:Date|null; delivered_at:Date|null;
  // Who cancelled and when (#607); NULL on orders cancelled before it was recorded and on open orders.
  cancelled_by:'customer'|'admin'|'expiry'|null; cancelled_at:Date|null;
-};
+ // Structured delivery address and invoice (#881); NULL on orders placed before it, whose `address` is free text.
+ delivery_province:string|null; delivery_district:string|null; delivery_address_line:string|null; delivery_postal_code:string|null;
+} & InvoiceDetails;
 export type OrderItem = {product_id:string; name:string; code:string; quantity:number; unit_price_kurus:string; pricing_snapshot:Record<string,unknown>; vehicle:GarageVehicle|null; fitment_level:FitmentLevel|null};
 
 export type ShippingRule = {fee:number;threshold:number};
@@ -47,7 +50,10 @@ export function orderTotals(items:CartItem[],discount:number,shipping:ShippingRu
  const fee=items.length && !free ? shipping.fee : 0;
  return {subtotal,shipping:fee,total:subtotal+fee,freeShippingRemaining:!free && shipping.threshold>0 ? shipping.threshold-subtotal : 0};
 }
-export type CheckoutInput = {requestKey:string;quote:string;name:string;email:string;phone:string;address:string;note:string};
+/** `address` is the combined delivery text (composeAddress) the contract, operations and older orders read. */
+export type CheckoutInput = {requestKey:string;quote:string;name:string;email:string;phone:string;address:string;note:string;
+ province:string;district:string;addressLine:string;postalCode:string|null;
+ invoiceType:InvoiceType;invoiceCompany:string|null;invoiceTaxNo:string|null;invoiceTaxOffice:string|null};
 /**
  * `garage` is used for cart lines added before a vehicle was recorded on them. `evidence` is who accepted the
  * pre-contract documents; the consent and the order-specific copy of those documents are stored with the order.
@@ -116,9 +122,11 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   // The cart changed after the preload: resolve again, once, for all lines.
   if(levels.includes(null)) levels=await productFitmentLevels(items.map((p,i)=>({product:p,vehicle:vehicles[i]})));
   const order=(await client.query<{id:string;number:string;created_at:Date}>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,note,total_kurus,discount_percent,
-   subtotal_kurus,shipping_kurus,status,payment_status,payment_due_at)
-   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment','awaiting',now()+make_interval(mins=>$13)) RETURNING id,number,created_at`,
-   [owner.kind,owner.id,input.requestKey,input.name,input.email,input.phone,input.address,input.note,totals.total,discount,totals.subtotal,totals.shipping,PAYMENT_WINDOW_MINUTES])).rows[0];
+   subtotal_kurus,shipping_kurus,status,payment_status,payment_due_at,
+   delivery_province,delivery_district,delivery_address_line,delivery_postal_code,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office)
+   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'awaiting_payment','awaiting',now()+make_interval(mins=>$13),$14,$15,$16,$17,$18,$19,$20,$21) RETURNING id,number,created_at`,
+   [owner.kind,owner.id,input.requestKey,input.name,input.email,input.phone,input.address,input.note,totals.total,discount,totals.subtotal,totals.shipping,PAYMENT_WINDOW_MINUTES,
+    input.province,input.district,input.addressLine,input.postalCode,input.invoiceType,input.invoiceCompany,input.invoiceTaxNo,input.invoiceTaxOffice])).rows[0];
   const lines:AgreementLine[]=[];
   for(const [i,p] of items.entries()) {
    const unitPrice=servicePrice(p.price_kurus!,discount);
@@ -140,6 +148,7 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,unitPrice,JSON.stringify(snapshot),vehicle ? JSON.stringify(vehicle) : null,levels[i],reserved]);
   }
   const document=buildOrderAgreement({number:order.number,createdAt:order.created_at,name:input.name,email:input.email,phone:input.phone,address:input.address,note:input.note,
+   invoice:input.invoiceType==='corporate' ? {company:input.invoiceCompany ?? '',taxNo:input.invoiceTaxNo ?? '',taxOffice:input.invoiceTaxOffice ?? ''} : null,
    discountPercent:discount,subtotalKurus:totals.subtotal,shippingKurus:totals.shipping,totalKurus:totals.total},lines);
   await client.query(`INSERT INTO commerce_order_agreements(order_id,ip,forwarded_for,user_agent,consent_text,legal_version,document) VALUES($1,$2,$3,$4,$5,$6,$7)`,
    [order.id,evidence.ip,evidence.forwardedFor,evidence.userAgent,checkoutConsentText,legalTextVersion(),JSON.stringify(document)]);
@@ -147,6 +156,12 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   await client.query('COMMIT'); return {id:order.id};
  } catch(error) { await client.query('ROLLBACK'); throw error; }
  finally {client.release();}
+}
+export type CheckoutDetails = Pick<CommerceOrder,'phone'|'delivery_province'|'delivery_district'|'delivery_address_line'|'delivery_postal_code'|'invoice_type'|'invoice_company'|'invoice_tax_no'|'invoice_tax_office'>;
+/** The account's latest structured checkout details (#881), to fill its next checkout; null before its first such order. Guests get none. */
+export async function lastCheckoutDetails(accountId:string):Promise<CheckoutDetails|null> {
+ return (await db.query<CheckoutDetails>(`SELECT phone,delivery_province,delivery_district,delivery_address_line,delivery_postal_code,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office
+  FROM commerce_orders WHERE owner_kind='account' AND owner_id=$1 AND delivery_province IS NOT NULL ORDER BY created_at DESC LIMIT 1`,[accountId])).rows[0] ?? null;
 }
 export const orderStatus:Record<string,string>={awaiting_payment:'Ödeme bekleniyor',pending:'Teyit bekliyor',confirmed:'Onaylandı',shipped:'Kargoya verildi',delivered:'Teslim edildi',cancelled:'İptal edildi'};
 export const paymentStatus:Record<string,string>={none:'Ödeme alınmadı',awaiting:'Ödeme bekleniyor',paid:'Ödendi',expired:'Ödeme süresi doldu',cancelled:'Ödeme alınmadı',refund_required:'İade bekliyor',refunded:'İade edildi'};

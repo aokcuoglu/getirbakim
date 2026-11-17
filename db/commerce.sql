@@ -418,3 +418,12 @@ COMMENT ON COLUMN commerce_orders.purchase_tracked_at IS 'GA4 purchase sent for 
 -- orders whose purchase was measured; NULL = not sent yet. No backfill.
 ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refund_tracked_at timestamptz;
 COMMENT ON COLUMN commerce_orders.refund_tracked_at IS 'GA4 refund sent for this order (#750); claimed once by the order''s own customer, only after purchase_tracked_at';
+-- Structured delivery address and invoice details (#881); NULL on orders placed before it. `address` keeps the combined text.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_province text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_district text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_address_line text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_postal_code text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_type text CHECK(invoice_type IN ('individual','corporate'));
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_company text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_tax_no text;
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_tax_office text;
