@@ -13,8 +13,12 @@ export function rejectionReason(current: { uniqueProducts: number; missingPrices
   if (!current.uniqueProducts) return "empty-products";
   if (!previous?.uniqueProducts) return null;
   if (current.uniqueProducts < previous.uniqueProducts * 0.8) return "product-drop-over-20-percent";
-  if (current.missingPrices / current.uniqueProducts > previous.missingPrices / previous.uniqueProducts + 0.1) return "missing-prices-increased-over-10-points";
-  if (current.missingStocks / current.uniqueProducts > previous.missingStocks / previous.uniqueProducts + 0.1) return "missing-stocks-increased-over-10-points";
+  // A missing share that grows only because the list added products without a price or stock row lost no data: only
+  // fewer products with that data is suspect (#857: Dinamik added 54 stockless products to a 189-product list).
+  const lost = (key: "missingPrices" | "missingStocks") => current.uniqueProducts - current[key] < previous.uniqueProducts - previous[key]
+    && current[key] / current.uniqueProducts > previous[key] / previous.uniqueProducts + 0.1;
+  if (lost("missingPrices")) return "missing-prices-increased-over-10-points";
+  if (lost("missingStocks")) return "missing-stocks-increased-over-10-points";
   return null;
 }
 
