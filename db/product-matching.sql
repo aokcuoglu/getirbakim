@@ -639,10 +639,13 @@ BEGIN
   AND length(regexp_replace(x.value,'[^A-Za-z0-9]','','g'))>=4
  UNION
  -- An original part's own number is its key already; any other number it lists is a superseded/alternative OEM.
+ -- A supplier OEM field the admin hid (#615, commerce_item_overrides.hide_oem) feeds no OEM equivalents either (#631).
+ -- A row leaving a hidden product in this refresh still reads its old edit here: its OEM numbers return next run.
  SELECT m.supplier_item_id, 'oem', 'ORIJINAL', o
  FROM product_match_items m JOIN supplier_items i ON i.id=m.supplier_item_id
  CROSS JOIN LATERAL unnest(supplier_item_oem_numbers(i.supplier,i.product_data)) o
- WHERE m.supplier IN ('seta','basbug') AND NOT (m.brand='ORIJINAL' AND m.part_number=o);
+ WHERE m.supplier IN ('seta','basbug') AND NOT (m.brand='ORIJINAL' AND m.part_number=o)
+  AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=m.supplier_item_id AND ho.hide_oem);
  -- A non-GTIN Dinamik barcode counts as an OEM number only when the catalog already knows that number as one.
  INSERT INTO product_references
  SELECT DISTINCT b.supplier_item_id, 'oem', 'ORIJINAL', b.code FROM barcodes b
@@ -721,6 +724,12 @@ BEGIN
  WHERE length(p.part_number)>=4 AND NOT EXISTS (SELECT 1 FROM product_sources s WHERE s.supplier_item_id=i.id)
  ON CONFLICT DO NOTHING;
  ANALYZE products; ANALYZE product_sources;
+ -- Rows linked to a product with a hidden supplier OEM in this run took its edits (source trigger) only now: their OEM
+ -- numbers leave before the SETA references and equivalents below are built (#631). product_equivalence_groups was
+ -- counted with them, so its counters can be one run stale in that rare case.
+ DELETE FROM product_references r USING commerce_item_overrides ho, product_match_items m
+ WHERE ho.supplier_item_id=r.supplier_item_id AND ho.hide_oem AND m.supplier_item_id=r.supplier_item_id
+  AND m.supplier IN ('seta','basbug') AND r.kind='oem';
  -- Storefront projection until the store reads products directly: the listed row is the product's own row (else
  -- Başbuğ first, then the lowest code); every Başbuğ/Dinamik/manual row of the product competes on price and stock.
  INSERT INTO product_offers

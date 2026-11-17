@@ -117,6 +117,10 @@ export async function persistProductOverride(database: Pick<Pool, "connect">, pr
     await client.query("UPDATE product_override_carries SET fields=fields-$2::text[] WHERE target=$1 AND fields ?| $2::text[]", [productId, owned]);
     await client.query("DELETE FROM product_override_carries WHERE target=$1 AND fields='{}'::jsonb", [productId]);
     await client.query("SELECT product_overrides_project(ARRAY[$1::uuid])", [productId]);
+    // A hidden supplier OEM stops feeding OEM equivalents at once (#631); shown again, the matcher brings them back.
+    if (changed.includes("hide_supplier_oem") && next.hide_supplier_oem) {
+      await client.query("SELECT product_hidden_oem_drop(ARRAY[$1::uuid])", [productId]);
+    }
     await client.query("COMMIT");
     return { ok: true, changed, values: anySet ? next : empty, version };
   } catch (error) {
