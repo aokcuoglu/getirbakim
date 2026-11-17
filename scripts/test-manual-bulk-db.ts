@@ -256,3 +256,24 @@ test("PostgreSQL: an all-lists CSV writes every list under one lock and in one t
   assert.deepEqual(await busy.apply(), { listGroup: a, changed: 2 });
   assert.deepEqual([(await item("T2", a)).stock_data, (await item("T1", b)).stock_data], [{ stok: 7 }, { stok: 6 }]);
 });
+
+test("PostgreSQL: the all-lists download uploaded back unchanged changes nothing (#844)", { skip }, async () => {
+  const { buildManualBulkCsv, parseManualBulkCsv } = await import("../src/modules/suppliers/manual-bulk-csv");
+  const { manualBulkExportAll, manualBulkLists, saveManualBulkDraft } = await import("../src/modules/suppliers/manual-bulk");
+  // The same code in two lists, a zero-padded code and a list name Excel would read as a formula; the schema's
+  // earlier lists share the name "Test yağlar", which the download writes as their slugs.
+  await importList([row("R1", 100, 5), row("00123", 40, null)], "test-geri-a", "Geri; A");
+  await importList([row("R1", 300, 2)], "test-geri-b", "=Geri B");
+  const all = await manualBulkExportAll(schema.pool);
+  const ours = all.rows.filter(entry => entry.listName === "Geri; A" || entry.listName === "=Geri B");
+  assert.deepEqual(ours.map(entry => [entry.listName, entry.code]), [["Geri; A", "00123"], ["Geri; A", "R1"], ["=Geri B", "R1"]]);
+  const csv = buildManualBulkCsv(all.rows, true);
+  assert.ok(csv.startsWith("\ufeffListe;Marka;Stok Kodu;"));
+  assert.ok(all.rows.some(entry => entry.listName === "test-yaglar"));
+  const parsed = parseManualBulkCsv(new TextEncoder().encode(csv), await manualBulkLists(schema.pool));
+  assert.equal(parsed.combined, true);
+  assert.deepEqual(parsed.issues, []);
+  const id = await saveManualBulkDraft(schema.pool, { listGroup: "test-geri-a", listName: "Geri; A", fileName: "tum.csv", parsed, by: adminId });
+  const report = (await schema.pool.query("SELECT report FROM manual_uploads WHERE id=$1", [id])).rows[0].report;
+  assert.deepEqual([report.updated, report.errors, report.warnings, report.bulk.unchanged], [0, 0, 0, all.rows.length]);
+});

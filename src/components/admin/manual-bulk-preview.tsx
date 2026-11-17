@@ -34,7 +34,7 @@ export function ManualBulkPreview({ draft, status, params }: { draft: Draft; sta
   const changes = report.bulk?.changes ?? [];
   const issues = report.issues;
   // All-lists file (#844): the lists it names; its rows and findings show their list.
-  const lists = report.bulk?.lists;
+  const lists = report.bulk?.lists?.length ? report.bulk.lists : undefined;
   const changePage = manualBulkPage(params[manualBulkPageParams.changes], draft.change_count);
   const issuePage = manualBulkPage(params[manualBulkPageParams.issues], draft.issue_count);
   const hrefFor = (key: string) => (page: number) => {
@@ -58,7 +58,7 @@ export function ManualBulkPreview({ draft, status, params }: { draft: Draft; sta
             ? <p className="flex items-center gap-2 text-2xl font-semibold text-destructive tabular-nums"><CircleAlert aria-hidden="true"/>{formatNumber(count)}<span className="sr-only">hata, güncelleme engelli</span></p>
             : <p className="text-2xl font-semibold tabular-nums">{formatNumber(count)}</p>}</CardContent></Card>)}
       </div>
-      {lists && <p className="text-muted-foreground">Listeler: {lists.map(list => `${list.name} (${formatNumber(list.rows)} satır)`).join(" · ")}</p>}
+      {lists && <p className="break-words text-muted-foreground">Listeler: {lists.map(list => `${list.name} (${formatNumber(list.rows)} satır)`).join(" · ")}</p>}
       {report.errors > 0 && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{formatNumber(report.errors)} hata var</AlertTitle>
         <AlertDescription>Hatalı dosya uygulanamaz. Dosyayı düzeltip yeniden yükleyin.</AlertDescription></Alert>}
       {issuePage.pages > 1 && <p className="text-muted-foreground">{formatNumber(draft.issue_count)} bulgu · hatalar önce listelenir.</p>}
@@ -78,7 +78,7 @@ export function ManualBulkPreview({ draft, status, params }: { draft: Draft; sta
         <TableHeader><TableRow>{lists && <TableHead>Liste</TableHead>}<TableHead className="text-right">Satır</TableHead><TableHead>Marka</TableHead><TableHead>Stok Kodu</TableHead>
           <TableHead>Liste Fiyatı</TableHead><TableHead>İskonto</TableHead><TableHead>Maliyet</TableHead><TableHead>Kârlılık</TableHead><TableHead>Stok</TableHead></TableRow></TableHeader>
         <TableBody>{changes.map(change => <TableRow key={change.id}>
-          {lists && <TableCell>{change.listName ?? "—"}</TableCell>}
+          {lists && <TableCell>{change.listName || "—"}</TableCell>}
           <TableCell className="text-right tabular-nums">{change.row}</TableCell>
           <TableCell>{change.brand}</TableCell>
           <TableCell className="font-mono">{change.code}</TableCell>

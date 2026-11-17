@@ -114,10 +114,17 @@ const decimals = (value: number) => {
 };
 const columnHeader = (key: ManualBulkColumnKey) => manualBulkColumns.find(column => column.key === key)!.header;
 
-/** The list a Liste cell names: its slug, or its name regardless of case and accents; ambiguous or unknown → undefined. */
-function findList(lists: ManualBulkList[], cell: string) {
-  const matches = lists.filter(list => list.group === cell || headerKey(list.name) === headerKey(cell));
-  return matches.length === 1 ? matches[0] : undefined;
+/** The list a Liste cell names: its slug, else its name regardless of case and accents; a name of several lists is ambiguous. */
+function findList(lists: ManualBulkList[], cell: string): ManualBulkList | "ambiguous" | undefined {
+  const bySlug = lists.find(list => list.group === cell);
+  if (bySlug) return bySlug;
+  const matches = lists.filter(list => headerKey(list.name) === headerKey(cell));
+  return matches.length > 1 ? "ambiguous" : matches[0];
+}
+
+/** What the all-lists download writes in a list's Liste cell: its name, or its slug when the name would not read back as this list. */
+export function manualBulkListCell(lists: ManualBulkList[], list: ManualBulkList) {
+  return findList(lists, list.name) === list ? list.name : list.group;
 }
 
 /**
@@ -159,8 +166,11 @@ export function parseManualBulkCsv(bytes: Uint8Array, lists: ManualBulkList[] = 
     let list: ManualBulkList | undefined;
     if (combined) {
       const listCell = (line[listIndex] ?? "").trim().replace(/^'(?=[=+\-@])/, "");
-      list = listCell ? findList(lists, listCell) : undefined;
-      if (!list) errors.push({ sheet: listCell, row, code: code || null, field: null, level: "error", message: listCell ? `Liste bulunamadı: "${listCell}"` : "Liste boş" });
+      const found = listCell ? findList(lists, listCell) : undefined;
+      if (found === "ambiguous") errors.push({ sheet: listCell, row, code: code || null, field: null, level: "error",
+        message: "Liste adı birden fazla listeyle eşleşiyor; liste kodunu (slug) yazın." });
+      else if (found) list = found;
+      else errors.push({ sheet: listCell, row, code: code || null, field: null, level: "error", message: listCell ? `Liste bulunamadı: "${listCell}"` : "Liste boş" });
     }
     const sheet = list?.name ?? "";
     const issue = (field: ManualBulkColumnKey, message: string) => errors.push({ sheet, row, code: code || null, field, level: "error", message });

@@ -1,6 +1,6 @@
 import type { Pool } from "pg";
 import { manualCompany } from "./storefront-sources";
-import { diffManualBulk, manualCost, type ManualBulkChange, type ManualBulkCurrent, type ManualBulkList, type ManualBulkRow } from "./manual-bulk-csv";
+import { diffManualBulk, manualBulkListCell, manualCost, type ManualBulkChange, type ManualBulkCurrent, type ManualBulkExportRow, type ManualBulkList, type ManualBulkRow } from "./manual-bulk-csv";
 import { bulkFileCells, lock, ManualImportError, manualSupplier, saveLockTimeout, type ManualBulk, type ManualDraftReport } from "./manual-import";
 import type { ManualIssue, ManualRow } from "./manual-template";
 import { manualBulkPageSize } from "./manual-bulk-paging";
@@ -23,6 +23,25 @@ type Current = ManualBulkCurrent & { bulk: ManualBulk | null; priceData: Record<
 export async function manualBulkLists(pool: Pick<Pool, "query">) {
   return (await pool.query<ManualBulkList>(`SELECT list_group AS "group",(array_agg(product_data->>'list_name' ORDER BY changed_at DESC))[1] AS name
     FROM supplier_items WHERE supplier=$1 AND company=$2 GROUP BY list_group ORDER BY list_group`, [manualSupplier, manualCompany])).rows;
+}
+
+/** The CSV's columns of a supplier_items row, shared by the single-list (admin/manual.ts) and all-lists downloads. */
+export const manualBulkExportColumns = `COALESCE(supplier_items.product_data->>'uk','') AS brand,supplier_items.code,
+  COALESCE((supplier_items.price_data->>'list')::float8,(supplier_items.price_data->>'nf')::float8) AS list,
+  COALESCE((supplier_items.price_data->>'discount')::float8,0) AS discount,p.markup_percent::float8 AS markup,(supplier_items.stock_data->>'stok')::float8 AS stock`;
+export const manualBulkExportFrom = "supplier_items LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=supplier_items.id";
+
+/**
+ * The all-lists CSV (#844): every list's present items with the list name the upload resolves (manualBulkLists); a
+ * name shared by several lists is written as the slug. The product tab's filters belong to one list and do not apply.
+ */
+export async function manualBulkExportAll(pool: Pick<Pool, "query">) {
+  const [lists, result] = await Promise.all([manualBulkLists(pool), pool.query<ManualBulkExportRow & { listGroup: string }>(
+    `SELECT ${manualBulkExportColumns},supplier_items.list_group AS "listGroup" FROM ${manualBulkExportFrom}
+    WHERE supplier_items.supplier=$1 AND supplier_items.company=$2 AND supplier_items.presence='present'
+    ORDER BY supplier_items.list_group,supplier_items.code`, [manualSupplier, manualCompany])]);
+  const names = new Map(lists.map(list => [list.group, manualBulkListCell(lists, list)]));
+  return { lists, rows: result.rows.map(({ listGroup, ...row }): ManualBulkExportRow => ({ ...row, listName: names.get(listGroup) ?? listGroup })) };
 }
 
 /** Every item of the lists (all presence states) with what the CSV can change. */

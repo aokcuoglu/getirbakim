@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildManualBulkCsv, decodeCsv, diffManualBulk, manualCost, parseBulkNumber, parseCsv, parseManualBulkCsv,
+import { buildManualBulkCsv, decodeCsv, diffManualBulk, manualBulkListCell, manualCost, parseBulkNumber, parseCsv, parseManualBulkCsv,
   type ManualBulkCurrent } from "../src/modules/suppliers/manual-bulk-csv";
 import { manualBulkPage, manualBulkPageSize } from "../src/modules/suppliers/manual-bulk-paging";
 
@@ -183,4 +183,16 @@ test("all-lists diff: a change goes only to the named list's item; a repeated it
   assert.deepEqual(repeated.issues.map(issue => issue.sheet), ["Filtre; Hava", "Madeni Yağlar"]);
   // A single-list draft's rows belong to the default list.
   assert.equal(diffManualBulk(parse(["MOTUL;100047;;;;9"]).rows, current, "madeni-yaglar").changes[0].id, "a");
+});
+
+test("all-lists CSV: a name shared by two lists asks for the slug (#844)", () => {
+  const twins = [{ group: "yaglar-1", name: "Yağlar" }, { group: "yaglar-2", name: "yağlar" }];
+  const read = (cell: string) => parseManualBulkCsv(utf8([`Liste;${header}`, `${cell};MOTUL;1;;;;1`].join("\r\n")), twins);
+  assert.deepEqual(errors(read("Yağlar")), ["Liste adı birden fazla listeyle eşleşiyor; liste kodunu (slug) yazın."]);
+  assert.deepEqual(read("yaglar-2").rows.map(row => row.listGroup), ["yaglar-2"]);
+});
+
+test("all-lists download writes the slug for a name shared by several lists (#844)", () => {
+  const twins = [{ group: "yaglar-1", name: "Yağlar" }, { group: "yaglar-2", name: "yağlar" }, { group: "filtre", name: "Filtre" }];
+  assert.deepEqual(twins.map(list => manualBulkListCell(twins, list)), ["yaglar-1", "yaglar-2", "Filtre"]);
 });
