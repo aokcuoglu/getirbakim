@@ -2,7 +2,8 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { formatNumber } from "./format";
-import { fitmentSourceLabel, productFitmentLimit } from "./product-fitment-fields";
+import { productFitmentLimit } from "./product-fitment-fields";
+import { fitmentSourceLabel, modelYearRange } from "./product-label";
 import {
   automaticTypesSql, changeProductFitments, insertAddedFitments, recordFitmentChange, vehicleColumns, vehicleJoins,
   type FitmentVehicle, type ProductFitmentResult,
@@ -18,10 +19,10 @@ export type FitmentCopySource = { id: string; brand_label: string; code: string;
 export const fitmentCopyPreviewRows = 50;
 
 /** The new types of one vehicle model in a copy (#815): the admin picks the models (or whole makes) to copy. */
-export type FitmentCopyGroup = { brandId: number; brand: string; modelId: number; model: string; count: number };
+export type FitmentCopyGroup = { brandId: number; brand: string; modelId: number; model: string; /** Production years ("2006–2013"), to tell same-name generations apart (#888). */ years: string | null; count: number };
 
 /** A source type with its model and make, so a copy can be limited to chosen models (#815). */
-export type CopyVehicle = FitmentVehicle & { modelId: number; brandId: number };
+export type CopyVehicle = FitmentVehicle & { modelId: number; brandId: number; years: string | null };
 
 /** What a copy from another product would write (#662). */
 export type FitmentCopyPreview = {
@@ -67,11 +68,12 @@ export async function loadFitmentCopySources(database: Pick<Pool, "query">, prod
  */
 async function planFitmentCopy(database: Queryable, targetId: string, sourceId: string): Promise<CopyPlan> {
   // One client runs one query at a time: awaited in turn, not in parallel.
-  const source = (await database.query<CopyVehicle>(`WITH ${automaticTypesSql},
+  const source = (await database.query<FitmentVehicle & { modelId: number; brandId: number; yearFrom: string | null; yearTo: string | null }>(`WITH ${automaticTypesSql},
       decisions AS (SELECT vehicle_type_id AS id,mode FROM product_override_fitments WHERE product_id=$1),
       effective AS (SELECT id FROM automatic WHERE id NOT IN (SELECT id FROM decisions WHERE mode='remove')
         UNION SELECT id FROM decisions WHERE mode='add')
-    SELECT ${vehicleColumns},m.id AS "modelId",b.id AS "brandId" FROM effective x JOIN vehicle_types v ON v.id=x.id ${vehicleJoins}
+    SELECT ${vehicleColumns},m.id AS "modelId",b.id AS "brandId",
+      to_char(m.date_from,'YYYY') AS "yearFrom",to_char(m.date_to,'YYYY') AS "yearTo" FROM effective x JOIN vehicle_types v ON v.id=x.id ${vehicleJoins}
     ORDER BY b.display_name,m.name,v.name,v.year_of_constr_from,v.id`, [sourceId])).rows;
   const target = (await database.query<{ id: number; kind: "automatic" | "add" | "remove" }>(`WITH ${automaticTypesSql}
     SELECT id,'automatic' AS kind FROM automatic
@@ -86,7 +88,8 @@ async function planFitmentCopy(database: Queryable, targetId: string, sourceId: 
   const add: CopyVehicle[] = [];
   // In the source's order: by make and model.
   const groups = new Map<number, FitmentCopyGroup>();
-  for (const vehicle of source) {
+  for (const { yearFrom, yearTo, ...row } of source) {
+    const vehicle: CopyVehicle = { ...row, years: modelYearRange(yearFrom, yearTo) };
     const decision = decided.get(vehicle.typeId);
     if (decision === "add") skipped.added++;
     else if (decision === "remove") skipped.removed++;
@@ -95,7 +98,7 @@ async function planFitmentCopy(database: Queryable, targetId: string, sourceId: 
       add.push(vehicle);
       const group = groups.get(vehicle.modelId);
       if (group) group.count++;
-      else groups.set(vehicle.modelId, { brandId: vehicle.brandId, brand: vehicle.brand, modelId: vehicle.modelId, model: vehicle.model, count: 1 });
+      else groups.set(vehicle.modelId, { brandId: vehicle.brandId, brand: vehicle.brand, modelId: vehicle.modelId, model: vehicle.model, years: vehicle.years, count: 1 });
     }
   }
   return { total: source.length, add, groups: [...groups.values()], skipped, remaining: Math.max(0, productFitmentLimit - decided.size) };

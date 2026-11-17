@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowLeft, ChevronDown, ChevronRight, CircleAlert, Copy, Info, Link2, ListChecks, ListX, RotateCcw, Search, TriangleAlert } from "lucide-react";
 import type { FitmentCopyGroup, FitmentCopyPreview, FitmentCopySource } from "@/modules/admin/product-fitment-copy";
-import { fitmentSourceLabel } from "@/modules/admin/product-fitment-fields";
+import { fitmentSourceLabel, modelLabel } from "@/modules/admin/product-label";
 import { formatNumber } from "@/modules/admin/format";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -158,7 +158,7 @@ export function ProductFitmentCopyDialog({ productId, open, pending, error, onOp
           : preview.data && <CopyPreview preview={preview.data} summaryId={ids.summary} selected={selected} disabled={pending}
             onChange={next => setPicked(next)}/>}
         {error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{error}</AlertDescription></Alert>}
-        <DialogFooter>
+        <DialogFooter className="sticky bottom-0 bg-background">
           <Button type="button" variant="outline" disabled={pending} onClick={() => showSource(null)}><ArrowLeft data-icon="inline-start" aria-hidden="true"/>Geri</Button>
           <Button type="button" aria-describedby={ids.summary}
             disabled={pending || !data || !selectedCount || over}
@@ -248,8 +248,8 @@ function CopyPreview({ preview, summaryId, selected, disabled, onChange }: {
             <TableCell className="tabular-nums">{formatNumber(brand.count)}</TableCell>
           </TableRow>, ...(open ? brand.models.map(group => <TableRow key={`m|${group.modelId}`}>
             <TableCell className="pl-6"><Checkbox checked={chosen.has(group.modelId)} disabled={disabled}
-              aria-label={`${group.brand} ${group.model} modelini seç (${formatNumber(group.count)} araç tipi)`} onCheckedChange={value => setModels([group.modelId], value)}/></TableCell>
-            <TableCell className="pl-6">{group.model}</TableCell>
+              aria-label={`${group.brand} ${modelLabel(group.model, group.years)} modelini seç (${formatNumber(group.count)} araç tipi)`} onCheckedChange={value => setModels([group.modelId], value)}/></TableCell>
+            <TableCell className="pl-6">{modelLabel(group.model, group.years)}</TableCell>
             <TableCell className="tabular-nums">{formatNumber(group.count)}</TableCell>
           </TableRow>) : [])];
         })}</TableBody></Table>

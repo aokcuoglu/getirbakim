@@ -6,6 +6,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { applyFitmentOverrides, emptyFitmentOverrides, modelFallbacks, sourceVehicleKey, type FitmentOverrides, type StoreVehicle } from "../src/modules/store/product-fitment-display";
+import { modelLabel, modelYearRange } from "../src/modules/admin/product-label";
 import { fitmentBatchSummary, fitmentHistoryValue, fitmentSourceLabel, isFitmentChange, productFitmentHideLimit, productFitmentLimit } from "../src/modules/admin/product-fitment-fields";
 import { fitmentLevel, type FitmentLevel } from "../src/modules/store/fitment-level";
 import type { GarageVehicle } from "../src/modules/store/garage";
@@ -621,6 +622,11 @@ test("a copy names the source's brand once (#869)", () => {
   assert.equal(fitmentSourceLabel("İPEK", "ipek 123"), "ipek 123");
   assert.equal(fitmentSourceLabel("SWAG", "SWAGX 1"), "SWAG SWAGX 1");
   assert.equal(fitmentSourceLabel("", "16016"), "16016");
+  assert.equal(modelYearRange("2006-03", "2013-12"), "2006–2013");
+  assert.equal(modelYearRange("2019-01-01", null), "2019–");
+  assert.equal(modelYearRange(null, "2013-12"), null);
+  assert.equal(modelLabel("YARIS", "2006–2013"), "YARIS (2006–2013)");
+  assert.equal(modelLabel("YARIS", null), "YARIS");
 });
 
 test("bulk history text (#816): a copy shows its summary, a bulk add its count and first types", () => {
@@ -642,12 +648,14 @@ test("copying fitments (#662): the source's shown types come, decided and automa
   assert.deepEqual(await remove(target, 340), { ok: true });
   assert.deepEqual(await add(target, [802015]), { ok: true, added: 1 });
 
+  await schema.pool.query("UPDATE vehicle_models SET date_from='2019-01-01',date_to=NULL WHERE id=20");
+  await schema.pool.query("UPDATE vehicle_models SET date_from='2006-01-01',date_to='2013-01-01' WHERE id=30");
   const preview = await copies.previewFitmentCopy(schema.pool, target, source);
   assert.ok(preview);
   assert.deepEqual({ ...preview, add: preview.add.map(vehicle => vehicle.typeId) }, {
     source: (await schema.pool.query("SELECT id::text,brand_label,code,name FROM products WHERE id=$1", [source])).rows[0],
     total: 5, add: [802016, 900], addCount: 2, skipped: { added: 1, removed: 1, automatic: 1 },
-    groups: [{ brandId: TOYOTA, brand: "TOYOTA", modelId: 20, model: "COROLLA CROSS", count: 1 }, { brandId: TOYOTA, brand: "TOYOTA", modelId: 30, model: "YARIS", count: 1 }],
+    groups: [{ brandId: TOYOTA, brand: "TOYOTA", modelId: 20, model: "COROLLA CROSS", years: "2019–", count: 1 }, { brandId: TOYOTA, brand: "TOYOTA", modelId: 30, model: "YARIS", years: "2006–2013", count: 1 }],
     remaining: productFitmentLimit - 2, exceeds: false, targetHasDecisions: true });
   assert.deepEqual(preview.add.map(vehicle => [vehicle.modelId, vehicle.brandId]), [[20, TOYOTA], [30, TOYOTA]]);
   const merged = (await schema.pool.query<{ id: string }>("SELECT id::text FROM products WHERE merged_into IS NOT NULL LIMIT 1")).rows[0].id;

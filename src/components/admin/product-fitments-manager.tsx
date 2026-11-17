@@ -4,6 +4,7 @@ import { useCallback, useId, useRef, useState } from "react";
 import { Car, ChevronDown, ChevronsDown, CircleAlert, CircleCheck, Copy, Eye, EyeOff, GitMerge, Info, ListChecks, ListX, Plus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { addProductFitments, copyProductFitments, deleteProductFitment, removeProductFitment, undoProductFitmentBatch } from "@/app/yonetim/urunler/fitment-actions";
 import { productFitmentAutomaticLimit, productFitmentBatch, productFitmentLimit } from "@/modules/admin/product-fitment-fields";
+import { modelLabel, modelYearRange } from "@/modules/admin/product-label";
 import type { FitmentVehicle, ProductFitments } from "@/modules/admin/product-fitment-store";
 import type { CatalogVehicle } from "@/modules/store/vehicle-catalog";
 import { formatNumber } from "@/modules/admin/format";
@@ -167,7 +168,7 @@ function AddFitmentsDialog({ open, pending, decided, automaticIds, remaining, er
   const vehicles = useVehicleCatalog(open && modelId ? `/api/vehicles?modelId=${encodeURIComponent(modelId)}` : null);
   const brandOptions = (brands.data?.brands ?? []).map(brand => ({ value: brand.id, label: brand.name }));
   const modelOptions = (models.data?.models ?? []).map(model => ({ value: model.id,
-    label: model.dateFrom ? `${model.name} (${model.dateFrom.slice(0, 4)}–${model.dateTo?.slice(0, 4) ?? ""})` : model.name }));
+    label: modelLabel(model.name, modelYearRange(model.dateFrom, model.dateTo)) }));
   // One batch at most, and no more than the product's remaining decisions.
   const capacity = Math.max(0, Math.min(productFitmentBatch, remaining));
   const full = selected.size >= capacity;
