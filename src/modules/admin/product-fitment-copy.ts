@@ -22,7 +22,7 @@ export const fitmentCopyPreviewRows = 50;
 export type FitmentCopyGroup = { brandId: number; brand: string; modelId: number; model: string; /** Production years ("2006–2013"), to tell same-name generations apart (#888). */ years: string | null; count: number };
 
 /** A source type with its model and make, so a copy can be limited to chosen models (#815). */
-export type CopyVehicle = FitmentVehicle & { modelId: number; brandId: number; years: string | null };
+export type CopyVehicle = FitmentVehicle & { modelId: number; brandId: number };
 
 /** What a copy from another product would write (#662). */
 export type FitmentCopyPreview = {
@@ -88,8 +88,7 @@ async function planFitmentCopy(database: Queryable, targetId: string, sourceId: 
   const add: CopyVehicle[] = [];
   // In the source's order: by make and model.
   const groups = new Map<number, FitmentCopyGroup>();
-  for (const { yearFrom, yearTo, ...row } of source) {
-    const vehicle: CopyVehicle = { ...row, years: modelYearRange(yearFrom, yearTo) };
+  for (const { yearFrom, yearTo, ...vehicle } of source) {
     const decision = decided.get(vehicle.typeId);
     if (decision === "add") skipped.added++;
     else if (decision === "remove") skipped.removed++;
@@ -98,7 +97,7 @@ async function planFitmentCopy(database: Queryable, targetId: string, sourceId: 
       add.push(vehicle);
       const group = groups.get(vehicle.modelId);
       if (group) group.count++;
-      else groups.set(vehicle.modelId, { brandId: vehicle.brandId, brand: vehicle.brand, modelId: vehicle.modelId, model: vehicle.model, years: vehicle.years, count: 1 });
+      else groups.set(vehicle.modelId, { brandId: vehicle.brandId, brand: vehicle.brand, modelId: vehicle.modelId, model: vehicle.model, years: modelYearRange(yearFrom, yearTo), count: 1 });
     }
   }
   return { total: source.length, add, groups: [...groups.values()], skipped, remaining: Math.max(0, productFitmentLimit - decided.size) };

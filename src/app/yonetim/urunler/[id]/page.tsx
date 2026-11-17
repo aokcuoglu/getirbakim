@@ -94,11 +94,15 @@ export default async function MasterProduct({ params, searchParams }: { params: 
     </dl></CardContent>
   </Card>;
 
+  // The code alone when it starts with the brand already (#888).
+  const brand = product.brand_label || product.brand || "";
+  const label = fitmentSourceLabel(brand, product.code);
+
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">{product.name ?? product.code}</h1>
-        <p className="text-muted-foreground">{fitmentSourceLabel(product.brand_label || product.brand, product.code) === product.code ? null : <>{product.brand_label || product.brand} · </>}<span className="font-mono">{product.code}</span></p>
+        <p className="text-muted-foreground">{label === product.code ? null : <>{brand} · </>}<span className="font-mono">{product.code}</span></p>
         {(edit || hasReferences || hasSpecs || hasFitments) && <div className="flex flex-wrap gap-2">
           {edit?.hidden && <StatusBadge tone="warning" icon={EyeOff}>Mağazada gizli</StatusBadge>}
           <Badge variant="info"><Pencil data-icon="inline-start" aria-hidden="true"/>Elle düzenlendi</Badge>
