@@ -7,12 +7,13 @@ const optionalText = (max: number) => z.string().trim().max(max).optional().defa
 /**
  * Checkout form fields; `consent` is the pre-contract checkbox and must be ticked. The delivery address is taken as
  * province, district, street address and optional postal code (#881) and also combined into `address`; the invoice is
- * individual or corporate, the corporate one with title, tax number (VKN) and tax office.
+ * individual or corporate, the corporate one with title, tax number (VKN) and tax office. `installments` is the chosen
+ * payment option (#886).
  */
 export const checkoutInput=z.object({requestKey:z.uuid(),quote:z.string().regex(/^[a-f0-9]{64}$/),name:z.string().trim().min(2).max(150),email:z.email().max(200),phone:z.string().trim().regex(/^\+?[\d\s()-]{10,20}$/),
  province:z.string().trim(),district:z.string().trim(),addressLine:z.string().trim().min(10).max(500),postalCode:z.string().trim().regex(/^(\d{5})?$/).optional().default(""),
  note:z.string().trim().max(1000),invoiceType:z.enum(["individual","corporate"]),invoiceCompany:optionalText(200),invoiceTaxNo:optionalText(10),invoiceTaxOffice:optionalText(100),
- consent:z.literal('on')}).superRefine((input,ctx)=>{
+ consent:z.literal('on'),installments:z.coerce.number().int().min(1).max(12).default(1)}).superRefine((input,ctx)=>{
  const province=findProvince(input.province);
  if(!province) ctx.addIssue({code:"custom",path:["province"],message:"İl seç."});
  else if(!districtsOf(province.name).includes(input.district)) ctx.addIssue({code:"custom",path:["district"],message:"İlçe seç."});

@@ -6,6 +6,7 @@ import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { PricingWorkspace } from "@/components/admin/pricing-workspace";
+import { InstallmentSettingsCard } from "@/components/admin/installment-settings-card";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { formatDecimal } from "@/modules/admin/format";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -26,7 +27,7 @@ const currencyNames: Record<string, string> = {
 export default async function Pricing({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
-  const [{ settings, latest, rates }, checkoutMode] = await Promise.all([adminPricing(), supplierCheckoutMode()]);
+  const [{ settings, latest, rates, installments }, checkoutMode] = await Promise.all([adminPricing(), supplierCheckoutMode()]);
   const currencies = [{ dovizCinsi: "TRY", satis: "1" }, ...rates.filter(r => r.dovizCinsi !== "TRY")];
   const updated = latest ? new Date(latest.completed_at) : null;
 
@@ -42,7 +43,8 @@ export default async function Pricing({ searchParams }: { searchParams: Promise<
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertTitle>Ayarlar kaydedildi</AlertTitle><AlertDescription>Katalog ve sepetler yeni oranları kullanıyor.</AlertDescription></Alert>}
     {params.modeSaved === "1" && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertTitle>Sipariş veri kaynağı kaydedildi</AlertTitle><AlertDescription>Sepet ve siparişler yeni ayarı kullanıyor.</AlertDescription></Alert>}
     {params.error === "mode" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>Sipariş veri kaynağı kaydedilemedi</AlertTitle><AlertDescription>Listeden bir seçenek seçip yeniden deneyin.</AlertDescription></Alert>}
-    {params.error && params.error !== "mode" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>Ayarlar kaydedilemedi</AlertTitle><AlertDescription>Kâr, KDV, veri geçerliliği ve kargo alanlarının izin verilen aralıklarda olduğunu kontrol edin.</AlertDescription></Alert>}
+    {params.error === "installments" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>Taksit ayarları kaydedilemedi</AlertTitle><AlertDescription>Oranlar 0 – 50 arasında olmalı ve hiçbir taksit oranı tek çekim oranından düşük olmamalı; en düşük sepet 0 – 10.000.000 TL arasında olmalı.</AlertDescription></Alert>}
+    {params.error && params.error !== "mode" && params.error !== "installments" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>Ayarlar kaydedilemedi</AlertTitle><AlertDescription>Kâr, KDV, veri geçerliliği ve kargo alanlarının izin verilen aralıklarda olduğunu kontrol edin.</AlertDescription></Alert>}
 
     <PricingWorkspace key={JSON.stringify(settings)} settings={settings} currencies={currencies}>
       <div className="flex flex-col gap-4">
@@ -61,6 +63,8 @@ export default async function Pricing({ searchParams }: { searchParams: Promise<
           <Button className="self-start" variant="link" nativeButton={false} render={<Link href="/yonetim/tedarikciler/basbug"/>}>Senkronizasyon durumu<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
       </div>
     </PricingWorkspace>
+
+    <InstallmentSettingsCard key={JSON.stringify(installments)} settings={installments}/>
 
     {/* Shared by every supplier (Başbuğ, Dinamik, SETA): the supplier pages' "Sipariş veri kaynağı" card links here. */}
     <Card id="siparis-veri-kaynagi" role="region" aria-labelledby="checkout-mode-title">

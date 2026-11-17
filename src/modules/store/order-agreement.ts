@@ -7,7 +7,7 @@ import { money } from "./money";
  * buyer, lines, prices and totals filled in, built once when the order is placed and stored as an immutable copy.
  * Bump AGREEMENT_TEMPLATE_VERSION whenever the code-generated sections below change wording or structure.
  */
-export const AGREEMENT_TEMPLATE_VERSION = 2;
+export const AGREEMENT_TEMPLATE_VERSION = 3;
 export const agreementSlugs = ["on-bilgilendirme-formu", "mesafeli-satis-sozlesmesi"] as const;
 type AgreementSlug = (typeof agreementSlugs)[number];
 type LegalSection = LegalDocument["sections"][number];
@@ -21,6 +21,8 @@ export type AgreementOrder = {
   /** Corporate invoice details (#881); absent or null for an individual invoice. */
   invoice?: { company: string; taxNo: string; taxOffice: string } | null;
   discountPercent: number; subtotalKurus: number; shippingKurus: number; totalKurus: number;
+  /** Set only for an installment order (#886); totalKurus then includes installmentFeeKurus. */
+  installmentCount?: number; installmentFeeKurus?: number;
 };
 export type AgreementLine = { name: string; brand: string; code: string; quantity: number; unitPriceKurus: number };
 
@@ -53,7 +55,7 @@ const istanbulTime = (value: Date) => value.toLocaleString("tr-TR", { timeZone: 
 function buyerSection(order: AgreementOrder): LegalSection {
   return { title: "Alıcı Bilgileri", blocks: [
     field("Ad soyad", order.name), field("E-posta", order.email), field("Telefon", order.phone), field("Teslimat adresi", order.address),
-    ...(order.invoice ? [field("Fatura unvanı", order.invoice.company), field("Vergi kimlik no", order.invoice.taxNo), field("Vergi dairesi", order.invoice.taxOffice)] : []),
+    ...(order.invoice ? [field("Fatura unvanı", order.invoice.company), field("Vergi/TC kimlik no", order.invoice.taxNo), field("Vergi dairesi", order.invoice.taxOffice)] : []),
   ] };
 }
 
@@ -61,6 +63,7 @@ function orderSection(order: AgreementOrder, lines: AgreementLine[]): LegalSecti
   const items: LegalNode = { tag: "ul", attrs: {}, children: lines.map(line => ({ tag: "li", attrs: {}, children: [
     `${line.quantity} × ${line.name} (${[line.brand, line.code].filter(Boolean).join(" ")}) — birim fiyat ${money(line.unitPriceKurus)} — tutar ${money(line.unitPriceKurus * line.quantity)}`,
   ] })) };
+  const installments = order.installmentCount ?? 1;
   return { title: "Sipariş Bilgileri", blocks: [
     field("Sipariş numarası", `#${order.number}`),
     field("Sipariş tarihi", istanbulTime(order.createdAt)),
@@ -69,8 +72,9 @@ function orderSection(order: AgreementOrder, lines: AgreementLine[]): LegalSecti
     field("Ürün toplamı", money(order.subtotalKurus)),
     ...(order.discountPercent > 0 ? [field("Servis indirimi", `%${order.discountPercent} (birim fiyatlara uygulanmıştır)`)] : []),
     field("Kargo", order.shippingKurus > 0 ? money(order.shippingKurus) : "Ücretsiz"),
+    ...(installments > 1 ? [field(`Vade farkı (${installments} taksit)`, money(order.installmentFeeKurus ?? 0))] : []),
     field("Ödenecek toplam (tüm vergiler dahil)", money(order.totalKurus)),
-    field("Ödeme", "Kart ile, TAMI ortak ödeme sayfasında peşin ödeme"),
+    field("Ödeme", installments > 1 ? `Kart ile, TAMI ortak ödeme sayfasında ${installments} taksitle ödeme` : "Kart ile, TAMI ortak ödeme sayfasında peşin ödeme"),
     field("Teslimat adresi", order.address),
     ...(order.note ? [field("Sipariş notu", order.note)] : []),
   ] };

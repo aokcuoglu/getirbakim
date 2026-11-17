@@ -66,7 +66,10 @@ export const returnPolicy = { days: 14, country: "TR" } as const;
 
 /** The stock labels of db/commerce.sql the markup depends on (a test ties both to the SQL). */
 export const outOfStockLabel = "Stokta yok";
-export const unconfirmedStockLabel = "Kayıtlı stokta mevcut · Teyit bekliyor";
+export const unconfirmedStockLabel = "Stokta · Siparişten sonra teyit edilir";
+/** The label before #878: a page cached or a view not yet re-created still carries it. */
+export const legacyUnconfirmedStockLabel = "Kayıtlı stokta mevcut · Teyit bekliyor";
+const unconfirmedStockLabels = new Set([unconfirmedStockLabel, legacyUnconfirmedStockLabel]);
 
 function istanbulDay(date: Date) {
   // The last moment of the offer: a campaign ending at midnight ends on the day before.
@@ -77,7 +80,7 @@ function istanbulDay(date: Date) {
 export function productOffer(input: ProductJsonLdInput, base: string, now = new Date()): JsonLdNode | null {
   if (input.unavailable || input.priceKurus === null || !(input.priceKurus >= 1)) return null;
   // A recorded but unconfirmed stock is not published as InStock; an unknown stock is not OutOfStock.
-  if (input.available ? input.stockLabel === unconfirmedStockLabel : input.stockLabel !== outOfStockLabel) return null;
+  if (input.available ? unconfirmedStockLabels.has(input.stockLabel) : input.stockLabel !== outOfStockLabel) return null;
   const until = saleUntil({ pricing_snapshot: input.pricingSnapshot });
   return {
     "@type": "Offer", url: absoluteUrl(base, input.path),

@@ -34,8 +34,8 @@
   .buy-form-product { @apply mb-5 items-center gap-2.5; }
   /* Catalog card placement; here and not in catalog-card.css, since the product page does not load that file. */
   .product-card-form { @apply group-data-[view=grid]/listing:order-3 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:hidden; }
-  .buy-quantity { @apply h-12 w-[66px] flex-[0_0_66px] cursor-pointer rounded-md border border-input bg-white px-3 py-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed max-[600px]:group-data-[view=grid]/listing:w-12 max-[600px]:group-data-[view=grid]/listing:flex-[0_0_48px] max-[600px]:group-data-[view=grid]/listing:px-2; }
-  .buy-quantity-product { @apply w-16 flex-[0_0_64px] rounded-[5px] py-2.5; }
+  .buy-quantity { @apply h-12 w-[66px] flex-[0_0_66px] cursor-pointer rounded-md border border-input bg-white px-2.5 py-2 max-[767.98px]:w-[72px] max-[767.98px]:flex-[0_0_72px] text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed; }
+  .buy-quantity-product { @apply w-16 flex-[0_0_64px] rounded-[5px] py-2.5 max-[767.98px]:w-[72px] max-[767.98px]:flex-[0_0_72px]; }
   /* ui/button with the store override, minus the svg, icon, invalid and dark states a text-only submit never has. */
   .buy-button { @apply inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-brand bg-brand bg-clip-padding px-2 py-[13px] text-sm font-medium whitespace-nowrap text-white transition-all outline-none select-none hover:bg-brand-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100 max-[600px]:group-data-[view=grid]/listing:px-1 max-[600px]:group-data-[view=grid]/listing:text-xs; }
   /* The disabled background is repeated so it still wins over this hover, as it did in the utility order. */
@@ -43,41 +43,44 @@
 
   /* SiteHeader: top band, main row and category nav. Route variants: see RouteFrame; the `in-data-*-scrolled:`
      rules pin the main row while home and the catalog set body[data-home-scrolled] / body[data-catalog-scrolled]. */
-  .site-topbar { @apply h-[42px] border-b border-border bg-white max-[600px]:hidden group-data-[route=checkout]/route:hidden group-data-[route=home]/route:max-[600px]:block; }
+  .site-topbar { @apply h-[42px] border-b border-border bg-white max-[600px]:hidden group-data-[route=checkout]/route:hidden; }
   .site-topbar-inner { @apply mx-auto flex h-full w-full max-w-[1350px] items-center justify-between gap-6 px-[15px]; }
-  .site-topbar-links { @apply flex h-full items-center gap-6 group-data-[route=home]/route:max-[600px]:hidden [&>a]:inline-flex [&>a]:items-center [&>a]:gap-1.5 [&>a:hover]:text-brand max-[850px]:[&>a:first-child]:hidden max-[640px]:[&>a:last-child]:hidden; }
+  .site-topbar-links { @apply flex h-full items-center gap-6 [&>a]:inline-flex [&>a]:items-center [&>a]:gap-1.5 [&>a:hover]:text-brand max-[850px]:[&>a:first-child]:hidden max-[640px]:[&>a:last-child]:hidden; }
   .site-header { @apply relative border-b border-border bg-white min-[600px]:in-data-home-scrolled:h-[131px] min-[600px]:in-data-catalog-scrolled:h-[131px]; }
   .site-header-row {
-    @apply mx-auto flex h-[88px] w-full max-w-[1350px] items-center gap-7 px-[15px] py-6 max-[1100px]:gap-5 max-[850px]:gap-4;
-    @apply max-[600px]:h-auto max-[600px]:min-h-[114px] max-[600px]:flex-wrap max-[600px]:gap-3 max-[600px]:py-[15px];
-    @apply group-data-[route=home]/route:max-[600px]:h-14 group-data-[route=home]/route:max-[600px]:min-h-14 group-data-[route=home]/route:max-[600px]:flex-nowrap group-data-[route=home]/route:max-[600px]:justify-center group-data-[route=home]/route:max-[600px]:gap-0 group-data-[route=home]/route:max-[600px]:py-[14px];
+    @apply mx-auto flex h-[88px] w-full max-w-[1350px] items-center gap-7 px-[15px] py-6 max-[1100px]:gap-5 max-[850.98px]:gap-4;
+    @apply max-[600px]:h-auto max-[600px]:min-h-0 max-[600px]:flex-wrap max-[600px]:gap-x-3 max-[600px]:gap-y-2 max-[600px]:py-2.5;
     @apply group-data-[route=checkout]/route:h-[65px] group-data-[route=checkout]/route:min-h-[65px] group-data-[route=checkout]/route:py-4;
     @apply min-[600px]:in-data-home-scrolled:fixed min-[600px]:in-data-home-scrolled:inset-x-0 min-[600px]:in-data-home-scrolled:top-0 min-[600px]:in-data-home-scrolled:z-41 min-[600px]:in-data-home-scrolled:max-w-none! min-[600px]:in-data-home-scrolled:border-b min-[600px]:in-data-home-scrolled:border-border min-[600px]:in-data-home-scrolled:bg-white min-[600px]:in-data-home-scrolled:px-[max(15px,calc((100vw-1320px)/2))]!;
     @apply min-[600px]:in-data-catalog-scrolled:fixed min-[600px]:in-data-catalog-scrolled:inset-x-0 min-[600px]:in-data-catalog-scrolled:top-0 min-[600px]:in-data-catalog-scrolled:z-41 min-[600px]:in-data-catalog-scrolled:max-w-none! min-[600px]:in-data-catalog-scrolled:border-b min-[600px]:in-data-catalog-scrolled:border-border min-[600px]:in-data-catalog-scrolled:bg-white min-[600px]:in-data-catalog-scrolled:px-[max(15px,calc((100vw-1320px)/2))]!;
   }
   .site-header-nav {
     @apply relative mx-auto flex h-[42px] min-h-[42px] w-full max-w-[1350px] items-center gap-7 px-[15px] pt-0 pb-[14px] text-sm font-medium whitespace-nowrap max-[1358px]:gap-6 max-[1280px]:gap-5 max-[1180px]:gap-4 max-[1180px]:text-[13px] scroll-px-[15px];
-    @apply max-[1100px]:gap-[18px] max-[1100px]:text-[13px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-[600px]:py-0 has-data-mega-open:z-50 group-data-[route=checkout]/route:hidden;
-    @apply group-data-[route=home]/route:max-[600px]:static group-data-[route=home]/route:max-[600px]:h-0 group-data-[route=home]/route:max-[600px]:min-h-0 group-data-[route=home]/route:max-[600px]:overflow-visible group-data-[route=home]/route:max-[600px]:p-0;
+    @apply max-[1100px]:gap-[18px] max-[1100px]:text-[13px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-[600px]:h-11 max-[600px]:min-h-11 max-[600px]:py-0 has-data-mega-open:z-50 group-data-[route=checkout]/route:hidden;
     @apply min-[600px]:in-data-home-scrolled:invisible min-[600px]:in-data-catalog-scrolled:invisible;
   }
   /* HeaderTools: account, garage and cart. */
   .header-tools {
-    @apply flex shrink-0 basis-[422px] items-center justify-between gap-0 max-[1100px]:basis-[310px] max-[1100px]:gap-[15px] max-[850px]:basis-32 max-[600px]:ml-auto max-[600px]:basis-auto group-data-[route=checkout]/route:hidden;
-    @apply group-data-[route=home]/route:max-[600px]:absolute group-data-[route=home]/route:max-[600px]:top-4 group-data-[route=home]/route:max-[600px]:right-[15px] group-data-[route=home]/route:max-[600px]:m-0 group-data-[route=home]/route:max-[600px]:w-[68px] group-data-[route=home]/route:max-[600px]:justify-start group-data-[route=home]/route:max-[600px]:gap-5;
+    @apply flex shrink-0 basis-[422px] items-center justify-between gap-0 max-[1100px]:basis-[310px] max-[1100px]:gap-[15px] max-[850.98px]:basis-auto max-[600px]:ml-auto max-[600px]:basis-auto max-[600px]:gap-1 group-data-[route=checkout]/route:hidden;
   }
-  .header-cart { @apply relative flex h-10 w-8 items-center justify-center group-data-[route=home]/route:max-[600px]:size-6 group-data-[route=home]/route:max-[600px]:[&>img]:size-6!; }
+  .header-cart { @apply relative flex h-10 w-8 items-center justify-center max-[1100px]:size-11; }
   /* The account trigger's full width; before .header-tool so its phone width (w-11) still wins, as in the merged list. */
   .header-tool-wide { @apply w-full min-w-0; }
-  /* Account and garage buttons: icon + two-line label; icon only from 1100px down; 24px icons on the home page's phone header. */
+  /* Account and garage buttons: icon + two-line label; icon only from 1100px down. */
   .header-tool {
     @apply flex min-h-11 items-center gap-2.5 rounded-md border-0 bg-transparent p-0 text-left text-sm leading-5 font-normal text-foreground hover:bg-transparent hover:text-foreground disabled:bg-transparent disabled:text-foreground;
     @apply max-[1100px]:[&>span]:hidden max-[600px]:w-11 max-[600px]:justify-center;
     @apply [&>span>strong]:flex [&>span>strong]:max-w-[115px] [&>span>strong]:items-center [&>span>strong]:gap-[5px] [&>span>strong]:overflow-hidden [&>span>strong]:text-ellipsis [&>span>strong]:text-sm [&>span>strong]:leading-5 [&>span>strong]:font-medium;
     @apply [&>span>small]:block [&>span>small]:max-w-[115px] [&>span>small]:overflow-hidden [&>span>small]:text-[13px] [&>span>small]:leading-[18px] [&>span>small]:text-ellipsis [&>span>small]:whitespace-nowrap [&>span>small]:text-muted-foreground;
-    @apply group-data-[route=home]/route:max-[600px]:size-6 group-data-[route=home]/route:max-[600px]:min-h-6 group-data-[route=home]/route:max-[600px]:min-w-6 group-data-[route=home]/route:max-[600px]:gap-0 group-data-[route=home]/route:max-[600px]:[&>img]:size-6!;
   }
   /* Checkout footer links. */
   .checkout-footer-link { @apply block py-[5px] text-[13px] leading-[22px] text-muted-foreground [overflow-wrap:anywhere] hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:py-2.5; }
   .checkout-footer-category { @apply text-muted-foreground hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:py-2; }
+}
+
+/* iOS Safari zooms the page when a focused field is under 16px (#879). Unlayered so it beats size utilities; scoped like the storefront typography defaults, so /yonetim (.admin-app, portals included) keeps its sizes. */
+@media (max-width: 767.98px) {
+  html:not(:has(.admin-app)) :is(input:not([type=checkbox], [type=radio], [type=range], [type=hidden], [type=file], [type=button], [type=submit], [type=reset], [type=color]), select, textarea) {
+    font-size: 16px;
+  }
 }

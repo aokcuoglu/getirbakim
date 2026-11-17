@@ -106,7 +106,7 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
                     : <p className="m-0 truncate text-sm leading-5 font-medium" title={selected.name}>{selected.code} · {selected.name}</p>}
                   <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] leading-5 text-muted-foreground"><strong className="font-semibold text-foreground">{money(selected.priceKurus)}</strong><span>{selected.stockLabel}</span>
                     {key === "engineOil" && <label className="inline-flex items-center gap-1.5">Adet <select value={choice!.quantity} onChange={event => choose(key, { quantity: Number(event.target.value) })} aria-label="Motor yağı adedi"
-                      className="h-8 rounded-md border border-input bg-white px-2 text-sm text-foreground">{Array.from({ length: Math.max(1, Math.min(selected.maxQuantity, 10)) }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select>
+                      className="h-8 min-w-[72px] rounded-md border border-input bg-white px-2 text-sm text-foreground">{Array.from({ length: Math.max(1, Math.min(selected.maxQuantity, 10)) }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}</option>)}</select>
                       {selected.packLitres ? <span>× {selected.packLitres.toLocaleString("tr-TR")} L</span> : null}</label>}</p>
                 </div>
               </div>}
