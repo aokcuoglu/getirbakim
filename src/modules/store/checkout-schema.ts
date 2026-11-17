@@ -7,7 +7,7 @@ const optionalText = (max: number) => z.string().trim().max(max).optional().defa
 /**
  * Checkout form fields; `consent` is the pre-contract checkbox and must be ticked. The delivery address is taken as
  * province, district, street address and optional postal code (#881) and also combined into `address`; the invoice is
- * individual or corporate, the corporate one with title, tax id (10-digit VKN, or a sole proprietor's 11-digit TC kimlik no) and tax office. `installments` is the chosen
+ * individual or corporate, the corporate one with title, tax id (10-digit VKN, or a sole proprietor's 11-digit TC kimlik no, either passing its check digits) and tax office. `installments` is the chosen
  * payment option (#886).
  */
 export const checkoutInput=z.object({requestKey:z.uuid(),quote:z.string().regex(/^[a-f0-9]{64}$/),name:z.string().trim().min(2).max(150),email:z.email().max(200),phone:z.string().trim().regex(/^\+?[\d\s()-]{10,20}$/),
@@ -21,7 +21,7 @@ export const checkoutInput=z.object({requestKey:z.uuid(),quote:z.string().regex(
  if(province && input.postalCode && !postalCodeFits(input.postalCode,province)) ctx.addIssue({code:"custom",path:["postalCode"],message:"Posta kodu ille uyuşmuyor."});
  if(input.invoiceType==="corporate") {
   if(input.invoiceCompany.length<2) ctx.addIssue({code:"custom",path:["invoiceCompany"],message:"Fatura unvanını yaz."});
-  if(!validTaxId(input.invoiceTaxNo)) ctx.addIssue({code:"custom",path:["invoiceTaxNo"],message:"10 haneli VKN ya da geçerli 11 haneli TC kimlik no gir."});
+  if(!validTaxId(input.invoiceTaxNo)) ctx.addIssue({code:"custom",path:["invoiceTaxNo"],message:"Geçerli 10 haneli VKN ya da geçerli 11 haneli TC kimlik no gir."});
   if(input.invoiceTaxOffice.length<2) ctx.addIssue({code:"custom",path:["invoiceTaxOffice"],message:"Vergi dairesini yaz."});
  }
 }).transform(({invoiceCompany,invoiceTaxNo,invoiceTaxOffice,postalCode,...input})=>{
