@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Pool } from "pg";
-import { activeBulk, bulkFileCells, fileFilled, ManualImportError, manualPricing, updateManualItem, withOverrides, type downloadImage, type ManualOverrides, type ManualValues } from "../src/modules/suppliers/manual-import";
+import { activeBulk, bulkFileCells, fileFilled, ManualImportError, manualPricing, panelOverrides, updateManualItem, withOverrides, type downloadImage, type ManualItemEdit, type ManualOverrides, type ManualValues } from "../src/modules/suppliers/manual-import";
 
 // updateManualItem against a recorded fake pool: no database, the statements and their order are what is checked.
 const itemId = "da883a2e-1351-430e-a296-0a46c114a546";
@@ -33,7 +33,7 @@ function fakePool(options: { file?: ManualValues; storedImage?: string; failOn?:
 }
 
 const noDownload: typeof downloadImage = async link => assert.fail(`unexpected download: ${link}`);
-const unchanged = { price: null, stock: null, barcode: null, description: null, viscosity: null, package: null, approvals: null, imageUrl: null };
+const unchanged: ManualItemEdit = { barcode: null, description: null, viscosity: null, package: null, approvals: null, imageUrl: null };
 
 test("an unchanged save takes the row without waiting on the matcher's key locks and bounds every lock wait", async () => {
   const { pool, statements, released } = fakePool();
@@ -77,10 +77,10 @@ test("a CSV value holds while the upload carries the same cell and gives way onc
   assert.deepEqual(withOverrides(empty, { price: 700 }).price, 700);
 });
 
-test("saving the item page keeps the CSV values in force and does not replace them with the form's", async () => {
+test("saving the item page without touching price and stock keeps the CSV values in force", async () => {
   const bulk = { price: { list: 1000, discount: 10, file: 812.5 }, stock: { value: 9, file: 3 } };
   const { pool, statements, params } = fakePool({ overrides: { description: "Eski", bulk } });
-  await updateManualItem(pool, itemId, { ...unchanged, price: 1, stock: 1, description: "Yeni" }, null, noDownload);
+  await updateManualItem(pool, itemId, { ...unchanged, description: "Yeni" }, null, noDownload);
   const insert = statements.findIndex(sql => sql.startsWith("INSERT INTO manual_item_overrides"));
   assert.deepEqual(JSON.parse(params[insert][2] as string), { description: "Yeni", bulk });
   const update = statements.findIndex(sql => sql.startsWith("WITH old AS"));
@@ -117,9 +117,73 @@ test("a list price filled at 100% discount is a filled price: a panel price does
 
 test("saving the item page keeps the upload's list price and discount in price_data", async () => {
   const { pool, statements, params } = fakePool({ file: listed });
-  await updateManualItem(pool, itemId, { ...unchanged, price: 1, description: "Yeni" }, null, noDownload);
+  await updateManualItem(pool, itemId, { ...unchanged, description: "Yeni" }, null, noDownload);
   const insert = statements.findIndex(sql => sql.startsWith("INSERT INTO manual_item_overrides"));
   assert.deepEqual(JSON.parse(params[insert][2] as string), { description: "Yeni" });
   const update = statements.findIndex(sql => sql.startsWith("WITH old AS"));
   assert.deepEqual(JSON.parse(params[update][2] as string), { nf: 875, list: 1000, discount: 12.5 });
+});
+
+// List price, discount and stock saved on the item page (#842): written like a CSV edit, last edit wins.
+async function save(edit: ManualItemEdit, options: Parameters<typeof fakePool>[0] = {}) {
+  const { pool, statements, params } = fakePool(options);
+  const result = await updateManualItem(pool, itemId, { ...unchanged, ...edit }, null, noDownload);
+  const insert = statements.findIndex(sql => sql.startsWith("INSERT INTO manual_item_overrides"));
+  const update = statements.findIndex(sql => sql.startsWith("WITH old AS"));
+  return { result, fields: JSON.parse(params[insert][2] as string) as ManualOverrides, price: JSON.parse(params[update][2] as string),
+    stock: JSON.parse(params[update][3] as string), history: /INSERT INTO supplier_item_changes/.test(statements[update]) };
+}
+
+test("a list price and discount saved on the item page override a filled cell and set the cost", async () => {
+  const saved = await save({ pricing: { list: 1000, discount: 12.5 } });
+  assert.deepEqual(saved.fields, { bulk: { price: { list: 1000, discount: 12.5, file: 812.5, by: "panel" } } });
+  assert.deepEqual(saved.price, { nf: 875, list: 1000, discount: 12.5 });
+  assert.deepEqual(saved.stock, { stok: 3 });
+  assert.ok(saved.history);
+  // Recorded against the upload's list price cells too.
+  const listedSave = await save({ pricing: { list: 1100, discount: 0 } }, { file: listed });
+  assert.deepEqual(listedSave.fields.bulk?.price, { list: 1100, discount: 0, file: 875, fileList: 1000, fileDiscount: 12.5, by: "panel" });
+  assert.deepEqual(listedSave.price, { nf: 1100, list: 1100, discount: 0 });
+});
+
+test("editing price keeps a CSV stock in force, and editing stock keeps a CSV price", async () => {
+  const bulk = { price: { list: 1000, discount: 10, file: 812.5 }, stock: { value: 9, file: 3 } };
+  const price = await save({ pricing: { list: 2000, discount: 50 } }, { overrides: { bulk } });
+  assert.deepEqual(price.fields.bulk, { price: { list: 2000, discount: 50, file: 812.5, by: "panel" }, stock: bulk.stock });
+  assert.deepEqual([price.price, price.stock], [{ nf: 1000, list: 2000, discount: 50 }, { stok: 9 }]);
+  const stock = await save({ stock: 0 }, { overrides: { bulk } });
+  assert.deepEqual(stock.fields.bulk, { price: bulk.price, stock: { value: 0, file: 3, by: "panel" } });
+  assert.deepEqual([stock.price, stock.stock], [{ nf: 900, list: 1000, discount: 10 }, { stok: 0 }]);
+});
+
+test("emptying price or stock on the item page returns to the upload's values", async () => {
+  const overrides: ManualOverrides = { bulk: { price: { list: 1000, discount: 10, file: 812.5, by: "panel" }, stock: { value: 9, file: 3, by: "panel" } } };
+  const cleared = await save({ pricing: null, stock: null }, { overrides });
+  assert.deepEqual(cleared.fields, {});
+  assert.deepEqual([cleared.price, cleared.stock], [{ nf: 812.5 }, { stok: 3 }]);
+  // An older panel price filling an empty cell is dropped too: the product is unpriced again.
+  const empty = { ...file, price: null, stock: null };
+  const legacy = await save({ pricing: null, stock: null }, { file: empty, overrides: { price: 700, stock: 2 } });
+  assert.deepEqual(legacy.fields, {});
+  assert.deepEqual([legacy.price, legacy.stock], [null, null]);
+});
+
+test("a value equal to the one in force is not an edit, and an older panel value moves to bulk once edited", () => {
+  assert.deepEqual(panelOverrides(file, {}, { pricing: { list: 812.5, discount: 0 }, stock: 3 }), {});
+  assert.deepEqual(panelOverrides(listed, {}, { pricing: { list: 1000, discount: 12.5 } }), {});
+  const empty = { ...file, price: null, stock: null };
+  assert.deepEqual(panelOverrides(empty, { price: 700, stock: 2 }, {}), { price: 700, stock: 2 });
+  assert.deepEqual(panelOverrides(empty, { price: 700, stock: 2 }, { pricing: { list: 700, discount: 0 }, stock: 2 }), { price: 700, stock: 2 });
+  assert.deepEqual(panelOverrides(empty, { price: 700, stock: 2 }, { pricing: { list: 800, discount: 5 } }),
+    { stock: 2, bulk: { price: { list: 800, discount: 5, file: null, by: "panel" } } });
+  // Other fields still fill only what the upload leaves empty.
+  assert.deepEqual(panelOverrides(file, {}, { viscosity: "0W-20", package: "1 L", barcode: "123" }), { barcode: "123" });
+});
+
+test("a panel price gives way once the upload's cell changes, like a CSV value", () => {
+  const overrides = panelOverrides(file, {}, { pricing: { list: 1000, discount: 20 }, stock: 7 });
+  assert.deepEqual([withOverrides(file, overrides).price, withOverrides(file, overrides).stock], [800, 7]);
+  const changed = { ...file, price: 900 };
+  assert.deepEqual(activeBulk(changed, overrides), { stock: { value: 7, file: 3, by: "panel" } });
+  assert.equal(withOverrides(changed, overrides).price, 900);
 });

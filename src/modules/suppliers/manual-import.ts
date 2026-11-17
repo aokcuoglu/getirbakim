@@ -8,7 +8,7 @@ import { legacyCategoryIds } from "../store/category-tree";
 import { manualCompany } from "./storefront-sources";
 import { applySupplierSnapshot, type ObservationItem } from "./sync";
 import type { ManualCategory, ManualIssue, ManualParseResult, ManualRow } from "./manual-template";
-import { manualCost } from "./manual-bulk-csv";
+import { manualCost } from "./manual-cost";
 
 // Manual xlsx lists (template: manual-template.ts). Each list is one supplier scope, imported like an API snapshot:
 // codes missing from a new upload go pending_missing, then inactive. What the storefront shows beyond name, price and
@@ -34,12 +34,21 @@ export type ManualValues = Omit<ManualRow, "sheet" | "row">;
  * The bulk price/stock CSV's values (#832, manual-bulk.ts). `file` is the upload's cell when the CSV was applied: the
  * last edit wins, so the CSV value holds while later uploads carry the same cell and gives way once the cell changes.
  * The price compares the upload's list price and discount cells too (#843; absent in older records = empty cells).
+ * A list price, discount or stock saved on the item page is the same record (#842), marked `by: "panel"` for its badge;
+ * a later CSV rebuilds the record without the mark.
  */
 export type ManualBulk = {
-  price?: { list: number; discount: number; file: number | null; fileList?: number | null; fileDiscount?: number | null };
-  stock?: { value: number; file: number | null };
+  price?: { list: number; discount: number; file: number | null; fileList?: number | null; fileDiscount?: number | null; by?: "panel" };
+  stock?: { value: number; file: number | null; by?: "panel" };
 };
 export type ManualOverrides = Partial<Pick<ManualValues, ManualEditableField>> & { bulk?: ManualBulk };
+/**
+ * What the item page saves. `pricing` and `stock`: undefined = not edited (the value in force stays), null = emptied
+ * (back to the upload's value), else the new value, which overrides a filled cell too (last edit wins, see ManualBulk).
+ */
+export type ManualItemEdit = Partial<Pick<ManualValues, Exclude<ManualEditableField, "price" | "stock">>> & {
+  pricing?: { list: number; discount: number } | null; stock?: number | null;
+};
 
 const empty = (value: unknown) => value === null || value === undefined || value === "";
 const sameCell = (a: number | null | undefined, b: number | null | undefined) => (a ?? null) === (b ?? null);
@@ -81,6 +90,32 @@ export function withOverrides(row: ManualValues, overrides: ManualOverrides | un
   if (bulk.price) merged.price = manualCost(bulk.price.list, bulk.price.discount);
   if (bulk.stock) merged.stock = bulk.stock.value;
   return merged as ManualValues;
+}
+
+/**
+ * The overrides an item page save leaves: other fields fill only what the upload leaves empty (an emptied field drops
+ * its override); list price, discount and stock are written like a CSV edit (#842). A legacy `price`/`stock` override
+ * (a panel value filling an empty cell before #842) stays until its group is edited, then moves to `bulk`.
+ */
+export function panelOverrides(file: ManualValues, existing: ManualOverrides, edit: ManualItemEdit): ManualOverrides {
+  const fields: ManualOverrides = Object.fromEntries(manualEditableFields.flatMap(field =>
+    field !== "price" && field !== "stock" && !fileFilled(file, field) && !empty(edit[field]) ? [[field, edit[field]]] : []));
+  const active = activeBulk(file, existing);
+  const current = withOverrides(file, existing);
+  const bulk: ManualBulk = {};
+  // A value equal to the one in force is not an edit: it neither turns the file's value into a record nor drops one.
+  const price = manualPricing(file, existing) ?? { list: current.price, discount: 0 };
+  const samePrice = edit.pricing && edit.pricing.list === price.list && edit.pricing.discount === price.discount;
+  if (edit.pricing === undefined || samePrice) {
+    if (active.price) bulk.price = active.price;
+    if (!fileFilled(file, "price") && !empty(existing.price)) fields.price = existing.price;
+  } else if (edit.pricing) bulk.price = { ...edit.pricing, ...bulkFileCells(file), by: "panel" };
+  if (edit.stock === undefined || edit.stock === current.stock) {
+    if (active.stock) bulk.stock = active.stock;
+    if (!fileFilled(file, "stock") && !empty(existing.stock)) fields.stock = existing.stock;
+  } else if (edit.stock !== null) bulk.stock = { value: edit.stock, file: file.stock, by: "panel" };
+  if (bulk.price || bulk.stock) fields.bulk = bulk;
+  return fields;
 }
 
 export function listSlug(name: string) {
@@ -319,7 +354,7 @@ export async function importManualDraft(pool: Pool, draftId: string, download: t
 export const saveLockTimeout = "5s";
 
 /** Saves the item page's values and applies them to the current item at once (and to later uploads, see withOverrides). */
-export async function updateManualItem(pool: Pool, itemId: string, values: ManualOverrides, by: string | null, download: typeof downloadImage = downloadImage) {
+export async function updateManualItem(pool: Pool, itemId: string, values: ManualItemEdit, by: string | null, download: typeof downloadImage = downloadImage) {
   const item = (await pool.query<{ list_group: string; code: string; product_data: ReturnType<typeof manualProductData> }>(
     "SELECT list_group,code,product_data FROM supplier_items WHERE id=$1 AND supplier=$2 AND company=$3", [itemId, manualSupplier, manualCompany])).rows[0];
   if (!item) throw new ManualImportError("not-found");
@@ -341,15 +376,7 @@ export async function updateManualItem(pool: Pool, itemId: string, values: Manua
     // Read under the lock, so a CSV confirmation (same lock) cannot slip in between this read and the write below.
     const existing = (await connection.query<{ fields: ManualOverrides }>("SELECT fields FROM manual_item_overrides WHERE list_group=$1 AND code=$2",
       [item.list_group, item.code])).rows[0]?.fields ?? {};
-    // A CSV price or stock in force is shown read-only on the item page: the form's value does not replace it (#832).
-    const bulk = activeBulk(file, existing);
-    const kept = (field: ManualEditableField) => field === "price" && bulk.price || field === "stock" && bulk.stock;
-    // Only fields the upload leaves empty are kept (a filled cell wins anyway); an emptied field drops the override.
-    const fields: ManualOverrides = Object.fromEntries(manualEditableFields.flatMap(field => {
-      const value = kept(field) ? existing[field] : values[field];
-      return !fileFilled(file, field) && !empty(value) ? [[field, value]] : [];
-    }));
-    if (bulk.price || bulk.stock) fields.bulk = bulk;
+    const fields = panelOverrides(file, existing, values);
     const row = withOverrides(file, fields);
     await connection.query(`INSERT INTO manual_item_overrides(list_group,code,fields,updated_by) VALUES($1,$2,$3,$4)
       ON CONFLICT(list_group,code) DO UPDATE SET fields=EXCLUDED.fields,updated_by=EXCLUDED.updated_by,updated_at=now()`,

@@ -1,4 +1,5 @@
 import { fold, type ManualIssue } from "./manual-template";
+import { manualCost } from "./manual-cost";
 
 // Bulk price/stock CSV of one manual list (#832): the admin downloads the list, edits list price, discount, markup and
 // stock in Excel and uploads it back. Kept free of server imports like manual-template.ts; the database side is
@@ -33,10 +34,7 @@ export type ManualBulkDiff = { changes: ManualBulkChange[]; unchanged: number; i
 
 const maxRows = 20000;
 
-/** Cost (KDV hariç alış) of a list price less a discount percent, rounded to 4 decimals. */
-export function manualCost(list: number, discount: number) {
-  return Math.round(list * (100 - discount) * 100) / 10000;
-}
+export { manualCost };
 
 /** UTF-8 (with or without BOM), UTF-16LE with BOM (Excel "Unicode text"), else Windows Turkish (Excel's TR "CSV"). */
 export function decodeCsv(bytes: Uint8Array) {
