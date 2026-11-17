@@ -16,8 +16,13 @@ const stockValue = z.string().regex(/^\d{1,9}$/).transform(Number).nullable();
 export function readManualPriceEdit(field: (key: string) => string | null): Pick<ManualItemEdit, "pricing" | "stock"> | "invalid" {
   const number = (key: string) => parsePanelDecimal(field(key));
   // A hidden value the form did not produce (tampered) reads as empty, so its group counts as changed.
-  // `was_*` is the server's own String(number) ("1.125" = 1.125), so it is read plainly, not as typed input.
-  const was = (key: string) => { const value = parseDecimalText(field(key)); return typeof value === "number" ? value : null; };
+  // `was_*` is the page's own comma text (panelDecimalText); a form opened before that wrote "1.125" for 1.125, which
+  // the strict reading refuses, so it falls back to the plain one.
+  const was = (key: string) => {
+    const strict = parsePanelDecimal(field(key));
+    const value = strict === "invalid" ? parseDecimalText(field(key)) : strict;
+    return typeof value === "number" ? value : null;
+  };
   const list = number("listPrice");
   const shownList = was("was_listPrice");
   const discount = list === null && number("discount") === 0 ? null : number("discount");

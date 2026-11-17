@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { Pool } from "pg";
 import { activeBulk, bulkFileCells, fileFilled, ManualImportError, manualPricing, panelOverrides, updateManualItem, withOverrides, type downloadImage, type ManualItemEdit, type ManualOverrides, type ManualValues } from "../src/modules/suppliers/manual-import";
 import { readManualPriceEdit } from "../src/modules/suppliers/manual-item-form";
-import { hasGrouping, parseDecimalText, parsePanelDecimal } from "../src/modules/suppliers/manual-cost";
+import { hasGrouping, panelDecimalText, parseDecimalText, parsePanelDecimal } from "../src/modules/suppliers/manual-cost";
 
 // updateManualItem against a recorded fake pool: no database, the statements and their order are what is checked.
 const itemId = "da883a2e-1351-430e-a296-0a46c114a546";
@@ -212,7 +212,19 @@ test("the item form saves only the price or stock group the admin changed, and v
     assert.equal(readManualPriceEdit(form({ ...shown, ...changed })), "invalid", JSON.stringify(changed));
 });
 
-test("an untouched shown value with a dot before three digits is read as the server wrote it", () => {
+test("the item page shows amounts with comma decimals and reads them back unchanged", () => {
+  assert.deepEqual([1.125, 12.5, 812.12345, 1000, 0, 1234567.5].map(panelDecimalText), ["1,125", "12,5", "812,12345", "1000", "0", "1234567,5"]);
+  for (const [list, discount] of [[1.125, 0], [812.12345, 12.5], [1250, 100]]) {
+    const shown = { was_listPrice: panelDecimalText(list), was_discount: panelDecimalText(discount), was_stock: "3", stock: "3" };
+    assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: shown.was_listPrice, discount: shown.was_discount })), {});
+    assert.equal(parsePanelDecimal(shown.was_listPrice), list);
+  }
+  // A changed discount next to the shown list price saves the group with that list price.
+  const shown = { was_listPrice: "812,5", was_discount: "12,5", was_stock: "", listPrice: "812,5", discount: "10", stock: "" };
+  assert.deepEqual(readManualPriceEdit(form(shown)), { pricing: { list: 812.5, discount: 10 } });
+});
+
+test("an open form from before comma decimals (\"1.125\" for 1.125) is still read as the server wrote it", () => {
   const shown = { was_listPrice: "1.125", was_discount: "0", was_stock: "", listPrice: "1.125", discount: "0", stock: "" };
   assert.deepEqual(readManualPriceEdit(form(shown)), {});
   assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "1,13" })), { pricing: { list: 1.13, discount: 0 } });

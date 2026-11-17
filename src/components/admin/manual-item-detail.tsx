@@ -4,6 +4,7 @@ import { adminManualItem } from "@/modules/admin/manual";
 import { categoryLabel } from "@/modules/suppliers/manual-template";
 import { activeBulk, fileFilled, manualEditableFields, type ManualEditableField } from "@/modules/suppliers/manual-import";
 import { ManualPriceFields, type ManualValueSource } from "@/components/admin/manual-price-fields";
+import { panelDecimalText } from "@/modules/suppliers/manual-cost";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Fields, SupplierProductDetail, Timestamp } from "@/components/admin/supplier-product-detail";
 import { formatExact, formatNumber } from "@/modules/admin/format";
@@ -55,7 +56,9 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
     return overrides[field] !== undefined ? "panel" : null;
   };
   const list = item.price_data?.list ?? item.price_data?.nf;
-  const shown = { list: text(list), discount: text(item.price_data?.discount ?? (list === undefined ? undefined : 0)), stock: text(item.stock_data?.stok) };
+  // Comma decimals as typed in Turkish; `was_*` sends the same text back, so an untouched field stays untouched.
+  const amount = (value: number | undefined) => value === undefined ? "" : panelDecimalText(value);
+  const shown = { list: amount(list), discount: amount(item.price_data?.discount ?? (list === undefined ? undefined : 0)), stock: text(item.stock_data?.stok) };
   const fileNote = p.file.listPrice != null ? `Dosyada: liste ${formatExact(p.file.listPrice)} · iskonto %${formatNumber(p.file.discount ?? 0)}.`
     : p.file.price != null ? `Dosyada: alış fiyatı ${formatExact(p.file.price)}.` : undefined;
   const listHref = `/yonetim/tedarikciler/manuel?liste=${item.list_group}`;

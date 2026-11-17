@@ -27,6 +27,10 @@ export function parsePanelDecimal(value: string | null | undefined): number | nu
   return /^\d+([.,]\d+)?$/.test(text) ? Number(text.replace(",", ".")) : "invalid";
 }
 
+/** A stored amount as the item page shows it: comma decimals, no grouping (1.125 → "1,125"), read back by parsePanelDecimal. */
+export const panelDecimalText = (value: number) =>
+  value.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: 10 }).replace(".", ",");
+
 /** Shown for a panel amount that looks grouped: two separators, or a dot before exactly three digits. */
 export const panelDecimalHint = "Binlik ayracı kullanmayın; ondalık için virgül kullanın.";
 export const hasGrouping = (value: string) => /[.,].*[.,]/.test(value) || /^\d{1,3}\.\d{3}$/.test(value.replace(/\s/g, ""));
