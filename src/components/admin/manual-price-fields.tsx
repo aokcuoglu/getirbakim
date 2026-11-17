@@ -2,7 +2,7 @@
 
 import { useId, useState } from "react";
 import { FileText, Info, Pencil, TriangleAlert } from "lucide-react";
-import { hasGrouping, manualCost, panelDecimalHint, parsePanelDecimal } from "@/modules/suppliers/manual-cost";
+import { hasGrouping, manualCost, panelDecimalHint, parseDecimalText, parsePanelDecimal } from "@/modules/suppliers/manual-cost";
 import { formatExact } from "@/modules/admin/format";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -42,13 +42,14 @@ export function ManualPriceFields({ list, discount, stock, priceSource, stockSou
 }) {
   const id = useId();
   const [values, setValues] = useState({ list, discount, stock });
-  const parsedList = parsePanelDecimal(values.list);
-  const parsedDiscount = parsePanelDecimal(values.discount);
-    // An untouched value (from the upload or a CSV, which have no decimal limit) is not checked: the save leaves it as is.
+  // An untouched value (from the upload or a CSV, which have no decimal limit) is not checked: the save leaves it as is.
+  // It is the server's own String(number) ("1.125" = 1.125), so it is read plainly; typed values are read strictly.
   const untouched = values.list === list && values.discount === discount;
-  const invalid = priceProblem(values, parsedList, parsedDiscount);
-  const problem = untouched ? null : invalid;
-  const cost = !invalid && typeof parsedList === "number" ? manualCost(parsedList, typeof parsedDiscount === "number" ? parsedDiscount : 0) : null;
+  const parse = untouched ? parseDecimalText : parsePanelDecimal;
+  const parsedList = parse(values.list);
+  const parsedDiscount = parse(values.discount);
+  const problem = untouched ? null : priceProblem(values, parsedList, parsedDiscount);
+  const cost = !problem && typeof parsedList === "number" ? manualCost(parsedList, typeof parsedDiscount === "number" ? parsedDiscount : 0) : null;
   const stockProblem = values.stock !== stock && !/^\d*$/.test(values.stock.replace(/\s/g, "")) ? "Stok sıfır ya da pozitif tam sayı olmalı (yalnız rakam)." : null;
   const change = (field: keyof typeof values) => (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.currentTarget.value;

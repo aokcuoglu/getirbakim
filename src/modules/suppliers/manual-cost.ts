@@ -22,9 +22,11 @@ export function parseDecimalText(value: string | null | undefined): number | nul
 export function parsePanelDecimal(value: string | null | undefined): number | null | "invalid" {
   const text = value?.replace(/\s/g, "");
   if (!text) return null;
+  // "1.250" is Turkish for 1250 as often as 1.25: a dot before exactly three digits is refused, not guessed.
+  if (/^\d{1,3}\.\d{3}$/.test(text)) return "invalid";
   return /^\d+([.,]\d+)?$/.test(text) ? Number(text.replace(",", ".")) : "invalid";
 }
 
-/** Shown for a panel amount with more than one separator. */
+/** Shown for a panel amount that looks grouped: two separators, or a dot before exactly three digits. */
 export const panelDecimalHint = "Binlik ayracı kullanmayın; ondalık için virgül kullanın.";
-export const hasGrouping = (value: string) => /[.,].*[.,]/.test(value);
+export const hasGrouping = (value: string) => /[.,].*[.,]/.test(value) || /^\d{1,3}\.\d{3}$/.test(value.replace(/\s/g, ""));

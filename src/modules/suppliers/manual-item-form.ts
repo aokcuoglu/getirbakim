@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parsePanelDecimal } from "./manual-cost";
+import { parseDecimalText, parsePanelDecimal } from "./manual-cost";
 import type { ManualItemEdit } from "./manual-import";
 
 const priceGroup = z.object({
@@ -16,13 +16,16 @@ const stockValue = z.string().regex(/^\d{1,9}$/).transform(Number).nullable();
 export function readManualPriceEdit(field: (key: string) => string | null): Pick<ManualItemEdit, "pricing" | "stock"> | "invalid" {
   const number = (key: string) => parsePanelDecimal(field(key));
   // A hidden value the form did not produce (tampered) reads as empty, so its group counts as changed.
-  const was = (key: string) => { const value = number(key); return typeof value === "number" ? value : null; };
+  // `was_*` is the server's own String(number) ("1.125" = 1.125), so it is read plainly, not as typed input.
+  const was = (key: string) => { const value = parseDecimalText(field(key)); return typeof value === "number" ? value : null; };
   const list = number("listPrice");
   const shownList = was("was_listPrice");
   const discount = list === null && number("discount") === 0 ? null : number("discount");
   const shownDiscount = shownList === null ? null : was("was_discount") ?? 0;
   const edit: Pick<ManualItemEdit, "pricing" | "stock"> = {};
-  if (list !== shownList || (discount ?? 0) !== (shownDiscount ?? 0) || list === null && discount !== null) {
+  // The fields sent back exactly as shown are untouched, whatever the strict reading would say ("1.125" as written).
+  const asShown = (field("listPrice") ?? "") === (field("was_listPrice") ?? "") && (field("discount") ?? "") === (field("was_discount") ?? "");
+  if (!asShown && (list !== shownList || (discount ?? 0) !== (shownDiscount ?? 0) || list === null && discount !== null)) {
     const group = priceGroup.safeParse({ list, discount });
     if (!group.success) return "invalid";
     edit.pricing = group.data.list === null ? null : { list: group.data.list, discount: group.data.discount ?? 0 };

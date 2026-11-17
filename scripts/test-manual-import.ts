@@ -201,7 +201,7 @@ test("the item form saves only the price or stock group the admin changed, and v
   // One separator, "," or "." as the decimal point; thousands grouping is refused, not guessed (100 000× risk).
   assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "10,5" })), { pricing: { list: 10.5, discount: 0 } });
   assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "10.5" })), { pricing: { list: 10.5, discount: 0 } });
-  for (const listPrice of ["10,12345", "1.000,50", "1,000.5", "1.000.000"])
+  for (const listPrice of ["10,12345", "1.000,50", "1,000.5", "1.000.000", "1.250"])
     assert.equal(readManualPriceEdit(form({ ...shown, listPrice })), "invalid", listPrice);
   assert.deepEqual(readManualPriceEdit(form({ ...shown, stock: "0" })), { stock: 0 });
   assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "", discount: "", stock: "" })), { pricing: null, stock: null });
@@ -210,6 +210,12 @@ test("the item form saves only the price or stock group the admin changed, and v
   for (const changed of [{ discount: "120" }, { listPrice: "0" }, { listPrice: "10.12345" }, { listPrice: "", discount: "5" }, { listPrice: "abc" },
     { stock: "1,5" }, { stock: "1.000" }, { stock: "-1" }])
     assert.equal(readManualPriceEdit(form({ ...shown, ...changed })), "invalid", JSON.stringify(changed));
+});
+
+test("an untouched shown value with a dot before three digits is read as the server wrote it", () => {
+  const shown = { was_listPrice: "1.125", was_discount: "0", was_stock: "", listPrice: "1.125", discount: "0", stock: "" };
+  assert.deepEqual(readManualPriceEdit(form(shown)), {});
+  assert.deepEqual(readManualPriceEdit(form({ ...shown, listPrice: "1,13" })), { pricing: { list: 1.13, discount: 0 } });
 });
 
 test("an untouched price with more than four decimals does not block saving the description", async () => {
@@ -228,6 +234,12 @@ test("panel amounts take one separator as the decimal point and refuse thousands
   assert.equal(parsePanelDecimal("10.5"), 10.5);
   assert.equal(parsePanelDecimal("10,12345"), 10.12345);
   assert.equal(parsePanelDecimal(" 1 000 "), 1000);
+  // A dot before exactly three digits is Turkish grouping as often as a decimal: refused (1000× risk).
+  assert.equal(parsePanelDecimal("1.250"), "invalid");
+  assert.ok(hasGrouping("1.250"));
+  assert.equal(parsePanelDecimal("1.25"), 1.25);
+  assert.equal(parsePanelDecimal("1,250"), 1.25);
+  assert.equal(parsePanelDecimal("1250"), 1250);
   assert.equal(parsePanelDecimal(""), null);
   for (const text of ["1.000,50", "1,000.5", "1.000.000", "-5", "12 TL", ",5"]) assert.equal(parsePanelDecimal(text), "invalid", text);
   assert.ok(hasGrouping("1.000,50") && hasGrouping("1,000.5") && !hasGrouping("10,5"));

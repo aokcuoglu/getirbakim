@@ -122,8 +122,8 @@ export async function adminManualItem(id: string) {
   const [result, changes, categories, sale, pricing] = await Promise.all([
     db.query<ManualItem & {
       first_seen_at: Date; last_seen_at: Date; changed_at: Date; price_count: number; stock_count: number; source_variants: Record<string, unknown>;
-      overrides: ManualOverrides | null;
-    }>(`SELECT i.*,${shownImage("i")} AS has_image,o.fields AS overrides FROM supplier_items i
+      overrides: ManualOverrides | null; overrides_updated_at: Date | null;
+    }>(`SELECT i.*,${shownImage("i")} AS has_image,o.fields AS overrides,o.updated_at AS overrides_updated_at FROM supplier_items i
       LEFT JOIN manual_item_overrides o ON o.list_group=i.list_group AND o.code=i.code
       WHERE i.supplier='manual' AND i.company=$1 AND i.id=$2`, [manualCompany, id]),
     db.query<SupplierChange>("SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id]),

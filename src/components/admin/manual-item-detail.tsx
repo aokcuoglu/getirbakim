@@ -73,7 +73,7 @@ export async function ManualItemDetail({ id, query, modal = false }: { id: strin
             <input type="hidden" name="id" value={item.id}/>
             <FieldGroup className="grid gap-4 md:grid-cols-2">
               {/* Keyed by what is saved: after every save (or a CSV) the fields start again from the values in force. */}
-              <ManualPriceFields key={`${item.changed_at.getTime()}|${JSON.stringify(overrides)}|${shown.list}|${shown.discount}|${shown.stock}`} {...shown}
+              <ManualPriceFields key={`${item.changed_at.getTime()}|${item.overrides_updated_at?.getTime() ?? 0}|${JSON.stringify(overrides)}|${shown.list}|${shown.discount}|${shown.stock}`} {...shown}
                 priceSource={source("price")} stockSource={source("stock")} fileNote={fileNote}/>
               {formFields.map(field => <Field key={field} className={field === "description" || field === "imageUrl" || field === "approvals" ? "md:col-span-2" : undefined}>
                 <FieldLabel htmlFor={`manual-${field}`}>{labels[field].label}{fromFile(field) ? <Badge variant="outline">Dosyadan</Badge> : overrides[field] !== undefined ? <Badge variant="info">Panelden</Badge> : null}</FieldLabel>
