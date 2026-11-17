@@ -21,25 +21,25 @@ before(async () => {
 });
 after(async () => { await schema?.drop(); });
 
-async function importList(rows: ManualRow[]) {
+async function importList(rows: ManualRow[], listGroup = list) {
   const { saveManualDraft, importManualDraft } = await import("../src/modules/suppliers/manual-import");
-  const id = await saveManualDraft(schema.pool, { listGroup: list, listName: "Test yağlar", fileName: "liste.xlsx", parsed: { rows, issues: [], sheets: [{ name: "Ürünler", rows: rows.length }] }, by: adminId });
+  const id = await saveManualDraft(schema.pool, { listGroup, listName: "Test yağlar", fileName: "liste.xlsx", parsed: { rows, issues: [], sheets: [{ name: "Ürünler", rows: rows.length }] }, by: adminId });
   await importManualDraft(schema.pool, id, async () => assert.fail("no downloads"));
 }
 
-async function applyCsv(lines: string[]) {
+async function applyCsv(lines: string[], listGroup = list) {
   const { parseManualBulkCsv } = await import("../src/modules/suppliers/manual-bulk-csv");
   const { saveManualBulkDraft, applyManualBulkDraft } = await import("../src/modules/suppliers/manual-bulk");
   const parsed = parseManualBulkCsv(new TextEncoder().encode(["Marka;Stok Kodu;Liste Fiyatı;İskonto Oranı;Kârlılık Oranı;Stok Adedi", ...lines].join("\r\n")));
-  const id = await saveManualBulkDraft(schema.pool, { listGroup: list, listName: "Test yağlar", fileName: "fiyat.csv", parsed, by: adminId });
+  const id = await saveManualBulkDraft(schema.pool, { listGroup, listName: "Test yağlar", fileName: "fiyat.csv", parsed, by: adminId });
   return { id, apply: () => applyManualBulkDraft(schema.pool, id, adminId) };
 }
 
-const item = async (code: string) => (await schema.pool.query<{ id: string; price_data: Record<string, number> | null; stock_data: { stok: number } | null; price: number | null; markup: string | null; vat: string | null; changes: number }>(
+const item = async (code: string, listGroup = list) => (await schema.pool.query<{ id: string; price_data: Record<string, number> | null; stock_data: { stok: number } | null; price: number | null; markup: string | null; vat: string | null; changes: number }>(
   `SELECT i.id,i.price_data,i.stock_data,c.price_kurus AS price,p.markup_percent AS markup,p.vat_percent AS vat,
     (SELECT count(*)::int FROM supplier_item_changes h WHERE h.item_id=i.id AND h.import_id IS NULL) AS changes
   FROM supplier_items i LEFT JOIN commerce_catalog c ON c.id=i.id LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
-  WHERE i.supplier='manual' AND i.list_group=$1 AND i.code=$2`, [list, code])).rows[0];
+  WHERE i.supplier='manual' AND i.list_group=$1 AND i.code=$2`, [listGroup, code])).rows[0];
 
 test("PostgreSQL: a confirmed CSV writes cost, list price, discount, markup and stock; later uploads follow the last edit", { skip }, async () => {
   const { ManualImportError } = await import("../src/modules/suppliers/manual-import");
@@ -91,4 +91,24 @@ test("PostgreSQL: a confirmed CSV writes cost, list price, discount, markup and 
   const invalid = await applyCsv(["MOTUL;ZZ;;;;1"]);
   await assert.rejects(importManualDraft(schema.pool, invalid.id), (error: unknown) => error instanceof ManualImportError && error.reason === "not-found");
   await assert.rejects(invalid.apply(), (error: unknown) => error instanceof ManualImportError && error.reason === "invalid");
+});
+
+test("PostgreSQL: xlsx list price and discount cells are stored and compared with a CSV's (#843)", { skip }, async () => {
+  const group = "test-liste-fiyat";
+  const listed = (discount: number, price: number) => ({ ...row("L1", price, 2), listPrice: 1000, discount });
+  await importList([listed(12.5, 875)], group);
+  assert.deepEqual((await item("L1", group)).price_data, { nf: 875, list: 1000, discount: 12.5 });
+  const fieldsOf = async () => (await schema.pool.query("SELECT fields FROM manual_item_overrides WHERE list_group=$1 AND code='L1'", [group])).rows[0]?.fields;
+
+  await (await applyCsv(["MOTUL;L1;;20;;"], group)).apply();
+  assert.deepEqual((await item("L1", group)).price_data, { nf: 800, list: 1000, discount: 20 });
+  assert.deepEqual((await fieldsOf()).bulk.price, { list: 1000, discount: 20, file: 875, fileList: 1000, fileDiscount: 12.5 });
+
+  // The same file again: the CSV value stays.
+  await importList([listed(12.5, 875)], group);
+  assert.deepEqual((await item("L1", group)).price_data, { nf: 800, list: 1000, discount: 20 });
+  // A changed discount cell wins and the CSV price is dropped.
+  await importList([listed(15, 850)], group);
+  assert.deepEqual((await item("L1", group)).price_data, { nf: 850, list: 1000, discount: 15 });
+  assert.equal((await fieldsOf())?.bulk?.price, undefined);
 });

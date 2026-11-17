@@ -132,10 +132,11 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
             {draft.report.issues.length > detailed.length && <p className="mt-2 text-muted-foreground">İlk {number(detailed.length)} bulgu gösteriliyor; toplam {number(draft.report.issues.length)}. Hatalar önce listelenir.</p>}</AccordionContent>
           </AccordionItem></Accordion></CardContent></Card>}
           {draft.row_count > 0 && <Table><caption className="sr-only">İlk satırlar</caption>
-            <TableHeader><TableRow><TableHead>Kod</TableHead><TableHead>Ürün adı</TableHead><TableHead>Marka</TableHead><TableHead>Kategori</TableHead><TableHead>Ambalaj</TableHead><TableHead>Viskozite</TableHead><TableHead className="text-right">Fiyat</TableHead><TableHead className="text-right">Stok</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Kod</TableHead><TableHead>Ürün adı</TableHead><TableHead>Marka</TableHead><TableHead>Kategori</TableHead><TableHead>Ambalaj</TableHead><TableHead>Viskozite</TableHead><TableHead className="text-right">Liste Fiyatı</TableHead><TableHead className="text-right">İskonto</TableHead><TableHead className="text-right">Maliyet</TableHead><TableHead className="text-right">Stok</TableHead></TableRow></TableHeader>
             <TableBody>{draft.preview.map(row => <TableRow key={row.code}>
               <TableCell className="font-mono">{row.code}</TableCell><TableCell className="max-w-96 truncate" title={row.name}>{row.name}</TableCell><TableCell>{row.brand}</TableCell>
               <TableCell>{categoryNames.get(row.categoryId)}</TableCell><TableCell>{row.package ?? <span className="text-warning">Eksik</span>}</TableCell><TableCell>{row.viscosity ?? "—"}</TableCell>
+              <TableCell className="text-right tabular-nums">{row.listPrice == null ? "—" : number(row.listPrice)}</TableCell><TableCell className="text-right tabular-nums">{row.listPrice == null ? "—" : `%${number(row.discount ?? 0)}`}</TableCell>
               <TableCell className="text-right tabular-nums">{row.price === null ? "—" : number(row.price)}</TableCell><TableCell className="text-right tabular-nums">{row.stock === null ? "—" : number(row.stock)}</TableCell>
             </TableRow>)}</TableBody>
           </Table>}
@@ -179,6 +180,7 @@ export default async function ManualAdmin({ searchParams }: { searchParams: Prom
             <li>Maliyet, liste fiyatı eksi iskontodur: Liste Fiyatı × (1 − İskonto Oranı / 100).</li>
             <li>Ondalık için virgül kullanın (1.234,56); 0 ile başlayan noktalı değerler (0.25) ondalık okunur.</li>
             <li>Marka ve Stok Kodu ürünü bulmak içindir; değiştirmeyin.</li>
+            <li>Liste fiyatı ve iskonto xlsx şablonunda da girilebilir; son düzenleme geçerlidir.</li>
           </ul>
           <div><Button variant="outline" nativeButton={false} render={<a href={listCsvHref} download/>}><Download data-icon="inline-start" aria-hidden="true"/>CSV indir</Button></div>
           <form action={uploadManualBulk} className="flex flex-col gap-4">

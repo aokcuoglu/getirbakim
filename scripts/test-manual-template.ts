@@ -67,3 +67,67 @@ test("values are normalized the way the storefront reads them", () => {
   assert.deepEqual(imageLink("ftp://x/y.png"), { url: null, ignored: "Yalnız http(s) linkleri kabul edilir" });
   assert.equal(imageLink("https://cdn.example.com/a.webp").url, "https://cdn.example.com/a.webp");
 });
+
+// List price and discount columns (#843).
+const priceHeader = ["Ürün Kodu", "Ürün Adı", "Marka", "Kategori", "Fiyat", "Liste Fiyatı", "İskonto Oranı", "Ambalaj"];
+const priced = (values: (string | number | null)[][]) => workbook(values.map(([code, price, list, discount]) => [code, "Motor yağı", "MOTUL", "Motor yağları", price, list, discount, "4 L"]), priceHeader);
+
+test("the empty template has the list price and discount columns", async () => {
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(await buildManualTemplate(categories) as unknown as ArrayBuffer);
+  const headers = (book.getWorksheet("Ürünler")!.getRow(1).values as unknown[]).filter(Boolean);
+  assert.ok(headers.includes("Liste Fiyatı") && headers.includes("İskonto Oranı"));
+  assert.ok(headers.indexOf("Liste Fiyatı") === headers.indexOf("Fiyat") + 1);
+});
+
+test("a list price and discount give the cost and read back unchanged", async () => {
+  const filled = { ...row, price: 875, listPrice: 1000, discount: 12.5 };
+  const parsed = await parseManualWorkbook(await buildManualTemplate(categories, [filled]), categories);
+  assert.deepEqual(parsed.issues, []);
+  assert.deepEqual(parsed.rows, [{ ...filled, row: 2 }]);
+});
+
+test("a list price alone means no discount; the price cell is only compared", async () => {
+  const parsed = await parseManualWorkbook(await priced([
+    ["A", null, 1000, null],
+    ["B", 101.5, 117, "12,95"],
+    ["C", 875.005, 1000, 12.5],
+    ["D", "", 500, "%100"],
+  ]), categories);
+  assert.deepEqual(parsed.rows.map(r => [r.code, r.price, r.listPrice, r.discount]), [["A", 1000, 1000, 0], ["B", 101.8485, 117, 12.95], ["C", 875, 1000, 12.5], ["D", null, 500, 100]]);
+  const warnings = parsed.issues.map(issue => [issue.code, issue.field, issue.level]);
+  assert.deepEqual(warnings, [["B", "price", "warning"], ["D", "discount", "warning"]]);
+  assert.match(parsed.issues[0].message, /hesaplanan kullanılacak: 101,5 ≠ 101,8485$/);
+  assert.match(parsed.issues[1].message, /%100/);
+});
+
+test("percent cells: a % format holds the fraction, text may carry %, a bare fraction is flagged", async () => {
+  const book = new ExcelJS.Workbook();
+  const sheet = book.addWorksheet("Liste");
+  sheet.addRow(priceHeader);
+  sheet.addRow(["A", "Ad", "MOTUL", "Motor yağları", null, 1000, 0.2, "4 L"]).getCell(7).numFmt = "0%";
+  sheet.addRow(["B", "Ad", "MOTUL", "Motor yağları", null, 1000, "12,5%", "4 L"]);
+  sheet.addRow(["C", "Ad", "MOTUL", "Motor yağları", null, 1000, 0.2, "4 L"]);
+  const parsed = await parseManualWorkbook(Buffer.from(await book.xlsx.writeBuffer()), categories);
+  assert.deepEqual(parsed.rows.map(r => [r.code, r.discount, r.price]), [["A", 20, 800], ["B", 12.5, 875], ["C", 0.2, 998]]);
+  assert.deepEqual(parsed.issues.map(issue => [issue.code, issue.field, issue.level]), [["C", "discount", "warning"]]);
+  assert.match(parsed.issues[0].message, /1'den küçük/);
+});
+
+test("invalid list price and discount cells are row errors", async () => {
+  const parsed = await parseManualWorkbook(await priced([
+    ["A", 100, null, 10],
+    ["B", null, 1000, 120],
+    ["C", null, 0, null],
+    ["D", null, 1000.12345, null],
+    ["E", null, "bin", null],
+  ]), categories);
+  assert.deepEqual(parsed.rows, []);
+  assert.deepEqual(parsed.issues.filter(issue => issue.level === "error").map(issue => [issue.code, issue.field]),
+    [["A", "discount"], ["B", "discount"], ["C", "listPrice"], ["D", "listPrice"], ["E", "listPrice"]]);
+});
+
+test("a price within 0.01 of the computed cost is not flagged", async () => {
+  const parsed = await parseManualWorkbook(await priced([["A", 101.85, 117, 12.95]]), categories);
+  assert.deepEqual(parsed.issues, []);
+});

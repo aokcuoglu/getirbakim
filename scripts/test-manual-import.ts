@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Pool } from "pg";
-import { activeBulk, ManualImportError, updateManualItem, withOverrides, type downloadImage, type ManualOverrides, type ManualValues } from "../src/modules/suppliers/manual-import";
+import { activeBulk, bulkFileCells, fileFilled, ManualImportError, manualPricing, updateManualItem, withOverrides, type downloadImage, type ManualOverrides, type ManualValues } from "../src/modules/suppliers/manual-import";
 
 // updateManualItem against a recorded fake pool: no database, the statements and their order are what is checked.
 const itemId = "da883a2e-1351-430e-a296-0a46c114a546";
@@ -86,4 +86,40 @@ test("saving the item page keeps the CSV values in force and does not replace th
   const update = statements.findIndex(sql => sql.startsWith("WITH old AS"));
   assert.deepEqual(JSON.parse(params[update][2] as string), { nf: 900, list: 1000, discount: 10 });
   assert.deepEqual(JSON.parse(params[update][3] as string), { stok: 9 });
+});
+
+// List price and discount cells of the upload (#843).
+const listed: ManualValues = { ...file, price: 875, listPrice: 1000, discount: 12.5 };
+
+test("a CSV price compares the upload's list price and discount cells too", () => {
+  // An older record (no fileList) against an old-template file stays in force.
+  assert.ok(activeBulk(file, { bulk: { price: { list: 1000, discount: 20, file: 812.5 } } }).price);
+  // Same cost, other cells: the file changed, so the CSV gives way.
+  assert.equal(activeBulk(listed, { bulk: { price: { list: 1000, discount: 20, file: 875 } } }).price, undefined);
+  const recorded: ManualOverrides = { bulk: { price: { list: 1000, discount: 20, ...bulkFileCells(listed) } } };
+  assert.deepEqual(bulkFileCells(listed), { file: 875, fileList: 1000, fileDiscount: 12.5 });
+  assert.deepEqual(bulkFileCells(file), { file: 812.5 });
+  assert.ok(activeBulk(listed, recorded).price);
+  assert.equal(withOverrides(listed, recorded).price, 800);
+  assert.deepEqual(manualPricing(listed, recorded), { list: 1000, discount: 20 });
+  const discountChanged = { ...listed, price: 850, discount: 15 };
+  assert.equal(activeBulk(discountChanged, recorded).price, undefined);
+  assert.deepEqual(manualPricing(discountChanged, recorded), { list: 1000, discount: 15 });
+  assert.equal(manualPricing(file, undefined), undefined);
+});
+
+test("a list price filled at 100% discount is a filled price: a panel price does not replace it", () => {
+  const free = { ...file, price: null, listPrice: 500, discount: 100 };
+  assert.ok(fileFilled(free, "price"));
+  assert.equal(withOverrides(free, { price: 700 }).price, null);
+  assert.ok(!fileFilled({ ...file, price: null }, "price"));
+});
+
+test("saving the item page keeps the upload's list price and discount in price_data", async () => {
+  const { pool, statements, params } = fakePool({ file: listed });
+  await updateManualItem(pool, itemId, { ...unchanged, price: 1, description: "Yeni" }, null, noDownload);
+  const insert = statements.findIndex(sql => sql.startsWith("INSERT INTO manual_item_overrides"));
+  assert.deepEqual(JSON.parse(params[insert][2] as string), { description: "Yeni" });
+  const update = statements.findIndex(sql => sql.startsWith("WITH old AS"));
+  assert.deepEqual(JSON.parse(params[update][2] as string), { nf: 875, list: 1000, discount: 12.5 });
 });

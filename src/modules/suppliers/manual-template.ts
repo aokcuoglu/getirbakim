@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import type { ManualBulkColumnKey } from "./manual-bulk-csv";
+import { manualCost, type ManualBulkColumnKey } from "./manual-bulk-csv";
 
 // Fixed xlsx template of manual supplier lists (first list: lubricants). Columns are found by their header text, in any
 // order and on any sheet; a sheet without the "Ürün Kodu" header (the category list, notes) is skipped.
@@ -9,7 +9,9 @@ export const manualColumns = [
   { key: "name", header: "Ürün Adı", required: true, width: 52, note: "Mağazada görünen ad. Marka ayrı gösterilir; adın başına yazmayın." },
   { key: "brand", header: "Marka", required: true, width: 16, note: "Üretici markası (MOTUL, CASTROL…)." },
   { key: "category", header: "Kategori", required: true, width: 30, note: "Açılır listeden seçin (Kategoriler sayfası)." },
-  { key: "price", header: "Fiyat", required: false, width: 12, note: "KDV hariç alış fiyatı, TL. Boşsa ürün satışa kapalı listelenir." },
+  { key: "price", header: "Fiyat", required: false, width: 12, note: "KDV hariç alış fiyatı, TL. Liste Fiyatı doluysa maliyet oradan hesaplanır, bu hücre yalnız karşılaştırılır. İkisi de boşsa ürün satışa kapalı listelenir." },
+  { key: "listPrice", header: "Liste Fiyatı", required: false, width: 12, note: "KDV hariç liste fiyatı, TL. Doluysa maliyet = Liste Fiyatı × (1 − İskonto Oranı / 100)." },
+  { key: "discount", header: "İskonto Oranı", required: false, width: 12, note: "Yüzde, 0–100 (örn. 12,5). Boşsa 0 sayılır; Liste Fiyatı olmadan girilemez." },
   { key: "stock", header: "Stok", required: false, width: 10, note: "Adet. Boşsa \"stok bilgisi yok\" görünür ve satışa kapalı kalır." },
   { key: "barcode", header: "Barkod", required: false, width: 16, note: "EAN/GTIN." },
   { key: "description", header: "Açıklama", required: false, width: 60, note: "Kullanım alanı ve öne çıkan özellikler (en fazla 3.000 karakter)." },
@@ -25,6 +27,8 @@ export type ManualRow = {
   sheet: string; row: number; code: string; name: string; brand: string; categoryId: number;
   price: number | null; stock: number | null; barcode: string | null; description: string | null;
   viscosity: string | null; package: string | null; approvals: string | null; imageUrl: string | null;
+  /** Only present when the cell is filled: uploads of the old template keep product_data.file unchanged (#843). */
+  listPrice?: number; discount?: number;
 };
 export type ManualIssue = { sheet: string; row: number | null; code: string | null; field: ManualColumnKey | ManualBulkColumnKey | null; level: "error" | "warning"; message: string };
 export type ManualParseResult = { rows: ManualRow[]; issues: ManualIssue[]; sheets: { name: string; rows: number }[] };
@@ -55,6 +59,26 @@ export function parseDecimal(value: ExcelJS.CellValue): number | null | "invalid
   const normalized = /,\d{1,4}$/.test(text) ? text.replace(/\./g, "").replace(",", ".") : text.replace(/,/g, "");
   return /^\d+(\.\d+)?$/.test(normalized) ? Number(normalized) : "invalid";
 }
+
+/**
+ * A percent cell: a "%"-formatted number cell holds the fraction (0,125 → 12,5); text may carry "%". A plain number
+ * below 1 is read as written but flagged, since it was probably meant as a fraction.
+ */
+export function parsePercent(cell: Pick<ExcelJS.Cell, "value" | "numFmt">): { value: number | null | "invalid"; fraction?: boolean } {
+  const value = cell.value;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return { value: "invalid" };
+    if (cell.numFmt?.includes("%")) return { value: Math.round(value * 1_000_000) / 10_000 };
+    return { value, ...(value > 0 && value < 1 ? { fraction: true } : {}) };
+  }
+  return { value: parseDecimal(cellText(value)?.replace(/%/g, "") ?? null) };
+}
+
+const decimals = (value: number) => {
+  const text = String(value);
+  return text.includes("e") ? 99 : (text.split(".")[1] ?? "").length;
+};
+const formatAmount = (value: number) => value.toLocaleString("tr-TR", { maximumFractionDigits: 4 });
 
 // SAE grades are written one way (10W-40, as the storefront's engine-oil matching reads them); anything else as typed.
 export function normalizeViscosity(value: string | null) {
@@ -155,9 +179,29 @@ export async function parseManualWorkbook(buffer: Buffer | ArrayBuffer, categori
       const category = categoryText ? byName.get(fold(categoryText)) : undefined;
       if (!categoryText) issue("category", "error", "Kategori boş");
       else if (!category) issue("category", "error", `Kategori bulunamadı: "${categoryText}" (Kategoriler sayfasındaki adlardan biri olmalı)`);
-      const price = parseDecimal(raw("price"));
-      if (price === "invalid") issue("price", "error", `Fiyat sayı değil: "${text("price")}"`);
-      else if (price === null || price === 0) issue("price", "warning", "Fiyat yok; satışa kapalı listelenecek");
+      const filePrice = parseDecimal(raw("price"));
+      if (filePrice === "invalid") issue("price", "error", `Fiyat sayı değil: "${text("price")}"`);
+      const listValue = parseDecimal(raw("listPrice"));
+      const listPrice = typeof listValue === "number" ? listValue : null;
+      if (listValue === "invalid") issue("listPrice", "error", `Liste Fiyatı sayı değil: "${text("listPrice")}"`);
+      else if (listPrice !== null && listPrice <= 0) issue("listPrice", "error", "Liste Fiyatı sıfırdan büyük olmalı");
+      else if (listPrice !== null && decimals(listPrice) > 4) issue("listPrice", "error", "Liste Fiyatı en fazla dört ondalıklı olabilir");
+      const percent = columns.has("discount") ? parsePercent(line.getCell(columns.get("discount")!)) : { value: null };
+      const discount = typeof percent.value === "number" ? percent.value : null;
+      if (percent.value === "invalid") issue("discount", "error", `İskonto Oranı sayı değil: "${text("discount")}"`);
+      else if (discount !== null && (discount < 0 || discount > 100)) issue("discount", "error", `İskonto Oranı 0–100 arasında olmalı: ${text("discount")}`);
+      else if (discount !== null && listValue === null) issue("discount", "error", "İskonto girildi ama Liste Fiyatı yok; Liste Fiyatı da girin");
+      else if (percent.fraction) issue("discount", "warning", "İskonto Oranı 1'den küçük okundu; yüzde olarak yazın (12,5)");
+      const validList = listPrice !== null && listPrice > 0 && decimals(listPrice) <= 4 ? listPrice : null;
+      const validDiscount = discount !== null && discount >= 0 && discount <= 100 ? discount : null;
+      let price = typeof filePrice === "number" && filePrice > 0 ? filePrice : null;
+      if (validList !== null) {
+        const cost = manualCost(validList, validDiscount ?? 0);
+        if (typeof filePrice === "number" && Math.abs(filePrice - cost) > 0.01)
+          issue("price", "warning", `Fiyat, liste fiyatı ve iskontodan hesaplanan maliyetle uyuşmuyor; hesaplanan kullanılacak: ${formatAmount(filePrice)} ≠ ${formatAmount(cost)}`);
+        if (validDiscount === 100) issue("discount", "warning", "İskonto %100: maliyet 0 olur, ürün satışa kapanır");
+        price = cost > 0 ? cost : null;
+      } else if (filePrice !== "invalid" && listValue === null && price === null) issue("price", "warning", "Fiyat yok; satışa kapalı listelenecek");
       const stockValue = parseDecimal(raw("stock"));
       if (stockValue === "invalid" || (typeof stockValue === "number" && !Number.isInteger(stockValue))) issue("stock", "error", `Stok tam sayı değil: "${text("stock")}"`);
       const barcode = text("barcode")?.replace(/\s/g, "") || null;
@@ -174,8 +218,9 @@ export async function parseManualWorkbook(buffer: Buffer | ArrayBuffer, categori
       if (issues.filter(i => i.level === "error").length > before) continue;
       rows.push({
         sheet: sheet.name, row: r, code: code!, name: name!, brand: brand!, categoryId: category!.id,
-        price: typeof price === "number" && price > 0 ? price : null, stock: typeof stockValue === "number" ? stockValue : null,
+        price, stock: typeof stockValue === "number" ? stockValue : null,
         barcode, description, viscosity: normalizeViscosity(text("viscosity")), package: pack, approvals, imageUrl: image.url,
+        ...(validList !== null ? { listPrice: validList, discount: validDiscount ?? 0 } : {}),
       });
     }
     sheets.push({ name: sheet.name, rows: count });
