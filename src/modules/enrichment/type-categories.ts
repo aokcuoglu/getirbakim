@@ -137,9 +137,11 @@ export type CuratedProblem={type:string;error:string};
 /** Resolves the curated list (#860) against the learned types and the category tree. Every problem is listed: an unknown
  *  category id, an id whose name differs from the tree, an alias whose target is not an accepted learned type or is
  *  itself curated (a chain), a duplicate or non-slug type, an empty category list. Broken entries are left out of the
- *  maps. An entry whose type is learned and that is no override is redundant (learned data wins): reported, not applied. */
+ *  maps. An entry whose type is learned and that is no override is redundant (learned data wins): reported, not applied.
+ *  resolvedWithout lists applied entries the learned types already resolve through a numeric tail or the plural fold. */
 export function resolveCuratedTypes(entries:Map<string,SourceCategory[]>,byId:Map<number,CategoryNode>,list:CuratedType[]){
- const curated=new Map<string,SourceCategory[]>(),overrides=new Map<string,SourceCategory[]>(),redundant:string[]=[],problems:CuratedProblem[]=[];
+ const curated=new Map<string,SourceCategory[]>(),overrides=new Map<string,SourceCategory[]>(),redundant:string[]=[],resolvedWithout:string[]=[],problems:CuratedProblem[]=[];
+ const learnedOnly=typeDictionary(entries);
  const counts=new Map<string,number>();for(const entry of list)counts.set(entry.type,(counts.get(entry.type)??0)+1);
  for(const entry of list){
   const own:string[]=[];
@@ -162,9 +164,13 @@ export function resolveCuratedTypes(entries:Map<string,SourceCategory[]>,byId:Ma
   if(own.length){problems.push(...own.map(error=>({type:entry.type,error})));continue;}
   if(entry.override)overrides.set(entry.type,categories);
   else if(entries.has(entry.type))redundant.push(entry.type);
-  else curated.set(entry.type,categories);
+  else{
+   curated.set(entry.type,categories);
+   // Learned data already gives the type through a numeric tail or the plural fold: worth a look, not an error.
+   if(typeMatch(learnedOnly,entry.type).via)resolvedWithout.push(entry.type);
+  }
  }
- return {curated,overrides,redundant,problems};
+ return {curated,overrides,redundant,resolvedWithout,problems};
 }
 const problemList=(problems:CuratedProblem[])=>problems.map(p=>p.type+': '+p.error).join('; ');
 /** The learned dictionary with the curated list applied. strict throws on any problem (check-aliases, learn-types,

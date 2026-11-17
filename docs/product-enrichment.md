@@ -348,7 +348,8 @@ kazanır: öğrenilmiş bir tiple çakışan küratörlü kayıt `override` olma
 **Doğrulama** (hepsi birlikte listelenir): bilinmeyen kategori kimliği, kimlik/ad uyuşmazlığı, hedefi öğrenilmiş tip
 olmayan takma ad, takma ad zinciri (hedef de küratörlü), yinelenen tip, slug olmayan tip, boş kategori listesi.
 `check-aliases`, `learn-types` (yeniden öğrenmeden sonra; öğrenme geri alınmaz) ve `backfill-types` katıdır: sorun
-varsa hata/çıkış kodu 1. İşçiler (spareto, parts2world) liste yüzünden durmaz: tek satırlık bir uyarıyla sorunlu
+varsa hata/çıkış kodu 1. İstisna: `backfill-types --dry-run` özel `--min-share`/`--min-support` ile koşarsa takma ad
+hedefi o eşikte kabul edilmemiş olabilir; o zaman uyarıp kaydı atlar (varsayılan eşikler katı kalır). İşçiler (spareto, parts2world) liste yüzünden durmaz: tek satırlık bir uyarıyla sorunlu
 kayıtları atlar, geçerlileri uygular. Öğrenilmiş sözlük boşsa liste de uygulanmaz.
 
 Komutlar (`npm run enrichment:categories -- <komut>`; ikisi de yalnız okur ve şema dosyasını uygulamaz):
@@ -358,17 +359,24 @@ Komutlar (`npm run enrichment:categories -- <komut>`; ikisi de yalnız okur ve �
   — `parts2worldArticles`); sonra en sık eşleşmeyen tipler (spareto / parts2world kayıt / makale sayısı) ve en çok 3
   öneri: kelime örtüşmesi (Jaccard; son kelime tekilleştirilir, `and/for/of/the/system/kit/set` atılır) en yüksek
   öğrenilmiş tipler ve Trodo yaprak kategorileri. Öneriler yalnız yardımcıdır.
-- `check-aliases`: listeyi öğrenilmiş sözlüğe ve ağaca karşı doğrular; `applied`, `redundant`, `problems` basar.
+- `check-aliases`: listeyi öğrenilmiş sözlüğe ve ağaca karşı doğrular; `applied`, `redundant`, `resolvedWithout`
+  (öğrenilmiş tipin sayısal kuyruk ya da çoğul katlamayla zaten eşlediği kayıtlar; bilgi, hata değil) ve `problems` basar.
 
 **Listeyi büyütme:** `report-unmapped` → tipin gerçekten tek anlamlı olduğunu (Trodo'da aynı parçanın kategorisi, birkaç
 ürün adı) kontrol edin → kaydı notuyla ekleyin → `check-aliases` → `npm run test:type-categories` →
-`backfill-types --dry-run` ile `curated` sayısına bakın. Belirsiz tipler (`fuse`, `bulb`) ve Trodo'nun kendi
-kategorisi olmayan setler eşlenmeden kalır.
+`backfill-types --dry-run` ile `curated` sayısına bakın. Belirsiz tipler ve Trodo'nun kendi kategorisi olmayan setler
+eşlenmeden kalır. Bilinçli olarak eklenmeyenler (tip adı altında karışık ürünler var):
 
-**Ölçüm (17 Kasım 2026, yerel, yalnız okuma):** başlangıç listesi 97 kayıt (33 takma ad, 64 elle). spareto 36.845
-kaydın eşlenen payı %92,7 → %96,6 (öğrenilmiş 34.169 → 34.349, küratörlü 1.229; eşleşmeyen 2.589 → 1.265; tipsiz
-87 → 2, marka ön ekleri sayesinde). parts2world tipli kayıtlarda %91,6 → %96,5 (1.081 tipli kaydın 53'ü küratörlü),
-saklanan makale adlarında %90,6 → %96,3 (820 makalenin 47'si).
+- `fuse`: Trodo ağacında sigorta kategorisi yok. `bulb`: ampulün yeri (far, sinyal, sis…) adda yok, kategori belirsiz.
+- `sway-bar-suspension`: 5 üründen bir kısmı DELPHI salıncak ve burçları, stabilizatör değil.
+- `bulb-fog-light`: 14 üründen en az 6'sı H4 far ampulü.
+- `mounting-stabilizer-coupling-rod`: 18 üründen ~11'i stabilizatör burcu, yalnız 4'ü gerçek z-rot.
+- `trim-protection-strip-wing`: 6 üründen 4'ü FAST basamak/tampon parçası.
+
+**Ölçüm (17 Kasım 2026, yerel, yalnız okuma):** başlangıç listesi 93 kayıt (33 takma ad, 60 elle). spareto 36.908
+kaydın eşlenen payı %92,7 → %96,4 (öğrenilmiş 34.225 → 34.406, küratörlü 1.188; eşleşmeyen 2.596 → 1.312; tipsiz
+87 → 2, marka ön ekleri sayesinde). parts2world tipli kayıtlarda %91,5 → %96,4 (1.437 tipli kaydın 70'i küratörlü),
+saklanan makale adlarında %90,2 → %95,9 (1.091 makalenin 62'si; `fetch-types` sürerken).
 
 **Operasyon:** canlıda komut yok (liste koddadır). Yerelde birleştirmeden sonra, son sürüme kadar bekletmeli:
 `check-aliases` → `backfill-types --source spareto --hold` ve `backfill-types --source parts2world --hold`; yayın

@@ -18,7 +18,8 @@
 //                         their spareto rows, parts2world rows and stored parts2world articles, and up to 3 suggestions
 //                         (learned types / Trodo categories sharing words). The suggestions only help curate the list.
 //   check-aliases         read-only: validates the curated list against the learned types and the category tree, lists
-//                         redundant entries (a learned type wins); exit code 1 on problems. learn-types runs it too.
+//                         redundant entries (a learned type wins) and entries learned types already resolve through a
+//                         numeric tail or plural fold (resolvedWithout, info); exit code 1 on problems. learn-types runs it too.
 import {readFile} from 'node:fs/promises';
 import {Pool} from 'pg';
 import {importCategoryTree,productCategories} from '../src/modules/enrichment/source-categories';
@@ -51,9 +52,9 @@ const typedSources:Record<string,()=>Promise<TypedEnrichment[]>>={
 async function checkAliases(){
  const {entries,byId}=await loadLearnedTypes(pool);
  if(!entries.size){console.log(JSON.stringify({error:'Empty type dictionary; run learn-types first'}));process.exitCode=1;return;}
- const {curated,overrides,redundant,problems}=resolveCuratedTypes(entries,byId,typeAliases);
+ const {curated,overrides,redundant,resolvedWithout,problems}=resolveCuratedTypes(entries,byId,typeAliases);
  console.log(JSON.stringify({entries:typeAliases.length,aliases:typeAliases.filter(e=>'alias' in e).length,categories:typeAliases.filter(e=>'categories' in e).length,
-  applied:curated.size,overrides:overrides.size,redundant,problems},null,1));
+  applied:curated.size,overrides:overrides.size,redundant,resolvedWithout,problems},null,1));
  if(problems.length)process.exitCode=1;
 }
 type UnmappedType={type:string;spareto:number;parts2world:number;articles:number};
@@ -140,7 +141,10 @@ try{
   // product as they are re-collected.
   if((option('min-share')!==undefined||option('min-support')!==undefined)&&!args.includes('--dry-run'))
    throw Error('--min-share / --min-support only with --dry-run: writes use the worker\'s thresholds ('+DEFAULT_MIN_SHARE+', '+DEFAULT_MIN_SUPPORT+')');
-  const limits=thresholds(),dictionary=await loadTypeCategories(pool,{...limits,strict:true});
+  // At other thresholds (dry run only) an alias target may not be accepted: warn and leave such entries out; the
+  // worker's thresholds stay strict.
+  const custom=option('min-share')!==undefined||option('min-support')!==undefined;
+  const limits=thresholds(),dictionary=await loadTypeCategories(pool,{...limits,strict:!custom});
   if(!dictionary.exact.size)throw Error('Empty type dictionary; run learn-types first');
   const {unmappedTypes,...counts}=await backfillTypeCategories(pool,await rows(),dictionary,{dryRun:args.includes('--dry-run'),hold:args.includes('--hold')});
   console.log(JSON.stringify({source,...limits,dryRun:args.includes('--dry-run'),hold:args.includes('--hold'),types:dictionary.exact.size,curatedTypes:dictionary.curated.size+dictionary.overrides.size,...counts,unmappedTypeCount:unmappedTypes.length},null,1));

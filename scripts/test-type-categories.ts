@@ -128,6 +128,10 @@ test("curated list: aliases inherit, manual entries map, learned types win unles
   assert.deepEqual(typeMatch(dict, "front-oxygen-sensor"), { categories: [], via: null });
   assert.deepEqual(typeMatch(dict, null), { categories: [], via: null });
   assert.deepEqual(resolveCuratedTypes(learned(), tree, list).redundant, ["wiper"]);
+  // Applied entries the learned types already resolve through a numeric tail or the plural fold are listed (info).
+  assert.deepEqual(resolveCuratedTypes(learned(), tree, list).resolvedWithout, ["brake-discs"]);
+  const tail = resolveCuratedTypes(learned(), tree, [{ type: "wiper-2", categories: [{ id: 20, name: "Oil filters" }] }]);
+  assert.deepEqual([tail.resolvedWithout, tail.problems, [...tail.curated.keys()]], [["wiper-2"], [], ["wiper-2"]]);
 });
 
 test("curated list: every problem is listed together; workers drop broken entries with one warning", () => {

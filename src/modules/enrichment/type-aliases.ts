@@ -1,7 +1,8 @@
 // Curated part types (#860): types the learned Trodo dictionary (#851) leaves unmapped although a correct category
 // exists. An alias names another spelling of a learned type and inherits its categories; a categories entry maps a type
-// Trodo never observed to Trodo categories directly (the name must equal source_categories.name, so a wrong id fails).
-// Learned data wins: an entry whose type is also learned is only reported as redundant, unless it sets override.
+// Trodo never observed or saw below the support threshold to Trodo categories directly (the name must equal
+// source_categories.name, so a wrong id fails). Learned data wins: an entry whose type is also learned is only reported
+// as redundant, unless it sets override.
 // Keep only unambiguous entries; a set goes to the category Trodo files such sets under, or stays unmapped.
 // Grow the list with `npm run enrichment:categories -- report-unmapped`, check it with `check-aliases`
 // (docs/product-enrichment.md, "Küratörlü tip eşlemeleri").
@@ -48,7 +49,7 @@ export const typeAliases:CuratedType[]=[
  {type:'fuel-supply-unit',alias:'fuel-feed-unit',note:'supply = feed unit'},
  {type:'seal-ring-water-pump',alias:'gasket-water-pump',note:'water pump seal'},
  {type:'cylinder-head-bolt',alias:'bolt-kit-cylinder-head',note:'Trodo files single bolts and kits under Cylinder head bolts'},
- // Categories: types Trodo never observed, mapped to the category Trodo uses for the part.
+ // Categories: types Trodo never observed or saw below the support threshold, mapped to the category Trodo uses for the part.
  {type:'spring-pack',categories:[LEAF_SPRINGS],note:'leaf spring pack'},
  {type:'intake-hose-air-filter',categories:[{id:103,name:'Air supply hoses'}],note:'air filter intake hose'},
  {type:'spotlight',categories:[{id:11274,name:'Driving lights'}],note:'auxiliary spot/driving light'},
@@ -60,8 +61,6 @@ export const typeAliases:CuratedType[]=[
  {type:'pressure-converter-exhaust-control',categories:[TURBOCHARGER_PARTS,{id:140,name:'EGR pressure converters'}],note:'serves turbo and EGR control'},
  {type:'hydraulic-hose-steering-system',categories:[{id:686,name:'Steering hoses'}],note:'power steering hose'},
  {type:'bulb-headlight',categories:[{id:11062,name:'Headlight bulbs'}],note:'headlight bulb'},
- {type:'bulb-fog-light',categories:[{id:11065,name:'Front and rear fog light bulbs'}],note:'fog light bulb'},
- {type:'mounting-stabilizer-coupling-rod',categories:[{id:719,name:'Sway bar links'}],note:'stabilizer link mounting'},
  {type:'sensor-accelerator-pedal-position',categories:[POSITION_SENSORS],note:'pedal position sensor'},
  {type:'sensor-throttle-position',categories:[POSITION_SENSORS],note:'throttle position sensor'},
  {type:'spring-cap',categories:[{id:10003,name:'Spring caps'}],note:'category of the same name'},
@@ -72,7 +71,6 @@ export const typeAliases:CuratedType[]=[
  {type:'trim-protective-strip-sidewall',categories:[TRIM_STRIPS],note:'side trim strip'},
  {type:'trim-protection-strip-door-window',categories:[TRIM_STRIPS],note:'door window trim strip'},
  {type:'trim-protective-strip-door',categories:[TRIM_STRIPS],note:'door trim strip'},
- {type:'trim-protection-strip-wing',categories:[TRIM_STRIPS],note:'wing trim strip'},
  {type:'trim-protection-strip-door',categories:[TRIM_STRIPS],note:'door trim strip'},
  {type:'bushing-axle-beam',categories:[{id:726,name:'Axle beams'}],note:'axle beam bushing; learned repair-kit-axle-beam uses the same category'},
  {type:'particle-sensor',categories:[{id:240,name:'Exhaust system sensors'}],note:'exhaust particulate sensor'},
@@ -82,12 +80,12 @@ export const typeAliases:CuratedType[]=[
  {type:'valve-engine-block-breather',categories:[{id:10048,name:'Engine block breather valves'}],note:'category of the same name'},
  {type:'brake-pedal-pad',categories:[{id:626,name:'Pedal covers'}],note:'brake pedal rubber'},
  {type:'accessory-kit-brake-caliper',categories:[{id:256,name:'Brake caliper parts'}],note:'caliper fitting kit'},
- {type:'ignition-starter-switch',categories:[{id:10022,name:'Ignition switches'}],note:'ignition switch'},
+ {type:'ignition-starter-switch',categories:[{id:10022,name:'Ignition switches'}],note:'ignition switch; Trodo\'s single product (FEBI 101012) is also under Starter parts (355), left out: one observation, the part is a switch'},
  {type:'nox-sensor-urea-injection',categories:[{id:235,name:'NOx & adblue sensors'}],note:'AdBlue NOx sensor'},
  {type:'ball-head-gearshift-linkage',categories:[{id:856,name:'Gear selector rods and repair kits'}],note:'gear linkage ball head'},
  {type:'brake-fluid',categories:[{id:960,name:'Brake fluid'}],note:'category of the same name'},
- {type:'wiper-linkage',categories:[{id:611,name:'Wiper linkage assemblies'}],note:'category of the same name'},
- {type:'oil-hose',categories:[{id:66,name:'Oil hoses'}],note:'category of the same name'},
+ {type:'wiper-linkage',categories:[{id:611,name:'Wiper linkage assemblies'}],note:'category of the same name; Trodo\'s single product (MAXGEAR 57-0207) is also under Wiper motors (608), left out: one observation, the part is the linkage'},
+ {type:'oil-hose',categories:[{id:66,name:'Oil hoses'}],note:'category of the same name; Trodo\'s single product (FAST FT38515) is also under Oil cooler and pipes (313), left out: one observation, oil hoses are not all oil-cooler lines'},
  {type:'bellow-air-suspension',categories:[{id:674,name:'Air springs'}],note:'air suspension bellow = air spring'},
  {type:'pump-fuel-pre-supply',categories:[FUEL_PUMPS],note:'fuel pre-supply pump'},
  {type:'sensor-exterior-temperature',categories:[{id:439,name:'Exterior/interior temperature sensors'},{id:10010,name:'Temperature sensors'}],note:'outside temperature sensor'},
@@ -101,7 +99,6 @@ export const typeAliases:CuratedType[]=[
  {type:'swirlpot-fuel-pump',categories:[FUEL_PUMPS],note:'fuel pump swirl pot'},
  {type:'armature-starter',categories:[{id:355,name:'Starter parts'}],note:'starter armature'},
  {type:'diverter-valve-charger',categories:[TURBOCHARGER_PARTS],note:'turbocharger diverter valve'},
- {type:'sway-bar-suspension',categories:[{id:717,name:'Stabilizers'}],note:'sway bar = stabilizer'},
  {type:'mounting-leaf-spring',categories:[LEAF_SPRINGS],note:'leaf spring mounting'},
  {type:'wing',categories:[{id:1000,name:'Fenders'}],note:'wing = fender'},
  {type:'ballast-gas-discharge-lamp',categories:[{id:1010,name:'Xenon ballasts'}],note:'xenon ballast'},
