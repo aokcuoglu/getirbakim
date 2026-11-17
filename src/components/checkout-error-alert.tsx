@@ -7,7 +7,7 @@ export const checkoutAlertClass = "mb-4 rounded-md border-0 bg-[#fff0ec] p-3.5 t
 // #788: the order named the lines the supplier refused live; they are listed by their names in the cart.
 const lineErrors: Record<string, { title: string; action: string; cart?: boolean }> = {
   stock: { title: "Tedarikçide şu anda bulunmayan ürünler:", action: "Bu ürünleri sepetinden çıkarıp siparişi yeniden onayla.", cart: true },
-  price: { title: "Tedarikçide fiyatı değişen ürünler:", action: "Güncel fiyat birkaç saniye içinde sepetine yansıyacak; sayfayı yenileyip yeniden dene." },
+  price: { title: "Tedarikçide fiyatı değişen ürünler:", action: "Güncel fiyat tedarikçi güncellemesi tamamlanınca sepetine yansıyacak; birkaç dakika sonra sayfayı yenileyip yeniden dene." },
 };
 
 export type CheckoutError = { code: string; names: string[] };

@@ -78,26 +78,28 @@ type Observed = { id: string; gone: boolean; nf?: number; mif?: number; k?: numb
  * What a live MalzemeAra answer means for a line whose write failed, by the same rules the write and the store use:
  * the live depots replace their saved stock, depots it does not return keep theirs, and the line is available when any
  * depot has stock (db/commerce.sql: stok>0 or sFarkliDepo>0; sYol does not count) and the live cost is positive.
- * Otherwise a different cost is a reprice.
+ * Otherwise a different cost is "recosted": that is not a price verdict, since a fixed or campaign price or rounding may
+ * keep the sale price as it was. The order decides by the sale price (#861, livePriceChanges).
  */
 export function basbugLiveVerdict(saved: { nf: number | null; depolar: Record<string, { stok?: number }> },
-  live: { nf: number; depots: Record<string, number> }): "sold_out" | "repriced" | "same" {
+  live: { nf: number; depots: Record<string, number> }): "sold_out" | "recosted" | "same" {
   const stock = { ...Object.fromEntries(Object.entries(saved.depolar).map(([depot, value]) => [depot, Number(value?.stok ?? 0)])), ...live.depots };
   // A cost of 0 or less cannot be sold either (db/commerce.sql prices only a positive cost).
   if (!(live.nf > 0) || !Object.values(stock).some(value => value > 0)) return "sold_out";
-  return saved.nf !== live.nf ? "repriced" : "same";
+  return saved.nf !== live.nf ? "recosted" : "same";
 }
 
 /**
  * Checks the cart's Başbuğ rows live and writes price and depot stock (see the module comment). Lines it could not
  * confirm come back in `failed` and are sold on saved data; codes the supplier no longer knows come back in `gone`.
  * When the rows stay locked by a running import the answers are not lost (#788): a line no depot has comes back in
- * `soldOut`, a line with a new cost in `repriced` (the order refuses both), and only an unchanged line is marked "busy".
+ * `soldOut` (the order refuses it), a line with a new cost in `recosted` with its live `nf` in the row's currency (the
+ * order refuses it only if its sale price would change, #861), and only an unchanged line is marked "busy".
  * The whole check shares CHECKOUT_REFRESH_BUDGET_MS unless `budgetMs` says otherwise.
  */
 export async function refreshBasbugItems(pool: Pool, ids: string[], options: { fetchItem?: BasbugItemFetch; budgetMs?: number } = {}) {
   const failed: Record<string, FallbackReason> = {};
-  const result = { refreshed: 0, changed: 0, gone: [] as string[], soldOut: [] as string[], repriced: [] as string[], failed };
+  const result = { refreshed: 0, changed: 0, gone: [] as string[], soldOut: [] as string[], recosted: {} as Record<string, number>, failed };
   if (!ids.length) return result;
   if (basbugPaused()) {
     for (const id of ids) failed[id] = "paused";
@@ -192,8 +194,8 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
     return result;
   } catch (error) {
     // Nothing was written, but the answers still count: codes it no longer knows (604) are reported gone, lines no depot
-    // has sold out and lines with a new cost repriced, so the order refuses them. Only unchanged lines are sold on saved
-    // data and marked.
+    // has sold out (the order refuses them) and lines with a new cost come back with it, for the order to judge by the
+    // sale price. Only unchanged lines are sold on saved data and marked.
     await client?.query("ROLLBACK").catch(() => undefined);
     console.error("Başbuğ checkout check could not be saved", { reason: error instanceof Error ? error.message : error });
     result.gone = observed.filter(item => item.gone).map(item => item.id);
@@ -203,7 +205,7 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
       const row = saved.get(item.id);
       const verdict = row && item.nf !== undefined && item.depots ? basbugLiveVerdict(row, { nf: item.nf, depots: item.depots }) : "same";
       if (verdict === "sold_out") result.soldOut.push(item.id);
-      else if (verdict === "repriced") result.repriced.push(item.id);
+      else if (verdict === "recosted" && item.nf !== undefined) result.recosted[item.id] = item.nf;
       else failed[item.id] = "busy";
     }
     return result;
