@@ -147,7 +147,7 @@ export function CategoryMenu({links}:{links:CategoryLink[]}) {
    <SheetPortal>
     <SheetOverlay className="bg-[#22283180] supports-backdrop-filter:backdrop-blur-none"/>
     <SheetPrimitive.Popup id="category-sheet" finalFocus={trigger}
-     className="fixed inset-y-0 left-0 z-50 flex h-dvh max-h-dvh w-[360px] max-w-[100vw] flex-col overflow-hidden bg-white text-sm leading-5 whitespace-normal text-foreground shadow-[0_6px_24px_rgba(33,43,54,.1)] outline-none transition-transform duration-200 ease-out data-ending-style:-translate-x-full data-starting-style:-translate-x-full motion-reduce:transition-none">
+     className="fixed inset-y-0 left-0 z-50 flex h-dvh max-h-dvh w-[360px] max-w-[100vw] flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] overflow-hidden bg-white text-sm leading-5 whitespace-normal text-foreground shadow-[0_6px_24px_rgba(33,43,54,.1)] outline-none transition-transform duration-200 ease-out data-ending-style:-translate-x-full data-starting-style:-translate-x-full motion-reduce:transition-none">
      <div className="relative flex h-[105px] shrink-0 flex-row items-center gap-3 bg-[#222831] bg-[url('/media/site/images/mobile-catalog.webp')] bg-cover bg-center px-4 pt-16 pb-4 text-white">
       {selected!==null&&tree.categories&&<button className={cn(sheetIconButton,"left-4")} type="button" aria-label="Üst kategoriye dön" onClick={()=>drill(current?.parentId===3?null:current?.parentId??null)}><ArrowLeft size={20}/></button>}
       <SheetClose className={cn(sheetIconButton,"right-4")} aria-label="Kategorileri kapat"><X size={18}/></SheetClose>

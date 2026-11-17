@@ -51,7 +51,7 @@ export function VehicleSheet({ open, vehicle, onClose, initialTab = "search", fi
     <SheetPortal>
       <SheetOverlay className="bg-[rgba(33,43,54,.5)] supports-backdrop-filter:backdrop-blur-none" />
       <SheetPrimitive.Popup finalFocus={finalFocus} aria-labelledby={`${id}-title`}
-        className="fixed inset-y-0 right-0 z-50 flex h-dvh max-h-dvh w-[420px] max-w-[100vw] flex-col overflow-hidden bg-white text-sm leading-5 text-foreground shadow-[-8px_0_32px_#212b3614] outline-none transition-transform duration-[220ms] ease-out data-ending-style:translate-x-full data-starting-style:translate-x-full max-[600px]:w-full motion-reduce:transition-none">
+        className="fixed inset-y-0 right-0 z-50 flex h-dvh max-h-dvh w-[420px] max-w-[100vw] flex-col overflow-hidden bg-white text-sm leading-5 text-foreground shadow-[-8px_0_32px_#212b3614] outline-none transition-transform duration-[220ms] ease-out data-ending-style:translate-x-full data-starting-style:translate-x-full max-[600px]:w-full pr-[env(safe-area-inset-right)] max-[600px]:pl-[env(safe-area-inset-left)] motion-reduce:transition-none">
         <VehicleSheetBody id={id} vehicle={vehicle} initialTab={initialTab} onClose={onClose} busyRef={busyRef} />
       </SheetPrimitive.Popup>
     </SheetPortal>
@@ -159,7 +159,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const stepHeading = "m-0 text-base leading-6 font-semibold outline-none";
 
   return <Tabs value={tab} onValueChange={value => { setTab(value as Tab); setError(""); }} className="flex min-h-0 flex-1 flex-col gap-0">
-    <div className="relative shrink-0 bg-[linear-gradient(90deg,rgba(20,25,33,.8),rgba(20,25,33,.4)),url('/hero-car.jpg')] bg-cover bg-[center_55%] px-5 pt-5 text-white max-[600px]:pt-[max(20px,env(safe-area-inset-top))]">
+    <div className="relative shrink-0 bg-[linear-gradient(90deg,rgba(20,25,33,.8),rgba(20,25,33,.4)),url('/hero-car.jpg')] bg-cover bg-[center_55%] px-5 pt-5 text-white pt-[max(20px,env(safe-area-inset-top))]">
       <SheetTitle id={`${id}-title`} className="mt-0 mr-12 mb-5 text-xl leading-7 font-semibold text-white">Araç seçimi</SheetTitle>
       <SheetClose aria-label="Araç seçimini kapat" disabled={pending} className="absolute top-[max(8px,env(safe-area-inset-top))] right-2 grid size-11 min-h-11 place-items-center rounded-[4px] border-0 bg-white/15 p-0 text-white hover:bg-white/25 disabled:bg-white/15 disabled:text-white"><X size={18} /></SheetClose>
       <TabsList aria-label="Araç seçimi sekmeleri" className="h-auto! gap-6 rounded-none bg-transparent p-0">
@@ -252,7 +252,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
       </TabsContent>
       {error && <p className="mx-5 mt-0 mb-5 rounded-[5px] bg-[#fff0ec] p-3 text-[13px] leading-5 text-[#a74130]" role="alert">{error}</p>}
     </div>
-    <div className="shrink-0 border-t border-border bg-white p-5 max-[600px]:pb-[max(20px,env(safe-area-inset-bottom))]">
+    <div className="shrink-0 border-t border-border bg-white p-5 pb-[max(20px,env(safe-area-inset-bottom))]">
       <Button nativeButton={false} render={<Link href={catalogPath} onClick={onClose} />}
         className="flex h-auto min-h-11 w-full items-center justify-center rounded-[5px] border border-input bg-white px-3 py-2.5 text-[13px] leading-5 font-medium text-foreground hover:border-[#54626e] hover:bg-[#f9fafb] hover:text-foreground">Araç seçmeden alışveriş yap</Button>
     </div>
