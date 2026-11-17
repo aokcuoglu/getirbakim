@@ -430,7 +430,8 @@ export async function importDinamik(pool: Pool, options: z.input<typeof dinamikI
  * in `recosted` with its live `nf`, and the order refuses it only if its sale price would change (#861). Only a line
  * whose live answer matches what is saved is sold on that data, marked "busy".
  */
-export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?: DinamikFetch, options: { budgetMs?: number } = {}) {
+export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?: DinamikFetch, options: { budgetMs?: number; now?: () => number } = {}) {
+  const now = options.now ?? Date.now;
   const failed: Record<string, FallbackReason> = {};
   const result = { refreshed: 0, changed: 0, gone: [] as string[], soldOut: [] as string[], recosted: {} as Record<string, number>, failed };
   if (!ids.length) return result;
@@ -446,16 +447,16 @@ export async function refreshDinamikItems(pool: Pool, ids: string[], fetchJson?:
   const saved = new Map(rows.map(row => [row.id, row]));
   type Observed = { id: string; gone: boolean; product_data?: Record<string, unknown>; price_data?: Record<string, unknown> | null; stock_data: Record<string, unknown> | null };
   const observed: Observed[] = [];
-  const deadline = Date.now() + (options.budgetMs ?? CHECKOUT_REFRESH_BUDGET_MS);
+  const deadline = now() + (options.budgetMs ?? CHECKOUT_REFRESH_BUDGET_MS);
   // A few at a time: carts are small, and the API serves one code per request. A failing code marks only its own line.
   for (let index = 0; index < rows.length; index += 4) {
     const slice = rows.slice(index, index + 4);
-    if (Date.now() >= deadline) {
+    if (now() >= deadline) {
       for (const row of slice) failed[row.id] = "timeout";
       continue;
     }
     await Promise.all(slice.map(async row => {
-      const timeoutMs = Math.max(1, Math.min(CHECKOUT_REQUEST_TIMEOUT_MS, deadline - Date.now()));
+      const timeoutMs = Math.max(1, Math.min(CHECKOUT_REQUEST_TIMEOUT_MS, deadline - now()));
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         // The race also bounds a client that ignores timeoutMs; the losing answer is never recorded.
