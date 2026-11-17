@@ -418,3 +418,16 @@ COMMENT ON COLUMN commerce_orders.purchase_tracked_at IS 'GA4 purchase sent for 
 -- orders whose purchase was measured; NULL = not sent yet. No backfill.
 ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refund_tracked_at timestamptz;
 COMMENT ON COLUMN commerce_orders.refund_tracked_at IS 'GA4 refund sent for this order (#750); claimed once by the order''s own customer, only after purchase_tracked_at';
+-- Payment options with an installment fee (#886). Off by default: checkout then behaves as before (single payment).
+-- Rates are the merchant commission percentages of the TAMI portal; the customer total of an n-installment order is
+-- cash × (1 − single rate) / (1 − n rate). installment_rates keys are "2".."12"; a missing key hides that option.
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installments_enabled boolean NOT NULL DEFAULT false;
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_max integer NOT NULL DEFAULT 6 CHECK(installment_max BETWEEN 2 AND 12);
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_min_basket_kurus integer NOT NULL DEFAULT 0 CHECK(installment_min_basket_kurus BETWEEN 0 AND 1000000000);
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_single_rate numeric(5,2) NOT NULL DEFAULT 2.85 CHECK(installment_single_rate BETWEEN 0 AND 50);
+ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_rates jsonb NOT NULL
+ DEFAULT '{"2":5.89,"3":7.95,"4":9.88,"5":11.72,"6":13.47,"7":15.39,"8":17.23,"9":18.97,"10":20.85,"11":22.71,"12":24.32}';
+-- The installment count chosen at checkout and its fee. total_kurus includes the fee; the cash price is
+-- total_kurus − installment_fee_kurus. Orders placed before this change are single payments without a fee.
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS installment_count integer NOT NULL DEFAULT 1 CHECK(installment_count BETWEEN 1 AND 12);
+ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS installment_fee_kurus bigint NOT NULL DEFAULT 0 CHECK(installment_fee_kurus>=0);
