@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {displaySpecifications,facetOptions,translateSpecificationLabel,translateSpecificationList,translateSpecificationParts,translateSpecificationValue} from "../src/modules/store/specification-translations";
+import {displaySpecifications,facetOptions,withSelectedOptions,translateSpecificationLabel,translateSpecificationList,translateSpecificationParts,translateSpecificationValue} from "../src/modules/store/specification-translations";
 import {applySpecOverrides,mergeSpecificationRows,pageSpecifications} from "../src/modules/store/product-spec-display";
-import {activeFilters,clearAllFilters,clearPanelFilters,toggleAttribute,toggleBrand,type CatalogFacet,selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
+import {activeFilters,isPanelFilter,clearAllFilters,clearPanelFilters,toggleAttribute,toggleBrand,type CatalogFacet,selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
 import {parseCatalogQuery} from "../src/modules/store/catalog-query";
 import {listingUrl} from "../src/modules/seo/paths";
 
@@ -198,6 +198,23 @@ test("removing a chip keeps the sort and the path, and starts on page 1", () => 
   const [bosch]=activeFilters(query,[]);
   assert.equal(listingUrl(query,bosch.remove),"/kategori/fren-diskleri-269/volkswagen?brands=%5B%22FEBI%22%5D&availability=in_stock&sort=price-asc");
   assert.equal(listingUrl({...query,fits:"vehicle",oil:"viscosity"},clearAllFilters),"/kategori/fren-diskleri-269/volkswagen?sort=price-asc");
-  // The sheet's "Temizle" keeps the vehicle-fit and engine-oil filters, which have their own banners.
+  // The panel's "Temizle" clears only its own groups; the vehicle-fit and engine-oil filters come off from their chips.
   assert.equal(listingUrl({...query,fits:"vehicle"},clearPanelFilters),"/kategori/fren-diskleri-269/volkswagen?sort=price-asc&fits=vehicle");
+});
+test("the vehicle-fit chip names the garage vehicle; only manufacturer, option and stock chips are the panel's", () => {
+  const items=activeFilters({brand:"BOSCH",fits:"vehicle",oil:"viscosity"},[],{vehicleName:"Volkswagen Golf 1.6 TDI"});
+  assert.deepEqual(items.map(item=>item.label),["BOSCH","Aracına uyanlar: Volkswagen Golf 1.6 TDI","Önerilen viskozite"]);
+  assert.deepEqual(items.map(isPanelFilter),[true,false,false]);
+});
+test("selected values the facets no longer offer get one chip per sidebar translation", () => {
+  const attributes={"Fitting Position":["Rear Axle","Front Axle","front axle"],"Surface":["Coated"]};
+  const facets=withSelectedOptions([{key:"Fitting Position",label:"Montaj konumu",options:[{label:"Arka aks",values:["Rear Axle"]}]}],attributes);
+  const items=activeFilters({attributes:JSON.stringify(attributes)},facets);
+  assert.deepEqual(items.map(item=>item.label),["Montaj konumu: Arka aks","Montaj konumu: Ön aks","Yüzey: Kaplamalı"]);
+  // One chip removes every spelling of the value.
+  assert.deepEqual(items[1].remove,{attributes:'{"Fitting Position":["Rear Axle"],"Surface":["Coated"]}'});
+  // Without the server's grouping, values that read the same still share a chip.
+  const fallback=activeFilters({attributes:JSON.stringify(attributes)},[]);
+  assert.deepEqual(fallback.map(item=>item.label),["Montaj konumu: Arka aks","Montaj konumu: Ön aks","Montaj konumu: front axle","Yüzey: Kaplamalı"]);
+  assert.deepEqual(withSelectedOptions([],{}),[]);
 });

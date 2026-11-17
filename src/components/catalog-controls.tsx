@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Search, SlidersHorizontal, X } from "lucide-react";
 import { categoryPath, searchCategories, type SidebarCategoryBranch } from "@/modules/store/category-tree";
 import type {CatalogQuery} from "@/modules/store/catalog-query";
-import {selectedBrands,selectedAttributes,maxAttributeValues,listingRangeLabel,activeFilters,availabilityLabels,clearPanelFilters,toggleAttribute,toggleBrand,type CatalogFacet,type FilterUpdate} from "@/modules/store/catalog-filters";
+import {selectedBrands,selectedAttributes,maxAttributeValues,listingRangeLabel,activeFilters,availabilityLabels,isPanelFilter,clearPanelFilters,toggleAttribute,toggleBrand,type CatalogFacet,type FilterUpdate} from "@/modules/store/catalog-filters";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -44,16 +44,17 @@ function SidebarCategoryTree({nodes,selected,href,listed}:{nodes:SidebarCategory
 // Long option lists (182 makers) render their first entries until opened or searched: each checkbox
 // is ~1 kB of markup, and the box only shows about ten at a time anyway.
 const collapsedOptions=12;
-function FilterGroup({label,options,selected,onToggle,searchable=true,isBlocked,hint}:{label:string;options:{value:string;label:string}[];selected:string[];onToggle:(value:string)=>void;searchable?:boolean;isBlocked?:(value:string)=>boolean;hint?:string}){
+function FilterGroup({label,options,selected,onToggle,searchable=true,isBlocked,hint,defaultOpen=true}:{defaultOpen?:boolean;label:string;options:{value:string;label:string}[];selected:string[];onToggle:(value:string)=>void;searchable?:boolean;isBlocked?:(value:string)=>boolean;hint?:string}){
  const [search,setSearch]=useState("");
  const [showAll,setShowAll]=useState(false);
  const matching=options.filter(o=>o.label.toLocaleLowerCase("tr").includes(search.toLocaleLowerCase("tr")));
  const visible=search||showAll?matching:matching.filter((option,index)=>index<collapsedOptions||selected.includes(option.value));
- return <Collapsible defaultOpen className="border-b border-border last:border-b-0">
+ return <Collapsible defaultOpen={defaultOpen} className="border-b border-border last:border-b-0">
  <CollapsibleTrigger className="group/facet flex min-h-[50px] w-full cursor-pointer rounded-none border-0 bg-transparent text-foreground items-center justify-between px-[25px] py-[15px] max-[768px]:px-5 text-left text-base leading-5 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset"><strong className="font-bold">{label}</strong><span aria-hidden="true" className="text-xl font-medium group-data-panel-open/facet:hidden">+</span><span aria-hidden="true" className="hidden text-xl font-medium group-data-panel-open/facet:inline">−</span></CollapsibleTrigger>
  <CollapsibleContent>
  {searchable&&<label className="relative mx-[25px] mb-[15px] block pt-[5px]"><Image className="absolute top-[15px] left-2.5 max-[768px]:top-[17px]" src="/media/site/icons/search.svg" width={20} height={20} alt="" unoptimized/><input type="search" className="h-10 w-full max-[768px]:h-11 rounded-md border border-input bg-white py-2 pr-2.5 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50" aria-label={label+" ara"} placeholder="Ara" value={search} onChange={e=>setSearch(e.target.value)}/></label>}
- <div className="max-h-[300px] overflow-auto px-[25px] pt-[5px] pb-[25px] max-[768px]:max-h-none max-[768px]:overflow-visible max-[768px]:px-5 max-[768px]:pb-4">{visible.map(option=><label key={option.value} className="facet-option">
+ {/* Phones: the first entries without an inner scroll (the panel scrolls); a searched or opened long list scrolls in its own box. */}
+ <div className={cn("max-h-[300px] overflow-auto px-[25px] pt-[5px] pb-[25px] max-[768px]:px-5 max-[768px]:pb-4",search||showAll?"max-[768px]:max-h-80 max-[768px]:overscroll-contain":"max-[768px]:max-h-none max-[768px]:overflow-visible")}>{visible.map(option=><label key={option.value} className="facet-option">
   <StoreCheckbox checked={selected.includes(option.value)} disabled={!selected.includes(option.value)&&(isBlocked?isBlocked(option.value):selected.length>=30)} onCheckedChange={()=>onToggle(option.value)}/><span>{option.label}</span></label>)}
   {visible.length<matching.length&&<button type="button" className="mt-1 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-brand-strong hover:underline max-[768px]:min-h-11" onClick={()=>setShowAll(true)}>Tümünü göster ({matching.length.toLocaleString("tr-TR")})</button>}</div>
  {hint&&<p className="px-[25px] pb-[15px] text-[13px] text-muted-foreground">{hint}</p>}
@@ -63,12 +64,14 @@ function FilterGroup({label,options,selected,onToggle,searchable=true,isBlocked,
 }
 type FilterProps={brands:string[];facets:CatalogFacet[];params:Query};
 // Manufacturers, the facets and the stock state: the desktop sidebar's lower box and the phone filter panel's body.
-function CatalogFilterGroups({brands,facets,params,onChange}:FilterProps&{onChange:(updates:FilterUpdate)=>void}){
+// `panel`: in the phone sheet only the manufacturers and the groups with a selection start open, so the groups fit on
+// one screen; the desktop sidebar opens every group.
+function CatalogFilterGroups({brands,facets,params,onChange,panel=false}:FilterProps&{onChange:(updates:FilterUpdate)=>void;panel?:boolean}){
  const selected=selectedBrands(params),attributes=selectedAttributes(params);
  return <>
   <FilterGroup label="Üretici" options={brands.map(value=>({value,label:value}))} selected={selected} onToggle={value=>onChange(toggleBrand(params,value))}/>
-  {facets.map(facet=>{const current=attributes[facet.key]??[];return <FilterGroup key={facet.key} searchable={facet.key!=="Brand class"} label={facet.label} options={facet.options.map(o=>({value:o.values[0],label:o.label}))} selected={facet.options.filter(o=>o.values.some(v=>current.includes(v))).map(o=>o.values[0])} isBlocked={value=>current.length+(facet.options.find(o=>o.values[0]===value)?.values.filter(v=>!current.includes(v)).length??0)>maxAttributeValues} hint={facet.options.some(o=>!o.values.some(v=>current.includes(v))&&current.length+o.values.filter(v=>!current.includes(v)).length>maxAttributeValues)?`En fazla ${maxAttributeValues} seçim yapılabilir.`:undefined} onToggle={value=>{const option=facet.options.find(o=>o.values[0]===value);if(option)onChange(toggleAttribute(params,facet.key,option.values));}}/>;})}
-  <FilterGroup label="Stok durumu" searchable={false} options={Object.entries(availabilityLabels).map(([value,label])=>({value,label}))} selected={params.availability?[params.availability]:[]} onToggle={value=>onChange({availability:params.availability===value?undefined:value as keyof typeof availabilityLabels})}/>
+  {facets.map(facet=>{const current=attributes[facet.key]??[];return <FilterGroup key={facet.key} defaultOpen={!panel||current.length>0} searchable={facet.key!=="Brand class"} label={facet.label} options={facet.options.map(o=>({value:o.values[0],label:o.label}))} selected={facet.options.filter(o=>o.values.some(v=>current.includes(v))).map(o=>o.values[0])} isBlocked={value=>current.length+(facet.options.find(o=>o.values[0]===value)?.values.filter(v=>!current.includes(v)).length??0)>maxAttributeValues} hint={facet.options.some(o=>!o.values.some(v=>current.includes(v))&&current.length+o.values.filter(v=>!current.includes(v)).length>maxAttributeValues)?`En fazla ${maxAttributeValues} seçim yapılabilir.`:undefined} onToggle={value=>{const option=facet.options.find(o=>o.values[0]===value);if(option)onChange(toggleAttribute(params,facet.key,option.values));}}/>;})}
+  <FilterGroup label="Stok durumu" defaultOpen={!panel||Boolean(params.availability)} searchable={false} options={Object.entries(availabilityLabels).map(([value,label])=>({value,label}))} selected={params.availability?[params.availability]:[]} onToggle={value=>onChange({availability:params.availability===value?undefined:value as keyof typeof availabilityLabels})}/>
  </>;
 }
 // `branch` null: no category links (manufacturer pages, #660). `listed`: on a make or model listing, the categories
@@ -89,28 +92,36 @@ export function CatalogSidebar({branch,listed,brands,facets,params}:FilterProps&
 // Phones (≤768px): "Filtrele" opens the filter groups in a bottom sheet. Every tick navigates at once (the URL stays the
 // filter state, #883) and the sheet stays open: the server's new count fills "N ürünü göster", which only closes it. The
 // optimistic query ticks the box before the response, and quick successive ticks build on each other.
-export function CatalogFilterSheet({brands,facets,params,count}:FilterProps&{count:number}){
+// The sheet's ticks replace the history entry: trying filters out is one step, and Back leaves the listing as it was
+// before the sheet. The chips above the results and the desktop sidebar push: each is one deliberate change Back undoes.
+// `chipFacets`: the facets with the selected values they no longer offer (withSelectedOptions), for the chips only.
+export function CatalogFilterSheet({brands,facets,chipFacets,params,count,vehicleName}:FilterProps&{chipFacets:CatalogFacet[];count:number;vehicleName?:string}){
  const router=useRouter();
  const [open,setOpen]=useState(false);
  const [pending,startTransition]=useTransition();
  const [query,applyQuery]=useOptimistic(params,(current:Query,updates:FilterUpdate)=>({...current,...updates,page:undefined}));
- const chips=activeFilters(query,facets).filter(item=>!item.key.startsWith("fits")&&!item.key.startsWith("oil"));
- function change(updates:FilterUpdate){startTransition(()=>{applyQuery(updates);router.push(listingUrl(query,updates),{scroll:false});});}
+ const chips=activeFilters(query,chipFacets,{vehicleName});
+ const panelSelected=chips.some(isPanelFilter);
+ function change(updates:FilterUpdate){startTransition(()=>{applyQuery(updates);router.replace(listingUrl(query,updates),{scroll:false});});}
  const plain="h-auto min-h-11 rounded-md text-sm font-medium";
+ const primary="border-brand bg-brand text-white hover:bg-brand-strong",secondary="border-input bg-white text-foreground";
+ const empty=count===0&&!pending;
  return <Sheet open={open} onOpenChange={setOpen}>
-  <SheetTrigger render={<Button type="button" variant="outline" className={cn(plain,"w-full gap-2 border-input bg-white px-3 text-foreground")}/>}><SlidersHorizontal size={17} aria-hidden="true"/>Filtrele{chips.length>0&&<span className="tabular-nums">({chips.length})</span>}</SheetTrigger>
+  <SheetTrigger render={<Button type="button" variant="outline" className={cn(plain,secondary,"w-full gap-2 px-3")}/>}><SlidersHorizontal size={17} aria-hidden="true"/>Filtrele{chips.length>0&&<span className="tabular-nums">({chips.length})</span>}</SheetTrigger>
   <SheetContent side="bottom" showCloseButton={false} overlayClassName={storeDialogOverlay} className="max-h-[85dvh] gap-0 rounded-t-[14px] border-0 bg-white p-0 text-foreground">
    <div className="flex shrink-0 items-center justify-between border-b border-border py-1 pr-1.5 pl-5">
     <SheetTitle className="text-lg leading-6 font-semibold">Filtreler</SheetTitle>
     <SheetClose aria-label="Filtreleri kapat" render={<Button type="button" variant="ghost" className="size-11 min-h-11 rounded-md p-0 text-foreground"/>}><X size={20} aria-hidden="true"/></SheetClose>
    </div>
+   <p className="sr-only" role="status" aria-live="polite" aria-busy={pending}>{pending?"Sonuçlar güncelleniyor":`${count.toLocaleString("tr-TR")} ürün bulundu`}</p>
    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-    {chips.length>0&&<ul aria-label="Seçili filtreler" className="flex flex-wrap gap-2 border-b border-border px-5 py-3">{chips.map(chip=><li key={chip.key}><Button type="button" variant="outline" aria-label={`${chip.label} filtresini kaldır`} className={cn(plain,"max-w-full gap-1.5 rounded-full border-input bg-white px-3 font-normal whitespace-normal text-foreground")} onClick={()=>change(chip.remove)}><span className="text-left">{chip.label}</span><X size={14} aria-hidden="true"/></Button></li>)}</ul>}
-    <CatalogFilterGroups brands={brands} facets={facets} params={query} onChange={change}/>
+    {chips.length>0&&<ul aria-label="Seçili filtreler" className="flex flex-wrap gap-2 border-b border-border px-5 py-3">{chips.map(chip=><li key={chip.key}><Button type="button" variant="outline" className={cn(plain,secondary,"max-w-full gap-1.5 rounded-full px-3 font-normal whitespace-normal")} onClick={()=>change(chip.remove)}><span className="text-left">{chip.label}<span className="sr-only"> filtresini kaldır</span></span><X size={14} aria-hidden="true"/></Button></li>)}</ul>}
+    <CatalogFilterGroups panel brands={brands} facets={facets} params={query} onChange={change}/>
    </div>
+   {/* No result: "Temizle" becomes the main action; the other button still closes the sheet. */}
    <div className="flex shrink-0 gap-3 border-t border-border bg-white px-5 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))]">
-    <Button type="button" variant="outline" className={cn(plain,"flex-1 border-input bg-white px-4 text-foreground")} disabled={!chips.length} onClick={()=>change(clearPanelFilters)}>Temizle</Button>
-    <Button type="button" className={cn(plain,"flex-2 border-brand bg-brand px-4 text-white hover:bg-brand-strong")} aria-busy={pending||undefined} onClick={()=>setOpen(false)}>{pending?"Güncelleniyor…":`${count.toLocaleString("tr-TR")} ürünü göster`}</Button>
+    <Button type="button" variant="outline" className={cn(plain,empty&&panelSelected?primary:secondary,"flex-1 px-4")} disabled={!panelSelected} onClick={()=>change(clearPanelFilters)}>Temizle</Button>
+    <Button type="button" variant="outline" className={cn(plain,empty&&panelSelected?secondary:primary,"flex-2 px-4")} onClick={()=>setOpen(false)}>{pending?"Güncelleniyor…":empty?"Sonuç yok — filtreleri değiştir":`${count.toLocaleString("tr-TR")} ürünü göster`}</Button>
    </div>
   </SheetContent>
  </Sheet>;
