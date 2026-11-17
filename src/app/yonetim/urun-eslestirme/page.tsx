@@ -134,7 +134,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
           : hints.priceWarning
             ? <StatusBadge tone="warning" title={`${ratioTitle} Oran 2 katı aşıyor; farklı parça veya paket olabilir.`}>Alış fiyatı {formatDecimal(hints.priceRatio, 1)} kat</StatusBadge>
             : <StatusBadge tone="neutral" title={ratioTitle}>Alış fiyatı {formatDecimal(hints.priceRatio, 1)} kat</StatusBadge>}
-        {pack.differs && <StatusBadge tone="warning" icon={Boxes} title={`Mevcut: ${pack.a.join(", ") || "yok"} · Önerilen: ${pack.b.join(", ") || "yok"}`}>Paket farkı: {[...new Set([...pack.a, ...pack.b])].join(", ")}</StatusBadge>}
+        {pack.differs && <StatusBadge tone="warning" icon={Boxes} title={`Sol: mevcut ürün, sağ: önerilen eş. Mevcut: ${pack.a.join(", ") || "yok"} · Önerilen: ${pack.b.join(", ") || "yok"}`}>Paket farkı: {pack.a.join(", ") || "yok"} ↔ {pack.b.join(", ") || "yok"}</StatusBadge>}
       </div>;
     };
     const side = (item: { id: string; brand_label: string; code: string; name: string | null; suppliers: string[]; price_kurus: number | null; available: boolean | null }) =>
@@ -156,7 +156,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
             ...nameKinds.map(kind => ({ value: kind, label: `${candidateNames[kind]} (${number(data.byNames[kind])})` })),
           ] },
         ])}
-        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Yalnız incelenmiş güvenli ek desenleri (ör. Ford renk ekleri, MAYSAN MM/WM/PM, OSRAM 1BL) topluca birleştirilebilir; diğerlerini tek tek karara bağlayın. İpuçları (alış fiyatı oranı, paket sözcüğü) yalnız yardımcıdır; toplu birleştirme kuralını değiştirmez. Bilinen farklı parça desenleri (ör. FEBI 100261 ve 1002610, OSRAM -2HB/-2BL) önerilmez.</AlertDescription></Alert>}
+        {data.reason === "suffix" && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>Yalnız incelenmiş güvenli ek desenleri (ör. Ford renk ekleri, MAYSAN MM/WM/PM, OSRAM 1BL) topluca birleştirilebilir; diğerlerini tek tek karara bağlayın. Alış fiyatları arasında 2 katı aşan oran uyarı sayılır. İpuçları (alış fiyatı oranı, paket bilgisi) yalnız yardımcıdır; toplu birleştirme kuralını değiştirmez. Bilinen farklı parça desenleri (ör. FEBI 100261 ve 1002610, OSRAM -2HB/-2BL) önerilmez.</AlertDescription></Alert>}
         {(bulkBrand || data.names === "conflict") && <div className="flex flex-wrap items-center gap-2">
           {bulkBrand && data.reason && data.bulkAllowed && data.names !== "conflict" && <div className="flex flex-wrap items-center gap-2">
             {data.acceptableTotal > 0 && <form action={acceptCandidates}>
@@ -180,7 +180,7 @@ export default async function ProductMatching({ searchParams }: { searchParams: 
               {item.suffix_bulk && <StatusBadge tone="success" title="İncelenmiş güvenli ek deseni; topluca birleştirilebilir">Güvenli ek</StatusBadge>}</div></TableCell>
             <TableCell>{side(item.a)}</TableCell>
             <TableCell>{side(item.b)}</TableCell>
-            <TableCell className="text-center">{item.name_similarity === null ? "—" : <StatusBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"} title="Ürün adlarının trigram benzerliği; tek başına karar ölçütü değil">{percent(item.name_similarity)}</StatusBadge>}</TableCell>
+            <TableCell className="text-center">{item.name_similarity === null ? "—" : <StatusBadge tone={item.name_similarity >= 0.3 ? "success" : item.name_similarity >= 0.15 ? "neutral" : "warning"} title="Ürün adlarının benzerliği; tek başına karar ölçütü değil">{percent(item.name_similarity)}</StatusBadge>}</TableCell>
             {showHints && <TableCell>{item.hints ? hintBadges(item.hints) : "—"}</TableCell>}
             <TableCell><div className="flex flex-wrap gap-2">{(["same", "different"] as const).map(status => <form key={status} action={decideCandidate}>
               <input type="hidden" name="product_a" value={item.a.id}/><input type="hidden" name="product_b" value={item.b.id}/>

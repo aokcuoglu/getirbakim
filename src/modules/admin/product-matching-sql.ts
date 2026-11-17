@@ -68,7 +68,8 @@ export const latestSupplierRatesSql = `
 /**
  * `$1::uuid[]` product ids -> the lowest supplier cost in TRY per product (`product_id`, `cost_try`), the #587 price
  * signal. A blank/TL/TRY currency counts as 1, otherwise the supplier's latest rate; rows without a rate or with
- * `nf<=0` are skipped. This is the buying cost, not the store sale price.
+ * `nf<=0` are skipped. An empty `dc` counts as TRY on purpose (same as the #587 measurement), unlike commerce_catalog.
+ * This is the buying cost, not the store sale price.
  */
 export const productCostTrySql = `
   WITH s AS (SELECT product_id,supplier_item_id FROM product_sources WHERE product_id=ANY($1::uuid[])),
