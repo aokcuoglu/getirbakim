@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { db } from '@/lib/db';
 import type { PoolClient } from 'pg';
 import { cartFor,lockCartOwner,type CartOwner,type CartItem } from './cart';
-import { refreshCheckoutSources,checkoutItems } from './supplier-checkout';
+import { refreshCheckoutSources,checkoutItems,livePriceChanges } from './supplier-checkout';
 import { supplierCheckoutMode } from './supplier-checkout-policy';
 import { servicePrice } from './catalog';
 import { paymentsEnabled,PAYMENT_WINDOW_MINUTES } from '@/modules/payments/checkout';
@@ -73,11 +73,11 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   // A cart changed during the API call must be quoted and checked again.
   const currentItems=(await checkoutItems(owner,client)).map(item=>item.id);
   if(JSON.stringify(currentItems)!==JSON.stringify(refreshed.items)) { await client.query('ROLLBACK'); return {error:'stock'}; }
-  // (#770) The supplier no longer knows these codes (604 / empty getStock), and (#788) the live answer said sold out or
-  // quoted a new cost but rows locked by an import kept it from being saved: refused and named, never sold on saved data.
+  // (#770) The supplier no longer knows these codes (604 / empty getStock), and (#788) the live answer said sold out but
+  // rows locked by an import kept it from being saved: refused and named, never sold on saved data. A new live cost that
+  // could not be saved is judged by the sale price below (#861).
   const unavailable=[...refreshed.gone,...refreshed.soldOut];
   if(unavailable.length) { await client.query('ROLLBACK'); return {error:'stock',products:unavailable}; }
-  if(refreshed.repriced.length) { await client.query('ROLLBACK'); return {error:'price',products:refreshed.repriced}; }
   await client.query('SELECT id FROM commerce_settings FOR SHARE');
   if(await supplierCheckoutMode(client)!==refreshed.mode) { await client.query('ROLLBACK'); return {error:'price'}; }
   // Lock saleable sources while prices are checked and store stock is reserved.
@@ -102,6 +102,11 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   if(!items.length || items.some(p=>!p.available || !p.price_kurus || p.quantity>p.max_quantity || servicePrice(p.price_kurus,discount)<1)) {
    await client.query('ROLLBACK'); return {error:'stock'};
   }
+  // (#788, #861) A live cost the locked rows kept from being saved refuses its line only if the sale price would change;
+  // checked before the quote so the error names the lines. A fixed or campaign price, or a cost that rounds to the same
+  // price, is sold on saved data and marked "busy" below.
+  const repriced=await livePriceChanges(client,refreshed.recosted);
+  if(repriced.length) { await client.query('ROLLBACK'); return {error:'price',products:repriced}; }
   const shipping=await shippingRule(client);
   if(cartQuote(items,discount,shipping)!==input.quote) { await client.query('ROLLBACK'); return {error:'price'}; }
   const totals=orderTotals(items,discount,shipping);
@@ -125,8 +130,11 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
     await client.query('ROLLBACK'); return {error:'stock'};
    }
    // A line the supplier could not confirm live was sold on its saved data (#763): operations confirm it with the supplier.
-   const reason=refreshed.unverified[p.id];
-   const snapshot={...p.pricing_snapshot,discount_percent:discount,...(reason ? {checkout_mode:'snapshot',live_check:'failed',live_check_reason:reason} : {})};
+   // A live cost that could not be saved keeps the sale price (#861) and is recorded as live_check_nf for operations.
+   const liveNf=refreshed.recosted[p.id];
+   const reason=refreshed.unverified[p.id] ?? (liveNf!==undefined ? 'busy' : undefined);
+   const snapshot={...p.pricing_snapshot,discount_percent:discount,...(reason ? {checkout_mode:'snapshot',live_check:'failed',live_check_reason:reason} : {}),
+    ...(liveNf!==undefined ? {live_check_nf:liveNf} : {})};
    await client.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level,reserved_quantity)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,unitPrice,JSON.stringify(snapshot),vehicle ? JSON.stringify(vehicle) : null,levels[i],reserved]);
   }

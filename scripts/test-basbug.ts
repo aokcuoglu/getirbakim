@@ -213,7 +213,7 @@ test("rows a running import keeps locked are marked busy, a 604 is still gone, a
   assert.deepEqual(result.gone, [ids[0]]);
   assert.equal(ids[0] in result.failed, false);
   assert.deepEqual(result.failed, Object.fromEntries(ids.slice(1).map(id => [id, "busy"])));
-  assert.deepEqual([result.soldOut, result.repriced], [[], []]);
+  assert.deepEqual([result.soldOut, result.recosted], [[], {}]);
   assert.equal(result.refreshed, 0);
   assert.equal(result.changed, 0);
   assert.deepEqual(statements, ["BEGIN", "SET LOCAL", "SELECT id", "ROLLBACK"]);
@@ -223,13 +223,14 @@ test("rows a running import keeps locked are marked busy, a 604 is still gone, a
   assert.ok(Number(timeout[1]) < 1000);
 });
 
-test("a live answer that cannot be saved still refuses a sold-out or repriced line (#788)", async () => {
+test("a live answer that cannot be saved still refuses a sold-out line and reports a new cost (#788, #861)", async () => {
   const { client, statements } = lockedClient();
   const result = await refreshBasbugItems(fakePool(async () => client), ids, {
     fetchItem: async (_company, code) => Response.json(code === "TEST 1" ? { ...item(code), sMrk: 0 } : code === "TEST 2" ? { ...item(code), nf: 2 } : item(code)),
   });
   assert.deepEqual(result.soldOut, [ids[1]]);
-  assert.deepEqual(result.repriced, [ids[2]]);
+  // A new cost is not refused here: the order judges it by the sale price (#861).
+  assert.deepEqual(result.recosted, { [ids[2]]: 2 });
   assert.deepEqual(result.gone, []);
   assert.deepEqual(result.failed, Object.fromEntries([ids[0], ids[3], ids[4]].map(id => [id, "busy"])));
   assert.deepEqual(statements, ["BEGIN", "SET LOCAL", "SELECT id", "ROLLBACK"]);
@@ -245,8 +246,8 @@ test("the live verdict merges depots as the write does: any depot with stock is 
   // A live depot replaces its saved stock.
   assert.equal(basbugLiveVerdict({ nf: 1, depolar: { IZM: { stok: 5 } } }, { nf: 1, depots: zero }), "sold_out");
   assert.equal(basbugLiveVerdict({ nf: 1, depolar: { MRK: { stok: 3 } } }, { nf: 1, depots: { ...zero, MRK: 3 } }), "same");
-  assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: 1.5, depots: { ...zero, ERZ: 2 } }), "repriced");
-  assert.equal(basbugLiveVerdict({ nf: null, depolar: {} }, { nf: 1, depots: { ...zero, MRK: 1 } }), "repriced");
+  assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: 1.5, depots: { ...zero, ERZ: 2 } }), "recosted");
+  assert.equal(basbugLiveVerdict({ nf: null, depolar: {} }, { nf: 1, depots: { ...zero, MRK: 1 } }), "recosted");
   // No positive cost live: not saleable, like a Dinamik line without a price.
   assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: 0, depots: { ...zero, MRK: 3 } }), "sold_out");
   assert.equal(basbugLiveVerdict({ nf: 1, depolar: {} }, { nf: -1, depots: { ...zero, MRK: 3 } }), "sold_out");

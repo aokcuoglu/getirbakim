@@ -246,6 +246,82 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
       assert.equal((await db.query("SELECT count(*)::int AS n FROM commerce_orders WHERE owner_kind='guest' AND owner_id=$1",[cart.id])).rows[0].n,0);
     }
     {
+      // #861: a live cost the locked rows keep from being saved refuses its line only if the sale price would change.
+      // Saved nf is 50: the formula (×1.3 profit, ×1.2 VAT) sells at 7800 kuruş. The override row is created before
+      // any lock (its FK to supplier_items would wait on the holder); later price edits leave the key alone.
+      const {livePriceChanges}=await import("../src/modules/store/supplier-checkout");
+      const savedNf=(await itemRow()).price_data.nf;assert.equal(savedNf,50);
+      await db.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id) VALUES($1,$2)",[id,randomUUID()]);
+      const setPrices=(fixed:number|null,sale:number|null)=>db.query("UPDATE commerce_item_overrides SET price_kurus=$2,sale_price_kurus=$3 WHERE supplier_item_id=$1",[id,fixed,sale]);
+      const catalogPrice=async()=>(await db.query("SELECT price_kurus FROM commerce_catalog WHERE id=$1",[id])).rows[0].price_kurus;
+      // Parity: the saved cost recomputed by livePriceChanges is the catalog's own price, whatever priced it.
+      assert.deepEqual(await livePriceChanges(db,{}),[]);
+      assert.equal(await catalogPrice(),7800);
+      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf}),[]);
+      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf+1}),[id]);
+      await setPrices(9000,null);assert.equal(await catalogPrice(),9000);
+      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf}),[]);
+      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf+1}),[]);
+      await setPrices(null,7500);assert.equal(await catalogPrice(),7500);
+      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf}),[]);
+      await setPrices(null,null);
+      const pricingAdmin=(await db.query("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Test','parity@example.invalid','test','admin',true) RETURNING id")).rows[0].id;
+      await db.query("INSERT INTO commerce_product_pricing(supplier_item_id,markup_percent,vat_percent,updated_by) VALUES($1,50,10,$2)",[id,pricingAdmin]);
+      assert.equal(await catalogPrice(),8250);
+      assert.deepEqual(await livePriceChanges(db,{[id]:savedNf}),[]);
+      assert.deepEqual(await livePriceChanges(db,{[id]:50.001}),[]);
+      assert.deepEqual(await livePriceChanges(db,{[id]:50.01}),[id]);
+      await db.query("DELETE FROM commerce_product_pricing WHERE supplier_item_id=$1",[id]);
+      await db.query("DELETE FROM accounts WHERE id=$1",[pricingAdmin]);
+
+      const checkoutChanges=async()=>(await db.query("SELECT count(*)::int AS n FROM supplier_item_changes WHERE item_id=$1 AND after_data->>'source'='checkout'",[id])).rows[0].n;
+      const changesBefore=await checkoutChanges();
+      // A fresh cart and quote, then the order while a holder keeps the row locked and MalzemeAra quotes `livePrice`.
+      const lockedOrder=async(livePrice:number)=>{
+        const cart=await newCart();assert.equal(await setCartQuantity(cart,id,1),true);
+        const lockedInput=await checkoutInput(cart);
+        const holder=await db.connect();
+        let safety:ReturnType<typeof setTimeout>|undefined;
+        const savedPrice=price;
+        try {
+          await holder.query("BEGIN");
+          await holder.query("SELECT id FROM supplier_items WHERE id=$1 FOR UPDATE",[id]);
+          safety=setTimeout(()=>{holder.query("ROLLBACK").catch(()=>undefined);},5_000);
+          price=livePrice;return await submitOrder(cart,lockedInput);
+        } finally {
+          price=savedPrice;clearTimeout(safety);
+          await holder.query("ROLLBACK").catch(()=>undefined);holder.release();
+        }
+      };
+      const soldLine=async(order:{id?:string;error?:string})=>{
+        assert.ok(order.id,String(order.error));
+        return (await db.query("SELECT unit_price_kurus,pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[order.id])).rows[0];
+      };
+      const marks=(line:{pricing_snapshot:Record<string,unknown>})=>[line.pricing_snapshot.checkout_mode,line.pricing_snapshot.live_check,line.pricing_snapshot.live_check_reason,line.pricing_snapshot.live_check_nf];
+      // A cost that rounds to the same price (50.001 × 156 = 7800.156): sold at 7800, marked busy with the live cost.
+      let line=await soldLine(await lockedOrder(50.001));
+      assert.equal(Number(line.unit_price_kurus),7800);
+      assert.deepEqual(marks(line),["snapshot","failed","busy",50.001]);
+      assert.equal(line.pricing_snapshot.nf,50);
+      // A fixed price: a new cost does not move it, so the line is sold at 9000.
+      await setPrices(9000,null);
+      line=await soldLine(await lockedOrder(51));
+      assert.equal(Number(line.unit_price_kurus),9000);
+      assert.deepEqual(marks(line),["snapshot","failed","busy",51]);
+      // A campaign below the regular price: 51 prices at 7956, still above 7500, so the campaign holds.
+      await setPrices(null,7500);
+      line=await soldLine(await lockedOrder(51));
+      assert.equal(Number(line.unit_price_kurus),7500);
+      assert.deepEqual(marks(line),["snapshot","failed","busy",51]);
+      // 48 prices at 7488, below the campaign: the campaign no longer applies and the price would change.
+      const refused=await lockedOrder(48);
+      assert.deepEqual([refused.error,refused.products],["price",[id]]);
+      await db.query("DELETE FROM commerce_item_overrides WHERE supplier_item_id=$1",[id]);
+      // Nothing was written: the saved cost stays and no checkout change was recorded.
+      assert.equal((await itemRow()).price_data.nf,savedNf);
+      assert.equal(await checkoutChanges(),changesBefore);
+    }
+    {
       // #770/#790: the supplier answers but the rows stay locked past lock_timeout: the line is sold on its saved data,
       // marked "busy", while the import (here a holder) still holds the row. The order transaction's FOR SHARE gives up
       // after CHECKOUT_LOCK_TIMEOUT too; without that it would wait: the holder lets go after 5 s so the test fails, not hangs.
