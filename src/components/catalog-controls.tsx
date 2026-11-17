@@ -154,14 +154,18 @@ export function CatalogFilterSheet({brands,facets,chipFacets,params,count,vehicl
 const pageButton="h-12 rounded-md border-brand bg-brand px-[27px] text-sm text-white hover:bg-brand-strong";
 // `filters`: the phone filter button (CatalogFilterSheet), first in the toolbar's top row with the sort beside it; `active`:
 // the selected filters as removable chips (CatalogActiveFilters), under the toolbar.
-export function CatalogResults({count,page,pages,pageSize,params,children,defaultView="grid",filters,active}:{count:number;page:number;pages:number;pageSize:number;params:Query;children:ReactNode;defaultView?:"list"|"grid";filters?:ReactNode;active?:ReactNode}) {
+// `lead`: shown above the results' toolbar and chips, which belong to the results (the garage vehicle's fits and the
+// "Tüm sonuçlar" heading, #884), inside the comparison provider so its cards' compare boxes work. Only the results take the list / grid switch (`group/listing`): the lead
+// keeps its own grid, and a nested group would match the outer one's view too.
+export function CatalogResults({count,page,pages,pageSize,params,children,defaultView="grid",filters,active,lead}:{count:number;page:number;pages:number;pageSize:number;params:Query;children:ReactNode;defaultView?:"list"|"grid";filters?:ReactNode;active?:ReactNode;lead?:ReactNode}) {
  const [view,setView]=useState(defaultView);const router=useRouter();
  // 44px touch targets on a phone (#878).
  const viewButton="h-7 min-h-7 w-[22px] rounded-none border-0 bg-transparent p-0 hover:bg-transparent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100 max-[768px]:size-11 max-[768px]:min-h-11";
  // Phones (≤768px): filter and sort share the top row, the range and the view buttons the second (the right-hand group
  // dissolves into the toolbar so its items can be ordered).
  const half="max-[768px]:order-1 max-[768px]:grow max-[768px]:basis-[calc(50%-6px)]";
- return <ComparisonProvider><div className="group/listing min-w-0" data-view={view}>
+ return <ComparisonProvider><div className="min-w-0">
+ {lead}
  <div className="mb-[25px] flex min-h-[42px] items-center justify-between gap-4 max-[768px]:mb-4 max-[768px]:flex-wrap max-[768px]:gap-3"><span className="text-sm leading-5 text-foreground max-[768px]:order-2 max-[768px]:flex-1 max-[600px]:text-xs">{listingRangeLabel(count,page,pageSize)}</span>
  <div className="flex items-center gap-[15px] max-[768px]:contents">
   <div className="flex h-[42px] items-center gap-3 rounded-md border border-input px-3 py-1 max-[768px]:order-2 max-[768px]:h-11 max-[768px]:gap-0 max-[768px]:p-0">
@@ -175,7 +179,7 @@ export function CatalogResults({count,page,pages,pageSize,params,children,defaul
   </NativeSelect>
  </div></div>
  {active}
- <div className="flex flex-col gap-4 group-data-[view=grid]/listing:mx-[-2px] group-data-[view=grid]/listing:grid group-data-[view=grid]/listing:grid-cols-3 group-data-[view=grid]/listing:items-stretch group-data-[view=grid]/listing:gap-x-4 group-data-[view=grid]/listing:gap-y-6 max-[992px]:group-data-[view=grid]/listing:grid-cols-2 max-[600px]:group-data-[view=grid]/listing:mx-0 max-[600px]:group-data-[view=grid]/listing:gap-x-2 max-[600px]:group-data-[view=grid]/listing:gap-y-4">{children}</div>
+ <div className="group/listing" data-view={view}><div className="flex flex-col gap-4 group-data-[view=grid]/listing:mx-[-2px] group-data-[view=grid]/listing:grid group-data-[view=grid]/listing:grid-cols-3 group-data-[view=grid]/listing:items-stretch group-data-[view=grid]/listing:gap-x-4 group-data-[view=grid]/listing:gap-y-6 max-[992px]:group-data-[view=grid]/listing:grid-cols-2 max-[600px]:group-data-[view=grid]/listing:mx-0 max-[600px]:group-data-[view=grid]/listing:gap-x-2 max-[600px]:group-data-[view=grid]/listing:gap-y-4">{children}</div></div>
  {pages>1 && <Pagination aria-label="Katalog sayfaları" className="mt-[25px]"><PaginationContent className="flex-wrap justify-center gap-4 text-sm">
   {page>1 && <PaginationItem><Button className={pageButton} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page-1)})}/>}>Önceki sayfa</Button></PaginationItem>}
   <PaginationItem><span>Sayfa {page} / {pages}</span></PaginationItem>

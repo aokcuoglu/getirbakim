@@ -9,7 +9,7 @@ import { Search,ChevronRight,ShieldCheck,Truck,CarFront,CircleCheck,Info } from 
 import { after } from "next/server";
 import { headers } from "next/headers";
 import { recordSearch } from "@/modules/search/analytics";
-import { browseProducts,isPlainSearch,catalogFacets,vehicleFitCount,productsFittingVehicle,servicePrice } from "@/modules/store/catalog";
+import { browseProducts,isPlainSearch,catalogFacets,vehicleFitCount,vehicleLead,productsFittingVehicle,servicePrice } from "@/modules/store/catalog";
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { currentAccount } from "@/modules/auth/session";
 import { currentVehicle } from "@/modules/store/garage";
@@ -89,8 +89,19 @@ export const catalogDescription=(slug:string)=>descriptions[slug];
 export async function CatalogView({params,make,model,plainTotal,manufacturer,manufacturerTotal}:{params:CatalogQuery;make?:VehicleBrand;model?:VehicleModelGroup;plainTotal?:number;manufacturer?:{name:string;slug:string};manufacturerTotal?:number}) {
  const vehicle=await currentVehicle();
  const vehicleTypeId=(await fitmentVehicle(vehicle))?.typeId ?? null;
- const [result,facetData,account,vehicleBrands,fitCount,oilSpec]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId?vehicleFitCount(params,vehicleTypeId):0,getVehicleOilSpec(vehicleTypeId)]);
- const products=result.items;
+ // Page 1 without the fit filter puts the garage vehicle's fits first (#884): the first cards of the fits=vehicle listing
+ // above the results, which stay unfiltered (DESIGN.md: the vehicle does not filter the catalog). Later pages keep the
+ // offer box and its count only; both counts are the fits=vehicle listing's, every filter kept. The lead is read next to
+ // the listing when the URL asks for page 1, afterwards when the listing clamps another page number to 1 (?page=99).
+ const askedFirstPage=!(Number(params.page)>1);
+ const vehicleFits=async(typeId:string)=>askedFirstPage?vehicleLead(params,typeId):{items:[],total:await vehicleFitCount(params,typeId)};
+ const [result,facetData,account,vehicleBrands,fitsRead,oilSpec]=await Promise.all([browseProducts(params,{vehicleTypeId}),catalogFacets(params,{vehicleTypeId}),currentAccount(),getVehicleBrands(),vehicleTypeId&&!params.fits?vehicleFits(vehicleTypeId):{items:[],total:0},getVehicleOilSpec(vehicleTypeId)]);
+ const leadPage=!params.fits&&result.page===1;
+ const fits=vehicleTypeId&&leadPage&&!askedFirstPage?await vehicleLead(params,vehicleTypeId):fitsRead;
+ // When every listed product fits, the lead would only repeat the results' first cards.
+ const products=result.items,fitCount=fits.total,leadProducts=leadPage&&fitCount<result.total?fits.items:[];
+ // The cards of both lists; a product of the lead is listed again in the results.
+ const cards=[...new Map([...products,...leadProducts].map(product=>[product.id,product])).values()];
  // Search analytics (#822): a plain search's first page, counted after the response; crawlers and prefetches are not shoppers.
  if(isPlainSearch(params)&&result.page===1){
   const request=await headers();
@@ -98,7 +109,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
   const prefetch=request.has("next-router-prefetch")||/prefetch/i.test(request.get("sec-purpose")??request.get("purpose")??"");
   if(!crawler&&!prefetch)after(()=>recordSearch({query:params.q!,mode:params.searchBy==="code"?"code":"all",total:result.total,correctedQuery:result.correctedQuery}));
  }
- const [images,logos,details,fitting]=await Promise.all([getCatalogProductImages(products),getManufacturerLogos(products.map(product=>product.display_brand)),getCatalogProductDetails(products),vehicleTypeId?productsFittingVehicle(products.map(product=>product.id),vehicleTypeId):new Set<string>()]);
+ const [images,logos,details,fitting]=await Promise.all([getCatalogProductImages(cards),getManufacturerLogos(cards.map(product=>product.display_brand)),getCatalogProductDetails(cards),vehicleTypeId?productsFittingVehicle(cards.map(product=>product.id),vehicleTypeId):new Set<string>()]);
  // On a make or model listing only the categories holding its products are linked: an empty one would be a 404 (#673).
  const [categories,scopeCounts]=await Promise.all([getStoreCategories(),make?scopeCategoryCounts({make:params.make,model:params.model}):undefined]);
  const category=categories.find(c=>c.slug===params.category);
@@ -127,10 +138,25 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const listingHref=(updates:Partial<CatalogQuery>)=>listingUrl(params,updates);
  const fitsHref=(fits:"vehicle"|undefined)=>listingHref({fits});
  const shown=shownVehicle(vehicle),vehicleName=shown&&vehicleText(shown);
- // The fit filter itself shows as a removable chip ("Aracına uyanlar"); this box only offers it.
- const fitFilter=vehicleTypeId&&!params.fits&&fitCount>0&&<div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground" role="status"><CircleCheck size={18} aria-hidden="true"/>
+ // The fit filter itself shows as a removable chip ("Aracına uyanlar"); this box only offers it, on pages without the lead.
+ const fitFilter=vehicleTypeId&&!params.fits&&!leadProducts.length&&fitCount>0&&fitCount<result.total&&<div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground" role="status"><CircleCheck size={18} aria-hidden="true"/>
   <p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>
   <Link className="font-semibold whitespace-nowrap text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Yalnızca aracıma uyanları göster</Link></div>;
+ const card=(product:(typeof cards)[number])=><CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.display_brand)} account={account} fitsVehicle={fitting.has(product.id)} vehicleChecked={Boolean(vehicleTypeId)}/>;
+ // The vehicle's fits before the results (#884): one sideways-scrolling row on phones and tablets, two columns from 769px and
+ // one row of three from 993px (the fourth card hidden there when the link leads to it); always grid cards (its own
+ // `group/listing`), whatever view the results take. Then "Tüm sonuçlar" with its toolbar and chips (CatalogResults).
+ const leadTotal=fitCount.toLocaleString("tr-TR"),moreFits=fitCount>leadProducts.length;
+ const lead=leadProducts.length>0&&<>
+  <section aria-labelledby="aracina-uyanlar" className="mb-8 max-[768px]:mb-6">
+   <h2 id="aracina-uyanlar" className="mb-3 flex items-start gap-2 text-lg leading-6 font-semibold max-[600px]:text-base max-[600px]:leading-[22px]"><CarFront size={20} className="mt-0.5 shrink-0 text-foreground" aria-hidden="true"/><span><strong>{vehicleName}</strong> aracına uyanlar · {leadTotal} ürün</span></h2>
+   <div className="group/listing relative max-[768px]:after:pointer-events-none max-[768px]:after:absolute max-[768px]:after:inset-y-0 max-[768px]:after:right-0 max-[768px]:after:w-4 max-[768px]:after:bg-linear-to-l max-[768px]:after:from-white" data-view="grid">
+    <div role="region" aria-label={`${vehicleName} aracına uyan ürünler`} className={cn("flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 max-[768px]:*:w-[46vw] max-[768px]:*:min-w-40 max-[768px]:*:shrink-0 max-[768px]:*:snap-start min-[769px]:mx-[-2px] min-[769px]:grid min-[769px]:grid-cols-2 min-[769px]:gap-x-4 min-[769px]:gap-y-6 min-[769px]:overflow-visible min-[769px]:pb-0 min-[993px]:grid-cols-3",moreFits&&"min-[993px]:[&>:nth-child(n+4)]:hidden")}>{leadProducts.map(card)}</div>
+   </div>
+   {moreFits&&<Link className="mt-3 inline-flex min-h-11 items-center gap-1 font-semibold text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Uyan {leadTotal} ürünün tümünü göster<ChevronRight size={16} aria-hidden="true"/></Link>}
+  </section>
+  <h2 className="mb-4 text-lg leading-6 font-semibold max-[600px]:text-base max-[600px]:leading-[22px]">Tüm sonuçlar</h2>
+ </>;
  // Chips name a selected value the facets no longer offer the way the sidebar would.
  const chipFacets=withSelectedOptions(facetData.attributes,selectedAttributes(params));
  const chips=activeFilters(params,chipFacets,{vehicleName:vehicleName||undefined}).map(item=>({key:item.key,label:item.label,href:listingHref(item.remove)}));
@@ -197,8 +223,8 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
     {!filtered&&!manufacturer&&<><CatalogCategoryChips categories={subcategories} makeSlug={params.make} modelSlug={modelSlug}/><CategoryCards className="mt-0 mb-8 max-[768px]:hidden" categories={subcategories} makeSlug={params.make} modelSlug={modelSlug}/></>}
      <CatalogResults count={result.total} page={result.page} pages={result.pages} pageSize={result.pageSize} params={params} defaultView={defaultListingView(account)}
       filters={<CatalogFilterSheet brands={facetData.brands} facets={facetData.attributes} chipFacets={chipFacets} params={params} count={result.total} vehicleName={vehicleName||undefined}/>}
-      active={<CatalogActiveFilters items={chips} clearHref={listingHref(clearAllFilters)}/>}>
-      {products.length ? products.map(product => <CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.display_brand)} account={account} fitsVehicle={fitting.has(product.id)} vehicleChecked={Boolean(vehicleTypeId)}/>) :
+      active={<CatalogActiveFilters items={chips} clearHref={listingHref(clearAllFilters)}/>} lead={lead||undefined}>
+      {products.length ? products.map(card) :
        <div className="col-span-full min-h-[300px] rounded-md border border-border px-6 py-16 text-center"><Search size={38} className="mx-auto mb-5 text-muted-foreground"/><h2 className="mb-3 text-[22px] leading-[30px] font-semibold">{params.fits ? "Bu listede aracına bağlı ürün bulunamadı." : params.oil ? "Aracının yağ önerisine uyan ürün bulunamadı." : filtered ? "Aramana uygun ürün bulunamadı." : "Bu kategoride şu an ürün bulunmuyor."}</h2><p className="mb-6 text-sm leading-[22px] text-muted-foreground">{params.fits ? "Tüm ürünlerde OEM numarasıyla arayabilir veya araç filtresini kaldırabilirsin." : params.oil ? "Yağ filtrelerinden birini kaldırarak benzer özellikteki yağları görebilirsin." : filtered ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Diğer kategorileri inceleyebilir veya aradığın parça için bize ulaşabilirsin."}</p><Button className="h-12 bg-brand px-[27px] hover:bg-brand-strong" nativeButton={false} render={<Link href={allProducts}/>}>Tüm ürünlere göz at</Button></div>}
      </CatalogResults>
      </div>
