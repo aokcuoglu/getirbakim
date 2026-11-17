@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {displaySpecifications,facetOptions,translateSpecificationLabel,translateSpecificationList,translateSpecificationParts,translateSpecificationValue} from "../src/modules/store/specification-translations";
 import {applySpecOverrides,mergeSpecificationRows,pageSpecifications} from "../src/modules/store/product-spec-display";
-import {selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
+import {activeFilters,clearAllFilters,clearPanelFilters,toggleAttribute,toggleBrand,type CatalogFacet,selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
 import {parseCatalogQuery} from "../src/modules/store/catalog-query";
+import {listingUrl} from "../src/modules/seo/paths";
 
 test("manufacturer selection supports multiple brands and legacy links", () => {
   assert.deepEqual(selectedBrands({brand:"BOSCH"}), ["BOSCH"]);
@@ -157,4 +158,46 @@ test("card display pairs are translated in the raw order, raw keys stay (#700)",
   assert.equal(display[2].value,"M14 x 1,5");
   assert.deepEqual(display[3],{key:"Renk",label:"Renk",value:"Siyah"});
   assert.deepEqual(raw[0],["Fitting Position","Front Axle, Rear Axle"]);
+});
+
+// #883: the selected filters as removable chips; the sidebar and the phone sheet toggle through the same helpers.
+const positionFacet:CatalogFacet={key:"Fitting Position",label:"Montaj konumu",options:[{label:"Ön aks",values:["Front Axle","Vorderachse"]},{label:"Arka aks",values:["Rear Axle"]}]};
+test("toggling a manufacturer adds or removes it and moves a legacy brand into the list", () => {
+  assert.deepEqual(toggleBrand({brands:'["BOSCH"]'},"FEBI"),{brand:undefined,brands:'["BOSCH","FEBI"]'});
+  assert.deepEqual(toggleBrand({brands:'["BOSCH","FEBI"]'},"BOSCH"),{brand:undefined,brands:'["FEBI"]'});
+  assert.deepEqual(toggleBrand({brand:"BOSCH"},"BOSCH"),{brand:undefined,brands:undefined});
+  assert.deepEqual(toggleBrand({brand:"BOSCH"},"FEBI"),{brand:undefined,brands:'["BOSCH","FEBI"]'});
+});
+test("toggling a merged option adds or removes all of its spellings", () => {
+  assert.deepEqual(toggleAttribute({},"Fitting Position",["Front Axle","Vorderachse"]),{attributes:'{"Fitting Position":["Front Axle","Vorderachse"]}'});
+  assert.deepEqual(toggleAttribute({attributes:'{"Fitting Position":["Vorderachse","Rear Axle"]}'},"Fitting Position",["Front Axle","Vorderachse"]),{attributes:'{"Fitting Position":["Rear Axle"]}'});
+  assert.deepEqual(toggleAttribute({attributes:'{"Fitting Position":["Front Axle"]}'},"Fitting Position",["Front Axle"]),{attributes:undefined});
+});
+test("active filters list every selection with the change that removes it", () => {
+  const query={brands:'["BOSCH","FEBI"]',attributes:'{"Fitting Position":["Front Axle","Vorderachse","Rear Axle"],"Brand class":["Premium"]}',availability:"supplied" as const,fits:"vehicle" as const,oil:"viscosity,approval"};
+  const items=activeFilters(query,[positionFacet]);
+  assert.deepEqual(items.map(item=>item.label),["BOSCH","FEBI","Montaj konumu: Ön aks","Montaj konumu: Arka aks","Marka sınıfı: Premium","Tedarik edilebilir","Aracına uyanlar","Önerilen viskozite","Önerilen yağ onayı"]);
+  assert.deepEqual(items[0].remove,{brand:undefined,brands:'["FEBI"]'});
+  // A merged option is one chip; removing it drops both spellings and keeps the other option.
+  assert.deepEqual(items[2].remove,{attributes:'{"Fitting Position":["Rear Axle"],"Brand class":["Premium"]}'});
+  // A value without a facet (no products left under the other filters) still gets a chip.
+  assert.deepEqual(items[4].remove,{attributes:'{"Fitting Position":["Front Axle","Vorderachse","Rear Axle"]}'});
+  assert.deepEqual(items[5].remove,{availability:undefined});
+  assert.deepEqual(items[6].remove,{fits:undefined});
+  assert.deepEqual(items[7].remove,{oil:"approval"});
+  assert.equal(new Set(items.map(item=>item.key)).size,items.length);
+});
+test("a legacy single brand and other stock states show as chips", () => {
+  const items=activeFilters({brand:"BOSCH",availability:"in_stock"},[]);
+  assert.deepEqual(items.map(item=>[item.label,item.remove]),[["BOSCH",{brand:undefined,brands:undefined}],["Stokta mevcut",{availability:undefined}]]);
+  assert.deepEqual(activeFilters({availability:"out_of_stock"},[]).map(item=>item.label),["Stokta yok"]);
+  assert.deepEqual(activeFilters({},[positionFacet]),[]);
+});
+test("removing a chip keeps the sort and the path, and starts on page 1", () => {
+  const query={category:"fren-diskleri-269",make:"volkswagen",brands:'["BOSCH","FEBI"]',availability:"in_stock" as const,sort:"price-asc" as const,page:"3"};
+  const [bosch]=activeFilters(query,[]);
+  assert.equal(listingUrl(query,bosch.remove),"/kategori/fren-diskleri-269/volkswagen?brands=%5B%22FEBI%22%5D&availability=in_stock&sort=price-asc");
+  assert.equal(listingUrl({...query,fits:"vehicle",oil:"viscosity"},clearAllFilters),"/kategori/fren-diskleri-269/volkswagen?sort=price-asc");
+  // The sheet's "Temizle" keeps the vehicle-fit and engine-oil filters, which have their own banners.
+  assert.equal(listingUrl({...query,fits:"vehicle"},clearPanelFilters),"/kategori/fren-diskleri-269/volkswagen?sort=price-asc&fits=vehicle");
 });

@@ -41,3 +41,45 @@ export function specificationRawValue(key:string,input:string){return Object.has
 export function listingRangeLabel(count: number, page: number, pageSize: number) {
   return count ? `${(page - 1) * pageSize + 1} – ${Math.min(page * pageSize, count)} / ${count.toLocaleString("tr-TR")} ürün` : "0 ürün";
 }
+
+type FilterQuery={brand?:string;brands?:string;attributes?:string;availability?:"in_stock"|"out_of_stock"|"supplied";fits?:"vehicle";oil?:string};
+/** A change to a listing's filters; an `undefined` value drops that filter. */
+export type FilterUpdate={[K in keyof FilterQuery]?:FilterQuery[K]|undefined};
+/** The query change that ticks or unticks a manufacturer; a legacy single `brand` moves into `brands`. */
+export function toggleBrand(query:FilterQuery,value:string):FilterUpdate{
+ const current=selectedBrands(query),next=current.includes(value)?current.filter(v=>v!==value):[...current,value];
+ return {brand:undefined,brands:next.length?JSON.stringify(next):undefined};
+}
+/** The query change that ticks or unticks one sidebar option: all of its raw spellings (`values`, #703) go in or out together. */
+export function toggleAttribute(query:FilterQuery,key:string,values:string[]):FilterUpdate{
+ const attributes=selectedAttributes(query),current=attributes[key]??[];
+ const list=values.some(v=>current.includes(v))?current.filter(v=>!values.includes(v)):[...current,...values.filter(v=>!current.includes(v))];
+ const next={...attributes,[key]:list};
+ if(!list.length)delete next[key];
+ return {attributes:Object.keys(next).length?JSON.stringify(next):undefined};
+}
+export const availabilityLabels={in_stock:"Stokta mevcut",out_of_stock:"Stokta yok",supplied:"Tedarik edilebilir"} as const;
+const oilLabels:Record<string,string>={viscosity:"Önerilen viskozite",approval:"Önerilen yağ onayı"};
+/** A selected filter shown as a removable chip; `remove` is the query change that drops it (listingUrl also drops the page). */
+export type ActiveFilter={key:string;label:string;remove:FilterUpdate};
+/** The filters a listing's query has selected, in sidebar order: manufacturers, options, stock, vehicle fit, engine oil. */
+export function activeFilters(query:FilterQuery,facets:CatalogFacet[]):ActiveFilter[]{
+ const items:ActiveFilter[]=selectedBrands(query).map(brand=>({key:`brand:${brand}`,label:brand,remove:toggleBrand(query,brand)}));
+ for(const [key,current] of Object.entries(selectedAttributes(query))){
+  const facet=facets.find(f=>f.key===key),label=facet?.label??specificationLabel(key);
+  const options=facet?.options.filter(o=>o.values.some(v=>current.includes(v)))??[];
+  const covered=new Set(options.flatMap(o=>o.values));
+  // A value the facet no longer offers (no product left under the other filters) still needs a way out.
+  const loose=current.filter(v=>!covered.has(v)).map(v=>({label:specificationValue(v),values:[v]}));
+  for(const option of [...options,...loose])items.push({key:`attribute:${key}:${option.values[0]}`,label:`${label}: ${option.label}`,remove:toggleAttribute(query,key,option.values)});
+ }
+ if(query.availability)items.push({key:"availability",label:availabilityLabels[query.availability],remove:{availability:undefined}});
+ if(query.fits)items.push({key:"fits",label:"Aracına uyanlar",remove:{fits:undefined}});
+ const oil=(query.oil??"").split(",").filter(filter=>Object.hasOwn(oilLabels,filter));
+ for(const filter of oil)items.push({key:`oil:${filter}`,label:oilLabels[filter],remove:{oil:oil.filter(other=>other!==filter).join(",")||undefined}});
+ return items;
+}
+/** The filters the filter panel sets (the vehicle fit and engine-oil filters live in their own banners). */
+export const clearPanelFilters:FilterUpdate={brand:undefined,brands:undefined,attributes:undefined,availability:undefined};
+/** Every filter a chip can remove. */
+export const clearAllFilters:FilterUpdate={...clearPanelFilters,fits:undefined,oil:undefined};
