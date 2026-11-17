@@ -77,6 +77,9 @@ before(async () => {
   await item("cross", "MEY 40040004", "MEYLE", "4410020011");
   await item("ownCode", "9673689380", "OE-PSA", "9673689380");
   await item("legacyOem", "VAL 50050005", "VALEO", "5520030044");
+  // A product whose OEM-matched offer has a sibling not collected yet.
+  await item("hiddenDone", "SAC 60060006", "SACHS", "8200123456");
+  await item("sibling", "SCH 60060006", "SACHS");
   await schema.pool.query("SELECT refresh_product_matches()");
   await enrich("single", { type: "oem_reference", reference: "1K0615301AA", referenceSource: "supplier_oem" }, "2026-11-10T10:00:00Z");
   await enrich("viaOem", { type: "oem_reference", reference: "7701208266", referenceSource: "supplier_oem" }, "2026-11-10T10:00:00Z");
@@ -84,6 +87,7 @@ before(async () => {
   await enrich("exactOnly", { type: "exact_part" }, "2026-11-10T10:00:00Z");
   await enrich("cross", { type: "cross_reference", reference: "4410020011" }, "2026-11-10T10:00:00Z");
   await enrich("ownCode", { type: "oem_reference", reference: "9673689380", referenceSource: "original_manufacturer_part_code" }, "2026-11-10T10:00:00Z");
+  await enrich("hiddenDone", { type: "oem_reference", reference: "8200123456", referenceSource: "supplier_oem" }, "2026-11-10T10:00:00Z");
   // Written before referenceSource existed: read as the supplier's OEM.
   await enrich("legacyOem", { type: "oem_reference", reference: "5520030044" }, "2026-11-10T10:00:00Z");
   await drain();
@@ -219,4 +223,21 @@ test("collectors do not pick the hidden product up again", async () => {
   await setOemHidden("single", false);
   await drain();
   assert.deepEqual(await state("single"), { status: "complete", enriched: true });
+});
+
+test("a pending sibling of a hidden-OEM offer is the one collected", async () => {
+  assert.equal(await productOf("hiddenDone"), await productOf("sibling"), "both SACHS offers form one product");
+  const representative = async () => (await schema.pool.query<{ supplier_item_id: string; status: string }>(
+    "SELECT supplier_item_id::text,status FROM enrichment_product_catalog WHERE product_id=$1", [await productOf("sibling")])).rows;
+  assert.deepEqual(await representative(), [{ supplier_item_id: ids.hiddenDone, status: "complete" }]);
+  await setOemHidden("hiddenDone", true);
+  // The hidden offer has no usable data: its not_found ranks after the sibling, which the collectors then pick up.
+  assert.deepEqual(await representative(), [{ supplier_item_id: ids.sibling, status: "pending" }]);
+  const candidates = (await schema.pool.query<{ supplier_item_id: string; status: string }>(
+    "SELECT supplier_item_id::text,status FROM enrichment_product_candidates WHERE product_id=$1 ORDER BY priority", [await productOf("sibling")])).rows;
+  assert.deepEqual(candidates, [{ supplier_item_id: ids.sibling, status: "pending" }, { supplier_item_id: ids.hiddenDone, status: "not_found" }]);
+  await drain();
+  assert.equal((await state("sibling")).status, "pending");
+  await setOemHidden("hiddenDone", false);
+  assert.deepEqual(await representative(), [{ supplier_item_id: ids.hiddenDone, status: "complete" }]);
 });
