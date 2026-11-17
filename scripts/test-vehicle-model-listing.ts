@@ -48,7 +48,7 @@ before(async () => {
   // golf-7: 12 listed products. g1-g3 engine-level, g1 also from a description (counted once), g4-g10 descriptions
   // (g4 through its secondary offer g4s), g11 on the Variant series, g12 engine-level only and in no make list.
   for (const key of ["g1", "g2", "g3", "g4", "g4s", "g5", "g6", "g7", "g8", "g9", "g10", "g11", "g12", "p1", "p2", "hidden"]) await item(key);
-  // Price-sorted listings (#674): a make with more products than the cached window (20 pages of 30) and varied prices.
+  // Price-sorted listings (#674): a make with more products than the cached window (20 pages of 24) and varied prices.
   await schema.pool.query("INSERT INTO vehicle_brands(id,name,display_name) VALUES(3,'DACIA','DACIA')");
   await schema.pool.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
      product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
@@ -218,28 +218,28 @@ test("a price-sorted make listing serves the cached order's pages like the live 
   assert.equal(live.length, pricedProducts);
   const page = async (number: number) => (await catalog.browseProducts({ make: "dacia", sort: "price-asc", page: String(number) })).items.map(row => row.id);
   const [first, second] = [await page(1), await page(2)];
-  assert.deepEqual(first, live.slice(0, 30));
-  assert.deepEqual(second, live.slice(30, 60));
+  assert.deepEqual(first, live.slice(0, 24));
+  assert.deepEqual(second, live.slice(24, 48));
   assert.ok(first.every(id => !second.includes(id)));
   // Served again from the cached order.
   assert.deepEqual(await page(1), first);
-  const last = await catalog.browseProducts({ make: "dacia", sort: "price-asc", page: "21" });
-  assert.equal(last.page, 21);
+  const last = await catalog.browseProducts({ make: "dacia", sort: "price-asc", page: "26" });
+  assert.equal(last.page, 26);
   assert.deepEqual(last.items.map(row => row.id), live.slice(600));
 });
 
-test("page 2 of a make listing is its products 31-60 in either order, with the matching range line (#674)", async () => {
+test("page 2 of a make listing is its products 25-48 in either order, with the matching range line (#674)", async () => {
   const order = { newest: "unavailable,updated_at DESC,id", "price-asc": "unavailable,price_kurus ASC NULLS LAST,id" } as const;
   for (const [sort, sql] of Object.entries(order)) {
     const live = (await schema.pool.query<{ id: string }>(`SELECT id::text FROM storefront_catalog catalog
       WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND catalog.id=ANY(ARRAY(${catalog.makeFitsSql("$2::int")})::uuid[])
       ORDER BY ${sql}`, [storefrontCompanies(), 3])).rows.map(row => row.id);
     const result = await catalog.browseProducts({ make: "dacia", sort: sort as keyof typeof order, page: "2" });
-    assert.deepEqual([result.page, result.pageSize, result.total], [2, 30, pricedProducts], sort);
-    assert.deepEqual(result.items.map(row => row.id), live.slice(30, 60), sort);
-    assert.equal(listingRangeLabel(result.total, result.page, result.pageSize), "31 – 60 / 620 ürün", sort);
+    assert.deepEqual([result.page, result.pageSize, result.total], [2, 24, pricedProducts], sort);
+    assert.deepEqual(result.items.map(row => row.id), live.slice(24, 48), sort);
+    assert.equal(listingRangeLabel(result.total, result.page, result.pageSize), "25 – 48 / 620 ürün", sort);
   }
-  assert.equal(listingRangeLabel(0, 1, 30), "0 ürün");
+  assert.equal(listingRangeLabel(0, 1, 24), "0 ürün");
 });
 test("model × category pages: 404 without products, noindex below 10, indexable from 10 (#673)", () => inRequest(async () => {
   const page = (category: string, model: string, search = {}) => load.findListing({ category, make: "vw", model, search });
