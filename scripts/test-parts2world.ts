@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {articleInfoPath,articleInfoPattern,buildData,buildVehicles,identify,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,type SourceVehicle,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType} from '../src/modules/enrichment/parts2world-adapter';
+import {articleIdsFromUrl,articleInfoPath,articleInfoPattern,articleType,articleTypeAnswer,buildData,buildVehicles,identify,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,type SourceVehicle,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType} from '../src/modules/enrichment/parts2world-adapter';
 import {createFitmentMatcher} from '../src/modules/store/fitment-matcher';
 import {enrichmentImportSchema,manufacturerBrandKey,matchesEnrichment,matchesSupplierPart} from '../src/modules/store/enrichment-contract';
 
@@ -152,4 +152,38 @@ test('complete needs an image and vehicles with no invalid rows',()=>{
  assert.ok(!parts2worldComplete({image:false,vehicles:3,invalid:0}));
  assert.ok(!parts2worldComplete({image:true,vehicles:0,invalid:0}));
  assert.ok(!parts2worldComplete({image:true,vehicles:3,invalid:1}));
+});
+
+test('part types (#852): source URLs give back the archived ids; spareInfo is the type; packages carry categories',async()=>{
+ const ids={articleId:689320334,linkId:689320335,vehicleTypeId:19013};
+ assert.deepEqual(articleIdsFromUrl(productUrl(ids)),ids);
+ assert.equal(articleIdsFromUrl('https://www.parts2world.com/tecdoc/#/product?mod=1&link=2'),null);
+ assert.equal(articleIdsFromUrl('https://evil.example/tecdoc/#/product?mod=1&link=2&id=3'),null);
+ assert.equal(articleIdsFromUrl(productUrl(ids)+'&x=1'),null);
+ const raw=await fixture(),info=parseArticleInfo({data:{...raw.data,spareInfo:'  V-ribbed Belt '}})!;
+ assert.equal(articleType(info),'V-ribbed Belt');
+ assert.equal(articleType(parseArticleInfo({data:{...raw.data,spareInfo:' '}})!),null);
+ assert.equal(articleType(parseArticleInfo({data:{...raw.data,spareInfo:null}})!),null);
+ const categories=[{source:'trodo' as const,id:10,name:'Belts',path:[{id:3,name:'Car parts'},{id:10,name:'Belts'}]}];
+ const data=buildData(info,[],categories);
+ assert.deepEqual(data.categories,categories);
+ assert.deepEqual(buildData(info).categories,[]);
+ assert.deepEqual(oemMatchedData(data,['BMW'],'11287549588').categories,categories);
+ const pkg=enrichmentImportSchema.parse({supplierItemId:'00000000-0000-4000-8000-000000000001',supplierCode:'171209',supplierBrand:'FEBI',
+  source:productUrl(ids),sourceMethod:'test',manufacturer:info.brand,partNumber:info.name,matchBasis:{type:'exact_part'},completeness:'partial',data});
+ assert.deepEqual(pkg.data.categories,categories);
+});
+
+test('fetch-types answers (#852): a 404 or empty answer is no article, a rejected one is invalid, never an error',async()=>{
+ const raw=await fixture();
+ assert.deepEqual(articleTypeAnswer(null),{kind:'none'});
+ assert.deepEqual(articleTypeAnswer({data:null}),{kind:'none'});
+ const named=articleTypeAnswer({data:{...raw.data,spareInfo:'Brake Disc'}});
+ assert.equal(named.kind,'article');
+ assert.equal(named.kind==='article'&&named.type,'Brake Disc');
+ const fromFixture=articleTypeAnswer(raw);
+ assert.equal(fromFixture.kind==='article'&&fromFixture.type,'Radiator Hose');
+ const unnamed=articleTypeAnswer({data:{...raw.data,spareInfo:null}});
+ assert.equal(unnamed.kind==='article'&&unnamed.type,null);
+ for(const bad of [{},'<html>',{data:{id:'x'}}]){const answer=articleTypeAnswer(bad);assert.equal(answer.kind,'invalid');}
 });

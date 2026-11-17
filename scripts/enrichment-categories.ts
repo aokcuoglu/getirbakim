@@ -2,9 +2,10 @@
 //   import-tree FILE      imports the Trodo category tree
 //   backfill              fills Trodo enrichments' categories from the raw product API cache
 //   learn-types           rebuilds the part type -> category dictionary (product_type_categories) from Trodo products
-//   backfill-types --source spareto [--dry-run [--min-share 0.8] [--min-support 2]]
+//   backfill-types --source spareto|parts2world [--dry-run [--min-share 0.8] [--min-support 2]]
 //                         writes the dictionary's categories to the source's enrichments by part type; prints counts
-//                         and the 50 most common unmapped types. --dry-run only reads; other thresholds only with it.
+//                         and the 50 most common unmapped types. parts2world takes the names enrichment:parts2world --
+//                         fetch-types (or collect) stored in parts2world_article_types (#852). --dry-run only reads; other thresholds only with it.
 //   report-types [--min-share 0.8] [--min-support 2]
 //                         dictionary size at the thresholds and the types left out by them
 import {readFile} from 'node:fs/promises';
@@ -12,6 +13,7 @@ import {Pool} from 'pg';
 import {importCategoryTree,productCategories} from '../src/modules/enrichment/source-categories';
 import {parseProduct,safeProductSlug} from '../src/modules/enrichment/trodo-adapter';
 import {sparetoTypeFromUrl} from '../src/modules/enrichment/spareto-adapter';
+import {parts2worldTypedEnrichments} from '../src/modules/enrichment/parts2world-types';
 import {DEFAULT_MIN_SHARE,DEFAULT_MIN_SUPPORT,acceptedPairs,backfillTypeCategories,loadTypeCategories,relearnTypeCategories,type TypedEnrichment} from '../src/modules/enrichment/type-categories';
 import {enrichmentDataSchema,matchBasisSchema,matchesEnrichment} from '../src/modules/store/enrichment-contract';
 
@@ -29,6 +31,7 @@ const typedSources:Record<string,()=>Promise<TypedEnrichment[]>>={
  spareto:async()=>(await pool.query<{supplier_item_id:string;source_url:string;manufacturer:string}>(
   "SELECT supplier_item_id,source_url,manufacturer FROM product_enrichments WHERE source_url LIKE 'https://spareto.com/products/%' ORDER BY supplier_item_id")).rows
   .map(r=>({supplierItemId:r.supplier_item_id,sourceUrl:r.source_url,type:sparetoTypeFromUrl(r.source_url,r.manufacturer)})),
+ parts2world:()=>parts2worldTypedEnrichments(pool),
 };
 try{
  await pool.query(await readFile('db/source-categories.sql','utf8'));
@@ -74,7 +77,7 @@ try{
  }else if(process.argv[2]==='backfill-types'){
   const source=option('source')??'',rows=typedSources[source];
   if(!rows)throw Error('--source must be one of: '+Object.keys(typedSources).join(', '));
-  // The spareto worker writes with the default thresholds; a written backfill with others would be undone product by
+  // The spareto and parts2world workers write with the default thresholds; a written backfill with others would be undone product by
   // product as they are re-collected.
   if((option('min-share')!==undefined||option('min-support')!==undefined)&&!args.includes('--dry-run'))
    throw Error('--min-share / --min-support only with --dry-run: writes use the worker\'s thresholds ('+DEFAULT_MIN_SHARE+', '+DEFAULT_MIN_SUPPORT+')');
@@ -93,5 +96,5 @@ try{
   console.log(JSON.stringify({...limits,types:types.size,pairs:pairs.length,acceptedTypes:kept.size,acceptedPairs:accepted.length,
    multiCategoryTypes:[...kept].filter(t=>accepted.filter(p=>p.type===t).length>1).length,leftOut:left.length},null,1));
   for(const {type,total,best} of left.slice(0,50))console.log(`${best}/${total}`.padStart(9)+'  '+type);
- }else throw Error('Usage: import-tree FILE | backfill | learn-types | backfill-types --source spareto [--dry-run [--min-share N] [--min-support N]] | report-types');
+ }else throw Error('Usage: import-tree FILE | backfill | learn-types | backfill-types --source spareto|parts2world [--dry-run [--min-share N] [--min-support N]] | report-types');
 }finally{await pool.end();}

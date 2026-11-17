@@ -20,6 +20,13 @@
 //                    pending goes in stock order; a partial product is replaced only by a complete result or one with
 //                    more vehicles. One request every PARTS2WORLD_INTERVAL_MS (default 2500) + up to 1 s; HTTP 403/429/503
 //                    stops the run, collected packages stay in the checkpoint and are written on the next run.
+//                    The article's TecDoc part type name (spareInfo) is stored in parts2world_article_types and
+//                    mapped to Trodo categories through product_type_categories (#852).
+//   fetch-types [--limit N] [--retry]  asks article-info again for the articles of stored enrichments (default 50, in a
+//                    hashed order) and stores only their part type names; no enrichment is written. Then
+//                    enrichment:categories -- backfill-types --source parts2world writes the categories. Holds the same
+//                    locks as collect; --retry re-asks articles answered without a name. A 404, an empty or an invalid
+//                    answer is stored without a name; 10 transient errors in a row stop the run.
 //   trim-oem-vehicles [--dry-run]  products written through an OE number keep only the maker's vehicles and no EAN,
 //                    properties or cross references of the other article (#422)
 //                    (#401; collect filters new ones the same way)
@@ -29,12 +36,14 @@ import {createReadStream} from 'node:fs';
 import {createInterface} from 'node:readline';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
-import {PARTS2WORLD,articleInfoPath,buildData,buildVehicles,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
+import {PARTS2WORLD,articleInfoPath,articleType,articleTypeAnswer,buildData,buildVehicles,identifyBasis,imageUrl,madeBy,makerApplicability,oemBrandMakers,oemList,oemMatchedData,partCodeMakers,parseArticleInfo,parts2worldComplete,productUrl,type CatalogType,type Supplier} from '../src/modules/enrichment/parts2world-adapter';
 import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt,startSourceRun,type RunOutcome} from '../src/modules/enrichment/source-attempts';
 import {acquireSourceLock,tryExclusiveRun} from '../src/modules/enrichment/source-lock';
+import {categoriesForType,loadTypeCategoriesOrEmpty,typeSlug} from '../src/modules/enrichment/type-categories';
+import {pendingArticleTypes,saveArticleType} from '../src/modules/enrichment/parts2world-types';
 import {lockFitmentSync} from '../src/modules/store/fitment-sync';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
 import {enrichmentImportSchema,manufacturerBrandKey,matchesSupplierPart,partCodeOems,partKey,supplierOemReferences} from '../src/modules/store/enrichment-contract';
@@ -48,7 +57,7 @@ const status=(option('status')||'partial') as typeof statuses[number];
 if(command==='collect'&&!statuses.includes(status))throw Error('--status must be partial, pending or not_found');
 const checkpoint=resolve(option('out')||'artifacts/parts2world/results.jsonl');
 type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'imported'|'skipped';at:string;url?:string;error?:string;
- counts?:{image:boolean;oems:number;crossReferences:number;specifications:number;vehicles:number;known:number;total:number;invalid:number};package?:unknown};
+ counts?:{image:boolean;categories?:number;oems:number;crossReferences:number;specifications:number;vehicles:number;known:number;total:number;invalid:number};package?:unknown};
 const record=async(entry:Omit<Entry,'at'>,queue:string=status)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
  if(!args.includes('--dry-run')&&(entry.outcome==='collected'||entry.outcome==='not_found'||entry.outcome==='error'))
   await recordAttempt(pool,'parts2world',queue,entry.supplierItemId,entry.outcome==='collected'?'found':entry.outcome);};
@@ -256,7 +265,7 @@ async function collect(){
  const dryRun=args.includes('--dry-run');
  const alone=await tryExclusiveRun(pool,'parts2world-collect');
  if(!alone){console.log(JSON.stringify({skipped:'another parts2world run is going'}));return;}
- const lock=await acquireSourceLock(pool,'parts2world-source');
+ const lock=await acquireSourceLock(pool,'parts2world-source').catch(async error=>{await alone.release();throw error;});
  const client=new Parts2WorldClient(Number(process.env.PARTS2WORLD_INTERVAL_MS||2500));
  try{
   if(!dryRun){const flushed=await flush();if(flushed.imported||flushed.skipped)console.log(JSON.stringify({pendingWritten:flushed}));}
@@ -267,6 +276,10 @@ async function collect(){
   const catalog=new Map((await pool.query<CatalogType>(`SELECT t.id,b.name AS brand,m.name AS model,t.name,t.fuel_type,t.cc,t.hp,t.kwt,
    to_char(t.year_of_constr_from,'YYYY-MM') AS date_from,to_char(t.year_of_constr_to,'YYYY-MM') AS date_to
    FROM vehicle_types t JOIN vehicle_models m ON m.id=t.model_id JOIN vehicle_brands b ON b.id=m.brand_id`)).rows.map(t=>[t.id,t]));
+  // parts2world names no categories; the part type takes Trodo's (#852). Every write replaces the product's category
+  // links, so a re-collection without them would drop what backfill-types wrote.
+  const dictionary=await loadTypeCategoriesOrEmpty(pool);
+  let storeTypes=!dryRun;
   console.log(JSON.stringify({collecting:rows.length,status,checkpoint,intervalMs:client.intervalMs}));
   // A full queue pass is shown with its progress on the admin page (#403); an --ids pick is not a run.
   const finishRun=dryRun||ids?null:await startSourceRun(pool,'parts2world',status,rows.length);
@@ -277,6 +290,11 @@ async function collect(){
    try{
     const ids={articleId:row.articleId,linkId:row.linkId,vehicleTypeId:row.vehicleTypeId};
     const info=parseArticleInfo(await client.articleInfo(articleInfoPath(row.articleId,row.linkId,row.vehicleTypeId)));
+    const type=info&&articleType(info);
+    // The name is a fact of the article, whatever the identity check says; a schema without the table only warns.
+    if(info&&storeTypes)await saveArticleType(pool,{articleId:row.articleId,linkId:row.linkId,brand:info.brand,partNumber:info.name,spareInfo:type})
+     .catch(error=>{if((error as {code?:string}).code!=='42P01')throw error;storeTypes=false;
+      console.warn('Uyarı: parts2world_article_types tablosu yok; parça tipleri saklanmayacak (npm run db:setup)');});
     const basis=info&&identifyBasis(row,info);
     if(!info||!basis){
      await record({supplierItemId:row.id,outcome:'not_found',error:info?`answer names ${info.brand} ${info.name}`:'no article for the archived ids'});
@@ -289,7 +307,7 @@ async function collect(){
      await record({supplierItemId:row.id,outcome:'not_found',error:`no ${makers.join('/')} vehicle among the ${listed.length} of ${info.brand} ${info.name}`});
      console.log(`${index} ${row.code} → bulunamadı (${info.brand} ${info.name}: ${makers.join('/')} aracı yok)`);continue;
     }
-    const vehicle=buildVehicles(applicability,catalog),built=buildData(info,vehicle.vehicles);
+    const vehicle=buildVehicles(applicability,catalog),built=buildData(info,vehicle.vehicles,categoriesForType(dictionary,type?typeSlug(type):null));
     const data=basis.type==='oem_reference'?oemMatchedData(built,makers,basis.reference):built;
     const image=await downloadImage(client,imageUrl(info),row.id);
     if(image){data.imageWidth=image.width;data.imageHeight=image.height;}
@@ -297,11 +315,11 @@ async function collect(){
     const pkg=enrichmentImportSchema.parse({supplierItemId:row.id,supplierCode:row.code,supplierBrand:row.brand,source:productUrl(ids),
      sourceMethod:`parts2world.com TecDoc API adapter v1; ${basis.type==='exact_part'?'exact brand/part verified':`OE number ${basis.type==='oem_reference'&&basis.referenceSource==='supplier_oem'?basis.reference+' of the supplier':row.code} listed by the article`}; archived article ${row.articleId}/${row.linkId}; catalog types ${vehicle.known}/${vehicle.total}; invalid rows ${vehicle.invalid.length}${image?'':'; no image'}${makers?`; vehicles of ${makers.join('/')} only`:''}${basis.type==='oem_reference'?'; other-article data dropped':''}${data.vehicles.length?'':'; no vehicles listed'}`,
      manufacturer:info.brand,partNumber:info.name,matchBasis:basis,imageFile:image?.file,imageSource:image?.source,completeness:complete?'complete':'partial',data});
-    const counts={image:Boolean(image),oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,
+    const counts={image:Boolean(image),categories:data.categories.length,oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,
      specifications:data.specifications.length,vehicles:data.vehicles.length,known:vehicle.known,total:vehicle.total,invalid:vehicle.invalid.length};
     await record({supplierItemId:row.id,outcome:'collected',url:pkg.source,counts,package:pkg});
     const written=dryRun?'toplandı':await write({supplierItemId:row.id,package:pkg})==='imported'?`yazıldı (${complete?'tamamlandı':'kısmi'})`:'yazılmadı';
-    console.log(`${index} ${row.code} → ${info.brand} ${info.name} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · araç ${vehicle.known}/${vehicle.total} katalogda · görsel ${image?'var':'yok'} · ${written}`);
+    console.log(`${index} ${row.code} → ${info.brand} ${info.name} · kategori ${counts.categories} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · araç ${vehicle.known}/${vehicle.total} katalogda · görsel ${image?'var':'yok'} · ${written}`);
    }catch(error){
     if(error instanceof SourceBlocked){if(!dryRun)await recordAttempt(pool,'parts2world',status,row.id,'blocked');console.error(String(error));process.exitCode=2;outcome='blocked';break;}
     if(error instanceof DatabaseUnavailable||connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;break;}
@@ -358,6 +376,51 @@ async function trimOemVehicles(){
  console.log(JSON.stringify({dryRun,...counts,noneLeft},null,1));
 }
 
+/** Part type names for the articles of enrichments written before #852: one article-info call per article, only the
+ *  name is stored. Runs under collect's locks, so it never adds to another parts2world client. */
+async function fetchTypes(){
+ await pool.query(await readFile('db/source-categories.sql','utf8'));
+ const alone=await tryExclusiveRun(pool,'parts2world-collect');
+ if(!alone){console.log(JSON.stringify({skipped:'another parts2world run is going'}));return;}
+ const lock=await acquireSourceLock(pool,'parts2world-source').catch(async error=>{await alone.release();throw error;});
+ const client=new Parts2WorldClient(Number(process.env.PARTS2WORLD_INTERVAL_MS||2500));
+ const counts={remainingBefore:0,fetched:0,named:0,noArticle:0,invalid:0,errors:0,rowsCovered:0,mapped:0};
+ // Transient failures (network, HTTP 5xx) stay unwritten for the next run; a run of them is an outage, and the run stops
+ // rather than hold both locks for hours.
+ const maxConsecutiveErrors=10;let consecutiveErrors=0;
+ const unmapped=new Map<string,number>();
+ try{
+  const dictionary=await loadTypeCategoriesOrEmpty(pool),limit=Number(option('limit')||50);
+  if(!Number.isInteger(limit)||limit<1)throw Error('--limit must be a positive integer');
+  const pending=await pendingArticleTypes(pool,{retry:args.includes('--retry')});
+  counts.remainingBefore=pending.length;
+  const jobs=pending.slice(0,limit);
+  console.log(JSON.stringify({fetching:jobs.length,remainingBefore:pending.length,intervalMs:client.intervalMs}));
+  for(const [index,job] of jobs.entries()){
+   try{
+    const answer=articleTypeAnswer(await client.articleInfo(articleInfoPath(job.articleId,job.linkId,job.vehicleTypeId)));
+    const info=answer.kind==='article'?answer.info:null,type=answer.kind==='article'?answer.type:null;
+    await saveArticleType(pool,{articleId:job.articleId,linkId:job.linkId,brand:info?.brand??null,partNumber:info?.name??null,spareInfo:type});
+    counts.fetched++;consecutiveErrors=0;
+    if(answer.kind==='none')counts.noArticle++;
+    if(answer.kind==='invalid'){counts.invalid++;console.error(`${job.articleId}/${job.linkId} → geçersiz yanıt: ${answer.error}`);}
+    if(type){
+     counts.named++;counts.rowsCovered+=job.rows;
+     if(categoriesForType(dictionary,typeSlug(type)).length)counts.mapped+=job.rows;else unmapped.set(type,(unmapped.get(type)??0)+job.rows);
+    }
+   }catch(error){
+    if(error instanceof SourceBlocked){console.error(String(error));process.exitCode=2;break;}
+    if(connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;break;}
+    counts.errors++;consecutiveErrors++;console.error(`${job.articleId}/${job.linkId} → hata: ${error}`);
+    if(consecutiveErrors>=maxConsecutiveErrors){console.error(`Art arda ${consecutiveErrors} hata; koşu durduruldu`);process.exitCode=2;break;}
+   }
+   if((index+1)%100===0)console.log(`${index+1}/${jobs.length} · adlı ${counts.named} · makale yok ${counts.noArticle} · geçersiz ${counts.invalid} · hata ${counts.errors}`);
+  }
+ }finally{await lock.release();await alone.release();}
+ console.log(JSON.stringify({...counts,mappedShare:counts.rowsCovered?Number((counts.mapped/counts.rowsCovered).toFixed(3)):0,requests:client.requests},null,1));
+ for(const [type,rows] of [...unmapped].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).slice(0,50))console.log(String(rows).padStart(6)+'  '+type);
+}
+
 async function report(){
  const all=[...(await entries()).values()],by=(outcome:string)=>all.filter(e=>e.outcome===outcome).length;
  const counts=all.flatMap(e=>e.counts?[e.counts]:[]),sum=(key:'vehicles'|'known'|'total'|'invalid')=>counts.reduce((total,c)=>total+c[key],0);
@@ -370,6 +433,7 @@ async function report(){
 
 try{
  if(command==='index')await index();else if(command==='match')await match();else if(command==='index-oems')await indexOems();
- else if(command==='collect')await collect();else if(command==='trim-oem-vehicles')await trimOemVehicles();else if(command==='report')await report();
- else throw Error('Usage: parts2world-enrichment.ts index --file F|match|collect --status partial|pending|not_found|report');
+ else if(command==='collect')await collect();else if(command==='trim-oem-vehicles')await trimOemVehicles();
+ else if(command==='fetch-types')await fetchTypes();else if(command==='report')await report();
+ else throw Error('Usage: parts2world-enrichment.ts index --file F|match|index-oems --file F|collect --status partial|pending|not_found|fetch-types [--limit N] [--retry]|trim-oem-vehicles|report');
 }finally{await pool.end();}
