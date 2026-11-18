@@ -102,12 +102,13 @@ export type InvoiceInitial = { invoiceType: InvoiceType | null; company: string 
 /**
  * Individual or corporate invoice (#881); the corporate fields exist only while it is chosen. The invoice goes to the
  * delivery address unless the box is cleared, which shows a separate invoice address (#916); `initial.address` with a
- * province starts with it shown.
+ * province starts with it shown. While the box is ticked the address block stays mounted but hidden and disabled, so
+ * ticking it again keeps what was typed, and its fields are neither submitted nor checked by the browser.
  */
 export function CheckoutInvoiceFields({ initial }: { initial?: InvoiceInitial | null }) {
   const [type, setType] = useState<InvoiceType>(initial?.invoiceType ?? "individual");
   const [same, setSame] = useState(!initial?.address?.province);
-  return <FieldSet className="gap-4">
+  return <><FieldSet className="gap-4">
     <FieldLegend variant="label" className={cn(checkoutLabel, "mb-0")}>Fatura türü</FieldLegend>
     <RadioGroup name="invoiceType" value={type} onValueChange={value => setType(value === "corporate" ? "corporate" : "individual")} className="flex flex-wrap gap-x-6 gap-y-0">
       {(Object.keys(invoiceTypes) as InvoiceType[]).map(key => <Field key={key} orientation="horizontal" className="min-h-11 w-auto items-center gap-2.5">
@@ -129,12 +130,16 @@ export function CheckoutInvoiceFields({ initial }: { initial?: InvoiceInitial | 
             defaultValue={initial?.taxOffice ?? undefined} required/></Field>
       </div>
     </>}
+  </FieldSet>
+  <FieldSet className="gap-4">
+    <FieldLegend variant="label" className={cn(checkoutLabel, "mb-0")}>Fatura adresi</FieldLegend>
     <input type="hidden" name="invoiceAddressMode" value={same ? "same" : "separate"}/>
-    <Field orientation="horizontal" className="items-start gap-2.5"><Checkbox id="checkout-invoice-same" checked={same} onCheckedChange={value => setSame(value === true)} className="my-0.5 size-5"/>
+    <Field orientation="horizontal" className="items-start gap-2.5">
+      <Checkbox id="checkout-invoice-same" checked={same} onCheckedChange={value => setSame(value === true)} className="my-0.5 size-5"
+        aria-controls="checkout-invoice-address" aria-expanded={!same}/>
       <FieldLabel htmlFor="checkout-invoice-same" className="block text-sm leading-[22px] font-normal">Fatura adresi teslimat adresiyle aynı</FieldLabel></Field>
-    {!same && <FieldSet className="gap-4">
-      <FieldLegend variant="label" className={cn(checkoutLabel, "mb-0")}>Fatura adresi</FieldLegend>
+    <FieldSet id="checkout-invoice-address" className="gap-4" hidden={same} disabled={same}>
       <CheckoutAddressFields scope="invoice" initial={initial?.address}/>
-    </FieldSet>}
-  </FieldSet>;
+    </FieldSet>
+  </FieldSet></>;
 }

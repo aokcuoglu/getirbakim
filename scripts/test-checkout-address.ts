@@ -131,6 +131,8 @@ test("the invoice address is null unless a separate one is chosen, and then has 
   // "same" ignores whatever invoice address fields were submitted, even invalid ones.
   const same = checkoutInput.parse({ ...separate, invoiceAddressMode: "same", invoiceDistrict: "Kadıköy" });
   assert.equal(same.invoiceAddress, null);
+  // Only the format checks still apply in "same" mode; the form does not submit the hidden block at all.
+  assert.equal(checkoutInput.safeParse({ ...valid, invoiceAddressLine: "x".repeat(501) }).success, false);
   const parsed = checkoutInput.parse(separate);
   assert.deepEqual(parsed.invoiceAddress, { province: "Ankara", district: "Çankaya", addressLine: "Atatürk Bulvarı No 1 Kat 3", postalCode: "06690" });
   for (const key of ["invoiceAddressMode", "invoiceProvince", "invoiceDistrict", "invoiceAddressLine", "invoicePostalCode"]) assert.equal(Object.hasOwn(parsed, key), false, key);

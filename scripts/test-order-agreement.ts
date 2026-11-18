@@ -186,13 +186,14 @@ test("placing an order stores the consent and an immutable order-specific copy",
     assert.equal(bareRow.ip, null); assert.equal(bareRow.forwarded_for, null); assert.equal(bareRow.user_agent, null);
     assert.equal(bareRow.consent_text, checkoutConsentText);
 
-    // A separate invoice address (#916) is stored in its own columns and named in the copy; the delivery address is unchanged.
+    // A separate invoice address (#916), here with a corporate invoice, is stored in its own columns and named in the copy;
+    // the delivery address is unchanged.
     const separate = checkoutInput.parse({ ...fields, consent: "on", requestKey: randomUUID(), quote: cartQuote(await cartFor(owner), 0, await shippingRule()),
-      invoiceAddressMode: "separate", invoiceProvince: "Ankara", invoiceDistrict: "Çankaya", invoiceAddressLine: "Atatürk Bulvarı No 1", invoicePostalCode: "" });
+      invoiceType: "corporate", invoiceCompany: "Yılmaz Otomotiv Ltd. Şti.", invoiceTaxNo: "1234567890", invoiceTaxOffice: "Çankaya", invoiceAddressMode: "separate", invoiceProvince: "Ankara", invoiceDistrict: "Çankaya", invoiceAddressLine: "Atatürk Bulvarı No 1", invoicePostalCode: "" });
     const separateOrder = await submitOrder(owner, separate, null, evidence);
     assert.ok(separateOrder.id, String(separateOrder.error));
-    const separateRow = (await schema.pool.query(`SELECT address,invoice_province,invoice_district,invoice_address_line,invoice_postal_code FROM commerce_orders WHERE id=$1`, [separateOrder.id])).rows[0];
-    assert.deepEqual(separateRow, { address: "Test Mahallesi 1. Sokak No 2, 34710 Kadıköy/İstanbul", invoice_province: "Ankara", invoice_district: "Çankaya",
+    const separateRow = (await schema.pool.query(`SELECT address,invoice_type,invoice_tax_no,invoice_province,invoice_district,invoice_address_line,invoice_postal_code FROM commerce_orders WHERE id=$1`, [separateOrder.id])).rows[0];
+    assert.deepEqual(separateRow, { address: "Test Mahallesi 1. Sokak No 2, 34710 Kadıköy/İstanbul", invoice_type: "corporate", invoice_tax_no: "1234567890", invoice_province: "Ankara", invoice_district: "Çankaya",
       invoice_address_line: "Atatürk Bulvarı No 1", invoice_postal_code: null });
     const separateDocument = JSON.stringify((await agreementRow(separateOrder.id))[0].document);
     assert.ok(separateDocument.includes(`"Fatura adresi: "]},"Atatürk Bulvarı No 1, Çankaya/Ankara"`));
