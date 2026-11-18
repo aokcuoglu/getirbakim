@@ -23,7 +23,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { CircleAlert, CircleCheck, Clock, Undo2 } from "lucide-react";
+import { CircleAlert, CircleCheck, Clock, Info, Undo2 } from "lucide-react";
 import { OrderProgress } from "@/components/order-progress";
 import { TrackPurchase } from "@/components/privacy/track-commerce";
 import { TrackRefund } from "@/components/privacy/track-refund";
@@ -57,6 +57,11 @@ const cancelMessages:Record<string,{text:string;error:boolean}>={
 const time=(value:Date)=>new Date(value).toLocaleString("tr-TR",{timeZone:"Europe/Istanbul"});
 
 export const metadata: Metadata = { robots: privatePageRobots };
+/** A partner order line's VAT is computed per line (#426): its stored line total, not the rounded unit price × quantity. */
+function lineTotal(line:{unit_price_kurus:string;quantity:number;pricing_snapshot:Record<string,unknown>|null}) {
+  const partner=line.pricing_snapshot?.partner as {line_gross_kurus?:unknown}|undefined;
+  return typeof partner?.line_gross_kurus==="number" ? partner.line_gross_kurus : Number(line.unit_price_kurus)*line.quantity;
+}
 export default async function Order({params,searchParams}:{params:Promise<{id:string}>;searchParams:Promise<SearchParams>}) {
   const [{id},query]=await Promise.all([params,searchParams.then(normalizeSearchParams)]);
   let result=await currentOrder(id);
@@ -76,7 +81,9 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const refundPending=mine && !admin && order.status==="cancelled" && ["refund_required","refunded"].includes(order.payment_status) && await refundEventPending(order.id);
   const snapshotNoteTexts=admin ? snapshotNotes(items.map(item=>({code:item.code,supplierLabel:item.supplier ? supplierNames[item.supplier] ?? item.supplier : null,snapshot:item.pricing_snapshot}))) : [];
   const awaiting=order.status==="awaiting_payment" && order.payment_status==="awaiting";
-  // Only the order's own customer cancels, and only before operations confirm it (#607).
+  // Only the order's own customer cancels, and only before operations confirm it (#607). Partner orders on account
+  // (#426) are not a visitor's own (only admins open them here) and are cancelled through the partner API, so the
+  // customer cancel keeps its own paid/offline rule rather than isHandledPayment.
   const pendingCancel=mine && order.status==="pending" && ["paid","none"].includes(order.payment_status);
   const awaitingCancel=mine && awaiting;
   const total=money(Number(order.total_kurus));
@@ -88,6 +95,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   // Shipment outranks the payment notes: shipped and delivered orders are paid (or legacy offline) orders.
   const notice=order.status==="delivered" ? "Siparişin teslim edildi."
     : order.status==="shipped" ? `Siparişin kargoya verildi.${order.tracking_no ? " Kargo takibi bölümünden izleyebilirsin." : ""}`
+    : order.payment_status==="on_account" ? `Cari hesap: ödeme alınmaz, tutar sonradan faturalanır. Sipariş durumu: ${orderStatus[order.status]}.`
     : order.payment_status==="paid"
     ? (order.status==="pending" ? "Ödemen alındı. Stok ve fiyat teyidi bitince siparişini hazırlayacağız. Teyit edilemezse ödemenin tamamı iade edilir." : `Ödemen alındı. Sipariş durumu: ${orderStatus[order.status]}.`)
     : awaiting ? (returned ? "Ödemeni henüz doğrulayamadık. İşlemi tamamladıysan birkaç dakika içinde güncellenir; tamamlamadıysan yeniden deneyebilirsin."
@@ -108,7 +116,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const cancelMessage=query.iptal && !hiddenCancelMessage ? cancelMessages[query.iptal] ?? null : null;
   const date=new Date(order.created_at);
   const metaDate=`${date.toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric",timeZone:"Europe/Istanbul"})}, ${date.toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Istanbul"})}`;
-  const PaymentIcon=order.payment_status==="paid" ? CircleCheck : order.payment_status==="awaiting" ? Clock : order.payment_status==="refunded" || order.payment_status==="refund_required" ? Undo2 : CircleAlert;
+  const PaymentIcon=order.payment_status==="paid" ? CircleCheck : order.payment_status==="on_account" ? Info : order.payment_status==="awaiting" ? Clock : order.payment_status==="refunded" || order.payment_status==="refund_required" ? Undo2 : CircleAlert;
   const row="flex items-baseline justify-between gap-4";
   const value="m-0 text-right tabular-nums";
   const trackUrl=shipment && order.tracking_url;
@@ -121,7 +129,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     {admin && query.iade==="hata" && <Alert className={cn(errorBox,"mb-3")}>İade kaydedilemedi: sipariş sevk ya da teslim edilmemiş veya adet sipariş edilenden fazla.</Alert>}
     {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? errorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
     <Card className={cn(panel,"mb-6 gap-3 ring-0")}>
-      <p role="status" className="m-0 text-[15px] leading-6">{notice}</p>
+      <p role="status" className="m-0 text-[15px] leading-6">{order.payment_status==="on_account" && <Info className="mr-1.5 inline-block size-4 align-text-bottom" aria-hidden/>}{notice}</p>
       {payNow && order.installment_count>1 && <Alert role="note" className={noticeBox}>Siparişin {order.installment_count} taksitli (vade farkı dahil) toplamla oluşturuldu. {installmentHint(order.installment_count)}.</Alert>}
       {payNow && <PayButton orderId={order.id} total={total} installments={order.installment_count}/>}
       {payNow && <p className={panelMuted}>{PAYMENT_NOTICE}{order.payment_due_at && <><br/>Son ödeme zamanı: <time dateTime={new Date(order.payment_due_at).toISOString()}>{time(order.payment_due_at)}</time></>}</p>}
@@ -139,7 +147,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
           <Input className="h-10 w-[85px] bg-white" name="quantity" type="number" min={1} max={p.quantity} defaultValue={1} aria-label="İade adedi" required/>
           <NativeSelect className="[&>select]:h-10 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
           <Input className="h-10 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className="h-10 px-4 hover:bg-brand-strong">İade kaydet</Button></form>}
-      </div><strong className="shrink-0 font-semibold tabular-nums">{money(Number(p.unit_price_kurus)*p.quantity)}</strong></div>)}
+      </div><strong className="shrink-0 font-semibold tabular-nums">{money(lineTotal(p))}</strong></div>)}
       {snapshotNoteTexts.map(text=><p key={text} className={cn(muted,"mt-3")}>{text}</p>)}
       </Card></div>
       <div className="flex min-w-0 flex-col gap-6 max-[600px]:contents">

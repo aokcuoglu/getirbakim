@@ -108,12 +108,23 @@ function price(row: PartnerCatalogRow, discountBps: number): PartnerPrice {
   return resolvePartnerPrice(row.pricing_snapshot, row.price_kurus, discountBps);
 }
 
+/** The opaque offer id of a supplier row: `offer_` + its uuid without dashes. */
+export function encodeOfferId(id: string) {
+  return `offer_${id.replace(/-/g, "").toLowerCase()}`;
+}
+
+/** The supplier row id behind an offer id, or null when it is not one `encodeOfferId` produces. */
+export function decodeOfferId(value: string): string | null {
+  const hex = /^offer_([0-9a-f]{32})$/.exec(value)?.[1];
+  return hex ? `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}` : null;
+}
+
 export function toPartnerOffer(row: PartnerCatalogRow): PartnerOffer {
   const availability = partnerAvailability(row);
   // Offers carry the undiscounted B2B view, like the old contract: the discount belongs to the product price.
   const offerPrice = price(row, 0);
   return {
-    selectedOfferId: `offer_${row.id.replace(/-/g, "")}`,
+    selectedOfferId: encodeOfferId(row.id),
     supplierDisplayName: supplierNames[row.supplier] ?? "GetirBakım",
     informationalPriceKurus: offerPrice.b2bPriceKurus,
     currency: "TRY",

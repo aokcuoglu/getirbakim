@@ -27,6 +27,18 @@ export function postalCodeFits(postalCode: string, province: Province) {
   return Number(postalCode.slice(0, 2)) === province.plate;
 }
 
+/**
+ * The first problem of a structured address (#950): an unknown province, a district outside it, or a postal code that
+ * does not start with the province's plate code; null when it fits. An empty postal code fits.
+ */
+export function addressProblem({ province, district, postalCode }: { province: string; district: string; postalCode: string }): "province" | "district" | "postalCode" | null {
+  const found = findProvince(province);
+  if (!found) return "province";
+  if (!found.districts.includes(district)) return "district";
+  if (postalCode && !postalCodeFits(postalCode, found)) return "postalCode";
+  return null;
+}
+
 /** "<açık adres>, <posta kodu> <İlçe>/<İl>": the combined text kept in commerce_orders.address and the agreement. */
 export function composeAddress({ line, district, province, postalCode }: { line: string; district: string; province: string; postalCode: string | null }) {
   return `${line}, ${[postalCode, `${district}/${province}`].filter(Boolean).join(" ")}`;
