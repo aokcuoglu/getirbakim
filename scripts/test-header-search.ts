@@ -52,6 +52,10 @@ test("Turkish type names add the English supplier name to the search (#953)", ()
   assert.equal(prefixTsQuery(parseSearchQuery("fren diski")), "('fren':* | 'brake':*) & ('diski':* | 'disk':*)");
 });
 
+test("dictionary English keys are plain words, safe inside a quoted tsquery (#953)", () => {
+  for (const [english] of typeNameEntries()) assert.match(normalizeSearchText(english), /^[a-z0-9]+( [a-z0-9]+)*$/, english);
+});
+
 test("plainly English names are recognised, shared words alone are not", () => {
   assert.equal(isEnglishTypeName("SWITCH"), true);
   assert.equal(isEnglishTypeName("WHEEL"), true);

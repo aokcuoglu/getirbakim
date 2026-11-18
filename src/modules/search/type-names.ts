@@ -17,7 +17,10 @@ const maxQueries = 4;
 
 /** phraseKey of the Turkish name → English names (folded words joined by one space), in dictionary order. */
 const englishByTurkish = new Map<string, string[]>();
-for (const [english, turkish] of typeNameEntries()) {
+// English keys are normalized too: they go into to_tsquery quoted, so they must stay [a-z0-9] words (tested).
+// Known limit: a suffixed form whose stem differs from the name ("kapağı", "camı", "mili") is not matched.
+for (const [name, turkish] of typeNameEntries()) {
+  const english = normalizeSearchText(name);
   const normalized = normalizeSearchText(turkish);
   if (english === normalized || ambiguousEnglish.has(english)) continue;
   const key = phraseKey(normalized.split(" "));
