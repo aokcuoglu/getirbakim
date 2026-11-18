@@ -7,6 +7,11 @@ import { foldText } from "./fold-text";
  * suggestions instead of shown (elsewhere it stays in its readable form). Keys are the folded words joined by one space.
  * A new entry changes the address of every product with that name: the old address 308s to the new one (product page)
  * and IndexNow reports both.
+ * Single-word names ("SPRING" → "Yay", "SHAFT" → "Mil", "SWITCH" → "Şalter") are generic on purpose and may not fit every
+ * product exactly. Words whose matches name different parts are deliberately left out, checked against other suppliers'
+ * Turkish names for the same OE numbers: "SEAL" and "JOINT" (mostly gaskets), "ROD" (piston rods, engine mounts), "CABLE"
+ * (mostly gear cables). They stay readable English on the store and are hidden from name suggestions: a missing
+ * suggestion is better than one naming the wrong part.
  */
 const dictionary = new Map<string, string>([
   ["brake disc", "Fren Diski"],
@@ -34,7 +39,6 @@ const dictionary = new Map<string, string>([
   ["repair kit", "Tamir Takımı"],
   ["cover", "Kapak"],
   ["pipe", "Boru"],
-  ["seal", "Keçe"],
   ["mirror", "Ayna"],
   ["housing", "Gövde"],
   ["nut", "Somun"],
@@ -42,16 +46,13 @@ const dictionary = new Map<string, string>([
   ["bolt", "Cıvata"],
   ["tensioner", "Gergi"],
   ["radiator", "Radyatör"],
-  ["joint", "Mafsal"],
   ["plug", "Tapa"],
   // #915: the most common English names of the catalog (search_product_names, November 2026).
   ["o ring", "O-Ring Conta"],
   ["switch", "Şalter"],
-  ["cable", "Kablo"],
-  ["wheel", "Tekerlek"],
+  ["wheel", "Jant"],
   ["shaft", "Mil"],
   ["valve", "Valf"],
-  ["rod", "Çubuk"],
   ["seal ring", "Sızdırmazlık Halkası"],
   ["contr arm", "Salıncak"],
   ["control arm", "Salıncak"],
@@ -62,15 +63,15 @@ const dictionary = new Map<string, string>([
   ["tail light", "Stop Lambası"],
   ["wing rear light", "Dış Stop Lambası"],
   ["tailgate light", "Bagaj Kapağı Stop Lambası"],
-  ["front light", "Ön Lamba"],
-  ["side marker light", "Yan Sinyal Lambası"],
+  ["front light", "Far"],
+  ["side marker light", "Yan İşaret Lambası"],
   ["pump fuel", "Yakıt Pompası"],
   ["cyl brake", "Fren Silindiri"],
   ["filter", "Filtre"],
   ["filter oil", "Yağ Filtresi"],
   ["mounting", "Takoz"],
   ["clutch", "Debriyaj"],
-  ["tie rod", "Rot Mili"],
+  ["tie rod", "Rot"],
   ["ring", "Halka"],
   ["strg wheel", "Direksiyon Simidi"],
   ["hub cover", "Jant Göbek Kapağı"],
@@ -86,7 +87,7 @@ const dictionary = new Map<string, string>([
   ["door", "Kapı"],
 ]);
 
-const onlyEnglish = new Set(["brake", "pad", "pads", "hose", "cable", "wheel", "gasket", "switch", "valve", "belt", "bearing", "repair", "accessory", "cylinder", "caliper", "drum", "shoe", "clutch", "pump", "warning", "contact", "master", "parking", "disc", "control", "cover", "pipe", "seal", "mirror", "housing", "nut", "spring", "bolt", "tensioner", "radiator", "joint", "plug", "link"]);
+const onlyEnglish = new Set(["brake", "pad", "pads", "hose", "cable", "wheel", "gasket", "switch", "valve", "belt", "bearing", "repair", "accessory", "cylinder", "caliper", "drum", "shoe", "clutch", "pump", "warning", "contact", "master", "parking", "disc", "control", "cover", "pipe", "seal", "mirror", "housing", "nut", "spring", "bolt", "tensioner", "radiator", "joint", "plug", "link", "rod"]);
 // Words English shares with Turkish names ("sensor", "kit", "set"): never enough on their own.
 const shared = new Set(["sensor", "kit", "set", "of", "and", "for", "with", "front", "rear", "left", "right", "pa", "cali"]);
 
