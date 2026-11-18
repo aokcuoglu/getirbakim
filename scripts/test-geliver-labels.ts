@@ -455,24 +455,35 @@ const results = (summary: Awaited<ReturnType<typeof runSync>>) => {
   return summary.results;
 };
 
-test("sync: only live labels of shipped orders are fetched, test labels never; test mode does nothing", async () => {
+test("sync: only live labels of shipped orders bought within 60 days are fetched, test labels never; test mode does nothing", async () => {
   await settleOthers();
   const live = await dueLiveLabel();
   const testLabel = await shippedByGeliver({ test: true });
   await checkedMinutesAgo(testLabel.remote.id, 600);
   const deliveredOrder = await dueLiveLabel(600);
   await schema.pool.query("UPDATE commerce_orders SET status='delivered',delivered_at=now() WHERE id=$1", [deliveredOrder.order.id]);
-  const deliveredLabel = await dueLiveLabel(600);
-  await schema.pool.query("UPDATE commerce_geliver_shipments SET tracking_status_code='DELIVERED' WHERE geliver_shipment_id=$1", [deliveredLabel.remote.id]);
+  const tooOld = await dueLiveLabel(600);
+  await schema.pool.query("UPDATE commerce_geliver_shipments SET completed_at=now()-interval '61 days' WHERE geliver_shipment_id=$1", [tooOld.remote.id]);
+  // A label that already says DELIVERED on a still shipped order is fetched again, so the order heals.
+  const deliveredLabel = await dueLiveLabel(500);
+  await schema.pool.query("UPDATE commerce_geliver_shipments SET tracking_status_code='DELIVERED',tracking_updated_at='2026-11-18T09:00:00Z' WHERE geliver_shipment_id=$1",
+    [deliveredLabel.remote.id]);
 
   detailReplies({});
   assert.deepEqual(await sync.syncGeliverShipments({ pauseMs: 0 }), { status: "not_live" });
   assert.equal(calls.length, 0);
 
-  detailReplies({ [live.remote.id]: detail(live.remote.id, { trackingStatusCode: "TRANSIT", trackingSubStatusCode: "package_accepted", updatedAt: "2026-11-18T10:00:00Z" },
-    { trackingNumber: "123456789012" }) });
-  const [result] = results(await runSync());
-  assert.deepEqual(fetchedIds(), [live.remote.id]);
+  detailReplies({
+    [live.remote.id]: detail(live.remote.id, { trackingStatusCode: "TRANSIT", trackingSubStatusCode: "package_accepted", updatedAt: "2026-11-18T10:00:00Z" },
+      { trackingNumber: "123456789012" }),
+    [deliveredLabel.remote.id]: detail(deliveredLabel.remote.id, { trackingStatusCode: "DELIVERED", trackingSubStatusCode: "delivered", updatedAt: "2026-11-18T09:00:00Z" }),
+  });
+  const summary = await runSync();
+  const [healed, result] = results(summary);
+  assert.deepEqual(fetchedIds(), [deliveredLabel.remote.id, live.remote.id]);
+  assert.ok(summary.status === "done" && !summary.dryRun && !summary.failed && summary.aborted === null);
+  assert.equal(healed.outcome, "applied");
+  assert.equal((await orderRow(deliveredLabel.order.id)).status, "delivered");
   assert.equal(result.outcome, "applied");
   assert.equal(result.orderId, live.order.id);
   assert.equal((await orderRow(live.order.id)).tracking_no, "123456789012");
@@ -555,8 +566,34 @@ test("sync: a failed or refused call is logged and the run goes on; the row keep
   await checkedMinutesAgo(down.remote.id, 120);
   detailReplies({ [down.remote.id]: () => Response.json({ result: true, data: shipment({ id: down.remote.id, test: true,
     trackingStatus: { trackingStatusCode: "DELIVERED", updatedAt: "2026-11-18T10:00:00Z" } }) }) });
-  assert.equal(results(await runSync())[0].outcome, "error");
+  const testReply = await runSync();
+  assert.equal(results(testReply)[0].outcome, "error");
+  assert.ok(testReply.status === "done" && !testReply.dryRun && testReply.failed && testReply.aborted === null, "a run where every call failed is a failure");
   assert.equal((await orderRow(down.order.id)).status, "shipped");
+});
+
+test("sync: a refused token stops after one call; three failures in a row stop the run; skipped labels keep checked_at", async () => {
+  await settleOthers();
+  const labelsDue = [await dueLiveLabel(400), await dueLiveLabel(300), await dueLiveLabel(200), await dueLiveLabel(100)];
+  const checkedBefore = async () => Promise.all(labelsDue.map(async l => ((await labelOf(l.remote.id)).checked_at as Date).getTime()));
+  const before = await checkedBefore();
+  const unauthorizedReply = () => Response.json({ result: false, code: "E1055", message: "Yetkisiz" }, { status: 401 });
+  detailReplies(Object.fromEntries(labelsDue.map(l => [l.remote.id, unauthorizedReply])));
+  const refused = await runSync();
+  assert.ok(refused.status === "done" && !refused.dryRun);
+  assert.deepEqual([refused.aborted, refused.failed, refused.results.length, calls.length], ["unauthorized", true, 1, 1]);
+  const afterRefused = await checkedBefore();
+  assert.ok(afterRefused[0] > before[0]);
+  assert.deepEqual(afterRefused.slice(1), before.slice(1), "labels not called are not penalized");
+
+  await checkedMinutesAgo(labelsDue[0].remote.id, 500);
+  const badGateway = () => new Response("bad gateway", { status: 502 });
+  detailReplies(Object.fromEntries(labelsDue.map(l => [l.remote.id, badGateway])));
+  const down = await runSync();
+  assert.ok(down.status === "done" && !down.dryRun);
+  assert.deepEqual([down.aborted, down.failed, calls.length], ["consecutive_errors", true, 3]);
+  assert.deepEqual(fetchedIds(), labelsDue.slice(0, 3).map(l => l.remote.id));
+  assert.equal(((await labelOf(labelsDue[3].remote.id)).checked_at as Date).getTime(), before[3]);
 });
 
 test("sync: a dry run lists the due labels without calling Geliver or writing", async () => {

@@ -3,7 +3,8 @@ import { SYNC_DEFAULT_LIMIT, syncGeliverShipments } from "../src/modules/shippin
 
 // Periodic Geliver tracking sync (#974); see docs/commerce.md "Geliver ile kargo etiketi".
 //   npm run geliver:sync [-- --limit=50] [-- --dry-run]
-// Exits 1 only on a configuration or database error; a failed Geliver call is reported and the run goes on.
+// Exits 1 on a configuration or database error, when the run stopped early (token/IP refused, three failed calls in a
+// row) or when every call failed; a single failed Geliver call is reported and the run goes on.
 
 const args = process.argv.slice(2);
 const limitArg = args.find(arg => arg.startsWith("--limit="))?.slice("--limit=".length);
@@ -32,7 +33,9 @@ async function main() {
     console.log(`  row ${r.rowId}  order ${r.orderId}  ${r.outcome}${detail ? ` ${detail}` : ""}`);
   }
   console.log(`Checked ${summary.results.length}: applied ${count("applied")}, unchanged ${count("ignored")}, no status ${count("no_status")}, failed ${count("error")}.`);
-  return 0;
+  if (summary.aborted) console.error(`Stopped early: ${summary.aborted === "unauthorized" ? "Geliver refused the token or IP (401/E1055)" : "three Geliver calls in a row failed"}; the remaining labels wait for the next run.`);
+  else if (summary.failed) console.error("Every Geliver call failed.");
+  return summary.failed ? 1 : 0;
 }
 
 let code = 1;

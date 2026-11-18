@@ -12,6 +12,11 @@ import { geliverMode, webhookEventSchema } from "./geliver-request";
 
 export const SYNC_DEFAULT_LIMIT = 50;
 export const SYNC_DEFAULT_MIN_AGE_MINUTES = 60;
+/** Labels bought longer ago are left alone: a shipment still "shipped" after this long (returned, failed, cancelled or
+ * unknown to Geliver) is for operations, not for every run's budget. */
+export const SYNC_MAX_LABEL_AGE_DAYS = 60;
+/** The run stops after this many failed calls in a row (Geliver down or refusing). */
+const MAX_CONSECUTIVE_ERRORS = 3;
 const DEFAULT_PAUSE_MS = 300;
 
 export type GeliverSyncCandidate = { rowId: string; orderId: string; shipmentId: string; checkedAt: Date | null; trackingStatusCode: string | null };
@@ -27,43 +32,38 @@ export type GeliverSyncSummary =
   | { status: "not_live" }
   | { status: "unavailable" }
   | { status: "done"; dryRun: true; candidates: GeliverSyncCandidate[] }
-  | { status: "done"; dryRun: false; results: GeliverSyncResult[] };
+  /**
+   * `aborted`: the run stopped early, on a refused token/IP (401 or E1055) or after three failed calls in a row; labels
+   * not called keep their checked_at. `failed`: aborted, or every call failed; the CLI then exits 1.
+   */
+  | { status: "done"; dryRun: false; results: GeliverSyncResult[]; aborted: "unauthorized" | "consecutive_errors" | null; failed: boolean };
 
 type CandidateRow = { id: string; order_id: string; geliver_shipment_id: string; previous: Date | null; tracking_status_code: string | null };
 
-// Purchased live labels of orders still on their way, oldest check first. A label that already says DELIVERED has
-// nothing left to learn; checked_at is set by every purchase, webhook update and sync attempt.
+// Purchased live labels (bought within SYNC_MAX_LABEL_AGE_DAYS) of orders still on their way, oldest check first;
+// checked_at is set by every purchase, webhook update and sync attempt.
+const DUE = `s.status='purchased' AND NOT s.test AND s.geliver_shipment_id IS NOT NULL
+  AND (s.checked_at IS NULL OR s.checked_at <= now()-make_interval(mins=>$1::int))`;
 const CANDIDATES = `SELECT s.id,s.order_id::text,s.geliver_shipment_id,s.checked_at AS previous,s.tracking_status_code
   FROM commerce_geliver_shipments s JOIN commerce_orders o ON o.id=s.order_id
-  WHERE s.status='purchased' AND NOT s.test AND s.geliver_shipment_id IS NOT NULL AND o.status='shipped'
-    AND s.tracking_status_code IS DISTINCT FROM 'DELIVERED'
-    AND (s.checked_at IS NULL OR s.checked_at <= now()-make_interval(mins=>$1::int))
+  WHERE ${DUE} AND o.status='shipped' AND s.completed_at > now()-make_interval(days=>${SYNC_MAX_LABEL_AGE_DAYS})
   ORDER BY s.checked_at ASC NULLS FIRST,s.completed_at,s.id LIMIT $2`;
 
 const toCandidate = (row: CandidateRow): GeliverSyncCandidate => ({
   rowId: row.id, orderId: row.order_id, shipmentId: row.geliver_shipment_id, checkedAt: row.previous, trackingStatusCode: row.tracking_status_code,
 });
-const byLastCheck = (a: GeliverSyncCandidate, b: GeliverSyncCandidate) =>
-  (a.checkedAt?.getTime() ?? -Infinity) - (b.checkedAt?.getTime() ?? -Infinity);
 
-/** Takes the batch: checked_at is stamped before any call, so a parallel run skips these rows. */
-async function claim(minAgeMinutes: number, limit: number) {
-  const { rows } = await db.query<CandidateRow>(
-    `WITH picked AS (${CANDIDATES} FOR UPDATE OF s SKIP LOCKED)
-     UPDATE commerce_geliver_shipments s SET checked_at=now() FROM picked WHERE s.id=picked.id
-     RETURNING s.id,picked.order_id,picked.geliver_shipment_id,picked.previous,picked.tracking_status_code`,
-    [minAgeMinutes, limit],
-  );
-  return rows.map(toCandidate).sort(byLastCheck);
-}
+/** Stamps checked_at right before the call; false when a parallel run took the label meanwhile. */
+const claim = async (rowId: string, minAgeMinutes: number) =>
+  Boolean((await db.query(`UPDATE commerce_geliver_shipments s SET checked_at=now() WHERE s.id=$2 AND ${DUE}`, [minAgeMinutes, rowId])).rowCount);
 
 const describe = (result: GeliverResult<unknown>) =>
   result.kind === "rejected" ? `rejected ${result.code} (HTTP ${result.httpStatus})` : result.kind === "unknown" ? result.reason : "ok";
 
-async function syncOne(candidate: GeliverSyncCandidate, fetchShipment: () => Promise<GeliverResult<GeliverShipment>>): Promise<GeliverSyncResult> {
-  let reply: GeliverResult<GeliverShipment>;
-  try { reply = await fetchShipment(); }
-  catch (error) { reply = { kind: "unknown", reason: error instanceof Error ? error.message : "Geliver çağrısı tamamlanamadı.", httpStatus: null }; }
+/** A refused token or IP: every further call would fail the same way. */
+const unauthorized = (reply: GeliverResult<unknown>) => reply.kind === "rejected" && (reply.httpStatus === 401 || reply.code === "E1055");
+
+async function syncOne(candidate: GeliverSyncCandidate, reply: GeliverResult<GeliverShipment>): Promise<GeliverSyncResult> {
   if (reply.kind !== "ok") return { ...candidate, outcome: "error", reason: describe(reply).slice(0, 200) };
   const shipment = reply.data;
   if (shipment.id !== candidate.shipmentId) return { ...candidate, outcome: "error", reason: "another shipment in the reply" };
@@ -81,8 +81,9 @@ async function syncOne(candidate: GeliverSyncCandidate, fetchShipment: () => Pro
 
 /**
  * Fetches up to `limit` live labels of shipped orders not checked for `minAgeMinutes` and applies their tracking status
- * like a webhook. Only with GELIVER_MODE=live. A failed call is logged (ids only) and the run goes on; database errors
- * are thrown. `dryRun` lists the labels without calling Geliver or writing.
+ * like a webhook. Only with GELIVER_MODE=live. A failed call is logged (ids only) and the run goes on, unless the token
+ * or IP is refused or three calls in a row fail; database errors are thrown. `dryRun` lists the labels without calling
+ * Geliver or writing.
  */
 export async function syncGeliverShipments({ limit = SYNC_DEFAULT_LIMIT, minAgeMinutes = SYNC_DEFAULT_MIN_AGE_MINUTES, dryRun = false, pauseMs = DEFAULT_PAUSE_MS }: {
   limit?: number; minAgeMinutes?: number; dryRun?: boolean; pauseMs?: number;
@@ -94,12 +95,25 @@ export async function syncGeliverShipments({ limit = SYNC_DEFAULT_LIMIT, minAgeM
     const { rows } = await db.query<CandidateRow>(CANDIDATES, [minAgeMinutes, limit]);
     return { status: "done", dryRun: true, candidates: rows.map(toCandidate) };
   }
+  const { rows } = await db.query<CandidateRow>(CANDIDATES, [minAgeMinutes, limit]);
   const results: GeliverSyncResult[] = [];
-  for (const [index, candidate] of (await claim(minAgeMinutes, limit)).entries()) {
-    if (index > 0 && pauseMs > 0) await new Promise(resolve => setTimeout(resolve, pauseMs));
-    const result = await syncOne(candidate, () => getShipment(config, candidate.shipmentId));
-    if (result.outcome === "error") console.warn("Geliver sync failed for a shipment", { rowId: result.rowId, orderId: result.orderId, reason: result.reason });
+  let aborted: "unauthorized" | "consecutive_errors" | null = null;
+  let errorsInRow = 0;
+  for (const candidate of rows.map(toCandidate)) {
+    if (!await claim(candidate.rowId, minAgeMinutes)) continue;
+    if (results.length && pauseMs > 0) await new Promise(resolve => setTimeout(resolve, pauseMs));
+    let reply: GeliverResult<GeliverShipment>;
+    try { reply = await getShipment(config, candidate.shipmentId); }
+    catch (error) { reply = { kind: "unknown", reason: error instanceof Error ? error.message : "Geliver çağrısı tamamlanamadı.", httpStatus: null }; }
+    const result = await syncOne(candidate, reply);
     results.push(result);
+    if (result.outcome !== "error") { errorsInRow = 0; continue; }
+    console.warn("Geliver sync failed for a shipment", { rowId: result.rowId, orderId: result.orderId, reason: result.reason });
+    errorsInRow += 1;
+    if (unauthorized(reply)) aborted = "unauthorized";
+    else if (errorsInRow >= MAX_CONSECUTIVE_ERRORS) aborted = "consecutive_errors";
+    if (aborted) { console.warn("Geliver sync stopped", { reason: aborted, checked: results.length, remaining: rows.length - results.length }); break; }
   }
-  return { status: "done", dryRun: false, results };
+  const failed = aborted !== null || (results.length > 0 && results.every(r => r.outcome === "error"));
+  return { status: "done", dryRun: false, results, aborted, failed };
 }
