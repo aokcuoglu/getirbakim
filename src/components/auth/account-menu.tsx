@@ -63,6 +63,7 @@ export function AccountMenu({ account }: { account: { name: string; role: string
             <h3 className="mt-0 mb-2.5 text-lg leading-[26px] font-semibold">{account.name}</h3>
             <p className="mt-0 mb-5 text-sm leading-5 text-muted-foreground">Onaylı profesyonel hesabınla devam et.</p>
             <Button nativeButton={false} className={primaryButton} render={<Link href={account.role === "admin" ? "/yonetim" : "/garaj"} onClick={() => setOpen(false)} />}>{account.role === "admin" ? "Yönetim paneli" : "Garajım"}</Button>
+            <Button nativeButton={false} variant="outline" className={outlineButton} render={<Link href="/hesap/adresler" onClick={() => setOpen(false)} />}>Adreslerim</Button>
             <form action={logout} className="mt-3"><Button type="submit" variant="outline" className={cn(outlineButton, "mt-0")}>Çıkış yap</Button></form>
           </> : <>
             <Button type="button" className={primaryButton} onClick={() => openModal("login")}>Log In</Button>

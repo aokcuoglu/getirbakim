@@ -97,6 +97,7 @@
     "test:vehicle-model-listing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-model-listing.ts",
     "test:vehicle-model-groups": "node --import tsx --test scripts/test-vehicle-model-groups.ts",
     "test:garage": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-garage.ts",
+    "test:account-addresses": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-account-addresses.ts",
     "test:vehicle-label": "node --conditions=react-server --import tsx --test scripts/test-vehicle-label.ts",
     "verify:catalog": "node --env-file=.env.local --conditions=react-server --import tsx scripts/verify-catalog.ts",
     "db:brand:migrate": "node --env-file=.env.local --import tsx scripts/migrate-brand-launch.ts",

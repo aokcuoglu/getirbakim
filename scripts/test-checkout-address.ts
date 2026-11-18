@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { test } from "node:test";
 import { checkoutErrorField, checkoutInput } from "../src/modules/store/checkout-schema";
-import { composeAddress, districtsOf, findProvince, invoiceAddressText, invoiceSummary, matchName, postalCodeFits, provinces, validTaxId } from "../src/modules/store/tr-address";
+import { addressProblem, composeAddress, districtsOf, findProvince, invoiceAddressText, invoiceSummary, matchName, postalCodeFits, provinces, validTaxId } from "../src/modules/store/tr-address";
 
 // Structured checkout address and invoice (#881); no database.
 
@@ -40,6 +40,16 @@ test("the combined address and the corporate invoice summary", () => {
     "Yılmaz Otomotiv · Vergi/TC kimlik no 1234567890 · Kadıköy V.D.");
   assert.equal(invoiceSummary({ invoice_type: "individual", invoice_company: null, invoice_tax_no: null, invoice_tax_office: null }), null);
   assert.equal(invoiceSummary({ invoice_type: null, invoice_company: null, invoice_tax_no: null, invoice_tax_office: null }), null);
+});
+
+test("an address's first problem: unknown province, another province's district, or a postal code of another province", () => {
+  assert.equal(addressProblem({ province: "İstanbul", district: "Kadıköy", postalCode: "34710" }), null);
+  assert.equal(addressProblem({ province: "İstanbul", district: "Kadıköy", postalCode: "" }), null);
+  assert.equal(addressProblem({ province: "Istanbul", district: "Kadıköy", postalCode: "34710" }), "province");
+  assert.equal(addressProblem({ province: "", district: "", postalCode: "" }), "province");
+  assert.equal(addressProblem({ province: "İstanbul", district: "Çankaya", postalCode: "06100" }), "district");
+  assert.equal(addressProblem({ province: "İstanbul", district: "", postalCode: "" }), "district");
+  assert.equal(addressProblem({ province: "İstanbul", district: "Kadıköy", postalCode: "06100" }), "postalCode");
 });
 
 const valid = { requestKey: randomUUID(), quote: "a".repeat(64), name: "Ayşe Yılmaz", email: "ayse@example.invalid", phone: "0555 123 45 67",
