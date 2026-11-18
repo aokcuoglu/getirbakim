@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "harness:lint": "node scripts/harness/admin-ui-lint.mjs",
     "harness:cls": "node scripts/harness/measure-cls.mjs",
+    "harness:html": "node scripts/harness/measure-html.mjs",
     "harness:test": "node --test scripts/harness/*.test.mjs scripts/flow/*.test.mjs",
     "db:setup": "node scripts/flow/db-setup-guard.mjs && node --env-file=.env.local --import tsx scripts/setup.ts",
     "db:demo": "node --env-file=.env.local --import tsx scripts/demo.ts",
