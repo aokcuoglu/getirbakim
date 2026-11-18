@@ -203,6 +203,16 @@ export function shouldApply(current: StoredTracking, event: WebhookEvent) {
   return !same;
 }
 
+/** An exact repeat of the stored status: same code and sub code, and the same Geliver time (or no time to tell them apart). */
+export function isRepeatEvent(current: StoredTracking, event: WebhookEvent) {
+  const status = event.data.trackingStatus;
+  if (!status || !current.tracking_status_code) return false;
+  const same = current.tracking_status_code === status.trackingStatusCode && (current.tracking_sub_status_code ?? null) === (status.trackingSubStatusCode ?? null);
+  if (!same) return false;
+  const at = eventClock(event);
+  return !at || !current.tracking_updated_at || at.getTime() === current.tracking_updated_at.getTime();
+}
+
 const digest = (value: string) => createHash("sha256").update(value, "utf8").digest();
 /**
  * Which carrier of the webhook secret matched (the X-Geliver-Secret header or the `token` query parameter); null when

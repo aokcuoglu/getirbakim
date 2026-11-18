@@ -102,7 +102,7 @@ function ShipmentForm({ orderId, back, mode, initial, initialFocus, onSaved }: {
   const yurtici = values.carrier === "yurtici";
   const describe = (field: string, hint = false) => [hint && `${fieldId}-${field}-hint`, errors[field] && `${fieldId}-${field}-error`].filter(Boolean).join(" ") || undefined;
 
-  return <form action={action} className="flex min-w-0 flex-col gap-4">
+  return <form action={action} noValidate className="flex min-w-0 flex-col gap-4">
     <input type="hidden" name="id" value={orderId}/>
     <input type="hidden" name="mode" value={mode}/>
     <input type="hidden" name="back" value={back}/>

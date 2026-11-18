@@ -5,7 +5,7 @@ import { siteUrl } from "@/lib/site";
 import { appendNote } from "@/modules/payments/checkout";
 import {
   buildTransactionBody, localErrorCodes, eventClock, geliverErrorMessage, geliverOrderNumber, geliverTestBlocked, geliverTestBlockedMessage, parseTime, recipientBlockLabel,
-  recipientOf, resolveGeliverTrackingUrl, serviceCodeFor, shouldApply, statusTime, webhookEventSchema, webhookSecretValid, type RecipientOrder, type WebhookEvent,
+  recipientOf, resolveGeliverTrackingUrl, isRepeatEvent, serviceCodeFor, shouldApply, statusTime, webhookEventSchema, webhookSecretValid, type RecipientOrder, type WebhookEvent,
 } from "./geliver-request";
 import type { Parcel } from "./geliver-parcel";
 import { findShipmentsByOrderNumber, geliverConfig, purchaseLabel, type GeliverResult, type GeliverShipment } from "./geliver";
@@ -233,7 +233,7 @@ type TrackedRow = {
   id: string; order_id: string; test: boolean; geliver_shipment_id: string; tracking_number: string | null; tracking_url: string | null;
   tracking_status_code: string | null; tracking_sub_status_code: string | null; tracking_updated_at: Date | null;
 };
-export type TrackingUpdateResult = { outcome: "applied"; orderId: string } | { outcome: "ignored"; reason: "unknown_shipment" | "stale" };
+export type TrackingUpdateResult = { outcome: "applied"; orderId: string } | { outcome: "ignored"; reason: "unknown_shipment" | "stale" | "duplicate" };
 
 /**
  * Applies a TRACK_UPDATED event to its label and order: tracking fields, the tracking number when the order has none,
@@ -257,7 +257,7 @@ export async function applyTrackingUpdate(event: WebhookEvent): Promise<Tracking
     const status = event.data.trackingStatus!;
     // A delivery of an order still on its way is never stale, whatever the clocks say.
     const delivers = status.trackingStatusCode === "DELIVERED" && order.status === "shipped";
-    if (!delivers && !shouldApply(row, event)) return { outcome: "ignored", reason: "stale" };
+    if (!delivers && !shouldApply(row, event)) return { outcome: "ignored", reason: isRepeatEvent(row, event) ? "duplicate" : "stale" };
     const clock = eventClock(event), carrierTime = statusTime(event);
     const trackingNumber = event.data.trackingNumber || row.tracking_number;
     const trackingUrl = event.data.trackingUrl || row.tracking_url;
@@ -288,7 +288,7 @@ export async function applyTrackingUpdate(event: WebhookEvent): Promise<Tracking
 
 export type WebhookResponse =
   | { status: 401 }
-  | { status: 200; outcome: "ignored"; reason: "not_track_updated" | "invalid_body" | "unknown_shipment" | "stale"; via: "header" | "token" }
+  | { status: 200; outcome: "ignored"; reason: "not_track_updated" | "invalid_body" | "unknown_shipment" | "stale" | "duplicate"; via: "header" | "token" }
   | { status: 200; outcome: "applied"; orderId: string; via: "header" | "token" };
 
 /**

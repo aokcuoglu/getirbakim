@@ -292,19 +292,23 @@ test("webhook: transit fills the tracking number; delivered delivers the order o
   assert.equal(label.tracking_location, "Kartal"); assert.equal(label.tracking_number, "123456789012");
 
   const repeat = await webhook(trackEvent(remote.id, "TRANSIT", "package_accepted", "2026-11-18T10:00:00+03:00", { trackingNumber: "123456789012" }));
-  assert.equal(repeat.status === 200 && repeat.outcome, "ignored");
+  assert.equal(repeat.status === 200 && repeat.outcome === "ignored" && repeat.reason, "duplicate");
+  const checked = (await labelRows(order.id))[0].checked_at;
   const stale = await webhook(trackEvent(remote.id, "PRE_TRANSIT", "information_received", "2026-11-18T09:00:00+03:00"));
-  assert.equal(stale.status === 200 && stale.outcome, "ignored");
+  assert.equal(stale.status === 200 && stale.outcome === "ignored" && stale.reason, "stale");
+  assert.deepEqual((await labelRows(order.id))[0].checked_at, checked, "a duplicate or stale event leaves the row alone");
   assert.equal((await labelRows(order.id))[0].tracking_status_code, "TRANSIT");
 
   await schema.pool.query("UPDATE commerce_orders SET shipped_at=now()-interval '2 hours' WHERE id=$1", [order.id]);
-  const deliveredAt = ago(30);
-  assert.equal((await webhook(trackEvent(remote.id, "DELIVERED", "delivered", ago(29), {}, deliveredAt))).status, 200);
+  const deliveredAt = ago(30), recordedAt = ago(29);
+  assert.equal((await webhook(trackEvent(remote.id, "DELIVERED", "delivered", recordedAt, {}, deliveredAt))).status, 200);
   row = await orderRow(order.id);
   assert.equal(row.status, "delivered");
   assert.equal(new Date(row.delivered_at).toISOString(), deliveredAt);
   [label] = await labelRows(order.id);
   assert.equal(label.tracking_status_code, "DELIVERED");
+  const again = await webhook(trackEvent(remote.id, "DELIVERED", "delivered", recordedAt, {}, deliveredAt));
+  assert.equal(again.status === 200 && again.outcome === "ignored" && again.reason, "duplicate", "a repeated delivery of a delivered order");
   // A later DELIVERED (another time) changes the label only; the order stays delivered with its first time.
   await webhook(trackEvent(remote.id, "DELIVERED", "delivered", ago(10), {}, ago(10)));
   assert.equal(new Date((await orderRow(order.id)).delivered_at).toISOString(), deliveredAt);
