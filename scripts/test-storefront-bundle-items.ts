@@ -31,7 +31,7 @@ function sharedQueueSql(sql: string) {
   return [
     slice("CREATE TABLE IF NOT EXISTS product_enrichment_shared_queue", ");"),
     slice("CREATE OR REPLACE FUNCTION product_enrichment_shared_queue_items()", "END $$;"),
-    slice("DROP TRIGGER IF EXISTS enrichment_shared_jobs_insert", "DROP TRIGGER IF EXISTS enrichment_shared_enrichments_insert", false),
+    slice("DO $$ BEGIN\n IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichment_jobs'::regclass AND tgname='enrichment_shared_jobs_insert')", "END $$;"),
   ].join("\n");
 }
 

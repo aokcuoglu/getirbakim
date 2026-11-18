@@ -168,33 +168,68 @@ BEGIN
  RETURN NULL;
 END $$;
 
-CREATE OR REPLACE TRIGGER enrichment_shared_products_insert AFTER INSERT ON products
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_products();
-CREATE OR REPLACE TRIGGER enrichment_shared_products_update AFTER UPDATE ON products
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_products();
-CREATE OR REPLACE TRIGGER enrichment_shared_products_delete AFTER DELETE ON products
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_products();
+-- Created only when missing: CREATE [OR REPLACE] TRIGGER locks the table against writers (SHARE ROW EXCLUSIVE) until setup
+-- commits. A changed function body needs only its CREATE OR REPLACE FUNCTION; a changed trigger definition needs a
+-- DROP TRIGGER in the same change.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='products'::regclass AND tgname='enrichment_shared_products_insert') THEN
+  CREATE TRIGGER enrichment_shared_products_insert AFTER INSERT ON products
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_products();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='products'::regclass AND tgname='enrichment_shared_products_update') THEN
+  CREATE TRIGGER enrichment_shared_products_update AFTER UPDATE ON products
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_products();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='products'::regclass AND tgname='enrichment_shared_products_delete') THEN
+  CREATE TRIGGER enrichment_shared_products_delete AFTER DELETE ON products
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_products();
+ END IF;
+END $$;
 
-CREATE OR REPLACE TRIGGER enrichment_shared_sources_insert AFTER INSERT ON product_sources
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_sources();
-CREATE OR REPLACE TRIGGER enrichment_shared_sources_update AFTER UPDATE ON product_sources
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_sources();
-CREATE OR REPLACE TRIGGER enrichment_shared_sources_delete AFTER DELETE ON product_sources
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_sources();
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_sources'::regclass AND tgname='enrichment_shared_sources_insert') THEN
+  CREATE TRIGGER enrichment_shared_sources_insert AFTER INSERT ON product_sources
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_sources();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_sources'::regclass AND tgname='enrichment_shared_sources_update') THEN
+  CREATE TRIGGER enrichment_shared_sources_update AFTER UPDATE ON product_sources
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_sources();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_sources'::regclass AND tgname='enrichment_shared_sources_delete') THEN
+  CREATE TRIGGER enrichment_shared_sources_delete AFTER DELETE ON product_sources
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_sources();
+ END IF;
+END $$;
 
-CREATE OR REPLACE TRIGGER enrichment_shared_jobs_insert AFTER INSERT ON product_enrichment_jobs
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
-CREATE OR REPLACE TRIGGER enrichment_shared_jobs_update AFTER UPDATE ON product_enrichment_jobs
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
-CREATE OR REPLACE TRIGGER enrichment_shared_jobs_delete AFTER DELETE ON product_enrichment_jobs
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichment_jobs'::regclass AND tgname='enrichment_shared_jobs_insert') THEN
+  CREATE TRIGGER enrichment_shared_jobs_insert AFTER INSERT ON product_enrichment_jobs
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichment_jobs'::regclass AND tgname='enrichment_shared_jobs_update') THEN
+  CREATE TRIGGER enrichment_shared_jobs_update AFTER UPDATE ON product_enrichment_jobs
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichment_jobs'::regclass AND tgname='enrichment_shared_jobs_delete') THEN
+  CREATE TRIGGER enrichment_shared_jobs_delete AFTER DELETE ON product_enrichment_jobs
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+END $$;
 
-CREATE OR REPLACE TRIGGER enrichment_shared_enrichments_insert AFTER INSERT ON product_enrichments
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
-CREATE OR REPLACE TRIGGER enrichment_shared_enrichments_update AFTER UPDATE ON product_enrichments
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
-CREATE OR REPLACE TRIGGER enrichment_shared_enrichments_delete AFTER DELETE ON product_enrichments
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichments'::regclass AND tgname='enrichment_shared_enrichments_insert') THEN
+  CREATE TRIGGER enrichment_shared_enrichments_insert AFTER INSERT ON product_enrichments
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichments'::regclass AND tgname='enrichment_shared_enrichments_update') THEN
+  CREATE TRIGGER enrichment_shared_enrichments_update AFTER UPDATE ON product_enrichments
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichments'::regclass AND tgname='enrichment_shared_enrichments_delete') THEN
+  CREATE TRIGGER enrichment_shared_enrichments_delete AFTER DELETE ON product_enrichments
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+END $$;
 
 -- A hidden supplier OEM drops enrichment matched through it (enrichment_valid_data, #865): an override write queues
 -- its item only when hide_oem is (or was) set; price, name and visibility edits leave the queue alone. The projection
@@ -229,12 +264,16 @@ DO $$ BEGIN
 END $$;
 
 -- Price and stock syncs rewrite supplier rows constantly; only identity matters here. Deleted rows cascade.
-CREATE OR REPLACE TRIGGER enrichment_shared_supplier_items_update AFTER UPDATE OF code, product_data ON supplier_items FOR EACH ROW
- WHEN (OLD.code IS DISTINCT FROM NEW.code
-  OR OLD.product_data->>'uk' IS DISTINCT FROM NEW.product_data->>'uk'
-  OR OLD.product_data->>'marka' IS DISTINCT FROM NEW.product_data->>'marka'
-  OR OLD.product_data->>'oe' IS DISTINCT FROM NEW.product_data->>'oe')
- EXECUTE FUNCTION product_enrichment_shared_queue_supplier_item();
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_items'::regclass AND tgname='enrichment_shared_supplier_items_update') THEN
+  CREATE TRIGGER enrichment_shared_supplier_items_update AFTER UPDATE OF code, product_data ON supplier_items FOR EACH ROW
+   WHEN (OLD.code IS DISTINCT FROM NEW.code
+   OR OLD.product_data->>'uk' IS DISTINCT FROM NEW.product_data->>'uk'
+   OR OLD.product_data->>'marka' IS DISTINCT FROM NEW.product_data->>'marka'
+   OR OLD.product_data->>'oe' IS DISTINCT FROM NEW.product_data->>'oe')
+   EXECUTE FUNCTION product_enrichment_shared_queue_supplier_item();
+ END IF;
+END $$;
 
 CREATE OR REPLACE TRIGGER enrichment_shared_supplier_brands_update AFTER UPDATE OF brand_id ON supplier_brands FOR EACH ROW
  WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION product_enrichment_shared_queue_all();

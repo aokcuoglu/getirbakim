@@ -307,11 +307,14 @@ CREATE TABLE IF NOT EXISTS product_equivalents (
  kind text NOT NULL CHECK (kind IN ('oem','cross','brand')), brand text NOT NULL, part_number text NOT NULL,
  PRIMARY KEY (product_id,equivalent_id), CHECK (product_id<>equivalent_id)
 );
--- manual: an admin linked the pair as equivalent (product_equivalent_decisions). Replaced only when it lacks its newest
--- value ('manual'): DROP + ADD locks the table until setup commits. Adding a kind means changing the marker too.
+-- manual: an admin linked the pair as equivalent (product_equivalent_decisions).
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
 DO $$ BEGIN
- IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='product_equivalents'::regclass AND conname='product_equivalents_kind_check' AND convalidated
-  AND pg_get_constraintdef(oid) LIKE '%''manual''%') THEN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='product_equivalents'::regclass AND k.conname='product_equivalents_kind_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['oem','cross','brand','manual'] THEN
   ALTER TABLE product_equivalents DROP CONSTRAINT IF EXISTS product_equivalents_kind_check;
   ALTER TABLE product_equivalents ADD CONSTRAINT product_equivalents_kind_check CHECK (kind IN ('oem','cross','brand','manual'));
  END IF;

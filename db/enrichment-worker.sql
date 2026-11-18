@@ -83,11 +83,14 @@ DO $$ BEGIN
   ALTER TABLE enrichment_source_attempts ALTER COLUMN queue DROP NOT NULL;
  END IF;
 END $$;
--- spareto re-collects its own partial products (queue 'partial'). Replaced only when it lacks its newest value
--- ('partial'): DROP + ADD locks the table until setup commits. Adding a value means changing the marker too.
+-- spareto re-collects its own partial products (queue 'partial').
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
 DO $$ BEGIN
- IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='enrichment_source_attempts'::regclass AND conname='enrichment_source_attempts_queue_check' AND convalidated
-  AND pg_get_constraintdef(oid) LIKE '%''partial''%') THEN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='enrichment_source_attempts'::regclass AND k.conname='enrichment_source_attempts_queue_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['pending','not_found','review','partial'] THEN
   ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_queue_check;
   ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial'));
  END IF;
@@ -132,10 +135,13 @@ CREATE TABLE IF NOT EXISTS parts2world_article_oems (oem_key text NOT NULL, link
 CREATE INDEX IF NOT EXISTS parts2world_articles_link_idx ON parts2world_articles(link_id);
 -- The OE number a job was matched through; NULL for a brand/part match.
 ALTER TABLE parts2world_job_articles ADD COLUMN IF NOT EXISTS oem_reference text;
--- Replaced only when it lacks its newest value ('parts2world'); adding a source means changing the marker too.
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
 DO $$ BEGIN
- IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='enrichment_source_attempts'::regclass AND conname='enrichment_source_attempts_source_check' AND convalidated
-  AND pg_get_constraintdef(oid) LIKE '%''parts2world''%') THEN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='enrichment_source_attempts'::regclass AND k.conname='enrichment_source_attempts_source_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['otoparcasan','spareto','parts2world'] THEN
   ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_source_check;
   ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_source_check CHECK(source IN ('otoparcasan','spareto','parts2world'));
  END IF;

@@ -78,8 +78,17 @@ BEGIN
  END IF;
  RETURN OLD;
 END $$;
-CREATE OR REPLACE TRIGGER cleanup_commerce_account_cart BEFORE DELETE ON accounts FOR EACH ROW EXECUTE FUNCTION cleanup_commerce_cart('account');
-CREATE OR REPLACE TRIGGER cleanup_commerce_guest_cart BEFORE DELETE ON guest_carts FOR EACH ROW EXECUTE FUNCTION cleanup_commerce_cart('guest');
+-- Created only when missing: CREATE [OR REPLACE] TRIGGER locks the table against writers (SHARE ROW EXCLUSIVE) until setup
+-- commits. A changed function body needs only its CREATE OR REPLACE FUNCTION; a changed trigger definition needs a
+-- DROP TRIGGER in the same change.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='accounts'::regclass AND tgname='cleanup_commerce_account_cart') THEN
+  CREATE TRIGGER cleanup_commerce_account_cart BEFORE DELETE ON accounts FOR EACH ROW EXECUTE FUNCTION cleanup_commerce_cart('account');
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='guest_carts'::regclass AND tgname='cleanup_commerce_guest_cart') THEN
+  CREATE TRIGGER cleanup_commerce_guest_cart BEFORE DELETE ON guest_carts FOR EACH ROW EXECUTE FUNCTION cleanup_commerce_cart('guest');
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS commerce_orders (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), number bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
  owner_kind text NOT NULL CHECK(owner_kind IN ('account','guest')), owner_id text NOT NULL,

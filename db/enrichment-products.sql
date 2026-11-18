@@ -101,17 +101,19 @@ CREATE OR REPLACE VIEW product_enrichment_shared AS
  e.manufacturer_part_number,e.image_id,e.payload,e.imported_at,e.match_basis,e.supplier_item_id,e.supplier_code,e.supplier_brand,e.donor_oem,e.status,e.donor_master_brand
  FROM enrichment_valid_data e WHERE NOT EXISTS(SELECT 1 FROM product_sources ps WHERE ps.supplier_item_id=e.supplier_item_id);
 
--- Each runs only when needed: ADD COLUMN IF NOT EXISTS and DROP + ADD CONSTRAINT lock the table (ACCESS EXCLUSIVE) until
--- setup commits even as no-ops. The check is replaced when it lacks its newest value ('skipped'); adding a status means
--- changing that marker too.
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_run_items'::regclass AND attname='product_id' AND NOT attisdropped) THEN
   ALTER TABLE enrichment_run_items ADD COLUMN product_id uuid REFERENCES products(id) ON DELETE SET NULL;
  END IF;
 END $$;
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
 DO $$ BEGIN
- IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='enrichment_run_items'::regclass AND conname='enrichment_run_items_status_check' AND convalidated
-  AND pg_get_constraintdef(oid) LIKE '%''skipped''%') THEN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='enrichment_run_items'::regclass AND k.conname='enrichment_run_items_status_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['queued','collecting','complete','partial','review','not_found','failed','blocked','skipped'] THEN
   ALTER TABLE enrichment_run_items DROP CONSTRAINT IF EXISTS enrichment_run_items_status_check;
   ALTER TABLE enrichment_run_items ADD CONSTRAINT enrichment_run_items_status_check CHECK(status IN ('queued','collecting','complete','partial','review','not_found','failed','blocked','skipped'));
  END IF;

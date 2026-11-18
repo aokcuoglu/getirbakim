@@ -79,8 +79,15 @@ BEGIN
  NEW.search_oem := search_compact(COALESCE(NEW.product_data->>'oe', ''));
  RETURN NEW;
 END $$;
-CREATE OR REPLACE TRIGGER supplier_items_search_fields BEFORE INSERT OR UPDATE OF code, product_data ON supplier_items
- FOR EACH ROW EXECUTE FUNCTION supplier_items_search_fields();
+-- Created only when missing: CREATE [OR REPLACE] TRIGGER locks the table against writers (SHARE ROW EXCLUSIVE) until setup
+-- commits. A changed function body needs only its CREATE OR REPLACE FUNCTION; a changed trigger definition needs a
+-- DROP TRIGGER in the same change.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_items'::regclass AND tgname='supplier_items_search_fields') THEN
+  CREATE TRIGGER supplier_items_search_fields BEFORE INSERT OR UPDATE OF code, product_data ON supplier_items
+   FOR EACH ROW EXECUTE FUNCTION supplier_items_search_fields();
+ END IF;
+END $$;
 -- One-time fill of rows written before the trigger existed (a no-op afterwards). Runs under setup's
 -- supplier locks, so no import writes these rows meanwhile.
 UPDATE supplier_items SET product_data = product_data WHERE search_doc IS NULL;

@@ -100,12 +100,23 @@ BEGIN
 END $$;
 
 -- A fitment belongs to its donor item: the refresh resolves the item to its product and every offer sharing it.
-CREATE OR REPLACE TRIGGER enrichment_shared_fitments_insert AFTER INSERT ON product_vehicle_fitments
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
-CREATE OR REPLACE TRIGGER enrichment_shared_fitments_update AFTER UPDATE ON product_vehicle_fitments
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
-CREATE OR REPLACE TRIGGER enrichment_shared_fitments_delete AFTER DELETE ON product_vehicle_fitments
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+-- Created only when missing: CREATE [OR REPLACE] TRIGGER locks the table against writers (SHARE ROW EXCLUSIVE) until setup
+-- commits. A changed function body needs only its CREATE OR REPLACE FUNCTION; a changed trigger definition needs a
+-- DROP TRIGGER in the same change.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_vehicle_fitments'::regclass AND tgname='enrichment_shared_fitments_insert') THEN
+  CREATE TRIGGER enrichment_shared_fitments_insert AFTER INSERT ON product_vehicle_fitments
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_vehicle_fitments'::regclass AND tgname='enrichment_shared_fitments_update') THEN
+  CREATE TRIGGER enrichment_shared_fitments_update AFTER UPDATE ON product_vehicle_fitments
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_vehicle_fitments'::regclass AND tgname='enrichment_shared_fitments_delete') THEN
+  CREATE TRIGGER enrichment_shared_fitments_delete AFTER DELETE ON product_vehicle_fitments
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
+ END IF;
+END $$;
 
 -- An admin's fitment decision (#583) belongs to a product: the refresh recomputes every offer of it. A small table;
 -- merges carry rows through the same triggers.
@@ -127,10 +138,16 @@ CREATE OR REPLACE TRIGGER product_override_fitments_delete AFTER DELETE ON produ
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
 
 -- A type or model moving to another make touches every offer fitted to it: rebuild (rare, catalog imports).
-CREATE OR REPLACE TRIGGER enrichment_shared_vehicle_types_update AFTER UPDATE OF model_id ON vehicle_types FOR EACH ROW
- WHEN (OLD.model_id IS DISTINCT FROM NEW.model_id) EXECUTE FUNCTION product_enrichment_shared_queue_all();
-CREATE OR REPLACE TRIGGER enrichment_shared_vehicle_models_update AFTER UPDATE OF brand_id ON vehicle_models FOR EACH ROW
- WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION product_enrichment_shared_queue_all();
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_types'::regclass AND tgname='enrichment_shared_vehicle_types_update') THEN
+  CREATE TRIGGER enrichment_shared_vehicle_types_update AFTER UPDATE OF model_id ON vehicle_types FOR EACH ROW
+   WHEN (OLD.model_id IS DISTINCT FROM NEW.model_id) EXECUTE FUNCTION product_enrichment_shared_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_models'::regclass AND tgname='enrichment_shared_vehicle_models_update') THEN
+  CREATE TRIGGER enrichment_shared_vehicle_models_update AFTER UPDATE OF brand_id ON vehicle_models FOR EACH ROW
+   WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION product_enrichment_shared_queue_all();
+ END IF;
+END $$;
 
 -- The first deployment fills the tables: an empty one asks for a rebuild (scripts/setup.ts syncs after the schema).
 INSERT INTO product_enrichment_shared_queue(kind,id) SELECT 'p','00000000-0000-0000-0000-000000000000'

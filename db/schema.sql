@@ -83,11 +83,13 @@ ALTER TABLE supplier_import_items ADD COLUMN IF NOT EXISTS source_variants jsonb
 CREATE INDEX IF NOT EXISTS supplier_import_items_import_idx ON supplier_import_items(import_id);
 
 -- Current supplier observations and bounded change history (not one full copy per run).
--- Replaced only when it lacks its newest value ('manual'): DROP + ADD locks the table (ACCESS EXCLUSIVE, re-validating every row)
--- until setup commits. Adding a value means changing this marker too.
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
 DO $$ BEGIN
- IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='supplier_imports'::regclass AND conname='supplier_imports_supplier_check' AND convalidated
-  AND pg_get_constraintdef(oid) LIKE '%''manual''%') THEN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='supplier_imports'::regclass AND k.conname='supplier_imports_supplier_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['basbug','dinamik','seta','manual'] THEN
   ALTER TABLE supplier_imports DROP CONSTRAINT IF EXISTS supplier_imports_supplier_check;
   ALTER TABLE supplier_imports ADD CONSTRAINT supplier_imports_supplier_check CHECK (supplier IN ('basbug','dinamik','seta','manual'));
  END IF;
@@ -153,18 +155,24 @@ CREATE TABLE IF NOT EXISTS supplier_sync_scopes (
 );
 -- SETA (single published list) and manual xlsx lists (db/manual-supplier.sql). The inline checks above only apply
 -- to new databases. Manual lists have no sync scope: nothing fetches them on a schedule.
--- Each is replaced only when it lacks its newest value (the LIKE marker): DROP + ADD locks the table (ACCESS EXCLUSIVE,
--- re-validating every supplier row) until setup commits. Adding a value means changing its marker too.
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
 DO $$ BEGIN
- IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='supplier_items'::regclass AND conname='supplier_items_supplier_check' AND convalidated
-  AND pg_get_constraintdef(oid) LIKE '%''manual''%') THEN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='supplier_items'::regclass AND k.conname='supplier_items_supplier_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['basbug','dinamik','seta','manual'] THEN
   ALTER TABLE supplier_items DROP CONSTRAINT IF EXISTS supplier_items_supplier_check;
   ALTER TABLE supplier_items ADD CONSTRAINT supplier_items_supplier_check CHECK (supplier IN ('basbug','dinamik','seta','manual'));
  END IF;
 END $$;
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
 DO $$ BEGIN
- IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='supplier_sync_scopes'::regclass AND conname='supplier_sync_scopes_supplier_check' AND convalidated
-  AND pg_get_constraintdef(oid) LIKE '%''seta''%') THEN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='supplier_sync_scopes'::regclass AND k.conname='supplier_sync_scopes_supplier_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['basbug','dinamik','seta'] THEN
   ALTER TABLE supplier_sync_scopes DROP CONSTRAINT IF EXISTS supplier_sync_scopes_supplier_check;
   ALTER TABLE supplier_sync_scopes ADD CONSTRAINT supplier_sync_scopes_supplier_check CHECK (supplier IN ('basbug','dinamik','seta'));
  END IF;
