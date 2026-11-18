@@ -727,3 +727,31 @@ CREATE UNIQUE INDEX IF NOT EXISTS commerce_geliver_shipments_active_idx ON comme
 CREATE UNIQUE INDEX IF NOT EXISTS commerce_geliver_shipments_remote_idx ON commerce_geliver_shipments(geliver_shipment_id)
  WHERE geliver_shipment_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS commerce_geliver_shipments_order_idx ON commerce_geliver_shipments(order_id,requested_at DESC);
+-- Partner orders (#426). A partner (BakımX) orders through /api/partner/v1 as owner_kind='partner', owner_id=<partner
+-- code from PARTNER_API_KEYS>. It pays on account: the order opens without a payment (payment_status 'on_account'), is
+-- invoiced to the partner later and never enters the TAMI payment window or its expiry. partner_fingerprint is the hash
+-- of the request body sent with the order's Idempotency-Key (request_key): the same key with another body is refused.
+-- Both CHECKs are found by definition (the inline owner_kind CHECK's generated name is not relied on) and widened once.
+DO $$ DECLARE c text; BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND contype='c'
+  AND pg_get_constraintdef(oid) LIKE '%owner_kind%' AND pg_get_constraintdef(oid) LIKE '%''partner''%') THEN
+  FOR c IN SELECT conname FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND contype='c'
+   AND pg_get_constraintdef(oid) LIKE '%owner_kind%' LOOP
+   EXECUTE format('ALTER TABLE commerce_orders DROP CONSTRAINT %I', c);
+  END LOOP;
+  ALTER TABLE commerce_orders ADD CONSTRAINT commerce_orders_owner_kind_check CHECK(owner_kind IN ('account','guest','partner'));
+ END IF;
+ IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND contype='c'
+  AND pg_get_constraintdef(oid) LIKE '%payment_status%' AND pg_get_constraintdef(oid) LIKE '%''on_account''%') THEN
+  FOR c IN SELECT conname FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND contype='c'
+   AND pg_get_constraintdef(oid) LIKE '%payment_status%' LOOP
+   EXECUTE format('ALTER TABLE commerce_orders DROP CONSTRAINT %I', c);
+  END LOOP;
+  ALTER TABLE commerce_orders ADD CONSTRAINT commerce_orders_payment_status_check
+   CHECK(payment_status IN ('none','awaiting','paid','expired','cancelled','refund_required','refunded','on_account'));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_fingerprint' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN partner_fingerprint text;
+  COMMENT ON COLUMN commerce_orders.partner_fingerprint IS 'Partner orders (#426): SHA-256 of the request body sent with the Idempotency-Key (request_key)';
+ END IF;
+END $$;

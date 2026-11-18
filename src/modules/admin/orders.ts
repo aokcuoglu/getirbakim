@@ -3,6 +3,7 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { cancelLockedOrder } from "@/modules/store/order-cancel";
+import { isHandledPayment } from "@/modules/store/payment-states";
 import { resolveTrackingUrl, type Shipment } from "@/modules/store/shipment";
 import type { ProcurementStatus } from "./order-procurement";
 
@@ -16,8 +17,8 @@ async function withHandledOrder(id: string, step: (client: PoolClient, old: { st
   try {
     await client.query("BEGIN");
     const old = (await client.query<{ status: string; payment_status: string }>("SELECT status,payment_status FROM commerce_orders WHERE id=$1 FOR UPDATE", [id])).rows[0];
-    // Unpaid online orders expire on their own; operations only handle paid (or legacy offline) orders.
-    const ok = old && ["paid", "none"].includes(old.payment_status) ? await step(client, old) : false;
+    // Unpaid online orders expire on their own; operations only handle paid, legacy offline or partner on-account (#426) orders.
+    const ok = old && isHandledPayment(old.payment_status) ? await step(client, old) : false;
     await client.query("COMMIT");
     return ok;
   } catch (error) { await client.query("ROLLBACK"); throw error; }

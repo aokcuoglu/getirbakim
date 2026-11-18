@@ -16,8 +16,12 @@ test("cart lines look up the catalog per line, never one catalog-wide scan per l
 test("submitOrder waits CHECKOUT_LOCK_TIMEOUT for supplier rows, then goes on without the share lock (#790)", async()=> {
   const source=await readFile("src/modules/store/orders.ts","utf8");
   const submitOrder=source.slice(source.indexOf("export async function submitOrder"),source.indexOf("export const orderStatus"));
+  // The lock sequence is shared with partner orders (#426): submitOrder calls it, the helper holds the steps.
+  assert.ok(submitOrder.includes("lockCheckoutSources(client,"));
+  const helpers=await readFile("src/modules/store/supplier-checkout.ts","utf8");
+  const lock=helpers.slice(helpers.indexOf("export async function lockCheckoutSources"),helpers.indexOf("export function checkedLineSnapshot"));
   for(const part of ["CHECKOUT_LOCK_TIMEOUT","SAVEPOINT supplier_rows","ROLLBACK TO SAVEPOINT supplier_rows","SET LOCAL lock_timeout = 0"])
-    assert.ok(submitOrder.includes(part),part);
+    assert.ok(lock.includes(part),part);
 });
 
 test("livePriceChanges prices a live cost with the view's own commerce_*_price functions, not a copy (#882)", async()=> {
