@@ -21,8 +21,8 @@ const optionTexts = {
   },
   marketing: {
     title: "Reklam ve kişiselleştirme çerezleri",
-    text: "Reklamların etkisini ölçmek için Google Ads ve Meta kullanılır. Yalnızca izin verirsen yüklenir.",
-    idle: "İlgi alanlarına uygun reklam ve teklifler içindir. Şu anda reklam hizmeti kullanılmıyor.",
+    text: (names: string[]) => `Reklamların etkisini ölçmek için ${names.join(" ve ")} kullanılır. Yalnızca izin verirsen yüklenir.`,
+    idle: "Reklamların etkisini ölçmek içindir. Şu anda reklam hizmeti kullanılmıyor.",
   },
 };
 
@@ -94,13 +94,14 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
   const options = [
     { key: "necessary", ...optionTexts.necessary },
     { key: "analytics", title: optionTexts.analytics.title, text: services.analytics ? optionTexts.analytics.text : optionTexts.analytics.idle },
-    { key: "marketing", title: optionTexts.marketing.title, text: services.marketing ? optionTexts.marketing.text : optionTexts.marketing.idle },
+    { key: "marketing", title: optionTexts.marketing.title, text: services.marketing ? optionTexts.marketing.text(services.marketingNames) : optionTexts.marketing.idle },
   ] as const;
   const [analytics, setAnalytics] = useState(consent?.analytics ?? false);
   const [marketing, setMarketing] = useState(consent?.marketing ?? false);
 
   function choose(nextAnalytics: boolean, nextMarketing: boolean) {
-    saveConsent(nextAnalytics, nextMarketing);
+    // A category without a service is saved as refused, so turning one on later asks again (CONSENT_VERSION).
+    saveConsent(nextAnalytics, nextMarketing && services.marketing);
     closeCookieSettings();
   }
 
