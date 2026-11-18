@@ -79,8 +79,11 @@ test("suffixed Turkish type names reach the dictionary (#969)", () => {
   assert.deepEqual(exact("kolu"), [["arm"]]);
   assert.deepEqual(exact("yayı"), [["spring"]]);
   assert.deepEqual(exact("kapağı"), [["cap"]]);
+  // Short roots follow vowel harmony: "kolu" is Kol (arm), "koli" (a parcel) is not.
+  for (const q of ["kolu", "camı", "mili", "farı", "rotu", "yayı", "kapağı", "kayışı", "susturucusu", "salıncağı"])
+    assert.ok(queries(q).length + exact(q).length > 0, q);
   // Three letters stay of a query word, but no name is "kap".
-  for (const q of ["kap", "kabı"]) {
+  for (const q of ["kap", "kabı", "koli"]) {
     assert.deepEqual(queries(q), [], q);
     assert.deepEqual(exact(q), [], q);
   }

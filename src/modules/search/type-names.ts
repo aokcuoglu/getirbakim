@@ -20,11 +20,23 @@ const endings = ["lari", "leri", "lar", "ler", "si", "su", "i", "u"];
 const hardened: Record<string, string> = { g: "k", b: "p", d: "t" };
 
 /**
+ * Whether a possessive ending fits the root's last vowel once folded (ı→i, ü→u, ö→o): -i/-si after a, e, i; -u/-su after
+ * o, u. The plural endings carry their own vowel and always fit.
+ */
+function harmonious(stem: string, ending: string) {
+  const vowel = stem.match(/[aeiou](?=[^aeiou]*$)/)?.[0];
+  if (!vowel || ending.startsWith("l")) return true;
+  return ending.endsWith("i") ? "aei".includes(vowel) : "ou".includes(vowel);
+}
+
+/**
  * A word and each form of it without a Turkish ending, if at least `shortest` letters stay, with the softened final
  * consonant hardened back: "kapagi" → kapagi, kapag, kapak. Words with a digit stay as they are. A dictionary word and a
  * query word name the same thing when their roots meet. The dictionary side keeps four letters, like phraseKey, so a
  * name still matches every query it matched by key; the query side keeps three, so "cami", "mili", "fari" and "kolu"
- * reach Cam, Mil, Far and Kol ("kap" and "kabi" reach nothing: no name is "kap").
+ * reach Cam, Mil, Far and Kol ("kap" and "kabi" reach nothing: no name is "kap"). Those short roots also follow vowel
+ * harmony, as a Turkish ending does: "kolu" is Kol, "koli" (a parcel) is not. Roots of four letters and more strip as
+ * phraseKey always did, so no earlier match is lost.
  */
 function roots(word: string, shortest: number) {
   if (/\d/.test(word)) return new Set([word]);
@@ -32,6 +44,7 @@ function roots(word: string, shortest: number) {
   for (const ending of endings) {
     if (!word.endsWith(ending) || word.length - ending.length < shortest) continue;
     const stem = word.slice(0, -ending.length);
+    if (stem.length < 4 && !harmonious(stem, ending)) continue;
     found.add(stem);
     const hard = hardened[stem.at(-1)!];
     if (hard) found.add(stem.slice(0, -1) + hard);
@@ -122,7 +135,11 @@ export function typeNameExactQueries(parsed: ParsedSearch): { names: string[]; q
  */
 export type TypeNameBoost = { query: string; english: string[]; turkish: string; names?: string[] };
 
-/** The ranking swaps for the type names a query spells in Turkish ("fren diski" → BRAKE DISC), longest runs first, at most four. */
+/**
+ * The ranking swaps for the type names a query spells in Turkish ("fren diski" → BRAKE DISC), longest runs first, at most
+ * four. Known limit: each swap stands alone, so a row named after two windows ("kapı camı" → DOOR GLASS) gets the better
+ * of the two swaps, not both Turkish names.
+ */
 export function typeNameRankBoosts(parsed: ParsedSearch): TypeNameBoost[] {
   const { terms } = parsed;
   const typed = (start: number, end: number) => terms.slice(start, end + 1).map(term => term.text).join(" ");
