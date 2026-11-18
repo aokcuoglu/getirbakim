@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { clientEvidence } from "@/lib/client-address";
 import { partnerKeysEnv, resolvePartner, type PartnerIdentity } from "./auth";
 import { PartnerOrderError } from "./quotes";
 import { createRateLimiter } from "./rate-limit";
@@ -12,23 +13,29 @@ export function partnerError(status: number, code: string, message: string, deta
   return Response.json(body, { status, headers: { ...partnerNoStore, ...headers } });
 }
 
+type Limiter = ReturnType<typeof createRateLimiter>;
+export type PartnerLimiters = { address: Limiter; partner: Limiter };
+
 /**
- * Rate limit + API key check shared by every `/api/partner/v1` route (#424, #426). Limited before authentication, so a
- * client guessing keys is limited too; one answer for a missing and a wrong key. Each route group passes its own
- * limiter (`createRateLimiter`), kept in process memory.
+ * Rate limit + API key check shared by every `/api/partner/v1` route (#424, #426). The client address is limited before
+ * authentication, so a client guessing keys is limited too; the address is the one our edge reports (clientEvidence:
+ * CloudFront's viewer address, else the last X-Forwarded-For hop), never a header the client can set. After a key
+ * matches, the partner is limited again by its code, whatever addresses it calls from. One answer for a missing and a
+ * wrong key. Counters live in process memory: with several app tasks each task counts on its own, so the effective
+ * limit is the per-task limit times the number of tasks.
  */
-export function partnerGuard(request: NextRequest, limiter: ReturnType<typeof createRateLimiter>): { partner: PartnerIdentity } | { response: Response } {
-  // The address our own proxy saw: the first X-Forwarded-For entry is whatever the client chose to send.
-  const address = request.headers.get("x-real-ip")?.trim() || request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() || "unknown";
-  const limit = limiter(address);
-  if (!limit.allowed) return { response: partnerError(429, "RATE_LIMITED", "Too many requests.", undefined, { "Retry-After": String(limit.retryAfterSeconds) }) };
+export function partnerGuard(request: NextRequest, limiters: PartnerLimiters): { partner: PartnerIdentity } | { response: Response } {
+  const limited = (limit: ReturnType<Limiter>) => limit.allowed ? null
+    : { response: partnerError(429, "RATE_LIMITED", "Too many requests.", undefined, { "Retry-After": String(limit.retryAfterSeconds) }) };
+  const byAddress = limited(limiters.address(clientEvidence(request.headers).ip ?? "unknown"));
+  if (byAddress) return byAddress;
   const partner = resolvePartner(request.headers.get("authorization"), process.env[partnerKeysEnv]);
   if (!partner) return { response: partnerError(401, "UNAUTHORIZED", "Valid partner API key required.") };
-  return { partner };
+  return limited(limiters.partner(partner.code)) ?? { partner };
 }
 
-/** The order routes (quotes, orders, order reads) share one budget per client address. */
-export const partnerOrderLimiter = createRateLimiter(60, 60_000);
+/** The order routes (quotes, orders, order reads) share one budget: 60 a minute per address, 300 per partner. */
+export const partnerOrderLimiters: PartnerLimiters = { address: createRateLimiter(60, 60_000), partner: createRateLimiter(300, 60_000) };
 
 /** JSON request body, or null when it is not JSON. */
 export async function readJson(request: NextRequest): Promise<unknown> {

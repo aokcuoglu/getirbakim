@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { partnerError, partnerFailure, partnerGuard, partnerNoStore, partnerOrderLimiter, readJson } from "@/modules/partner/guard";
+import { partnerError, partnerFailure, partnerGuard, partnerNoStore, partnerOrderLimiters, readJson } from "@/modules/partner/guard";
 import { quoteRequestSchema } from "@/modules/partner/order-schema";
 import { partnerOrderConfig, quotePartnerOrder } from "@/modules/partner/orders";
 
@@ -8,7 +8,7 @@ import { partnerOrderConfig, quotePartnerOrder } from "@/modules/partner/orders"
  * 15 minutes, with the signed `confirmationToken` the order request carries back. Nothing is reserved.
  */
 export async function POST(request: NextRequest) {
-  const guard = partnerGuard(request, partnerOrderLimiter);
+  const guard = partnerGuard(request, partnerOrderLimiters);
   if ("response" in guard) return guard.response;
   const { partner } = guard;
   const parsed = quoteRequestSchema.safeParse(await readJson(request));

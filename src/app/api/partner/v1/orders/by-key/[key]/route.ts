@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { partnerFailure, partnerGuard, partnerNoStore, partnerOrderLimiter } from "@/modules/partner/guard";
+import { partnerFailure, partnerGuard, partnerNoStore, partnerOrderLimiters } from "@/modules/partner/guard";
 import { getPartnerOrderByKey } from "@/modules/partner/orders";
 
 /**
@@ -7,7 +7,7 @@ import { getPartnerOrderByKey } from "@/modules/partner/orders";
  * client whose create request timed out can find out whether the order exists without placing it again.
  */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ key: string }> }) {
-  const guard = partnerGuard(request, partnerOrderLimiter);
+  const guard = partnerGuard(request, partnerOrderLimiters);
   if ("response" in guard) return guard.response;
   const { partner } = guard;
   try {

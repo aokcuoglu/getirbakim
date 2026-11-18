@@ -5,7 +5,8 @@ import { partnerDiscountEnv, resolvePartnerDiscountBps } from "@/modules/partner
 import { createRateLimiter } from "@/modules/partner/rate-limit";
 
 const maxVehicleTypeId = 2_147_483_647;
-const limiter = createRateLimiter(120, 60_000);
+// 120 a minute per address, 600 per partner (see partnerGuard).
+const limiters = { address: createRateLimiter(120, 60_000), partner: createRateLimiter(600, 60_000) };
 
 function parseVehicleTypeId(raw: string | null): number | null | undefined {
   if (raw == null) return null;
@@ -22,7 +23,7 @@ function parseVehicleTypeId(raw: string | null): number | null | undefined {
  * `lastSyncedAt` is part of the contract: this endpoint does not promise live stock.
  */
 export async function GET(request: NextRequest) {
-  const guard = partnerGuard(request, limiter);
+  const guard = partnerGuard(request, limiters);
   if ("response" in guard) return guard.response;
   const { partner } = guard;
 
