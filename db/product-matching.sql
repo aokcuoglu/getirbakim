@@ -280,7 +280,12 @@ CREATE INDEX IF NOT EXISTS products_part_idx ON products(part_number);
 -- index's ascending NULLS LAST order is what sortOrder()'s `ASC NULLS LAST` asks for.
 CREATE INDEX IF NOT EXISTS products_listing_idx ON products(brand_label,part_number,variant) WHERE merged_into IS NULL;
 -- Suppliers currently selling the product (saleable sources), kept by the refresh and by split/undo for list filters.
-ALTER TABLE products ADD COLUMN IF NOT EXISTS suppliers text[] NOT NULL DEFAULT '{}';
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='products'::regclass AND attname='suppliers' AND NOT attisdropped) THEN
+  ALTER TABLE products ADD COLUMN suppliers text[] NOT NULL DEFAULT '{}';
+ END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS products_suppliers_idx ON products USING gin(suppliers);
 -- Which supplier row is which product. auto rows follow the brand key + part number on every refresh; manual rows
 -- are admin decisions and are never moved by a refresh.
@@ -303,8 +308,17 @@ CREATE TABLE IF NOT EXISTS product_equivalents (
  PRIMARY KEY (product_id,equivalent_id), CHECK (product_id<>equivalent_id)
 );
 -- manual: an admin linked the pair as equivalent (product_equivalent_decisions).
-ALTER TABLE product_equivalents DROP CONSTRAINT IF EXISTS product_equivalents_kind_check;
-ALTER TABLE product_equivalents ADD CONSTRAINT product_equivalents_kind_check CHECK (kind IN ('oem','cross','brand','manual'));
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='product_equivalents'::regclass AND k.conname='product_equivalents_kind_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['oem','cross','brand','manual'] THEN
+  ALTER TABLE product_equivalents DROP CONSTRAINT IF EXISTS product_equivalents_kind_check;
+  ALTER TABLE product_equivalents ADD CONSTRAINT product_equivalents_kind_check CHECK (kind IN ('oem','cross','brand','manual'));
+ END IF;
+END $$;
 -- Admin decisions on a product pair, kept across refreshes: equivalent adds the link the rules missed (different
 -- brands are never merged), unrelated suppresses a wrong automatic one.
 CREATE TABLE IF NOT EXISTS product_equivalent_decisions (

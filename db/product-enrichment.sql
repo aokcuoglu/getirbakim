@@ -20,7 +20,12 @@ CREATE TABLE IF NOT EXISTS product_enrichments (
  payload jsonb NOT NULL CHECK (jsonb_typeof(payload)='object'),
  imported_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE product_enrichments ADD COLUMN IF NOT EXISTS match_basis jsonb NOT NULL DEFAULT '{"type":"exact_part"}';
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_enrichments'::regclass AND attname='match_basis' AND NOT attisdropped) THEN
+  ALTER TABLE product_enrichments ADD COLUMN match_basis jsonb NOT NULL DEFAULT '{"type":"exact_part"}';
+ END IF;
+END $$;
 -- Deleting a media object checks this foreign key; without the index every check scans product_enrichments.
 CREATE INDEX IF NOT EXISTS product_enrichments_image_idx ON product_enrichments(image_id) WHERE image_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS product_enrichment_jobs (

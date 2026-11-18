@@ -83,10 +83,23 @@ ALTER TABLE supplier_import_items ADD COLUMN IF NOT EXISTS source_variants jsonb
 CREATE INDEX IF NOT EXISTS supplier_import_items_import_idx ON supplier_import_items(import_id);
 
 -- Current supplier observations and bounded change history (not one full copy per run).
-ALTER TABLE supplier_imports DROP CONSTRAINT IF EXISTS supplier_imports_supplier_check;
-ALTER TABLE supplier_imports ADD CONSTRAINT supplier_imports_supplier_check CHECK (supplier IN ('basbug','dinamik','seta','manual'));
-ALTER TABLE supplier_imports ALTER COLUMN completed_at DROP NOT NULL;
-ALTER TABLE supplier_imports ALTER COLUMN completed_at DROP DEFAULT;
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='supplier_imports'::regclass AND k.conname='supplier_imports_supplier_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['basbug','dinamik','seta','manual'] THEN
+  ALTER TABLE supplier_imports DROP CONSTRAINT IF EXISTS supplier_imports_supplier_check;
+  ALTER TABLE supplier_imports ADD CONSTRAINT supplier_imports_supplier_check CHECK (supplier IN ('basbug','dinamik','seta','manual'));
+ END IF;
+END $$;
+-- ALTER COLUMN locks the table even when nothing changes: only for tables created before running imports existed.
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='completed_at' AND (attnotnull OR atthasdef)) THEN
+  ALTER TABLE supplier_imports ALTER COLUMN completed_at DROP NOT NULL, ALTER COLUMN completed_at DROP DEFAULT;
+ END IF;
+END $$;
 ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'succeeded' CHECK (status IN ('running','succeeded','failed','rejected'));
 ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS error_reason text;
 ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS review_note text;
@@ -107,9 +120,18 @@ CREATE TABLE IF NOT EXISTS supplier_items (
 );
 CREATE INDEX IF NOT EXISTS supplier_items_scope_idx ON supplier_items(supplier,company,list_group,warehouse,presence,code);
 -- Precomputed ranking inputs (filled by a trigger defined in db/search.sql, next to the functions it uses).
-ALTER TABLE supplier_items ADD COLUMN IF NOT EXISTS search_doc tsvector;
-ALTER TABLE supplier_items ADD COLUMN IF NOT EXISTS search_code text;
-ALTER TABLE supplier_items ADD COLUMN IF NOT EXISTS search_oem text;
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_items'::regclass AND attname='search_doc' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_items ADD COLUMN search_doc tsvector;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_items'::regclass AND attname='search_code' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_items ADD COLUMN search_code text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_items'::regclass AND attname='search_oem' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_items ADD COLUMN search_oem text;
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS supplier_item_changes (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
@@ -133,10 +155,28 @@ CREATE TABLE IF NOT EXISTS supplier_sync_scopes (
 );
 -- SETA (single published list) and manual xlsx lists (db/manual-supplier.sql). The inline checks above only apply
 -- to new databases. Manual lists have no sync scope: nothing fetches them on a schedule.
-ALTER TABLE supplier_items DROP CONSTRAINT IF EXISTS supplier_items_supplier_check;
-ALTER TABLE supplier_items ADD CONSTRAINT supplier_items_supplier_check CHECK (supplier IN ('basbug','dinamik','seta','manual'));
-ALTER TABLE supplier_sync_scopes DROP CONSTRAINT IF EXISTS supplier_sync_scopes_supplier_check;
-ALTER TABLE supplier_sync_scopes ADD CONSTRAINT supplier_sync_scopes_supplier_check CHECK (supplier IN ('basbug','dinamik','seta'));
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='supplier_items'::regclass AND k.conname='supplier_items_supplier_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['basbug','dinamik','seta','manual'] THEN
+  ALTER TABLE supplier_items DROP CONSTRAINT IF EXISTS supplier_items_supplier_check;
+  ALTER TABLE supplier_items ADD CONSTRAINT supplier_items_supplier_check CHECK (supplier IN ('basbug','dinamik','seta','manual'));
+ END IF;
+END $$;
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='supplier_sync_scopes'::regclass AND k.conname='supplier_sync_scopes_supplier_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['basbug','dinamik','seta'] THEN
+  ALTER TABLE supplier_sync_scopes DROP CONSTRAINT IF EXISTS supplier_sync_scopes_supplier_check;
+  ALTER TABLE supplier_sync_scopes ADD CONSTRAINT supplier_sync_scopes_supplier_check CHECK (supplier IN ('basbug','dinamik','seta'));
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS supplier_sync_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
 
 ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS daily_at time NOT NULL DEFAULT '03:00';
