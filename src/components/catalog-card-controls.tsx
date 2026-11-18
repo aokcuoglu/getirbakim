@@ -35,10 +35,16 @@ export function ComparisonProvider({children}:{children:ReactNode}){
   </DialogContent>
  </Dialog></CompareContext.Provider>;
 }
-export function CompareCheckbox({entry}:{entry:Entry}){
+// The card's link and title stay out of the RSC payload (#642): the comparison reads them from the card's title link.
+export function CompareCheckbox({entry}:{entry:Omit<Entry,"href"|"title">}){
  const {entries,toggle}=useContext(CompareContext),checked=entries.some(e=>e.id===entry.id);
  return <label className="product-card-compare">
-  <StoreCheckbox checked={checked} disabled={!checked&&entries.length>=3} onCheckedChange={()=>toggle(entry)}/>
+  <StoreCheckbox checked={checked} disabled={!checked&&entries.length>=3} onChange={event=>{
+   // Removing needs only the id; adding needs the card's title link.
+   const link=event.currentTarget.closest("article")?.querySelector<HTMLAnchorElement>(".product-card-title"),href=link?.getAttribute("href");
+   if(checked) toggle({...entry,href:"",title:""});
+   else if(link&&href) toggle({...entry,href,title:link.textContent??""});
+  }}/>
   <span>Karşılaştırmaya ekle ({entries.length}/3)</span>
  </label>;
 }
