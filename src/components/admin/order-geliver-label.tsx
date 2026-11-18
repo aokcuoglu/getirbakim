@@ -31,6 +31,8 @@ export function GeliverLabelForm({ orderId, back, mode, onSaved, onPendingChange
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [preset, setPreset] = useState<string>("small");
+  // Controlled, so a refused submit does not wipe what was typed (React resets uncontrolled form fields after an action).
+  const [sizes, setSizes] = useState<Record<(typeof sizeFields)[number]["name"], string>>({ length: "", width: "", height: "", weight: "" });
   // Server errors of fields edited since the last submit; the next submit is validated again.
   const [cleared, setCleared] = useState<ReadonlySet<string>>(new Set());
   const [result, action, pending] = useActionState(async (previous: ShipmentResult, form: FormData): Promise<ShipmentResult> => {
@@ -65,7 +67,8 @@ export function GeliverLabelForm({ orderId, back, mode, onSaved, onPendingChange
       {custom && <div className="grid gap-4 sm:grid-cols-2">{sizeFields.map(field => <Field key={field.name} data-invalid={Boolean(errors[field.name])}>
         <FieldLabel htmlFor={`${fieldId}-${field.name}`}>{field.label}</FieldLabel>
         <InputGroup>
-          <InputGroupInput id={`${fieldId}-${field.name}`} name={field.name} inputMode="decimal" autoComplete="off" required className="tabular-nums" onChange={() => clear(field.name)}
+          <InputGroupInput id={`${fieldId}-${field.name}`} name={field.name} inputMode="decimal" autoComplete="off" required className="tabular-nums" value={sizes[field.name]}
+            onChange={event => { const value = event.currentTarget.value; setSizes(previous => ({ ...previous, [field.name]: value })); clear(field.name); }}
             aria-invalid={Boolean(errors[field.name])} aria-describedby={errors[field.name] ? `${fieldId}-${field.name}-error` : undefined}/>
           <InputGroupAddon align="inline-end" aria-hidden="true"><InputGroupText>{field.unit}</InputGroupText></InputGroupAddon>
         </InputGroup>

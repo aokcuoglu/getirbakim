@@ -328,6 +328,19 @@ test("webhook: a repeated status that carries a new tracking number is applied, 
   assert.equal(noClock.status === 200 && noClock.outcome === "ignored" && noClock.reason, "duplicate");
 });
 
+test("webhook: the order follows a changed Geliver tracking number unless it was edited by hand", async () => {
+  const { order, remote } = await shippedByGeliver();
+  await webhook(trackEvent(remote.id, "TRANSIT", "a", "2026-11-18T10:00:00Z", { trackingNumber: "123456789012" }));
+  assert.equal((await orderRow(order.id)).tracking_no, "123456789012");
+  await webhook(trackEvent(remote.id, "TRANSIT", "b", "2026-11-18T11:00:00Z", { trackingNumber: "210987654321" }));
+  const followed = await orderRow(order.id);
+  assert.equal(followed.tracking_no, "210987654321");
+  assert.equal(followed.tracking_url, "https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=210987654321");
+  await schema.pool.query("UPDATE commerce_orders SET tracking_no='999999999999' WHERE id=$1", [order.id]);
+  await webhook(trackEvent(remote.id, "TRANSIT", "c", "2026-11-18T12:00:00Z", { trackingNumber: "555555555555" }));
+  assert.equal((await orderRow(order.id)).tracking_no, "999999999999");
+});
+
 test("webhook: events are ordered by Geliver's clock; a delivery of a shipped order is never stale", async () => {
   const { order, remote } = await shippedByGeliver();
   await schema.pool.query("UPDATE commerce_orders SET shipped_at='2026-11-17T08:00:00Z' WHERE id=$1", [order.id]);

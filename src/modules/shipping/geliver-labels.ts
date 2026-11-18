@@ -274,10 +274,11 @@ export async function applyTrackingUpdate(event: WebhookEvent): Promise<Tracking
     if (["shipped", "delivered"].includes(order.status)) {
       const previous = resolveGeliverTrackingUrl({ test: row.test, shipmentId: row.geliver_shipment_id, trackingNumber: row.tracking_number, trackingUrl: row.tracking_url });
       const next = resolveGeliverTrackingUrl({ test: row.test, shipmentId: row.geliver_shipment_id, trackingNumber, trackingUrl });
-      // A number or link entered by hand ("Kargo bilgisini düzenle") stays.
-      await client.query(`UPDATE commerce_orders SET tracking_no=COALESCE(tracking_no,$2),
+      // The order follows Geliver while its number and link are still the ones Geliver gave; a number or link entered
+      // by hand ("Kargo bilgisini düzenle") stays.
+      await client.query(`UPDATE commerce_orders SET tracking_no=CASE WHEN tracking_no IS NULL OR tracking_no=$5::text THEN $2 ELSE tracking_no END,
         tracking_url=CASE WHEN tracking_url IS NULL OR tracking_url=$3 THEN $4 ELSE tracking_url END WHERE id=$1`,
-      [order.id, trackingNumber, previous, next]);
+      [order.id, trackingNumber, previous, next, row.tracking_number]);
     }
     if (delivers) {
       // The carrier's delivery time, kept between the shipping time and now; without it, now.
