@@ -58,13 +58,14 @@ END $setup$;
 -- display_brand follows db/commerce.sql: override, master brand name (#811), raw label.
 DO $setup$ DECLARE def text := $view$
 SELECT e.id,e.category,e.supplier,e.code,e.name,e.brand,e.description,e.updated_at,e.oem,e.source,e.company,false AS unavailable,
- e.display_brand,e.display_code,e.name_overridden
+ e.display_brand,e.display_code,e.name_overridden,e.brand_label
 FROM commerce_catalog_entries e
 UNION ALL
 SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
  COALESCE(ov.name,NULLIF(u.product_data->>'ac',''),u.code),COALESCE(NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),
  COALESCE(ov.description,u.product_data->>'ac2',''),u.last_seen_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(u.product_data->>'oe','') END,'supplier'::text,u.company,true,
- COALESCE(ov.brand,mb.name,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code),ov.name IS NOT NULL
+ COALESCE(ov.brand,mb.name,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code),ov.name IS NOT NULL,
+ supplier_item_brand(u.supplier,u.product_data)
 FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id
 LEFT JOIN supplier_brands sb ON sb.supplier=u.supplier AND sb.label=supplier_item_brand(u.supplier,u.product_data)
 LEFT JOIN brands mb ON mb.id=sb.brand_id;
@@ -78,7 +79,8 @@ $view$; BEGIN
 END $setup$;
 DO $setup$ DECLARE def text := $view$
 SELECT c.id,c.category,c.supplier,c.code,c.name,c.brand,c.description,c.price_kurus,c.stock,c.updated_at,c.oem,c.source,c.company,
- c.available,c.max_quantity,c.stock_label,c.pricing_snapshot,false AS unavailable,c.display_brand,c.display_code,c.name_overridden
+ c.available,c.max_quantity,c.stock_label,c.pricing_snapshot,false AS unavailable,c.display_brand,c.display_code,c.name_overridden,
+ c.brand_label
 FROM commerce_catalog c
 UNION ALL
 SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
@@ -86,7 +88,8 @@ SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
  COALESCE(ov.description,u.product_data->>'ac2',''),NULL::integer,NULL::integer,u.last_seen_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(u.product_data->>'oe','') END,'supplier'::text,u.company,
  false,0,'Şu an tedarik edilemiyor'::text,
  jsonb_build_object('source','unavailable','presence',u.presence,'observed_at',u.last_seen_at),true,
- COALESCE(ov.brand,mb.name,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code),ov.name IS NOT NULL
+ COALESCE(ov.brand,mb.name,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code),ov.name IS NOT NULL,
+ supplier_item_brand(u.supplier,u.product_data)
 FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id
 LEFT JOIN supplier_brands sb ON sb.supplier=u.supplier AND sb.label=supplier_item_brand(u.supplier,u.product_data)
 LEFT JOIN brands mb ON mb.id=sb.brand_id;

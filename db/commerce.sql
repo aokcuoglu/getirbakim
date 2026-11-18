@@ -50,6 +50,12 @@ DO $$ BEGIN
   ALTER TABLE commerce_item_overrides ADD COLUMN part_number text;
  END IF;
 END $$;
+-- Store brand pages and the brand filter read the overridden rows of a brand (#771).
+DO $$ BEGIN
+ IF to_regclass(format('%I.commerce_item_overrides_brand_idx',current_schema())) IS NULL THEN
+  CREATE INDEX commerce_item_overrides_brand_idx ON commerce_item_overrides(brand) WHERE brand IS NOT NULL;
+ END IF;
+END $$;
 -- Supplier OEM field hidden on the store (#615): the views show an empty oem, so the product page, cards, cart,
 -- partner API and reference links drop it; storefront search skips these rows' stored OEM (src/modules/store/catalog.ts).
 -- supplier_items keeps the value: the admin's supplier searches still read it; enrichment matched through this OEM
@@ -153,6 +159,16 @@ CREATE OR REPLACE FUNCTION supplier_item_brand(supplier text, product_data jsonb
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE supplier WHEN 'dinamik' THEN product_data->>'marka' ELSE product_data->>'uk' END
 $$;
+-- Manufacturer pages and the brand filter (#771) reach a brand's rows through this index (brand_label of the catalog
+-- views). It stores supplier_item_brand()'s result: a changed function body needs a new index name (DROP + CREATE).
+-- Created here, before db/search.sql's ANALYZE supplier_items, so a first deploy has the expression's statistics.
+-- Only when missing (looked up in this schema): CREATE INDEX IF NOT EXISTS still takes SHARE on the write-hot
+-- supplier_items on every setup run.
+DO $$ BEGIN
+ IF to_regclass(format('%I.supplier_items_brand_label_idx',current_schema())) IS NULL THEN
+  CREATE INDEX supplier_items_brand_label_idx ON supplier_items(supplier_item_brand(supplier,product_data));
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS brands (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, key text NOT NULL UNIQUE, name text NOT NULL,
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
@@ -170,7 +186,7 @@ CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx ON supplier_brands(brand_id
 DO $setup$ DECLARE def text := $view$
 SELECT id,category,supplier,code,name,brand,description,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,brand AS display_brand,code AS display_code,
- false AS name_overridden FROM store_products
+ false AS name_overridden,brand AS brand_label FROM store_products
 UNION ALL
 SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
  COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
@@ -178,7 +194,9 @@ SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
  -- Shown brand: the admin's, else the label's master brand (a merge or rename shows at once), else the raw label.
  COALESCE(ov.brand,mb.name,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,i.code),
  -- An admin's name (#686) is shown as written; a supplier's is converted by readableProductName (#659).
- ov.name IS NOT NULL
+ ov.name IS NOT NULL,
+ -- The supplier's own label, indexed (supplier_items_brand_label_idx): manufacturer pages reach a brand's rows by it (#771).
+ supplier_item_brand(i.supplier,i.product_data)
 FROM commerce_supplier_items i CROSS JOIN commerce_settings s
 LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
 -- Unique keys on both sides, so the planner drops these joins from queries that do not read display_brand.
@@ -300,7 +318,7 @@ SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,update
  stock>0 AS available,LEAST(stock,99) AS max_quantity,
  CASE WHEN stock>0 THEN 'Stokta mevcut: '||stock||' adet' ELSE 'Stokta yok' END AS stock_label,
  jsonb_build_object('source','store','base_price_kurus',price_kurus) AS pricing_snapshot,
- brand AS display_brand,code AS display_code,false AS name_overridden
+ brand AS display_brand,code AS display_code,false AS name_overridden,brand AS brand_label
 FROM store_products
 UNION ALL
 SELECT id,NULLIF(product_data->>'category',''),supplier,code,
@@ -325,7 +343,7 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
   || CASE WHEN on_sale THEN jsonb_build_object('list_price_kurus',regular_price,'sale_until',sale_until) ELSE '{}'::jsonb END
  END,
  COALESCE(override_brand,master_brand,NULLIF(product_data->>'uk',''),'Belirtilmemiş'),COALESCE(override_part_number,code),
- override_name IS NOT NULL
+ override_name IS NOT NULL,supplier_item_brand(supplier,product_data)
 FROM final;
 $view$; BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
