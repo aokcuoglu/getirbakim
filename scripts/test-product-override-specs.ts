@@ -57,9 +57,13 @@ const facet = (facets: { attributes: { key: string; options: { values: string[] 
 async function facetBranchesAgree() {
   const run = async (nestedScope?: number) => (await schema.pool.query<{ key: string; values: string[] }>(
     catalog.attributeFacetsSql("SELECT id FROM supplier_items", "$1::text[]", nestedScope), [facetSpecificationKeys])).rows;
-  const nested = await run();
+  // The cross-reference fixture reaches the store's links, yet its specification is no facet option in either branch.
+  const linked = await schema.pool.query("SELECT 1 FROM product_enrichment_shared_links WHERE supplier_item_id=$1 AND donor_item_id=$1", [ids.crossRef]);
+  assert.equal(linked.rowCount, 1);
+  const nested = await run(), hashed = await run(0);
   assert.ok(nested.length > 0);
-  assert.deepEqual(await run(0), nested);
+  for (const rows of [nested, hashed]) assert.ok(!rows.some(row => row.values.includes("Cartridge")), "cross-reference spec");
+  assert.deepEqual(hashed, nested);
 }
 
 before(async () => {

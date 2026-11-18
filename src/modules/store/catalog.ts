@@ -736,7 +736,7 @@ export function attributeFacetsSql(scopedSql:string,keys:string,nestedScope=face
  // Two branches by listing size (#955). The planner cannot size `scoped` (a category estimated at 107k ids returns
  // 1.8k), so one plan served every listing: it hashed all ~127k shared links and enrichments and looked up as many
  // supplier_items (~255 ms) before reading a single product of the listing. A small listing now reads its own links
- // by key (bosch 605-767 -> 304-324 ms, a category 443-472 -> 60-63, "fren balatası" 601-839 -> 155-194); a large one
+ // by key (bosch ~880 -> ~575 ms, a category ~600 -> ~91, "fren balatası" ~238 -> ~160); a large one
  // (/katalog, orijinal) keeps the hash join, where per-product lookups take 4-5 s. The size is counted only up to the
  // threshold; the branch whose guard is false is never executed.
  // The small branch spells out storefront_enrichments (db/enrichment-shared-links.sql: the links joined to the
