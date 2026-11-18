@@ -207,7 +207,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                 <form action={changeOrderStatus} className="flex justify-end gap-2">
                   <input type="hidden" name="id" value={o.id}/>
                   <input type="hidden" name="back" value={back}/>
-                  <NativeSelect name="status" aria-label={`#${o.number} yeni durum`}>{o.status === "pending" && <NativeSelectOption value="confirmed">Onayla</NativeSelectOption>}<NativeSelectOption value="cancelled">{o.payment_status === "paid" ? "İptal et (iade gerekecek)" : "İptal et"}</NativeSelectOption></NativeSelect>
+                  <NativeSelect name="status" aria-label={`#${o.number} yeni durum`}>{o.status === "pending" && <NativeSelectOption value="confirmed">Onayla</NativeSelectOption>}<NativeSelectOption value="cancelled">{o.payment_status === "paid" ? "İptal et (iade gerekecek)" : o.payment_status === "on_account" ? "İptal et (iade yok, cari hesap)" : "İptal et"}</NativeSelectOption></NativeSelect>
                   <SubmitButton>Uygula</SubmitButton>
                 </form>
               </div>}
