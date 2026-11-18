@@ -59,7 +59,8 @@ const unavailable = (ids: string[]) =>
 
 /**
  * Every line with its row, price and amounts. OFFER_UNAVAILABLE names lines that cannot be sold at all;
- * QUANTITY_UNAVAILABLE names lines above the storefront's per-line cap (`max_quantity`) with that cap.
+ * QUANTITY_UNAVAILABLE names lines above the storefront's per-line cap (`max_quantity`) without the cap itself: it can
+ * follow stock, and stock counts are not shared with partners (dto.ts).
  */
 function priceLines<T extends { id: string; selectedOfferId: string; quantity: number }>(lines: T[], rows: Map<string, OfferRow>, discountBps: number) {
   const priced = lines.map(line => {
@@ -71,7 +72,7 @@ function priceLines<T extends { id: string; selectedOfferId: string; quantity: n
   const tooMany = sellable.filter(({ line, row }) => line.quantity > row.max_quantity);
   if (tooMany.length) {
     throw new PartnerOrderError("QUANTITY_UNAVAILABLE", "Requested quantity is above what can be ordered.", 409,
-      { lines: tooMany.map(({ line, row }) => ({ selectedOfferId: line.selectedOfferId, requestedQuantity: line.quantity, maxQuantity: row.max_quantity })) });
+      { lines: tooMany.map(({ line }) => ({ selectedOfferId: line.selectedOfferId, requestedQuantity: line.quantity })) });
   }
   return sellable;
 }

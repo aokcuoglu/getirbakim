@@ -24,6 +24,9 @@ is computed once per line, like an e-invoice line:
 lines: `netKurus`, `vatKurus`, then `grossKurus` = goods gross + `shippingKurus`.
 Example: 1001 × 99 at 20% is 99099 net, 19820 VAT, 118919 gross.
 
+`shippingKurus` is VAT-inclusive (the store fee as charged); `netKurus` and
+`vatKurus` cover the goods only, so `grossKurus = netKurus + vatKurus + shippingKurus`.
+
 **Shipping** uses the storefront's rule: the store shipping fee (VAT
 included) unless the goods gross total reaches the free-shipping threshold
 (or the fee is 0). It is part of the quote, bound by its token, re-checked at
@@ -173,7 +176,7 @@ comes in a later version.
 | 401 | `UNAUTHORIZED` | Missing or wrong key | |
 | 404 | `ORDER_NOT_FOUND` | Not this partner's order | |
 | 409 | `OFFER_UNAVAILABLE` | Unknown offer, not sold now, or the supplier no longer has it | `selectedOfferIds` |
-| 409 | `QUANTITY_UNAVAILABLE` | A line asks for more than can be ordered per line | `lines: [{ selectedOfferId, requestedQuantity, maxQuantity }]` |
+| 409 | `QUANTITY_UNAVAILABLE` | A line asks for more than can be ordered per line | `lines: [{ selectedOfferId, requestedQuantity }]`; the orderable quantity is not disclosed (stock counts are not shared) |
 | 409 | `PRICE_CHANGED` | A line's price or the shipping fee moved since the quote | `lines: [{ selectedOfferId, expectedUnitNetKurus, unitNetKurus }]`; `unitNetKurus` is the new price, or `null` while the supplier's new cost is still being saved; `shipping: { expectedShippingKurus, shippingKurus }` when the fee changed |
 | 409 | `QUOTE_EXPIRED` | The quote is older than 15 minutes | `expiredAt` |
 | 409 | `QUOTE_CHANGED` | Token not signed by us, for another partner, or lines differ; checkout rules changed | |
