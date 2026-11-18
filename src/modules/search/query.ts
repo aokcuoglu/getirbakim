@@ -134,7 +134,7 @@ function queryWords(raw: string): string[][] {
 
 /** A word without its Turkish ending, so "sıvısı" and "sıvı", "filtreleri" and "filtre" compare equal. */
 const stemKey = (word: string) => stems(word)[0] ?? word;
-const phraseKey = (words: string[]) => words.map(stemKey).join(" ");
+export const phraseKey = (words: string[]) => words.map(stemKey).join(" ");
 
 // Keyed by phraseKey: the stemmed words of each other spelling. A group shares a word's map entry with every other group holding it.
 let synonyms = new Map<string, Set<string>>();
