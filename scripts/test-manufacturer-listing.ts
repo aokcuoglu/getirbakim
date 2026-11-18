@@ -5,7 +5,8 @@ import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources
 
 // Manufacturer page listings (#660) in an isolated copy of the schema: catalogFilter's manufacturer branch (the master
 // brand's name and supplier labels), the page's count and the sitemap's count of the same pages, and the shown brand
-// (display_brand: the master brand name, #811). Nothing is written to the shared database's tables.
+// (display_brand: the master brand name, #811), and the brand label index the pages read through (#771). Nothing is
+// written to the shared database's tables.
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let catalog: typeof import("../src/modules/store/catalog");
 let sitemap: typeof import("../src/modules/seo/manufacturer-sitemap.server");
@@ -24,6 +25,14 @@ async function item(key: string, supplier: "basbug" | "dinamik", brand: string) 
   ids[key] = rows[0].id;
 }
 const sorted = (keys: string[]) => keys.map(key => ids[key]).sort();
+// A row written as given (a Dinamik label other than its uk value, an empty label, a dropped row).
+async function rawItem(key: string, supplier: "basbug" | "dinamik", product: Record<string, string>, presence = "present") {
+  const { rows } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+    product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
+    VALUES($1,$2,'G',$3,$4,$5,'{"nf":100}','{"stok":2}',1,1,1,$6,now(),now(),now()) RETURNING id::text`,
+  [supplier, supplier === "basbug" ? basbug : dinamik, supplier === "basbug" ? "MRK" : "ALL", `RAW ${key}`, { ac: `${key} PARCA`, ac2: "", dc: "TL", ...product }, presence]);
+  ids[key] = rows[0].id;
+}
 
 before(async () => {
   schema = await isolatedSchema("manufacturer_listing_test");
@@ -53,6 +62,18 @@ before(async () => {
     await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [ids[key], product]);
     await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,100,'add')", [product]);
   }
+  // Brand label index rows (#771), apart from the brands above so their counts hold: FEBI's Dinamik label (marka) differs
+  // from its uk value; an admin shows LEMFORDER's row under TRW; one TRW row was dropped by its supplier (unavailable);
+  // one row has no label.
+  const [febi, trw, lemforder] = [await brand("FEBI", "FEBI"), await brand("TRW", "TRW"), await brand("LEMFORDER", "LEMFORDER")];
+  await schema.pool.query(`INSERT INTO supplier_brands(supplier,label,brand_id,items) VALUES
+    ('dinamik','FEBI BILSTEIN',$1,1),('basbug','TRW',$2,2),('basbug','LEMFORDER',$3,1)`, [febi, trw, lemforder]);
+  await rawItem("febi", "dinamik", { uk: "FEBI", marka: "FEBI BILSTEIN", stokAdi: "febi PARCA" });
+  await item("trw", "basbug", "TRW");
+  await rawItem("trwDropped", "basbug", { uk: "TRW" }, "inactive");
+  await item("lemforder", "basbug", "LEMFORDER");
+  await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,brand) VALUES($1,$1,'TRW')", [ids.lemforder]);
+  await rawItem("unnamed", "basbug", { uk: "" });
   const [{ db }, catalogModule, sitemapModule, epoch] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"),
     import("../src/modules/seo/manufacturer-sitemap.server"), import("../src/modules/store/listing-epoch")]);
   logos = await import("../src/modules/store/manufacturer-logos");
@@ -118,6 +139,59 @@ test("the garage vehicle's count stays within the manufacturer page", async () =
 test("the sitemap lists the manufacturers the page indexes: 10 products in, 9 out, ORIJINAL never", async () => {
   assert.deepEqual(await sitemap.loadManufacturerSlugs(), ["bosch"]);
   assert.equal(await catalog.listingTotal({ manufacturer: "orijinal" }), 12);
+});
+
+test("brand_label is the supplier's own label in every catalog view (#771)", async () => {
+  const views = ["commerce_catalog_entries", "commerce_catalog", "storefront_catalog_entries", "storefront_catalog"];
+  for (const [key, label] of [["a1", "BOSCH AV"], ["febi", "FEBI BILSTEIN"], ["lemforder", "LEMFORDER"], ["other", "SACHS"], ["unnamed", ""]]) {
+    for (const view of views) {
+      const row = (await schema.pool.query<{ brand_label: string | null }>(`SELECT brand_label FROM ${view} WHERE id=$1`, [ids[key]])).rows[0];
+      assert.equal(row?.brand_label, label, `${view} ${key}`);
+    }
+  }
+  // The dropped row is in the storefront views only.
+  for (const view of ["storefront_catalog_entries", "storefront_catalog"]) {
+    assert.equal((await schema.pool.query<{ brand_label: string }>(`SELECT brand_label FROM ${view} WHERE id=$1`, [ids.trwDropped])).rows[0]?.brand_label, "TRW", view);
+  }
+});
+
+test("brand pages reach their rows through the label: Dinamik's marka, admin store brands, raw labels, no label (#771)", async () => {
+  // FEBI's Dinamik row: label FEBI BILSTEIN (marka), uk FEBI, shown as its master brand FEBI.
+  assert.deepEqual((await catalog.browseProducts({ manufacturer: "febi" })).items.map(row => row.id), [ids.febi]);
+  assert.deepEqual((await catalog.browseProducts({ brands: '["FEBI"]' })).items.map(row => row.id), [ids.febi]);
+  // An admin's store brand moves the row to that brand's page and off its label's page.
+  assert.deepEqual((await catalog.browseProducts({ manufacturer: "trw" })).items.map(row => row.id).sort(), sorted(["trw", "trwDropped", "lemforder"]));
+  assert.equal(await catalog.listingTotal({ manufacturer: "lemforder" }), 0);
+  assert.equal((await catalog.browseProducts({ brands: '["LEMFORDER"]' })).total, 0);
+  // A label without a master brand is filtered by its raw name; "Belirtilmemiş" lists the row without a label.
+  assert.deepEqual((await catalog.browseProducts({ brands: '["SACHS"]' })).items.map(row => row.id), [ids.other]);
+  assert.deepEqual((await catalog.browseProducts({ brands: '["Belirtilmemiş"]' })).items.map(row => row.id), [ids.unnamed]);
+});
+
+test("a brand's rows are read through supplier_items_brand_label_idx (#771)", async () => {
+  const client = await schema.pool.connect();
+  try {
+    await client.query("BEGIN");
+    // Thousands of rows of another brand (rolled back) make a label the narrow slice it is on the live catalog.
+    await client.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
+      SELECT 'basbug',$1,'G','MRK','FILLER '||n,'{"uk":"FILLER","ac":"FILLER","dc":"TL"}','{"nf":100}','{"stok":2}',1,1,1,'present',now(),now(),now()
+      FROM generate_series(1,5000) n`, [basbug]);
+    await client.query("ANALYZE supplier_items");
+    await client.query("SET LOCAL enable_seqscan=off");
+    const plan = async (sql: string) => (await client.query<{ "QUERY PLAN": string }>(`EXPLAIN (COSTS OFF) ${sql}`)).rows.map(row => row["QUERY PLAN"]).join("\n");
+    for (const view of ["storefront_catalog_entries", "storefront_catalog"]) {
+      assert.match(await plan(`SELECT id FROM ${view} WHERE brand_label=ANY('{FEBI BILSTEIN}'::text[])`), /supplier_items_brand_label_idx/, view);
+    }
+    // The page's clause (shownBrandClause): the label arm and the admin store brand arm combine as one bitmap scan.
+    const clause = await plan(`SELECT id FROM storefront_catalog_entries catalog
+      WHERE (catalog.brand_label=ANY('{TRW}'::text[]) OR catalog.id=ANY('{${ids.lemforder}}'::uuid[])) AND catalog.display_brand=ANY('{TRW}'::text[])`);
+    assert.match(clause, /BitmapOr/, clause);
+    assert.match(clause, /supplier_items_brand_label_idx/, clause);
+  } finally {
+    await client.query("ROLLBACK");
+    client.release();
+  }
 });
 
 test("a brand rename shows at once: the page moves with the name and keeps its products", async () => {

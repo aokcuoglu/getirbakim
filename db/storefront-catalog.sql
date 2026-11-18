@@ -12,6 +12,9 @@ CREATE INDEX IF NOT EXISTS supplier_items_saleable_code_idx ON supplier_items(su
 WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence='present' AND NOT conflicting;
 CREATE INDEX IF NOT EXISTS supplier_items_unavailable_idx ON supplier_items(supplier,code,last_seen_at DESC,id)
 WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence IN ('pending_missing','inactive') AND NOT conflicting;
+-- Manufacturer pages and the brand filter (#771) reach a brand's rows through this index (brand_label of the catalog
+-- views). It stores supplier_item_brand()'s result: a changed function body needs a new index name (DROP + CREATE).
+CREATE INDEX IF NOT EXISTS supplier_items_brand_label_idx ON supplier_items(supplier_item_brand(supplier,product_data));
 CREATE OR REPLACE FUNCTION storefront_supplier_rank(supplier text) RETURNS integer
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ SELECT CASE supplier WHEN 'basbug' THEN 0 WHEN 'dinamik' THEN 1 WHEN 'seta' THEN 2 ELSE 3 END $$;
 CREATE OR REPLACE VIEW commerce_unavailable_items AS
@@ -49,19 +52,21 @@ WHERE ((r.supplier='basbug' AND r.warehouse='MRK') OR r.supplier IN ('seta','man
 -- display_brand follows db/commerce.sql: override, master brand name (#811), raw label.
 CREATE OR REPLACE VIEW storefront_catalog_entries AS
 SELECT e.id,e.category,e.supplier,e.code,e.name,e.brand,e.description,e.updated_at,e.oem,e.source,e.company,false AS unavailable,
- e.display_brand,e.display_code,e.name_overridden
+ e.display_brand,e.display_code,e.name_overridden,e.brand_label
 FROM commerce_catalog_entries e
 UNION ALL
 SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
  COALESCE(ov.name,NULLIF(u.product_data->>'ac',''),u.code),COALESCE(NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),
  COALESCE(ov.description,u.product_data->>'ac2',''),u.last_seen_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(u.product_data->>'oe','') END,'supplier'::text,u.company,true,
- COALESCE(ov.brand,mb.name,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code),ov.name IS NOT NULL
+ COALESCE(ov.brand,mb.name,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code),ov.name IS NOT NULL,
+ supplier_item_brand(u.supplier,u.product_data)
 FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id
 LEFT JOIN supplier_brands sb ON sb.supplier=u.supplier AND sb.label=supplier_item_brand(u.supplier,u.product_data)
 LEFT JOIN brands mb ON mb.id=sb.brand_id;
 CREATE OR REPLACE VIEW storefront_catalog AS
 SELECT c.id,c.category,c.supplier,c.code,c.name,c.brand,c.description,c.price_kurus,c.stock,c.updated_at,c.oem,c.source,c.company,
- c.available,c.max_quantity,c.stock_label,c.pricing_snapshot,false AS unavailable,c.display_brand,c.display_code,c.name_overridden
+ c.available,c.max_quantity,c.stock_label,c.pricing_snapshot,false AS unavailable,c.display_brand,c.display_code,c.name_overridden,
+ c.brand_label
 FROM commerce_catalog c
 UNION ALL
 SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
@@ -69,7 +74,8 @@ SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
  COALESCE(ov.description,u.product_data->>'ac2',''),NULL::integer,NULL::integer,u.last_seen_at,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(u.product_data->>'oe','') END,'supplier'::text,u.company,
  false,0,'Şu an tedarik edilemiyor'::text,
  jsonb_build_object('source','unavailable','presence',u.presence,'observed_at',u.last_seen_at),true,
- COALESCE(ov.brand,mb.name,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code),ov.name IS NOT NULL
+ COALESCE(ov.brand,mb.name,NULLIF(u.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,u.code),ov.name IS NOT NULL,
+ supplier_item_brand(u.supplier,u.product_data)
 FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id
 LEFT JOIN supplier_brands sb ON sb.supplier=u.supplier AND sb.label=supplier_item_brand(u.supplier,u.product_data)
 LEFT JOIN brands mb ON mb.id=sb.brand_id;
