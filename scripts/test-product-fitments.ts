@@ -155,3 +155,28 @@ test("visibleFitmentGroups prints the first groups until showAll; filters and se
   const mixed = fitmentView([vehicle("Volkswagen Golf VII (5G1)"), vehicle("Volkswagen Golf VII (5G1)", { engineAndCodes: "1.4 TSI CZCA" })]);
   assert.deepEqual(visibleFitmentGroups(mixed, { ...none, query: "tsi" }).groups[0].rows.map(row => row.engine), ["1.4 TSI CZCA"]);
 });
+
+test("fitmentView lists one make per reading label, so both spellings filter together", () => {
+  const view = fitmentView([
+    vehicle("Togg T10X", { makeKey: "TOGG", makeLabel: "Togg" }),
+    vehicle("Togg T10F", { makeKey: "Togg", makeLabel: "Togg" }),
+    vehicle("Volkswagen Golf VII (5G1)"),
+  ]);
+  assert.deepEqual(view.makes, [["TOGG", "Togg"], ["VOLKSWAGEN", "Volkswagen"]]);
+  assert.deepEqual(view.groups.map(group => group.make), ["TOGG", "TOGG", "VOLKSWAGEN"]);
+  const togg = visibleFitmentGroups(view, { make: "TOGG", model: "", query: "", showAll: false });
+  assert.deepEqual(togg.groups.map(group => group.model), ["Togg T10X", "Togg T10F"]);
+});
+
+test("fitmentView puts the garage vehicle's groups first: its engine type, then its model, then its make", () => {
+  const sources = Array.from({ length: 30 }, (_, index) => vehicle(`Volkswagen Model ${index + 1}`, { modelId: index + 1 }));
+  sources.push(vehicle("Audi A3 (8V1)", { makeKey: "AUDI", makeLabel: "Audi", modelId: 100 }), vehicle("Audi A4 (8W2)", { makeKey: "AUDI", makeLabel: "Audi", modelId: 101 }));
+  sources.push(vehicle("Volkswagen Golf VII (5G1)", { vehicleTypeId: 77, modelId: 200 }));
+  const first = (garage: Parameters<typeof fitmentView>[1]) => visibleFitmentGroups(fitmentView(sources, garage), { make: "", model: "", query: "", showAll: false }).groups.map(group => group.model);
+  assert.equal(first({ typeId: "77", modelId: "200", makeLabel: "Volkswagen" })[0], "Volkswagen Golf VII (5G1)");
+  assert.deepEqual(first({ typeId: null, modelId: "101", makeLabel: "Audi" }).slice(0, 2), ["Audi A4 (8W2)", "Audi A3 (8V1)"]);
+  assert.deepEqual(first({ typeId: "999", modelId: "999", makeLabel: "Audi" }).slice(0, 2), ["Audi A3 (8V1)", "Audi A4 (8W2)"]);
+  // Without a garage vehicle, or with one of another make, the first-seen order stays.
+  assert.equal(first(null)[0], "Volkswagen Model 1");
+  assert.equal(first({ typeId: null, modelId: null, makeLabel: "Fiat" })[0], "Volkswagen Model 1");
+});

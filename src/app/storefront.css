@@ -7,7 +7,7 @@
      with ui/checkbox's look and the store colours; lucide's check as a white background when checked. The label around
      it is the touch target (.facet-option is 44px tall on a phone). */
   .store-check {
-    @apply relative size-5 shrink-0 cursor-pointer appearance-none rounded-[4px] border border-input bg-white bg-center bg-no-repeat transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 checked:border-brand checked:bg-brand;
+    @apply relative size-5 shrink-0 cursor-pointer appearance-none rounded-[4px] border border-input bg-white bg-center bg-no-repeat transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 checked:border-brand checked:bg-brand forced-colors:appearance-auto;
     &:checked { background-size: 14px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E"); }
   }
   .facet-option { @apply mb-2.5 flex min-h-5 max-[768px]:mb-0 max-[768px]:min-h-11 cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60; }

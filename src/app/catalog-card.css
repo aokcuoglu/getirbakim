@@ -30,7 +30,8 @@
   .product-card-note { @apply ml-[5px] border-l border-input pl-[5px]; }
   .product-card-maker { @apply inline-flex min-h-8 items-center rounded-md border border-[#dfe3e8] bg-white/92 px-1 pt-[3px] pb-1 text-sm leading-5 font-medium [&_img]:h-[23px]! [&_img]:w-auto! [&_img]:max-w-[80px]! max-[600px]:group-data-[view=grid]/listing:min-h-6 max-[600px]:group-data-[view=grid]/listing:px-1 max-[600px]:group-data-[view=grid]/listing:py-px max-[600px]:group-data-[view=grid]/listing:text-xs max-[600px]:group-data-[view=grid]/listing:[&_img]:h-[18px]! max-[600px]:group-data-[view=grid]/listing:[&_img]:max-w-[70px]!; }
 
-  /* Specification rows (CardSpecifications) and the compare checkbox's label (CompareCheckbox, the box is .store-check). */
+  /* Specification rows (CardSpecifications) and the compare checkbox's label (CompareCheckbox, the box is .store-check);
+     the label is the 44px touch target in the phone list (the grid hides it). */
   .product-card-specs { @apply col-start-1 my-4 min-w-0 self-start max-[1358px]:w-[250px] max-[1358px]:max-w-full max-[600px]:mt-8 max-[600px]:w-full group-data-[view=grid]/listing:min-h-[132px] group-data-[view=grid]/listing:w-auto max-[600px]:group-data-[view=grid]/listing:min-h-0 max-[600px]:group-data-[view=grid]/listing:mt-1 max-[600px]:group-data-[view=grid]/listing:mb-0 max-[600px]:group-data-[view=list]/listing:mb-2; }
   /* Folded (data-expanded=false) on a phone: no rows in the grid, the first two in the list. */
   .product-card-spec-list { @apply text-sm leading-5 max-[600px]:group-data-[view=grid]/listing:[[data-expanded=false]>&]:hidden max-[600px]:group-data-[view=list]/listing:[[data-expanded=false]>&]:[&>div:nth-child(n+3)]:hidden max-[600px]:group-data-[view=grid]/listing:text-xs max-[600px]:group-data-[view=grid]/listing:leading-4; }
@@ -43,7 +44,7 @@
   /* "Güvenlik ve uyumluluk bilgileri" reads "Güvenlik bilgileri" on one line on a phone (#878). */
   .product-card-compliance-short { @apply hidden max-[600px]:inline; }
   .product-card-compliance-full { @apply max-[600px]:hidden; }
-  .product-card-compare { @apply mb-4 flex cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-[:disabled]:cursor-not-allowed group-data-[view=grid]/listing:order-4 max-[600px]:group-data-[view=grid]/listing:hidden max-[600px]:group-data-[view=list]/listing:mb-2 max-[600px]:group-data-[view=list]/listing:text-xs max-[600px]:group-data-[view=list]/listing:leading-4; }
+  .product-card-compare { @apply mb-4 flex cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-[:disabled]:cursor-not-allowed group-data-[view=grid]/listing:order-4 max-[600px]:group-data-[view=grid]/listing:hidden max-[600px]:group-data-[view=list]/listing:mb-0 max-[600px]:group-data-[view=list]/listing:min-h-11 max-[600px]:group-data-[view=list]/listing:text-xs max-[600px]:group-data-[view=list]/listing:leading-4; }
   /* "ARACINA UYAR" / "ARAÇ LİSTESİ" links: the default Badge with the card's override, minus the icon, svg, invalid and
      dark states a text-only link never has. The modifiers only set the colours. */
   .product-card-fit { @apply inline-flex h-auto w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-[3px] border-0 border-transparent px-1.5 py-0.5 text-[11px] leading-4 font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50; }

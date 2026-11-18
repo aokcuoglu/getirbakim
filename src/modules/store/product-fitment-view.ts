@@ -24,17 +24,27 @@ export type FitmentSource = {
   engineAndCodes: string; fuel: string; ps: number; kw: number; cc: number; from: string; to: string | null;
   makeKey: string; makeLabel: string; modelLabel: string;
   vehicleTypeId?: number | null; catalogEngine?: string | null;
+  modelId?: number | null;
   /** The series' model page (#674); absent while the page does not list the product yet. */
   modelHref?: string | null;
 };
 
-/** The rows grouped by model label in first-seen order; a group links the first model page any of its rows names. */
-export function fitmentView(vehicles: readonly FitmentSource[]): FitmentView {
-  const makes = new Map<string, string>(), groups = new Map<string, FitmentGroup>();
+/** The visitor's garage vehicle: its catalog engine type and model (fitmentVehicle) and its make's reading label. */
+export type FitmentGarage = { typeId: string | null; modelId: string | null; makeLabel: string };
+
+/**
+ * The rows grouped by model label in first-seen order; a group links the first model page any of its rows names. Makes
+ * are one entry per reading label, so "TOGG" and "Togg" spellings filter together under the first key seen. With a garage
+ * vehicle its model's groups come first (its engine type, then its model, then its make), so the garage note's link to
+ * the list lands on a printed group however many models there are.
+ */
+export function fitmentView(vehicles: readonly FitmentSource[], garage?: FitmentGarage | null): FitmentView {
+  const makes = new Map<string, string>(), groups = new Map<string, FitmentGroup>(), rank = new Map<FitmentGroup, number>();
   for (const vehicle of vehicles) {
-    if (!makes.has(vehicle.makeKey)) makes.set(vehicle.makeKey, vehicle.makeLabel);
+    const make = makes.get(vehicle.makeLabel) ?? vehicle.makeKey;
+    makes.set(vehicle.makeLabel, make);
     let group = groups.get(vehicle.modelLabel);
-    if (!group) groups.set(vehicle.modelLabel, group = { make: vehicle.makeKey, model: vehicle.modelLabel, rows: [] });
+    if (!group) groups.set(vehicle.modelLabel, group = { make, model: vehicle.modelLabel, rows: [] });
     // A label can join several series of one model page; the first linked one stands for it.
     if (!group.href && vehicle.modelHref) group.href = vehicle.modelHref;
     const row: FitmentRow = { engine: vehicle.engineAndCodes, fuel: vehicle.fuel, ps: vehicle.ps, kw: vehicle.kw, cc: vehicle.cc, from: vehicle.from };
@@ -42,8 +52,15 @@ export function fitmentView(vehicles: readonly FitmentSource[]): FitmentView {
     if (vehicle.to) row.to = vehicle.to;
     if (vehicle.vehicleTypeId) row.typeId = vehicle.vehicleTypeId;
     group.rows.push(row);
+    if (garage) {
+      const own = garage.typeId && String(vehicle.vehicleTypeId) === garage.typeId ? 0
+        : garage.modelId && String(vehicle.modelId) === garage.modelId ? 1 : vehicle.makeLabel === garage.makeLabel ? 2 : 3;
+      rank.set(group, Math.min(rank.get(group) ?? 3, own));
+    }
   }
-  return { makes: [...makes], groups: [...groups.values()], total: vehicles.length };
+  // Array sort is stable: groups of one rank keep their first-seen order.
+  const ordered = [...groups.values()].sort((a, b) => (rank.get(a) ?? 3) - (rank.get(b) ?? 3));
+  return { makes: [...makes].map(([label, key]): [string, string] => [key, label]), groups: ordered, total: vehicles.length };
 }
 
 // Turkish lower case turns the roman "VII" into "vıı"; folding ı to i on both sides keeps "golf vii" a match.

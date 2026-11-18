@@ -40,8 +40,10 @@ export function CompareCheckbox({entry}:{entry:Omit<Entry,"href"|"title">}){
  const {entries,toggle}=useContext(CompareContext),checked=entries.some(e=>e.id===entry.id);
  return <label className="product-card-compare">
   <StoreCheckbox checked={checked} disabled={!checked&&entries.length>=3} onChange={event=>{
-   const link=event.currentTarget.closest("article")?.querySelector<HTMLAnchorElement>(".product-card-title");
-   toggle({...entry,href:link?.getAttribute("href")??"",title:link?.textContent??""});
+   // Removing needs only the id; adding needs the card's title link.
+   const link=event.currentTarget.closest("article")?.querySelector<HTMLAnchorElement>(".product-card-title"),href=link?.getAttribute("href");
+   if(checked) toggle({...entry,href:"",title:""});
+   else if(link&&href) toggle({...entry,href,title:link.textContent??""});
   }}/>
   <span>Karşılaştırmaya ekle ({entries.length}/3)</span>
  </label>;
