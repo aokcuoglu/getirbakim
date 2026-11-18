@@ -15,7 +15,7 @@ export const maxPartnerLineQuantity = 99;
 
 export type PartnerOrderErrorCode =
   | "VALIDATION_ERROR" | "QUOTE_CONFIGURATION_UNAVAILABLE" | "ORDER_LIMIT_UNAVAILABLE" | "OFFER_UNAVAILABLE" | "PRICE_CHANGED"
-  | "QUOTE_EXPIRED" | "QUOTE_CHANGED" | "CREDIT_LIMIT_EXCEEDED" | "IDEMPOTENCY_CONFLICT" | "ORDER_NOT_FOUND" | "SUPPLIER_CHECK_UNAVAILABLE";
+  | "QUANTITY_UNAVAILABLE" | "QUOTE_EXPIRED" | "QUOTE_CHANGED" | "CREDIT_LIMIT_EXCEEDED" | "IDEMPOTENCY_CONFLICT" | "ORDER_NOT_FOUND" | "SUPPLIER_CHECK_UNAVAILABLE";
 
 /** A refusal the partner API answers with `{ error: { code, message, details } }` and `status`. */
 export class PartnerOrderError extends Error {
@@ -35,6 +35,8 @@ const payloadSchema = z.object({
   version: z.literal(1),
   partner: z.string().min(1).max(64),
   lines: z.array(lineSchema).min(1).max(maxPartnerOrderLines),
+  /** The store's shipping fee for these lines (VAT included), re-checked at order time like the prices. */
+  shippingKurus: z.number().int().min(0),
   issuedAt: z.number().int().positive(),
   expiresAt: z.number().int().positive(),
 }).strict();

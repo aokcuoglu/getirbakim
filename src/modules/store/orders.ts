@@ -53,9 +53,16 @@ export function cartTotal(items:CartItem[],discount:number) {
 /** Shipping is charged up front because payment is collected before operations confirm the order. */
 export function orderTotals(items:CartItem[],discount:number,shipping:ShippingRule) {
  const subtotal=cartTotal(items,discount);
- const free=shipping.fee===0 || (shipping.threshold>0 && subtotal>=shipping.threshold);
- const fee=items.length && !free ? shipping.fee : 0;
+ const {fee,free}=shippingFee(subtotal,items.length,shipping);
  return {subtotal,shipping:fee,total:subtotal+fee,freeShippingRemaining:!free && shipping.threshold>0 ? shipping.threshold-subtotal : 0};
+}
+/**
+ * The store's shipping rule (VAT included): the fee, unless it is 0 or the VAT-included subtotal reaches the free
+ * shipping threshold; nothing for an empty order. Shared by the cart and partner orders (#426).
+ */
+export function shippingFee(subtotal:number,lines:number,shipping:ShippingRule) {
+ const free=shipping.fee===0 || (shipping.threshold>0 && subtotal>=shipping.threshold);
+ return {fee:lines && !free ? shipping.fee : 0,free};
 }
 /**
  * `address` is the combined delivery text (composeAddress) the contract, operations and older orders read.

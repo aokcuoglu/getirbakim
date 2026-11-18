@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizePhone } from "@/modules/shipping/geliver-request";
 import { composeAddress, districtsOf, matchName, postalCodeFits, provinces } from "@/modules/store/tr-address";
 import { maxPartnerLineQuantity, maxPartnerOrderLines } from "./quotes";
 
@@ -17,11 +18,12 @@ export const quoteRequestSchema = z.object({
 export type QuoteRequest = z.infer<typeof quoteRequestSchema>;
 
 /**
- * The workshop the parts are shipped to. Province and district are matched to the Turkish address list ignoring case
+ * The workshop the parts are shipped to. The phone must be a Turkish number (stored normalized). Province and district are matched to the Turkish address list ignoring case
  * and returned with its spelling; a postal code must belong to the province.
  */
 const shippingAddressSchema = z.object({
   recipientName: z.string().trim().min(2).max(150),
+  // The storefront's form rule, then the Turkish number the carrier label needs (normalizePhone): stored as +90XXXXXXXXXX.
   phone: z.string().trim().regex(/^\+?[\d\s()-]{10,20}$/),
   email: z.email().max(200).optional(),
   province: z.string().trim().max(100),
@@ -37,7 +39,10 @@ const shippingAddressSchema = z.object({
   if (address.postalCode && !postalCodeFits(address.postalCode, province)) {
     ctx.addIssue({ code: "custom", path: ["postalCode"], message: "Postal code does not belong to the province." }); return z.NEVER;
   }
-  return { ...address, province: province.name, district, email: address.email ?? "", postalCode: address.postalCode ?? null };
+  const phone = normalizePhone(address.phone);
+  if (!phone) { ctx.addIssue({ code: "custom", path: ["phone"], message: "Not a Turkish phone number." }); return z.NEVER; }
+  // commerce_orders.email is NOT NULL (store orders always have one): a partner order without one stores "".
+  return { ...address, phone, province: province.name, district, email: address.email ?? "", postalCode: address.postalCode ?? null };
 });
 export type PartnerShippingAddress = z.output<typeof shippingAddressSchema>;
 

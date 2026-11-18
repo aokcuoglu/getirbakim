@@ -15,9 +15,14 @@ export function resolveOrderLimitKurus(raw: string | undefined | null): number |
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
-/** VAT of one unit, half up; `vatRateBps` 2000 = 20%. */
-export function unitVatKurus(unitNetKurus: number, vatRateBps: number) {
-  return Math.round(unitNetKurus * vatRateBps / 10000);
+/**
+ * One order line's amounts. VAT is computed once per line from the line's net total (unit net × quantity), half up,
+ * the way an e-invoice line is; order totals are sums of lines. `vatRateBps` 2000 = 20%.
+ */
+export function lineAmounts(unitNetKurus: number, quantity: number, vatRateBps: number) {
+  const lineNetKurus = unitNetKurus * quantity;
+  const lineVatKurus = Math.round(lineNetKurus * vatRateBps / 10000);
+  return { lineNetKurus, lineVatKurus, lineGrossKurus: lineNetKurus + lineVatKurus };
 }
 
 export type PartnerOrderStatus = "REQUESTED" | "CONFIRMED" | "SHIPPED" | "COMPLETED" | "CANCELLED";
@@ -45,25 +50,28 @@ export type PartnerOrderRow = {
   carrier: string | null; carrier_name: string | null; tracking_no: string | null; tracking_url: string | null;
   shipped_at: Date | null; delivered_at: Date | null; cancelled_by: string | null; cancelled_at: Date | null; created_at: Date;
 };
-/** `pricing_snapshot.partner` holds the binding unit price the order was taken at. */
+/**
+ * `pricing_snapshot.partner` holds the binding unit net price and the line's amounts the order was taken at;
+ * `unit_price_kurus` is the line gross divided by the quantity (rounded), for the store's own screens.
+ */
 export type PartnerOrderLineRow = { product_id: string; code: string; name: string; quantity: number; unit_price_kurus: string; pricing_snapshot: Record<string, unknown> };
-export type PartnerLinePrice = { unit_net_kurus: number; unit_vat_kurus: number; vat_rate_bps: number };
+export type PartnerLinePrice = { unit_net_kurus: number; vat_rate_bps: number; line_net_kurus: number; line_vat_kurus: number; line_gross_kurus: number };
 
 function linePrice(line: PartnerOrderLineRow): PartnerLinePrice {
   const partner = line.pricing_snapshot.partner as Partial<PartnerLinePrice> | undefined;
-  const gross = Number(line.unit_price_kurus);
+  const numbers = [partner?.unit_net_kurus, partner?.vat_rate_bps, partner?.line_net_kurus, partner?.line_vat_kurus, partner?.line_gross_kurus];
+  if (partner && numbers.every(value => typeof value === "number")) return partner as PartnerLinePrice;
   // Every partner line is written with these values; the fallback only keeps a hand-edited row readable.
-  return typeof partner?.unit_net_kurus === "number" && typeof partner.unit_vat_kurus === "number" && typeof partner.vat_rate_bps === "number"
-    ? { unit_net_kurus: partner.unit_net_kurus, unit_vat_kurus: partner.unit_vat_kurus, vat_rate_bps: partner.vat_rate_bps }
-    : { unit_net_kurus: gross, unit_vat_kurus: 0, vat_rate_bps: 0 };
+  const gross = Number(line.unit_price_kurus);
+  return { unit_net_kurus: gross, vat_rate_bps: 0, line_net_kurus: gross * line.quantity, line_vat_kurus: 0, line_gross_kurus: gross * line.quantity };
 }
 
 const iso = (value: Date | null) => value ? new Date(value).toISOString() : null;
 
 export function toPartnerOrderDto(order: PartnerOrderRow, lines: PartnerOrderLineRow[]) {
   const priced = lines.map(line => ({ line, price: linePrice(line) }));
-  const netKurus = priced.reduce((sum, { line, price }) => sum + price.unit_net_kurus * line.quantity, 0);
-  const vatKurus = priced.reduce((sum, { line, price }) => sum + price.unit_vat_kurus * line.quantity, 0);
+  const netKurus = priced.reduce((sum, { price }) => sum + price.line_net_kurus, 0);
+  const vatKurus = priced.reduce((sum, { price }) => sum + price.line_vat_kurus, 0);
   const shipped = order.shipped_at != null || order.tracking_no != null;
   return {
     contractVersion: "2.0" as const,
@@ -80,9 +88,10 @@ export function toPartnerOrderDto(order: PartnerOrderRow, lines: PartnerOrderLin
       name: line.name,
       quantity: line.quantity,
       unitNetKurus: price.unit_net_kurus,
-      unitVatKurus: price.unit_vat_kurus,
-      unitGrossKurus: Number(line.unit_price_kurus),
       vatRateBps: price.vat_rate_bps,
+      lineNetKurus: price.line_net_kurus,
+      lineVatKurus: price.line_vat_kurus,
+      lineGrossKurus: price.line_gross_kurus,
     })),
     shippingAddress: {
       recipientName: order.customer_name, phone: order.phone, email: order.email || null,
