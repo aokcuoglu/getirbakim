@@ -15,7 +15,7 @@ try {
     await lockFitmentSync(client);
     await client.query(await readFile("db/vehicle-schema.sql", "utf8"));
     const specs = [
-      { table: "vehicle_brands", rows: source.brands, fields: "id integer, name text, display_name text, popular boolean" },
+      { table: "vehicle_brands", rows: source.brands, fields: "id integer, name text, display_name text" },
       { table: "vehicle_models", rows: source.models, fields: "id integer, brand_id integer, name text, date_from date, date_to date" },
       { table: "vehicle_types", rows: source.vehicles, fields: "id integer, model_id integer, name text, cc integer, fuel_type text, fuel_name text, hp integer, kwt integer, year_of_constr_from date, year_of_constr_to date, search_text text" },
     ];

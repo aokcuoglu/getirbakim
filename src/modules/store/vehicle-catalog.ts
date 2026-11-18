@@ -11,7 +11,7 @@ export type VehicleSpecs = {
 };
 
 /** `label` is the make in reading form ("Volkswagen"), set by the server for the picker; `name` stays the catalog's. */
-export type VehicleBrand = { id: string; name: string; popular: boolean; label?: string };
+export type VehicleBrand = { id: string; name: string; label?: string };
 export type VehicleModel = {
   id: string; brandId: string; name: string; dateFrom: string | null; dateTo: string | null;
   /** The series name in reading form ("Golf VII (5G1)"), set by the server for the picker; `name` stays the catalog's. */

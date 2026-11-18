@@ -107,7 +107,7 @@ const categories: StoreCategory[] = [
   { id: 252, parentId: 3, name: "Fren sistemi", slug: "fren", path: [3, 252], position: 0 },
   { id: 956, parentId: null, name: "Yağlar", slug: "yag", path: [956], position: 1 },
 ];
-const makes: VehicleBrand[] = [{ id: "16", name: "BMW", popular: true }, { id: "5", name: "AUDI", popular: true }, { id: "121", name: "VOLKSWAGEN", popular: true }];
+const makes: VehicleBrand[] = [{ id: "16", name: "BMW" }, { id: "5", name: "AUDI" }, { id: "121", name: "VOLKSWAGEN" }];
 const golf7: VehicleModelGroup = { slug: "golf-7", name: "GOLF 7", family: "GOLF", generation: 7, dateFrom: "2012-08", dateTo: "2022-01",
   models: [{ id: "10585", brandId: "121", name: "GOLF VII (5G1, BQ1, BE1, BE2)", dateFrom: "2012-08", dateTo: "2021-10" }] };
 const lookups = {

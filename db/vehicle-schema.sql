@@ -5,9 +5,11 @@ CREATE TABLE IF NOT EXISTS vehicle_brands (
  id integer PRIMARY KEY CHECK (id > 0),
  name text NOT NULL CHECK (length(name) > 0),
  display_name text NOT NULL CHECK (length(display_name) > 0),
- popular boolean NOT NULL DEFAULT false,
  updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- The flag was never read: popular makes come from turkeyPopularMakes (#913, #944).
+ALTER TABLE vehicle_brands DROP COLUMN IF EXISTS popular;
 
 CREATE TABLE IF NOT EXISTS vehicle_models (
  id integer PRIMARY KEY CHECK (id > 0),
