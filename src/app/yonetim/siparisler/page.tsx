@@ -8,6 +8,7 @@ import { money } from "@/modules/store/catalog";
 import { changeOrderStatus, checkGeliverShipment, checkTamiRefund, recordRefund } from "@/modules/admin/commerce-actions";
 import { refundablePayments, refundKindLabel, refundStatusLabel, reversalKind, type RefundStatus } from "@/modules/payments/refund-rules";
 import { carrierLabel } from "@/modules/store/shipment";
+import { isHandledPayment } from "@/modules/store/payment-states";
 import { OrderShipmentDialog, type GeliverOption } from "@/components/admin/order-shipment-dialog";
 import { geliverConfig } from "@/modules/shipping/geliver";
 import {
@@ -192,7 +193,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               {supplierOrdered && <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Tedarikçiye sipariş verilmişti</Badge>}
             </div></TableCell>
             <TableCell><OrderLinesDialog number={o.number} orderId={o.id} orderStatus={o.status}
-              editable={["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status)}
+              editable={["pending", "confirmed"].includes(o.status) && isHandledPayment(o.payment_status)}
               lines={lines}/></TableCell>
             <TableCell><PaymentStatusBadge status={o.payment_status}/></TableCell>
             <TableCell className="text-right"><div className="font-medium tabular-nums">{money(Number(o.total_kurus))}</div>{Number(o.shipping_kurus) > 0 && <div className="text-muted-foreground tabular-nums">Kargo {money(Number(o.shipping_kurus))} dahil</div>}
@@ -200,7 +201,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               {o.payments.some(p => p.status === "succeeded" && Number.isInteger(p.installment_count) && p.installment_count! >= 1 && p.installment_count !== o.installment_count)
                 && <Badge variant="warning" className="mt-1" title="Ödenen taksit sayısı siparişten farklı"><TriangleAlert data-icon="inline-start"/>Taksit sayısı farklı<span className="sr-only">: ödenen taksit sayısı siparişten farklı</span></Badge>}</TableCell>
             <TableCell>
-              {["pending", "confirmed"].includes(o.status) && ["paid", "none"].includes(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
+              {["pending", "confirmed"].includes(o.status) && isHandledPayment(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
                 {o.status === "confirmed" && <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="ship" recipient={<OrderRecipient order={o}/>}
                   geliver={geliverOption(geliverMode, o)}/>}
                 <form action={changeOrderStatus} className="flex justify-end gap-2">
@@ -226,7 +227,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               {o.status === "delivered" && o.geliver?.status === "purchased" && o.geliver.label_url && <div className="flex justify-end">
                 <LabelLink url={o.geliver.label_url} number={o.number}/>
               </div>}
-              {o.status === "shipped" && ["paid", "none"].includes(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
+              {o.status === "shipped" && isHandledPayment(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
                 {o.geliver?.status === "purchased" && o.geliver.label_url && <LabelLink url={o.geliver.label_url} number={o.number}/>}
                 <OrderDeliveredDialog orderId={o.id} number={o.number} back={back}/>
                 <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="edit" recipient={<OrderRecipient order={o}/>}

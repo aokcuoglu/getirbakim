@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
 import { appendNote } from "@/modules/payments/checkout";
+import { isHandledPayment } from "@/modules/store/payment-states";
 import {
   buildTransactionBody, localErrorCodes, eventClock, geliverErrorMessage, geliverOrderNumber, geliverTestBlocked, geliverTestBlockedMessage, parseTime, recipientBlockLabel,
   recipientOf, resolveGeliverTrackingUrl, serviceCodeFor, shouldApply, statusTime, webhookEventSchema, webhookSecretValid, type RecipientOrder, type WebhookEvent,
@@ -55,7 +56,7 @@ async function inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promi
 
 const isUniqueViolation = (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 const shippable = (order: Pick<LabelOrder, "status" | "payment_status"> | undefined) =>
-  Boolean(order && order.status === "confirmed" && ["paid", "none"].includes(order.payment_status));
+  Boolean(order && order.status === "confirmed" && isHandledPayment(order.payment_status));
 
 const unavailable: GeliverLabelOutcome = { outcome: "unavailable", message: "Geliver ayarları eksik; Geliver'e istek gönderilmedi. Elle sevk hâlâ kullanılabilir." };
 const unknownMessage = "Geliver yanıtı alınamadı; etiket alınmış olabilir. Bir dakika sonra \"Geliver'de kontrol et\" ile sonucu alın.";

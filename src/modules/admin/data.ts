@@ -7,6 +7,7 @@ import { manualCompany, setaCompany } from "@/modules/suppliers/storefront-sourc
 import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE } from "@/modules/suppliers/dinamik-import";
 import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
 import type { CommerceOrder } from "@/modules/store/orders";
+import { handledPaymentSql } from "@/modules/store/payment-states";
 import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules";
 import { restockDueCount } from "./restock";
 import { installmentSettings } from "@/modules/payments/installment-settings";
@@ -64,7 +65,7 @@ export type AdminGeliverShipment = {
 
 export const orderFilters = {
   all: { label: "Tümü", where: "true" },
-  action: { label: "Teyit bekleyen", where: "o.status='pending' AND o.payment_status IN ('paid','none')" },
+  action: { label: "Teyit bekleyen", where: `o.status='pending' AND o.payment_status IN ${handledPaymentSql}` },
   shipping: { label: "Kargoya verilecek", where: "o.status='confirmed'" },
   refund: { label: "İade bekleyen", where: "o.payment_status='refund_required'" },
   awaiting_payment: { label: "Ödeme bekleyen", where: "o.status='awaiting_payment'" },
