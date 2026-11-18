@@ -27,6 +27,12 @@ export async function isolatedSchema(prefix: string) {
   if (!original) throw new Error("DATABASE_URL required");
   const name = `${prefix}_${randomBytes(6).toString("hex")}`;
   const root = new Pool({ connectionString: original });
+  // The setup files run CREATE EXTENSION IF NOT EXISTS pg_trgm with the test schema first on the search path. On a fresh
+  // database (CI) that would install the extension into the first test file's throwaway schema, hidden from the files
+  // running beside it and dropped with it (#985). Install it into public up front; concurrent files may race here.
+  await root.query("CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public").catch((error: { code?: string }) => {
+    if (error.code !== "23505" && error.code !== "42710") throw error;
+  });
   await root.query(`CREATE SCHEMA ${name}`);
   const url = new URL(original);
   url.searchParams.set("options", `-c search_path=${name},public`);
