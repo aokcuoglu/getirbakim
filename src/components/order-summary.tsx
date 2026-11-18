@@ -9,12 +9,13 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { cn } from "@/lib/utils";
 import { PAYMENT_NOTICE } from "@/modules/payments/messages";
 import { catalogPath } from "@/modules/seo/paths";
+import { shownProductName } from "@/modules/store/product-name";
 import { InstallmentAmount, InstallmentFeeRow } from "./checkout-installments";
 
 const action = "h-auto min-h-11 w-full gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5";
 
 function SummaryLines({items,discount}:{items:CartItem[];discount:number}) {
-  return <ul className="m-0 list-none p-0 pt-4 text-[13px]">{items.map(p=><li key={p.id} className="flex justify-between gap-5 border-b border-border py-2 leading-5"><span>{p.name} {p.display_brand}</span><span className="shrink-0 max-[760px]:max-w-[45%] max-[760px]:shrink max-[760px]:text-right">{p.quantity} × {money(servicePrice(p.price_kurus??0,discount))}</span></li>)}</ul>;
+  return <ul className="m-0 list-none p-0 pt-4 text-[13px]">{items.map(p=><li key={p.id} className="flex justify-between gap-5 border-b border-border py-2 leading-5"><span>{shownProductName(p)} {p.display_brand}</span><span className="shrink-0 max-[760px]:max-w-[45%] max-[760px]:shrink max-[760px]:text-right">{p.quantity} × {money(servicePrice(p.price_kurus??0,discount))}</span></li>)}</ul>;
 }
 
 /** `checkout`: the total follows the payment option chosen on the checkout page (#886); the cart shows the cash total. */
