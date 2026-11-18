@@ -4,6 +4,7 @@ import { resolve, sep } from "node:path";
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
+import { requireEnrichmentSchema } from "../src/modules/enrichment/schema";
 import { bundleItems, resolveBundleItems } from "./storefront-bundle-items";
 import { importBundleEnrichments } from "./storefront-bundle-enrichments";
 import { importBundleJobs } from "./storefront-bundle-jobs";
@@ -42,9 +43,9 @@ try {
     if (bytes.length !== object.size_bytes || createHash("sha256").update(bytes).digest("hex") !== object.sha256) throw new Error(`Bundle media integrity failed: ${object.object_key}`);
     files.set(object.sha256, bytes);
   }
+  // The schema comes from db:setup (db/source-categories.sql, db/vehicle-type-specs.sql); DDL here would queue readers behind a table lock (#934).
+  await requireEnrichmentSchema(client, ["source_categories", "source_category_labels", "source_category_images", "product_source_categories", "vehicle_type_specs", "vehicle_type_images"]);
   await client.query("BEGIN");
-  await client.query(await readFile("db/source-categories.sql", "utf8"));
-  await client.query(await readFile("db/vehicle-type-specs.sql", "utf8"));
   // Bundles written before REPXPERT carried Wikidata series photographs under vehicleImages; those are ignored.
   const vehicleSpecs: unknown[] = manifest.vehicleSpecs ?? [];
   const vehicleImages: unknown[] = manifest.vehicleSpecs ? manifest.vehicleImages ?? [] : [];
