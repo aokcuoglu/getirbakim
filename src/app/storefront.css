@@ -99,4 +99,24 @@
   html:not(:has(.admin-app)) :is(input:not([type=checkbox], [type=radio], [type=range], [type=hidden], [type=file], [type=button], [type=submit], [type=reset], [type=color]), select, textarea) {
     font-size: 16px;
   }
+
+  /* Home page (#967): the product card, the make, manufacturer and category tiles, repeated dozens of times. */
+  .home-card { @apply flex min-h-[360px] min-w-0 flex-col text-foreground max-md:min-h-80 max-[37.5rem]:min-h-[300px]; }
+  .home-card-image { @apply flex h-[210px] shrink-0 items-start justify-center pb-[30px] max-md:h-[190px] max-md:pb-5 max-[37.5rem]:h-[170px]; }
+  .home-card-img { @apply size-[180px] max-w-full object-contain max-md:size-[170px] max-[37.5rem]:size-[150px]; }
+  .home-card-text { @apply min-h-[84.5px] max-md:min-h-[78px]; }
+  .home-card-category { @apply mb-[5px] block truncate text-[13px] leading-[19.5px] text-muted-foreground; }
+  .home-card-title { @apply line-clamp-3 text-sm leading-5 font-medium text-foreground hover:text-primary max-md:text-[13px] max-md:leading-[18px]; }
+  .home-card-price { @apply mt-2 min-h-[42px]; }
+  .home-card-note { @apply text-[13px] leading-5 text-muted-foreground; }
+  .home-card-note-link { @apply hover:text-primary; }
+  .home-card-amount { @apply block text-base leading-[21px] font-medium; }
+  .home-card-regular { @apply block text-[13px] leading-[18px] text-muted-foreground; }
+  .home-card-tax { @apply block text-[13px] leading-[21px] text-muted-foreground; }
+  .home-make-tile { @apply flex h-[88px] min-w-0 flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary; }
+  .home-brand-tile { @apply flex h-[70px] min-w-0 items-center justify-center bg-white px-[7px] text-center text-sm leading-[18px] font-medium text-foreground hover:bg-[#f8f9f9] hover:text-primary max-md:px-2 max-md:text-[13px]; }
+  .home-brand-logo { @apply h-[50px] w-[120px] max-w-full object-contain; }
+  .home-category-tile { @apply flex h-[180px] flex-col items-center justify-center rounded-[4px] border border-[#dfe3e8] bg-white p-6 text-center text-foreground hover:border-brand hover:text-brand max-md:h-40 max-md:px-2 max-md:py-3.5; }
+  .home-category-tile-image { @apply grid h-[90px] w-[135px] max-w-full shrink-0 place-items-center; }
+  .home-category-tile-name { @apply flex h-10 w-full items-center justify-center overflow-hidden text-sm leading-[18px] font-medium; }
 }
