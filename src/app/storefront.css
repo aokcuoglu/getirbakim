@@ -94,13 +94,6 @@
    padding and alignment as utilities, which a components-layer rule would not override. */
 .fitment-row { @apply [&>td]:border-t [&>td]:border-border [&>td]:px-4 [&>td]:py-3.5 [&>td]:align-top [&_small]:mt-1 [&_small]:block [&_small]:text-[11px] [&_small]:text-muted-foreground; }
 
-/* iOS Safari zooms the page when a focused field is under 16px (#879). Unlayered so it beats size utilities; scoped like the storefront typography defaults, so /yonetim (.admin-app, portals included) keeps its sizes. */
-@media (max-width: 767.98px) {
-  html:not(:has(.admin-app)) :is(input:not([type=checkbox], [type=radio], [type=range], [type=hidden], [type=file], [type=button], [type=submit], [type=reset], [type=color]), select, textarea) {
-    font-size: 16px;
-  }
-}
-
 @layer components {
   /* Home page (#967): the product card, the make, manufacturer and category tiles, repeated dozens of times. */
   .home-card { @apply flex min-h-[360px] min-w-0 flex-col text-foreground max-md:min-h-80 max-[37.5rem]:min-h-[300px]; }
@@ -121,4 +114,11 @@
   .home-category-tile { @apply flex h-[180px] flex-col items-center justify-center rounded-[4px] border border-[#dfe3e8] bg-white p-6 text-center text-foreground hover:border-brand hover:text-brand max-md:h-40 max-md:px-2 max-md:py-3.5; }
   .home-category-tile-image { @apply grid h-[90px] w-[135px] max-w-full shrink-0 place-items-center; }
   .home-category-tile-name { @apply flex h-10 w-full items-center justify-center overflow-hidden text-sm leading-[18px] font-medium; }
+}
+
+/* iOS Safari zooms the page when a focused field is under 16px (#879). Unlayered so it beats size utilities; scoped like the storefront typography defaults, so /yonetim (.admin-app, portals included) keeps its sizes. */
+@media (max-width: 767.98px) {
+  html:not(:has(.admin-app)) :is(input:not([type=checkbox], [type=radio], [type=range], [type=hidden], [type=file], [type=button], [type=submit], [type=reset], [type=color]), select, textarea) {
+    font-size: 16px;
+  }
 }
