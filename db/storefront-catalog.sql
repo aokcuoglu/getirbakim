@@ -8,10 +8,16 @@
 --  * one card per supplier + code (newest observation) and one per product group (the product's own row, then
 --    Başbuğ, Dinamik, SETA, manual, then code).
 -- NOT EXISTS keeps the view inlinable, so `id = ANY(...)` filters reach supplier_items by primary key.
-CREATE INDEX IF NOT EXISTS supplier_items_saleable_code_idx ON supplier_items(supplier,code)
-WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence='present' AND NOT conflicting;
-CREATE INDEX IF NOT EXISTS supplier_items_unavailable_idx ON supplier_items(supplier,code,last_seen_at DESC,id)
-WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence IN ('pending_missing','inactive') AND NOT conflicting;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_saleable_code_idx') THEN
+  CREATE INDEX supplier_items_saleable_code_idx ON supplier_items(supplier,code)
+   WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence='present' AND NOT conflicting;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_unavailable_idx') THEN
+  CREATE INDEX supplier_items_unavailable_idx ON supplier_items(supplier,code,last_seen_at DESC,id)
+   WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence IN ('pending_missing','inactive') AND NOT conflicting;
+ END IF;
+END $$;
 CREATE OR REPLACE FUNCTION storefront_supplier_rank(supplier text) RETURNS integer
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ SELECT CASE supplier WHEN 'basbug' THEN 0 WHEN 'dinamik' THEN 1 WHEN 'seta' THEN 2 ELSE 3 END $$;
 DO $setup$ DECLARE def text := $view$

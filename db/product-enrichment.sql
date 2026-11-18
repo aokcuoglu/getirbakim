@@ -31,7 +31,11 @@ DO $$ BEGIN
  END IF;
 END $$;
 -- Deleting a media object checks this foreign key; without the index every check scans product_enrichments.
-CREATE INDEX IF NOT EXISTS product_enrichments_image_idx ON product_enrichments(image_id) WHERE image_id IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichments'::regclass AND c.relname='product_enrichments_image_idx') THEN
+  CREATE INDEX product_enrichments_image_idx ON product_enrichments(image_id) WHERE image_id IS NOT NULL;
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS product_enrichment_jobs (
  supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','complete','partial','not_found','review','blocked','failed')),
@@ -40,7 +44,11 @@ CREATE TABLE IF NOT EXISTS product_enrichment_jobs (
  last_error text, last_attempt_at timestamptz,
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS product_enrichment_jobs_pending_idx ON product_enrichment_jobs(status,supplier_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichment_jobs'::regclass AND c.relname='product_enrichment_jobs_pending_idx') THEN
+  CREATE INDEX product_enrichment_jobs_pending_idx ON product_enrichment_jobs(status,supplier_item_id);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS product_enrichment_sources (
  host text PRIMARY KEY, probe_url text NOT NULL, http_status integer,
  status text NOT NULL CHECK(status IN ('accessible','blocked','error')),

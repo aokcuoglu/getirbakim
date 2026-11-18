@@ -130,12 +130,21 @@ BEGIN
  END IF;
  RETURN NULL;
 END $$;
-CREATE OR REPLACE TRIGGER product_override_fitments_insert AFTER INSERT ON product_override_fitments
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
-CREATE OR REPLACE TRIGGER product_override_fitments_update AFTER UPDATE ON product_override_fitments
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
-CREATE OR REPLACE TRIGGER product_override_fitments_delete AFTER DELETE ON product_override_fitments
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
+-- Created only when missing (#965): CREATE [OR REPLACE] TRIGGER locks the table against writers until setup commits.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_override_fitments'::regclass AND tgname='product_override_fitments_insert') THEN
+  CREATE TRIGGER product_override_fitments_insert AFTER INSERT ON product_override_fitments
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_override_fitments'::regclass AND tgname='product_override_fitments_update') THEN
+  CREATE TRIGGER product_override_fitments_update AFTER UPDATE ON product_override_fitments
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_override_fitments'::regclass AND tgname='product_override_fitments_delete') THEN
+  CREATE TRIGGER product_override_fitments_delete AFTER DELETE ON product_override_fitments
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
+ END IF;
+END $$;
 
 -- A type or model moving to another make touches every offer fitted to it: rebuild (rare, catalog imports).
 DO $$ BEGIN

@@ -82,7 +82,11 @@ CREATE TABLE IF NOT EXISTS supplier_brands (
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY (supplier,label)
 );
-CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx ON supplier_brands(brand_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_brands'::regclass AND c.relname='supplier_brands_brand_idx') THEN
+  CREATE INDEX supplier_brands_brand_idx ON supplier_brands(brand_id);
+ END IF;
+END $$;
 -- A label's spelling-insensitive key → master brand key, for brand names that are not a supplier's own label (SETA's
 -- competitor references). When labels of one key sit in different brands, the brand with more items wins.
 DO $setup$ DECLARE def text := $view$
@@ -282,11 +286,19 @@ CREATE TABLE IF NOT EXISTS products (
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
  UNIQUE (brand,part_number,variant)
 );
-CREATE INDEX IF NOT EXISTS products_part_idx ON products(part_number);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='products'::regclass AND c.relname='products_part_idx') THEN
+  CREATE INDEX products_part_idx ON products(part_number);
+ END IF;
+END $$;
 -- The admin product list's default order (and its brand A→Z header sort) among listed products: the first pages read
 -- the index instead of sorting every product (deep pages spilled ~36 MB to disk). The columns are NOT NULL, so the
 -- index's ascending NULLS LAST order is what sortOrder()'s `ASC NULLS LAST` asks for.
-CREATE INDEX IF NOT EXISTS products_listing_idx ON products(brand_label,part_number,variant) WHERE merged_into IS NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='products'::regclass AND c.relname='products_listing_idx') THEN
+  CREATE INDEX products_listing_idx ON products(brand_label,part_number,variant) WHERE merged_into IS NULL;
+ END IF;
+END $$;
 -- Suppliers currently selling the product (saleable sources), kept by the refresh and by split/undo for list filters.
 -- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 DO $$ BEGIN
@@ -294,7 +306,11 @@ DO $$ BEGIN
   ALTER TABLE products ADD COLUMN suppliers text[] NOT NULL DEFAULT '{}';
  END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS products_suppliers_idx ON products USING gin(suppliers);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='products'::regclass AND c.relname='products_suppliers_idx') THEN
+  CREATE INDEX products_suppliers_idx ON products USING gin(suppliers);
+ END IF;
+END $$;
 -- Which supplier row is which product. auto rows follow the brand key + part number on every refresh; manual rows
 -- are admin decisions and are never moved by a refresh.
 CREATE TABLE IF NOT EXISTS product_sources (
@@ -303,9 +319,17 @@ CREATE TABLE IF NOT EXISTS product_sources (
  method text NOT NULL DEFAULT 'auto' CHECK (method IN ('auto','manual')),
  decided_by uuid REFERENCES accounts(id), linked_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS product_sources_product_idx ON product_sources(product_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_sources'::regclass AND c.relname='product_sources_product_idx') THEN
+  CREATE INDEX product_sources_product_idx ON product_sources(product_id);
+ END IF;
+END $$;
 -- The matching page's "Elle kararlar" list, newest first (#523); only the few manual rows are indexed.
-CREATE INDEX IF NOT EXISTS product_sources_manual_idx ON product_sources(linked_at DESC,supplier_item_id) WHERE method='manual';
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_sources'::regclass AND c.relname='product_sources_manual_idx') THEN
+  CREATE INDEX product_sources_manual_idx ON product_sources(linked_at DESC,supplier_item_id) WHERE method='manual';
+ END IF;
+END $$;
 -- Equivalent (muadil) products, both directions; rebuilt by every refresh. `brand`/`part_number` is the shared
 -- reference: ORIJINAL + OEM number (oem), a competitor's number stated by a supplier (cross), or the shared part
 -- number of a brand pair decided as equivalent (brand).

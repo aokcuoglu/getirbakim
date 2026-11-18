@@ -136,7 +136,15 @@ CREATE TABLE IF NOT EXISTS supplier_items (
  last_import_id uuid REFERENCES supplier_imports(id) ON DELETE SET NULL,
  UNIQUE(supplier,company,list_group,warehouse,code)
 );
-CREATE INDEX IF NOT EXISTS supplier_items_scope_idx ON supplier_items(supplier,company,list_group,warehouse,presence,code);
+-- Indexes on write-hot and order tables are created only when missing (#964): CREATE INDEX IF NOT EXISTS takes SHARE
+-- on the table, blocking its writers until setup commits, even when the index exists. Looked up per table (indrelid):
+-- to_regclass would find a same-named index in public from an isolated test schema. A changed definition needs a new
+-- index name (or a DROP INDEX in the same change).
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_scope_idx') THEN
+  CREATE INDEX supplier_items_scope_idx ON supplier_items(supplier,company,list_group,warehouse,presence,code);
+ END IF;
+END $$;
 -- Precomputed ranking inputs (filled by a trigger defined in db/search.sql, next to the functions it uses).
 -- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 DO $$ BEGIN
