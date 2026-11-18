@@ -545,7 +545,7 @@ test("sync: the batch cap and the minimum age since the last check are respected
   assert.deepEqual(fetchedIds(), [recent.remote.id]);
 });
 
-test("sync: a failed or refused call is logged and the run goes on; the row keeps everything but checked_at", async () => {
+test("sync: a failed, refused or not found call is logged and the run goes on; the row keeps everything but checked_at", async () => {
   await settleOthers();
   const down = await dueLiveLabel(300), refused = await dueLiveLabel(200), fine = await dueLiveLabel(100);
   const before = await labelOf(down.remote.id);
@@ -555,7 +555,7 @@ test("sync: a failed or refused call is logged and the run goes on; the row keep
     [fine.remote.id]: detail(fine.remote.id, { trackingStatusCode: "TRANSIT", trackingSubStatusCode: "package_accepted", updatedAt: "2026-11-18T10:00:00Z" }),
   });
   const outcome = results(await runSync());
-  assert.deepEqual(outcome.map(r => [r.shipmentId, r.outcome]), [[down.remote.id, "error"], [refused.remote.id, "error"], [fine.remote.id, "applied"]]);
+  assert.deepEqual(outcome.map(r => [r.shipmentId, r.outcome]), [[down.remote.id, "error"], [refused.remote.id, "not_found"], [fine.remote.id, "applied"]]);
   const after = await labelOf(down.remote.id);
   assert.ok(after.checked_at.getTime() > before.checked_at.getTime());
   assert.deepEqual({ ...after, checked_at: null }, { ...before, checked_at: null });
@@ -570,6 +570,22 @@ test("sync: a failed or refused call is logged and the run goes on; the row keep
   assert.equal(results(testReply)[0].outcome, "error");
   assert.ok(testReply.status === "done" && !testReply.dryRun && testReply.failed && testReply.aborted === null, "a run where every call failed is a failure");
   assert.equal((await orderRow(down.order.id)).status, "shipped");
+});
+
+test("sync: shipments Geliver no longer has neither trip the breaker nor fail the run", async () => {
+  await settleOthers();
+  const gone = [await dueLiveLabel(400), await dueLiveLabel(300), await dueLiveLabel(200)];
+  const healthy = await dueLiveLabel(100);
+  const notFound = () => Response.json({ result: false, code: "E1004", message: "Gönderi bulunamadı" }, { status: 404 });
+  detailReplies({
+    ...Object.fromEntries(gone.map(l => [l.remote.id, notFound])),
+    [healthy.remote.id]: detail(healthy.remote.id, { trackingStatusCode: "TRANSIT", trackingSubStatusCode: "package_accepted", updatedAt: "2026-11-18T10:00:00Z" }),
+  });
+  const summary = await runSync();
+  assert.ok(summary.status === "done" && !summary.dryRun);
+  assert.deepEqual(summary.results.map(r => r.outcome), ["not_found", "not_found", "not_found", "applied"]);
+  assert.deepEqual([summary.aborted, summary.failed], [null, false]);
+  assert.equal((await labelOf(gone[0].remote.id)).tracking_status_code, null);
 });
 
 test("sync: a refused token stops after one call; three failures in a row stop the run; skipped labels keep checked_at", async () => {

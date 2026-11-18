@@ -32,7 +32,7 @@ async function main() {
     const detail = r.outcome === "applied" ? r.statusCode : r.outcome === "ignored" || r.outcome === "error" ? r.reason : "";
     console.log(`  row ${r.rowId}  order ${r.orderId}  ${r.outcome}${detail ? ` ${detail}` : ""}`);
   }
-  console.log(`Checked ${summary.results.length}: applied ${count("applied")}, unchanged ${count("ignored")}, no status ${count("no_status")}, failed ${count("error")}.`);
+  console.log(`Checked ${summary.results.length}: applied ${count("applied")}, unchanged ${count("ignored")}, no status ${count("no_status")}, not found ${count("not_found")}, failed ${count("error")}.`);
   if (summary.aborted) console.error(`Stopped early: ${summary.aborted === "unauthorized" ? "Geliver refused the token or IP (401/E1055)" : "three Geliver calls in a row failed"}; the remaining labels wait for the next run.`);
   else if (summary.failed) console.error("Every Geliver call failed.");
   return summary.failed ? 1 : 0;

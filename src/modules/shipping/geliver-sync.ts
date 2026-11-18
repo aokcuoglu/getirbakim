@@ -25,6 +25,8 @@ export type GeliverSyncResult = GeliverSyncCandidate & (
   | { outcome: "ignored"; reason: "unknown_shipment" | "stale" | "duplicate" }
   /** Geliver answered without a tracking status: nothing to apply yet. */
   | { outcome: "no_status" }
+  /** Geliver answered 404: the shipment no longer exists there. Not a failure of the run; only checked_at changes. */
+  | { outcome: "not_found" }
   /** Refused, unanswered or unexpected reply: the row keeps everything but checked_at. */
   | { outcome: "error"; reason: string }
 );
@@ -64,6 +66,7 @@ const describe = (result: GeliverResult<unknown>) =>
 const unauthorized = (reply: GeliverResult<unknown>) => reply.kind === "rejected" && (reply.httpStatus === 401 || reply.code === "E1055");
 
 async function syncOne(candidate: GeliverSyncCandidate, reply: GeliverResult<GeliverShipment>): Promise<GeliverSyncResult> {
+  if (reply.kind === "rejected" && reply.httpStatus === 404) return { ...candidate, outcome: "not_found" };
   if (reply.kind !== "ok") return { ...candidate, outcome: "error", reason: describe(reply).slice(0, 200) };
   const shipment = reply.data;
   if (shipment.id !== candidate.shipmentId) return { ...candidate, outcome: "error", reason: "another shipment in the reply" };
@@ -89,6 +92,8 @@ export async function syncGeliverShipments({ limit = SYNC_DEFAULT_LIMIT, minAgeM
   limit?: number; minAgeMinutes?: number; dryRun?: boolean; pauseMs?: number;
 } = {}): Promise<GeliverSyncSummary> {
   if (geliverMode(process.env) !== "live") return { status: "not_live" };
+  // At least a minute: the per-row claim only keeps a parallel run off a label it has just stamped.
+  minAgeMinutes = Math.max(1, minAgeMinutes);
   const config = geliverConfig();
   if (!config) return { status: "unavailable" };
   if (dryRun) {
@@ -107,6 +112,7 @@ export async function syncGeliverShipments({ limit = SYNC_DEFAULT_LIMIT, minAgeM
     catch (error) { reply = { kind: "unknown", reason: error instanceof Error ? error.message : "Geliver çağrısı tamamlanamadı.", httpStatus: null }; }
     const result = await syncOne(candidate, reply);
     results.push(result);
+    if (result.outcome === "not_found") console.warn("Geliver sync: shipment not found", { rowId: result.rowId, orderId: result.orderId });
     if (result.outcome !== "error") { errorsInRow = 0; continue; }
     console.warn("Geliver sync failed for a shipment", { rowId: result.rowId, orderId: result.orderId, reason: result.reason });
     errorsInRow += 1;
