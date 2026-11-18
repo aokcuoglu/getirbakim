@@ -75,11 +75,18 @@ CREATE TABLE IF NOT EXISTS vehicle_catalog_revision(id boolean PRIMARY KEY DEFAU
 INSERT INTO vehicle_catalog_revision(id) VALUES(true) ON CONFLICT DO NOTHING;
 CREATE OR REPLACE FUNCTION bump_vehicle_catalog_revision() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN UPDATE vehicle_catalog_revision SET revision=revision+1 WHERE id=true; RETURN NULL; END $$;
+-- Created only when missing: CREATE [OR REPLACE] TRIGGER locks the table against writers (SHARE ROW EXCLUSIVE) until setup
+-- commits. A changed function body needs only its CREATE OR REPLACE FUNCTION; a changed trigger definition needs a
+-- DROP TRIGGER in the same change. Looked up per table (tgrelid): a same-named trigger in another schema does not count.
 DO $$ BEGIN
- IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='vehicle_brands_revision') THEN
- CREATE TRIGGER vehicle_brands_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_brands FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
- CREATE TRIGGER vehicle_models_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_models FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
- CREATE TRIGGER vehicle_types_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_types FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_brands'::regclass AND tgname='vehicle_brands_revision') THEN
+  CREATE TRIGGER vehicle_brands_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_brands FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_models'::regclass AND tgname='vehicle_models_revision') THEN
+  CREATE TRIGGER vehicle_models_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_models FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_types'::regclass AND tgname='vehicle_types_revision') THEN
+  CREATE TRIGGER vehicle_types_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_types FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
  END IF;
 END $$;
 -- One row per product a fallback source searched (otoparcasan.com, spareto.com); the admin page reads their progress
