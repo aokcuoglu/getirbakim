@@ -39,6 +39,7 @@
     "test:product-override-fitments": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-fitments.ts",
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
     "test:partner": "node --import tsx --test scripts/test-partner.ts",
+    "test:partner-orders": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-partner-orders.ts",
     "test:seta": "node --import tsx --test scripts/test-seta.ts",
     "test:supplier-items": "node --conditions=react-server --import tsx --test scripts/test-supplier-items.ts",
     "test:supplier-data-status": "node --import tsx --test scripts/test-supplier-data-status.ts",

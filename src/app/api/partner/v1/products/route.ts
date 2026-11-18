@@ -1,12 +1,11 @@
 import type { NextRequest } from "next/server";
-import { partnerKeysEnv, resolvePartner } from "@/modules/partner/auth";
 import { clampPartnerLimit, partnerMinQueryLength, searchPartnerProducts } from "@/modules/partner/catalog";
+import { partnerError, partnerGuard, partnerNoStore } from "@/modules/partner/guard";
 import { partnerDiscountEnv, resolvePartnerDiscountBps } from "@/modules/partner/pricing";
 import { createRateLimiter } from "@/modules/partner/rate-limit";
 
 const maxVehicleTypeId = 2_147_483_647;
 const limiter = createRateLimiter(120, 60_000);
-const noStore = { "Cache-Control": "no-store" };
 
 function parseVehicleTypeId(raw: string | null): number | null | undefined {
   if (raw == null) return null;
@@ -23,32 +22,22 @@ function parseVehicleTypeId(raw: string | null): number | null | undefined {
  * `lastSyncedAt` is part of the contract: this endpoint does not promise live stock.
  */
 export async function GET(request: NextRequest) {
-  // Limited before authentication: a client guessing keys is limited too.
-  // The address our own proxy saw: the first X-Forwarded-For entry is whatever the client chose to send.
-  const address = request.headers.get("x-real-ip")?.trim() || request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() || "unknown";
-  const limit = limiter(address);
-  if (!limit.allowed) {
-    return Response.json({ error: { code: "RATE_LIMITED", message: "Too many requests." } },
-      { status: 429, headers: { ...noStore, "Retry-After": String(limit.retryAfterSeconds) } });
-  }
-  // One answer for a missing and a wrong key: telling them apart helps whoever is guessing.
-  const partner = resolvePartner(request.headers.get("authorization"), process.env[partnerKeysEnv]);
-  if (!partner) return Response.json({ error: { code: "UNAUTHORIZED", message: "Valid partner API key required." } }, { status: 401, headers: noStore });
+  const guard = partnerGuard(request, limiter);
+  if ("response" in guard) return guard.response;
+  const { partner } = guard;
 
   const params = request.nextUrl.searchParams;
   const vehicleTypeId = parseVehicleTypeId(params.get("vehicleTypeId"));
-  if (vehicleTypeId === undefined) {
-    return Response.json({ error: { code: "VALIDATION_ERROR", message: "Invalid vehicleTypeId." } }, { status: 400, headers: noStore });
-  }
+  if (vehicleTypeId === undefined) return partnerError(400, "VALIDATION_ERROR", "Invalid vehicleTypeId.");
   try {
     const { products, source } = await searchPartnerProducts({
       q: params.get("q"), oem: params.get("oem"), partNo: params.get("partNo"),
       limit: clampPartnerLimit(params.get("limit")), vehicleTypeId,
       discountBps: resolvePartnerDiscountBps(process.env[partnerDiscountEnv]),
     });
-    return Response.json({ products, source, minQueryLength: partnerMinQueryLength }, { headers: noStore });
+    return Response.json({ products, source, minQueryLength: partnerMinQueryLength }, { headers: partnerNoStore });
   } catch (error) {
     console.error(`[partner/v1/products] ${partner.code}:`, error instanceof Error ? error.message : error);
-    return Response.json({ error: { code: "INTERNAL_ERROR", message: "Partner search failed." } }, { status: 500, headers: noStore });
+    return partnerError(500, "INTERNAL_ERROR", "Partner search failed.");
   }
 }

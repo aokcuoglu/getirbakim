@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readdir, readFile } from "node:fs/promises";
 import { minPartnerKeyLength, parsePartnerKeys, resolvePartner } from "../src/modules/partner/auth";
-import { matchesOem, matchesPartNo, partnerAvailability, splitOemNumbers, toPartnerProduct, type PartnerCatalogRow } from "../src/modules/partner/dto";
+import { decodeOfferId, encodeOfferId, matchesOem, matchesPartNo, partnerAvailability, splitOemNumbers, toPartnerProduct, type PartnerCatalogRow } from "../src/modules/partner/dto";
+import { partnerOrderStatus, resolveOrderLimitKurus, toPartnerOrderDto, unitVatKurus, type PartnerOrderRow } from "../src/modules/partner/order-dto";
+import { orderRequestSchema, quoteRequestSchema } from "../src/modules/partner/order-schema";
+import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partnerQuoteTtlMs, signQuote, verifyQuote, type QuotePayload } from "../src/modules/partner/quotes";
 import { resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
 import { createRateLimiter } from "../src/modules/partner/rate-limit";
 
@@ -165,4 +168,115 @@ test("partner catalog reads only saleable rows, never the storefront's unavailab
     const source = await readFile(`src/modules/partner/${file}`, "utf8");
     assert.doesNotMatch(source, /storefront_catalog|storefrontCatalogSql|commerce_unavailable_items|getStorefrontProduct/, file);
   }
+});
+
+// Partner orders (#426): pure parts of the quote, request and DTO contract. scripts/test-partner-orders.ts covers the database flow.
+const secret = "q".repeat(40);
+const offerA = encodeOfferId("0000a569-053e-4b84-a484-d510f04fab3b");
+const offerB = encodeOfferId("11111111-2222-4333-8444-555555555555");
+const quote = (overrides: Partial<QuotePayload> = {}): QuotePayload => ({
+  version: 1, partner: "bakimx", issuedAt: 1_000, expiresAt: 1_000 + partnerQuoteTtlMs,
+  lines: [{ selectedOfferId: offerA, quantity: 2, unitNetKurus: 740632 }, { selectedOfferId: offerB, quantity: 1, unitNetKurus: 1200 }], ...overrides,
+});
+const refusal = (code: string) => (error: unknown) => error instanceof PartnerOrderError && error.code === code;
+
+test("offer ids round-trip; anything else is not an offer", () => {
+  assert.equal(offerA, "offer_0000a569053e4b84a484d510f04fab3b");
+  assert.equal(decodeOfferId(offerA), "0000a569-053e-4b84-a484-d510f04fab3b");
+  for (const bad of ["offer_123", "offer_0000A569053E4B84A484D510F04FAB3B", "0000a569053e4b84a484d510f04fab3b", `${offerA}0`]) assert.equal(decodeOfferId(bad), null, bad);
+});
+
+test("partner quote: signed, verified, tamper-proof, fails closed without a secret", () => {
+  const token = signQuote(quote(), secret);
+  assert.deepEqual(verifyQuote(token, secret), quote());
+  // Another secret, a changed payload or a changed signature is QUOTE_CHANGED.
+  assert.throws(() => verifyQuote(token, "z".repeat(40)), refusal("QUOTE_CHANGED"));
+  const [body, signature] = token.split(".");
+  const forged = Buffer.from(JSON.stringify({ ...quote(), lines: [{ selectedOfferId: offerA, quantity: 2, unitNetKurus: 1 }] })).toString("base64url");
+  assert.throws(() => verifyQuote(`${forged}.${signature}`, secret), refusal("QUOTE_CHANGED"));
+  assert.throws(() => verifyQuote(`${body}.${signature}x`, secret), refusal("QUOTE_CHANGED"));
+  assert.throws(() => verifyQuote(`${body}`, secret), refusal("QUOTE_CHANGED"));
+  assert.throws(() => verifyQuote(`${token}.x`, secret), refusal("QUOTE_CHANGED"));
+  // No secret, or a short one, is a closed gate (503), for signing and for verifying.
+  for (const missing of [undefined, "", "short-secret"]) {
+    assert.throws(() => signQuote(quote(), missing), refusal("QUOTE_CONFIGURATION_UNAVAILABLE"));
+    assert.throws(() => verifyQuote(token, missing), refusal("QUOTE_CONFIGURATION_UNAVAILABLE"));
+  }
+  // The token carries prices but no supplier internals.
+  assert.doesNotMatch(Buffer.from(body, "base64url").toString(), /nf|markup|exchange|company|supplier/);
+});
+
+test("partner quote: partner, lines and expiry are checked", () => {
+  const lines = quote().lines;
+  assert.doesNotThrow(() => assertQuoteMatches(quote(), "bakimx", [...lines].reverse(), 2_000));
+  assert.throws(() => assertQuoteMatches(quote(), "other", lines, 2_000), refusal("QUOTE_CHANGED"));
+  assert.throws(() => assertQuoteMatches(quote(), "bakimx", lines.slice(1), 2_000), refusal("QUOTE_CHANGED"));
+  assert.throws(() => assertQuoteMatches(quote(), "bakimx", [{ ...lines[0], quantity: 3 }, lines[1]], 2_000), refusal("QUOTE_CHANGED"));
+  assert.throws(() => assertQuoteMatches(quote(), "bakimx", [{ ...lines[0], unitNetKurus: 740631 }, lines[1]], 2_000), refusal("QUOTE_CHANGED"));
+  // Valid for 15 minutes, then QUOTE_EXPIRED (409).
+  assert.doesNotThrow(() => assertQuoteMatches(quote(), "bakimx", lines, 1_000 + partnerQuoteTtlMs - 1));
+  assert.throws(() => assertQuoteMatches(quote(), "bakimx", lines, 1_000 + partnerQuoteTtlMs), (error: unknown) =>
+    error instanceof PartnerOrderError && error.code === "QUOTE_EXPIRED" && error.status === 409);
+});
+
+const address = { recipientName: "Usta Oto Servis", phone: "0532 000 00 00", province: "istanbul", district: "kadıköy", addressLine: "Test Mahallesi 1. Sokak No 2" };
+const orderBody = (overrides: Record<string, unknown> = {}) => ({
+  confirmationToken: "x.y", lines: [{ selectedOfferId: offerA, quantity: 2, expectedUnitNetKurus: 740632 }], shippingAddress: address, ...overrides,
+});
+
+test("partner order request: strict body, Turkish address matched, offers distinct", () => {
+  const parsed = orderRequestSchema.parse(orderBody());
+  assert.deepEqual([parsed.shippingAddress.province, parsed.shippingAddress.district, parsed.shippingAddress.postalCode, parsed.shippingAddress.email, parsed.note],
+    ["İstanbul", "Kadıköy", null, "", ""]);
+  // A partner identity in the body, an unknown district, a postal code of another province and a repeated offer are refused.
+  assert.equal(orderRequestSchema.safeParse(orderBody({ partner: "other" })).success, false);
+  assert.equal(orderRequestSchema.safeParse(orderBody({ shippingAddress: { ...address, district: "Çankaya" } })).success, false);
+  assert.equal(orderRequestSchema.safeParse(orderBody({ shippingAddress: { ...address, postalCode: "06100" } })).success, false);
+  assert.equal(orderRequestSchema.safeParse(orderBody({ shippingAddress: { ...address, postalCode: "34710" } })).success, true);
+  assert.equal(orderRequestSchema.safeParse(orderBody({ lines: [orderBody().lines[0], orderBody().lines[0]] })).success, false);
+  assert.equal(orderRequestSchema.safeParse(orderBody({ lines: [{ ...orderBody().lines[0], quantity: 100 }] })).success, false);
+  assert.equal(orderRequestSchema.safeParse(orderBody({ lines: [] })).success, false);
+  assert.equal(quoteRequestSchema.safeParse({ lines: [{ selectedOfferId: offerA, quantity: 1 }, { selectedOfferId: offerB, quantity: 99 }] }).success, true);
+  assert.equal(quoteRequestSchema.safeParse({ lines: [{ selectedOfferId: "offer_x", quantity: 1 }] }).success, false);
+});
+
+test("partner order fingerprint: same body same hash whatever the key order; any change differs", () => {
+  const parsed = orderRequestSchema.parse(orderBody());
+  const reordered = orderRequestSchema.parse({ shippingAddress: { ...address }, lines: orderBody().lines, confirmationToken: "x.y" });
+  assert.equal(fingerprintOrderRequest(parsed), fingerprintOrderRequest(reordered));
+  assert.match(fingerprintOrderRequest(parsed), /^[0-9a-f]{64}$/);
+  assert.notEqual(fingerprintOrderRequest(parsed), fingerprintOrderRequest(orderRequestSchema.parse(orderBody({ note: "Kapıya bırakın" }))));
+  assert.notEqual(fingerprintOrderRequest(parsed), fingerprintOrderRequest(orderRequestSchema.parse(orderBody({ lines: [{ ...orderBody().lines[0], quantity: 3 }] }))));
+});
+
+test("partner order limit: unset or malformed refuses orders", () => {
+  for (const raw of [undefined, null, "", "0", "-5", "1e6", "12.5", "abc"]) assert.equal(resolveOrderLimitKurus(raw), null, String(raw));
+  assert.equal(resolveOrderLimitKurus(" 5000000 "), 5_000_000);
+});
+
+test("partner order DTO: status names, VAT per unit, totals; no supplier internals", () => {
+  assert.deepEqual(["pending", "confirmed", "shipped", "delivered", "cancelled", "awaiting_payment"].map(partnerOrderStatus),
+    ["REQUESTED", "CONFIRMED", "SHIPPED", "COMPLETED", "CANCELLED", "REQUESTED"]);
+  assert.equal(unitVatKurus(740632, 2000), 148126);
+  assert.equal(unitVatKurus(1001, 1850), 185);
+  const order: PartnerOrderRow = {
+    id: "9b0f8a1e-0000-4000-8000-000000000001", number: "1042", request_key: "7c1e3a52-1111-4111-8111-111111111111", status: "cancelled", payment_status: "on_account",
+    total_kurus: String((740632 + 148126) * 2), shipping_kurus: "0", note: "", customer_name: "Usta Oto Servis", phone: "05320000000", email: "",
+    delivery_province: "İstanbul", delivery_district: "Kadıköy", delivery_address_line: "Test Mahallesi 1. Sokak No 2", delivery_postal_code: null,
+    carrier: null, carrier_name: null, tracking_no: null, tracking_url: null, shipped_at: null, delivered_at: null,
+    cancelled_by: "admin", cancelled_at: new Date("2026-11-18T10:00:00Z"), created_at: new Date("2026-11-18T09:00:00Z"),
+  };
+  const dto = toPartnerOrderDto(order, [{ product_id: "0000a569-053e-4b84-a484-d510f04fab3b", code: "LUK 510 0207 10", name: "DEBRIYAJ RULMANI", quantity: 2,
+    unit_price_kurus: String(740632 + 148126), pricing_snapshot: { nf: 103.19, company: "BASBUG", markup_percent: 30, partner: { unit_net_kurus: 740632, unit_vat_kurus: 148126, vat_rate_bps: 2000 } } }]);
+  assert.equal(dto.contractVersion, "2.0");
+  assert.deepEqual([dto.status, dto.paymentStatus, dto.cancelledBy, dto.number, dto.shipment], ["CANCELLED", "ON_ACCOUNT", "GETIRBAKIM", 1042, null]);
+  assert.deepEqual(dto.totals, { netKurus: 1481264, vatKurus: 296252, shippingKurus: 0, grossKurus: 1777516 });
+  assert.deepEqual(dto.lines[0], { selectedOfferId: offerA, partNo: "LUK 510 0207 10", name: "DEBRIYAJ RULMANI", quantity: 2,
+    unitNetKurus: 740632, unitVatKurus: 148126, unitGrossKurus: 888758, vatRateBps: 2000 });
+  assert.equal(dto.shippingAddress.email, null);
+  const json = JSON.stringify(dto);
+  for (const internal of [`"nf"`, "103.19", "BASBUG", "markup", "owner", "fingerprint", "payment_status"]) assert.ok(!json.includes(internal), internal);
+  const shipped = toPartnerOrderDto({ ...order, status: "shipped", cancelled_by: null, cancelled_at: null, carrier: "yurtici", tracking_no: "123456789012",
+    tracking_url: "https://example.invalid/t", shipped_at: new Date("2026-11-19T08:00:00Z") }, []);
+  assert.deepEqual([shipped.status, shipped.cancelledBy, shipped.shipment?.trackingNo, shipped.shipment?.shippedAt], ["SHIPPED", null, "123456789012", "2026-11-19T08:00:00.000Z"]);
 });
