@@ -291,23 +291,54 @@ test("webhook: transit fills the tracking number; delivered delivers the order o
   assert.equal(label.tracking_status_code, "TRANSIT"); assert.equal(label.tracking_sub_status_code, "package_accepted");
   assert.equal(label.tracking_location, "Kartal"); assert.equal(label.tracking_number, "123456789012");
 
+  const checked = (await labelRows(order.id))[0].checked_at;
   const repeat = await webhook(trackEvent(remote.id, "TRANSIT", "package_accepted", "2026-11-18T10:00:00+03:00", { trackingNumber: "123456789012" }));
-  assert.equal(repeat.status === 200 && repeat.outcome, "ignored");
+  assert.equal(repeat.status === 200 && repeat.outcome === "ignored" && repeat.reason, "duplicate");
   const stale = await webhook(trackEvent(remote.id, "PRE_TRANSIT", "information_received", "2026-11-18T09:00:00+03:00"));
-  assert.equal(stale.status === 200 && stale.outcome, "ignored");
+  assert.equal(stale.status === 200 && stale.outcome === "ignored" && stale.reason, "stale");
+  assert.deepEqual((await labelRows(order.id))[0].checked_at, checked, "a duplicate or stale event leaves the row alone");
   assert.equal((await labelRows(order.id))[0].tracking_status_code, "TRANSIT");
 
   await schema.pool.query("UPDATE commerce_orders SET shipped_at=now()-interval '2 hours' WHERE id=$1", [order.id]);
-  const deliveredAt = ago(30);
-  assert.equal((await webhook(trackEvent(remote.id, "DELIVERED", "delivered", ago(29), {}, deliveredAt))).status, 200);
+  const deliveredAt = ago(30), recordedAt = ago(29);
+  assert.equal((await webhook(trackEvent(remote.id, "DELIVERED", "delivered", recordedAt, {}, deliveredAt))).status, 200);
   row = await orderRow(order.id);
   assert.equal(row.status, "delivered");
   assert.equal(new Date(row.delivered_at).toISOString(), deliveredAt);
   [label] = await labelRows(order.id);
   assert.equal(label.tracking_status_code, "DELIVERED");
+  const again = await webhook(trackEvent(remote.id, "DELIVERED", "delivered", recordedAt, {}, deliveredAt));
+  assert.equal(again.status === 200 && again.outcome === "ignored" && again.reason, "duplicate", "a repeated delivery of a delivered order");
   // A later DELIVERED (another time) changes the label only; the order stays delivered with its first time.
   await webhook(trackEvent(remote.id, "DELIVERED", "delivered", ago(10), {}, ago(10)));
   assert.equal(new Date((await orderRow(order.id)).delivered_at).toISOString(), deliveredAt);
+});
+
+test("webhook: a repeated status that carries a new tracking number is applied, an identical one is a duplicate", async () => {
+  const { order, remote } = await shippedByGeliver();
+  const at = "2026-11-18T10:00:00Z";
+  assert.equal((await webhook(trackEvent(remote.id, "TRANSIT", "", at))).status === 200, true);
+  assert.equal((await orderRow(order.id)).tracking_no, null);
+  const withNumber = await webhook(trackEvent(remote.id, "TRANSIT", "", at, { trackingNumber: "123456789012" }));
+  assert.equal(withNumber.status === 200 && withNumber.outcome, "applied");
+  assert.equal((await orderRow(order.id)).tracking_no, "123456789012");
+  const same = await webhook(trackEvent(remote.id, "TRANSIT", "", at, { trackingNumber: "123456789012" }));
+  assert.equal(same.status === 200 && same.outcome === "ignored" && same.reason, "duplicate", "an empty sub status repeats too");
+  const noClock = await webhook(trackEvent(remote.id, "TRANSIT", "", null, { trackingNumber: "123456789012" }));
+  assert.equal(noClock.status === 200 && noClock.outcome === "ignored" && noClock.reason, "duplicate");
+});
+
+test("webhook: the order follows a changed Geliver tracking number unless it was edited by hand", async () => {
+  const { order, remote } = await shippedByGeliver();
+  await webhook(trackEvent(remote.id, "TRANSIT", "a", "2026-11-18T10:00:00Z", { trackingNumber: "123456789012" }));
+  assert.equal((await orderRow(order.id)).tracking_no, "123456789012");
+  await webhook(trackEvent(remote.id, "TRANSIT", "b", "2026-11-18T11:00:00Z", { trackingNumber: "210987654321" }));
+  const followed = await orderRow(order.id);
+  assert.equal(followed.tracking_no, "210987654321");
+  assert.equal(followed.tracking_url, "https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=210987654321");
+  await schema.pool.query("UPDATE commerce_orders SET tracking_no='999999999999' WHERE id=$1", [order.id]);
+  await webhook(trackEvent(remote.id, "TRANSIT", "c", "2026-11-18T12:00:00Z", { trackingNumber: "555555555555" }));
+  assert.equal((await orderRow(order.id)).tracking_no, "999999999999");
 });
 
 test("webhook: events are ordered by Geliver's clock; a delivery of a shipped order is never stale", async () => {

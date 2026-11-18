@@ -7,6 +7,7 @@ import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { applySpecOverrides } from "../src/modules/store/product-spec-display";
 import { productSpecLimit, specHistoryValue } from "../src/modules/admin/product-spec-fields";
+import { facetSpecificationKeys } from "../src/modules/store/catalog-filters";
 
 // Admin-entered technical specifications (#603) in an isolated copy of the schema: db/product-override-specs.sql, the
 // store's product page and cards, the catalog filters and facets, the admin store and merge carry/undo.
@@ -52,6 +53,18 @@ const card = async (key: string) => (await enrichment.getCatalogProductDetails([
 /** The listed store row ids of an attribute filter (each filter once: listings are cached for the process). */
 const filtered = async (attributes: Record<string, string[]>) => (await catalog.browseProducts({ attributes: JSON.stringify(attributes), sort: "newest" })).items.map(row => row.id);
 const facet = (facets: { attributes: { key: string; options: { values: string[] }[] }[] }, key: string) => facets.attributes.find(row => row.key === key)?.options.flatMap(option => option.values).sort();
+/** The property facet rows of every supplier row read per product (the default) and through the hash join (#955). */
+async function facetBranchesAgree() {
+  const run = async (nestedScope?: number) => (await schema.pool.query<{ key: string; values: string[] }>(
+    catalog.attributeFacetsSql("SELECT id FROM supplier_items", "$1::text[]", nestedScope), [facetSpecificationKeys])).rows;
+  // The cross-reference fixture reaches the store's links, yet its specification is no facet option in either branch.
+  const linked = await schema.pool.query("SELECT 1 FROM product_enrichment_shared_links WHERE supplier_item_id=$1 AND donor_item_id=$1", [ids.crossRef]);
+  assert.equal(linked.rowCount, 1);
+  const nested = await run(), hashed = await run(0);
+  assert.ok(nested.length > 0);
+  for (const rows of [nested, hashed]) assert.ok(!rows.some(row => row.values.includes("Cartridge")), "cross-reference spec");
+  assert.deepEqual(hashed, nested);
+}
 
 before(async () => {
   schema = await isolatedSchema("product_override_specs_test");
@@ -64,6 +77,7 @@ before(async () => {
   await item("skf", { supplier: "basbug", code: "SKF 70070", brand: "SKF", name: "SKF RULMAN" });
   await item("lemA", { supplier: "basbug", code: "LEM 90090", brand: "LEMFORDER", name: "LEMFORDER ROT" });
   await item("lemB", { supplier: "basbug", code: "MOOG 91091", brand: "MOOG", name: "MOOG ROT" });
+  await item("crossRef", { supplier: "dinamik", code: "UFI 80080", brand: "UFI", name: "UFI YAG FILTRESI" });
   await schema.pool.query("SELECT refresh_product_matches()");
   admin = (await schema.pool.query<{ id: string }>(`INSERT INTO accounts(name,email,password_hash,role,approved)
     VALUES('Test Yönetici',$1,'x','admin',true) RETURNING id::text`, [`${randomUUID()}@example.com`])).rows[0].id;
@@ -71,6 +85,9 @@ before(async () => {
     ["EAN", "4027816285229"], ["Brand class", "Premium"]]);
   await enrich("mahle", "MAHLE", "20020", [["Fitting Position", "Upper Left"], ["Filter type", "Spin-on"]]);
   await enrich("stale", "TRW", "50049", [["Fitting Position", "Rear Axle Left"]], "TRW 50049");
+  // Matched through a cross reference: the store shows it, the facets do not (the guard both facet branches apply).
+  await enrich("crossRef", "UFI", "80080", [["Filter type", "Cartridge"]]);
+  await schema.pool.query(`UPDATE product_enrichments SET match_basis='{"type":"cross_reference"}' WHERE supplier_item_id=$1`, [ids.crossRef]);
   await syncSharedLinks(schema.pool);
   const [{ db }, storeModule, specsModule, enrichmentModule, catalogModule] = await Promise.all([import("../src/lib/db"),
     import("../src/modules/admin/product-spec-store"), import("../src/modules/store/product-specs"),
@@ -114,6 +131,7 @@ test("the admin list shows the automatic specifications of every source, guarded
   assert.equal(await card("bare"), undefined);
   // The facet before any decision (a code search: plain searches are cached per query).
   assert.deepEqual(facet(await catalog.catalogFacets({ q: "MAHLE 20020", searchBy: "code" }), "Fitting Position"), ["Upper Left"]);
+  await facetBranchesAgree();
 });
 
 test("edit, hide and add reach every row of the product, its cards and the history", async () => {
@@ -155,6 +173,7 @@ test("catalog facets and the attribute filter read the admin's values", async ()
   assert.deepEqual(await filtered({ "Fitting Position": ["Rear Axle"] }), [ids.bare]);
   assert.deepEqual(await filtered({ "Fitting Position": ["Upper Left"] }), []);
   assert.deepEqual(await filtered({ "Filter type": ["Spin-on"] }), [ids.mahle]);
+  await facetBranchesAgree();
 });
 
 test("enrichment imports, supplier syncs and matching refreshes leave the decisions alone", async () => {

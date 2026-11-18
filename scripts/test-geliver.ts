@@ -4,7 +4,7 @@ import { after, test } from "node:test";
 import { provinces } from "../src/modules/store/tr-address";
 import { parcelSchema } from "../src/modules/shipping/geliver-parcel";
 import {
-  buildTransactionBody, eventClock, geliverErrorMessage, geliverMode, geliverTestBlocked, normalizePhone, parseTime, recipientOf, resolveGeliverTrackingUrl, shouldApply, statusTime,
+  buildTransactionBody, eventClock, geliverErrorMessage, geliverMode, carriesNewData, geliverTestBlocked, isRepeatEvent, normalizePhone, parseTime, recipientOf, resolveGeliverTrackingUrl, shouldApply, statusTime,
   trackingLook, webhookEventSchema, webhookSecretValid, type GeliverRecipient,
 } from "../src/modules/shipping/geliver-request";
 
@@ -180,6 +180,22 @@ test("only newer or different statuses are applied, by Geliver's clock", () => {
   // A late statusDate does not make an older Geliver record fresh.
   assert.equal(shouldApply(stored, event("PRE_TRANSIT", null, "2026-11-18T09:30:00Z", "2026-11-18T12:00:00Z")), false);
   assert.equal(shouldApply(stored, webhookEventSchema.parse({ event: "TRACK_UPDATED", data: { id: "s1", trackingStatus: null } })), false);
+});
+
+test("only an exact repeat counts as a duplicate, older events are not", () => {
+  const stored = { tracking_status_code: "TRANSIT", tracking_sub_status_code: "package_accepted", tracking_updated_at: new Date("2026-11-18T10:00:00Z") };
+  assert.equal(isRepeatEvent(stored, event("TRANSIT", "package_accepted", "2026-11-18T10:00:00Z")), true);
+  assert.equal(isRepeatEvent(stored, event("TRANSIT", "package_accepted", null)), true, "same status without time");
+  assert.equal(isRepeatEvent(stored, event("TRANSIT", "package_accepted", "2026-11-18T09:00:00Z")), false, "older is stale");
+  const emptySub = { ...stored, tracking_sub_status_code: null };
+  assert.equal(isRepeatEvent(emptySub, event("TRANSIT", "", "2026-11-18T10:00:00Z")), true, "empty sub code equals none");
+  assert.equal(shouldApply(emptySub, event("TRANSIT", "", "2026-11-18T10:00:00Z")), false);
+  assert.equal(carriesNewData({ tracking_number: null, tracking_url: null, tracking_status_details: null, tracking_location: null },
+    webhookEventSchema.parse({ event: "TRACK_UPDATED", data: { id: "s1", trackingNumber: "123", trackingStatus: { trackingStatusCode: "TRANSIT" } } })), true);
+  assert.equal(carriesNewData({ tracking_number: "123", tracking_url: null, tracking_status_details: null, tracking_location: null },
+    webhookEventSchema.parse({ event: "TRACK_UPDATED", data: { id: "s1", trackingNumber: "123", trackingStatus: { trackingStatusCode: "TRANSIT" } } })), false);
+  assert.equal(isRepeatEvent(stored, event("TRANSIT", "out_for_delivery", "2026-11-18T10:00:00Z")), false);
+  assert.equal(isRepeatEvent({ tracking_status_code: null, tracking_sub_status_code: null, tracking_updated_at: null }, event("TRANSIT", null, null)), false);
 });
 
 test("test mode is refused on a production server unless explicitly allowed", () => {
