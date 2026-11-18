@@ -134,7 +134,7 @@ test("placing an order stores the consent and an immutable order-specific copy",
     const { cartFor, setCartQuantity } = await import("../src/modules/store/cart");
     await schema.pool.query("UPDATE commerce_settings SET shipping_fee_kurus=15000,free_shipping_threshold_kurus=150000");
     const product = (await schema.pool.query<{ id: string }>(`INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock)
-      VALUES('demo','AGR-1','Agreement part','TEST',10000,20) RETURNING id::text`)).rows[0].id;
+      VALUES('demo','AGR-1','BRAKE DISC','TEST',10000,20) RETURNING id::text`)).rows[0].id;
     const owner = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
     await schema.pool.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [owner.id]);
     assert.equal(await setCartQuantity(owner, product, 2), true);
@@ -152,7 +152,10 @@ test("placing an order stores the consent and an immutable order-specific copy",
     assert.equal(row.accepted_at.getTime(), orderRow.created_at.getTime());
     assert.deepEqual(row.document, buildOrderAgreement({ number: orderRow.number, createdAt: orderRow.created_at, name: form.name, email: form.email,
       phone: form.phone, address: form.address, note: form.note, invoice: null, invoiceAddress: null, discountPercent: 0, subtotalKurus: 20000, shippingKurus: 15000, totalKurus: 35000 },
-    [{ name: "Agreement part", brand: "TEST", code: "AGR-1", quantity: 2, unitPriceKurus: 10000 }]));
+    [{ name: "Fren Diski", brand: "TEST", code: "AGR-1", quantity: 2, unitPriceKurus: 10000 }]));
+    // #952: the copy and the order line name the part as the cart showed it, never the raw English supplier name.
+    assert.ok(!JSON.stringify(row.document).includes("BRAKE DISC"));
+    assert.deepEqual((await schema.pool.query("SELECT name,code FROM commerce_order_items WHERE order_id=$1", [placed.id])).rows, [{ name: "Fren Diski", code: "AGR-1" }]);
 
     assert.equal(orderRow.address, "Test Mahallesi 1. Sokak No 2, 34710 Kadıköy/İstanbul");
     assert.deepEqual([orderRow.delivery_province, orderRow.delivery_district, orderRow.delivery_address_line, orderRow.delivery_postal_code, orderRow.invoice_type, orderRow.invoice_company],
