@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { compactSearchCode, exactTsQuery, parseSearchQuery, prefixTsQuery, type ParsedSearch, type ParseOptions } from "./query";
-import { typeNameExactQueries, typeNameTsQueries } from "./type-names";
+import { typeNameExactQueries, typeNameRankBoosts, typeNameTsQueries } from "./type-names";
 
 /** Appends a value to the statement's parameters and returns its placeholder ("$3"). */
 export type Bind = (value: unknown) => string;
@@ -137,6 +137,30 @@ export function storeProductMatch(alias: string, parsed: ParsedSearch, bind: Bin
 }
 
 /**
+ * Relevance of a supplier row `alias` from its stored ranking inputs (search_doc, search_code, search_oem; db/search.sql).
+ * `queries`: the prefix tsquery, exact tsquery and compact code arguments of catalog_search_rank_doc.
+ *
+ * A row found only by the English supplier name of a Turkish query ("fren diski" → BRAKE DISC, #953) would rank far
+ * below the rows named in Turkish: its stored document holds none of the typed words. Such a row ranks as if it carried
+ * the typed Turkish name instead (#969): the English name words leave its document and the typed words join it as name
+ * words, so it ranks like the same row named "Fren Diski". Ranked at query time, so the stored documents need no
+ * reindex; GREATEST, so no row ranks lower than before; only rows holding the English name pay for the second rank.
+ * A fixed boost (or the best of an English-query rank) put every English-named row above every Turkish one (#969).
+ */
+export function storedRank(alias: string, parsed: ParsedSearch, bind: Bind, queries: string) {
+  const base = `catalog_search_rank_doc(${alias}.search_doc, ${alias}.search_code, ${alias}.search_oem, ${queries})`;
+  const boosts = typeNameRankBoosts(parsed);
+  if (!boosts.length) return base;
+  const swapped = boosts.map(boost => {
+    const name = boost.names ? ` AND search_normalize(${alias}.product_data->>'ac') = ANY(${bind(boost.names)}::text[])` : "";
+    return `CASE WHEN ${alias}.search_doc @@ to_tsquery('simple', ${bind(boost.query)}::text)${name}
+      THEN catalog_search_rank_doc(ts_delete(${alias}.search_doc, ${bind(boost.english)}::text[])
+        || setweight(to_tsvector('simple', ${bind(boost.turkish)}::text), 'A'), ${alias}.search_code, ${alias}.search_oem, ${queries}) END`;
+  });
+  return `GREATEST(${base}, ${swapped.join(", ")})`;
+}
+
+/**
  * Relevance of a catalog-shaped row (name, brand, code, oem, description, display_brand, display_code columns), highest
  * first. Keep in step with summarizeSearch (src/modules/store/catalog.ts).
  */
@@ -151,7 +175,7 @@ export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
   // better of the two, so an exact match of either ranks first. A row whose supplier OEM field is hidden (#615) ranks
   // on the computed path too: its view oem is empty, the stored search_oem is not. The stored inputs carry the supplier's
   // brand label, the computed path the shown brand (display_brand: the master brand name, #811).
-  return `COALESCE((SELECT catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries})
+  return `COALESCE((SELECT ${storedRank("s", parsed, bind, queries)}
     FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides o WHERE o.supplier_item_id = s.id
         AND (o.name IS NOT NULL OR o.description IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL OR o.hide_oem))),

@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { addRecentSearch, clearRecentSearches, parseRecentSearches, readRecentSearches, saveRecentSearch } from "../src/components/navigation/recent-searches";
 import { shownProductName } from "../src/modules/store/product-name";
-import { normalizeSearchText, parseSearchQuery, prefixTsQuery } from "../src/modules/search/query";
-import { typeNameExactQueries, typeNameTsQueries } from "../src/modules/search/type-names";
+import { normalizeSearchText, parseSearchQuery, phraseKey, prefixTsQuery } from "../src/modules/search/query";
+import { typeNameExactQueries, typeNameRankBoosts, typeNameTsQueries } from "../src/modules/search/type-names";
 import { isEnglishTypeName, turkishTypeName, typeNameEntries } from "../src/modules/store/suggestion-names";
 
 test("known English type names get a Turkish name", () => {
@@ -64,6 +64,54 @@ test("ambiguous single-word type names match only the whole supplier name (#963)
   for (const q of ["fren diski", "hortum", "salıncak", "5W-40", ""]) assert.deepEqual(exact(q), [], q);
   // The word-level expansion still leaves them out: "kapak" adds COVER only.
   assert.deepEqual(typeNameTsQueries(parseSearchQuery("kapak")), ["('cover')"]);
+});
+
+test("suffixed Turkish type names reach the dictionary (#969)", () => {
+  const queries = (q: string) => typeNameTsQueries(parseSearchQuery(q));
+  assert.deepEqual(queries("kapağı"), ["('cover')"]);
+  assert.deepEqual(queries("camı"), ["('glass')"]);
+  assert.deepEqual(queries("mili"), ["('shaft')"]);
+  assert.deepEqual(queries("farı"), ["('front' <-> 'light')"]);
+  assert.deepEqual(queries("motor kapağı"), ["('cover') & ('motor':*)"]);
+  assert.deepEqual(queries("kapı camı"), ["('door') & ('cami':*)", "('glass') & ('kapi':*)"]);
+  assert.deepEqual(queries("kapak"), ["('cover')"]);
+  const exact = (q: string) => typeNameExactQueries(parseSearchQuery(q)).map(match => match.names);
+  assert.deepEqual(exact("kolu"), [["arm"]]);
+  assert.deepEqual(exact("yayı"), [["spring"]]);
+  assert.deepEqual(exact("kapağı"), [["cap"]]);
+  // Three letters stay of a query word, but no name is "kap".
+  for (const q of ["kap", "kabı"]) {
+    assert.deepEqual(queries(q), [], q);
+    assert.deepEqual(exact(q), [], q);
+  }
+});
+
+test("every Turkish name still matches the query words it matched by key (#969)", () => {
+  const skipped = new Set(["cap", "arm", "spring", "plug", "wheel"]);
+  for (const [name, turkish] of typeNameEntries()) {
+    const english = normalizeSearchText(name);
+    if (english === normalizeSearchText(turkish)) continue;
+    // The stemmed key of each word (what the key-equality lookup compared) as the query.
+    const parsed = parseSearchQuery(normalizeSearchText(turkish).split(" ").map(word => phraseKey([word])).join(" "));
+    if (skipped.has(english)) {
+      assert.ok(typeNameExactQueries(parsed).some(match => match.names.includes(english)), `${turkish} → ${english}`);
+      continue;
+    }
+    if (parsed.terms.length === 1 && parsed.terms[0].alternatives.some(alternative => alternative.value === english)) continue;
+    const phrase = english.split(" ").map(word => `'${word}'`).join(" <-> ");
+    assert.ok(typeNameTsQueries(parsed).some(query => query.includes(phrase)), `${turkish} → ${english}`);
+  }
+});
+
+test("rows found by their English name rank as the typed Turkish name (#969)", () => {
+  const boosts = (q: string) => typeNameRankBoosts(parseSearchQuery(q));
+  assert.deepEqual(boosts("fren diski"), [{ query: "('brake':A <-> 'disc':A)", english: ["brake", "disc"], turkish: "fren diski" }]);
+  assert.deepEqual(boosts("kapak"), [
+    { query: "('cover':A)", english: ["cover"], turkish: "kapak" },
+    { query: "('cap':A)", english: ["cap"], turkish: "kapak", names: ["cap"] },
+  ]);
+  assert.deepEqual(boosts("fren"), []);
+  assert.deepEqual(boosts("5W-40"), []);
 });
 
 test("dictionary English keys are plain words, safe inside a quoted tsquery (#953)", () => {
