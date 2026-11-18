@@ -33,10 +33,12 @@ test("a second setup run takes no ACCESS EXCLUSIVE lock on any table or view", a
   }
 });
 
-// Triggers on these tables are created only when missing: CREATE [OR REPLACE] TRIGGER takes SHARE ROW EXCLUSIVE, which
-// queues every insert, update and delete behind setup until it commits.
+// Indexes and triggers on these tables are created only when missing (#925, #964, #965): CREATE INDEX IF NOT EXISTS
+// takes SHARE and CREATE [OR REPLACE] TRIGGER takes SHARE ROW EXCLUSIVE before finding the object, and either queues
+// every insert, update and delete behind setup until it commits.
 const writeHot = ["accounts", "guest_carts", "supplier_items", "products", "product_sources", "product_enrichments", "product_enrichment_jobs",
-  "product_vehicle_fitments", "vehicle_types", "vehicle_models"];
+  "product_vehicle_fitments", "vehicle_types", "vehicle_models", "commerce_orders", "commerce_order_agreements", "supplier_brands", "brands",
+  "product_override_fitments"];
 
 test("a second setup run takes no writer-blocking lock on the write-hot tables", async (t) => {
   const client = await schema.pool.connect();
@@ -45,11 +47,11 @@ test("a second setup run takes no writer-blocking lock on the write-hot tables",
     await applySetupFiles(client);
     const { rows } = await client.query<{ relname: string; mode: string }>(
       `SELECT c.relname,l.mode FROM pg_locks l JOIN pg_class c ON c.oid=l.relation
-       WHERE l.pid=pg_backend_pid() AND l.locktype='relation' AND c.relname=ANY($1) AND c.relnamespace=$2::regnamespace
-        AND l.mode IN ('ShareLock','ShareRowExclusiveLock','ExclusiveLock','AccessExclusiveLock') ORDER BY 1,2`, [writeHot, schema.name]);
-    for (const row of rows) t.diagnostic(`${row.mode}: ${row.relname}`);
-    // CREATE INDEX IF NOT EXISTS still takes SHARE on its table before it finds the index: reported, not asserted.
-    assert.deepEqual(rows.filter((row) => row.mode !== "ShareLock").map((row) => `${row.mode}: ${row.relname}`), []);
+       WHERE l.pid=pg_backend_pid() AND l.locktype='relation' AND c.relnamespace=$1::regnamespace AND c.relkind='r'
+        AND l.mode IN ('ShareLock','ShareRowExclusiveLock','ExclusiveLock','AccessExclusiveLock') ORDER BY 2,1`, [schema.name]);
+    // The other tables still take SHARE from CREATE INDEX IF NOT EXISTS: reported, not asserted.
+    for (const row of rows.filter((row) => !writeHot.includes(row.relname))) t.diagnostic(`${row.mode}: ${row.relname}`);
+    assert.deepEqual(rows.filter((row) => writeHot.includes(row.relname)).map((row) => `${row.mode}: ${row.relname}`), []);
   } finally {
     await client.query("ROLLBACK").catch(() => undefined);
     client.release();
@@ -176,4 +178,26 @@ test("vehicle catalog revision triggers exist per table", async () => {
   assert.equal(recreated.length, 3);
   // Only the dropped one is new; the others keep their oid.
   assert.deepEqual(recreated.filter((entry) => !created.includes(entry)).map((entry) => entry.split(" ")[0]), ["vehicle_models.vehicle_models_revision"]);
+});
+
+test("a dropped index or trigger on a write-hot table is created again", async () => {
+  const objects = async () => (await schema.pool.query<{ entry: string }>(
+    `SELECT 'index '||i.indrelid::regclass||'.'||c.relname||' '||i.indexrelid AS entry FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+     WHERE c.relnamespace=$1::regnamespace AND c.relname IN ('supplier_items_scope_idx','commerce_orders_created_idx','products_listing_idx')
+     UNION ALL SELECT 'trigger '||tgrelid::regclass||'.'||tgname||' '||t.oid FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid
+     WHERE c.relnamespace=$1::regnamespace AND tgname IN ('enrichment_shared_brands_update','enrichment_states_supplier_brands_delete',
+      'product_override_fitments_insert','commerce_order_agreement_immutable')
+     ORDER BY 1`, [schema.name])).rows.map((row) => row.entry);
+  const names = (entries: string[]) => entries.map((entry) => entry.split(" ").slice(0, 2).join(" "));
+  const created = await objects();
+  assert.equal(created.length, 7);
+  await schema.pool.query(`DROP INDEX supplier_items_scope_idx; DROP INDEX commerce_orders_created_idx;
+    DROP TRIGGER enrichment_shared_brands_update ON brands; DROP TRIGGER commerce_order_agreement_immutable ON commerce_order_agreements`);
+  await rerun();
+  const recreated = await objects();
+  assert.deepEqual(names(recreated), names(created));
+  // Only the dropped ones are new; the others keep their oid.
+  assert.deepEqual(names(recreated.filter((entry) => !created.includes(entry))).sort(), ["index commerce_orders.commerce_orders_created_idx",
+    "index supplier_items.supplier_items_scope_idx", "trigger brands.enrichment_shared_brands_update",
+    "trigger commerce_order_agreements.commerce_order_agreement_immutable"]);
 });

@@ -92,12 +92,20 @@ END $$;
 -- supplier locks, so no import writes these rows meanwhile.
 UPDATE supplier_items SET product_data = product_data WHERE search_doc IS NULL;
 
-CREATE INDEX IF NOT EXISTS supplier_items_search_tsv_idx ON supplier_items
- USING gin (to_tsvector('simple', supplier_item_search_text(code, product_data)));
-CREATE INDEX IF NOT EXISTS supplier_items_search_codes_idx ON supplier_items
- USING gin (supplier_item_search_codes(code, product_data) gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS vehicle_types_search_tsv_idx ON vehicle_types
- USING gin (to_tsvector('simple', search_normalize(search_text)));
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_search_tsv_idx') THEN
+  CREATE INDEX supplier_items_search_tsv_idx ON supplier_items
+   USING gin (to_tsvector('simple', supplier_item_search_text(code, product_data)));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_search_codes_idx') THEN
+  CREATE INDEX supplier_items_search_codes_idx ON supplier_items
+   USING gin (supplier_item_search_codes(code, product_data) gin_trgm_ops);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='vehicle_types'::regclass AND c.relname='vehicle_types_search_tsv_idx') THEN
+  CREATE INDEX vehicle_types_search_tsv_idx ON vehicle_types
+   USING gin (to_tsvector('simple', search_normalize(search_text)));
+ END IF;
+END $$;
 -- Expression statistics only exist after ANALYZE; without them the planner guesses the search
 -- matches thousands of rows and seq-scans supplier_items (~5 s instead of <1 ms).
 ANALYZE supplier_items;

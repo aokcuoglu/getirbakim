@@ -13,8 +13,12 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path FROM CURRENT AS $$
  FROM jsonb_each(CASE WHEN jsonb_typeof(payload->'oemNumbers')='object' THEN payload->'oemNumbers' END) refs
  CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(refs.value)='array' THEN refs.value END) reference(number)
 $$;
-CREATE INDEX IF NOT EXISTS product_enrichments_oem_search_idx ON product_enrichments
- USING gin (enrichment_oem_search(payload) gin_trgm_ops);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichments'::regclass AND c.relname='product_enrichments_oem_search_idx') THEN
+  CREATE INDEX product_enrichments_oem_search_idx ON product_enrichments
+   USING gin (enrichment_oem_search(payload) gin_trgm_ops);
+ END IF;
+END $$;
 -- Expression statistics exist only after ANALYZE (see db/search.sql); only the first run pays for it.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_stats WHERE schemaname=current_schema() AND tablename='product_enrichments_oem_search_idx') THEN

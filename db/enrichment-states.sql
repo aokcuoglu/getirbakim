@@ -281,12 +281,23 @@ DO $$ BEGIN
 END $$;
 
 -- Brand mapping decides coherence for every product of that label; the small tables take row triggers.
-CREATE OR REPLACE TRIGGER enrichment_states_supplier_brands_update AFTER UPDATE OF brand_id ON supplier_brands FOR EACH ROW
- WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION enrichment_product_states_queue_all();
-CREATE OR REPLACE TRIGGER enrichment_states_supplier_brands_delete AFTER DELETE ON supplier_brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
-CREATE OR REPLACE TRIGGER enrichment_states_brands_update AFTER UPDATE OF key ON brands FOR EACH ROW
- WHEN (OLD.key IS DISTINCT FROM NEW.key) EXECUTE FUNCTION enrichment_product_states_queue_all();
-CREATE OR REPLACE TRIGGER enrichment_states_brands_delete AFTER DELETE ON brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
+-- Created only when missing (#965): CREATE [OR REPLACE] TRIGGER locks the table against writers until setup commits.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_brands'::regclass AND tgname='enrichment_states_supplier_brands_update') THEN
+  CREATE TRIGGER enrichment_states_supplier_brands_update AFTER UPDATE OF brand_id ON supplier_brands FOR EACH ROW
+   WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION enrichment_product_states_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_brands'::regclass AND tgname='enrichment_states_supplier_brands_delete') THEN
+  CREATE TRIGGER enrichment_states_supplier_brands_delete AFTER DELETE ON supplier_brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='brands'::regclass AND tgname='enrichment_states_brands_update') THEN
+  CREATE TRIGGER enrichment_states_brands_update AFTER UPDATE OF key ON brands FOR EACH ROW
+   WHEN (OLD.key IS DISTINCT FROM NEW.key) EXECUTE FUNCTION enrichment_product_states_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='brands'::regclass AND tgname='enrichment_states_brands_delete') THEN
+  CREATE TRIGGER enrichment_states_brands_delete AFTER DELETE ON brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
+ END IF;
+END $$;
 
 -- First deployment: the table is filled by the next sync (scripts/setup.ts runs one after the schema commits).
 INSERT INTO enrichment_product_state_queue(product_id) SELECT '00000000-0000-0000-0000-000000000000'
