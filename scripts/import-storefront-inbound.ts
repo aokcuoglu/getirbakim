@@ -63,8 +63,7 @@ async function download(partPrefix: string, target: string) {
   }
 }
 
-// Same invocations as production-task.sh on the VPS (the bundle import needs the react-server condition, the
-// fitment rebuild does not).
+// The bundle import needs the react-server condition, the fitment rebuild does not.
 function node(flags: string[], script: string, args: string[]) {
   const result = spawnSync(process.execPath, [...flags, "--import", "tsx", script, ...args], { stdio: "inherit" });
   if (result.status !== 0) throw new Error(`${script} ${args.join(" ")} failed with exit code ${result.status}`);
