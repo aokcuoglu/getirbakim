@@ -41,8 +41,7 @@ import { notListedInput, vehicleNotListed } from "@/modules/store/fitment-notice
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { describeYears, getDescriptionFitments } from "@/modules/store/description-fitment.server";
 import { ProductFitment } from "@/components/product-fitment";
-import { fitmentInitialGroups, fitmentView, initialFitmentView } from "@/modules/store/product-fitment-view";
-import { fitmentSources, fitmentVersion } from "@/modules/store/product-fitment-sources";
+import { productPageFitment } from "@/modules/store/product-fitment-sources";
 import { getReferenceLinks } from "@/modules/store/reference-links";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
@@ -228,11 +227,8 @@ export default async function Detail({ params, searchParams }: { params: Promise
     : vehicles.length ? [...new Set(vehicles.map(row => row.model))] : descriptionModels.map(row => `${row.brand} ${row.model}`);
   // The list prints its first model groups, the garage vehicle's first; the rest loads from /api/product-fitments/[id]
   // under the version of the garage-independent list (#966).
-  const fitmentRows = vehicles.length ? fitmentSources(vehicles, makeNames, modelFits, modelPaths) : [];
   const fitmentGarage = garageVehicle && vehicle ? { ...garageVehicle, makeLabel: fitmentLabels({ model: vehicle.make }, makeNames).makeLabel } : null;
-  const personalFitment = fitmentRows.length ? fitmentView(fitmentRows, fitmentGarage) : null;
-  const fitmentList = personalFitment && (personalFitment.groupCount <= fitmentInitialGroups ? personalFitment
-    : initialFitmentView(personalFitment, `/api/product-fitments/${product.id}?v=${fitmentVersion((fitmentGarage ? fitmentView(fitmentRows) : personalFitment).groups)}`));
+  const fitmentList = productPageFitment({ vehicles, makeNames, modelFits, modelPaths }, fitmentGarage, product.id);
   const referenceNumbers: Record<string, string[]> = {};
   for (const [brand, codes] of [...Object.entries(refs.crossReferences), ...Object.entries(refs.oemNumbers)]) {
     referenceNumbers[brand] = [...new Set([...(referenceNumbers[brand] || []), ...codes])];

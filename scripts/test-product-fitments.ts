@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createFitmentMatcher, englishModelName, type FitmentCatalogModel, type FitmentCatalogType, type SourceVehicle } from "../src/modules/store/fitment-matcher";
 import { parseFitmentPaging } from "../src/modules/admin/fitment-details";
 import { fitmentCacheControl, fitmentEagerModelOptions, fitmentInitialGroups, fitmentView, initialFitmentView, mergeFitmentGroups, visibleFitmentGroups, type FitmentSource } from "../src/modules/store/product-fitment-view";
-import { fitmentSources, fitmentVersion } from "../src/modules/store/product-fitment-sources";
+import { fitmentSources, fitmentVersion, productFitmentGroups, productPageFitment } from "../src/modules/store/product-fitment-sources";
 
 const models: FitmentCatalogModel[] = [{ id: 1, brand_id: 2, brand: "VW", display_brand: "VOLKSWAGEN", name: "GOLF (5G1)" }];
 const base: FitmentCatalogType = { id: 10, model_id: 1, name: "2.0 TDI", cc: 1968, fuel_type: "Diesel", hp: 150, kwt: 110, date_from: "2013-04", date_to: "2017-03" };
@@ -278,4 +278,24 @@ test("fitmentSources labels the rows and links only the series the model page li
   assert.equal(unlinked.makeKey, "VOLKSWAGEN");
   // A series the product's model page does not list is not linked even with a path.
   assert.equal(fitmentSources([{ ...base, model: "VOLKSWAGEN GOLF VII (5G1)", catalogBrand: "VOLKSWAGEN", modelId: 1 }], ["VOLKSWAGEN"], new Set(), new Map([[1, "/x"]]))[0].modelHref, null);
+});
+
+test("the page's list URL carries the version the route answers for the same input, with or without a garage", () => {
+  const base = { engineAndCodes: "2.0 TDI CRBC", fuel: "Diesel", ps: 150, kw: 110, cc: 1968, from: "04/2013", to: "03/2017" };
+  const vehicles = Array.from({ length: 30 }, (_, index) => ({ ...base, model: `VOLKSWAGEN MODEL ${index + 1}`, catalogBrand: "VOLKSWAGEN", modelId: index + 1, vehicleTypeId: 100 + index }));
+  vehicles.push({ ...base, model: "AUDI A3 (8V1)", catalogBrand: "AUDI", modelId: 200, vehicleTypeId: 77 });
+  const input = { vehicles, makeNames: ["VOLKSWAGEN", "AUDI"], modelFits: new Set([1, 200]), modelPaths: new Map([[1, "/yedek-parca/volkswagen/model-1"]]) };
+  const route = productFitmentGroups(input);
+  assert.equal(route.groups.length, 31);
+  const id = "9db4f695-185e-4d35-b8e4-190bfb549e91";
+  const plain = productPageFitment(input, null, id);
+  assert.equal(plain?.rest, `/api/product-fitments/${id}?v=${route.v}`);
+  const garaged = productPageFitment(input, { typeId: "77", modelId: "200", makeLabel: "Audi" }, id);
+  assert.equal(garaged?.groups[0].model, "Audi A3 (8V1)");
+  assert.equal(garaged?.rest, plain?.rest);
+  // The printed groups and the route's answer merge into the whole list once.
+  assert.equal(mergeFitmentGroups(garaged!.groups, route.groups).length, 31);
+  // A short list ships whole, without a URL.
+  assert.equal(productPageFitment({ ...input, vehicles: vehicles.slice(0, 5) }, null, id)?.rest, undefined);
+  assert.equal(productPageFitment({ ...input, vehicles: [] }, null, id), null);
 });
