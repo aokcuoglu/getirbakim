@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, beforeEach, mock, test } from "node:test";
-import { addressErrorField, addressInput } from "../src/modules/store/address-schema";
+import { addressErrorField, addressFieldErrors, addressInput } from "../src/modules/store/address-schema";
 import { checkoutPrefill } from "../src/modules/store/checkout-prefill";
 import type { AccountAddress } from "../src/modules/store/account-addresses";
 import type { CheckoutDetails } from "../src/modules/store/orders";
@@ -183,24 +183,48 @@ test("deleting an account deletes its addresses", async () => {
 
 test("the page's actions need an approved account and act only on its own addresses", async () => {
   const fields = { ...valid, defaultDelivery: "on" };
-  assert.equal(await redirected(actions.saveAddress(form(fields))), "/giris?next=%2Fhesap%2Fadresler");
+  assert.equal(await redirected(actions.saveAddress(null, form(fields))), "/giris?next=%2Fhesap%2Fadresler");
   await signIn(await newAccount("pending@example.invalid", false));
-  assert.equal(await redirected(actions.saveAddress(form(fields))), "/giris?next=%2Fhesap%2Fadresler");
+  assert.equal(await redirected(actions.saveAddress(null, form(fields))), "/giris?next=%2Fhesap%2Fadresler");
   await signIn(accountId);
-  assert.equal(await redirected(actions.saveAddress(form(fields))), "/hesap/adresler?saved=1");
-  assert.equal(await redirected(actions.saveAddress(form({ ...fields, district: "Çankaya" }))), "/hesap/adresler?error=district#adres-formu");
+  assert.equal(await redirected(actions.saveAddress(null, form(fields))), "/hesap/adresler?saved=1");
+  // A refusal returns its message with what was typed, so the form keeps it; nothing is stored.
+  const refused = await actions.saveAddress(null, form({ ...fields, district: "Çankaya" }));
+  assert.deepEqual(refused, { error: addressFieldErrors.district, attempt: 1,
+    values: { ...valid, district: "Çankaya", defaultDelivery: "on", defaultInvoice: "" } });
+  assert.equal((await actions.saveAddress(refused, form({ ...fields, label: "" })))?.attempt, 2);
   const [saved] = await book.listAddresses(accountId);
-  assert.equal(await redirected(actions.saveAddress(form({ ...fields, id: saved.id, label: "" }))), `/hesap/adresler?error=label&duzenle=${saved.id}#adres-formu`);
-  assert.equal(await redirected(actions.saveAddress(form({ ...fields, id: saved.id, label: "Yeni ad" }))), "/hesap/adresler?saved=1");
+  assert.equal((await book.listAddresses(accountId)).length, 1);
+  assert.equal((await actions.saveAddress(null, form({ ...fields, id: saved.id, label: "" })))?.error, addressFieldErrors.label);
+  assert.equal(await redirected(actions.saveAddress(null, form({ ...fields, id: saved.id, label: "Yeni ad" }))), "/hesap/adresler?saved=1");
   assert.equal((await book.getAddress(accountId, saved.id))?.label, "Yeni ad");
   const theirs = await book.createAddress(otherId, input({ label: "Onun" }));
   assert.ok("id" in theirs);
-  assert.equal(await redirected(actions.saveAddress(form({ ...fields, id: theirs.id }))), "/hesap/adresler?error=missing#adres-formu");
-  assert.equal(await redirected(actions.removeAddress(form({ id: theirs.id }))), "/hesap/adresler?error=missing#adres-formu");
-  assert.equal(await redirected(actions.makeDefault(form({ id: theirs.id, kind: "delivery" }))), "/hesap/adresler?error=missing#adres-formu");
-  assert.equal(await redirected(actions.makeDefault(form({ id: saved.id, kind: "other" }))), "/hesap/adresler?error=missing#adres-formu");
-  assert.equal(await redirected(actions.removeAddress(form({ id: "not-a-uuid" }))), "/hesap/adresler?error=missing#adres-formu");
+  assert.equal((await actions.saveAddress(null, form({ ...fields, id: theirs.id })))?.error, "Adres bulunamadı. Sayfayı yenileyip yeniden dene.");
+  assert.equal((await actions.saveAddress(null, form({ ...fields, id: "not-a-uuid" })))?.error, "Adres bulunamadı. Sayfayı yenileyip yeniden dene.");
+  assert.equal(await redirected(actions.removeAddress(form({ id: theirs.id }))), "/hesap/adresler?error=missing");
+  assert.equal(await redirected(actions.makeDefault(form({ id: theirs.id, kind: "delivery" }))), "/hesap/adresler?error=missing");
+  assert.equal(await redirected(actions.makeDefault(form({ id: saved.id, kind: "other" }))), "/hesap/adresler?error=missing");
+  assert.equal(await redirected(actions.removeAddress(form({ id: "not-a-uuid" }))), "/hesap/adresler?error=missing");
   assert.equal((await book.getAddress(otherId, theirs.id))?.label, "Onun");
+  assert.equal(await redirected(actions.makeDefault(form({ id: saved.id, kind: "delivery" }))), "/hesap/adresler?default=1");
   assert.equal(await redirected(actions.removeAddress(form({ id: saved.id }))), "/hesap/adresler?removed=1");
   assert.deepEqual(await book.listAddresses(accountId), []);
+});
+
+test("a full address book refuses a new address in the form", async () => {
+  await signIn(accountId);
+  for (let i = 0; i < book.ADDRESS_LIMIT; i++) await book.createAddress(accountId, input({ label: `Adres ${i}` }));
+  assert.equal((await actions.saveAddress(null, form(valid)))?.error, addressFieldErrors.limit);
+});
+
+test("the phone is 10 to 20 characters in the form and in the table", async () => {
+  const twenty = "+" + "5".repeat(19), long = "+" + "5".repeat(20);
+  assert.equal(addressInput.safeParse({ ...valid, phone: twenty }).success, true);
+  assert.equal(addressInput.safeParse({ ...valid, phone: "5".repeat(10) }).success, true);
+  assert.equal(addressInput.safeParse({ ...valid, phone: long }).success, false);
+  assert.equal(addressInput.safeParse({ ...valid, phone: "5".repeat(9) }).success, false);
+  assert.ok("id" in await book.createAddress(accountId, input({ phone: twenty })));
+  assert.ok("id" in await book.createAddress(accountId, input({ phone: "5".repeat(10) })));
+  await assert.rejects(book.createAddress(accountId, input({ phone: long })), { code: "23514" });
 });

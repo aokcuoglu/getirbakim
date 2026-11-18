@@ -32,8 +32,8 @@ try {
    // Search statistics and admin synonyms (#822): reads accounts.
    await client.query(await readFile("db/search-analytics.sql", "utf8"));
    await client.query(await readFile("db/garage.sql", "utf8"));
-  // Saved address book of approved accounts (#950).
-  await client.query(await readFile("db/account-addresses.sql", "utf8"));
+    // Saved address book of approved accounts (#950).
+    await client.query(await readFile("db/account-addresses.sql", "utf8"));
    await client.query(await readFile("db/product-enrichment.sql", "utf8"));
    await client.query(await readFile("db/manual-supplier.sql", "utf8"));
    await client.query(await readFile("db/manufacturer-logos.sql", "utf8"));

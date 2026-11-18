@@ -25,7 +25,8 @@ export const addressFieldErrors = {
 export const addressInput = z.object({
   label: z.string().trim().min(1).max(60),
   recipientName: z.string().trim().min(2).max(150),
-  phone: z.string().trim().regex(phonePattern),
+  // The pattern allows 21 characters with a leading "+"; the column keeps 10–20 like the form field.
+  phone: z.string().trim().max(20).regex(phonePattern),
   province: z.string().trim(),
   district: z.string().trim(),
   addressLine: z.string().trim().min(10).max(500),
@@ -46,3 +47,9 @@ export function addressErrorField(issues: readonly { path: readonly PropertyKey[
   const field = issues.map(issue => issue.path[0]).find(key => typeof key === "string" && Object.hasOwn(addressFieldErrors, key));
   return typeof field === "string" ? field as AddressErrorField : undefined;
 }
+
+/** The text fields of the address form as submitted, sent back with a refusal so the form keeps what was typed. */
+export const addressFormFields = ["label", "recipientName", "phone", "province", "district", "addressLine", "postalCode", "defaultDelivery", "defaultInvoice"] as const;
+export type AddressFormValues = Record<(typeof addressFormFields)[number], string>;
+/** The form's state after a refused save: the message, the submitted values and a counter that remounts the fields. */
+export type AddressFormState = { error: string; values: AddressFormValues; attempt: number } | null;

@@ -72,7 +72,7 @@ export default async function Checkout({searchParams}:{searchParams:Promise<Sear
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-name" className={label}>Ad soyad {required}</FieldLabel><Input id="checkout-name" className={control} name="name" autoComplete="name" minLength={2} maxLength={150} defaultValue={prefill.name} required/></Field>
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-email" className={label}>E-posta {required}</FieldLabel><Input id="checkout-email" className={control} type="email" name="email" autoComplete="email" maxLength={200} defaultValue={account?.email} required/></Field>
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-phone" className={label}>Telefon {required}</FieldLabel><Input id="checkout-phone" className={control} type="tel" name="phone" autoComplete="tel" minLength={10} maxLength={20} defaultValue={prefill.phone} required/></Field>
-        {owner?.kind==="account" && <Link href="/hesap/adresler" className="justify-self-start text-sm leading-5 text-primary underline-offset-4 hover:underline">Adreslerimi yönet</Link>}
+        {account?.approved && <Link href="/hesap/adresler" target="_blank" rel="noopener" className="inline-flex min-h-11 items-center justify-self-start text-sm leading-5 text-primary underline-offset-4 hover:underline">Adreslerimi yönet<span className="sr-only"> (yeni sekmede açılır)</span></Link>}
         <CheckoutAddressFields initial={prefill.delivery}/>
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-note" className={label}>Sipariş notu</FieldLabel><Textarea id="checkout-note" className={cn(textarea,"min-h-20")} name="note" maxLength={1000} rows={2}/></Field>
         <CheckoutInvoiceFields initial={prefill.invoice}/>
