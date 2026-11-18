@@ -24,24 +24,51 @@ CREATE TABLE IF NOT EXISTS commerce_item_overrides (
  name text, description text, hidden boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS commerce_item_overrides_product_idx ON commerce_item_overrides(product_id);
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 -- Hand-set prices (#580), VAT included, in kuruş. price_kurus replaces the formula's price; sale_price_kurus sells below
 -- it between sale_from and sale_until (a NULL end is open). Neither opens a row the formula cannot price: missing cost,
 -- rate or freshness keeps the row unpriced (commerce_catalog below).
-ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS price_kurus integer CHECK(price_kurus>0);
-ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_price_kurus integer CHECK(sale_price_kurus>0);
-ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_from timestamptz;
-ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_until timestamptz;
--- Store brand (a master brand's name) and manufacturer part number (#602), shown as display_brand / display_code.
--- brand and code stay the supplier's values: order lines, enrichment lookups and matching read those.
-ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS brand text;
-ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS part_number text;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='price_kurus' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_item_overrides ADD COLUMN price_kurus integer CHECK(price_kurus>0);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='sale_price_kurus' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_item_overrides ADD COLUMN sale_price_kurus integer CHECK(sale_price_kurus>0);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='sale_from' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_item_overrides ADD COLUMN sale_from timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='sale_until' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_item_overrides ADD COLUMN sale_until timestamptz;
+ END IF;
+ -- Store brand (a master brand's name) and manufacturer part number (#602), shown as display_brand / display_code.
+ -- brand and code stay the supplier's values: order lines, enrichment lookups and matching read those.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='brand' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_item_overrides ADD COLUMN brand text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='part_number' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_item_overrides ADD COLUMN part_number text;
+ END IF;
+END $$;
+-- Store brand pages and the brand filter read the overridden rows of a brand (#771).
+DO $$ BEGIN
+ IF to_regclass(format('%I.commerce_item_overrides_brand_idx',current_schema())) IS NULL THEN
+  CREATE INDEX commerce_item_overrides_brand_idx ON commerce_item_overrides(brand) WHERE brand IS NOT NULL;
+ END IF;
+END $$;
 -- Supplier OEM field hidden on the store (#615): the views show an empty oem, so the product page, cards, cart,
 -- partner API and reference links drop it; storefront search skips these rows' stored OEM (src/modules/store/catalog.ts).
 -- supplier_items keeps the value: the admin's supplier searches still read it; enrichment matched through this OEM
 -- is ignored (enrichment_valid_data, #865) and matching drops it (#631, db/product-overrides.sql).
-ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS hide_oem boolean NOT NULL DEFAULT false;
-ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS basbug_checkout_mode text NOT NULL DEFAULT 'live'
- CHECK(basbug_checkout_mode IN ('live','snapshot'));
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='hide_oem' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_item_overrides ADD COLUMN hide_oem boolean NOT NULL DEFAULT false;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='basbug_checkout_mode' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_settings ADD COLUMN basbug_checkout_mode text NOT NULL DEFAULT 'live'
+   CHECK(basbug_checkout_mode IN ('live','snapshot'));
+ END IF;
+END $$;
 -- Polymorphic catalog identifiers: store products and current supplier observations.
 CREATE TABLE IF NOT EXISTS commerce_cart_items (
  owner_kind text NOT NULL CHECK(owner_kind IN ('account','guest')), owner_id text NOT NULL,
@@ -108,10 +135,22 @@ CREATE INDEX IF NOT EXISTS commerce_orders_owner_idx ON commerce_orders(owner_ki
 -- Shared eligibility, without calculating prices for every catalog row.
 -- Saleable sources: Başbuğ's MRK warehouse, SETA's single list, Dinamik codes that have a stock-list row
 -- (price-list-only codes carry no name) and manual xlsx lists. All store cost as nf and availability as stok.
-CREATE OR REPLACE VIEW commerce_supplier_items AS
+-- Views are replaced only when their definition changed (#954): CREATE OR REPLACE VIEW takes ACCESS EXCLUSIVE on the
+-- view even when nothing changes, queueing every reader behind setup. The body is created as a temporary probe view and
+-- the two pg_get_viewdef outputs are compared, so editing a body (or a column added behind a `*`) still replaces the
+-- view on the next run. Dropping, renaming or reordering columns still needs a DROP VIEW first.
+DO $setup$ DECLARE def text := $view$
 SELECT i.* FROM supplier_items i
 WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier IN ('seta','manual') OR (i.supplier='dinamik' AND i.stock_data IS NOT NULL)) AND i.presence='present' AND NOT i.conflicting
 AND NOT EXISTS(SELECT 1 FROM store_products p WHERE p.supplier=i.supplier AND p.code=i.code);
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='commerce_supplier_items' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW commerce_supplier_items AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 -- Master brands (#811): the store shows a product's master brand name (brands.name) instead of the supplier's raw
 -- label. Declared here as well as in db/product-matching.sql (which documents them) because this file runs first
 -- (scripts/setup.ts) and some tests load it without product-matching.sql (scripts/test-payments.ts) or the other way
@@ -120,6 +159,16 @@ CREATE OR REPLACE FUNCTION supplier_item_brand(supplier text, product_data jsonb
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE supplier WHEN 'dinamik' THEN product_data->>'marka' ELSE product_data->>'uk' END
 $$;
+-- Manufacturer pages and the brand filter (#771) reach a brand's rows through this index (brand_label of the catalog
+-- views). It stores supplier_item_brand()'s result: a changed function body needs a new index name (DROP + CREATE).
+-- Created here, before db/search.sql's ANALYZE supplier_items, so a first deploy has the expression's statistics.
+-- Only when missing (looked up in this schema): CREATE INDEX IF NOT EXISTS still takes SHARE on the write-hot
+-- supplier_items on every setup run.
+DO $$ BEGIN
+ IF to_regclass(format('%I.supplier_items_brand_label_idx',current_schema())) IS NULL THEN
+  CREATE INDEX supplier_items_brand_label_idx ON supplier_items(supplier_item_brand(supplier,product_data));
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS brands (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, key text NOT NULL UNIQUE, name text NOT NULL,
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
@@ -134,10 +183,10 @@ CREATE TABLE IF NOT EXISTS supplier_brands (
  PRIMARY KEY (supplier,label)
 );
 CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx ON supplier_brands(brand_id);
-CREATE OR REPLACE VIEW commerce_catalog_entries AS
+DO $setup$ DECLARE def text := $view$
 SELECT id,category,supplier,code,name,brand,description,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,brand AS display_brand,code AS display_code,
- false AS name_overridden FROM store_products
+ false AS name_overridden,brand AS brand_label FROM store_products
 UNION ALL
 SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
  COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),
@@ -145,7 +194,9 @@ SELECT i.id,NULLIF(i.product_data->>'category',''),i.supplier,i.code,
  -- Shown brand: the admin's, else the label's master brand (a merge or rename shows at once), else the raw label.
  COALESCE(ov.brand,mb.name,NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'),COALESCE(ov.part_number,i.code),
  -- An admin's name (#686) is shown as written; a supplier's is converted by readableProductName (#659).
- ov.name IS NOT NULL
+ ov.name IS NOT NULL,
+ -- The supplier's own label, indexed (supplier_items_brand_label_idx): manufacturer pages reach a brand's rows by it (#771).
+ supplier_item_brand(i.supplier,i.product_data)
 FROM commerce_supplier_items i CROSS JOIN commerce_settings s
 LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
 -- Unique keys on both sides, so the planner drops these joins from queries that do not read display_brand.
@@ -153,6 +204,14 @@ LEFT JOIN supplier_brands sb ON sb.supplier=i.supplier AND sb.label=supplier_ite
 LEFT JOIN brands mb ON mb.id=sb.brand_id
 -- Hidden by an admin (#575): not for sale anywhere.
 WHERE ov.hidden IS NOT TRUE;
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='commerce_catalog_entries' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW commerce_catalog_entries AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 DROP INDEX IF EXISTS supplier_items_catalog_order_idx;
 -- The predicate mirrors commerce_supplier_items; a changed predicate needs a new index name.
 DROP INDEX IF EXISTS supplier_items_saleable_order_idx;
@@ -196,7 +255,7 @@ CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
 $$;
-CREATE OR REPLACE VIEW commerce_catalog AS
+DO $setup$ DECLARE def text := $view$
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
  FROM supplier_imports WHERE status='succeeded'
@@ -259,7 +318,7 @@ SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,update
  stock>0 AS available,LEAST(stock,99) AS max_quantity,
  CASE WHEN stock>0 THEN 'Stokta mevcut: '||stock||' adet' ELSE 'Stokta yok' END AS stock_label,
  jsonb_build_object('source','store','base_price_kurus',price_kurus) AS pricing_snapshot,
- brand AS display_brand,code AS display_code,false AS name_overridden
+ brand AS display_brand,code AS display_code,false AS name_overridden,brand AS brand_label
 FROM store_products
 UNION ALL
 SELECT id,NULLIF(product_data->>'category',''),supplier,code,
@@ -284,15 +343,31 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
   || CASE WHEN on_sale THEN jsonb_build_object('list_price_kurus',regular_price,'sale_until',sale_until) ELSE '{}'::jsonb END
  END,
  COALESCE(override_brand,master_brand,NULLIF(product_data->>'uk',''),'Belirtilmemiş'),COALESCE(override_part_number,code),
- override_name IS NOT NULL
+ override_name IS NOT NULL,supplier_item_brand(supplier,product_data)
 FROM final;
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='commerce_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW commerce_catalog AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 -- Prepaid checkout: card payment is collected on TAMI's hosted page before operations confirm the order.
-ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS shipping_fee_kurus integer NOT NULL DEFAULT 15000
- CHECK(shipping_fee_kurus BETWEEN 0 AND 10000000);
--- Zero disables the free-shipping threshold.
-ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS free_shipping_threshold_kurus integer NOT NULL DEFAULT 150000
- CHECK(free_shipping_threshold_kurus BETWEEN 0 AND 1000000000);
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS subtotal_kurus bigint;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='shipping_fee_kurus' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_settings ADD COLUMN shipping_fee_kurus integer NOT NULL DEFAULT 15000
+   CHECK(shipping_fee_kurus BETWEEN 0 AND 10000000);
+ END IF;
+ -- Zero disables the free-shipping threshold.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='free_shipping_threshold_kurus' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_settings ADD COLUMN free_shipping_threshold_kurus integer NOT NULL DEFAULT 150000
+   CHECK(free_shipping_threshold_kurus BETWEEN 0 AND 1000000000);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='subtotal_kurus' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN subtotal_kurus bigint;
+ END IF;
+END $$;
 UPDATE commerce_orders SET subtotal_kurus=total_kurus WHERE subtotal_kurus IS NULL;
 -- SET NOT NULL locks the table and scans it even when already set: only once.
 DO $$ BEGIN
@@ -300,14 +375,28 @@ DO $$ BEGIN
   ALTER TABLE commerce_orders ALTER COLUMN subtotal_kurus SET NOT NULL;
  END IF;
 END $$;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS shipping_kurus bigint NOT NULL DEFAULT 0 CHECK(shipping_kurus>=0);
--- 'none' marks orders placed before online payment existed.
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS payment_status text NOT NULL DEFAULT 'none'
- CHECK(payment_status IN ('none','awaiting','paid','expired','refund_required','refunded'));
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS payment_due_at timestamptz;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS paid_at timestamptz;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS payment_note text NOT NULL DEFAULT '';
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refund_reference text;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='shipping_kurus' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN shipping_kurus bigint NOT NULL DEFAULT 0 CHECK(shipping_kurus>=0);
+ END IF;
+ -- 'none' marks orders placed before online payment existed.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='payment_status' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN payment_status text NOT NULL DEFAULT 'none'
+   CHECK(payment_status IN ('none','awaiting','paid','expired','refund_required','refunded'));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='payment_due_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN payment_due_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='paid_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN paid_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='payment_note' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN payment_note text NOT NULL DEFAULT '';
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='refund_reference' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN refund_reference text;
+ END IF;
+END $$;
 DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND conname='commerce_orders_status_check'
   AND pg_get_constraintdef(oid) LIKE '%awaiting_payment%') THEN
@@ -318,12 +407,26 @@ DO $$ BEGIN
 END $$;
 -- Shipment (#605): carrier is a code from src/modules/store/shipment.ts (validated there, no CHECK so the list can grow);
 -- carrier_name is the free name for 'other'. tracking_url is resolved when written: the admin's link, else the carrier template.
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS carrier text;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS carrier_name text;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS tracking_no text;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS tracking_url text;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS shipped_at timestamptz;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivered_at timestamptz;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='carrier' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN carrier text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='carrier_name' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN carrier_name text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='tracking_no' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN tracking_no text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='tracking_url' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN tracking_url text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='shipped_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN shipped_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='delivered_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN delivered_at timestamptz;
+ END IF;
+END $$;
 -- Widens the list above once. Its result still contains 'awaiting_payment', so the two blocks never undo each other.
 DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND conname='commerce_orders_status_check'
@@ -369,17 +472,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS commerce_payment_refunds_active_idx ON commerc
  WHERE status IN ('requested','unknown','succeeded');
 CREATE INDEX IF NOT EXISTS commerce_payment_refunds_order_idx ON commerce_payment_refunds(order_id,requested_at);
 -- When the order's money went back to the customer (TAMI API or a manually recorded reference).
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refunded_at timestamptz;
--- Fitment guarantee, phase 0: measure compatibility before promising it.
--- The garage vehicle is captured when a product is added and copied to the order line together
--- with the compatibility level computed at checkout. No FK: orders outlive vehicle catalog reloads.
-ALTER TABLE commerce_cart_items ADD COLUMN IF NOT EXISTS vehicle jsonb
- CHECK(vehicle IS NULL OR jsonb_typeof(vehicle)='object');
-ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS vehicle jsonb
- CHECK(vehicle IS NULL OR jsonb_typeof(vehicle)='object');
--- NULL only on lines created before levels were recorded.
-ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS fitment_level text
- CHECK(fitment_level IN ('guaranteed','likely','mismatch','unknown','no_vehicle'));
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='refunded_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN refunded_at timestamptz;
+ END IF;
+ -- Fitment guarantee, phase 0: measure compatibility before promising it.
+ -- The garage vehicle is captured when a product is added and copied to the order line together
+ -- with the compatibility level computed at checkout. No FK: orders outlive vehicle catalog reloads.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_cart_items'::regclass AND attname='vehicle' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_cart_items ADD COLUMN vehicle jsonb
+   CHECK(vehicle IS NULL OR jsonb_typeof(vehicle)='object');
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_order_items'::regclass AND attname='vehicle' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_order_items ADD COLUMN vehicle jsonb
+   CHECK(vehicle IS NULL OR jsonb_typeof(vehicle)='object');
+ END IF;
+ -- NULL only on lines created before levels were recorded.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_order_items'::regclass AND attname='fitment_level' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_order_items ADD COLUMN fitment_level text
+   CHECK(fitment_level IN ('guaranteed','likely','mismatch','unknown','no_vehicle'));
+ END IF;
+END $$;
 -- Returns are recorded by operations per order line; several partial returns may add up to the ordered quantity.
 CREATE TABLE IF NOT EXISTS commerce_returns (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -395,7 +508,11 @@ CREATE INDEX IF NOT EXISTS commerce_returns_line_idx ON commerce_returns(order_i
 -- so a line that a late payment could not reserve, or a second cancel, never inflates stock.
 -- NULL marks lines written by code without the column (orders before this change, or written by the previous release
 -- while a deployment runs): the release falls back to the old rule (full quantity of a store product).
-ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS reserved_quantity integer;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_order_items'::regclass AND attname='reserved_quantity' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_order_items ADD COLUMN reserved_quantity integer;
+ END IF;
+END $$;
 DO $$ BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_order_items'::regclass AND conname='commerce_order_items_reserved_check') THEN
   ALTER TABLE commerce_order_items ADD CONSTRAINT commerce_order_items_reserved_check
@@ -430,16 +547,32 @@ CREATE OR REPLACE TRIGGER commerce_order_agreement_immutable BEFORE UPDATE ON co
 -- Procurement of order lines (#606): operations mark each supplier line as ordered from the supplier (with an optional
 -- reference) and then procured. Store-stock lines (pricing_snapshot.source='store') need none and keep 'pending'.
 -- Existing lines start as 'pending'; the admin list shows no badge for shipped, delivered or cancelled orders.
-ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_status text NOT NULL DEFAULT 'pending'
- CHECK(procurement_status IN ('pending','ordered','procured'));
-ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_ref text;
-ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_ordered_at timestamptz;
-ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procured_at timestamptz;
-ALTER TABLE commerce_order_items ADD COLUMN IF NOT EXISTS procurement_by uuid REFERENCES accounts(id);
--- Customer cancellation (#607). Who cancelled and when; orders cancelled before this change keep NULL.
--- payment_status 'cancelled': the customer cancelled before paying (not 'expired', which a late payment may revive).
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS cancelled_by text CHECK(cancelled_by IN ('customer','admin','expiry'));
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS cancelled_at timestamptz;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_order_items'::regclass AND attname='procurement_status' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_order_items ADD COLUMN procurement_status text NOT NULL DEFAULT 'pending'
+   CHECK(procurement_status IN ('pending','ordered','procured'));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_order_items'::regclass AND attname='procurement_ref' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_order_items ADD COLUMN procurement_ref text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_order_items'::regclass AND attname='procurement_ordered_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_order_items ADD COLUMN procurement_ordered_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_order_items'::regclass AND attname='procured_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_order_items ADD COLUMN procured_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_order_items'::regclass AND attname='procurement_by' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_order_items ADD COLUMN procurement_by uuid REFERENCES accounts(id);
+ END IF;
+ -- Customer cancellation (#607). Who cancelled and when; orders cancelled before this change keep NULL.
+ -- payment_status 'cancelled': the customer cancelled before paying (not 'expired', which a late payment may revive).
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='cancelled_by' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN cancelled_by text CHECK(cancelled_by IN ('customer','admin','expiry'));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='cancelled_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN cancelled_at timestamptz;
+ END IF;
+END $$;
 -- Widens the payment_status list above once. The inline CHECK's generated name is not relied on: it is found by definition.
 DO $$ DECLARE c text; BEGIN
  IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='commerce_orders'::regclass AND contype='c'
@@ -454,31 +587,95 @@ DO $$ DECLARE c text; BEGIN
 END $$;
 -- GA4 purchase measurement (#675). Set once by the order's own customer when the purchase event is handed to the browser;
 -- NULL = not sent yet. No backfill: orders paid before this change can still be measured within the 7-day window.
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS purchase_tracked_at timestamptz;
-COMMENT ON COLUMN commerce_orders.purchase_tracked_at IS 'GA4 purchase sent for this order (#675); claimed once by the order''s own customer';
--- GA4 refund measurement (#750). Set once by the order's own customer when the refund event is handed to the browser, only for
--- orders whose purchase was measured; NULL = not sent yet. No backfill.
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS refund_tracked_at timestamptz;
-COMMENT ON COLUMN commerce_orders.refund_tracked_at IS 'GA4 refund sent for this order (#750); claimed once by the order''s own customer, only after purchase_tracked_at';
--- Payment options with an installment fee (#886). Off by default: checkout then behaves as before (single payment).
--- Rates are the merchant commission percentages of the TAMI portal; the customer total of an n-installment order is
--- cash × (1 − single rate) / (1 − n rate). installment_rates keys are "2".."12"; a missing key hides that option.
-ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installments_enabled boolean NOT NULL DEFAULT false;
-ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_max integer NOT NULL DEFAULT 6 CHECK(installment_max BETWEEN 2 AND 12);
-ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_min_basket_kurus integer NOT NULL DEFAULT 0 CHECK(installment_min_basket_kurus BETWEEN 0 AND 1000000000);
-ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_single_rate numeric(5,2) NOT NULL DEFAULT 2.85 CHECK(installment_single_rate BETWEEN 0 AND 50);
-ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS installment_rates jsonb NOT NULL
- DEFAULT '{"2":5.89,"3":7.95,"4":9.88,"5":11.72,"6":13.47,"7":15.39,"8":17.23,"9":18.97,"10":20.85,"11":22.71,"12":24.32}';
--- The installment count chosen at checkout and its fee. total_kurus includes the fee; the cash price is
--- total_kurus − installment_fee_kurus. Orders placed before this change are single payments without a fee.
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS installment_count integer NOT NULL DEFAULT 1 CHECK(installment_count BETWEEN 1 AND 12);
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS installment_fee_kurus bigint NOT NULL DEFAULT 0 CHECK(installment_fee_kurus>=0);
--- Structured delivery address and invoice details (#881); NULL on orders placed before it. `address` keeps the combined text.
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_province text;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_district text;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_address_line text;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS delivery_postal_code text;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_type text CHECK(invoice_type IN ('individual','corporate'));
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_company text;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_tax_no text;
-ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS invoice_tax_office text;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='purchase_tracked_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN purchase_tracked_at timestamptz;
+  COMMENT ON COLUMN commerce_orders.purchase_tracked_at IS 'GA4 purchase sent for this order (#675); claimed once by the order''s own customer';
+ END IF;
+ -- GA4 refund measurement (#750). Set once by the order's own customer when the refund event is handed to the browser, only for
+ -- orders whose purchase was measured; NULL = not sent yet. No backfill.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='refund_tracked_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN refund_tracked_at timestamptz;
+  COMMENT ON COLUMN commerce_orders.refund_tracked_at IS 'GA4 refund sent for this order (#750); claimed once by the order''s own customer, only after purchase_tracked_at';
+ END IF;
+ -- Payment options with an installment fee (#886). Off by default: checkout then behaves as before (single payment).
+ -- Rates are the merchant commission percentages of the TAMI portal; the customer total of an n-installment order is
+ -- cash × (1 − single rate) / (1 − n rate). installment_rates keys are "2".."12"; a missing key hides that option.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='installments_enabled' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_settings ADD COLUMN installments_enabled boolean NOT NULL DEFAULT false;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='installment_max' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_settings ADD COLUMN installment_max integer NOT NULL DEFAULT 6 CHECK(installment_max BETWEEN 2 AND 12);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='installment_min_basket_kurus' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_settings ADD COLUMN installment_min_basket_kurus integer NOT NULL DEFAULT 0 CHECK(installment_min_basket_kurus BETWEEN 0 AND 1000000000);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='installment_single_rate' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_settings ADD COLUMN installment_single_rate numeric(5,2) NOT NULL DEFAULT 2.85 CHECK(installment_single_rate BETWEEN 0 AND 50);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='installment_rates' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_settings ADD COLUMN installment_rates jsonb NOT NULL
+   DEFAULT '{"2":5.89,"3":7.95,"4":9.88,"5":11.72,"6":13.47,"7":15.39,"8":17.23,"9":18.97,"10":20.85,"11":22.71,"12":24.32}';
+ END IF;
+ -- The installment count chosen at checkout and its fee. total_kurus includes the fee; the cash price is
+ -- total_kurus − installment_fee_kurus. Orders placed before this change are single payments without a fee.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='installment_count' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN installment_count integer NOT NULL DEFAULT 1 CHECK(installment_count BETWEEN 1 AND 12);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='installment_fee_kurus' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN installment_fee_kurus bigint NOT NULL DEFAULT 0 CHECK(installment_fee_kurus>=0);
+ END IF;
+ -- Structured delivery address and invoice details (#881); NULL on orders placed before it. `address` keeps the combined text.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='delivery_province' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN delivery_province text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='delivery_district' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN delivery_district text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='delivery_address_line' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN delivery_address_line text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='delivery_postal_code' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN delivery_postal_code text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='invoice_type' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN invoice_type text CHECK(invoice_type IN ('individual','corporate'));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='invoice_company' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN invoice_company text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='invoice_tax_no' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN invoice_tax_no text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='invoice_tax_office' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN invoice_tax_office text;
+ END IF;
+END $$;
+-- Geliver shipping labels (#960). Each label purchase is its own row, committed as 'requested' before the Geliver call,
+-- so a lost reply is never forgotten: 'unknown' (and a still 'requested' row) blocks a new label until "Geliver'de kontrol
+-- et" settles it. 'failed' = Geliver refused it, a new attempt is allowed. The tracking_* columns follow the
+-- TRACK_UPDATED webhook. test = a free Geliver test label (GELIVER_MODE other than live), no real parcel moves.
+CREATE TABLE IF NOT EXISTS commerce_geliver_shipments (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ order_id uuid NOT NULL REFERENCES commerce_orders(id),
+ status text NOT NULL DEFAULT 'requested' CHECK(status IN ('requested','purchased','failed','unknown')),
+ test boolean NOT NULL,
+ service_code text NOT NULL,
+ order_number text NOT NULL,
+ parcel jsonb NOT NULL,
+ geliver_shipment_id text, geliver_transaction_id text, barcode text, label_url text,
+ tracking_number text, tracking_url text, tracking_status_code text, tracking_sub_status_code text, tracking_status_details text,
+ tracking_location text,
+ -- tracking_status_at: the carrier's time of the status (statusDate, else Geliver's), shown to operations;
+ -- tracking_updated_at: Geliver's record time (updatedAt), the one clock webhook events are ordered by.
+ tracking_status_at timestamptz, tracking_updated_at timestamptz,
+ error_code text, error_message text,
+ requested_by uuid REFERENCES accounts(id),
+ requested_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz, checked_at timestamptz
+);
+-- At most one label per order that is bought or may have been bought.
+CREATE UNIQUE INDEX IF NOT EXISTS commerce_geliver_shipments_active_idx ON commerce_geliver_shipments(order_id)
+ WHERE status IN ('requested','unknown','purchased');
+CREATE UNIQUE INDEX IF NOT EXISTS commerce_geliver_shipments_remote_idx ON commerce_geliver_shipments(geliver_shipment_id)
+ WHERE geliver_shipment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS commerce_geliver_shipments_order_idx ON commerce_geliver_shipments(order_id,requested_at DESC);

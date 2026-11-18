@@ -32,6 +32,8 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
   * supplier's. `brand` and `code` stay the supplier's values: order lines, enrichment lookups and matching read those.
   */
  display_brand: string; display_code: string;
+ /** The supplier's own label (supplier_item_brand; a store product's brand), indexed for brand pages (#771). */
+ brand_label?: string;
  /** The name is an admin's (#575): shown as written, not converted like a supplier's (#686). */
  name_overridden: boolean;
  /** Set when the listing groups several supplier offers (db/product-matching.sql): the offer sold, and how many. */
@@ -403,6 +405,30 @@ export const notSecondaryOffer="catalog.id NOT IN (SELECT o.item_id FROM product
 export const listedOnly=`(catalog.unavailable OR ${notSecondaryOffer})`;
 /** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` or `oil` filter matches nothing. */
 export type CatalogContext={vehicleTypeId?:string|null};
+// Rows whose shown brand (display_brand) is one of `names`. display_brand cannot use an index, so every brand page
+// scanned all supplier items (#771); the rows are reached through brand_label (the supplier's own label,
+// supplier_items_brand_label_idx): the labels of the named master brands plus the names themselves (raw labels and
+// store products), or an admin's store brand (commerce_item_overrides). display_brand stays as the exact check.
+// Labels and override ids are read first and passed as values: the planner then estimates the brand's share from the
+// index's statistics and scans the table for a brand as large as ORIJINAL (~12% of rows), where a bitmap read of the
+// subquery's unknown-size result was 1.5x slower than the old scan.
+// Known difference: a Dinamik row whose label (marka) is linked to no master brand and differs from its uk value is
+// not found by its uk name; it is once the label is linked to a master brand (#470). "Belirtilmemiş" has no label.
+// The lookup is cached like the manufacturer directory (10 minutes; admin brand and override edits move the listing epoch),
+// so a page's count, facet and id reads share one.
+type BrandReach={labels:string[];ids:string[]};
+const cachedBrandReach=staleCache<BrandReach>(10*60*1000,500,listings);
+const brandReach=(names:string[])=>cachedBrandReach(JSON.stringify([...names].sort()),async()=>(await db.query<BrandReach>(`SELECT
+  ARRAY(SELECT sb.label FROM supplier_brands sb JOIN brands mb ON mb.id=sb.brand_id WHERE mb.name=ANY($1::text[]))||$1::text[] AS labels,
+  ARRAY(SELECT ov.supplier_item_id::text FROM commerce_item_overrides ov WHERE ov.brand=ANY($1::text[])) AS ids`,[names])).rows[0]);
+async function shownBrandClause(names:string[],values:unknown[]) {
+ values.push(names);const key=`$${values.length}::text[]`;
+ if(names.includes("Belirtilmemiş"))return `catalog.display_brand=ANY(${key})`;
+ const {labels,ids}=await brandReach(names);
+ values.push(labels);let reach=`catalog.brand_label=ANY($${values.length}::text[])`;
+ if(ids.length){values.push(ids);reach=`(${reach} OR catalog.id=ANY($${values.length}::uuid[]))`;}
+ return `${reach} AND catalog.display_brand=ANY(${key})`;
+}
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: unknown[] = [company()]; const clauses: string[] = [listedOnly];
  let search:CatalogSearch|undefined;
@@ -461,8 +487,8 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   }
  }
  // A manufacturer page (#660) lists its master brand's name and labels (display_brand values), the column the brand filter reads.
- if(query.manufacturer){const labels=await manufacturerLabels(query.manufacturer);if(labels.length){values.push(labels);clauses.push(`display_brand=ANY($${values.length}::text[])`);}else clauses.push('false');}
- const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`display_brand=ANY($${values.length}::text[])`);}
+ if(query.manufacturer){const labels=await manufacturerLabels(query.manufacturer);clauses.push(labels.length?await shownBrandClause(labels,values):'false');}
+ const brands=selectedBrands(query);if(brands.length)clauses.push(await shownBrandClause(brands,values));
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
   clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id

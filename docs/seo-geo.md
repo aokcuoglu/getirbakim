@@ -83,8 +83,11 @@ Kurucular `src/modules/seo/structured-data.ts` ve `src/lib/site.ts`; basım `src
 | `INDEXNOW_MAX_URLS` | Günlük adres bütçesi (varsayılan 50.000, 0 = sınırsız) | `scripts/indexnow.ts` |
 | `SITEMAP_WARMUP_INTERVAL_MS` | Site haritası ısıtma aralığı (varsayılan 3 saat, 6 saatin altında kalmalı) | `src/modules/seo/sitemap-warmup.ts` |
 | `GA4_MEASUREMENT_ID` | GA4 ölçüm kimliği (`G-…`); boş ya da biçimsiz ise etiket yüklenmez ve çerez bandı "analiz kullanılmıyor" der. Yöneticiler ölçülmez | `src/modules/analytics/config.ts`, `src/components/privacy/store-tags.tsx` |
+| `GOOGLE_ADS_ID` | Google Ads kimliği (`AW-` + en az 6 rakam); yalnız reklam çerezi rızasıyla yüklenir. Boş ya da biçimsizse etiket yok (#676) | `src/modules/analytics/config.ts`, `src/modules/analytics/track.ts` |
+| `GOOGLE_ADS_PURCHASE_LABEL` | Satın alma dönüşümünün etiketi (harf, rakam, `_`, `-`; en az 6); yalnız `GOOGLE_ADS_ID` ile anlamlıdır. Boşsa Google Ads'e dönüşüm gitmez | `src/modules/analytics/config.ts`, `src/modules/analytics/ads.ts` |
+| `META_PIXEL_ID` | Meta Pixel kimliği (10–20 rakam); yalnız reklam çerezi rızasıyla yüklenir. Boş ya da biçimsizse etiket yok | `src/modules/analytics/config.ts`, `src/modules/analytics/track.ts` |
 
-Ürün beslemesi (#643) yeni değişken istemez: `SITE_URL` (açıkça verilmeli), `APP_ENV` ve `S3_BUCKET` / `S3_REGION` kullanır. Ayrıntılar: [merchant-feed.md](merchant-feed.md). Google Ads ve Meta Pixel (#676) için henüz kod ve değişken yok.
+Ürün beslemesi (#643) yeni değişken istemez: `SITE_URL` (açıkça verilmeli), `APP_ENV` ve `S3_BUCKET` / `S3_REGION` kullanır. Ayrıntılar: [merchant-feed.md](merchant-feed.md). Google Ads ve Meta Pixel (#676) yalnız reklam çerezi rızasıyla ve yukarıdaki değişkenler doluysa yüklenir; değişkenler, bu kodu taşıyan sürüm ve güncel çerez politikası (Google Ads ve Meta Pixel paragrafı) canlıdayken app görev tanımına eklenir. Ayrıntılar: [commerce.md](commerce.md#ölçüm).
 
 ### 1.2.1 Yeni rehber yazısı ekleme (#646)
 
@@ -105,7 +108,9 @@ Sıra: önce hesaplar ve doğrulama değerleri hazırlanır (DNS'ten önce yapı
 - [ ] `INDEXNOW_KEY` üretilir (`openssl rand -hex 16`), `app` ve `operations` görevlerine secret olarak verilir; `operations`'ta `APP_ENV=production` ve `SITE_URL` bulunur. İlk koşu stratejisi (`--seed` / `--limit=0` / damla damla): [indexnow.md](indexnow.md).
 - [ ] GA4 mülkü ve Google Ads hesabı açılır. **#749 engelleyicisi:** çerez politikasına satın alma ve sipariş değeri ölçümü metni (#749) canlıya çıkmadan `GA4_MEASUREMENT_ID` prod'da **etkinleştirilmez**; değişken boş kalır.
 - [ ] Merchant Center hesabı açılır, alan adı doğrulanır ve talep edilir; kargo ve iade ayarları hesapta girilir ([merchant-feed.md](merchant-feed.md#merchant-center-kurulumu-kullanıcı)). Sipariş modu "Kayıtlı veriler" (snapshot) iken besleme bilerek boştur.
-- [ ] Meta Business hesabı (Pixel için #676 bekler).
+- [ ] Meta Events Manager'da "Automatic Advanced Matching" ve Google Ads'te "Enhanced conversions" **kapalı** kalır (açılırsa etiketler kod değişmeden formlardan karma e-posta/telefon toplar; çerez politikası e-posta gönderilmediğini söyler).
+- [ ] `GOOGLE_ADS_ID` / `GOOGLE_ADS_PURCHASE_LABEL` / `META_PIXEL_ID` rıza sürümü 3'ü getiren sürümle birlikte tanımlanır; daha sonra açılırlarsa o sürümde `CONSENT_VERSION` artırılır (4), böylece hizmet yokken seçim yapmış ziyaretçilere yeniden sorulur.
+- [ ] Meta Business hesabı açılır, Pixel oluşturulur; `META_PIXEL_ID` (ve Google Ads için `GOOGLE_ADS_ID`, `GOOGLE_ADS_PURCHASE_LABEL`) app görev tanımına, #676 sürümü ve çerez politikası canlıdayken eklenir.
 - [ ] Google İşletme Profili (Kartal Oto Sanayi Sitesi adresi, telefon, çalışma saatleri) doğrulama kartı/aramasıyla açılır; adres ve telefon `Organization` verisi ile (`src/lib/site.ts`) aynı olmalı.
 
 **DNS geçişinden sonra**

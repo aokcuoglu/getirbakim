@@ -5,7 +5,7 @@ export const CONSENT_CHANNEL = "gb-consent";
 export const CONSENT_EVENT = "gb:cookie-consent";
 export const CONSENT_MAX_AGE = 180 * 24 * 60 * 60 * 1000;
 /** Bumped whenever a new cookie or integration needs a fresh choice (the cookie policy requires it). */
-export const CONSENT_VERSION = 2;
+export const CONSENT_VERSION = 3;
 /** A record this far ahead of the reader's clock is still accepted (small clock differences). */
 export const CONSENT_FUTURE_TOLERANCE = 5 * 60 * 1000;
 /** How far a client's reported save time may differ from the server clock before the request is refused. */
@@ -27,7 +27,7 @@ export type ConsentSignals = {
   ad_personalization: ConsentSignal;
 };
 
-/** Cookie value: `2.<analytics 0|1>.<marketing 0|1>.<savedAt in seconds>`. */
+/** Cookie value: `3.<analytics 0|1>.<marketing 0|1>.<savedAt in seconds>`. */
 export function serializeConsent(consent: Pick<CookieConsent, "analytics" | "marketing" | "savedAt">) {
   return `${CONSENT_VERSION}.${consent.analytics ? 1 : 0}.${consent.marketing ? 1 : 0}.${Math.floor(consent.savedAt / 1000)}`;
 }
@@ -79,7 +79,7 @@ export function saveConsent(analytics: boolean, marketing: boolean) {
   sessionConsent = value;
   const secure = window.location.protocol === "https:" ? "; Secure" : "";
   document.cookie = `${CONSENT_COOKIE}=${value}; Path=/; Max-Age=${CONSENT_MAX_AGE / 1000}; SameSite=Lax${secure}`;
-  if (!analytics) clearTrackingCookies();
+  clearTrackingCookies({ analytics, marketing });
   window.dispatchEvent(new CustomEvent(CONSENT_EVENT, { detail: consent }));
   // The server writes the same cookie, so Safari keeps it for the full 180 days instead of 7.
   void fetch("/api/consent", {
@@ -109,15 +109,21 @@ export function subscribeConsent(callback: () => void) {
   };
 }
 
-const trackingCookie = /^(_ga|_ga_.+|_gcl_.+|_gid|_gat.*|_fbp|_fbc)$/;
+const analyticsCookie = /^(_ga|_ga_.+|_gid|_gat.*)$/;
+const marketingCookie = /^(_gcl_.+|_fbp|_fbc)$/;
 
-/** Deletes the analytics and advertising cookies for the host and every parent domain. */
-export function clearTrackingCookies() {
+/** The tracking cookies a refused category leaves behind: GA4's for analytics, Google Ads' and Meta's for marketing. */
+export function trackingCookieRefused(name: string, scope: { analytics: boolean; marketing: boolean }) {
+  return (!scope.analytics && analyticsCookie.test(name)) || (!scope.marketing && marketingCookie.test(name));
+}
+
+/** Deletes the cookies of every refused category for the host and every parent domain. */
+export function clearTrackingCookies(scope: { analytics: boolean; marketing: boolean }) {
   const parts = window.location.hostname.split(".");
   const domains = [null, ...parts.slice(0, -1).map((_, index) => `.${parts.slice(index).join(".")}`)];
   for (const entry of document.cookie.split("; ")) {
     const name = entry.split("=")[0];
-    if (!trackingCookie.test(name)) continue;
+    if (!trackingCookieRefused(name, scope)) continue;
     for (const domain of domains) {
       document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax${domain ? `; Domain=${domain}` : ""}`;
     }

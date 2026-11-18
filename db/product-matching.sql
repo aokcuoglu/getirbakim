@@ -85,10 +85,18 @@ CREATE TABLE IF NOT EXISTS supplier_brands (
 CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx ON supplier_brands(brand_id);
 -- A label's spelling-insensitive key → master brand key, for brand names that are not a supplier's own label (SETA's
 -- competitor references). When labels of one key sit in different brands, the brand with more items wins.
-CREATE OR REPLACE VIEW brand_key_aliases AS
+DO $setup$ DECLARE def text := $view$
  SELECT DISTINCT ON (product_brand_key(sb.label)) product_brand_key(sb.label) AS alias, b.key AS canonical
  FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id
  ORDER BY product_brand_key(sb.label), sb.items DESC, b.key;
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='brand_key_aliases' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW brand_key_aliases AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 -- Master brand key of one supplier row; the plain brand key for a label not synced yet. Bulk queries join
 -- supplier_brands directly instead (a function with a subquery is not inlined).
 CREATE OR REPLACE FUNCTION supplier_item_brand_key(supplier text, product_data jsonb) RETURNS text
@@ -338,7 +346,11 @@ CREATE TABLE IF NOT EXISTS product_match_candidates (
  reason text NOT NULL CHECK (reason IN ('prefix','leading_zero','suffix')), name_similarity real,
  PRIMARY KEY (product_a,product_b)
 );
-ALTER TABLE product_match_candidates ADD COLUMN IF NOT EXISTS name_conflict boolean;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_match_candidates'::regclass AND attname='name_conflict' AND NOT attisdropped) THEN
+  ALTER TABLE product_match_candidates ADD COLUMN name_conflict boolean;
+ END IF;
+END $$;
 -- The shared-candidate check looks for other candidates of the same Dinamik product (#543).
 CREATE INDEX IF NOT EXISTS product_match_candidates_b_idx ON product_match_candidates(product_b);
 -- Part-type terms of a product name, for telling candidates apart whose numbers collide by chance (EL FREN TEL KLIPSI

@@ -55,6 +55,13 @@ export type AdminRefund = {
   bank_reference: string | null; error_code: string | null; error_message: string | null; requested_at: string; completed_at: string | null;
 };
 
+/** Latest Geliver label request of an order (#960); null when none was made. */
+export type AdminGeliverShipment = {
+  id: string; status: "requested" | "purchased" | "failed" | "unknown"; test: boolean; barcode: string | null; label_url: string | null;
+  tracking_status_code: string | null; tracking_sub_status_code: string | null; tracking_status_details: string | null; tracking_location: string | null;
+  tracking_status_at: string | null; error_code: string | null; error_message: string | null; requested_at: string;
+};
+
 export const orderFilters = {
   all: { label: "Tümü", where: "true" },
   action: { label: "Teyit bekleyen", where: "o.status='pending' AND o.payment_status IN ('paid','none')" },
@@ -84,7 +91,7 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
   const page = Number.isSafeInteger(requested) ? Math.max(1, Math.min(10000, requested)) : 1;
   const filter: OrderFilter = pickKey(orderFilters, rawFilter, "all");
   const procurement: ProcurementFilter = pickKey(procurementFilters, rawProcurement, "all");
-  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[]; lines: AdminOrderLine[] } & OrderAgreementSummary>(
+  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[]; lines: AdminOrderLine[]; geliver: AdminGeliverShipment | null } & OrderAgreementSummary>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,o.refunded_at,
      o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,o.cancelled_by,o.cancelled_at,o.installment_count,o.installment_fee_kurus,
@@ -101,7 +108,11 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
       'unit_price_kurus',i.unit_price_kurus,'pricing_snapshot',i.pricing_snapshot,'procurement_status',i.procurement_status,'procurement_ref',i.procurement_ref,
       'procurement_ordered_at',i.procurement_ordered_at,'procured_at',i.procured_at,'supplier_item',si.id IS NOT NULL,'master_id',ps.product_id) ORDER BY i.code,i.product_id)
       FROM commerce_order_items i LEFT JOIN supplier_items si ON si.id=i.product_id LEFT JOIN product_sources ps ON ps.supplier_item_id=i.product_id
-      WHERE i.order_id=o.id),'[]') AS lines
+      WHERE i.order_id=o.id),'[]') AS lines,
+     (SELECT jsonb_build_object('id',g.id,'status',g.status,'test',g.test,'barcode',g.barcode,'label_url',g.label_url,'tracking_status_code',g.tracking_status_code,
+      'tracking_sub_status_code',g.tracking_sub_status_code,'tracking_status_details',g.tracking_status_details,'tracking_location',g.tracking_location,
+      'tracking_status_at',g.tracking_status_at,'error_code',g.error_code,'error_message',g.error_message,'requested_at',g.requested_at)
+      FROM commerce_geliver_shipments g WHERE g.order_id=o.id ORDER BY g.requested_at DESC,g.id DESC LIMIT 1) AS geliver
      FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} AND ${procurementFilters[procurement]} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50],
   ), db.query<Record<OrderFilter, number>>(`SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`)]);

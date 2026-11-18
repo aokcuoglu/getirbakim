@@ -10,7 +10,11 @@ CREATE TABLE IF NOT EXISTS product_media_objects (
 );
 -- Last time an import stored (or re-confirmed) these bytes; npm run media:gc only collects rows unreferenced and
 -- older than its threshold by GREATEST(created_at, stored_at), so an object an import is about to reference stays.
-ALTER TABLE product_media_objects ADD COLUMN IF NOT EXISTS stored_at timestamptz;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_media_objects'::regclass AND attname='stored_at' AND NOT attisdropped) THEN
+  ALTER TABLE product_media_objects ADD COLUMN stored_at timestamptz;
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS product_enrichments (
  supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
  supplier_code text NOT NULL, supplier_brand text NOT NULL,

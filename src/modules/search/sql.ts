@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { compactSearchCode, exactTsQuery, parseSearchQuery, prefixTsQuery, type ParsedSearch, type ParseOptions } from "./query";
+import { typeNameExactQueries, typeNameTsQueries } from "./type-names";
 
 /** Appends a value to the statement's parameters and returns its placeholder ("$3"). */
 export type Bind = (value: unknown) => string;
@@ -21,6 +22,17 @@ export function supplierItemMatch(alias: string, parsed: ParsedSearch, bind: Bin
   if (parsed.compact.length >= 3) clauses.push(`supplier_item_search_codes(${alias}.code, ${alias}.product_data) LIKE ${bind(`%${parsed.compact}%`)}`);
   const query = prefixTsQuery(parsed);
   if (mode === "all" && query) clauses.push(`to_tsvector('simple', supplier_item_search_text(${alias}.code, ${alias}.product_data)) @@ to_tsquery('simple', ${bind(query)})`);
+  // English supplier names of Turkish type names ("fren diski" → BRAKE DISC, #953): separate clauses, because a <-> phrase
+  // inside the main tsquery forces a recheck of every hit (200 ms against 57 ms as an OR of index scans).
+  if (mode === "all") for (const names of typeNameTsQueries(parsed))
+    clauses.push(`to_tsvector('simple', supplier_item_search_text(${alias}.code, ${alias}.product_data)) @@ to_tsquery('simple', ${bind(names)})`);
+  // Ambiguous ones ("kapak" → CAP, never ÇAP or CAP 276, #963): the word through the same index, the whole name rechecked on
+  // those few rows only. As an id list through the primary key: a plain AND here would leave the name test outside the
+  // index scans, and the whole OR would be refiltered on every hit (550 ms against 38 ms for "kapak").
+  if (mode === "all") for (const { names, query: words } of typeNameExactQueries(parsed))
+    clauses.push(`${alias}.id = ANY(ARRAY(SELECT x.id FROM supplier_items x
+      WHERE to_tsvector('simple', supplier_item_search_text(x.code, x.product_data)) @@ to_tsquery('simple', ${bind(words)})
+        AND search_normalize(x.product_data->>'ac') = ANY(${bind(names)}::text[])))`);
   return clauses.length ? `(${clauses.join(" OR ")})` : "false";
 }
 
