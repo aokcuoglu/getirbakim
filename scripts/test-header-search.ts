@@ -4,7 +4,7 @@ import test from "node:test";
 import { addRecentSearch, clearRecentSearches, parseRecentSearches, readRecentSearches, saveRecentSearch } from "../src/components/navigation/recent-searches";
 import { shownProductName } from "../src/modules/store/product-name";
 import { normalizeSearchText, parseSearchQuery, prefixTsQuery } from "../src/modules/search/query";
-import { typeNameTsQueries } from "../src/modules/search/type-names";
+import { typeNameExactQueries, typeNameTsQueries } from "../src/modules/search/type-names";
 import { isEnglishTypeName, turkishTypeName, typeNameEntries } from "../src/modules/store/suggestion-names";
 
 test("known English type names get a Turkish name", () => {
@@ -50,6 +50,20 @@ test("Turkish type names add the English supplier name to the search (#953)", ()
     assert.ok(typeNameTsQueries(parsed).some(query => query.includes(phrase)), `${turkish} → ${english}`);
   }
   assert.equal(prefixTsQuery(parseSearchQuery("fren diski")), "('fren':* | 'brake':*) & ('diski':* | 'disk':*)");
+});
+
+test("ambiguous single-word type names match only the whole supplier name (#963)", () => {
+  const exact = (q: string) => typeNameExactQueries(parseSearchQuery(q));
+  assert.deepEqual(exact("kapak"), [{ names: ["cap"], query: "('cap')" }]);
+  assert.deepEqual(exact("Jant"), [{ names: ["wheel"], query: "('wheel')" }]);
+  assert.deepEqual(exact("yay"), [{ names: ["spring"], query: "('spring')" }]);
+  assert.deepEqual(exact("tapa"), [{ names: ["plug"], query: "('plug')" }]);
+  assert.deepEqual(exact("kol"), [{ names: ["arm"], query: "('arm')" }]);
+  assert.deepEqual(exact("kapak bosch"), [{ names: ["cap"], query: "('cap') & ('bosch':*)" }]);
+  // Not an ambiguous word, a longer name, or a code.
+  for (const q of ["fren diski", "hortum", "salıncak", "5W-40", ""]) assert.deepEqual(exact(q), [], q);
+  // The word-level expansion still leaves them out: "kapak" adds COVER only.
+  assert.deepEqual(typeNameTsQueries(parseSearchQuery("kapak")), ["('cover')"]);
 });
 
 test("dictionary English keys are plain words, safe inside a quoted tsquery (#953)", () => {
