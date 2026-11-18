@@ -21,8 +21,8 @@ const variants = {
   // The header row: hidden on checkout; on phones its own full-width row.
   header: {
     form: "h-10 min-h-10 min-w-[220px] flex-1 rounded-[3px] border-input -mr-2 max-[850.98px]:mr-0 max-[850.98px]:min-w-0 max-[600px]:order-3 max-[600px]:w-full max-[600px]:flex-[0_0_100%] max-[600px]:h-11 max-[600px]:min-h-11 group-data-[route=checkout]/route:hidden",
-    select: "w-[164px] min-w-[164px] max-[1100px]:w-[156px] max-[1100px]:min-w-[156px] min-[600px]:max-[850.98px]:hidden max-[600px]:w-[124px] max-[600px]:min-w-[124px] max-[370px]:w-[120px] max-[370px]:min-w-[120px]",
-    trigger: "min-h-[38px] rounded-none bg-[#f8f9f9] py-[9px] pr-8 pl-3 max-[600px]:min-h-[42px] max-[370px]:pr-7 max-[370px]:pl-2",
+    select: "w-[164px] min-w-[164px] min-[851px]:max-[1100px]:w-[156px] min-[851px]:max-[1100px]:min-w-[156px] min-[600px]:max-[850.98px]:w-[84px] max-[600px]:w-[124px] max-[600px]:min-w-[124px] max-[370px]:w-[120px] max-[370px]:min-w-[120px]",
+    trigger: "min-h-[38px] rounded-none bg-[#f8f9f9] py-[9px] pr-8 pl-3 min-[600px]:max-[850.98px]:min-w-0 min-[600px]:max-[850.98px]:pr-7 min-[600px]:max-[850.98px]:pl-2.5 max-[600px]:min-h-[42px] max-[370px]:pr-7 max-[370px]:pl-2",
     input: "h-[38px] px-2.5 py-[9px] max-[600px]:h-[42px] max-[600px]:placeholder:text-[13px] max-[370px]:px-2",
     button: "h-[38px] w-10 basis-10 max-[600px]:h-[42px] max-[600px]:w-11 max-[600px]:basis-11 rounded-none bg-white text-foreground hover:bg-[#f7f8fa]",
   },
@@ -96,10 +96,10 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
       onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}
       onSubmit={() => { setOpen(false); saveRecentSearch(query, mode); }}
       className={cn("relative flex min-w-0 items-center gap-0 border bg-white text-sm leading-5 transition-[border-color,box-shadow] duration-150 focus-within:border-brand focus-within:shadow-[0_0_0_3px_#0077c714]", v.form, className)}>
-      <Select name="searchBy" label="Arama türü" value={mode} className={cn("shrink-0", v.select)}
+      <Select name="searchBy" label="Arama türü" tabletShort={variant === "header"} value={mode} className={cn("shrink-0", v.select)}
         triggerClassName={cn("border-0 border-r border-border text-sm hover:border-border hover:bg-[#f7f8fa] max-[600px]:text-sm", v.trigger)}
         contentClassName="min-w-[200px]"
-        options={[{ value: "all", label: "Ürün veya marka", shortLabel: "Ürün/marka" }, { value: "code", label: "Ürün / OEM kodu", shortLabel: "OEM/kod" }]}
+        options={[{ value: "all", label: "Ürün veya marka", shortLabel: "Ürün/marka", tinyLabel: "Ürün" }, { value: "code", label: "Ürün / OEM kodu", shortLabel: "OEM/kod", tinyLabel: "OEM" }]}
         onChange={value => setMode(value === "code" ? "code" : "all")} />
       <input type="search" name="q" aria-label="Ürün, marka veya OEM koduyla ara" autoComplete="off"
         role="combobox" aria-autocomplete="list" aria-expanded={expanded} aria-controls={listId}
