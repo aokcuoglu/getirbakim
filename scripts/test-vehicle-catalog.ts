@@ -19,7 +19,7 @@ test("every imported DB field matches its CSV source, with no duplicate or missi
     to_char(year_of_constr_from, 'YYYY-MM-DD') AS year_of_constr_from,
     to_char(year_of_constr_to, 'YYYY-MM-DD') AS year_of_constr_to, search_text FROM vehicle_types ORDER BY id`);
   // The popular flag is unread dead data (popular makes come from turkeyPopularMakes), so existing DB rows may carry an older set.
-  assert.deepEqual(brands.rows, data.brands.map(({ popular: _popular, ...brand }) => brand).sort((a, b) => a.id - b.id));
+  assert.deepEqual(brands.rows, data.brands.map(({ id, name, display_name }) => ({ id, name, display_name })).sort((a, b) => a.id - b.id));
   assert.deepEqual(models.rows, [...data.models].sort((a, b) => a.id - b.id));
   assert.deepEqual(vehicles.rows, [...data.vehicles].sort((a, b) => a.id - b.id));
   assert.equal(brands.rowCount, 251); assert.equal(models.rowCount, 5767); assert.equal(vehicles.rowCount, 37937);
