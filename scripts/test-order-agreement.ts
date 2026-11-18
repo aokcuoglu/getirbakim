@@ -66,6 +66,18 @@ test("a corporate invoice names the title, tax number and office in the buyer se
   }
 });
 
+test("the buyer section always names the invoice address: the delivery address unless a separate one is given (#916)", () => {
+  const separate = "Atatürk Bulvarı No 1, 06690 Çankaya/Ankara";
+  for (const same of [buildOrderAgreement(order, lines), buildOrderAgreement({ ...order, invoiceAddress: null }, lines)])
+    for (const document of same.documents)
+      assert.ok(text(document.sections.find(section => section.title === "Alıcı Bilgileri")).includes(`"Fatura adresi: "]},${JSON.stringify(order.address)}`));
+  for (const document of buildOrderAgreement({ ...order, invoiceAddress: separate }, lines).documents) {
+    const buyer = text(document.sections.find(section => section.title === "Alıcı Bilgileri"));
+    assert.ok(buyer.includes(`"Fatura adresi: "]},${JSON.stringify(separate)}`));
+    assert.ok(buyer.includes(`"Teslimat adresi: "]},${JSON.stringify(order.address)}`));
+  }
+});
+
 test("an installment order names the fee and the count; a single payment does not (#886)", () => {
   const single = text(buildOrderAgreement(order, lines));
   assert.doesNotMatch(single, /Vade farkı/); assert.match(single, /peşin ödeme/);
@@ -122,7 +134,7 @@ test("placing an order stores the consent and an immutable order-specific copy",
     const { cartFor, setCartQuantity } = await import("../src/modules/store/cart");
     await schema.pool.query("UPDATE commerce_settings SET shipping_fee_kurus=15000,free_shipping_threshold_kurus=150000");
     const product = (await schema.pool.query<{ id: string }>(`INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock)
-      VALUES('demo','AGR-1','Agreement part','TEST',10000,10) RETURNING id::text`)).rows[0].id;
+      VALUES('demo','AGR-1','Agreement part','TEST',10000,20) RETURNING id::text`)).rows[0].id;
     const owner = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
     await schema.pool.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [owner.id]);
     assert.equal(await setCartQuantity(owner, product, 2), true);
@@ -139,12 +151,13 @@ test("placing an order stores the consent and an immutable order-specific copy",
     const orderRow = (await schema.pool.query("SELECT * FROM commerce_orders WHERE id=$1", [placed.id])).rows[0];
     assert.equal(row.accepted_at.getTime(), orderRow.created_at.getTime());
     assert.deepEqual(row.document, buildOrderAgreement({ number: orderRow.number, createdAt: orderRow.created_at, name: form.name, email: form.email,
-      phone: form.phone, address: form.address, note: form.note, invoice: null, discountPercent: 0, subtotalKurus: 20000, shippingKurus: 15000, totalKurus: 35000 },
+      phone: form.phone, address: form.address, note: form.note, invoice: null, invoiceAddress: null, discountPercent: 0, subtotalKurus: 20000, shippingKurus: 15000, totalKurus: 35000 },
     [{ name: "Agreement part", brand: "TEST", code: "AGR-1", quantity: 2, unitPriceKurus: 10000 }]));
 
     assert.equal(orderRow.address, "Test Mahallesi 1. Sokak No 2, 34710 Kadıköy/İstanbul");
     assert.deepEqual([orderRow.delivery_province, orderRow.delivery_district, orderRow.delivery_address_line, orderRow.delivery_postal_code, orderRow.invoice_type, orderRow.invoice_company],
       ["İstanbul", "Kadıköy", "Test Mahallesi 1. Sokak No 2", "34710", "individual", null]);
+    assert.deepEqual([orderRow.invoice_province, orderRow.invoice_district, orderRow.invoice_address_line, orderRow.invoice_postal_code], [null, null, null, null]);
 
     // A corporate order stores its invoice details and names them in its copy.
     const corporate = checkoutInput.parse({ ...fields, consent: "on", requestKey: randomUUID(), quote: cartQuote(await cartFor(owner), 0, await shippingRule()),
@@ -172,6 +185,19 @@ test("placing an order stores the consent and an immutable order-specific copy",
     const [bareRow] = await agreementRow(bare.id);
     assert.equal(bareRow.ip, null); assert.equal(bareRow.forwarded_for, null); assert.equal(bareRow.user_agent, null);
     assert.equal(bareRow.consent_text, checkoutConsentText);
+
+    // A separate invoice address (#916), here with a corporate invoice, is stored in its own columns and named in the copy;
+    // the delivery address is unchanged.
+    const separate = checkoutInput.parse({ ...fields, consent: "on", requestKey: randomUUID(), quote: cartQuote(await cartFor(owner), 0, await shippingRule()),
+      invoiceType: "corporate", invoiceCompany: "Yılmaz Otomotiv Ltd. Şti.", invoiceTaxNo: "1234567890", invoiceTaxOffice: "Çankaya", invoiceAddressMode: "separate", invoiceProvince: "Ankara", invoiceDistrict: "Çankaya", invoiceAddressLine: "Atatürk Bulvarı No 1", invoicePostalCode: "" });
+    const separateOrder = await submitOrder(owner, separate, null, evidence);
+    assert.ok(separateOrder.id, String(separateOrder.error));
+    const separateRow = (await schema.pool.query(`SELECT address,invoice_type,invoice_tax_no,invoice_province,invoice_district,invoice_address_line,invoice_postal_code FROM commerce_orders WHERE id=$1`, [separateOrder.id])).rows[0];
+    assert.deepEqual(separateRow, { address: "Test Mahallesi 1. Sokak No 2, 34710 Kadıköy/İstanbul", invoice_type: "corporate", invoice_tax_no: "1234567890", invoice_province: "Ankara", invoice_district: "Çankaya",
+      invoice_address_line: "Atatürk Bulvarı No 1", invoice_postal_code: null });
+    const separateDocument = JSON.stringify((await agreementRow(separateOrder.id))[0].document);
+    assert.ok(separateDocument.includes(`"Fatura adresi: "]},"Atatürk Bulvarı No 1, Çankaya/Ankara"`));
+    assert.ok(separateDocument.includes(`"Teslimat adresi: "]},"Test Mahallesi 1. Sokak No 2, 34710 Kadıköy/İstanbul"`));
 
     // Each line keeps the vehicle it was added with (else the garage's) and its fitment level at order time (#708).
     const vehicle = { make: "Fiat", model: "Doblo", year: 2015, vehicleId: "999999" };

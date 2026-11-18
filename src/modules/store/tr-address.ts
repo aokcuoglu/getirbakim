@@ -36,6 +36,14 @@ export const invoiceTypes = { individual: "Bireysel", corporate: "Kurumsal" } as
 export type InvoiceType = keyof typeof invoiceTypes;
 
 export type InvoiceDetails = { invoice_type: InvoiceType | null; invoice_company: string | null; invoice_tax_no: string | null; invoice_tax_office: string | null };
+/** Separate invoice address (#916); all null when the invoice goes to the delivery address. */
+export type InvoiceAddress = { invoice_province: string | null; invoice_district: string | null; invoice_address_line: string | null; invoice_postal_code: string | null };
+
+/** The separate invoice address as composeAddress text; null when the invoice goes to the delivery address. */
+export function invoiceAddressText(order: InvoiceAddress) {
+  if (order.invoice_province === null) return null;
+  return composeAddress({ line: order.invoice_address_line ?? "", district: order.invoice_district ?? "", province: order.invoice_province, postalCode: order.invoice_postal_code });
+}
 
 /**
  * A corporate invoice's tax id: a company's 10-digit VKN or a sole proprietor's 11-digit TC kimlik no, each passing its

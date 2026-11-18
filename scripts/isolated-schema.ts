@@ -27,6 +27,14 @@ export async function isolatedSchema(prefix: string) {
   if (!original) throw new Error("DATABASE_URL required");
   const name = `${prefix}_${randomBytes(6).toString("hex")}`;
   const root = new Pool({ connectionString: original });
+  // On a fresh database the extension would otherwise land in the first search_path schema (the isolated one) and
+  // vanish with its CASCADE drop, breaking parallel test files. Concurrent creators may race: that is fine.
+  try {
+    await root.query("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public");
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code !== "23505" && code !== "42710") throw error;
+  }
   await root.query(`CREATE SCHEMA ${name}`);
   const url = new URL(original);
   url.searchParams.set("options", `-c search_path=${name},public`);
