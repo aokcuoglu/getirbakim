@@ -65,11 +65,12 @@ test("an old stamp rewrites both cookies and /yonetim keeps its return address",
 
 test("publicly cached routes never get the session cookie (#642)", () => {
   const cookies = { [SESSION_COOKIE]: token };
-  for (const url of ["/api/categories", "/api/category-media/9db4f695-185e-4d35-b8e4-190bfb549e91", "/api/product-media/175b52d1-f7be-4e67-8b8c-7b6bfa6f23dd", "/feeds/google.xml.gz"]) {
+  for (const url of ["/api/categories", "/api/category-media/9db4f695-185e-4d35-b8e4-190bfb549e91", "/api/product-media/175b52d1-f7be-4e67-8b8c-7b6bfa6f23dd",
+    "/api/product-fitments/175b52d1-f7be-4e67-8b8c-7b6bfa6f23dd", "/api/product-fitments/175b52d1-f7be-4e67-8b8c-7b6bfa6f23dd?v=abc", "/feeds/google.xml.gz"]) {
     assert.equal(unstable_doesMiddlewareMatch({ config, url, cookies }), false, `${url} runs the proxy`);
     assert.deepEqual(setCookies(proxy(request(url, `${SESSION_COOKIE}=${token}`))), [], `${url} sets a cookie`);
   }
   // Neighbours still slide the session.
-  for (const url of ["/api/categories-extra", "/api/vehicles", "/sepet", "/feedsx"]) assert.equal(unstable_doesMiddlewareMatch({ config, url, cookies }), true, url);
+  for (const url of ["/api/categories-extra", "/api/product-fitments-x", "/api/vehicles", "/sepet", "/feedsx"]) assert.equal(unstable_doesMiddlewareMatch({ config, url, cookies }), true, url);
   assert.equal(unstable_doesMiddlewareMatch({ config, url: "/api/categories" }), false);
 });
