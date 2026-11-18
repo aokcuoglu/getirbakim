@@ -72,7 +72,7 @@ export default async function Home({searchParams}:{searchParams:Promise<SearchPa
   const productCard=(product:typeof products[number])=><HomeProductCard key={product.id} product={product} image={images.get(product.id)} partNumber={details.get(product.id)?.partNumber} category={productCategories.get(product.id)} account={account}/>;
   return <div className="bg-white text-foreground">
     <HomeScrollHeader/>
-    <section className="relative h-[280px] bg-[#212b36] pb-10 text-white max-[37.5rem]:h-[200px] max-[37.5rem]:pb-6">
+    <section className="relative flow-root h-[280px] bg-[#212b36] pb-10 text-white max-[37.5rem]:h-[200px] max-[37.5rem]:pb-6">
       <HeroBackdrop mobile="/media/site/images/Hero_image-mobile.webp" desktop="/media/site/images/Hero_image-1920.webp" desktop2x="/media/site/images/Hero_image-3840.webp"/>
       <div className="relative mx-auto w-full max-w-[1384px] px-8 max-[37.5rem]:px-4"><h1 className="mt-16 mb-4 flex h-24 items-center justify-center text-center text-[34px] leading-[42px] font-semibold tracking-[-.7px] max-[37.5rem]:mt-8 max-[37.5rem]:mb-5 max-[37.5rem]:h-auto max-[37.5rem]:min-h-[34px] max-[37.5rem]:text-2xl max-[37.5rem]:leading-[34px]">Yedek parça alışverişi</h1><div className="flex items-center justify-center py-1 max-[37.5rem]:mx-auto max-[37.5rem]:max-w-[400px] max-[37.5rem]:flex-wrap max-[37.5rem]:p-0">
         <GarageButton vehicle={shownVehicle(vehicle)} variant="catalog"/>
