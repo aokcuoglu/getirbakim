@@ -1,5 +1,5 @@
 -- TecDoc numeric IDs are preserved as primary keys. Dates have month precision.
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public;
 
 CREATE TABLE IF NOT EXISTS vehicle_brands (
  id integer PRIMARY KEY CHECK (id > 0),
