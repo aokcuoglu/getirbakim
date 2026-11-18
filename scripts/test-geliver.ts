@@ -4,7 +4,7 @@ import { after, test } from "node:test";
 import { provinces } from "../src/modules/store/tr-address";
 import { parcelSchema } from "../src/modules/shipping/geliver-parcel";
 import {
-  buildTransactionBody, eventClock, geliverErrorMessage, geliverMode, geliverTestBlocked, isRepeatEvent, normalizePhone, parseTime, recipientOf, resolveGeliverTrackingUrl, shouldApply, statusTime,
+  buildTransactionBody, eventClock, geliverErrorMessage, geliverMode, carriesNewData, geliverTestBlocked, isRepeatEvent, normalizePhone, parseTime, recipientOf, resolveGeliverTrackingUrl, shouldApply, statusTime,
   trackingLook, webhookEventSchema, webhookSecretValid, type GeliverRecipient,
 } from "../src/modules/shipping/geliver-request";
 
@@ -187,6 +187,13 @@ test("only an exact repeat counts as a duplicate, older events are not", () => {
   assert.equal(isRepeatEvent(stored, event("TRANSIT", "package_accepted", "2026-11-18T10:00:00Z")), true);
   assert.equal(isRepeatEvent(stored, event("TRANSIT", "package_accepted", null)), true, "same status without time");
   assert.equal(isRepeatEvent(stored, event("TRANSIT", "package_accepted", "2026-11-18T09:00:00Z")), false, "older is stale");
+  const emptySub = { ...stored, tracking_sub_status_code: null };
+  assert.equal(isRepeatEvent(emptySub, event("TRANSIT", "", "2026-11-18T10:00:00Z")), true, "empty sub code equals none");
+  assert.equal(shouldApply(emptySub, event("TRANSIT", "", "2026-11-18T10:00:00Z")), false);
+  assert.equal(carriesNewData({ tracking_number: null, tracking_url: null, tracking_status_details: null, tracking_location: null },
+    webhookEventSchema.parse({ event: "TRACK_UPDATED", data: { id: "s1", trackingNumber: "123", trackingStatus: { trackingStatusCode: "TRANSIT" } } })), true);
+  assert.equal(carriesNewData({ tracking_number: "123", tracking_url: null, tracking_status_details: null, tracking_location: null },
+    webhookEventSchema.parse({ event: "TRACK_UPDATED", data: { id: "s1", trackingNumber: "123", trackingStatus: { trackingStatusCode: "TRANSIT" } } })), false);
   assert.equal(isRepeatEvent(stored, event("TRANSIT", "out_for_delivery", "2026-11-18T10:00:00Z")), false);
   assert.equal(isRepeatEvent({ tracking_status_code: null, tracking_sub_status_code: null, tracking_updated_at: null }, event("TRANSIT", null, null)), false);
 });

@@ -195,7 +195,7 @@ export function shouldApply(current: StoredTracking, event: WebhookEvent) {
   if (!status) return false;
   if (!current.tracking_status_code) return true;
   const at = eventClock(event);
-  const same = current.tracking_status_code === status.trackingStatusCode && (current.tracking_sub_status_code ?? null) === (status.trackingSubStatusCode ?? null);
+  const same = current.tracking_status_code === status.trackingStatusCode && (current.tracking_sub_status_code || null) === (status.trackingSubStatusCode || null);
   if (at && current.tracking_updated_at) {
     if (at.getTime() < current.tracking_updated_at.getTime()) return false;
     return !(same && at.getTime() === current.tracking_updated_at.getTime());
@@ -207,10 +207,19 @@ export function shouldApply(current: StoredTracking, event: WebhookEvent) {
 export function isRepeatEvent(current: StoredTracking, event: WebhookEvent) {
   const status = event.data.trackingStatus;
   if (!status || !current.tracking_status_code) return false;
-  const same = current.tracking_status_code === status.trackingStatusCode && (current.tracking_sub_status_code ?? null) === (status.trackingSubStatusCode ?? null);
+  const same = current.tracking_status_code === status.trackingStatusCode && (current.tracking_sub_status_code || null) === (status.trackingSubStatusCode || null);
   if (!same) return false;
   const at = eventClock(event);
   return !at || !current.tracking_updated_at || at.getTime() === current.tracking_updated_at.getTime();
+}
+
+export type StoredDetails = { tracking_number: string | null; tracking_url: string | null; tracking_status_details: string | null; tracking_location: string | null };
+/** Whether the event carries a non-empty tracking number, link, detail or location that differs from what is stored. */
+export function carriesNewData(current: StoredDetails, event: WebhookEvent) {
+  const status = event.data.trackingStatus;
+  const differs = (incoming: string | null | undefined, stored: string | null) => Boolean(incoming) && incoming !== stored;
+  return differs(event.data.trackingNumber, current.tracking_number) || differs(event.data.trackingUrl, current.tracking_url)
+    || differs(status?.statusDetails, current.tracking_status_details) || differs(status?.locationName, current.tracking_location);
 }
 
 const digest = (value: string) => createHash("sha256").update(value, "utf8").digest();

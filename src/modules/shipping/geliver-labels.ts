@@ -5,7 +5,7 @@ import { siteUrl } from "@/lib/site";
 import { appendNote } from "@/modules/payments/checkout";
 import {
   buildTransactionBody, localErrorCodes, eventClock, geliverErrorMessage, geliverOrderNumber, geliverTestBlocked, geliverTestBlockedMessage, parseTime, recipientBlockLabel,
-  recipientOf, resolveGeliverTrackingUrl, isRepeatEvent, serviceCodeFor, shouldApply, statusTime, webhookEventSchema, webhookSecretValid, type RecipientOrder, type WebhookEvent,
+  recipientOf, resolveGeliverTrackingUrl, carriesNewData, isRepeatEvent, serviceCodeFor, shouldApply, statusTime, webhookEventSchema, webhookSecretValid, type RecipientOrder, type WebhookEvent,
 } from "./geliver-request";
 import type { Parcel } from "./geliver-parcel";
 import { findShipmentsByOrderNumber, geliverConfig, purchaseLabel, type GeliverResult, type GeliverShipment } from "./geliver";
@@ -232,6 +232,7 @@ export async function checkGeliverLabel({ shipmentRowId, orderId }: { shipmentRo
 type TrackedRow = {
   id: string; order_id: string; test: boolean; geliver_shipment_id: string; tracking_number: string | null; tracking_url: string | null;
   tracking_status_code: string | null; tracking_sub_status_code: string | null; tracking_updated_at: Date | null;
+  tracking_status_details: string | null; tracking_location: string | null;
 };
 export type TrackingUpdateResult = { outcome: "applied"; orderId: string } | { outcome: "ignored"; reason: "unknown_shipment" | "stale" | "duplicate" };
 
@@ -250,14 +251,16 @@ export async function applyTrackingUpdate(event: WebhookEvent): Promise<Tracking
       "SELECT id,status,tracking_no,tracking_url FROM commerce_orders WHERE id=$1 FOR UPDATE", [known.order_id],
     )).rows[0];
     const row = (await client.query<TrackedRow>(
-      `SELECT id,order_id,test,geliver_shipment_id,tracking_number,tracking_url,tracking_status_code,tracking_sub_status_code,tracking_updated_at
+      `SELECT id,order_id,test,geliver_shipment_id,tracking_number,tracking_url,tracking_status_code,tracking_sub_status_code,tracking_updated_at,tracking_status_details,tracking_location
        FROM commerce_geliver_shipments WHERE geliver_shipment_id=$1 FOR UPDATE`, [event.data.id],
     )).rows[0];
     if (!row || !order) return { outcome: "ignored", reason: "stale" };
     const status = event.data.trackingStatus!;
     // A delivery of an order still on its way is never stale, whatever the clocks say.
     const delivers = status.trackingStatusCode === "DELIVERED" && order.status === "shipped";
-    if (!delivers && !shouldApply(row, event)) return { outcome: "ignored", reason: isRepeatEvent(row, event) ? "duplicate" : "stale" };
+    const repeat = isRepeatEvent(row, event);
+    // A repeat of the status that brings a new number, link, detail or location is still written.
+    if (!delivers && !shouldApply(row, event) && !(repeat && carriesNewData(row, event))) return { outcome: "ignored", reason: repeat ? "duplicate" : "stale" };
     const clock = eventClock(event), carrierTime = statusTime(event);
     const trackingNumber = event.data.trackingNumber || row.tracking_number;
     const trackingUrl = event.data.trackingUrl || row.tracking_url;

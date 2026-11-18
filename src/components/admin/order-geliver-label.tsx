@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useId, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, Tag, TriangleAlert } from "lucide-react";
 import { createGeliverShipment } from "@/modules/admin/commerce-actions";
@@ -29,6 +29,7 @@ export function GeliverLabelForm({ orderId, back, mode, onSaved, onPendingChange
 }) {
   const fieldId = useId();
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
   const [preset, setPreset] = useState<string>("small");
   // Server errors of fields edited since the last submit; the next submit is validated again.
   const [cleared, setCleared] = useState<ReadonlySet<string>>(new Set());
@@ -39,11 +40,13 @@ export function GeliverLabelForm({ orderId, back, mode, onSaved, onPendingChange
     return next;
   }, { status: "idle" });
   useEffect(() => { onPendingChange?.(pending); }, [pending, onPendingChange]);
+  // noValidate: the browser no longer focuses the first invalid field, so do it once the server errors are shown.
+  useEffect(() => { if (!pending && result.errors) formRef.current?.querySelector<HTMLElement>("[aria-invalid=\"true\"]")?.focus(); }, [pending, result]);
   const errors = Object.fromEntries(Object.entries(result.errors ?? {}).filter(([field]) => !cleared.has(field)));
   const clear = (...fields: string[]) => setCleared(previous => new Set([...previous, ...fields]));
   const custom = preset === "custom";
 
-  return <form action={action} noValidate className="flex min-w-0 flex-col gap-4">
+  return <form ref={formRef} action={action} noValidate className="flex min-w-0 flex-col gap-4">
     <input type="hidden" name="id" value={orderId}/>
     <input type="hidden" name="back" value={back}/>
     {mode === "test" && <Alert variant="warning"><TriangleAlert aria-hidden="true"/><AlertDescription>Test modu: ücretsiz deneme etiketi oluşturulur, gerçek kargo çıkmaz; sipariş yine de kargoya verildi olarak işaretlenir.</AlertDescription></Alert>}

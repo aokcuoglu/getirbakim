@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useId, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, Info, Save, TriangleAlert, Truck } from "lucide-react";
 import { saveShipment } from "@/modules/admin/commerce-actions";
@@ -75,6 +75,7 @@ function ShipmentForm({ orderId, back, mode, initial, initialFocus, onSaved }: {
 }) {
   const fieldId = useId();
   const router = useRouter();
+  const formRef = useRef<HTMLFormElement>(null);
   const startCarrier = startingCarrier(initial?.carrier);
   const startNo = initial?.trackingNo ?? "";
   // A stored link that the carrier template produced is shown as automatic, not as a hand-entered one.
@@ -97,12 +98,14 @@ function ShipmentForm({ orderId, back, mode, initial, initialFocus, onSaved }: {
     const stale = field === "carrier" ? ["carrier", "trackingNo", "carrierName"] : [field];
     setCleared(previous => new Set([...previous, ...stale]));
   };
+  // noValidate: the browser no longer focuses the first invalid field, so do it once the server errors are shown.
+  useEffect(() => { if (!pending && result.errors) formRef.current?.querySelector<HTMLElement>("[aria-invalid=\"true\"]")?.focus(); }, [pending, result]);
   const preview = resolveTrackingUrl(values.carrier, values.trackingNo.replace(/\s+/g, ""), values.trackingUrl.trim() || null);
   const automatic = hasTrackingTemplate(values.carrier);
   const yurtici = values.carrier === "yurtici";
   const describe = (field: string, hint = false) => [hint && `${fieldId}-${field}-hint`, errors[field] && `${fieldId}-${field}-error`].filter(Boolean).join(" ") || undefined;
 
-  return <form action={action} noValidate className="flex min-w-0 flex-col gap-4">
+  return <form ref={formRef} action={action} noValidate className="flex min-w-0 flex-col gap-4">
     <input type="hidden" name="id" value={orderId}/>
     <input type="hidden" name="mode" value={mode}/>
     <input type="hidden" name="back" value={back}/>
