@@ -58,13 +58,21 @@ CREATE INDEX IF NOT EXISTS product_override_fitment_hides_carried_idx ON product
 -- the index signal, the product page, related suggestions) reads this view instead of product_model_fitments. A model
 -- the admin hid leaves the product; a product with a vehicle decision (#583) lists none, as on its page (modelFallbacks).
 -- Joined at read time, so a change needs only invalidateListings(). A view pins the columns it reads: dropping or
--- retyping one of them needs a DROP VIEW first.
-CREATE OR REPLACE VIEW storefront_description_fits AS
+-- retyping one of them needs a DROP VIEW first. Replaced only when its definition changed (see db/commerce.sql).
+DO $setup$ DECLARE def text := $view$
  SELECT f.supplier_item_id,f.model_id,f.year_from,f.year_to FROM product_model_fitments f
  WHERE NOT EXISTS (SELECT 1 FROM product_override_fitment_hides h JOIN product_sources ps ON ps.product_id=h.product_id
    WHERE h.kind='description_model' AND ps.supplier_item_id=f.supplier_item_id AND h.model_id=f.model_id)
   AND NOT EXISTS (SELECT 1 FROM product_override_fitments d JOIN product_sources ps ON ps.product_id=d.product_id
    WHERE ps.supplier_item_id=f.supplier_item_id);
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='storefront_description_fits' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW storefront_description_fits AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 
 -- "Aynı ürün" (product_merge): the kept product takes the merged product's decisions and hidden source rows (#661);
 -- where both decided the same type or hid the same row, the kept product's row wins. Called by the merge actions next

@@ -16,11 +16,19 @@ CREATE INDEX IF NOT EXISTS product_enrichment_shared_links_image_idx ON product_
 CREATE INDEX IF NOT EXISTS product_enrichment_shared_links_imported_idx ON product_enrichment_shared_links(imported_at DESC, supplier_item_id);
 
 -- Same columns, in the same order, as product_enrichment_shared: storefront queries swap one name for the other.
-CREATE OR REPLACE VIEW storefront_enrichments AS
+DO $setup$ DECLARE def text := $view$
  SELECT l.supplier_item_id,l.supplier_code,l.supplier_brand,e.source_url,e.source_method,e.manufacturer,
  e.manufacturer_part_number,l.image_id,e.payload,l.imported_at,e.match_basis,l.donor_item_id,
  e.supplier_code AS donor_code,e.supplier_brand AS donor_brand,l.donor_oem,l.status,l.donor_master_brand
  FROM product_enrichment_shared_links l JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id;
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='storefront_enrichments' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW storefront_enrichments AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 
 -- Stale scope: products ('p') and supplier items ('i'). Items without a product link have their own view branch.
 -- The all-zero product id asks for a full rebuild (brand mapping and schema changes touch everything).

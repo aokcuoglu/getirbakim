@@ -108,10 +108,22 @@ CREATE INDEX IF NOT EXISTS commerce_orders_owner_idx ON commerce_orders(owner_ki
 -- Shared eligibility, without calculating prices for every catalog row.
 -- Saleable sources: Başbuğ's MRK warehouse, SETA's single list, Dinamik codes that have a stock-list row
 -- (price-list-only codes carry no name) and manual xlsx lists. All store cost as nf and availability as stok.
-CREATE OR REPLACE VIEW commerce_supplier_items AS
+-- Views are replaced only when their definition changed (#954): CREATE OR REPLACE VIEW takes ACCESS EXCLUSIVE on the
+-- view even when nothing changes, queueing every reader behind setup. The body is created as a temporary probe view and
+-- the two pg_get_viewdef outputs are compared, so editing a body (or a column added behind a `*`) still replaces the
+-- view on the next run. Dropping, renaming or reordering columns still needs a DROP VIEW first.
+DO $setup$ DECLARE def text := $view$
 SELECT i.* FROM supplier_items i
 WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier IN ('seta','manual') OR (i.supplier='dinamik' AND i.stock_data IS NOT NULL)) AND i.presence='present' AND NOT i.conflicting
 AND NOT EXISTS(SELECT 1 FROM store_products p WHERE p.supplier=i.supplier AND p.code=i.code);
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='commerce_supplier_items' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW commerce_supplier_items AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 -- Master brands (#811): the store shows a product's master brand name (brands.name) instead of the supplier's raw
 -- label. Declared here as well as in db/product-matching.sql (which documents them) because this file runs first
 -- (scripts/setup.ts) and some tests load it without product-matching.sql (scripts/test-payments.ts) or the other way
@@ -134,7 +146,7 @@ CREATE TABLE IF NOT EXISTS supplier_brands (
  PRIMARY KEY (supplier,label)
 );
 CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx ON supplier_brands(brand_id);
-CREATE OR REPLACE VIEW commerce_catalog_entries AS
+DO $setup$ DECLARE def text := $view$
 SELECT id,category,supplier,code,name,brand,description,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,brand AS display_brand,code AS display_code,
  false AS name_overridden FROM store_products
@@ -153,6 +165,14 @@ LEFT JOIN supplier_brands sb ON sb.supplier=i.supplier AND sb.label=supplier_ite
 LEFT JOIN brands mb ON mb.id=sb.brand_id
 -- Hidden by an admin (#575): not for sale anywhere.
 WHERE ov.hidden IS NOT TRUE;
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='commerce_catalog_entries' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW commerce_catalog_entries AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 DROP INDEX IF EXISTS supplier_items_catalog_order_idx;
 -- The predicate mirrors commerce_supplier_items; a changed predicate needs a new index name.
 DROP INDEX IF EXISTS supplier_items_saleable_order_idx;
@@ -196,7 +216,7 @@ CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
 $$;
-CREATE OR REPLACE VIEW commerce_catalog AS
+DO $setup$ DECLARE def text := $view$
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
  FROM supplier_imports WHERE status='succeeded'
@@ -286,6 +306,14 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  COALESCE(override_brand,master_brand,NULLIF(product_data->>'uk',''),'Belirtilmemiş'),COALESCE(override_part_number,code),
  override_name IS NOT NULL
 FROM final;
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='commerce_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW commerce_catalog AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 -- Prepaid checkout: card payment is collected on TAMI's hosted page before operations confirm the order.
 ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS shipping_fee_kurus integer NOT NULL DEFAULT 15000
  CHECK(shipping_fee_kurus BETWEEN 0 AND 10000000);

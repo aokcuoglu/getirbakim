@@ -85,10 +85,18 @@ CREATE TABLE IF NOT EXISTS supplier_brands (
 CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx ON supplier_brands(brand_id);
 -- A label's spelling-insensitive key → master brand key, for brand names that are not a supplier's own label (SETA's
 -- competitor references). When labels of one key sit in different brands, the brand with more items wins.
-CREATE OR REPLACE VIEW brand_key_aliases AS
+DO $setup$ DECLARE def text := $view$
  SELECT DISTINCT ON (product_brand_key(sb.label)) product_brand_key(sb.label) AS alias, b.key AS canonical
  FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id
  ORDER BY product_brand_key(sb.label), sb.items DESC, b.key;
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='brand_key_aliases' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW brand_key_aliases AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 -- Master brand key of one supplier row; the plain brand key for a label not synced yet. Bulk queries join
 -- supplier_brands directly instead (a function with a subquery is not inlined).
 CREATE OR REPLACE FUNCTION supplier_item_brand_key(supplier text, product_data jsonb) RETURNS text
