@@ -78,10 +78,8 @@ BEGIN
  END IF;
  RETURN OLD;
 END $$;
-DROP TRIGGER IF EXISTS cleanup_commerce_account_cart ON accounts;
-CREATE TRIGGER cleanup_commerce_account_cart BEFORE DELETE ON accounts FOR EACH ROW EXECUTE FUNCTION cleanup_commerce_cart('account');
-DROP TRIGGER IF EXISTS cleanup_commerce_guest_cart ON guest_carts;
-CREATE TRIGGER cleanup_commerce_guest_cart BEFORE DELETE ON guest_carts FOR EACH ROW EXECUTE FUNCTION cleanup_commerce_cart('guest');
+CREATE OR REPLACE TRIGGER cleanup_commerce_account_cart BEFORE DELETE ON accounts FOR EACH ROW EXECUTE FUNCTION cleanup_commerce_cart('account');
+CREATE OR REPLACE TRIGGER cleanup_commerce_guest_cart BEFORE DELETE ON guest_carts FOR EACH ROW EXECUTE FUNCTION cleanup_commerce_cart('guest');
 CREATE TABLE IF NOT EXISTS commerce_orders (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), number bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
  owner_kind text NOT NULL CHECK(owner_kind IN ('account','guest')), owner_id text NOT NULL,
@@ -287,7 +285,12 @@ ALTER TABLE commerce_settings ADD COLUMN IF NOT EXISTS free_shipping_threshold_k
  CHECK(free_shipping_threshold_kurus BETWEEN 0 AND 1000000000);
 ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS subtotal_kurus bigint;
 UPDATE commerce_orders SET subtotal_kurus=total_kurus WHERE subtotal_kurus IS NULL;
-ALTER TABLE commerce_orders ALTER COLUMN subtotal_kurus SET NOT NULL;
+-- SET NOT NULL locks the table and scans it even when already set: only once.
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='subtotal_kurus' AND NOT attnotnull) THEN
+  ALTER TABLE commerce_orders ALTER COLUMN subtotal_kurus SET NOT NULL;
+ END IF;
+END $$;
 ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS shipping_kurus bigint NOT NULL DEFAULT 0 CHECK(shipping_kurus>=0);
 -- 'none' marks orders placed before online payment existed.
 ALTER TABLE commerce_orders ADD COLUMN IF NOT EXISTS payment_status text NOT NULL DEFAULT 'none'

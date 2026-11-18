@@ -162,44 +162,32 @@ BEGIN
  RETURN NULL;
 END $$;
 
-DROP TRIGGER IF EXISTS enrichment_states_products_insert ON products;
-CREATE TRIGGER enrichment_states_products_insert AFTER INSERT ON products
+CREATE OR REPLACE TRIGGER enrichment_states_products_insert AFTER INSERT ON products
  REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_products();
-DROP TRIGGER IF EXISTS enrichment_states_products_update ON products;
-CREATE TRIGGER enrichment_states_products_update AFTER UPDATE ON products
+CREATE OR REPLACE TRIGGER enrichment_states_products_update AFTER UPDATE ON products
  REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_products();
-DROP TRIGGER IF EXISTS enrichment_states_products_delete ON products;
-CREATE TRIGGER enrichment_states_products_delete AFTER DELETE ON products
+CREATE OR REPLACE TRIGGER enrichment_states_products_delete AFTER DELETE ON products
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_products();
 
-DROP TRIGGER IF EXISTS enrichment_states_sources_insert ON product_sources;
-CREATE TRIGGER enrichment_states_sources_insert AFTER INSERT ON product_sources
+CREATE OR REPLACE TRIGGER enrichment_states_sources_insert AFTER INSERT ON product_sources
  REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_sources();
-DROP TRIGGER IF EXISTS enrichment_states_sources_update ON product_sources;
-CREATE TRIGGER enrichment_states_sources_update AFTER UPDATE ON product_sources
+CREATE OR REPLACE TRIGGER enrichment_states_sources_update AFTER UPDATE ON product_sources
  REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_sources();
-DROP TRIGGER IF EXISTS enrichment_states_sources_delete ON product_sources;
-CREATE TRIGGER enrichment_states_sources_delete AFTER DELETE ON product_sources
+CREATE OR REPLACE TRIGGER enrichment_states_sources_delete AFTER DELETE ON product_sources
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_sources();
 
-DROP TRIGGER IF EXISTS enrichment_states_jobs_insert ON product_enrichment_jobs;
-CREATE TRIGGER enrichment_states_jobs_insert AFTER INSERT ON product_enrichment_jobs
+CREATE OR REPLACE TRIGGER enrichment_states_jobs_insert AFTER INSERT ON product_enrichment_jobs
  REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
-DROP TRIGGER IF EXISTS enrichment_states_jobs_update ON product_enrichment_jobs;
-CREATE TRIGGER enrichment_states_jobs_update AFTER UPDATE ON product_enrichment_jobs
+CREATE OR REPLACE TRIGGER enrichment_states_jobs_update AFTER UPDATE ON product_enrichment_jobs
  REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
-DROP TRIGGER IF EXISTS enrichment_states_jobs_delete ON product_enrichment_jobs;
-CREATE TRIGGER enrichment_states_jobs_delete AFTER DELETE ON product_enrichment_jobs
+CREATE OR REPLACE TRIGGER enrichment_states_jobs_delete AFTER DELETE ON product_enrichment_jobs
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
 
-DROP TRIGGER IF EXISTS enrichment_states_enrichments_insert ON product_enrichments;
-CREATE TRIGGER enrichment_states_enrichments_insert AFTER INSERT ON product_enrichments
+CREATE OR REPLACE TRIGGER enrichment_states_enrichments_insert AFTER INSERT ON product_enrichments
  REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
-DROP TRIGGER IF EXISTS enrichment_states_enrichments_update ON product_enrichments;
-CREATE TRIGGER enrichment_states_enrichments_update AFTER UPDATE ON product_enrichments
+CREATE OR REPLACE TRIGGER enrichment_states_enrichments_update AFTER UPDATE ON product_enrichments
  REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
-DROP TRIGGER IF EXISTS enrichment_states_enrichments_delete ON product_enrichments;
-CREATE TRIGGER enrichment_states_enrichments_delete AFTER DELETE ON product_enrichments
+CREATE OR REPLACE TRIGGER enrichment_states_enrichments_delete AFTER DELETE ON product_enrichments
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
 
 -- A hidden supplier OEM drops enrichment matched through it (enrichment_valid_data, #865): an override write queues
@@ -241,22 +229,17 @@ DO $$ BEGIN
 END $$;
 
 -- Deleted supplier rows cascade into product_sources, whose own trigger queues the product.
-DROP TRIGGER IF EXISTS enrichment_states_supplier_items_update ON supplier_items;
-CREATE TRIGGER enrichment_states_supplier_items_update AFTER UPDATE OF code, product_data, presence ON supplier_items FOR EACH ROW
+CREATE OR REPLACE TRIGGER enrichment_states_supplier_items_update AFTER UPDATE OF code, product_data, presence ON supplier_items FOR EACH ROW
  WHEN (OLD.code IS DISTINCT FROM NEW.code OR OLD.product_data IS DISTINCT FROM NEW.product_data OR OLD.presence IS DISTINCT FROM NEW.presence)
  EXECUTE FUNCTION enrichment_product_states_queue_supplier_item();
 
 -- Brand mapping decides coherence for every product of that label; the small tables take row triggers.
-DROP TRIGGER IF EXISTS enrichment_states_supplier_brands_update ON supplier_brands;
-CREATE TRIGGER enrichment_states_supplier_brands_update AFTER UPDATE OF brand_id ON supplier_brands FOR EACH ROW
+CREATE OR REPLACE TRIGGER enrichment_states_supplier_brands_update AFTER UPDATE OF brand_id ON supplier_brands FOR EACH ROW
  WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION enrichment_product_states_queue_all();
-DROP TRIGGER IF EXISTS enrichment_states_supplier_brands_delete ON supplier_brands;
-CREATE TRIGGER enrichment_states_supplier_brands_delete AFTER DELETE ON supplier_brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
-DROP TRIGGER IF EXISTS enrichment_states_brands_update ON brands;
-CREATE TRIGGER enrichment_states_brands_update AFTER UPDATE OF key ON brands FOR EACH ROW
+CREATE OR REPLACE TRIGGER enrichment_states_supplier_brands_delete AFTER DELETE ON supplier_brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
+CREATE OR REPLACE TRIGGER enrichment_states_brands_update AFTER UPDATE OF key ON brands FOR EACH ROW
  WHEN (OLD.key IS DISTINCT FROM NEW.key) EXECUTE FUNCTION enrichment_product_states_queue_all();
-DROP TRIGGER IF EXISTS enrichment_states_brands_delete ON brands;
-CREATE TRIGGER enrichment_states_brands_delete AFTER DELETE ON brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
+CREATE OR REPLACE TRIGGER enrichment_states_brands_delete AFTER DELETE ON brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
 
 -- First deployment: the table is filled by the next sync (scripts/setup.ts runs one after the schema commits).
 INSERT INTO enrichment_product_state_queue(product_id) SELECT '00000000-0000-0000-0000-000000000000'

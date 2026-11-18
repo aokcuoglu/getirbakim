@@ -100,14 +100,11 @@ BEGIN
 END $$;
 
 -- A fitment belongs to its donor item: the refresh resolves the item to its product and every offer sharing it.
-DROP TRIGGER IF EXISTS enrichment_shared_fitments_insert ON product_vehicle_fitments;
-CREATE TRIGGER enrichment_shared_fitments_insert AFTER INSERT ON product_vehicle_fitments
+CREATE OR REPLACE TRIGGER enrichment_shared_fitments_insert AFTER INSERT ON product_vehicle_fitments
  REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
-DROP TRIGGER IF EXISTS enrichment_shared_fitments_update ON product_vehicle_fitments;
-CREATE TRIGGER enrichment_shared_fitments_update AFTER UPDATE ON product_vehicle_fitments
+CREATE OR REPLACE TRIGGER enrichment_shared_fitments_update AFTER UPDATE ON product_vehicle_fitments
  REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
-DROP TRIGGER IF EXISTS enrichment_shared_fitments_delete ON product_vehicle_fitments;
-CREATE TRIGGER enrichment_shared_fitments_delete AFTER DELETE ON product_vehicle_fitments
+CREATE OR REPLACE TRIGGER enrichment_shared_fitments_delete AFTER DELETE ON product_vehicle_fitments
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_enrichment_shared_queue_items();
 
 -- An admin's fitment decision (#583) belongs to a product: the refresh recomputes every offer of it. A small table;
@@ -122,22 +119,17 @@ BEGIN
  END IF;
  RETURN NULL;
 END $$;
-DROP TRIGGER IF EXISTS product_override_fitments_insert ON product_override_fitments;
-CREATE TRIGGER product_override_fitments_insert AFTER INSERT ON product_override_fitments
+CREATE OR REPLACE TRIGGER product_override_fitments_insert AFTER INSERT ON product_override_fitments
  REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
-DROP TRIGGER IF EXISTS product_override_fitments_update ON product_override_fitments;
-CREATE TRIGGER product_override_fitments_update AFTER UPDATE ON product_override_fitments
+CREATE OR REPLACE TRIGGER product_override_fitments_update AFTER UPDATE ON product_override_fitments
  REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
-DROP TRIGGER IF EXISTS product_override_fitments_delete ON product_override_fitments;
-CREATE TRIGGER product_override_fitments_delete AFTER DELETE ON product_override_fitments
+CREATE OR REPLACE TRIGGER product_override_fitments_delete AFTER DELETE ON product_override_fitments
  REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
 
 -- A type or model moving to another make touches every offer fitted to it: rebuild (rare, catalog imports).
-DROP TRIGGER IF EXISTS enrichment_shared_vehicle_types_update ON vehicle_types;
-CREATE TRIGGER enrichment_shared_vehicle_types_update AFTER UPDATE OF model_id ON vehicle_types FOR EACH ROW
+CREATE OR REPLACE TRIGGER enrichment_shared_vehicle_types_update AFTER UPDATE OF model_id ON vehicle_types FOR EACH ROW
  WHEN (OLD.model_id IS DISTINCT FROM NEW.model_id) EXECUTE FUNCTION product_enrichment_shared_queue_all();
-DROP TRIGGER IF EXISTS enrichment_shared_vehicle_models_update ON vehicle_models;
-CREATE TRIGGER enrichment_shared_vehicle_models_update AFTER UPDATE OF brand_id ON vehicle_models FOR EACH ROW
+CREATE OR REPLACE TRIGGER enrichment_shared_vehicle_models_update AFTER UPDATE OF brand_id ON vehicle_models FOR EACH ROW
  WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION product_enrichment_shared_queue_all();
 
 -- The first deployment fills the tables: an empty one asks for a rebuild (scripts/setup.ts syncs after the schema).

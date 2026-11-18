@@ -56,6 +56,9 @@ jobs:
       - run: npm run test:type-categories
         env:
           DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
+      - run: npm run test:setup-locks
+        env:
+          DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
       - run: npm run build
         env:
           APP_ENV: staging

@@ -7,7 +7,12 @@ CREATE TABLE IF NOT EXISTS enrichment_runs (
 );
 -- Product runs enrich supplier items; vehicle_oil runs read Trodo's engine-oil data per vehicle type (scripts/vehicle-oil-trodo.ts).
 -- Only product runs are picked up by the product worker.
-ALTER TABLE enrichment_runs ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'products' CHECK(kind IN ('products','vehicle_oil'));
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_runs'::regclass AND attname='kind' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_runs ADD COLUMN kind text NOT NULL DEFAULT 'products' CHECK(kind IN ('products','vehicle_oil'));
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS enrichment_run_items (
  run_id uuid NOT NULL REFERENCES enrichment_runs(id),
  supplier_item_id uuid NOT NULL REFERENCES supplier_items(id), ordinal integer NOT NULL,
@@ -73,10 +78,20 @@ CREATE TABLE IF NOT EXISTS enrichment_source_attempts (
  queue text CHECK(queue IN ('pending','not_found','review','partial')), supplier_item_id uuid NOT NULL,
  outcome text NOT NULL CHECK(outcome IN ('found','not_found','error','blocked')), attempted_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE enrichment_source_attempts ALTER COLUMN queue DROP NOT NULL;
--- spareto re-collects its own partial products (queue 'partial').
-ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_queue_check;
-ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial'));
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_attempts'::regclass AND attname='queue' AND attnotnull) THEN
+  ALTER TABLE enrichment_source_attempts ALTER COLUMN queue DROP NOT NULL;
+ END IF;
+END $$;
+-- spareto re-collects its own partial products (queue 'partial'). Replaced only when it lacks its newest value
+-- ('partial'): DROP + ADD locks the table until setup commits. Adding a value means changing the marker too.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='enrichment_source_attempts'::regclass AND conname='enrichment_source_attempts_queue_check' AND convalidated
+  AND pg_get_constraintdef(oid) LIKE '%''partial''%') THEN
+  ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_queue_check;
+  ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial'));
+ END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS enrichment_source_attempts_recent_idx ON enrichment_source_attempts(source,attempted_at);
 CREATE INDEX IF NOT EXISTS enrichment_source_attempts_item_idx ON enrichment_source_attempts(supplier_item_id);
 -- Every Trodo search lists ~10 products, often exact parts of other pending items. They are kept by part number so a
@@ -117,8 +132,14 @@ CREATE TABLE IF NOT EXISTS parts2world_article_oems (oem_key text NOT NULL, link
 CREATE INDEX IF NOT EXISTS parts2world_articles_link_idx ON parts2world_articles(link_id);
 -- The OE number a job was matched through; NULL for a brand/part match.
 ALTER TABLE parts2world_job_articles ADD COLUMN IF NOT EXISTS oem_reference text;
-ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_source_check;
-ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_source_check CHECK(source IN ('otoparcasan','spareto','parts2world'));
+-- Replaced only when it lacks its newest value ('parts2world'); adding a source means changing the marker too.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='enrichment_source_attempts'::regclass AND conname='enrichment_source_attempts_source_check' AND convalidated
+  AND pg_get_constraintdef(oid) LIKE '%''parts2world''%') THEN
+  ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_source_check;
+  ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_source_check CHECK(source IN ('otoparcasan','spareto','parts2world'));
+ END IF;
+END $$;
 -- One row per fallback-source run over a fixed queue (#403); the admin page counts its progress from the source's
 -- attempts since started_at. A run that ends without closing (process killed) is closed as stopped by the next one.
 CREATE TABLE IF NOT EXISTS enrichment_source_runs (

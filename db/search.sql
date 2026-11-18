@@ -79,8 +79,7 @@ BEGIN
  NEW.search_oem := search_compact(COALESCE(NEW.product_data->>'oe', ''));
  RETURN NEW;
 END $$;
-DROP TRIGGER IF EXISTS supplier_items_search_fields ON supplier_items;
-CREATE TRIGGER supplier_items_search_fields BEFORE INSERT OR UPDATE OF code, product_data ON supplier_items
+CREATE OR REPLACE TRIGGER supplier_items_search_fields BEFORE INSERT OR UPDATE OF code, product_data ON supplier_items
  FOR EACH ROW EXECUTE FUNCTION supplier_items_search_fields();
 -- One-time fill of rows written before the trigger existed (a no-op afterwards). Runs under setup's
 -- supplier locks, so no import writes these rows meanwhile.
