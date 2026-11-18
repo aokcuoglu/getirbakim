@@ -651,3 +651,31 @@ DO $$ BEGIN
   ALTER TABLE commerce_orders ADD COLUMN invoice_tax_office text;
  END IF;
 END $$;
+-- Geliver shipping labels (#960). Each label purchase is its own row, committed as 'requested' before the Geliver call,
+-- so a lost reply is never forgotten: 'unknown' (and a still 'requested' row) blocks a new label until "Geliver'de kontrol
+-- et" settles it. 'failed' = Geliver refused it, a new attempt is allowed. The tracking_* columns follow the
+-- TRACK_UPDATED webhook. test = a free Geliver test label (GELIVER_MODE other than live), no real parcel moves.
+CREATE TABLE IF NOT EXISTS commerce_geliver_shipments (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ order_id uuid NOT NULL REFERENCES commerce_orders(id),
+ status text NOT NULL DEFAULT 'requested' CHECK(status IN ('requested','purchased','failed','unknown')),
+ test boolean NOT NULL,
+ service_code text NOT NULL,
+ order_number text NOT NULL,
+ parcel jsonb NOT NULL,
+ geliver_shipment_id text, geliver_transaction_id text, barcode text, label_url text,
+ tracking_number text, tracking_url text, tracking_status_code text, tracking_sub_status_code text, tracking_status_details text,
+ tracking_location text,
+ -- tracking_status_at: the carrier's time of the status (statusDate, else Geliver's), shown to operations;
+ -- tracking_updated_at: Geliver's record time (updatedAt), the one clock webhook events are ordered by.
+ tracking_status_at timestamptz, tracking_updated_at timestamptz,
+ error_code text, error_message text,
+ requested_by uuid REFERENCES accounts(id),
+ requested_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz, checked_at timestamptz
+);
+-- At most one label per order that is bought or may have been bought.
+CREATE UNIQUE INDEX IF NOT EXISTS commerce_geliver_shipments_active_idx ON commerce_geliver_shipments(order_id)
+ WHERE status IN ('requested','unknown','purchased');
+CREATE UNIQUE INDEX IF NOT EXISTS commerce_geliver_shipments_remote_idx ON commerce_geliver_shipments(geliver_shipment_id)
+ WHERE geliver_shipment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS commerce_geliver_shipments_order_idx ON commerce_geliver_shipments(order_id,requested_at DESC);

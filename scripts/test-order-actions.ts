@@ -55,6 +55,13 @@ test("actions return to the list they came from; anything else falls back to the
     assert.equal(orderListReturn("/yonetim/siparisler?status=refund&saved=1", outcome), `/yonetim/siparisler?status=refund&${outcome}=1`);
   }
   assert.equal(orderListReturn("/yonetim/siparisler?refund_unknown=1&page=2", "refunded"), "/yonetim/siparisler?page=2&refunded=1");
+  // Geliver label outcomes (#960) behave the same way.
+  // An orphaned label names its order: the number is the outcome's value (digits only).
+  assert.equal(orderListReturn("/yonetim/siparisler?status=shipping", "label_orphan", "1042"), "/yonetim/siparisler?status=shipping&label_orphan=1042");
+  assert.equal(orderListReturn("/yonetim/siparisler", "label_orphan", "1042&x=y"), "/yonetim/siparisler?label_orphan=1");
+  for (const outcome of ["label_created", "label_unknown", "label_failed", "label_busy", "label_orphan"] as const) {
+    assert.equal(orderListReturn("/yonetim/siparisler?status=shipping&label_unknown=1&page=2", outcome), `/yonetim/siparisler?status=shipping&page=2&${outcome}=1`);
+  }
   // A stale outcome and unknown parameters are dropped.
   assert.equal(orderListReturn("/yonetim/siparisler?status=refund&error=1&x=y", "saved"), "/yonetim/siparisler?status=refund&saved=1");
   for (const value of ["//evil.example/yonetim/siparisler", "https://evil.example/yonetim/siparisler", "/yonetim/siparislerX", "/yonetim/urunler?status=action",
