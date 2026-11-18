@@ -22,7 +22,7 @@ const optionTexts = {
   marketing: {
     title: "Reklam ve kişiselleştirme çerezleri",
     text: (names: string[]) => `Reklamların etkisini ölçmek için ${names.join(" ve ")} kullanılır. Yalnızca izin verirsen yüklenir.`,
-    idle: "İlgi alanlarına uygun reklam ve teklifler içindir. Şu anda reklam hizmeti kullanılmıyor.",
+    idle: "Reklamların etkisini ölçmek içindir. Şu anda reklam hizmeti kullanılmıyor.",
   },
 };
 
