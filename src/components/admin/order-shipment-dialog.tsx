@@ -2,7 +2,7 @@
 
 import { useActionState, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CircleAlert, Save, Truck } from "lucide-react";
+import { CircleAlert, Info, Save, Truck } from "lucide-react";
 import { saveShipment } from "@/modules/admin/commerce-actions";
 import { carrierCodes, carriers, hasTrackingTemplate, resolveTrackingUrl, startingCarrier, yurticiTrackingRule, type ShipmentResult } from "@/modules/store/shipment";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -13,15 +13,21 @@ import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { GeliverMode } from "@/modules/shipping/geliver-request";
+import { GeliverLabelForm } from "./order-geliver-label";
 
 export type ShipmentInitial = { carrier: string | null; carrierName: string | null; trackingNo: string | null; trackingUrl: string | null };
+/** Geliver label tab of the ship dialog (#960): its mode, or why this order cannot get a label. */
+export type GeliverOption = { mode: GeliverMode } | { blocked: string };
 
 /**
  * Kargoya ver (#605): carrier and tracking number for a confirmed order, or a correction while it is shipped.
- * `recipient` is the read-only recipient, address and invoice (#881), rendered by the page.
+ * `recipient` is the read-only recipient, address and invoice (#881), rendered by the page. With `geliver` (ship mode,
+ * Geliver configured) the dialog opens on the Geliver label tab (#960); manual entry stays on its own tab.
  */
-export function OrderShipmentDialog({ orderId, number, back, mode, initial, recipient }: {
-  orderId: string; number: string; back: string; mode: "ship" | "edit"; initial?: ShipmentInitial; recipient?: React.ReactNode;
+export function OrderShipmentDialog({ orderId, number, back, mode, initial, recipient, geliver }: {
+  orderId: string; number: string; back: string; mode: "ship" | "edit"; initial?: ShipmentInitial; recipient?: React.ReactNode; geliver?: GeliverOption;
 }) {
   const [open, setOpen] = useState(false);
   const initialFocus = useRef<HTMLSelectElement>(null);
@@ -29,15 +35,29 @@ export function OrderShipmentDialog({ orderId, number, back, mode, initial, reci
     {mode === "ship"
       ? <DialogTrigger render={<Button aria-label={`#${number} siparişini kargoya ver`}/>}><Truck data-icon="inline-start" aria-hidden="true"/>Kargoya ver</DialogTrigger>
       : <DialogTrigger render={<Button variant="outline" aria-label={`#${number} kargo bilgisini düzenle`}/>}>Kargo bilgisini düzenle</DialogTrigger>}
-    <DialogContent initialFocus={initialFocus} className="max-h-5/6 overflow-y-auto sm:max-w-lg">
+    <DialogContent initialFocus={mode === "ship" && geliver ? undefined : initialFocus} className="max-h-5/6 overflow-y-auto sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>{mode === "ship" ? `#${number} siparişini kargoya ver` : `#${number} kargo bilgisi`}</DialogTitle>
         <DialogDescription>{mode === "ship"
-          ? "Kargo firmasını ve takip numarasını girin. Müşteri kargosunu sipariş sayfasında bu bilgilerle izler."
+          ? geliver ? "Geliver ile Yurtiçi Kargo etiketi oluşturun ya da kargo firmasını ve takip numarasını elle girin. Müşteri kargosunu sipariş sayfasında izler."
+            : "Kargo firmasını ve takip numarasını girin. Müşteri kargosunu sipariş sayfasında bu bilgilerle izler."
           : "Yanlış girilen firma, takip numarası veya bağlantıyı düzeltin. Kargoya veriliş zamanı değişmez."}</DialogDescription>
       </DialogHeader>
       {recipient && <>{recipient}<Separator/></>}
-      <ShipmentForm orderId={orderId} back={back} mode={mode} initial={initial} initialFocus={initialFocus} onSaved={() => setOpen(false)}/>
+      {mode === "ship" && geliver ? <Tabs defaultValue="geliver" className="min-w-0">
+        <TabsList>
+          <TabsTrigger value="geliver">Geliver etiketi</TabsTrigger>
+          <TabsTrigger value="manual">Elle giriş</TabsTrigger>
+        </TabsList>
+        <TabsContent value="geliver" className="pt-2">
+          {"blocked" in geliver
+            ? <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>{geliver.blocked}</AlertDescription></Alert>
+            : <GeliverLabelForm orderId={orderId} back={back} mode={geliver.mode} onSaved={() => setOpen(false)}/>}
+        </TabsContent>
+        <TabsContent value="manual" className="pt-2">
+          <ShipmentForm orderId={orderId} back={back} mode={mode} initial={initial} initialFocus={initialFocus} onSaved={() => setOpen(false)}/>
+        </TabsContent>
+      </Tabs> : <ShipmentForm orderId={orderId} back={back} mode={mode} initial={initial} initialFocus={initialFocus} onSaved={() => setOpen(false)}/>}
     </DialogContent>
   </Dialog>;
 }
