@@ -23,5 +23,10 @@ CREATE TABLE IF NOT EXISTS manual_item_overrides (
  updated_by uuid REFERENCES accounts(id) ON DELETE SET NULL, updated_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY (list_group,code)
 );
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 -- 'list' is an xlsx list upload; 'bulk' a price/stock CSV of an existing list (#832), whose rows are CSV lines.
-ALTER TABLE manual_uploads ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'list' CHECK (kind IN ('list','bulk'));
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='manual_uploads'::regclass AND attname='kind' AND NOT attisdropped) THEN
+  ALTER TABLE manual_uploads ADD COLUMN kind text NOT NULL DEFAULT 'list' CHECK (kind IN ('list','bulk'));
+ END IF;
+END $$;

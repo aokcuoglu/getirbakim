@@ -346,7 +346,11 @@ CREATE TABLE IF NOT EXISTS product_match_candidates (
  reason text NOT NULL CHECK (reason IN ('prefix','leading_zero','suffix')), name_similarity real,
  PRIMARY KEY (product_a,product_b)
 );
-ALTER TABLE product_match_candidates ADD COLUMN IF NOT EXISTS name_conflict boolean;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_match_candidates'::regclass AND attname='name_conflict' AND NOT attisdropped) THEN
+  ALTER TABLE product_match_candidates ADD COLUMN name_conflict boolean;
+ END IF;
+END $$;
 -- The shared-candidate check looks for other candidates of the same Dinamik product (#543).
 CREATE INDEX IF NOT EXISTS product_match_candidates_b_idx ON product_match_candidates(product_b);
 -- Part-type terms of a product name, for telling candidates apart whose numbers collide by chance (EL FREN TEL KLIPSI
