@@ -5,9 +5,10 @@ CREATE TABLE IF NOT EXISTS vehicle_brands (
  id integer PRIMARY KEY CHECK (id > 0),
  name text NOT NULL CHECK (length(name) > 0),
  display_name text NOT NULL CHECK (length(display_name) > 0),
- popular boolean NOT NULL DEFAULT false,
  updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Older databases keep the unread popular column (NOT NULL DEFAULT false); drop it one release after this ships (#944).
 
 CREATE TABLE IF NOT EXISTS vehicle_models (
  id integer PRIMARY KEY CHECK (id > 0),
