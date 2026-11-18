@@ -30,6 +30,11 @@ CREATE TABLE IF NOT EXISTS vehicle_type_images (
  imported_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS vehicle_type_images_media_idx ON vehicle_type_images(media_id);
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 -- Set once scripts/vehicle-image-cutout.ts replaced media_id with a transparent cut-out: the REPXPERT original it came from.
-ALTER TABLE vehicle_type_images ADD COLUMN IF NOT EXISTS original_media_id uuid REFERENCES product_media_objects(id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='vehicle_type_images'::regclass AND attname='original_media_id' AND NOT attisdropped) THEN
+  ALTER TABLE vehicle_type_images ADD COLUMN original_media_id uuid REFERENCES product_media_objects(id);
+ END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS vehicle_type_images_original_media_idx ON vehicle_type_images(original_media_id) WHERE original_media_id IS NOT NULL;

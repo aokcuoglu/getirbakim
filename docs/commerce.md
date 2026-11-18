@@ -71,7 +71,7 @@ Sunucu kuralları `checkoutInput`'tadır (`src/modules/store/checkout-schema.ts`
 
 İl/ilçe verisi `src/modules/store/tr-provinces.json`'dadır (81 il, 973 ilçe; Türkçe yazım, `localeCompare("tr")` sıralı). Kaynak: npm [`turkey-neighbourhoods`](https://github.com/muratgozel/turkey-neighbourhoods) 4.0.3 (MIT lisansı, © 2020 Murat Gözel; PTT posta kodu listesinden üretilir), `src/data/cityNamesByCode.json` + `districtsByCityCode.json`. Paket bağımlılık olarak eklenmez; il/ilçe değişirse paket yeni sürümden aynı iki dosyadan yeniden üretilir ve `npm run test:checkout-address` sayıları güncellenir.
 
-**Şema sırası:** yeni kolonlar kod yayınlanmadan **önce** veritabanında olmalıdır (`npm run db:setup`; yalnız `ADD COLUMN IF NOT EXISTS`, veri taşıma yok). Canlıda `release-aws` yeni imajı çıkarmadan önce şemayı kendisi uygular. Yerelde dal `dev`'e merge edildikten hemen sonra `db:setup` koşulmalıdır. Kolonlar yokken yalnız siparişin `INSERT`'i değil, onları okuyan `SELECT`'ler de kırılır: `orderColumns` (`/siparis/[id]`), `adminOrders` (`/yonetim/siparisler`) ve `lastCheckoutDetails` (`/siparis-olustur`, hesapla girişte).
+**Şema sırası:** yeni kolonlar kod yayınlanmadan **önce** veritabanında olmalıdır (`npm run db:setup`; yalnız eksikse eklenen kolonlar, veri taşıma yok). Canlıda `release-aws` yeni imajı çıkarmadan önce şemayı kendisi uygular. Yerelde dal `dev`'e merge edildikten hemen sonra `db:setup` koşulmalıdır. Kolonlar yokken yalnız siparişin `INSERT`'i değil, onları okuyan `SELECT`'ler de kırılır: `orderColumns` (`/siparis/[id]`), `adminOrders` (`/yonetim/siparisler`) ve `lastCheckoutDetails` (`/siparis-olustur`, hesapla girişte).
 
 ### Tedarik takibi (#606)
 
