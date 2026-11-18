@@ -30,6 +30,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run harness:lint && npm run harness:test
+      - run: npm run test:ads-tags
       - run: npm run test:home
       - run: npm run test:checkout-address
       - run: npm run test:cart-checkout-ui

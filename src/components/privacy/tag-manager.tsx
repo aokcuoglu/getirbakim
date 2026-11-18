@@ -4,10 +4,11 @@ import Script from "next/script";
 import { Suspense, createContext, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { consentSnapshot, parseConsent, subscribeConsent } from "@/lib/cookie-consent";
-import { TAG_READY_EVENT, bootGtag, stopGtag, track } from "@/modules/analytics/track";
+import type { AdsConfig } from "@/modules/analytics/config";
+import { TAG_READY_EVENT, bootTags, stopTags, track } from "@/modules/analytics/track";
 
-type Services = { analytics: boolean; marketing: boolean };
-const ServicesContext = createContext<Services>({ analytics: false, marketing: false });
+type Services = { analytics: boolean; marketing: boolean; marketingNames: string[] };
+const ServicesContext = createContext<Services>({ analytics: false, marketing: false, marketingNames: [] });
 
 /** Which consent categories have a real service behind them; the banner words its options from this. */
 export const useConsentServices = () => useContext(ServicesContext);
@@ -17,16 +18,28 @@ const ServerConsentContext = createContext<string | null>(null);
 /** The consent cookie as the server read it: the banner renders from it, so a first visit gets the banner in the HTML (#736). */
 export const useServerConsent = () => useContext(ServerConsentContext);
 
-// No advertising service is configured yet (3rd slice), so advertising consent signals stay denied.
-const MARKETING_SERVICE = false;
 const serverSnapshot = () => undefined;
 
-function GtagBoot({ ga4, customerType, marketing, marketingService }: { ga4: string; customerType: string; marketing: boolean; marketingService: boolean }) {
+type TagBootProps = {
+  ga4: string | null; ads: AdsConfig | null; metaPixel: string | null; customerType: string; analytics: boolean; marketing: boolean;
+};
+
+/** Boots the tags the consent allows (#676); gtag.js and fbevents.js load only when a consented service needs them. */
+function TagBoot({ ga4, ads, metaPixel, customerType, analytics, marketing }: TagBootProps) {
+  const adsId = ads?.id ?? null;
+  const purchaseLabel = ads?.purchaseLabel ?? null;
   useEffect(() => {
-    bootGtag(ga4, customerType, marketing, { marketing: marketingService });
-    return () => stopGtag(ga4);
-  }, [ga4, customerType, marketing, marketingService]);
-  return <Script id="gtag-js" src={`https://www.googletagmanager.com/gtag/js?id=${ga4}`} strategy="lazyOnload" />;
+    const adsConfig = adsId ? { id: adsId, purchaseLabel } : null;
+    // Google's advertising signals follow Google Ads; the Meta Pixel has its own consent command.
+    bootTags({ ga4, ads: adsConfig, metaPixel, customerType, consent: { analytics, marketing }, services: { marketing: adsConfig !== null } });
+    return () => stopTags(ga4);
+  }, [ga4, adsId, purchaseLabel, metaPixel, customerType, analytics, marketing]);
+  const analyticsOn = Boolean(ga4 && analytics);
+  const gtagId = analyticsOn ? ga4 : marketing ? adsId : null;
+  return <>
+    {gtagId && <Script id="gtag-js" src={`https://www.googletagmanager.com/gtag/js?id=${gtagId}`} strategy="lazyOnload" />}
+    {marketing && metaPixel && <Script id="meta-pixel" src="https://connect.facebook.net/en_US/fbevents.js" strategy="lazyOnload" />}
+  </>;
 }
 
 // Next updates document.title after the route commits, so a client navigation's title is read late: the view is sent
@@ -46,7 +59,7 @@ function PageViewTracker() {
       clearTimeout(timer);
       window.removeEventListener(TAG_READY_EVENT, fire);
     };
-    // On a full load this runs before GtagBoot's effect, so a refused event is resent when the tag is ready.
+    // On a full load this runs before TagBoot's effect, so a refused event is resent when the tag is ready.
     function fire() {
       if (done || !track("page_view", { page_title: document.title })) return;
       done = true;
@@ -64,17 +77,20 @@ function PageViewTracker() {
   return null;
 }
 
-export function TagManager({ ga4, customerType, consent: serverConsent, children }: {
-  ga4: string | null; customerType: string; consent: string | null; children: React.ReactNode;
+export function TagManager({ ga4, ads, metaPixel, customerType, consent: serverConsent, children }: {
+  ga4: string | null; ads: AdsConfig | null; metaPixel: string | null; customerType: string; consent: string | null;
+  children: React.ReactNode;
 }) {
   const raw = useSyncExternalStore(subscribeConsent, consentSnapshot, serverSnapshot);
   const consent = parseConsent(raw ?? null);
-  const active = Boolean(ga4 && consent?.analytics);
-  return <ServicesContext value={{ analytics: ga4 !== null, marketing: MARKETING_SERVICE }}><ServerConsentContext value={serverConsent}>
-    {active && ga4 && <>
-      <GtagBoot ga4={ga4} customerType={customerType} marketing={consent?.marketing ?? false} marketingService={MARKETING_SERVICE} />
-      <Suspense><PageViewTracker /></Suspense>
-    </>}
+  const analyticsOn = Boolean(ga4 && consent?.analytics);
+  const marketingOn = Boolean(consent?.marketing && (ads || metaPixel));
+  const marketingNames = [...(ads ? ["Google Ads"] : []), ...(metaPixel ? ["Meta"] : [])];
+  const services = { analytics: ga4 !== null, marketing: marketingNames.length > 0, marketingNames };
+  return <ServicesContext value={services}><ServerConsentContext value={serverConsent}>
+    {(analyticsOn || marketingOn) && <TagBoot ga4={ga4} ads={ads} metaPixel={metaPixel} customerType={customerType}
+      analytics={analyticsOn} marketing={marketingOn} />}
+    {analyticsOn && <Suspense><PageViewTracker /></Suspense>}
     {children}
   </ServerConsentContext></ServicesContext>;
 }
