@@ -360,7 +360,15 @@ async function retireRuns(){
   return {runs:runs.length,items};
  }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
+// The requeues read the dashboard's materialized states (synced before the transaction) instead of rebuilding the
+// catalog view (#939). A states row left stale while another session holds the sync lock is written only while its
+// code, brand and OEM still equal the live supplier row (as enqueueProductSources does, #923), so no run item carries
+// an identity the worker would search for and then mark review; serve() still re-checks each item's status.
+const liveIdentity=`CROSS JOIN LATERAL (SELECT s.code,COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS brand,
+    COALESCE(s.product_data->>'oe','') AS oem FROM supplier_items s WHERE s.id=c.supplier_item_id OFFSET 0) s`;
+const liveIdentityMatches='s.code=c.supplier_code AND s.brand=c.supplier_brand AND s.oem=c.oem';
 async function requeueReview(runId:string){
+ await pool.query('SELECT enrichment_product_states_sync()');
  const client=await pool.connect();try{
   await client.query('BEGIN');
   const lock=(await client.query('SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS locked',[runId])).rows[0];
@@ -371,8 +379,8 @@ async function requeueReview(runId:string){
   if(active)throw Error('Another unfinished run exists: '+active.id);
   const result=await client.query(`INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem)
    SELECT $1,c.product_id,c.supplier_item_id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY c.product_id)-1,
-    c.supplier_code,c.supplier_brand,c.oem FROM enrichment_product_catalog c
-   WHERE c.status='review' AND c.oem<>'' AND c.supplier_item_id IS NOT NULL
+    c.supplier_code,c.supplier_brand,c.oem FROM enrichment_product_states c ${liveIdentity}
+   WHERE c.status='review' AND c.oem<>'' AND c.supplier_item_id IS NOT NULL AND ${liveIdentityMatches}
    ON CONFLICT(run_id,supplier_item_id) DO UPDATE SET product_id=EXCLUDED.product_id,supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
     oem=EXCLUDED.oem,status='queued',stage='search',checkpoint='{}',lease_token=NULL,lease_until=NULL,last_error=NULL,finished_at=NULL
    WHERE enrichment_run_items.status IN ('review','skipped')`,[runId]);
@@ -391,6 +399,7 @@ type RetrySource=keyof typeof retrySources|'all';
 /** Trodo's own partials are re-collected only when their note shows a gap it can close; another source's partials are
  *  all offered to Trodo (a complete result replaces them, a weaker partial is refused at import). */
 async function requeuePartial(runId:string,source:RetrySource='trodo'){
+ await pool.query('SELECT enrichment_product_states_sync()');
  const client=await pool.connect();try{
   await client.query('BEGIN');
   const lock=(await client.query('SELECT pg_try_advisory_xact_lock(hashtextextended($1,0)) AS locked',[runId])).rows[0];
@@ -402,10 +411,10 @@ async function requeuePartial(runId:string,source:RetrySource='trodo'){
   const result=await client.query(`INSERT INTO enrichment_run_items(run_id,product_id,supplier_item_id,ordinal,supplier_code,supplier_brand,oem,stage,checkpoint)
    SELECT $1,c.product_id,c.supplier_item_id,COALESCE((SELECT max(ordinal)+1 FROM enrichment_run_items WHERE run_id=$1),0)+row_number() OVER(ORDER BY c.product_id)-1,
     c.supplier_code,c.supplier_brand,c.oem,'vehicles',COALESCE(cp.checkpoint,'{}')||'{"retry":"partial"}'
-   FROM enrichment_product_catalog c JOIN product_enrichments e ON e.supplier_item_id=c.supplier_item_id
+   FROM enrichment_product_states c ${liveIdentity} JOIN product_enrichments e ON e.supplier_item_id=c.supplier_item_id
    LEFT JOIN LATERAL(SELECT i.checkpoint-'vehicle' AS checkpoint FROM enrichment_run_items i WHERE i.supplier_item_id=c.supplier_item_id AND i.status IN ('partial','skipped')
     AND i.checkpoint ? 'product' AND i.checkpoint ? 'view' ORDER BY i.finished_at DESC NULLS LAST LIMIT 1) cp ON true
-   WHERE c.status='partial' AND c.supplier_item_id IS NOT NULL AND (${(source==='trodo'||source==='all')?`(e.source_url LIKE 'https://www.trodo.com/%'
+   WHERE c.status='partial' AND c.supplier_item_id IS NOT NULL AND ${liveIdentityMatches} AND (${(source==='trodo'||source==='all')?`(e.source_url LIKE 'https://www.trodo.com/%'
     AND (e.source_method ~ 'invalid rows [1-9]' OR (regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[1]<>(regexp_match(e.source_method,'covered (\\d+)/(\\d+)'))[2]))`:'false'}
     OR ${source==='all'?`split_part(e.source_url,'/',3) IN ('spareto.com','otoparcasan.com')`:source!=='trodo'?`split_part(e.source_url,'/',3)='${retrySources[source]}'`:'false'})
    ON CONFLICT(run_id,supplier_item_id) DO UPDATE SET product_id=EXCLUDED.product_id,supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
