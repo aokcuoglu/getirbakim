@@ -88,6 +88,7 @@ docker compose -f compose.yml exec squid tail -f /var/log/squid/access.log
 
 - AWS çıkış IP'si değişirse: `allowed-clients.txt` ve ufw kuralını güncelle, `docker compose -f compose.yml restart`.
 - Yeni tedarikçi host'u: `allowed-hosts.txt`, ardından restart. Uygulamada `SUPPLIER_EGRESS_PROXY_FOR` listesine tedarikçiyi ekle.
+- `www.parts2world.com` tedarikçi değil, zenginleştirme kaynağıdır (görseller de aynı host): `SUPPLIER_EGRESS_PROXY_FOR` listesine eklenmez; `scripts/parts2world-enrichment.ts collect|fetch-types --via-proxy` ile açıkça seçilir (#946). VPS'te dosyaya inode'u koruyarak ekle (`>>`), ardından `squid -k reconfigure`.
 - Parola yenileme: 1. adımı tekrarla, Secrets Manager'ı güncelle, restart.
 
 ## Kaldırma

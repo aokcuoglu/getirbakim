@@ -420,12 +420,18 @@ parts2world `article-info` yanıtı makalenin TecDoc genel makale adını `data.
   kuralına bilinçli bir istisnadır.
 
 **Kilit ve sıra.** `fetch-types`, `collect` ile aynı iki kilidi alır (`parts2world-collect` denemeli,
-`parts2world-source` bekleyerek); aynı host'a iki istemci yapısal olarak açılamaz. Bekleyen işçi o an koşuyorsa
-`{"skipped":"another parts2world run is going"}` ile çıkar. Sırayı almak için işçiyi durdurun:
+`parts2world-source` bekleyerek); aynı IP'den iki istemci açılamaz. Bekleyen işçi o an koşuyorsa
+`{"skipped":"another parts2world run is going"}` ile çıkar. Çözüm `fetch-types --via-proxy` (#946): istekler
+`SUPPLIER_EGRESS_PROXY` ile VPS'teki egress squid'den çıkar (kendi IP'si; `www.parts2world.com`
+`infra/squid/allowed-hosts.txt` içinde olmalı) ve `parts2world-collect:proxy` / `parts2world-source:proxy` kilitlerini alır;
+bekleyen işçiyle (doğrudan, kilit adları değişmez) aynı anda koşar, iki proxy'li koşu birbirini dışlar. Proxy değişkeni
+yoksa ya da tünel açılamıyorsa koşu hemen hata verir, doğrudan bağlantıya dönmez. `--via-proxy` yalnız `fetch-types`
+içindir; `collect` checkpoint ve kaynak koşusunu doğrudan işçiyle paylaştığı için desteklemez.
+Proxy'siz çalıştırmak istenirse işçiyi durdurun:
 `launchctl kill SIGTERM gui/$(id -u)/com.getirbakim.parts2world-pending` ve `fetch-types`'ı hemen ardından başlatın:
 işçi `StartInterval 1800` ile tetiklenir (KeepAlive yok), yani 30 dakika içinde kilidi yeniden alır. `fetch-types`
 kilidi tuttukça launchd tetiklemeleri atlanır, bitince işçi kendiliğinden devam eder. `dev` çekildikten sonra koşan işçi yeniden başlayana dek
-eski kodla (kategorisiz) çalışır; durdurup bıraktığınızda yeni kodla açılır.
+eski kodla (kategorisiz) çalışır; durdurup bıraktığınızda yeniden başlayınca yeni kodla açılır.
 
 **Operasyon sırası:** `fetch-types --limit 50` (örneklem, `mappedShare`'e bakın) → `backfill-types --source parts2world
 --dry-run` → uzun koşu (≈34 bin tekil makale, istek başına ≥3 sn ile ≥28 saat) ya da gece dilimleri
