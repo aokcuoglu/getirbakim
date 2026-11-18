@@ -8,8 +8,7 @@ CREATE TABLE IF NOT EXISTS vehicle_brands (
  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- The flag was never read: popular makes come from turkeyPopularMakes (#913, #944).
-ALTER TABLE vehicle_brands DROP COLUMN IF EXISTS popular;
+-- Older databases keep the unread popular column (NOT NULL DEFAULT false); drop it one release after this ships (#944).
 
 CREATE TABLE IF NOT EXISTS vehicle_models (
  id integer PRIMARY KEY CHECK (id > 0),
