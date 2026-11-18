@@ -30,13 +30,25 @@ CREATE TABLE IF NOT EXISTS enrichment_source_hosts (
  next_allowed_at timestamptz NOT NULL DEFAULT now(),
  blocked boolean NOT NULL DEFAULT false,last_error text
 );
-ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS challenge_since timestamptz;
-ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS challenges integer NOT NULL DEFAULT 0;
--- Pacing that avoids a perfectly regular, round-the-clock rhythm: a random extra delay on each request and an
--- optional nightly window (Europe/Istanbul hours, may cross midnight) in which nothing is requested.
-ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS jitter_ms integer NOT NULL DEFAULT 0 CHECK(jitter_ms BETWEEN 0 AND 600000);
-ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS quiet_start_hour smallint CHECK(quiet_start_hour BETWEEN 0 AND 23);
-ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS quiet_end_hour smallint CHECK(quiet_end_hour BETWEEN 0 AND 23);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_hosts'::regclass AND attname='challenge_since' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_source_hosts ADD COLUMN challenge_since timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_hosts'::regclass AND attname='challenges' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_source_hosts ADD COLUMN challenges integer NOT NULL DEFAULT 0;
+ END IF;
+ -- Pacing that avoids a perfectly regular, round-the-clock rhythm: a random extra delay on each request and an
+ -- optional nightly window (Europe/Istanbul hours, may cross midnight) in which nothing is requested.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_hosts'::regclass AND attname='jitter_ms' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_source_hosts ADD COLUMN jitter_ms integer NOT NULL DEFAULT 0 CHECK(jitter_ms BETWEEN 0 AND 600000);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_hosts'::regclass AND attname='quiet_start_hour' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_source_hosts ADD COLUMN quiet_start_hour smallint CHECK(quiet_start_hour BETWEEN 0 AND 23);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_hosts'::regclass AND attname='quiet_end_hour' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_source_hosts ADD COLUMN quiet_end_hour smallint CHECK(quiet_end_hour BETWEEN 0 AND 23);
+ END IF;
+END $$;
 INSERT INTO enrichment_source_hosts(host) VALUES('www.trodo.com'),('picdn.trodo.com') ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS enrichment_source_cache (
  host text NOT NULL,path text NOT NULL,body jsonb NOT NULL,fetched_at timestamptz NOT NULL DEFAULT now(),
@@ -63,11 +75,18 @@ CREATE TABLE IF NOT EXISTS vehicle_catalog_revision(id boolean PRIMARY KEY DEFAU
 INSERT INTO vehicle_catalog_revision(id) VALUES(true) ON CONFLICT DO NOTHING;
 CREATE OR REPLACE FUNCTION bump_vehicle_catalog_revision() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN UPDATE vehicle_catalog_revision SET revision=revision+1 WHERE id=true; RETURN NULL; END $$;
+-- Created only when missing: CREATE [OR REPLACE] TRIGGER locks the table against writers (SHARE ROW EXCLUSIVE) until setup
+-- commits. A changed function body needs only its CREATE OR REPLACE FUNCTION; a changed trigger definition needs a
+-- DROP TRIGGER in the same change. Looked up per table (tgrelid): a same-named trigger in another schema does not count.
 DO $$ BEGIN
- IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='vehicle_brands_revision') THEN
- CREATE TRIGGER vehicle_brands_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_brands FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
- CREATE TRIGGER vehicle_models_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_models FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
- CREATE TRIGGER vehicle_types_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_types FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_brands'::regclass AND tgname='vehicle_brands_revision') THEN
+  CREATE TRIGGER vehicle_brands_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_brands FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_models'::regclass AND tgname='vehicle_models_revision') THEN
+  CREATE TRIGGER vehicle_models_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_models FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_types'::regclass AND tgname='vehicle_types_revision') THEN
+  CREATE TRIGGER vehicle_types_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_types FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
  END IF;
 END $$;
 -- One row per product a fallback source searched (otoparcasan.com, spareto.com); the admin page reads their progress
@@ -134,7 +153,11 @@ CREATE TABLE IF NOT EXISTS parts2world_job_articles (
 CREATE TABLE IF NOT EXISTS parts2world_article_oems (oem_key text NOT NULL, link_id bigint NOT NULL, PRIMARY KEY(oem_key,link_id));
 CREATE INDEX IF NOT EXISTS parts2world_articles_link_idx ON parts2world_articles(link_id);
 -- The OE number a job was matched through; NULL for a brand/part match.
-ALTER TABLE parts2world_job_articles ADD COLUMN IF NOT EXISTS oem_reference text;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='parts2world_job_articles'::regclass AND attname='oem_reference' AND NOT attisdropped) THEN
+  ALTER TABLE parts2world_job_articles ADD COLUMN oem_reference text;
+ END IF;
+END $$;
 -- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
 -- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
 -- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.

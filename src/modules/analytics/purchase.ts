@@ -12,9 +12,14 @@ export function purchaseEventOpen(paidAt: Date | string | null, now: Date) {
 }
 
 /**
- * The server's own check before the once-only flag is spent (#675): a configured GA4 id, a visitor who is not an admin
- * (an admin opening the order must not count as the purchase) and analytics consent in the request's consent cookie.
+ * The server's own check before the once-only flag is spent (#675, #676): a visitor who is not an admin (an admin opening the
+ * order must not count as the purchase) and a channel that would measure it: a GA4 id with analytics consent, or an
+ * advertising purchase tag (`marketing`) with marketing consent, in the request's consent cookie.
  */
-export function purchaseClaimAllowed(input: { ga4: string | null; role: string | null | undefined; consent: string | null; now: number }) {
-  return input.ga4 !== null && input.role !== "admin" && Boolean(parseConsent(input.consent, input.now)?.analytics);
+export function purchaseClaimAllowed(input: {
+  ga4: string | null; marketing: boolean; role: string | null | undefined; consent: string | null; now: number;
+}) {
+  if (input.role === "admin") return false;
+  const consent = parseConsent(input.consent, input.now);
+  return Boolean((input.ga4 !== null && consent?.analytics) || (input.marketing && consent?.marketing));
 }

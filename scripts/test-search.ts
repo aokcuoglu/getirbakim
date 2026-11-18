@@ -98,6 +98,48 @@ test("product search: synonyms widen the hits to every spelling", async () => {
   if (rows[0].n) assert.ok(await count("kasnak") >= rows[0].n);
 });
 
+test("product search: Turkish type names also find the English supplier names (#953)", async () => {
+  const text = "to_tsvector('simple', supplier_item_search_text(s.code, s.product_data)) @@ to_tsquery('simple', $1)";
+  const count = async (where: string, values: unknown[]) =>
+    (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM supplier_items s WHERE ${where}`, values)).rows[0].n;
+  for (const [q, english] of [["fren diski", "'brake' <-> 'disc'"], ["fren hortumu", "'brake' <-> 'hose'"]]) {
+    const parsed = parseSearchQuery(q);
+    const englishRows = await count(text, [english]);
+    if (!englishRows) continue;
+    const values: unknown[] = [];
+    const expanded = await count(supplierItemMatch("s", parsed, binder(values)), values);
+    // Without the expansion: the part number or every word as typed (with its synonyms).
+    const before: unknown[] = [prefixTsQuery(parsed)];
+    const withoutExpansion = await count(`(${text} OR ${supplierItemMatch("s", parsed, binder(before), "code")})`, before);
+    const either: unknown[] = [prefixTsQuery(parsed), `(${english})`];
+    const union = await count(`(${text} OR ${text.replace("$1", "$2")} OR ${supplierItemMatch("s", parsed, binder(either), "code")})`, either);
+    assert.ok(expanded >= withoutExpansion && expanded >= englishRows, `${q}: ${expanded} vs ${withoutExpansion} + ${englishRows}`);
+    assert.equal(expanded, union, q);
+  }
+  assert.ok(!supplierItemMatch("s", parseSearchQuery("fren diski"), binder([]), "code").includes("<->"));
+});
+
+test("product search: ambiguous Turkish type names add only the exact English names (#963)", async () => {
+  const name = "search_normalize(s.product_data->>'ac')";
+  const text = "to_tsvector('simple', supplier_item_search_text(s.code, s.product_data))";
+  for (const [q, english] of [["kapak", "cap"], ["jant", "wheel"], ["yay", "spring"], ["tapa", "plug"], ["kol", "arm"]]) {
+    const values: unknown[] = [];
+    const match = supplierItemMatch("s", parseSearchQuery(q), binder(values));
+    // The exact clause comes last, so the match without it reads only the leading parameters.
+    const withoutExact = match.replace(/ OR s\.id = ANY\(ARRAY\([^]*\)\)\)\)$/, ")");
+    assert.notEqual(withoutExact, match, q);
+    const added = await db.query<{ name: string }>(`SELECT DISTINCT ${name} AS name FROM supplier_items s WHERE ${match} AND NOT ${withoutExact}`, values);
+    // Every added row is named exactly the word: no ÇAP, CAP 276, ARM engine code, R9 SPRING, PLUG-IN or WHEEL BRAKE CYLINDER.
+    for (const row of added.rows) assert.equal(row.name, english, `${q}: ${row.name}`);
+    const named = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM supplier_items s
+      WHERE ${text} @@ to_tsquery('simple', $1) AND ${name} = $1`, [english]);
+    const found = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM supplier_items s WHERE ${match} AND ${name} = $${values.length + 1}`,
+      [...values, english]);
+    assert.equal(found.rows[0].n, named.rows[0].n, q);
+  }
+  assert.ok(!supplierItemMatch("s", parseSearchQuery("kapak"), binder([]), "code").includes("ARRAY"));
+});
+
 test("vehicle search matches words, not letters inside codes", async () => {
   const tesla = await searchVehicleCatalog("tesla model y");
   assert.ok(tesla.total > 0);

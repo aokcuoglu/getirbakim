@@ -15,7 +15,7 @@ KVKK hakları tamamlandı; amaç ve hukuki sebepler mevcut hesap/sepet/garaj iş
 - Bu proje henüz yayımlanmadı; yerel ortamda çalışıyor.
 - AWS Almanya/Frankfurt bölgesine yayımlama planlanıyor; aktarım başlamadı.
 - Mevcut durumda kişisel veri paylaşılan e-posta, ödeme veya kargo sağlayıcısı bulunmuyor.
-- Kodda sipariş/ödeme, açık üyelik, sosyal giriş ve pazarlama gönderimi etkin değil; Google Analytics 4 yalnızca analiz çerezi rızasıyla ve `GA4_MEASUREMENT_ID` doluyken yüklenir (#644); reklam entegrasyonu yok.
+- Kodda sipariş/ödeme, açık üyelik, sosyal giriş ve pazarlama gönderimi etkin değil; Google Analytics 4 yalnızca analiz çerezi rızasıyla ve `GA4_MEASUREMENT_ID` doluyken yüklenir (#644); Google Ads ve Meta Pixel yalnızca reklam çerezi rızasıyla ve `GOOGLE_ADS_ID` / `META_PIXEL_ID` doluyken yüklenir (#676).
 
 Metinler uygulanmış bir AWS aktarım mekanizması veya tamamlanmış saklama/imha takvimi varmış gibi taahhüt içermez. Şirket, bu fiilî bilgilerin değişmesiyle metinleri güncellemelidir.
 

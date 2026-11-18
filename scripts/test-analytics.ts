@@ -14,14 +14,16 @@ const now = Date.UTC(2026, 10, 15);
 
 test("consent cookie: round trip, old versions, expiry and future records", () => {
   const raw = serializeConsent({ analytics: true, marketing: false, savedAt: now });
-  assert.equal(raw, `2.1.0.${now / 1000}`);
-  assert.deepEqual(parseConsent(raw, now), { version: 2, necessary: true, analytics: true, marketing: false, savedAt: now });
+  assert.equal(raw, `3.1.0.${now / 1000}`);
+  assert.deepEqual(parseConsent(raw, now), { version: 3, necessary: true, analytics: true, marketing: false, savedAt: now });
   assert.equal(parseConsent(`1.1.1.${now / 1000}`, now), null);
+  // Version 3 (#676): a version 2 choice predates the advertising tags and is asked again.
+  assert.equal(parseConsent(`2.1.1.${now / 1000}`, now), null);
   assert.equal(parseConsent(JSON.stringify({ version: 1, necessary: true, analytics: true, marketing: true, savedAt: now }), now), null);
   assert.equal(parseConsent(raw, now + CONSENT_MAX_AGE), null);
   assert.equal(parseConsent(serializeConsent({ analytics: true, marketing: true, savedAt: now + 600_000 }), now), null);
   assert.equal(parseConsent(null, now), null);
-  assert.equal(parseConsent("2.2.0.1", now), null);
+  assert.equal(parseConsent("3.2.0.1", now), null);
 });
 
 test("consent banner: open until a valid choice, and whenever the preferences are open", () => {
@@ -29,6 +31,7 @@ test("consent banner: open until a valid choice, and whenever the preferences ar
   assert.equal(consentBannerOpen(null, false, now), true);
   assert.equal(consentBannerOpen(valid, false, now), false);
   assert.equal(consentBannerOpen(`1.1.1.${now / 1000}`, false, now), true);
+  assert.equal(consentBannerOpen(`2.1.1.${now / 1000}`, false, now), true);
   assert.equal(consentBannerOpen(valid, false, now + CONSENT_MAX_AGE), true);
   assert.equal(consentBannerOpen("garbage", false, now), true);
   assert.equal(consentBannerOpen(valid, true, now), true);
@@ -105,7 +108,7 @@ test("purchase: string transaction id, value + shipping = order total, VAT insid
 
 test("purchase claim: GA4 id, consent and role gate the flag; the window is 7 days (#675)", () => {
   const consent = (analytics: boolean) => serializeConsent({ analytics, marketing: false, savedAt: now });
-  const base = { ga4: "G-ABC123XYZ", role: undefined, consent: consent(true), now };
+  const base = { ga4: "G-ABC123XYZ", marketing: false, role: undefined, consent: consent(true), now };
   assert.equal(purchaseClaimAllowed(base), true);
   assert.equal(purchaseClaimAllowed({ ...base, role: "service" }), true);
   assert.equal(purchaseClaimAllowed({ ...base, consent: null }), false);
@@ -148,14 +151,17 @@ function browser(cookie = "") {
 
 test("an event sent before the tag boots is refused, then queued after the boot (hydration order)", async () => {
   const { consentSnapshot } = await import("../src/lib/cookie-consent");
-  const { TAG_READY_EVENT, bootGtag, stopGtag, track } = await import("../src/modules/analytics/track");
+  const { TAG_READY_EVENT, bootTags, stopTags, track } = await import("../src/modules/analytics/track");
   browser(`other=1; gb_consent=${serializeConsent({ analytics: true, marketing: false, savedAt: Date.now() })}`);
   assert.ok(consentSnapshot());
   let ready = 0;
   window.addEventListener(TAG_READY_EVENT, () => { ready += 1; });
   assert.equal(track("view_item", {}), false);
   assert.equal(window.dataLayer, undefined);
-  bootGtag("G-TEST0000000", "b2c", true, { marketing: false });
+  const boot = (customerType: string) => bootTags({
+    ga4: "G-TEST0000000", ads: null, metaPixel: null, customerType, consent: { analytics: true, marketing: true }, services: { marketing: false },
+  });
+  boot("b2c");
   assert.equal(ready, 1);
   const commands = () => (window.dataLayer ?? []).map(entry => Array.from(entry as ArrayLike<unknown>));
   assert.deepEqual(commands().map(command => command.slice(0, 2).join(":")).slice(0, 5),
@@ -163,10 +169,10 @@ test("an event sent before the tag boots is refused, then queued after the boot 
   assert.equal(track("view_item", { a: 1 }), true);
   assert.deepEqual(commands().at(-1), ["event", "view_item", { page_location: "https://getirbakim.com/", a: 1 }]);
   // Signing in later changes the user property without a second config.
-  bootGtag("G-TEST0000000", "b2b", true, { marketing: false });
+  boot("b2b");
   assert.equal(commands().filter(command => command[0] === "config").length, 1);
   assert.deepEqual(commands().filter(command => command[0] === "set").at(-1), ["set", "user_properties", { customer_type: "b2b" }]);
-  stopGtag("G-TEST0000000");
+  stopTags("G-TEST0000000");
   assert.equal((window as unknown as Record<string, boolean>)["ga-disable-G-TEST0000000"], true);
   assert.equal(commands().at(-1)?.[2] && (commands().at(-1)![2] as { analytics_storage: string }).analytics_storage, "denied");
 });

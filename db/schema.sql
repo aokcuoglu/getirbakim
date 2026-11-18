@@ -35,7 +35,11 @@ CREATE TABLE IF NOT EXISTS cart_items (
 );
 
 -- Iteration 2: public storefront taxonomy and guest carts.
-ALTER TABLE store_products ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'yedek-parca';
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='store_products'::regclass AND attname='category' AND NOT attisdropped) THEN
+  ALTER TABLE store_products ADD COLUMN category text NOT NULL DEFAULT 'yedek-parca';
+ END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS store_products_category_idx ON store_products(category);
 CREATE TABLE IF NOT EXISTS guest_carts (
  token_hash text PRIMARY KEY,
@@ -79,7 +83,11 @@ CREATE TABLE IF NOT EXISTS supplier_import_items (
  source_variants jsonb NOT NULL DEFAULT '{}'::jsonb,
  UNIQUE(import_id,code)
 );
-ALTER TABLE supplier_import_items ADD COLUMN IF NOT EXISTS source_variants jsonb NOT NULL DEFAULT '{}'::jsonb;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_import_items'::regclass AND attname='source_variants' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_import_items ADD COLUMN source_variants jsonb NOT NULL DEFAULT '{}'::jsonb;
+ END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS supplier_import_items_import_idx ON supplier_import_items(import_id);
 
 -- Current supplier observations and bounded change history (not one full copy per run).
@@ -100,10 +108,20 @@ DO $$ BEGIN
   ALTER TABLE supplier_imports ALTER COLUMN completed_at DROP NOT NULL, ALTER COLUMN completed_at DROP DEFAULT;
  END IF;
 END $$;
-ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'succeeded' CHECK (status IN ('running','succeeded','failed','rejected'));
-ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS error_reason text;
-ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS review_note text;
-ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS stats jsonb NOT NULL DEFAULT '{}'::jsonb;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='status' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_imports ADD COLUMN status text NOT NULL DEFAULT 'succeeded' CHECK (status IN ('running','succeeded','failed','rejected'));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='error_reason' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_imports ADD COLUMN error_reason text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='review_note' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_imports ADD COLUMN review_note text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='stats' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_imports ADD COLUMN stats jsonb NOT NULL DEFAULT '{}'::jsonb;
+ END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS supplier_items (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -179,19 +197,39 @@ DO $$ BEGIN
 END $$;
 CREATE TABLE IF NOT EXISTS supplier_sync_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
 
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS daily_at time NOT NULL DEFAULT '03:00';
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='daily_at' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN daily_at time NOT NULL DEFAULT '03:00';
+ END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS supplier_imports_success_idx ON supplier_imports(supplier,company,list_group,warehouse,completed_at DESC,id DESC) WHERE status='succeeded';
 CREATE INDEX IF NOT EXISTS supplier_imports_scope_runs_idx ON supplier_imports(supplier,company,list_group,warehouse,started_at DESC,id DESC);
 
 -- Separate catalog discovery from recurring commercial observations.
-ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS run_kind text NOT NULL DEFAULT 'full' CHECK (run_kind IN ('full','commerce'));
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_enabled boolean NOT NULL DEFAULT false;
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_interval_minutes integer NOT NULL DEFAULT 60 CHECK (commerce_interval_minutes BETWEEN 15 AND 1440);
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_stale_minutes integer NOT NULL DEFAULT 120 CHECK (commerce_stale_minutes > commerce_interval_minutes);
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_next_run_at timestamptz NOT NULL DEFAULT now();
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_last_success_at timestamptz;
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_failures integer NOT NULL DEFAULT 0;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='run_kind' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_imports ADD COLUMN run_kind text NOT NULL DEFAULT 'full' CHECK (run_kind IN ('full','commerce'));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_enabled' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_enabled boolean NOT NULL DEFAULT false;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_interval_minutes' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_interval_minutes integer NOT NULL DEFAULT 60 CHECK (commerce_interval_minutes BETWEEN 15 AND 1440);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_stale_minutes' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_stale_minutes integer NOT NULL DEFAULT 120 CHECK (commerce_stale_minutes > commerce_interval_minutes);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_next_run_at' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_next_run_at timestamptz NOT NULL DEFAULT now();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_last_success_at' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_last_success_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_failures' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_failures integer NOT NULL DEFAULT 0;
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS supplier_scheduler_health (
  id boolean PRIMARY KEY DEFAULT true CHECK(id),
  started_at timestamptz NOT NULL, finished_at timestamptz, succeeded boolean,

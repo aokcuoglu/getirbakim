@@ -89,6 +89,7 @@
     "test:session-cookie": "node --import tsx --test scripts/test-session-cookie.ts",
     "test:product-paths": "node --import tsx --test scripts/test-product-paths.ts",
     "test:analytics": "node --import tsx --test scripts/test-analytics.ts",
+    "test:ads-tags": "node --import tsx --test scripts/test-ads-tags.ts",
     "test:cart-count": "node --import tsx --test scripts/test-cart-count.ts",
     "test:vehicle-families": "node --import tsx --test scripts/test-vehicle-families.ts",
     "test:home": "node --import tsx --test scripts/test-home.ts",
