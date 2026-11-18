@@ -27,7 +27,7 @@ export function Select({name,label,options,defaultValue="",value,className="",tr
     if(!option)return selected;
     if(!option.shortLabel)return option.label;
     return tabletShort
-     ? <><span className="max-[850.98px]:hidden">{option.label}</span><span className="min-[600px]:hidden">{option.shortLabel}</span><span className="max-[599.98px]:hidden min-[850.98px]:hidden">{option.tinyLabel??option.shortLabel}</span></>
+     ? <><span className="max-[850.98px]:hidden">{option.label}</span><span className="min-[600px]:hidden">{option.shortLabel}</span><span className="max-[600px]:hidden min-[850.98px]:hidden">{option.tinyLabel??option.shortLabel}</span></>
      : <><span className="max-[600px]:hidden">{option.label}</span><span className="min-[600px]:hidden">{option.shortLabel}</span></>;
    }}</SelectValue>
    <SiteIcon name="chevron" size={16} className="absolute top-[calc(50%-8px)] right-2.5 transition-transform duration-150 group-aria-expanded/select:rotate-180"/>
