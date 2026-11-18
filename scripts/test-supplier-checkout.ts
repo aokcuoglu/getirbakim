@@ -83,9 +83,9 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
       // MalzemeAra answers a code it no longer knows with HTTP 604 and a plain-text body (new Response rejects 604).
       if(url.includes("/material/MalzemeAra") && gone) return {ok:false,status:604,json:async()=>{throw new Error("not JSON");},text:async()=>"Malzeme bulunamadı!"} as unknown as Response;
       const body=url.includes("/auth/Login") ? {token:"test",tokenTipi:"Bearer",tokenBitisSuresi:300}
-        :url.includes("/material/MalzemeAra") ? {no:new URL(url).searchParams.get("MalzemeNo"),ac:"Part",uk:"TEST",dc:"TL",nf:price,mif:price,k:0,sMrk:stock,...depots,sYol:0}
+        :url.includes("/material/MalzemeAra") ? {no:new URL(url).searchParams.get("MalzemeNo"),ac:"BRAKE DISC",uk:"TEST",dc:"TL",nf:price,mif:price,k:0,sMrk:stock,...depots,sYol:0}
         :url.includes("ListeGrubuGetir") ? {malzemeGruplariListesi:[{kod:"FIAT",ad:"FIAT"}]}
-        :url.includes("MalzemeleriGetir") ? {malzemeListesi:[{no:"PART",ac:"Part",ac2:"",uk:"TEST",oe:"",lgk:"FIAT",m:"",mo:"",y:"",b:"ADET",dc:"TL",lf:10,mkk:""}]}
+        :url.includes("MalzemeleriGetir") ? {malzemeListesi:[{no:"PART",ac:"BRAKE DISC",ac2:"",uk:"TEST",oe:"",lgk:"FIAT",m:"",mo:"",y:"",b:"ADET",dc:"TL",lf:10,mkk:""}]}
         :url.includes("FiyatGetir") ? {fiyatListesi:[{no:"PART",nf:price,mif:price,k:0}]}
         :url.includes("StokGetir") ? {stokListesi:[{no:"PART",stok:stock,sYol:0,sDepo:new URL(url).searchParams.get("Depo"),sFarkliDepo:0}]}
         :{dovizListesi:[{dovizCinsi:"EUR",alis:"39",satis:"40"}]};
@@ -145,6 +145,8 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     assert.equal(line.pricing_snapshot.nf,20);assert.equal(Number(line.unit_price_kurus),3120);
     // Without fitment data the line is unknown, never a promise; the vehicle snapshot travels with it.
     assert.deepEqual(line.vehicle,vehicle);assert.equal(line.fitment_level,"unknown");
+    // #952: the line keeps the name the cart showed (the Turkish name of a known English supplier name), not the raw one.
+    assert.equal(line.name,"Fren Diski");assert.equal(line.code,"PART");
     assert.equal((await db.query("SELECT status FROM commerce_orders")).rows[0].status,"awaiting_payment");
 
     // #763 fallbacks, each with its own cart and request key.
@@ -401,7 +403,7 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     // Admin prices (#580): with nf 50 the formula sells at 78.00; a fixed 90.00 and a running 80.00 campaign override it.
     const buyer={kind:"guest" as const,id:randomBytes(32).toString("hex")};
     await db.query("INSERT INTO guest_carts(token_hash) VALUES($1)",[buyer.id]);
-    await db.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,price_kurus,sale_price_kurus,sale_until) VALUES($1,$2,9000,8000,now()+interval '1 day')",[id,randomUUID()]);
+    await db.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,name,price_kurus,sale_price_kurus,sale_until) VALUES($1,$2,'FREN DISKI ON ELLE',9000,8000,now()+interval '1 day')",[id,randomUUID()]);
     assert.equal(await setCartQuantity(buyer,id,1,true),true);
     assert.equal((await cartFor(buyer))[0].price_kurus,8000);
     const campaignInput={...input,requestKey:randomUUID(),quote:await cartQuote(await cartFor(buyer),0)};
@@ -410,8 +412,10 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     assert.equal((await submitOrder(buyer,campaignInput)).error,"price");
     campaignInput.quote=await cartQuote(await cartFor(buyer),0);
     const fixedOrder=await submitOrder(buyer,campaignInput);assert.ok(fixedOrder.id);
-    const fixedLine=async()=>(await db.query("SELECT unit_price_kurus,pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[fixedOrder.id])).rows[0];
+    const fixedLine=async()=>(await db.query("SELECT name,unit_price_kurus,pricing_snapshot FROM commerce_order_items WHERE order_id=$1",[fixedOrder.id])).rows[0];
     let placed=await fixedLine();
+    // #952: an admin's name wins over the Turkish and readable names and is stored as written.
+    assert.equal(placed.name,"FREN DISKI ON ELLE");
     assert.equal(Number(placed.unit_price_kurus),9000);
     assert.deepEqual([placed.pricing_snapshot.source,placed.pricing_snapshot.price_kind,placed.pricing_snapshot.auto_price_kurus,placed.pricing_snapshot.fixed_price_kurus,
       Number(placed.pricing_snapshot.cost_kurus),placed.pricing_snapshot.nf,placed.pricing_snapshot.discount_percent],["override","fixed",7800,9000,5000,50,0]);

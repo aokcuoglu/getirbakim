@@ -6,6 +6,7 @@ import { LockKeyhole } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { currentAccount } from "@/modules/auth/session";
 import { cartFor, currentCartOwner } from "@/modules/store/cart";
+import { shownProductName } from "@/modules/store/product-name";
 import { cartQuote, lastCheckoutDetails, orderTotals, shippingRule } from "@/modules/store/orders";
 import { paymentsEnabled } from "@/modules/payments/checkout";
 import { installmentSettings } from "@/modules/payments/installment-settings";
@@ -50,7 +51,8 @@ export default async function Checkout({searchParams}:{searchParams:Promise<Sear
   const options=installmentOptions(installments,totals.total,totals.subtotal);
   const analytics=await cartAnalyticsItems(items,discount);
   const enabled=paymentsEnabled();
-  const lineNames:Record<string,string>=Object.fromEntries(items.map(p=>[p.id,p.name]));
+  // Error alerts name the lines as the cart and the order do (#952).
+  const lineNames:Record<string,string>=Object.fromEntries(items.map(p=>[p.id,shownProductName(p)]));
   // Only ids of this cart's lines are named, by the cart's own names; the parameter's text is never shown (#788).
   const pageError:CheckoutError|null=params.error ? {code:params.error,names:cartLineNames((params.urun??"").split(","),lineNames),field:params.alan} : null;
   const valid=enabled && items.length>0 && cartOrderable(items);

@@ -20,8 +20,14 @@ CREATE TABLE IF NOT EXISTS product_override_fitments (
  UNIQUE (product_id,vehicle_type_id)
 );
 -- The store's vehicle filter and search read the decisions of the selected types.
-CREATE INDEX IF NOT EXISTS product_override_fitments_type_idx ON product_override_fitments(vehicle_type_id,product_id);
-CREATE INDEX IF NOT EXISTS product_override_fitments_carried_idx ON product_override_fitments(carried_from) WHERE carried_from IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitments'::regclass AND c.relname='product_override_fitments_type_idx') THEN
+  CREATE INDEX product_override_fitments_type_idx ON product_override_fitments(vehicle_type_id,product_id);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitments'::regclass AND c.relname='product_override_fitments_carried_idx') THEN
+  CREATE INDEX product_override_fitments_carried_idx ON product_override_fitments(carried_from) WHERE carried_from IS NOT NULL;
+ END IF;
+END $$;
 -- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 -- One bulk change (#816, #817): the rows of one "Araç ekle" with several types, or of one copy from another product,
 -- share an id in the decisions and in their history rows, so the history shows them as one line and "Geri al" takes

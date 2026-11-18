@@ -3,10 +3,11 @@ import { readdir, readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { BundleItem } from "./storefront-bundle-items";
 
-// Pure helpers of scripts/sync-storefront-production.ts: the per-target watermark, the run lock and the
+// Pure helpers of scripts/sync-storefront-production.ts: the watermark, the run lock and the
 // dry-run summary, argument parsing and the retry list of enrichments the target skipped. Paths are relative to the working directory (the checkout the sync runs in).
 
-export type SyncTarget = "vps" | "aws";
+// AWS is the only target (the VPS target was removed in #563); the field stays so existing state and lock files keep their shape.
+export type SyncTarget = "aws";
 export type SyncState = {
   snapshotAt: string; syncedAt?: string; target?: SyncTarget; since?: string | null; baseline?: boolean; enrichments?: number; jobs?: number;
   // Supplier items whose enrichments the target skipped (item not there yet); the next export sends them again.
@@ -23,10 +24,8 @@ export const LOCK_STALE_MS = 24 * 60 * 60 * 1000;
 // Retry keys kept between runs (and written to the inbound report); the count is always reported in full.
 export const RETRY_LIMIT = 10_000;
 
-/** Each target keeps its own watermark; the VPS keeps the file it always had. */
-export function statePath(target: SyncTarget) {
-  return target === "aws" ? `${SYNC_DIR}/state.aws.json` : `${SYNC_DIR}/state.json`;
-}
+/** The watermark file (kept under its aws name so the existing watermark keeps working). */
+export const STATE_PATH = `${SYNC_DIR}/state.aws.json`;
 
 /** The next run's --since: the last snapshot minus the overlap, or null (everything) without a state. */
 export function sinceFrom(state: Pick<SyncState, "snapshotAt"> | null, overlapMs: number) {

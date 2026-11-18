@@ -10,8 +10,8 @@ import { Pool } from "pg";
 import { buildInboundReport, type PartReport, reportKey } from "./storefront-sync-state";
 import { objectStorage } from "../src/lib/object-storage";
 
-// AWS counterpart of the VPS steps in sync-storefront-production.ts. Runs in the operations task, reads the parts
-// that the sync uploaded to s3://$INBOUND_BUCKET/<prefix>/<part>/ and does what the SSH steps did on the VPS:
+// Import side of sync-storefront-production.ts. Runs in the operations task, reads the parts that the sync uploaded
+// to s3://$INBOUND_BUCKET/<prefix>/<part>/ and, in order:
 // dry-run every part → apply every part → rebuild the fitments of the products the parts wrote → drain the derived enrichment tables → write
 // s3://$S3_BUCKET/internal/storefront-sync/<prefix>/report.json (the media bucket: the task may only read the inbound
 // one; summed counts and the supplier items whose enrichments were skipped because they do not exist
@@ -20,7 +20,7 @@ import { objectStorage } from "../src/lib/object-storage";
 //
 // Usage: node --conditions=react-server --import tsx scripts/import-storefront-inbound.ts <prefix>
 //   e.g. storefront/current
-// The pre-import backup of the VPS flow is covered on AWS by RDS point-in-time recovery (7 days).
+// No pre-import backup is taken: RDS point-in-time recovery (7 days) covers it.
 //
 // Table decisions (#553; the full table is in docs/product-enrichment.md):
 // - carried in the bundle: enrichments, mappings, media, categories, logos, REPXPERT vehicle data and the
@@ -63,8 +63,7 @@ async function download(partPrefix: string, target: string) {
   }
 }
 
-// Same invocations as production-task.sh on the VPS (the bundle import needs the react-server condition, the
-// fitment rebuild does not).
+// The bundle import needs the react-server condition, the fitment rebuild does not.
 function node(flags: string[], script: string, args: string[]) {
   const result = spawnSync(process.execPath, [...flags, "--import", "tsx", script, ...args], { stdio: "inherit" });
   if (result.status !== 0) throw new Error(`${script} ${args.join(" ")} failed with exit code ${result.status}`);

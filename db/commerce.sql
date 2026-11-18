@@ -52,7 +52,7 @@ DO $$ BEGIN
 END $$;
 -- Store brand pages and the brand filter read the overridden rows of a brand (#771).
 DO $$ BEGIN
- IF to_regclass(format('%I.commerce_item_overrides_brand_idx',current_schema())) IS NULL THEN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_item_overrides'::regclass AND c.relname='commerce_item_overrides_brand_idx') THEN
   CREATE INDEX commerce_item_overrides_brand_idx ON commerce_item_overrides(brand) WHERE brand IS NOT NULL;
  END IF;
 END $$;
@@ -131,7 +131,11 @@ CREATE TABLE IF NOT EXISTS commerce_order_items (
  unit_price_kurus bigint NOT NULL CHECK(unit_price_kurus>0), pricing_snapshot jsonb NOT NULL,
  PRIMARY KEY(order_id,product_id)
 );
-CREATE INDEX IF NOT EXISTS commerce_orders_owner_idx ON commerce_orders(owner_kind,owner_id,created_at DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_orders'::regclass AND c.relname='commerce_orders_owner_idx') THEN
+  CREATE INDEX commerce_orders_owner_idx ON commerce_orders(owner_kind,owner_id,created_at DESC);
+ END IF;
+END $$;
 -- Shared eligibility, without calculating prices for every catalog row.
 -- Saleable sources: Başbuğ's MRK warehouse, SETA's single list, Dinamik codes that have a stock-list row
 -- (price-list-only codes carry no name) and manual xlsx lists. All store cost as nf and availability as stok.
@@ -165,7 +169,7 @@ $$;
 -- Only when missing (looked up in this schema): CREATE INDEX IF NOT EXISTS still takes SHARE on the write-hot
 -- supplier_items on every setup run.
 DO $$ BEGIN
- IF to_regclass(format('%I.supplier_items_brand_label_idx',current_schema())) IS NULL THEN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_brand_label_idx') THEN
   CREATE INDEX supplier_items_brand_label_idx ON supplier_items(supplier_item_brand(supplier,product_data));
  END IF;
 END $$;
@@ -182,7 +186,11 @@ CREATE TABLE IF NOT EXISTS supplier_brands (
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz, created_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY (supplier,label)
 );
-CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx ON supplier_brands(brand_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_brands'::regclass AND c.relname='supplier_brands_brand_idx') THEN
+  CREATE INDEX supplier_brands_brand_idx ON supplier_brands(brand_id);
+ END IF;
+END $$;
 DO $setup$ DECLARE def text := $view$
 SELECT id,category,supplier,code,name,brand,description,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,brand AS display_brand,code AS display_code,
@@ -216,18 +224,32 @@ DROP INDEX IF EXISTS supplier_items_catalog_order_idx;
 -- The predicate mirrors commerce_supplier_items; a changed predicate needs a new index name.
 DROP INDEX IF EXISTS supplier_items_saleable_order_idx;
 DROP INDEX IF EXISTS supplier_items_saleable_order_v2_idx;
-CREATE INDEX IF NOT EXISTS supplier_items_saleable_order_v3_idx ON supplier_items(company,changed_at DESC,id)
-WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence='present' AND NOT conflicting;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_saleable_order_v3_idx') THEN
+  CREATE INDEX supplier_items_saleable_order_v3_idx ON supplier_items(company,changed_at DESC,id)
+   WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence='present' AND NOT conflicting;
+ END IF;
+END $$;
 -- Few supplier items carry a legacy category; the catalog resolves a category to ids through this index.
-CREATE INDEX IF NOT EXISTS supplier_items_legacy_category_idx ON supplier_items((product_data->>'category'))
-WHERE product_data->>'category'<>'';
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_legacy_category_idx') THEN
+  CREATE INDEX supplier_items_legacy_category_idx ON supplier_items((product_data->>'category'))
+   WHERE product_data->>'category'<>'';
+ END IF;
+END $$;
 -- Part numbers compared on the product page (cross references, OEM numbers): upper case, letters and
 -- digits only. Indexed so a reference lookup reads the matching rows instead of normalising every item.
 CREATE OR REPLACE FUNCTION part_number_key(value text) RETURNS text
 LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE SET search_path FROM CURRENT AS $$ SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') $$;
-CREATE INDEX IF NOT EXISTS supplier_items_part_key_idx ON supplier_items(part_number_key(substring(code from position(' ' in code)+1)));
-CREATE INDEX IF NOT EXISTS supplier_items_oem_key_idx ON supplier_items(part_number_key(product_data->>'oe'))
-WHERE product_data->>'oe'<>'';
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_part_key_idx') THEN
+  CREATE INDEX supplier_items_part_key_idx ON supplier_items(part_number_key(substring(code from position(' ' in code)+1)));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_oem_key_idx') THEN
+  CREATE INDEX supplier_items_oem_key_idx ON supplier_items(part_number_key(product_data->>'oe'))
+   WHERE product_data->>'oe'<>'';
+ END IF;
+END $$;
 -- The sale-price rules (#882), defined once and called by commerce_catalog and by livePriceChanges
 -- (src/modules/store/supplier-checkout.ts). Plain SQL bodies without SET or STRICT so the planner can inline them
 -- (as supplier_item_brand); PARALLEL SAFE so a call that is not inlined keeps reads of the view parallel. A SET or
@@ -436,7 +458,11 @@ DO $$ BEGIN
    CHECK(status IN ('awaiting_payment','pending','confirmed','shipped','delivered','cancelled'));
  END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS commerce_orders_payment_due_idx ON commerce_orders(payment_due_at) WHERE status='awaiting_payment';
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_orders'::regclass AND c.relname='commerce_orders_payment_due_idx') THEN
+  CREATE INDEX commerce_orders_payment_due_idx ON commerce_orders(payment_due_at) WHERE status='awaiting_payment';
+ END IF;
+END $$;
 -- One row per hosted-page attempt. provider_order_id is the orderId sent to TAMI and must never be reused.
 CREATE TABLE IF NOT EXISTS commerce_payments (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -527,7 +553,11 @@ UPDATE commerce_order_items i SET reserved_quantity=CASE
    AND EXISTS(SELECT 1 FROM store_products p WHERE p.id=i.product_id) THEN i.quantity ELSE 0 END
 FROM commerce_orders o WHERE o.id=i.order_id AND i.reserved_quantity IS NULL;
 -- Admin list order and the dashboard's 14-day chart (a created_at range per Istanbul day).
-CREATE INDEX IF NOT EXISTS commerce_orders_created_idx ON commerce_orders(created_at DESC,id DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_orders'::regclass AND c.relname='commerce_orders_created_idx') THEN
+  CREATE INDEX commerce_orders_created_idx ON commerce_orders(created_at DESC,id DESC);
+ END IF;
+END $$;
 -- Checkout consent evidence and the order-specific pre-contract text (#604). One row per order, written in the
 -- order's transaction; orders placed before this change have none. The row is never updated (trigger below):
 -- `document` is the full Ön Bilgilendirme Formu + Mesafeli Satış Sözleşmesi as shown for that order, so later
@@ -543,7 +573,12 @@ CREATE OR REPLACE FUNCTION commerce_order_agreement_immutable() RETURNS trigger 
 BEGIN
  RAISE EXCEPTION 'commerce_order_agreements rows are immutable';
 END $$;
-CREATE OR REPLACE TRIGGER commerce_order_agreement_immutable BEFORE UPDATE ON commerce_order_agreements FOR EACH ROW EXECUTE FUNCTION commerce_order_agreement_immutable();
+-- Created only when missing (#965): CREATE [OR REPLACE] TRIGGER locks the table against writers until setup commits.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='commerce_order_agreements'::regclass AND tgname='commerce_order_agreement_immutable') THEN
+  CREATE TRIGGER commerce_order_agreement_immutable BEFORE UPDATE ON commerce_order_agreements FOR EACH ROW EXECUTE FUNCTION commerce_order_agreement_immutable();
+ END IF;
+END $$;
 -- Procurement of order lines (#606): operations mark each supplier line as ordered from the supplier (with an optional
 -- reference) and then procured. Store-stock lines (pricing_snapshot.source='store') need none and keep 'pending'.
 -- Existing lines start as 'pending'; the admin list shows no badge for shipped, delivered or cancelled orders.

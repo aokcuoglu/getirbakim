@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
     if (result.outcome === "applied") {
       revalidatePath("/yonetim", "layout"); revalidatePath(`/siparis/${result.orderId}`); revalidatePath("/siparisler");
     }
-    return NextResponse.json({ ok: true, outcome: result.outcome }, { headers: noStore });
+    return NextResponse.json(result.outcome === "ignored" ? { ok: true, outcome: result.outcome, reason: result.reason } : { ok: true, outcome: result.outcome }, { headers: noStore });
   } catch (error) {
     // Not acknowledged, so a redelivery (if Geliver retries) or the next status can still update the order.
     console.error("Geliver webhook failed", { error: error instanceof Error ? error.message : error });

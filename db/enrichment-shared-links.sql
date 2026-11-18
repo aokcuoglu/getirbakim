@@ -283,13 +283,26 @@ DO $$ BEGIN
  END IF;
 END $$;
 
-CREATE OR REPLACE TRIGGER enrichment_shared_supplier_brands_update AFTER UPDATE OF brand_id ON supplier_brands FOR EACH ROW
- WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION product_enrichment_shared_queue_all();
-CREATE OR REPLACE TRIGGER enrichment_shared_supplier_brands_delete AFTER DELETE ON supplier_brands FOR EACH ROW EXECUTE FUNCTION product_enrichment_shared_queue_all();
-CREATE OR REPLACE TRIGGER enrichment_shared_supplier_brands_insert AFTER INSERT ON supplier_brands FOR EACH ROW EXECUTE FUNCTION product_enrichment_shared_queue_all();
-CREATE OR REPLACE TRIGGER enrichment_shared_brands_update AFTER UPDATE OF key, name ON brands FOR EACH ROW
- WHEN (OLD.key IS DISTINCT FROM NEW.key OR OLD.name IS DISTINCT FROM NEW.name) EXECUTE FUNCTION product_enrichment_shared_queue_all();
-CREATE OR REPLACE TRIGGER enrichment_shared_brands_delete AFTER DELETE ON brands FOR EACH ROW EXECUTE FUNCTION product_enrichment_shared_queue_all();
+-- Created only when missing (#965): CREATE [OR REPLACE] TRIGGER locks the table against writers until setup commits.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_brands'::regclass AND tgname='enrichment_shared_supplier_brands_update') THEN
+  CREATE TRIGGER enrichment_shared_supplier_brands_update AFTER UPDATE OF brand_id ON supplier_brands FOR EACH ROW
+   WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION product_enrichment_shared_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_brands'::regclass AND tgname='enrichment_shared_supplier_brands_delete') THEN
+  CREATE TRIGGER enrichment_shared_supplier_brands_delete AFTER DELETE ON supplier_brands FOR EACH ROW EXECUTE FUNCTION product_enrichment_shared_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_brands'::regclass AND tgname='enrichment_shared_supplier_brands_insert') THEN
+  CREATE TRIGGER enrichment_shared_supplier_brands_insert AFTER INSERT ON supplier_brands FOR EACH ROW EXECUTE FUNCTION product_enrichment_shared_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='brands'::regclass AND tgname='enrichment_shared_brands_update') THEN
+  CREATE TRIGGER enrichment_shared_brands_update AFTER UPDATE OF key, name ON brands FOR EACH ROW
+   WHEN (OLD.key IS DISTINCT FROM NEW.key OR OLD.name IS DISTINCT FROM NEW.name) EXECUTE FUNCTION product_enrichment_shared_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='brands'::regclass AND tgname='enrichment_shared_brands_delete') THEN
+  CREATE TRIGGER enrichment_shared_brands_delete AFTER DELETE ON brands FOR EACH ROW EXECUTE FUNCTION product_enrichment_shared_queue_all();
+ END IF;
+END $$;
 
 -- Every schema run may change the view logic it mirrors: the next sync (scripts/setup.ts runs one) rebuilds it.
 INSERT INTO product_enrichment_shared_queue(kind,id) VALUES ('p','00000000-0000-0000-0000-000000000000') ON CONFLICT DO NOTHING;

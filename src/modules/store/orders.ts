@@ -6,6 +6,7 @@ import { cartFor,lockCartOwner,type CartOwner,type CartItem } from './cart';
 import { refreshCheckoutSources,checkoutItems,livePriceChanges,lockCheckoutSources,checkedLineSnapshot } from './supplier-checkout';
 import { supplierCheckoutMode } from './supplier-checkout-policy';
 import { servicePrice } from './catalog';
+import { shownProductName } from './product-name';
 import { paymentsEnabled,PAYMENT_WINDOW_MINUTES } from '@/modules/payments/checkout';
 import { parseGarageVehicle,type GarageVehicle } from './garage';
 import { fitmentLevelResolver,productFitmentLevels } from './fitment-level.server';
@@ -134,8 +135,10 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   const lines:AgreementLine[]=[];
   for(const [i,p] of items.entries()) {
    const unitPrice=servicePrice(p.price_kurus!,discount);
-   // The contract names the part as the store showed it (#602); the order line keeps the supplier's code for operations.
-   lines.push({name:p.name,brand:p.display_brand,code:p.display_code,quantity:p.quantity,unitPriceKurus:unitPrice});
+   // The contract and the order line name the part as the cart showed it (#602, #952: shownProductName, so "BRAKE DISC" is
+   // bought and recorded as "Fren Diski"); the order line keeps the supplier's code for operations.
+   const name=shownProductName(p);
+   lines.push({name,brand:p.display_brand,code:p.display_code,quantity:p.quantity,unitPriceKurus:unitPrice});
    const vehicle=vehicles[i];
    // Only in-house stock is reserved; the line records what was taken so cancel/expiry return exactly that.
    const reserved=p.source==='store' ? p.quantity : 0;
@@ -146,7 +149,7 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
    // A live cost that could not be saved keeps the sale price (#861) and is recorded as live_check_nf for operations.
    const snapshot=checkedLineSnapshot(p.pricing_snapshot,refreshed,p.id,{discount_percent:discount});
    await client.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot,vehicle,fitment_level,reserved_quantity)
-    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,p.name,p.supplier,p.quantity,unitPrice,JSON.stringify(snapshot),vehicle ? JSON.stringify(vehicle) : null,levels[i],reserved]);
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,[order.id,p.id,p.code,name,p.supplier,p.quantity,unitPrice,JSON.stringify(snapshot),vehicle ? JSON.stringify(vehicle) : null,levels[i],reserved]);
   }
   const document=buildOrderAgreement({number:order.number,createdAt:order.created_at,name:input.name,email:input.email,phone:input.phone,address:input.address,note:input.note,
    invoiceAddress:invoiceAddress ? composeAddress({line:invoiceAddress.addressLine,district:invoiceAddress.district,province:invoiceAddress.province,postalCode:invoiceAddress.postalCode}) : null,

@@ -136,3 +136,13 @@ test("the invoice goes to the delivery address by default; a saved separate one 
   assert.match(renderToStaticMarkup(<CheckoutInvoiceFields initial={{ invoiceType: "individual", company: null, taxNo: null, taxOffice: null,
     address: { province: null, district: null, addressLine: null, postalCode: null } }}/>), /value="same"/);
 });
+
+test("the checkout summary and its error alerts name the lines as the cart and the order do (#952)", async () => {
+  // OrderSummary and the page read server-only modules, so their sources are checked: no raw supplier name is printed.
+  const { readFile } = await import("node:fs/promises");
+  const summary = await readFile(new URL("../src/components/order-summary.tsx", import.meta.url), "utf8");
+  const page = await readFile(new URL("../src/app/(store)/siparis-olustur/page.tsx", import.meta.url), "utf8");
+  assert.match(summary, /\{shownProductName\(p\)\} \{p\.display_brand\}/);
+  assert.doesNotMatch(summary, /\{p\.name\}/);
+  assert.match(page, /items\.map\(p=>\[p\.id,shownProductName\(p\)\]\)/);
+});

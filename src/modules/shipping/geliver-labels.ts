@@ -6,7 +6,7 @@ import { appendNote } from "@/modules/payments/checkout";
 import { isHandledPayment } from "@/modules/store/payment-states";
 import {
   buildTransactionBody, localErrorCodes, eventClock, geliverErrorMessage, geliverOrderNumber, geliverTestBlocked, geliverTestBlockedMessage, parseTime, recipientBlockLabel,
-  recipientOf, resolveGeliverTrackingUrl, serviceCodeFor, shouldApply, statusTime, webhookEventSchema, webhookSecretValid, type RecipientOrder, type WebhookEvent,
+  recipientOf, resolveGeliverTrackingUrl, carriesNewData, isRepeatEvent, serviceCodeFor, shouldApply, statusTime, webhookEventSchema, webhookSecretValid, type RecipientOrder, type WebhookEvent,
 } from "./geliver-request";
 import type { Parcel } from "./geliver-parcel";
 import { findShipmentsByOrderNumber, geliverConfig, purchaseLabel, type GeliverResult, type GeliverShipment } from "./geliver";
@@ -233,8 +233,9 @@ export async function checkGeliverLabel({ shipmentRowId, orderId }: { shipmentRo
 type TrackedRow = {
   id: string; order_id: string; test: boolean; geliver_shipment_id: string; tracking_number: string | null; tracking_url: string | null;
   tracking_status_code: string | null; tracking_sub_status_code: string | null; tracking_updated_at: Date | null;
+  tracking_status_details: string | null; tracking_location: string | null;
 };
-export type TrackingUpdateResult = { outcome: "applied"; orderId: string } | { outcome: "ignored"; reason: "unknown_shipment" | "stale" };
+export type TrackingUpdateResult = { outcome: "applied"; orderId: string } | { outcome: "ignored"; reason: "unknown_shipment" | "stale" | "duplicate" };
 
 /**
  * Applies a TRACK_UPDATED event to its label and order: tracking fields, the tracking number when the order has none,
@@ -251,14 +252,16 @@ export async function applyTrackingUpdate(event: WebhookEvent): Promise<Tracking
       "SELECT id,status,tracking_no,tracking_url FROM commerce_orders WHERE id=$1 FOR UPDATE", [known.order_id],
     )).rows[0];
     const row = (await client.query<TrackedRow>(
-      `SELECT id,order_id,test,geliver_shipment_id,tracking_number,tracking_url,tracking_status_code,tracking_sub_status_code,tracking_updated_at
+      `SELECT id,order_id,test,geliver_shipment_id,tracking_number,tracking_url,tracking_status_code,tracking_sub_status_code,tracking_updated_at,tracking_status_details,tracking_location
        FROM commerce_geliver_shipments WHERE geliver_shipment_id=$1 FOR UPDATE`, [event.data.id],
     )).rows[0];
     if (!row || !order) return { outcome: "ignored", reason: "stale" };
     const status = event.data.trackingStatus!;
     // A delivery of an order still on its way is never stale, whatever the clocks say.
     const delivers = status.trackingStatusCode === "DELIVERED" && order.status === "shipped";
-    if (!delivers && !shouldApply(row, event)) return { outcome: "ignored", reason: "stale" };
+    const repeat = isRepeatEvent(row, event);
+    // A repeat of the status that brings a new number, link, detail or location is still written.
+    if (!delivers && !shouldApply(row, event) && !(repeat && carriesNewData(row, event))) return { outcome: "ignored", reason: repeat ? "duplicate" : "stale" };
     const clock = eventClock(event), carrierTime = statusTime(event);
     const trackingNumber = event.data.trackingNumber || row.tracking_number;
     const trackingUrl = event.data.trackingUrl || row.tracking_url;
@@ -272,10 +275,11 @@ export async function applyTrackingUpdate(event: WebhookEvent): Promise<Tracking
     if (["shipped", "delivered"].includes(order.status)) {
       const previous = resolveGeliverTrackingUrl({ test: row.test, shipmentId: row.geliver_shipment_id, trackingNumber: row.tracking_number, trackingUrl: row.tracking_url });
       const next = resolveGeliverTrackingUrl({ test: row.test, shipmentId: row.geliver_shipment_id, trackingNumber, trackingUrl });
-      // A number or link entered by hand ("Kargo bilgisini düzenle") stays.
-      await client.query(`UPDATE commerce_orders SET tracking_no=COALESCE(tracking_no,$2),
+      // The order follows Geliver while its number and link are still the ones Geliver gave; a number or link entered
+      // by hand ("Kargo bilgisini düzenle") stays.
+      await client.query(`UPDATE commerce_orders SET tracking_no=CASE WHEN tracking_no IS NULL OR tracking_no=$5::text THEN $2 ELSE tracking_no END,
         tracking_url=CASE WHEN tracking_url IS NULL OR tracking_url=$3 THEN $4 ELSE tracking_url END WHERE id=$1`,
-      [order.id, trackingNumber, previous, next]);
+      [order.id, trackingNumber, previous, next, row.tracking_number]);
     }
     if (delivers) {
       // The carrier's delivery time, kept between the shipping time and now; without it, now.
@@ -289,7 +293,7 @@ export async function applyTrackingUpdate(event: WebhookEvent): Promise<Tracking
 
 export type WebhookResponse =
   | { status: 401 }
-  | { status: 200; outcome: "ignored"; reason: "not_track_updated" | "invalid_body" | "unknown_shipment" | "stale"; via: "header" | "token" }
+  | { status: 200; outcome: "ignored"; reason: "not_track_updated" | "invalid_body" | "unknown_shipment" | "stale" | "duplicate"; via: "header" | "token" }
   | { status: 200; outcome: "applied"; orderId: string; via: "header" | "token" };
 
 /**
