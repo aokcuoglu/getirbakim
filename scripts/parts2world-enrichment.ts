@@ -27,7 +27,7 @@
 //                    enrichment:categories -- backfill-types --source parts2world writes the categories. Holds the same
 //                    locks as collect; --retry re-asks articles answered without a name. A 404, an empty or an invalid
 //                    answer is stored without a name; 10 transient errors in a row stop the run.
-//   --via-proxy      (collect, fetch-types) sends every request through SUPPLIER_EGRESS_PROXY (the VPS squid, which must list
+//   --via-proxy      (fetch-types only; collect shares the checkpoint and source run with the direct worker) sends every request through SUPPLIER_EGRESS_PROXY (the VPS squid, which must list
 //                    www.parts2world.com in allowed-hosts.txt) and takes the locks parts2world-collect:proxy / parts2world-source:proxy,
 //                    so it runs beside a direct run (the site limits per IP); without the proxy variable it refuses to start.
 //   trim-oem-vehicles [--dry-run]  products written through an OE number keep only the maker's vehicles and no EAN,
@@ -64,6 +64,7 @@ if(command==='collect'&&!statuses.includes(status))throw Error('--status must be
 const viaProxy=args.includes('--via-proxy');
 /** --via-proxy sends every request through SUPPLIER_EGRESS_PROXY (own egress IP, own locks); no silent direct fallback. */
 const egressProxy=viaProxy?parseEgressProxy(process.env.SUPPLIER_EGRESS_PROXY):undefined;
+if(viaProxy&&command!=='fetch-types')throw Error('--via-proxy is only supported for fetch-types');
 if(viaProxy&&!egressProxy)throw Error('--via-proxy needs SUPPLIER_EGRESS_PROXY=http://user:password@host:port');
 const egress=viaProxy?'proxy' as const:'direct' as const;
 const locks=parts2worldLockNames(egress);

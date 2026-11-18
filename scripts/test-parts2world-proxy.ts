@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createServer,type Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {parts2worldLockNames} from '../src/modules/enrichment/parts2world-locks';
-import {Parts2WorldClient} from '../src/modules/enrichment/parts2world-client';
+import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2world-client';
 import {EgressProxyError,parseEgressProxy} from '../src/modules/suppliers/egress-proxy';
 
 test('lock names: direct keeps the old names, proxy gets its own',()=>{
@@ -38,4 +38,19 @@ test('client preflight: tunnels to www.parts2world.com:443 with credentials; a r
   status=403;
   await assert.rejects(new Parts2WorldClient(0,0,proxy).preflight(),/CONNECT HTTP 403/);
  }finally{await new Promise<void>(r=>server.close(()=>r()));}
+});
+
+test('articleInfo answered 403/429/503 by a proxied client stops the run as SourceBlocked, 404 is no article',async()=>{
+ // A TLS answer behind the tunnel needs a certificate for the real host, so the transport is stubbed; the status
+ // mapping is the client's own and is the same for the proxied and the direct transport.
+ const proxy=parseEgressProxy('http://u:p@127.0.0.1:1')!;
+ const path='/api/v2/tecdoc/article-info/1/2/3/';
+ for(const status of[403,429,503]){
+  const client=new Parts2WorldClient(0,0,proxy);
+  (client as unknown as {get:()=>Promise<Response>}).get=async()=>new Response(null,{status});
+  await assert.rejects(client.articleInfo(path),SourceBlocked);
+ }
+ const client=new Parts2WorldClient(0,0,proxy);
+ (client as unknown as {get:()=>Promise<Response>}).get=async()=>new Response(null,{status:404});
+ assert.equal(await client.articleInfo(path),null);
 });
