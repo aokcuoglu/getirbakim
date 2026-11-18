@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { compactSearchCode, exactTsQuery, parseSearchQuery, prefixTsQuery, type ParsedSearch, type ParseOptions } from "./query";
+import { typeNameTsQueries } from "./type-names";
 
 /** Appends a value to the statement's parameters and returns its placeholder ("$3"). */
 export type Bind = (value: unknown) => string;
@@ -21,6 +22,10 @@ export function supplierItemMatch(alias: string, parsed: ParsedSearch, bind: Bin
   if (parsed.compact.length >= 3) clauses.push(`supplier_item_search_codes(${alias}.code, ${alias}.product_data) LIKE ${bind(`%${parsed.compact}%`)}`);
   const query = prefixTsQuery(parsed);
   if (mode === "all" && query) clauses.push(`to_tsvector('simple', supplier_item_search_text(${alias}.code, ${alias}.product_data)) @@ to_tsquery('simple', ${bind(query)})`);
+  // English supplier names of Turkish type names ("fren diski" → BRAKE DISC, #953): separate clauses, because a <-> phrase
+  // inside the main tsquery forces a recheck of every hit (200 ms against 57 ms as an OR of index scans).
+  if (mode === "all") for (const names of typeNameTsQueries(parsed))
+    clauses.push(`to_tsvector('simple', supplier_item_search_text(${alias}.code, ${alias}.product_data)) @@ to_tsquery('simple', ${bind(names)})`);
   return clauses.length ? `(${clauses.join(" OR ")})` : "false";
 }
 

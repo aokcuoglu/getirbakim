@@ -12,6 +12,7 @@ import { foldText } from "./fold-text";
  * Turkish names for the same OE numbers: "SEAL" and "JOINT" (mostly gaskets), "ROD" (piston rods, engine mounts), "CABLE"
  * (mostly gear cables). They stay readable English on the store and are hidden from name suggestions: a missing
  * suggestion is better than one naming the wrong part.
+ * New entries also feed search: a Turkish query finds the English-named products (src/modules/search/type-names.ts, #953).
  */
 const dictionary = new Map<string, string>([
   ["brake disc", "Fren Diski"],
@@ -98,6 +99,11 @@ function words(raw: string): string[] {
 /** The Turkish name of a known English supplier name, or undefined. */
 export function turkishTypeName(raw: string): string | undefined {
   return dictionary.get(words(raw).join(" "));
+}
+
+/** Every [English, Turkish] name pair, for the search expansion in src/modules/search/type-names.ts (#953). */
+export function typeNameEntries(): readonly (readonly [english: string, turkish: string])[] {
+  return [...dictionary];
 }
 
 /** Whether every word is English and at least one is English only. */
