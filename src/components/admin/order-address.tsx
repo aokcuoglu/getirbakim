@@ -1,15 +1,18 @@
 import { Badge } from "@/components/ui/badge";
 import type { CommerceOrder } from "@/modules/store/orders";
-import { invoiceTypes } from "@/modules/store/tr-address";
+import { invoiceAddressText, invoiceTypes } from "@/modules/store/tr-address";
 
 type DeliveryOrder = Pick<CommerceOrder, "address" | "delivery_province" | "delivery_district" | "delivery_address_line" | "delivery_postal_code"
-  | "invoice_type" | "invoice_company" | "invoice_tax_no" | "invoice_tax_office">;
+  | "invoice_type" | "invoice_company" | "invoice_tax_no" | "invoice_tax_office"
+  | "invoice_province" | "invoice_district" | "invoice_address_line" | "invoice_postal_code">;
 
 /**
  * Delivery address and invoice of an order as `<dt>/<dd>` pairs for a surrounding `<dl>` (#881). Orders placed before the
- * structured address show their free-text address; those without invoice details say so.
+ * structured address show their free-text address; those without invoice details say so. With invoice details, the
+ * invoice address is the separate one (#916) or the delivery address.
  */
 export function OrderDeliveryDetails({ order }: { order: DeliveryOrder }) {
+  const invoiceAddress = invoiceAddressText(order);
   return <>
     {order.delivery_province ? <>
       <div><dt className="text-muted-foreground">İl / ilçe</dt><dd>{order.delivery_province} / {order.delivery_district}</dd></div>
@@ -25,6 +28,9 @@ export function OrderDeliveryDetails({ order }: { order: DeliveryOrder }) {
         </>}
       </dd> : <dd className="text-muted-foreground">Kayıtlı değil</dd>}
     </div>
+    {order.invoice_type && <div className="sm:col-span-2"><dt className="text-muted-foreground">Fatura adresi</dt>
+      {invoiceAddress ? <dd className="whitespace-pre-wrap break-words">{invoiceAddress}</dd> : <dd className="text-muted-foreground">Teslimat adresiyle aynı</dd>}
+    </div>}
   </>;
 }
 

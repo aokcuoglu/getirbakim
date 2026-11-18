@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -46,12 +47,25 @@ function NameCombobox({ id, name, autoComplete, placeholder, emptyText, options,
   </Combobox>;
 }
 
+/** Element ids, submitted names and autofill tokens of the delivery address (#881) and the separate invoice address (#916). */
+const scopes = {
+  delivery: {
+    id: "checkout", province: "province", district: "district", addressLine: "addressLine", postalCode: "postalCode",
+    autoComplete: { province: "address-level1", district: "address-level2", addressLine: "street-address", postalCode: "postal-code" },
+  },
+  invoice: {
+    id: "checkout-invoice", province: "invoiceProvince", district: "invoiceDistrict", addressLine: "invoiceAddressLine", postalCode: "invoicePostalCode",
+    autoComplete: { province: "billing address-level1", district: "billing address-level2", addressLine: "billing street-address", postalCode: "billing postal-code" },
+  },
+} as const;
+
 /**
- * Delivery address as province, district, street address and optional postal code (#881). The district list follows the
- * province and is empty until one is chosen; choosing the same province again keeps the district. An `initial` value
- * outside the lists starts empty.
+ * An address as province, district, street address and optional postal code (#881): the delivery address, or with
+ * `scope="invoice"` the separate invoice address (#916). The district list follows the province and is empty until one
+ * is chosen; choosing the same province again keeps the district. An `initial` value outside the lists starts empty.
  */
-export function CheckoutAddressFields({ initial }: { initial?: AddressInitial | null }) {
+export function CheckoutAddressFields({ initial, scope = "delivery" }: { initial?: AddressInitial | null; scope?: keyof typeof scopes }) {
+  const { id, autoComplete, ...names } = scopes[scope];
   const startProvince = initial?.province && findProvince(initial.province) ? initial.province : null;
   const [province, setProvince] = useState<string | null>(startProvince);
   const [district, setDistrict] = useState<string | null>(startProvince && initial?.district && districtsOf(startProvince).includes(initial.district) ? initial.district : null);
@@ -64,30 +78,35 @@ export function CheckoutAddressFields({ initial }: { initial?: AddressInitial | 
   useEffect(() => { if (postal.current) postal.current.setCustomValidity(postalError(postal.current.value, province)); }, [province]);
   return <>
     <div className="grid grid-cols-2 gap-4 max-[480px]:grid-cols-1">
-      <Field className="gap-1.5"><FieldLabel htmlFor="checkout-province" className={checkoutLabel}>İl {required}</FieldLabel>
-        <NameCombobox id="checkout-province" name="province" autoComplete="address-level1" placeholder="İl seç" emptyText="Bu adda il yok." options={provinceNames}
+      <Field className="gap-1.5"><FieldLabel htmlFor={`${id}-province`} className={checkoutLabel}>İl {required}</FieldLabel>
+        <NameCombobox id={`${id}-province`} name={names.province} autoComplete={autoComplete.province} placeholder="İl seç" emptyText="Bu adda il yok." options={provinceNames}
           value={province} onValueChange={chooseProvince}/></Field>
-      <Field className="gap-1.5"><FieldLabel htmlFor="checkout-district" className={checkoutLabel}>İlçe {required}</FieldLabel>
-        {!province && <FieldDescription id="checkout-district-hint">Önce il seç.</FieldDescription>}
-        <NameCombobox id="checkout-district" name="district" autoComplete="address-level2" placeholder={province ? "İlçe seç" : "Önce il seç"} emptyText="Bu adda ilçe yok."
-          options={province ? districtsOf(province) : []} value={district} onValueChange={setDistrict} disabled={!province} describedBy={province ? undefined : "checkout-district-hint"}/></Field>
+      <Field className="gap-1.5"><FieldLabel htmlFor={`${id}-district`} className={checkoutLabel}>İlçe {required}</FieldLabel>
+        {!province && <FieldDescription id={`${id}-district-hint`}>Önce il seç.</FieldDescription>}
+        <NameCombobox id={`${id}-district`} name={names.district} autoComplete={autoComplete.district} placeholder={province ? "İlçe seç" : "Önce il seç"} emptyText="Bu adda ilçe yok."
+          options={province ? districtsOf(province) : []} value={district} onValueChange={setDistrict} disabled={!province} describedBy={province ? undefined : `${id}-district-hint`}/></Field>
     </div>
-    <Field className="gap-1.5"><FieldLabel htmlFor="checkout-address-line" className={checkoutLabel}>Açık adres {required}</FieldLabel>
-      <Textarea id="checkout-address-line" className={cn(checkoutTextarea, "min-h-24")} name="addressLine" autoComplete="street-address" minLength={10} maxLength={500} rows={3}
+    <Field className="gap-1.5"><FieldLabel htmlFor={`${id}-address-line`} className={checkoutLabel}>Açık adres {required}</FieldLabel>
+      <Textarea id={`${id}-address-line`} className={cn(checkoutTextarea, "min-h-24")} name={names.addressLine} autoComplete={autoComplete.addressLine} minLength={10} maxLength={500} rows={3}
         placeholder="Mahalle, cadde/sokak, bina ve daire no" defaultValue={initial?.addressLine ?? undefined} required/></Field>
-    <Field className="gap-1.5"><FieldLabel htmlFor="checkout-postal-code" className={checkoutLabel}>Posta kodu</FieldLabel>
-      <Input ref={postal} id="checkout-postal-code" className={checkoutControl} name="postalCode" autoComplete="postal-code" inputMode="numeric" pattern="\d{5}" maxLength={5}
-        title="5 haneli posta kodu" aria-describedby="checkout-postal-code-hint" defaultValue={initial?.postalCode ?? undefined}
+    <Field className="gap-1.5"><FieldLabel htmlFor={`${id}-postal-code`} className={checkoutLabel}>Posta kodu</FieldLabel>
+      <Input ref={postal} id={`${id}-postal-code`} className={checkoutControl} name={names.postalCode} autoComplete={autoComplete.postalCode} inputMode="numeric" pattern="\d{5}" maxLength={5}
+        title="5 haneli posta kodu" aria-describedby={`${id}-postal-code-hint`} defaultValue={initial?.postalCode ?? undefined}
         onChange={event => event.currentTarget.setCustomValidity(postalError(event.currentTarget.value, province))}/>
-      <FieldDescription id="checkout-postal-code-hint">5 haneli</FieldDescription></Field>
+      <FieldDescription id={`${id}-postal-code-hint`}>5 haneli</FieldDescription></Field>
   </>;
 }
 
-export type InvoiceInitial = { invoiceType: InvoiceType | null; company: string | null; taxNo: string | null; taxOffice: string | null };
+export type InvoiceInitial = { invoiceType: InvoiceType | null; company: string | null; taxNo: string | null; taxOffice: string | null; address?: AddressInitial | null };
 
-/** Individual or corporate invoice (#881); the corporate fields exist only while it is chosen. */
+/**
+ * Individual or corporate invoice (#881); the corporate fields exist only while it is chosen. The invoice goes to the
+ * delivery address unless the box is cleared, which shows a separate invoice address (#916); `initial.address` with a
+ * province starts with it shown.
+ */
 export function CheckoutInvoiceFields({ initial }: { initial?: InvoiceInitial | null }) {
   const [type, setType] = useState<InvoiceType>(initial?.invoiceType ?? "individual");
+  const [same, setSame] = useState(!initial?.address?.province);
   return <FieldSet className="gap-4">
     <FieldLegend variant="label" className={cn(checkoutLabel, "mb-0")}>Fatura türü</FieldLegend>
     <RadioGroup name="invoiceType" value={type} onValueChange={value => setType(value === "corporate" ? "corporate" : "individual")} className="flex flex-wrap gap-x-6 gap-y-0">
@@ -110,5 +129,12 @@ export function CheckoutInvoiceFields({ initial }: { initial?: InvoiceInitial | 
             defaultValue={initial?.taxOffice ?? undefined} required/></Field>
       </div>
     </>}
+    <input type="hidden" name="invoiceAddressMode" value={same ? "same" : "separate"}/>
+    <Field orientation="horizontal" className="items-start gap-2.5"><Checkbox id="checkout-invoice-same" checked={same} onCheckedChange={value => setSame(value === true)} className="my-0.5 size-5"/>
+      <FieldLabel htmlFor="checkout-invoice-same" className="block text-sm leading-[22px] font-normal">Fatura adresi teslimat adresiyle aynı</FieldLabel></Field>
+    {!same && <FieldSet className="gap-4">
+      <FieldLegend variant="label" className={cn(checkoutLabel, "mb-0")}>Fatura adresi</FieldLegend>
+      <CheckoutAddressFields scope="invoice" initial={initial?.address}/>
+    </FieldSet>}
   </FieldSet>;
 }

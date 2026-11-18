@@ -34,7 +34,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { cn } from "@/lib/utils";
 import { returnReasonLabels, returnReasons, type ReturnReason } from "@/modules/store/returns";
 import { carrierLabel } from "@/modules/store/shipment";
-import { invoiceSummary, invoiceTypes } from "@/modules/store/tr-address";
+import { invoiceAddressText, invoiceSummary, invoiceTypes } from "@/modules/store/tr-address";
 import { catalogPath } from "@/modules/seo/paths";
 
 const eyebrow="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]";
@@ -81,6 +81,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const awaitingCancel=mine && awaiting;
   const total=money(Number(order.total_kurus));
   const invoice=invoiceSummary(order);
+  const invoiceAddress=invoiceAddressText(order);
   const cancelButton=(expected:"awaiting_payment"|"pending")=><CancelOrderButton orderId={order.id} number={order.number} expected={expected} total={total} paid={order.payment_status==="paid"}/>;
   const returned=query.odeme==="sonuc",created=query.odeme==="yeni";
   const shipment=order.status==="shipped" || order.status==="delivered";
@@ -158,7 +159,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
           </dl>
           {order.payment_status==="paid" && <p className={cn(panelMuted,"m-0")}>Ödeme TAMI güvenli ödeme sayfasında kartla alındı.</p>}
         </Card>
-        <Card className={cn(panel,"min-w-0 gap-1 ring-0 max-[600px]:order-3")}><h2 className={panelTitle}>Teslimat bilgileri</h2><p className={panelText}>{order.customer_name}</p><p className={panelText}>{order.email} · {order.phone}</p><p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>{order.address}</p>{order.note && <p className={panelText}>Not: {order.note}</p>}{invoice && <p className={cn(panelText,"wrap-anywhere")}>Fatura: {invoiceTypes.corporate} · {invoice}</p>}</Card>
+        <Card className={cn(panel,"min-w-0 gap-1 ring-0 max-[600px]:order-3")}><h2 className={panelTitle}>Teslimat bilgileri</h2><p className={panelText}>{order.customer_name}</p><p className={panelText}>{order.email} · {order.phone}</p><p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>{order.address}</p>{order.note && <p className={panelText}>Not: {order.note}</p>}{invoice && <p className={cn(panelText,"wrap-anywhere")}>Fatura: {invoiceTypes.corporate} · {invoice}</p>}{invoiceAddress && <p className={cn(panelText,"whitespace-pre-wrap wrap-anywhere")}>Fatura adresi: {invoiceAddress}</p>}</Card>
         {shipment && <Card className={cn(panel,"min-w-0 gap-1 ring-0 max-[600px]:order-4")}><h2 className={panelTitle}>Kargo takibi</h2>
           {order.carrier ? <><p className={panelText}>{carrierLabel(order.carrier,order.carrier_name)}</p>{order.tracking_no && <p className={cn(panelText,"wrap-anywhere")}>Takip no: <strong className="font-semibold">{order.tracking_no}</strong></p>}
             {!order.tracking_url && <p className={panelMuted}>Takip numarasıyla kargo firmasının sitesinden sorgulayabilirsin.</p>}</>

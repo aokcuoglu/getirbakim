@@ -98,3 +98,29 @@ test("the invoice is individual by default with no tax fields; corporate asks fo
   // An individual invoice asks for no identity number at all.
   assert.doesNotMatch(individual, /kimlik|VKN|T\.C\./i);
 });
+
+test("the invoice goes to the delivery address by default; a saved separate one shows its own billing fields (#916)", () => {
+  const same = renderToStaticMarkup(<CheckoutInvoiceFields/>);
+  assert.match(same, /name="invoiceAddressMode"[^>]*value="same"|value="same"[^>]*name="invoiceAddressMode"/);
+  assert.match(same, /Fatura adresi teslimat adresiyle aynı/);
+  assert.match(same, /id="checkout-invoice-same"/);
+  for (const name of ["invoiceProvince", "invoiceDistrict", "invoiceAddressLine", "invoicePostalCode"]) assert.doesNotMatch(same, new RegExp(`name="${name}"`), name);
+
+  const separate = renderToStaticMarkup(<CheckoutInvoiceFields initial={{ invoiceType: "individual", company: null, taxNo: null, taxOffice: null,
+    address: { province: "Ankara", district: "Çankaya", addressLine: "Atatürk Bulvarı No 1", postalCode: "06690" } }}/>);
+  assert.match(separate, /name="invoiceAddressMode"[^>]*value="separate"|value="separate"[^>]*name="invoiceAddressMode"/);
+  assert.match(separate, />Fatura adresi</);
+  for (const name of ["invoiceProvince", "invoiceDistrict", "invoiceAddressLine", "invoicePostalCode"]) assert.match(separate, new RegExp(`name="${name}"`), name);
+  for (const hint of ["billing address-level1", "billing address-level2", "billing street-address", "billing postal-code"]) assert.match(separate, new RegExp(`autoComplete="${hint}"`, "i"), hint);
+  for (const id of ["checkout-invoice-province", "checkout-invoice-district", "checkout-invoice-address-line", "checkout-invoice-postal-code"]) assert.match(separate, new RegExp(`id="${id}"`), id);
+  assert.match(separate, /value="Ankara"/); assert.match(separate, /value="Çankaya"/); assert.match(separate, /value="06690"/);
+  // No delivery names or ids inside the invoice block, so the page has no clashes.
+  assert.doesNotMatch(separate, /name="(province|district|addressLine|postalCode)"|id="checkout-(province|district|address-line|postal-code)"/);
+  const page = renderToStaticMarkup(<><CheckoutAddressFields/><CheckoutInvoiceFields initial={{ invoiceType: null, company: null, taxNo: null, taxOffice: null,
+    address: { province: "Ankara", district: null, addressLine: null, postalCode: null } }}/></>);
+  const ids = [...page.matchAll(/\sid="([^"]+)"/g)].map(match => match[1]);
+  assert.equal(new Set(ids).size, ids.length, ids.join(" "));
+  // A saved address without a province keeps the box ticked.
+  assert.match(renderToStaticMarkup(<CheckoutInvoiceFields initial={{ invoiceType: "individual", company: null, taxNo: null, taxOffice: null,
+    address: { province: null, district: null, addressLine: null, postalCode: null } }}/>), /value="same"/);
+});

@@ -34,6 +34,7 @@ test("a refused checkout field names what to fix; an unknown or missing field ke
   const alert = (field?: string) => renderToStaticMarkup(<CheckoutErrorAlert error={{ code: "validation", names: [], field }} errors={general}/>);
   assert.match(alert("postalCode"), /Posta kodu seçili ille uyuşmuyor/);
   assert.match(alert("invoiceTaxNo"), /10 haneli VKN, şahıs işletmeleri için geçerli 11 haneli TC kimlik no/);
+  assert.match(alert("invoiceDistrict"), /Fatura adresi için seçili ile ait bir ilçe seç\./);
   for (const field of [undefined, "requestKey", "constructor", "<b>x</b>"]) assert.match(alert(field), /Genel doğrulama metni\./, String(field));
   // A field only changes the validation error's text.
   assert.match(renderToStaticMarkup(<CheckoutErrorAlert error={{ code: "supplier", names: [], field: "postalCode" }} errors={general}/>), /Tedarikçi metni\./);
