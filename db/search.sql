@@ -3,7 +3,7 @@
 -- Index expressions depend on these IMMUTABLE functions: changing their output requires a REINDEX
 -- of the *_search_* indexes below, otherwise the indexes silently disagree with the queries.
 -- `SET search_path FROM CURRENT`: index builds run with a restricted search_path and must still find these helpers.
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public;
 
 -- Turkish/Latin letters folded to ASCII, punctuation to spaces; a decimal point between digits ("1.6") survives.
 CREATE OR REPLACE FUNCTION search_normalize(value text) RETURNS text
