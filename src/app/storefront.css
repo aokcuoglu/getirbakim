@@ -99,7 +99,9 @@
   html:not(:has(.admin-app)) :is(input:not([type=checkbox], [type=radio], [type=range], [type=hidden], [type=file], [type=button], [type=submit], [type=reset], [type=color]), select, textarea) {
     font-size: 16px;
   }
+}
 
+@layer components {
   /* Home page (#967): the product card, the make, manufacturer and category tiles, repeated dozens of times. */
   .home-card { @apply flex min-h-[360px] min-w-0 flex-col text-foreground max-md:min-h-80 max-[37.5rem]:min-h-[300px]; }
   .home-card-image { @apply flex h-[210px] shrink-0 items-start justify-center pb-[30px] max-md:h-[190px] max-md:pb-5 max-[37.5rem]:h-[170px]; }
