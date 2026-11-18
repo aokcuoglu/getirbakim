@@ -56,7 +56,7 @@ test("actions return to the list they came from; anything else falls back to the
   }
   assert.equal(orderListReturn("/yonetim/siparisler?refund_unknown=1&page=2", "refunded"), "/yonetim/siparisler?page=2&refunded=1");
   // Geliver label outcomes (#960) behave the same way.
-  for (const outcome of ["label_created", "label_unknown", "label_failed", "label_busy"] as const) {
+  for (const outcome of ["label_created", "label_unknown", "label_failed", "label_busy", "label_orphan"] as const) {
     assert.equal(orderListReturn("/yonetim/siparisler?status=shipping&label_unknown=1&page=2", outcome), `/yonetim/siparisler?status=shipping&page=2&${outcome}=1`);
   }
   // A stale outcome and unknown parameters are dropped.

@@ -10,7 +10,9 @@ import { refundablePayments, refundKindLabel, refundStatusLabel, reversalKind, t
 import { carrierLabel } from "@/modules/store/shipment";
 import { OrderShipmentDialog, type GeliverOption } from "@/components/admin/order-shipment-dialog";
 import { geliverConfig } from "@/modules/shipping/geliver";
-import { geliverErrorMessage, recipientBlockLabel, recipientOf, trackingLook, type GeliverMode, type RecipientOrder } from "@/modules/shipping/geliver-request";
+import {
+  geliverErrorMessage, geliverTestBlocked, geliverTestBlockedMessage, recipientBlockLabel, recipientOf, trackingLook, type GeliverMode, type RecipientOrder,
+} from "@/modules/shipping/geliver-request";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { OrderDeliveryDetails, OrderRecipient } from "@/components/admin/order-address";
 import { OrderDeliveredDialog } from "@/components/admin/order-delivered-dialog";
@@ -46,12 +48,15 @@ function RefundStatusBadge({ status }: { status: RefundStatus }) {
 /** The ship dialog's Geliver tab (#960): hidden without a Geliver token, else the mode or why this order cannot get a label. */
 function geliverOption(mode: GeliverMode | null, order: RecipientOrder & { geliver: AdminGeliverShipment | null }): GeliverOption | undefined {
   if (!mode) return undefined;
+  if (geliverTestBlocked(process.env)) return { blocked: `${geliverTestBlockedMessage} Elle giriş sekmesinden kargoya verin.`, tone: "warning" };
   if (order.geliver?.status === "requested" || order.geliver?.status === "unknown") {
-    return { blocked: "Önceki etiket isteğinin sonucu bekleniyor; önce \"Geliver'de kontrol et\" ile sonucu alın." };
+    return { blocked: "Önceki etiket isteğinin sonucu bekleniyor; önce \"Geliver'de kontrol et\" ile sonucu alın.", tone: "info" };
   }
-  if (order.geliver?.status === "purchased") return { blocked: "Bu sipariş için Geliver etiketi zaten alınmış; Geliver panelinden kontrol edin." };
+  if (order.geliver?.status === "purchased") {
+    return { blocked: "Bu sipariş için Geliver etiketi zaten alınmış; Geliver panelinden kontrol edin.", tone: "info" };
+  }
   const recipient = recipientOf(order);
-  return recipient.ok ? { mode } : { blocked: recipientBlockLabel[recipient.reason] };
+  return recipient.ok ? { mode } : { blocked: recipientBlockLabel[recipient.reason], tone: "warning" };
 }
 function LabelLink({ url, number }: { url: string; number: string }) {
   return <Button variant="outline" size="sm" nativeButton={false} render={<a href={url} target="_blank" rel="noopener noreferrer"/>}>
@@ -96,6 +101,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.label_created && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Geliver etiketi oluşturuldu; sipariş kargoya verildi. Etiketi siparişin İşlem sütunundan açıp yazdırın.</AlertDescription></Alert>}
     {params.label_unknown && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>Geliver yanıtı doğrulanamadı; etiket alınmış olabilir. Bir dakika sonra siparişteki &quot;Geliver&apos;de kontrol et&quot; ile sonucu alın; o zamana kadar yeni etiket istenemez.</AlertDescription></Alert>}
     {params.label_failed && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Geliver etiketi oluşturulamadı; ayrıntı siparişin İşlem sütununda. Yeniden deneyebilir ya da elle sevk edebilirsiniz.</AlertDescription></Alert>}
+    {params.label_orphan && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>Geliver etiketi alındı ama sipariş durumu değişmişti; etiketi Geliver panelinden iptal edin.</AlertDescription></Alert>}
     {params.label_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu sipariş için başka bir Geliver isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
     {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
 
@@ -160,7 +166,6 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                           {[o.geliver.tracking_status_details, o.geliver.tracking_location, o.geliver.tracking_status_at && time(o.geliver.tracking_status_at)].filter(Boolean).join(" · ")}
                         </span>}
                         {o.geliver.barcode && <span className="tabular-nums">Geliver barkodu {o.geliver.barcode}</span>}
-                        {o.geliver.label_url && <LabelLink url={o.geliver.label_url} number={o.number}/>}
                       </dd>}
                       {o.shipped_at && <dd className="text-muted-foreground">Kargoya veriliş: {time(o.shipped_at)}</dd>}
                       {o.delivered_at && <dd className="text-muted-foreground">Teslim: {time(o.delivered_at)}</dd>}
@@ -205,7 +210,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                   <SubmitButton>Uygula</SubmitButton>
                 </form>
               </div>}
-              {o.status === "confirmed" && (o.geliver?.status === "requested" || o.geliver?.status === "unknown") && <form action={checkGeliverShipment} className="mt-2 flex flex-wrap items-center justify-end gap-2">
+              {(o.geliver?.status === "requested" || o.geliver?.status === "unknown") && <form action={checkGeliverShipment} className="mt-2 flex flex-wrap items-center justify-end gap-2">
                 <input type="hidden" name="shipment" value={o.geliver.id}/>
                 <input type="hidden" name="order" value={o.id}/>
                 <input type="hidden" name="back" value={back}/>
@@ -213,9 +218,14 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                 <SubmitButton variant="outline" aria-label={`#${o.number} Geliver etiketini Geliver'de kontrol et`} pendingLabel="Sorgulanıyor…"
                   icon={<RefreshCw data-icon="inline-start" aria-hidden="true"/>}>Geliver&apos;de kontrol et</SubmitButton>
               </form>}
-              {o.status === "confirmed" && o.geliver?.status === "failed" && <p className="mt-2 text-right text-destructive">
-                {o.geliver.error_code ? geliverErrorMessage(o.geliver.error_code, o.geliver.error_message) : o.geliver.error_message}
-              </p>}
+              {o.status === "confirmed" && o.geliver?.status === "failed" && <div className="mt-2 flex flex-col items-end gap-1 text-right">
+                <Badge variant="destructive"><CircleAlert data-icon="inline-start"/>Geliver etiketi oluşturulamadı</Badge>
+                <span className="text-muted-foreground">{o.geliver.error_code ? geliverErrorMessage(o.geliver.error_code, o.geliver.error_message)
+                  : "Geliver'de etiket alınamadı; yeniden deneyebilir ya da Elle giriş sekmesinden kargoya verebilirsiniz."}</span>
+              </div>}
+              {o.status === "delivered" && o.geliver?.status === "purchased" && o.geliver.label_url && <div className="flex justify-end">
+                <LabelLink url={o.geliver.label_url} number={o.number}/>
+              </div>}
               {o.status === "shipped" && ["paid", "none"].includes(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
                 {o.geliver?.status === "purchased" && o.geliver.label_url && <LabelLink url={o.geliver.label_url} number={o.number}/>}
                 <OrderDeliveredDialog orderId={o.id} number={o.number} back={back}/>

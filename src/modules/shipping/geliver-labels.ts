@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
 import { appendNote } from "@/modules/payments/checkout";
 import {
-  buildTransactionBody, eventTime, geliverErrorMessage, recipientBlockLabel, recipientOf, resolveGeliverTrackingUrl, serviceCodeFor, geliverOrderNumber,
-  shouldApply, webhookEventSchema, webhookSecretValid, type RecipientOrder, type WebhookEvent,
+  buildTransactionBody, eventClock, geliverErrorMessage, geliverOrderNumber, geliverTestBlocked, geliverTestBlockedMessage, parseTime, recipientBlockLabel,
+  recipientOf, resolveGeliverTrackingUrl, serviceCodeFor, shouldApply, statusTime, webhookEventSchema, webhookSecretValid, type RecipientOrder, type WebhookEvent,
 } from "./geliver-request";
 import type { Parcel } from "./geliver-parcel";
 import { findShipmentsByOrderNumber, geliverConfig, purchaseLabel, type GeliverResult, type GeliverShipment } from "./geliver";
@@ -21,6 +21,12 @@ export type GeliverLabelOutcome = {
 
 // A search right after the call may not list the shipment yet.
 const CHECK_AFTER_MINUTES = 1;
+// No shipment in Geliver's list proves nothing was bought only after this long (its list may lag behind the call).
+const NOTHING_FOUND_AFTER_MINUTES = 5;
+// A shipment without a label (offers only) may still get one shortly after the call; after this long it will not.
+const NO_LABEL_AFTER_MINUTES = 10;
+// Shipment states before a label is bought (statusCode): such a shipment proves no purchase.
+const LABEL_LESS_STATES = new Set(["CREATED", "GOT_OFFERS", "OFFER_ACCEPTED"]);
 // Geliver's clock may run slightly behind ours.
 const CLOCK_SKEW_MS = 60_000;
 
@@ -67,14 +73,15 @@ async function settleRow(client: PoolClient, rowId: string, from: string[], sett
      barcode=COALESCE($6,barcode),label_url=COALESCE($7,label_url),tracking_number=COALESCE($8,tracking_number),tracking_url=COALESCE($9,tracking_url),
      tracking_status_code=COALESCE($10,tracking_status_code),tracking_sub_status_code=COALESCE($11,tracking_sub_status_code),
      tracking_status_details=COALESCE($12,tracking_status_details),tracking_location=COALESCE($13,tracking_location),
-     tracking_status_at=COALESCE($14::timestamptz,tracking_status_at),error_code=$15,error_message=$16,
+     tracking_status_at=COALESCE($14::timestamptz,tracking_status_at),tracking_updated_at=COALESCE($17::timestamptz,tracking_updated_at),error_code=$15,error_message=$16,
      completed_at=CASE WHEN $3 IN ('purchased','failed') THEN now() ELSE completed_at END,checked_at=now()
      WHERE id=$1 AND status=ANY($2::text[])`,
     [rowId, from, settlement.status, shipment?.id ?? null, settlement.status === "purchased" ? settlement.transactionId : null,
       shipment?.barcode || null, shipment?.labelURL || null, shipment?.trackingNumber || null, shipment?.trackingUrl || null,
       status?.trackingStatusCode || null, status?.trackingSubStatusCode || null, status?.statusDetails || null, status?.locationName || null,
-      status?.statusDate || status?.updatedAt || null,
-      settlement.status === "purchased" ? null : settlement.errorCode ?? null, settlement.status === "purchased" ? null : settlement.errorMessage.slice(0, 500)],
+      parseTime(status?.statusDate) ?? parseTime(status?.updatedAt),
+      settlement.status === "purchased" ? null : settlement.errorCode ?? null, settlement.status === "purchased" ? null : settlement.errorMessage.slice(0, 500),
+      parseTime(status?.updatedAt) ?? parseTime(status?.createdAt)],
   );
   return Boolean(updated.rowCount);
 }
@@ -108,6 +115,7 @@ function logUncertain(message: string, context: { orderId: string; rowId: string
 export async function createGeliverLabel({ orderId, parcel, adminId }: { orderId: string; parcel: Parcel; adminId: string }): Promise<GeliverLabelOutcome> {
   const config = geliverConfig();
   if (!config) return unavailable;
+  if (geliverTestBlocked(process.env)) return { outcome: "unavailable", message: geliverTestBlockedMessage };
   const test = config.mode !== "live";
   type Claim = { row: { id: string }; body: ReturnType<typeof buildTransactionBody> };
   let claim: Claim | GeliverLabelOutcome;
@@ -183,13 +191,24 @@ export async function checkGeliverLabel({ shipmentRowId, orderId }: { shipmentRo
       settlement = { status: "unknown", errorMessage: found.kind === "rejected" ? `Geliver sorgusu reddedildi (${found.code}): ${found.message}` : found.reason };
     } else {
       const from = row.requested_at.getTime() - CLOCK_SKEW_MS;
-      const matching = found.data.filter(s => (s.test ?? false) === row.test && (!s.order?.orderNumber || s.order.orderNumber === row.order_number)
-        && s.statusCode !== "CANCELED" && s.createdAt && new Date(s.createdAt).getTime() >= from);
-      // The list carries the label, barcode and tracking status; a detail request would advance a test shipment.
-      settlement = matching.length
-        ? { status: "purchased", shipment: matching[0], transactionId: null,
-          note: matching.length > 1 ? `Geliver'de #${row.order_number} için ${matching.length} gönderi var; fazlasını Geliver panelinden iptal edin.` : undefined }
-        : { status: "failed", errorMessage: "Geliver'de gönderi oluşmamış; yeniden deneyebilirsiniz." };
+      const ageMinutes = (Date.now() - row.requested_at.getTime()) / 60_000;
+      const candidates = found.data.filter(s => (s.test ?? false) === row.test && (!s.order?.orderNumber || s.order.orderNumber === row.order_number)
+        && s.statusCode !== "CANCELED" && (parseTime(s.createdAt)?.getTime() ?? -Infinity) >= from);
+      // Only a shipment with a label proves a purchase. The list carries the label, barcode and tracking status; a
+      // detail request would advance a test shipment.
+      const labelled = candidates.filter(s => (s.labelURL || s.barcode) && !LABEL_LESS_STATES.has(s.statusCode ?? ""));
+      if (labelled.length) {
+        settlement = { status: "purchased", shipment: labelled[0], transactionId: null,
+          note: labelled.length > 1 ? `Geliver'de #${row.order_number} için ${labelled.length} etiketli gönderi var; fazlasını Geliver panelinden iptal edin.` : undefined };
+      } else if (candidates.length) {
+        settlement = ageMinutes >= NO_LABEL_AFTER_MINUTES
+          ? { status: "failed", errorMessage: "Geliver'de etiketi alınmamış bir gönderi var; Geliver panelini kontrol edin." }
+          : { status: "unknown", errorMessage: "Geliver'de gönderi var ama etiketi henüz görünmüyor; biraz sonra yeniden kontrol edin." };
+      } else {
+        settlement = ageMinutes >= NOTHING_FOUND_AFTER_MINUTES
+          ? { status: "failed", errorMessage: "Geliver'de gönderi oluşmamış; yeniden deneyebilirsiniz." }
+          : { status: "unknown", errorMessage: "Geliver'de gönderi henüz görünmüyor; birkaç dakika sonra yeniden kontrol edin." };
+      }
     }
   } catch (error) {
     settlement = { status: "unknown", errorMessage: `Geliver sorgusu yanıt vermedi: ${error instanceof Error ? error.message : "bilinmeyen hata"}`.slice(0, 500) };
@@ -203,13 +222,13 @@ export async function checkGeliverLabel({ shipmentRowId, orderId }: { shipmentRo
       return shipAfterPurchase(client, order, row.test, settlement.shipment);
     }
     if (settlement.status === "failed") return { outcome: "failed", message: settlement.errorMessage };
-    return { outcome: "unknown", message: "Geliver'de bu istek henüz görünmüyor. Biraz sonra yeniden kontrol edin." };
+    return { outcome: "unknown", message: settlement.errorMessage };
   });
 }
 
 type TrackedRow = {
   id: string; order_id: string; test: boolean; geliver_shipment_id: string; tracking_number: string | null; tracking_url: string | null;
-  tracking_status_code: string | null; tracking_sub_status_code: string | null; tracking_status_at: Date | null;
+  tracking_status_code: string | null; tracking_sub_status_code: string | null; tracking_updated_at: Date | null;
 };
 export type TrackingUpdateResult = { outcome: "applied"; orderId: string } | { outcome: "ignored"; reason: "unknown_shipment" | "stale" };
 
@@ -228,18 +247,23 @@ export async function applyTrackingUpdate(event: WebhookEvent): Promise<Tracking
       "SELECT id,status,tracking_no,tracking_url FROM commerce_orders WHERE id=$1 FOR UPDATE", [known.order_id],
     )).rows[0];
     const row = (await client.query<TrackedRow>(
-      `SELECT id,order_id,test,geliver_shipment_id,tracking_number,tracking_url,tracking_status_code,tracking_sub_status_code,tracking_status_at
+      `SELECT id,order_id,test,geliver_shipment_id,tracking_number,tracking_url,tracking_status_code,tracking_sub_status_code,tracking_updated_at
        FROM commerce_geliver_shipments WHERE geliver_shipment_id=$1 FOR UPDATE`, [event.data.id],
     )).rows[0];
-    if (!row || !order || !shouldApply(row, event)) return { outcome: "ignored", reason: "stale" };
+    if (!row || !order) return { outcome: "ignored", reason: "stale" };
     const status = event.data.trackingStatus!;
+    // A delivery of an order still on its way is never stale, whatever the clocks say.
+    const delivers = status.trackingStatusCode === "DELIVERED" && order.status === "shipped";
+    if (!delivers && !shouldApply(row, event)) return { outcome: "ignored", reason: "stale" };
+    const clock = eventClock(event), carrierTime = statusTime(event);
     const trackingNumber = event.data.trackingNumber || row.tracking_number;
     const trackingUrl = event.data.trackingUrl || row.tracking_url;
     await client.query(
       `UPDATE commerce_geliver_shipments SET tracking_number=$2,tracking_url=$3,tracking_status_code=$4,tracking_sub_status_code=$5,
-       tracking_status_details=$6,tracking_location=$7,tracking_status_at=$8,checked_at=now() WHERE id=$1`,
+       tracking_status_details=$6,tracking_location=$7,tracking_status_at=$8,
+       tracking_updated_at=CASE WHEN $9::timestamptz IS NULL THEN tracking_updated_at ELSE GREATEST(tracking_updated_at,$9::timestamptz) END,checked_at=now() WHERE id=$1`,
       [row.id, trackingNumber, trackingUrl, status.trackingStatusCode, status.trackingSubStatusCode || null, status.statusDetails || null,
-        status.locationName || null, eventTime(event)],
+        status.locationName || null, carrierTime ?? clock, clock],
     );
     if (["shipped", "delivered"].includes(order.status)) {
       const previous = resolveGeliverTrackingUrl({ test: row.test, shipmentId: row.geliver_shipment_id, trackingNumber: row.tracking_number, trackingUrl: row.tracking_url });
@@ -249,10 +273,11 @@ export async function applyTrackingUpdate(event: WebhookEvent): Promise<Tracking
         tracking_url=CASE WHEN tracking_url IS NULL OR tracking_url=$3 THEN $4 ELSE tracking_url END WHERE id=$1`,
       [order.id, trackingNumber, previous, next]);
     }
-    if (status.trackingStatusCode === "DELIVERED" && order.status === "shipped") {
-      const statusDate = status.statusDate ? new Date(status.statusDate) : null;
-      await client.query("UPDATE commerce_orders SET status='delivered',delivered_at=COALESCE($2::timestamptz,now()) WHERE id=$1 AND status='shipped'",
-        [order.id, statusDate && !Number.isNaN(statusDate.getTime()) ? statusDate : null]);
+    if (delivers) {
+      // The carrier's delivery time, kept between the shipping time and now; without it, now.
+      await client.query(`UPDATE commerce_orders SET status='delivered',
+        delivered_at=CASE WHEN $2::timestamptz IS NULL THEN now() ELSE LEAST(now(),GREATEST(shipped_at,$2::timestamptz)) END WHERE id=$1 AND status='shipped'`,
+      [order.id, carrierTime]);
     }
     return { outcome: "applied", orderId: order.id };
   });
@@ -270,8 +295,17 @@ export type WebhookResponse =
  * retry it; the body is never logged (it holds the customer's address).
  */
 export async function handleGeliverWebhook({ header, token, rawBody }: { header: string | null; token: string | null; rawBody: string }): Promise<WebhookResponse> {
-  const via = webhookSecretValid({ secret: process.env.GELIVER_WEBHOOK_SECRET, header, token });
+  const via = authenticateGeliverWebhook({ header, token });
   if (!via) return { status: 401 };
+  return handleAuthenticatedWebhook(via, rawBody);
+}
+
+/** Which carrier of GELIVER_WEBHOOK_SECRET matched; checked before the body is read. */
+export const authenticateGeliverWebhook = ({ header, token }: { header: string | null; token: string | null }) =>
+  webhookSecretValid({ secret: process.env.GELIVER_WEBHOOK_SECRET, header, token });
+
+/** The body of a webhook whose secret was already checked (authenticateGeliverWebhook). */
+export async function handleAuthenticatedWebhook(via: "header" | "token", rawBody: string): Promise<Exclude<WebhookResponse, { status: 401 }>> {
   let json: unknown;
   try { json = JSON.parse(rawBody); }
   catch { json = null; }

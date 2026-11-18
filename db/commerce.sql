@@ -496,7 +496,10 @@ CREATE TABLE IF NOT EXISTS commerce_geliver_shipments (
  parcel jsonb NOT NULL,
  geliver_shipment_id text, geliver_transaction_id text, barcode text, label_url text,
  tracking_number text, tracking_url text, tracking_status_code text, tracking_sub_status_code text, tracking_status_details text,
- tracking_location text, tracking_status_at timestamptz,
+ tracking_location text,
+ -- tracking_status_at: the carrier's time of the status (statusDate, else Geliver's), shown to operations;
+ -- tracking_updated_at: Geliver's record time (updatedAt), the one clock webhook events are ordered by.
+ tracking_status_at timestamptz, tracking_updated_at timestamptz,
  error_code text, error_message text,
  requested_by uuid REFERENCES accounts(id),
  requested_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz, checked_at timestamptz

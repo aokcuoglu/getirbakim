@@ -55,7 +55,8 @@ const orderRow = async (id: string) => (await schema.pool.query("SELECT * FROM c
 const labelRows = async (id: string) => (await schema.pool.query("SELECT * FROM commerce_geliver_shipments WHERE order_id=$1 ORDER BY requested_at,id", [id])).rows;
 const parcel = { preset: "small" as const, length: 20, width: 15, height: 10, weight: 1 };
 const create = (orderId: string) => labels.createGeliverLabel({ orderId, parcel, adminId: admin });
-const age = (orderId: string) => schema.pool.query("UPDATE commerce_geliver_shipments SET requested_at=now()-interval '2 minutes' WHERE order_id=$1", [orderId]);
+const age = (orderId: string, minutes = 2) =>
+  schema.pool.query("UPDATE commerce_geliver_shipments SET requested_at=now()-make_interval(mins=>$2) WHERE order_id=$1", [orderId, minutes]);
 
 /** Geliver's reply to POST /transactions (synthetic). */
 const shipment = (overrides: Record<string, unknown> = {}) => ({
@@ -163,19 +164,44 @@ test("checking finds the label on Geliver and ships the order", async () => {
   assert.equal(shipped.status, "shipped"); assert.equal(shipped.carrier, "yurtici"); assert.equal(shipped.tracking_no, "26895919");
 });
 
-test("checking with nothing on Geliver fails the row; other test/live kinds and older shipments do not count", async () => {
+test("checking with nothing on Geliver fails the row only after five minutes; other test/live kinds and older shipments do not count", async () => {
   const order = await seed();
   handler = () => { throw new TypeError("fetch failed"); };
   assert.equal((await create(order.id)).outcome, "unknown");
-  await age(order.id);
+  await age(order.id, 2);
   const [row] = await labelRows(order.id);
   handler = () => found([shipment({ test: false }), shipment({ createdAt: new Date(Date.now() - 3_600_000).toISOString() })]);
+  assert.equal((await labels.checkGeliverLabel({ shipmentRowId: row.id, orderId: order.id })).outcome, "unknown", "Geliver's list may still lag");
+  assert.equal((await labelRows(order.id))[0].status, "unknown");
+  await age(order.id, 6);
   const result = await labels.checkGeliverLabel({ shipmentRowId: row.id, orderId: order.id });
   assert.equal(result.outcome, "failed");
   assert.equal((await labelRows(order.id))[0].status, "failed");
   assert.equal((await orderRow(order.id)).status, "confirmed");
   handler = () => purchased();
   assert.equal((await create(order.id)).outcome, "purchased", "a new label is allowed");
+});
+
+test("a shipment without a label proves no purchase: unknown at first, failed after ten minutes", async () => {
+  const order = await seed();
+  handler = () => { throw new TypeError("fetch failed"); };
+  assert.equal((await create(order.id)).outcome, "unknown");
+  await age(order.id, 2);
+  const [row] = await labelRows(order.id);
+  const offersOnly = shipment({ statusCode: "GOT_OFFERS", barcode: null, labelURL: null, createdAt: new Date(Date.now() - 60_000).toISOString() });
+  handler = () => found([offersOnly]);
+  assert.equal((await labels.checkGeliverLabel({ shipmentRowId: row.id, orderId: order.id })).outcome, "unknown");
+  assert.equal((await labelRows(order.id))[0].status, "unknown");
+  assert.equal((await orderRow(order.id)).status, "confirmed");
+  // A label-carrying state with a barcode but still an offer state does not count either.
+  handler = () => found([shipment({ statusCode: "OFFER_ACCEPTED", createdAt: new Date(Date.now() - 60_000).toISOString() })]);
+  assert.equal((await labels.checkGeliverLabel({ shipmentRowId: row.id, orderId: order.id })).outcome, "unknown");
+  await age(order.id, 11);
+  handler = () => found([offersOnly]);
+  const result = await labels.checkGeliverLabel({ shipmentRowId: row.id, orderId: order.id });
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.message, "Geliver'de etiketi alınmamış bir gönderi var; Geliver panelini kontrol edin.");
+  assert.equal((await orderRow(order.id)).status, "confirmed");
 });
 
 test("an unanswered check keeps the row unknown", async () => {
@@ -218,11 +244,13 @@ test("a label bought while the order was cancelled is recorded and noted, the or
 
 const webhook = (body: unknown, auth: { header?: string | null; token?: string | null } = { token: SECRET }) =>
   labels.handleGeliverWebhook({ header: auth.header ?? null, token: auth.token ?? null, rawBody: JSON.stringify(body) });
-const trackEvent = (id: string, code: string, sub: string, statusDate: string | null, extra: Record<string, unknown> = {}) => ({
+/** `updatedAt` is Geliver's clock; statusDate (the carrier's time) is the same unless given. */
+const trackEvent = (id: string, code: string, sub: string, updatedAt: string | null, extra: Record<string, unknown> = {}, statusDate: string | null = updatedAt) => ({
   event: "TRACK_UPDATED", metadata: "",
   data: { id, trackingStatus: { trackingStatusCode: code, trackingSubStatusCode: sub, statusDetails: `${code} ayrıntı`, statusDate, locationName: "Kartal",
-    updatedAt: statusDate }, ...extra },
+    updatedAt }, ...extra },
 });
+const ago = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 async function shippedByGeliver({ test: isTest = false } = {}) {
   const order = await seed();
   const remote = shipment({ test: isTest });
@@ -265,15 +293,72 @@ test("webhook: transit fills the tracking number; delivered delivers the order o
   assert.equal(stale.status === 200 && stale.outcome, "ignored");
   assert.equal((await labelRows(order.id))[0].tracking_status_code, "TRANSIT");
 
-  assert.equal((await webhook(trackEvent(remote.id, "DELIVERED", "delivered", "2026-11-19T14:30:00+03:00"))).status, 200);
+  await schema.pool.query("UPDATE commerce_orders SET shipped_at=now()-interval '2 hours' WHERE id=$1", [order.id]);
+  const deliveredAt = ago(30);
+  assert.equal((await webhook(trackEvent(remote.id, "DELIVERED", "delivered", ago(29), {}, deliveredAt))).status, 200);
   row = await orderRow(order.id);
   assert.equal(row.status, "delivered");
-  assert.equal(new Date(row.delivered_at).toISOString(), "2026-11-19T11:30:00.000Z");
+  assert.equal(new Date(row.delivered_at).toISOString(), deliveredAt);
   [label] = await labelRows(order.id);
   assert.equal(label.tracking_status_code, "DELIVERED");
   // A later DELIVERED (another time) changes the label only; the order stays delivered with its first time.
-  await webhook(trackEvent(remote.id, "DELIVERED", "delivered", "2026-11-19T15:00:00+03:00"));
-  assert.equal(new Date((await orderRow(order.id)).delivered_at).toISOString(), "2026-11-19T11:30:00.000Z");
+  await webhook(trackEvent(remote.id, "DELIVERED", "delivered", ago(10), {}, ago(10)));
+  assert.equal(new Date((await orderRow(order.id)).delivered_at).toISOString(), deliveredAt);
+});
+
+test("webhook: events are ordered by Geliver's clock; a delivery of a shipped order is never stale", async () => {
+  const { order, remote } = await shippedByGeliver();
+  await schema.pool.query("UPDATE commerce_orders SET shipped_at='2026-11-17T08:00:00Z' WHERE id=$1", [order.id]);
+  // Stored: TRANSIT recorded by Geliver at 10:00, no statusDate.
+  await webhook(trackEvent(remote.id, "TRANSIT", "package_accepted", "2026-11-18T10:00:00Z", {}, null));
+  // Incoming: DELIVERED, carrier time 09:30 (earlier), Geliver time 10:30 (later): applied.
+  const delivered = await webhook(trackEvent(remote.id, "DELIVERED", "delivered", "2026-11-18T10:30:00Z", {}, "2026-11-18T09:30:00Z"));
+  assert.equal(delivered.status === 200 && delivered.outcome, "applied");
+  const row = await orderRow(order.id);
+  assert.equal(row.status, "delivered");
+  assert.equal(new Date(row.delivered_at).toISOString(), "2026-11-18T09:30:00.000Z");
+  const [label] = await labelRows(order.id);
+  assert.equal(new Date(label.tracking_status_at).toISOString(), "2026-11-18T09:30:00.000Z");
+  assert.equal(new Date(label.tracking_updated_at).toISOString(), "2026-11-18T10:30:00.000Z");
+
+  const second = await shippedByGeliver();
+  await webhook(trackEvent(second.remote.id, "TRANSIT", "out_for_delivery", "2026-11-18T10:00:00Z"));
+  // Older on Geliver's clock, but a delivery of a shipped order: applied anyway; a future carrier time is capped at now.
+  await webhook(trackEvent(second.remote.id, "DELIVERED", "delivered", "2026-11-18T09:00:00Z", {}, "2099-01-01T00:00:00Z"));
+  const capped = await orderRow(second.order.id);
+  assert.equal(capped.status, "delivered");
+  assert.ok(new Date(capped.delivered_at).getTime() <= Date.now() + 1000);
+  assert.equal(new Date((await labelRows(second.order.id))[0].tracking_updated_at).toISOString(), "2026-11-18T10:00:00.000Z", "the clock never goes back");
+
+  // A carrier time before shipping is raised to the shipping time; an unreadable one means now.
+  const third = await shippedByGeliver();
+  await schema.pool.query("UPDATE commerce_orders SET shipped_at='2026-11-17T08:00:00Z' WHERE id=$1", [third.order.id]);
+  await webhook(trackEvent(third.remote.id, "DELIVERED", "delivered", "2026-11-18T10:00:00Z", {}, "2026-11-01T00:00:00Z"));
+  assert.equal(new Date((await orderRow(third.order.id)).delivered_at).toISOString(), "2026-11-17T08:00:00.000Z");
+  const fourth = await shippedByGeliver();
+  await webhook(trackEvent(fourth.remote.id, "DELIVERED", "delivered", "2026-11-18T10:00:00Z", {}, "0001-01-01T00:00:00Z"));
+  assert.ok(Math.abs(new Date((await orderRow(fourth.order.id)).delivered_at).getTime() - Date.now()) < 60_000);
+});
+
+test("a production server in test mode buys no label unless explicitly allowed", async () => {
+  const env = process.env as Record<string, string | undefined>;
+  const original = env.NODE_ENV;
+  const order = await seed();
+  calls.length = 0;
+  handler = fail;
+  env.NODE_ENV = "production";
+  try {
+    const result = await create(order.id);
+    assert.deepEqual(result, { outcome: "unavailable", message: "Geliver test modunda; canlı etiket için GELIVER_MODE=live ayarlanmalı." });
+    assert.equal(calls.length, 0);
+    assert.equal((await labelRows(order.id)).length, 0);
+    env.GELIVER_ALLOW_TEST_IN_PRODUCTION = "1";
+    handler = () => purchased();
+    assert.equal((await create(order.id)).outcome, "purchased");
+  } finally {
+    if (original === undefined) delete env.NODE_ENV; else env.NODE_ENV = original;
+    delete env.GELIVER_ALLOW_TEST_IN_PRODUCTION;
+  }
 });
 
 test("webhook: a tracking number or link entered by hand is kept", async () => {

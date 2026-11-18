@@ -7,7 +7,7 @@ import { geliverMode, type GeliverMode } from "./geliver-request";
 // The token never leaves this module and is never logged.
 
 const BASE_URL = "https://api.geliver.io/api/v1";
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = 25_000;
 
 export type GeliverConfig = { token: string; mode: GeliverMode };
 /** GELIVER_API_TOKEN and GELIVER_MODE; null when no token is set (the Geliver tab is then hidden). */
@@ -37,7 +37,7 @@ export async function geliverRequest<T>(config: GeliverConfig, method: "GET" | "
     });
   } catch (error) {
     const timeout = error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
-    return { kind: "unknown", reason: timeout ? "Geliver 30 saniyede yanıt vermedi." : "Geliver'e bağlanılamadı.", httpStatus: null };
+    return { kind: "unknown", reason: timeout ? "Geliver 25 saniyede yanıt vermedi." : "Geliver'e bağlanılamadı.", httpStatus: null };
   }
   let json: unknown;
   try { json = await response.json(); }
@@ -57,7 +57,7 @@ export async function geliverRequest<T>(config: GeliverConfig, method: "GET" | "
 
 const text = z.string().nullish();
 const trackingStatus = z.object({
-  trackingStatusCode: z.string(), trackingSubStatusCode: text, statusDetails: text, statusDate: text, locationName: text, updatedAt: text,
+  trackingStatusCode: z.string(), trackingSubStatusCode: text, statusDetails: text, statusDate: text, locationName: text, createdAt: text, updatedAt: text,
 }).passthrough();
 /** The shipment fields read here; the rest of Geliver's large object is kept but not used. */
 export const geliverShipment = z.object({

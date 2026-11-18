@@ -12,6 +12,13 @@ export type GeliverMode = "test" | "live";
 /** Real (paid) Yurtiçi labels only when GELIVER_MODE is exactly `live`; anything else buys free test labels. */
 export const geliverMode = (env: Record<string, string | undefined>): GeliverMode => env.GELIVER_MODE === "live" ? "live" : "test";
 /** Test labels go through Geliver's own test carrier; live ones through Yurtiçi Kargo. */
+/**
+ * A production server in test mode would mark real orders shipped with free test labels that never move: refused unless
+ * GELIVER_ALLOW_TEST_IN_PRODUCTION=1. `next dev` (NODE_ENV=development) keeps test mode.
+ */
+export const geliverTestBlocked = (env: Record<string, string | undefined>) =>
+  env.NODE_ENV === "production" && geliverMode(env) === "test" && env.GELIVER_ALLOW_TEST_IN_PRODUCTION !== "1";
+export const geliverTestBlockedMessage = "Geliver test modunda; canlı etiket için GELIVER_MODE=live ayarlanmalı.";
 export const serviceCodeFor = (mode: GeliverMode) => mode === "live" ? "YURTICI_STANDART" : "GELIVER_STANDART";
 /** Order number sent to Geliver; test labels are kept apart from the live ones of the same order. */
 export const geliverOrderNumber = (number: string, test: boolean) => test ? `TEST-${number}` : number;
@@ -51,10 +58,10 @@ export function recipientOf(order: RecipientOrder): { ok: true; address: Geliver
 
 /** Why the Geliver tab of the ship dialog cannot be used for an order; manual shipping stays available. */
 export const recipientBlockLabel: Record<RecipientBlock, string> = {
-  no_structured_address: "Bu siparişte yapılandırılmış adres yok; Geliver etiketi oluşturulamaz, elle sevk edin.",
-  province: "Siparişin ili tanınmadı; Geliver etiketi oluşturulamaz, elle sevk edin.",
-  district: "Siparişin ilçesi il ile eşleşmiyor; Geliver etiketi oluşturulamaz, elle sevk edin.",
-  phone: "Siparişteki telefon numarası Türkiye numarası olarak okunamadı; Geliver etiketi oluşturulamaz, elle sevk edin.",
+  no_structured_address: "Bu siparişte yapılandırılmış adres yok; Geliver etiketi oluşturulamaz. Elle giriş sekmesinden kargoya verin.",
+  province: "Siparişin ili tanınmadı; Geliver etiketi oluşturulamaz. Elle giriş sekmesinden kargoya verin.",
+  district: "Siparişin ilçesi il ile eşleşmiyor; Geliver etiketi oluşturulamaz. Elle giriş sekmesinden kargoya verin.",
+  phone: "Siparişteki telefon numarası Türkiye numarası olarak okunamadı; Geliver etiketi oluşturulamaz. Elle giriş sekmesinden kargoya verin.",
 };
 
 export type TransactionInput = {
@@ -157,28 +164,34 @@ export const webhookEventSchema = z.object({
 }).passthrough();
 export type WebhookEvent = z.output<typeof webhookEventSchema>;
 
-const parseTime = (value: string | null | undefined) => {
+/** A Geliver time; null when missing, unreadable or a zero value such as 0001-01-01. */
+export function parseTime(value: string | null | undefined) {
   if (!value) return null;
   const time = new Date(value);
   return Number.isNaN(time.getTime()) || time.getUTCFullYear() < 2000 ? null : time;
-};
-/** When the status happened: its statusDate, else when Geliver recorded it; null if neither is usable. */
-export function eventTime(event: WebhookEvent) {
-  const status = event.data.trackingStatus;
-  return parseTime(status?.statusDate) ?? parseTime(status?.updatedAt) ?? parseTime(status?.createdAt);
 }
+/**
+ * When Geliver recorded the status (updatedAt, else createdAt): the one clock events are ordered by. statusDate is the
+ * carrier's own time, may be missing or late-reported, and is only shown and used as the delivery time.
+ */
+export function eventClock(event: WebhookEvent) {
+  const status = event.data.trackingStatus;
+  return parseTime(status?.updatedAt) ?? parseTime(status?.createdAt);
+}
+/** The carrier's time of the status (statusDate); null if unusable. */
+export const statusTime = (event: WebhookEvent) => parseTime(event.data.trackingStatus?.statusDate);
 
-export type StoredTracking = { tracking_status_code: string | null; tracking_sub_status_code: string | null; tracking_status_at: Date | null };
-/** Whether an event changes what is stored: repeats (same status, same time) and older events are skipped. */
+export type StoredTracking = { tracking_status_code: string | null; tracking_sub_status_code: string | null; tracking_updated_at: Date | null };
+/** Whether an event changes what is stored: repeats (same status, same Geliver time) and older events are skipped. */
 export function shouldApply(current: StoredTracking, event: WebhookEvent) {
   const status = event.data.trackingStatus;
   if (!status) return false;
   if (!current.tracking_status_code) return true;
-  const at = eventTime(event);
+  const at = eventClock(event);
   const same = current.tracking_status_code === status.trackingStatusCode && (current.tracking_sub_status_code ?? null) === (status.trackingSubStatusCode ?? null);
-  if (at && current.tracking_status_at) {
-    if (at.getTime() < current.tracking_status_at.getTime()) return false;
-    return !(same && at.getTime() === current.tracking_status_at.getTime());
+  if (at && current.tracking_updated_at) {
+    if (at.getTime() < current.tracking_updated_at.getTime()) return false;
+    return !(same && at.getTime() === current.tracking_updated_at.getTime());
   }
   return !same;
 }

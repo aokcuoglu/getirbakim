@@ -2,7 +2,7 @@
 
 import { useActionState, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CircleAlert, Info, Save, Truck } from "lucide-react";
+import { CircleAlert, Info, Save, TriangleAlert, Truck } from "lucide-react";
 import { saveShipment } from "@/modules/admin/commerce-actions";
 import { carrierCodes, carriers, hasTrackingTemplate, resolveTrackingUrl, startingCarrier, yurticiTrackingRule, type ShipmentResult } from "@/modules/store/shipment";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -18,8 +18,11 @@ import type { GeliverMode } from "@/modules/shipping/geliver-request";
 import { GeliverLabelForm } from "./order-geliver-label";
 
 export type ShipmentInitial = { carrier: string | null; carrierName: string | null; trackingNo: string | null; trackingUrl: string | null };
-/** Geliver label tab of the ship dialog (#960): its mode, or why this order cannot get a label. */
-export type GeliverOption = { mode: GeliverMode } | { blocked: string };
+/**
+ * Geliver label tab of the ship dialog (#960): its mode, or why this order cannot get a label. `warning` = the order's
+ * data or the setup must be fixed; `info` = waiting for an earlier request.
+ */
+export type GeliverOption = { mode: GeliverMode } | { blocked: string; tone: "warning" | "info" };
 
 /**
  * Kargoya ver (#605): carrier and tracking number for a confirmed order, or a correction while it is shipped.
@@ -30,12 +33,17 @@ export function OrderShipmentDialog({ orderId, number, back, mode, initial, reci
   orderId: string; number: string; back: string; mode: "ship" | "edit"; initial?: ShipmentInitial; recipient?: React.ReactNode; geliver?: GeliverOption;
 }) {
   const [open, setOpen] = useState(false);
+  // While a Geliver label is being bought the manual tab is locked, so the order cannot be shipped twice in parallel.
+  const [labelPending, setLabelPending] = useState(false);
   const initialFocus = useRef<HTMLSelectElement>(null);
+  const tabs = mode === "ship" && geliver ? geliver : null;
+  // A blocked Geliver tab opens the dialog on manual entry, focused there; the Geliver form focuses its own first field.
+  const blocked = tabs !== null && "blocked" in tabs;
   return <Dialog open={open} onOpenChange={setOpen}>
     {mode === "ship"
       ? <DialogTrigger render={<Button aria-label={`#${number} siparişini kargoya ver`}/>}><Truck data-icon="inline-start" aria-hidden="true"/>Kargoya ver</DialogTrigger>
       : <DialogTrigger render={<Button variant="outline" aria-label={`#${number} kargo bilgisini düzenle`}/>}>Kargo bilgisini düzenle</DialogTrigger>}
-    <DialogContent initialFocus={mode === "ship" && geliver ? undefined : initialFocus} className="max-h-5/6 overflow-y-auto sm:max-w-lg">
+    <DialogContent initialFocus={tabs && !blocked ? undefined : initialFocus} className="max-h-5/6 overflow-y-auto sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>{mode === "ship" ? `#${number} siparişini kargoya ver` : `#${number} kargo bilgisi`}</DialogTitle>
         <DialogDescription>{mode === "ship"
@@ -44,17 +52,17 @@ export function OrderShipmentDialog({ orderId, number, back, mode, initial, reci
           : "Yanlış girilen firma, takip numarası veya bağlantıyı düzeltin. Kargoya veriliş zamanı değişmez."}</DialogDescription>
       </DialogHeader>
       {recipient && <>{recipient}<Separator/></>}
-      {mode === "ship" && geliver ? <Tabs defaultValue="geliver" className="min-w-0">
+      {tabs ? <Tabs defaultValue={blocked ? "manual" : "geliver"} className="min-w-0">
         <TabsList>
           <TabsTrigger value="geliver">Geliver etiketi</TabsTrigger>
-          <TabsTrigger value="manual">Elle giriş</TabsTrigger>
+          <TabsTrigger value="manual" disabled={labelPending}>Elle giriş</TabsTrigger>
         </TabsList>
-        <TabsContent value="geliver" className="pt-2">
-          {"blocked" in geliver
-            ? <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>{geliver.blocked}</AlertDescription></Alert>
-            : <GeliverLabelForm orderId={orderId} back={back} mode={geliver.mode} onSaved={() => setOpen(false)}/>}
+        <TabsContent value="geliver" keepMounted className="pt-2">
+          {"blocked" in tabs
+            ? <Alert variant={tabs.tone}>{tabs.tone === "warning" ? <TriangleAlert aria-hidden="true"/> : <Info aria-hidden="true"/>}<AlertDescription>{tabs.blocked}</AlertDescription></Alert>
+            : <GeliverLabelForm orderId={orderId} back={back} mode={tabs.mode} onPendingChange={setLabelPending} onSaved={() => setOpen(false)}/>}
         </TabsContent>
-        <TabsContent value="manual" className="pt-2">
+        <TabsContent value="manual" keepMounted className="pt-2">
           <ShipmentForm orderId={orderId} back={back} mode={mode} initial={initial} initialFocus={initialFocus} onSaved={() => setOpen(false)}/>
         </TabsContent>
       </Tabs> : <ShipmentForm orderId={orderId} back={back} mode={mode} initial={initial} initialFocus={initialFocus} onSaved={() => setOpen(false)}/>}

@@ -4,7 +4,7 @@ import { after, test } from "node:test";
 import { provinces } from "../src/modules/store/tr-address";
 import { parcelSchema } from "../src/modules/shipping/geliver-parcel";
 import {
-  buildTransactionBody, eventTime, geliverErrorMessage, geliverMode, normalizePhone, recipientOf, resolveGeliverTrackingUrl, shouldApply,
+  buildTransactionBody, eventClock, geliverErrorMessage, geliverMode, geliverTestBlocked, normalizePhone, parseTime, recipientOf, resolveGeliverTrackingUrl, shouldApply, statusTime,
   trackingLook, webhookEventSchema, webhookSecretValid, type GeliverRecipient,
 } from "../src/modules/shipping/geliver-request";
 
@@ -144,30 +144,49 @@ const docSample = {
     trackingNumber: "123123123", trackingUrl: "http://xxx.com/123123123", labelFileType: "", orderID: null, order: null, recipientAddress: null,
   },
 };
-const event = (code: string, sub: string | null, statusDate: string | null, extra: Record<string, unknown> = {}) => webhookEventSchema.parse({
-  event: "TRACK_UPDATED", data: { id: "s1", trackingStatus: { trackingStatusCode: code, trackingSubStatusCode: sub, statusDate, updatedAt: null }, ...extra },
+/** A TRACK_UPDATED event; `updatedAt` is Geliver's record time, `statusDate` the carrier's. */
+const event = (code: string, sub: string | null, updatedAt: string | null, statusDate: string | null = null) => webhookEventSchema.parse({
+  event: "TRACK_UPDATED", data: { id: "s1", trackingStatus: { trackingStatusCode: code, trackingSubStatusCode: sub, statusDate, updatedAt } },
 });
 
-test("webhook bodies parse, with the time taken from statusDate or Geliver's record", () => {
+test("webhook bodies parse; events are ordered by Geliver's clock, statusDate is only the carrier's time", () => {
   const parsed = webhookEventSchema.parse(docSample);
   assert.equal(parsed.data.id, "186af322-c9ad-407c-b798-64d464816cf4");
   assert.equal(parsed.data.trackingStatus?.trackingStatusCode, "DELIVERED");
-  assert.equal(eventTime(parsed)?.toISOString(), "2026-05-12T16:49:33.000Z");
-  assert.equal(eventTime(event("TRANSIT", null, "2026-11-18T21:25:05.948898+03:00"))?.toISOString(), "2026-11-18T18:25:05.948Z");
-  assert.equal(eventTime(event("TRANSIT", null, "0001-01-01T00:00:00Z")), null);
+  assert.equal(eventClock(parsed)?.toISOString(), "2026-05-12T16:49:33.000Z");
+  assert.equal(statusTime(parsed), null);
+  const mixed = event("TRANSIT", null, "2026-11-18T21:25:05.948898+03:00", "2026-11-18T09:00:00Z");
+  assert.equal(eventClock(mixed)?.toISOString(), "2026-11-18T18:25:05.948Z");
+  assert.equal(statusTime(mixed)?.toISOString(), "2026-11-18T09:00:00.000Z");
+  assert.equal(eventClock(event("TRANSIT", null, "0001-01-01T00:00:00Z")), null);
+  assert.equal(parseTime("not a date"), null);
+  assert.equal(parseTime("1999-12-31T23:59:59Z"), null);
   assert.ok(!webhookEventSchema.safeParse({ event: "TRACK_UPDATED", data: {} }).success);
   assert.ok(!webhookEventSchema.safeParse({ trackingStatus: {} }).success);
 });
 
-test("only newer or different statuses are applied", () => {
-  const stored = { tracking_status_code: "TRANSIT", tracking_sub_status_code: "package_accepted", tracking_status_at: new Date("2026-11-18T10:00:00Z") };
-  assert.equal(shouldApply({ tracking_status_code: null, tracking_sub_status_code: null, tracking_status_at: null }, event("PRE_TRANSIT", null, null)), true);
+test("only newer or different statuses are applied, by Geliver's clock", () => {
+  const stored = { tracking_status_code: "TRANSIT", tracking_sub_status_code: "package_accepted", tracking_updated_at: new Date("2026-11-18T10:00:00Z") };
+  assert.equal(shouldApply({ tracking_status_code: null, tracking_sub_status_code: null, tracking_updated_at: null }, event("PRE_TRANSIT", null, null)), true);
   assert.equal(shouldApply(stored, event("TRANSIT", "package_accepted", "2026-11-18T10:00:00Z")), false, "repeat");
   assert.equal(shouldApply(stored, event("PRE_TRANSIT", "information_received", "2026-11-18T09:00:00Z")), false, "older");
   assert.equal(shouldApply(stored, event("TRANSIT", "out_for_delivery", "2026-11-18T11:00:00Z")), true);
   assert.equal(shouldApply(stored, event("TRANSIT", "package_accepted", null)), false, "same status without time");
   assert.equal(shouldApply(stored, event("DELIVERED", "delivered", null)), true);
+  // Mixed clocks: an earlier carrier statusDate does not make a later Geliver record stale.
+  assert.equal(shouldApply(stored, event("DELIVERED", "delivered", "2026-11-18T10:30:00Z", "2026-11-18T09:30:00Z")), true);
+  // A late statusDate does not make an older Geliver record fresh.
+  assert.equal(shouldApply(stored, event("PRE_TRANSIT", null, "2026-11-18T09:30:00Z", "2026-11-18T12:00:00Z")), false);
   assert.equal(shouldApply(stored, webhookEventSchema.parse({ event: "TRACK_UPDATED", data: { id: "s1", trackingStatus: null } })), false);
+});
+
+test("test mode is refused on a production server unless explicitly allowed", () => {
+  assert.equal(geliverTestBlocked({ NODE_ENV: "production" }), true);
+  assert.equal(geliverTestBlocked({ NODE_ENV: "production", GELIVER_MODE: "test" }), true);
+  assert.equal(geliverTestBlocked({ NODE_ENV: "production", GELIVER_ALLOW_TEST_IN_PRODUCTION: "1" }), false);
+  assert.equal(geliverTestBlocked({ NODE_ENV: "production", GELIVER_MODE: "live" }), false);
+  assert.equal(geliverTestBlocked({ NODE_ENV: "development" }), false, "next dev keeps test mode");
+  assert.equal(geliverTestBlocked({}), false);
 });
 
 test("the webhook secret matches the header or the token, never a short secret", () => {
@@ -209,7 +228,7 @@ test("geliverRequest: one call, bearer token, and replies classified as ok, reje
   assert.equal((await run(async () => Response.json({ result: true, data: { id: "tx-1", shipment: {} } }, { status: 201 }))).kind, "unknown", "no shipment id");
   assert.equal((await run(async () => Response.json({ message: "nope" }, { status: 400 }))).kind, "unknown", "4xx without an error code");
   const timeout = await run(async () => { throw new DOMException("The operation timed out.", "TimeoutError"); });
-  assert.deepEqual(timeout, { kind: "unknown", reason: "Geliver 30 saniyede yanıt vermedi.", httpStatus: null });
+  assert.deepEqual(timeout, { kind: "unknown", reason: "Geliver 25 saniyede yanıt vermedi.", httpStatus: null });
   assert.equal((await run(async () => { throw new TypeError("fetch failed"); })).kind, "unknown");
   reply = () => { throw new Error("unexpected Geliver call"); };
 });
