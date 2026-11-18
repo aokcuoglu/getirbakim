@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readableProductName, vehicleLabel, primaryVehicle, modelKeyword } from "../src/modules/store/product-name";
+import { readableProductName, shownProductName, vehicleLabel, primaryVehicle, modelKeyword } from "../src/modules/store/product-name";
 import { productSeoDescription, productSeoTitle } from "../src/modules/seo/product-meta";
 import { productMeta, productSeoText, productTitle, type StoreOverride } from "../src/modules/store/product-override-display";
 
@@ -104,6 +104,14 @@ test("an admin's name and SEO fields stay in front of the automatic ones", () =>
   assert.equal(productTitle(null, "Zengin", readableProductName("YAG FILTRESI")), "Zengin");
   assert.equal(productTitle(null, null, readableProductName("YAG FILTRESI")), "Yağ Filtresi");
   assert.deepEqual(productMeta(override, { title: "Otomatik", description: "Otomatik" }), { title: "Elle başlık", description: "Elle açıklama" });
+});
+
+test("an English supplier name: the admin's name, then the enrichment's, then the Turkish name (#915)", () => {
+  const override: StoreOverride = { name: "Elle Ad", description: null, short_description: null, seo_title: null, seo_description: null, category_id: null };
+  const supplier = shownProductName({ name: "BRAKE DISC", name_overridden: false });
+  assert.equal(productTitle(override, "Zengin", supplier), "Elle Ad");
+  assert.equal(productTitle(null, "Zengin", supplier), "Zengin");
+  assert.equal(productTitle(null, null, supplier), "Fren Diski");
 });
 
 test("the short description fills the template's text slot before the long description; seo_description wins (#697)", () => {

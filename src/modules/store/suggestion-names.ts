@@ -1,8 +1,12 @@
-import { foldText } from "./product-name";
+import { foldText } from "./fold-text";
 
 /**
- * Some supplier names reach the type-ahead in English ("BRAKE PAD SET, DISC BRAKE", #879). The known ones get a Turkish
- * name; an unknown name that is plainly English is left out of the suggestions instead of shown.
+ * Some supplier names are English ("BRAKE PAD SET, DISC BRAKE", #879, #915; TecDoc type names, some cut at 24 characters).
+ * The known ones get a Turkish name everywhere the store prints a product name (shownProductName in product-name.ts: cards,
+ * product page, address, feed) and in the suggestions; an unknown name that is plainly English is left out of the
+ * suggestions instead of shown (elsewhere it stays in its readable form). Keys are the folded words joined by one space.
+ * A new entry changes the address of every product with that name: the old address 308s to the new one (product page)
+ * and IndexNow reports both.
  */
 const dictionary = new Map<string, string>([
   ["brake disc", "Fren Diski"],
@@ -40,6 +44,46 @@ const dictionary = new Map<string, string>([
   ["radiator", "Radyatör"],
   ["joint", "Mafsal"],
   ["plug", "Tapa"],
+  // #915: the most common English names of the catalog (search_product_names, November 2026).
+  ["o ring", "O-Ring Conta"],
+  ["switch", "Şalter"],
+  ["cable", "Kablo"],
+  ["wheel", "Tekerlek"],
+  ["shaft", "Mil"],
+  ["valve", "Valf"],
+  ["rod", "Çubuk"],
+  ["seal ring", "Sızdırmazlık Halkası"],
+  ["contr arm", "Salıncak"],
+  ["control arm", "Salıncak"],
+  ["track control arm", "Salıncak"],
+  ["bolt brake disc", "Fren Diski Cıvatası"],
+  ["lamp", "Lamba"],
+  ["arm", "Kol"],
+  ["tail light", "Stop Lambası"],
+  ["wing rear light", "Dış Stop Lambası"],
+  ["tailgate light", "Bagaj Kapağı Stop Lambası"],
+  ["front light", "Ön Lamba"],
+  ["side marker light", "Yan Sinyal Lambası"],
+  ["pump fuel", "Yakıt Pompası"],
+  ["cyl brake", "Fren Silindiri"],
+  ["filter", "Filtre"],
+  ["filter oil", "Yağ Filtresi"],
+  ["mounting", "Takoz"],
+  ["clutch", "Debriyaj"],
+  ["tie rod", "Rot Mili"],
+  ["ring", "Halka"],
+  ["strg wheel", "Direksiyon Simidi"],
+  ["hub cover", "Jant Göbek Kapağı"],
+  ["brake shoe set parking b", "El Freni Pabuç Seti"],
+  ["disk brake pad", "Disk Fren Balatası"],
+  ["bracket", "Braket"],
+  ["screw", "Vida"],
+  ["cap", "Kapak"],
+  ["glass", "Cam"],
+  ["cont unit", "Kontrol Ünitesi"],
+  ["clamp", "Kelepçe"],
+  ["silencer", "Susturucu"],
+  ["door", "Kapı"],
 ]);
 
 const onlyEnglish = new Set(["brake", "pad", "pads", "hose", "cable", "wheel", "gasket", "switch", "valve", "belt", "bearing", "repair", "accessory", "cylinder", "caliper", "drum", "shoe", "clutch", "pump", "warning", "contact", "master", "parking", "disc", "control", "cover", "pipe", "seal", "mirror", "housing", "nut", "spring", "bolt", "tensioner", "radiator", "joint", "plug", "link"]);

@@ -35,7 +35,9 @@ function fitSlugWords(words: string[], limit: number, keepOne: boolean): string[
 
 /**
  * "bosch-fren-balatasi-arka-0986494803": brand, name and part number as ASCII words. The name is the shown one
- * (shownProductName: an admin's as written, a supplier's readable; the casing folds away, only the dropped "GENEL" and repeats remain), cut to 50
+ * (shownProductName: an admin's as written, the Turkish name of a known English supplier name (#915: "BRAKE DISC" →
+ * "fren-diski"), else a supplier's readable; the casing folds away, only the dropped "GENEL" and repeats remain). A changed
+ * name changes the slug; the old address 308s to the new one (product page) and IndexNow reports both. Cut to 50
  * characters; brand and part number (without the brand's own prefix) are never cut, and the whole stays within 100
  * characters by shortening the name. "Belirtilmemiş" is no brand, a name equal to the part number is written once.
  * Empty when no word is left.
