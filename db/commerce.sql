@@ -35,6 +35,12 @@ ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS sale_until timestam
 -- brand and code stay the supplier's values: order lines, enrichment lookups and matching read those.
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS brand text;
 ALTER TABLE commerce_item_overrides ADD COLUMN IF NOT EXISTS part_number text;
+-- Store brand pages and the brand filter read the overridden rows of a brand (#771).
+DO $$ BEGIN
+ IF to_regclass(format('%I.commerce_item_overrides_brand_idx',current_schema())) IS NULL THEN
+  CREATE INDEX commerce_item_overrides_brand_idx ON commerce_item_overrides(brand) WHERE brand IS NOT NULL;
+ END IF;
+END $$;
 -- Supplier OEM field hidden on the store (#615): the views show an empty oem, so the product page, cards, cart,
 -- partner API and reference links drop it; storefront search skips these rows' stored OEM (src/modules/store/catalog.ts).
 -- supplier_items keeps the value: the admin's supplier searches still read it; enrichment matched through this OEM
@@ -120,6 +126,16 @@ CREATE OR REPLACE FUNCTION supplier_item_brand(supplier text, product_data jsonb
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE supplier WHEN 'dinamik' THEN product_data->>'marka' ELSE product_data->>'uk' END
 $$;
+-- Manufacturer pages and the brand filter (#771) reach a brand's rows through this index (brand_label of the catalog
+-- views). It stores supplier_item_brand()'s result: a changed function body needs a new index name (DROP + CREATE).
+-- Created here, before db/search.sql's ANALYZE supplier_items, so a first deploy has the expression's statistics.
+-- Only when missing (looked up in this schema): CREATE INDEX IF NOT EXISTS still takes SHARE on the write-hot
+-- supplier_items on every setup run.
+DO $$ BEGIN
+ IF to_regclass(format('%I.supplier_items_brand_label_idx',current_schema())) IS NULL THEN
+  CREATE INDEX supplier_items_brand_label_idx ON supplier_items(supplier_item_brand(supplier,product_data));
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS brands (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, key text NOT NULL UNIQUE, name text NOT NULL,
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()

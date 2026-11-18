@@ -12,9 +12,6 @@ CREATE INDEX IF NOT EXISTS supplier_items_saleable_code_idx ON supplier_items(su
 WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence='present' AND NOT conflicting;
 CREATE INDEX IF NOT EXISTS supplier_items_unavailable_idx ON supplier_items(supplier,code,last_seen_at DESC,id)
 WHERE ((supplier='basbug' AND warehouse='MRK') OR supplier IN ('seta','manual') OR (supplier='dinamik' AND stock_data IS NOT NULL)) AND presence IN ('pending_missing','inactive') AND NOT conflicting;
--- Manufacturer pages and the brand filter (#771) reach a brand's rows through this index (brand_label of the catalog
--- views). It stores supplier_item_brand()'s result: a changed function body needs a new index name (DROP + CREATE).
-CREATE INDEX IF NOT EXISTS supplier_items_brand_label_idx ON supplier_items(supplier_item_brand(supplier,product_data));
 CREATE OR REPLACE FUNCTION storefront_supplier_rank(supplier text) RETURNS integer
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$ SELECT CASE supplier WHEN 'basbug' THEN 0 WHEN 'dinamik' THEN 1 WHEN 'seta' THEN 2 ELSE 3 END $$;
 CREATE OR REPLACE VIEW commerce_unavailable_items AS

@@ -74,6 +74,8 @@ before(async () => {
   await item("lemforder", "basbug", "LEMFORDER");
   await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,brand) VALUES($1,$1,'TRW')", [ids.lemforder]);
   await rawItem("unnamed", "basbug", { uk: "" });
+  // Known difference (#771): a Dinamik label linked to no master brand whose marka differs from uk (shown as uk).
+  await rawItem("unlinked", "dinamik", { uk: "NGK", marka: "NGK SPARK", stokAdi: "unlinked PARCA" });
   const [{ db }, catalogModule, sitemapModule, epoch] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"),
     import("../src/modules/seo/manufacturer-sitemap.server"), import("../src/modules/store/listing-epoch")]);
   logos = await import("../src/modules/store/manufacturer-logos");
@@ -166,6 +168,10 @@ test("brand pages reach their rows through the label: Dinamik's marka, admin sto
   // A label without a master brand is filtered by its raw name; "Belirtilmemiş" lists the row without a label.
   assert.deepEqual((await catalog.browseProducts({ brands: '["SACHS"]' })).items.map(row => row.id), [ids.other]);
   assert.deepEqual((await catalog.browseProducts({ brands: '["Belirtilmemiş"]' })).items.map(row => row.id), [ids.unnamed]);
+  // The documented gap: the row shows NGK (its uk value) but its label is NGK SPARK, so the NGK filter misses it until the
+  // label is linked to a master brand (#470).
+  assert.equal((await schema.pool.query<{ display_brand: string }>("SELECT display_brand FROM storefront_catalog_entries WHERE id=$1", [ids.unlinked])).rows[0].display_brand, "NGK");
+  assert.equal((await catalog.browseProducts({ brands: '["NGK"]' })).total, 0);
 });
 
 test("a brand's rows are read through supplier_items_brand_label_idx (#771)", async () => {

@@ -414,12 +414,17 @@ export type CatalogContext={vehicleTypeId?:string|null};
 // subquery's unknown-size result was 1.5x slower than the old scan.
 // Known difference: a Dinamik row whose label (marka) is linked to no master brand and differs from its uk value is
 // not found by its uk name; it is once the label is linked to a master brand (#470). "Belirtilmemiş" has no label.
+// The lookup is cached like the manufacturer directory (10 minutes; admin brand and override edits move the listing epoch),
+// so a page's count, facet and id reads share one.
+type BrandReach={labels:string[];ids:string[]};
+const cachedBrandReach=staleCache<BrandReach>(10*60*1000,500,listings);
+const brandReach=(names:string[])=>cachedBrandReach(JSON.stringify([...names].sort()),async()=>(await db.query<BrandReach>(`SELECT
+  ARRAY(SELECT sb.label FROM supplier_brands sb JOIN brands mb ON mb.id=sb.brand_id WHERE mb.name=ANY($1::text[]))||$1::text[] AS labels,
+  ARRAY(SELECT ov.supplier_item_id::text FROM commerce_item_overrides ov WHERE ov.brand=ANY($1::text[])) AS ids`,[names])).rows[0]);
 async function shownBrandClause(names:string[],values:unknown[]) {
  values.push(names);const key=`$${values.length}::text[]`;
  if(names.includes("Belirtilmemiş"))return `catalog.display_brand=ANY(${key})`;
- const {labels,ids}=(await db.query<{labels:string[];ids:string[]}>(`SELECT
-   ARRAY(SELECT sb.label FROM supplier_brands sb JOIN brands mb ON mb.id=sb.brand_id WHERE mb.name=ANY($1::text[]))||$1::text[] AS labels,
-   ARRAY(SELECT ov.supplier_item_id::text FROM commerce_item_overrides ov WHERE ov.brand=ANY($1::text[])) AS ids`,[names])).rows[0];
+ const {labels,ids}=await brandReach(names);
  values.push(labels);let reach=`catalog.brand_label=ANY($${values.length}::text[])`;
  if(ids.length){values.push(ids);reach=`(${reach} OR catalog.id=ANY($${values.length}::uuid[]))`;}
  return `${reach} AND catalog.display_brand=ANY(${key})`;
