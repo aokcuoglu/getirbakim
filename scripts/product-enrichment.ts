@@ -38,7 +38,9 @@ try {
     const items = entries.map(entry => enrichmentImportSchema.parse(entry));
     await importEnrichments(pool, items);
   } else if (command === "status") {
-    console.log(JSON.stringify((await pool.query("SELECT status,count(*)::int AS count FROM enrichment_product_catalog GROUP BY status ORDER BY status")).rows, null, 2));
+    // Counts the materialized states (synced first) instead of rebuilding the catalog view (#939).
+    await pool.query("SELECT enrichment_product_states_sync()");
+    console.log(JSON.stringify((await pool.query("SELECT status,count(*)::int AS count FROM enrichment_product_states GROUP BY status ORDER BY status")).rows, null, 2));
     console.log(JSON.stringify((await pool.query("SELECT count(*)::int AS files,COALESCE(sum(size_bytes),0)::bigint AS bytes FROM product_media_objects")).rows[0]));
     console.log(JSON.stringify((await pool.query("SELECT * FROM product_enrichment_sources ORDER BY host")).rows));
   } else if (command === "probe") {
