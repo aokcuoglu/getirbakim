@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { readdir, readFile } from "node:fs/promises";
 import { minPartnerKeyLength, parsePartnerKeys, resolvePartner } from "../src/modules/partner/auth";
 import { decodeOfferId, encodeOfferId, matchesOem, matchesPartNo, partnerAvailability, splitOemNumbers, toPartnerProduct, type PartnerCatalogRow } from "../src/modules/partner/dto";
-import { partnerOrderStatus, resolveOrderLimitKurus, toPartnerOrderDto, unitVatKurus, type PartnerOrderRow } from "../src/modules/partner/order-dto";
+import { partnerOrderStatus, resolveOrderLimitKurus, lineAmounts, toPartnerOrderDto, type PartnerOrderRow } from "../src/modules/partner/order-dto";
 import { orderRequestSchema, quoteRequestSchema } from "../src/modules/partner/order-schema";
 import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partnerQuoteTtlMs, signQuote, verifyQuote, type QuotePayload } from "../src/modules/partner/quotes";
 import { resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
@@ -175,7 +175,7 @@ const secret = "q".repeat(40);
 const offerA = encodeOfferId("0000a569-053e-4b84-a484-d510f04fab3b");
 const offerB = encodeOfferId("11111111-2222-4333-8444-555555555555");
 const quote = (overrides: Partial<QuotePayload> = {}): QuotePayload => ({
-  version: 1, partner: "bakimx", issuedAt: 1_000, expiresAt: 1_000 + partnerQuoteTtlMs,
+  version: 1, partner: "bakimx", shippingKurus: 15000, issuedAt: 1_000, expiresAt: 1_000 + partnerQuoteTtlMs,
   lines: [{ selectedOfferId: offerA, quantity: 2, unitNetKurus: 740632 }, { selectedOfferId: offerB, quantity: 1, unitNetKurus: 1200 }], ...overrides,
 });
 const refusal = (code: string) => (error: unknown) => error instanceof PartnerOrderError && error.code === code;
@@ -228,6 +228,11 @@ test("partner order request: strict body, Turkish address matched, offers distin
   const parsed = orderRequestSchema.parse(orderBody());
   assert.deepEqual([parsed.shippingAddress.province, parsed.shippingAddress.district, parsed.shippingAddress.postalCode, parsed.shippingAddress.email, parsed.note],
     ["İstanbul", "Kadıköy", null, "", ""]);
+  // The phone is stored as the carrier label needs it; a number that is not Turkish is refused.
+  assert.equal(parsed.shippingAddress.phone, "+905320000000");
+  assert.equal(orderRequestSchema.parse(orderBody({ shippingAddress: { ...address, phone: "+90 (216) 555 12 34" } })).shippingAddress.phone, "+902165551234");
+  assert.equal(orderRequestSchema.safeParse(orderBody({ shippingAddress: { ...address, phone: "0632 000 00 00" } })).success, false);
+  assert.equal(orderRequestSchema.safeParse(orderBody({ shippingAddress: { ...address, phone: "+44 20 7946 0958" } })).success, false);
   // A partner identity in the body, an unknown district, a postal code of another province and a repeated offer are refused.
   assert.equal(orderRequestSchema.safeParse(orderBody({ partner: "other" })).success, false);
   assert.equal(orderRequestSchema.safeParse(orderBody({ shippingAddress: { ...address, district: "Çankaya" } })).success, false);
@@ -254,29 +259,65 @@ test("partner order limit: unset or malformed refuses orders", () => {
   assert.equal(resolveOrderLimitKurus(" 5000000 "), 5_000_000);
 });
 
-test("partner order DTO: status names, VAT per unit, totals; no supplier internals", () => {
+test("partner line VAT is computed once per line from the line net, like an e-invoice line", () => {
+  // 1001 × 99 = 99099 net; 20% of it is 19819.8 → 19820. Per-unit rounding would give 200 × 99 = 19800.
+  assert.deepEqual(lineAmounts(1001, 99, 2000), { lineNetKurus: 99099, lineVatKurus: 19820, lineGrossKurus: 118919 });
+  assert.deepEqual(lineAmounts(740632, 2, 2000), { lineNetKurus: 1481264, lineVatKurus: 296253, lineGrossKurus: 1777517 });
+  assert.deepEqual(lineAmounts(1001, 1, 1850), { lineNetKurus: 1001, lineVatKurus: 185, lineGrossKurus: 1186 });
+  assert.deepEqual(lineAmounts(5000, 3, 0), { lineNetKurus: 15000, lineVatKurus: 0, lineGrossKurus: 15000 });
+});
+
+test("partner order DTO: status names, line amounts, totals with shipping; no supplier internals", () => {
   assert.deepEqual(["pending", "confirmed", "shipped", "delivered", "cancelled", "awaiting_payment"].map(partnerOrderStatus),
     ["REQUESTED", "CONFIRMED", "SHIPPED", "COMPLETED", "CANCELLED", "REQUESTED"]);
-  assert.equal(unitVatKurus(740632, 2000), 148126);
-  assert.equal(unitVatKurus(1001, 1850), 185);
   const order: PartnerOrderRow = {
     id: "9b0f8a1e-0000-4000-8000-000000000001", number: "1042", request_key: "7c1e3a52-1111-4111-8111-111111111111", status: "cancelled", payment_status: "on_account",
-    total_kurus: String((740632 + 148126) * 2), shipping_kurus: "0", note: "", customer_name: "Usta Oto Servis", phone: "05320000000", email: "",
+    total_kurus: String(1777517 + 15000), shipping_kurus: "15000", note: "", customer_name: "Usta Oto Servis", phone: "05320000000", email: "",
     delivery_province: "İstanbul", delivery_district: "Kadıköy", delivery_address_line: "Test Mahallesi 1. Sokak No 2", delivery_postal_code: null,
     carrier: null, carrier_name: null, tracking_no: null, tracking_url: null, shipped_at: null, delivered_at: null,
     cancelled_by: "admin", cancelled_at: new Date("2026-11-18T10:00:00Z"), created_at: new Date("2026-11-18T09:00:00Z"),
   };
   const dto = toPartnerOrderDto(order, [{ product_id: "0000a569-053e-4b84-a484-d510f04fab3b", code: "LUK 510 0207 10", name: "DEBRIYAJ RULMANI", quantity: 2,
-    unit_price_kurus: String(740632 + 148126), pricing_snapshot: { nf: 103.19, company: "BASBUG", markup_percent: 30, partner: { unit_net_kurus: 740632, unit_vat_kurus: 148126, vat_rate_bps: 2000 } } }]);
+    unit_price_kurus: "888759", pricing_snapshot: { nf: 103.19, company: "BASBUG", markup_percent: 30,
+      partner: { unit_net_kurus: 740632, vat_rate_bps: 2000, line_net_kurus: 1481264, line_vat_kurus: 296253, line_gross_kurus: 1777517 } } }]);
   assert.equal(dto.contractVersion, "2.0");
   assert.deepEqual([dto.status, dto.paymentStatus, dto.cancelledBy, dto.number, dto.shipment], ["CANCELLED", "ON_ACCOUNT", "GETIRBAKIM", 1042, null]);
-  assert.deepEqual(dto.totals, { netKurus: 1481264, vatKurus: 296252, shippingKurus: 0, grossKurus: 1777516 });
+  assert.deepEqual(dto.totals, { netKurus: 1481264, vatKurus: 296253, shippingKurus: 15000, grossKurus: 1792517 });
   assert.deepEqual(dto.lines[0], { selectedOfferId: offerA, partNo: "LUK 510 0207 10", name: "DEBRIYAJ RULMANI", quantity: 2,
-    unitNetKurus: 740632, unitVatKurus: 148126, unitGrossKurus: 888758, vatRateBps: 2000 });
+    unitNetKurus: 740632, vatRateBps: 2000, lineNetKurus: 1481264, lineVatKurus: 296253, lineGrossKurus: 1777517 });
   assert.equal(dto.shippingAddress.email, null);
   const json = JSON.stringify(dto);
   for (const internal of [`"nf"`, "103.19", "BASBUG", "markup", "owner", "fingerprint", "payment_status"]) assert.ok(!json.includes(internal), internal);
   const shipped = toPartnerOrderDto({ ...order, status: "shipped", cancelled_by: null, cancelled_at: null, carrier: "yurtici", tracking_no: "123456789012",
     tracking_url: "https://example.invalid/t", shipped_at: new Date("2026-11-19T08:00:00Z") }, []);
   assert.deepEqual([shipped.status, shipped.cancelledBy, shipped.shipment?.trackingNo, shipped.shipment?.shippedAt], ["SHIPPED", null, "123456789012", "2026-11-19T08:00:00.000Z"]);
+});
+
+test("partner guard: limits by the edge's address (not X-Real-IP), then by partner code", async () => {
+  const { NextRequest } = await import("next/server");
+  const { partnerGuard } = await import("../src/modules/partner/guard");
+  const originalKeys = process.env.PARTNER_API_KEYS;
+  process.env.PARTNER_API_KEYS = `bakimx:${key},other:${key}y`;
+  try {
+    const request = (headers: Record<string, string>) => new NextRequest("https://getirbakim.com/api/partner/v1/orders", { headers });
+    const seen: string[] = [];
+    const address = (value: string) => { seen.push(value); return { allowed: true as const }; };
+    const unlimited = () => ({ allowed: true as const });
+    // A client-chosen X-Real-IP and the first X-Forwarded-For hop are ignored; CloudFront's viewer address wins.
+    partnerGuard(request({ "x-real-ip": "203.0.113.9", "x-forwarded-for": "198.51.100.1, 10.0.0.7", authorization: `Bearer ${key}` }), { address, partner: unlimited });
+    partnerGuard(request({ "x-real-ip": "203.0.113.9", "cloudfront-viewer-address": "198.51.100.20:46532", authorization: `Bearer ${key}` }), { address, partner: unlimited });
+    assert.deepEqual(seen, ["10.0.0.7", "198.51.100.20"]);
+    // A wrong key is 401; after a matching key the partner's own budget applies whatever address it calls from.
+    const denied = partnerGuard(request({ authorization: "Bearer wrong-key-wrong-key" }), { address: unlimited, partner: unlimited });
+    assert.ok("response" in denied && denied.response.status === 401);
+    const limit = createRateLimiter(1, 60_000);
+    const first = partnerGuard(request({ "x-forwarded-for": "10.0.0.1", authorization: `Bearer ${key}` }), { address: unlimited, partner: limit });
+    const second = partnerGuard(request({ "x-forwarded-for": "10.0.0.2", authorization: `Bearer ${key}` }), { address: unlimited, partner: limit });
+    const otherPartner = partnerGuard(request({ "x-forwarded-for": "10.0.0.2", authorization: `Bearer ${key}y` }), { address: unlimited, partner: limit });
+    assert.deepEqual("partner" in first && first.partner, { code: "bakimx" });
+    assert.ok("response" in second && second.response.status === 429 && second.response.headers.get("retry-after") === "60");
+    assert.deepEqual("partner" in otherPartner && otherPartner.partner, { code: "other" });
+  } finally {
+    if (originalKeys === undefined) delete process.env.PARTNER_API_KEYS; else process.env.PARTNER_API_KEYS = originalKeys;
+  }
 });

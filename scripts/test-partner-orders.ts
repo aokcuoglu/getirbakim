@@ -14,6 +14,8 @@ import type { PartnerOrderConfig } from "../src/modules/partner/orders";
 const env: Record<string, string> = {
   BASBUG_BASE_URL: "https://api.basbug.com.tr", BASBUG_USERNAME: "TEST", BASBUG_PASSWORD: "TEST", BASBUG_CLIENT_ID: "TEST",
   BASBUG_CLIENT_SECRET: "TEST", BASBUG_FIRMA_ADI: "TEST",
+  // Route tests read the deployment settings from the environment.
+  PARTNER_API_KEYS: `bakimx:${"k".repeat(24)}`, PARTNER_QUOTE_SIGNING_SECRET: "r".repeat(48), PARTNER_ORDER_LIMIT_KURUS: "10000000",
 };
 const unset = ["SUPPLIER_EGRESS_PROXY", "SUPPLIER_EGRESS_PROXY_FOR", "DINAMIK_BASE", "DINAMIK_APIKEY", "DINAMIK_SECRETKEY"];
 const originalEnv = Object.fromEntries([...Object.keys(env), ...unset].map(key => [key, process.env[key]]));
@@ -106,7 +108,8 @@ beforeEach(async () => {
   supplierCalls = 0;
   // Each test starts without open partner orders, so the limit sees only its own.
   await schema.pool.query("UPDATE commerce_orders SET status='delivered' WHERE owner_kind='partner'");
-  await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode='live'");
+  // The store's shipping rule (VAT included): 50.00 TL, free from 400.00 TL of goods.
+  await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode='live',shipping_fee_kurus=5000,free_shipping_threshold_kurus=40000");
 });
 after(async () => {
   globalThis.fetch = originalFetch;
@@ -119,7 +122,9 @@ after(async () => {
 test("a multi-line quote becomes an order on account: pending, unpaid, nothing reserved, prices locked", async () => {
   const { quote, body } = await quoteAndBody([{ code: "PART-A", quantity: 2 }, { code: "PART-B", quantity: 1 }]);
   // nf 100 TL × 1.30 markup = 130.00 before VAT; 20% VAT on top.
-  assert.deepEqual(quote.lines.map(line => [line.unitNetKurus, line.unitVatKurus, line.unitGrossKurus, line.vatRateBps]), [[13000, 2600, 15600, 2000], [13000, 2600, 15600, 2000]]);
+  assert.deepEqual(quote.lines.map(line => [line.unitNetKurus, line.vatRateBps, line.lineNetKurus, line.lineVatKurus, line.lineGrossKurus]),
+    [[13000, 2000, 26000, 5200, 31200], [13000, 2000, 13000, 2600, 15600]]);
+  // 468.00 TL of goods reaches the 400.00 TL free shipping threshold.
   assert.deepEqual(quote.totals, { netKurus: 39000, vatKurus: 7800, shippingKurus: 0, grossKurus: 46800 });
   assert.ok(Date.parse(quote.expiresAt) - Date.now() > 14 * 60_000);
   const key = randomUUID();
@@ -137,6 +142,7 @@ test("a multi-line quote becomes an order on account: pending, unpaid, nothing r
   const lines = (await schema.pool.query("SELECT * FROM commerce_order_items WHERE order_id=$1 ORDER BY code", [created.order.id])).rows;
   assert.deepEqual(lines.map(line => [line.reserved_quantity, Number(line.unit_price_kurus), line.fitment_level, line.pricing_snapshot.partner.unit_net_kurus, line.pricing_snapshot.live_check]),
     [[0, 15600, "no_vehicle", 13000, undefined], [0, 15600, "no_vehicle", 13000, undefined]]);
+  assert.deepEqual(lines.map(line => line.pricing_snapshot.partner.line_gross_kurus), [31200, 15600]);
   // No payment attempt, no consumer pre-contract documents.
   assert.equal((await schema.pool.query("SELECT 1 FROM commerce_payments WHERE order_id=$1", [created.order.id])).rowCount, 0);
   assert.equal((await schema.pool.query("SELECT 1 FROM commerce_order_agreements WHERE order_id=$1", [created.order.id])).rowCount, 0);
@@ -222,13 +228,13 @@ test("orders and keys are tenant-scoped", async () => {
 test("the open-order limit counts the partner's undelivered, uncancelled orders and fails closed without a limit", async () => {
   const one = await quoteAndBody([{ code: "PART-A", quantity: 1 }]);
   await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), one.body, config({ limitKurus: null })), refusal("ORDER_LIMIT_UNAVAILABLE"));
-  // 15600 per order: a 40000 limit takes two.
-  const limit = config({ limitKurus: 40_000 });
+  // 156.00 TL of goods + 50.00 TL shipping = 206.00 TL per order: a 450.00 TL limit takes two.
+  const limit = config({ limitKurus: 45_000 });
   const first = await partnerOrders.createPartnerOrder("bakimx", randomUUID(), one.body, limit);
   const second = await partnerOrders.createPartnerOrder("bakimx", randomUUID(), (await quoteAndBody([{ code: "PART-B", quantity: 1 }])).body, limit);
   const third = (await quoteAndBody([{ code: "PART-A", quantity: 1 }])).body;
   await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), third, limit), refusal("CREDIT_LIMIT_EXCEEDED", details => {
-    assert.deepEqual(details, { limitKurus: 40_000, openKurus: 31_200, orderKurus: 15_600 });
+    assert.deepEqual(details, { limitKurus: 45_000, openKurus: 41_200, orderKurus: 20_600 });
   }));
   // Another partner's orders do not count; a cancelled or delivered order frees its amount.
   assert.ok((await partnerOrders.createPartnerOrder("other", randomUUID(), (await quoteAndBody([{ code: "PART-A", quantity: 2 }], "other")).body, limit)).order.id);
@@ -272,4 +278,89 @@ test("an unreachable supplier does not block the order: the line is sold on fres
   const { body: saved } = await quoteAndBody([{ code: "PART-B", quantity: 1 }]);
   assert.ok((await partnerOrders.createPartnerOrder("bakimx", randomUUID(), saved, config())).order.id);
   assert.equal(supplierCalls, 0);
+});
+
+test("shipping follows the store's rule, is bound by the quote and stored on the order", async () => {
+  const { quote, body } = await quoteAndBody([{ code: "PART-A", quantity: 1 }]);
+  assert.deepEqual(quote.totals, { netKurus: 13000, vatKurus: 2600, shippingKurus: 5000, grossKurus: 20600 });
+  const { order } = await partnerOrders.createPartnerOrder("bakimx", randomUUID(), body, config());
+  assert.deepEqual(order.totals, quote.totals);
+  const row = await orderRow(order.id);
+  assert.deepEqual([Number(row.subtotal_kurus), Number(row.shipping_kurus), Number(row.total_kurus)], [15600, 5000, 20600]);
+  // A shipping fee changed after the quote is a changed price, with the new fee.
+  const { body: next } = await quoteAndBody([{ code: "PART-B", quantity: 1 }]);
+  await schema.pool.query("UPDATE commerce_settings SET shipping_fee_kurus=7500");
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), next, config()), refusal("PRICE_CHANGED", details => {
+    assert.deepEqual(details, { lines: [], shipping: { expectedShippingKurus: 5000, shippingKurus: 7500 } });
+  }));
+});
+
+test("two orders with different keys at once cannot both pass a limit they exceed together", async () => {
+  const left = await quoteAndBody([{ code: "PART-A", quantity: 1 }]);
+  const right = await quoteAndBody([{ code: "PART-B", quantity: 1 }]);
+  // 206.00 TL each: one fits a 300.00 TL limit, both do not.
+  const results = await Promise.allSettled([
+    partnerOrders.createPartnerOrder("bakimx", randomUUID(), left.body, config({ limitKurus: 30_000 })),
+    partnerOrders.createPartnerOrder("bakimx", randomUUID(), right.body, config({ limitKurus: 30_000 })),
+  ]);
+  assert.equal(results.filter(result => result.status === "fulfilled").length, 1);
+  const rejected = results.find(result => result.status === "rejected");
+  assert.ok(rejected && refusal("CREDIT_LIMIT_EXCEEDED")(rejected.reason));
+});
+
+test("route handlers: key, Idempotency-Key and body checks, 201 then 200 replay, tenant-scoped reads", async () => {
+  const [{ NextRequest }, quoteRoute, ordersRoute, orderRoute, byKeyRoute] = await Promise.all([import("next/server"),
+    import("../src/app/api/partner/v1/order-quotes/route"), import("../src/app/api/partner/v1/orders/route"),
+    import("../src/app/api/partner/v1/orders/[id]/route"), import("../src/app/api/partner/v1/orders/by-key/[key]/route")]);
+  const auth = { authorization: `Bearer ${"k".repeat(24)}` };
+  const base = "https://getirbakim.com/api/partner/v1";
+  const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+    new NextRequest(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) });
+  const get = (path: string, headers: Record<string, string> = auth) => new NextRequest(`${base}${path}`, { headers });
+  const errorCode = async (response: Response) => ((await response.json()) as { error: { code: string } }).error.code;
+
+  // No key or a wrong key: 401 before anything else.
+  let response = await ordersRoute.POST(post("/orders", {}, { "idempotency-key": randomUUID() }));
+  assert.deepEqual([response.status, await errorCode(response)], [401, "UNAUTHORIZED"]);
+  response = await quoteRoute.POST(post("/order-quotes", {}, { authorization: "Bearer wrong-key-wrong-key-x" }));
+  assert.equal(response.status, 401);
+
+  response = await quoteRoute.POST(post("/order-quotes", { lines: [{ selectedOfferId: offers["PART-A"], quantity: 1 }] }, auth));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const { quote } = await response.json() as { quote: { confirmationToken: string; lines: { selectedOfferId: string; quantity: number; unitNetKurus: number }[] } };
+  // The wire form: optional fields left out, a free-form phone.
+  const shippingAddress = { recipientName: "Usta Oto Servis", phone: "0532 000 00 00", province: "istanbul", district: "Kadıköy", addressLine: "Test Mahallesi 1. Sokak No 2" };
+  const body = { confirmationToken: quote.confirmationToken, shippingAddress,
+    lines: quote.lines.map(line => ({ selectedOfferId: line.selectedOfferId, quantity: line.quantity, expectedUnitNetKurus: line.unitNetKurus })) };
+
+  // A missing or malformed Idempotency-Key, or a body that is not the contract, is 400.
+  for (const headers of [auth, { ...auth, "idempotency-key": "not-a-uuid" }]) {
+    response = await ordersRoute.POST(post("/orders", body, headers));
+    assert.deepEqual([response.status, await errorCode(response)], [400, "VALIDATION_ERROR"]);
+  }
+  const key = randomUUID();
+  for (const invalid of ["{not json", { ...body, partner: "other" }, { ...body, lines: [] }]) {
+    response = await ordersRoute.POST(post("/orders", invalid, { ...auth, "idempotency-key": key }));
+    assert.deepEqual([response.status, await errorCode(response)], [400, "VALIDATION_ERROR"]);
+  }
+
+  response = await ordersRoute.POST(post("/orders", body, { ...auth, "idempotency-key": key }));
+  assert.equal(response.status, 201);
+  const created = await response.json() as { order: { id: string }; replayed: boolean };
+  assert.equal(created.replayed, false);
+  response = await ordersRoute.POST(post("/orders", body, { ...auth, "idempotency-key": key.toUpperCase() }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ...created, replayed: true });
+  response = await ordersRoute.POST(post("/orders", { ...body, note: "Başka" }, { ...auth, "idempotency-key": key }));
+  assert.deepEqual([response.status, await errorCode(response)], [409, "IDEMPOTENCY_CONFLICT"]);
+
+  response = await orderRoute.GET(get(`/orders/${created.order.id}`), { params: Promise.resolve({ id: created.order.id }) });
+  assert.deepEqual([response.status, ((await response.json()) as { order: { id: string } }).order.id], [200, created.order.id]);
+  response = await byKeyRoute.GET(get(`/orders/by-key/${key}`), { params: Promise.resolve({ key }) });
+  assert.equal(response.status, 200);
+  response = await orderRoute.GET(get(`/orders/${randomUUID()}`), { params: Promise.resolve({ id: randomUUID() }) });
+  assert.deepEqual([response.status, await errorCode(response)], [404, "ORDER_NOT_FOUND"]);
+  response = await orderRoute.GET(get(`/orders/${created.order.id}`, {}), { params: Promise.resolve({ id: created.order.id }) });
+  assert.equal(response.status, 401);
 });

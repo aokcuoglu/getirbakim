@@ -6,15 +6,28 @@ the 1.0 pilot (single line, reservation TTL, `RESERVATION_EXPIRED`); it is not
 backwards compatible.
 
 All endpoints live under `/api/partner/v1`, take `Authorization: Bearer <key>`
-(`PARTNER_API_KEYS`), answer JSON with `Cache-Control: no-store`, and share a
-limit of 60 requests per minute per client address (`429 RATE_LIMITED` with
-`Retry-After`). The partner identity comes only from the key: request bodies
+(`PARTNER_API_KEYS`) and answer JSON with `Cache-Control: no-store`. The order
+endpoints share a limit of 60 requests per minute per client address and 300
+per partner key (products: 120 and 600); over it the answer is
+`429 RATE_LIMITED` with `Retry-After`. The address is the one our edge reports
+(CloudFront's viewer address, else the last `X-Forwarded-For` hop), never
+`X-Real-IP`. Counters are kept per application task, so with several tasks
+the effective limit is the per-task limit times the task count. The partner identity comes only from the key: request bodies
 are strict and refuse unknown fields, including any partner field.
 
 Amounts are integer kuruş in TRY. `*NetKurus` excludes VAT, `*VatKurus` is the
-VAT, `*GrossKurus` = net + VAT. VAT is computed per unit, half up
-(`round(unitNet × vatRateBps / 10000)`), and line/order totals are unit amounts
-times quantity.
+VAT, `*GrossKurus` = net + VAT. `unitNetKurus` is the binding unit price. VAT
+is computed once per line, like an e-invoice line:
+`lineNetKurus = unitNetKurus × quantity`,
+`lineVatKurus = round(lineNetKurus × vatRateBps / 10000)` (half up),
+`lineGrossKurus = lineNetKurus + lineVatKurus`. Order totals are sums of the
+lines: `netKurus`, `vatKurus`, then `grossKurus` = goods gross + `shippingKurus`.
+Example: 1001 × 99 at 20% is 99099 net, 19820 VAT, 118919 gross.
+
+**Shipping** uses the storefront's rule: the store shipping fee (VAT
+included) unless the goods gross total reaches the free-shipping threshold
+(or the fee is 0). It is part of the quote, bound by its token, re-checked at
+order time like the prices, stored on the order and counted in the limit.
 
 ## Flow
 
@@ -39,8 +52,9 @@ times quantity.
 ```json
 { "quote": {
   "contractVersion": "2.0",
-  "lines": [ { "selectedOfferId": "offer_…", "quantity": 2, "unitNetKurus": 13000, "unitVatKurus": 2600, "unitGrossKurus": 15600, "vatRateBps": 2000 } ],
-  "totals": { "netKurus": 26000, "vatKurus": 5200, "shippingKurus": 0, "grossKurus": 31200 },
+  "lines": [ { "selectedOfferId": "offer_…", "quantity": 2, "unitNetKurus": 13000, "vatRateBps": 2000,
+               "lineNetKurus": 26000, "lineVatKurus": 5200, "lineGrossKurus": 31200 } ],
+  "totals": { "netKurus": 26000, "vatKurus": 5200, "shippingKurus": 5000, "grossKurus": 36200 },
   "currency": "TRY",
   "expiresAt": "2026-11-18T10:15:00.000Z",
   "confirmationToken": "<opaque>"
@@ -73,6 +87,8 @@ Headers: `Idempotency-Key: <UUID>` (required).
 ```
 
 - `lines` must be exactly the quoted lines (any order).
+- `phone` must be a Turkish number (landline or mobile, with or without
+  `0`/`+90`); it is stored as `+90XXXXXXXXXX`.
 - `email` and `postalCode` are optional. Province and district must be a
   Turkish province and one of its districts, matched ignoring case and stored
   with the official spelling; a postal code must belong to the province.
@@ -93,11 +109,13 @@ for operations); then, under a per-partner lock, re-prices every line, checks
 the open-order limit and creates the order.
 
 **Payment is on account.** No payment is taken; GetirBakım invoices the partner
-later. Shipping is not charged on partner orders (`shippingKurus: 0`).
+later.
 
 **Open-order limit.** The gross total of the partner's orders that are neither
 cancelled nor delivered, plus the new order, must not exceed
-`PARTNER_ORDER_LIMIT_KURUS` (VAT included). An unset limit refuses every order
+`PARTNER_ORDER_LIMIT_KURUS` (VAT and shipping included). Orders of one
+partner are created one at a time, so two concurrent orders cannot both pass
+a limit they exceed together. An unset limit refuses every order
 (`503 ORDER_LIMIT_UNAVAILABLE`).
 
 ## GET /orders/:id and GET /orders/by-key/:key
@@ -116,9 +134,9 @@ exists before retrying.
   "status": "REQUESTED",
   "paymentStatus": "ON_ACCOUNT",
   "currency": "TRY",
-  "totals": { "netKurus": 26000, "vatKurus": 5200, "shippingKurus": 0, "grossKurus": 31200 },
+  "totals": { "netKurus": 26000, "vatKurus": 5200, "shippingKurus": 5000, "grossKurus": 36200 },
   "lines": [ { "selectedOfferId": "offer_…", "partNo": "LUK 510 0207 10", "name": "…", "quantity": 2,
-               "unitNetKurus": 13000, "unitVatKurus": 2600, "unitGrossKurus": 15600, "vatRateBps": 2000 } ],
+               "unitNetKurus": 13000, "vatRateBps": 2000, "lineNetKurus": 26000, "lineVatKurus": 5200, "lineGrossKurus": 31200 } ],
   "shippingAddress": { "recipientName": "…", "phone": "…", "email": null, "province": "İstanbul", "district": "Kadıköy", "addressLine": "…", "postalCode": null },
   "note": "",
   "shipment": null,
@@ -155,7 +173,8 @@ comes in a later version.
 | 401 | `UNAUTHORIZED` | Missing or wrong key | |
 | 404 | `ORDER_NOT_FOUND` | Not this partner's order | |
 | 409 | `OFFER_UNAVAILABLE` | Unknown offer, not sold now, or the supplier no longer has it | `selectedOfferIds` |
-| 409 | `PRICE_CHANGED` | A line's price moved since the quote | `lines: [{ selectedOfferId, expectedUnitNetKurus, unitNetKurus }]`; `unitNetKurus` is the new price, or `null` while the supplier's new cost is still being saved |
+| 409 | `QUANTITY_UNAVAILABLE` | A line asks for more than can be ordered per line | `lines: [{ selectedOfferId, requestedQuantity, maxQuantity }]` |
+| 409 | `PRICE_CHANGED` | A line's price or the shipping fee moved since the quote | `lines: [{ selectedOfferId, expectedUnitNetKurus, unitNetKurus }]`; `unitNetKurus` is the new price, or `null` while the supplier's new cost is still being saved; `shipping: { expectedShippingKurus, shippingKurus }` when the fee changed |
 | 409 | `QUOTE_EXPIRED` | The quote is older than 15 minutes | `expiredAt` |
 | 409 | `QUOTE_CHANGED` | Token not signed by us, for another partner, or lines differ; checkout rules changed | |
 | 409 | `CREDIT_LIMIT_EXCEEDED` | Open orders + this order exceed the limit | `limitKurus, openKurus, orderKurus` |
@@ -174,9 +193,13 @@ orders with a new `Idempotency-Key`.
 A partner order is a `commerce_orders` row (`owner_kind='partner'`,
 `owner_id=<partner code>`, `request_key` = Idempotency-Key,
 `partner_fingerprint` = SHA-256 of the validated body,
-`payment_status='on_account'`, `status='pending'`, no `payment_due_at`) with
-`commerce_order_items` lines (`unit_price_kurus` = unit gross,
-`reserved_quantity` 0, `pricing_snapshot.partner` = binding unit net/VAT).
+`payment_status='on_account'`, `status='pending'`, no `payment_due_at`,
+`subtotal_kurus` = goods gross, `shipping_kurus`, `total_kurus` = both) with
+`commerce_order_items` lines (`unit_price_kurus` = line gross ÷ quantity,
+rounded, for the store's screens; `reserved_quantity` 0;
+`pricing_snapshot.partner` = binding unit net, VAT rate and the line's net, VAT
+and gross). `email` is stored as an empty string when none is sent (the column
+is NOT NULL for store orders).
 Operations handle it in `/yonetim/siparisler` like a paid order; the TAMI payment
 window and its expiry never touch it. Invoice columns stay empty (the partner
 is invoiced) and no consumer pre-contract documents are stored.
