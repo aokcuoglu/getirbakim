@@ -4,7 +4,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import {
-  acquireLock, checkInboundReport, type InboundReport, LOCK_PATH, nextRetry, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, statePath, summarizeParts, SYNC_DIR,
+  acquireLock, checkInboundReport, type InboundReport, LOCK_PATH, nextRetry, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, STATE_PATH, summarizeParts, SYNC_DIR,
   reportKey, type SyncState, tombstoneWarnings,
 } from "./storefront-sync-state";
 import { TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
@@ -14,14 +14,13 @@ import { TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
 // The watermark only advances after production applied all parts, so a failed run is retried in full next time
 // (the import is an idempotent upsert, so parts applied before a failure are harmless to repeat).
 //
-// Two targets, chosen by STOREFRONT_SYNC_TARGET in .env.local:
-// - vps (default): rsync over SSH to the Contabo VPS (PRODUCTION_SSH), pg_dump backup, production-task.sh steps.
-// - aws: `aws s3 sync` to the inbound bucket, then one ECS task in the operations task definition runs
-//   scripts/import-storefront-inbound.ts (dry-run all, apply all, rebuild fitments). RDS point-in-time recovery
-//   replaces the pg_dump backup. Needs PRODUCTION_AWS_PROFILE (a profile in ~/.aws/config, never `default`);
-//   PRODUCTION_AWS_REGION and PRODUCTION_AWS_STACK_PREFIX default to eu-central-1 and GetirbakimProduction.
+// The only target is AWS: `aws s3 sync` to the inbound bucket, then one ECS task in the operations task definition runs
+// scripts/import-storefront-inbound.ts (dry-run all, apply all, rebuild fitments). RDS point-in-time recovery
+// is the backup. Needs PRODUCTION_AWS_PROFILE (a profile in ~/.aws/config, never `default`);
+// PRODUCTION_AWS_REGION and PRODUCTION_AWS_STACK_PREFIX default to eu-central-1 and GetirbakimProduction.
+// The VPS target was removed (#563); STOREFRONT_SYNC_TARGET is no longer read, only rejected when it is not `aws`.
 //
-// Each target has its own watermark (storefront-sync-state.ts: state.json for vps, state.aws.json for aws).
+// The watermark lives in .local/storefront-sync/state.aws.json (storefront-sync-state.ts STATE_PATH).
 // Flags:
 //   --dry-run          export and split only, print the part summary; no transfer, no state, no lock.
 //   --baseline=<ISO>   without --dry-run: record <ISO> as the target's last snapshot and exit (--force overwrites an
@@ -37,10 +36,13 @@ import { TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
 // state.aws.json as `retry` and exported again next run whatever the watermark (export --retry-file).
 // Every bundle carries the tombstones of enrichments deleted or invalidated locally in the last 90 days
 // (storefront-bundle-tombstones.ts); an operations image older than #564 ignores them, which is only a warning.
-const target = process.env.STOREFRONT_SYNC_TARGET || "vps";
-if (target !== "vps" && target !== "aws") throw new Error("STOREFRONT_SYNC_TARGET must be vps or aws");
+// An old `vps` value must not silently run something else.
+if (process.env.STOREFRONT_SYNC_TARGET && process.env.STOREFRONT_SYNC_TARGET !== "aws") {
+  throw new Error("STOREFRONT_SYNC_TARGET is obsolete: the VPS target was removed (#563), AWS is the only target. Remove it or set it to aws.");
+}
+const target = "aws";
 const { dryRun, full, force, baseline, maxDeletions } = parseSyncArgs(process.argv.slice(2), new Date());
-const state = resolve(statePath(target));
+const state = resolve(STATE_PATH);
 // Enrichment imports that started before the last snapshot but committed after it would be missed;
 // the overlap re-sends them, and the import is an idempotent upsert.
 const OVERLAP_MS = 60 * 60 * 1000;
@@ -50,28 +52,6 @@ const PART_BYTES = 100 * 1024 * 1024;
 function run(command: string, args: string[], env?: NodeJS.ProcessEnv) {
   const result = spawnSync(command, args, { stdio: ["ignore", "inherit", "inherit"], env });
   if (result.status !== 0) throw new Error(`${command} ${args[0] ?? ""} failed with exit code ${result.status}`);
-}
-
-function vpsTarget() {
-  const host = process.env.PRODUCTION_SSH;
-  if (!host) throw new Error("PRODUCTION_SSH (user@host) required in .env.local");
-  const remoteRoot = "/opt/getirbakim-v2-production";
-  // Each step is its own ssh command with no stdin: a script piped to `bash -s` was read by the backup's
-  // `docker compose exec`, which swallowed the remaining steps while the run still exited 0.
-  const remote = (command: string) => run("ssh", ["-n", "-o", "BatchMode=yes", host, `cd ${remoteRoot} && ${command}`]);
-  return (partsDir: string, parts: string[]) => {
-    // One fixed remote directory: rsync then sends only changed files (category images repeat every run).
-    const dir = `${remoteRoot}/.local/storefront-bundles/current`;
-    remote(`mkdir -p ${dir}`);
-    run("rsync", ["-a", "--delete", "--partial", "-e", "ssh -o BatchMode=yes", `${partsDir}/`, `${host}:${dir}/`]);
-    // A failed dry run stops before anything is written.
-    remote("bash scripts/production-task.sh backup");
-    for (const part of parts) remote(`bash scripts/production-task.sh import-storefront ${dir}/${part}`);
-    for (const part of parts) remote(`bash scripts/production-task.sh import-storefront ${dir}/${part} --apply`);
-    remote("bash scripts/production-task.sh rebuild-fitments");
-    // The VPS flow writes no import report.
-    return null;
-  };
 }
 
 function awsTarget() {
@@ -143,14 +123,13 @@ let since: string | null;
 if (full) since = null;
 else if (baseline) since = sinceFrom({ snapshotAt: baseline }, OVERLAP_MS);
 else if (previous) since = sinceFrom(previous, OVERLAP_MS);
-else if (target === "aws") throw new Error(`${state} is missing: record the last synced snapshot with --baseline=<ISO>, or send everything deliberately with --full`);
-else since = null;
+else throw new Error(`${state} is missing: record the last synced snapshot with --baseline=<ISO>, or send everything deliberately with --full`);
 
 const name = `bundle-${new Date().toISOString().replace(/[:.]/g, "")}`;
 const local = resolve(SYNC_DIR, name);
 const writesState = !dryRun;
-// Constructed only for real runs: both validate their credentials (profile, SSH host) up front.
-const transfer = dryRun || baseline ? null : target === "aws" ? awsTarget() : vpsTarget();
+// Constructed only for real runs: it validates its credentials (the AWS profile) up front.
+const transfer = dryRun || baseline ? null : awsTarget();
 if (writesState) {
   await mkdir(SYNC_DIR, { recursive: true });
   acquireLock(LOCK_PATH, { pid: process.pid, target });
@@ -196,24 +175,21 @@ try {
         target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, tombstones,
         invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length,
       }));
-      const result = await transfer(partsDir, parts);
-      let next = previous?.retry;
-      if (target === "aws") {
-        // Throws (the watermark stays) when the report is missing or belongs to another bundle.
-        const report = checkInboundReport(result, manifest.snapshotAt);
-        const outcome = nextRetry(report);
-        for (const warning of outcome.warnings) console.warn(`WARNING: ${warning}`);
-        next = outcome.retry;
-        const deletions = tombstoneWarnings(report, tombstones, TOMBSTONE_RETENTION_DAYS);
-        for (const warning of deletions.warnings) console.warn(`WARNING: ${warning}`);
-        for (const note of deletions.notes) console.log(note);
-      }
+      const result = await transfer(partsDir);
+      // Throws (the watermark stays) when the report is missing or belongs to another bundle.
+      const report = checkInboundReport(result, manifest.snapshotAt);
+      const outcome = nextRetry(report);
+      for (const warning of outcome.warnings) console.warn(`WARNING: ${warning}`);
+      const next = outcome.retry;
+      const deletions = tombstoneWarnings(report, tombstones, TOMBSTONE_RETENTION_DAYS);
+      for (const warning of deletions.warnings) console.warn(`WARNING: ${warning}`);
+      for (const note of deletions.notes) console.log(note);
       const written: SyncState = {
         snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), target, since, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, tombstones,
-        ...(next?.length ? { retry: next } : {}),
+        ...(next.length ? { retry: next } : {}),
       };
       await writeFile(state, JSON.stringify(written, null, 2));
-      console.log(JSON.stringify({ synced: name, target, snapshotAt: manifest.snapshotAt, retry: next?.length ?? 0 }));
+      console.log(JSON.stringify({ synced: name, target, snapshotAt: manifest.snapshotAt, retry: next.length }));
     }
   }
 } finally {

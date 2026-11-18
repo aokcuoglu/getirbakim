@@ -41,7 +41,7 @@ Saatler örnek. "Biz" = getirbakim, "LO" = Lokum Ops.
 | — | Biz | AWS zamanlayıcıları | `getirbakim-production` grubunda önce `supplier-sync` ve `nightly-jobs`, DNS'ten hemen sonra `payment-reconciliation` açılır (aşağıda). Geçişe kadar üçü de kapalı | 2 dk |
 | — | Biz | DNS | Aşağıda | 5 dk |
 | — | Birlikte | Kontrol | Aşağıda | 15 dk |
-| Sonra | Biz | Yerel işçileri başlat | `.env.local`: `STOREFRONT_SYNC_TARGET=aws` + AWS profili, sonra `bash scripts/cutover/local-workers.sh start` | 1 dk |
+| Sonra | Biz | Yerel işçileri başlat | `.env.local`: AWS profili (`PRODUCTION_AWS_PROFILE`; `STOREFRONT_SYNC_TARGET` ve VPS storefront aktarım hedefi #563 ile kaldırıldı, AWS tek hedef), sonra `bash scripts/cutover/local-workers.sh start` | 1 dk |
 
 Başbuğ tazelemesi VPS'teki canlı senkronizasyonla aynı anda çalışabiliyor (provada denendi). Dinamik geçişe dahil değil: Dinamik canlıda bugün satılmıyor; AWS'te zamanlayıcı onları proxy üzerinden tazeledikçe fiyatları görünür.
 
