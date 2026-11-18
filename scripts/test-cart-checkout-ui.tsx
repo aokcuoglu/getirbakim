@@ -98,3 +98,41 @@ test("the invoice is individual by default with no tax fields; corporate asks fo
   // An individual invoice asks for no identity number at all.
   assert.doesNotMatch(individual, /kimlik|VKN|T\.C\./i);
 });
+
+test("the invoice goes to the delivery address by default; a saved separate one shows its own billing fields (#916)", () => {
+  const block = (html: string) => html.match(/<fieldset[^>]*id="checkout-invoice-address"[^>]*>[\s\S]*?<\/fieldset>/)?.[0] ?? "";
+  const blockTag = (html: string) => html.match(/<fieldset[^>]*id="checkout-invoice-address"[^>]*>/)?.[0] ?? "";
+  const checkbox = (html: string) => html.match(/<[^>]*role="checkbox"[^>]*>/)?.[0] ?? "";
+  const same = renderToStaticMarkup(<CheckoutInvoiceFields/>);
+  assert.match(same, /name="invoiceAddressMode"[^>]*value="same"|value="same"[^>]*name="invoiceAddressMode"/);
+  assert.match(same, /Fatura adresi teslimat adresiyle aynı/);
+  // The address has its own fieldset, apart from the invoice type, and the box points to the block it shows.
+  assert.match(same, /<legend[^>]*>Fatura türü<\/legend>[\s\S]*<\/fieldset><fieldset[^>]*><legend[^>]*>Fatura adresi<\/legend>/);
+  assert.match(checkbox(same), /aria-controls="checkout-invoice-address"/);
+  assert.match(checkbox(same), /aria-expanded="false"/);
+  // Ticked: the block stays mounted (what was typed survives) but is hidden and disabled, so nothing is submitted or checked.
+  assert.match(blockTag(same), /hidden=""/); assert.match(blockTag(same), /disabled=""/);
+  for (const name of ["invoiceProvince", "invoiceDistrict", "invoiceAddressLine", "invoicePostalCode"]) {
+    assert.match(block(same), new RegExp(`name="${name}"`), name);
+    assert.equal(same.match(new RegExp(`name="${name}"`, "g"))?.length, block(same).match(new RegExp(`name="${name}"`, "g"))?.length, `${name} only inside the block`);
+  }
+
+  const separate = renderToStaticMarkup(<CheckoutInvoiceFields initial={{ invoiceType: "individual", company: null, taxNo: null, taxOffice: null,
+    address: { province: "Ankara", district: "Çankaya", addressLine: "Atatürk Bulvarı No 1", postalCode: "06690" } }}/>);
+  assert.match(separate, /name="invoiceAddressMode"[^>]*value="separate"|value="separate"[^>]*name="invoiceAddressMode"/);
+  assert.doesNotMatch(blockTag(separate), /hidden=""|disabled=""/);
+  assert.match(checkbox(separate), /aria-expanded="true"/);
+  for (const name of ["invoiceProvince", "invoiceDistrict", "invoiceAddressLine", "invoicePostalCode"]) assert.match(block(separate), new RegExp(`name="${name}"`), name);
+  for (const hint of ["billing address-level1", "billing address-level2", "billing street-address", "billing postal-code"]) assert.match(separate, new RegExp(`autoComplete="${hint}"`, "i"), hint);
+  for (const id of ["checkout-invoice-province", "checkout-invoice-district", "checkout-invoice-address-line", "checkout-invoice-postal-code"]) assert.match(separate, new RegExp(`id="${id}"`), id);
+  assert.match(separate, /value="Ankara"/); assert.match(separate, /value="Çankaya"/); assert.match(separate, /value="06690"/);
+  // No delivery names or ids inside the invoice block, so the page has no clashes.
+  assert.doesNotMatch(separate, /name="(province|district|addressLine|postalCode)"|id="checkout-(province|district|address-line|postal-code)"/);
+  const page = renderToStaticMarkup(<><CheckoutAddressFields/><CheckoutInvoiceFields initial={{ invoiceType: null, company: null, taxNo: null, taxOffice: null,
+    address: { province: "Ankara", district: null, addressLine: null, postalCode: null } }}/></>);
+  const ids = [...page.matchAll(/\sid="([^"]+)"/g)].map(match => match[1]);
+  assert.equal(new Set(ids).size, ids.length, ids.join(" "));
+  // A saved address without a province keeps the box ticked.
+  assert.match(renderToStaticMarkup(<CheckoutInvoiceFields initial={{ invoiceType: "individual", company: null, taxNo: null, taxOffice: null,
+    address: { province: null, district: null, addressLine: null, postalCode: null } }}/>), /value="same"/);
+});

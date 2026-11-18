@@ -650,6 +650,19 @@ DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='invoice_tax_office' AND NOT attisdropped) THEN
   ALTER TABLE commerce_orders ADD COLUMN invoice_tax_office text;
  END IF;
+ -- Separate invoice address (#916); all NULL when the invoice goes to the delivery address.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='invoice_province' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN invoice_province text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='invoice_district' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN invoice_district text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='invoice_address_line' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN invoice_address_line text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='invoice_postal_code' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN invoice_postal_code text;
+ END IF;
 END $$;
 -- Geliver shipping labels (#960). Each label purchase is its own row, committed as 'requested' before the Geliver call,
 -- so a lost reply is never forgotten: 'unknown' (and a still 'requested' row) blocks a new label until "Geliver'de kontrol
