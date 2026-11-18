@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createFitmentMatcher, englishModelName, type FitmentCatalogModel, type FitmentCatalogType, type SourceVehicle } from "../src/modules/store/fitment-matcher";
 import { parseFitmentPaging } from "../src/modules/admin/fitment-details";
+import { fitmentInitialGroups, fitmentView, visibleFitmentGroups, type FitmentSource } from "../src/modules/store/product-fitment-view";
 
 const models: FitmentCatalogModel[] = [{ id: 1, brand_id: 2, brand: "VW", display_brand: "VOLKSWAGEN", name: "GOLF (5G1)" }];
 const base: FitmentCatalogType = { id: 10, model_id: 1, name: "2.0 TDI", cc: 1968, fuel_type: "Diesel", hp: 150, kwt: 110, date_from: "2013-04", date_to: "2017-03" };
@@ -92,4 +93,65 @@ test("fitment search query is trimmed, empty means no search, and length is capp
   assert.equal(parseFitmentPaging(new URLSearchParams("vehiclesQuery=%20%20"))?.query, "");
   assert.equal(parseFitmentPaging(new URLSearchParams("vehiclesQuery=%20golf%20tdi%20"))?.query, "golf tdi");
   assert.equal(parseFitmentPaging(new URLSearchParams({ vehiclesQuery: "a".repeat(100) }))?.query.length, 100);
+});
+
+// The product page's "Uyumlu araçlar" view (#642).
+
+const vehicle = (modelLabel: string, extra: Partial<FitmentSource> = {}): FitmentSource => ({ engineAndCodes: "2.0 TDI CRBC", fuel: "Diesel", ps: 150, kw: 110, cc: 1968,
+  from: "04/2013", to: "03/2017", makeKey: "VOLKSWAGEN", makeLabel: "Volkswagen", modelLabel, ...extra });
+
+test("fitmentView groups rows by model in first-seen order and keeps only the printed fields", () => {
+  const view = fitmentView([
+    vehicle("Volkswagen Golf VII (5G1)", { vehicleTypeId: 10, catalogEngine: "2.0 TDI", modelHref: null }),
+    vehicle("Volkswagen Passat B8 (3G2)", { to: null, modelHref: "/yedek-parca/volkswagen/passat-b8" }),
+    vehicle("Volkswagen Golf VII (5G1)", { engineAndCodes: "1.6 TDI", catalogEngine: "1.6 TDI", modelHref: "/yedek-parca/volkswagen/golf-vii" }),
+    vehicle("Volkswagen Golf VII (5G1)", { modelHref: "/yedek-parca/volkswagen/golf-other" }),
+    vehicle("Audi A3 (8V1)", { makeKey: "AUDI", makeLabel: "Audi", vehicleTypeId: null }),
+  ]);
+  assert.deepEqual(view.makes, [["VOLKSWAGEN", "Volkswagen"], ["AUDI", "Audi"]]);
+  assert.deepEqual(view.groups.map(group => group.model), ["Volkswagen Golf VII (5G1)", "Volkswagen Passat B8 (3G2)", "Audi A3 (8V1)"]);
+  assert.equal(view.total, 5);
+  const [golf, passat, audi] = view.groups;
+  // The first row naming a model page stands for the group.
+  assert.equal(golf.href, "/yedek-parca/volkswagen/golf-vii");
+  assert.equal(passat.href, "/yedek-parca/volkswagen/passat-b8");
+  assert.equal("href" in audi, false);
+  assert.equal(golf.make, "VOLKSWAGEN");
+  assert.equal(audi.make, "AUDI");
+  assert.deepEqual(golf.rows[0], { engine: "2.0 TDI CRBC", catalog: "2.0 TDI", fuel: "Diesel", ps: 150, kw: 110, cc: 1968, from: "04/2013", to: "03/2017", typeId: 10 });
+  // The catalog name only where it differs; no end date and no type id are left out.
+  assert.equal("catalog" in golf.rows[1], false);
+  assert.equal("typeId" in golf.rows[1], false);
+  assert.equal("to" in passat.rows[0], false);
+  assert.equal("typeId" in audi.rows[0], false);
+});
+
+test("visibleFitmentGroups prints the first groups until showAll; filters and search lift the cap", () => {
+  const sources = Array.from({ length: 25 }, (_, index) => vehicle(`Volkswagen Model ${index + 1}`));
+  sources.push(vehicle("Volkswagen Golf VII (5G1)", { engineAndCodes: "1.4 TSI CZCA", ps: 125, kw: 92 }), vehicle("Audi A3 (8V1)", { makeKey: "AUDI", makeLabel: "Audi" }));
+  const view = fitmentView(sources), none = { make: "", model: "", query: "", showAll: false };
+  const first = visibleFitmentGroups(view, none);
+  assert.equal(first.groups.length, fitmentInitialGroups);
+  assert.equal(first.hidden, 27 - fitmentInitialGroups);
+  assert.equal(first.matches, 27);
+  const all = visibleFitmentGroups(view, { ...none, showAll: true });
+  assert.equal(all.groups.length, 27);
+  assert.equal(all.hidden, 0);
+  const audi = visibleFitmentGroups(view, { ...none, make: "AUDI" });
+  assert.deepEqual(audi.groups.map(group => group.model), ["Audi A3 (8V1)"]);
+  assert.equal(audi.matches, 1);
+  assert.equal(audi.hidden, 0);
+  const model = visibleFitmentGroups(view, { ...none, model: "Volkswagen Model 22" });
+  assert.deepEqual(model.groups.map(group => group.model), ["Volkswagen Model 22"]);
+  // A make filter lists every group of the make, past the first twenty.
+  assert.equal(visibleFitmentGroups(view, { ...none, make: "VOLKSWAGEN" }).groups.length, 26);
+  // Turkish lower case reads "VII" as "vıı"; the search folds ı to i on both sides.
+  const golf = visibleFitmentGroups(view, { ...none, query: " golf vii " });
+  assert.deepEqual(golf.groups.map(group => group.model), ["Volkswagen Golf VII (5G1)"]);
+  assert.equal(golf.matches, 1);
+  assert.equal(visibleFitmentGroups(view, { ...none, query: "CZCA" }).matches, 1);
+  assert.equal(visibleFitmentGroups(view, { ...none, query: "yok böyle" }).groups.length, 0);
+  // Only matching rows of a group are printed.
+  const mixed = fitmentView([vehicle("Volkswagen Golf VII (5G1)"), vehicle("Volkswagen Golf VII (5G1)", { engineAndCodes: "1.4 TSI CZCA" })]);
+  assert.deepEqual(visibleFitmentGroups(mixed, { ...none, query: "tsi" }).groups[0].rows.map(row => row.engine), ["1.4 TSI CZCA"]);
 });

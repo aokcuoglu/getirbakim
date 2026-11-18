@@ -1,0 +1,74 @@
+// The product page's "Uyumlu araçlar" (#642): the fitment rows grouped by model on the server, in the fewest fields the
+// client component prints, so a product with 1,500 vehicles does not ship every row's labels and ids twice (HTML and RSC
+// payload). Client-safe: no server modules; the labels come in computed (vehicle-label.ts).
+
+export type FitmentRow = {
+  /** The source's engine and engine codes; searched and printed under the catalog's name when that differs. */
+  engine: string;
+  /** The catalog engine type's name, only where it differs from `engine`. */
+  catalog?: string;
+  fuel: string; ps: number; kw: number; cc: number; from: string; to?: string;
+  /** The linked catalog engine type. */
+  typeId?: number;
+};
+/** One model series: `make` is the make as the catalog writes it (the filter's value), `model` its reading-form label. */
+export type FitmentGroup = { make: string; model: string; href?: string; rows: FitmentRow[] };
+export type FitmentView = { makes: [string, string][]; groups: FitmentGroup[]; total: number };
+
+/** Model groups printed before "Tüm {n} modeli göster". */
+export const fitmentInitialGroups = 20;
+/** Above this many models the model select fills its options when first pointed at or focused. */
+export const fitmentEagerModelOptions = 50;
+
+export type FitmentSource = {
+  engineAndCodes: string; fuel: string; ps: number; kw: number; cc: number; from: string; to: string | null;
+  makeKey: string; makeLabel: string; modelLabel: string;
+  vehicleTypeId?: number | null; catalogEngine?: string | null;
+  /** The series' model page (#674); absent while the page does not list the product yet. */
+  modelHref?: string | null;
+};
+
+/** The rows grouped by model label in first-seen order; a group links the first model page any of its rows names. */
+export function fitmentView(vehicles: readonly FitmentSource[]): FitmentView {
+  const makes = new Map<string, string>(), groups = new Map<string, FitmentGroup>();
+  for (const vehicle of vehicles) {
+    if (!makes.has(vehicle.makeKey)) makes.set(vehicle.makeKey, vehicle.makeLabel);
+    let group = groups.get(vehicle.modelLabel);
+    if (!group) groups.set(vehicle.modelLabel, group = { make: vehicle.makeKey, model: vehicle.modelLabel, rows: [] });
+    // A label can join several series of one model page; the first linked one stands for it.
+    if (!group.href && vehicle.modelHref) group.href = vehicle.modelHref;
+    const row: FitmentRow = { engine: vehicle.engineAndCodes, fuel: vehicle.fuel, ps: vehicle.ps, kw: vehicle.kw, cc: vehicle.cc, from: vehicle.from };
+    if (vehicle.catalogEngine && vehicle.catalogEngine !== vehicle.engineAndCodes) row.catalog = vehicle.catalogEngine;
+    if (vehicle.to) row.to = vehicle.to;
+    if (vehicle.vehicleTypeId) row.typeId = vehicle.vehicleTypeId;
+    group.rows.push(row);
+  }
+  return { makes: [...makes], groups: [...groups.values()], total: vehicles.length };
+}
+
+// Turkish lower case turns the roman "VII" into "vıı"; folding ı to i on both sides keeps "golf vii" a match.
+const fold = (text: string) => text.toLocaleLowerCase("tr").replaceAll("ı", "i");
+
+export type FitmentFilter = { make: string; model: string; query: string; showAll: boolean };
+
+/**
+ * The groups to print: with a make, model or search, every group with a matching row (only its matching rows); without
+ * them the first `fitmentInitialGroups` until `showAll`. `matches` counts the matching rows, `hidden` the groups held back.
+ */
+export function visibleFitmentGroups(view: FitmentView, { make, model, query, showAll }: FitmentFilter) {
+  const normalized = fold(query.trim());
+  if (!make && !model && !normalized) {
+    const groups = showAll ? view.groups : view.groups.slice(0, fitmentInitialGroups);
+    return { groups, matches: view.total, hidden: view.groups.length - groups.length };
+  }
+  const groups: FitmentGroup[] = [];
+  let matches = 0;
+  for (const group of view.groups) {
+    if ((make && group.make !== make) || (model && group.model !== model)) continue;
+    const rows = normalized ? group.rows.filter(row => fold(`${group.model} ${row.engine} ${row.from} ${row.to ?? ""} ${row.ps} ${row.kw}`).includes(normalized)) : group.rows;
+    if (!rows.length) continue;
+    groups.push(rows === group.rows ? group : { ...group, rows });
+    matches += rows.length;
+  }
+  return { groups, matches, hidden: 0 };
+}

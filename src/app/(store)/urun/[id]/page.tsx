@@ -41,6 +41,7 @@ import { notListedInput, vehicleNotListed } from "@/modules/store/fitment-notice
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { describeYears, getDescriptionFitments } from "@/modules/store/description-fitment.server";
 import { ProductFitment } from "@/components/product-fitment";
+import { fitmentView } from "@/modules/store/product-fitment-view";
 import { getReferenceLinks } from "@/modules/store/reference-links";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
@@ -319,7 +320,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
         <dl className="m-0 grid grid-flow-col grid-cols-2 grid-rows-[repeat(var(--spec-rows,5),auto)] gap-x-14 max-[1000px]:gap-x-6 max-[750px]:block" style={{ "--spec-rows": Math.ceil(specificationRows.length / 2) } as CSSProperties}>{specificationRows.map(([label, value]) => <div key={label} className="spec-row"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium wrap-anywhere">{value}</dd></div>)}</dl>
         {description && <p className="mt-6 leading-6 whitespace-pre-line text-[#53677d]">{description}</p>}
       </section>
-      {vehicles.length > 0 ? <ProductFitment vehicles={vehicles.map(row => ({ ...row, sourceKey: undefined, ...fitmentLabels(row, makeNames), modelHref: row.modelId && modelFits.has(row.modelId) ? modelPaths.get(row.modelId) ?? null : null }))}/> : fallbacks.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{fallbacks.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{vehicleSeriesLabel(model)}</span>)}</div><p>Motor ve üretim yılı uyumluluğunu OEM numarasıyla kontrol et.</p></section>}
+      {vehicles.length > 0 ? <ProductFitment view={fitmentView(vehicles.map(row => ({ ...row, ...fitmentLabels(row, makeNames), modelHref: row.modelId && modelFits.has(row.modelId) ? modelPaths.get(row.modelId) ?? null : null })))}/> : fallbacks.vehicleModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{fallbacks.vehicleModels.map(model => <span key={model} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{vehicleSeriesLabel(model)}</span>)}</div><p>Motor ve üretim yılı uyumluluğunu OEM numarasıyla kontrol et.</p></section>}
       {descriptionModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{descriptionModels.map(row => {
         const label = <>{vehicleSeriesLabel(`${row.brand} ${row.model}`)}{describeYears(row) && <span className="text-[#53677d]"> · {describeYears(row)}</span>}</>, href = modelPaths.get(row.modelId);
         // A linked model (#674) reads as a link at rest too: blue text and an arrow, not only on hover.

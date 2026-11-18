@@ -20,6 +20,13 @@
   .reference-codes { @apply m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere; }
   .spec-row { @apply grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3; }
 
+  /* Product page "Uyumlu araçlar" (ProductFitment): a model group, its trigger with the chevron and row count, and the
+     model page link. The chevron turns with the trigger's own data-panel-open. */
+  .fitment-group { @apply border-t border-[#e0e5eb]; }
+  .fitment-trigger { @apply flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-none border-0 bg-transparent px-4 py-5 text-left text-base leading-5 text-foreground outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#2e78c7] [&>svg]:shrink-0 [&>svg]:text-[#53677d] [&>svg]:transition-transform data-panel-open:[&>svg]:rotate-90; }
+  .fitment-count { @apply ml-auto text-[11px] whitespace-nowrap text-muted-foreground max-[750px]:hidden; }
+  .fitment-link { @apply mr-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-[5px] px-2 text-[13px] leading-5 font-medium whitespace-nowrap text-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2e78c7]; }
+
   /* Product page, 600px and below (#876): the purchase form is a fixed bottom bar; the body keeps its height free. */
   .buy-bar { @apply max-[600px]:fixed max-[600px]:inset-x-0 max-[600px]:bottom-0 max-[600px]:z-40 max-[600px]:border-t max-[600px]:border-border max-[600px]:bg-white max-[600px]:pr-[max(16px,env(safe-area-inset-right))] max-[600px]:pl-[max(16px,env(safe-area-inset-left))] max-[600px]:pt-3 max-[600px]:pb-[calc(12px+env(safe-area-inset-bottom))] max-[600px]:shadow-[0_-4px_16px_#212b3614]; }
   .buy-bar .buy-form.buy-form-product { @apply max-[600px]:mb-0; }
@@ -75,6 +82,10 @@
   .checkout-footer-link { @apply block py-[5px] text-[13px] leading-[22px] text-muted-foreground [overflow-wrap:anywhere] hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:py-2.5; }
   .checkout-footer-category { @apply text-muted-foreground hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:py-2; }
 }
+
+/* ProductFitment's engine rows. Unlayered like the utilities they replace had to win: ui/table's cells set their own
+   padding and alignment as utilities, which a components-layer rule would not override. */
+.fitment-row { @apply [&>td]:border-t [&>td]:border-border [&>td]:px-4 [&>td]:py-3.5 [&>td]:align-top [&_small]:mt-1 [&_small]:block [&_small]:text-[11px] [&_small]:text-muted-foreground; }
 
 /* iOS Safari zooms the page when a focused field is under 16px (#879). Unlayered so it beats size utilities; scoped like the storefront typography defaults, so /yonetim (.admin-app, portals included) keeps its sizes. */
 @media (max-width: 767.98px) {
