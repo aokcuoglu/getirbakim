@@ -13,6 +13,7 @@ process.env.GELIVER_WEBHOOK_SECRET = SECRET;
 
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let labels: typeof import("../src/modules/shipping/geliver-labels");
+let sync: typeof import("../src/modules/shipping/geliver-sync");
 let closeDb: () => Promise<void>;
 let admin = "";
 
@@ -28,8 +29,9 @@ before(async () => {
     return handler(call);
   };
   schema = await isolatedSchema("geliver_test");
-  const [{ db }, module] = await Promise.all([import("../src/lib/db"), import("../src/modules/shipping/geliver-labels")]);
+  const [{ db }, module, syncModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/shipping/geliver-labels"), import("../src/modules/shipping/geliver-sync")]);
   labels = module;
+  sync = syncModule;
   closeDb = () => db.end();
   admin = (await schema.pool.query<{ id: string }>("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Yönetici',$1,'x','admin',true) RETURNING id::text",
     [`${randomUUID()}@example.invalid`])).rows[0].id;
@@ -417,6 +419,156 @@ test("webhook: an order delivered by hand, returned or failed shipments leave th
   row = await orderRow(order.id);
   assert.equal(row.status, "delivered");
   assert.equal(new Date(row.delivered_at).toISOString(), "2026-11-18T12:00:00.000Z");
+});
+
+/** Periodic sync (#974): other tests' labels count as just checked, so each test sees only its own. */
+const settleOthers = () => schema.pool.query("UPDATE commerce_geliver_shipments SET checked_at=now()");
+const checkedMinutesAgo = (shipmentId: string, minutes: number) =>
+  schema.pool.query("UPDATE commerce_geliver_shipments SET checked_at=now()-make_interval(mins=>$2) WHERE geliver_shipment_id=$1", [shipmentId, minutes]);
+async function dueLiveLabel(minutes = 120) {
+  const shipped = await shippedByGeliver();
+  await checkedMinutesAgo(shipped.remote.id, minutes);
+  return shipped;
+}
+const labelOf = async (shipmentId: string) => (await schema.pool.query("SELECT * FROM commerce_geliver_shipments WHERE geliver_shipment_id=$1", [shipmentId])).rows[0];
+/** GET /shipments/{id} replies by shipment id; any other call fails the test. */
+function detailReplies(replies: Record<string, () => Response>) {
+  calls.length = 0;
+  handler = call => {
+    const match = /\/api\/v1\/shipments\/([^/?]+)$/.exec(new URL(call.url).pathname);
+    assert.equal(call.method, "GET");
+    const reply = match ? replies[decodeURIComponent(match[1])] : undefined;
+    if (!reply) throw new Error(`unexpected Geliver call ${call.url}`);
+    return reply();
+  };
+}
+const detail = (id: string, trackingStatus: Record<string, unknown> | null, extra: Record<string, unknown> = {}) =>
+  () => Response.json({ result: true, additionalMessage: "Success", data: shipment({ id, test: false, trackingStatus, ...extra }) });
+const fetchedIds = () => calls.map(call => decodeURIComponent(new URL(call.url).pathname.split("/").pop() ?? ""));
+async function runSync(options: Parameters<typeof sync.syncGeliverShipments>[0] = {}) {
+  process.env.GELIVER_MODE = "live";
+  try { return await sync.syncGeliverShipments({ pauseMs: 0, ...options }); }
+  finally { delete process.env.GELIVER_MODE; }
+}
+const results = (summary: Awaited<ReturnType<typeof runSync>>) => {
+  assert.ok(summary.status === "done" && !summary.dryRun, JSON.stringify(summary));
+  return summary.results;
+};
+
+test("sync: only live labels of shipped orders are fetched, test labels never; test mode does nothing", async () => {
+  await settleOthers();
+  const live = await dueLiveLabel();
+  const testLabel = await shippedByGeliver({ test: true });
+  await checkedMinutesAgo(testLabel.remote.id, 600);
+  const deliveredOrder = await dueLiveLabel(600);
+  await schema.pool.query("UPDATE commerce_orders SET status='delivered',delivered_at=now() WHERE id=$1", [deliveredOrder.order.id]);
+  const deliveredLabel = await dueLiveLabel(600);
+  await schema.pool.query("UPDATE commerce_geliver_shipments SET tracking_status_code='DELIVERED' WHERE geliver_shipment_id=$1", [deliveredLabel.remote.id]);
+
+  detailReplies({});
+  assert.deepEqual(await sync.syncGeliverShipments({ pauseMs: 0 }), { status: "not_live" });
+  assert.equal(calls.length, 0);
+
+  detailReplies({ [live.remote.id]: detail(live.remote.id, { trackingStatusCode: "TRANSIT", trackingSubStatusCode: "package_accepted", updatedAt: "2026-11-18T10:00:00Z" },
+    { trackingNumber: "123456789012" }) });
+  const [result] = results(await runSync());
+  assert.deepEqual(fetchedIds(), [live.remote.id]);
+  assert.equal(result.outcome, "applied");
+  assert.equal(result.orderId, live.order.id);
+  assert.equal((await orderRow(live.order.id)).tracking_no, "123456789012");
+  assert.equal((await labelOf(live.remote.id)).tracking_status_code, "TRANSIT");
+  assert.equal((await labelOf(testLabel.remote.id)).tracking_status_code, null);
+});
+
+test("sync: DELIVERED delivers the order; the same state again is a duplicate that only stamps checked_at", async () => {
+  await settleOthers();
+  const { order, remote } = await dueLiveLabel();
+  await schema.pool.query("UPDATE commerce_orders SET shipped_at=now()-interval '2 days' WHERE id=$1", [order.id]);
+  const transit = detail(remote.id, { trackingStatusCode: "TRANSIT", trackingSubStatusCode: "package_accepted", statusDetails: "Yolda", updatedAt: "2026-11-18T10:00:00Z" },
+    { trackingNumber: "123456789012" });
+  detailReplies({ [remote.id]: transit });
+  assert.equal(results(await runSync())[0].outcome, "applied");
+
+  await checkedMinutesAgo(remote.id, 120);
+  const before = (await labelOf(remote.id)).checked_at as Date;
+  detailReplies({ [remote.id]: transit });
+  const [repeat] = results(await runSync());
+  assert.deepEqual([repeat.outcome, repeat.outcome === "ignored" && repeat.reason], ["ignored", "duplicate"]);
+  const label = await labelOf(remote.id);
+  assert.ok(label.checked_at.getTime() > before.getTime(), "every attempt stamps checked_at");
+  assert.equal(label.tracking_status_code, "TRANSIT");
+  assert.equal((await orderRow(order.id)).status, "shipped");
+
+  await checkedMinutesAgo(remote.id, 120);
+  const deliveredAt = ago(90);
+  detailReplies({ [remote.id]: detail(remote.id, { trackingStatusCode: "DELIVERED", trackingSubStatusCode: "delivered", statusDate: deliveredAt, updatedAt: ago(85) },
+    { trackingNumber: "123456789012" }) });
+  const [delivered] = results(await runSync());
+  assert.deepEqual([delivered.outcome, delivered.outcome === "applied" && delivered.statusCode], ["applied", "DELIVERED"]);
+  const row = await orderRow(order.id);
+  assert.equal(row.status, "delivered");
+  assert.equal(new Date(row.delivered_at).toISOString(), deliveredAt);
+
+  await checkedMinutesAgo(remote.id, 120);
+  detailReplies({});
+  assert.deepEqual(results(await runSync()), [], "a delivered order is not fetched again");
+  assert.equal(calls.length, 0);
+});
+
+test("sync: the batch cap and the minimum age since the last check are respected, oldest check first", async () => {
+  await settleOthers();
+  const oldest = await dueLiveLabel(300), older = await dueLiveLabel(180), recent = await dueLiveLabel(30);
+  const neverChecked = await dueLiveLabel();
+  await schema.pool.query("UPDATE commerce_geliver_shipments SET checked_at=NULL WHERE geliver_shipment_id=$1", [neverChecked.remote.id]);
+  const noStatus = (id: string) => detail(id, null);
+  const replies = Object.fromEntries([oldest, older, recent, neverChecked].map(s => [s.remote.id, noStatus(s.remote.id)]));
+
+  detailReplies(replies);
+  assert.deepEqual(results(await runSync({ limit: 2 })).map(r => r.outcome), ["no_status", "no_status"]);
+  assert.deepEqual(fetchedIds(), [neverChecked.remote.id, oldest.remote.id]);
+  detailReplies(replies);
+  results(await runSync({ limit: 5 }));
+  assert.deepEqual(fetchedIds(), [older.remote.id], "the recently checked and the just synced labels wait");
+  detailReplies(replies);
+  results(await runSync({ limit: 5, minAgeMinutes: 20 }));
+  assert.deepEqual(fetchedIds(), [recent.remote.id]);
+});
+
+test("sync: a failed or refused call is logged and the run goes on; the row keeps everything but checked_at", async () => {
+  await settleOthers();
+  const down = await dueLiveLabel(300), refused = await dueLiveLabel(200), fine = await dueLiveLabel(100);
+  const before = await labelOf(down.remote.id);
+  detailReplies({
+    [down.remote.id]: () => new Response("bad gateway", { status: 502 }),
+    [refused.remote.id]: () => Response.json({ result: false, code: "E1004", message: "Gönderi bulunamadı" }, { status: 404 }),
+    [fine.remote.id]: detail(fine.remote.id, { trackingStatusCode: "TRANSIT", trackingSubStatusCode: "package_accepted", updatedAt: "2026-11-18T10:00:00Z" }),
+  });
+  const outcome = results(await runSync());
+  assert.deepEqual(outcome.map(r => [r.shipmentId, r.outcome]), [[down.remote.id, "error"], [refused.remote.id, "error"], [fine.remote.id, "applied"]]);
+  const after = await labelOf(down.remote.id);
+  assert.ok(after.checked_at.getTime() > before.checked_at.getTime());
+  assert.deepEqual({ ...after, checked_at: null }, { ...before, checked_at: null });
+  assert.equal((await labelOf(refused.remote.id)).tracking_status_code, null);
+  assert.equal((await orderRow(refused.order.id)).status, "shipped");
+
+  // A reply that reports a test shipment is never applied.
+  await checkedMinutesAgo(down.remote.id, 120);
+  detailReplies({ [down.remote.id]: () => Response.json({ result: true, data: shipment({ id: down.remote.id, test: true,
+    trackingStatus: { trackingStatusCode: "DELIVERED", updatedAt: "2026-11-18T10:00:00Z" } }) }) });
+  assert.equal(results(await runSync())[0].outcome, "error");
+  assert.equal((await orderRow(down.order.id)).status, "shipped");
+});
+
+test("sync: a dry run lists the due labels without calling Geliver or writing", async () => {
+  await settleOthers();
+  const { remote, order } = await dueLiveLabel();
+  const before = (await labelOf(remote.id)).checked_at as Date;
+  detailReplies({});
+  const summary = await runSync({ dryRun: true });
+  assert.ok(summary.status === "done" && summary.dryRun);
+  assert.deepEqual(summary.candidates.map(c => [c.shipmentId, c.orderId]), [[remote.id, order.id]]);
+  assert.equal(calls.length, 0);
+  assert.deepEqual((await labelOf(remote.id)).checked_at, before);
 });
 
 test("the setup files can be applied twice", async () => {
