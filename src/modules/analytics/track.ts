@@ -6,6 +6,7 @@ import { consentSignals, consentSnapshot, parseConsent } from "@/lib/cookie-cons
 /** Meta's standard queue stub: calls wait in `queue` until fbevents.js takes over through `callMethod`. */
 type Fbq = ((...args: unknown[]) => void) & {
   callMethod?: (...args: unknown[]) => void; queue: unknown[]; push: Fbq; loaded: boolean; version: string;
+  disablePushState?: boolean;
 };
 
 declare global {
@@ -52,6 +53,8 @@ function installFbq() {
   fbq.loaded = true;
   fbq.version = "2.0";
   fbq.queue = [];
+  // fbevents.js would send a PageView (with the full address) on every client navigation; only the initial one is wanted.
+  fbq.disablePushState = true;
   window.fbq = fbq;
   if (!window._fbq) window._fbq = fbq;
 }
@@ -100,8 +103,13 @@ export function bootTags(input: {
   window.dispatchEvent(new Event(TAG_READY_EVENT));
 }
 
-/** Consent withdrawn or the storefront left: no further measurement, including GA4's own history page views and the pixel. */
+/**
+ * Consent withdrawn or the storefront left: no further measurement, including GA4's own history page views and the pixel.
+ * The advertising channels are forgotten until the next boot, so track() sends them nothing (e.g. after moving to /yonetim).
+ */
 export function stopTags(ga4: string | null) {
+  tags.ads = null;
+  tags.metaPixel = null;
   if (ga4) setDisabled(ga4, true);
   window.gtag?.("consent", "update", consentSignals(null));
   window.fbq?.("consent", "revoke");

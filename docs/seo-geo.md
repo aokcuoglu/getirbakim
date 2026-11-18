@@ -108,6 +108,8 @@ Sıra: önce hesaplar ve doğrulama değerleri hazırlanır (DNS'ten önce yapı
 - [ ] `INDEXNOW_KEY` üretilir (`openssl rand -hex 16`), `app` ve `operations` görevlerine secret olarak verilir; `operations`'ta `APP_ENV=production` ve `SITE_URL` bulunur. İlk koşu stratejisi (`--seed` / `--limit=0` / damla damla): [indexnow.md](indexnow.md).
 - [ ] GA4 mülkü ve Google Ads hesabı açılır. **#749 engelleyicisi:** çerez politikasına satın alma ve sipariş değeri ölçümü metni (#749) canlıya çıkmadan `GA4_MEASUREMENT_ID` prod'da **etkinleştirilmez**; değişken boş kalır.
 - [ ] Merchant Center hesabı açılır, alan adı doğrulanır ve talep edilir; kargo ve iade ayarları hesapta girilir ([merchant-feed.md](merchant-feed.md#merchant-center-kurulumu-kullanıcı)). Sipariş modu "Kayıtlı veriler" (snapshot) iken besleme bilerek boştur.
+- [ ] Meta Events Manager'da "Automatic Advanced Matching" ve Google Ads'te "Enhanced conversions" **kapalı** kalır (açılırsa etiketler kod değişmeden formlardan karma e-posta/telefon toplar; çerez politikası e-posta gönderilmediğini söyler).
+- [ ] `GOOGLE_ADS_ID` / `GOOGLE_ADS_PURCHASE_LABEL` / `META_PIXEL_ID` rıza sürümü 3'ü getiren sürümle birlikte tanımlanır; daha sonra açılırlarsa o sürümde `CONSENT_VERSION` artırılır (4), böylece hizmet yokken seçim yapmış ziyaretçilere yeniden sorulur.
 - [ ] Meta Business hesabı açılır, Pixel oluşturulur; `META_PIXEL_ID` (ve Google Ads için `GOOGLE_ADS_ID`, `GOOGLE_ADS_PURCHASE_LABEL`) app görev tanımına, #676 sürümü ve çerez politikası canlıdayken eklenir.
 - [ ] Google İşletme Profili (Kartal Oto Sanayi Sitesi adresi, telefon, çalışma saatleri) doğrulama kartı/aramasıyla açılır; adres ve telefon `Organization` verisi ile (`src/lib/site.ts`) aynı olmalı.
 

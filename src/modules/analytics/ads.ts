@@ -14,8 +14,9 @@ const valueOf = (params: Record<string, unknown>) => (typeof params.value === "n
 const currencyOf = (params: Record<string, unknown>) => (typeof params.currency === "string" ? params.currency : "TRY");
 
 /**
- * The advertising commands for a GA4 event (#676). Only product ids, quantities, prices, the order value and the order
- * number leave; no page address or personal data. `value` is the GA4 value (VAT included, shipping excluded).
+ * The advertising commands for a GA4 event (#676). The payload carries only product ids, quantities, prices, the order value
+ * and the order number; no personal data. Meta's own requests still carry the page address (fbevents.js adds it).
+ * `value` is the GA4 value (VAT included, shipping excluded).
  */
 export function adCommands(
   name: string, params: Record<string, unknown>, cfg: { ads: AdsConfig | null; metaPixel: string | null },

@@ -119,6 +119,8 @@ test("marketing only: no GA4 config or event, advertising signals granted, Meta 
   assert.deepEqual(fbqCommands(), [["consent", "grant"], ["set", "autoConfig", false, PIXEL], ["init", PIXEL], ["track", "PageView"]]);
   assert.equal(window._fbq, window.fbq);
   assert.equal(window.fbq?.version, "2.0");
+  // Only the initial PageView: fbevents.js must not add one (with the full address) per client navigation.
+  assert.equal(window.fbq?.disablePushState, true);
   assert.equal(canTrack(), true);
   assert.equal(track("view_item", viewItem(disc)), true);
   assert.deepEqual(fbqCommands().at(-1)?.slice(0, 2), ["track", "ViewContent"]);
@@ -165,6 +167,15 @@ test("stopTags revokes the pixel and denies every Google signal", () => {
   assert.deepEqual(fbqCommands().at(-1), ["consent", "revoke"]);
   assert.deepEqual(gtagCommands().at(-1), ["consent", "update", consentSignals(null)]);
   assert.equal((window as unknown as Record<string, boolean>)[`ga-disable-${GA4}`], true);
+  // Store → /yonetim client navigation: the advertising channels send nothing more.
+  const gtagBefore = gtagCommands().length;
+  const fbqBefore = fbqCommands().length;
+  // Marketing consent alone, so only the advertising channels could react.
+  Object.assign(document, { cookie: `gb_consent=${serializeConsent({ analytics: false, marketing: true, savedAt: Date.now() })}` });
+  assert.equal(track("view_item", viewItem(disc)), false);
+  assert.equal(canTrack(), false);
+  assert.equal(gtagCommands().length, gtagBefore);
+  assert.equal(fbqCommands().length, fbqBefore);
 });
 
 test("purchase claim: either consented channel, never an admin; refunds need analytics", () => {
