@@ -139,6 +139,7 @@
     "test:payment-refunds": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-payment-refunds.ts",
     "test:order-actions": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-order-actions.ts",
     "test:geliver": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-geliver.ts scripts/test-geliver-labels.ts",
+    "geliver:sync": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx scripts/geliver-sync.ts",
     "geliver:webhook": "node --env-file=.env.local --conditions=react-server --import tsx scripts/geliver-webhook.ts",
     "test:order-agreement": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-order-agreement.ts",
     "test:checkout-refresh": "node --import tsx --test scripts/test-checkout-refresh.ts",
