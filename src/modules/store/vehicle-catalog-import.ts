@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { normalizeVehicleSearch } from "./vehicle-catalog";
+import { normalizeVehicleSearch, turkeyPopularMakes } from "./vehicle-catalog";
 
 // Read CSV quoting correctly: model/type names can contain commas and escaped quotes.
 export function parseVehicleCsv(source: string): Record<string, string>[] {
@@ -30,7 +30,7 @@ export function parseVehicleCsv(source: string): Record<string, string>[] {
   });
 }
 
-export const popularBrands = new Set(["AUDI", "BMW", "MERCEDES-BENZ", "OPEL", "PEUGEOT", "RENAULT", "SKODA", "TOYOTA", "VW", "VOLVO"]);
+const popularBrandKeys = new Set(turkeyPopularMakes.map(normalizeVehicleSearch));
 export const vehicleFuelNames: Record<string, string> = {
   Petrol: "Benzin", Diesel: "Dizel", Electric: "Elektrik", Mixture: "Karışım",
   "Petrol/Electric": "Benzin / Elektrik", "Diesel/Electro": "Dizel / Elektrik",
@@ -62,7 +62,10 @@ export async function readVehicleCatalogImport(directory = path.join(process.cwd
     ["vehicle_brands.csv", "vehicle_models.csv", "vehicle_types.csv"].map(async name =>
       parseVehicleCsv(await readFile(path.join(directory, name), "utf8"))),
   );
-  const brands = brandRows.map(r => ({ id: id(r.id), name: r.name, display_name: r.name === "VW" ? "VOLKSWAGEN" : r.name, popular: popularBrands.has(r.name) }));
+  const brands = brandRows.map(r => {
+    const display_name = r.name === "VW" ? "VOLKSWAGEN" : r.name;
+    return { id: id(r.id), name: r.name, display_name, popular: popularBrandKeys.has(normalizeVehicleSearch(display_name)) };
+  });
   const brandById = new Map(brands.map(b => [b.id, b]));
   const models = modelRows.map(r => ({ id: id(r.id), brand_id: id(r.brand_id), name: r.name, date_from: month(r.date_from), date_to: month(r.date_to) }));
   const modelById = new Map(models.map(m => [m.id, m]));

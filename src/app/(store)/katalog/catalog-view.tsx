@@ -24,7 +24,7 @@ import { getCatalogProductImages,getCatalogProductDetails } from "@/modules/stor
 import { getManufacturerLogos } from "@/modules/store/manufacturer-logos";
 import {shownVehicle,vehicleText} from "@/modules/store/vehicle-label";
 import {getVehicleBrands} from "@/modules/store/vehicle-catalog.server";
-import {vehicleBrandSlug,type ShownVehicle,type VehicleBrand} from "@/modules/store/vehicle-catalog";
+import {vehicleBrandSlug,popularVehicleMakes,type ShownVehicle,type VehicleBrand} from "@/modules/store/vehicle-catalog";
 import {vehicleMakeLabel,vehicleModelCategoryLabels,vehicleModelGroupYears,vehicleModelLabels,withModelYears,type VehicleModelGroup} from "@/modules/store/vehicle-model-groups";
 import {VehicleModelSummary} from "@/components/vehicle-model-summary";
 import {VehicleModelList} from "@/components/vehicle-model-list";
@@ -121,8 +121,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const subcategories=shownCategories.filter(node=>category?node.parentId===category.id:node.parentId===null);
  const related=category?shownCategories.filter(node=>node.parentId===category.parentId&&node.id!==category.id).slice(0,8):[];
  const isBrakeCategory=category?.path.includes(252);
- const popularOrder=["VOLKSWAGEN","AUDI","TOYOTA","BMW","OPEL","VOLVO","SKODA","RENAULT","MERCEDES-BENZ","PEUGEOT","FORD","KIA","HYUNDAI","SUBARU","MAZDA","CITROËN","NISSAN","LEXUS","HONDA","SEAT"];
- const popularMakes=popularOrder.flatMap(name=>vehicleBrands.filter(brand=>brand.name===name));
+ const popularMakes=popularVehicleMakes.flatMap(name=>vehicleBrands.filter(brand=>brand.name===name));
  const makeName=make&&vehicleMakeLabel(make.name);
  const modelLabels=make&&model?vehicleModelLabels(make.name,model):undefined,modelName=modelLabels?.name,modelYears=model&&vehicleModelGroupYears(model);
  // A category name inside a sentence keeps its all-caps words (ABS, LED); the model with its years, one parenthesis.
