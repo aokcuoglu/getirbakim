@@ -1,6 +1,6 @@
 import Link from "next/link";
 import Image from "next/image";
-import {Info,Gauge,BellRing} from "lucide-react";
+import {Gauge,BellRing} from "lucide-react";
 import {PartArtImage} from "@/components/part-art";
 import {categories,money,servicePrice,type CatalogProduct as CatalogEntry} from "@/modules/store/catalog";
 import type {Account} from "@/modules/auth/session";
@@ -39,7 +39,8 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
    {brandClass&&<span className={cn("product-card-class",brandClass==="Premium"?"bg-[#d72b2b]":brandClass==="Budget"?"bg-[#f59e0b]":"bg-[#2e7d32]")} title={translateSpecificationValue(brandClass)} aria-label={"Marka sınıfı: "+translateSpecificationValue(brandClass)}>{brandClass==="Premium"||brandClass==="Budget"?<Image src={"/media/site/icons/"+brandClass.toLowerCase()+".svg"} width={16} height={16} alt="" unoptimized/>:<Gauge size={18}/>}</span>}
    <ManufacturerBadge brand={p.display_brand} logo={logo} className="product-card-maker"/>
   </div>
-  <Link className="product-card-picture" href={href} aria-label={title}>{image?<Image className="product-card-image" src={image.src} width={240} height={240} alt={title} loading="lazy"/>:<PartArtImage kind={category?.art} className="product-card-art"/>}</Link>
+  {/* The title link is the card's one link for assistive technology and the keyboard; the picture repeats it for the pointer. */}
+  <Link className="product-card-picture" href={href} aria-hidden="true" tabIndex={-1}>{image?<Image className="product-card-image" src={image.src} width={240} height={240} alt="" loading="lazy"/>:<PartArtImage kind={category?.art} className="product-card-art"/>}</Link>
   {p.supplier==="demo"&&<small className="block text-center text-[11px] text-muted-foreground">Örnek ürün</small>}
  </div>
  <div className="product-card-body">
@@ -56,9 +57,9 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
   <div className={cn("product-card-price",p.price_kurus===null&&"text-base leading-6 text-muted-foreground max-[600px]:text-base")}>{price}{regular!==null&&<s className="ml-2 text-sm font-normal text-muted-foreground"><span className="sr-only">Önceki fiyat: </span>{money(servicePrice(regular,discounted?account!.discount_percent:0))}</s>}</div>
   {p.price_kurus!==null&&<div className="product-card-vat">KDV dahil <span className="product-card-note">· Kargo hariç</span>{discounted&&<span className="product-card-note"> · Servisine özel fiyat</span>}{campaignEnd&&<span className="block">Kampanya {campaignEndText(campaignEnd)} tarihine kadar</span>}</div>}
   {p.unavailable?<Link className="product-card-stock font-medium text-[#0065c3] hover:underline" href={href+"#haber-ver"}><BellRing size={18} className="shrink-0"/>Gelince haber ver</Link>
-   :<p className={cn("product-card-stock",!p.available&&"text-muted-foreground")}><Image className="shrink-0" src="/media/site/icons/calendar-check.svg" width={20} height={20} alt="" unoptimized/><span className="min-w-0"><span className="product-card-stock-status">{stock.status}</span>{stock.note&&<span className="product-card-stock-note">{stock.note}</span>}</span></p>}
+   :<p className={cn("product-card-stock product-card-stock-dated",!p.available&&"text-muted-foreground")}><span className="min-w-0"><span className="product-card-stock-status">{stock.status}</span>{stock.note&&<span className="product-card-stock-note">{stock.note}</span>}</span></p>}
   <PurchaseForm productId={p.offer_id??p.id} name={p.name} available={p.available&&p.price_kurus!==null} maxQuantity={p.max_quantity} className="product-card-buyform"/>
-  <CompareCheckbox entry={{id:p.id,href,title,price,card}}/>
-  <Link className="product-card-compliance" href="/bilgi/uyumluluk"><Info size={14} className="hidden"/><span className="product-card-compliance-full">Güvenlik ve uyumluluk bilgileri</span><span className="product-card-compliance-short">Güvenlik bilgileri</span></Link>
+  <CompareCheckbox entry={{id:p.id,price,card}}/>
+  <Link className="product-card-compliance" href="/bilgi/uyumluluk"><span className="product-card-compliance-full">Güvenlik ve uyumluluk bilgileri</span><span className="product-card-compliance-short">Güvenlik bilgileri</span></Link>
  </div></div></article>;
 }

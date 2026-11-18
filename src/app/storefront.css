@@ -3,17 +3,24 @@
    Imported by globals.css so it ships in the main stylesheet. */
 
 @layer components {
-  /* Catalog filter options (CatalogSidebar FilterGroup): ui/checkbox with the store override, minus the
-     field/dark/invalid states the store never uses. */
-  .store-check { @apply relative flex size-5 shrink-0 items-center justify-center rounded-[4px] border border-input bg-white transition-colors outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 data-checked:border-brand data-checked:bg-brand data-checked:text-primary-foreground; }
-  .store-check-indicator { @apply grid place-content-center text-current transition-none [&>svg]:size-3.5; }
-  .facet-option { @apply mb-2.5 flex min-h-5 max-[768px]:mb-0 max-[768px]:min-h-11 cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-data-disabled:cursor-not-allowed has-data-disabled:opacity-60; }
+  /* Catalog filter options (CatalogSidebar FilterGroup) and the card's compare box (StoreCheckbox): a native checkbox
+     with ui/checkbox's look and the store colours; lucide's check as a white background when checked. The label around
+     it is the touch target (.facet-option is 44px tall on a phone). */
+  .store-check {
+    @apply relative size-5 shrink-0 cursor-pointer appearance-none rounded-[4px] border border-input bg-white bg-center bg-no-repeat transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 checked:border-brand checked:bg-brand;
+    &:checked { background-size: 14px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E"); }
+  }
+  .facet-option { @apply mb-2.5 flex min-h-5 max-[768px]:mb-0 max-[768px]:min-h-11 cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60; }
 
   /* /arac-markalari tiles. */
   .make-tile { @apply flex h-[88px] flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary max-md:h-20; }
   .make-tile-logo { @apply h-[42px] w-[92px] max-w-full object-contain; }
   .make-tile-initials { @apply grid size-[42px] place-items-center rounded-full bg-muted text-sm font-semibold tracking-[.5px] text-muted-foreground; }
   .make-tile-name { @apply max-w-full wrap-anywhere; }
+
+  /* A make page's model links (VehicleModelList), the years in a muted span. */
+  .model-link { @apply inline-flex min-h-8 items-center gap-1.5 hover:text-primary hover:underline; }
+  .model-link > span { @apply text-muted-foreground; }
 
   /* Product page: OEM and equivalent numbers, specification rows. */
   .reference-row { @apply grid grid-cols-[180px_minmax(0,1fr)] gap-6 border-b border-[#e0e5eb] px-5 py-[15px] last:border-0 max-[750px]:grid-cols-[100px_minmax(0,1fr)] max-[750px]:gap-4 max-[750px]:p-3.5 max-[750px]:text-[13px]; }
