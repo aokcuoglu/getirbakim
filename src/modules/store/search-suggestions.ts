@@ -44,7 +44,7 @@ function suggestedProducts(found: Found): SearchSuggestions["products"] {
   const result: SearchSuggestions["products"] = [];
   for (const product of found) {
     if (product.kind === "product") {
-      const name = product.name_overridden ? product.name : (turkishTypeName(product.name) ?? shownProductName(product));
+      const name = shownProductName(product);
       result.push({ name, detail: `${product.brand} · ${product.code}`, href: productPath({ id: product.id, name: product.name, name_overridden: product.name_overridden, display_brand: product.brand, display_code: product.code }) });
       continue;
     }

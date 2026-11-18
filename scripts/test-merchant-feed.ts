@@ -44,6 +44,12 @@ describe("feed items", () => {
     assert.match(entry.description, /^BOSCH 0986479C20 .*OEM: 1K0 615 301\./);
   });
 
+  test("a known English supplier name: Turkish title and link (#915)", () => {
+    const entry = item({ name: "BRAKE DISC" })!;
+    assert.match(entry.title, /^BOSCH Fren Diski 0986479C20$/);
+    assert.equal(entry.link, `${base}/urun/bosch-fren-diski-0986479c20-${row.id}`);
+  });
+
   test("a running campaign: price is the regular price, sale_price the campaign's, with its window", () => {
     const entry = item({ price_kurus: 99900, pricing_snapshot: { source: "override", price_kind: "sale", list_price_kurus: 124950, sale_until: "2026-11-20T21:00:00Z" } })!;
     assert.equal(entry.price, "1249.50 TRY");

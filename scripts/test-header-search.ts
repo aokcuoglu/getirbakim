@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { addRecentSearch, clearRecentSearches, parseRecentSearches, readRecentSearches, saveRecentSearch } from "../src/components/navigation/recent-searches";
+import { shownProductName } from "../src/modules/store/product-name";
 import { isEnglishTypeName, turkishTypeName } from "../src/modules/store/suggestion-names";
 
 test("known English type names get a Turkish name", () => {
@@ -10,10 +11,22 @@ test("known English type names get a Turkish name", () => {
 });
 
 test("single English words translate, unclear ones are dropped as English", () => {
-  const pairs: [string, string][] = [["COVER", "Kapak"], ["PIPE", "Boru"], ["SEAL", "Keçe"], ["MIRROR", "Ayna"], ["HOUSING", "Gövde"], ["NUT", "Somun"], ["SPRING", "Yay"], ["BOLT", "Cıvata"], ["TENSIONER", "Gergi"], ["RADIATOR", "Radyatör"], ["JOINT", "Mafsal"], ["PLUG", "Tapa"]];
+  const pairs: [string, string][] = [["COVER", "Kapak"], ["PIPE", "Boru"], ["MIRROR", "Ayna"], ["HOUSING", "Gövde"], ["NUT", "Somun"], ["SPRING", "Yay"], ["BOLT", "Cıvata"], ["TENSIONER", "Gergi"], ["RADIATOR", "Radyatör"], ["PLUG", "Tapa"]];
   for (const [raw, turkish] of pairs) assert.equal(turkishTypeName(raw), turkish, raw);
+  const added: [string, string][] = [["O-RING", "O-Ring Conta"], ["O  RING", "O-Ring Conta"], ["SWITCH", "Şalter"], ["CONTR ARM", "Salıncak"], ["TAIL-LIGHT", "Stop Lambası"], ["BOLT, BRAKE DISC", "Fren Diski Cıvatası"], ["BRACKET", "Braket"]];
+  for (const [raw, turkish] of added) assert.equal(turkishTypeName(raw), turkish, raw);
+  const corrected: [string, string][] = [["WHEEL", "Jant"], ["FRONT LIGHT", "Far"], ["TIE ROD", "Rot"], ["SIDE MARKER LIGHT", "Yan İşaret Lambası"], ["SHAFT", "Mil"]];
+  for (const [raw, turkish] of corrected) assert.equal(turkishTypeName(raw), turkish, raw);
   assert.equal(turkishTypeName("LINK"), undefined);
   assert.equal(isEnglishTypeName("LINK"), true);
+});
+
+test("names whose matches are different parts stay untranslated: readable on the store, hidden from name suggestions (#915)", () => {
+  for (const raw of ["SEAL", "JOINT", "ROD", "CABLE"]) {
+    assert.equal(turkishTypeName(raw), undefined, raw);
+    assert.equal(isEnglishTypeName(raw), true, raw);
+    assert.equal(shownProductName({ name: raw, name_overridden: false }), raw[0] + raw.slice(1).toLowerCase(), raw);
+  }
 });
 
 test("plainly English names are recognised, shared words alone are not", () => {

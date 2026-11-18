@@ -19,6 +19,8 @@ Tek kaynak `src/modules/seo/paths.ts`. Ayrıntılı adres tablosu ve ölçümler
 | Parça üreticisi | `/marka/<uretici>` | Yalın liste + en az 10 ürün, "üretici olmayan" gruplar hariç (`manufacturerIndexable`, `src/modules/store/manufacturers.ts`) |
 | Ürün | `/urun/<marka>-<ad>-<parça-no>-<id>` | `src/modules/seo/indexing.ts` (aşağıda) |
 
+Ürün adı (#686, #915; `shownProductName`, `src/modules/store/product-name.ts`): yönetici adı yazıldığı gibi > (yalnız ürün sayfasında) zenginleştirme adı > bilinen İngilizce tedarikçi tip adının Türkçesi ("BRAKE PAD SET, DISC BRAKE" → "Disk Fren Balata Seti") > tedarikçi adının okunur biçimi. Bilinmeyen İngilizce ad okunur biçimde kalır (yalnız arama önerilerinde gizlenir). Sözlük kodda: `src/modules/store/suggestion-names.ts`. Kartlar, ürün sayfası, öneriler, Merchant feed, analitik ve slug aynı adı okur; `/yonetim` ham tedarikçi adını gösterir. Sözlüğe eklenen her kayıt o adı taşıyan ürünlerin slug'ını değiştirir: eski adres `308` ile yeniye gider, IndexNow ikisini de bildirir.
+
 Ürün dizin politikası (#641, #659; `productIndexPolicy` ve `contentSignals`): demo ürün ve tedarik edilemeyen kart (hiçbir tedarikçi şu an satmıyor) `noindex,follow`, Offer basmaz, site haritasında yok. Mağaza ürünleri dizine açık. Tedarikçi ürünü adı, markası ve parça no dışında en az bir doğrulanabilir olgu taşıyorsa açık: eşleşen zenginleştirme, açıklamadan okunan uyumlu model, gizlenmemiş tedarikçi OEM numarası veya yönetici içeriği. Stok ölçüte girmez. Site haritası aynı ölçütü SQL'de uygular; `npm run test:sitemap` ikisini eşit tutar. Ölçüt dışı sayfalar `noindex,follow` ile erişilebilir kalır, sinyal kazanınca kendiliğinden dizine girer.
 
 Yönlendirmeler ve durum kodları:
