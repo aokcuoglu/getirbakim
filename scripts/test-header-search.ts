@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { addRecentSearch, clearRecentSearches, parseRecentSearches, readRecentSearches, saveRecentSearch } from "../src/components/navigation/recent-searches";
 import { shownProductName } from "../src/modules/store/product-name";
-import { isEnglishTypeName, turkishTypeName } from "../src/modules/store/suggestion-names";
+import { normalizeSearchText, parseSearchQuery, prefixTsQuery } from "../src/modules/search/query";
+import { typeNameTsQueries } from "../src/modules/search/type-names";
+import { isEnglishTypeName, turkishTypeName, typeNameEntries } from "../src/modules/store/suggestion-names";
 
 test("known English type names get a Turkish name", () => {
   assert.equal(turkishTypeName("BRAKE PAD SET, DISC BRAKE"), "Disk Fren Balata Seti");
@@ -27,6 +29,27 @@ test("names whose matches are different parts stay untranslated: readable on the
     assert.equal(isEnglishTypeName(raw), true, raw);
     assert.equal(shownProductName({ name: raw, name_overridden: false }), raw[0] + raw.slice(1).toLowerCase(), raw);
   }
+});
+
+test("Turkish type names add the English supplier name to the search (#953)", () => {
+  const queries = (q: string) => typeNameTsQueries(parseSearchQuery(q));
+  assert.deepEqual(queries("fren diski"), ["('brake' <-> 'disc')"]);
+  assert.deepEqual(queries("Fren Diskleri Bosch"), ["('brake' <-> 'disc') & ('bosch':*)"]);
+  assert.deepEqual(queries("hortum"), ["('hose')"]);
+  const [arm] = queries("salıncak");
+  for (const name of ["'contr' <-> 'arm'", "'control' <-> 'arm'", "'track' <-> 'control' <-> 'arm'"]) assert.ok(arm.includes(name), name);
+  assert.deepEqual(queries("kapak"), ["('cover')"]);
+  // Ambiguous English words, names English shares with Turkish, words already translated by a synonym, codes.
+  for (const q of ["jant", "yay", "tapa", "kol", "sensör", "kayış", "filtre", "5W-40"]) assert.deepEqual(queries(q), [], q);
+  const skipped = new Set(["cap", "arm", "spring", "plug", "wheel"]);
+  for (const [english, turkish] of typeNameEntries()) {
+    const parsed = parseSearchQuery(turkish);
+    if (skipped.has(english) || english === normalizeSearchText(turkish)) continue;
+    if (parsed.terms.length === 1 && parsed.terms[0].alternatives.some(alternative => alternative.value === english)) continue;
+    const phrase = english.split(" ").map(word => `'${word}'`).join(" <-> ");
+    assert.ok(typeNameTsQueries(parsed).some(query => query.includes(phrase)), `${turkish} → ${english}`);
+  }
+  assert.equal(prefixTsQuery(parseSearchQuery("fren diski")), "('fren':* | 'brake':*) & ('diski':* | 'disk':*)");
 });
 
 test("plainly English names are recognised, shared words alone are not", () => {
