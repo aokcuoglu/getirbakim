@@ -48,7 +48,7 @@ function RefundStatusBadge({ status }: { status: RefundStatus }) {
 /** The ship dialog's Geliver tab (#960): hidden without a Geliver token, else the mode or why this order cannot get a label. */
 function geliverOption(mode: GeliverMode | null, order: RecipientOrder & { geliver: AdminGeliverShipment | null }): GeliverOption | undefined {
   if (!mode) return undefined;
-  if (geliverTestBlocked(process.env)) return { blocked: `${geliverTestBlockedMessage} Elle giriş sekmesinden kargoya verin.`, tone: "warning" };
+  if (geliverTestBlocked(process.env)) return { blocked: geliverTestBlockedMessage, tone: "warning" };
   if (order.geliver?.status === "requested" || order.geliver?.status === "unknown") {
     return { blocked: "Önceki etiket isteğinin sonucu bekleniyor; önce \"Geliver'de kontrol et\" ile sonucu alın.", tone: "info" };
   }
@@ -99,9 +99,9 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.refund_unknown && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>TAMI yanıtı doğrulanamadı. TAMI&apos;de kontrol edin; iade görünüyorsa &quot;TAMI&apos;de kontrol et&quot; ile sonucu alın ya da referansı elle kaydedin.</AlertDescription></Alert>}
     {params.refund_unavailable && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>TAMI ayarları eksik; TAMI&apos;ye istek gönderilmedi. Teknik ekibe bildirin; acilse iadeyi TAMI portalından yapıp referansı elle kaydedin.</AlertDescription></Alert>}
     {params.label_created && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Geliver etiketi oluşturuldu; sipariş kargoya verildi. Etiketi siparişin İşlem sütunundan açıp yazdırın.</AlertDescription></Alert>}
-    {params.label_unknown && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>Geliver yanıtı doğrulanamadı; etiket alınmış olabilir. Bir dakika sonra siparişteki &quot;Geliver&apos;de kontrol et&quot; ile sonucu alın; o zamana kadar yeni etiket istenemez.</AlertDescription></Alert>}
+    {params.label_unknown && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>Geliver yanıtı doğrulanamadı; etiket alınmış olabilir. Birkaç dakika içinde siparişteki &quot;Geliver&apos;de kontrol et&quot; ile sonucu alın; o zamana kadar yeni etiket istenemez.</AlertDescription></Alert>}
     {params.label_failed && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Geliver etiketi oluşturulamadı; ayrıntı siparişin İşlem sütununda. Yeniden deneyebilir ya da elle sevk edebilirsiniz.</AlertDescription></Alert>}
-    {params.label_orphan && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>Geliver etiketi alındı ama sipariş durumu değişmişti; etiketi Geliver panelinden iptal edin.</AlertDescription></Alert>}
+    {params.label_orphan && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>{/^\d+$/.test(params.label_orphan) ? `#${params.label_orphan} siparişinin Geliver etiketi` : "Geliver etiketi"} alındı ama sipariş durumu değişmişti; etiketi Geliver panelinden iptal edin.</AlertDescription></Alert>}
     {params.label_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu sipariş için başka bir Geliver isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
     {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
 

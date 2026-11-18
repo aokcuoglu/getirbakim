@@ -177,6 +177,7 @@ test("checking with nothing on Geliver fails the row only after five minutes; ot
   const result = await labels.checkGeliverLabel({ shipmentRowId: row.id, orderId: order.id });
   assert.equal(result.outcome, "failed");
   assert.equal((await labelRows(order.id))[0].status, "failed");
+  assert.equal((await labelRows(order.id))[0].error_code, "LOCAL_NOT_FOUND");
   assert.equal((await orderRow(order.id)).status, "confirmed");
   handler = () => purchased();
   assert.equal((await create(order.id)).outcome, "purchased", "a new label is allowed");
@@ -201,6 +202,7 @@ test("a shipment without a label proves no purchase: unknown at first, failed af
   const result = await labels.checkGeliverLabel({ shipmentRowId: row.id, orderId: order.id });
   assert.equal(result.outcome, "failed");
   assert.equal(result.message, "Geliver'de etiketi alınmamış bir gönderi var; Geliver panelini kontrol edin.");
+  assert.equal((await labelRows(order.id))[0].error_code, "LOCAL_NO_LABEL");
   assert.equal((await orderRow(order.id)).status, "confirmed");
 });
 
@@ -235,7 +237,9 @@ test("a label bought while the order was cancelled is recorded and noted, the or
     await schema.pool.query("UPDATE commerce_orders SET status='cancelled',payment_status='refund_required' WHERE id=$1", [order.id]);
     return purchased();
   };
-  assert.equal((await create(order.id)).outcome, "purchased_order_changed");
+  const changed = await create(order.id);
+  assert.equal(changed.outcome, "purchased_order_changed");
+  assert.equal(changed.orderNumber, order.number);
   const row = await orderRow(order.id);
   assert.equal(row.status, "cancelled"); assert.equal(row.carrier, null);
   assert.match(row.payment_note, /Geliver etiketi alındı \(barkod 86200000001\) ama sipariş durumu değişmişti/);
@@ -349,7 +353,7 @@ test("a production server in test mode buys no label unless explicitly allowed",
   env.NODE_ENV = "production";
   try {
     const result = await create(order.id);
-    assert.deepEqual(result, { outcome: "unavailable", message: "Geliver test modunda; canlı etiket için GELIVER_MODE=live ayarlanmalı." });
+    assert.deepEqual(result, { outcome: "unavailable", message: "Geliver test modunda olduğu için canlı etiket oluşturulamıyor; teknik ekibe bildirin. Elle giriş sekmesinden kargoya verin." });
     assert.equal(calls.length, 0);
     assert.equal((await labelRows(order.id)).length, 0);
     env.GELIVER_ALLOW_TEST_IN_PRODUCTION = "1";

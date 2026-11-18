@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
 import { appendNote } from "@/modules/payments/checkout";
 import {
-  buildTransactionBody, eventClock, geliverErrorMessage, geliverOrderNumber, geliverTestBlocked, geliverTestBlockedMessage, parseTime, recipientBlockLabel,
+  buildTransactionBody, localErrorCodes, eventClock, geliverErrorMessage, geliverOrderNumber, geliverTestBlocked, geliverTestBlockedMessage, parseTime, recipientBlockLabel,
   recipientOf, resolveGeliverTrackingUrl, serviceCodeFor, shouldApply, statusTime, webhookEventSchema, webhookSecretValid, type RecipientOrder, type WebhookEvent,
 } from "./geliver-request";
 import type { Parcel } from "./geliver-parcel";
@@ -17,6 +17,8 @@ import { findShipmentsByOrderNumber, geliverConfig, purchaseLabel, type GeliverR
 export type GeliverLabelOutcome = {
   outcome: "purchased" | "failed" | "unknown" | "busy" | "not_allowed" | "unavailable" | "purchased_order_changed";
   message?: string;
+  /** The order's number, for purchased_order_changed (the label to cancel in Geliver). */
+  orderNumber?: string;
 };
 
 // A search right after the call may not list the shipment yet.
@@ -94,7 +96,8 @@ async function shipAfterPurchase(client: PoolClient, order: LabelOrder | undefin
   if (!order) return { outcome: "purchased_order_changed" };
   if (!shippable(order)) {
     await appendNote(client, order.id, `Geliver etiketi alındı (barkod ${shipment.barcode ?? "yok"}) ama sipariş durumu değişmişti; etiketi Geliver panelinden iptal edin.`);
-    return { outcome: "purchased_order_changed", message: "Geliver etiketi alındı ama sipariş bu arada değişti; etiketi Geliver panelinden iptal edin." };
+    return { outcome: "purchased_order_changed", orderNumber: order.number,
+      message: "Geliver etiketi alındı ama sipariş bu arada değişti; etiketi Geliver panelinden iptal edin." };
   }
   const trackingNo = shipment.trackingNumber || null;
   await client.query("UPDATE commerce_orders SET status='shipped',shipped_at=now(),carrier='yurtici',carrier_name=NULL,tracking_no=$2,tracking_url=$3 WHERE id=$1",
@@ -202,11 +205,11 @@ export async function checkGeliverLabel({ shipmentRowId, orderId }: { shipmentRo
           note: labelled.length > 1 ? `Geliver'de #${row.order_number} için ${labelled.length} etiketli gönderi var; fazlasını Geliver panelinden iptal edin.` : undefined };
       } else if (candidates.length) {
         settlement = ageMinutes >= NO_LABEL_AFTER_MINUTES
-          ? { status: "failed", errorMessage: "Geliver'de etiketi alınmamış bir gönderi var; Geliver panelini kontrol edin." }
+          ? { status: "failed", errorCode: localErrorCodes.noLabel, errorMessage: "Geliver'de etiketi alınmamış bir gönderi var; Geliver panelini kontrol edin." }
           : { status: "unknown", errorMessage: "Geliver'de gönderi var ama etiketi henüz görünmüyor; biraz sonra yeniden kontrol edin." };
       } else {
         settlement = ageMinutes >= NOTHING_FOUND_AFTER_MINUTES
-          ? { status: "failed", errorMessage: "Geliver'de gönderi oluşmamış; yeniden deneyebilirsiniz." }
+          ? { status: "failed", errorCode: localErrorCodes.notFound, errorMessage: "Geliver'de gönderi oluşmamış; yeniden deneyebilirsiniz." }
           : { status: "unknown", errorMessage: "Geliver'de gönderi henüz görünmüyor; birkaç dakika sonra yeniden kontrol edin." };
       }
     }

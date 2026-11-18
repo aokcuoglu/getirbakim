@@ -10,7 +10,8 @@ export const orderListBack = z.string().max(500)
 /** Back to the same tab, sort and page, with the action's outcome. Only list parameters are carried over. */
 export type OrderListOutcome = "saved" | "error" | "refunded" | "refund_failed" | "refund_void_failed" | "refund_unknown" | "refund_busy" | "refund_unavailable"
   | "label_created" | "label_unknown" | "label_failed" | "label_busy" | "label_orphan";
-export function orderListReturn(back: unknown, outcome: OrderListOutcome) {
+/** `orderNumber` (label_orphan) is carried as the outcome's value so the list can name the order; digits only. */
+export function orderListReturn(back: unknown, outcome: OrderListOutcome, orderNumber?: string) {
   const parsed = orderListBack.safeParse(back);
   const source = new URLSearchParams(parsed.success ? parsed.data.slice(listPath.length + 1) : "");
   const query = new URLSearchParams();
@@ -18,6 +19,6 @@ export function orderListReturn(back: unknown, outcome: OrderListOutcome) {
     const value = source.get(key);
     if (value) query.set(key, value);
   }
-  query.set(outcome, "1");
+  query.set(outcome, orderNumber && /^\d{1,18}$/.test(orderNumber) ? orderNumber : "1");
   return `${listPath}?${query}`;
 }

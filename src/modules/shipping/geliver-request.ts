@@ -18,7 +18,7 @@ export const geliverMode = (env: Record<string, string | undefined>): GeliverMod
  */
 export const geliverTestBlocked = (env: Record<string, string | undefined>) =>
   env.NODE_ENV === "production" && geliverMode(env) === "test" && env.GELIVER_ALLOW_TEST_IN_PRODUCTION !== "1";
-export const geliverTestBlockedMessage = "Geliver test modunda; canlı etiket için GELIVER_MODE=live ayarlanmalı.";
+export const geliverTestBlockedMessage = "Geliver test modunda olduğu için canlı etiket oluşturulamıyor; teknik ekibe bildirin. Elle giriş sekmesinden kargoya verin.";
 export const serviceCodeFor = (mode: GeliverMode) => mode === "live" ? "YURTICI_STANDART" : "GELIVER_STANDART";
 /** Order number sent to Geliver; test labels are kept apart from the live ones of the same order. */
 export const geliverOrderNumber = (number: string, test: boolean) => test ? `TEST-${number}` : number;
@@ -95,11 +95,18 @@ export function buildTransactionBody({ order, recipient, lines, parcel, mode, si
 }
 
 const manualHint = "Elle sevk hâlâ kullanılabilir.";
+/** Codes our own recovery ("Geliver'de kontrol et") stores; never Geliver's. */
+export const localErrorCodes = { noLabel: "LOCAL_NO_LABEL", notFound: "LOCAL_NOT_FOUND" } as const;
+const localErrors: Record<string, string> = {
+  [localErrorCodes.noLabel]: `Geliver'de etiketi alınmamış bir gönderi var; Geliver panelini kontrol edin. ${manualHint}`,
+  [localErrorCodes.notFound]: `Geliver'de gönderi oluşmamış; yeniden deneyebilirsiniz. ${manualHint}`,
+};
 const recipientErrors: Record<string, string> = {
   E1129: "alıcı adresi", E1130: "alıcı ili", E1131: "alıcı ülkesi", E1132: "alıcı ilçesi", E1133: "alıcı adı", E1134: "alıcı telefonu", E1136: "alıcı e-posta adresi",
 };
 /** What the admin is told when Geliver refuses a request (its documented error codes). */
 export function geliverErrorMessage(code: string | null, message: string | null) {
+  if (code && localErrors[code]) return localErrors[code];
   if (code && recipientErrors[code]) return `Geliver ${recipientErrors[code]} bilgisini kabul etmedi; siparişin adres bilgilerini kontrol edin. ${manualHint}`;
   switch (code) {
     case "E1066": return `Geliver bakiyesi yetersiz; Geliver panelinden bakiye yükleyip yeniden deneyin. ${manualHint}`;

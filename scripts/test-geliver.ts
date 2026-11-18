@@ -106,7 +106,9 @@ test("Geliver error codes become admin messages that keep manual shipping open",
   assert.match(geliverErrorMessage("E1068", "x"), /gönderici adresini/);
   assert.match(geliverErrorMessage("E1072", "x"), /etiketini oluşturamadı/);
   assert.equal(geliverErrorMessage("E9999", "Bir şey oldu"), "Geliver isteği reddetti (E9999): Bir şey oldu. Elle sevk hâlâ kullanılabilir.");
-  for (const code of ["E1066", "E1129", "E1055", "E1068", "E1071", "E9999"]) assert.ok(geliverErrorMessage(code, "m").endsWith("Elle sevk hâlâ kullanılabilir."), code);
+  assert.equal(geliverErrorMessage("LOCAL_NO_LABEL", null), "Geliver'de etiketi alınmamış bir gönderi var; Geliver panelini kontrol edin. Elle sevk hâlâ kullanılabilir.");
+  assert.equal(geliverErrorMessage("LOCAL_NOT_FOUND", null), "Geliver'de gönderi oluşmamış; yeniden deneyebilirsiniz. Elle sevk hâlâ kullanılabilir.");
+  for (const code of ["E1066", "E1129", "E1055", "E1068", "E1071", "E9999", "LOCAL_NO_LABEL", "LOCAL_NOT_FOUND"]) assert.ok(geliverErrorMessage(code, "m").endsWith("Elle sevk hâlâ kullanılabilir."), code);
 });
 
 test("tracking statuses have a label and tone", () => {

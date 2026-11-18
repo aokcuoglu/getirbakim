@@ -148,10 +148,11 @@ export async function checkGeliverShipment(form:FormData) {
  const input=z.object({shipment:z.uuid(),order:z.uuid(),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
  if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
  let outcome:OrderListOutcome;
- try { outcome=labelOutcome[(await checkGeliverLabel({shipmentRowId:input.data.shipment,orderId:input.data.order})).outcome]; }
+ let orderNumber:string|undefined;
+ try { const result=await checkGeliverLabel({shipmentRowId:input.data.shipment,orderId:input.data.order}); outcome=labelOutcome[result.outcome]; orderNumber=result.orderNumber; }
  catch(error) { console.error('Geliver label check failed',{orderId:input.data.order,error:error instanceof Error ? error.message : error}); outcome='label_unknown'; }
  revalidateOrder(input.data.order);
- redirect(orderListReturn(input.data.back,outcome));
+ redirect(orderListReturn(input.data.back,outcome,orderNumber));
 }
 // The admin panel (lists, sidebar counts, dashboard) and the customer's own order pages; nothing else shows order state.
 function revalidateOrder(id:string) {
