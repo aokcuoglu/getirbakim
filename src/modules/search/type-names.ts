@@ -53,7 +53,7 @@ function roots(word: string, shortest: number) {
 }
 
 /** A Turkish name as the roots of each word, with the English name (folded words joined by one space) it translates. */
-type Entry = { words: Set<string>[]; english: string };
+type Entry = { words: Set<string>[]; normalizedWords: string[]; english: string };
 const entries: Entry[] = [];
 /** The ambiguous English names, matched only as a whole name. */
 const exactEntries: Entry[] = [];
@@ -62,7 +62,8 @@ for (const [name, turkish] of typeNameEntries()) {
   const english = normalizeSearchText(name);
   const normalized = normalizeSearchText(turkish);
   if (english === normalized) continue;
-  (ambiguousEnglish.has(english) ? exactEntries : entries).push({ words: normalized.split(" ").map(word => roots(word, 4)), english });
+  const normalizedWords = normalized.split(" ");
+  (ambiguousEnglish.has(english) ? exactEntries : entries).push({ words: normalizedWords.map(word => roots(word, 4)), normalizedWords, english });
 }
 
 /** The English names whose Turkish name the query words spell, word by word with any ending, in dictionary order. */
@@ -108,6 +109,27 @@ export function typeNameTsQueries(parsed: ParsedSearch): string[] {
     return others ? `${names} & ${others}` : names;
   });
   return [...new Set(queries)].slice(0, maxQueries);
+}
+
+/**
+ * The English supplier names whose Turkish name the typed words begin ("fren hor" → BRAKE HOSE), for the type-ahead (#962):
+ * the earlier words match whole (with any ending), the last one as a prefix. Ambiguous names are included. At most `max`
+ * names; null when a code is typed or nothing matches. `query` selects the rows by their text index; the caller rechecks
+ * the name against `names`.
+ */
+export function typeNamePrefixQuery(parsed: ParsedSearch, max = 12): { query: string; names: string[] } | null {
+  const { terms } = parsed;
+  if (!terms.length || terms.some(term => term.parts)) return null;
+  const words = terms.flatMap(term => term.text.split(" "));
+  const queryRoots = words.map(word => roots(word, 3));
+  const last = words.length - 1;
+  const matching = [...entries, ...exactEntries].filter(entry => entry.normalizedWords.length >= words.length
+    && words.every((_, index) => index === last
+      ? [...queryRoots[index]].some(root => entry.normalizedWords[index].startsWith(root))
+      : [...queryRoots[index]].some(root => entry.words[index].has(root))));
+  const names = [...new Set(matching.map(entry => entry.english))].slice(0, max);
+  if (!names.length) return null;
+  return { query: names.map(phrase).map(text => `(${text})`).join(" | "), names };
 }
 
 /**
