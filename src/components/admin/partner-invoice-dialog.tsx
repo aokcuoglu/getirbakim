@@ -31,7 +31,7 @@ export function PartnerInvoiceDialog({ partner, days, today }: { partner: string
     <DialogContent className="sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>{partner} siparişlerini faturalandı olarak işaretle</DialogTitle>
-        <DialogDescription>Seçilen güne kadar teslim edilmiş, faturalanmamış siparişler bu fatura ile kapanır ve partnerin limitinden düşer. İşaret geri alınamaz.</DialogDescription>
+        <DialogDescription>Seçilen güne kadar teslim edilmiş, faturalanmamış siparişler bu fatura ile kapanır ve partnerin limitinden düşer. Yanlış işaret aşağıdaki Kesilen faturalar listesinden gerekçeyle düzeltilir ya da geri alınır.</DialogDescription>
       </DialogHeader>
       {/* Remounted on each open: fields start from today and the last result is not shown again. */}
       {open && <InvoiceForm partner={partner} days={days} today={today} onSaved={() => setOpen(false)}/>}

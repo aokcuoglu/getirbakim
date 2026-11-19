@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { ArrowUpRight, CircleAlert, CircleCheck, Handshake } from "lucide-react";
-import { adminPartners } from "@/modules/admin/partners";
+import { ArrowUpRight, CircleAlert, CircleCheck, FileText, Handshake } from "lucide-react";
+import { adminPartnerInvoices, adminPartners } from "@/modules/admin/partners";
 import { savePartnerLimit } from "@/modules/admin/partner-actions";
 import { istanbulToday } from "@/modules/admin/partner-input";
-import { formatNumber } from "@/modules/admin/format";
+import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { money } from "@/modules/store/money";
+import { PartnerInvoiceChangeDialog } from "@/components/admin/partner-invoice-change-dialog";
 import { PartnerInvoiceDialog } from "@/components/admin/partner-invoice-dialog";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
@@ -20,14 +21,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 const sourceLabel = { panel: "Panelden", env: "Varsayılan (ortam değişkeni)", none: "Tanımsız" } as const;
 /** Kuruş → the TL text the limit input shows ("4500" or "4500.50"). */
 const tl = (kurus: number) => kurus % 100 ? (kurus / 100).toFixed(2) : String(kurus / 100);
+/** `YYYY-MM-DD` → `DD.MM.YYYY`. */
+const day = (value: string) => value.split("-").reverse().join(".");
+/** A positive whole count from the query string, else null. */
+const countParam = (value: string | undefined) => { const count = Number(value); return Number.isSafeInteger(count) && count > 0 ? count : null; };
 
 /** Partner credit (#426): open-order limit, exposure (open + delivered, uninvoiced) and invoicing per partner. */
 export default async function Partners({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
-  const partners = await adminPartners();
+  const [partners, { invoices, changes }] = await Promise.all([adminPartners(), adminPartnerInvoices()]);
   const today = istanbulToday();
   const invoiced = Number(params.invoiced);
+  const corrected = countParam(params.corrected), undone = countParam(params.undone);
   // Query values are echoed only when they name a listed partner.
   const known = (value: string | undefined) => value && partners.some(p => p.code === value) ? value : null;
   const saved = known(params.saved), partner = known(params.partner);
@@ -36,13 +42,15 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Partnerler ve cari limit</h1>
-        <p className="text-muted-foreground">Partner (API) siparişleri cari hesaba yazılır. Alacak; iptal edilmemiş ve teslim edilmemiş siparişler ile teslim edilmiş ama faturalanmamış siparişlerin toplamıdır (kargo dahil). Yeni sipariş alacağı limitin üstüne çıkaracaksa reddedilir; limiti olmayan partner sipariş veremez. Teslim edilen siparişler &quot;Faturalandı&quot; işaretlenince limitten düşer.</p>
+        <p className="text-muted-foreground">Partner (API) siparişleri cari hesaba yazılır. Alacak; iptal edilmemiş ve teslim edilmemiş siparişler ile teslim edilmiş ama faturalanmamış siparişlerin toplamıdır (kargo dahil). Yeni sipariş alacağı limitin üstüne çıkaracaksa reddedilir; limiti olmayan partner sipariş veremez. Teslim edilen siparişler &quot;Faturalandı&quot; işaretlenince limitten düşer; yanlış işaret gerekçeyle düzeltilebilir ya da geri alınabilir.</p>
       </div>
       <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler?sahip=partner"/>}>Partner siparişleri<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
     </div>
 
     {saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{saved} için limit kaydedildi; yeni siparişler bu limitle kontrol edilir.</AlertDescription></Alert>}
     {Number.isSafeInteger(invoiced) && invoiced > 0 && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{partner ? `${partner}: ` : ""}{formatNumber(invoiced)} sipariş faturalandı olarak işaretlendi ve limitten düştü.</AlertDescription></Alert>}
+    {corrected && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{partner ? `${partner}: ` : ""}{formatNumber(corrected)} siparişin fatura bilgisi düzeltildi; alacak değişmedi.</AlertDescription></Alert>}
+    {undone && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{partner ? `${partner}: ` : ""}{formatNumber(undone)} siparişin faturalandı işareti geri alındı; bu siparişler yeniden alacağa ve limite sayılıyor.</AlertDescription></Alert>}
     {params.error === "limit" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{partner ? `${partner}: limit kaydedilemedi` : "Limit kaydedilemedi"}</AlertTitle><AlertDescription>Limit 0 TL&apos;den büyük, en fazla iki ondalıklı bir tutar olmalı. Boş bırakılırsa varsayılan limit geçerli olur.</AlertDescription></Alert>}
 
     <Card>
@@ -92,5 +100,59 @@ export default async function Partners({ searchParams }: { searchParams: Promise
         <p className="pt-4 text-muted-foreground">Panel limiti boş bırakılırsa varsayılan limit (PARTNER_ORDER_LIMIT_KURUS) geçerli olur; o da yoksa partner sipariş veremez.</p>
       </CardContent>
     </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle>Kesilen faturalar</CardTitle>
+        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre (son 100 fatura). Yanlış işaret gerekçeyle düzeltilir ya da geri alınır.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {invoices.length ? <Table>
+          <TableHeader><TableRow>
+            <TableHead>Partner</TableHead><TableHead>Fatura no</TableHead><TableHead>Fatura tarihi</TableHead><TableHead className="text-right">Sipariş</TableHead>
+            <TableHead className="text-right">Tutar</TableHead><TableHead>İşaretleyen</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead>
+          </TableRow></TableHeader>
+          <TableBody>{invoices.map(invoice => <TableRow key={`${invoice.partner}|${invoice.invoiceRef}|${invoice.invoiceDate}`}>
+            <TableCell className="font-medium">{invoice.partner}</TableCell>
+            <TableCell>{invoice.invoiceRef}</TableCell>
+            <TableCell value={invoice.invoiceDate} className="tabular-nums">{day(invoice.invoiceDate)}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatNumber(invoice.count)}</TableCell>
+            <TableCell className="text-right tabular-nums">{money(invoice.totalKurus)}</TableCell>
+            <TableCell>{invoice.markedBy ?? "—"}</TableCell>
+            <TableCell><div className="flex justify-end"><PartnerInvoiceChangeDialog invoice={invoice} today={today}/></div></TableCell>
+          </TableRow>)}</TableBody>
+        </Table> : <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><FileText/></EmptyMedia>
+            <EmptyTitle>Henüz faturalandı işareti yok</EmptyTitle>
+            <EmptyDescription>Teslim edilen siparişler &quot;Faturalandı işaretle&quot; ile işaretlenince faturaları burada listelenir.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>}
+      </CardContent>
+    </Card>
+
+    {changes.length > 0 && <Card>
+      <CardHeader>
+        <CardTitle>Fatura düzeltme geçmişi</CardTitle>
+        <CardDescription>Faturalandı işaretinde yapılan son 50 düzeltme ve geri alma, gerekçesiyle.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader><TableRow>
+            <TableHead>Zaman</TableHead><TableHead>Partner</TableHead><TableHead>İşlem</TableHead><TableHead>Eski → Yeni</TableHead>
+            <TableHead className="text-right">Sipariş</TableHead><TableHead>Gerekçe</TableHead><TableHead>Yapan</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>{changes.map(change => <TableRow key={change.changeId} className="align-top">
+            <TableCell value={change.changedAt.toISOString()} className="tabular-nums">{formatDateTime(change.changedAt, { year: true })}</TableCell>
+            <TableCell className="font-medium">{change.partner}</TableCell>
+            <TableCell>{change.action === "undo" ? <StatusBadge tone="warning">Geri alındı</StatusBadge> : <StatusBadge tone="info">Düzeltildi</StatusBadge>}</TableCell>
+            <TableCell className="tabular-nums">{change.oldRef} · {day(change.oldDate)} → {change.newRef && change.newDate ? `${change.newRef} · ${day(change.newDate)}` : "işaret kaldırıldı"}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatNumber(change.count)}</TableCell>
+            <TableCell className="whitespace-normal">{change.reason}</TableCell>
+            <TableCell>{change.changedBy ?? "—"}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table>
+      </CardContent>
+    </Card>}
   </div>;
 }
