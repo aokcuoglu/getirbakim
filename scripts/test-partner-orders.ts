@@ -25,6 +25,8 @@ let partnerOrders: typeof import("../src/modules/partner/orders");
 let quotes: typeof import("../src/modules/partner/quotes");
 let dto: typeof import("../src/modules/partner/dto");
 let adminOrders: typeof import("../src/modules/admin/orders");
+let partnerCancel: typeof import("../src/modules/partner/order-cancel");
+let adminData: typeof import("../src/modules/admin/order-filters");
 let checkout: typeof import("../src/modules/payments/checkout");
 let reimport: () => Promise<unknown>;
 let closeDb: () => Promise<void>;
@@ -90,10 +92,12 @@ before(async () => {
       : { dovizListesi: [{ dovizCinsi: "EUR", alis: "39", satis: "40" }] };
     return Response.json(body);
   };
-  const [{ db }, basbug, ordersModule, quotesModule, dtoModule, adminModule, checkoutModule] = await Promise.all([import("../src/lib/db"),
+  const [{ db }, basbug, ordersModule, quotesModule, dtoModule, adminModule, checkoutModule, cancelModule, dataModule] = await Promise.all([import("../src/lib/db"),
     import("../src/modules/suppliers/basbug-import"), import("../src/modules/partner/orders"), import("../src/modules/partner/quotes"),
-    import("../src/modules/partner/dto"), import("../src/modules/admin/orders"), import("../src/modules/payments/checkout")]);
+    import("../src/modules/partner/dto"), import("../src/modules/admin/orders"), import("../src/modules/payments/checkout"),
+    import("../src/modules/partner/order-cancel"), import("../src/modules/admin/order-filters")]);
   partnerOrders = ordersModule; quotes = quotesModule; dto = dtoModule; adminOrders = adminModule; checkout = checkoutModule;
+  partnerCancel = cancelModule; adminData = dataModule;
   closeDb = () => db.end();
   await basbug.importBasbug(db, { group: "FIAT", warehouse: "MRK", company: "TEST" });
   // A live check saves what the supplier said: each test starts from the mock's list again.
@@ -308,6 +312,91 @@ test("two orders with different keys at once cannot both pass a limit they excee
   assert.ok(rejected && refusal("CREDIT_LIMIT_EXCEEDED")(rejected.reason));
 });
 
+const placeOrder = async (code = "PART-A", partner = "bakimx") =>
+  (await partnerOrders.createPartnerOrder(partner, randomUUID(), (await quoteAndBody([{ code, quantity: 1 }], partner)).body, config())).order;
+const yurtici = { carrier: "yurtici" as const, carrierName: null, trackingNo: "123456789012", trackingUrl: null };
+
+test("DELETE before confirmation cancels at once on the partner's behalf; repeating it answers the same", async () => {
+  const order = await placeOrder();
+  const first = await partnerCancel.cancelPartnerOrder("bakimx", order.id);
+  assert.deepEqual([first.cancellation, first.order.status, first.order.cancelledBy, first.order.cancellationRequest], ["CANCELLED", "CANCELLED", "PARTNER", null]);
+  const row = await orderRow(order.id);
+  // On account: nothing to refund; noted like a customer's own cancel.
+  assert.deepEqual([row.status, row.payment_status, row.cancelled_by, row.cancel_requested_at], ["cancelled", "on_account", "customer", null]);
+  assert.match(row.payment_note, /Partner iptal etti\./);
+  const again = await partnerCancel.cancelPartnerOrder("bakimx", order.id);
+  assert.deepEqual([again.cancellation, again.order.cancelledAt], ["CANCELLED", first.order.cancelledAt]);
+  // Another partner, a store order or a malformed id: not found, nothing changed.
+  const other = await placeOrder("PART-B");
+  await assert.rejects(partnerCancel.cancelPartnerOrder("other", other.id), refusal("ORDER_NOT_FOUND"));
+  await assert.rejects(partnerCancel.cancelPartnerOrder("bakimx", "not-a-uuid"), refusal("ORDER_NOT_FOUND"));
+  assert.equal((await orderRow(other.id)).status, "pending");
+});
+
+test("DELETE after confirmation is a request: shipping waits; a rejection is final and the order ships", async () => {
+  const order = await placeOrder();
+  assert.equal(await adminOrders.transitionOrder(order.id, "confirmed"), true);
+  // Nothing to decide without a request.
+  assert.equal(await adminOrders.decidePartnerCancelRequest(order.id, "reject"), false);
+  const requested = await partnerCancel.cancelPartnerOrder("bakimx", order.id);
+  assert.equal(requested.cancellation, "REQUESTED");
+  assert.equal(requested.order.status, "CONFIRMED");
+  assert.equal(requested.order.cancellationRequest?.status, "PENDING");
+  const repeated = await partnerCancel.cancelPartnerOrder("bakimx", order.id);
+  assert.deepEqual(repeated.order.cancellationRequest, requested.order.cancellationRequest);
+  // The order may not ship while the request is open: it is listed under the cancel request tab, not the shipping one.
+  const tabs = async () => (await schema.pool.query<{ shipping: boolean; cancel_request: boolean }>(`SELECT ${adminData.orderFilters.shipping.where} AS shipping,
+    ${adminData.orderFilters.cancel_request.where} AS cancel_request FROM commerce_orders o WHERE o.id=$1`, [order.id])).rows[0];
+  assert.deepEqual(await tabs(), { shipping: false, cancel_request: true });
+  assert.equal(await adminOrders.shipOrder(order.id, yurtici), false);
+  assert.equal((await orderRow(order.id)).status, "confirmed");
+  assert.equal(await adminOrders.decidePartnerCancelRequest(order.id, "reject"), true);
+  assert.equal(await adminOrders.decidePartnerCancelRequest(order.id, "approve"), false, "a rejection is final");
+  assert.deepEqual(await tabs(), { shipping: true, cancel_request: false });
+  const rejected = await partnerOrders.getPartnerOrder("bakimx", order.id);
+  assert.equal(rejected.cancellationRequest?.status, "REJECTED");
+  assert.ok(rejected.cancellationRequest?.decidedAt);
+  await assert.rejects(partnerCancel.cancelPartnerOrder("bakimx", order.id), refusal("CANCELLATION_REJECTED"));
+  assert.equal(await adminOrders.shipOrder(order.id, yurtici), true);
+  await assert.rejects(partnerCancel.cancelPartnerOrder("bakimx", order.id), refusal("ORDER_ALREADY_SHIPPED"));
+  await schema.pool.query("UPDATE commerce_orders SET status='delivered',delivered_at=now() WHERE id=$1", [order.id]);
+  await assert.rejects(partnerCancel.cancelPartnerOrder("bakimx", order.id), refusal("ORDER_ALREADY_SHIPPED"));
+});
+
+test("an approved cancel request cancels the confirmed order on the partner's behalf", async () => {
+  const order = await placeOrder();
+  assert.equal(await adminOrders.transitionOrder(order.id, "confirmed"), true);
+  // A supplier line already ordered is noted for operations, like a customer's cancel (#607).
+  await schema.pool.query("UPDATE commerce_order_items SET procurement_status='ordered' WHERE order_id=$1", [order.id]);
+  await partnerCancel.cancelPartnerOrder("bakimx", order.id);
+  assert.equal(await adminOrders.decidePartnerCancelRequest(order.id, "approve"), true);
+  const row = await orderRow(order.id);
+  assert.deepEqual([row.status, row.payment_status, row.cancelled_by], ["cancelled", "on_account", "customer"]);
+  assert.match(row.payment_note, /Partnerin iptal talebi onaylandı\. İptal anında 1 kalem tedarikçiye sipariş edilmiş/);
+  const after = await partnerOrders.getPartnerOrder("bakimx", order.id);
+  assert.deepEqual([after.status, after.cancelledBy, after.cancellationRequest?.status], ["CANCELLED", "PARTNER", "APPROVED"]);
+  assert.equal(after.cancellationRequest?.decidedAt, after.cancelledAt);
+  assert.equal((await partnerCancel.cancelPartnerOrder("bakimx", order.id)).cancellation, "CANCELLED");
+});
+
+test("dashboard revenue counts on-account orders by order time until cancelled", async () => {
+  const revenue = async () => {
+    const row = (await schema.pool.query<{ revenue_30d: string; on_account_30d: number; revenue_prev_30d: string }>(adminData.dashboardOrdersSql)).rows[0];
+    return { revenue: Number(row.revenue_30d), count: row.on_account_30d, previous: Number(row.revenue_prev_30d) };
+  };
+  const before = await revenue();
+  const order = await placeOrder();
+  const counted = await revenue();
+  assert.deepEqual([counted.revenue - before.revenue, counted.count - before.count], [order.totals.grossKurus, 1]);
+  // Ordered 40 days ago: the previous period.
+  await schema.pool.query("UPDATE commerce_orders SET created_at=now()-interval '40 days' WHERE id=$1", [order.id]);
+  const moved = await revenue();
+  assert.deepEqual([moved.revenue, moved.previous - before.previous], [before.revenue, order.totals.grossKurus]);
+  await schema.pool.query("UPDATE commerce_orders SET created_at=now() WHERE id=$1", [order.id]);
+  await partnerCancel.cancelPartnerOrder("bakimx", order.id);
+  assert.deepEqual(await revenue(), before);
+});
+
 test("route handlers: key, Idempotency-Key and body checks, 201 then 200 replay, tenant-scoped reads", async () => {
   const [{ NextRequest }, quoteRoute, ordersRoute, orderRoute, byKeyRoute] = await Promise.all([import("next/server"),
     import("../src/app/api/partner/v1/order-quotes/route"), import("../src/app/api/partner/v1/orders/route"),
@@ -363,4 +452,26 @@ test("route handlers: key, Idempotency-Key and body checks, 201 then 200 replay,
   assert.deepEqual([response.status, await errorCode(response)], [404, "ORDER_NOT_FOUND"]);
   response = await orderRoute.GET(get(`/orders/${created.order.id}`, {}), { params: Promise.resolve({ id: created.order.id }) });
   assert.equal(response.status, 401);
+
+  // DELETE: 401 without a key, 404 for another partner's order, 200 when cancelled, 202 when requested.
+  const remove = (id: string, headers: Record<string, string> = auth) =>
+    orderRoute.DELETE(new NextRequest(`${base}/orders/${id}`, { method: "DELETE", headers }), { params: Promise.resolve({ id }) });
+  response = await remove(created.order.id, {});
+  assert.equal(response.status, 401);
+  const foreign = await placeOrder("PART-B", "other");
+  response = await remove(foreign.id);
+  assert.deepEqual([response.status, await errorCode(response)], [404, "ORDER_NOT_FOUND"]);
+  response = await remove(created.order.id);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const cancelled = await response.json() as { cancellation: string; order: { status: string; cancelledBy: string } };
+  assert.deepEqual([cancelled.cancellation, cancelled.order.status, cancelled.order.cancelledBy], ["CANCELLED", "CANCELLED", "PARTNER"]);
+  const confirmed = await placeOrder();
+  assert.equal(await adminOrders.transitionOrder(confirmed.id, "confirmed"), true);
+  response = await remove(confirmed.id);
+  assert.equal(response.status, 202);
+  assert.equal(((await response.json()) as { cancellation: string }).cancellation, "REQUESTED");
+  assert.equal(await adminOrders.decidePartnerCancelRequest(confirmed.id, "reject"), true);
+  response = await remove(confirmed.id);
+  assert.deepEqual([response.status, await errorCode(response)], [409, "CANCELLATION_REJECTED"]);
 });

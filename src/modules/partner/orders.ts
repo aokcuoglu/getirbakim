@@ -111,10 +111,10 @@ export async function quotePartnerOrder(partner: string, request: QuoteRequest, 
 
 const orderColumns = `id::text,number::text,request_key::text,status,payment_status,total_kurus::text,shipping_kurus::text,note,customer_name,phone,email,
   delivery_province,delivery_district,delivery_address_line,delivery_postal_code,carrier,carrier_name,tracking_no,tracking_url,
-  shipped_at,delivered_at,cancelled_by,cancelled_at,created_at`;
+  shipped_at,delivered_at,cancelled_by,cancelled_at,created_at,cancel_requested_at,cancel_request_rejected_at`;
 
 /** One of the partner's own orders as the contract DTO; another partner's (or a store) order is not found. */
-async function readOrder(partner: string, where: "id" | "request_key", value: string, connection: Connection = db) {
+export async function readOrder(partner: string, where: "id" | "request_key", value: string, connection: Connection = db) {
   const order = (await connection.query<PartnerOrderRow & { partner_fingerprint: string | null }>(
     `SELECT ${orderColumns},partner_fingerprint FROM commerce_orders WHERE owner_kind='partner' AND owner_id=$1 AND ${where === "id" ? "id" : "request_key"}=$2::uuid`,
     [partner, value])).rows[0];
@@ -125,8 +125,8 @@ async function readOrder(partner: string, where: "id" | "request_key", value: st
   return { dto: toPartnerOrderDto(order, lines), fingerprint: order.partner_fingerprint };
 }
 
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const notFound = () => new PartnerOrderError("ORDER_NOT_FOUND", "Order not found.", 404);
+export const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const notFound = () => new PartnerOrderError("ORDER_NOT_FOUND", "Order not found.", 404);
 
 export async function getPartnerOrder(partner: string, id: string) {
   const found = uuidPattern.test(id) ? await readOrder(partner, "id", id) : null;

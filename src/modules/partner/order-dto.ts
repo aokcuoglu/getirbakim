@@ -49,6 +49,7 @@ export type PartnerOrderRow = {
   delivery_province: string | null; delivery_district: string | null; delivery_address_line: string | null; delivery_postal_code: string | null;
   carrier: string | null; carrier_name: string | null; tracking_no: string | null; tracking_url: string | null;
   shipped_at: Date | null; delivered_at: Date | null; cancelled_by: string | null; cancelled_at: Date | null; created_at: Date;
+  cancel_requested_at: Date | null; cancel_request_rejected_at: Date | null;
 };
 /**
  * `pricing_snapshot.partner` holds the binding unit net price and the line's amounts the order was taken at;
@@ -67,6 +68,19 @@ function linePrice(line: PartnerOrderLineRow): PartnerLinePrice {
 }
 
 const iso = (value: Date | null) => value ? new Date(value).toISOString() : null;
+
+export type PartnerCancellationRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+/**
+ * The partner's cancel request on a confirmed order (DELETE after confirmation), null when none was made. Operations
+ * decide it: REJECTED is final, APPROVED means the order was cancelled after it (decidedAt = the cancellation time).
+ */
+export function cancellationRequest(order: Pick<PartnerOrderRow, "status" | "cancelled_at" | "cancel_requested_at" | "cancel_request_rejected_at">) {
+  if (!order.cancel_requested_at) return null;
+  const status: PartnerCancellationRequestStatus = order.cancel_request_rejected_at ? "REJECTED" : order.status === "cancelled" ? "APPROVED" : "PENDING";
+  const decidedAt = status === "REJECTED" ? order.cancel_request_rejected_at : status === "APPROVED" ? order.cancelled_at : null;
+  return { status, requestedAt: iso(order.cancel_requested_at), decidedAt: iso(decidedAt) };
+}
 
 export function toPartnerOrderDto(order: PartnerOrderRow, lines: PartnerOrderLineRow[]) {
   const priced = lines.map(line => ({ line, price: linePrice(line) }));
@@ -104,6 +118,7 @@ export function toPartnerOrderDto(order: PartnerOrderRow, lines: PartnerOrderLin
     } : null,
     cancelledBy: order.status !== "cancelled" ? null : order.cancelled_by === "customer" ? "PARTNER" as const : "GETIRBAKIM" as const,
     cancelledAt: iso(order.cancelled_at),
+    cancellationRequest: cancellationRequest(order),
     createdAt: iso(order.created_at),
   };
 }
