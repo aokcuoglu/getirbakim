@@ -6,12 +6,14 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { returnReasons } from '@/modules/store/returns';
 import { shipmentSchema,type ShipmentResult } from '@/modules/store/shipment';
-import { transitionOrder,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn,setLineProcurement } from './orders';
+import { transitionOrder,decidePartnerCancelRequest,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn,setLineProcurement } from './orders';
 import { procurementInput } from './order-procurement';
 import { orderListBack,orderListReturn,type OrderListOutcome } from './order-list-return';
 import { refundPayment,checkRefund,type RefundOutcome } from '@/modules/payments/refunds';
 import { INSTALLMENT_COUNTS } from '@/modules/payments/installment-plan';
 import { installmentInput } from './installment-input';
+import { parcelSchema } from '@/modules/shipping/geliver-parcel';
+import { createGeliverLabel,checkGeliverLabel,type GeliverLabelOutcome } from '@/modules/shipping/geliver-labels';
 export async function savePricing(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({markup:z.coerce.number().min(0).max(1000).multipleOf(0.01),vat:z.coerce.number().min(0).max(100).multipleOf(0.01),age:z.coerce.number().int().min(1).max(168)}).safeParse(Object.fromEntries(form));
@@ -56,6 +58,15 @@ export async function changeOrderStatus(form:FormData) {
  const input=z.object({id:z.uuid(),status:z.enum(['confirmed','cancelled','delivered']),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
  if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
  const ok=await transitionOrder(input.data.id,input.data.status);
+ revalidateOrder(input.data.id);
+ redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
+}
+/** A partner's cancel request on a confirmed order (#426): approve cancels it, reject keeps it for shipping (final). */
+export async function decideCancelRequest(form:FormData) {
+ await requireAdmin();
+ const input=z.object({id:z.uuid(),decision:z.enum(['approve','reject']),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
+ const ok=await decidePartnerCancelRequest(input.data.id,input.data.decision);
  revalidateOrder(input.data.id);
  redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
 }
@@ -118,6 +129,39 @@ export async function checkTamiRefund(form:FormData) {
  const outcome=await settledOrUnknown(()=>checkRefund({refundId:input.data.refund,orderId:input.data.order}));
  revalidateOrder(input.data.order);
  redirect(orderListReturn(input.data.back,outcome));
+}
+/**
+ * Geliver label (#960) from the ship dialog: one Geliver call buys a Yurtiçi label and ships the order. Success and an
+ * unknown reply close the dialog and show the outcome on the list; a refusal, or a label bought for an order that changed
+ * meanwhile (noted on the order), stays in the dialog with its message (manual shipping remains).
+ */
+export async function createGeliverShipment(_previous:ShipmentResult,form:FormData):Promise<ShipmentResult> {
+ const admin=await requireAdmin();
+ const values=Object.fromEntries(form);
+ const target=z.object({id:z.uuid()}).safeParse(values);
+ if(!target.success) return {status:'error',message:'Sipariş bulunamadı. Listeyi yenileyin.'};
+ const parcel=parcelSchema.safeParse(values);
+ if(!parcel.success) return {status:'error',errors:parcel.error.flatten().fieldErrors};
+ let result:GeliverLabelOutcome;
+ try { result=await createGeliverLabel({orderId:target.data.id,parcel:parcel.data,adminId:admin.id}); }
+ catch(error) { console.error('Geliver label action failed',{orderId:target.data.id,error:error instanceof Error ? error.message : error}); result={outcome:'unknown'}; }
+ revalidateOrder(target.data.id);
+ if(result.outcome==='purchased') return {status:'success',next:orderListReturn(form.get('back'),'label_created')};
+ if(result.outcome==='unknown') return {status:'success',next:orderListReturn(form.get('back'),'label_unknown')};
+ return {status:'error',message:result.message ?? 'Geliver etiketi oluşturulamadı. Elle sevk hâlâ kullanılabilir.'};
+}
+const labelOutcome:Record<GeliverLabelOutcome['outcome'],OrderListOutcome>={purchased:'label_created',purchased_order_changed:'label_orphan',purchased_on_hold:'label_held',failed:'label_failed',unknown:'label_unknown',busy:'label_busy',not_allowed:'error',unavailable:'error'};
+/** Settles a Geliver label request whose reply was lost, from Geliver's shipment list for the order. */
+export async function checkGeliverShipment(form:FormData) {
+ await requireAdmin();
+ const input=z.object({shipment:z.uuid(),order:z.uuid(),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
+ let outcome:OrderListOutcome;
+ let orderNumber:string|undefined;
+ try { const result=await checkGeliverLabel({shipmentRowId:input.data.shipment,orderId:input.data.order}); outcome=labelOutcome[result.outcome]; orderNumber=result.orderNumber; }
+ catch(error) { console.error('Geliver label check failed',{orderId:input.data.order,error:error instanceof Error ? error.message : error}); outcome='label_unknown'; }
+ revalidateOrder(input.data.order);
+ redirect(orderListReturn(input.data.back,outcome,orderNumber));
 }
 // The admin panel (lists, sidebar counts, dashboard) and the customer's own order pages; nothing else shows order state.
 function revalidateOrder(id:string) {

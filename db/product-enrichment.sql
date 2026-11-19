@@ -10,7 +10,11 @@ CREATE TABLE IF NOT EXISTS product_media_objects (
 );
 -- Last time an import stored (or re-confirmed) these bytes; npm run media:gc only collects rows unreferenced and
 -- older than its threshold by GREATEST(created_at, stored_at), so an object an import is about to reference stays.
-ALTER TABLE product_media_objects ADD COLUMN IF NOT EXISTS stored_at timestamptz;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_media_objects'::regclass AND attname='stored_at' AND NOT attisdropped) THEN
+  ALTER TABLE product_media_objects ADD COLUMN stored_at timestamptz;
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS product_enrichments (
  supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
  supplier_code text NOT NULL, supplier_brand text NOT NULL,
@@ -20,9 +24,18 @@ CREATE TABLE IF NOT EXISTS product_enrichments (
  payload jsonb NOT NULL CHECK (jsonb_typeof(payload)='object'),
  imported_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE product_enrichments ADD COLUMN IF NOT EXISTS match_basis jsonb NOT NULL DEFAULT '{"type":"exact_part"}';
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_enrichments'::regclass AND attname='match_basis' AND NOT attisdropped) THEN
+  ALTER TABLE product_enrichments ADD COLUMN match_basis jsonb NOT NULL DEFAULT '{"type":"exact_part"}';
+ END IF;
+END $$;
 -- Deleting a media object checks this foreign key; without the index every check scans product_enrichments.
-CREATE INDEX IF NOT EXISTS product_enrichments_image_idx ON product_enrichments(image_id) WHERE image_id IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichments'::regclass AND c.relname='product_enrichments_image_idx') THEN
+  CREATE INDEX product_enrichments_image_idx ON product_enrichments(image_id) WHERE image_id IS NOT NULL;
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS product_enrichment_jobs (
  supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','complete','partial','not_found','review','blocked','failed')),
@@ -31,7 +44,11 @@ CREATE TABLE IF NOT EXISTS product_enrichment_jobs (
  last_error text, last_attempt_at timestamptz,
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS product_enrichment_jobs_pending_idx ON product_enrichment_jobs(status,supplier_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichment_jobs'::regclass AND c.relname='product_enrichment_jobs_pending_idx') THEN
+  CREATE INDEX product_enrichment_jobs_pending_idx ON product_enrichment_jobs(status,supplier_item_id);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS product_enrichment_sources (
  host text PRIMARY KEY, probe_url text NOT NULL, http_status integer,
  status text NOT NULL CHECK(status IN ('accessible','blocked','error')),

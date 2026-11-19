@@ -36,7 +36,7 @@ export function TrackBeginCheckout({ items }: { items: AnalyticsItem[] }) {
 
 /**
  * A paid order's page (#675). The server hands the purchase event out once per order, so it is only asked when the event can
- * be queued right now (tag loaded, analytics allowed); otherwise it waits for the tag or a consent change. A tab closed
+ * be queued right now (a consented channel is loaded, #676); otherwise it waits for the tag or a consent change. A tab closed
  * before the answer arrives loses the event (at most once, never twice).
  */
 export function TrackPurchase({ orderId }: { orderId: string }) {
@@ -46,7 +46,8 @@ export function TrackPurchase({ orderId }: { orderId: string }) {
       if (started.current || !canTrack()) return;
       started.current = true;
       claimPurchaseEvent(orderId).then(
-        payload => { if (payload) track("purchase", payload); },
+        // Refused (e.g. no consent yet): a later consent on this page may ask again; a claimed order answers null anyway.
+        payload => { if (payload) track("purchase", payload); else started.current = false; },
         // No answer (network, deploy): try again on the next signal; an order already claimed just answers null.
         () => { started.current = false; },
       );

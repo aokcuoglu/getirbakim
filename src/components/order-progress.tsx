@@ -13,7 +13,7 @@ export function orderSteps(order: { status: string; payment_status: string }): O
   // A shipped order is still on its way: Kargo stays current until delivery.
   const all: { key: OrderStep["key"]; label: string; done: boolean; skip?: boolean }[] = [
     { key: "placed", label: "Sipariş verildi", done: true },
-    { key: "payment", label: "Ödeme", done: order.payment_status === "paid", skip: order.payment_status === "none" },
+    { key: "payment", label: "Ödeme", done: order.payment_status === "paid", skip: order.payment_status === "none" || order.payment_status === "on_account" },
     { key: "confirmation", label: "Teyit", done: confirmed },
     { key: "shipping", label: "Kargo", done: order.status === "delivered" },
   ];

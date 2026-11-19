@@ -7,7 +7,6 @@ import {Package} from "lucide-react";
 import {Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, useCarousel} from "@/components/ui/carousel";
 import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs";
 import {cn} from "@/lib/utils";
-import type {StoreCategory} from "@/modules/store/category-tree";
 import {categoryPath} from "@/modules/seo/paths";
 
 function useMobile() {
@@ -73,23 +72,21 @@ export function HomeGridPager({children,label,kind}:{children:ReactNode;label:st
   </Carousel>;
 }
 
-export function HomeCategoryTabs({categories}:{categories:Pick<StoreCategory,"id"|"parentId"|"name"|"slug"|"imagePath">[]}) {
-  const roots=categories.filter(category=>category.parentId===null);
+export type HomeCategoryRoot={id:number;name:string;children:{id:number;name:string;slug:string;imagePath?:string|null}[]};
+
+export function HomeCategoryTabs({roots}:{roots:HomeCategoryRoot[]}) {
   const [selected,setSelected]=useState(roots[0]?.id);
   return <section className="mt-[100px] max-md:mt-[76px]" aria-label="Ürün kategorileri">
     <Tabs value={selected} onValueChange={value=>setSelected(value as number)} className="gap-0">
       <TabsList variant="line" activateOnFocus aria-label="Ana kategoriler" className="mb-[42px] flex h-auto w-full justify-start gap-4 overflow-x-auto rounded-none p-0 [scrollbar-width:none] max-md:mb-6 [&::-webkit-scrollbar]:hidden">
         {roots.map(category=><TabsTrigger key={category.id} value={category.id} className="h-8 max-md:h-11 min-h-0 flex-none rounded-none border-0 px-0 pt-0 pb-3 text-base leading-5 font-medium text-[#54626e] hover:text-foreground data-active:text-foreground max-md:text-sm group-data-horizontal/tabs:after:bottom-0 group-data-horizontal/tabs:after:h-[3px] after:rounded-[2px] after:bg-brand focus-visible:ring-0 focus-visible:outline-2">{category.name}</TabsTrigger>)}
       </TabsList>
-      {roots.map(root=>{
-        const children=categories.filter(category=>category.parentId===root.id);
-        return <TabsContent key={root.id} value={root.id} className="pb-4">{children.length>0&&<div className="-mx-0.5 grid grid-cols-6 gap-4 max-[68.75rem]:grid-cols-4 max-md:mx-0 max-md:grid-cols-3 max-md:gap-3 max-[37.5rem]:grid-cols-2">
-          {children.map(category=><Link key={category.id} href={categoryPath(category.slug)} className="flex h-[180px] flex-col items-center justify-center rounded-[4px] border border-[#dfe3e8] bg-white p-6 text-center text-foreground hover:border-brand hover:text-brand max-md:h-40 max-md:px-2 max-md:py-3.5">
-            <div className="grid h-[90px] w-[135px] max-w-full shrink-0 place-items-center">{category.imagePath?<Image src={category.imagePath} width={135} height={90} alt="" className="h-[90px] w-[135px] object-contain"/>:<Package size={48} aria-hidden="true"/>}</div>
-            <strong className="flex h-10 w-full items-center justify-center overflow-hidden text-sm leading-[18px] font-medium">{category.name}</strong>
-          </Link>)}
-        </div>}</TabsContent>;
-      })}
+      {roots.map(root=><TabsContent key={root.id} value={root.id} className="pb-4">{root.children.length>0&&<div className="-mx-0.5 grid grid-cols-6 gap-4 max-[68.75rem]:grid-cols-4 max-md:mx-0 max-md:grid-cols-3 max-md:gap-3 max-[37.5rem]:grid-cols-2">
+        {root.children.map(category=><Link key={category.id} href={categoryPath(category.slug)} className="home-category-tile">
+          <div className="home-category-tile-image">{category.imagePath?<Image src={category.imagePath} width={135} height={90} alt="" className="h-[90px] w-[135px] object-contain"/>:<Package size={48} aria-hidden="true"/>}</div>
+          <strong className="home-category-tile-name">{category.name}</strong>
+        </Link>)}
+      </div>}</TabsContent>)}
     </Tabs>
   </section>;
 }

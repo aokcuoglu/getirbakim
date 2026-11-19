@@ -1,13 +1,14 @@
 -- TecDoc numeric IDs are preserved as primary keys. Dates have month precision.
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public;
 
 CREATE TABLE IF NOT EXISTS vehicle_brands (
  id integer PRIMARY KEY CHECK (id > 0),
  name text NOT NULL CHECK (length(name) > 0),
  display_name text NOT NULL CHECK (length(display_name) > 0),
- popular boolean NOT NULL DEFAULT false,
  updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Older databases keep the unread popular column (NOT NULL DEFAULT false); drop it one release after this ships (#944).
 
 CREATE TABLE IF NOT EXISTS vehicle_models (
  id integer PRIMARY KEY CHECK (id > 0),
@@ -20,7 +21,11 @@ CREATE TABLE IF NOT EXISTS vehicle_models (
  CHECK (date_to IS NULL OR extract(day FROM date_to) = 1),
  CHECK (date_from IS NULL OR date_to IS NULL OR date_to >= date_from)
 );
-CREATE INDEX IF NOT EXISTS vehicle_models_brand_idx ON vehicle_models(brand_id, name, id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='vehicle_models'::regclass AND c.relname='vehicle_models_brand_idx') THEN
+  CREATE INDEX vehicle_models_brand_idx ON vehicle_models(brand_id, name, id);
+ END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS vehicle_types (
  id integer PRIMARY KEY CHECK (id > 0),
@@ -40,5 +45,11 @@ CREATE TABLE IF NOT EXISTS vehicle_types (
  CHECK (year_of_constr_to IS NULL OR extract(day FROM year_of_constr_to) = 1),
  CHECK (year_of_constr_to IS NULL OR year_of_constr_to >= year_of_constr_from)
 );
-CREATE INDEX IF NOT EXISTS vehicle_types_model_fuel_idx ON vehicle_types(model_id, fuel_name, name, id);
-CREATE INDEX IF NOT EXISTS vehicle_types_search_idx ON vehicle_types USING gin(search_text gin_trgm_ops);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='vehicle_types'::regclass AND c.relname='vehicle_types_model_fuel_idx') THEN
+  CREATE INDEX vehicle_types_model_fuel_idx ON vehicle_types(model_id, fuel_name, name, id);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='vehicle_types'::regclass AND c.relname='vehicle_types_search_idx') THEN
+  CREATE INDEX vehicle_types_search_idx ON vehicle_types USING gin(search_text gin_trgm_ops);
+ END IF;
+END $$;

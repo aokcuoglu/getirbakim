@@ -15,9 +15,21 @@ CREATE TABLE IF NOT EXISTS enrichment_product_states (
  refreshed_at timestamptz NOT NULL DEFAULT now()
 );
 -- Both sort directions walk one index: ORDER BY sorted_at, supplier_item_id with the same direction on both keys.
-CREATE INDEX IF NOT EXISTS enrichment_product_states_status_idx ON enrichment_product_states(status, sorted_at, supplier_item_id);
-CREATE INDEX IF NOT EXISTS enrichment_product_states_enriched_idx ON enrichment_product_states(sorted_at, supplier_item_id) WHERE enriched;
-CREATE INDEX IF NOT EXISTS enrichment_product_states_item_idx ON enrichment_product_states(supplier_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_product_states'::regclass AND c.relname='enrichment_product_states_status_idx') THEN
+  CREATE INDEX enrichment_product_states_status_idx ON enrichment_product_states(status, sorted_at, supplier_item_id);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_product_states'::regclass AND c.relname='enrichment_product_states_enriched_idx') THEN
+  CREATE INDEX enrichment_product_states_enriched_idx ON enrichment_product_states(sorted_at, supplier_item_id) WHERE enriched;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_product_states'::regclass AND c.relname='enrichment_product_states_item_idx') THEN
+  CREATE INDEX enrichment_product_states_item_idx ON enrichment_product_states(supplier_item_id);
+ END IF;
+END $$;
 
 -- Product ids whose state row is stale. The all-zero id asks for a full rebuild (brand mapping changes touch everything).
 CREATE TABLE IF NOT EXISTS enrichment_product_state_queue (
@@ -25,7 +37,7 @@ CREATE TABLE IF NOT EXISTS enrichment_product_state_queue (
 );
 
 -- Same column order as the table so a rebuild is INSERT ... SELECT *.
-CREATE OR REPLACE VIEW enrichment_product_state_rows AS
+DO $setup$ DECLARE def text := $view$
  SELECT c.product_id,c.product_brand,c.part_number,c.product_name,c.supplier_item_id,c.supplier_code,c.supplier_brand,c.oem,
   c.status,c.payload IS NOT NULL AS enriched,c.attempts,c.last_error,c.updated_at,c.imported_at,
   COALESCE(c.imported_at,c.updated_at) AS sorted_at,
@@ -36,6 +48,14 @@ CREATE OR REPLACE VIEW enrichment_product_state_rows AS
   COALESCE(jsonb_array_length(c.payload->'specifications'),0) AS specification_count,
   now() AS refreshed_at
  FROM enrichment_product_catalog c;
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='enrichment_product_state_rows' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW enrichment_product_state_rows AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 
 -- Over the whole catalog the planner expects one enrichment_valid_data row and nests it per source row (minutes);
 -- hash joins finish in seconds, so the full computation runs with nested loops disabled.
@@ -162,45 +182,68 @@ BEGIN
  RETURN NULL;
 END $$;
 
-DROP TRIGGER IF EXISTS enrichment_states_products_insert ON products;
-CREATE TRIGGER enrichment_states_products_insert AFTER INSERT ON products
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_products();
-DROP TRIGGER IF EXISTS enrichment_states_products_update ON products;
-CREATE TRIGGER enrichment_states_products_update AFTER UPDATE ON products
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_products();
-DROP TRIGGER IF EXISTS enrichment_states_products_delete ON products;
-CREATE TRIGGER enrichment_states_products_delete AFTER DELETE ON products
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_products();
+-- Created only when missing: CREATE [OR REPLACE] TRIGGER locks the table against writers (SHARE ROW EXCLUSIVE) until setup
+-- commits. A changed function body needs only its CREATE OR REPLACE FUNCTION; a changed trigger definition needs a
+-- DROP TRIGGER in the same change.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='products'::regclass AND tgname='enrichment_states_products_insert') THEN
+  CREATE TRIGGER enrichment_states_products_insert AFTER INSERT ON products
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_products();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='products'::regclass AND tgname='enrichment_states_products_update') THEN
+  CREATE TRIGGER enrichment_states_products_update AFTER UPDATE ON products
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_products();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='products'::regclass AND tgname='enrichment_states_products_delete') THEN
+  CREATE TRIGGER enrichment_states_products_delete AFTER DELETE ON products
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_products();
+ END IF;
+END $$;
 
-DROP TRIGGER IF EXISTS enrichment_states_sources_insert ON product_sources;
-CREATE TRIGGER enrichment_states_sources_insert AFTER INSERT ON product_sources
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_sources();
-DROP TRIGGER IF EXISTS enrichment_states_sources_update ON product_sources;
-CREATE TRIGGER enrichment_states_sources_update AFTER UPDATE ON product_sources
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_sources();
-DROP TRIGGER IF EXISTS enrichment_states_sources_delete ON product_sources;
-CREATE TRIGGER enrichment_states_sources_delete AFTER DELETE ON product_sources
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_sources();
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_sources'::regclass AND tgname='enrichment_states_sources_insert') THEN
+  CREATE TRIGGER enrichment_states_sources_insert AFTER INSERT ON product_sources
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_sources();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_sources'::regclass AND tgname='enrichment_states_sources_update') THEN
+  CREATE TRIGGER enrichment_states_sources_update AFTER UPDATE ON product_sources
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_sources();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_sources'::regclass AND tgname='enrichment_states_sources_delete') THEN
+  CREATE TRIGGER enrichment_states_sources_delete AFTER DELETE ON product_sources
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_sources();
+ END IF;
+END $$;
 
-DROP TRIGGER IF EXISTS enrichment_states_jobs_insert ON product_enrichment_jobs;
-CREATE TRIGGER enrichment_states_jobs_insert AFTER INSERT ON product_enrichment_jobs
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
-DROP TRIGGER IF EXISTS enrichment_states_jobs_update ON product_enrichment_jobs;
-CREATE TRIGGER enrichment_states_jobs_update AFTER UPDATE ON product_enrichment_jobs
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
-DROP TRIGGER IF EXISTS enrichment_states_jobs_delete ON product_enrichment_jobs;
-CREATE TRIGGER enrichment_states_jobs_delete AFTER DELETE ON product_enrichment_jobs
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichment_jobs'::regclass AND tgname='enrichment_states_jobs_insert') THEN
+  CREATE TRIGGER enrichment_states_jobs_insert AFTER INSERT ON product_enrichment_jobs
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichment_jobs'::regclass AND tgname='enrichment_states_jobs_update') THEN
+  CREATE TRIGGER enrichment_states_jobs_update AFTER UPDATE ON product_enrichment_jobs
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichment_jobs'::regclass AND tgname='enrichment_states_jobs_delete') THEN
+  CREATE TRIGGER enrichment_states_jobs_delete AFTER DELETE ON product_enrichment_jobs
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
+ END IF;
+END $$;
 
-DROP TRIGGER IF EXISTS enrichment_states_enrichments_insert ON product_enrichments;
-CREATE TRIGGER enrichment_states_enrichments_insert AFTER INSERT ON product_enrichments
- REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
-DROP TRIGGER IF EXISTS enrichment_states_enrichments_update ON product_enrichments;
-CREATE TRIGGER enrichment_states_enrichments_update AFTER UPDATE ON product_enrichments
- REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
-DROP TRIGGER IF EXISTS enrichment_states_enrichments_delete ON product_enrichments;
-CREATE TRIGGER enrichment_states_enrichments_delete AFTER DELETE ON product_enrichments
- REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichments'::regclass AND tgname='enrichment_states_enrichments_insert') THEN
+  CREATE TRIGGER enrichment_states_enrichments_insert AFTER INSERT ON product_enrichments
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichments'::regclass AND tgname='enrichment_states_enrichments_update') THEN
+  CREATE TRIGGER enrichment_states_enrichments_update AFTER UPDATE ON product_enrichments
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_enrichments'::regclass AND tgname='enrichment_states_enrichments_delete') THEN
+  CREATE TRIGGER enrichment_states_enrichments_delete AFTER DELETE ON product_enrichments
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION enrichment_product_states_queue_items();
+ END IF;
+END $$;
 
 -- A hidden supplier OEM drops enrichment matched through it (enrichment_valid_data, #865): an override write queues
 -- the item's product only when hide_oem is (or was) set; price, name and visibility edits leave the queue alone. The
@@ -241,22 +284,32 @@ DO $$ BEGIN
 END $$;
 
 -- Deleted supplier rows cascade into product_sources, whose own trigger queues the product.
-DROP TRIGGER IF EXISTS enrichment_states_supplier_items_update ON supplier_items;
-CREATE TRIGGER enrichment_states_supplier_items_update AFTER UPDATE OF code, product_data, presence ON supplier_items FOR EACH ROW
- WHEN (OLD.code IS DISTINCT FROM NEW.code OR OLD.product_data IS DISTINCT FROM NEW.product_data OR OLD.presence IS DISTINCT FROM NEW.presence)
- EXECUTE FUNCTION enrichment_product_states_queue_supplier_item();
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_items'::regclass AND tgname='enrichment_states_supplier_items_update') THEN
+  CREATE TRIGGER enrichment_states_supplier_items_update AFTER UPDATE OF code, product_data, presence ON supplier_items FOR EACH ROW
+   WHEN (OLD.code IS DISTINCT FROM NEW.code OR OLD.product_data IS DISTINCT FROM NEW.product_data OR OLD.presence IS DISTINCT FROM NEW.presence)
+   EXECUTE FUNCTION enrichment_product_states_queue_supplier_item();
+ END IF;
+END $$;
 
 -- Brand mapping decides coherence for every product of that label; the small tables take row triggers.
-DROP TRIGGER IF EXISTS enrichment_states_supplier_brands_update ON supplier_brands;
-CREATE TRIGGER enrichment_states_supplier_brands_update AFTER UPDATE OF brand_id ON supplier_brands FOR EACH ROW
- WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION enrichment_product_states_queue_all();
-DROP TRIGGER IF EXISTS enrichment_states_supplier_brands_delete ON supplier_brands;
-CREATE TRIGGER enrichment_states_supplier_brands_delete AFTER DELETE ON supplier_brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
-DROP TRIGGER IF EXISTS enrichment_states_brands_update ON brands;
-CREATE TRIGGER enrichment_states_brands_update AFTER UPDATE OF key ON brands FOR EACH ROW
- WHEN (OLD.key IS DISTINCT FROM NEW.key) EXECUTE FUNCTION enrichment_product_states_queue_all();
-DROP TRIGGER IF EXISTS enrichment_states_brands_delete ON brands;
-CREATE TRIGGER enrichment_states_brands_delete AFTER DELETE ON brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
+-- Created only when missing (#965): CREATE [OR REPLACE] TRIGGER locks the table against writers until setup commits.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_brands'::regclass AND tgname='enrichment_states_supplier_brands_update') THEN
+  CREATE TRIGGER enrichment_states_supplier_brands_update AFTER UPDATE OF brand_id ON supplier_brands FOR EACH ROW
+   WHEN (OLD.brand_id IS DISTINCT FROM NEW.brand_id) EXECUTE FUNCTION enrichment_product_states_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_brands'::regclass AND tgname='enrichment_states_supplier_brands_delete') THEN
+  CREATE TRIGGER enrichment_states_supplier_brands_delete AFTER DELETE ON supplier_brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='brands'::regclass AND tgname='enrichment_states_brands_update') THEN
+  CREATE TRIGGER enrichment_states_brands_update AFTER UPDATE OF key ON brands FOR EACH ROW
+   WHEN (OLD.key IS DISTINCT FROM NEW.key) EXECUTE FUNCTION enrichment_product_states_queue_all();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='brands'::regclass AND tgname='enrichment_states_brands_delete') THEN
+  CREATE TRIGGER enrichment_states_brands_delete AFTER DELETE ON brands FOR EACH ROW EXECUTE FUNCTION enrichment_product_states_queue_all();
+ END IF;
+END $$;
 
 -- First deployment: the table is filled by the next sync (scripts/setup.ts runs one after the schema commits).
 INSERT INTO enrichment_product_state_queue(product_id) SELECT '00000000-0000-0000-0000-000000000000'

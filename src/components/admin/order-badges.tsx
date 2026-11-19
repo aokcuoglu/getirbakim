@@ -9,6 +9,8 @@ const orderLooks: Record<string, Look> = { awaiting_payment: { tone: "warning" }
 // A recorded refund is a finished step, not a failure: neutral, with the check icon and its "İade edildi" label.
 const paymentLooks: Record<string, Look> = {
   none: waiting, awaiting: { tone: "warning" }, paid: { tone: "success" }, expired: { tone: "error" }, cancelled: { tone: "neutral", icon: Ban }, refund_required: { tone: "error" }, refunded: { tone: "neutral", icon: CircleCheck },
+  // A partner order on account (#426): nothing is collected online, the partner is invoiced later.
+  on_account: { tone: "info" },
 };
 
 export function OrderStatusBadge({ status }: { status: string }) {

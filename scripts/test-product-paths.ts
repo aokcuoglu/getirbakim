@@ -106,3 +106,14 @@ test("a card prints the admin's all-caps name as written, with the store brand a
   assert.equal(catalogCardTitle({ ...card, name_overridden: true }), "YAG FILTRESI GENEL BOSCH 1");
   assert.equal(catalogCardTitle({ ...card, name_overridden: false }), "Yağ Filtresi BOSCH 1");
 });
+
+test("a known English supplier name is shown, carded and addressed in Turkish; an admin's name stays as written (#915)", () => {
+  assert.equal(shownProductName(product("BRAKE PAD SET, DISC BRAKE", "BOSCH", "0986494803")), "Disk Fren Balata Seti");
+  assert.equal(productPath(product("BRAKE PAD SET, DISC BRAKE", "BOSCH", "0986494803")), `/urun/bosch-disk-fren-balata-seti-0986494803-${id}`);
+  assert.equal(shownProductName(product("BRAKE PAD SET, DISC BRAKE", "BOSCH", "1", true)), "BRAKE PAD SET, DISC BRAKE");
+  assert.equal(productPath(product("BRAKE PAD SET, DISC BRAKE", "BOSCH", "1", true)), `/urun/bosch-brake-pad-set-disc-brake-1-${id}`);
+  const card = { code: "BCH 1", display_code: "BCH 1", brand: "BCH", display_brand: "BOSCH", name: "BRAKE DISC", name_overridden: false };
+  assert.equal(catalogCardTitle(card), "Fren Diski BOSCH 1");
+  // An unknown English name stays readable, never hidden.
+  assert.equal(shownProductName(product("LINK", "BOSCH", "1")), "Link");
+});

@@ -32,7 +32,7 @@ function formatVehicle(row: VehicleRow): CatalogVehicle {
 
 // One read per request: a make page asks for the list in its metadata, its page and the catalog view (#638).
 export const getVehicleBrands = cache(async (): Promise<VehicleBrand[]> => {
-  const { rows } = await db.query<VehicleBrand>("SELECT id::text, display_name AS name, popular FROM vehicle_brands");
+  const { rows } = await db.query<VehicleBrand>("SELECT id::text, display_name AS name FROM vehicle_brands");
   return rows.sort((a, b) => a.name.localeCompare(b.name, "tr"));
 });
 

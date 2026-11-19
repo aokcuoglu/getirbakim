@@ -1,5 +1,6 @@
 import "server-only";
 // Callers resolve the customer's owners from the session (order-read.ts); kept free of it so tests can run it.
+import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { appendNote, reconcileOrderPayments } from "@/modules/payments/checkout";
 import type { CartOwner } from "./cart";
@@ -15,6 +16,22 @@ export type CustomerCancelResult = "cancelled" | "refund" | "already" | "paid" |
 export type CancelExpectation = "awaiting_payment" | "pending";
 
 type LockedOrder = { status: string; payment_status: string; cancelled_by: string | null };
+
+/**
+ * Cancels an order the caller holds FOR UPDATE on the customer's (or partner's, #426) behalf and notes it: `note` says
+ * who, and supplier lines already ordered or procured are counted so operations check the supplier order (#607).
+ */
+export async function cancelWithNote(client: PoolClient, orderId: string, note: string) {
+  const procurement = (await client.query<{ ordered: number; procured: number }>(`SELECT count(*) FILTER (WHERE procurement_status='ordered')::int AS ordered,
+    count(*) FILTER (WHERE procurement_status='procured')::int AS procured FROM commerce_order_items
+    WHERE order_id=$1 AND COALESCE(pricing_snapshot->>'source','')<>'store'`, [orderId])).rows[0];
+  await cancelLockedOrder(client, orderId, "customer");
+  const notes = [note];
+  if (procurement.ordered || procurement.procured) {
+    notes.push(`İptal anında ${procurement.ordered} kalem tedarikçiye sipariş edilmiş / ${procurement.procured} kalem tedarik edilmişti; tedarikçi siparişini kontrol edin.`);
+  }
+  await appendNote(client, orderId, notes.join(" "));
+}
 
 /**
  * Customer cancel (#607): an order awaiting payment, or a pending (not yet confirmed) paid or offline one.
@@ -45,15 +62,7 @@ export async function cancelOrderByCustomer(orderId: string, owners: CartOwner[]
       // Paid while the customer looked at the unpaid page: tell them first instead of cancelling a paid order unasked.
       if (expected === "awaiting_payment") result = "paid";
       else {
-        const procurement = (await client.query<{ ordered: number; procured: number }>(`SELECT count(*) FILTER (WHERE procurement_status='ordered')::int AS ordered,
-          count(*) FILTER (WHERE procurement_status='procured')::int AS procured FROM commerce_order_items
-          WHERE order_id=$1 AND COALESCE(pricing_snapshot->>'source','')<>'store'`, [orderId])).rows[0];
-        await cancelLockedOrder(client, orderId, "customer");
-        const notes = ["Müşteri iptal etti."];
-        if (procurement.ordered || procurement.procured) {
-          notes.push(`İptal anında ${procurement.ordered} kalem tedarikçiye sipariş edilmiş / ${procurement.procured} kalem tedarik edilmişti; tedarikçi siparişini kontrol edin.`);
-        }
-        await appendNote(client, orderId, notes.join(" "));
+        await cancelWithNote(client, orderId, "Müşteri iptal etti.");
         result = order.payment_status === "paid" ? "refund" : "cancelled";
       }
     }

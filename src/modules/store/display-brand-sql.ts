@@ -3,6 +3,8 @@
  * brand name of the supplier's label (supplier_brands → brands), else the raw label, else "Belirtilmemiş". Same rule as
  * display_brand in db/commerce.sql and db/storefront-catalog.sql; change them together. The arguments are SQL aliases of
  * the caller's query, never user input. The joins use the aliases `sb` and `mb`.
+ * The catalog views' brand_label column and the supplier_items_brand_label_idx index (db/commerce.sql, #771)
+ * follow the same supplier_item_brand rule; change them together.
  */
 
 /** Joins the master brand of supplier row `item`; both are unique-key joins the planner drops when unused. */

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { db } from "../src/lib/db";
-import { getVehicleBrands, getVehicleModels, getModelVehicles, savedCatalogVehicle, searchVehicleCatalog } from "../src/modules/store/vehicle-catalog.server";
+import { getVehicleModels, getModelVehicles, savedCatalogVehicle, searchVehicleCatalog } from "../src/modules/store/vehicle-catalog.server";
 import { readVehicleCatalogImport, parseVehicleCsv } from "../src/modules/store/vehicle-catalog-import";
 import { vehicleProductionDates } from "../src/modules/store/vehicle-catalog";
 import { vehicleSchema } from "../src/modules/store/garage";
@@ -12,13 +12,13 @@ const source = readVehicleCatalogImport();
 
 test("every imported DB field matches its CSV source, with no duplicate or missing IDs", async () => {
   const data = await source;
-  const brands = await db.query("SELECT id, name, display_name, popular FROM vehicle_brands ORDER BY id");
+  const brands = await db.query("SELECT id, name, display_name FROM vehicle_brands ORDER BY id");
   const models = await db.query(`SELECT id, brand_id, name, to_char(date_from, 'YYYY-MM-DD') AS date_from,
     to_char(date_to, 'YYYY-MM-DD') AS date_to FROM vehicle_models ORDER BY id`);
   const vehicles = await db.query(`SELECT id, model_id, name, cc, fuel_type, fuel_name, hp, kwt,
     to_char(year_of_constr_from, 'YYYY-MM-DD') AS year_of_constr_from,
     to_char(year_of_constr_to, 'YYYY-MM-DD') AS year_of_constr_to, search_text FROM vehicle_types ORDER BY id`);
-  assert.deepEqual(brands.rows, [...data.brands].sort((a, b) => a.id - b.id));
+  assert.deepEqual(brands.rows, data.brands.map(({ id, name, display_name }) => ({ id, name, display_name })).sort((a, b) => a.id - b.id));
   assert.deepEqual(models.rows, [...data.models].sort((a, b) => a.id - b.id));
   assert.deepEqual(vehicles.rows, [...data.vehicles].sort((a, b) => a.id - b.id));
   assert.equal(brands.rowCount, 251); assert.equal(models.rowCount, 5767); assert.equal(vehicles.rowCount, 37937);
@@ -33,7 +33,6 @@ test("every imported DB field matches its CSV source, with no duplicate or missi
 
 test("CSV quoting, null dates/displacement and DB-backed picker lists are preserved", async () => {
   assert.deepEqual(parseVehicleCsv('id,name\r\n1,"A, B"\r\n2,"A ""B"""\r\n'), [{ id: "1", name: "A, B" }, { id: "2", name: 'A "B"' }]);
-  assert.equal((await getVehicleBrands()).filter(b => b.popular).length, 10);
   const models = await getVehicleModels("121");
   assert.equal(models?.find(m => m.id === "1616")?.name, "411,412");
   const vehicles = await getModelVehicles("5598");

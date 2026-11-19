@@ -15,6 +15,8 @@ Karar tarihi: 11 Ekim 2026. Bu rehber sonraki geliştirme ve düzeltmelerin vars
 7. Güncel PR commit'i için zorunlu CI kontrolleri geçtikten sonra `dev`'e merge et. Kullanıcının farklı hedef veya bekleme talebi yoksa bu adım çalışma kapsamına dahildir; yeniden izin isteme. Korumaları atlama.
 8. Issue/PR bağlantılarını, doğrulama sonucunu ve merge durumunu bildir. Worktree temizliği sırasında yalnız bu işe ait, merge edilmiş ve kirli olmayan worktree'yi kaldır; diğerlerini koru.
 
+`db/*.sql` dosyaları her yayında, önceki sürüm trafik alırken yeniden koşar; ikinci koşu hiçbir tablo veya görünümde ACCESS EXCLUSIVE almamalıdır (#925, #954). Yeni kolon `pg_attribute` bekçili `DO $$` bloğuyla yalnız eksikse eklenir (`ADD COLUMN IF NOT EXISTS` boşa da kilitler); görünüm geçici `pg_temp.setup_view_probe` görünümüyle `pg_get_viewdef` karşılaştırılarak yalnız tanımı değişince değiştirilir (örnek `db/commerce.sql`; kolon silme/yeniden sıralama yine `DROP VIEW` ister); sıcak tablodaki tetikleyici `tgrelid` + `tgname` bekçisiyle yalnız yoksa oluşturulur; her `CREATE INDEX` `pg_index` + `indrelid` bekçili `DO $$` bloğunda yalnız yoksa oluşturulur (`CREATE INDEX IF NOT EXISTS` boşa da SHARE alıp yazıcıları bekletir, #964, #993). `npm run test:setup-locks` (CI) bunları izole şemada denetler.
+
 Yerel sunucu başlatırken port çakışmasını kontrol et. `.env.local`, API yanıtları, veri snapshot'ları, tokenlar ve erişim bilgileri Git'e girmez. Next.js kodu değişecekse `AGENTS.md` içindeki kurala göre kurulu sürümün ilgili rehberini önce oku.
 
 ## Commit ve branch adları

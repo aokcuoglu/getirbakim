@@ -4,14 +4,14 @@ import { Select as SelectRoot, SelectContent, SelectItem, SelectTrigger, SelectV
 import { cn } from "@/lib/utils";
 import { SiteIcon } from "./site-icon";
 
-export type SelectOption={value:string;label:string;shortLabel?:string};
+export type SelectOption={value:string;label:string;shortLabel?:string;tinyLabel?:string};
 
 /**
  * The storefront's compact dropdown (header search mode, locale menus).
  * `className` sizes the control; `triggerClassName` / `contentClassName` restyle the button and the list.
  * The selected value is submitted with the surrounding form under `name`.
  */
-export function Select({name,label,options,defaultValue="",value,className="",triggerClassName,contentClassName,align="start",onChange}:{name:string;label:string;options:SelectOption[];defaultValue?:string;value?:string;className?:string;triggerClassName?:string;contentClassName?:string;align?:"start"|"end";onChange?:(value:string)=>void}) {
+export function Select({name,label,options,defaultValue="",value,className="",triggerClassName,contentClassName,align="start",tabletShort=false,onChange}:{name:string;label:string;options:SelectOption[];defaultValue?:string;value?:string;className?:string;triggerClassName?:string;contentClassName?:string;align?:"start"|"end";tabletShort?:boolean;onChange?:(value:string)=>void}) {
  const [uncontrolledValue,setUncontrolledValue]=useState(()=>(options.find(o=>o.value===defaultValue)??options[0])?.value??"");
  const current=value??uncontrolledValue;
  return <SelectRoot name={name} items={options} value={current} modal={false} onValueChange={next=>{
@@ -26,7 +26,9 @@ export function Select({name,label,options,defaultValue="",value,className="",tr
     const option=options.find(o=>o.value===selected);
     if(!option)return selected;
     if(!option.shortLabel)return option.label;
-    return <><span className="max-[600px]:hidden">{option.label}</span><span className="min-[600px]:hidden">{option.shortLabel}</span></>;
+    return tabletShort
+     ? <><span className="max-[850.98px]:hidden">{option.label}</span><span className="min-[600px]:hidden">{option.shortLabel}</span><span className="max-[600px]:hidden min-[850.98px]:hidden">{option.tinyLabel??option.shortLabel}</span></>
+     : <><span className="max-[600px]:hidden">{option.label}</span><span className="min-[600px]:hidden">{option.shortLabel}</span></>;
    }}</SelectValue>
    <SiteIcon name="chevron" size={16} className="absolute top-[calc(50%-8px)] right-2.5 transition-transform duration-150 group-aria-expanded/select:rotate-180"/>
   </SelectTrigger>

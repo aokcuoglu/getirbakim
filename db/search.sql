@@ -3,7 +3,7 @@
 -- Index expressions depend on these IMMUTABLE functions: changing their output requires a REINDEX
 -- of the *_search_* indexes below, otherwise the indexes silently disagree with the queries.
 -- `SET search_path FROM CURRENT`: index builds run with a restricted search_path and must still find these helpers.
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA public;
 
 -- Turkish/Latin letters folded to ASCII, punctuation to spaces; a decimal point between digits ("1.6") survives.
 CREATE OR REPLACE FUNCTION search_normalize(value text) RETURNS text
@@ -79,19 +79,33 @@ BEGIN
  NEW.search_oem := search_compact(COALESCE(NEW.product_data->>'oe', ''));
  RETURN NEW;
 END $$;
-DROP TRIGGER IF EXISTS supplier_items_search_fields ON supplier_items;
-CREATE TRIGGER supplier_items_search_fields BEFORE INSERT OR UPDATE OF code, product_data ON supplier_items
- FOR EACH ROW EXECUTE FUNCTION supplier_items_search_fields();
+-- Created only when missing: CREATE [OR REPLACE] TRIGGER locks the table against writers (SHARE ROW EXCLUSIVE) until setup
+-- commits. A changed function body needs only its CREATE OR REPLACE FUNCTION; a changed trigger definition needs a
+-- DROP TRIGGER in the same change.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='supplier_items'::regclass AND tgname='supplier_items_search_fields') THEN
+  CREATE TRIGGER supplier_items_search_fields BEFORE INSERT OR UPDATE OF code, product_data ON supplier_items
+   FOR EACH ROW EXECUTE FUNCTION supplier_items_search_fields();
+ END IF;
+END $$;
 -- One-time fill of rows written before the trigger existed (a no-op afterwards). Runs under setup's
 -- supplier locks, so no import writes these rows meanwhile.
 UPDATE supplier_items SET product_data = product_data WHERE search_doc IS NULL;
 
-CREATE INDEX IF NOT EXISTS supplier_items_search_tsv_idx ON supplier_items
- USING gin (to_tsvector('simple', supplier_item_search_text(code, product_data)));
-CREATE INDEX IF NOT EXISTS supplier_items_search_codes_idx ON supplier_items
- USING gin (supplier_item_search_codes(code, product_data) gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS vehicle_types_search_tsv_idx ON vehicle_types
- USING gin (to_tsvector('simple', search_normalize(search_text)));
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_search_tsv_idx') THEN
+  CREATE INDEX supplier_items_search_tsv_idx ON supplier_items
+   USING gin (to_tsvector('simple', supplier_item_search_text(code, product_data)));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_search_codes_idx') THEN
+  CREATE INDEX supplier_items_search_codes_idx ON supplier_items
+   USING gin (supplier_item_search_codes(code, product_data) gin_trgm_ops);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='vehicle_types'::regclass AND c.relname='vehicle_types_search_tsv_idx') THEN
+  CREATE INDEX vehicle_types_search_tsv_idx ON vehicle_types
+   USING gin (to_tsvector('simple', search_normalize(search_text)));
+ END IF;
+END $$;
 -- Expression statistics only exist after ANALYZE; without them the planner guesses the search
 -- matches thousands of rows and seq-scans supplier_items (~5 s instead of <1 ms).
 ANALYZE supplier_items;
@@ -105,8 +119,16 @@ CREATE TABLE IF NOT EXISTS search_vocabulary (
  frequency integer NOT NULL,
  PRIMARY KEY (scope, word)
 );
-CREATE INDEX IF NOT EXISTS search_vocabulary_trgm_idx ON search_vocabulary USING gin (word gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS search_vocabulary_prefix_idx ON search_vocabulary (scope, word text_pattern_ops);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='search_vocabulary'::regclass AND c.relname='search_vocabulary_trgm_idx') THEN
+  CREATE INDEX search_vocabulary_trgm_idx ON search_vocabulary USING gin (word gin_trgm_ops);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='search_vocabulary'::regclass AND c.relname='search_vocabulary_prefix_idx') THEN
+  CREATE INDEX search_vocabulary_prefix_idx ON search_vocabulary (scope, word text_pattern_ops);
+ END IF;
+END $$;
 -- Distinct supplier product names for type-ahead: a broad prefix ("fren") matches ~15k products, far
 -- too many to rank per keystroke, but only a few hundred names. Refreshed with the vocabulary.
 CREATE TABLE IF NOT EXISTS search_product_names (
@@ -114,7 +136,11 @@ CREATE TABLE IF NOT EXISTS search_product_names (
  normalized text NOT NULL,
  products integer NOT NULL
 );
-CREATE INDEX IF NOT EXISTS search_product_names_tsv_idx ON search_product_names USING gin (to_tsvector('simple', normalized));
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='search_product_names'::regclass AND c.relname='search_product_names_tsv_idx') THEN
+  CREATE INDEX search_product_names_tsv_idx ON search_product_names USING gin (to_tsvector('simple', normalized));
+ END IF;
+END $$;
 CREATE OR REPLACE FUNCTION refresh_search_vocabulary() RETURNS void LANGUAGE sql SET search_path FROM CURRENT AS $$
  DELETE FROM search_vocabulary;
  INSERT INTO search_vocabulary (scope, word, frequency)

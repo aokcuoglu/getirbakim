@@ -35,8 +35,16 @@ CREATE TABLE IF NOT EXISTS cart_items (
 );
 
 -- Iteration 2: public storefront taxonomy and guest carts.
-ALTER TABLE store_products ADD COLUMN IF NOT EXISTS category text NOT NULL DEFAULT 'yedek-parca';
-CREATE INDEX IF NOT EXISTS store_products_category_idx ON store_products(category);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='store_products'::regclass AND attname='category' AND NOT attisdropped) THEN
+  ALTER TABLE store_products ADD COLUMN category text NOT NULL DEFAULT 'yedek-parca';
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='store_products'::regclass AND c.relname='store_products_category_idx') THEN
+  CREATE INDEX store_products_category_idx ON store_products(category);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS guest_carts (
  token_hash text PRIMARY KEY,
  expires_at timestamptz NOT NULL DEFAULT now() + interval '30 days'
@@ -69,7 +77,11 @@ CREATE TABLE IF NOT EXISTS supplier_imports (
  observations jsonb NOT NULL, quality jsonb NOT NULL,
  groups_data jsonb NOT NULL, currencies_data jsonb NOT NULL
 );
-CREATE INDEX IF NOT EXISTS supplier_imports_latest_idx ON supplier_imports(supplier,list_group,warehouse,completed_at DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_imports'::regclass AND c.relname='supplier_imports_latest_idx') THEN
+  CREATE INDEX supplier_imports_latest_idx ON supplier_imports(supplier,list_group,warehouse,completed_at DESC);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS supplier_import_items (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  import_id uuid NOT NULL REFERENCES supplier_imports(id) ON DELETE CASCADE,
@@ -79,18 +91,49 @@ CREATE TABLE IF NOT EXISTS supplier_import_items (
  source_variants jsonb NOT NULL DEFAULT '{}'::jsonb,
  UNIQUE(import_id,code)
 );
-ALTER TABLE supplier_import_items ADD COLUMN IF NOT EXISTS source_variants jsonb NOT NULL DEFAULT '{}'::jsonb;
-CREATE INDEX IF NOT EXISTS supplier_import_items_import_idx ON supplier_import_items(import_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_import_items'::regclass AND attname='source_variants' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_import_items ADD COLUMN source_variants jsonb NOT NULL DEFAULT '{}'::jsonb;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_import_items'::regclass AND c.relname='supplier_import_items_import_idx') THEN
+  CREATE INDEX supplier_import_items_import_idx ON supplier_import_items(import_id);
+ END IF;
+END $$;
 
 -- Current supplier observations and bounded change history (not one full copy per run).
-ALTER TABLE supplier_imports DROP CONSTRAINT IF EXISTS supplier_imports_supplier_check;
-ALTER TABLE supplier_imports ADD CONSTRAINT supplier_imports_supplier_check CHECK (supplier IN ('basbug','dinamik','seta','manual'));
-ALTER TABLE supplier_imports ALTER COLUMN completed_at DROP NOT NULL;
-ALTER TABLE supplier_imports ALTER COLUMN completed_at DROP DEFAULT;
-ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'succeeded' CHECK (status IN ('running','succeeded','failed','rejected'));
-ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS error_reason text;
-ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS review_note text;
-ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS stats jsonb NOT NULL DEFAULT '{}'::jsonb;
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='supplier_imports'::regclass AND k.conname='supplier_imports_supplier_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['basbug','dinamik','seta','manual'] THEN
+  ALTER TABLE supplier_imports DROP CONSTRAINT IF EXISTS supplier_imports_supplier_check;
+  ALTER TABLE supplier_imports ADD CONSTRAINT supplier_imports_supplier_check CHECK (supplier IN ('basbug','dinamik','seta','manual'));
+ END IF;
+END $$;
+-- ALTER COLUMN locks the table even when nothing changes: only for tables created before running imports existed.
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='completed_at' AND (attnotnull OR atthasdef)) THEN
+  ALTER TABLE supplier_imports ALTER COLUMN completed_at DROP NOT NULL, ALTER COLUMN completed_at DROP DEFAULT;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='status' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_imports ADD COLUMN status text NOT NULL DEFAULT 'succeeded' CHECK (status IN ('running','succeeded','failed','rejected'));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='error_reason' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_imports ADD COLUMN error_reason text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='review_note' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_imports ADD COLUMN review_note text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='stats' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_imports ADD COLUMN stats jsonb NOT NULL DEFAULT '{}'::jsonb;
+ END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS supplier_items (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -105,11 +148,28 @@ CREATE TABLE IF NOT EXISTS supplier_items (
  last_import_id uuid REFERENCES supplier_imports(id) ON DELETE SET NULL,
  UNIQUE(supplier,company,list_group,warehouse,code)
 );
-CREATE INDEX IF NOT EXISTS supplier_items_scope_idx ON supplier_items(supplier,company,list_group,warehouse,presence,code);
+-- Indexes on write-hot and order tables are created only when missing (#964): CREATE INDEX IF NOT EXISTS takes SHARE
+-- on the table, blocking its writers until setup commits, even when the index exists. Looked up per table (indrelid):
+-- to_regclass would find a same-named index in public from an isolated test schema. A changed definition needs a new
+-- index name (or a DROP INDEX in the same change).
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_scope_idx') THEN
+  CREATE INDEX supplier_items_scope_idx ON supplier_items(supplier,company,list_group,warehouse,presence,code);
+ END IF;
+END $$;
 -- Precomputed ranking inputs (filled by a trigger defined in db/search.sql, next to the functions it uses).
-ALTER TABLE supplier_items ADD COLUMN IF NOT EXISTS search_doc tsvector;
-ALTER TABLE supplier_items ADD COLUMN IF NOT EXISTS search_code text;
-ALTER TABLE supplier_items ADD COLUMN IF NOT EXISTS search_oem text;
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_items'::regclass AND attname='search_doc' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_items ADD COLUMN search_doc tsvector;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_items'::regclass AND attname='search_code' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_items ADD COLUMN search_code text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_items'::regclass AND attname='search_oem' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_items ADD COLUMN search_oem text;
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS supplier_item_changes (
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
@@ -118,8 +178,16 @@ CREATE TABLE IF NOT EXISTS supplier_item_changes (
  kind text NOT NULL CHECK (kind IN ('added','changed','missing','inactive','restored')),
  before_data jsonb, after_data jsonb NOT NULL
 );
-CREATE INDEX IF NOT EXISTS supplier_item_changes_item_idx ON supplier_item_changes(item_id,changed_at DESC,id DESC);
-CREATE INDEX IF NOT EXISTS supplier_item_changes_date_idx ON supplier_item_changes(changed_at);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_item_changes'::regclass AND c.relname='supplier_item_changes_item_idx') THEN
+  CREATE INDEX supplier_item_changes_item_idx ON supplier_item_changes(item_id,changed_at DESC,id DESC);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_item_changes'::regclass AND c.relname='supplier_item_changes_date_idx') THEN
+  CREATE INDEX supplier_item_changes_date_idx ON supplier_item_changes(changed_at);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS supplier_sync_scopes (
  supplier text NOT NULL CHECK (supplier IN ('basbug','dinamik')),
  company text NOT NULL, list_group text NOT NULL, warehouse text NOT NULL,
@@ -133,25 +201,71 @@ CREATE TABLE IF NOT EXISTS supplier_sync_scopes (
 );
 -- SETA (single published list) and manual xlsx lists (db/manual-supplier.sql). The inline checks above only apply
 -- to new databases. Manual lists have no sync scope: nothing fetches them on a schedule.
-ALTER TABLE supplier_items DROP CONSTRAINT IF EXISTS supplier_items_supplier_check;
-ALTER TABLE supplier_items ADD CONSTRAINT supplier_items_supplier_check CHECK (supplier IN ('basbug','dinamik','seta','manual'));
-ALTER TABLE supplier_sync_scopes DROP CONSTRAINT IF EXISTS supplier_sync_scopes_supplier_check;
-ALTER TABLE supplier_sync_scopes ADD CONSTRAINT supplier_sync_scopes_supplier_check CHECK (supplier IN ('basbug','dinamik','seta'));
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='supplier_items'::regclass AND k.conname='supplier_items_supplier_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['basbug','dinamik','seta','manual'] THEN
+  ALTER TABLE supplier_items DROP CONSTRAINT IF EXISTS supplier_items_supplier_check;
+  ALTER TABLE supplier_items ADD CONSTRAINT supplier_items_supplier_check CHECK (supplier IN ('basbug','dinamik','seta','manual'));
+ END IF;
+END $$;
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='supplier_sync_scopes'::regclass AND k.conname='supplier_sync_scopes_supplier_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['basbug','dinamik','seta'] THEN
+  ALTER TABLE supplier_sync_scopes DROP CONSTRAINT IF EXISTS supplier_sync_scopes_supplier_check;
+  ALTER TABLE supplier_sync_scopes ADD CONSTRAINT supplier_sync_scopes_supplier_check CHECK (supplier IN ('basbug','dinamik','seta'));
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS supplier_sync_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now());
 
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS daily_at time NOT NULL DEFAULT '03:00';
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='daily_at' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN daily_at time NOT NULL DEFAULT '03:00';
+ END IF;
+END $$;
 
-CREATE INDEX IF NOT EXISTS supplier_imports_success_idx ON supplier_imports(supplier,company,list_group,warehouse,completed_at DESC,id DESC) WHERE status='succeeded';
-CREATE INDEX IF NOT EXISTS supplier_imports_scope_runs_idx ON supplier_imports(supplier,company,list_group,warehouse,started_at DESC,id DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_imports'::regclass AND c.relname='supplier_imports_success_idx') THEN
+  CREATE INDEX supplier_imports_success_idx ON supplier_imports(supplier,company,list_group,warehouse,completed_at DESC,id DESC) WHERE status='succeeded';
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_imports'::regclass AND c.relname='supplier_imports_scope_runs_idx') THEN
+  CREATE INDEX supplier_imports_scope_runs_idx ON supplier_imports(supplier,company,list_group,warehouse,started_at DESC,id DESC);
+ END IF;
+END $$;
 
 -- Separate catalog discovery from recurring commercial observations.
-ALTER TABLE supplier_imports ADD COLUMN IF NOT EXISTS run_kind text NOT NULL DEFAULT 'full' CHECK (run_kind IN ('full','commerce'));
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_enabled boolean NOT NULL DEFAULT false;
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_interval_minutes integer NOT NULL DEFAULT 60 CHECK (commerce_interval_minutes BETWEEN 15 AND 1440);
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_stale_minutes integer NOT NULL DEFAULT 120 CHECK (commerce_stale_minutes > commerce_interval_minutes);
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_next_run_at timestamptz NOT NULL DEFAULT now();
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_last_success_at timestamptz;
-ALTER TABLE supplier_sync_scopes ADD COLUMN IF NOT EXISTS commerce_failures integer NOT NULL DEFAULT 0;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='run_kind' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_imports ADD COLUMN run_kind text NOT NULL DEFAULT 'full' CHECK (run_kind IN ('full','commerce'));
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_enabled' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_enabled boolean NOT NULL DEFAULT false;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_interval_minutes' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_interval_minutes integer NOT NULL DEFAULT 60 CHECK (commerce_interval_minutes BETWEEN 15 AND 1440);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_stale_minutes' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_stale_minutes integer NOT NULL DEFAULT 120 CHECK (commerce_stale_minutes > commerce_interval_minutes);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_next_run_at' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_next_run_at timestamptz NOT NULL DEFAULT now();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_last_success_at' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_last_success_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='supplier_sync_scopes'::regclass AND attname='commerce_failures' AND NOT attisdropped) THEN
+  ALTER TABLE supplier_sync_scopes ADD COLUMN commerce_failures integer NOT NULL DEFAULT 0;
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS supplier_scheduler_health (
  id boolean PRIMARY KEY DEFAULT true CHECK(id),
  started_at timestamptz NOT NULL, finished_at timestamptz, succeeded boolean,

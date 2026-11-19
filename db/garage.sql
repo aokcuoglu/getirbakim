@@ -7,4 +7,8 @@ CREATE TABLE IF NOT EXISTS account_vehicles (
  selected_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(account_id,vehicle_key)
 );
-CREATE INDEX IF NOT EXISTS account_vehicles_recent_idx ON account_vehicles(account_id,selected_at DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='account_vehicles'::regclass AND c.relname='account_vehicles_recent_idx') THEN
+  CREATE INDEX account_vehicles_recent_idx ON account_vehicles(account_id,selected_at DESC);
+ END IF;
+END $$;

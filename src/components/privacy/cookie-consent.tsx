@@ -21,8 +21,8 @@ const optionTexts = {
   },
   marketing: {
     title: "Reklam ve kişiselleştirme çerezleri",
-    text: "Reklamların etkisini ölçmek için Google Ads ve Meta kullanılır. Yalnızca izin verirsen yüklenir.",
-    idle: "İlgi alanlarına uygun reklam ve teklifler içindir. Şu anda reklam hizmeti kullanılmıyor.",
+    text: (names: string[]) => `Reklamların etkisini ölçmek için ${names.join(" ve ")} kullanılır. Yalnızca izin verirsen yüklenir.`,
+    idle: "Reklamların etkisini ölçmek içindir. Şu anda reklam hizmeti kullanılmıyor.",
   },
 };
 
@@ -94,20 +94,21 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
   const options = [
     { key: "necessary", ...optionTexts.necessary },
     { key: "analytics", title: optionTexts.analytics.title, text: services.analytics ? optionTexts.analytics.text : optionTexts.analytics.idle },
-    { key: "marketing", title: optionTexts.marketing.title, text: services.marketing ? optionTexts.marketing.text : optionTexts.marketing.idle },
+    { key: "marketing", title: optionTexts.marketing.title, text: services.marketing ? optionTexts.marketing.text(services.marketingNames) : optionTexts.marketing.idle },
   ] as const;
   const [analytics, setAnalytics] = useState(consent?.analytics ?? false);
   const [marketing, setMarketing] = useState(consent?.marketing ?? false);
 
   function choose(nextAnalytics: boolean, nextMarketing: boolean) {
-    saveConsent(nextAnalytics, nextMarketing);
+    // A category without a service is saved as refused, so turning one on later asks again (CONSENT_VERSION).
+    saveConsent(nextAnalytics, nextMarketing && services.marketing);
     closeCookieSettings();
   }
 
   const checked = { necessary: true, analytics, marketing };
   const setters = { necessary: undefined, analytics: setAnalytics, marketing: setMarketing };
 
-  return <section data-nosnippet="" aria-labelledby="cookie-title" className="fixed inset-x-0 bottom-0 z-90 max-h-[85dvh] overflow-y-auto overscroll-contain border-t border-[#cbd2d9] bg-white text-foreground shadow-[0_-4px_20px_#212b360d]">
+  return <section data-nosnippet="" aria-labelledby="cookie-title" className="fixed inset-x-0 bottom-0 z-90 max-h-[85dvh] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] overflow-y-auto overscroll-contain border-t border-[#cbd2d9] bg-white text-foreground shadow-[0_-4px_20px_#212b360d]">
     <div className="mx-auto max-w-[1404px] px-[38px] pt-[18px] pb-[calc(10px+env(safe-area-inset-bottom))] max-[600px]:p-4 max-[600px]:pb-[calc(16px+env(safe-area-inset-bottom))]">
       <h2 id="cookie-title" className="mt-0 mb-[7px] text-base leading-6 font-semibold tracking-normal">Bu web sitesi çerez kullanır</h2>
       <p className="mt-0 mb-3 text-xs leading-[21px] max-[600px]:leading-5">

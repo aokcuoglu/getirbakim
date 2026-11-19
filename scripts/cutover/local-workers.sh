@@ -1,7 +1,7 @@
 #!/bin/bash
 # Stops or starts the local launchd jobs that write to the local database (enrichment workers, supplier sync).
 # Cutover: `stop` before the final local export so nothing written after it is lost; `start` once production runs on AWS
-# (and STOREFRONT_SYNC_TARGET=aws carries later enrichment there).
+# (storefront:sync carries later enrichment there).
 #   bash scripts/cutover/local-workers.sh stop|start|status
 set -euo pipefail
 DOMAIN="gui/$(id -u)"

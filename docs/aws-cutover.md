@@ -41,7 +41,7 @@ Saatler örnek. "Biz" = getirbakim, "LO" = Lokum Ops.
 | — | Biz | AWS zamanlayıcıları | `getirbakim-production` grubunda önce `supplier-sync` ve `nightly-jobs`, DNS'ten hemen sonra `payment-reconciliation` açılır (aşağıda). Geçişe kadar üçü de kapalı | 2 dk |
 | — | Biz | DNS | Aşağıda | 5 dk |
 | — | Birlikte | Kontrol | Aşağıda | 15 dk |
-| Sonra | Biz | Yerel işçileri başlat | `.env.local`: `STOREFRONT_SYNC_TARGET=aws` + AWS profili, sonra `bash scripts/cutover/local-workers.sh start` | 1 dk |
+| Sonra | Biz | Yerel işçileri başlat | `.env.local`: AWS profili (`PRODUCTION_AWS_PROFILE`; `STOREFRONT_SYNC_TARGET` ve VPS storefront aktarım hedefi #563 ile kaldırıldı, AWS tek hedef), sonra `bash scripts/cutover/local-workers.sh start` | 1 dk |
 
 Başbuğ tazelemesi VPS'teki canlı senkronizasyonla aynı anda çalışabiliyor (provada denendi). Dinamik geçişe dahil değil: Dinamik canlıda bugün satılmıyor; AWS'te zamanlayıcı onları proxy üzerinden tazeledikçe fiyatları görünür.
 
@@ -55,6 +55,7 @@ DNS'ten önce kontrol edilir (14 Kasım 2026 durumu parantez içinde):
 - [x] App görev tanımında `SITE_URL=https://getirbakim.com`; TAMI callback adresi bundan üretilir (tanımlı).
 - [ ] App görev tanımında `BING_SITE_VERIFICATION` ve `YANDEX_SITE_VERIFICATION` (hesaplar açılınca; boşken doğrulama etiketi basılmaz).
 - [ ] App görev tanımında `GA4_MEASUREMENT_ID` (GA4 mülkü açılınca ve #749 çerez politikası metni yayındayken, bkz. [seo-geo.md](seo-geo.md#2-yayın-günü-kontrol-listesi); boşken etiket yüklenmez ve çerez bandı "analiz kullanılmıyor" der).
+- [ ] App görev tanımında `GOOGLE_ADS_ID`, `GOOGLE_ADS_PURCHASE_LABEL`, `META_PIXEL_ID` (#676; hesaplar açılınca ve reklam çerezlerini anlatan çerez politikası yayındayken; boşken reklam etiketi yüklenmez ve çerez bandı "reklam hizmeti kullanılmıyor" der). Rıza sürümü 3'ü getiren sürümle birlikte tanımlanmalı; daha sonra açılırlarsa o sürümde `CONSENT_VERSION` artırılır (4), böylece hizmet yokken seçim yapmış ziyaretçilere yeniden sorulur.
 - [ ] `/yonetim/fiyatlandirma` → Kargo: gerçek ücret ve ücretsiz kargo eşiği. AWS DB `setup.ts` varsayılanlarıyla kuruldu (150 TL / 1.500 TL); bunlar yer tutucudur.
 - [ ] DNS'ten hemen sonra mutabakat zamanlayıcısını aç:
 

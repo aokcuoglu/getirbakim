@@ -15,7 +15,8 @@ import {getVehicleBrandBySlug} from './vehicle-catalog.server';
 import {getVehicleModelGroup,getVehicleModelGroups} from './vehicle-model-groups.server';
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
 import {ensureCustomSynonyms} from '@/modules/search/custom-synonyms';
-import {binder,catalogRank,correctSearch,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
+import {typeNamePrefixQuery} from '@/modules/search/type-names';
+import {binder,catalogRank,correctSearch,storedRank,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {facetOptions} from './specification-translations';
 import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
@@ -32,6 +33,8 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
   * supplier's. `brand` and `code` stay the supplier's values: order lines, enrichment lookups and matching read those.
   */
  display_brand: string; display_code: string;
+ /** The supplier's own label (supplier_item_brand; a store product's brand), indexed for brand pages (#771). */
+ brand_label?: string;
  /** The name is an admin's (#575): shown as written, not converted like a supplier's (#686). */
  name_overridden: boolean;
  /** Set when the listing groups several supplier offers (db/product-matching.sql): the offer sold, and how many. */
@@ -403,6 +406,30 @@ export const notSecondaryOffer="catalog.id NOT IN (SELECT o.item_id FROM product
 export const listedOnly=`(catalog.unavailable OR ${notSecondaryOffer})`;
 /** `vehicleTypeId` is the garage vehicle's catalog type; without it a `fits` or `oil` filter matches nothing. */
 export type CatalogContext={vehicleTypeId?:string|null};
+// Rows whose shown brand (display_brand) is one of `names`. display_brand cannot use an index, so every brand page
+// scanned all supplier items (#771); the rows are reached through brand_label (the supplier's own label,
+// supplier_items_brand_label_idx): the labels of the named master brands plus the names themselves (raw labels and
+// store products), or an admin's store brand (commerce_item_overrides). display_brand stays as the exact check.
+// Labels and override ids are read first and passed as values: the planner then estimates the brand's share from the
+// index's statistics and scans the table for a brand as large as ORIJINAL (~12% of rows), where a bitmap read of the
+// subquery's unknown-size result was 1.5x slower than the old scan.
+// Known difference: a Dinamik row whose label (marka) is linked to no master brand and differs from its uk value is
+// not found by its uk name; it is once the label is linked to a master brand (#470). "Belirtilmemiş" has no label.
+// The lookup is cached like the manufacturer directory (10 minutes; admin brand and override edits move the listing epoch),
+// so a page's count, facet and id reads share one.
+type BrandReach={labels:string[];ids:string[]};
+const cachedBrandReach=staleCache<BrandReach>(10*60*1000,500,listings);
+const brandReach=(names:string[])=>cachedBrandReach(JSON.stringify([...names].sort()),async()=>(await db.query<BrandReach>(`SELECT
+  ARRAY(SELECT sb.label FROM supplier_brands sb JOIN brands mb ON mb.id=sb.brand_id WHERE mb.name=ANY($1::text[]))||$1::text[] AS labels,
+  ARRAY(SELECT ov.supplier_item_id::text FROM commerce_item_overrides ov WHERE ov.brand=ANY($1::text[])) AS ids`,[names])).rows[0]);
+async function shownBrandClause(names:string[],values:unknown[]) {
+ values.push(names);const key=`$${values.length}::text[]`;
+ if(names.includes("Belirtilmemiş"))return `catalog.display_brand=ANY(${key})`;
+ const {labels,ids}=await brandReach(names);
+ values.push(labels);let reach=`catalog.brand_label=ANY($${values.length}::text[])`;
+ if(ids.length){values.push(ids);reach=`(${reach} OR catalog.id=ANY($${values.length}::uuid[]))`;}
+ return `${reach} AND catalog.display_brand=ANY(${key})`;
+}
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: unknown[] = [company()]; const clauses: string[] = [listedOnly];
  let search:CatalogSearch|undefined;
@@ -461,8 +488,8 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   }
  }
  // A manufacturer page (#660) lists its master brand's name and labels (display_brand values), the column the brand filter reads.
- if(query.manufacturer){const labels=await manufacturerLabels(query.manufacturer);if(labels.length){values.push(labels);clauses.push(`display_brand=ANY($${values.length}::text[])`);}else clauses.push('false');}
- const brands=selectedBrands(query);if(brands.length){values.push(brands);clauses.push(`display_brand=ANY($${values.length}::text[])`);}
+ if(query.manufacturer){const labels=await manufacturerLabels(query.manufacturer);clauses.push(labels.length?await shownBrandClause(labels,values):'false');}
+ const brands=selectedBrands(query);if(brands.length)clauses.push(await shownBrandClause(brands,values));
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
   clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
@@ -520,7 +547,7 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
     -- (#580) keeps the stored inputs. A hidden supplier OEM field (#615) ranks without the OEM. Same rule as catalogRank
     -- (src/modules/search/sql.ts).
     COALESCE(CASE WHEN ov.name IS NULL AND ov.description IS NULL AND ov.brand IS NULL AND ov.part_number IS NULL AND ov.hide_oem IS NOT TRUE
-      THEN catalog_search_rank_doc(i.search_doc,i.search_code,i.search_oem,${queries}) END,
+      THEN ${storedRank('i',search.parsed,bind,queries)} END,
      GREATEST(catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),${displayBrandSql('i','ov')},
       i.code,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,COALESCE(ov.description,i.product_data->>'ac2',''),${queries}),
       CASE WHEN ov.part_number IS NOT NULL AND ov.part_number<>i.code THEN catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),
@@ -634,19 +661,30 @@ export type ProductSuggestion={kind:"product";id:string;name:string;name_overrid
 // Ranking every match per keystroke takes seconds on the VPS for broad prefixes ("fren": ~15k);
 // above this, the type-ahead suggests product names from search_product_names instead.
 const maxRankedSuggestions=500;
-/** Best matches for the header type-ahead: the catalog search's engine and readings, without prices. */
+/**
+ * Best matches for the header type-ahead: the catalog search's engine and readings, without prices. Broad searches return
+ * up to 2x `limit` name rows (both spellings of one type): the caller (searchSuggestions) merges them by label and trims.
+ */
 export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  await ensureCustomSynonyms();
- const search=await catalogSearch(raw,mode);
+ // Products named only in English ("BRAKE HOSE" for "fren hor") never reach the ranked list: their English names come
+ // from the type-name dictionary and are suggested as names (#962). The recheck keeps the text-index plan (~1 ms).
+ const expansion=mode==="all"&&!searchTooShort(raw)?typeNamePrefixQuery(parseSearchQuery(raw)):null;
+ const [search,english]=await Promise.all([catalogSearch(raw,mode),expansion?db.query<{name:string;products:number}>(`SELECT name,products FROM search_product_names
+  WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1) AND normalized=ANY($2::text[])
+  ORDER BY products DESC,name LIMIT ${Number(limit)}`,[expansion.query,expansion.names]).then(result=>result.rows):[]]);
  const notes={correctedQuery:search.correctedQuery,vehicleScope:search.vehicle};
- if(!search.ids.length)return {products:[] as ProductSuggestion[],...notes};
+ const englishNames=english.map(row=>({kind:"name" as const,...row}));
+ if(!search.ids.length)return {products:englishNames as ProductSuggestion[],...notes};
  if(search.ids.length>maxRankedSuggestions&&!search.vehicle?.fitted){
   const query=prefixTsQuery(search.parsed);
   // The names most products share first: "filtre" means "Hava Filtresi" (5k) more than "Filtre Hortumu".
   const names=query?(await db.query<{name:string;products:number}>(`SELECT name,products FROM search_product_names
    WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1)
    ORDER BY products DESC,name LIMIT ${Number(limit)}`,[query])).rows:[];
-  if(names.length)return {products:names.map(row=>({kind:"name" as const,...row})),...notes};
+  // The caller merges names by label, so both spellings of one type add up: it takes up to twice the rows.
+  const merged=[...new Map([...names,...english].map(row=>[row.name,row])).values()].sort((a,b)=>b.products-a.products||a.name.localeCompare(b.name)).slice(0,limit*2);
+  if(merged.length)return {products:merged.map(row=>({kind:"name" as const,...row})),...notes};
  }
  const values:unknown[]=[company(),search.ids.slice(0,maxRankedSuggestions)],bind=binder(values);
  // One suggestion per name and brand: a supplier lists the same part in many sizes.
@@ -654,7 +692,7 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
   SELECT DISTINCT ON (name,display_brand) id::text,name,name_overridden,display_brand AS brand,display_code AS code,rank,updated_at,unavailable FROM (
    SELECT catalog.*,${catalogRank("catalog",search.parsed,bind)} AS rank FROM (${catalogEntriesSql}) catalog WHERE catalog.id=ANY($2::uuid[])) ranked
   ORDER BY name,display_brand,unavailable,rank DESC,updated_at DESC,id) best ORDER BY unavailable,rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
- return {products:products.map(row=>({kind:"product" as const,...row})),...notes};
+ return {products:[...englishNames.slice(0,2),...products.map(row=>({kind:"product" as const,...row}))].slice(0,limit) as ProductSuggestion[],...notes};
 }
 export async function catalogBrands() {
  return cachedBrands("all",async()=>(await db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));
@@ -700,25 +738,52 @@ async function facetsFor(values:unknown[],from:string){
  const brands=(await db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand ${from} ORDER BY brand`,values)).rows.map(r=>r.brand);
  return attributeFacets(brands,values,`SELECT catalog.id ${from}`);
 }
-/** `scopedSql` selects the listing's ids (one `id` column) using `values`. */
-async function attributeFacets(brands:string[],values:unknown[],scopedSql:string){
+/** Listings up to this many products read the property facet product by product; larger ones hash every link (#955). */
+const facetNestedScope=50_000;
+/**
+ * The property facet query. `scopedSql` selects the listing's ids (one `id` column), `keys` is the facet keys
+ * parameter, `nestedScope` the listing size up to which the enrichments are looked up per product.
+ */
+export function attributeFacetsSql(scopedSql:string,keys:string,nestedScope=facetNestedScope){
+ // Two branches by listing size (#955). The planner cannot size `scoped` (a category estimated at 107k ids returns
+ // 1.8k), so one plan served every listing: it hashed all ~127k shared links and enrichments and looked up as many
+ // supplier_items (~255 ms) before reading a single product of the listing. A small listing now reads its own links
+ // by key (bosch ~880 -> ~575 ms, a category ~600 -> ~91, "fren balatası" ~238 -> ~160); a large one
+ // (/katalog, orijinal) keeps the hash join, where per-product lookups take 4-5 s. The size is counted only up to the
+ // threshold; the branch whose guard is false is never executed.
+ // The small branch spells out storefront_enrichments (db/enrichment-shared-links.sql: the links joined to the
+ // donor's enrichment) so the lookup reaches the links' key; OFFSET 0 keeps it a per-product subquery. Same rows.
+ const limit=Number(nestedScope);
+ const sized=`(SELECT count(*) FROM (SELECT 1 FROM scoped LIMIT ${limit+1}) sized)`;
+ const specRows=(from:string,guard:string)=>`SELECT spec->>0 AS key,spec->>1 AS value
+  FROM ${from}
+  CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
+  WHERE ${guard} AND spec->>0=ANY(${keys}) AND length(spec->>1)<=200
+  AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')
+  AND NOT EXISTS (SELECT 1 FROM ov WHERE ov.id=scoped.id AND ov.key=spec->>0)`;
+ const nested=specRows(`scoped JOIN LATERAL (SELECT e.payload,e.match_basis FROM product_enrichment_shared_links l
+   JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id
+   JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
+   WHERE l.supplier_item_id=scoped.id AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=l.donor_oem)
+   OFFSET 0) e ON true`,`${sized}<=${limit}`);
+ const hashed=specRows(`scoped JOIN storefront_enrichments e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
+  AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
+  AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)`,`${sized}>${limit}`);
  // MATERIALIZED: inlined, the search filter gets planned across the enrichment joins (~60 s instead of ms).
  // `ov`: the admin's specifications of the facet keys (#603); a set or hidden key replaces the row's automatic values.
- const keys=`$${values.length+1}::text[]`;
- const rows=(await db.query<{key:string;values:string[]}>(`WITH scoped AS MATERIALIZED (${scopedSql}),
+ return `WITH scoped AS MATERIALIZED (${scopedSql}),
  ov AS MATERIALIZED (SELECT ps.supplier_item_id AS id,o.key,o.action,o.value FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=ANY(${keys})),
  specs AS (
-  SELECT spec->>0 AS key,spec->>1 AS value
-  FROM scoped JOIN storefront_enrichments e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
-  AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-  AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
-  CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
-  WHERE spec->>0=ANY(${keys}) AND length(spec->>1)<=200
-  AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')
-  AND NOT EXISTS (SELECT 1 FROM ov WHERE ov.id=scoped.id AND ov.key=spec->>0)
+  ${nested}
+  UNION ALL
+  ${hashed}
   UNION ALL
   SELECT ov.key,ov.value FROM ov JOIN scoped ON scoped.id=ov.id WHERE ov.action='set' AND length(ov.value)<=200)
  SELECT key,array_agg(DISTINCT value ORDER BY value) AS values FROM specs
- GROUP BY key HAVING count(DISTINCT value)<=40 ORDER BY CASE WHEN key='Fitting Position' THEN 0 WHEN key='Brand class' THEN 1 ELSE 2 END,key LIMIT 8`,[...values,facetSpecificationKeys])).rows;
+ GROUP BY key HAVING count(DISTINCT value)<=40 ORDER BY CASE WHEN key='Fitting Position' THEN 0 WHEN key='Brand class' THEN 1 ELSE 2 END,key LIMIT 8`;
+}
+/** `scopedSql` selects the listing's ids (one `id` column) using `values`. */
+async function attributeFacets(brands:string[],values:unknown[],scopedSql:string){
+ const rows=(await db.query<{key:string;values:string[]}>(attributeFacetsSql(scopedSql,`$${values.length+1}::text[]`),[...values,facetSpecificationKeys])).rows;
  return {brands,attributes:rows.map(row=>({key:row.key,label:specificationLabel(row.key),options:facetOptions(row.values)}))};
 }

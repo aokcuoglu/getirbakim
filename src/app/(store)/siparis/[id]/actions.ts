@@ -53,15 +53,18 @@ export async function cancelOrder(form: FormData) {
 }
 
 /**
- * The order's GA4 purchase event, at most once (#675). Refused before the once-only flag is touched when no GA4 id is
- * configured, the visitor is an admin or the request carries no analytics consent; ownership comes from the session.
+ * The order's purchase event, at most once (#675). Refused before the once-only flag is touched when the visitor is an admin
+ * or no consented channel would measure it (GA4 with analytics consent, an advertising purchase tag with marketing consent,
+ * #676); ownership comes from the session.
  */
 export async function claimPurchaseEvent(orderId: string): Promise<PurchaseEvent | null> {
   if (!z.uuid().safeParse(orderId).success) return null;
   try {
     const [account, cookieStore] = await Promise.all([currentAccount(), cookies()]);
+    const { ga4, ads, metaPixel } = analyticsConfig();
     const allowed = purchaseClaimAllowed({
-      ga4: analyticsConfig().ga4, role: account?.role, consent: cookieStore.get(CONSENT_COOKIE)?.value ?? null, now: Date.now(),
+      ga4, marketing: Boolean(ads?.purchaseLabel || metaPixel), role: account?.role,
+      consent: cookieStore.get(CONSENT_COOKIE)?.value ?? null, now: Date.now(),
     });
     if (!allowed) return null;
     return await claimPurchase(orderId, await currentOrderOwners());
@@ -79,8 +82,10 @@ export async function claimRefundEvent(orderId: string): Promise<RefundEvent | n
   if (!z.uuid().safeParse(orderId).success) return null;
   try {
     const [account, cookieStore] = await Promise.all([currentAccount(), cookies()]);
+    // Refunds are GA4-only: the advertising tags have no refund event.
     const allowed = purchaseClaimAllowed({
-      ga4: analyticsConfig().ga4, role: account?.role, consent: cookieStore.get(CONSENT_COOKIE)?.value ?? null, now: Date.now(),
+      ga4: analyticsConfig().ga4, marketing: false, role: account?.role,
+      consent: cookieStore.get(CONSENT_COOKIE)?.value ?? null, now: Date.now(),
     });
     if (!allowed) return null;
     return await claimRefund(orderId, await currentOrderOwners());

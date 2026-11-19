@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, test } from "node:test";
 import { db } from "../src/lib/db";
 import { compactSearchCode, exactTsQuery, normalizeSearchText, parseSearchQuery, prefixTsQuery } from "../src/modules/search/query";
-import { binder, supplierItemMatch } from "../src/modules/search/sql";
+import { binder, storedRank, supplierItemMatch } from "../src/modules/search/sql";
 import { searchVehicleCatalog } from "../src/modules/store/vehicle-catalog.server";
 import { browseProducts, suggestProducts } from "../src/modules/store/catalog";
 
@@ -98,6 +98,84 @@ test("product search: synonyms widen the hits to every spelling", async () => {
   if (rows[0].n) assert.ok(await count("kasnak") >= rows[0].n);
 });
 
+test("product search: Turkish type names also find the English supplier names (#953)", async () => {
+  const text = "to_tsvector('simple', supplier_item_search_text(s.code, s.product_data)) @@ to_tsquery('simple', $1)";
+  const count = async (where: string, values: unknown[]) =>
+    (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM supplier_items s WHERE ${where}`, values)).rows[0].n;
+  for (const [q, english] of [["fren diski", "'brake' <-> 'disc'"], ["fren hortumu", "'brake' <-> 'hose'"]]) {
+    const parsed = parseSearchQuery(q);
+    const englishRows = await count(text, [english]);
+    if (!englishRows) continue;
+    const values: unknown[] = [];
+    const expanded = await count(supplierItemMatch("s", parsed, binder(values)), values);
+    // Without the expansion: the part number or every word as typed (with its synonyms).
+    const before: unknown[] = [prefixTsQuery(parsed)];
+    const withoutExpansion = await count(`(${text} OR ${supplierItemMatch("s", parsed, binder(before), "code")})`, before);
+    const either: unknown[] = [prefixTsQuery(parsed), `(${english})`];
+    const union = await count(`(${text} OR ${text.replace("$1", "$2")} OR ${supplierItemMatch("s", parsed, binder(either), "code")})`, either);
+    assert.ok(expanded >= withoutExpansion && expanded >= englishRows, `${q}: ${expanded} vs ${withoutExpansion} + ${englishRows}`);
+    assert.equal(expanded, union, q);
+  }
+  assert.ok(!supplierItemMatch("s", parseSearchQuery("fren diski"), binder([]), "code").includes("<->"));
+});
+
+test("product search: ambiguous Turkish type names add only the exact English names (#963)", async () => {
+  const name = "search_normalize(s.product_data->>'ac')";
+  const text = "to_tsvector('simple', supplier_item_search_text(s.code, s.product_data))";
+  for (const [q, english] of [["kapak", "cap"], ["jant", "wheel"], ["yay", "spring"], ["tapa", "plug"], ["kol", "arm"]]) {
+    const values: unknown[] = [];
+    const match = supplierItemMatch("s", parseSearchQuery(q), binder(values));
+    // The exact clause comes last, so the match without it reads only the leading parameters.
+    const withoutExact = match.replace(/ OR s\.id = ANY\(ARRAY\([^]*\)\)\)\)$/, ")");
+    assert.notEqual(withoutExact, match, q);
+    const added = await db.query<{ name: string }>(`SELECT DISTINCT ${name} AS name FROM supplier_items s WHERE ${match} AND NOT ${withoutExact}`, values);
+    // Every added row is named exactly the word: no ÇAP, CAP 276, ARM engine code, R9 SPRING, PLUG-IN or WHEEL BRAKE CYLINDER.
+    for (const row of added.rows) assert.equal(row.name, english, `${q}: ${row.name}`);
+    const named = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM supplier_items s
+      WHERE ${text} @@ to_tsquery('simple', $1) AND ${name} = $1`, [english]);
+    const found = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM supplier_items s WHERE ${match} AND ${name} = $${values.length + 1}`,
+      [...values, english]);
+    assert.equal(found.rows[0].n, named.rows[0].n, q);
+  }
+  assert.ok(!supplierItemMatch("s", parseSearchQuery("kapak"), binder([]), "code").includes("ARRAY"));
+});
+
+test("product search: suffixed Turkish type names find the English supplier names too (#969)", async () => {
+  const text = "to_tsvector('simple', supplier_item_search_text(s.code, s.product_data))";
+  const count = async (where: string, values: unknown[]) =>
+    (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM supplier_items s WHERE ${where}`, values)).rows[0].n;
+  const matches = (q: string) => { const values: unknown[] = []; return count(supplierItemMatch("s", parseSearchQuery(q), binder(values)), values); };
+  assert.ok(await matches("kapağı") >= await matches("kapak"), "kapağı ⊇ kapak");
+  assert.ok(await matches("camı") >= await count(`${text} @@ to_tsquery('simple', $1)`, ["glass"]), "camı finds GLASS");
+  for (const q of ["motor kapağı", "kapı camı"]) {
+    const prefixOnly = await count(`${text} @@ to_tsquery('simple', $1)`, [prefixTsQuery(parseSearchQuery(q))]);
+    assert.ok(await matches(q) >= prefixOnly, q);
+  }
+});
+
+test("product search: rows named in English rank like the same row named in Turkish (#969)", async () => {
+  for (const [q, english, turkish] of [["fren diski", "brake disc", "FREN DISKI"], ["fren hortumu", "brake hose", "FREN HORTUMU"]]) {
+    const parsed = parseSearchQuery(q);
+    const values: unknown[] = [english, turkish];
+    const bind = binder(values);
+    const queries = `to_tsquery('simple', ${bind(prefixTsQuery(parsed))}::text), to_tsquery('simple', ${bind(exactTsQuery(parsed))}::text), ${bind(parsed.compact)}::text`;
+    const { rows } = await db.query<{ base: number; swapped: number; named: number }>(`SELECT
+        catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries}) AS base,
+        ${storedRank("s", parsed, bind, queries)} AS swapped,
+        catalog_search_rank_doc(catalog_search_doc($2, COALESCE(NULLIF(s.product_data->>'uk', ''), 'Belirtilmemiş'), s.code,
+          COALESCE(s.product_data->>'oe', ''), COALESCE(s.product_data->>'ac2', '')), s.search_code, s.search_oem, ${queries}) AS named
+      FROM supplier_items s WHERE to_tsvector('simple', supplier_item_search_text(s.code, s.product_data)) @@ phraseto_tsquery('simple', $1)
+        AND s.search_doc IS NOT NULL AND search_normalize(s.product_data->>'ac') = $1 LIMIT 200`, values);
+    assert.ok(rows.length, q);
+    for (const row of rows) {
+      assert.ok(row.swapped >= row.base, `${q}: ${row.swapped} < ${row.base}`);
+      assert.ok(row.swapped >= row.named - 1e-6, `${q}: ${row.swapped} < ${row.named}`);
+    }
+  }
+  // Without a Turkish type name the rank stays the stored one.
+  assert.equal(storedRank("s", parseSearchQuery("bosch"), binder([]), "q"), "catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, q)");
+});
+
 test("vehicle search matches words, not letters inside codes", async () => {
   const tesla = await searchVehicleCatalog("tesla model y");
   assert.ok(tesla.total > 0);
@@ -165,7 +243,7 @@ test("searches need at least two letters or digits", async () => {
 test("type-ahead suggests the best distinct products, words before code fragments", async () => {
   // Broad: product names, most shared first.
   const oil = await suggestProducts("yag", "all");
-  assert.ok(oil.products.length > 0 && oil.products.length <= 6 && oil.products.every(p => p.kind === "name"));
+  assert.ok(oil.products.length > 0 && oil.products.length <= 12 && oil.products.every(p => p.kind === "name"));
   assert.ok(oil.products.every(p => normalizeSearchText(p.name).split(" ").some(word => word.startsWith("yag") || word.startsWith("oil"))));
   const shared = oil.products.map(p => p.kind === "name" ? p.products : 0);
   assert.deepEqual(shared, [...shared].sort((a, b) => b - a));
@@ -175,4 +253,14 @@ test("type-ahead suggests the best distinct products, words before code fragment
   assert.equal(new Set(pump.products.map(p => p.kind === "product" ? `${p.name}|${p.brand}` : p.name)).size, pump.products.length);
   assert.equal((await suggestProducts("a", "all")).products.length, 0);
   assert.equal((await suggestProducts("fren balatası passat", "all")).vehicleScope?.vehicleText, "passat");
+});
+
+test("type-ahead suggests the Turkish name of English-named products (#962)", async () => {
+  const hose = await suggestProducts("fren hor", "all");
+  assert.ok(hose.products.some(p => p.kind === "name" && p.name === "BRAKE HOSE"));
+  // Even when the Turkish words rank nothing, the English names are still suggested.
+  const master = await suggestProducts("fren ana", "all");
+  assert.ok(master.products.some(p => p.kind === "name" && p.name.startsWith("BRAKE MASTER CYLINDER")));
+  // Code mode searches codes: no type names are suggested.
+  assert.ok((await suggestProducts("fren", "code")).products.every(p => p.kind !== "name"));
 });

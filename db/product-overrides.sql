@@ -22,13 +22,24 @@ CREATE TABLE IF NOT EXISTS product_override_changes (
  changed_by uuid REFERENCES accounts(id) ON DELETE SET NULL,
  changed_at timestamptz NOT NULL DEFAULT now()
 );
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 -- Hand-set prices (#580), VAT included, in kuruş: a fixed price replacing the formula's and a campaign price below it
 -- between sale_from and sale_until (NULL ends are open). Both apply only where the formula prices the row
 -- (commerce_catalog, db/commerce.sql): missing supplier data keeps the product off sale.
-ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS price_kurus integer CHECK (price_kurus>0);
-ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS sale_price_kurus integer CHECK (sale_price_kurus>0);
-ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS sale_from timestamptz;
-ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS sale_until timestamptz;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_overrides'::regclass AND attname='price_kurus' AND NOT attisdropped) THEN
+  ALTER TABLE product_overrides ADD COLUMN price_kurus integer CHECK (price_kurus>0);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_overrides'::regclass AND attname='sale_price_kurus' AND NOT attisdropped) THEN
+  ALTER TABLE product_overrides ADD COLUMN sale_price_kurus integer CHECK (sale_price_kurus>0);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_overrides'::regclass AND attname='sale_from' AND NOT attisdropped) THEN
+  ALTER TABLE product_overrides ADD COLUMN sale_from timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_overrides'::regclass AND attname='sale_until' AND NOT attisdropped) THEN
+  ALTER TABLE product_overrides ADD COLUMN sale_until timestamptz;
+ END IF;
+END $$;
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='product_overrides'::regclass AND conname='product_overrides_sale_below_price') THEN
   ALTER TABLE product_overrides ADD CONSTRAINT product_overrides_sale_below_price
@@ -50,20 +61,38 @@ $$;
 -- Store brand and manufacturer part number (#602), shown instead of the supplier's (display_brand / display_code).
 -- brand is a master brand's name (brands.name), checked on save; no FK: brand_merge deletes the merged brand and the
 -- edit keeps its text. Supplier codes, order lines and matching keep the supplier's values.
-ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS brand text CHECK (char_length(brand) BETWEEN 1 AND 80);
-ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS part_number text CHECK (char_length(part_number) BETWEEN 1 AND 60);
--- Supplier OEM field hidden on the store (#615), for every source row of the product: the catalog views show an
--- empty oem and storefront search skips the stored OEM (commerce_item_overrides.hide_oem, db/commerce.sql).
--- The admin's supplier searches keep reading supplier_items; matching drops the hidden number from OEM equivalents
--- (#631, product_hidden_oem_drop below and refresh_product_matches) and enrichment matched through it is ignored
--- (#865, enrichment_valid_data in db/enrichment-products.sql; the raw rows stay for unhiding).
-ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS hide_supplier_oem boolean NOT NULL DEFAULT false;
--- Short description (#697): the intro paragraph under the product page title and the meta description's text before
--- the long description. Admin-only: no automatic source and no catalog projection (the product page reads it here).
-ALTER TABLE product_overrides ADD COLUMN IF NOT EXISTS short_description text CHECK (char_length(short_description)<=300);
-CREATE INDEX IF NOT EXISTS product_override_changes_product_idx ON product_override_changes(product_id,changed_at DESC,id DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_overrides'::regclass AND attname='brand' AND NOT attisdropped) THEN
+  ALTER TABLE product_overrides ADD COLUMN brand text CHECK (char_length(brand) BETWEEN 1 AND 80);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_overrides'::regclass AND attname='part_number' AND NOT attisdropped) THEN
+  ALTER TABLE product_overrides ADD COLUMN part_number text CHECK (char_length(part_number) BETWEEN 1 AND 60);
+ END IF;
+ -- Supplier OEM field hidden on the store (#615), for every source row of the product: the catalog views show an
+ -- empty oem and storefront search skips the stored OEM (commerce_item_overrides.hide_oem, db/commerce.sql).
+ -- The admin's supplier searches keep reading supplier_items; matching drops the hidden number from OEM equivalents
+ -- (#631, product_hidden_oem_drop below and refresh_product_matches) and enrichment matched through it is ignored
+ -- (#865, enrichment_valid_data in db/enrichment-products.sql; the raw rows stay for unhiding).
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_overrides'::regclass AND attname='hide_supplier_oem' AND NOT attisdropped) THEN
+  ALTER TABLE product_overrides ADD COLUMN hide_supplier_oem boolean NOT NULL DEFAULT false;
+ END IF;
+ -- Short description (#697): the intro paragraph under the product page title and the meta description's text before
+ -- the long description. Admin-only: no automatic source and no catalog projection (the product page reads it here).
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_overrides'::regclass AND attname='short_description' AND NOT attisdropped) THEN
+  ALTER TABLE product_overrides ADD COLUMN short_description text CHECK (char_length(short_description)<=300);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_changes'::regclass AND c.relname='product_override_changes_product_idx') THEN
+  CREATE INDEX product_override_changes_product_idx ON product_override_changes(product_id,changed_at DESC,id DESC);
+ END IF;
+END $$;
 -- NULL: an admin's save. carry: copied from a product merged into this one; uncarry: that merge was undone.
-ALTER TABLE product_override_changes ADD COLUMN IF NOT EXISTS reason text;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_override_changes'::regclass AND attname='reason' AND NOT attisdropped) THEN
+  ALTER TABLE product_override_changes ADD COLUMN reason text;
+ END IF;
+END $$;
 -- What a merge copied onto the kept product (product_overrides_carry): field → carried value as history text. Undoing
 -- the merge (the merged product revived) takes back the fields that still hold the carried value; an admin's later
 -- change of a field on the target removes it from here (the admin owns it then).
@@ -74,7 +103,11 @@ CREATE TABLE IF NOT EXISTS product_override_carries (
  carried_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY (target,source)
 );
-CREATE INDEX IF NOT EXISTS product_override_carries_source_idx ON product_override_carries(source);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_carries'::regclass AND c.relname='product_override_carries_source_idx') THEN
+  CREATE INDEX product_override_carries_source_idx ON product_override_carries(source);
+ END IF;
+END $$;
 
 -- The catalog views read edits per supplier row (commerce_item_overrides, db/commerce.sql): rewrite that copy for
 -- the given products from their current sources. Rows that left those products lose the edit.

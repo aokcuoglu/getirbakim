@@ -13,8 +13,12 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE SET search_path FROM CURRENT AS $$
  FROM jsonb_each(CASE WHEN jsonb_typeof(payload->'oemNumbers')='object' THEN payload->'oemNumbers' END) refs
  CROSS JOIN LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(refs.value)='array' THEN refs.value END) reference(number)
 $$;
-CREATE INDEX IF NOT EXISTS product_enrichments_oem_search_idx ON product_enrichments
- USING gin (enrichment_oem_search(payload) gin_trgm_ops);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichments'::regclass AND c.relname='product_enrichments_oem_search_idx') THEN
+  CREATE INDEX product_enrichments_oem_search_idx ON product_enrichments
+   USING gin (enrichment_oem_search(payload) gin_trgm_ops);
+ END IF;
+END $$;
 -- Expression statistics exist only after ANALYZE (see db/search.sql); only the first run pays for it.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_stats WHERE schemaname=current_schema() AND tablename='product_enrichments_oem_search_idx') THEN
@@ -23,8 +27,12 @@ DO $$ BEGIN
 END $$;
 -- /yonetim/urun-verileri search by manufacturer part number (#617). Only enriched products carry one (~80k of ~780k
 -- rows), so the index is partial; the query repeats the predicate. Same REINDEX rule as above when search_compact changes.
-CREATE INDEX IF NOT EXISTS enrichment_product_states_part_number_search_idx ON enrichment_product_states
- USING gin (search_compact(manufacturer_part_number) gin_trgm_ops) WHERE manufacturer_part_number IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_product_states'::regclass AND c.relname='enrichment_product_states_part_number_search_idx') THEN
+  CREATE INDEX enrichment_product_states_part_number_search_idx ON enrichment_product_states
+    USING gin (search_compact(manufacturer_part_number) gin_trgm_ops) WHERE manufacturer_part_number IS NOT NULL;
+ END IF;
+END $$;
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_stats WHERE schemaname=current_schema() AND tablename='enrichment_product_states_part_number_search_idx') THEN
   ANALYZE enrichment_product_states;

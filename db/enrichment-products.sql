@@ -1,5 +1,5 @@
 -- Automatic links must still agree with the current catalog identity. Reviewed manual links remain authoritative.
-CREATE OR REPLACE VIEW enrichment_current_sources AS
+DO $setup$ DECLARE def text := $view$
  SELECT ps.* FROM product_sources ps JOIN products p ON p.id=ps.product_id
  JOIN supplier_items s ON s.id=ps.supplier_item_id
  LEFT JOIN supplier_brands sb ON sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data)
@@ -7,9 +7,17 @@ CREATE OR REPLACE VIEW enrichment_current_sources AS
  WHERE p.merged_into IS NULL AND (ps.method='manual' OR
   (p.brand=COALESCE(b.key,product_brand_key(supplier_item_brand(s.supplier,s.product_data)))
    AND p.part_number=supplier_item_part_number(s.supplier,s.code,s.product_data)));
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='enrichment_current_sources' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW enrichment_current_sources AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 
 -- A source observation stays on its original supplier row. Only current, identical master products share it.
-CREATE OR REPLACE VIEW enrichment_valid_data AS
+DO $setup$ DECLARE def text := $view$
  SELECT e.*,j.status,COALESCE(s.product_data->>'oe','') AS donor_oem,
  -- The reviewed master brand of the source row also identifies its manufacturer (enrichment-contract.ts).
  (SELECT b.name FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id
@@ -29,9 +37,17 @@ CREATE OR REPLACE VIEW enrichment_valid_data AS
 -- turns per-product lookups into full scans. Both ids are primary keys, so NOT IN's NULL caveat does not apply.
 AND NOT (e.match_basis->>'type'='oem_reference' AND COALESCE(e.match_basis->>'referenceSource','supplier_oem')='supplier_oem'
   AND e.supplier_item_id IN (SELECT ho.supplier_item_id FROM commerce_item_overrides ho WHERE ho.hide_oem));
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='enrichment_valid_data' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW enrichment_valid_data AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 
 -- A flat candidate view lets point lookups and legacy-batch reconciliation restrict the supplier rows first.
-CREATE OR REPLACE VIEW enrichment_product_candidates AS
+DO $setup$ DECLARE def text := $view$
  SELECT ps.product_id,p.brand AS product_brand,p.part_number,p.name AS product_name,
   s.id AS supplier_item_id,s.code AS supplier_code,
   COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'') AS supplier_brand,
@@ -66,9 +82,17 @@ CREATE OR REPLACE VIEW enrichment_product_candidates AS
  LEFT JOIN brands b ON b.id=sb.brand_id
  LEFT JOIN product_enrichment_jobs j ON j.supplier_item_id=s.id
  LEFT JOIN enrichment_valid_data e ON e.supplier_item_id=s.id;
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='enrichment_product_candidates' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW enrichment_product_candidates AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 
 -- Every unmerged master product is counted, even if its source identity needs review.
-CREATE OR REPLACE VIEW enrichment_product_catalog AS
+DO $setup$ DECLARE def text := $view$
  SELECT p.id AS product_id,p.brand AS product_brand,p.part_number,p.name AS product_name,
  r.supplier_item_id,r.supplier_code,r.supplier_brand,r.oem,CASE WHEN r.coherent THEN r.status ELSE 'review' END AS status,
  COALESCE(r.attempts,0) AS attempts,r.last_error,COALESCE(r.updated_at,p.updated_at) AS updated_at,
@@ -80,10 +104,18 @@ CREATE OR REPLACE VIEW enrichment_product_catalog AS
   SELECT DISTINCT ON (product_id) * FROM enrichment_product_candidates
   ORDER BY product_id,coherent DESC,priority,present DESC,oem<>'' DESC,supplier_item_id=product_id DESC,supplier_item_id
  ) r ON r.product_id=p.id WHERE p.merged_into IS NULL;
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='enrichment_product_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW enrichment_product_catalog AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 
 -- The requested offer keeps its own identity; validation and fitments use the original donor's identity.
 -- also mirrored in src/modules/admin/fitment-donor.ts
-CREATE OR REPLACE VIEW product_enrichment_shared AS
+DO $setup$ DECLARE def text := $view$
  SELECT target.id AS supplier_item_id,target.code AS supplier_code,
  COALESCE(NULLIF(target.product_data->>'uk',''),supplier_item_brand(target.supplier,target.product_data),'') AS supplier_brand,
  e.source_url,e.source_method,e.manufacturer,e.manufacturer_part_number,e.image_id,e.payload,e.imported_at,e.match_basis,
@@ -100,9 +132,34 @@ CREATE OR REPLACE VIEW product_enrichment_shared AS
  SELECT e.supplier_item_id,e.supplier_code,e.supplier_brand,e.source_url,e.source_method,e.manufacturer,
  e.manufacturer_part_number,e.image_id,e.payload,e.imported_at,e.match_basis,e.supplier_item_id,e.supplier_code,e.supplier_brand,e.donor_oem,e.status,e.donor_master_brand
  FROM enrichment_valid_data e WHERE NOT EXISTS(SELECT 1 FROM product_sources ps WHERE ps.supplier_item_id=e.supplier_item_id);
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='product_enrichment_shared' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW product_enrichment_shared AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 
-ALTER TABLE enrichment_run_items ADD COLUMN IF NOT EXISTS product_id uuid REFERENCES products(id) ON DELETE SET NULL;
-ALTER TABLE enrichment_run_items DROP CONSTRAINT IF EXISTS enrichment_run_items_status_check;
-ALTER TABLE enrichment_run_items ADD CONSTRAINT enrichment_run_items_status_check
- CHECK(status IN ('queued','collecting','complete','partial','review','not_found','failed','blocked','skipped'));
-CREATE INDEX IF NOT EXISTS enrichment_run_items_product_idx ON enrichment_run_items(product_id,finished_at);
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_run_items'::regclass AND attname='product_id' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_run_items ADD COLUMN product_id uuid REFERENCES products(id) ON DELETE SET NULL;
+ END IF;
+END $$;
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='enrichment_run_items'::regclass AND k.conname='enrichment_run_items_status_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['queued','collecting','complete','partial','review','not_found','failed','blocked','skipped'] THEN
+  ALTER TABLE enrichment_run_items DROP CONSTRAINT IF EXISTS enrichment_run_items_status_check;
+  ALTER TABLE enrichment_run_items ADD CONSTRAINT enrichment_run_items_status_check CHECK(status IN ('queued','collecting','complete','partial','review','not_found','failed','blocked','skipped'));
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_run_items'::regclass AND c.relname='enrichment_run_items_product_idx') THEN
+  CREATE INDEX enrichment_run_items_product_idx ON enrichment_run_items(product_id,finished_at);
+ END IF;
+END $$;

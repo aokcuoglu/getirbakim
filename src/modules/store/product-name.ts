@@ -3,12 +3,10 @@
  * place that prints one (product page, cards, suggestions, search metadata) goes through readableProductName.
  */
 
-const foldTable: Record<string, string> = { "ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u", "â": "a", "î": "i", "û": "u", "ë": "e" };
+import { foldText } from "./fold-text";
+import { turkishTypeName } from "./suggestion-names";
 
-/** Lower case ASCII form of a token, the key of the dictionary and of the text comparisons. */
-export function foldText(text: string): string {
-  return text.replace(/İ/g, "i").toLocaleLowerCase("tr").replace(/[çğıöşüâîûë]/g, letter => foldTable[letter]);
-}
+export { foldText };
 
 /**
  * Turkish words that supplier names write without Turkish letters (ASCII folding lost them). Only unambiguous words are
@@ -153,12 +151,14 @@ export function readableProductName(raw: string): string {
 }
 
 /**
- * The name a store surface prints for a catalog row (#686): an admin's override as written (`name_overridden`, set by the
- * catalog views), a supplier's name in its readable form. Cards, suggestions, analytics, the page and the product address
- * all read it, so they never disagree.
+ * The name a store surface prints for a catalog row (#686, #915): an admin's override as written (`name_overridden`, set by
+ * the catalog views); else the Turkish name of a known English supplier type name ("BRAKE PAD SET, DISC BRAKE" → "Disk Fren
+ * Balata Seti", suggestion-names.ts); else the supplier's name in its readable form (an unknown English name stays readable).
+ * The product page puts the enrichment's name between the admin's and this one (productTitle). Cards, suggestions,
+ * analytics, the page and the product address all read it, so they never disagree.
  */
 export function shownProductName(product: { name: string; name_overridden: boolean }): string {
-  return product.name_overridden ? product.name : readableProductName(product.name);
+  return product.name_overridden ? product.name : turkishTypeName(product.name) ?? readableProductName(product.name);
 }
 
 /** Letters and digits only, folded: "DF 7458-S" and "df7458s" compare equal. */

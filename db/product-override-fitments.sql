@@ -20,14 +20,27 @@ CREATE TABLE IF NOT EXISTS product_override_fitments (
  UNIQUE (product_id,vehicle_type_id)
 );
 -- The store's vehicle filter and search read the decisions of the selected types.
-CREATE INDEX IF NOT EXISTS product_override_fitments_type_idx ON product_override_fitments(vehicle_type_id,product_id);
-CREATE INDEX IF NOT EXISTS product_override_fitments_carried_idx ON product_override_fitments(carried_from) WHERE carried_from IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitments'::regclass AND c.relname='product_override_fitments_type_idx') THEN
+  CREATE INDEX product_override_fitments_type_idx ON product_override_fitments(vehicle_type_id,product_id);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitments'::regclass AND c.relname='product_override_fitments_carried_idx') THEN
+  CREATE INDEX product_override_fitments_carried_idx ON product_override_fitments(carried_from) WHERE carried_from IS NOT NULL;
+ END IF;
+END $$;
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 -- One bulk change (#816, #817): the rows of one "Araç ekle" with several types, or of one copy from another product,
 -- share an id in the decisions and in their history rows, so the history shows them as one line and "Geri al" takes
 -- the batch back in one step (its fitment_unadded history rows get a new id of their own). Single decisions and the
 -- rows a merge carries (product_override_fitments_carry) keep NULL; rows written before #816 have none (no backfill).
-ALTER TABLE product_override_fitments ADD COLUMN IF NOT EXISTS batch_id uuid;
-ALTER TABLE product_override_changes ADD COLUMN IF NOT EXISTS batch_id uuid;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_override_fitments'::regclass AND attname='batch_id' AND NOT attisdropped) THEN
+  ALTER TABLE product_override_fitments ADD COLUMN batch_id uuid;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_override_changes'::regclass AND attname='batch_id' AND NOT attisdropped) THEN
+  ALTER TABLE product_override_changes ADD COLUMN batch_id uuid;
+ END IF;
+END $$;
 
 -- Source rows the admin leaves out of the store (#661), per master product like the decisions above:
 --  source_vehicle    an enrichment vehicle (payload.vehicles) linked to no catalog type; source_key is the row's fields
@@ -50,21 +63,41 @@ CREATE TABLE IF NOT EXISTS product_override_fitment_hides (
  CHECK ((kind='description_model')=(model_id IS NOT NULL)),
  CHECK ((kind='description_model')=(source_key IS NULL))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS product_override_fitment_hides_model_key ON product_override_fitment_hides(product_id,model_id) WHERE kind='description_model';
-CREATE UNIQUE INDEX IF NOT EXISTS product_override_fitment_hides_source_key ON product_override_fitment_hides(product_id,kind,md5(source_key)) WHERE source_key IS NOT NULL;
-CREATE INDEX IF NOT EXISTS product_override_fitment_hides_carried_idx ON product_override_fitment_hides(carried_from) WHERE carried_from IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitment_hides'::regclass AND c.relname='product_override_fitment_hides_model_key') THEN
+  CREATE UNIQUE INDEX product_override_fitment_hides_model_key ON product_override_fitment_hides(product_id,model_id) WHERE kind='description_model';
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitment_hides'::regclass AND c.relname='product_override_fitment_hides_source_key') THEN
+  CREATE UNIQUE INDEX product_override_fitment_hides_source_key ON product_override_fitment_hides(product_id,kind,md5(source_key)) WHERE source_key IS NOT NULL;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitment_hides'::regclass AND c.relname='product_override_fitment_hides_carried_idx') THEN
+  CREATE INDEX product_override_fitment_hides_carried_idx ON product_override_fitment_hides(carried_from) WHERE carried_from IS NOT NULL;
+ END IF;
+END $$;
 
 -- The description models the store lists (#392, #661): every reader (make and model pages, category counts, sitemaps,
 -- the index signal, the product page, related suggestions) reads this view instead of product_model_fitments. A model
 -- the admin hid leaves the product; a product with a vehicle decision (#583) lists none, as on its page (modelFallbacks).
 -- Joined at read time, so a change needs only invalidateListings(). A view pins the columns it reads: dropping or
--- retyping one of them needs a DROP VIEW first.
-CREATE OR REPLACE VIEW storefront_description_fits AS
+-- retyping one of them needs a DROP VIEW first. Replaced only when its definition changed (see db/commerce.sql).
+DO $setup$ DECLARE def text := $view$
  SELECT f.supplier_item_id,f.model_id,f.year_from,f.year_to FROM product_model_fitments f
  WHERE NOT EXISTS (SELECT 1 FROM product_override_fitment_hides h JOIN product_sources ps ON ps.product_id=h.product_id
    WHERE h.kind='description_model' AND ps.supplier_item_id=f.supplier_item_id AND h.model_id=f.model_id)
   AND NOT EXISTS (SELECT 1 FROM product_override_fitments d JOIN product_sources ps ON ps.product_id=d.product_id
    WHERE ps.supplier_item_id=f.supplier_item_id);
+$view$; BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
+   WHERE c.relname='storefront_description_fits' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+  EXECUTE 'CREATE OR REPLACE VIEW storefront_description_fits AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 
 -- "Aynı ürün" (product_merge): the kept product takes the merged product's decisions and hidden source rows (#661);
 -- where both decided the same type or hid the same row, the kept product's row wins. Called by the merge actions next

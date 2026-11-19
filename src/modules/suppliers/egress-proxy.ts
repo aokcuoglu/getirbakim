@@ -32,6 +32,13 @@ export function egressProxyFor(supplier: EgressSupplier, env: Record<string, str
   const selected = (env.SUPPLIER_EGRESS_PROXY_FOR?.trim() || "dinamik").split(",").map(name => name.trim().toLowerCase()).filter(Boolean);
   if (!selected.length || selected.some(name => !(egressSuppliers as readonly string[]).includes(name))) throw new EgressProxyError("SUPPLIER_EGRESS_PROXY_FOR");
   if (!selected.includes(supplier)) return undefined;
+  return parseEgressProxy(raw);
+}
+
+/** Validates an egress proxy URL (http://user:password@host:port); undefined for an empty value. */
+export function parseEgressProxy(value: string | undefined): EgressProxy | undefined {
+  const raw = value?.trim();
+  if (!raw) return undefined;
   let url: URL;
   try { url = new URL(raw); }
   catch { throw new EgressProxyError("SUPPLIER_EGRESS_PROXY"); }
@@ -107,11 +114,16 @@ function dispatcherFor(proxy: EgressProxy) {
   return dispatcher;
 }
 
+/** fetch through the CONNECT tunnel of an already parsed proxy (TLS stays end to end). */
+export function proxiedFetch(proxy: EgressProxy, input: URL | string, init: RequestInit = {}): Promise<Response> {
+  // undici's own fetch with its ProxyAgent: the dispatcher API of the npm package and of Node's
+  // bundled fetch differ between major versions.
+  return undiciFetch(input, { ...init, dispatcher: dispatcherFor(proxy) } as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
+}
+
 /** fetch for supplier APIs: direct unless this supplier is routed through SUPPLIER_EGRESS_PROXY. */
 export function supplierFetch(supplier: EgressSupplier, input: URL | string, init: RequestInit = {}): Promise<Response> {
   const proxy = egressProxyFor(supplier);
   if (!proxy) return fetch(input, init);
-  // undici's own fetch with its ProxyAgent: the dispatcher API of the npm package and of Node's
-  // bundled fetch differ between major versions.
-  return undiciFetch(input, { ...init, dispatcher: dispatcherFor(proxy) } as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
+  return proxiedFetch(proxy, input, init);
 }

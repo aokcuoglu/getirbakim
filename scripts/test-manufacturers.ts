@@ -102,7 +102,10 @@ test("supplier_item_brand is declared identically in db/commerce.sql and db/prod
   const tables = (file: string) => {
     const sql = readFileSync(file, "utf8"), start = sql.indexOf("CREATE TABLE IF NOT EXISTS brands (");
     assert.ok(start >= 0, file);
-    return sql.slice(start, sql.indexOf("CREATE INDEX IF NOT EXISTS supplier_brands_brand_idx", start));
+    // Through the guarded supplier_brands_brand_idx block (created only when missing, #964).
+    const end = sql.indexOf("END $$;", sql.indexOf("CREATE INDEX supplier_brands_brand_idx", start));
+    assert.ok(end > start, file);
+    return sql.slice(start, end);
   };
   assert.equal(tables("db/commerce.sql").replace(/^--.*\n/gm, ""), tables("db/product-matching.sql").replace(/^--.*\n/gm, ""));
 });

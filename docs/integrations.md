@@ -22,6 +22,10 @@ Kullanıcının sağladığı Postman koleksiyonu ile `POST /auth/Login` ve yedi
 
 FIAT grubunda 18.921 ürün satırı, 19.106 fiyat satırı, MRK deposunda 18.921 stok satırı alındı. Tekrarlanan kodlar ve bir eksik fiyat kaydı var. Stok değerleri bu örnekte 0/1; gerçek adet olduğu doğrulanmadı. Fiyat türleri, vergi ve `k` anlamı da doğrulanmalı. Bu nedenle mağazaya aktarma kapalı tutuluyor. [Alanlar, veri kalitesi ve önerilen DB yapısı](basbug-data-analysis.md). Tekrar inceleme: `npm run supplier:basbug:inspect`; ham örnekler Git dışında `.local/basbug/` altında.
 
+## Geliver (kargo etiketi)
+
+18 Kasım 2026 (#960): Yurtiçi Kargo etiketleri Geliver REST API'si (`https://api.geliver.io/api/v1`, Bearer token `GELIVER_API_TOKEN`) üzerinden `/yonetim/siparisler` → **Kargoya ver** penceresinden alınır; takip durumu `TRACK_UPDATED` webhook'uyla (`/api/shipping/geliver/webhook`, `GELIVER_WEBHOOK_SECRET`) gelir. `GELIVER_MODE=live` olmadıkça yalnız ücretsiz test etiketleri alınır. SDK kullanılmaz (yeniden deneme = mükerrer ücretli etiket riski). Akış, durum makinesi, webhook kaydı ve doğrulanmış yanıtlar: [Geliver ile kargo etiketi](commerce.md#geliver-ile-kargo-etiketi-960).
+
 ## Güvenli başlangıç sınırı
 
 Sunucu katalog istemci giriş noktası henüz hata verir. Yönetim, Başbuğ için canlı erişimin doğrulandığını ve fiyat/stok anlamlarının beklediğini gösterir. İç normalize ürün şeması tedarikçi yanıt şeması değildir. Sırlar, tokenlar ve ham yanıtlar tarayıcıya aktarılmamalıdır. Kataloğa veri aktarımı fiyat/vergi/stok anlamları doğrulandıktan sonra eklenmelidir.

@@ -9,12 +9,11 @@ import { isClockSkewError, sendWithSkewRetry } from "./storefront-media-read";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import {
   acquireLock, buildInboundReport, checkInboundReport, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
-  sinceFrom, statePath, summarizeParts, tombstoneWarnings,
+  sinceFrom, STATE_PATH, summarizeParts, tombstoneWarnings,
 } from "./storefront-sync-state";
 
-test("each target keeps its own watermark; the VPS keeps state.json", () => {
-  assert.equal(statePath("vps"), ".local/storefront-sync/state.json");
-  assert.equal(statePath("aws"), ".local/storefront-sync/state.aws.json");
+test("the watermark stays in state.aws.json", () => {
+  assert.equal(STATE_PATH, ".local/storefront-sync/state.aws.json");
 });
 
 test("the next --since is the last snapshot minus the overlap; no state sends everything", () => {
@@ -64,7 +63,7 @@ test("the lock admits one live sync, takes over a dead holder's lock and is free
     assert.equal(held.pid, process.pid);
     assert.equal(held.target, "aws");
     assert.ok(!Number.isNaN(new Date(held.startedAt).getTime()));
-    assert.throws(() => acquireLock(path, { pid: process.pid, target: "vps" }),
+    assert.throws(() => acquireLock(path, { pid: process.pid, target: "aws" }),
       (error: Error) => /Another storefront sync is running/.test(error.message) && error.message.includes(path) && /delete it if that process is not a sync/.test(error.message));
 
     // Another process's release leaves the lock alone.
@@ -72,7 +71,7 @@ test("the lock admits one live sync, takes over a dead holder's lock and is free
     assert.ok(existsSync(path));
     releaseLock(path);
     assert.ok(!existsSync(path));
-    acquireLock(path, { pid: process.pid, target: "vps" });
+    acquireLock(path, { pid: process.pid, target: "aws" });
     releaseLock(path);
 
     const dead = spawnSync(process.execPath, ["-e", ""]).pid!;
@@ -84,8 +83,8 @@ test("the lock admits one live sync, takes over a dead holder's lock and is free
 
     // A lock older than a day is stale even if its pid now belongs to a live process.
     writeFileSync(path, JSON.stringify({ pid: process.pid, startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(), target: "aws" }));
-    acquireLock(path, { pid: process.pid, target: "vps" });
-    assert.equal(JSON.parse(readFileSync(path, "utf8")).target, "vps");
+    acquireLock(path, { pid: process.pid, target: "aws" });
+    assert.equal(JSON.parse(readFileSync(path, "utf8")).target, "aws");
     releaseLock(path);
 
     // A lock without a valid start time is not taken over.

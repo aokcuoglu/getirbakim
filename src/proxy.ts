@@ -9,10 +9,10 @@ import { legacyRedirect } from "@/modules/seo/legacy-redirects";
 // The cookie outlives the database expiry that currentAccount() extends; a dead token kept alive here stays rejected there.
 // Old listing addresses (/automakers, /car-parts/<make>, /katalog?category=) move with one 301 (#638). Next needs an
 // absolute URL here and sends it on relative (same host), so a CDN or load balancer in front keeps its own host.
-// Publicly cached GETs (category tree, category and product images, the product feed) never carry a session cookie: a shared cache
-// would keep the Set-Cookie with the body and hand one visitor's session to the next (#642). The matcher skips them;
-// the check here keeps it that way if the matcher changes.
-const publicCachedPath = /^\/(?:api\/(?:categories|category-media|product-media)|feeds)(?:\/|$)/;
+// Publicly cached GETs (category tree, category and product images, a product's fitment list #966, the product feed)
+// never carry a session cookie: a shared cache would keep the Set-Cookie with the body and hand one visitor's session to
+// the next (#642). The matcher skips them; the check here keeps it that way if the matcher changes.
+const publicCachedPath = /^\/(?:api\/(?:categories|category-media|product-media|product-fitments)|feeds)(?:\/|$)/;
 export function proxy(request: NextRequest) {
  if (publicCachedPath.test(request.nextUrl.pathname)) return NextResponse.next();
  const target = legacyRedirect(request.nextUrl.pathname, request.nextUrl.searchParams);
@@ -41,6 +41,6 @@ export const config = {
   { source: "/katalog", has: [{ type: "query", key: "category" }] }, "/automakers", "/car-parts/:path*",
   // /katalog?brand=<label> moves to its manufacturer page /marka/<slug> (#660).
   { source: "/katalog", has: [{ type: "query", key: "brand" }] },
-  { source: "/((?!_next/static|_next/image|api/(?:categories|category-media|product-media)(?:/|$)|feeds/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
+  { source: "/((?!_next/static|_next/image|api/(?:categories|category-media|product-media|product-fitments)(?:/|$)|feeds/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
  ],
 };

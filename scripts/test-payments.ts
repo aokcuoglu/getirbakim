@@ -102,18 +102,28 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     assert.equal(row.address, delivery.address);
     assert.deepEqual([row.delivery_province, row.delivery_district, row.delivery_address_line, row.delivery_postal_code, row.invoice_type, row.invoice_company, row.invoice_tax_no, row.invoice_tax_office],
       ["İstanbul", "Kadıköy", "Test Mahallesi 1. Sokak No 2", "34710", "individual", null, null, null]);
+    assert.deepEqual([row.invoice_province, row.invoice_district, row.invoice_address_line, row.invoice_postal_code], [null, null, null, null]);
 
     // The next checkout of an account is filled from its latest structured order (#881); guests and free-text orders give nothing.
     const account = randomUUID();
-    const accountOrder = (values: (string | null)[]) => db.query(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,total_kurus,subtotal_kurus,discount_percent,
-      phone,address,created_at,delivery_province,delivery_district,delivery_address_line,delivery_postal_code,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office)
-      VALUES('account',$1,gen_random_uuid(),'Test','t@example.invalid',1000,1000,0,$2,$3,now()-make_interval(days=>$4::int),$5,$6,$7,$8,$9,$10,$11,$12)`, [account, ...values]);
+    const noInvoiceAddress = [null, null, null, null];
+    const accountOrder = (values: (string | null)[], owner = account) => db.query(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,total_kurus,subtotal_kurus,discount_percent,
+      phone,address,created_at,delivery_province,delivery_district,delivery_address_line,delivery_postal_code,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office,
+      invoice_province,invoice_district,invoice_address_line,invoice_postal_code)
+      VALUES('account',$1,gen_random_uuid(),'Test','t@example.invalid',1000,1000,0,$2,$3,now()-make_interval(days=>$4::int),$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, [owner, ...values]);
     assert.equal(await lastCheckoutDetails(account), null);
     assert.equal(await lastCheckoutDetails(owner.id), null);
-    await accountOrder(["0555 000 00 01", "Eski adres", "2", "Ankara", "Çankaya", "Atatürk Bulvarı No 1", null, "corporate", "Firma", "1234567890", "Çankaya"]);
-    await accountOrder(["0555 000 00 02", "Serbest metin adres", "1", null, null, null, null, null, null, null, null]);
+    await accountOrder(["0555 000 00 01", "Eski adres", "2", "Ankara", "Çankaya", "Atatürk Bulvarı No 1", null, "corporate", "Firma", "1234567890", "Çankaya", ...noInvoiceAddress]);
+    await accountOrder(["0555 000 00 02", "Serbest metin adres", "1", null, null, null, null, null, null, null, null, ...noInvoiceAddress]);
     assert.deepEqual(await lastCheckoutDetails(account), { phone: "0555 000 00 01", delivery_province: "Ankara", delivery_district: "Çankaya", delivery_address_line: "Atatürk Bulvarı No 1",
-      delivery_postal_code: null, invoice_type: "corporate", invoice_company: "Firma", invoice_tax_no: "1234567890", invoice_tax_office: "Çankaya" });
+      delivery_postal_code: null, invoice_type: "corporate", invoice_company: "Firma", invoice_tax_no: "1234567890", invoice_tax_office: "Çankaya",
+      invoice_province: null, invoice_district: null, invoice_address_line: null, invoice_postal_code: null });
+    // A separate invoice address (#916) is filled in too.
+    const billed = randomUUID();
+    await accountOrder(["0555 000 00 03", "Teslimat", "0", "İstanbul", "Kadıköy", "Moda Cad. No 1", "34710", "individual", null, null, null, "Ankara", "Çankaya", "Atatürk Bulvarı No 1", "06690"], billed);
+    assert.deepEqual(await lastCheckoutDetails(billed), { phone: "0555 000 00 03", delivery_province: "İstanbul", delivery_district: "Kadıköy", delivery_address_line: "Moda Cad. No 1",
+      delivery_postal_code: "34710", invoice_type: "individual", invoice_company: null, invoice_tax_no: null, invoice_tax_office: null,
+      invoice_province: "Ankara", invoice_district: "Çankaya", invoice_address_line: "Atatürk Bulvarı No 1", invoice_postal_code: "06690" });
 
     // Hosted page: one token, reused while fresh; callback URLs are signed per order.
     const started = await payments.startPayment(first);

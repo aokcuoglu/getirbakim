@@ -3,11 +3,14 @@
    Imported by globals.css so it ships in the main stylesheet. */
 
 @layer components {
-  /* Catalog filter options (CatalogSidebar FilterGroup): ui/checkbox with the store override, minus the
-     field/dark/invalid states the store never uses. */
-  .store-check { @apply relative flex size-5 shrink-0 items-center justify-center rounded-[4px] border border-input bg-white transition-colors outline-none after:absolute after:-inset-x-3 after:-inset-y-2 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 data-checked:border-brand data-checked:bg-brand data-checked:text-primary-foreground; }
-  .store-check-indicator { @apply grid place-content-center text-current transition-none [&>svg]:size-3.5; }
-  .facet-option { @apply mb-2.5 flex min-h-5 max-[768px]:mb-0 max-[768px]:min-h-11 cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-data-disabled:cursor-not-allowed has-data-disabled:opacity-60; }
+  /* Catalog filter options (CatalogSidebar FilterGroup) and the card's compare box (StoreCheckbox): a native checkbox
+     with ui/checkbox's look and the store colours; lucide's check as a white background when checked. The label around
+     it is the touch target (.facet-option is 44px tall on a phone). */
+  .store-check {
+    @apply relative size-5 shrink-0 cursor-pointer appearance-none rounded-[4px] border border-input bg-white bg-center bg-no-repeat transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 checked:border-brand checked:bg-brand forced-colors:appearance-auto;
+    &:checked { background-size: 14px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E"); }
+  }
+  .facet-option { @apply mb-2.5 flex min-h-5 max-[768px]:mb-0 max-[768px]:min-h-11 cursor-pointer items-center gap-2 text-sm leading-5 font-normal has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60; }
 
   /* /arac-markalari tiles. */
   .make-tile { @apply flex h-[88px] flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary max-md:h-20; }
@@ -15,13 +18,24 @@
   .make-tile-initials { @apply grid size-[42px] place-items-center rounded-full bg-muted text-sm font-semibold tracking-[.5px] text-muted-foreground; }
   .make-tile-name { @apply max-w-full wrap-anywhere; }
 
+  /* A make page's model links (VehicleModelList), the years in a muted span. */
+  .model-link { @apply inline-flex min-h-8 items-center gap-1.5 hover:text-primary hover:underline; }
+  .model-link > span { @apply text-muted-foreground; }
+
   /* Product page: OEM and equivalent numbers, specification rows. */
   .reference-row { @apply grid grid-cols-[180px_minmax(0,1fr)] gap-6 border-b border-[#e0e5eb] px-5 py-[15px] last:border-0 max-[750px]:grid-cols-[100px_minmax(0,1fr)] max-[750px]:gap-4 max-[750px]:p-3.5 max-[750px]:text-[13px]; }
   .reference-codes { @apply m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere; }
   .spec-row { @apply grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3; }
 
+  /* Product page "Uyumlu araçlar" (ProductFitment): a model group, its trigger with the chevron and row count, and the
+     model page link. The chevron turns with the trigger's own data-panel-open. */
+  .fitment-group { @apply border-t border-[#e0e5eb]; }
+  .fitment-trigger { @apply flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-none border-0 bg-transparent px-4 py-5 text-left text-base leading-5 text-foreground outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#2e78c7] [&>svg]:shrink-0 [&>svg]:text-[#53677d] [&>svg]:transition-transform data-panel-open:[&>svg]:rotate-90; }
+  .fitment-count { @apply ml-auto text-[11px] whitespace-nowrap text-muted-foreground max-[750px]:hidden; }
+  .fitment-link { @apply mr-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-[5px] px-2 text-[13px] leading-5 font-medium whitespace-nowrap text-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2e78c7]; }
+
   /* Product page, 600px and below (#876): the purchase form is a fixed bottom bar; the body keeps its height free. */
-  .buy-bar { @apply max-[600px]:fixed max-[600px]:inset-x-0 max-[600px]:bottom-0 max-[600px]:z-40 max-[600px]:border-t max-[600px]:border-border max-[600px]:bg-white max-[600px]:px-4 max-[600px]:pt-3 max-[600px]:pb-[calc(12px+env(safe-area-inset-bottom))] max-[600px]:shadow-[0_-4px_16px_#212b3614]; }
+  .buy-bar { @apply max-[600px]:fixed max-[600px]:inset-x-0 max-[600px]:bottom-0 max-[600px]:z-40 max-[600px]:border-t max-[600px]:border-border max-[600px]:bg-white max-[600px]:pr-[max(16px,env(safe-area-inset-right))] max-[600px]:pl-[max(16px,env(safe-area-inset-left))] max-[600px]:pt-3 max-[600px]:pb-[calc(12px+env(safe-area-inset-bottom))] max-[600px]:shadow-[0_-4px_16px_#212b3614]; }
   .buy-bar .buy-form.buy-form-product { @apply max-[600px]:mb-0; }
   .buy-bar-price { @apply hidden shrink-0 text-base leading-5 font-semibold text-foreground max-[600px]:block; }
   body:has(.buy-bar) { @apply max-[600px]:pb-[calc(72px+env(safe-area-inset-bottom))]; }
@@ -32,8 +46,6 @@
      `-product` modifier follows its base, so it wins where both set a property, as the merged class list did. */
   .buy-form { @apply mb-4 flex gap-2; }
   .buy-form-product { @apply mb-5 items-center gap-2.5; }
-  /* Catalog card placement; here and not in catalog-card.css, since the product page does not load that file. */
-  .product-card-form { @apply group-data-[view=grid]/listing:order-3 group-data-[view=grid]/listing:mt-4 max-[600px]:group-data-[view=grid]/listing:hidden; }
   .buy-quantity { @apply h-12 w-[66px] flex-[0_0_66px] cursor-pointer rounded-md border border-input bg-white px-2.5 py-2 max-[767.98px]:w-[72px] max-[767.98px]:flex-[0_0_72px] text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed; }
   .buy-quantity-product { @apply w-16 flex-[0_0_64px] rounded-[5px] py-2.5 max-[767.98px]:w-[72px] max-[767.98px]:flex-[0_0_72px]; }
   /* ui/button with the store override, minus the svg, icon, invalid and dark states a text-only submit never has. */
@@ -51,8 +63,8 @@
     @apply mx-auto flex h-[88px] w-full max-w-[1350px] items-center gap-7 px-[15px] py-6 max-[1100px]:gap-5 max-[850.98px]:gap-4;
     @apply max-[600px]:h-auto max-[600px]:min-h-0 max-[600px]:flex-wrap max-[600px]:gap-x-3 max-[600px]:gap-y-2 max-[600px]:py-2.5;
     @apply group-data-[route=checkout]/route:h-[65px] group-data-[route=checkout]/route:min-h-[65px] group-data-[route=checkout]/route:py-4;
-    @apply min-[600px]:in-data-home-scrolled:fixed min-[600px]:in-data-home-scrolled:inset-x-0 min-[600px]:in-data-home-scrolled:top-0 min-[600px]:in-data-home-scrolled:z-41 min-[600px]:in-data-home-scrolled:max-w-none! min-[600px]:in-data-home-scrolled:border-b min-[600px]:in-data-home-scrolled:border-border min-[600px]:in-data-home-scrolled:bg-white min-[600px]:in-data-home-scrolled:px-[max(15px,calc((100vw-1320px)/2))]!;
-    @apply min-[600px]:in-data-catalog-scrolled:fixed min-[600px]:in-data-catalog-scrolled:inset-x-0 min-[600px]:in-data-catalog-scrolled:top-0 min-[600px]:in-data-catalog-scrolled:z-41 min-[600px]:in-data-catalog-scrolled:max-w-none! min-[600px]:in-data-catalog-scrolled:border-b min-[600px]:in-data-catalog-scrolled:border-border min-[600px]:in-data-catalog-scrolled:bg-white min-[600px]:in-data-catalog-scrolled:px-[max(15px,calc((100vw-1320px)/2))]!;
+    @apply min-[600px]:in-data-home-scrolled:fixed min-[600px]:in-data-home-scrolled:inset-x-0 min-[600px]:in-data-home-scrolled:top-0 min-[600px]:in-data-home-scrolled:z-41 min-[600px]:in-data-home-scrolled:max-w-none! min-[600px]:in-data-home-scrolled:border-b min-[600px]:in-data-home-scrolled:border-border min-[600px]:in-data-home-scrolled:bg-white min-[600px]:in-data-home-scrolled:px-[max(15px,calc((100vw-1320px)/2),env(safe-area-inset-left),env(safe-area-inset-right))]! min-[600px]:in-data-home-scrolled:pt-[calc(24px+env(safe-area-inset-top))] min-[600px]:in-data-home-scrolled:h-[calc(88px+env(safe-area-inset-top))];
+    @apply min-[600px]:in-data-catalog-scrolled:fixed min-[600px]:in-data-catalog-scrolled:inset-x-0 min-[600px]:in-data-catalog-scrolled:top-0 min-[600px]:in-data-catalog-scrolled:z-41 min-[600px]:in-data-catalog-scrolled:max-w-none! min-[600px]:in-data-catalog-scrolled:border-b min-[600px]:in-data-catalog-scrolled:border-border min-[600px]:in-data-catalog-scrolled:bg-white min-[600px]:in-data-catalog-scrolled:px-[max(15px,calc((100vw-1320px)/2),env(safe-area-inset-left),env(safe-area-inset-right))]! min-[600px]:in-data-catalog-scrolled:pt-[calc(24px+env(safe-area-inset-top))] min-[600px]:in-data-catalog-scrolled:h-[calc(88px+env(safe-area-inset-top))];
   }
   .site-header-nav {
     @apply relative mx-auto flex h-[42px] min-h-[42px] w-full max-w-[1350px] items-center gap-7 px-[15px] pt-0 pb-[14px] text-sm font-medium whitespace-nowrap max-[1358px]:gap-6 max-[1280px]:gap-5 max-[1180px]:gap-4 max-[1180px]:text-[13px] scroll-px-[15px];
@@ -76,6 +88,32 @@
   /* Checkout footer links. */
   .checkout-footer-link { @apply block py-[5px] text-[13px] leading-[22px] text-muted-foreground [overflow-wrap:anywhere] hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:py-2.5; }
   .checkout-footer-category { @apply text-muted-foreground hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:py-2; }
+}
+
+/* ProductFitment's engine rows. Unlayered like the utilities they replace had to win: ui/table's cells set their own
+   padding and alignment as utilities, which a components-layer rule would not override. */
+.fitment-row { @apply [&>td]:border-t [&>td]:border-border [&>td]:px-4 [&>td]:py-3.5 [&>td]:align-top [&_small]:mt-1 [&_small]:block [&_small]:text-[11px] [&_small]:text-muted-foreground; }
+
+@layer components {
+  /* Home page (#967): the product card, the make, manufacturer and category tiles, repeated dozens of times. */
+  .home-card { @apply flex min-h-[360px] min-w-0 flex-col text-foreground max-md:min-h-80 max-[37.5rem]:min-h-[300px]; }
+  .home-card-image { @apply flex h-[210px] shrink-0 items-start justify-center pb-[30px] max-md:h-[190px] max-md:pb-5 max-[37.5rem]:h-[170px]; }
+  .home-card-img { @apply size-[180px] max-w-full object-contain max-md:size-[170px] max-[37.5rem]:size-[150px]; }
+  .home-card-text { @apply min-h-[84.5px] max-md:min-h-[78px]; }
+  .home-card-category { @apply mb-[5px] block truncate text-[13px] leading-[19.5px] text-muted-foreground; }
+  .home-card-title { @apply line-clamp-3 text-sm leading-5 font-medium text-foreground hover:text-primary max-md:text-[13px] max-md:leading-[18px]; }
+  .home-card-price { @apply mt-2 min-h-[42px]; }
+  .home-card-note { @apply text-[13px] leading-5 text-muted-foreground; }
+  .home-card-note-link { @apply hover:text-primary; }
+  .home-card-amount { @apply block text-base leading-[21px] font-medium; }
+  .home-card-regular { @apply block text-[13px] leading-[18px] text-muted-foreground; }
+  .home-card-tax { @apply block text-[13px] leading-[21px] text-muted-foreground; }
+  .home-make-tile { @apply flex h-[88px] min-w-0 flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary; }
+  .home-brand-tile { @apply flex h-[70px] min-w-0 items-center justify-center bg-white px-[7px] text-center text-sm leading-[18px] font-medium text-foreground hover:bg-[#f8f9f9] hover:text-primary max-md:px-2 max-md:text-[13px]; }
+  .home-brand-logo { @apply h-[50px] w-[120px] max-w-full object-contain; }
+  .home-category-tile { @apply flex h-[180px] flex-col items-center justify-center rounded-[4px] border border-[#dfe3e8] bg-white p-6 text-center text-foreground hover:border-brand hover:text-brand max-md:h-40 max-md:px-2 max-md:py-3.5; }
+  .home-category-tile-image { @apply grid h-[90px] w-[135px] max-w-full shrink-0 place-items-center; }
+  .home-category-tile-name { @apply flex h-10 w-full items-center justify-center overflow-hidden text-sm leading-[18px] font-medium; }
 }
 
 /* iOS Safari zooms the page when a focused field is under 16px (#879). Unlayered so it beats size utilities; scoped like the storefront typography defaults, so /yonetim (.admin-app, portals included) keeps its sizes. */

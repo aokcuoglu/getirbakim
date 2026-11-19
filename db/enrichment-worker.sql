@@ -7,7 +7,12 @@ CREATE TABLE IF NOT EXISTS enrichment_runs (
 );
 -- Product runs enrich supplier items; vehicle_oil runs read Trodo's engine-oil data per vehicle type (scripts/vehicle-oil-trodo.ts).
 -- Only product runs are picked up by the product worker.
-ALTER TABLE enrichment_runs ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'products' CHECK(kind IN ('products','vehicle_oil'));
+-- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_runs'::regclass AND attname='kind' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_runs ADD COLUMN kind text NOT NULL DEFAULT 'products' CHECK(kind IN ('products','vehicle_oil'));
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS enrichment_run_items (
  run_id uuid NOT NULL REFERENCES enrichment_runs(id),
  supplier_item_id uuid NOT NULL REFERENCES supplier_items(id), ordinal integer NOT NULL,
@@ -18,20 +23,36 @@ CREATE TABLE IF NOT EXISTS enrichment_run_items (
  last_error text, started_at timestamptz, finished_at timestamptz,
  PRIMARY KEY(run_id,supplier_item_id), UNIQUE(run_id,ordinal)
 );
-CREATE INDEX IF NOT EXISTS enrichment_run_items_queue_idx ON enrichment_run_items(run_id,status,ordinal);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_run_items'::regclass AND c.relname='enrichment_run_items_queue_idx') THEN
+  CREATE INDEX enrichment_run_items_queue_idx ON enrichment_run_items(run_id,status,ordinal);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS enrichment_source_hosts (
  host text PRIMARY KEY CHECK(host IN ('www.trodo.com','picdn.trodo.com')),
  interval_ms integer NOT NULL DEFAULT 2500 CHECK(interval_ms>=2500),
  next_allowed_at timestamptz NOT NULL DEFAULT now(),
  blocked boolean NOT NULL DEFAULT false,last_error text
 );
-ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS challenge_since timestamptz;
-ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS challenges integer NOT NULL DEFAULT 0;
--- Pacing that avoids a perfectly regular, round-the-clock rhythm: a random extra delay on each request and an
--- optional nightly window (Europe/Istanbul hours, may cross midnight) in which nothing is requested.
-ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS jitter_ms integer NOT NULL DEFAULT 0 CHECK(jitter_ms BETWEEN 0 AND 600000);
-ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS quiet_start_hour smallint CHECK(quiet_start_hour BETWEEN 0 AND 23);
-ALTER TABLE enrichment_source_hosts ADD COLUMN IF NOT EXISTS quiet_end_hour smallint CHECK(quiet_end_hour BETWEEN 0 AND 23);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_hosts'::regclass AND attname='challenge_since' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_source_hosts ADD COLUMN challenge_since timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_hosts'::regclass AND attname='challenges' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_source_hosts ADD COLUMN challenges integer NOT NULL DEFAULT 0;
+ END IF;
+ -- Pacing that avoids a perfectly regular, round-the-clock rhythm: a random extra delay on each request and an
+ -- optional nightly window (Europe/Istanbul hours, may cross midnight) in which nothing is requested.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_hosts'::regclass AND attname='jitter_ms' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_source_hosts ADD COLUMN jitter_ms integer NOT NULL DEFAULT 0 CHECK(jitter_ms BETWEEN 0 AND 600000);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_hosts'::regclass AND attname='quiet_start_hour' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_source_hosts ADD COLUMN quiet_start_hour smallint CHECK(quiet_start_hour BETWEEN 0 AND 23);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_hosts'::regclass AND attname='quiet_end_hour' AND NOT attisdropped) THEN
+  ALTER TABLE enrichment_source_hosts ADD COLUMN quiet_end_hour smallint CHECK(quiet_end_hour BETWEEN 0 AND 23);
+ END IF;
+END $$;
 INSERT INTO enrichment_source_hosts(host) VALUES('www.trodo.com'),('picdn.trodo.com') ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS enrichment_source_cache (
  host text NOT NULL,path text NOT NULL,body jsonb NOT NULL,fetched_at timestamptz NOT NULL DEFAULT now(),
@@ -47,7 +68,11 @@ CREATE TABLE IF NOT EXISTS enrichment_source_requests (
  created_at timestamptz NOT NULL DEFAULT now(),finished_at timestamptz,
  UNIQUE(run_id,host,path)
 );
-CREATE INDEX IF NOT EXISTS enrichment_source_requests_queue_idx ON enrichment_source_requests(host,status,available_at);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_source_requests'::regclass AND c.relname='enrichment_source_requests_queue_idx') THEN
+  CREATE INDEX enrichment_source_requests_queue_idx ON enrichment_source_requests(host,status,available_at);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS enrichment_request_events (
  id bigserial PRIMARY KEY,run_id uuid NOT NULL REFERENCES enrichment_runs(id),request_id uuid REFERENCES enrichment_source_requests(id),
  host text NOT NULL,path text NOT NULL,http_status integer,elapsed_ms integer NOT NULL DEFAULT 0,
@@ -58,11 +83,18 @@ CREATE TABLE IF NOT EXISTS vehicle_catalog_revision(id boolean PRIMARY KEY DEFAU
 INSERT INTO vehicle_catalog_revision(id) VALUES(true) ON CONFLICT DO NOTHING;
 CREATE OR REPLACE FUNCTION bump_vehicle_catalog_revision() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN UPDATE vehicle_catalog_revision SET revision=revision+1 WHERE id=true; RETURN NULL; END $$;
+-- Created only when missing: CREATE [OR REPLACE] TRIGGER locks the table against writers (SHARE ROW EXCLUSIVE) until setup
+-- commits. A changed function body needs only its CREATE OR REPLACE FUNCTION; a changed trigger definition needs a
+-- DROP TRIGGER in the same change. Looked up per table (tgrelid): a same-named trigger in another schema does not count.
 DO $$ BEGIN
- IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgname='vehicle_brands_revision') THEN
- CREATE TRIGGER vehicle_brands_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_brands FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
- CREATE TRIGGER vehicle_models_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_models FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
- CREATE TRIGGER vehicle_types_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_types FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_brands'::regclass AND tgname='vehicle_brands_revision') THEN
+  CREATE TRIGGER vehicle_brands_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_brands FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_models'::regclass AND tgname='vehicle_models_revision') THEN
+  CREATE TRIGGER vehicle_models_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_models FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='vehicle_types'::regclass AND tgname='vehicle_types_revision') THEN
+  CREATE TRIGGER vehicle_types_revision AFTER INSERT OR UPDATE OR DELETE OR TRUNCATE ON vehicle_types FOR EACH STATEMENT EXECUTE FUNCTION bump_vehicle_catalog_revision();
  END IF;
 END $$;
 -- One row per product a fallback source searched (otoparcasan.com, spareto.com); the admin page reads their progress
@@ -73,12 +105,33 @@ CREATE TABLE IF NOT EXISTS enrichment_source_attempts (
  queue text CHECK(queue IN ('pending','not_found','review','partial')), supplier_item_id uuid NOT NULL,
  outcome text NOT NULL CHECK(outcome IN ('found','not_found','error','blocked')), attempted_at timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE enrichment_source_attempts ALTER COLUMN queue DROP NOT NULL;
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='enrichment_source_attempts'::regclass AND attname='queue' AND attnotnull) THEN
+  ALTER TABLE enrichment_source_attempts ALTER COLUMN queue DROP NOT NULL;
+ END IF;
+END $$;
 -- spareto re-collects its own partial products (queue 'partial').
-ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_queue_check;
-ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial'));
-CREATE INDEX IF NOT EXISTS enrichment_source_attempts_recent_idx ON enrichment_source_attempts(source,attempted_at);
-CREATE INDEX IF NOT EXISTS enrichment_source_attempts_item_idx ON enrichment_source_attempts(supplier_item_id);
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='enrichment_source_attempts'::regclass AND k.conname='enrichment_source_attempts_queue_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['pending','not_found','review','partial'] THEN
+  ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_queue_check;
+  ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial'));
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_source_attempts'::regclass AND c.relname='enrichment_source_attempts_recent_idx') THEN
+  CREATE INDEX enrichment_source_attempts_recent_idx ON enrichment_source_attempts(source,attempted_at);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_source_attempts'::regclass AND c.relname='enrichment_source_attempts_item_idx') THEN
+  CREATE INDEX enrichment_source_attempts_item_idx ON enrichment_source_attempts(supplier_item_id);
+ END IF;
+END $$;
 -- Every Trodo search lists ~10 products, often exact parts of other pending items. They are kept by part number so a
 -- later item opens its product page directly instead of spending its own rate-limited search (#376). The keys follow
 -- partKey()/manufacturerBrandKey() in enrichment-contract.ts; the SQL functions only order batches, identity is always
@@ -114,11 +167,28 @@ CREATE TABLE IF NOT EXISTS parts2world_job_articles (
 -- OE numbers of archived articles with vehicles (#394), loaded by `parts2world-enrichment.ts index-oems`: an original-part
 -- row (OE-PSA, OE-OPEL…) is reached through an aftermarket article that lists its number. Keys are upper-case A–Z0–9.
 CREATE TABLE IF NOT EXISTS parts2world_article_oems (oem_key text NOT NULL, link_id bigint NOT NULL, PRIMARY KEY(oem_key,link_id));
-CREATE INDEX IF NOT EXISTS parts2world_articles_link_idx ON parts2world_articles(link_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='parts2world_articles'::regclass AND c.relname='parts2world_articles_link_idx') THEN
+  CREATE INDEX parts2world_articles_link_idx ON parts2world_articles(link_id);
+ END IF;
+END $$;
 -- The OE number a job was matched through; NULL for a brand/part match.
-ALTER TABLE parts2world_job_articles ADD COLUMN IF NOT EXISTS oem_reference text;
-ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_source_check;
-ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_source_check CHECK(source IN ('otoparcasan','spareto','parts2world'));
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='parts2world_job_articles'::regclass AND attname='oem_reference' AND NOT attisdropped) THEN
+  ALTER TABLE parts2world_job_articles ADD COLUMN oem_reference text;
+ END IF;
+END $$;
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
+-- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='enrichment_source_attempts'::regclass AND k.conname='enrichment_source_attempts_source_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['otoparcasan','spareto','parts2world'] THEN
+  ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_source_check;
+  ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_source_check CHECK(source IN ('otoparcasan','spareto','parts2world'));
+ END IF;
+END $$;
 -- One row per fallback-source run over a fixed queue (#403); the admin page counts its progress from the source's
 -- attempts since started_at. A run that ends without closing (process killed) is closed as stopped by the next one.
 CREATE TABLE IF NOT EXISTS enrichment_source_runs (
@@ -126,4 +196,8 @@ CREATE TABLE IF NOT EXISTS enrichment_source_runs (
  started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz,
  outcome text CHECK(outcome IN ('complete','blocked','stopped','failed'))
 );
-CREATE INDEX IF NOT EXISTS enrichment_source_runs_latest_idx ON enrichment_source_runs(source,started_at DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_source_runs'::regclass AND c.relname='enrichment_source_runs_latest_idx') THEN
+  CREATE INDEX enrichment_source_runs_latest_idx ON enrichment_source_runs(source,started_at DESC);
+ END IF;
+END $$;

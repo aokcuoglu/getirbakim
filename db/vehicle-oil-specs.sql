@@ -14,10 +14,18 @@ CREATE TABLE IF NOT EXISTS vehicle_type_oil_specs (
  updated_at timestamptz NOT NULL DEFAULT now(),
  CHECK (capacity_max_l >= capacity_min_l)
 );
--- Tables created when every row needed a grade and a capacity.
-ALTER TABLE vehicle_type_oil_specs DROP CONSTRAINT IF EXISTS vehicle_type_oil_specs_viscosities_check;
-ALTER TABLE vehicle_type_oil_specs ALTER COLUMN viscosities SET DEFAULT '{}', ALTER COLUMN capacity_min_l DROP NOT NULL,
- ALTER COLUMN capacity_max_l DROP NOT NULL;
+-- Tables created when every row needed a grade and a capacity. Changed only when still in that shape: these ALTERs lock
+-- the table (ACCESS EXCLUSIVE) until setup commits even as no-ops.
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='vehicle_type_oil_specs'::regclass AND conname='vehicle_type_oil_specs_viscosities_check') THEN
+  ALTER TABLE vehicle_type_oil_specs DROP CONSTRAINT vehicle_type_oil_specs_viscosities_check;
+ END IF;
+ IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='vehicle_type_oil_specs'::regclass AND NOT attisdropped
+  AND ((attname IN ('capacity_min_l','capacity_max_l') AND attnotnull) OR (attname='viscosities' AND NOT atthasdef))) THEN
+  ALTER TABLE vehicle_type_oil_specs ALTER COLUMN viscosities SET DEFAULT '{}', ALTER COLUMN capacity_min_l DROP NOT NULL,
+   ALTER COLUMN capacity_max_l DROP NOT NULL;
+ END IF;
+END $$;
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='vehicle_type_oil_specs'::regclass AND conname='vehicle_type_oil_specs_capacity_pair') THEN
   ALTER TABLE vehicle_type_oil_specs ADD CONSTRAINT vehicle_type_oil_specs_capacity_pair CHECK ((capacity_min_l IS NULL) = (capacity_max_l IS NULL));

@@ -3,10 +3,10 @@ import { normalizeSearchText, parseSearchQuery, searchTooShort } from "@/modules
 import type { SearchMode } from "@/modules/search/sql";
 import { getStoreCategories } from "./categories";
 import { suggestProducts, type VehicleSearchScope } from "./catalog";
-import { categoryPath, searchPath } from "@/modules/seo/paths";
+import { categoryPath } from "@/modules/seo/paths";
 import { productPath } from "@/modules/seo/product-path";
-import { foldText, readableProductName, shownProductName } from "./product-name";
-import { isEnglishTypeName, turkishTypeName } from "./suggestion-names";
+import { shownProductName } from "./product-name";
+import { mergeNameSuggestions } from "./name-suggestions";
 
 export type SearchSuggestions = {
   categories: { name: string; href: string }[];
@@ -38,20 +38,13 @@ export async function searchSuggestions(raw: string, mode: SearchMode): Promise<
 
 type Found = Awaited<ReturnType<typeof suggestProducts>>["products"];
 
-/** Products as suggestions; name suggestions get a Turkish label, English ones without a translation drop, repeated labels keep the first. */
+/** Products as suggestions after the name suggestions (mergeNameSuggestions). */
 function suggestedProducts(found: Found): SearchSuggestions["products"] {
-  const seen = new Set<string>();
-  const result: SearchSuggestions["products"] = [];
-  for (const product of found) {
-    if (product.kind === "product") {
-      const name = product.name_overridden ? product.name : (turkishTypeName(product.name) ?? shownProductName(product));
-      result.push({ name, detail: `${product.brand} · ${product.code}`, href: productPath({ id: product.id, name: product.name, name_overridden: product.name_overridden, display_brand: product.brand, display_code: product.code }) });
-      continue;
-    }
-    const label = turkishTypeName(product.name) ?? (isEnglishTypeName(product.name) ? null : readableProductName(product.name));
-    if (label === null || seen.has(foldText(label))) continue;
-    seen.add(foldText(label));
-    result.push({ name: label, detail: `${product.products.toLocaleString("tr-TR")} ürün`, href: searchPath({ q: product.name.toLocaleLowerCase("tr") }) });
-  }
-  return result;
+  const names = mergeNameSuggestions(found.flatMap(item => (item.kind === "name" ? [item] : [])), 6);
+  const products = found.flatMap(item => (item.kind === "product" ? [item] : [])).map(product => ({
+    name: shownProductName(product),
+    detail: `${product.brand} · ${product.code}`,
+    href: productPath({ id: product.id, name: product.name, name_overridden: product.name_overridden, display_brand: product.brand, display_code: product.code }),
+  }));
+  return [...names, ...products].slice(0, 6);
 }

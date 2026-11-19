@@ -1,4 +1,4 @@
-import { BadgePercent, BellRing, Building2, Droplets, GitCompareArrows, LayoutDashboard, Layers3, Package, PlugZap, ReceiptText, Search, type LucideIcon } from "lucide-react";
+import { BadgePercent, BellRing, Building2, Droplets, GitCompareArrows, Handshake, LayoutDashboard, Layers3, Package, PlugZap, ReceiptText, Search, type LucideIcon } from "lucide-react";
 
 export type AdminNavStatus = {
   orders: number; services: number; enrichment: number; brands: number;
@@ -20,6 +20,7 @@ export const adminSections: { title: string; items: AdminRoute[] }[] = [
   { title: "Satış", items: [
     { href: "/yonetim/siparisler", label: "Siparişler", icon: ReceiptText, count: "orders" },
     { href: "/yonetim/servisler", label: "B2B servisler", icon: Building2, count: "services" },
+    { href: "/yonetim/partnerler", label: "Partnerler", icon: Handshake },
     { href: "/yonetim/stok-bildirimleri", label: "Stok bildirimleri", icon: BellRing, count: "restock" },
     { href: "/yonetim/fiyatlandirma", label: "Fiyatlandırma", icon: BadgePercent },
   ] },

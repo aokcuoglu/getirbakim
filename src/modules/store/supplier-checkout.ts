@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { importSeta } from "@/modules/suppliers/seta-import";
 import { refreshDinamikItems } from "@/modules/suppliers/dinamik-import";
 import { refreshBasbugItems } from "@/modules/suppliers/basbug-item-refresh";
-import { fallbackReason, type FallbackReason } from "@/modules/suppliers/checkout-fallback";
+import { CHECKOUT_LOCK_TIMEOUT, fallbackReason, type FallbackReason } from "@/modules/suppliers/checkout-fallback";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { catalogSql } from "./catalog";
 import { supplierCheckoutMode } from "./supplier-checkout-policy";
@@ -19,6 +19,11 @@ export async function checkoutItems(owner:CartOwner, connection:Pick<PoolClient,
     WHERE c.owner_kind=$1 AND c.owner_id=$2 AND i.supplier IN ('basbug','seta','dinamik') ORDER BY i.id`,
     [owner.kind,owner.id])).rows;
 }
+/** The live-checked supplier rows among `ids` in id order (partner orders, #426, which have no cart). */
+export async function checkoutItemsOf(ids:string[], connection:Pick<PoolClient,"query">=db) {
+  return (await connection.query<CheckoutItem>(`SELECT id::text AS id,supplier FROM supplier_items
+    WHERE id=ANY($1::uuid[]) AND supplier IN ('basbug','seta','dinamik') ORDER BY id`, [ids])).rows;
+}
 /**
  * Live mode re-reads the cart's supplier lines before the order. A line the supplier could not confirm comes back in
  * `unverified` with the reason: the order sells it on its saved data (only while that is still fresh) and marks it.
@@ -30,7 +35,14 @@ export async function checkoutItems(owner:CartOwner, connection:Pick<PoolClient,
  * on saved data, marked "busy". SETA's list import has no such case.
  */
 export async function refreshCheckoutSources(owner:CartOwner) {
-  const cart = await checkoutItems(owner);
+  return refreshSupplierLines(await checkoutItems(owner));
+}
+export type SupplierLineRefresh = Awaited<ReturnType<typeof refreshSupplierLines>>;
+/**
+ * refreshCheckoutSources for an explicit list of supplier lines (checkoutItems / checkoutItemsOf): the storefront's cart
+ * and a partner order (#426) share the same live check, fallbacks and markers.
+ */
+export async function refreshSupplierLines(cart:CheckoutItem[]) {
   const mode = await supplierCheckoutMode();
   const unverified: Record<string,FallbackReason> = {};
   const gone: string[] = [], soldOut: string[] = [];
@@ -59,6 +71,39 @@ export async function refreshCheckoutSources(owner:CartOwner) {
       for (const id of ids(supplier)) unverified[id] ??= fallbackReason(reason);
   }
   return { items: cart.map(item => item.id), mode, unverified, gone, soldOut, recosted };
+}
+
+/**
+ * Locks an order's sources inside its transaction (#790): store products FOR UPDATE (their stock is reserved), supplier
+ * rows FOR SHARE while prices are checked. A supplier list import updates every row in its scope and holds them until it
+ * commits: the order waits at most CHECKOUT_LOCK_TIMEOUT, then goes on without the share lock and reads the rows as
+ * committed before the import. The caller's quote/price check still refuses a changed price; lock_timeout is reset so
+ * later writes wait normally. `label` names the order in the warning.
+ */
+export async function lockCheckoutSources(client:PoolClient, ids:string[], label:string) {
+  await client.query("SELECT id FROM store_products WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE",[ids]);
+  await client.query("SAVEPOINT supplier_rows");
+  await client.query(CHECKOUT_LOCK_TIMEOUT);
+  try {
+    await client.query("SELECT id FROM supplier_items WHERE id=ANY($1::uuid[]) ORDER BY id FOR SHARE",[ids]);
+    await client.query("RELEASE SAVEPOINT supplier_rows");
+  } catch(error) {
+    if((error as {code?:unknown}).code!=="55P03") throw error;
+    await client.query("ROLLBACK TO SAVEPOINT supplier_rows");
+    console.warn(`Order: supplier rows locked by an import, continuing with committed data (${label})`);
+  }
+  await client.query("SET LOCAL lock_timeout = 0");
+}
+
+/**
+ * An order line's pricing snapshot with the live-check outcome (#763, #861): a line the supplier could not confirm live
+ * is sold on its saved data and marked for operations; a live cost that could not be saved is recorded as live_check_nf.
+ */
+export function checkedLineSnapshot(snapshot:Record<string,unknown>, refreshed:Pick<SupplierLineRefresh,"unverified"|"recosted">, id:string, extra:Record<string,unknown>={}) {
+  const liveNf=refreshed.recosted[id];
+  const reason=refreshed.unverified[id] ?? (liveNf!==undefined ? "busy" : undefined);
+  return {...snapshot,...extra,...(reason ? {checkout_mode:"snapshot",live_check:"failed",live_check_reason:reason} : {}),
+    ...(liveNf!==undefined ? {live_check_nf:liveNf} : {})};
 }
 
 /** A line whose live cost could not be saved: its live `nf` (in the row's currency) and the price the order charges. */

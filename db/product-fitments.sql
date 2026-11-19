@@ -12,8 +12,12 @@ CREATE TABLE IF NOT EXISTS product_vehicle_fitments (
  PRIMARY KEY(supplier_item_id,source_index),
  CHECK ((match_status='matched') = (vehicle_type_id IS NOT NULL))
 );
-CREATE INDEX IF NOT EXISTS product_vehicle_fitments_type_idx
- ON product_vehicle_fitments(vehicle_type_id,supplier_item_id) WHERE vehicle_type_id IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_vehicle_fitments'::regclass AND c.relname='product_vehicle_fitments_type_idx') THEN
+  CREATE INDEX product_vehicle_fitments_type_idx
+   ON product_vehicle_fitments(vehicle_type_id,supplier_item_id) WHERE vehicle_type_id IS NOT NULL;
+ END IF;
+END $$;
 
 -- Model-level fitment read from the supplier's own product description (#392) for products without an engine-level
 -- TecDoc enrichment. Synced by `npm run fitment:descriptions` (unchanged rows keep derived_at, #798); it never names an engine type, so the storefront
@@ -28,4 +32,8 @@ CREATE TABLE IF NOT EXISTS product_model_fitments (
  PRIMARY KEY(supplier_item_id,model_id),
  CHECK (year_to IS NULL OR year_from IS NULL OR year_to >= year_from)
 );
-CREATE INDEX IF NOT EXISTS product_model_fitments_model_idx ON product_model_fitments(model_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_model_fitments'::regclass AND c.relname='product_model_fitments_model_idx') THEN
+  CREATE INDEX product_model_fitments_model_idx ON product_model_fitments(model_id);
+ END IF;
+END $$;
