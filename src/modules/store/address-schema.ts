@@ -40,7 +40,7 @@ export const addressInput = z.object({
 
 export type AddressInput = z.output<typeof addressInput>;
 
-const keyPart = (text: string) => text.toLocaleLowerCase("tr").replace(/[\s.,/\\-]+/g, " ").trim();
+const keyPart = (text: string) => text.toLocaleLowerCase("tr").replace(/[\s.,:'/\\-]+/g, " ").trim();
 /** Identity of an address for duplicate checks (#999): province, district and street address, compared without case or punctuation. */
 export function addressKey(address: { province: string; district: string; addressLine: string }) {
   return [address.province, address.district, address.addressLine].map(keyPart).join("|");

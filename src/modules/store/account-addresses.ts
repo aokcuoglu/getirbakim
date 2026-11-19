@@ -102,6 +102,8 @@ export async function saveCheckoutAddress(owner: { kind: string; id: string }, c
       province: checkout.province, district: checkout.district, addressLine: checkout.addressLine, postalCode: checkout.postalCode ?? "" });
     if (!candidate.success) return "skipped";
     return await transaction(async client => {
+      // The order is already placed: a stuck account lock must not hold the response; the timeout lands in the catch below.
+      await client.query("SET LOCAL lock_timeout = '2s'");
       await lockAccount(client, owner.id);
       const { rows } = await client.query<{ province: string; district: string; address_line: string }>("SELECT province,district,address_line FROM account_addresses WHERE account_id=$1", [owner.id]);
       const key = addressKey(candidate.data);

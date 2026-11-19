@@ -84,8 +84,10 @@ test("the checkout starts from the default addresses ahead of the account name a
 
 test("the address key ignores case and punctuation, with Turkish case rules", () => {
   const key = (province: string, district: string, addressLine: string) => addressKey({ province, district, addressLine });
-  assert.equal(key("İstanbul", "Kadıköy", "Moda Cad. No:1"), "istanbul|kadıköy|moda cad no:1");
+  assert.equal(key("İstanbul", "Kadıköy", "Moda Cad. No:1"), "istanbul|kadıköy|moda cad no 1");
   assert.equal(key("İSTANBUL", "KADIKÖY", "  MODA   CAD., NO:1 "), key("İstanbul", "Kadıköy", "Moda Cad. No:1"));
+  assert.equal(key("İstanbul", "Kadıköy", "Moda Cad. No:5"), key("İstanbul", "Kadıköy", "moda cad no 5"));
+  assert.equal(key("İstanbul", "Kadıköy", "Ali'nin Sok."), key("İstanbul", "Kadıköy", "ali nin sok"));
   assert.equal(key("Iğdır", "Merkez", "A-B/C"), "ığdır|merkez|a b c");
   assert.notEqual(key("Iğdır", "Merkez", "x"), key("İğdır", "Merkez", "x"));
   assert.notEqual(key("Ankara", "Çankaya", "No 1"), key("Ankara", "Çankaya", "No 2"));
@@ -268,4 +270,21 @@ test("saving the order's address is skipped for guests and invalid candidates, r
   assert.equal(await book.saveCheckoutAddress({ kind: "account", id: "not-a-uuid" }, checkout), "skipped");
   assert.equal(error.mock.callCount(), 1);
   error.mock.restore();
+});
+
+test("a stuck account lock makes the save give up within seconds instead of holding the order", async () => {
+  const holder = await schema.pool.connect();
+  const error = mock.method(console, "error", () => {});
+  try {
+    await holder.query("BEGIN");
+    await holder.query("SELECT 1 FROM accounts WHERE id=$1 FOR UPDATE", [accountId]);
+    const started = Date.now();
+    assert.equal(await book.saveCheckoutAddress({ kind: "account", id: accountId }, checkout), "skipped");
+    assert.ok(Date.now() - started < 4000);
+  } finally {
+    await holder.query("ROLLBACK");
+    holder.release();
+    error.mock.restore();
+  }
+  assert.deepEqual(await flags(accountId), []);
 });
