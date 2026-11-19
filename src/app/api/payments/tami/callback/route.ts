@@ -1,7 +1,8 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { reconcileOrderPayments, siteReturnUrl, validCallback } from "@/modules/payments/checkout";
 import { popupReturn } from "@/modules/payments/popup-return";
+import { deliverOrderEmailsSafely } from "@/modules/store/order-email";
 
 // TAMI returns the customer here (GET or form POST, without our cookies). The callback body and
 // success/fail route are not evidence of payment; the order is reconciled with a signed provider query.
@@ -14,6 +15,8 @@ async function handle(request: NextRequest) {
   if (siteReturn) return NextResponse.redirect(siteReturn, 303);
   try { await reconcileOrderPayments(order); }
   catch (error) { console.error("TAMI callback reconciliation failed", { order, error: error instanceof Error ? error.message : error }); }
+  // The confirmation email queued by a settling payment (#951) goes out after the customer is sent back.
+  after(() => deliverOrderEmailsSafely({ orderId: order }));
   return popupReturn(order, "sonuc");
 }
 export const GET = handle;
