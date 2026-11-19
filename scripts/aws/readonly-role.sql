@@ -55,7 +55,8 @@
 \setenv GETIRBAKIM_RO_VERIFIER
 \if :verifier_ok
 \else
-  \echo 'ERR: no usable password in the Keychain item getirbakim-prod-readonly (see the header of this file)'
+  \echo 'ERR: no usable password in the Keychain item getirbakim-prod-readonly, or the verifier script was not found.'
+  \echo '     Run psql from the repo root (it calls node scripts/aws/scram-verifier.mjs); see the header of this file.'
   DO $$ BEGIN RAISE EXCEPTION 'read-only password missing'; END $$;
 \endif
 

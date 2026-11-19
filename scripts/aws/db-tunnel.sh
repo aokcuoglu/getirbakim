@@ -149,7 +149,7 @@ forward() {
 
 if [[ ${OPEN_PSQL} -eq 1 ]]; then
   set -m
-  forward >/dev/null &
+  forward >/dev/null </dev/null &
   SESSION_PID=$!
   set +m
   disown "${SESSION_PID}"
