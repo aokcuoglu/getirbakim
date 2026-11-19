@@ -20,13 +20,14 @@ const customer = { kind: "guest" as const, id: randomBytes(32).toString("hex") }
 const stranger = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
 
 type Line = { product: string; quantity: number; unit: number; vat?: number };
-async function order(payment: string, lines: Line[], { paidDaysAgo = 0, shipping = 4990, status = "pending" } = {}) {
+async function order(payment: string, lines: Line[], { paidDaysAgo = 0, shipping = 4990, status = "pending", installmentFee = 0 } = {}) {
   const subtotal = lines.reduce((sum, line) => sum + line.unit * line.quantity, 0);
   const row = (await schema.pool.query<{ id: string; number: string }>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,note,
     total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,payment_status,payment_due_at,paid_at)
     VALUES($1,$2,$3,'Gizli Müşteri','secret@example.invalid','5551234567','Gizli adres 12','Gizli not',$4,$5,$6,0,$7,$8,now()+interval '30 minutes',
     CASE WHEN $8 IN ('paid','refund_required') THEN now()-make_interval(days => $9) END) RETURNING id::text,number::text`,
-  [customer.kind, customer.id, randomUUID(), subtotal + shipping, subtotal, shipping, status, payment, paidDaysAgo])).rows[0];
+  [customer.kind, customer.id, randomUUID(), subtotal + shipping + installmentFee, subtotal, shipping, status, payment, paidDaysAgo])).rows[0];
+  if (installmentFee) await schema.pool.query("UPDATE commerce_orders SET installment_count=3,installment_fee_kurus=$2 WHERE id=$1", [row.id, installmentFee]);
   for (const line of lines) {
     await schema.pool.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot)
       VALUES($1,$2::uuid,COALESCE((SELECT code FROM store_products WHERE id::text=($2::uuid)::text),'X'),'Satır adı','demo',$3,$4,$5)`, [row.id, line.product, line.quantity, line.unit,
@@ -59,6 +60,14 @@ before(async () => {
   closeDb = () => db.end();
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
+
+test("an installment fee stays out of value (#894)", async () => {
+  const placed = await order("paid", [{ product: disc, quantity: 1, unit: 10000 }], { installmentFee: 1234 });
+  const event = await claim(placed.id, [customer]);
+  assert.ok(event);
+  assert.equal(event.value, 100);
+  assert.equal(event.shipping, 49.9);
+});
 
 test("the order's customer gets the payload once; value + shipping is the order total", async () => {
   const placed = await order("paid", [{ product: disc, quantity: 2, unit: 6000 }, { product: pad, quantity: 1, unit: 3000 }]);
