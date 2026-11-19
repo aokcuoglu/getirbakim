@@ -3,10 +3,14 @@ import { Pool } from "pg";
 import { hash } from "bcryptjs";
 import { migrateSupplierSnapshots } from "../src/modules/suppliers/sync";
 import { newPasswordSchema } from "../src/modules/auth/schemas";
+import { createConcurrentIndexes } from "./setup-concurrent-indexes";
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 try {
  const { rows } = await pool.query("select current_database() as name, current_user as owner");
  if (rows[0].name !== "getirbakim" || rows[0].owner !== "getirbakim_app") throw new Error("Independent database check failed");
+ // New indexes on large write-hot tables, built without blocking writers before the schema transaction (#1046): inside it
+ // the build would hold SHARE on the table and every view lock taken before it until commit.
+ await createConcurrentIndexes(pool);
  // The schema runs while the previous release still serves traffic. Its catalog queries read views and
  // tables this transaction replaces, so a lock wait can deadlock with them (40P01) or, with lock_timeout,
  // give up (55P03) instead of stalling every reader queued behind it. Both roll back cleanly: retry.

@@ -1,11 +1,15 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
+import { TriangleAlert } from "lucide-react";
 import { adminBasbugItem } from "@/modules/admin/basbug";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { basbugWarehouses, basbugWarehouseStock } from "@/modules/suppliers/basbug-stock";
 import { Fields, SupplierProductDetail, SupplierStocks, Timestamp, sourceMoney } from "@/components/admin/supplier-product-detail";
 import { formatExact } from "@/modules/admin/format";
+import { priceAnomalySummary } from "@/components/admin/supplier-price-anomalies";
 
 const warehouseNames: Record<string, string> = { MRK: "Merkez", IZM: "İzmir" };
 const stockFlag = (value: number | undefined) => value === undefined ? null : value > 0;
@@ -25,6 +29,9 @@ export async function BasbugItemDetail({ id, modal = false }: { id: string; moda
     listHref={`/yonetim/tedarikciler/basbug?group=${encodeURIComponent(item.list_group)}`}
     description={<>{p.ac || "Ürün adı bulunamadı"} · {p.uk || "Üretici belirtilmemiş"} · {item.list_group} / {item.warehouse}</>}
     sale={sale} pricing={pricing} cost={item.price_data?.nf ?? null} sourcePriceLabel="Kaynak bayi fiyatı (NF)"
+    notice={item.anomaly?.status === "open" && <Alert variant="warning"><TriangleAlert aria-hidden="true"/>
+      <AlertTitle>Para birimi anomalisi: bu teklif fiyatlanmıyor</AlertTitle>
+      <AlertDescription>{priceAnomalySummary(item.anomaly.evidence)} Tedarikçi veriyi düzeltince ya da <Link href="/yonetim/tedarikciler#fiyat-anomalileri" className="underline underline-offset-4">tedarikçi sayfasında</Link> “Anomali değil” işaretlenince yeniden fiyatlanır.</AlertDescription></Alert>}
     noSaleMessage={item.warehouse !== "MRK" ? "Mağazada yalnız merkez depo kayıtları satışa sunulur." : undefined}
     productInfo={<Card><CardHeader><CardTitle><h2>Ürün bilgileri</h2></CardTitle><CardDescription>Model, motor ve yıl alanları kaynak metinlerdir; doğrulanmış araç uyumluluğu değildir.</CardDescription></CardHeader><CardContent>
       <Fields values={{ Üretici: p.uk, "OEM referansları": p.oe, "Model açıklaması": p.m, "Motor açıklaması": p.mo, "Yıl açıklaması": p.y, Birim: p.b }}/>
