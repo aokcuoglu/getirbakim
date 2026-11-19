@@ -17,8 +17,16 @@ CREATE TABLE IF NOT EXISTS restock_requests (
  CHECK ((status='notified')=(notified_at IS NOT NULL))
 );
 -- One open request per address and product code; asking again changes nothing.
-CREATE UNIQUE INDEX IF NOT EXISTS restock_requests_open_idx ON restock_requests(email,supplier,code) WHERE status='pending';
-CREATE INDEX IF NOT EXISTS restock_requests_status_idx ON restock_requests(status,requested_at DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='restock_requests'::regclass AND c.relname='restock_requests_open_idx') THEN
+  CREATE UNIQUE INDEX restock_requests_open_idx ON restock_requests(email,supplier,code) WHERE status='pending';
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='restock_requests'::regclass AND c.relname='restock_requests_status_idx') THEN
+  CREATE INDEX restock_requests_status_idx ON restock_requests(status,requested_at DESC);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS restock_request_attempts (
  key text PRIMARY KEY,
  attempts integer NOT NULL DEFAULT 1,

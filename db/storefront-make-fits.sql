@@ -12,7 +12,11 @@ CREATE TABLE IF NOT EXISTS storefront_make_fits (
  supplier_item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
  PRIMARY KEY (brand_id, supplier_item_id)
 );
-CREATE INDEX IF NOT EXISTS storefront_make_fits_item_idx ON storefront_make_fits(supplier_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='storefront_make_fits'::regclass AND c.relname='storefront_make_fits_item_idx') THEN
+  CREATE INDEX storefront_make_fits_item_idx ON storefront_make_fits(supplier_item_id);
+ END IF;
+END $$;
 -- Tables created before #583 point the key at product_enrichment_shared_links: moved once, found by its columns and
 -- target rather than its name. Setup runs in one transaction, so the brief ACCESS EXCLUSIVE lock on the table (and the
 -- check of its ~200k rows against supplier_items) lasts until setup commits.
@@ -33,7 +37,11 @@ CREATE TABLE IF NOT EXISTS storefront_model_fits (
  supplier_item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
  PRIMARY KEY (model_id, supplier_item_id)
 );
-CREATE INDEX IF NOT EXISTS storefront_model_fits_item_idx ON storefront_model_fits(supplier_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='storefront_model_fits'::regclass AND c.relname='storefront_model_fits_item_idx') THEN
+  CREATE INDEX storefront_model_fits_item_idx ON storefront_model_fits(supplier_item_id);
+ END IF;
+END $$;
 
 -- NULL recomputes every offer. The payload's vehicles are read once per offer (MATERIALIZED), not per fitment.
 -- EXECUTE plans each call afresh: a scoped plan is never reused for the whole catalog.

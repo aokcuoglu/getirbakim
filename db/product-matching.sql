@@ -188,8 +188,16 @@ CREATE TABLE IF NOT EXISTS product_match_items (
  supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
  supplier text NOT NULL, brand text NOT NULL, part_number text NOT NULL, name text
 );
-CREATE INDEX IF NOT EXISTS product_match_items_key_idx ON product_match_items(brand,part_number);
-CREATE INDEX IF NOT EXISTS product_match_items_part_idx ON product_match_items(part_number);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_match_items'::regclass AND c.relname='product_match_items_key_idx') THEN
+  CREATE INDEX product_match_items_key_idx ON product_match_items(brand,part_number);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_match_items'::regclass AND c.relname='product_match_items_part_idx') THEN
+  CREATE INDEX product_match_items_part_idx ON product_match_items(part_number);
+ END IF;
+END $$;
 -- Keys shared by two or more items (same supplier or not).
 CREATE TABLE IF NOT EXISTS product_match_groups (
  brand text NOT NULL, part_number text NOT NULL, members integer NOT NULL, suppliers text[] NOT NULL,
@@ -204,7 +212,11 @@ CREATE TABLE IF NOT EXISTS product_references (
  kind text NOT NULL CHECK (kind IN ('cross','oem')), brand text NOT NULL, part_number text NOT NULL,
  PRIMARY KEY (supplier_item_id,kind,brand,part_number)
 );
-CREATE INDEX IF NOT EXISTS product_references_key_idx ON product_references(brand,part_number);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_references'::regclass AND c.relname='product_references_key_idx') THEN
+  CREATE INDEX product_references_key_idx ON product_references(brand,part_number);
+ END IF;
+END $$;
 -- Reference keys (ORIJINAL + OEM number, or a competitor's brand + part number) that tie at least two different
 -- products together: items whose own key is the reference (direct) plus items that state it (referencing).
 CREATE TABLE IF NOT EXISTS product_equivalence_groups (
@@ -218,7 +230,11 @@ CREATE TABLE IF NOT EXISTS product_offers (
  item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
  primary_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS product_offers_primary_idx ON product_offers(primary_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_offers'::regclass AND c.relname='product_offers_primary_idx') THEN
+  CREATE INDEX product_offers_primary_idx ON product_offers(primary_id);
+ END IF;
+END $$;
 -- One counter bumped by every statement that changes product_offers, whatever the writer (matcher, admin decisions,
 -- supplier_items cascades) or process. App processes key their in-memory grouping (admin "Eşleşenler", #504) by it;
 -- being transactional, a new value becomes visible together with the rows that caused it. Statement-level and only
@@ -272,7 +288,11 @@ CREATE TABLE IF NOT EXISTS product_seta_references (
  seta_item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
  brand text NOT NULL, part_number text NOT NULL, PRIMARY KEY (item_id,seta_item_id)
 );
-CREATE INDEX IF NOT EXISTS product_seta_references_seta_idx ON product_seta_references(seta_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_seta_references'::regclass AND c.relname='product_seta_references_seta_idx') THEN
+  CREATE INDEX product_seta_references_seta_idx ON product_seta_references(seta_item_id);
+ END IF;
+END $$;
 -- Master catalog: one row per physical product, persistent across refreshes. Supplier rows attach through
 -- product_sources; price and stock stay on the supplier rows (the store sells the cheapest available source).
 -- Identity is (brand key, part number); variant 0 is the automatic product of that key, variants above 0 were split
@@ -376,7 +396,11 @@ DO $$ BEGIN
  END IF;
 END $$;
 -- The shared-candidate check looks for other candidates of the same Dinamik product (#543).
-CREATE INDEX IF NOT EXISTS product_match_candidates_b_idx ON product_match_candidates(product_b);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_match_candidates'::regclass AND c.relname='product_match_candidates_b_idx') THEN
+  CREATE INDEX product_match_candidates_b_idx ON product_match_candidates(product_b);
+ END IF;
+END $$;
 -- Part-type terms of a product name, for telling candidates apart whose numbers collide by chance (EL FREN TEL KLIPSI
 -- vs MOTOR SUBAP TAKIMI). Turkish letters are folded, possessive endings and position words dropped, and words cut to
 -- four letters so AYNA/AYNASI and FILTRE/FILTRESI meet; a few trade synonyms share one term (SUPAP=SUBAP,

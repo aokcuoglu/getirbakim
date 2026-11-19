@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { compressedJson } from "@/lib/compressed-json";
 import { getStorefrontProduct } from "@/modules/store/catalog";
 import { getProductFitmentGroups } from "@/modules/store/product-fitment-data.server";
 import { fitmentCacheControl } from "@/modules/store/product-fitment-view";
@@ -12,7 +13,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     const product = z.uuid().safeParse(id).success ? await getStorefrontProduct(id) : undefined;
     if (!product) return Response.json({ error: "Ürün bulunamadı." }, { status: 404, headers: { "Cache-Control": "public, max-age=60" } });
     const { v, groups } = await getProductFitmentGroups(product);
-    return Response.json({ v, groups }, { headers: { "Cache-Control": fitmentCacheControl(new URL(request.url).searchParams.get("v"), v) } });
+    return compressedJson(request, { v, groups }, { headers: { "Cache-Control": fitmentCacheControl(new URL(request.url).searchParams.get("v"), v) } });
   } catch (error) {
     console.error("Product fitments could not be loaded", error);
     return Response.json({ error: "Uyumlu araçlar yüklenemedi." }, { status: 500, headers: { "Cache-Control": "no-store" } });

@@ -23,7 +23,11 @@ CREATE TABLE IF NOT EXISTS commerce_item_overrides (
  product_id uuid NOT NULL,
  name text, description text, hidden boolean NOT NULL DEFAULT false
 );
-CREATE INDEX IF NOT EXISTS commerce_item_overrides_product_idx ON commerce_item_overrides(product_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_item_overrides'::regclass AND c.relname='commerce_item_overrides_product_idx') THEN
+  CREATE INDEX commerce_item_overrides_product_idx ON commerce_item_overrides(product_id);
+ END IF;
+END $$;
 -- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 -- Hand-set prices (#580), VAT included, in kuruş. price_kurus replaces the formula's price; sale_price_kurus sells below
 -- it between sale_from and sale_until (a NULL end is open). Neither opens a row the formula cannot price: missing cost,
@@ -475,8 +479,16 @@ CREATE TABLE IF NOT EXISTS commerce_payments (
  bank_reference text, bank_auth_code text, installment_count integer,
  created_at timestamptz NOT NULL DEFAULT now(), checked_at timestamptz, paid_at timestamptz
 );
-CREATE INDEX IF NOT EXISTS commerce_payments_order_idx ON commerce_payments(order_id,created_at DESC);
-CREATE INDEX IF NOT EXISTS commerce_payments_open_idx ON commerce_payments(checked_at NULLS FIRST) WHERE status IN ('initiated','pending');
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_payments'::regclass AND c.relname='commerce_payments_order_idx') THEN
+  CREATE INDEX commerce_payments_order_idx ON commerce_payments(order_id,created_at DESC);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_payments'::regclass AND c.relname='commerce_payments_open_idx') THEN
+  CREATE INDEX commerce_payments_open_idx ON commerce_payments(checked_at NULLS FIRST) WHERE status IN ('initiated','pending');
+ END IF;
+END $$;
 -- TAMI void/refund calls made from /yonetim (#619). One row per provider call, each with its own correlation id.
 -- A row is committed as 'requested' before TAMI is called, so a crash or a lost reply leaves evidence. 'unknown' means
 -- TAMI may have reversed the payment; it blocks a new call until a signed query or operations settles it.
@@ -494,9 +506,17 @@ CREATE TABLE IF NOT EXISTS commerce_payment_refunds (
  requested_by uuid REFERENCES accounts(id),
  requested_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz, checked_at timestamptz
 );
-CREATE UNIQUE INDEX IF NOT EXISTS commerce_payment_refunds_active_idx ON commerce_payment_refunds(payment_id)
- WHERE status IN ('requested','unknown','succeeded');
-CREATE INDEX IF NOT EXISTS commerce_payment_refunds_order_idx ON commerce_payment_refunds(order_id,requested_at);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_payment_refunds'::regclass AND c.relname='commerce_payment_refunds_active_idx') THEN
+  CREATE UNIQUE INDEX commerce_payment_refunds_active_idx ON commerce_payment_refunds(payment_id)
+    WHERE status IN ('requested','unknown','succeeded');
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_payment_refunds'::regclass AND c.relname='commerce_payment_refunds_order_idx') THEN
+  CREATE INDEX commerce_payment_refunds_order_idx ON commerce_payment_refunds(order_id,requested_at);
+ END IF;
+END $$;
 -- When the order's money went back to the customer (TAMI API or a manually recorded reference).
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='refunded_at' AND NOT attisdropped) THEN
@@ -529,7 +549,11 @@ CREATE TABLE IF NOT EXISTS commerce_returns (
  created_at timestamptz NOT NULL DEFAULT now(), created_by uuid REFERENCES accounts(id),
  FOREIGN KEY(order_id,product_id) REFERENCES commerce_order_items(order_id,product_id)
 );
-CREATE INDEX IF NOT EXISTS commerce_returns_line_idx ON commerce_returns(order_id,product_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_returns'::regclass AND c.relname='commerce_returns_line_idx') THEN
+  CREATE INDEX commerce_returns_line_idx ON commerce_returns(order_id,product_id);
+ END IF;
+END $$;
 -- Store stock actually taken for a line (#516). Cancelling or expiring an order returns exactly this and sets it to 0,
 -- so a line that a late payment could not reserve, or a second cancel, never inflates stock.
 -- NULL marks lines written by code without the column (orders before this change, or written by the previous release
@@ -722,11 +746,23 @@ CREATE TABLE IF NOT EXISTS commerce_geliver_shipments (
  requested_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz, checked_at timestamptz
 );
 -- At most one label per order that is bought or may have been bought.
-CREATE UNIQUE INDEX IF NOT EXISTS commerce_geliver_shipments_active_idx ON commerce_geliver_shipments(order_id)
- WHERE status IN ('requested','unknown','purchased');
-CREATE UNIQUE INDEX IF NOT EXISTS commerce_geliver_shipments_remote_idx ON commerce_geliver_shipments(geliver_shipment_id)
- WHERE geliver_shipment_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS commerce_geliver_shipments_order_idx ON commerce_geliver_shipments(order_id,requested_at DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_geliver_shipments'::regclass AND c.relname='commerce_geliver_shipments_active_idx') THEN
+  CREATE UNIQUE INDEX commerce_geliver_shipments_active_idx ON commerce_geliver_shipments(order_id)
+    WHERE status IN ('requested','unknown','purchased');
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_geliver_shipments'::regclass AND c.relname='commerce_geliver_shipments_remote_idx') THEN
+  CREATE UNIQUE INDEX commerce_geliver_shipments_remote_idx ON commerce_geliver_shipments(geliver_shipment_id)
+    WHERE geliver_shipment_id IS NOT NULL;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_geliver_shipments'::regclass AND c.relname='commerce_geliver_shipments_order_idx') THEN
+  CREATE INDEX commerce_geliver_shipments_order_idx ON commerce_geliver_shipments(order_id,requested_at DESC);
+ END IF;
+END $$;
 -- Partner orders (#426). A partner (BakımX) orders through /api/partner/v1 as owner_kind='partner', owner_id=<partner
 -- code from PARTNER_API_KEYS>. It pays on account: the order opens without a payment (payment_status 'on_account'), is
 -- invoiced to the partner later and never enters the TAMI payment window or its expiry. partner_fingerprint is the hash

@@ -11,7 +11,11 @@ CREATE TABLE IF NOT EXISTS manual_uploads (
  uploaded_by uuid REFERENCES accounts(id) ON DELETE SET NULL,
  created_at timestamptz NOT NULL DEFAULT now(), decided_at timestamptz
 );
-CREATE INDEX IF NOT EXISTS manual_uploads_list_idx ON manual_uploads(list_group,created_at DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='manual_uploads'::regclass AND c.relname='manual_uploads_list_idx') THEN
+  CREATE INDEX manual_uploads_list_idx ON manual_uploads(list_group,created_at DESC);
+ END IF;
+END $$;
 -- Values an admin entered on the item page. A filled cell in a later upload wins; these fill only the cells it leaves
 -- empty, so a re-upload of the same file keeps them. Keyed by list and code: the item row may be recreated.
 -- fields.bulk holds the bulk price/stock CSV's values (#832): {"price":{"list","discount","file"},"stock":{"value","file"}}.

@@ -21,9 +21,17 @@ CREATE TABLE IF NOT EXISTS product_override_specs (
  CHECK ((action='set') = (value IS NOT NULL)),
  UNIQUE (product_id,key)
 );
-CREATE INDEX IF NOT EXISTS product_override_specs_carried_idx ON product_override_specs(carried_from) WHERE carried_from IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_specs'::regclass AND c.relname='product_override_specs_carried_idx') THEN
+  CREATE INDEX product_override_specs_carried_idx ON product_override_specs(carried_from) WHERE carried_from IS NOT NULL;
+ END IF;
+END $$;
 -- The catalog's attribute filter and facets read the rows of one key.
-CREATE INDEX IF NOT EXISTS product_override_specs_key_idx ON product_override_specs(key,product_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_specs'::regclass AND c.relname='product_override_specs_key_idx') THEN
+  CREATE INDEX product_override_specs_key_idx ON product_override_specs(key,product_id);
+ END IF;
+END $$;
 
 -- "Aynı ürün" (product_merge): the kept product takes the merged product's specifications; where both have a row for
 -- the same key, the kept product's row wins. Called by the merge actions next to product_override_references_carry.
