@@ -7,16 +7,21 @@ import type { SearchMode } from "./sql";
 const retentionDays = 180;
 
 /** Counts one storefront search (first result page, #822). Never throws: a failed count must not break the page. */
-export async function recordSearch(input: { query: string; mode: SearchMode; total: number; correctedQuery?: string | null }) {
+export async function recordSearch(input: {
+  query: string; mode: SearchMode; total: number; correctedQuery?: string | null;
+  /** typeNameFirstPage of the first page (#989); null when the query names no type. */
+  typeNameFirstPage?: number | null;
+}) {
   if (searchTooShort(input.query)) return;
   const query = normalizeSearchText(input.query.slice(0, 120)).slice(0, 120);
   const corrected = input.correctedQuery ? normalizeSearchText(input.correctedQuery).slice(0, 120) : null;
   try {
-    await db.query(`INSERT INTO search_query_stats AS s (day,mode,query,searches,zero_results,last_total,corrected_query)
-      VALUES (current_date,$1,$2,1,$3,$4,$5)
+    await db.query(`INSERT INTO search_query_stats AS s (day,mode,query,searches,zero_results,last_total,corrected_query,last_type_name_first_page)
+      VALUES (current_date,$1,$2,1,$3,$4,$5,$6)
       ON CONFLICT (day,mode,query) DO UPDATE SET searches=s.searches+1,zero_results=s.zero_results+EXCLUDED.zero_results,
-       last_total=EXCLUDED.last_total,corrected_query=EXCLUDED.corrected_query,last_searched_at=now()`,
-      [input.mode, query, input.total === 0 ? 1 : 0, input.total, corrected]);
+       last_total=EXCLUDED.last_total,corrected_query=EXCLUDED.corrected_query,
+       last_type_name_first_page=EXCLUDED.last_type_name_first_page,last_searched_at=now()`,
+      [input.mode, query, input.total === 0 ? 1 : 0, input.total, corrected, input.typeNameFirstPage ?? null]);
     // About one search in 200 trims old days; the primary key starts with the day.
     if (Math.random() < 0.005) await db.query("DELETE FROM search_query_stats WHERE day < current_date - $1::int", [retentionDays]);
   } catch (error) {
@@ -30,6 +35,8 @@ export type SearchStatsPeriod = (typeof searchStatsPeriods)[number];
 export type SearchStatRow = {
   query: string; mode: SearchMode; searches: number; zero_results: number; last_total: number;
   corrected_query: string | null; last_searched_at: Date;
+  /** Of the latest search (#989); null when the query names no type. */
+  type_name_first_page: number | null;
 };
 export const searchStatsLimit = 200;
 
@@ -42,6 +49,7 @@ export async function loadSearchStats(tab: SearchStatsTab, days: SearchStatsPeri
     SELECT query, mode, sum(searches)::int AS searches, sum(zero_results)::int AS zero_results,
       (array_agg(last_total ORDER BY last_searched_at DESC))[1] AS last_total,
       (array_agg(corrected_query ORDER BY last_searched_at DESC))[1] AS corrected_query,
+      (array_agg(last_type_name_first_page ORDER BY last_searched_at DESC))[1] AS type_name_first_page,
       max(last_searched_at) AS last_searched_at
     FROM search_query_stats WHERE day > current_date - $1::int
     GROUP BY query, mode

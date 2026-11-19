@@ -23,7 +23,8 @@ export function supplierItemMatch(alias: string, parsed: ParsedSearch, bind: Bin
   const query = prefixTsQuery(parsed);
   if (mode === "all" && query) clauses.push(`to_tsvector('simple', supplier_item_search_text(${alias}.code, ${alias}.product_data)) @@ to_tsquery('simple', ${bind(query)})`);
   // English supplier names of Turkish type names ("fren diski" → BRAKE DISC, #953): separate clauses, because a <-> phrase
-  // inside the main tsquery forces a recheck of every hit (200 ms against 57 ms as an OR of index scans).
+  // inside the main tsquery forces a recheck of every hit (200 ms against 57 ms as an OR of index scans). Several type
+  // names in one query ("kapı camı" → DOOR GLASS, #989) add one such clause with the names together, not one per subset.
   if (mode === "all") for (const names of typeNameTsQueries(parsed))
     clauses.push(`to_tsvector('simple', supplier_item_search_text(${alias}.code, ${alias}.product_data)) @@ to_tsquery('simple', ${bind(names)})`);
   // Ambiguous ones ("kapak" → CAP, never ÇAP or CAP 276, #963): the word through the same index, the whole name rechecked on
@@ -146,6 +147,7 @@ export function storeProductMatch(alias: string, parsed: ParsedSearch, bind: Bin
  * words, so it ranks like the same row named "Fren Diski". Ranked at query time, so the stored documents need no
  * reindex; GREATEST, so no row ranks lower than before; only rows holding the English name pay for the second rank.
  * A fixed boost (or the best of an English-query rank) put every English-named row above every Turkish one (#969).
+ * A row named after several typed type names (DOOR GLASS for "kapı camı", #989) swaps them all at once (the first boost).
  */
 export function storedRank(alias: string, parsed: ParsedSearch, bind: Bind, queries: string) {
   const base = `catalog_search_rank_doc(${alias}.search_doc, ${alias}.search_code, ${alias}.search_oem, ${queries})`;
