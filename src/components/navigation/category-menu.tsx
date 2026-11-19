@@ -4,7 +4,7 @@ import Image from "next/image";
 import {categoryPath,type CategoryLink} from "@/modules/store/category-tree";
 import {Skeleton} from "@/components/ui/skeleton";
 import {useCategoryTree} from "./use-category-tree";
-import {useRef,useState,useEffect} from "react";
+import {useRef,useState,useEffect,type ReactNode} from "react";
 import {Menu,ChevronRight,ArrowLeft,X,Package} from "lucide-react";
 import {cn} from "@/lib/utils";
 import {lazyModule} from "@/lib/lazy-module";
@@ -19,8 +19,9 @@ const megaLink="flex min-h-9 items-center gap-1.5 px-4 pt-3 pb-0 text-xs font-me
 /**
  * The header category navigation: desktop mega menu (from 769px) and the phone/tablet category sheet.
  * The page sends only the bar's `links`; the tree comes from /api/categories on the first hover, focus or click (#642).
+ * `account` is the sheet's server-rendered account row (#1043).
  */
-export function CategoryMenu({links}:{links:CategoryLink[]}) {
+export function CategoryMenu({links,account}:{links:CategoryLink[];account:ReactNode}) {
  const tree=useCategoryTree();
  const sheet=categorySheet.useModule();
  const categories=tree.categories??[];
@@ -119,7 +120,7 @@ export function CategoryMenu({links}:{links:CategoryLink[]}) {
     </>}
    </div>
   </>}
-  {sheet&&<sheet.CategorySheet open={open} onOpenChange={next=>{if(!next)setOpen(false);}} trigger={trigger} tree={tree} links={links} selected={selected} onSelect={setSelected} onClose={close}/>}
+  {sheet&&<sheet.CategorySheet open={open} onOpenChange={next=>{if(!next)setOpen(false);}} trigger={trigger} tree={tree} links={links} account={account} selected={selected} onSelect={setSelected} onClose={close}/>}
  </div>{links.map(category=>category.hasChildren
   ?<button data-category-trigger className={cn(reset,navItem)} key={category.id} type="button" aria-busy={open&&!sheet&&selected===category.id?true:undefined} aria-expanded={desktop?.rootId===category.id||(open&&(selected===category.id||path.some(c=>c.id===category.id)))} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={intent} onFocus={intent} onClick={event=>show(category.id,event.currentTarget)}>{category.name}</button>
   :<Link className={navItem} key={category.id} href={categoryHref(category.slug)}>{category.name}</Link>)}</>;

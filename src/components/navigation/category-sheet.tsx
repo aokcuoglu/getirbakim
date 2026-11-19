@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
-import {useRef,type RefObject} from "react";
+import {useRef,type ReactNode,type RefObject} from "react";
 import {Dialog as SheetPrimitive} from "@base-ui/react/dialog";
-import {Menu,ChevronRight,ArrowLeft,X,UserRound,Info,Mail,Package} from "lucide-react";
+import {Menu,ChevronRight,ArrowLeft,X,Info,Mail,Package} from "lucide-react";
 import {Sheet,SheetClose,SheetTitle} from "@/components/ui/sheet";
 import {DialogOverlay as SheetOverlay,DialogPortal as SheetPortal} from "@/components/ui/dialog";
 import {categoryPath,type CategoryLink,type StoreCategory} from "@/modules/store/category-tree";
@@ -16,13 +16,15 @@ const sheetIconButton=cn(reset,"absolute top-2.5 grid size-11 min-h-11 place-ite
 /**
  * The phone/tablet category sheet (below 769px), loaded with the first tap on a category trigger (#1017); the desktop mega
  * menu in category-menu.tsx never downloads it. `selected` (null: the catalog root) lives in the menu, which also sets aria-expanded.
+ * `account` is the server-rendered account row (sheet-account.tsx, #1043); a click on any footer link closes the sheet.
  */
-export function CategorySheet({open,onOpenChange,trigger,tree,links,selected,onSelect,onClose}:{
+export function CategorySheet({open,onOpenChange,trigger,tree,links,account,selected,onSelect,onClose}:{
  open:boolean;
  onOpenChange:(open:boolean)=>void;
  trigger:RefObject<HTMLButtonElement|null>;
  tree:ReturnType<typeof useCategoryTree>;
  links:CategoryLink[];
+ account:ReactNode;
  selected:number|null;
  onSelect:(id:number|null)=>void;
  onClose:()=>void;
@@ -59,9 +61,10 @@ export function CategorySheet({open,onOpenChange,trigger,tree,links,selected,onS
      {tree.categories?(selected!==null&&!current?<TreeStatus error={false} missing retry={tree.retry} rows={0} rowClass=""/>:children.map(row)):<TreeStatus error={tree.error} retry={tree.retry} rows={10} rowClass="min-h-[45px] py-[7px]"/>}
      {selected===null&&<Link className={cn(sheetRow,"mt-3 min-h-[52px] border-t border-border px-3 py-2.5 text-sm font-medium")} href={catalogPath} onClick={onClose}><Menu size={18}/><span>Tüm ürünler</span><ChevronRight size={14}/></Link>}
     </nav>
-    <nav className="shrink-0 border-t border-border" aria-label="Hesap ve bilgi">
-     {([["/giris",UserRound,"Giriş yap",false],["/bilgi/teslimat",Package,"Teslimat",false],["/bilgi/hakkimizda",Info,"Hakkımızda",false],["/bilgi/yardim",Info,"Yardım merkezi",false],["/iletisim",Mail,"İletişim",false]] as const).map(([href,Icon,label,more])=>
-      <Link key={href} href={href} onClick={onClose} className={cn(sheetRow,"min-h-[49px] border-b border-border px-4 py-3 text-sm font-normal")}><Icon size={15}/><span>{label}</span>{more&&<ChevronRight size={14}/>}</Link>)}
+    <nav className="shrink-0 border-t border-border" aria-label="Hesap ve bilgi" onClick={event=>{if(event.target instanceof Element&&event.target.closest("a"))onClose();}}>
+     {account}
+     {([["/bilgi/teslimat",Package,"Teslimat",false],["/bilgi/hakkimizda",Info,"Hakkımızda",false],["/bilgi/yardim",Info,"Yardım merkezi",false],["/iletisim",Mail,"İletişim",false]] as const).map(([href,Icon,label,more])=>
+      <Link key={href} href={href} className={cn(sheetRow,"min-h-[49px] border-b border-border px-4 py-3 text-sm font-normal")}><Icon size={15}/><span>{label}</span>{more&&<ChevronRight size={14}/>}</Link>)}
     </nav>
    </SheetPrimitive.Popup>
   </SheetPortal>
