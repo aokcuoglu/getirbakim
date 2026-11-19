@@ -2,6 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { z } from "zod";
 import { CONSENT_COOKIE } from "@/lib/cookie-consent";
 import { currentAccount } from "@/modules/auth/session";
@@ -13,6 +14,7 @@ import { claimRefund } from "@/modules/store/refund-event";
 import { currentOrder, currentOrderOwners } from "@/modules/store/order-read";
 import { INTERACTIVE_RECONCILE_MS, reconcileOrderPayments } from "@/modules/payments/checkout";
 import { cancelOrderByCustomer, type CustomerCancelResult } from "@/modules/store/customer-cancel";
+import { deliverOrderEmailsSafely } from "@/modules/store/order-email";
 
 /** Polled by the order page while the customer pays in TAMI's tab. */
 export async function paymentState(orderId: string) {
@@ -23,6 +25,8 @@ export async function paymentState(orderId: string) {
     // Budgeted: actions run one at a time on the client, so a slow TAMI would also hold back a cancel (#711).
     try { await reconcileOrderPayments(orderId, { minIntervalSeconds: 4, deadlineMs: INTERACTIVE_RECONCILE_MS }); }
     catch (error) { console.error("Payment polling failed", { orderId, error: error instanceof Error ? error.message : error }); }
+    // A payment settled by this poll queued the confirmation email (#951); it is sent after the reply.
+    after(() => deliverOrderEmailsSafely({ orderId }));
   }
   const order = (await currentOrder(orderId))?.order;
   return order ? `${order.status}:${order.payment_status}` : null;

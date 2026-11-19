@@ -153,12 +153,17 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     assert.equal(succeeded.status, "succeeded"); assert.equal(succeeded.bank_reference, `REF-${attempt.provider_order_id}`);
     assert.equal((await cartFor(owner)).length, 0); assert.equal(await stock(), 3);
     assert.deepEqual(await payments.startPayment(first), { error: "paid" });
+    // The settling payment queues exactly one confirmation email (#951), even with two reconcilers racing.
+    const emails = async (id: string) => (await db.query<{ kind: string; status: string }>("SELECT kind,status FROM commerce_order_emails WHERE order_id=$1", [id])).rows;
+    assert.deepEqual(await emails(first), [{ kind: "confirmation", status: "pending" }]);
 
     // A second capture for the same order is flagged for refund, never silently dropped.
     await db.query("INSERT INTO commerce_payments(order_id,provider_order_id,amount_kurus,status) VALUES($1,$2,35000,'pending')", [first, `GB2-${row.number}-2`]);
     paid.set(`GB2-${row.number}-2`, 350);
     await payments.reconcileOrderPayments(first);
     assert.match((await order(first)).payment_note, /Mükerrer ödeme/);
+    await payments.reconcileOrderPayments(first);
+    assert.deepEqual(await emails(first), [{ kind: "confirmation", status: "pending" }]);
 
     // Unanswered or forged provider replies never expire an order.
     const second = await place(1);
@@ -176,6 +181,7 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     row = await order(second);
     assert.equal(row.status, "cancelled"); assert.equal(row.payment_status, "expired"); assert.equal(await stock(), 3);
     assert.equal(await reserved(second), 0);
+    assert.deepEqual(await emails(second), []);
     assert.equal(row.cancelled_by, "expiry"); assert.ok(row.cancelled_at instanceof Date);
 
     // Late payment revives the order and takes the stock back.
@@ -188,6 +194,8 @@ test("prepaid checkout: hosted attempts, signed reconciliation, expiry, late and
     // A revived order is no longer cancelled by anyone (#607).
     assert.equal(row.cancelled_by, null); assert.equal(row.cancelled_at, null);
     assert.equal(await reserved(second), 1);
+    // A late payment that revives the order settles it, so it is confirmed too.
+    assert.deepEqual(await emails(second), [{ kind: "confirmation", status: "pending" }]);
 
     // A declined 3D attempt reads as AUTH/NOT_COMPLETED: never paid, and its spent token is not reused on retry.
     const retry = await place(1);
