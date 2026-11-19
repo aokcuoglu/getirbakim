@@ -312,8 +312,90 @@ test("invoicing releases delivered orders up to a day, once, for one partner onl
   assert.deepEqual(await limits.partnerExposure("bakimx"), { openKurus: open.totals.grossKurus, openCount: 1, uninvoicedKurus: 0, uninvoicedCount: 0, exposureKurus: open.totals.grossKurus });
 });
 
+const deliverAt = (id: string, at: string) => schema.pool.query("UPDATE commerce_orders SET status='delivered',delivered_at=$2::timestamptz WHERE id=$1", [id, at]);
+const opsAccount = async () => (await schema.pool.query<{ id: string }>(`INSERT INTO accounts(name,email,password_hash,role,approved)
+  VALUES('Operasyon',$1,'x','admin',true) RETURNING id::text`, [`ops-${randomUUID()}@example.invalid`])).rows[0].id;
+const changeRows = async (ids: string[]) => (await schema.pool.query("SELECT * FROM partner_invoice_changes WHERE order_id=ANY($1::uuid[]) ORDER BY id", [ids])).rows;
+
+test("undoing an invoiced mark (#1018) counts its orders again and can refuse the next order at the limit", async () => {
+  const one = await placeOrder("PART-A"), two = await placeOrder("PART-B");
+  await deliverAt(one.id, "2026-11-10T10:00:00Z"); await deliverAt(two.id, "2026-11-10T11:00:00Z");
+  const each = one.totals.grossKurus, admin = await opsAccount();
+  const invoiceRef = `UNDO-${randomUUID()}`;
+  assert.deepEqual(await limits.invoicePartnerOrders({ partner: "bakimx", deliveredUntil: "2026-11-10", invoiceRef, invoiceDate: "2026-11-15", adminId: admin, expected: { count: 2, totalKurus: 2 * each } }),
+    { status: "invoiced", count: 2, totalKurus: 2 * each });
+  const listed = (await limits.partnerInvoices(["bakimx"])).find(invoice => invoice.invoiceRef === invoiceRef);
+  assert.deepEqual(listed, { partner: "bakimx", invoiceRef, invoiceDate: "2026-11-15", count: 2, totalKurus: 2 * each, markedBy: "Operasyon" });
+  assert.equal((await limits.partnerExposure("bakimx")).exposureKurus, 0);
+  // A 3-order limit takes another order while the two are invoiced...
+  const limit = config({ limitKurus: 3 * each });
+  const third = (await quoteAndBody([{ code: "PART-A", quantity: 1 }])).body;
+  const open = await partnerOrders.createPartnerOrder("bakimx", randomUUID(), third, limit);
+  const undo = { partner: "bakimx", invoiceRef, invoiceDate: "2026-11-15", action: "undo" as const, reason: "Yanlış siparişler işaretlendi", adminId: admin, expected: { count: 2, totalKurus: 2 * each } };
+  assert.deepEqual(await limits.changePartnerInvoice(undo), { status: "undone", count: 2, totalKurus: 2 * each });
+  for (const id of [one.id, two.id]) {
+    const row = await orderRow(id);
+    assert.deepEqual([row.partner_invoiced_at, row.partner_invoice_ref, row.partner_invoiced_by], [null, null, null]);
+  }
+  // ...and once they count again, the placed order stays but the next one exceeds the limit.
+  assert.deepEqual(await limits.partnerExposure("bakimx"), { openKurus: each, openCount: 1, uninvoicedKurus: 2 * each, uninvoicedCount: 2, exposureKurus: 3 * each });
+  assert.equal((await orderRow(open.order.id)).status, "pending");
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), (await quoteAndBody([{ code: "PART-B", quantity: 1 }])).body, limit), refusal("CREDIT_LIMIT_EXCEEDED"));
+  const audit = await changeRows([one.id, two.id]);
+  assert.equal(audit.length, 2);
+  assert.equal(new Set(audit.map(row => row.change_id)).size, 1);
+  for (const row of audit) {
+    assert.deepEqual([row.action, row.partner_code, row.old_invoice_ref, row.old_invoiced_by, row.new_invoice_ref, row.new_invoiced_at, row.reason, row.changed_by],
+      ["undo", "bakimx", invoiceRef, admin, null, null, "Yanlış siparişler işaretlendi", admin]);
+  }
+  const history = (await limits.partnerInvoiceChanges(["bakimx"])).find(change => change.oldRef === invoiceRef);
+  assert.deepEqual(history && { ...history, changeId: undefined, changedAt: undefined },
+    { changeId: undefined, partner: "bakimx", action: "undo", oldRef: invoiceRef, oldDate: "2026-11-15", newRef: null, newDate: null, reason: "Yanlış siparişler işaretlendi", changedBy: "Operasyon", changedAt: undefined, count: 2 });
+  // A resubmitted undo finds nothing and writes nothing.
+  assert.deepEqual(await limits.changePartnerInvoice(undo), { status: "nothing" });
+  assert.equal((await changeRows([one.id, two.id])).length, 2);
+});
+
+test("correcting an invoiced mark (#1018) rewrites number and day, keeps who marked it and the exposure", async () => {
+  const one = await placeOrder("PART-A"), foreign = await placeOrder("PART-A", "other");
+  await deliverAt(one.id, "2026-11-10T10:00:00Z"); await deliverAt(foreign.id, "2026-11-10T10:00:00Z");
+  const each = one.totals.grossKurus, marker = await opsAccount(), fixer = await opsAccount();
+  const invoiceRef = `FIX-${randomUUID()}`.slice(0, 40);
+  const mark = { deliveredUntil: "2026-11-10", invoiceRef, invoiceDate: "2026-11-15", adminId: marker, expected: { count: 1, totalKurus: each } };
+  await limits.invoicePartnerOrders({ ...mark, partner: "bakimx" });
+  await limits.invoicePartnerOrders({ ...mark, partner: "other" });
+  const before = await limits.partnerExposure("bakimx");
+  const correct = { partner: "bakimx", invoiceRef, invoiceDate: "2026-11-15", action: "correct" as const, newInvoiceRef: `${invoiceRef}-2`, newInvoiceDate: "2026-11-16",
+    reason: "Fatura no yanlış yazıldı", adminId: fixer, expected: { count: 1, totalKurus: each } };
+  // What the dialog showed must still hold; identical values change nothing. Neither writes an audit row.
+  assert.deepEqual(await limits.changePartnerInvoice({ ...correct, expected: { count: 2, totalKurus: each } }), { status: "changed" });
+  assert.deepEqual(await limits.changePartnerInvoice({ ...correct, expected: { count: 1, totalKurus: each + 1 } }), { status: "changed" });
+  assert.deepEqual(await limits.changePartnerInvoice({ ...correct, newInvoiceRef: invoiceRef, newInvoiceDate: "2026-11-15" }), { status: "same" });
+  // The wrong day names no invoice.
+  assert.deepEqual(await limits.changePartnerInvoice({ ...correct, invoiceDate: "2026-11-14" }), { status: "nothing" });
+  assert.equal((await changeRows([one.id, foreign.id])).length, 0);
+  assert.deepEqual(await limits.changePartnerInvoice(correct), { status: "corrected", count: 1, totalKurus: each });
+  const row = await orderRow(one.id);
+  assert.deepEqual([row.partner_invoice_ref, row.partner_invoiced_by], [`${invoiceRef}-2`, marker]);
+  assert.equal((await schema.pool.query("SELECT ($1::timestamptz AT TIME ZONE 'Europe/Istanbul')::text AS at", [row.partner_invoiced_at])).rows[0].at, "2026-11-16 00:00:00");
+  assert.deepEqual(await limits.partnerExposure("bakimx"), before);
+  // The other partner's invoice with the same number is untouched.
+  assert.equal((await orderRow(foreign.id)).partner_invoice_ref, invoiceRef);
+  const [audit] = await changeRows([one.id, foreign.id]);
+  assert.deepEqual([audit.action, audit.order_id, audit.old_invoice_ref, audit.old_invoiced_by, audit.new_invoice_ref, audit.changed_by],
+    ["correct", one.id, invoiceRef, marker, `${invoiceRef}-2`, fixer]);
+  assert.equal((await schema.pool.query("SELECT ($1::timestamptz AT TIME ZONE 'Europe/Istanbul')::text AS old,($2::timestamptz AT TIME ZONE 'Europe/Istanbul')::text AS new",
+    [audit.old_invoiced_at, audit.new_invoiced_at])).rows.map(r => `${r.old}→${r.new}`)[0], "2026-11-15 00:00:00→2026-11-16 00:00:00");
+  const history = (await limits.partnerInvoiceChanges(["bakimx", "other"])).find(change => change.oldRef === invoiceRef);
+  assert.deepEqual(history && [history.partner, history.action, history.oldDate, history.newRef, history.newDate, history.count], ["bakimx", "correct", "2026-11-15", `${invoiceRef}-2`, "2026-11-16", 1]);
+  assert.equal((await limits.partnerInvoices(["bakimx"])).some(invoice => invoice.invoiceRef === invoiceRef), false);
+  // A short reason is refused by the table too.
+  await assert.rejects(schema.pool.query(`INSERT INTO partner_invoice_changes(change_id,order_id,partner_code,action,old_invoice_ref,old_invoiced_at,reason)
+    VALUES(gen_random_uuid(),$1,'bakimx','undo','X',now(),' abc ')`, [one.id]), (error: { code?: string }) => error.code === "23514");
+});
+
 test("admin partner input: TL limits become kuruş, dates are past Istanbul days, usage tones follow the limit", async () => {
-  const { partnerLimitInput, partnerInvoiceInput, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
+  const { partnerLimitInput, partnerInvoiceInput, partnerInvoiceChangeInput, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
   const limit = (value: string) => partnerLimitInput.safeParse({ partner: "bakimx", limit: value });
   assert.equal(limit("4500").data?.limit, 450_000);
   assert.equal(limit(" 4500,5 ").data?.limit, 450_050);
@@ -326,6 +408,16 @@ test("admin partner input: TL limits become kuruş, dates are past Istanbul days
     partner: "bakimx", deliveredUntil: "2026-11-20", invoiceRef: "GBA1", invoiceDate: "2026-11-20", expectedCount: "1", expectedTotal: "100", ...values });
   assert.equal(invoice({}).success, true);
   for (const bad of [{ deliveredUntil: "2026-11-21" }, { invoiceDate: "2026-02-30" }, { invoiceDate: "2026-13-45" }, { invoiceRef: " " }, { expectedCount: "0" }]) assert.equal(invoice(bad).success, false, JSON.stringify(bad));
+  const change = (values: Partial<Record<string, string>>) => partnerInvoiceChangeInput(now).safeParse({
+    partner: "bakimx", invoiceRef: "GBA1", invoiceDate: "2026-11-15", action: "correct", newInvoiceRef: " GBA2 ", newInvoiceDate: "2026-11-20",
+    reason: "  Fatura no yanlış  ", expectedCount: "1", expectedTotal: "100", ...values });
+  const parsed = change({});
+  assert.deepEqual(parsed.success && parsed.data.action === "correct" && [parsed.data.newInvoiceRef, parsed.data.reason], ["GBA2", "Fatura no yanlış"]);
+  assert.equal(change({ action: "undo", newInvoiceRef: undefined, newInvoiceDate: undefined }).success, true);
+  const reasonError = change({ reason: " abcd " });
+  assert.deepEqual(!reasonError.success && reasonError.error.flatten().fieldErrors.reason, ["Gerekçeyi yazın (en az 5 karakter)."]);
+  for (const bad of [{ reason: "" }, { reason: "x".repeat(501) }, { newInvoiceDate: "2026-11-21" }, { newInvoiceDate: "2026-02-30" }, { newInvoiceRef: undefined },
+    { newInvoiceRef: " " }, { action: "delete" }, { invoiceDate: "2026-02-30" }, { expectedCount: "0" }]) assert.equal(change(bad).success, false, JSON.stringify(bad));
   assert.deepEqual(limitUsage(0, null), { tone: "warning", percent: null });
   assert.deepEqual(limitUsage(7_999, 10_000), { tone: "success", percent: 79 });
   assert.deepEqual(limitUsage(8_000, 10_000), { tone: "warning", percent: 80 });

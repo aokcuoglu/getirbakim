@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { parsePartnerKeys, partnerKeysEnv } from "./auth";
@@ -9,6 +10,8 @@ import { parsePartnerKeys, partnerKeysEnv } from "./auth";
  * (gross totals, shipping included). Marking a delivered order invoiced in /yonetim/partnerler releases it; collection
  * is not tracked here. The limit is the partner's /yonetim value (partner_settings), else the PARTNER_ORDER_LIMIT_KURUS
  * fallback; with neither the partner cannot order (fail closed). Order creation and the admin page read the same SQL.
+ * A wrong mark is corrected (invoice number/date) or undone per invoice with a reason (#1018, partner_invoice_changes);
+ * an undone order counts against the limit again.
  */
 type Connection = Pick<PoolClient, "query">;
 
@@ -23,6 +26,17 @@ const uninvoicedSql = "o.status='delivered' AND o.partner_invoiced_at IS NULL";
 
 /** The Istanbul calendar day an order was delivered (orders delivered before delivered_at existed fall back to creation). */
 const deliveredDaySql = "(COALESCE(o.delivered_at,o.created_at) AT TIME ZONE 'Europe/Istanbul')::date";
+
+/** The Istanbul calendar day an order was marked invoiced (marking stores that day's Istanbul midnight). */
+const invoicedDaySql = "(o.partner_invoiced_at AT TIME ZONE 'Europe/Istanbul')::date";
+
+/**
+ * One order decision at a time per partner: order creation (the limit and Idempotency-Key check) and undoing an invoiced
+ * mark (which adds to the exposure) both hold it until their transaction ends.
+ */
+export async function lockPartnerOrders(client: Connection, partner: string) {
+  await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`partner_order:${partner}`]);
+}
 
 /** Exposure per partner for `$1::text[]` partner codes; partners without counted orders have no row. */
 export const partnerExposureSql = `SELECT o.owner_id AS partner,
@@ -124,4 +138,80 @@ export async function savePartnerOrderLimit(partner: string, limitKurus: number 
   await db.query(`INSERT INTO partner_settings(partner_code,order_limit_kurus,updated_by) VALUES($1,$2,$3)
     ON CONFLICT(partner_code) DO UPDATE SET order_limit_kurus=excluded.order_limit_kurus,updated_at=now(),updated_by=excluded.updated_by`,
   [partner, limitKurus, adminId]);
+}
+
+export type PartnerInvoice = { partner: string; invoiceRef: string; invoiceDate: string; count: number; totalKurus: number; markedBy: string | null };
+
+/** Marked invoices (partner, number, Istanbul day), newest first: the unit a mark is corrected or undone in. */
+export async function partnerInvoices(partners: string[], connection: Connection = db): Promise<PartnerInvoice[]> {
+  const { rows } = await connection.query<{ partner: string; invoice_ref: string; invoice_date: string; count: number; total_kurus: string; marked_by: string | null }>(
+    `SELECT o.owner_id AS partner,o.partner_invoice_ref AS invoice_ref,to_char(${invoicedDaySql},'YYYY-MM-DD') AS invoice_date,count(*)::int AS count,
+      sum(o.total_kurus)::text AS total_kurus,string_agg(DISTINCT COALESCE(NULLIF(a.name,''),a.email),', ') AS marked_by
+     FROM commerce_orders o LEFT JOIN accounts a ON a.id=o.partner_invoiced_by
+     WHERE o.owner_kind='partner' AND o.owner_id=ANY($1::text[]) AND o.partner_invoiced_at IS NOT NULL AND o.partner_invoice_ref IS NOT NULL
+     GROUP BY 1,2,3 ORDER BY 3 DESC,2 LIMIT 100`, [partners]);
+  return rows.map(row => ({ partner: row.partner, invoiceRef: row.invoice_ref, invoiceDate: row.invoice_date, count: row.count, totalKurus: Number(row.total_kurus), markedBy: row.marked_by }));
+}
+
+export type PartnerInvoiceChange = {
+  changeId: string; partner: string; action: "undo" | "correct"; oldRef: string; oldDate: string; newRef: string | null; newDate: string | null;
+  reason: string; changedBy: string | null; changedAt: Date; count: number;
+};
+
+/** The last corrections and undos, one row per change (its orders share change_id), newest first. */
+export async function partnerInvoiceChanges(partners: string[], connection: Connection = db): Promise<PartnerInvoiceChange[]> {
+  const day = (column: string) => `to_char((${column} AT TIME ZONE 'Europe/Istanbul')::date,'YYYY-MM-DD')`;
+  const { rows } = await connection.query<{ change_id: string; partner: string; action: "undo" | "correct"; old_ref: string; old_date: string; new_ref: string | null;
+    new_date: string | null; reason: string; changed_by: string | null; changed_at: Date; count: number }>(
+    `SELECT c.change_id::text,c.partner_code AS partner,c.action,c.old_invoice_ref AS old_ref,${day("c.old_invoiced_at")} AS old_date,
+      c.new_invoice_ref AS new_ref,${day("c.new_invoiced_at")} AS new_date,c.reason,COALESCE(NULLIF(a.name,''),a.email) AS changed_by,c.changed_at,count(*)::int AS count
+     FROM partner_invoice_changes c LEFT JOIN accounts a ON a.id=c.changed_by WHERE c.partner_code=ANY($1::text[])
+     GROUP BY 1,2,3,4,5,6,7,8,9,10 ORDER BY c.changed_at DESC,1 LIMIT 50`, [partners]);
+  return rows.map(row => ({ changeId: row.change_id, partner: row.partner, action: row.action, oldRef: row.old_ref, oldDate: row.old_date, newRef: row.new_ref,
+    newDate: row.new_date, reason: row.reason, changedBy: row.changed_by, changedAt: row.changed_at, count: row.count }));
+}
+
+export type InvoiceChangeRequest = {
+  partner: string; invoiceRef: string; invoiceDate: string; reason: string;
+  /** The admin who changes it (partner_invoice_changes.changed_by); null only in tests without an account. */
+  adminId: string | null;
+  /** What the dialog showed: anything else (the invoice changed meanwhile) is refused, nothing is written. */
+  expected: { count: number; totalKurus: number };
+} & ({ action: "undo" } | { action: "correct"; newInvoiceRef: string; newInvoiceDate: string });
+export type InvoiceChangeOutcome = { status: "undone" | "corrected"; count: number; totalKurus: number } | { status: "changed" } | { status: "nothing" } | { status: "same" };
+
+/**
+ * Corrects (new number/date, the marking admin is kept) or undoes one marked invoice of a partner, with an audit row
+ * per order. Undone orders count against the limit again; orders already placed stay, only new ones may be refused.
+ * Runs under the partner's order lock so an order being placed sees either the mark or its undo.
+ */
+export async function changePartnerInvoice(request: InvoiceChangeRequest): Promise<InvoiceChangeOutcome> {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await lockPartnerOrders(client, request.partner);
+    const { rows } = await client.query<{ id: string; total_kurus: string }>(
+      `SELECT o.id::text,o.total_kurus::text FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND o.partner_invoice_ref=$2
+       AND o.partner_invoiced_at IS NOT NULL AND ${invoicedDaySql}=$3::date ORDER BY o.id FOR UPDATE`, [request.partner, request.invoiceRef, request.invoiceDate]);
+    const totalKurus = rows.reduce((sum, row) => sum + Number(row.total_kurus), 0);
+    if (!rows.length) { await client.query("ROLLBACK"); return { status: "nothing" }; }
+    if (rows.length !== request.expected.count || totalKurus !== request.expected.totalKurus) { await client.query("ROLLBACK"); return { status: "changed" }; }
+    const correct = request.action === "correct" ? request : null;
+    if (correct && correct.newInvoiceRef === request.invoiceRef && correct.newInvoiceDate === request.invoiceDate) { await client.query("ROLLBACK"); return { status: "same" }; }
+    const ids = rows.map(row => row.id);
+    const newAt = "($3::date)::timestamp AT TIME ZONE 'Europe/Istanbul'";
+    await client.query(`INSERT INTO partner_invoice_changes(change_id,order_id,partner_code,action,old_invoice_ref,old_invoiced_at,old_invoiced_by,new_invoice_ref,new_invoiced_at,reason,changed_by)
+      SELECT $4::uuid,o.id,o.owner_id,$5,o.partner_invoice_ref,o.partner_invoiced_at,o.partner_invoiced_by,$2,${newAt},$6,$7 FROM commerce_orders o WHERE o.id=ANY($1::uuid[])`,
+    [ids, correct?.newInvoiceRef ?? null, correct?.newInvoiceDate ?? null, randomUUID(), request.action, request.reason, request.adminId]);
+    if (correct) await client.query(`UPDATE commerce_orders SET partner_invoice_ref=$2,partner_invoiced_at=${newAt} WHERE id=ANY($1::uuid[])`,
+      [ids, correct.newInvoiceRef, correct.newInvoiceDate]);
+    else await client.query("UPDATE commerce_orders SET partner_invoiced_at=NULL,partner_invoice_ref=NULL,partner_invoiced_by=NULL WHERE id=ANY($1::uuid[])", [ids]);
+    await client.query("COMMIT");
+    return { status: correct ? "corrected" : "undone", count: rows.length, totalKurus };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }

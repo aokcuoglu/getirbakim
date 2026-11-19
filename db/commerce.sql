@@ -819,3 +819,23 @@ CREATE TABLE IF NOT EXISTS partner_settings(
  updated_at timestamptz NOT NULL DEFAULT now(),
  updated_by uuid REFERENCES accounts(id)
 );
+-- Corrections of a partner invoiced mark (#1018): one row per order, the rows of one change share change_id. 'undo'
+-- clears the mark (the order counts against the partner's limit again), 'correct' rewrites the invoice number/date;
+-- the old values and the reason stay here for audit.
+CREATE TABLE IF NOT EXISTS partner_invoice_changes(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ change_id uuid NOT NULL,
+ order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
+ partner_code text NOT NULL,
+ action text NOT NULL CHECK(action IN ('undo','correct')),
+ old_invoice_ref text NOT NULL, old_invoiced_at timestamptz NOT NULL, old_invoiced_by uuid REFERENCES accounts(id),
+ new_invoice_ref text, new_invoiced_at timestamptz,
+ reason text NOT NULL CHECK(length(btrim(reason))>=5),
+ changed_by uuid REFERENCES accounts(id),
+ changed_at timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_invoice_changes'::regclass AND c.relname='partner_invoice_changes_partner_idx') THEN
+  CREATE INDEX partner_invoice_changes_partner_idx ON partner_invoice_changes(partner_code,changed_at DESC);
+ END IF;
+END $$;

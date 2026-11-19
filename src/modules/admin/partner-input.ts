@@ -32,14 +32,38 @@ const partnerCode = z.string().trim().min(1).max(100);
 
 export const partnerLimitInput = z.object({ partner: partnerCode, limit: limitTl });
 
+/** The invoice number operations type, when marking and when correcting a mark. */
+const invoiceRef = z.string().trim().min(1, "Fatura numarasını girin.").max(60, "Fatura numarası en fazla 60 karakter olabilir.");
+const expectedCount = z.coerce.number().int().min(1);
+const expectedTotal = z.coerce.number().int().min(1);
+
 export const partnerInvoiceInput = (now = new Date()) => z.object({
   partner: partnerCode,
   deliveredUntil: pastDay(now),
-  invoiceRef: z.string().trim().min(1, "Fatura numarasını girin.").max(60, "Fatura numarası en fazla 60 karakter olabilir."),
+  invoiceRef,
   invoiceDate: pastDay(now),
-  expectedCount: z.coerce.number().int().min(1),
-  expectedTotal: z.coerce.number().int().min(1),
+  expectedCount,
+  expectedTotal,
 });
+
+/**
+ * Correcting or undoing a marked invoice (#1018): the invoice is named by its current number and day; a reason is
+ * required for both, a correction also needs the new number and a past day.
+ */
+export const partnerInvoiceChangeInput = (now = new Date()) => {
+  const marked = {
+    partner: partnerCode,
+    invoiceRef: z.string().trim().min(1).max(60),
+    invoiceDate: z.string().trim().refine(validDay),
+    reason: z.string().trim().min(5, "Gerekçeyi yazın (en az 5 karakter).").max(500, "Gerekçe en fazla 500 karakter olabilir."),
+    expectedCount,
+    expectedTotal,
+  };
+  return z.discriminatedUnion("action", [
+    z.object({ action: z.literal("undo"), ...marked }),
+    z.object({ action: z.literal("correct"), ...marked, newInvoiceRef: invoiceRef, newInvoiceDate: pastDay(now) }),
+  ]);
+};
 
 /** Usage of the limit: success below 80%, warning from 80% or with no limit (missing setup), destructive at 100%. */
 export function limitUsage(exposureKurus: number, limitKurus: number | null) {
