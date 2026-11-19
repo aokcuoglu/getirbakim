@@ -2,8 +2,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/modules/auth/session";
-import { invoicePartnerOrders, knownPartners, savePartnerOrderLimit } from "@/modules/partner/limits";
-import { partnerInvoiceInput, partnerLimitInput } from "./partner-input";
+import { changePartnerInvoice, invoicePartnerOrders, knownPartners, savePartnerOrderLimit } from "@/modules/partner/limits";
+import { partnerInvoiceChangeInput, partnerInvoiceInput, partnerLimitInput } from "./partner-input";
 
 /** A partner's open-order limit (#426): a TL amount, or empty to fall back to PARTNER_ORDER_LIMIT_KURUS. */
 export async function savePartnerLimit(form: FormData) {
@@ -46,4 +46,37 @@ export async function markPartnerInvoiced(_previous: PartnerInvoiceResult, form:
   if (outcome.status === "changed") return { status: "error", message: "Siparişler bu pencere açıldıktan sonra değişti; hiçbir sipariş işaretlenmedi. Sayfayı yenileyip yeniden deneyin." };
   revalidatePath("/yonetim/siparisler");
   return { status: "success", next: `/yonetim/partnerler?invoiced=${outcome.count}&partner=${encodeURIComponent(partner)}` };
+}
+
+export type PartnerInvoiceChangeResult = {
+  status: "idle" | "success" | "error";
+  message?: string;
+  errors?: Partial<Record<"newInvoiceRef" | "newInvoiceDate" | "reason", string[]>>;
+  next?: string;
+};
+
+/**
+ * Corrects or undoes a marked partner invoice (#1018) with a reason. Refused when the invoice differs from what the
+ * dialog showed; an undone invoice's orders count against the partner's limit again.
+ */
+export async function changePartnerInvoiceMark(_previous: PartnerInvoiceChangeResult, form: FormData): Promise<PartnerInvoiceChangeResult> {
+  const admin = await requireAdmin();
+  const input = partnerInvoiceChangeInput().safeParse(Object.fromEntries(form));
+  if (!input.success) {
+    const errors: Partial<Record<string, string[]>> = input.error.flatten().fieldErrors;
+    const shown = { newInvoiceRef: errors.newInvoiceRef, newInvoiceDate: errors.newInvoiceDate, reason: errors.reason };
+    return Object.values(shown).some(Boolean) ? { status: "error", errors: shown } : { status: "error", message: "Fatura bulunamadı. Sayfayı yenileyin." };
+  }
+  const { codes } = await knownPartners();
+  if (!codes.includes(input.data.partner)) return { status: "error", message: "Partner bulunamadı. Sayfayı yenileyin." };
+  const { expectedCount, expectedTotal, ...change } = input.data;
+  const outcome = await changePartnerInvoice({ ...change, adminId: admin.id, expected: { count: expectedCount, totalKurus: expectedTotal } });
+  revalidatePath("/yonetim/partnerler");
+  if (outcome.status === "nothing") return { status: "error", message: "Bu fatura artık işaretli değil; başka biri düzeltmiş ya da geri almış olabilir. Sayfayı yenileyin." };
+  if (outcome.status === "changed") return { status: "error", message: "Fatura bu pencere açıldıktan sonra değişti; hiçbir şey değiştirilmedi. Sayfayı yenileyip yeniden deneyin." };
+  if (outcome.status === "same") return { status: "error", message: "Yeni fatura bilgisi eskisiyle aynı." };
+  if (outcome.status === "merge") return { status: "error", errors: { newInvoiceRef: ["Bu partnerin aynı numara ve tarihli başka bir faturası var; iki fatura birleşirdi. Farklı bir numara ya da tarih girin."] } };
+  revalidatePath("/yonetim/siparisler");
+  const done = outcome.status === "undone" ? "undone" : "corrected";
+  return { status: "success", next: `/yonetim/partnerler?${done}=${outcome.count}&partner=${encodeURIComponent(change.partner)}` };
 }
