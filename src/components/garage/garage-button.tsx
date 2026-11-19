@@ -24,7 +24,7 @@ const variantClass: Record<Variant, string> = {
 export function GarageButton({ vehicle, variant = "header", className }: { vehicle: ShownVehicle | null; variant?: Variant; className?: string }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  const sheet = vehicleSheet.use();
+  const sheet = vehicleSheet.useModule();
   // In the home hero the phone layout already separates the button from the search field.
   const home = useStoreRoute() === "home";
   return <>

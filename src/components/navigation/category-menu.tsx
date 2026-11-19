@@ -22,7 +22,7 @@ const megaLink="flex min-h-9 items-center gap-1.5 px-4 pt-3 pb-0 text-xs font-me
  */
 export function CategoryMenu({links}:{links:CategoryLink[]}) {
  const tree=useCategoryTree();
- const sheet=categorySheet.use();
+ const sheet=categorySheet.useModule();
  const categories=tree.categories??[];
  const [open,setOpen]=useState(false);
  const [selected,setSelected]=useState<number|null>(null);
@@ -77,7 +77,7 @@ export function CategoryMenu({links}:{links:CategoryLink[]}) {
  function intent(){tree.load();if(mobile())void categorySheet.preload();}
  function selectDesktop(id:number){setDesktop(previous=>previous?{...previous,selectedId:id}:null);}
  return <><div ref={menu} data-mega-open={desktopOpen?"":undefined} className="w-[101px] shrink-0 border-r border-input max-[1100px]:w-[60px]">
-  <button data-category-trigger type="button" aria-label="Tüm kategoriler" aria-expanded={open||desktop!==null} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={intent} onFocus={intent} onClick={event=>show(3,event.currentTarget,true)}
+  <button data-category-trigger type="button" aria-label="Tüm kategoriler" aria-expanded={open||desktop!==null} aria-busy={open&&!sheet&&selected===null?true:undefined} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={intent} onFocus={intent} onClick={event=>show(3,event.currentTarget,true)}
    className={cn(reset,"flex h-7 min-h-7 w-[76px] items-center justify-center gap-2 bg-white text-sm font-medium text-foreground hover:bg-[#f7f8fa] hover:text-brand max-[1100px]:w-11 max-[600px]:h-11 max-[600px]:min-h-11")}>
    <Menu size={18}/><span className="text-sm font-semibold max-[1100px]:hidden">Katalog</span>
   </button>
@@ -121,6 +121,6 @@ export function CategoryMenu({links}:{links:CategoryLink[]}) {
   </>}
   {sheet&&<sheet.CategorySheet open={open} onOpenChange={next=>{if(!next)setOpen(false);}} trigger={trigger} tree={tree} links={links} selected={selected} onSelect={setSelected} onClose={close}/>}
  </div>{links.map(category=>category.hasChildren
-  ?<button data-category-trigger className={cn(reset,navItem)} key={category.id} type="button" aria-expanded={desktop?.rootId===category.id||(open&&(selected===category.id||path.some(c=>c.id===category.id)))} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={intent} onFocus={intent} onClick={event=>show(category.id,event.currentTarget)}>{category.name}</button>
+  ?<button data-category-trigger className={cn(reset,navItem)} key={category.id} type="button" aria-busy={open&&!sheet&&selected===category.id?true:undefined} aria-expanded={desktop?.rootId===category.id||(open&&(selected===category.id||path.some(c=>c.id===category.id)))} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={intent} onFocus={intent} onClick={event=>show(category.id,event.currentTarget)}>{category.name}</button>
   :<Link className={navItem} key={category.id} href={categoryHref(category.slug)}>{category.name}</Link>)}</>;
 }

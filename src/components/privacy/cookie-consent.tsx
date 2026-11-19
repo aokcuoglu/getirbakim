@@ -41,9 +41,10 @@ function setSettings(open: boolean) {
 }
 
 function openCookieSettings(trigger: HTMLElement | null) {
-  preloadSettings();
   opener = trigger;
   setSettings(true);
+  // A failed download closes the panel again (focus back on the opener); the next click retries.
+  cookieSettings.preload().catch(() => closeCookieSettings());
 }
 
 /**
@@ -94,7 +95,7 @@ export function CookieBanner() {
 
 function BannerPanel({ settings, consent }: { settings: boolean; consent: Consent | null }) {
   const services = useConsentServices();
-  const fields = cookieSettings.use();
+  const fields = cookieSettings.useModule();
   const options = [
     { key: "necessary", ...optionTexts.necessary },
     { key: "analytics", title: optionTexts.analytics.title, text: services.analytics ? optionTexts.analytics.text : optionTexts.analytics.idle },

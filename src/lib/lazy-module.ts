@@ -4,7 +4,7 @@ export type LazyModule<T> = {
   /** Starts the download (once per page load); a failed one is forgotten, so the next call asks again. */
   preload: () => Promise<T>;
   /** The module once loaded, `null` before (and always on the server); re-renders the caller when it arrives. */
-  use: () => T | null;
+  useModule: () => T | null;
 };
 
 /**
@@ -36,5 +36,5 @@ export function lazyModule<T>(load: () => Promise<T>): LazyModule<T> {
   const snapshot = () => loaded;
   const serverSnapshot = () => null;
 
-  return { preload, use: () => useSyncExternalStore(subscribe, snapshot, serverSnapshot) };
+  return { preload, useModule: () => useSyncExternalStore(subscribe, snapshot, serverSnapshot) };
 }

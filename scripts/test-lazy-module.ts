@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToString } from "react-dom/server";
 import { lazyModule } from "../src/lib/lazy-module";
 
 test("loads the module once and keeps it", async () => {
@@ -46,4 +48,13 @@ test("a dropped preload that fails does not raise an unhandled rejection", async
   } finally {
     process.off("unhandledRejection", onUnhandled);
   }
+});
+
+test("useModule renders nothing on the server, even once the module is loaded", async () => {
+  const lazy = lazyModule(async () => ({ label: "panel" }));
+  const Probe = () => createElement("span", null, lazy.useModule()?.label ?? "shell");
+  assert.equal(renderToString(createElement(Probe)), "<span>shell</span>");
+  await lazy.preload();
+  // Hydration must match the server HTML, so the server snapshot stays null.
+  assert.equal(renderToString(createElement(Probe)), "<span>shell</span>");
 });
