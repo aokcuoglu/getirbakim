@@ -63,9 +63,21 @@ CREATE TABLE IF NOT EXISTS product_override_fitment_hides (
  CHECK ((kind='description_model')=(model_id IS NOT NULL)),
  CHECK ((kind='description_model')=(source_key IS NULL))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS product_override_fitment_hides_model_key ON product_override_fitment_hides(product_id,model_id) WHERE kind='description_model';
-CREATE UNIQUE INDEX IF NOT EXISTS product_override_fitment_hides_source_key ON product_override_fitment_hides(product_id,kind,md5(source_key)) WHERE source_key IS NOT NULL;
-CREATE INDEX IF NOT EXISTS product_override_fitment_hides_carried_idx ON product_override_fitment_hides(carried_from) WHERE carried_from IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitment_hides'::regclass AND c.relname='product_override_fitment_hides_model_key') THEN
+  CREATE UNIQUE INDEX product_override_fitment_hides_model_key ON product_override_fitment_hides(product_id,model_id) WHERE kind='description_model';
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitment_hides'::regclass AND c.relname='product_override_fitment_hides_source_key') THEN
+  CREATE UNIQUE INDEX product_override_fitment_hides_source_key ON product_override_fitment_hides(product_id,kind,md5(source_key)) WHERE source_key IS NOT NULL;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitment_hides'::regclass AND c.relname='product_override_fitment_hides_carried_idx') THEN
+  CREATE INDEX product_override_fitment_hides_carried_idx ON product_override_fitment_hides(carried_from) WHERE carried_from IS NOT NULL;
+ END IF;
+END $$;
 
 -- The description models the store lists (#392, #661): every reader (make and model pages, category counts, sitemaps,
 -- the index signal, the product page, related suggestions) reads this view instead of product_model_fitments. A model

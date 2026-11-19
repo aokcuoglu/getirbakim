@@ -23,7 +23,11 @@ CREATE TABLE IF NOT EXISTS enrichment_run_items (
  last_error text, started_at timestamptz, finished_at timestamptz,
  PRIMARY KEY(run_id,supplier_item_id), UNIQUE(run_id,ordinal)
 );
-CREATE INDEX IF NOT EXISTS enrichment_run_items_queue_idx ON enrichment_run_items(run_id,status,ordinal);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_run_items'::regclass AND c.relname='enrichment_run_items_queue_idx') THEN
+  CREATE INDEX enrichment_run_items_queue_idx ON enrichment_run_items(run_id,status,ordinal);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS enrichment_source_hosts (
  host text PRIMARY KEY CHECK(host IN ('www.trodo.com','picdn.trodo.com')),
  interval_ms integer NOT NULL DEFAULT 2500 CHECK(interval_ms>=2500),
@@ -64,7 +68,11 @@ CREATE TABLE IF NOT EXISTS enrichment_source_requests (
  created_at timestamptz NOT NULL DEFAULT now(),finished_at timestamptz,
  UNIQUE(run_id,host,path)
 );
-CREATE INDEX IF NOT EXISTS enrichment_source_requests_queue_idx ON enrichment_source_requests(host,status,available_at);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_source_requests'::regclass AND c.relname='enrichment_source_requests_queue_idx') THEN
+  CREATE INDEX enrichment_source_requests_queue_idx ON enrichment_source_requests(host,status,available_at);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS enrichment_request_events (
  id bigserial PRIMARY KEY,run_id uuid NOT NULL REFERENCES enrichment_runs(id),request_id uuid REFERENCES enrichment_source_requests(id),
  host text NOT NULL,path text NOT NULL,http_status integer,elapsed_ms integer NOT NULL DEFAULT 0,
@@ -114,8 +122,16 @@ DO $$ BEGIN
   ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial'));
  END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS enrichment_source_attempts_recent_idx ON enrichment_source_attempts(source,attempted_at);
-CREATE INDEX IF NOT EXISTS enrichment_source_attempts_item_idx ON enrichment_source_attempts(supplier_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_source_attempts'::regclass AND c.relname='enrichment_source_attempts_recent_idx') THEN
+  CREATE INDEX enrichment_source_attempts_recent_idx ON enrichment_source_attempts(source,attempted_at);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_source_attempts'::regclass AND c.relname='enrichment_source_attempts_item_idx') THEN
+  CREATE INDEX enrichment_source_attempts_item_idx ON enrichment_source_attempts(supplier_item_id);
+ END IF;
+END $$;
 -- Every Trodo search lists ~10 products, often exact parts of other pending items. They are kept by part number so a
 -- later item opens its product page directly instead of spending its own rate-limited search (#376). The keys follow
 -- partKey()/manufacturerBrandKey() in enrichment-contract.ts; the SQL functions only order batches, identity is always
@@ -151,7 +167,11 @@ CREATE TABLE IF NOT EXISTS parts2world_job_articles (
 -- OE numbers of archived articles with vehicles (#394), loaded by `parts2world-enrichment.ts index-oems`: an original-part
 -- row (OE-PSA, OE-OPEL…) is reached through an aftermarket article that lists its number. Keys are upper-case A–Z0–9.
 CREATE TABLE IF NOT EXISTS parts2world_article_oems (oem_key text NOT NULL, link_id bigint NOT NULL, PRIMARY KEY(oem_key,link_id));
-CREATE INDEX IF NOT EXISTS parts2world_articles_link_idx ON parts2world_articles(link_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='parts2world_articles'::regclass AND c.relname='parts2world_articles_link_idx') THEN
+  CREATE INDEX parts2world_articles_link_idx ON parts2world_articles(link_id);
+ END IF;
+END $$;
 -- The OE number a job was matched through; NULL for a brand/part match.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='parts2world_job_articles'::regclass AND attname='oem_reference' AND NOT attisdropped) THEN
@@ -176,4 +196,8 @@ CREATE TABLE IF NOT EXISTS enrichment_source_runs (
  started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz,
  outcome text CHECK(outcome IN ('complete','blocked','stopped','failed'))
 );
-CREATE INDEX IF NOT EXISTS enrichment_source_runs_latest_idx ON enrichment_source_runs(source,started_at DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_source_runs'::regclass AND c.relname='enrichment_source_runs_latest_idx') THEN
+  CREATE INDEX enrichment_source_runs_latest_idx ON enrichment_source_runs(source,started_at DESC);
+ END IF;
+END $$;

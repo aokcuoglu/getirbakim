@@ -32,4 +32,8 @@ CREATE TABLE IF NOT EXISTS product_model_fitments (
  PRIMARY KEY(supplier_item_id,model_id),
  CHECK (year_to IS NULL OR year_from IS NULL OR year_to >= year_from)
 );
-CREATE INDEX IF NOT EXISTS product_model_fitments_model_idx ON product_model_fitments(model_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_model_fitments'::regclass AND c.relname='product_model_fitments_model_idx') THEN
+  CREATE INDEX product_model_fitments_model_idx ON product_model_fitments(model_id);
+ END IF;
+END $$;

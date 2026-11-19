@@ -17,9 +17,21 @@ CREATE TABLE IF NOT EXISTS product_override_images (
  created_at timestamptz NOT NULL DEFAULT now(),
  UNIQUE (product_id,media_id)
 );
-CREATE INDEX IF NOT EXISTS product_override_images_product_idx ON product_override_images(product_id,position,id);
-CREATE INDEX IF NOT EXISTS product_override_images_media_idx ON product_override_images(media_id);
-CREATE INDEX IF NOT EXISTS product_override_images_carried_idx ON product_override_images(carried_from) WHERE carried_from IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_images'::regclass AND c.relname='product_override_images_product_idx') THEN
+  CREATE INDEX product_override_images_product_idx ON product_override_images(product_id,position,id);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_images'::regclass AND c.relname='product_override_images_media_idx') THEN
+  CREATE INDEX product_override_images_media_idx ON product_override_images(media_id);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_images'::regclass AND c.relname='product_override_images_carried_idx') THEN
+  CREATE INDEX product_override_images_carried_idx ON product_override_images(carried_from) WHERE carried_from IS NOT NULL;
+ END IF;
+END $$;
 
 -- "Otomatik görseli mağazada gizle": a row exists only while hide_automatic is true.
 CREATE TABLE IF NOT EXISTS product_override_image_settings (
@@ -30,7 +42,11 @@ CREATE TABLE IF NOT EXISTS product_override_image_settings (
  updated_by uuid REFERENCES accounts(id) ON DELETE SET NULL,
  updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS product_override_image_settings_carried_idx ON product_override_image_settings(hide_carried_from) WHERE hide_carried_from IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_image_settings'::regclass AND c.relname='product_override_image_settings_carried_idx') THEN
+  CREATE INDEX product_override_image_settings_carried_idx ON product_override_image_settings(hide_carried_from) WHERE hide_carried_from IS NOT NULL;
+ END IF;
+END $$;
 
 -- "Aynı ürün" (product_merge): the kept product takes the merged product's uploads when it has none of its own, and
 -- its hidden automatic image when it shows its own. Called by the merge actions next to product_overrides_carry; `kept`

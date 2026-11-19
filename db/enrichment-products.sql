@@ -158,4 +158,8 @@ DO $$ BEGIN
   ALTER TABLE enrichment_run_items ADD CONSTRAINT enrichment_run_items_status_check CHECK(status IN ('queued','collecting','complete','partial','review','not_found','failed','blocked','skipped'));
  END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS enrichment_run_items_product_idx ON enrichment_run_items(product_id,finished_at);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_run_items'::regclass AND c.relname='enrichment_run_items_product_idx') THEN
+  CREATE INDEX enrichment_run_items_product_idx ON enrichment_run_items(product_id,finished_at);
+ END IF;
+END $$;

@@ -11,7 +11,11 @@ CREATE TABLE IF NOT EXISTS product_enrichment_tombstones (
  source_method text,
  recorded_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS product_enrichment_tombstones_recorded_idx ON product_enrichment_tombstones(recorded_at);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichment_tombstones'::regclass AND c.relname='product_enrichment_tombstones_recorded_idx') THEN
+  CREATE INDEX product_enrichment_tombstones_recorded_idx ON product_enrichment_tombstones(recorded_at);
+ END IF;
+END $$;
 
 -- A supplier item deleted with its enrichment (ON DELETE CASCADE) is no longer visible here, so nothing is logged:
 -- the target's supplier sync owns the item's existence, not the storefront sync.
