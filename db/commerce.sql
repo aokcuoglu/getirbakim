@@ -754,4 +754,12 @@ DO $$ DECLARE c text; BEGIN
   ALTER TABLE commerce_orders ADD COLUMN partner_fingerprint text;
   COMMENT ON COLUMN commerce_orders.partner_fingerprint IS 'Partner orders (#426): SHA-256 of the request body sent with the Idempotency-Key (request_key)';
  END IF;
+ -- Partner cancel request (#426): a partner's DELETE on a confirmed order asks operations instead of cancelling. Open =
+ -- requested and not rejected; approving it cancels the order (cancelled_by 'customer'), rejecting it is final.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='cancel_requested_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN cancel_requested_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='cancel_request_rejected_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN cancel_request_rejected_at timestamptz;
+ END IF;
 END $$;

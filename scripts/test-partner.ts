@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { readdir, readFile } from "node:fs/promises";
 import { minPartnerKeyLength, parsePartnerKeys, resolvePartner } from "../src/modules/partner/auth";
 import { decodeOfferId, encodeOfferId, matchesOem, matchesPartNo, partnerAvailability, splitOemNumbers, toPartnerProduct, type PartnerCatalogRow } from "../src/modules/partner/dto";
-import { partnerOrderStatus, resolveOrderLimitKurus, lineAmounts, toPartnerOrderDto, type PartnerOrderRow } from "../src/modules/partner/order-dto";
+import { cancellationRequest, partnerOrderStatus, resolveOrderLimitKurus, lineAmounts, toPartnerOrderDto, type PartnerOrderRow } from "../src/modules/partner/order-dto";
 import { orderRequestSchema, quoteRequestSchema } from "../src/modules/partner/order-schema";
 import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partnerQuoteTtlMs, signQuote, verifyQuote, type QuotePayload } from "../src/modules/partner/quotes";
 import { resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
@@ -276,6 +276,7 @@ test("partner order DTO: status names, line amounts, totals with shipping; no su
     delivery_province: "İstanbul", delivery_district: "Kadıköy", delivery_address_line: "Test Mahallesi 1. Sokak No 2", delivery_postal_code: null,
     carrier: null, carrier_name: null, tracking_no: null, tracking_url: null, shipped_at: null, delivered_at: null,
     cancelled_by: "admin", cancelled_at: new Date("2026-11-18T10:00:00Z"), created_at: new Date("2026-11-18T09:00:00Z"),
+    cancel_requested_at: null, cancel_request_rejected_at: null,
   };
   const dto = toPartnerOrderDto(order, [{ product_id: "0000a569-053e-4b84-a484-d510f04fab3b", code: "LUK 510 0207 10", name: "DEBRIYAJ RULMANI", quantity: 2,
     unit_price_kurus: "888759", pricing_snapshot: { nf: 103.19, company: "BASBUG", markup_percent: 30,
@@ -291,6 +292,19 @@ test("partner order DTO: status names, line amounts, totals with shipping; no su
   const shipped = toPartnerOrderDto({ ...order, status: "shipped", cancelled_by: null, cancelled_at: null, carrier: "yurtici", tracking_no: "123456789012",
     tracking_url: "https://example.invalid/t", shipped_at: new Date("2026-11-19T08:00:00Z") }, []);
   assert.deepEqual([shipped.status, shipped.cancelledBy, shipped.shipment?.trackingNo, shipped.shipment?.shippedAt], ["SHIPPED", null, "123456789012", "2026-11-19T08:00:00.000Z"]);
+});
+
+test("partner order DTO: the cancel request after confirmation is pending, approved or rejected", () => {
+  const base = { status: "confirmed", cancelled_at: null, cancel_requested_at: null, cancel_request_rejected_at: null };
+  const requested = new Date("2026-11-19T08:00:00Z"), decided = new Date("2026-11-19T09:00:00Z");
+  assert.equal(cancellationRequest(base), null);
+  assert.deepEqual(cancellationRequest({ ...base, cancel_requested_at: requested }),
+    { status: "PENDING", requestedAt: "2026-11-19T08:00:00.000Z", decidedAt: null });
+  assert.deepEqual(cancellationRequest({ ...base, status: "cancelled", cancelled_at: decided, cancel_requested_at: requested }),
+    { status: "APPROVED", requestedAt: "2026-11-19T08:00:00.000Z", decidedAt: "2026-11-19T09:00:00.000Z" });
+  // A rejected request stays rejected after the order ships.
+  assert.deepEqual(cancellationRequest({ ...base, status: "shipped", cancel_requested_at: requested, cancel_request_rejected_at: decided }),
+    { status: "REJECTED", requestedAt: "2026-11-19T08:00:00.000Z", decidedAt: "2026-11-19T09:00:00.000Z" });
 });
 
 test("partner guard: limits by the edge's address (not X-Real-IP), then by partner code", async () => {
