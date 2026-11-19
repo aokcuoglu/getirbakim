@@ -394,6 +394,39 @@ test("correcting an invoiced mark (#1018) rewrites number and day, keeps who mar
     VALUES(gen_random_uuid(),$1,'bakimx','undo','X',now(),' abc ')`, [one.id]), (error: { code?: string }) => error.code === "23514");
 });
 
+test("a correction (#1018) never merges two invoices and waits for the partner's order lock", async () => {
+  const one = await placeOrder("PART-A"), two = await placeOrder("PART-B");
+  await deliverAt(one.id, "2026-11-10T10:00:00Z"); await deliverAt(two.id, "2026-11-11T10:00:00Z");
+  const each = one.totals.grossKurus, admin = await opsAccount();
+  const first = `M1-${randomUUID()}`, second = `M2-${randomUUID()}`;
+  const mark = { partner: "bakimx", invoiceDate: "2026-11-15", adminId: admin, expected: { count: 1, totalKurus: each } };
+  await limits.invoicePartnerOrders({ ...mark, deliveredUntil: "2026-11-10", invoiceRef: first });
+  await limits.invoicePartnerOrders({ ...mark, deliveredUntil: "2026-11-11", invoiceRef: second });
+  const correct = { partner: "bakimx", invoiceRef: second, invoiceDate: "2026-11-15", action: "correct" as const, newInvoiceRef: first, newInvoiceDate: "2026-11-15",
+    reason: "Numara yanlış yazıldı", adminId: admin, expected: { count: 1, totalKurus: each } };
+  // The first invoice already has that number and day: nothing is written.
+  assert.deepEqual(await limits.changePartnerInvoice(correct), { status: "merge" });
+  assert.equal((await orderRow(two.id)).partner_invoice_ref, second);
+  assert.equal((await changeRows([one.id, two.id])).length, 0);
+  // Another day with the same number is a different invoice.
+  const holder = await schema.pool.connect();
+  try {
+    await holder.query("BEGIN");
+    await limits.lockPartnerOrders(holder, "bakimx");
+    let settled = false;
+    const pending = limits.changePartnerInvoice({ ...correct, newInvoiceDate: "2026-11-16" }).finally(() => { settled = true; });
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(settled, false, "the change ran while the partner's order lock was held");
+    await holder.query("COMMIT");
+    assert.deepEqual(await pending, { status: "corrected", count: 1, totalKurus: each });
+  } finally {
+    await holder.query("ROLLBACK").catch(() => undefined);
+    holder.release();
+  }
+  assert.equal((await orderRow(two.id)).partner_invoice_ref, first);
+  assert.equal((await orderRow(one.id)).partner_invoice_ref, first);
+});
+
 test("admin partner input: TL limits become kuruş, dates are past Istanbul days, usage tones follow the limit", async () => {
   const { partnerLimitInput, partnerInvoiceInput, partnerInvoiceChangeInput, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
   const limit = (value: string) => partnerLimitInput.safeParse({ partner: "bakimx", limit: value });
@@ -416,6 +449,9 @@ test("admin partner input: TL limits become kuruş, dates are past Istanbul days
   assert.equal(change({ action: "undo", newInvoiceRef: undefined, newInvoiceDate: undefined }).success, true);
   const reasonError = change({ reason: " abcd " });
   assert.deepEqual(!reasonError.success && reasonError.error.flatten().fieldErrors.reason, ["Gerekçeyi yazın (en az 5 karakter)."]);
+  // Code points, like the table's CHECK: four emoji are 8 UTF-16 units but 4 characters.
+  assert.equal(change({ reason: "🔧🔧🔧🔧" }).success, false);
+  assert.equal(change({ reason: "🔧🔧🔧🔧🔧" }).success, true);
   for (const bad of [{ reason: "" }, { reason: "x".repeat(501) }, { newInvoiceDate: "2026-11-21" }, { newInvoiceDate: "2026-02-30" }, { newInvoiceRef: undefined },
     { newInvoiceRef: " " }, { action: "delete" }, { invoiceDate: "2026-02-30" }, { expectedCount: "0" }]) assert.equal(change(bad).success, false, JSON.stringify(bad));
   assert.deepEqual(limitUsage(0, null), { tone: "warning", percent: null });

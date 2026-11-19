@@ -178,7 +178,7 @@ export type InvoiceChangeRequest = {
   /** What the dialog showed: anything else (the invoice changed meanwhile) is refused, nothing is written. */
   expected: { count: number; totalKurus: number };
 } & ({ action: "undo" } | { action: "correct"; newInvoiceRef: string; newInvoiceDate: string });
-export type InvoiceChangeOutcome = { status: "undone" | "corrected"; count: number; totalKurus: number } | { status: "changed" } | { status: "nothing" } | { status: "same" };
+export type InvoiceChangeOutcome = { status: "undone" | "corrected"; count: number; totalKurus: number } | { status: "changed" } | { status: "nothing" } | { status: "same" } | { status: "merge" };
 
 /**
  * Corrects (new number/date, the marking admin is kept) or undoes one marked invoice of a partner, with an audit row
@@ -198,6 +198,11 @@ export async function changePartnerInvoice(request: InvoiceChangeRequest): Promi
     if (rows.length !== request.expected.count || totalKurus !== request.expected.totalKurus) { await client.query("ROLLBACK"); return { status: "changed" }; }
     const correct = request.action === "correct" ? request : null;
     if (correct && correct.newInvoiceRef === request.invoiceRef && correct.newInvoiceDate === request.invoiceDate) { await client.query("ROLLBACK"); return { status: "same" }; }
+    // Another invoice of the partner with the new number and day would silently absorb these orders.
+    if (correct && (await client.query(`SELECT 1 FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND o.partner_invoice_ref=$2
+      AND o.partner_invoiced_at IS NOT NULL AND ${invoicedDaySql}=$3::date LIMIT 1`, [request.partner, correct.newInvoiceRef, correct.newInvoiceDate])).rowCount) {
+      await client.query("ROLLBACK"); return { status: "merge" };
+    }
     const ids = rows.map(row => row.id);
     const newAt = "($3::date)::timestamp AT TIME ZONE 'Europe/Istanbul'";
     await client.query(`INSERT INTO partner_invoice_changes(change_id,order_id,partner_code,action,old_invoice_ref,old_invoiced_at,old_invoiced_by,new_invoice_ref,new_invoiced_at,reason,changed_by)

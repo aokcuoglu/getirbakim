@@ -55,7 +55,8 @@ export const partnerInvoiceChangeInput = (now = new Date()) => {
     partner: partnerCode,
     invoiceRef: z.string().trim().min(1).max(60),
     invoiceDate: z.string().trim().refine(validDay),
-    reason: z.string().trim().min(5, "Gerekçeyi yazın (en az 5 karakter).").max(500, "Gerekçe en fazla 500 karakter olabilir."),
+    // Counted in code points like the table's CHECK (length(btrim(reason))>=5), not UTF-16 units.
+    reason: z.string().trim().refine(value => [...value].length >= 5, "Gerekçeyi yazın (en az 5 karakter).").max(500, "Gerekçe en fazla 500 karakter olabilir."),
     expectedCount,
     expectedTotal,
   };

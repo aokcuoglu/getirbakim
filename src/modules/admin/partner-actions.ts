@@ -75,6 +75,7 @@ export async function changePartnerInvoiceMark(_previous: PartnerInvoiceChangeRe
   if (outcome.status === "nothing") return { status: "error", message: "Bu fatura artık işaretli değil; başka biri düzeltmiş ya da geri almış olabilir. Sayfayı yenileyin." };
   if (outcome.status === "changed") return { status: "error", message: "Fatura bu pencere açıldıktan sonra değişti; hiçbir şey değiştirilmedi. Sayfayı yenileyip yeniden deneyin." };
   if (outcome.status === "same") return { status: "error", message: "Yeni fatura bilgisi eskisiyle aynı." };
+  if (outcome.status === "merge") return { status: "error", errors: { newInvoiceRef: ["Bu partnerin aynı numara ve tarihli başka bir faturası var; iki fatura birleşirdi. Farklı bir numara ya da tarih girin."] } };
   revalidatePath("/yonetim/siparisler");
   const done = outcome.status === "undone" ? "undone" : "corrected";
   return { status: "success", next: `/yonetim/partnerler?${done}=${outcome.count}&partner=${encodeURIComponent(change.partner)}` };

@@ -107,7 +107,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
         <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre (son 100 fatura). Yanlış işaret gerekçeyle düzeltilir ya da geri alınır.</CardDescription>
       </CardHeader>
       <CardContent>
-        {invoices.length ? <Table>
+        {invoices.length ? <Table controls={false}>
           <TableHeader><TableRow>
             <TableHead>Partner</TableHead><TableHead>Fatura no</TableHead><TableHead>Fatura tarihi</TableHead><TableHead className="text-right">Sipariş</TableHead>
             <TableHead className="text-right">Tutar</TableHead><TableHead>İşaretleyen</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead>
@@ -137,7 +137,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
         <CardDescription>Faturalandı işaretinde yapılan son 50 düzeltme ve geri alma, gerekçesiyle.</CardDescription>
       </CardHeader>
       <CardContent>
-        <Table>
+        <Table controls={false}>
           <TableHeader><TableRow>
             <TableHead>Zaman</TableHead><TableHead>Partner</TableHead><TableHead>İşlem</TableHead><TableHead>Eski → Yeni</TableHead>
             <TableHead className="text-right">Sipariş</TableHead><TableHead>Gerekçe</TableHead><TableHead>Yapan</TableHead>
@@ -148,7 +148,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
             <TableCell>{change.action === "undo" ? <StatusBadge tone="warning">Geri alındı</StatusBadge> : <StatusBadge tone="info">Düzeltildi</StatusBadge>}</TableCell>
             <TableCell className="tabular-nums">{change.oldRef} · {day(change.oldDate)} → {change.newRef && change.newDate ? `${change.newRef} · ${day(change.newDate)}` : "işaret kaldırıldı"}</TableCell>
             <TableCell className="text-right tabular-nums">{formatNumber(change.count)}</TableCell>
-            <TableCell className="whitespace-normal">{change.reason}</TableCell>
+            <TableCell className="max-w-sm whitespace-normal">{change.reason}</TableCell>
             <TableCell>{change.changedBy ?? "—"}</TableCell>
           </TableRow>)}</TableBody>
         </Table>
