@@ -28,6 +28,9 @@ export default async function Partners({ searchParams }: { searchParams: Promise
   const partners = await adminPartners();
   const today = istanbulToday();
   const invoiced = Number(params.invoiced);
+  // Query values are echoed only when they name a listed partner.
+  const known = (value: string | undefined) => value && partners.some(p => p.code === value) ? value : null;
+  const saved = known(params.saved), partner = known(params.partner);
 
   return <div className="flex min-w-0 flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -38,9 +41,9 @@ export default async function Partners({ searchParams }: { searchParams: Promise
       <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler?sahip=partner"/>}>Partner siparişleri<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
     </div>
 
-    {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{params.saved} için limit kaydedildi; yeni siparişler bu limitle kontrol edilir.</AlertDescription></Alert>}
-    {Number.isSafeInteger(invoiced) && invoiced > 0 && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{params.partner ? `${params.partner}: ` : ""}{formatNumber(invoiced)} sipariş faturalandı olarak işaretlendi ve limitten düştü.</AlertDescription></Alert>}
-    {params.error === "limit" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>Limit kaydedilemedi</AlertTitle><AlertDescription>Limit 0 TL&apos;den büyük, en fazla iki ondalıklı bir tutar olmalı. Boş bırakılırsa varsayılan limit geçerli olur.</AlertDescription></Alert>}
+    {saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{saved} için limit kaydedildi; yeni siparişler bu limitle kontrol edilir.</AlertDescription></Alert>}
+    {Number.isSafeInteger(invoiced) && invoiced > 0 && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{partner ? `${partner}: ` : ""}{formatNumber(invoiced)} sipariş faturalandı olarak işaretlendi ve limitten düştü.</AlertDescription></Alert>}
+    {params.error === "limit" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{partner ? `${partner}: limit kaydedilemedi` : "Limit kaydedilemedi"}</AlertTitle><AlertDescription>Limit 0 TL&apos;den büyük, en fazla iki ondalıklı bir tutar olmalı. Boş bırakılırsa varsayılan limit geçerli olur.</AlertDescription></Alert>}
 
     <Card>
       <CardHeader>
@@ -66,7 +69,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
               <TableCell className="text-right"><div className="tabular-nums">{money(p.uninvoicedKurus)}</div><div className="text-muted-foreground tabular-nums">{formatNumber(p.uninvoicedCount)} sipariş</div></TableCell>
               <TableCell className="text-right font-medium tabular-nums">{money(p.exposureKurus)}</TableCell>
               <TableCell>{p.usage.percent == null
-                ? <StatusBadge tone="error">Limit yok · sipariş kapalı</StatusBadge>
+                ? <StatusBadge tone="warning">Limit yok · sipariş kapalı</StatusBadge>
                 : <StatusBadge tone={p.usage.tone}>{p.usage.tone === "error" ? "Limit doldu" : p.usage.tone === "warning" ? "Limite yakın" : "Uygun"} · %{formatNumber(p.usage.percent)}</StatusBadge>}</TableCell>
               <TableCell><InputGroup className="w-40">
                 <InputGroupInput className="text-right tabular-nums" form={form} name="limit" inputMode="decimal" aria-label={`${p.code} panel limiti (TL)`}

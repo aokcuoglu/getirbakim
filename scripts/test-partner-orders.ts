@@ -288,13 +288,15 @@ test("invoicing releases delivered orders up to a day, once, for one partner onl
   const each = early.totals.grossKurus;
   assert.deepEqual((await limits.uninvoicedDays(["bakimx"])).get("bakimx"), [
     { day: "2026-11-10", count: 1, totalKurus: each }, { day: "2026-11-11", count: 1, totalKurus: each }, { day: "2026-11-12", count: 1, totalKurus: each }]);
-  const request = { partner: "bakimx", deliveredUntil: "2026-11-11", invoiceRef: "GBA2026000123", invoiceDate: "2026-11-15", expected: { count: 2, totalKurus: 2 * each } };
+  const admin = (await schema.pool.query<{ id: string }>(`INSERT INTO accounts(name,email,password_hash,role,approved)
+    VALUES('Operasyon',$1,'x','admin',true) RETURNING id::text`, [`ops-${randomUUID()}@example.invalid`])).rows[0].id;
+  const request = { partner: "bakimx", deliveredUntil: "2026-11-11", invoiceRef: "GBA2026000123", invoiceDate: "2026-11-15", adminId: admin, expected: { count: 2, totalKurus: 2 * each } };
   // What the dialog showed must still hold: a different count or total marks nothing.
   assert.deepEqual(await limits.invoicePartnerOrders({ ...request, expected: { count: 1, totalKurus: each } }), { status: "changed" });
   assert.equal((await limits.partnerExposure("bakimx")).uninvoicedCount, 3);
   assert.deepEqual(await limits.invoicePartnerOrders(request), { status: "invoiced", count: 2, totalKurus: 2 * each });
   const marked = await orderRow(early.id);
-  assert.equal(marked.partner_invoice_ref, "GBA2026000123");
+  assert.deepEqual([marked.partner_invoice_ref, marked.partner_invoiced_by], ["GBA2026000123", admin]);
   assert.equal((await schema.pool.query("SELECT ($1::timestamptz AT TIME ZONE 'Europe/Istanbul')::text AS at", [marked.partner_invoiced_at])).rows[0].at, "2026-11-15 00:00:00");
   assert.deepEqual(await limits.partnerExposure("bakimx"), { openKurus: 0, openCount: 0, uninvoicedKurus: each, uninvoicedCount: 1, exposureKurus: each });
   // Repeating it marks nothing and keeps the first invoice; the other partner's delivered order is untouched.
@@ -324,7 +326,7 @@ test("admin partner input: TL limits become kuruş, dates are past Istanbul days
     partner: "bakimx", deliveredUntil: "2026-11-20", invoiceRef: "GBA1", invoiceDate: "2026-11-20", expectedCount: "1", expectedTotal: "100", ...values });
   assert.equal(invoice({}).success, true);
   for (const bad of [{ deliveredUntil: "2026-11-21" }, { invoiceDate: "2026-02-30" }, { invoiceDate: "2026-13-45" }, { invoiceRef: " " }, { expectedCount: "0" }]) assert.equal(invoice(bad).success, false, JSON.stringify(bad));
-  assert.deepEqual(limitUsage(0, null), { tone: "error", percent: null });
+  assert.deepEqual(limitUsage(0, null), { tone: "warning", percent: null });
   assert.deepEqual(limitUsage(7_999, 10_000), { tone: "success", percent: 79 });
   assert.deepEqual(limitUsage(8_000, 10_000), { tone: "warning", percent: 80 });
   assert.deepEqual(limitUsage(10_000, 10_000), { tone: "error", percent: 100 });

@@ -79,7 +79,7 @@ export type ProcurementFilter = keyof typeof procurementFilters;
 // The orders list's "Müşteri" column filter (#426, `sahip`): partner (API) orders or the store's own; tab counts stay unfiltered.
 const ownerFilters = { all: "true", partner: "o.owner_kind='partner'", store: "o.owner_kind<>'partner'" };
 export type OwnerFilter = keyof typeof ownerFilters;
-type PartnerCancelRequest = { cancel_requested_at: Date | null; cancel_request_rejected_at: Date | null; partner_invoiced_at: Date | null; partner_invoice_ref: string | null };
+type PartnerCancelRequest = { cancel_requested_at: Date | null; cancel_request_rejected_at: Date | null; partner_invoiced_at: Date | null; partner_invoice_ref: string | null; partner_invoiced_by_name: string | null };
 export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { sort?: string; dir?: string } = {}, rawProcurement?: string, rawOwner?: string) {
   await requireAdmin();
   const requested = Number(rawPage);
@@ -93,6 +93,7 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
      o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,o.cancelled_by,o.cancelled_at,o.installment_count,o.installment_fee_kurus,
      o.delivery_province,o.delivery_district,o.delivery_address_line,o.delivery_postal_code,o.invoice_type,o.invoice_company,o.invoice_tax_no,o.invoice_tax_office,
      o.invoice_province,o.invoice_district,o.invoice_address_line,o.invoice_postal_code,o.cancel_requested_at,o.cancel_request_rejected_at,o.partner_invoiced_at,o.partner_invoice_ref,
+     (SELECT COALESCE(NULLIF(ia.name,''),ia.email) FROM accounts ia WHERE ia.id=o.partner_invoiced_by) AS partner_invoiced_by_name,
      a.accepted_at AS agreement_at,a.ip AS agreement_ip,a.user_agent AS agreement_user_agent,a.legal_version AS agreement_version,
      COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
       'bank_reference',p.bank_reference,'paid_at',p.paid_at,'installment_count',p.installment_count) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments,

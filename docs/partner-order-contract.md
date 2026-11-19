@@ -119,7 +119,10 @@ later.
 (VAT and shipping included) of its orders that are neither cancelled nor
 delivered, plus its delivered orders GetirBakım has not invoiced yet. The
 outstanding amount plus the new order must not exceed the partner's limit;
-a delivered order stops counting once operations mark it invoiced. The limit
+a delivered order stops counting once operations mark it invoiced. Returned
+items do not reduce it: a delivered order stays in the outstanding amount
+(`openKurus` in `CREDIT_LIMIT_EXCEEDED`) with its full total until it is
+invoiced. The limit
 is the one set for the partner in the GetirBakım admin, else the deployment
 default `PARTNER_ORDER_LIMIT_KURUS`. Orders of one partner are created one at
 a time, so two concurrent orders cannot both pass a limit they exceed

@@ -806,6 +806,10 @@ DO $$ DECLARE c text; BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_invoice_ref' AND NOT attisdropped) THEN
   ALTER TABLE commerce_orders ADD COLUMN partner_invoice_ref text;
  END IF;
+ -- Who marked it (audit). The FK takes SHARE ROW EXCLUSIVE on accounts once, on the first deploy that adds the column.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_invoiced_by' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN partner_invoiced_by uuid REFERENCES accounts(id);
+ END IF;
 END $$;
 -- Per-partner settings set in /yonetim/partnerler (#426). Partner identities still come from PARTNER_API_KEYS; a row here
 -- only overrides the PARTNER_ORDER_LIMIT_KURUS fallback. A partner with neither cannot order (503 ORDER_LIMIT_UNAVAILABLE).

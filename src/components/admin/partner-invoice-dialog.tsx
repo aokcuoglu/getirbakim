@@ -20,10 +20,14 @@ export type UninvoicedDay = { day: string; count: number; totalKurus: number };
  */
 export function PartnerInvoiceDialog({ partner, days, today }: { partner: string; days: UninvoicedDay[]; today: string }) {
   const [open, setOpen] = useState(false);
+  const noteId = useId();
   return <Dialog open={open} onOpenChange={setOpen}>
-    <DialogTrigger render={<Button variant="outline" disabled={!days.length} aria-label={`${partner}: Faturalandı işaretle`}/>}>
-      <FileCheck data-icon="inline-start" aria-hidden="true"/>Faturalandı işaretle
-    </DialogTrigger>
+    <div className="flex flex-col items-end gap-1">
+      <DialogTrigger render={<Button variant="outline" disabled={!days.length} aria-label={`${partner}: Faturalandı işaretle`} aria-describedby={days.length ? undefined : noteId}/>}>
+        <FileCheck data-icon="inline-start" aria-hidden="true"/>Faturalandı işaretle
+      </DialogTrigger>
+      {!days.length && <span id={noteId} className="text-muted-foreground">Faturalanmamış teslim yok</span>}
+    </div>
     <DialogContent className="sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>{partner} siparişlerini faturalandı olarak işaretle</DialogTitle>
@@ -38,7 +42,13 @@ export function PartnerInvoiceDialog({ partner, days, today }: { partner: string
 function InvoiceForm({ partner, days, today, onSaved }: { partner: string; days: UninvoicedDay[]; today: string; onSaved: () => void }) {
   const id = useId();
   const router = useRouter();
-  const [until, setUntil] = useState(today);
+  // Controlled: React 19 resets an action form after submit, so an error result would otherwise clear what was typed.
+  const [values, setValues] = useState({ deliveredUntil: today, invoiceRef: "", invoiceDate: today });
+  const set = (field: keyof typeof values) => (event: React.ChangeEvent<HTMLInputElement>) => {
+    const value = event.currentTarget.value;
+    setValues(previous => ({ ...previous, [field]: value }));
+  };
+  const until = values.deliveredUntil;
   const [result, action, pending] = useActionState(async (previous: PartnerInvoiceResult, form: FormData) => {
     const next = await markPartnerInvoiced(previous, form);
     if (next.status === "success") { onSaved(); if (next.next) router.replace(next.next, { scroll: false }); }
@@ -57,25 +67,25 @@ function InvoiceForm({ partner, days, today, onSaved }: { partner: string; days:
     <fieldset disabled={pending} className="min-w-0"><FieldGroup>
       <Field data-invalid={Boolean(errors.deliveredUntil)}>
         <FieldLabel htmlFor={`${id}-deliveredUntil`}>Bu güne kadar teslim edilenler</FieldLabel>
-        <Input id={`${id}-deliveredUntil`} name="deliveredUntil" type="date" required max={today} value={until} onChange={event => setUntil(event.currentTarget.value)}
+        <Input id={`${id}-deliveredUntil`} name="deliveredUntil" type="date" required max={today} value={values.deliveredUntil} onChange={set("deliveredUntil")}
           aria-invalid={Boolean(errors.deliveredUntil)} aria-describedby={describe("deliveredUntil", true)}/>
         <FieldDescription id={`${id}-deliveredUntil-hint`}>İlk faturalanmamış teslim: {days[0] ? days[0].day.split("-").reverse().join(".") : "—"}. Teslim günü İstanbul saatine göredir.</FieldDescription>
         {errors.deliveredUntil && <FieldError id={`${id}-deliveredUntil-error`}>{errors.deliveredUntil[0]}</FieldError>}
       </Field>
       <Field data-invalid={Boolean(errors.invoiceRef)}>
         <FieldLabel htmlFor={`${id}-invoiceRef`}>Fatura numarası</FieldLabel>
-        <Input id={`${id}-invoiceRef`} name="invoiceRef" required maxLength={60} autoComplete="off" spellCheck={false}
+        <Input id={`${id}-invoiceRef`} name="invoiceRef" required maxLength={60} autoComplete="off" spellCheck={false} value={values.invoiceRef} onChange={set("invoiceRef")}
           aria-invalid={Boolean(errors.invoiceRef)} aria-describedby={describe("invoiceRef")}/>
         {errors.invoiceRef && <FieldError id={`${id}-invoiceRef-error`}>{errors.invoiceRef[0]}</FieldError>}
       </Field>
       <Field data-invalid={Boolean(errors.invoiceDate)}>
         <FieldLabel htmlFor={`${id}-invoiceDate`}>Fatura tarihi</FieldLabel>
-        <Input id={`${id}-invoiceDate`} name="invoiceDate" type="date" required max={today} defaultValue={today}
+        <Input id={`${id}-invoiceDate`} name="invoiceDate" type="date" required max={today} value={values.invoiceDate} onChange={set("invoiceDate")}
           aria-invalid={Boolean(errors.invoiceDate)} aria-describedby={describe("invoiceDate")}/>
         {errors.invoiceDate && <FieldError id={`${id}-invoiceDate-error`}>{errors.invoiceDate[0]}</FieldError>}
       </Field>
     </FieldGroup></fieldset>
-    <Alert variant={count ? "info" : "warning"} aria-live="polite">
+    <Alert variant={count ? "info" : "warning"} role="status">
       {count ? <Info aria-hidden="true"/> : <TriangleAlert aria-hidden="true"/>}
       <AlertDescription>{count
         ? <>İşaretlenecek: <span className="tabular-nums">{count}</span> sipariş · <span className="tabular-nums">{money(total)}</span></>
@@ -85,7 +95,7 @@ function InvoiceForm({ partner, days, today, onSaved }: { partner: string; days:
     <DialogFooter>
       <Button type="submit" disabled={pending || !count}>
         {pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <FileCheck data-icon="inline-start" aria-hidden="true"/>}
-        {pending ? "İşaretleniyor…" : `${count} siparişi faturalandı işaretle`}
+        {pending ? "İşaretleniyor…" : count ? `${count} siparişi faturalandı işaretle` : "Faturalandı işaretle"}
       </Button>
     </DialogFooter>
   </form>;

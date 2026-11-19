@@ -41,9 +41,9 @@ export const partnerInvoiceInput = (now = new Date()) => z.object({
   expectedTotal: z.coerce.number().int().min(1),
 });
 
-/** Usage of the limit: success below 80%, warning from 80%, destructive at 100% or with no limit (ordering closed). */
+/** Usage of the limit: success below 80%, warning from 80% or with no limit (missing setup), destructive at 100%. */
 export function limitUsage(exposureKurus: number, limitKurus: number | null) {
-  if (limitKurus == null) return { tone: "error" as const, percent: null };
+  if (limitKurus == null) return { tone: "warning" as const, percent: null };
   const percent = Math.floor(exposureKurus * 100 / limitKurus);
   return { tone: percent >= 100 ? "error" as const : percent >= 80 ? "warning" as const : "success" as const, percent };
 }

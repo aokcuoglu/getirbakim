@@ -85,6 +85,8 @@ export async function uninvoicedDays(partners: string[], connection: Connection 
 
 export type InvoiceRequest = {
   partner: string; deliveredUntil: string; invoiceRef: string; invoiceDate: string;
+  /** The admin who marks them (partner_invoiced_by); null only in tests without an account. */
+  adminId: string | null;
   /** What the dialog showed: anything else (an order delivered or invoiced meanwhile) is refused, nothing is marked. */
   expected: { count: number; totalKurus: number };
 };
@@ -105,8 +107,8 @@ export async function invoicePartnerOrders(request: InvoiceRequest): Promise<Inv
     const totalKurus = rows.reduce((sum, row) => sum + Number(row.total_kurus), 0);
     if (!rows.length) { await client.query("ROLLBACK"); return { status: "nothing" }; }
     if (rows.length !== request.expected.count || totalKurus !== request.expected.totalKurus) { await client.query("ROLLBACK"); return { status: "changed" }; }
-    await client.query(`UPDATE commerce_orders SET partner_invoiced_at=($2::date)::timestamp AT TIME ZONE 'Europe/Istanbul',partner_invoice_ref=$3
-      WHERE id=ANY($1::uuid[]) AND partner_invoiced_at IS NULL`, [rows.map(row => row.id), request.invoiceDate, request.invoiceRef]);
+    await client.query(`UPDATE commerce_orders SET partner_invoiced_at=($2::date)::timestamp AT TIME ZONE 'Europe/Istanbul',partner_invoice_ref=$3,partner_invoiced_by=$4
+      WHERE id=ANY($1::uuid[]) AND partner_invoiced_at IS NULL`, [rows.map(row => row.id), request.invoiceDate, request.invoiceRef, request.adminId]);
     await client.query("COMMIT");
     return { status: "invoiced", count: rows.length, totalKurus };
   } catch (error) {

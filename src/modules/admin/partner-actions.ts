@@ -9,7 +9,12 @@ import { partnerInvoiceInput, partnerLimitInput } from "./partner-input";
 export async function savePartnerLimit(form: FormData) {
   const admin = await requireAdmin();
   const input = partnerLimitInput.safeParse(Object.fromEntries(form));
-  if (!input.success || !(await knownPartners()).codes.includes(input.data.partner)) redirect("/yonetim/partnerler?error=limit");
+  const { codes } = await knownPartners();
+  const partner = form.get("partner");
+  if (!input.success || !codes.includes(input.data.partner)) {
+    // The page shows the partner only when it is a known code.
+    redirect(`/yonetim/partnerler?error=limit${typeof partner === "string" && codes.includes(partner) ? `&partner=${encodeURIComponent(partner)}` : ""}`);
+  }
   await savePartnerOrderLimit(input.data.partner, input.data.limit, admin.id);
   revalidatePath("/yonetim/partnerler");
   redirect(`/yonetim/partnerler?saved=${encodeURIComponent(input.data.partner)}`);
@@ -27,7 +32,7 @@ export type PartnerInvoiceResult = {
  * or before a day. Refused when the orders differ from what the dialog showed; invoiced orders are never marked again.
  */
 export async function markPartnerInvoiced(_previous: PartnerInvoiceResult, form: FormData): Promise<PartnerInvoiceResult> {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const input = partnerInvoiceInput().safeParse(Object.fromEntries(form));
   if (!input.success) {
     const errors = input.error.flatten().fieldErrors;
@@ -35,7 +40,7 @@ export async function markPartnerInvoiced(_previous: PartnerInvoiceResult, form:
     return Object.values(shown).some(Boolean) ? { status: "error", errors: shown } : { status: "error", message: "İşaretlenecek sipariş bulunamadı. Sayfayı yenileyin." };
   }
   const { partner, deliveredUntil, invoiceRef, invoiceDate, expectedCount, expectedTotal } = input.data;
-  const outcome = await invoicePartnerOrders({ partner, deliveredUntil, invoiceRef, invoiceDate, expected: { count: expectedCount, totalKurus: expectedTotal } });
+  const outcome = await invoicePartnerOrders({ partner, deliveredUntil, invoiceRef, invoiceDate, adminId: admin.id, expected: { count: expectedCount, totalKurus: expectedTotal } });
   revalidatePath("/yonetim/partnerler");
   if (outcome.status === "nothing") return { status: "error", message: "Bu tarihe kadar teslim edilmiş, faturalanmamış sipariş kalmadı. Sayfayı yenileyin." };
   if (outcome.status === "changed") return { status: "error", message: "Siparişler bu pencere açıldıktan sonra değişti; hiçbir sipariş işaretlenmedi. Sayfayı yenileyip yeniden deneyin." };
