@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useId, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, FileCheck, Info, TriangleAlert } from "lucide-react";
 import { markPartnerInvoiced, type PartnerInvoiceResult } from "@/modules/admin/partner-actions";
@@ -41,6 +41,7 @@ export function PartnerInvoiceDialog({ partner, days, today }: { partner: string
 
 function InvoiceForm({ partner, days, today, onSaved }: { partner: string; days: UninvoicedDay[]; today: string; onSaved: () => void }) {
   const id = useId();
+  const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
   // Controlled: React 19 resets an action form after submit, so an error result would otherwise clear what was typed.
   const [values, setValues] = useState({ deliveredUntil: today, invoiceRef: "", invoiceDate: today });
@@ -58,9 +59,11 @@ function InvoiceForm({ partner, days, today, onSaved }: { partner: string; days:
   const count = marked.reduce((sum, day) => sum + day.count, 0);
   const total = marked.reduce((sum, day) => sum + day.totalKurus, 0);
   const errors = result.errors ?? {};
+  // noValidate: the browser no longer focuses the first invalid field, so do it once the server errors are shown.
+  useEffect(() => { if (!pending && result.errors) formRef.current?.querySelector<HTMLElement>("[aria-invalid=\"true\"]")?.focus(); }, [pending, result]);
   const describe = (field: keyof typeof errors, hint = false) => [hint && `${id}-${field}-hint`, errors[field] && `${id}-${field}-error`].filter(Boolean).join(" ") || undefined;
 
-  return <form action={action} className="flex min-w-0 flex-col gap-4">
+  return <form ref={formRef} action={action} noValidate className="flex min-w-0 flex-col gap-4">
     <input type="hidden" name="partner" value={partner}/>
     <input type="hidden" name="expectedCount" value={count}/>
     <input type="hidden" name="expectedTotal" value={total}/>

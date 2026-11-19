@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useId, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, Info, Pencil, TriangleAlert, Undo2 } from "lucide-react";
 import { changePartnerInvoiceMark, type PartnerInvoiceChangeResult } from "@/modules/admin/partner-actions";
@@ -42,6 +42,7 @@ export function PartnerInvoiceChangeDialog({ invoice, today }: { invoice: Marked
 
 function ChangeForm({ invoice, today, onSaved }: { invoice: MarkedInvoice; today: string; onSaved: () => void }) {
   const id = useId();
+  const formRef = useRef<HTMLFormElement>(null);
   const router = useRouter();
   // Controlled: React 19 resets an action form after submit, so an error result would otherwise clear what was typed.
   const [action, setAction] = useState<"correct" | "undo">("correct");
@@ -56,11 +57,13 @@ function ChangeForm({ invoice, today, onSaved }: { invoice: MarkedInvoice; today
     return next;
   }, { status: "idle" });
   const errors = result.errors ?? {};
+  // noValidate: the browser no longer focuses the first invalid field, so do it once the server errors are shown.
+  useEffect(() => { if (!pending && result.errors) formRef.current?.querySelector<HTMLElement>("[aria-invalid=\"true\"]")?.focus(); }, [pending, result]);
   const describe = (field: keyof typeof errors, hint = false) => [hint && `${id}-${field}-hint`, errors[field] && `${id}-${field}-error`].filter(Boolean).join(" ") || undefined;
   const undo = action === "undo";
   const summary = <><span className="tabular-nums">{invoice.count}</span> sipariş · <span className="tabular-nums">{money(invoice.totalKurus)}</span></>;
 
-  return <form action={submit} className="flex min-w-0 flex-col gap-4">
+  return <form ref={formRef} action={submit} noValidate className="flex min-w-0 flex-col gap-4">
     <input type="hidden" name="partner" value={invoice.partner}/>
     <input type="hidden" name="invoiceRef" value={invoice.invoiceRef}/>
     <input type="hidden" name="invoiceDate" value={invoice.invoiceDate}/>
