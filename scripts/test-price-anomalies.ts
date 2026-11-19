@@ -81,7 +81,7 @@ test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and c
     const before = { eur: await price(kentEur), tl: await price(kentTl[0]), bosch: await price(boschTl), delphi: await price(delphiEur) };
     for (const value of Object.values(before)) assert.ok(value && value > 0);
 
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 0 });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 0, ratesMissing: false });
     assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "open" }]);
     const evidence = (await pool.query("SELECT evidence FROM supplier_price_anomalies")).rows[0].evidence;
     assert.deepEqual([evidence.currency, evidence.dominant_currency, evidence.brand_rows, evidence.currency_rows, evidence.cost_kurus, evidence.median_kurus],
@@ -92,12 +92,31 @@ test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and c
     // Dismissed: priced again, and a later refresh keeps the decision.
     await pool.query("UPDATE supplier_price_anomalies SET status='dismissed'");
     assert.equal(await price(kentEur), before.eur);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 0, removed: 0 });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 0, removed: 0, ratesMissing: false });
     assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "dismissed" }]);
     assert.equal(await price(kentEur), before.eur);
 
-    // Another refresh holding the lock: skipped, nothing written.
+    // A run that merely misses the dismissed row (a corroborating offer appears, then goes) keeps the decision.
+    const [kentDinamik] = await rows("KENTPAR", "TRY", 30000, 1, "dinamik");
+    const kentProduct = (await pool.query<{ id: string }>("INSERT INTO products(brand,part_number,brand_label,code) VALUES('KENTPAR','152T01901','KENTPAR','KENT 152 T019 01') RETURNING id::text")).rows[0].id;
+    await pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$3),($2,$3)", [kentEur, kentDinamik, kentProduct]);
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 0, removed: 0, ratesMissing: false });
+    assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "dismissed" }]);
+    assert.equal(await price(kentEur), before.eur);
+    await pool.query("DELETE FROM product_sources WHERE supplier_item_id=$1", [kentDinamik]);
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 0, removed: 0, ratesMissing: false });
+    assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "dismissed" }]);
+    assert.equal(await price(kentEur), before.eur);
+
+    // The latest import has no EUR rate: the run cannot judge EUR rows and deletes nothing.
     await pool.query("UPDATE supplier_price_anomalies SET status='open'");
+    const rates = (await pool.query("SELECT currencies_data FROM supplier_imports")).rows[0].currencies_data;
+    await pool.query(`UPDATE supplier_imports SET currencies_data='{"dovizListesi":[]}'`);
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 1, removed: 0, ratesMissing: true });
+    assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "open" }]);
+    await pool.query("UPDATE supplier_imports SET currencies_data=$1", [rates]);
+
+    // Another refresh holding the lock: skipped, nothing written.
     const holder = await pool.connect();
     try {
       await holder.query("BEGIN");
@@ -105,16 +124,20 @@ test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and c
       assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: true });
     } finally { await holder.query("ROLLBACK"); holder.release(); }
 
-    // The supplier corrects the currency: the anomaly is deleted and the row priced from its TL cost.
+    // The supplier corrects the currency: even a dismissed anomaly is deleted and the row priced from its TL cost.
+    await pool.query("UPDATE supplier_price_anomalies SET status='dismissed'");
     await pool.query(`UPDATE supplier_items SET product_data=jsonb_set(product_data,'{dc}','"TL"') WHERE id=$1`, [kentEur]);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 0, removed: 1 });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 0, removed: 1, ratesMissing: false });
     assert.deepEqual(await anomalies(), []);
     assert.ok((await price(kentEur) ?? 0) > 0);
 
     // Without the corroborating Dinamik offer, the DELPHX row would be flagged.
     await pool.query("DELETE FROM product_sources WHERE supplier_item_id=$1", [dinamik]);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 0 });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 0, ratesMissing: false });
     assert.deepEqual(await anomalies(), [{ supplier_item_id: delphiEur, status: "open" }]);
+    // An open anomaly the next run no longer detects (the offer is linked again) is deleted.
+    await pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [dinamik, product]);
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 0, removed: 1, ratesMissing: false });
   } finally {
     await schema.drop();
   }

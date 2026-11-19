@@ -288,7 +288,8 @@ $$;
 -- until the supplier corrects it (the next refresh deletes it) or an admin marks it "Anomali değil" (dismissed, kept
 -- through later refreshes). No foreign key to supplier_items on purpose: creating one locks supplier_items (SHARE ROW
 -- EXCLUSIVE) for the rest of the setup transaction and blocks order-time writes (basbug-item-refresh.ts); the refresh
--- deletes rows whose item is gone.
+-- deletes rows whose item is gone. The accounts FK (decided_by) takes SHARE ROW EXCLUSIVE on accounts once, when the
+-- table is first created; later runs skip CREATE TABLE IF NOT EXISTS without locking it.
 CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  supplier_item_id uuid PRIMARY KEY, supplier text NOT NULL,
  kind text NOT NULL DEFAULT 'currency' CHECK (kind IN ('currency')),
