@@ -33,6 +33,7 @@ jobs:
       - run: npm run test:ads-tags
       - run: npm run test:home
       - run: npm run test:client-imports
+      - run: npm run test:lazy-module
       - run: npm run test:checkout-address
       - run: npm run test:cart-checkout-ui
       - run: npm run test:header-search

@@ -6,8 +6,11 @@ import { CarFront } from "lucide-react";
 import { headerToolClass } from "@/components/navigation/header-tool";
 import { cn } from "@/lib/utils";
 import { useStoreRoute } from "@/components/layout/store-route";
-import { VehicleSheet } from "./vehicle-sheet";
+import { lazyModule } from "@/lib/lazy-module";
 import type { ShownVehicle } from "@/modules/store/vehicle-catalog";
+
+// The sheet (Base UI dialog + tabs, ~40 kB) is fetched on the first hover, focus or click, not with every page (#1017).
+const vehicleSheet = lazyModule(() => import("./vehicle-sheet"));
 
 type Variant = "header" | "hero" | "catalog" | "product";
 
@@ -21,15 +24,18 @@ const variantClass: Record<Variant, string> = {
 export function GarageButton({ vehicle, variant = "header", className }: { vehicle: ShownVehicle | null; variant?: Variant; className?: string }) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
+  const sheet = vehicleSheet.useModule();
   // In the home hero the phone layout already separates the button from the search field.
   const home = useStoreRoute() === "home";
   return <>
-    <button ref={trigger} type="button" className={cn("cursor-pointer", variantClass[variant], home && variant === "catalog" && "max-[600px]:mt-0", className)} aria-label={variant === "product" ? undefined : vehicle ? `Araç seçimi, ${vehicle.makeLabel} ${vehicle.modelLabel}` : "Marka ve modele göre araç seç"} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
+    <button ref={trigger} type="button" className={cn("cursor-pointer", variantClass[variant], home && variant === "catalog" && "max-[600px]:mt-0", className)} aria-label={variant === "product" ? undefined : vehicle ? `Araç seçimi, ${vehicle.makeLabel} ${vehicle.modelLabel}` : "Marka ve modele göre araç seç"} aria-haspopup="dialog" aria-expanded={open} aria-busy={open && !sheet ? true : undefined}
+      onPointerEnter={vehicleSheet.preload} onFocus={vehicleSheet.preload}
+      onClick={() => { setOpen(true); vehicleSheet.preload().catch(() => setOpen(false)); }}>
       {variant === "product" ? (vehicle ? <>Aracın: <strong>{vehicle.makeLabel} {vehicle.modelLabel}{vehicle.engine ? ` ${vehicle.engine}` : ""}</strong> · Değiştir</> : "Aracını seç, uyumluluk bilgilerini karşılaştır")
         : variant === "header" ? <><SiteIcon name="garage" size={32} /><span><strong>Garajım <SiteIcon name="chevron" size={13} /></strong><small>{vehicle ? `${vehicle.makeLabel} ${vehicle.modelLabel}` : "Aracını seç"}</small></span></>
         : variant === "catalog" ? <><span>{vehicle ? `${vehicle.makeLabel} ${vehicle.modelLabel}` : "Marka ve modele göre seç"}</span><SiteIcon name="chevron" size={16} className="shrink-0 -rotate-90" /></>
         : <><div className="flex size-[38px] flex-[0_0_38px] items-center justify-center rounded-full bg-white text-primary"><CarFront size={24} aria-hidden="true" /></div><span className="min-w-0 flex-1"><strong className="block text-sm leading-[22px] font-medium [overflow-wrap:anywhere]">{vehicle ? `${vehicle.makeLabel} ${vehicle.modelLabel}` : "Marka ve modele göre seç"}</strong><small className="block text-xs leading-[18px] text-muted-foreground">{vehicle ? `${vehicle.year}${vehicle.engine ? ` · ${vehicle.engine}` : " · Garajına kayıtlı"}` : "Aracına ait seçenekleri keşfet"}</small></span><SiteIcon name="chevron" size={18} className="text-muted-foreground" /></>}
     </button>
-    <VehicleSheet open={open} vehicle={vehicle} initialTab={vehicle ? "garage" : "search"} onClose={() => setOpen(false)} finalFocus={trigger} />
+    {sheet && <sheet.VehicleSheet open={open} vehicle={vehicle} initialTab={vehicle ? "garage" : "search"} onClose={() => setOpen(false)} finalFocus={trigger} />}
   </>;
 }
