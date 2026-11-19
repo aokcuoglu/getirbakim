@@ -26,7 +26,11 @@ CREATE TABLE IF NOT EXISTS product_override_references (
  CHECK (kind='ean' OR brand_key<>''),
  UNIQUE (product_id,kind,brand_key,number_key)
 );
-CREATE INDEX IF NOT EXISTS product_override_references_carried_idx ON product_override_references(carried_from) WHERE carried_from IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_references'::regclass AND c.relname='product_override_references_carried_idx') THEN
+  CREATE INDEX product_override_references_carried_idx ON product_override_references(carried_from) WHERE carried_from IS NOT NULL;
+ END IF;
+END $$;
 
 -- "Aynı ürün" (product_merge): the kept product takes the merged product's numbers; where both have a row for the same
 -- number, the kept product's row wins. Called by the merge actions next to product_override_images_carry.

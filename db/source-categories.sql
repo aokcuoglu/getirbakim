@@ -5,7 +5,11 @@ CREATE TABLE IF NOT EXISTS source_categories (
  fetched_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(source,category_id)
 );
-CREATE INDEX IF NOT EXISTS source_categories_parent_idx ON source_categories(source,parent_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='source_categories'::regclass AND c.relname='source_categories_parent_idx') THEN
+  CREATE INDEX source_categories_parent_idx ON source_categories(source,parent_id);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS source_category_labels (
  source text NOT NULL, category_id integer NOT NULL, locale text NOT NULL,
  name text NOT NULL, slug text NOT NULL,
@@ -18,7 +22,11 @@ CREATE TABLE IF NOT EXISTS product_source_categories (
  PRIMARY KEY(supplier_item_id,source,category_id),
  FOREIGN KEY(source,category_id) REFERENCES source_categories(source,category_id)
 );
-CREATE INDEX IF NOT EXISTS product_source_categories_category_idx ON product_source_categories(source,category_id,supplier_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_source_categories'::regclass AND c.relname='product_source_categories_category_idx') THEN
+  CREATE INDEX product_source_categories_category_idx ON product_source_categories(source,category_id,supplier_item_id);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS source_category_images (
  source text NOT NULL, category_id integer NOT NULL,media_id uuid NOT NULL REFERENCES product_media_objects(id),
  width integer NOT NULL,height integer NOT NULL,

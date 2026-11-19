@@ -40,7 +40,11 @@ DO $$ BEGIN
   ALTER TABLE store_products ADD COLUMN category text NOT NULL DEFAULT 'yedek-parca';
  END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS store_products_category_idx ON store_products(category);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='store_products'::regclass AND c.relname='store_products_category_idx') THEN
+  CREATE INDEX store_products_category_idx ON store_products(category);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS guest_carts (
  token_hash text PRIMARY KEY,
  expires_at timestamptz NOT NULL DEFAULT now() + interval '30 days'
@@ -73,7 +77,11 @@ CREATE TABLE IF NOT EXISTS supplier_imports (
  observations jsonb NOT NULL, quality jsonb NOT NULL,
  groups_data jsonb NOT NULL, currencies_data jsonb NOT NULL
 );
-CREATE INDEX IF NOT EXISTS supplier_imports_latest_idx ON supplier_imports(supplier,list_group,warehouse,completed_at DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_imports'::regclass AND c.relname='supplier_imports_latest_idx') THEN
+  CREATE INDEX supplier_imports_latest_idx ON supplier_imports(supplier,list_group,warehouse,completed_at DESC);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS supplier_import_items (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  import_id uuid NOT NULL REFERENCES supplier_imports(id) ON DELETE CASCADE,
@@ -88,7 +96,11 @@ DO $$ BEGIN
   ALTER TABLE supplier_import_items ADD COLUMN source_variants jsonb NOT NULL DEFAULT '{}'::jsonb;
  END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS supplier_import_items_import_idx ON supplier_import_items(import_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_import_items'::regclass AND c.relname='supplier_import_items_import_idx') THEN
+  CREATE INDEX supplier_import_items_import_idx ON supplier_import_items(import_id);
+ END IF;
+END $$;
 
 -- Current supplier observations and bounded change history (not one full copy per run).
 -- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
@@ -166,8 +178,16 @@ CREATE TABLE IF NOT EXISTS supplier_item_changes (
  kind text NOT NULL CHECK (kind IN ('added','changed','missing','inactive','restored')),
  before_data jsonb, after_data jsonb NOT NULL
 );
-CREATE INDEX IF NOT EXISTS supplier_item_changes_item_idx ON supplier_item_changes(item_id,changed_at DESC,id DESC);
-CREATE INDEX IF NOT EXISTS supplier_item_changes_date_idx ON supplier_item_changes(changed_at);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_item_changes'::regclass AND c.relname='supplier_item_changes_item_idx') THEN
+  CREATE INDEX supplier_item_changes_item_idx ON supplier_item_changes(item_id,changed_at DESC,id DESC);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_item_changes'::regclass AND c.relname='supplier_item_changes_date_idx') THEN
+  CREATE INDEX supplier_item_changes_date_idx ON supplier_item_changes(changed_at);
+ END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS supplier_sync_scopes (
  supplier text NOT NULL CHECK (supplier IN ('basbug','dinamik')),
  company text NOT NULL, list_group text NOT NULL, warehouse text NOT NULL,
@@ -211,8 +231,16 @@ DO $$ BEGIN
  END IF;
 END $$;
 
-CREATE INDEX IF NOT EXISTS supplier_imports_success_idx ON supplier_imports(supplier,company,list_group,warehouse,completed_at DESC,id DESC) WHERE status='succeeded';
-CREATE INDEX IF NOT EXISTS supplier_imports_scope_runs_idx ON supplier_imports(supplier,company,list_group,warehouse,started_at DESC,id DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_imports'::regclass AND c.relname='supplier_imports_success_idx') THEN
+  CREATE INDEX supplier_imports_success_idx ON supplier_imports(supplier,company,list_group,warehouse,completed_at DESC,id DESC) WHERE status='succeeded';
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_imports'::regclass AND c.relname='supplier_imports_scope_runs_idx') THEN
+  CREATE INDEX supplier_imports_scope_runs_idx ON supplier_imports(supplier,company,list_group,warehouse,started_at DESC,id DESC);
+ END IF;
+END $$;
 
 -- Separate catalog discovery from recurring commercial observations.
 DO $$ BEGIN

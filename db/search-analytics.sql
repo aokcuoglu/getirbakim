@@ -13,7 +13,11 @@ CREATE TABLE IF NOT EXISTS search_query_stats (
  last_searched_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY (day, mode, query)
 );
-CREATE INDEX IF NOT EXISTS search_query_stats_query_idx ON search_query_stats (query);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='search_query_stats'::regclass AND c.relname='search_query_stats_query_idx') THEN
+  CREATE INDEX search_query_stats_query_idx ON search_query_stats (query);
+ END IF;
+END $$;
 
 -- Synonym groups an admin added on /yonetim/arama, merged with the built-in groups of query.ts. Words are stored
 -- normalized ("sogutma sivisi"); a word may be a phrase of up to four words.
@@ -40,7 +44,11 @@ CREATE TABLE IF NOT EXISTS search_synonym_suggestions (
  decided_at timestamptz,
  decided_by uuid REFERENCES accounts(id) ON DELETE SET NULL
 );
-CREATE INDEX IF NOT EXISTS search_synonym_suggestions_pending_idx ON search_synonym_suggestions (created_at DESC) WHERE status = 'pending';
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='search_synonym_suggestions'::regclass AND c.relname='search_synonym_suggestions_pending_idx') THEN
+  CREATE INDEX search_synonym_suggestions_pending_idx ON search_synonym_suggestions (created_at DESC) WHERE status = 'pending';
+ END IF;
+END $$;
 -- Inputs already sent to the model ("q:<query>", "pair:<a>|<b>"), so a run does not pay for them again; a zero-result
 -- query is retried after 30 days (new catalog words may answer it by then).
 CREATE TABLE IF NOT EXISTS search_suggestion_checks (

@@ -119,8 +119,16 @@ CREATE TABLE IF NOT EXISTS search_vocabulary (
  frequency integer NOT NULL,
  PRIMARY KEY (scope, word)
 );
-CREATE INDEX IF NOT EXISTS search_vocabulary_trgm_idx ON search_vocabulary USING gin (word gin_trgm_ops);
-CREATE INDEX IF NOT EXISTS search_vocabulary_prefix_idx ON search_vocabulary (scope, word text_pattern_ops);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='search_vocabulary'::regclass AND c.relname='search_vocabulary_trgm_idx') THEN
+  CREATE INDEX search_vocabulary_trgm_idx ON search_vocabulary USING gin (word gin_trgm_ops);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='search_vocabulary'::regclass AND c.relname='search_vocabulary_prefix_idx') THEN
+  CREATE INDEX search_vocabulary_prefix_idx ON search_vocabulary (scope, word text_pattern_ops);
+ END IF;
+END $$;
 -- Distinct supplier product names for type-ahead: a broad prefix ("fren") matches ~15k products, far
 -- too many to rank per keystroke, but only a few hundred names. Refreshed with the vocabulary.
 CREATE TABLE IF NOT EXISTS search_product_names (
@@ -128,7 +136,11 @@ CREATE TABLE IF NOT EXISTS search_product_names (
  normalized text NOT NULL,
  products integer NOT NULL
 );
-CREATE INDEX IF NOT EXISTS search_product_names_tsv_idx ON search_product_names USING gin (to_tsvector('simple', normalized));
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='search_product_names'::regclass AND c.relname='search_product_names_tsv_idx') THEN
+  CREATE INDEX search_product_names_tsv_idx ON search_product_names USING gin (to_tsvector('simple', normalized));
+ END IF;
+END $$;
 CREATE OR REPLACE FUNCTION refresh_search_vocabulary() RETURNS void LANGUAGE sql SET search_path FROM CURRENT AS $$
  DELETE FROM search_vocabulary;
  INSERT INTO search_vocabulary (scope, word, frequency)

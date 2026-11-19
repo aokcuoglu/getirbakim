@@ -11,9 +11,21 @@ CREATE TABLE IF NOT EXISTS product_enrichment_shared_links (
  image_id uuid, imported_at timestamptz NOT NULL,
  refreshed_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS product_enrichment_shared_links_donor_idx ON product_enrichment_shared_links(donor_item_id);
-CREATE INDEX IF NOT EXISTS product_enrichment_shared_links_image_idx ON product_enrichment_shared_links(image_id) WHERE image_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS product_enrichment_shared_links_imported_idx ON product_enrichment_shared_links(imported_at DESC, supplier_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichment_shared_links'::regclass AND c.relname='product_enrichment_shared_links_donor_idx') THEN
+  CREATE INDEX product_enrichment_shared_links_donor_idx ON product_enrichment_shared_links(donor_item_id);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichment_shared_links'::regclass AND c.relname='product_enrichment_shared_links_image_idx') THEN
+  CREATE INDEX product_enrichment_shared_links_image_idx ON product_enrichment_shared_links(image_id) WHERE image_id IS NOT NULL;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichment_shared_links'::regclass AND c.relname='product_enrichment_shared_links_imported_idx') THEN
+  CREATE INDEX product_enrichment_shared_links_imported_idx ON product_enrichment_shared_links(imported_at DESC, supplier_item_id);
+ END IF;
+END $$;
 
 -- Same columns, in the same order, as product_enrichment_shared: storefront queries swap one name for the other.
 DO $setup$ DECLARE def text := $view$

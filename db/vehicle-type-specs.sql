@@ -18,8 +18,16 @@ CREATE TABLE IF NOT EXISTS vehicle_type_specs (
  payload jsonb,
  fetched_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS vehicle_type_specs_outcome_idx ON vehicle_type_specs(outcome);
-CREATE INDEX IF NOT EXISTS vehicle_type_specs_engine_codes_idx ON vehicle_type_specs USING gin(engine_codes);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='vehicle_type_specs'::regclass AND c.relname='vehicle_type_specs_outcome_idx') THEN
+  CREATE INDEX vehicle_type_specs_outcome_idx ON vehicle_type_specs(outcome);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='vehicle_type_specs'::regclass AND c.relname='vehicle_type_specs_engine_codes_idx') THEN
+  CREATE INDEX vehicle_type_specs_engine_codes_idx ON vehicle_type_specs USING gin(engine_codes);
+ END IF;
+END $$;
 
 -- The type's side-view picture as a WebP copy in object storage; types sharing a picture share one media object.
 CREATE TABLE IF NOT EXISTS vehicle_type_images (
@@ -29,7 +37,11 @@ CREATE TABLE IF NOT EXISTS vehicle_type_images (
  height integer NOT NULL CHECK (height BETWEEN 1 AND 2048),
  imported_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS vehicle_type_images_media_idx ON vehicle_type_images(media_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='vehicle_type_images'::regclass AND c.relname='vehicle_type_images_media_idx') THEN
+  CREATE INDEX vehicle_type_images_media_idx ON vehicle_type_images(media_id);
+ END IF;
+END $$;
 -- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 -- Set once scripts/vehicle-image-cutout.ts replaced media_id with a transparent cut-out: the REPXPERT original it came from.
 DO $$ BEGIN
@@ -37,4 +49,8 @@ DO $$ BEGIN
   ALTER TABLE vehicle_type_images ADD COLUMN original_media_id uuid REFERENCES product_media_objects(id);
  END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS vehicle_type_images_original_media_idx ON vehicle_type_images(original_media_id) WHERE original_media_id IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='vehicle_type_images'::regclass AND c.relname='vehicle_type_images_original_media_idx') THEN
+  CREATE INDEX vehicle_type_images_original_media_idx ON vehicle_type_images(original_media_id) WHERE original_media_id IS NOT NULL;
+ END IF;
+END $$;
