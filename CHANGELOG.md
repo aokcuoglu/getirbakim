@@ -2,10 +2,30 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
-## Unreleased
+## v0.32.0 — 2026-11-20
+
+Release of `dev` since v0.31.0 (12 pull requests): the `db:setup` deadlock fix that stopped the v0.31.0 AWS release, order confirmation email, partner invoiced-mark correction, multi-window type-name search, supplier currency anomaly guard and a read-only production DB tunnel. v0.31.0 was never deployed; this release carries it to AWS. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Order confirmation email** after payment ([#1033](https://github.com/aokcuoglu/getirbakim/pull/1033)); skipped and logged until `MAIL_*` / SMTP is configured.
+- **Admin:** correct or undo a partner "Faturalandı" mark ([#1031](https://github.com/aokcuoglu/getirbakim/pull/1031)).
+- **Search:** several type-name windows translated together, first-page share recorded ([#1032](https://github.com/aokcuoglu/getirbakim/pull/1032)).
+- **Suppliers:** single-row currency anomalies kept out of pricing ([#1052](https://github.com/aokcuoglu/getirbakim/pull/1052)).
+- **Platform:** production DB tunnel defaults to the read-only `getirbakim_readonly` role, `--write` explicit ([#1041](https://github.com/aokcuoglu/getirbakim/pull/1041)).
+
+### Changed
+- Header sheets, account panel and cookie settings load on first intent ([#1040](https://github.com/aokcuoglu/getirbakim/pull/1040)); legacy unconfirmed stock label removed ([#1025](https://github.com/aokcuoglu/getirbakim/pull/1025)); installment fee kept out of the GA4 purchase value ([#1024](https://github.com/aokcuoglu/getirbakim/pull/1024)).
 
 ### Fixed
-- **`db:setup` no longer deadlocks with storefront reads when nested views change** ([#1046](https://github.com/aokcuoglu/getirbakim/issues/1046)): v0.31.0's `release-aws` failed all 6 attempts with 40P01 because setup replaced `commerce_catalog_entries` before `storefront_catalog_entries` while storefront queries lock them outer first. A view replace or an ALTER TABLE now first locks the views that read it, outermost first (`setup_lock_dependent_views`, base tables untouched); a no-op run still takes no locks. Dependent views the setup role cannot alter are skipped with a NOTICE instead of failing. `supplier_items_brand_label_idx` is built `CONCURRENTLY` before the schema transaction (an INVALID leftover is rebuilt; 40P01/55P03 retried 3 times, progress logged); the build waits for every open transaction that could still see `supplier_items`, so a long-running transaction delays `db:setup` (it does not block reads or writes). Patch release (v0.31.1); `release-aws` runs the fixed `db:setup`.
+- **`db:setup` no longer deadlocks with storefront reads when nested views change** ([#1046](https://github.com/aokcuoglu/getirbakim/issues/1046), [#1055](https://github.com/aokcuoglu/getirbakim/pull/1055)): v0.31.0's `release-aws` failed all 6 attempts with 40P01 because setup replaced `commerce_catalog_entries` before `storefront_catalog_entries` while storefront queries lock them outer first. A view replace or an ALTER TABLE now first locks the views that read it, outermost first (`setup_lock_dependent_views`, base tables untouched); a no-op run still takes no locks. Dependent views the setup role cannot alter are skipped with a NOTICE instead of failing. `supplier_items_brand_label_idx` is built `CONCURRENTLY` before the schema transaction (an INVALID leftover is rebuilt; 40P01/55P03 retried 3 times, progress logged); the build waits for every open transaction that could still see `supplier_items`, so a long-running transaction delays `db:setup` (it does not block reads or writes). `release-aws` runs the fixed `db:setup`.
+- Mobile category sheet footer shows the session ([#1045](https://github.com/aokcuoglu/getirbakim/pull/1045)); partner invoice dialogs show the server's reason ([#1044](https://github.com/aokcuoglu/getirbakim/pull/1044)); `db-tunnel.sh` exits 0 when its task is stopped ([#1051](https://github.com/aokcuoglu/getirbakim/pull/1051)).
+
+### Deploy and operations
+- **`db:setup` is required and runs before the new code** (`release-aws` does it): v0.31.0's schema (see below) plus the order email log ([#1033](https://github.com/aokcuoglu/getirbakim/pull/1033)), partner invoice corrections ([#1031](https://github.com/aokcuoglu/getirbakim/pull/1031)), search window column ([#1032](https://github.com/aokcuoglu/getirbakim/pull/1032)) and the currency anomaly table/view ([#1052](https://github.com/aokcuoglu/getirbakim/pull/1052)). All v0.31.0 "Deploy and operations" items apply.
+- After deploy: refresh Başbuğ (or the BMW group) once in the panel so the currency anomaly table fills before the 03:00 run ([#1052](https://github.com/aokcuoglu/getirbakim/pull/1052)).
+- Order email in production needs `MAIL_TRANSPORT=smtp`, `MAIL_FROM`, `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASSWORD` (SES) and SES domain verification ([#1033](https://github.com/aokcuoglu/getirbakim/pull/1033)).
+- Scheduled operations tasks already ran the v0.31.0 operations image against the v0.30.0 schema since the failed release (no errors logged); this release aligns them.
+- Vehicle oil specs are unchanged.
 
 ## v0.31.0 — 2026-11-19
 
