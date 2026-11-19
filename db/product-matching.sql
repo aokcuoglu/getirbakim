@@ -325,6 +325,8 @@ END $$;
 -- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='products'::regclass AND attname='suppliers' AND NOT attisdropped) THEN
+  -- Views that read the table first (#1046, db/schema.sql); fixtures that load this file alone have no helper.
+  IF to_regprocedure('setup_lock_dependent_views(regclass)') IS NOT NULL THEN PERFORM setup_lock_dependent_views('products'); END IF;
   ALTER TABLE products ADD COLUMN suppliers text[] NOT NULL DEFAULT '{}';
  END IF;
 END $$;

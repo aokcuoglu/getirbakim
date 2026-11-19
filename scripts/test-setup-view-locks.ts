@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
-import { Client, type PoolClient } from "pg";
+import { Client, Pool, type PoolClient } from "pg";
 import { migrateSupplierSnapshots } from "../src/modules/suppliers/sync";
 import { isolatedSchema, setupFiles } from "./isolated-schema";
 import { createConcurrentIndexes } from "./setup-concurrent-indexes";
@@ -164,4 +164,65 @@ test("an INVALID index left by a failed concurrent build is dropped and built ag
   await createConcurrentIndexes(schema.pool);
   const rebuilt = await brandLabelIndex();
   assert.deepEqual({ def: rebuilt.def, valid: rebuilt.valid }, { def: expected, valid: true });
+});
+
+test("a concurrent build that hits a lock timeout is retried", async () => {
+  await schema.pool.query("DROP INDEX supplier_items_brand_label_idx");
+  const url = new URL(process.env.DATABASE_URL!);
+  url.searchParams.set("options", `${url.searchParams.get("options")} -c lock_timeout=200ms`);
+  const impatient = new Pool({ connectionString: url.toString() });
+  const blocker = await connect();
+  const warn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (message: string) => { warnings.push(message); };
+  try {
+    await blocker.query("BEGIN");
+    await blocker.query("LOCK TABLE supplier_items IN SHARE UPDATE EXCLUSIVE MODE");
+    // The first build times out; the blocker is gone before the retry.
+    const release = sleep(600).then(() => blocker.query("COMMIT"));
+    await createConcurrentIndexes(impatient, 1500);
+    await release;
+  } finally {
+    console.warn = warn;
+    await blocker.query("ROLLBACK").catch(() => undefined);
+    await Promise.all([blocker.end(), impatient.end()]);
+  }
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /attempt 1 hit a lock conflict \(55P03\)/);
+  assert.equal((await brandLabelIndex()).valid, true);
+});
+
+// Production view ownership is not known beforehand: a dependent view setup's role cannot alter is skipped with a
+// NOTICE instead of failing setup with 42501. Needs roles of its own, so only where the test role is a superuser (CI).
+test("a dependent view owned by a role setup is not a member of is skipped with a notice", async (t) => {
+  const { rows: [{ superuser }] } = await schema.pool.query<{ superuser: boolean }>(
+    "SELECT rolsuper AS superuser FROM pg_roles WHERE rolname=current_user");
+  if (!superuser) { t.skip("creating roles needs a superuser (CI); the local role cannot"); return; }
+  const suffix = schema.name.slice(-12);
+  const [runner, other] = [`setup_runner_${suffix}`, `setup_other_${suffix}`];
+  const client = await connect();
+  const notices: string[] = [];
+  client.on("notice", (notice) => notices.push(notice.message ?? ""));
+  try {
+    await client.query(`CREATE ROLE ${runner} NOLOGIN; CREATE ROLE ${other} NOLOGIN;
+      GRANT USAGE ON SCHEMA ${schema.name} TO ${runner}, ${other};
+      CREATE TABLE owner_probe_base(id int); CREATE VIEW owner_probe_inner AS SELECT id FROM owner_probe_base;
+      CREATE VIEW owner_probe_outer AS SELECT id FROM owner_probe_inner;
+      ALTER TABLE owner_probe_base OWNER TO ${runner}; ALTER VIEW owner_probe_inner OWNER TO ${runner};
+      ALTER VIEW owner_probe_outer OWNER TO ${other}`);
+    await client.query("BEGIN");
+    await client.query(`SET LOCAL ROLE ${runner}`);
+    await client.query("SELECT setup_lock_dependent_views('owner_probe_base')");
+    const { rows } = await client.query<{ relname: string }>(
+      `SELECT c.relname FROM pg_locks l JOIN pg_class c ON c.oid=l.relation
+       WHERE l.pid=pg_backend_pid() AND l.mode='AccessExclusiveLock' AND c.relname LIKE 'owner_probe%' ORDER BY 1`);
+    assert.deepEqual(rows.map((row) => row.relname), ["owner_probe_inner"]);
+    assert.deepEqual(notices.filter((notice) => notice.includes("setup_lock_dependent_views")),
+      [`setup_lock_dependent_views: ${schema.name}.owner_probe_outer is owned by ${other}, not locked before changing owner_probe_base`]);
+  } finally {
+    await client.query("ROLLBACK").catch(() => undefined);
+    await client.query(`DROP VIEW IF EXISTS owner_probe_outer, owner_probe_inner; DROP TABLE IF EXISTS owner_probe_base;
+      DROP OWNED BY ${runner}, ${other}; DROP ROLE IF EXISTS ${runner}; DROP ROLE IF EXISTS ${other}`).catch(() => undefined);
+    await client.end();
+  }
 });

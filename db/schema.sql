@@ -7,10 +7,13 @@
 -- `rel`, a view comes before every view it reads. So the views setup holds always include every view above them, and a
 -- reader that needs one of them waits at the first view it names, holding none of the chain. That holds across
 -- replacements: a later replace of an already locked outer view re-locks only what setup already holds. Not covered:
--- a statement or transaction that names an inner relation before an outer view (setup's retry handles those).
+-- a statement or transaction that names an inner relation before an outer view (checkout reading commerce_orders, then
+-- the catalog): there the reader, not setup, can be the 40P01 victim, and setup's retry handles the case where it is not.
 -- ALTER VIEW ... OWNER TO its current owner takes ACCESS EXCLUSIVE on the view alone and changes nothing; LOCK TABLE
 -- on a view would also lock its base tables (supplier_items). Materialized views stop the walk: reading one does not
--- open the views it was built from. Temporary views (the setup probes, other sessions') are skipped.
+-- open the views it was built from. Temporary views (the setup probes, other sessions') are skipped. So is a view the
+-- current role cannot alter (not its owner or a member of the owner role: ALTER would fail with 42501), with a NOTICE:
+-- setup still runs, without the lock order for that view.
 CREATE OR REPLACE FUNCTION setup_lock_dependent_views(rel regclass) RETURNS void
 LANGUAGE plpgsql AS $$
 DECLARE v record;
@@ -26,10 +29,16 @@ BEGIN
    WHERE d.classid='pg_rewrite'::regclass AND d.refclassid='pg_class'::regclass AND r.ev_class<>s.view
     AND c.relkind='v' AND c.relpersistence<>'t'
   )
-  SELECT s.view::regclass AS name,pg_get_userbyid(c.relowner) AS owner FROM dependents s JOIN pg_class c ON c.oid=s.view
-  GROUP BY s.view,c.relowner ORDER BY max(s.depth) DESC,s.view
+  SELECT s.view::regclass AS name,format('%I.%I',n.nspname,c.relname) AS qualified,pg_get_userbyid(c.relowner) AS owner,
+   pg_has_role(current_user,c.relowner,'USAGE') AS alterable
+  FROM dependents s JOIN pg_class c ON c.oid=s.view JOIN pg_namespace n ON n.oid=c.relnamespace
+  GROUP BY s.view,c.relowner,n.nspname,c.relname ORDER BY max(s.depth) DESC,s.view
  LOOP
-  EXECUTE format('ALTER VIEW %s OWNER TO %I',v.name,v.owner);
+  IF v.alterable THEN
+   EXECUTE format('ALTER VIEW %s OWNER TO %I',v.name,v.owner);
+  ELSE
+   RAISE NOTICE 'setup_lock_dependent_views: % is owned by %, not locked before changing %', v.qualified, v.owner, rel;
+  END IF;
  END LOOP;
 END $$;
 CREATE TABLE IF NOT EXISTS accounts (

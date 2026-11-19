@@ -35,6 +35,8 @@ END $$;
 -- rows a merge carries (product_override_fitments_carry) keep NULL; rows written before #816 have none (no backfill).
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_override_fitments'::regclass AND attname='batch_id' AND NOT attisdropped) THEN
+  -- Views that read the table first (#1046, db/schema.sql); fixtures that load this file alone have no helper.
+  IF to_regprocedure('setup_lock_dependent_views(regclass)') IS NOT NULL THEN PERFORM setup_lock_dependent_views('product_override_fitments'); END IF;
   ALTER TABLE product_override_fitments ADD COLUMN batch_id uuid;
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_override_changes'::regclass AND attname='batch_id' AND NOT attisdropped) THEN
