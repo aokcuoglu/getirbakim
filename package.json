@@ -118,6 +118,7 @@
     "enrichment:probe": "node --env-file=.env.local --conditions=react-server --import tsx scripts/product-enrichment.ts probe",
     "fitment:descriptions": "node --env-file=.env.local --import tsx scripts/description-fitments.ts",
     "fitment:rebuild": "node --env-file=.env.local --import tsx scripts/rebuild-product-fitments.ts",
+    "test:compressed-json": "node --import tsx --test scripts/test-compressed-json.ts",
     "test:fitment": "node --import tsx --test scripts/test-product-fitments.ts",
     "test:fitment-rebuild": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-fitment-rebuild.ts",
     "test:fitment-level": "node --import tsx --test scripts/test-fitment-level.ts",
