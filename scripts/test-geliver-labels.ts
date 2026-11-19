@@ -263,6 +263,41 @@ test("a label bought while the order was cancelled is recorded and noted, the or
   assert.equal((await labelRows(order.id))[0].status, "purchased");
 });
 
+test("a label bought while a partner's cancel request opened waits for the decision: reject ships with it, approve does not (#426)", async () => {
+  const adminOrders = await import("../src/modules/admin/orders");
+  const openRequestDuringPurchase = async () => {
+    const order = await seed();
+    const remote = shipment({ trackingNumber: "TRK-HELD" });
+    handler = async () => {
+      await schema.pool.query("UPDATE commerce_orders SET cancel_requested_at=now() WHERE id=$1", [order.id]);
+      return purchased(remote);
+    };
+    const held = await create(order.id);
+    assert.deepEqual([held.outcome, held.orderNumber], ["purchased_on_hold", order.number]);
+    const row = await orderRow(order.id);
+    assert.deepEqual([row.status, row.carrier], ["confirmed", null]);
+    assert.match(row.payment_note, /iptal talebi karar bekliyor; reddedilirse sipariş bu etiketle kargoya verilir, onaylanırsa etiketi Geliver panelinden iptal edin/);
+    assert.equal((await labelRows(order.id))[0].status, "purchased");
+    return { order, remote };
+  };
+  handler = fail;
+
+  const rejected = await openRequestDuringPurchase();
+  calls.length = 0;
+  handler = fail;
+  assert.equal(await adminOrders.decidePartnerCancelRequest(rejected.order.id, "reject"), true);
+  let row = await orderRow(rejected.order.id);
+  assert.deepEqual([row.status, row.carrier, row.tracking_no], ["shipped", "yurtici", "TRK-HELD"]);
+  assert.ok(row.shipped_at);
+  assert.equal(calls.length, 0, "the purchased label is reused, no second Geliver call");
+
+  const approved = await openRequestDuringPurchase();
+  assert.equal(await adminOrders.decidePartnerCancelRequest(approved.order.id, "approve"), true);
+  row = await orderRow(approved.order.id);
+  assert.deepEqual([row.status, row.carrier, row.shipped_at], ["cancelled", null, null]);
+  assert.match(row.payment_note, /Partnerin iptal talebi onaylandı\. Geliver etiketi alınmıştı \(barkod 86200000001\); etiketi Geliver panelinden iptal edin\./);
+});
+
 const webhook = (body: unknown, auth: { header?: string | null; token?: string | null } = { token: SECRET }) =>
   labels.handleGeliverWebhook({ header: auth.header ?? null, token: auth.token ?? null, rawBody: JSON.stringify(body) });
 /** `updatedAt` is Geliver's clock; statusDate (the carrier's time) is the same unless given. */

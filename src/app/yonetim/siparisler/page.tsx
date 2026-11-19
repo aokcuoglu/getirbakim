@@ -105,6 +105,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.label_unknown && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>Geliver yanıtı doğrulanamadı; etiket alınmış olabilir. Birkaç dakika içinde siparişteki &quot;Geliver&apos;de kontrol et&quot; ile sonucu alın; o zamana kadar yeni etiket istenemez.</AlertDescription></Alert>}
     {params.label_failed && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Geliver etiketi oluşturulamadı; ayrıntı siparişin İşlem sütununda. Yeniden deneyebilir ya da elle sevk edebilirsiniz.</AlertDescription></Alert>}
     {params.label_orphan && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>{/^\d+$/.test(params.label_orphan) ? `#${params.label_orphan} siparişinin Geliver etiketi` : "Geliver etiketi"} alındı ama sipariş durumu değişmişti; etiketi Geliver panelinden iptal edin.</AlertDescription></Alert>}
+    {params.label_held && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>{/^\d+$/.test(params.label_held) ? `#${params.label_held} siparişinin Geliver etiketi` : "Geliver etiketi"} alındı ama partnerin iptal talebi karar bekliyor. Talebi reddederseniz sipariş bu etiketle kargoya verilir; onaylarsanız etiketi Geliver panelinden iptal edin.</AlertDescription></Alert>}
     {params.label_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu sipariş için başka bir Geliver isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
     {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
 
@@ -134,8 +135,11 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             return <TableRow key={o.id} className="align-top">
             <TableCell><Link className="font-medium underline-offset-4 hover:underline" href={`/siparis/${o.id}`}>#{o.number}</Link><div className="text-muted-foreground">{time(o.created_at)}</div></TableCell>
             <TableCell className="min-w-56 whitespace-normal">
-              {partner && <Badge variant="outline">Partner · {o.owner_id}</Badge>}
-              <div className="font-medium">{o.customer_name}</div><div className="text-muted-foreground">{[o.email, o.phone].filter(Boolean).join(" · ")}</div>
+              <div className="flex flex-col items-start gap-1">
+                {partner && <Badge variant="outline">Partner · {o.owner_id}</Badge>}
+                <div className="font-medium">{o.customer_name}</div>
+              </div>
+              <div className="text-muted-foreground">{[o.email, o.phone].filter(Boolean).join(" · ")}</div>
               <Accordion><AccordionItem value="details">
                 <AccordionTrigger>Teslimat ve ödeme</AccordionTrigger>
                 <AccordionContent>
@@ -199,6 +203,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               {cancelRequest && <>
                 <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>İptal talebi</Badge>
                 {o.cancel_requested_at && <span className="text-muted-foreground tabular-nums">{time(o.cancel_requested_at)}</span>}
+                {o.geliver?.status === "purchased" && <Badge variant="info"><Info data-icon="inline-start"/>Geliver etiketi alındı, karar bekliyor</Badge>}
               </>}
               {o.cancel_request_rejected_at && o.status !== "cancelled" && <Badge variant="secondary"><Info data-icon="inline-start"/>İptal talebi reddedildi</Badge>}
               {supplierOrdered && <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Tedarikçiye sipariş verilmişti</Badge>}
@@ -217,13 +222,13 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                   <input type="hidden" name="id" value={o.id}/>
                   <input type="hidden" name="decision" value="approve"/>
                   <input type="hidden" name="back" value={back}/>
-                  <SubmitButton variant="destructive" aria-label={`#${o.number} partner iptal talebini onayla`}>İptali onayla</SubmitButton>
+                  <SubmitButton variant="destructive" aria-label={`#${o.number}: İptali onayla (partner iptal talebi)`}>İptali onayla</SubmitButton>
                 </form>
                 <form action={decideCancelRequest}>
                   <input type="hidden" name="id" value={o.id}/>
                   <input type="hidden" name="decision" value="reject"/>
                   <input type="hidden" name="back" value={back}/>
-                  <SubmitButton variant="outline" aria-label={`#${o.number} partner iptal talebini reddet`}>Talebi reddet</SubmitButton>
+                  <SubmitButton variant="outline" aria-label={`#${o.number}: Talebi reddet (partner iptal talebi)`}>Talebi reddet</SubmitButton>
                 </form>
               </div>}
               {!cancelRequest && ["pending", "confirmed"].includes(o.status) && isHandledPayment(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">

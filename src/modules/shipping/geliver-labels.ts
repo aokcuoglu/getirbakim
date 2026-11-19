@@ -16,9 +16,12 @@ import { findShipmentsByOrderNumber, geliverConfig, purchaseLabel, type GeliverR
 // leads to a second (paid) label: until "Geliver'de kontrol et" settles it, the order takes no new label.
 
 export type GeliverLabelOutcome = {
-  outcome: "purchased" | "failed" | "unknown" | "busy" | "not_allowed" | "unavailable" | "purchased_order_changed";
+  outcome: "purchased" | "failed" | "unknown" | "busy" | "not_allowed" | "unavailable" | "purchased_order_changed" | "purchased_on_hold";
   message?: string;
-  /** The order's number, for purchased_order_changed (the label to cancel in Geliver). */
+  /**
+   * The order's number, for purchased_order_changed (the label to cancel in Geliver) and purchased_on_hold (a label
+   * bought while a partner's cancel request opened, #426: it ships the order if the request is rejected).
+   */
   orderNumber?: string;
 };
 
@@ -97,6 +100,12 @@ async function settleRow(client: PoolClient, rowId: string, from: string[], sett
  */
 async function shipAfterPurchase(client: PoolClient, order: LabelOrder | undefined, test: boolean, shipment: GeliverShipment): Promise<GeliverLabelOutcome> {
   if (!order) return { outcome: "purchased_order_changed" };
+  // A partner asked to cancel while the label was being bought (#426): the label is kept for the decision.
+  if (order.cancel_request_open && shippable({ ...order, cancel_request_open: false })) {
+    await appendNote(client, order.id, `Geliver etiketi alındı (barkod ${shipment.barcode ?? "yok"}) ama partnerin iptal talebi karar bekliyor; reddedilirse sipariş bu etiketle kargoya verilir, onaylanırsa etiketi Geliver panelinden iptal edin.`);
+    return { outcome: "purchased_on_hold", orderNumber: order.number,
+      message: "Geliver etiketi alındı ama partnerin iptal talebi karar bekliyor. Talebi reddederseniz sipariş bu etiketle kargoya verilir; onaylarsanız etiketi Geliver panelinden iptal edin." };
+  }
   if (!shippable(order)) {
     await appendNote(client, order.id, `Geliver etiketi alındı (barkod ${shipment.barcode ?? "yok"}) ama sipariş durumu değişmişti; etiketi Geliver panelinden iptal edin.`);
     return { outcome: "purchased_order_changed", orderNumber: order.number,
@@ -106,6 +115,27 @@ async function shipAfterPurchase(client: PoolClient, order: LabelOrder | undefin
   await client.query("UPDATE commerce_orders SET status='shipped',shipped_at=now(),carrier='yurtici',carrier_name=NULL,tracking_no=$2,tracking_url=$3 WHERE id=$1",
     [order.id, trackingNo, resolveGeliverTrackingUrl({ test, shipmentId: shipment.id, trackingNumber: trackingNo, trackingUrl: shipment.trackingUrl })]);
   return { outcome: "purchased" };
+}
+
+type HeldLabel = { test: boolean; geliver_shipment_id: string | null; barcode: string | null; tracking_number: string | null; tracking_url: string | null };
+/** The order's purchased Geliver label, if any; the caller holds the order row FOR UPDATE. */
+export async function purchasedLabel(client: PoolClient, orderId: string) {
+  return (await client.query<HeldLabel>(
+    "SELECT test,geliver_shipment_id,barcode,tracking_number,tracking_url FROM commerce_geliver_shipments WHERE order_id=$1 AND status='purchased'", [orderId],
+  )).rows[0] ?? null;
+}
+
+/**
+ * A partner's cancel request was rejected (#426) on a confirmed order whose label was bought meanwhile (purchased_on_hold):
+ * ships it with that label, as the purchase would have. False when the order has no purchased label. The caller holds
+ * the order row FOR UPDATE and has checked it may ship.
+ */
+export async function shipWithPurchasedLabel(client: PoolClient, orderId: string) {
+  const label = await purchasedLabel(client, orderId);
+  if (!label?.geliver_shipment_id) return false;
+  await client.query("UPDATE commerce_orders SET status='shipped',shipped_at=now(),carrier='yurtici',carrier_name=NULL,tracking_no=$2,tracking_url=$3 WHERE id=$1",
+    [orderId, label.tracking_number, resolveGeliverTrackingUrl({ test: label.test, shipmentId: label.geliver_shipment_id, trackingNumber: label.tracking_number, trackingUrl: label.tracking_url })]);
+  return true;
 }
 
 /** Ids only: never the request body (customer data) or the token. */

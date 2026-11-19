@@ -6,6 +6,7 @@ import { cancelWithNote } from "@/modules/store/customer-cancel";
 import { cancelLockedOrder } from "@/modules/store/order-cancel";
 import { isHandledPayment } from "@/modules/store/payment-states";
 import { resolveTrackingUrl, type Shipment } from "@/modules/store/shipment";
+import { purchasedLabel, shipWithPurchasedLabel } from "@/modules/shipping/geliver-labels";
 import { openCancelRequestSql } from "./order-filters";
 import type { ProcurementStatus } from "./order-procurement";
 
@@ -43,14 +44,22 @@ export async function transitionOrder(id: string, status: OrderTransition) {
 
 /**
  * Operations' answer to a partner's cancel request (#426) on a confirmed order: `approve` cancels it on the partner's
- * behalf (cancelled_by 'customer', noted like the partner's own cancel), `reject` keeps it for shipping and is final.
+ * behalf (cancelled_by 'customer', noted like the partner's own cancel; a Geliver label bought meanwhile is noted for
+ * voiding), `reject` keeps it for shipping and is final (a Geliver label bought meanwhile ships it at once).
  * False when the order is not confirmed or has no open request.
  */
 export async function decidePartnerCancelRequest(id: string, decision: "approve" | "reject") {
   return withHandledOrder(id, async (client, old) => {
     if (old.status !== "confirmed" || !old.cancel_request_open) return false;
-    if (decision === "approve") await cancelWithNote(client, id, "Partnerin iptal talebi onaylandı.");
-    else await client.query("UPDATE commerce_orders SET cancel_request_rejected_at=now() WHERE id=$1", [id]);
+    if (decision === "approve") {
+      const label = await purchasedLabel(client, id);
+      await cancelWithNote(client, id, "Partnerin iptal talebi onaylandı."
+        + (label ? ` Geliver etiketi alınmıştı (barkod ${label.barcode ?? "yok"}); etiketi Geliver panelinden iptal edin.` : ""));
+      return true;
+    }
+    await client.query("UPDATE commerce_orders SET cancel_request_rejected_at=now() WHERE id=$1", [id]);
+    // A label bought while the request was open (purchased_on_hold) now ships the order.
+    await shipWithPurchasedLabel(client, id);
     return true;
   });
 }

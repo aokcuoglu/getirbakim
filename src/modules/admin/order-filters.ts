@@ -9,7 +9,8 @@ export const openCancelRequestSql = "(o.cancel_requested_at IS NOT NULL AND o.ca
 export const orderFilters = {
   all: { label: "Tümü", where: "true" },
   action: { label: "Teyit bekleyen", where: `o.status='pending' AND o.payment_status IN ${handledPaymentSql}` },
-  shipping: { label: "Kargoya verilecek", where: "o.status='confirmed'" },
+  // An order with an open partner cancel request cannot ship; it waits under cancel_request.
+  shipping: { label: "Kargoya verilecek", where: `o.status='confirmed' AND NOT ${openCancelRequestSql}` },
   cancel_request: { label: "İptal talebi", where: `o.status='confirmed' AND ${openCancelRequestSql}` },
   refund: { label: "İade bekleyen", where: "o.payment_status='refund_required'" },
   awaiting_payment: { label: "Ödeme bekleyen", where: "o.status='awaiting_payment'" },

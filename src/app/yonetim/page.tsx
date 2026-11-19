@@ -84,8 +84,8 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
           {delta !== null && <CardAction><StatusBadge tone={delta >= 0 ? "success" : "error"} icon={delta >= 0 ? TrendingUp : TrendingDown}>%{Math.abs(delta).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}</StatusBadge></CardAction>}
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1 text-sm">
-          <div className="flex items-center gap-2 font-medium"><Wallet className="size-4" aria-hidden="true"/>{number(orders.paid_30d)} ödenmiş · {number(orders.on_account_30d)} cari hesap sipariş</div>
-          <div className="text-muted-foreground">Cari hesap (partner) siparişleri iptal edilmedikçe sipariş tarihine göre sayılır.</div>
+          <div className="flex items-center gap-2 font-medium"><Wallet className="size-4" aria-hidden="true"/>{number(orders.paid_30d)} ödenmiş sipariş · {number(orders.on_account_30d)} cari hesap siparişi</div>
+          {orders.on_account_30d > 0 && <div className="text-muted-foreground">Cari hesap (partner) siparişleri iptal edilmedikçe sipariş tarihine göre sayılır.</div>}
           <div className="text-muted-foreground">{delta !== null ? `Önceki 30 güne göre ${delta >= 0 ? "artış" : "düşüş"}` : "Karşılaştırma için önceki dönem yok"}</div>
         </CardFooter>
       </Card>

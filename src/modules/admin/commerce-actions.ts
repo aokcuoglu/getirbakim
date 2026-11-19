@@ -150,7 +150,7 @@ export async function createGeliverShipment(_previous:ShipmentResult,form:FormDa
  if(result.outcome==='unknown') return {status:'success',next:orderListReturn(form.get('back'),'label_unknown')};
  return {status:'error',message:result.message ?? 'Geliver etiketi oluşturulamadı. Elle sevk hâlâ kullanılabilir.'};
 }
-const labelOutcome:Record<GeliverLabelOutcome['outcome'],OrderListOutcome>={purchased:'label_created',purchased_order_changed:'label_orphan',failed:'label_failed',unknown:'label_unknown',busy:'label_busy',not_allowed:'error',unavailable:'error'};
+const labelOutcome:Record<GeliverLabelOutcome['outcome'],OrderListOutcome>={purchased:'label_created',purchased_order_changed:'label_orphan',purchased_on_hold:'label_held',failed:'label_failed',unknown:'label_unknown',busy:'label_busy',not_allowed:'error',unavailable:'error'};
 /** Settles a Geliver label request whose reply was lost, from Geliver's shipment list for the order. */
 export async function checkGeliverShipment(form:FormData) {
  await requireAdmin();

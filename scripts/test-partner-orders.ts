@@ -344,11 +344,15 @@ test("DELETE after confirmation is a request: shipping waits; a rejection is fin
   assert.equal(requested.order.cancellationRequest?.status, "PENDING");
   const repeated = await partnerCancel.cancelPartnerOrder("bakimx", order.id);
   assert.deepEqual(repeated.order.cancellationRequest, requested.order.cancellationRequest);
-  // The order may not ship while the request is open.
+  // The order may not ship while the request is open: it is listed under the cancel request tab, not the shipping one.
+  const tabs = async () => (await schema.pool.query<{ shipping: boolean; cancel_request: boolean }>(`SELECT ${adminData.orderFilters.shipping.where} AS shipping,
+    ${adminData.orderFilters.cancel_request.where} AS cancel_request FROM commerce_orders o WHERE o.id=$1`, [order.id])).rows[0];
+  assert.deepEqual(await tabs(), { shipping: false, cancel_request: true });
   assert.equal(await adminOrders.shipOrder(order.id, yurtici), false);
   assert.equal((await orderRow(order.id)).status, "confirmed");
   assert.equal(await adminOrders.decidePartnerCancelRequest(order.id, "reject"), true);
   assert.equal(await adminOrders.decidePartnerCancelRequest(order.id, "approve"), false, "a rejection is final");
+  assert.deepEqual(await tabs(), { shipping: true, cancel_request: false });
   const rejected = await partnerOrders.getPartnerOrder("bakimx", order.id);
   assert.equal(rejected.cancellationRequest?.status, "REJECTED");
   assert.ok(rejected.cancellationRequest?.decidedAt);
