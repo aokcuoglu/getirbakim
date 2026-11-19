@@ -2,9 +2,24 @@ name: Release to AWS
 # Manual only, from main, by the repository owner, with the version being released:
 #   gh workflow run release-aws.yml --ref main -f version=X.Y.Z
 # The guard job stops anything else (another branch, another actor or re-runner, a version different from
-# package.json) before CI and before any AWS call; it replaces the former `production` environment approval,
-# which a private repository on the GitHub Free plan does not have. The release role in AWS must trust this
-# repository's main branch instead of the environment (getirbakim-infra#5) before this file lands.
+# package.json) before CI and before any AWS call; the release job repeats the branch and actor checks first,
+# because "Re-run failed jobs" does not rerun a guard job that passed. They replace the former `production`
+# environment approval, which a private repository on the GitHub Free plan does not have.
+#
+# The guards prevent an accidental release, not a collaborator with write access: without branch protection
+# (GitHub Free, private) such a collaborator can change this file on main, and the repository-level
+# INFRA_DEPLOY_KEY secret is readable by any workflow on any branch they push.
+#
+# Order of the switch (docs/ci-mac-runner.md):
+#   1. deploy getirbakim-infra PR #6 (Cicd stack: the release role trusts main, not the environment)
+#   2. customize the OIDC subject; without it the subject is repo:<repo>:ref:refs/heads/main and
+#      AssumeRole fails:
+#        gh api -X PUT repos/aokcuoglu/getirbakim/actions/oidc/customization/sub -F use_default=false \
+#          -f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'
+#   3. repository-level variables and secret below (including PRODUCTION_GELIVER_SYNC_ENABLED=false,
+#      missing from the production environment today)
+#   4. merge this workflow to main through a release
+#   5. make the repository private, register the Mac runner, set CI_RUNS_ON
 #
 # Same steps as an operator with the infrastructure repository:
 #   push-image.sh  build the app and operations images (linux/arm64), push them to ECR under the
@@ -75,6 +90,18 @@ jobs:
       contents: read
       id-token: write
     steps:
+      - name: Check branch and actor
+        # Repeats the guard job before any checkout or AWS step: a rerun of this job alone skips the guard.
+        env:
+          REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then echo "::error::Releases run only from main, not $REF"; exit 1; fi
+          if [ "$ACTOR" != "$OWNER" ] || [ "$TRIGGERING_ACTOR" != "$OWNER" ]; then
+            echo "::error::Only $OWNER may release (actor $ACTOR, triggered by $TRIGGERING_ACTOR)"; exit 1
+          fi
       - uses: actions/checkout@v7
         with:
           path: app
