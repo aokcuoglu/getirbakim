@@ -11,10 +11,10 @@ test("manufacturer selection supports multiple brands and legacy links", () => {
   assert.deepEqual(selectedBrands({brand:"FEBI", brands:'["BOSCH","FEBI"]'}), ["BOSCH","FEBI"]);
 });
 test("malformed and oversized filter groups are rejected", () => {
-  for (const brands of ['{', '"BOSCH"', '[null]', JSON.stringify(Array(31).fill("BOSCH"))]) {
+  for (const brands of ['{', '"BOSCH"', '[null]', '["  "]', '["BOSCH","  "]', JSON.stringify(Array(31).fill("BOSCH"))]) {
     assert.deepEqual(selectedBrands({brands}), []);
   }
-  for (const attributes of ['{', '["Front Axle"]', '{"Fitting Position":[null]}', JSON.stringify(Object.fromEntries(Array.from({length:9}, (_,i) => [String(i),["x"]])))]) {
+  for (const attributes of ['{', '["Front Axle"]', '{"Fitting Position":[null]}', '{"Fitting Position":["  "]}', 'null', '"x"', '{"":["x"]}', JSON.stringify(Object.fromEntries(Array.from({length:9}, (_,i) => [String(i),["x"]])))]) {
     assert.deepEqual(selectedAttributes({attributes}), {});
   }
 });
