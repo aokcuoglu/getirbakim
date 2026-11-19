@@ -7,7 +7,7 @@ import {Button} from "@/components/ui/button";
 import {Checkbox} from "@/components/ui/checkbox";
 import {Input} from "@/components/ui/input";
 import {requestRestock} from "@/modules/store/restock";
-import {restockConsentText,type RestockState} from "@/modules/store/restock-schema";
+import {restockConsentText,type RestockState} from "@/modules/store/restock-consent";
 
 const initialState:RestockState={status:"idle",message:""};
 
