@@ -96,6 +96,7 @@
     "test:vehicle-families": "node --import tsx --test scripts/test-vehicle-families.ts",
     "test:home": "node --import tsx --test scripts/test-home.ts",
     "test:client-imports": "node --import tsx --test scripts/test-store-client-imports.ts",
+    "test:lazy-module": "node --import tsx --test scripts/test-lazy-module.ts",
     "test:vehicle-model-listing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-model-listing.ts",
     "test:vehicle-model-groups": "node --import tsx --test scripts/test-vehicle-model-groups.ts",
     "test:garage": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-garage.ts",
