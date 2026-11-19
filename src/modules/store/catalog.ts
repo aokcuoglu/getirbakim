@@ -661,12 +661,15 @@ export type ProductSuggestion={kind:"product";id:string;name:string;name_overrid
 // Ranking every match per keystroke takes seconds on the VPS for broad prefixes ("fren": ~15k);
 // above this, the type-ahead suggests product names from search_product_names instead.
 const maxRankedSuggestions=500;
-/** Best matches for the header type-ahead: the catalog search's engine and readings, without prices. */
+/**
+ * Best matches for the header type-ahead: the catalog search's engine and readings, without prices. Broad searches return
+ * up to 2x `limit` name rows (both spellings of one type): the caller (searchSuggestions) merges them by label and trims.
+ */
 export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  await ensureCustomSynonyms();
  // Products named only in English ("BRAKE HOSE" for "fren hor") never reach the ranked list: their English names come
  // from the type-name dictionary and are suggested as names (#962). The recheck keeps the text-index plan (~1 ms).
- const expansion=searchTooShort(raw)?null:typeNamePrefixQuery(parseSearchQuery(raw));
+ const expansion=mode==="all"&&!searchTooShort(raw)?typeNamePrefixQuery(parseSearchQuery(raw)):null;
  const [search,english]=await Promise.all([catalogSearch(raw,mode),expansion?db.query<{name:string;products:number}>(`SELECT name,products FROM search_product_names
   WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1) AND normalized=ANY($2::text[])
   ORDER BY products DESC,name LIMIT ${Number(limit)}`,[expansion.query,expansion.names]).then(result=>result.rows):[]]);

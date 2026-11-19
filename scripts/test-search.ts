@@ -261,4 +261,6 @@ test("type-ahead suggests the Turkish name of English-named products (#962)", as
   // Even when the Turkish words rank nothing, the English names are still suggested.
   const master = await suggestProducts("fren ana", "all");
   assert.ok(master.products.some(p => p.kind === "name" && p.name.startsWith("BRAKE MASTER CYLINDER")));
+  // Code mode searches codes: no type names are suggested.
+  assert.ok((await suggestProducts("fren", "code")).products.every(p => p.kind !== "name"));
 });
