@@ -93,10 +93,12 @@ DO $setup$ DECLARE def text := $view$
  SELECT DISTINCT ON (product_brand_key(sb.label)) product_brand_key(sb.label) AS alias, b.key AS canonical
  FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id
  ORDER BY product_brand_key(sb.label), sb.items DESC, b.key;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='brand_key_aliases' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='brand_key_aliases' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW brand_key_aliases AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;

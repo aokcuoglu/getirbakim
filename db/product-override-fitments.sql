@@ -90,10 +90,12 @@ DO $setup$ DECLARE def text := $view$
    WHERE h.kind='description_model' AND ps.supplier_item_id=f.supplier_item_id AND h.model_id=f.model_id)
   AND NOT EXISTS (SELECT 1 FROM product_override_fitments d JOIN product_sources ps ON ps.product_id=d.product_id
    WHERE ps.supplier_item_id=f.supplier_item_id);
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='storefront_description_fits' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='storefront_description_fits' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW storefront_description_fits AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;

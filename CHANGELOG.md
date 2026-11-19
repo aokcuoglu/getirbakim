@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## Unreleased
+
+### Fixed
+- **`db:setup` no longer deadlocks with storefront reads when nested views change** ([#1046](https://github.com/aokcuoglu/getirbakim/issues/1046)): v0.31.0's `release-aws` failed all 6 attempts with 40P01 because setup replaced `commerce_catalog_entries` before `storefront_catalog_entries` while storefront queries lock them outer first. A view replace or an ALTER TABLE now first locks the views that read it, outermost first (`setup_lock_dependent_views`, base tables untouched); a no-op run still takes no locks. `supplier_items_brand_label_idx` is built `CONCURRENTLY` before the schema transaction (an INVALID leftover is rebuilt). Patch release (v0.31.1); `release-aws` runs the fixed `db:setup`.
+
 ## v0.31.0 — 2026-11-19
 
 Release of `dev` since v0.30.0 (43 pull requests): separate invoice address and account address book, Turkish names and Turkish search for English-named supplier products, Yurtiçi labels through Geliver, partner orders, Google Ads / Meta Pixel behind consent, faster brand and listing pages, lighter storefront and lock-free `db:setup`. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
