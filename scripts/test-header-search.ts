@@ -129,7 +129,7 @@ test("several type-name windows translate together (#989)", () => {
   assert.deepEqual(queries("motor kapağı"), ["('cover') & ('motor':*)"]);
   assert.deepEqual(queries("kapak"), ["('cover')"]);
   for (const q of ["kapı camı", "kapı camı bosch", "fren diski kapağı", "ön kapı camı sol", "fren diski balata hortumu kapağı"]) {
-    assert.ok(queries(q).length <= 4, q);
+    assert.ok(queries(q).length <= 5, q);
     for (const query of queries(q)) assert.match(query, /^[a-z0-9' |()<>&:*-]*$/, q);
   }
   const boosts = (q: string) => typeNameRankBoosts(parseSearchQuery(q));
@@ -139,6 +139,18 @@ test("several type-name windows translate together (#989)", () => {
     { query: "('cover':A)", english: ["cover"], turkish: "kapak" },
     { query: "('cap':A)", english: ["cap"], turkish: "kapak", names: ["cap"] },
   ]);
+  // The combined element comes on top of the four: no single run and no ambiguous name's swap is pushed out.
+  const four = queries("kapı camı hortumu kapağı");
+  assert.equal(four.length, 5);
+  assert.equal(four[0], "('door') & ('glass') & ('hose') & ('cover')");
+  assert.ok(four.slice(1).some(query => query.startsWith("('cover') & ")), "the last single run stays");
+  for (const q of ["fren diski balata hortumu kapağı", "kapı camı kapağı kolu"]) {
+    const swaps = boosts(q);
+    assert.equal(swaps.length, 5, q);
+    assert.ok(swaps[0].english.includes("cover") && !swaps[0].names, q);
+    assert.deepEqual(swaps.at(-1), { query: "('cap':A)", english: ["cap"], turkish: "kapagi", names: ["cap"] }, q);
+  }
+  assert.equal(queries("kapı camı kapağı kolu")[0], "('door') & ('glass') & ('cover') & ('kolu':*)");
   // An ambiguous name never joins the combination: "kapı kolu" is DOOR and ARM on their own.
   assert.ok(boosts("kapı kolu").every(boost => !(boost.english.includes("door") && boost.english.includes("arm"))));
 });

@@ -109,8 +109,9 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
   const crawler=/bot|crawl|spider|slurp|preview|headless|lighthouse/i.test(request.get("user-agent")??"");
   const prefetch=request.has("next-router-prefetch")||/prefetch/i.test(request.get("sec-purpose")??request.get("purpose")??"");
   const mode=params.searchBy==="code"?"code":"all";
-  // #989: how many first-page cards the type-name expansion translated, measured after the response too.
-  if(!crawler&&!prefetch)after(()=>recordSearch({query:params.q!,mode,total:result.total,correctedQuery:result.correctedQuery,typeNameFirstPage:typeNameFirstPage(params.q!,mode,result.items)}));
+  // #989: how many first-page cards the type-name expansion translated, measured after the response too; a corrected
+  // search ran the corrected query.
+  if(!crawler&&!prefetch)after(()=>recordSearch({query:params.q!,mode,total:result.total,correctedQuery:result.correctedQuery,typeNameFirstPage:typeNameFirstPage(result.correctedQuery??params.q!,mode,result.items)}));
  }
  const [images,logos,details,fitting]=await Promise.all([getCatalogProductImages(cards),getManufacturerLogos(cards.map(product=>product.display_brand)),getCatalogProductDetails(cards),vehicleTypeId?productsFittingVehicle(cards.map(product=>product.id),vehicleTypeId):new Set<string>()]);
  // On a make or model listing only the categories holding its products are linked: an empty one would be a 404 (#673).

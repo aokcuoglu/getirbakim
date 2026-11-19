@@ -120,7 +120,7 @@ function otherWords(parsed: ParsedSearch, windows: Window[]) {
  * Extra tsqueries for the English supplier names a run of query words names in Turkish, each with the other required
  * words: "fren diski bosch" → `('brake' <-> 'disc') & ('bosch':*)`, "motor kapağı" → `('cover') & ('motor':*)`. When
  * several runs each name a type (#989), their names together come first: "kapı camı" → `('door') & ('glass')` (DOOR GLASS),
- * then each run with the other words. Longest runs first, at most four.
+ * then each run with the other words. Longest runs first, at most four besides the combined one.
  */
 export function typeNameTsQueries(parsed: ParsedSearch): string[] {
   const windows = typeNameWindows(parsed);
@@ -130,8 +130,9 @@ export function typeNameTsQueries(parsed: ParsedSearch): string[] {
     return others ? `${names} & ${others}` : names;
   };
   const combined = combinedWindows(windows);
-  const queries = [...(combined ? [query(combined)] : []), ...windows.map(window => query([window]))];
-  return [...new Set(queries)].slice(0, maxQueries);
+  // The combined query comes on top of the four: it must not push out a single run.
+  const singles = [...new Set(windows.map(window => query([window])))].slice(0, maxQueries);
+  return combined ? [query(combined), ...singles] : singles;
 }
 
 /**
@@ -182,7 +183,7 @@ export type TypeNameBoost = { query: string; english: string[]; turkish: string;
 
 /**
  * The ranking swaps for the type names a query spells in Turkish ("fren diski" → BRAKE DISC), longest runs first, at most
- * four. Runs that each name a type (#989) swap together first: a row named DOOR GLASS ranks as "kapi cami". Known limit:
+ * four besides the combined one. Runs that each name a type (#989) swap together first: a row named DOOR GLASS ranks as "kapi cami". Known limit:
  * only the one greedy set of runs combines (as in typeNameTsQueries), and an ambiguous name (CAP, ARM…) never joins it.
  */
 export function typeNameRankBoosts(parsed: ParsedSearch): TypeNameBoost[] {
@@ -192,18 +193,18 @@ export function typeNameRankBoosts(parsed: ParsedSearch): TypeNameBoost[] {
   const englishWords = (english: string[]) => [...new Set(english.flatMap(name => name.split(" ")))];
   const windows = typeNameWindows(parsed);
   const combined = combinedWindows(windows);
-  const boosts: TypeNameBoost[] = combined ? [{
-    query: combined.map(({ english }) => nameQuery(english)).join(" & "),
-    english: englishWords(combined.flatMap(({ english }) => english)),
-    turkish: combined.map(({ start, end }) => typed(start, end)).join(" "),
-  }] : [];
-  for (const { start, end, english } of windows) boosts.push({ query: nameQuery(english), english: englishWords(english), turkish: typed(start, end) });
+  const boosts: TypeNameBoost[] = windows.map(({ start, end, english }) => ({ query: nameQuery(english), english: englishWords(english), turkish: typed(start, end) }));
   terms.forEach((term, index) => {
     if (term.parts) return;
     const names = englishNames(exactEntries, term.text.split(" "));
     if (names.length) boosts.push({ query: `(${names.map(name => `'${name}':A`).join(" | ")})`, english: names, turkish: typed(index, index), names });
   });
-  return boosts.slice(0, maxQueries);
+  // The combined swap comes on top of the four, as in typeNameTsQueries: an ambiguous name's swap stays.
+  return combined ? [{
+    query: combined.map(({ english }) => nameQuery(english)).join(" & "),
+    english: englishWords(combined.flatMap(({ english }) => english)),
+    turkish: combined.map(({ start, end }) => typed(start, end)).join(" "),
+  }, ...boosts.slice(0, maxQueries)] : boosts.slice(0, maxQueries);
 }
 
 /**

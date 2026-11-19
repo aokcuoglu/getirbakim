@@ -204,7 +204,7 @@ export default async function SearchAnalytics({ searchParams }: { searchParams: 
     </> : <Card>
       <CardContent>
         {tab === "zero" && rows.length > 0 && <Alert variant="info" className="mb-4"><Info aria-hidden="true"/><AlertDescription>Yalnız son aramasında hâlâ sonuç bulunamayan sorgular listelenir. Bir eş anlamlı eklendikten sonra sorgu yeniden aranınca listeden düşer.</AlertDescription></Alert>}
-        {tab === "top" && rows.length > 0 && <Alert variant="info" className="mb-4"><Info aria-hidden="true"/><AlertDescription>İlk sayfada çeviri adlı: tür adı içeren sorgularda, ilk sayfada İngilizce tedarikçi adı Türkçeye çevrilerek gösterilen ürün sayısı (24 karttan, son aramada). Tür adı içermeyen sorgularda ve kod aramalarında “—” görünür.</AlertDescription></Alert>}
+        {tab === "top" && rows.length > 0 && <Alert variant="info" className="mb-4"><Info aria-hidden="true"/><AlertDescription>İlk sayfada çeviri adlı: tür adı içeren sorgularda, ilk sayfada İngilizce tedarikçi adı Türkçeye çevrilerek gösterilen ürün sayısı (24 karttan, son aramada). Yaklaşık bir ölçüdür: bu ürünlerin çeviri adıyla mı yoksa başka bir kelimeyle mi bulunduğunu ayırmaz. Tür adı içermeyen sorgularda ve kod aramalarında “—” görünür.</AlertDescription></Alert>}
         {rows.length ? <Table>
           <TableHeader><TableRow>
             <TableHead>Sorgu</TableHead><TableHead className="text-right">Arama</TableHead>

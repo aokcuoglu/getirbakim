@@ -15,8 +15,13 @@ CREATE TABLE IF NOT EXISTS search_query_stats (
 );
 -- Products of the latest search's first page shown under an English supplier name translated to Turkish (#989): how
 -- much the type-name expansion ("kapı camı" → DOOR GLASS) fills the first page. NULL for queries that name no type, code
--- searches and rows recorded before the column.
-ALTER TABLE search_query_stats ADD COLUMN IF NOT EXISTS last_type_name_first_page smallint;
+-- searches and rows recorded before the column. Added only when missing: ADD COLUMN IF NOT EXISTS locks the table
+-- (ACCESS EXCLUSIVE) until setup commits even as a no-op.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='search_query_stats'::regclass AND attname='last_type_name_first_page' AND NOT attisdropped) THEN
+  ALTER TABLE search_query_stats ADD COLUMN last_type_name_first_page smallint;
+ END IF;
+END $$;
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='search_query_stats'::regclass AND c.relname='search_query_stats_query_idx') THEN
   CREATE INDEX search_query_stats_query_idx ON search_query_stats (query);

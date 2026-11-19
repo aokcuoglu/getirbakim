@@ -194,6 +194,8 @@ test("product search: two type-name windows find and rank the row named after bo
     FROM ${row}`, values);
   assert.ok(rank.swapped >= rank.base, `${rank.swapped} < ${rank.base}`);
   assert.ok(rank.swapped >= rank.named - 1e-6, `${rank.swapped} < ${rank.named}`);
+  // Never above the same row named in Turkish.
+  assert.ok(rank.swapped <= rank.named + 1e-6, `${rank.swapped} > ${rank.named}`);
 });
 
 test("vehicle search matches words, not letters inside codes", async () => {
