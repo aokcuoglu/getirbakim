@@ -22,6 +22,7 @@
     "test:seo": "node --import tsx --test scripts/test-seo.ts",
     "test:installments": "node --import tsx --test scripts/test-installments.ts",
     "test:pick-key": "node --import tsx --test scripts/test-pick-key.ts",
+    "test:scram-verifier": "node --import tsx --test scripts/test-scram-verifier.ts",
     "test:dinamik": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-dinamik.ts",
     "test:product-pricing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-pricing.ts",
     "test:product-tabs": "node --import tsx --test scripts/test-product-tabs.ts",
