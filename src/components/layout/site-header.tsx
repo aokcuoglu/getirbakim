@@ -3,6 +3,7 @@ import { Wrench } from "lucide-react";
 import { BrandLogo } from "@/components/brand-logo";
 import { HeaderTools } from "@/components/navigation/header-tools";
 import { CategoryMenu } from "@/components/navigation/category-menu";
+import { SheetAccount } from "@/components/navigation/sheet-account";
 import { SearchBox } from "@/components/navigation/search-box";
 import { Select } from "@/components/site/select";
 import { SiteIcon } from "@/components/site/site-icon";
@@ -40,7 +41,7 @@ export async function SiteHeader() {
         <HeaderTools/>
       </div>
       <nav aria-label="Kategoriler" className="site-header-nav">
-        <CategoryMenu links={headerCategoryLinks(categories)}/>
+        <CategoryMenu links={headerCategoryLinks(categories)} account={<SheetAccount/>}/>
         <Link className="ml-auto inline-flex min-h-5 items-center gap-1.5 text-brand hover:underline hover:underline-offset-3 max-[600px]:min-h-11" href="/bakim-robotu" prefetch={false}><Wrench size={14} aria-hidden="true"/> Bakım Robotu</Link>
         <Link className="inline-flex min-h-5 items-center gap-1.5 text-[#923830] max-[1300px]:hidden" href="/bilgi/yardim"><SiteIcon name="help" size={14}/> Yardım al</Link>
       </nav>

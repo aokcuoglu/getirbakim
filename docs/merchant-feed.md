@@ -26,13 +26,13 @@ Bir ürün yalnız şu koşulların hepsini sağlarsa girer:
 2. Fiyatı var (`price_kurus ≥ 1`).
 3. Sayfadaki Offer'ın kuralına göre **stokta**: `offerAvailability()` (`src/modules/seo/structured-data.ts`) `in_stock` dönmeli.
    - "Stokta yok" ürünler `out_of_stock` olarak **eklenmez**; kapsam yalnız satılabilir ürünlerdir.
-   - "Kayıtlı stokta mevcut · Teyit bekliyor" (teyitsiz stok) ve bilinmeyen stok da girmez.
+   - "Stokta · Siparişten sonra teyit edilir" (teyitsiz stok) ve bilinmeyen stok da girmez.
 4. Görseli var ve kısa kenarı en az 100 px.
    - Görsel, mağaza kartıyla aynı kuralla seçilir (`getCatalogProductImages`): yöneticinin ilk yüklemesi, yoksa gizlenmemiş otomatik zenginleştirme görseli.
 
 ### Sipariş modu "Kayıtlı veriler" (snapshot) iken besleme boştur
 
-Snapshot modunda (`commerce_settings.basbug_checkout_mode='snapshot'`) her tedarikçi stoğu "Teyit bekliyor" olarak görünür. Bu durumda sayfa hiçbir ürünü stokta göstermez, besleme de **bilerek boş** çıkar.
+Snapshot modunda (`commerce_settings.basbug_checkout_mode='snapshot'`) her tedarikçi stoğu "Stokta · Siparişten sonra teyit edilir" (teyitsiz stok) olarak görünür. Bu durumda sayfa hiçbir ürünü stokta göstermez, besleme de **bilerek boş** çıkar.
 
 - Koşu boş dosyayı yazar ve `completed` biter. Düşüş koruması bu durumda uygulanmaz, çünkü mod değişimi bilinçli bir toplu çıkıştır.
 - Manifestte `checkoutMode: "snapshot"` ve `note` alanı nedeni yazar.

@@ -118,20 +118,22 @@ export type LiveCost = {id:string;nf:number;price:number|null};
  * cost the formula cannot price leaves the line unpriced (a change). The view's cost>0/exchange_rate>0/freshness
  * gates are not repeated: it is only called for lines cartFor found priced and sellable, and the refresh reports a
  * non-positive live cost as sold out. A line missing from the catalog by now counts as changed (no snapshot, so no
- * formula price). scripts/test-supplier-checkout.ts compares it with the view. Read-only, no locks.
+ * formula price), and so does a line with an open currency anomaly (#1030), which the view leaves unpriced.
+ * scripts/test-supplier-checkout.ts compares it with the view. Read-only, no locks.
  */
 export async function livePriceChanges(connection:Pick<PoolClient,"query">, lines:LiveCost[]) {
   if (!lines.length) return [];
   return (await connection.query<{id:string}>(`WITH live AS (SELECT * FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,nf numeric,price integer)),
     line AS (
-      SELECT l.id,l.price,commerce_final_price(
+      SELECT l.id,l.price,CASE WHEN pa.supplier_item_id IS NULL THEN commerce_final_price(
         commerce_regular_price(commerce_formula_price(l.nf,(p.pricing_snapshot->>'exchange_rate')::numeric,
           (p.pricing_snapshot->>'markup_percent')::numeric,(p.pricing_snapshot->>'vat_percent')::numeric),ov.price_kurus),
-        commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now())) AS live_price
+        commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now())) END AS live_price
       FROM live l
       -- LATERAL + OFFSET 0 keeps the view from being planned as one catalog-wide scan per line (#705).
       LEFT JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=l.id OFFSET 0) p ON true
-      LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=l.id)
+      LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=l.id
+      LEFT JOIN supplier_price_anomalies pa ON pa.supplier_item_id=l.id AND pa.status='open')
     SELECT id::text FROM line WHERE price IS DISTINCT FROM live_price ORDER BY id`,
     [storefrontCompanies(), JSON.stringify(lines)])).rows.map(row => row.id);
 }

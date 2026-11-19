@@ -204,10 +204,12 @@ export default async function SearchAnalytics({ searchParams }: { searchParams: 
     </> : <Card>
       <CardContent>
         {tab === "zero" && rows.length > 0 && <Alert variant="info" className="mb-4"><Info aria-hidden="true"/><AlertDescription>Yalnız son aramasında hâlâ sonuç bulunamayan sorgular listelenir. Bir eş anlamlı eklendikten sonra sorgu yeniden aranınca listeden düşer.</AlertDescription></Alert>}
+        {tab === "top" && rows.length > 0 && <Alert variant="info" className="mb-4"><Info aria-hidden="true"/><AlertDescription>İlk sayfada çeviri adlı: tür adı içeren sorgularda, ilk sayfada İngilizce tedarikçi adı Türkçeye çevrilerek gösterilen ürün sayısı (24 karttan, son aramada). Yaklaşık bir ölçüdür: bu ürünlerin çeviri adıyla mı yoksa başka bir kelimeyle mi bulunduğunu ayırmaz. Tür adı içermeyen sorgularda ve kod aramalarında “—” görünür.</AlertDescription></Alert>}
         {rows.length ? <Table>
           <TableHeader><TableRow>
             <TableHead>Sorgu</TableHead><TableHead className="text-right">Arama</TableHead>
             {tab === "top" && <TableHead className="text-right">Son sonuç</TableHead>}
+            {tab === "top" && <TableHead className="text-right">İlk sayfada çeviri adlı</TableHead>}
             <TableHead>Durum</TableHead><TableHead>Son arama</TableHead><TableHead className="text-right">İşlem</TableHead>
           </TableRow></TableHeader>
           <TableBody>{rows.map(row => <TableRow key={`${row.mode}|${row.query}`}>
@@ -217,6 +219,7 @@ export default async function SearchAnalytics({ searchParams }: { searchParams: 
             </TableCell>
             <TableCell className="text-right tabular-nums" value={String(row.searches)}>{formatNumber(row.searches)}</TableCell>
             {tab === "top" && <TableCell className="text-right tabular-nums" value={String(row.last_total)}>{formatNumber(row.last_total)}</TableCell>}
+            {tab === "top" && <TableCell className="text-right tabular-nums" value={String(row.type_name_first_page ?? -1)}>{row.type_name_first_page === null ? "—" : formatNumber(row.type_name_first_page)}</TableCell>}
             <TableCell>
               {row.last_total === 0 ? <StatusBadge tone="error" icon={SearchX}>Sonuç yok</StatusBadge>
                 : row.corrected_query ? <StatusBadge tone="warning" title={`"${row.corrected_query}" olarak düzeltildi`}>Düzeltmeyle: {row.corrected_query}</StatusBadge>

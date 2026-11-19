@@ -9,7 +9,7 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { decodeOfferId, encodeOfferId } from "./dto";
 import { lineAmounts, partnerOrderLimitEnv, resolveOrderLimitKurus, toPartnerOrderDto, type PartnerOrderLineRow, type PartnerOrderRow } from "./order-dto";
 import { addressText, type OrderRequest, type QuoteRequest } from "./order-schema";
-import { partnerExposure, partnerOrderLimit } from "./limits";
+import { lockPartnerOrders, partnerExposure, partnerOrderLimit } from "./limits";
 import { partnerDiscountEnv, resolvePartnerDiscountBps, resolvePartnerPrice } from "./pricing";
 import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partnerQuoteSecretEnv, partnerQuoteTtlMs, quoteSecret, signQuote, verifyQuote, type QuoteLine } from "./quotes";
 
@@ -176,7 +176,7 @@ export async function createPartnerOrder(partner: string, idempotencyKey: string
   try {
     await client.query("BEGIN");
     // One order at a time per partner: the open-order limit and the Idempotency-Key check see every earlier order.
-    await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`partner_order:${partner}`]);
+    await lockPartnerOrders(client, partner);
     const existing = await readOrder(partner, "request_key", idempotencyKey, client);
     if (existing) { await client.query("COMMIT"); return replay(existing, fingerprint); }
     // (#770, #788) The supplier no longer knows the code, or the live answer said sold out: refused and named.

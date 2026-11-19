@@ -2,11 +2,12 @@ import Link from "next/link";
 import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
 import { Suspense, type ReactNode } from "react";
 import { requireAdmin } from "@/modules/auth/session";
-import { adminSupplierCatalogMetrics, adminSupplierFeeds, adminSupplierRefreshPlan } from "@/modules/admin/data";
+import { adminPriceAnomalies, adminSupplierCatalogMetrics, adminSupplierFeeds, adminSupplierRefreshPlan } from "@/modules/admin/data";
 import { adminManualLists } from "@/modules/admin/manual";
 import { supplierSchedulerManual } from "@/modules/suppliers/health";
 import { feedIssueCount, feedStateLabels, feedStateTones, importErrorLabel, type FeedStatus } from "@/modules/suppliers/data-status";
 import { SupplierRefreshRunner, type SupplierRefreshScopes } from "@/components/admin/supplier-refresh-runner";
+import { SupplierPriceAnomalies } from "@/components/admin/supplier-price-anomalies";
 import { formatAgo, formatDate, formatInterval, formatNumber } from "@/modules/admin/format";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -61,7 +62,7 @@ export default async function Suppliers() {
     console.error("Supplier catalog metrics failed", error);
     return null;
   });
-  const [{ status, metrics, attempts, scheduler }, manualLists, plan] = await Promise.all([adminSupplierFeeds(), adminManualLists(), adminSupplierRefreshPlan()]);
+  const [{ status, metrics, attempts, scheduler }, manualLists, plan, anomalies] = await Promise.all([adminSupplierFeeds(), adminManualLists(), adminSupplierRefreshPlan(), adminPriceAnomalies()]);
   const now = new Date();
   const feeds = [
     { key: "basbug" as const, name: "Başbuğ", source: "API · ürün, NF maliyet, MRK stoğu, döviz kuru", unit: "grup", href: "/yonetim/tedarikciler/basbug", feed: status.basbug },
@@ -117,6 +118,9 @@ export default async function Suppliers() {
   }
   if (manualMissing) issues.push({ key: "manual-prices", tone: "warning", href: filtered("/yonetim/tedarikciler/manuel", { quality: "missing-price" }), action: "Fiyat gir",
     title: `Manuel yükleme: ${number(manualMissing)} ürünün fiyatı yok`, description: "Fiyatı olmayan ürünler mağazada satışa kapalı kalır." });
+  const openAnomalies = anomalies.filter(row => row.status === "open").length;
+  if (openAnomalies) issues.push({ key: "price-anomalies", tone: "warning", href: "#fiyat-anomalileri", action: "İncele",
+    title: `Başbuğ: ${number(openAnomalies)} üründe para birimi anomalisi`, description: "Bu teklifler fiyatlamadan çıkarıldı; tedarikçiye bildirilmeli." });
   for (const { key, name, href } of feeds) {
     const unstocked = metrics[key].unstocked;
     if (unstocked) issues.push({ key: `${key}-unstocked`, tone: "info", href: filtered(href, { quality: key === "dinamik" ? "price-only" : undefined }), action: "İncele",
@@ -187,6 +191,8 @@ export default async function Suppliers() {
             <EmptyTitle>Açık sorun yok</EmptyTitle><EmptyDescription>Tüm akışlar güncellik süresi içinde ve son denemeler başarılı.</EmptyDescription></EmptyHeader></Empty>}
       </CardContent>
     </Card>
+
+    {anomalies.length > 0 && <SupplierPriceAnomalies rows={anomalies}/>}
 
     <Card role="region" aria-labelledby="supplier-refresh">
       <CardHeader><CardTitle><h2 id="supplier-refresh">Verileri güncelle</h2></CardTitle>

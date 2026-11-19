@@ -15,12 +15,14 @@ let closeDb: () => Promise<void>;
 const customer = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
 const stranger = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
 
-async function order(payment: string, { status = "cancelled", purchaseTracked = true, subtotal = 15000, shipping = 4990 } = {}) {
-  return (await schema.pool.query<{ id: string; number: string }>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,note,
+async function order(payment: string, { status = "cancelled", purchaseTracked = true, subtotal = 15000, shipping = 4990, installmentFee = 0 } = {}) {
+  const row = (await schema.pool.query<{ id: string; number: string }>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,note,
     total_kurus,subtotal_kurus,shipping_kurus,discount_percent,status,payment_status,payment_due_at,paid_at,purchase_tracked_at)
     VALUES($1,$2,$3,'Gizli Müşteri','secret@example.invalid','5551234567','Gizli adres 12','Gizli not',$4,$5,$6,0,$7,$8,now()+interval '30 minutes',
     CASE WHEN $8 IN ('paid','refund_required','refunded') THEN now()-interval '1 day' END,CASE WHEN $9 THEN now() END) RETURNING id::text,number::text`,
-  [customer.kind, customer.id, randomUUID(), subtotal + shipping, subtotal, shipping, status, payment, purchaseTracked])).rows[0];
+  [customer.kind, customer.id, randomUUID(), subtotal + shipping + installmentFee, subtotal, shipping, status, payment, purchaseTracked])).rows[0];
+  if (installmentFee) await schema.pool.query("UPDATE commerce_orders SET installment_count=3,installment_fee_kurus=$2 WHERE id=$1", [row.id, installmentFee]);
+  return row;
 }
 const flag = async (id: string) => (await schema.pool.query<{ refund_tracked_at: Date | null }>(
   "SELECT refund_tracked_at FROM commerce_orders WHERE id=$1", [id])).rows[0].refund_tracked_at;
@@ -38,6 +40,11 @@ after(async () => { await closeDb?.(); await schema?.drop(); });
 test("refund(): the purchase's value and shipping, no items", () => {
   assert.deepEqual(refund({ transactionId: "1042", subtotalKurus: 12345, shippingKurus: 0 }),
     { transaction_id: "1042", currency: "TRY", value: 123.45, shipping: 0 });
+});
+
+test("an installment fee stays out of the refund value (#894)", async () => {
+  const placed = await order("refund_required", { installmentFee: 1234 });
+  assert.deepEqual(await claim(placed.id, [customer]), { transaction_id: placed.number, currency: "TRY", value: 150, shipping: 49.9 });
 });
 
 test("the order's customer gets the refund once for a cancelled refund_required order", async () => {
