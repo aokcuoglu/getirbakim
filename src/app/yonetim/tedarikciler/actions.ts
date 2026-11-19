@@ -1,9 +1,11 @@
 "use server";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { BasbugImportError, importBasbug, importOptions } from "@/modules/suppliers/basbug-import";
 import { DinamikImportError, dinamikImportOptions, importDinamik } from "@/modules/suppliers/dinamik-import";
+import { refreshBasbugPriceAnomalies } from "@/modules/suppliers/price-anomalies";
 import { importSeta, SetaImportError } from "@/modules/suppliers/seta-import";
 
 export type SupplierRefreshResult = { ok: boolean; error?: string; products?: number };
@@ -19,7 +21,9 @@ export async function refreshSupplierScope(supplier: string, group: string): Pro
     if (parsed.data === "basbug") {
       const input = importOptions.safeParse({ group, warehouse: "MRK" });
       if (!input.success) return { ok: false, error: "contract" };
-      return { ok: true, products: (await importBasbug(db, input.data)).uniqueProducts };
+      const result = await importBasbug(db, input.data);
+      await refreshBasbugPriceAnomalies(db);
+      return { ok: true, products: result.uniqueProducts };
     }
     if (parsed.data === "dinamik") {
       const input = dinamikImportOptions.safeParse({ brand: group });
@@ -33,4 +37,15 @@ export async function refreshSupplierScope(supplier: string, group: string): Pro
     const known = cause instanceof BasbugImportError || cause instanceof DinamikImportError || cause instanceof SetaImportError;
     return { ok: false, error: known ? cause.reason : "upstream" };
   }
+}
+
+const anomalyStatusSchema = z.object({ id: z.uuid(), status: z.enum(["open", "dismissed"]) });
+/** "Anomali değil" (dismissed: priced again, kept through later refreshes) or "Yeniden işaretle" (open: unpriced). */
+export async function setPriceAnomalyStatus(form: FormData) {
+  const admin = await requireAdmin();
+  const input = anomalyStatusSchema.safeParse({ id: form.get("id"), status: form.get("status") });
+  if (!input.success) return;
+  await db.query("UPDATE supplier_price_anomalies SET status=$2,decided_by=$3,decided_at=now() WHERE supplier_item_id=$1",
+    [input.data.id, input.data.status, admin.id]);
+  revalidatePath("/yonetim/tedarikciler");
 }

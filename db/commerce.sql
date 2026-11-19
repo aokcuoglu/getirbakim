@@ -281,6 +281,22 @@ CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
 $$;
+-- Single-row currency anomalies (#1030): a supplier row whose currency disagrees with the rest of its brand and whose
+-- converted cost is far above the brand's median (Başbuğ once sent one KENTPAR row as EUR among 196 TRY rows: a 77k TL
+-- cost for a ~1.5k TL part). src/modules/suppliers/price-anomalies.ts detects them after a full list import; an open row
+-- keeps its offer unpriced in commerce_catalog below (the product stays listed, sold by another supplier or not at all)
+-- until the supplier corrects it (the next refresh deletes it) or an admin marks it "Anomali değil" (dismissed, kept
+-- through later refreshes). No foreign key to supplier_items on purpose: creating one locks supplier_items (SHARE ROW
+-- EXCLUSIVE) for the rest of the setup transaction and blocks order-time writes (basbug-item-refresh.ts); the refresh
+-- deletes rows whose item is gone. The accounts FK (decided_by) takes SHARE ROW EXCLUSIVE on accounts once, when the
+-- table is first created; later runs skip CREATE TABLE IF NOT EXISTS without locking it.
+CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
+ supplier_item_id uuid PRIMARY KEY, supplier text NOT NULL,
+ kind text NOT NULL DEFAULT 'currency' CHECK (kind IN ('currency')),
+ status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','dismissed')),
+ evidence jsonb NOT NULL, detected_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(),
+ decided_by uuid REFERENCES accounts(id), decided_at timestamptz
+);
 DO $setup$ DECLARE def text := $view$
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
@@ -304,7 +320,9 @@ WITH latest AS (
  -- The campaign price only inside its window; a NULL end is open.
  commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now()) AS sale_price,
  -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
- (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced
+ (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced,
+ -- An open currency anomaly (#1030, supplier_price_anomalies above) keeps the row unpriced.
+ (pa.supplier_item_id IS NOT NULL) AS price_anomaly
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
  LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
@@ -312,10 +330,11 @@ WITH latest AS (
  LEFT JOIN brands mb ON mb.id=sb.brand_id
  LEFT JOIN supplier_sync_scopes sc ON sc.supplier=i.supplier AND sc.company=i.company AND sc.list_group=i.list_group AND sc.warehouse=i.warehouse
  LEFT JOIN rates r ON r.supplier=i.supplier AND r.company=i.company AND r.currency=i.product_data->>'dc'
+ LEFT JOIN supplier_price_anomalies pa ON pa.supplier_item_id=i.id AND pa.status='open'
  WHERE ov.hidden IS NOT TRUE
 ), priced AS (
  -- The formula price (auto_price) is the only gate: an admin price never sells a row the formula cannot price.
- SELECT *,CASE WHEN cost>0 AND exchange_rate>0
+ SELECT *,CASE WHEN cost>0 AND exchange_rate>0 AND NOT price_anomaly
  AND (basbug_checkout_mode='snapshot' OR ((supplier='manual' OR rate_at>now()-make_interval(hours=>max_age_hours)) AND source_fresh))
  THEN commerce_formula_price(cost,exchange_rate,markup_percent,vat_percent) END AS auto_price
  FROM supplier_prices

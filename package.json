@@ -25,6 +25,7 @@
     "test:scram-verifier": "node --import tsx --test scripts/test-scram-verifier.ts",
     "test:dinamik": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-dinamik.ts",
     "test:product-pricing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-pricing.ts",
+    "test:price-anomalies": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-price-anomalies.ts",
     "test:product-tabs": "node --import tsx --test scripts/test-product-tabs.ts",
     "test:product-equivalents": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-equivalent-search.ts",
     "test:catalog-filters": "node --import tsx --test scripts/test-catalog-filters.ts",

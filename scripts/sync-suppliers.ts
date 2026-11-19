@@ -4,6 +4,7 @@ import { BasbugImportError, importBasbug } from "../src/modules/suppliers/basbug
 import { DinamikImportError, discoverDinamikBrands, dinamikBrandPattern, importDinamik } from "../src/modules/suppliers/dinamik-import";
 import { SetaImportError, importSeta, setaScope } from "../src/modules/suppliers/seta-import";
 import { supplierSyncAlerts } from "../src/modules/suppliers/health";
+import { refreshPriceAnomalies } from "../src/modules/suppliers/price-anomalies";
 import { refreshProductMatchesIfDue } from "../src/modules/suppliers/product-match-schedule";
 import { pruneSupplierHistory } from "../src/modules/suppliers/sync";
 
@@ -68,6 +69,8 @@ try {
     const unknown = args.group?.filter(group => !scopes.some(scope => scope.list_group === group));
     if (unknown?.length) { console.error({ unknownGroups: unknown }); process.exitCode = 1; }
     let catalogWordsChanged = false;
+    // A row's currency only changes with a full list (basbug-import.ts), so anomalies are re-detected after one (#1030).
+    let basbugFullSucceeded = false;
     const tickStarted = Date.now();
     const circuitOpen = new Set<string>();
     for (const [index, scope] of scopes.entries()) {
@@ -110,6 +113,7 @@ try {
         if (scope.supplier !== "basbug" || scope.warehouse !== "MRK") throw new Error("No verified adapter for scope");
         const result = await importBasbug(pool, { group: scope.list_group, warehouse: "MRK", company: scope.company, mode });
         console.log({ group: scope.list_group, mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats, peakRssMB: peakRssMB() });
+        if (mode === "full") basbugFullSucceeded = true;
         // Only full imports carry product names; price/stock runs leave the search vocabulary as is.
         if (mode === "full" && result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
       } catch (error) {
@@ -132,6 +136,11 @@ try {
         await worker.query("SELECT refresh_search_vocabulary()");
         console.log({ searchVocabulary: "refreshed", seconds: Math.round((Date.now() - started) / 1000) });
       } catch (error) { console.error({ searchVocabulary: "failed", code: (error as { code?: string }).code }); }
+    }
+    // Single-row currency anomalies (#1030): a failed refresh keeps the previous list and does not fail the scheduler.
+    if (basbugFullSucceeded) {
+      try { console.log({ priceAnomalies: await refreshPriceAnomalies(pool, "basbug") }); }
+      catch (error) { console.error({ priceAnomalies: "failed", code: (error as { code?: string }).code }); }
     }
     // New brand labels and products reach the master catalog only through this refresh (~1–2 min); scheduled ticks run
     // it after supplier changes at most every PRODUCT_MATCH_INTERVAL_HOURS. Forced runs (admin refresh) leave it to them.

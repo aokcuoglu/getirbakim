@@ -328,6 +328,15 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
         await db.query("UPDATE supplier_imports SET currencies_data=$1::jsonb WHERE supplier='basbug'",[JSON.stringify(currencies[0].currencies_data)]);
       }
       assert.equal(await catalogPrice(),7800);
+      // #1030: an open currency anomaly leaves the row unpriced, so a line charged at its old price is a change;
+      // a dismissed one prices it as before.
+      await db.query("INSERT INTO supplier_price_anomalies(supplier_item_id,supplier,evidence) VALUES($1,'basbug','{}')",[id]);
+      try {
+        assert.equal(await catalogPrice(),null);
+        assert.deepEqual(await livePriceChanges(db,[{id,nf:savedNf,price:7800}]),[id]);
+        await db.query("UPDATE supplier_price_anomalies SET status='dismissed' WHERE supplier_item_id=$1",[id]);
+        await parity(7800,1,true);
+      } finally { await db.query("DELETE FROM supplier_price_anomalies WHERE supplier_item_id=$1",[id]); }
 
       const checkoutChanges=async()=>(await db.query("SELECT count(*)::int AS n FROM supplier_item_changes WHERE item_id=$1 AND after_data->>'source'='checkout'",[id])).rows[0].n;
       const changesBefore=await checkoutChanges();
