@@ -15,6 +15,7 @@ import {getVehicleBrandBySlug} from './vehicle-catalog.server';
 import {getVehicleModelGroup,getVehicleModelGroups} from './vehicle-model-groups.server';
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
 import {ensureCustomSynonyms} from '@/modules/search/custom-synonyms';
+import {typeNamePrefixQuery} from '@/modules/search/type-names';
 import {binder,catalogRank,correctSearch,storedRank,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {facetOptions} from './specification-translations';
 import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
@@ -663,16 +664,24 @@ const maxRankedSuggestions=500;
 /** Best matches for the header type-ahead: the catalog search's engine and readings, without prices. */
 export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  await ensureCustomSynonyms();
- const search=await catalogSearch(raw,mode);
+ // Products named only in English ("BRAKE HOSE" for "fren hor") never reach the ranked list: their English names come
+ // from the type-name dictionary and are suggested as names (#962). The recheck keeps the text-index plan (~1 ms).
+ const expansion=searchTooShort(raw)?null:typeNamePrefixQuery(parseSearchQuery(raw));
+ const [search,english]=await Promise.all([catalogSearch(raw,mode),expansion?db.query<{name:string;products:number}>(`SELECT name,products FROM search_product_names
+  WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1) AND normalized=ANY($2::text[])
+  ORDER BY products DESC,name LIMIT ${Number(limit)}`,[expansion.query,expansion.names]).then(result=>result.rows):[]]);
  const notes={correctedQuery:search.correctedQuery,vehicleScope:search.vehicle};
- if(!search.ids.length)return {products:[] as ProductSuggestion[],...notes};
+ const englishNames=english.map(row=>({kind:"name" as const,...row}));
+ if(!search.ids.length)return {products:englishNames as ProductSuggestion[],...notes};
  if(search.ids.length>maxRankedSuggestions&&!search.vehicle?.fitted){
   const query=prefixTsQuery(search.parsed);
   // The names most products share first: "filtre" means "Hava Filtresi" (5k) more than "Filtre Hortumu".
   const names=query?(await db.query<{name:string;products:number}>(`SELECT name,products FROM search_product_names
    WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1)
    ORDER BY products DESC,name LIMIT ${Number(limit)}`,[query])).rows:[];
-  if(names.length)return {products:names.map(row=>({kind:"name" as const,...row})),...notes};
+  // The caller merges names by label, so both spellings of one type add up: it takes up to twice the rows.
+  const merged=[...new Map([...names,...english].map(row=>[row.name,row])).values()].sort((a,b)=>b.products-a.products||a.name.localeCompare(b.name)).slice(0,limit*2);
+  if(merged.length)return {products:merged.map(row=>({kind:"name" as const,...row})),...notes};
  }
  const values:unknown[]=[company(),search.ids.slice(0,maxRankedSuggestions)],bind=binder(values);
  // One suggestion per name and brand: a supplier lists the same part in many sizes.
@@ -680,7 +689,7 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
   SELECT DISTINCT ON (name,display_brand) id::text,name,name_overridden,display_brand AS brand,display_code AS code,rank,updated_at,unavailable FROM (
    SELECT catalog.*,${catalogRank("catalog",search.parsed,bind)} AS rank FROM (${catalogEntriesSql}) catalog WHERE catalog.id=ANY($2::uuid[])) ranked
   ORDER BY name,display_brand,unavailable,rank DESC,updated_at DESC,id) best ORDER BY unavailable,rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
- return {products:products.map(row=>({kind:"product" as const,...row})),...notes};
+ return {products:[...englishNames.slice(0,2),...products.map(row=>({kind:"product" as const,...row}))].slice(0,limit) as ProductSuggestion[],...notes};
 }
 export async function catalogBrands() {
  return cachedBrands("all",async()=>(await db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));

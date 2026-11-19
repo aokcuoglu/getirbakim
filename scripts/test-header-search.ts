@@ -4,7 +4,9 @@ import test from "node:test";
 import { addRecentSearch, clearRecentSearches, parseRecentSearches, readRecentSearches, saveRecentSearch } from "../src/components/navigation/recent-searches";
 import { shownProductName } from "../src/modules/store/product-name";
 import { normalizeSearchText, parseSearchQuery, phraseKey, prefixTsQuery } from "../src/modules/search/query";
-import { typeNameExactQueries, typeNameRankBoosts, typeNameTsQueries } from "../src/modules/search/type-names";
+import { typeNameExactQueries, typeNamePrefixQuery, typeNameRankBoosts, typeNameTsQueries } from "../src/modules/search/type-names";
+import { mergeNameSuggestions } from "../src/modules/store/name-suggestions";
+import { searchPath } from "../src/modules/seo/paths";
 import { isEnglishTypeName, turkishTypeName, typeNameEntries } from "../src/modules/store/suggestion-names";
 
 test("known English type names get a Turkish name", () => {
@@ -169,4 +171,28 @@ test("the 16px rule is unlayered, last and scoped away from /yonetim", () => {
   assert.ok(rule > 0 && css.slice(rule).includes("font-size: 16px"));
   assert.ok(rule > css.lastIndexOf("@layer components"));
   assert.ok(rule > css.indexOf("\n}\n", css.indexOf("@layer components")));
+});
+
+test("the type-ahead finds the English names a Turkish prefix begins (#962)", () => {
+  const prefix = (q: string) => typeNamePrefixQuery(parseSearchQuery(q));
+  const hose = prefix("fren hor");
+  assert.ok(hose?.names.includes("brake hose"));
+  assert.ok(hose?.query.includes("'brake' <-> 'hose'"));
+  assert.ok(prefix("fren ana")?.names.includes("brake master cylinder"));
+  assert.ok((prefix("fren")?.names.length ?? 0) > 1 && prefix("fren")!.names.length <= 12);
+  assert.equal(typeNamePrefixQuery(parseSearchQuery("fren"), 3)?.names.length, 3);
+  assert.ok(prefix("hortumu")?.names.includes("hose"));
+  assert.ok(prefix("kapa")?.names.some(name => name === "cap" || name === "cover"));
+  assert.equal(prefix("5w-40"), null);
+  assert.equal(prefix("zzzqq"), null);
+  for (const q of ["fren hor", "fren", "hortumu", "kapa", "disk fren"]) assert.match(prefix(q)?.query ?? "", /^[a-z0-9' |()<>-]*$/, q);
+});
+
+test("name suggestions of both spellings add up under the Turkish label (#962)", () => {
+  const merged = mergeNameSuggestions([{ name: "BRAKE HOSE", products: 220 }, { name: "FREN HORTUMU", products: 1000 }, { name: "LINK", products: 5000 }], 6);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].name, "Fren Hortumu");
+  assert.equal(merged[0].detail, `${(1220).toLocaleString("tr-TR")} ürün`);
+  assert.equal(merged[0].href, searchPath({ q: "fren hortumu" }));
+  assert.equal(mergeNameSuggestions([{ name: "BRAKE HOSE", products: 220 }], 6)[0].href, searchPath({ q: "fren hortumu" }));
 });
