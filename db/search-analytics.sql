@@ -13,6 +13,10 @@ CREATE TABLE IF NOT EXISTS search_query_stats (
  last_searched_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY (day, mode, query)
 );
+-- Products of the latest search's first page shown under an English supplier name translated to Turkish (#989): how
+-- much the type-name expansion ("kapı camı" → DOOR GLASS) fills the first page. NULL for queries that name no type, code
+-- searches and rows recorded before the column.
+ALTER TABLE search_query_stats ADD COLUMN IF NOT EXISTS last_type_name_first_page smallint;
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='search_query_stats'::regclass AND c.relname='search_query_stats_query_idx') THEN
   CREATE INDEX search_query_stats_query_idx ON search_query_stats (query);

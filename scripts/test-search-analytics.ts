@@ -36,6 +36,18 @@ test("searches are counted per day, mode and normalized query; zero-result queri
   assert.deepEqual(await analytics.loadSearchTotals(30), { searches: 5, zero_results: 2, queries: 3 });
 });
 
+test("the latest first-page count of translated type names is kept per query (#989)", async () => {
+  await analytics.recordSearch({ query: "kapı camı", mode: "all", total: 30, typeNameFirstPage: 3 });
+  await analytics.recordSearch({ query: "bosch", mode: "all", total: 40 });
+  const row = async (query: string) => (await analytics.loadSearchStats("top", 30)).find(stat => stat.query === query);
+  assert.equal((await row("kapi cami"))?.type_name_first_page, 3);
+  assert.equal((await row("bosch"))?.type_name_first_page, null);
+  assert.equal((await row("w712"))?.type_name_first_page, null, "a row recorded without it");
+  await analytics.recordSearch({ query: "kapı camı", mode: "all", total: 30, typeNameFirstPage: 0 });
+  assert.equal((await row("kapi cami"))?.type_name_first_page, 0);
+  assert.equal((await row("kapi cami"))?.searches, 2);
+});
+
 test("a pair the parser already matches both ways is not worth a suggestion", async () => {
   const { alreadyEquivalent } = await import("../src/modules/search/synonym-suggestions");
   for (const [a, b] of [["traversi", "travers"], ["klips", "klipsi"], ["eksoz", "egzoz"], ["balatasi", "balata"]]) assert.ok(alreadyEquivalent(a, b), `${a}/${b}`);
