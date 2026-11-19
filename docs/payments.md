@@ -45,7 +45,7 @@ Müşteri tek çekim ya da taksitli ödemeyi kendisi seçer; seçilen taksitin v
   - az, ödeme siparişi kapattıysa (ödeme bekleyen ya da süresi dolmuş sipariş) → "vade farkı iadesi gerekir (≈ Z TL)". Tek çekimde Z = vade farkının tamamı; başka bir taksitte Z = toplam − o taksitin güncel oranla toplamı (oran yoksa tutar yazılmaz). Kısmi iade API'si henüz yok; fark TAMI portalından elle iade edilir (#871).
   - az ama ödeme siparişi kapatmadıysa (mükerrer, iptal edilmiş, iade edilmiş) not eklenmez; bu dallar zaten tam iade notu yazar.
   - Yönetimde ödemenin taksit sayısı siparişinkinden farklıysa "Taksit sayısı farklı" rozeti görünür. TAMI'nin bildirdiği sayı yoksa ya da pozitif tamsayı değilse not ve rozet çıkmaz.
-- **GA4:** `purchase` / `refund` olaylarının değeri vade farkını içermez (şimdilik bilinçli; ayrı bir Issue karar verecek).
+- **GA4:** `purchase` / `refund` olaylarının değeri (`value`) vade farkını **içermez**: `subtotal_kurus` + `shipping_kurus` (`total_kurus − installment_fee_kurus`). Karar 19 Kas 2026 (#894): vade farkı finansman/banka maliyetini karşılar, gelir değildir; GA4, Google Ads ve Meta dönüşüm değerine eklenirse ROAS şişer. `refund` aynı tanımı kullanır; Google Ads `conversion` ve Meta `Purchase` `value`'su GA4 ile aynıdır (`docs/commerce.md`). Doğrulama: `npm run test:purchase-event`, `npm run test:refund-event`.
 
 ## İptal / iade (API, #619)
 
