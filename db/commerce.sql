@@ -819,3 +819,19 @@ CREATE TABLE IF NOT EXISTS partner_settings(
  updated_at timestamptz NOT NULL DEFAULT now(),
  updated_by uuid REFERENCES accounts(id)
 );
+-- Order emails (#951): one row per order and kind, written in the payment transaction that settles the order
+-- (src/modules/payments/checkout.ts recordPaid); delivery (src/modules/store/order-email.ts) claims pending rows with a
+-- lease, so concurrent reconcilers send each email once. 'skipped' = no mail transport configured or too old to send.
+CREATE TABLE IF NOT EXISTS commerce_order_emails (
+ order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
+ kind text NOT NULL CHECK(kind IN ('confirmation')),
+ status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent','skipped','failed')),
+ attempts integer NOT NULL DEFAULT 0, claimed_at timestamptz, sent_at timestamptz,
+ message_id text, last_error text, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(order_id,kind)
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_order_emails'::regclass AND c.relname='commerce_order_emails_pending_idx') THEN
+  CREATE INDEX commerce_order_emails_pending_idx ON commerce_order_emails(created_at) WHERE status='pending';
+ END IF;
+END $$;
