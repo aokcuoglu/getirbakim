@@ -111,9 +111,13 @@ if [[ "${MODE}" == write ]]; then
   [[ -n "${DB_USER:-}" && -n "${DB_PASSWORD:-}" ]] || die "could not read the application user secret"
 fi
 
+# The task only has to stay up for the port forward. stop-task at the end of the session
+# signals it; the shell traps that and exits 0, so a normal close is not reported as a
+# failed task (exit 130) by the production alarms (#1048). sleep still bounds it to --hours.
+KEEPALIVE="trap 'exit 0' TERM INT HUP; sleep $((HOURS * 3600)) & wait"
 TASK_ARN="$(aws ecs run-task --cluster "${CLUSTER}" --task-definition "${FAMILY}" --launch-type FARGATE --count 1 \
   --network-configuration "awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SG}],assignPublicIp=DISABLED}" \
-  --overrides "{\"containerOverrides\":[{\"name\":\"${CONTAINER}\",\"command\":[\"sleep\",\"$((HOURS * 3600))\"]}]}" \
+  --overrides "{\"containerOverrides\":[{\"name\":\"${CONTAINER}\",\"command\":[\"sh\",\"-c\",\"${KEEPALIVE}\"]}]}" \
   --started-by "db-tunnel" --propagate-tags TASK_DEFINITION --enable-execute-command \
   --query 'tasks[0].taskArn' --output text)"
 [[ -n "${TASK_ARN}" && "${TASK_ARN}" != "None" ]] || die "the task did not start"
