@@ -146,6 +146,9 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                   <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
                     <OrderDeliveryDetails order={o}/>
                     {o.note && <div><dt className="text-muted-foreground">Not</dt><dd>{o.note}</dd></div>}
+                    {partner && o.status === "delivered" && <div><dt className="text-muted-foreground">Partner faturası</dt><dd className="break-all">{o.partner_invoice_ref && o.partner_invoiced_at
+                      ? `${o.partner_invoice_ref} · ${new Date(o.partner_invoiced_at).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })}${o.partner_invoiced_by_name ? ` · işaretleyen ${o.partner_invoiced_by_name}` : ""}`
+                      : "Faturalanmadı (limitte sayılıyor)"}</dd></div>}
                     {o.payments.length > 0 && <div><dt className="text-muted-foreground">TAMI</dt><dd className="break-all">{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""})`).join(", ")}</dd></div>}
                     {o.paid_at && <div><dt className="text-muted-foreground">Ödeme zamanı</dt><dd>{time(o.paid_at)}</dd></div>}
                     {o.refund_reference && <div><dt className="text-muted-foreground">İade referansı</dt><dd className="break-all">{o.refund_reference}</dd></div>}
