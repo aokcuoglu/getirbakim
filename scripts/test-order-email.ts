@@ -199,36 +199,59 @@ test("without a mail transport the row is skipped and nothing throws", async () 
   assert.equal(row.status, "skipped"); assert.equal(row.last_error, "MAIL_TRANSPORT is not set");
 });
 
-test("a failed send is retried after the lease and gives up after five attempts", async () => {
+test("a failed send backs off and stays pending until the day is over, then is given up", async () => {
   const id = await paidOrder();
   let calls = 0;
   const failing = async (): Promise<MailResult> => { calls++; throw Object.assign(new Error("421 try later for musteri@example.invalid"), { code: "EENVELOPE" }); };
-  assert.deepEqual(await silence(() => email.deliverOrderEmails({ orderId: id, send: failing })), { sent: 0, skipped: 0, failed: 0 });
+  const run = () => silence(() => email.deliverOrderEmails({ orderId: id, send: failing }));
+  // Moves the last claim back by `minutes`, as if that much time had passed.
+  const age = (minutes: number) => db.query("UPDATE commerce_order_emails SET claimed_at=now()-make_interval(mins=>$2) WHERE order_id=$1", [id, minutes]);
+  assert.deepEqual(await run(), { sent: 0, skipped: 0, failed: 0 });
   let [row] = await outbox(id);
   assert.equal(row.status, "pending"); assert.equal(row.attempts, 1); assert.match(row.last_error ?? "", /421 try later/);
-  // Inside the lease the row is not claimed again.
-  await silence(() => email.deliverOrderEmails({ orderId: id, send: failing }));
-  assert.equal(calls, 1); assert.equal((await outbox(id))[0].attempts, 1);
-  await db.query("UPDATE commerce_order_emails SET claimed_at=now()-interval '11 minutes' WHERE order_id=$1", [id]);
-  await silence(() => email.deliverOrderEmails({ orderId: id, send: failing }));
-  assert.equal(calls, 2); assert.equal((await outbox(id))[0].attempts, 2);
-  await db.query("UPDATE commerce_order_emails SET attempts=4,claimed_at=now()-interval '11 minutes' WHERE order_id=$1", [id]);
-  assert.deepEqual(await silence(() => email.deliverOrderEmails({ orderId: id, send: failing })), { sent: 0, skipped: 0, failed: 1 });
+  // Inside the first backoff (10 min) the row is not claimed again.
+  await run();
+  assert.equal(calls, 1);
+  // Backoff grows per attempt: 10, 30, 90, 270 minutes, then 8 hours.
+  for (const [attempts, wait] of [[1, 10], [2, 30], [3, 90], [4, 270], [5, 480], [6, 480]] as const) {
+    await age(wait - 1); await run();
+    assert.equal(calls, attempts, `attempt ${attempts + 1} waits ${wait} minutes`);
+    await age(wait + 1); await run();
+    assert.equal(calls, attempts + 1);
+  }
   [row] = await outbox(id);
-  assert.equal(row.status, "failed"); assert.equal(row.attempts, 5);
-  await db.query("UPDATE commerce_order_emails SET claimed_at=now()-interval '11 minutes' WHERE order_id=$1", [id]);
-  await silence(() => email.deliverOrderEmails({ orderId: id, send: failing }));
-  assert.equal(calls, 3);
+  // Seven failures (an outage of hours) still leave it pending, to be retried.
+  assert.equal(row.status, "pending"); assert.equal(row.attempts, 7);
+  await db.query("UPDATE commerce_order_emails SET created_at=now()-interval '25 hours' WHERE order_id=$1", [id]);
+  await age(11);
+  assert.deepEqual(await run(), { sent: 0, skipped: 0, failed: 1 });
+  [row] = await outbox(id);
+  assert.equal(row.status, "failed"); assert.match(row.last_error ?? "", /^stale after 7 attempts: 421 try later/);
+  await age(600); await run();
+  assert.equal(calls, 7);
 });
 
-test("a confirmation pending for over a day is skipped as stale, not sent", async () => {
+test("an order cancelled or refunded before the send is not confirmed", async () => {
+  let calls = 0;
+  const send = async (message: MailMessage): Promise<MailResult> => { calls++; return { status: "sent", messageId: message.messageId ?? "" }; };
+  for (const [status, payment] of [["cancelled", "refund_required"], ["cancelled", "refunded"], ["confirmed", "paid"]]) {
+    const id = await paidOrder();
+    await db.query("UPDATE commerce_orders SET status=$2,payment_status=$3 WHERE id=$1", [id, status, payment]);
+    assert.deepEqual(await email.deliverOrderEmails({ orderId: id, send }), { sent: 0, skipped: 1, failed: 0 });
+    const [row] = await outbox(id);
+    assert.equal(row.status, "skipped"); assert.equal(row.last_error, "order no longer pending");
+  }
+  assert.equal(calls, 0);
+});
+
+test("a confirmation never tried within a day is skipped as stale, not sent", async () => {
   const id = await paidOrder();
   await db.query("UPDATE commerce_order_emails SET created_at=now()-interval '25 hours' WHERE order_id=$1", [id]);
   let calls = 0;
-  await email.deliverOrderEmails({ send: async message => { calls++; return { status: "sent", messageId: message.messageId ?? "" }; } });
+  assert.deepEqual(await email.deliverOrderEmails({ send: async message => { calls++; return { status: "sent", messageId: message.messageId ?? "" }; } }),
+    { sent: 0, skipped: 0, failed: 0 });
   const [row] = await outbox(id);
   assert.equal(row.status, "skipped"); assert.equal(row.last_error, "stale");
-  assert.equal((await db.query("SELECT 1 FROM commerce_order_emails WHERE order_id=$1 AND status='pending'", [id])).rowCount, 0);
   // Only the stale row was pending here, besides rows the earlier tests already settled.
   assert.equal(calls, 0);
 });

@@ -21,14 +21,16 @@ export async function paymentState(orderId: string) {
   if (!z.uuid().safeParse(orderId).success) return null;
   const result = await currentOrder(orderId);
   if (!result) return null;
-  if (result.order.payment_status === "awaiting") {
+  const awaiting = result.order.payment_status === "awaiting";
+  if (awaiting) {
     // Budgeted: actions run one at a time on the client, so a slow TAMI would also hold back a cancel (#711).
     try { await reconcileOrderPayments(orderId, { minIntervalSeconds: 4, deadlineMs: INTERACTIVE_RECONCILE_MS }); }
     catch (error) { console.error("Payment polling failed", { orderId, error: error instanceof Error ? error.message : error }); }
-    // A payment settled by this poll queued the confirmation email (#951); it is sent after the reply.
-    after(() => deliverOrderEmailsSafely({ orderId }));
   }
   const order = (await currentOrder(orderId))?.order;
+  // A payment settled by this poll queued the confirmation email (#951); it is sent after the reply. Polls that
+  // changed nothing leave the outbox alone.
+  if (awaiting && order && order.payment_status !== "awaiting") after(() => deliverOrderEmailsSafely({ orderId }));
   return order ? `${order.status}:${order.payment_status}` : null;
 }
 
