@@ -26,7 +26,14 @@ jobs:
       # on 127.0.0.1, so it never collides with a local database or tunnel on the Mac; the steps that need a database
       # read CI_DATABASE_URL, the others run without one.
       - name: Start Postgres
+        env:
+          RUNNER_KIND: ${{ runner.environment }}
         run: |
+          # One self-hosted runner runs one job at a time: any labelled container left by a killed job is stale.
+          if [ "$RUNNER_KIND" = self-hosted ]; then
+            stale="$(docker ps -aq --filter label=getirbakim-ci)"
+            if [ -n "$stale" ]; then echo "$stale" | xargs docker rm -f >/dev/null; fi
+          fi
           name="getirbakim-ci-pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "CI_PG_CONTAINER=$name" >> "$GITHUB_ENV"
           docker rm -f "$name" >/dev/null 2>&1 || true
