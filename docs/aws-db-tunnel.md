@@ -133,6 +133,8 @@ Script başta production'a yazılabileceği uyarısını veriyor. Şifre ekranda
 
 - **Yetki:** Varsayılan bağlantı salt-okunur. `getirbakim_readonly` rolünün tablolarda yalnız `SELECT` yetkisi var; `INSERT/UPDATE/DELETE` `permission denied` ile, oturum ayarı yüzünden önce `cannot execute ... in a read-only transaction` ile reddediliyor. `--write` ile açılan bağlantıda ise uygulamanın yapabildiği her şey yapılabiliyor, veri değiştirme ve silme dahil.
 - **SSL:** `sslmode=require` ile bağlantı şifreli. `verify-full` çalışmıyor, çünkü sertifikada `localhost` değil veritabanının AWS adresi yazıyor. Trafik zaten Session Manager tünelinin içinden geçiyor.
+- **Oturum sınırları:** Salt-okunur rolde bir sorgu en fazla 5 dakika sürebiliyor (`statement_timeout`), transaction içinde 10 dakika boşta kalan oturum kapatılıyor (`idle_in_transaction_session_timeout`) ve aynı anda en fazla 5 bağlantı açılabiliyor. Uzun bir rapor sorgusu için oturumda `SET statement_timeout = '30min';` verebilirsiniz.
+- **Advisory lock:** `pg_advisory_lock` gibi fonksiyonlar herkese açık ve salt-okunur rol için ayrıca kapatılamıyor. Bu bağlantıdan advisory lock almayın: `scripts/setup.ts` yayın sırasında `pg_advisory_xact_lock(20261001, n)` anahtarlarıyla sıraya giriyor, tutulan bir kilit yayını bekletir.
 - **Bağlantı kopması:** Session Manager boşta kalan oturumları bir süre sonra kapatıyor. Tünel kapanırsa script'i yeniden çalıştırın.
 - **Şifre:** Salt-okunur modda ve `--psql` ile şifre ekrana yazılmıyor. `--write` (`--psql` olmadan) yazdırdığı adreste uygulamanın veritabanı şifresi var. Bu adresi paylaşmayın, bir dosyaya ya da ekran görüntüsüne kaydetmeyin.
 - **Maliyet:** Görev açık kaldığı sürece küçük bir Fargate ücreti oluşuyor. Ctrl-C ile kapatıldığında ücret de duruyor.
@@ -161,6 +163,7 @@ Dosyanın yaptıkları:
 - Veritabanına `CONNECT`, `public` şemasına `USAGE`, tüm tablo, view ve sequence'lere `SELECT` verir.
 - `ALTER DEFAULT PRIVILEGES FOR ROLE getirbakim_app` ile uygulamanın ileride oluşturacağı tabloları da okunur yapar.
 - İkinci koruma olarak rol için `default_transaction_read_only = on` ayarlar.
+- Oturum sınırlarını koyar: `statement_timeout = 5min`, `idle_in_transaction_session_timeout = 10min`, `CONNECTION LIMIT 5`.
 - Sonunda doğrulama tablolarını yazdırır.
 
 **Kim çalıştırmalı:** RDS'te superuser yok. Rol oluşturmak için çalıştıran kullanıcının `CREATEROLE` yetkisi gerekiyor. Önce kontrol edin (`--write --psql` ile bağlanıp):
@@ -173,7 +176,9 @@ SELECT rolname, rolcreaterole, rolsuper FROM pg_roles WHERE rolname IN (current_
 - `f` ise RDS master kullanıcısıyla (`rds_superuser`, `CREATEROLE` yetkili) çalıştırın. Master'ın şifresi Secrets Manager'daki master secret'ında. Tablo yetkileri tabloların sahibi adına verildiği için master'ın `getirbakim_app` üyesi olması gerekiyor; değilse dosya durup şu komutu öneriyor: `GRANT getirbakim_app TO <master>;`.
 - PostgreSQL 16 ve sonrasında rolü yalnız onu oluşturan kullanıcı (veya üstündeki rol) değiştirebiliyor. Sonraki çalıştırmalarda aynı kullanıcıyı kullanın.
 
-Dosya, sunucu `log_statement` ayarı `ddl` veya `all` ise şifre log'a düşeceği için çalışmadan duruyor. `CREATEROLE` yetkisi veya üyelik eksikse de değişiklik yapmadan açıklamayla duruyor.
+**Şifre sunucuya gitmiyor:** Dosya şifreyi `psql` içinden Anahtar Zinciri'nden okuyor (`security find-generic-password -s getirbakim-prod-readonly -w`) ve bilgisayarınızda `scripts/aws/scram-verifier.mjs` ile SCRAM-SHA-256 doğrulayıcısına çeviriyor. Sunucuya yalnız bu doğrulayıcı (`PASSWORD 'SCRAM-SHA-256$…'`) gidiyor; `log_statement`, `log_min_duration_statement`, hata log'ları veya `pg_stat_statements` açık olsa bile şifrenin kendisi hiçbir yere yazılmıyor. Şifre ya da doğrulayıcı komut satırına argüman olarak verilmiyor. Dosya, log ayarlarını bilgi olarak yazdırıyor. Bu yüzden dosyayı repo kökünden çalıştırın; `security` ve Node.js gerekli. Şifre en az 16 karakter olmalı, yalnız boşluksuz ASCII karakterler içermeli (aşağıdaki üretim komutu buna uyuyor).
+
+Anahtar Zinciri kaydı yoksa veya şifre uygun değilse, `CREATEROLE` yetkisi ya da üyelik eksikse dosya değişiklik yapmadan açıklamayla duruyor. Uzantıların (`pg_stat_statements` gibi) `public` şemasındaki nesneleri için `no privileges were granted` uyarıları beklenen davranış; bu nesneler zaten herkese açık.
 
 **Adımlar:**
 
@@ -184,17 +189,15 @@ Dosya, sunucu `log_statement` ayarı `ddl` veya `all` ise şifre log'a düşece�
      -w "$(openssl rand -base64 32 | tr -d '/+=')"
    ```
 
-2. Yazma yetkili tünelle dosyayı çalıştırın. Şifre `psql` değişkeni olarak Anahtar Zinciri'nden veriliyor:
+2. Yazma yetkili tünelle, repo kökünden dosyayı çalıştırın:
 
    ```bash
-   bash scripts/aws/db-tunnel.sh <profil> --write --psql -- \
-     -v ro_password="$(security find-generic-password -s getirbakim-prod-readonly -w)" \
-     -f scripts/aws/readonly-role.sql
+   bash scripts/aws/db-tunnel.sh <profil> --write --psql -- -f scripts/aws/readonly-role.sql
    ```
 
-   Master kullanıcıyla çalıştırmanız gerekiyorsa tüneli `--write` ile açın ve `psql`'i master kullanıcısıyla, aynı `-v` ve `-f` argümanlarıyla başka bir terminalden başlatın.
+   Master kullanıcıyla çalıştırmanız gerekiyorsa tüneli `--write` ile açın ve başka bir terminalden, repo kökünde `psql "host=localhost port=15432 dbname=getirbakim user=<master> sslmode=require" -f scripts/aws/readonly-role.sql` komutunu çalıştırın (`psql` master şifresini soruyor).
 
-3. Çıktıyı kontrol edin: `settings` sütununda `{default_transaction_read_only=on}`, `unreadable_tables` ve `writable_tables` `0`, varsayılan yetkilerde `r` (tablolar) ve `S` (sequence'ler) satırları.
+3. Çıktıyı kontrol edin: `connection_limit` `5`; `settings` sütununda `default_transaction_read_only=on`, `statement_timeout=5min`, `idle_in_transaction_session_timeout=10min`; `unreadable_tables` ve `writable_tables` `0`; varsayılan yetkilerde `r` (tablolar) ve `S` (sequence'ler) satırları.
 
 4. Salt-okunur bağlantıyı deneyin:
 

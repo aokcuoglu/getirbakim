@@ -45,8 +45,10 @@ PROFILE="$1"; shift
 LOCAL_PORT=15432; HOURS=4; MODE=readonly; OPEN_PSQL=0; PSQL_ARGS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --port) LOCAL_PORT="${2:-}"; shift ;;
-    --hours) HOURS="${2:-}"; shift ;;
+    --port|--hours)
+      [[ $# -ge 2 && "$2" != -* ]] || die "$1 needs a value (e.g. $1 $([[ "$1" == --port ]] && echo 15432 || echo 4))"
+      if [[ "$1" == --port ]]; then LOCAL_PORT="$2"; else HOURS="$2"; fi
+      shift ;;
     --readonly) MODE=readonly ;;
     --write) MODE=write ;;
     --psql) OPEN_PSQL=1 ;;
@@ -66,7 +68,7 @@ if [[ ${OPEN_PSQL} -eq 1 ]]; then
   command -v nc >/dev/null || die "nc not installed"
 fi
 
-# Read-only password: checked before any AWS call, so a missing item fails fast.
+# Read-only password from the Keychain, read before any AWS call so a missing item fails fast.
 if [[ "${MODE}" == readonly ]]; then
   command -v security >/dev/null \
     || die "the read-only mode reads its password from the macOS Keychain ('security' not found); use --write only if you need the app user"
@@ -117,15 +119,11 @@ TASK_ARN="$(aws ecs run-task --cluster "${CLUSTER}" --task-definition "${FAMILY}
 [[ -n "${TASK_ARN}" && "${TASK_ARN}" != "None" ]] || die "the task did not start"
 TASK_ID="${TASK_ARN##*/}"
 
+# With --psql the port forward runs in its own process group (leader SESSION_PID),
+# so Ctrl-C in psql does not reach it; the whole group is stopped here.
 SESSION_PID=""
-# The port forward runs as subshell -> aws -> session-manager-plugin; stop all of them.
-kill_tree() {
-  local child
-  for child in $(pgrep -P "$1" 2>/dev/null); do kill_tree "${child}"; done
-  kill "$1" 2>/dev/null || true
-}
 cleanup() {
-  if [[ -n "${SESSION_PID}" ]]; then kill_tree "${SESSION_PID}"; fi
+  if [[ -n "${SESSION_PID}" ]]; then kill -TERM -- "-${SESSION_PID}" 2>/dev/null || true; fi
   echo; echo "Stopping task ${TASK_ID}"
   aws ecs stop-task --cluster "${CLUSTER}" --task "${TASK_ARN}" --reason "db-tunnel session ended" >/dev/null || true
 }
@@ -150,8 +148,10 @@ forward() {
 }
 
 if [[ ${OPEN_PSQL} -eq 1 ]]; then
+  set -m
   forward >/dev/null &
   SESSION_PID=$!
+  set +m
   disown "${SESSION_PID}"
   for _ in $(seq 1 30); do
     nc -z localhost "${LOCAL_PORT}" 2>/dev/null && break
