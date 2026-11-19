@@ -5,6 +5,8 @@ import type { InvoiceType } from "./tr-address";
 type Address = { province: string | null; district: string | null; addressLine: string | null; postalCode: string | null };
 export type CheckoutPrefill = {
   name: string | undefined; phone: string | undefined; delivery: Address | null;
+  /** The saved addresses the form starts from (#999); the invoice id only when it is another row than the delivery one. */
+  deliveryAddressId: string | null; invoiceAddressId: string | null;
   invoice: { invoiceType: InvoiceType | null; company: string | null; taxNo: string | null; taxOffice: string | null; address: Address | null } | null;
 };
 
@@ -29,6 +31,8 @@ export function checkoutPrefill(account: { name: string } | null, defaults: { de
     name: delivery?.recipient_name ?? account?.name,
     phone: delivery?.phone ?? last?.phone ?? undefined,
     delivery: delivery ? saved(delivery) : lastDelivery,
+    deliveryAddressId: delivery?.id ?? null,
+    invoiceAddressId: invoice && invoice.id !== delivery?.id ? invoice.id : null,
     invoice: last || invoiceAddress?.province ? { ...identity, address: invoiceAddress } : null,
   };
 }

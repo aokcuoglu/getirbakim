@@ -1,7 +1,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
-import type { AddressInput } from "./address-schema";
+import { addressInput, addressKey, type AddressInput } from "./address-schema";
 
 /** Most saved addresses one account keeps (#950). */
 export const ADDRESS_LIMIT = 10;
@@ -65,6 +65,15 @@ async function clearDefaults(client: PoolClient, accountId: string, keepId: stri
     WHERE account_id=$1 AND id IS DISTINCT FROM $2 AND ((default_delivery AND $3) OR (default_invoice AND $4))`, [accountId, keepId, delivery, invoice]);
 }
 
+/** Writes one row, clearing the defaults it takes; the caller holds the account lock. */
+async function insertAddress(client: PoolClient, accountId: string, input: AddressInput, delivery: boolean, invoice: boolean) {
+  await clearDefaults(client, accountId, null, delivery, invoice);
+  const { rows } = await client.query<{ id: string }>(`INSERT INTO account_addresses(account_id,label,recipient_name,phone,province,district,address_line,postal_code,default_delivery,default_invoice)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+    [accountId, input.label, input.recipientName, input.phone, input.province, input.district, input.addressLine, input.postalCode, delivery, invoice]);
+  return rows[0].id;
+}
+
 /**
  * Saves a new address; `{ error: "limit" }` when the account already keeps ADDRESS_LIMIT. The account's first address
  * becomes both its default delivery and default invoice address.
@@ -74,13 +83,38 @@ export async function createAddress(accountId: string, input: AddressInput): Pro
     await lockAccount(client, accountId);
     const count = Number((await client.query<{ count: string }>("SELECT count(*) FROM account_addresses WHERE account_id=$1", [accountId])).rows[0].count);
     if (count >= ADDRESS_LIMIT) return { error: "limit" as const };
-    const delivery = count === 0 || input.defaultDelivery, invoice = count === 0 || input.defaultInvoice;
-    await clearDefaults(client, accountId, null, delivery, invoice);
-    const { rows } = await client.query<{ id: string }>(`INSERT INTO account_addresses(account_id,label,recipient_name,phone,province,district,address_line,postal_code,default_delivery,default_invoice)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
-      [accountId, input.label, input.recipientName, input.phone, input.province, input.district, input.addressLine, input.postalCode, delivery, invoice]);
-    return { id: rows[0].id };
+    return { id: await insertAddress(client, accountId, input, count === 0 || input.defaultDelivery, count === 0 || input.defaultInvoice) };
   });
+}
+
+type CheckoutAddress = { name: string; phone: string; province: string; district: string; addressLine: string; postalCode: string | null; saveAddressLabel: string };
+
+/**
+ * Saves the delivery address of a placed order to the account's address book (#999), after the order succeeded. Never
+ * throws: a refused or failed save must not affect the order. "skipped" for guests, an invalid candidate or a failure;
+ * "duplicate" when the account already has the same province, district and street address; "limit" when the book is full.
+ * It takes no default flag, except that the first address becomes both defaults. An empty label becomes "İlçe / İl".
+ */
+export async function saveCheckoutAddress(owner: { kind: string; id: string }, checkout: CheckoutAddress): Promise<"saved" | "duplicate" | "limit" | "skipped"> {
+  try {
+    if (owner.kind !== "account") return "skipped";
+    const candidate = addressInput.safeParse({ label: checkout.saveAddressLabel || `${checkout.district} / ${checkout.province}`, recipientName: checkout.name, phone: checkout.phone,
+      province: checkout.province, district: checkout.district, addressLine: checkout.addressLine, postalCode: checkout.postalCode ?? "" });
+    if (!candidate.success) return "skipped";
+    return await transaction(async client => {
+      await lockAccount(client, owner.id);
+      const { rows } = await client.query<{ province: string; district: string; address_line: string }>("SELECT province,district,address_line FROM account_addresses WHERE account_id=$1", [owner.id]);
+      const key = addressKey(candidate.data);
+      if (rows.some(row => addressKey({ province: row.province, district: row.district, addressLine: row.address_line }) === key)) return "duplicate" as const;
+      if (rows.length >= ADDRESS_LIMIT) return "limit" as const;
+      const first = rows.length === 0;
+      await insertAddress(client, owner.id, candidate.data, first, first);
+      return "saved" as const;
+    });
+  } catch (error) {
+    console.error("Checkout address could not be saved", error);
+    return "skipped";
+  }
 }
 
 /**

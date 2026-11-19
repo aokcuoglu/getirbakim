@@ -8,7 +8,7 @@ import { currentAccount } from "@/modules/auth/session";
 import { cartFor, currentCartOwner } from "@/modules/store/cart";
 import { shownProductName } from "@/modules/store/product-name";
 import { cartQuote, lastCheckoutDetails, orderTotals, shippingRule } from "@/modules/store/orders";
-import { defaultAddresses } from "@/modules/store/account-addresses";
+import { ADDRESS_LIMIT, listAddresses } from "@/modules/store/account-addresses";
 import { checkoutPrefill } from "@/modules/store/checkout-prefill";
 import { paymentsEnabled } from "@/modules/payments/checkout";
 import { installmentSettings } from "@/modules/payments/installment-settings";
@@ -29,24 +29,25 @@ import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Empty } from "@/components/ui/empty";
 import { Field, FieldLabel } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { CheckoutAddressFields, CheckoutInvoiceFields } from "@/components/checkout-address-fields";
-import { checkoutControl, checkoutLabel, checkoutRequiredMark, checkoutTextarea } from "@/components/checkout-field-classes";
+import { CheckoutInvoiceFields } from "@/components/checkout-address-fields";
+import { CheckoutDeliveryFields } from "@/components/checkout-delivery-fields";
+import { checkoutCheckbox, checkoutLabel, checkoutTextarea } from "@/components/checkout-field-classes";
 import { catalogPath } from "@/modules/seo/paths";
 
 const errors:Record<string,string>={supplier:"Tedarikçi fiyat ve stok bilgisi şu anda doğrulanamadı. Biraz sonra yeniden dene.",stock:"Ürün fiyatı veya stok durumu uygun değil. Sepetini kontrol edip güncelle.",price:"Fiyatlar, servis indirimi veya sipariş veri kaynağı değişti. Güncel toplamı kontrol ederek siparişini tekrar onayla.",validation:"İletişim, teslimat ve fatura bilgilerini tamamla; sözleşmeleri onayla.",session:"Sepet oturumu sona erdi.",payment:"Online ödeme şu anda kapalı. Lütfen daha sonra tekrar dene."};
 
-const label=checkoutLabel, control=checkoutControl, textarea=checkoutTextarea;
-const required=<span className={checkoutRequiredMark} aria-hidden>*</span>;
+const label=checkoutLabel, textarea=checkoutTextarea;
 
 export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Checkout({searchParams}:{searchParams:Promise<SearchParams>}) {
   const [account,owner,params]=await Promise.all([currentAccount(),currentCartOwner(),searchParams.then(normalizeSearchParams)]);
   // An account's next checkout starts from its default saved addresses (#950) and its latest order's address and invoice (#881); guests start empty.
-  const [items,shipping,installments,last,defaults]=await Promise.all([cartFor(owner),shippingRule(),installmentSettings(),owner?.kind==="account" ? lastCheckoutDetails(owner.id) : null,
-    owner?.kind==="account" ? defaultAddresses(owner.id) : null]);
+  const [items,shipping,installments,last,addresses]=await Promise.all([cartFor(owner),shippingRule(),installmentSettings(),owner?.kind==="account" ? lastCheckoutDetails(owner.id) : null,
+    owner?.kind==="account" ? listAddresses(owner.id) : []]);
+  // The saved addresses (#999) are listed once; the defaults are read from that list.
+  const defaults={delivery:addresses.find(a=>a.default_delivery) ?? null,invoice:addresses.find(a=>a.default_invoice) ?? null};
   const prefill=checkoutPrefill(account,defaults,last);
   const discount=account?.approved && account.role==="service" ? account.discount_percent : 0;
   const totals=orderTotals(items,discount,shipping);
@@ -69,16 +70,12 @@ export default async function Checkout({searchParams}:{searchParams:Promise<Sear
     {items.length ? <InstallmentProvider options={options}><div className="grid grid-cols-[minmax(0,1.76fr)_minmax(320px,1fr)] items-start gap-4 max-[1000px]:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)] max-[760px]:grid-cols-1">{valid && <TrackBeginCheckout items={analytics.map(line=>line.item)}/>}<CheckoutSummaryToggle items={items} discount={discount} shipping={shipping}/>
       <Card className="gap-0 rounded-[10px] p-5 ring-0 border border-border max-[760px]:px-4"><h2 className="mb-2 text-xl leading-7 font-semibold tracking-[-0.5px]">Müşteri ve teslimat bilgileri</h2><p className="mb-7 text-sm text-muted-foreground">{discount ? `${account!.name} · %${discount} servis indirimi uygulanıyor.` : "Üye olmadan sipariş verebilirsin."}</p>
       <CheckoutForm analyticsItems={analytics.map(line=>line.item)} disabled={!valid} total={money(totals.total)} errors={errors} lineNames={lineNames} initialError={pageError}><input type="hidden" name="requestKey" value={randomUUID()}/><input type="hidden" name="quote" value={cartQuote(items,discount,shipping,installments)}/>
-        <Field className="gap-1.5"><FieldLabel htmlFor="checkout-name" className={label}>Ad soyad {required}</FieldLabel><Input id="checkout-name" className={control} name="name" autoComplete="name" minLength={2} maxLength={150} defaultValue={prefill.name} required/></Field>
-        <Field className="gap-1.5"><FieldLabel htmlFor="checkout-email" className={label}>E-posta {required}</FieldLabel><Input id="checkout-email" className={control} type="email" name="email" autoComplete="email" maxLength={200} defaultValue={account?.email} required/></Field>
-        <Field className="gap-1.5"><FieldLabel htmlFor="checkout-phone" className={label}>Telefon {required}</FieldLabel><Input id="checkout-phone" className={control} type="tel" name="phone" autoComplete="tel" minLength={10} maxLength={20} defaultValue={prefill.phone} required/></Field>
-        {account?.approved && <Link href="/hesap/adresler" target="_blank" rel="noopener" className="inline-flex min-h-11 items-center justify-self-start text-sm leading-5 text-primary underline-offset-4 hover:underline">Adreslerimi yönet<span className="sr-only"> (yeni sekmede açılır)</span></Link>}
-        <CheckoutAddressFields initial={prefill.delivery}/>
+        <CheckoutDeliveryFields prefill={prefill} email={account?.email} addresses={addresses} canSave={owner?.kind==="account" && addresses.length<ADDRESS_LIMIT} manage={account?.approved===true}/>
         <Field className="gap-1.5"><FieldLabel htmlFor="checkout-note" className={label}>Sipariş notu</FieldLabel><Textarea id="checkout-note" className={cn(textarea,"min-h-20")} name="note" maxLength={1000} rows={2}/></Field>
-        <CheckoutInvoiceFields initial={prefill.invoice}/>
+        <CheckoutInvoiceFields initial={prefill.invoice} addresses={addresses} selectedId={prefill.invoiceAddressId}/>
         {options.length>1 && <InstallmentPicker/>}
-        <Field orientation="horizontal" className="items-start gap-2.5"><Checkbox id="checkout-consent" name="consent" required className="my-0.5 size-5"/><FieldLabel htmlFor="checkout-consent" className="block text-sm leading-[22px] font-normal"><Link href="/on-bilgilendirme-formu" target="_blank" className="hover:text-primary hover:underline">Ön bilgilendirme formunu</Link> ve <Link href="/mesafeli-satis-sozlesmesi" target="_blank" className="hover:text-primary hover:underline">mesafeli satış sözleşmesini</Link> okudum, onaylıyorum. Ödemenin TAMI güvenli ödeme sayfasında alınacağını; tedarikçi stoku teyit edilemezse siparişin iptal edilip ödemenin iade edileceğini biliyorum.</FieldLabel></Field>
-      </CheckoutForm><p className="mt-[18px] mb-6 flex flex-wrap items-center gap-1.5 text-xs leading-[18px] text-muted-foreground"><LockKeyhole className="size-[15px]" aria-hidden/>Bilgilerin yalnız sipariş işlemleri için kullanılır. <Link href="/gizlilik-politikasi" className="text-[#0065a5] hover:underline">Gizlilik politikası</Link></p><Link href="/sepet" className="hover:text-primary">← Sepete dön</Link></Card><OrderSummary items={items} discount={discount} shipping={shipping} checkout/></div></InstallmentProvider>
+        <Field orientation="horizontal" className="items-start gap-2.5"><Checkbox id="checkout-consent" name="consent" required className={checkoutCheckbox}/><FieldLabel htmlFor="checkout-consent" className="block text-sm leading-[22px] font-normal"><Link href="/on-bilgilendirme-formu" target="_blank" className="hover:text-primary hover:underline">Ön bilgilendirme formunu</Link> ve <Link href="/mesafeli-satis-sozlesmesi" target="_blank" className="hover:text-primary hover:underline">mesafeli satış sözleşmesini</Link> okudum, onaylıyorum. Ödemenin TAMI güvenli ödeme sayfasında alınacağını; tedarikçi stoku teyit edilemezse siparişin iptal edilip ödemenin iade edileceğini biliyorum.</FieldLabel></Field>
+      </CheckoutForm><p className="mt-[18px] mb-6 flex flex-wrap items-center gap-1.5 text-xs leading-[18px] text-muted-foreground"><LockKeyhole className="size-[15px]" aria-hidden/>Bilgilerin yalnız sipariş işlemleri için kullanılır. <Link href="/gizlilik-politikasi" className="text-[#0065a5] hover:underline">Gizlilik politikası</Link></p><Link href="/sepet" className="inline-flex min-h-11 items-center hover:text-primary">← Sepete dön</Link></Card><OrderSummary items={items} discount={discount} shipping={shipping} checkout/></div></InstallmentProvider>
     : <Empty className="gap-6 rounded-none border-0 px-4 py-16"><h2 className="m-0 text-2xl leading-[34px] font-semibold">Sepetin henüz boş.</h2><Button nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5 font-semibold hover:bg-brand-strong" render={<Link href={catalogPath}/>}>Alışverişe başla</Button></Empty>}
   </section></div>;
 }

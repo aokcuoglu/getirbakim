@@ -179,3 +179,15 @@ test("a corporate tax id is a 10-digit VKN or an 11-digit TC kimlik no that pass
     if (digit !== 6) assert.equal(validTaxId(`1000000014${digit}`), false, `11th ${digit}`);
   }
 });
+
+test("the checkout asks to save the address only with a ticked box, and a bad value never refuses the order (#999)", () => {
+  assert.equal(checkoutInput.parse(valid).saveAddress, false);
+  assert.equal(checkoutInput.parse(valid).saveAddressLabel, "");
+  const asked = checkoutInput.parse({ ...valid, saveAddress: "on", saveAddressLabel: "  Servis " });
+  assert.equal(asked.saveAddress, true);
+  assert.equal(asked.saveAddressLabel, "Servis");
+  const bad = checkoutInput.safeParse({ ...valid, saveAddress: "yes", saveAddressLabel: "x".repeat(61) });
+  assert.equal(bad.success, true);
+  assert.equal(bad.data?.saveAddress, false);
+  assert.equal(bad.data?.saveAddressLabel, "");
+});

@@ -8,7 +8,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { CheckoutAddressFields } from "@/components/checkout-address-fields";
-import { checkoutControl, checkoutLabel, checkoutRequiredMark } from "@/components/checkout-field-classes";
+import { checkoutCheckbox, checkoutControl, checkoutLabel, checkoutRequiredMark } from "@/components/checkout-field-classes";
+import { useDismissNotice } from "@/components/address-notice";
 import { saveAddress } from "@/app/(store)/hesap/adresler/actions";
 import type { AccountAddress } from "@/modules/store/account-addresses";
 import type { AddressFormValues } from "@/modules/store/address-schema";
@@ -24,13 +25,14 @@ const required = <span className={checkoutRequiredMark} aria-hidden>*</span>;
  */
 export function AddressForm({ address, first }: { address: AccountAddress | null; first: boolean }) {
   const [state, action, pending] = useActionState(saveAddress, null);
+  const dismiss = useDismissNotice();
   const typed: AddressFormValues | null = state?.values ?? null;
   const value = (field: keyof AddressFormValues, saved: string | null | undefined) => typed ? typed[field] : saved ?? undefined;
   const defaults = [
     { name: "defaultDelivery", id: "address-default-delivery", text: "Varsayılan teslimat adresim olsun", locked: address?.default_delivery ?? false },
     { name: "defaultInvoice", id: "address-default-invoice", text: "Varsayılan fatura adresim olsun", locked: address?.default_invoice ?? false },
   ] as const;
-  return <form action={action} className="grid gap-4">
+  return <form action={action} onSubmit={dismiss} className="grid gap-4">
     {state && <Alert role="alert" className="rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">{state.error}</Alert>}
     {address && <input type="hidden" name="id" value={address.id}/>}
     <div key={`${address?.id ?? "new"}-${state?.attempt ?? 0}`} className="grid gap-4">
@@ -44,7 +46,7 @@ export function AddressForm({ address, first }: { address: AccountAddress | null
         addressLine: value("addressLine", address?.address_line) ?? null, postalCode: value("postalCode", address?.postal_code) ?? null } : null}/>
       {first ? <FieldDescription>İlk adresin varsayılan teslimat ve fatura adresin olur.</FieldDescription>
         : defaults.map(box => <Field key={box.name} orientation="horizontal" className="items-start gap-2.5">
-          <Checkbox id={box.id} name={box.name} defaultChecked={box.locked || typed?.[box.name] === "on"} disabled={box.locked} className="my-0.5 size-5"
+          <Checkbox id={box.id} name={box.name} defaultChecked={box.locked || typed?.[box.name] === "on"} disabled={box.locked} className={checkoutCheckbox}
             aria-describedby={box.locked ? `${box.id}-hint` : undefined}/>
           <div className="grid gap-1">
             <FieldLabel htmlFor={box.id} className="block text-sm leading-[22px] font-normal">{box.text}{box.locked && <span className="text-muted-foreground"> (şu an varsayılan)</span>}</FieldLabel>

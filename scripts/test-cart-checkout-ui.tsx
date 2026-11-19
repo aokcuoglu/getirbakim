@@ -5,6 +5,11 @@ import { CartActionBar } from "../src/components/cart-action-bar";
 import { CheckoutSteps } from "../src/components/checkout-steps";
 import { cartOrderable } from "../src/components/cart-orderable";
 import { CheckoutAddressFields, CheckoutInvoiceFields } from "../src/components/checkout-address-fields";
+import { CheckoutDeliveryFields } from "../src/components/checkout-delivery-fields";
+import { checkoutCheckbox } from "../src/components/checkout-field-classes";
+import { cn } from "../src/lib/utils";
+import type { AccountAddress } from "../src/modules/store/account-addresses";
+import type { CheckoutPrefill } from "../src/modules/store/checkout-prefill";
 
 test("the phone cart bar shows the total and links to checkout, sticky and clear of the home indicator (#877)", () => {
   const html = renderToStaticMarkup(<CartActionBar total="1.250,00 ₺" valid/>);
@@ -145,4 +150,57 @@ test("the checkout summary and its error alerts name the lines as the cart and t
   assert.match(summary, /\{shownProductName\(p\)\} \{p\.display_brand\}/);
   assert.doesNotMatch(summary, /\{p\.name\}/);
   assert.match(page, /items\.map\(p=>\[p\.id,shownProductName\(p\)\]\)/);
+});
+
+const saved = (id: string, label: string, flags: Partial<AccountAddress> = {}): AccountAddress => ({ id, label, recipient_name: `Alıcı ${label}`, phone: "0555 000 00 00", province: "Ankara",
+  district: "Çankaya", address_line: `Atatürk Bulvarı No ${label}`, postal_code: null, default_delivery: false, default_invoice: false, ...flags });
+const prefill = (over: Partial<CheckoutPrefill> = {}): CheckoutPrefill => ({ name: "Servis AŞ", phone: "0555 111 11 11", delivery: null, deliveryAddressId: null, invoiceAddressId: null, invoice: null, ...over });
+
+test("the delivery fields without saved addresses have no picker and no save box for guests (#999)", () => {
+  const html = renderToStaticMarkup(<CheckoutDeliveryFields prefill={prefill()} addresses={[]} canSave={false}/>);
+  assert.match(html, /id="checkout-name"[^>]*value="Servis AŞ"/);
+  assert.match(html, /id="checkout-email"/);
+  assert.match(html, /id="checkout-phone"/);
+  assert.doesNotMatch(html, /checkout-saved/);
+  assert.doesNotMatch(html, /saveAddress/);
+  assert.doesNotMatch(html, /Adreslerimi yönet/);
+});
+
+test("an account with saved addresses gets the picker with its default preselected and the save box when there is room (#999)", () => {
+  const first = saved("11111111-1111-4111-8111-111111111111", "Merkez", { default_delivery: true });
+  const second = saved("22222222-2222-4222-8222-222222222222", "Depo");
+  const html = renderToStaticMarkup(<CheckoutDeliveryFields prefill={prefill({ deliveryAddressId: first.id, delivery: { province: "Ankara", district: "Çankaya", addressLine: first.address_line, postalCode: null } })}
+    addresses={[first, second]} canSave manage/>);
+  assert.match(html, /<label[^>]*for="checkout-saved"[^>]*>Kayıtlı adreslerim/);
+  assert.match(html, /<option[^>]*value="11111111[^"]*" selected="">Merkez · Çankaya\/Ankara<\/option>/);
+  assert.match(html, /<option[^>]*value="22222222[^"]*">Depo · Çankaya\/Ankara<\/option>/);
+  assert.match(html, /<option[^>]*value="">Yeni adres gir<\/option>/);
+  assert.doesNotMatch(html, /<select[^>]*name=/);
+  assert.match(html, /role="status"/);
+  assert.match(html, /name="saveAddress"/);
+  assert.match(html, /Bu adresi adreslerime kaydet/);
+  assert.doesNotMatch(html, /saveAddressLabel/);
+  assert.match(html, /Adreslerimi yönet/);
+  assert.match(html, /Atatürk Bulvarı No Merkez/);
+  // Full address book: picker stays, no save box.
+  assert.doesNotMatch(renderToStaticMarkup(<CheckoutDeliveryFields prefill={prefill()} addresses={[first]} canSave={false}/>), /saveAddress/);
+  // Without a default the picker starts on "Yeni adres gir".
+  assert.match(renderToStaticMarkup(<CheckoutDeliveryFields prefill={prefill()} addresses={[first]} canSave/>), /<option[^>]*value="" selected="">Yeni adres gir/);
+});
+
+test("the invoice picker sits only inside the separate invoice address block (#999)", () => {
+  const address = saved("33333333-3333-4333-8333-333333333333", "Fatura");
+  const html = renderToStaticMarkup(<CheckoutInvoiceFields addresses={[address]} selectedId={address.id}
+    initial={{ invoiceType: "individual", company: null, taxNo: null, taxOffice: null, address: { province: "Ankara", district: "Çankaya", addressLine: address.address_line, postalCode: null } }}/>);
+  const block = html.slice(html.indexOf('id="checkout-invoice-address"'));
+  assert.ok(html.indexOf('id="checkout-invoice-saved"') > html.indexOf('id="checkout-invoice-address"'));
+  assert.equal(html.match(/checkout-invoice-saved/g)?.length, 2);
+  assert.ok(block.includes("checkout-invoice-saved"));
+  assert.doesNotMatch(renderToStaticMarkup(<CheckoutInvoiceFields/>), /checkout-invoice-saved/);
+});
+
+test("checkboxes keep a 44px touch area over the stock checkbox classes (#999)", () => {
+  const merged = cn("after:absolute after:-inset-x-3 after:-inset-y-2", checkoutCheckbox);
+  assert.match(merged, /after:-inset-3/);
+  assert.doesNotMatch(merged, /after:-inset-[xy]/);
 });
