@@ -4,7 +4,7 @@ import test from "node:test";
 import { addRecentSearch, clearRecentSearches, parseRecentSearches, readRecentSearches, saveRecentSearch } from "../src/components/navigation/recent-searches";
 import { shownProductName } from "../src/modules/store/product-name";
 import { normalizeSearchText, parseSearchQuery, phraseKey, prefixTsQuery } from "../src/modules/search/query";
-import { typeNameExactQueries, typeNamePrefixQuery, typeNameRankBoosts, typeNameTsQueries } from "../src/modules/search/type-names";
+import { typeNameExactQueries, typeNameFirstPage, typeNamePrefixQuery, typeNameRankBoosts, typeNameTsQueries } from "../src/modules/search/type-names";
 import { mergeNameSuggestions } from "../src/modules/store/name-suggestions";
 import { searchPath } from "../src/modules/seo/paths";
 import { isEnglishTypeName, turkishTypeName, typeNameEntries } from "../src/modules/store/suggestion-names";
@@ -75,7 +75,7 @@ test("suffixed Turkish type names reach the dictionary (#969)", () => {
   assert.deepEqual(queries("mili"), ["('shaft')"]);
   assert.deepEqual(queries("farı"), ["('front' <-> 'light')"]);
   assert.deepEqual(queries("motor kapağı"), ["('cover') & ('motor':*)"]);
-  assert.deepEqual(queries("kapı camı"), ["('door') & ('cami':*)", "('glass') & ('kapi':*)"]);
+  assert.deepEqual(queries("kapı camı"), ["('door') & ('glass')", "('door') & ('cami':*)", "('glass') & ('kapi':*)"]);
   assert.deepEqual(queries("kapak"), ["('cover')"]);
   const exact = (q: string) => typeNameExactQueries(parseSearchQuery(q)).map(match => match.names);
   assert.deepEqual(exact("kolu"), [["arm"]]);
@@ -117,6 +117,42 @@ test("rows found by their English name rank as the typed Turkish name (#969)", (
   ]);
   assert.deepEqual(boosts("fren"), []);
   assert.deepEqual(boosts("5W-40"), []);
+});
+
+test("several type-name windows translate together (#989)", () => {
+  const queries = (q: string) => typeNameTsQueries(parseSearchQuery(q));
+  assert.equal(queries("kapı camı")[0], "('door') & ('glass')");
+  assert.equal(queries("kapı camı bosch")[0], "('door') & ('glass') & ('bosch':*)");
+  assert.equal(queries("fren diski kapağı")[0], "('brake' <-> 'disc') & ('cover')");
+  // One window: as before, no combined query.
+  assert.deepEqual(queries("fren diski"), ["('brake' <-> 'disc')"]);
+  assert.deepEqual(queries("motor kapağı"), ["('cover') & ('motor':*)"]);
+  assert.deepEqual(queries("kapak"), ["('cover')"]);
+  for (const q of ["kapı camı", "kapı camı bosch", "fren diski kapağı", "ön kapı camı sol", "fren diski balata hortumu kapağı"]) {
+    assert.ok(queries(q).length <= 4, q);
+    for (const query of queries(q)) assert.match(query, /^[a-z0-9' |()<>&:*-]*$/, q);
+  }
+  const boosts = (q: string) => typeNameRankBoosts(parseSearchQuery(q));
+  assert.deepEqual(boosts("kapı camı")[0], { query: "('door':A) & ('glass':A)", english: ["door", "glass"], turkish: "kapi cami" });
+  assert.deepEqual(boosts("fren diski"), [{ query: "('brake':A <-> 'disc':A)", english: ["brake", "disc"], turkish: "fren diski" }]);
+  assert.deepEqual(boosts("kapak"), [
+    { query: "('cover':A)", english: ["cover"], turkish: "kapak" },
+    { query: "('cap':A)", english: ["cap"], turkish: "kapak", names: ["cap"] },
+  ]);
+  // An ambiguous name never joins the combination: "kapı kolu" is DOOR and ARM on their own.
+  assert.ok(boosts("kapı kolu").every(boost => !(boost.english.includes("door") && boost.english.includes("arm"))));
+});
+
+test("the first page counts the cards shown under a translated English name (#989)", () => {
+  const products = [
+    { name: "BRAKE DISC", name_overridden: false },
+    { name: "FREN DISKI", name_overridden: false },
+    { name: "BRAKE DISC", name_overridden: true },
+  ];
+  assert.equal(typeNameFirstPage("fren diski", "all", products), 1);
+  assert.equal(typeNameFirstPage("fren diski", "all", []), 0);
+  assert.equal(typeNameFirstPage("bosch", "all", products), null);
+  assert.equal(typeNameFirstPage("fren diski", "code", products), null);
 });
 
 test("dictionary English keys are plain words, safe inside a quoted tsquery (#953)", () => {
