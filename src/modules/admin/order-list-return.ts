@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 const listPath = "/yonetim/siparisler";
-const kept = ["status", "tedarik", "sort", "dir", "page"] as const;
+const kept = ["status", "tedarik", "sahip", "sort", "dir", "page"] as const;
 
 /** The order list a form was submitted from. Anything that is not that list (other paths, `//host`, schemes) is refused. */
 export const orderListBack = z.string().max(500)

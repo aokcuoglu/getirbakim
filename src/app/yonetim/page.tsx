@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, Building2, ChevronRight, CircleAlert, CircleCheck, Layers3, PackageCheck, ReceiptText, RotateCcw, Tags, TrendingDown, TrendingUp, Truck, Wallet } from "lucide-react";
+import { AlertTriangle, Building2, ChevronRight, CircleAlert, CircleCheck, CircleX, Layers3, PackageCheck, ReceiptText, RotateCcw, Tags, TrendingDown, TrendingUp, Truck, Wallet } from "lucide-react";
 import { adminDashboard, adminOverview, adminSupplierFeedStatus } from "@/modules/admin/data";
 import { summarizeFeedTones } from "@/modules/admin/feed-summary";
 import { feedIssueCount, feedNavTone, feedStateLabels } from "@/modules/suppliers/data-status";
@@ -41,6 +41,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
   const pending = accounts.filter(a => !a.approved);
   const { orders, days, recent } = data;
   const revenue = Number(orders.revenue_30d), previous = Number(orders.revenue_prev_30d);
+  const waiting = orders.action + orders.refund + orders.cancel_request;
   const delta = previous > 0 ? (revenue - previous) / previous * 100 : null;
   const enrichment = Object.fromEntries(data.enrichment.map(row => [row.status, row.count])) as Record<string, number>;
   const enrichmentTotal = data.enrichment.reduce((sum, row) => sum + row.count, 0);
@@ -53,6 +54,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
   const attention = [
     { href: "/yonetim/siparisler?status=action", icon: ReceiptText, tone: "warning", title: "Teyit bekleyen sipariş", note: "Tedarikçi stok ve teslim süresini teyit edip onayla", count: orders.action },
     { href: "/yonetim/siparisler?status=shipping", icon: Truck, tone: "neutral", title: "Kargoya verilecek sipariş", note: "Onaylandı, kargoya verilmeyi bekliyor", count: orders.shipping },
+    { href: "/yonetim/siparisler?status=cancel_request", icon: CircleX, tone: "warning", title: "Partner iptal talebi", note: "Onaylanmış partner siparişi; iptali onayla ya da reddet", count: orders.cancel_request },
     { href: "/yonetim/siparisler?status=refund", icon: RotateCcw, tone: "danger", title: "İade bekleyen ödeme", note: "Siparişler'den TAMI ile iade et; gerekirse referansı elle kaydet", count: orders.refund },
     { href: "/yonetim/servisler", icon: Building2, tone: "warning", title: "Onay bekleyen servis başvurusu", note: "Onay, fiyat ve sepet erişimini açar", count: pending.length },
     { href: `/yonetim/urun-verileri?status=${enrichment.review ? "review" : "error"}`, icon: Layers3, tone: "warning", title: "Kontrol bekleyen zenginleştirme", note: "İnceleme, erişim veya işlem hatası", count: enrichmentAttention },
@@ -82,18 +84,19 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
           {delta !== null && <CardAction><StatusBadge tone={delta >= 0 ? "success" : "error"} icon={delta >= 0 ? TrendingUp : TrendingDown}>%{Math.abs(delta).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}</StatusBadge></CardAction>}
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1 text-sm">
-          <div className="flex items-center gap-2 font-medium"><Wallet className="size-4" aria-hidden="true"/>{number(orders.paid_30d)} ödenmiş sipariş</div>
+          <div className="flex items-center gap-2 font-medium"><Wallet className="size-4" aria-hidden="true"/>{number(orders.paid_30d)} ödenmiş · {number(orders.on_account_30d)} cari hesap sipariş</div>
+          <div className="text-muted-foreground">Cari hesap (partner) siparişleri iptal edilmedikçe sipariş tarihine göre sayılır.</div>
           <div className="text-muted-foreground">{delta !== null ? `Önceki 30 güne göre ${delta >= 0 ? "artış" : "düşüş"}` : "Karşılaştırma için önceki dönem yok"}</div>
         </CardFooter>
       </Card>
       <Card>
         <CardHeader>
           <CardDescription>İşlem bekleyen sipariş</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums">{number(orders.action + orders.refund)}</CardTitle>
-          <CardAction><StatusBadge tone={orders.action + orders.refund ? "warning" : "success"}>{orders.action + orders.refund ? "Bekliyor" : "Güncel"}</StatusBadge></CardAction>
+          <CardTitle className="text-2xl font-semibold tabular-nums">{number(waiting)}</CardTitle>
+          <CardAction><StatusBadge tone={waiting ? "warning" : "success"}>{waiting ? "Bekliyor" : "Güncel"}</StatusBadge></CardAction>
         </CardHeader>
         <CardFooter className="flex-col items-start gap-1 text-sm">
-          <div className="flex items-center gap-2 font-medium"><ReceiptText className="size-4" aria-hidden="true"/>{number(orders.action)} teyit · {number(orders.refund)} iade · {number(orders.awaiting_payment)} ödeme bekliyor</div>
+          <div className="flex items-center gap-2 font-medium"><ReceiptText className="size-4" aria-hidden="true"/>{number(orders.action)} teyit · {number(orders.cancel_request)} iptal talebi · {number(orders.refund)} iade · {number(orders.awaiting_payment)} ödeme bekliyor</div>
           <Link className="text-muted-foreground underline-offset-4 hover:underline" href="/yonetim/siparisler?status=action">Siparişlere git</Link>
         </CardFooter>
       </Card>

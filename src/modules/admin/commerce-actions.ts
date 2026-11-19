@@ -6,7 +6,7 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { returnReasons } from '@/modules/store/returns';
 import { shipmentSchema,type ShipmentResult } from '@/modules/store/shipment';
-import { transitionOrder,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn,setLineProcurement } from './orders';
+import { transitionOrder,decidePartnerCancelRequest,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn,setLineProcurement } from './orders';
 import { procurementInput } from './order-procurement';
 import { orderListBack,orderListReturn,type OrderListOutcome } from './order-list-return';
 import { refundPayment,checkRefund,type RefundOutcome } from '@/modules/payments/refunds';
@@ -58,6 +58,15 @@ export async function changeOrderStatus(form:FormData) {
  const input=z.object({id:z.uuid(),status:z.enum(['confirmed','cancelled','delivered']),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
  if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
  const ok=await transitionOrder(input.data.id,input.data.status);
+ revalidateOrder(input.data.id);
+ redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
+}
+/** A partner's cancel request on a confirmed order (#426): approve cancels it, reject keeps it for shipping (final). */
+export async function decideCancelRequest(form:FormData) {
+ await requireAdmin();
+ const input=z.object({id:z.uuid(),decision:z.enum(['approve','reject']),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
+ const ok=await decidePartnerCancelRequest(input.data.id,input.data.decision);
  revalidateOrder(input.data.id);
  redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
 }

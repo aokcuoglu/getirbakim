@@ -115,6 +115,21 @@ test("concurrent requests for one order make a single Geliver call", async () =>
   assert.equal((await labelRows(order.id)).length, 1);
 });
 
+test("a partner's open cancel request blocks the label until operations decide it (#426)", async () => {
+  const order = await seed();
+  await schema.pool.query("UPDATE commerce_orders SET cancel_requested_at=now() WHERE id=$1", [order.id]);
+  handler = fail;
+  calls.length = 0;
+  assert.equal((await create(order.id)).outcome, "not_allowed");
+  assert.equal(calls.length, 0);
+  assert.equal((await labelRows(order.id)).length, 0);
+  // Rejected: the order ships as usual.
+  await schema.pool.query("UPDATE commerce_orders SET cancel_request_rejected_at=now() WHERE id=$1", [order.id]);
+  handler = () => purchased();
+  assert.deepEqual(await create(order.id), { outcome: "purchased" });
+  assert.equal((await orderRow(order.id)).status, "shipped");
+});
+
 test("a refusal fails the row, keeps the order confirmed and allows another try", async () => {
   const order = await seed();
   handler = () => Response.json({ result: false, code: "E1066", message: "Organizasyonun yeterli bakiyesi yok" }, { status: 400 });

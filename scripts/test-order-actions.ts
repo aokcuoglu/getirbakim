@@ -50,6 +50,8 @@ test("actions return to the list they came from; anything else falls back to the
   assert.equal(orderListReturn("/yonetim/siparisler?status=action&sort=total&dir=desc&page=3", "saved"),
     "/yonetim/siparisler?status=action&sort=total&dir=desc&page=3&saved=1");
   assert.equal(orderListReturn("/yonetim/siparisler", "error"), "/yonetim/siparisler?error=1");
+  // The Müşteri column's owner filter (#426) is kept too.
+  assert.equal(orderListReturn("/yonetim/siparisler?status=cancel_request&sahip=partner", "saved"), "/yonetim/siparisler?status=cancel_request&sahip=partner&saved=1");
   // TAMI refund outcomes (#619) replace any earlier outcome.
   for (const outcome of ["refunded", "refund_failed", "refund_void_failed", "refund_unknown", "refund_busy", "refund_unavailable"] as const) {
     assert.equal(orderListReturn("/yonetim/siparisler?status=refund&saved=1", outcome), `/yonetim/siparisler?status=refund&${outcome}=1`);

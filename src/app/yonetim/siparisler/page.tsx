@@ -5,7 +5,7 @@ import { fitmentLevelLabels, type FitmentLevel } from "@/modules/store/fitment-l
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { money } from "@/modules/store/catalog";
-import { changeOrderStatus, checkGeliverShipment, checkTamiRefund, recordRefund } from "@/modules/admin/commerce-actions";
+import { changeOrderStatus, checkGeliverShipment, checkTamiRefund, decideCancelRequest, recordRefund } from "@/modules/admin/commerce-actions";
 import { refundablePayments, refundKindLabel, refundStatusLabel, reversalKind, type RefundStatus } from "@/modules/payments/refund-rules";
 import { carrierLabel } from "@/modules/store/shipment";
 import { isHandledPayment } from "@/modules/store/payment-states";
@@ -64,19 +64,21 @@ function LabelLink({ url, number }: { url: string; number: string }) {
     <FileText data-icon="inline-start" aria-hidden="true"/>Etiketi aç (PDF)<span className="sr-only"> #{number}, yeni sekmede açılır</span>
   </Button>;
 }
-const tabOrder: OrderFilter[] = ["all", "action", "shipping", "refund", "awaiting_payment", "shipped", "delivered", "cancelled"];
+const tabOrder: OrderFilter[] = ["all", "action", "shipping", "cancel_request", "refund", "awaiting_payment", "shipped", "delivered", "cancelled"];
 
 export default async function Orders({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
   const geliverMode = geliverConfig()?.mode ?? null;
-  const [{ orders, page, filter, procurement, counts }, fitment] = await Promise.all([adminOrders(params.page, params.status, params, params.tedarik), fitmentReturnReport()]);
-  const href = (changes: { status?: string; page?: number; procurement?: string }) => {
+  const [{ orders, page, filter, procurement, owner, counts }, fitment] = await Promise.all([adminOrders(params.page, params.status, params, params.tedarik, params.sahip), fitmentReturnReport()]);
+  const href = (changes: { status?: string; page?: number; procurement?: string; owner?: string }) => {
     const query = new URLSearchParams();
     const status = changes.status ?? filter;
     if (status !== "all") query.set("status", status);
     const tedarik = changes.procurement ?? procurement;
     if (tedarik !== "all") query.set("tedarik", tedarik);
+    const sahip = changes.owner ?? owner;
+    if (sahip !== "all") query.set("sahip", sahip);
     if (params.sort) query.set("sort", params.sort);
     if (params.dir) query.set("dir", params.dir);
     if (changes.page && changes.page > 1) query.set("page", String(changes.page));
@@ -89,7 +91,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Siparişler</h1>
-        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur. Müşteri, ödenmemiş ya da henüz onaylanmamış siparişini kendisi iptal edebilir; ödenmiş olanlar &quot;İade bekleyen&quot; sekmesine düşer. Tedarik sütunundan kalemlerin tedarikçisini, deposunu ve maliyetini görüp tedarik durumunu işaretle.</p>
+        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur. Müşteri, ödenmemiş ya da henüz onaylanmamış siparişini kendisi iptal edebilir; ödenmiş olanlar &quot;İade bekleyen&quot; sekmesine düşer. Tedarik sütunundan kalemlerin tedarikçisini, deposunu ve maliyetini görüp tedarik durumunu işaretle. Partner (API) siparişleri cari hesaba yazılır; partner onaylanmış bir siparişi iptal etmek isterse &quot;İptal talebi&quot; sekmesine düşer, onaylayana ya da reddedene kadar kargoya verilemez.</p>
       </div>
     </div>
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
@@ -118,7 +120,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     <Card>
       <CardContent>
         {shown.length ? <Table server>
-          <TableHeader><TableRow><TableHead sortKey="created">Sipariş</TableHead><TableHead sortKey="customer">Müşteri</TableHead>
+          <TableHeader><TableRow><TableHead sortKey="created">Sipariş</TableHead><TableHead sortKey="customer" filter={{ param: "sahip", options: [{ value: "partner", label: "Partner" }, { value: "store", label: "Mağaza" }] }}>Müşteri</TableHead>
             <TableHead filter={{ param: "status", options: tabOrder.filter(key => key !== "all").map(key => ({ value: key, label: orderFilters[key].label })) }}>Durum</TableHead><TableHead filter={{ param: "tedarik", options: [{ value: "open", label: "Tedarik bekleyen" }, { value: "done", label: "Tedarik edilen" }] }}>Tedarik</TableHead><TableHead>Ödeme</TableHead><TableHead sortKey="total" className="text-right">Tutar</TableHead><TableHead className="text-right">İşlem</TableHead></TableRow></TableHeader>
           <TableBody>{shown.map(o => {
             const refundable = refundablePayments(o, o.payments, o.refunds);
@@ -126,10 +128,14 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             const lines = o.lines.map(line => orderLineView(line, supplierNames[line.supplier] ?? line.supplier));
             // A cancelled order whose supplier lines were already ordered or procured needs the supplier order checked (#607).
             const supplierOrdered = o.status === "cancelled" && lines.some(line => line.needsProcurement && line.procurement_status !== "pending");
+            const partner = o.owner_kind === "partner";
+            // A partner's undecided cancel request (#426): operations approve or reject it before the order may ship.
+            const cancelRequest = o.status === "confirmed" && o.cancel_requested_at !== null && o.cancel_request_rejected_at === null;
             return <TableRow key={o.id} className="align-top">
             <TableCell><Link className="font-medium underline-offset-4 hover:underline" href={`/siparis/${o.id}`}>#{o.number}</Link><div className="text-muted-foreground">{time(o.created_at)}</div></TableCell>
             <TableCell className="min-w-56 whitespace-normal">
-              <div className="font-medium">{o.customer_name}</div><div className="text-muted-foreground">{o.email} · {o.phone}</div>
+              {partner && <Badge variant="outline">Partner · {o.owner_id}</Badge>}
+              <div className="font-medium">{o.customer_name}</div><div className="text-muted-foreground">{[o.email, o.phone].filter(Boolean).join(" · ")}</div>
               <Accordion><AccordionItem value="details">
                 <AccordionTrigger>Teslimat ve ödeme</AccordionTrigger>
                 <AccordionContent>
@@ -187,9 +193,14 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
             <TableCell><div className="flex flex-col items-start gap-1">
               <OrderStatusBadge status={o.status}/>
               {o.status === "cancelled" && o.cancelled_by === "customer" && <>
-                <Badge variant="info"><Info data-icon="inline-start"/>Müşteri iptal etti</Badge>
+                <Badge variant="info"><Info data-icon="inline-start"/>{partner ? "Partner iptal etti" : "Müşteri iptal etti"}</Badge>
                 {o.cancelled_at && <span className="text-muted-foreground tabular-nums">{time(o.cancelled_at)}</span>}
               </>}
+              {cancelRequest && <>
+                <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>İptal talebi</Badge>
+                {o.cancel_requested_at && <span className="text-muted-foreground tabular-nums">{time(o.cancel_requested_at)}</span>}
+              </>}
+              {o.cancel_request_rejected_at && o.status !== "cancelled" && <Badge variant="secondary"><Info data-icon="inline-start"/>İptal talebi reddedildi</Badge>}
               {supplierOrdered && <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Tedarikçiye sipariş verilmişti</Badge>}
             </div></TableCell>
             <TableCell><OrderLinesDialog number={o.number} orderId={o.id} orderStatus={o.status}
@@ -201,7 +212,21 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               {o.payments.some(p => p.status === "succeeded" && Number.isInteger(p.installment_count) && p.installment_count! >= 1 && p.installment_count !== o.installment_count)
                 && <Badge variant="warning" className="mt-1" title="Ödenen taksit sayısı siparişten farklı"><TriangleAlert data-icon="inline-start"/>Taksit sayısı farklı<span className="sr-only">: ödenen taksit sayısı siparişten farklı</span></Badge>}</TableCell>
             <TableCell>
-              {["pending", "confirmed"].includes(o.status) && isHandledPayment(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
+              {cancelRequest && isHandledPayment(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
+                <form action={decideCancelRequest}>
+                  <input type="hidden" name="id" value={o.id}/>
+                  <input type="hidden" name="decision" value="approve"/>
+                  <input type="hidden" name="back" value={back}/>
+                  <SubmitButton variant="destructive" aria-label={`#${o.number} partner iptal talebini onayla`}>İptali onayla</SubmitButton>
+                </form>
+                <form action={decideCancelRequest}>
+                  <input type="hidden" name="id" value={o.id}/>
+                  <input type="hidden" name="decision" value="reject"/>
+                  <input type="hidden" name="back" value={back}/>
+                  <SubmitButton variant="outline" aria-label={`#${o.number} partner iptal talebini reddet`}>Talebi reddet</SubmitButton>
+                </form>
+              </div>}
+              {!cancelRequest && ["pending", "confirmed"].includes(o.status) && isHandledPayment(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
                 {o.status === "confirmed" && <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="ship" recipient={<OrderRecipient order={o}/>}
                   geliver={geliverOption(geliverMode, o)}/>}
                 <form action={changeOrderStatus} className="flex justify-end gap-2">
@@ -258,10 +283,10 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
         </Table> : <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon"><Inbox/></EmptyMedia>
-            <EmptyTitle>{filter === "all" && procurement === "all" ? "Henüz sipariş yok" : "Bu filtrede sipariş yok"}</EmptyTitle>
-            {(filter !== "all" || procurement !== "all") && <EmptyDescription>Başka bir durum sekmesi seçebilir, tedarik filtresini kaldırabilir veya tüm siparişlere dönebilirsin.</EmptyDescription>}
+            <EmptyTitle>{filter === "all" && procurement === "all" && owner === "all" ? "Henüz sipariş yok" : "Bu filtrede sipariş yok"}</EmptyTitle>
+            {(filter !== "all" || procurement !== "all" || owner !== "all") && <EmptyDescription>Başka bir durum sekmesi seçebilir, tedarik filtresini kaldırabilir veya tüm siparişlere dönebilirsin.</EmptyDescription>}
           </EmptyHeader>
-          {(filter !== "all" || procurement !== "all") && <EmptyContent><Button variant="outline" nativeButton={false} render={<Link href={href({ status: "all", procurement: "all" })}/>}>Tüm siparişleri göster</Button></EmptyContent>}
+          {(filter !== "all" || procurement !== "all" || owner !== "all") && <EmptyContent><Button variant="outline" nativeButton={false} render={<Link href={href({ status: "all", procurement: "all", owner: "all" })}/>}>Tüm siparişleri göster</Button></EmptyContent>}
         </Empty>}
       </CardContent>
       {(page > 1 || orders.length > 50) && <CardFooter className="justify-between gap-4">

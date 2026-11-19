@@ -33,13 +33,15 @@ const LABEL_LESS_STATES = new Set(["CREATED", "GOT_OFFERS", "OFFER_ACCEPTED"]);
 // Geliver's clock may run slightly behind ours.
 const CLOCK_SKEW_MS = 60_000;
 
-type LabelOrder = RecipientOrder & { id: string; number: string; status: string; payment_status: string; total_kurus: string };
+// cancel_request_open: a partner's undecided cancel request (#426); the order may not ship until operations decide it.
+type LabelOrder = RecipientOrder & { id: string; number: string; status: string; payment_status: string; total_kurus: string; cancel_request_open: boolean };
 type Settlement =
   | { status: "purchased"; shipment: GeliverShipment; transactionId: string | null; note?: string }
   | { status: "failed" | "unknown"; errorCode?: string | null; errorMessage: string };
 
 const lockOrder = async (client: PoolClient, orderId: string) => (await client.query<LabelOrder>(
-  `SELECT id,number::text,status,payment_status,total_kurus::text,customer_name,email,phone,delivery_province,delivery_district,delivery_address_line
+  `SELECT id,number::text,status,payment_status,total_kurus::text,customer_name,email,phone,delivery_province,delivery_district,delivery_address_line,
+   (cancel_requested_at IS NOT NULL AND cancel_request_rejected_at IS NULL) AS cancel_request_open
    FROM commerce_orders WHERE id=$1 FOR UPDATE`, [orderId],
 )).rows[0];
 
@@ -55,8 +57,8 @@ async function inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promi
 }
 
 const isUniqueViolation = (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "23505";
-const shippable = (order: Pick<LabelOrder, "status" | "payment_status"> | undefined) =>
-  Boolean(order && order.status === "confirmed" && isHandledPayment(order.payment_status));
+const shippable = (order: Pick<LabelOrder, "status" | "payment_status" | "cancel_request_open"> | undefined) =>
+  Boolean(order && order.status === "confirmed" && isHandledPayment(order.payment_status) && !order.cancel_request_open);
 
 const unavailable: GeliverLabelOutcome = { outcome: "unavailable", message: "Geliver ayarları eksik; Geliver'e istek gönderilmedi. Elle sevk hâlâ kullanılabilir." };
 const unknownMessage = "Geliver yanıtı alınamadı; etiket alınmış olabilir. Bir dakika sonra \"Geliver'de kontrol et\" ile sonucu alın.";
