@@ -819,3 +819,40 @@ CREATE TABLE IF NOT EXISTS partner_settings(
  updated_at timestamptz NOT NULL DEFAULT now(),
  updated_by uuid REFERENCES accounts(id)
 );
+-- Corrections of a partner invoiced mark (#1018): one row per order, the rows of one change share change_id. 'undo'
+-- clears the mark (the order counts against the partner's limit again), 'correct' rewrites the invoice number/date;
+-- the old values and the reason stay here for audit.
+CREATE TABLE IF NOT EXISTS partner_invoice_changes(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ change_id uuid NOT NULL,
+ order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
+ partner_code text NOT NULL,
+ action text NOT NULL CHECK(action IN ('undo','correct')),
+ old_invoice_ref text NOT NULL, old_invoiced_at timestamptz NOT NULL, old_invoiced_by uuid REFERENCES accounts(id),
+ new_invoice_ref text, new_invoiced_at timestamptz,
+ reason text NOT NULL CHECK(length(btrim(reason))>=5),
+ changed_by uuid REFERENCES accounts(id),
+ changed_at timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_invoice_changes'::regclass AND c.relname='partner_invoice_changes_partner_idx') THEN
+  CREATE INDEX partner_invoice_changes_partner_idx ON partner_invoice_changes(partner_code,changed_at DESC);
+ END IF;
+END $$;
+
+-- Order emails (#951): one row per order and kind, written in the payment transaction that settles the order
+-- (src/modules/payments/checkout.ts recordPaid); delivery (src/modules/store/order-email.ts) claims pending rows with a
+-- lease, so concurrent reconcilers send each email once. 'skipped' = no mail transport configured or too old to send.
+CREATE TABLE IF NOT EXISTS commerce_order_emails (
+ order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
+ kind text NOT NULL CHECK(kind IN ('confirmation')),
+ status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent','skipped','failed')),
+ attempts integer NOT NULL DEFAULT 0, claimed_at timestamptz, sent_at timestamptz,
+ message_id text, last_error text, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(order_id,kind)
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_order_emails'::regclass AND c.relname='commerce_order_emails_pending_idx') THEN
+  CREATE INDEX commerce_order_emails_pending_idx ON commerce_order_emails(created_at) WHERE status='pending';
+ END IF;
+END $$;
