@@ -139,17 +139,16 @@ export default async function Partners({ searchParams }: { searchParams: Promise
       <CardContent>
         <Table controls={false}>
           <TableHeader><TableRow>
-            <TableHead>Zaman</TableHead><TableHead>Partner</TableHead><TableHead>İşlem</TableHead><TableHead>Eski → Yeni</TableHead>
-            <TableHead className="text-right">Sipariş</TableHead><TableHead>Gerekçe</TableHead><TableHead>Yapan</TableHead>
+            <TableHead>Zaman · Yapan</TableHead><TableHead>Partner</TableHead><TableHead>İşlem</TableHead><TableHead>Eski → Yeni</TableHead>
+            <TableHead className="text-right">Sipariş</TableHead><TableHead>Gerekçe</TableHead>
           </TableRow></TableHeader>
           <TableBody>{changes.map(change => <TableRow key={change.changeId} className="align-top">
-            <TableCell value={change.changedAt.toISOString()} className="tabular-nums">{formatDateTime(change.changedAt, { year: true })}</TableCell>
+            <TableCell value={change.changedAt.toISOString()} className="whitespace-normal tabular-nums">{formatDateTime(change.changedAt, { year: true })}<span className="block text-muted-foreground">{change.changedBy ?? "—"}</span></TableCell>
             <TableCell className="font-medium">{change.partner}</TableCell>
             <TableCell>{change.action === "undo" ? <StatusBadge tone="warning">Geri alındı</StatusBadge> : <StatusBadge tone="info">Düzeltildi</StatusBadge>}</TableCell>
-            <TableCell className="tabular-nums">{change.oldRef} · {day(change.oldDate)} → {change.newRef && change.newDate ? `${change.newRef} · ${day(change.newDate)}` : "işaret kaldırıldı"}</TableCell>
+            <TableCell className="max-w-xs whitespace-normal tabular-nums">{change.oldRef} · {day(change.oldDate)} → {change.newRef && change.newDate ? `${change.newRef} · ${day(change.newDate)}` : "işaret kaldırıldı"}</TableCell>
             <TableCell className="text-right tabular-nums">{formatNumber(change.count)}</TableCell>
-            <TableCell className="max-w-sm whitespace-normal">{change.reason}</TableCell>
-            <TableCell>{change.changedBy ?? "—"}</TableCell>
+            <TableCell className="max-w-xs whitespace-normal">{change.reason}</TableCell>
           </TableRow>)}</TableBody>
         </Table>
       </CardContent>
