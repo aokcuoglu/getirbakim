@@ -115,11 +115,15 @@ the open-order limit and creates the order.
 **Payment is on account.** No payment is taken; GetirBakım invoices the partner
 later.
 
-**Open-order limit.** The gross total of the partner's orders that are neither
-cancelled nor delivered, plus the new order, must not exceed
-`PARTNER_ORDER_LIMIT_KURUS` (VAT and shipping included). Orders of one
-partner are created one at a time, so two concurrent orders cannot both pass
-a limit they exceed together. An unset limit refuses every order
+**Open-order limit.** The partner's outstanding amount is the gross total
+(VAT and shipping included) of its orders that are neither cancelled nor
+delivered, plus its delivered orders GetirBakım has not invoiced yet. The
+outstanding amount plus the new order must not exceed the partner's limit;
+a delivered order stops counting once operations mark it invoiced. The limit
+is the one set for the partner in the GetirBakım admin, else the deployment
+default `PARTNER_ORDER_LIMIT_KURUS`. Orders of one partner are created one at
+a time, so two concurrent orders cannot both pass a limit they exceed
+together. A partner with no limit cannot order
 (`503 ORDER_LIMIT_UNAVAILABLE`).
 
 ## GET /orders/:id and GET /orders/by-key/:key
@@ -208,13 +212,13 @@ nothing expires); `REJECTED` is not emitted, an order operations refuse is
 | 409 | `PRICE_CHANGED` | A line's price or the shipping fee moved since the quote | `lines: [{ selectedOfferId, expectedUnitNetKurus, unitNetKurus }]`; `unitNetKurus` is the new price, or `null` while the supplier's new cost is still being saved; `shipping: { expectedShippingKurus, shippingKurus }` when the fee changed |
 | 409 | `QUOTE_EXPIRED` | The quote is older than 15 minutes | `expiredAt` |
 | 409 | `QUOTE_CHANGED` | Token not signed by us, for another partner, or lines differ; checkout rules changed | |
-| 409 | `CREDIT_LIMIT_EXCEEDED` | Open orders + this order exceed the limit | `limitKurus, openKurus, orderKurus` |
+| 409 | `CREDIT_LIMIT_EXCEEDED` | Outstanding amount (open + delivered, uninvoiced orders) + this order exceed the limit | `limitKurus, openKurus` (outstanding amount), `orderKurus` |
 | 409 | `IDEMPOTENCY_CONFLICT` | Key reused with another body | |
 | 409 | `CANCELLATION_REJECTED` | `DELETE` on a confirmed order whose cancel request operations rejected | |
 | 409 | `ORDER_ALREADY_SHIPPED` | `DELETE` on a shipped or delivered order | |
 | 429 | `RATE_LIMITED` | Too many requests | |
 | 503 | `QUOTE_CONFIGURATION_UNAVAILABLE` | `PARTNER_QUOTE_SIGNING_SECRET` missing (< 32 chars) | |
-| 503 | `ORDER_LIMIT_UNAVAILABLE` | `PARTNER_ORDER_LIMIT_KURUS` missing | |
+| 503 | `ORDER_LIMIT_UNAVAILABLE` | No limit for the partner (admin value or `PARTNER_ORDER_LIMIT_KURUS`) | |
 | 503 | `SUPPLIER_CHECK_UNAVAILABLE` | The live check failed on our side; retry with the same key | |
 | 500 | `INTERNAL_ERROR` | Unexpected | |
 
@@ -246,5 +250,6 @@ is invoiced) and no consumer pre-contract documents are stored.
 
 - `PARTNER_API_KEYS`: `code:key` pairs (see `.env.example`).
 - `PARTNER_QUOTE_SIGNING_SECRET`: at least 32 characters; rotating it voids open quotes.
-- `PARTNER_ORDER_LIMIT_KURUS`: open-order limit per partner, VAT included.
+- `PARTNER_ORDER_LIMIT_KURUS`: default open-order limit per partner in kuruş, VAT and shipping included; a limit set in
+  `/yonetim/partnerler` overrides it.
 - `PARTNER_B2B_DISCOUNT_BPS`: optional discount, as for the products endpoint.

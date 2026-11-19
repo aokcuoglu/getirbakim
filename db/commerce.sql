@@ -762,4 +762,20 @@ DO $$ DECLARE c text; BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='cancel_request_rejected_at' AND NOT attisdropped) THEN
   ALTER TABLE commerce_orders ADD COLUMN cancel_request_rejected_at timestamptz;
  END IF;
+ -- Partner invoicing (#426): operations mark a delivered partner order invoiced (invoice number + date); from then on it
+ -- no longer counts against the partner's open-order limit (src/modules/partner/limits.ts). Collection is not tracked.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_invoiced_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN partner_invoiced_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_invoice_ref' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN partner_invoice_ref text;
+ END IF;
 END $$;
+-- Per-partner settings set in /yonetim/partnerler (#426). Partner identities still come from PARTNER_API_KEYS; a row here
+-- only overrides the PARTNER_ORDER_LIMIT_KURUS fallback. A partner with neither cannot order (503 ORDER_LIMIT_UNAVAILABLE).
+CREATE TABLE IF NOT EXISTS partner_settings(
+ partner_code text PRIMARY KEY,
+ order_limit_kurus bigint CHECK(order_limit_kurus > 0),
+ updated_at timestamptz NOT NULL DEFAULT now(),
+ updated_by uuid REFERENCES accounts(id)
+);

@@ -27,6 +27,7 @@ let dto: typeof import("../src/modules/partner/dto");
 let adminOrders: typeof import("../src/modules/admin/orders");
 let partnerCancel: typeof import("../src/modules/partner/order-cancel");
 let adminData: typeof import("../src/modules/admin/order-filters");
+let limits: typeof import("../src/modules/partner/limits");
 let checkout: typeof import("../src/modules/payments/checkout");
 let reimport: () => Promise<unknown>;
 let closeDb: () => Promise<void>;
@@ -96,6 +97,7 @@ before(async () => {
     import("../src/modules/suppliers/basbug-import"), import("../src/modules/partner/orders"), import("../src/modules/partner/quotes"),
     import("../src/modules/partner/dto"), import("../src/modules/admin/orders"), import("../src/modules/payments/checkout"),
     import("../src/modules/partner/order-cancel"), import("../src/modules/admin/order-filters")]);
+  limits = await import("../src/modules/partner/limits");
   partnerOrders = ordersModule; quotes = quotesModule; dto = dtoModule; adminOrders = adminModule; checkout = checkoutModule;
   partnerCancel = cancelModule; adminData = dataModule;
   closeDb = () => db.end();
@@ -110,8 +112,9 @@ beforeEach(async () => {
   gone.clear(); liveDown = false;
   await reimport();
   supplierCalls = 0;
-  // Each test starts without open partner orders, so the limit sees only its own.
-  await schema.pool.query("UPDATE commerce_orders SET status='delivered' WHERE owner_kind='partner'");
+  // Each test starts without open or uninvoiced partner orders and without panel limits, so the limit sees only its own.
+  await schema.pool.query("UPDATE commerce_orders SET status='delivered',partner_invoiced_at=COALESCE(partner_invoiced_at,now()) WHERE owner_kind='partner'");
+  await schema.pool.query("DELETE FROM partner_settings");
   // The store's shipping rule (VAT included): 50.00 TL, free from 400.00 TL of goods.
   await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode='live',shipping_fee_kurus=5000,free_shipping_threshold_kurus=40000");
 });
@@ -229,7 +232,7 @@ test("orders and keys are tenant-scoped", async () => {
   assert.equal(other.replayed, false);
 });
 
-test("the open-order limit counts the partner's undelivered, uncancelled orders and fails closed without a limit", async () => {
+test("the open-order limit counts open and delivered-uninvoiced orders and fails closed without a limit", async () => {
   const one = await quoteAndBody([{ code: "PART-A", quantity: 1 }]);
   await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), one.body, config({ limitKurus: null })), refusal("ORDER_LIMIT_UNAVAILABLE"));
   // 156.00 TL of goods + 50.00 TL shipping = 206.00 TL per order: a 450.00 TL limit takes two.
@@ -240,11 +243,91 @@ test("the open-order limit counts the partner's undelivered, uncancelled orders 
   await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), third, limit), refusal("CREDIT_LIMIT_EXCEEDED", details => {
     assert.deepEqual(details, { limitKurus: 45_000, openKurus: 41_200, orderKurus: 20_600 });
   }));
-  // Another partner's orders do not count; a cancelled or delivered order frees its amount.
+  // Another partner's orders do not count; a delivered order still does until it is invoiced.
   assert.ok((await partnerOrders.createPartnerOrder("other", randomUUID(), (await quoteAndBody([{ code: "PART-A", quantity: 2 }], "other")).body, limit)).order.id);
+  await schema.pool.query("UPDATE commerce_orders SET status='delivered',delivered_at=now() WHERE id=$1", [second.order.id]);
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), third, limit), refusal("CREDIT_LIMIT_EXCEEDED", details => {
+    assert.deepEqual(details, { limitKurus: 45_000, openKurus: 41_200, orderKurus: 20_600 });
+  }));
+  assert.deepEqual(await limits.partnerExposure("bakimx"), { openKurus: 20_600, openCount: 1, uninvoicedKurus: 20_600, uninvoicedCount: 1, exposureKurus: 41_200 });
+  // A cancelled order frees its amount.
   assert.equal(await adminOrders.transitionOrder(first.order.id, "cancelled"), true);
-  await schema.pool.query("UPDATE commerce_orders SET status='delivered' WHERE id=$1", [second.order.id]);
   assert.ok((await partnerOrders.createPartnerOrder("bakimx", randomUUID(), third, limit)).order.id);
+});
+
+test("a /yonetim limit overrides the fallback; clearing it falls back; with neither the partner cannot order", async () => {
+  const { body } = await quoteAndBody([{ code: "PART-A", quantity: 1 }]);
+  // 206.00 TL does not fit a 200.00 TL panel limit, even with a large fallback.
+  await limits.savePartnerOrderLimit("bakimx", 20_000, null);
+  assert.deepEqual(await limits.partnerOrderLimit("bakimx", 10_000_000), { limitKurus: 20_000, source: "panel" });
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), body, config()), refusal("CREDIT_LIMIT_EXCEEDED", details => {
+    assert.equal(details?.limitKurus, 20_000);
+  }));
+  // The panel value alone opens ordering when the deployment has no fallback.
+  await limits.savePartnerOrderLimit("bakimx", 30_000, null);
+  assert.ok((await partnerOrders.createPartnerOrder("bakimx", randomUUID(), body, config({ limitKurus: null }))).order.id);
+  // Cleared: the fallback applies again; without it ordering is closed before any supplier call.
+  await limits.savePartnerOrderLimit("bakimx", null, null);
+  assert.deepEqual(await limits.partnerOrderLimit("bakimx", null), { limitKurus: null, source: "none" });
+  assert.deepEqual(await limits.partnerOrderLimit("bakimx", 5_000), { limitKurus: 5_000, source: "env" });
+  const { body: next } = await quoteAndBody([{ code: "PART-B", quantity: 1 }]);
+  supplierCalls = 0;
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), next, config({ limitKurus: null })), refusal("ORDER_LIMIT_UNAVAILABLE"));
+  assert.equal(supplierCalls, 0);
+  // Another partner's panel limit is its own.
+  await limits.savePartnerOrderLimit("other", 20_000, null);
+  assert.deepEqual(await limits.partnerOrderLimit("bakimx", null), { limitKurus: null, source: "none" });
+});
+
+test("invoicing releases delivered orders up to a day, once, for one partner only", async () => {
+  const deliver = (id: string, at: string) => schema.pool.query("UPDATE commerce_orders SET status='delivered',delivered_at=$2::timestamptz WHERE id=$1", [id, at]);
+  // Delivered on 10 and 12 November (Istanbul days; 21:30Z on the 10th is already the 11th in Istanbul).
+  const early = await placeOrder("PART-A"), late = await placeOrder("PART-B"), border = await placeOrder("PART-A"), foreign = await placeOrder("PART-A", "other");
+  await deliver(early.id, "2026-11-10T10:00:00Z"); await deliver(late.id, "2026-11-12T10:00:00Z");
+  await deliver(border.id, "2026-11-10T21:30:00Z"); await deliver(foreign.id, "2026-11-10T10:00:00Z");
+  const each = early.totals.grossKurus;
+  assert.deepEqual((await limits.uninvoicedDays(["bakimx"])).get("bakimx"), [
+    { day: "2026-11-10", count: 1, totalKurus: each }, { day: "2026-11-11", count: 1, totalKurus: each }, { day: "2026-11-12", count: 1, totalKurus: each }]);
+  const request = { partner: "bakimx", deliveredUntil: "2026-11-11", invoiceRef: "GBA2026000123", invoiceDate: "2026-11-15", expected: { count: 2, totalKurus: 2 * each } };
+  // What the dialog showed must still hold: a different count or total marks nothing.
+  assert.deepEqual(await limits.invoicePartnerOrders({ ...request, expected: { count: 1, totalKurus: each } }), { status: "changed" });
+  assert.equal((await limits.partnerExposure("bakimx")).uninvoicedCount, 3);
+  assert.deepEqual(await limits.invoicePartnerOrders(request), { status: "invoiced", count: 2, totalKurus: 2 * each });
+  const marked = await orderRow(early.id);
+  assert.equal(marked.partner_invoice_ref, "GBA2026000123");
+  assert.equal((await schema.pool.query("SELECT ($1::timestamptz AT TIME ZONE 'Europe/Istanbul')::text AS at", [marked.partner_invoiced_at])).rows[0].at, "2026-11-15 00:00:00");
+  assert.deepEqual(await limits.partnerExposure("bakimx"), { openKurus: 0, openCount: 0, uninvoicedKurus: each, uninvoicedCount: 1, exposureKurus: each });
+  // Repeating it marks nothing and keeps the first invoice; the other partner's delivered order is untouched.
+  assert.deepEqual(await limits.invoicePartnerOrders({ ...request, invoiceRef: "AGAIN" }), { status: "nothing" });
+  assert.equal((await orderRow(early.id)).partner_invoice_ref, "GBA2026000123");
+  assert.equal((await orderRow(foreign.id)).partner_invoiced_at, null);
+  assert.equal((await orderRow(late.id)).partner_invoiced_at, null);
+  // Open (undelivered) orders are never invoiced.
+  const open = await placeOrder("PART-B");
+  assert.deepEqual(await limits.invoicePartnerOrders({ ...request, deliveredUntil: "2026-11-12", invoiceRef: "NEXT", expected: { count: 1, totalKurus: each } }),
+    { status: "invoiced", count: 1, totalKurus: each });
+  assert.equal((await orderRow(open.id)).partner_invoiced_at, null);
+  assert.deepEqual(await limits.partnerExposure("bakimx"), { openKurus: open.totals.grossKurus, openCount: 1, uninvoicedKurus: 0, uninvoicedCount: 0, exposureKurus: open.totals.grossKurus });
+});
+
+test("admin partner input: TL limits become kuruş, dates are past Istanbul days, usage tones follow the limit", async () => {
+  const { partnerLimitInput, partnerInvoiceInput, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
+  const limit = (value: string) => partnerLimitInput.safeParse({ partner: "bakimx", limit: value });
+  assert.equal(limit("4500").data?.limit, 450_000);
+  assert.equal(limit(" 4500,5 ").data?.limit, 450_050);
+  assert.equal(limit("4500.05").data?.limit, 450_005);
+  assert.equal(limit("").data?.limit, null);
+  for (const bad of ["0", "-5", "4.500,00", "12.345", "abc"]) assert.equal(limit(bad).success, false, bad);
+  const now = new Date("2026-11-19T22:30:00Z");
+  assert.equal(istanbulToday(now), "2026-11-20");
+  const invoice = (values: Partial<Record<string, string>>) => partnerInvoiceInput(now).safeParse({
+    partner: "bakimx", deliveredUntil: "2026-11-20", invoiceRef: "GBA1", invoiceDate: "2026-11-20", expectedCount: "1", expectedTotal: "100", ...values });
+  assert.equal(invoice({}).success, true);
+  for (const bad of [{ deliveredUntil: "2026-11-21" }, { invoiceDate: "2026-02-30" }, { invoiceDate: "2026-13-45" }, { invoiceRef: " " }, { expectedCount: "0" }]) assert.equal(invoice(bad).success, false, JSON.stringify(bad));
+  assert.deepEqual(limitUsage(0, null), { tone: "error", percent: null });
+  assert.deepEqual(limitUsage(7_999, 10_000), { tone: "success", percent: 79 });
+  assert.deepEqual(limitUsage(8_000, 10_000), { tone: "warning", percent: 80 });
+  assert.deepEqual(limitUsage(10_000, 10_000), { tone: "error", percent: 100 });
 });
 
 test("on-account orders stay out of the payment window and operations handle them like paid ones", async () => {
