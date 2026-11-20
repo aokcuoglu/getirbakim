@@ -4,6 +4,19 @@ All notable changes to this project are documented here. Versions follow [SemVer
 
 ## Unreleased
 
+## v0.32.1 — 2026-11-20
+
+Patch release of `dev` since v0.32.0 (1 pull request): CI runner selection and an AWS release without the GitHub `production` environment, so the repository can go private on GitHub Free. Application code is unchanged. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Changed
+- **CI runner selectable** with the repository variable `CI_RUNS_ON` (unset: GitHub-hosted `ubuntu-24.04`); Postgres starts with `docker run` on a free localhost port and is always removed; Mac runner setup in `scripts/ci/mac-runner-setup.sh` and `docs/ci-mac-runner.md` ([#1053](https://github.com/aokcuoglu/getirbakim/pull/1053), [#1047](https://github.com/aokcuoglu/getirbakim/issues/1047)).
+- **`release-aws.yml` without the `production` environment:** started with `-f version=<package.json version>`; a guard job (main, owner as actor and triggering actor, matching version) and the same branch/actor check as the first step of the release job stop everything before AWS ([#1053](https://github.com/aokcuoglu/getirbakim/pull/1053)).
+
+### Deploy and operations
+- Done before this release: getirbakim-infra#6 (release role trusts `release-aws.yml` on main via `job_workflow_ref`), repository OIDC subject template (`repo`, `context`, `job_workflow_ref`), release variables and `INFRA_DEPLOY_KEY` at repository level.
+- Release with `gh workflow run release-aws.yml --ref main -f version=0.32.1`. After it succeeds: the repository can go private, then register the Mac runner and set `CI_RUNS_ON` (`docs/ci-mac-runner.md`); afterwards drop the environment subjects from the release role trust.
+- No schema change; `db:setup` is a no-op. Vehicle oil specs are unchanged.
+
 ## v0.32.0 — 2026-11-20
 
 Release of `dev` since v0.31.0 (12 pull requests). Unblocks the AWS release: v0.31.0's `db:setup` deadlocked with live storefront reads, so v0.31.0 never reached production and ships to AWS with this version. Also: order confirmation email, partner invoiced-mark correction, multi-window Turkish type-name search, single-row supplier currency anomalies kept out of pricing.
