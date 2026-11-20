@@ -73,7 +73,7 @@ Nerede koşar:
 - Eşleştirici kilitleri (20261001, 5 = eşleştirici/durum senkronu, 6 = yönetim yeniden gruplama, 7 = marka kararları) `public` dışındaki şemalarda şemaya özgü türetilir (`schema_lock_key`); `public` anahtarları değişmez. İzole şema testleri bu kilitleri beklemez: `public`'te çalışan bir eşleştirici izole `refresh_product_matches()` çağrısını bekletmez (#792, #829).
 
 ## Ajan eklemek/değiştirmek
-1. `.claude/agents/<ad>.md` Markdown'ını düzenle (frontmatter: `name`, `description`, isteğe bağlı `tools`, `model`). Brief kendi kendine yetmeli: alt ajanlar sohbeti görmez.
+1. `.claude/agents/<ad>.md` Markdown'ını düzenle (frontmatter: `name`, `description`, `tools`, `model`). `tools` her ajanda yazılır: yoksa ajan oturumdaki tüm MCP araçlarını devralır ve her çağrıda ~45k token fazladan yükler (#1086). Brief kendi kendine yetmeli: alt ajanlar sohbeti görmez. Ajan/oturum başına ilk tur bağlamını `node scripts/harness/context-usage.mjs [YYYY-AA-GG]` ölçer.
 2. Ajan/skill talimatları ve `AGENTS.md` **İngilizce** yazılır (Türkçe aynı içerik için ~%30–50 daha fazla token tutar; bu dosyalar her oturumda ve her alt ajanda yüklenir). Kullanıcıya dönüş, Issue gövdesi ve UI metinleri Türkçe kalır; bunlar talimatta kural olarak yazılır. İnsanlara yönelik belgeler (`docs/**`) Türkçe kalır (#1079).
 3. Proje `.claude/settings.json` içinde ilgisiz kullanıcı eklentilerini kapatır (`enabledPlugins`, ör. Vercel — proje AWS'de); yeni bir eklenti her oturuma skill/araç listesi ekler, gerekmedikçe açma.
 4. `AGENTS.md`/`DESIGN.md`/akış kuralı değişirse onu uygulayan ajanı ve kural mekanikse lint/guard'ı (testleriyle) güncelle.
