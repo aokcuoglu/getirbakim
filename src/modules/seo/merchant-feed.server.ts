@@ -62,6 +62,8 @@ export type FeedChunk = { checked: number; sources: FeedSource[]; missing: numbe
  */
 export async function loadFeedChunk(index: number, categoryNames: Map<number, string>): Promise<FeedChunk> {
   const { from, to } = productChunkRange(index);
+  // Without `priceOnly`: the Dinamik price-list-only cards (#1068) are indexed pages but never orderable, so they are not
+  // read here at all (and do not count as `missing`).
   const sql = indexableProductsSql({ supplier: productAddressColumns.supplier, store: productAddressColumns.store });
   const ids = (await boundedQuery<{ id: string }>(`SELECT id FROM (${sql}) u ORDER BY id`, [storefrontCompanies(), from, to])).rows.map(row => row.id);
   const sources: FeedSource[] = [];

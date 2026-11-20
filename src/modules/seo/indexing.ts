@@ -5,6 +5,9 @@ import { legacyCategoryIds } from "@/modules/store/category-tree";
  * Which product pages search engines may index (#634, #641). Demo rows and unavailable cards (no supplier sells the
  * product now, #475) stay `noindex,follow`; store rows are indexed. A supplier catalog page is indexed only with
  * minimum content: besides its name, brand and part number, at least one distinguishing, verifiable fact.
+ * `priceOnly` (#1068): the unavailable card of a Dinamik price-list-only code (storefront_price_only_items) is listed only
+ * with an enrichment and a Turkish category, and is indexed for search and AI answers (SEO/GEO) with the same minimum
+ * content; it never enters the merchant feed (no price, never orderable).
  *
  * - `enrichment`: an enrichment matched to the supplier's code and brand (OEM / cross references, vehicles, specs).
  * - `descriptionFitment`: vehicle models read from the supplier's description of the product or its grouped offers (#392).
@@ -26,9 +29,10 @@ import { legacyCategoryIds } from "@/modules/store/category-tree";
 export const productIndexPolicy = {
   supplierCatalog: true,
   unavailable: false,
+  priceOnly: true,
   // The OR's order is the SQL's: the cheap row-local conditions first, the admin lookup last.
   minimumContent: ["enrichment", "descriptionFitment", "supplierOem", "adminContent"],
-} as const satisfies { supplierCatalog: boolean; unavailable: boolean; minimumContent: readonly (keyof ProductContent)[] };
+} as const satisfies { supplierCatalog: boolean; unavailable: boolean; priceOnly: boolean; minimumContent: readonly (keyof ProductContent)[] };
 
 export type ProductContent = { enrichment: boolean; descriptionFitment: boolean; supplierOem: boolean; adminContent: boolean };
 
@@ -43,7 +47,8 @@ const nonBlank = String.raw`'[^[:space:]\u00a0\ufeff]'`;
  * the product's admin tables through product_sources, uncorrelated (the planner hashes the product ids once, not per row).
  */
 export const contentSignals: Record<keyof ProductContent, { sql: string }> = {
-  enrichment: { sql: "(l.supplier_item_id IS NOT NULL AND l.supplier_code=i.code AND l.supplier_brand=COALESCE(NULLIF(i.product_data->>'uk',''),'Belirtilmemiş'))" },
+  // The brand is the catalog views' `brand` column: Dinamik price-list-only rows carry only `marka` (#1068).
+  enrichment: { sql: "(l.supplier_item_id IS NOT NULL AND l.supplier_code=i.code AND l.supplier_brand=COALESCE(NULLIF(i.product_data->>'uk',''),supplier_item_brand(i.supplier,i.product_data),'Belirtilmemiş'))" },
   descriptionFitment: { sql: `(EXISTS (SELECT 1 FROM storefront_description_fits f WHERE f.supplier_item_id=i.id)
    OR EXISTS (SELECT 1 FROM product_offers o JOIN storefront_description_fits f ON f.supplier_item_id=o.item_id WHERE o.primary_id=i.id))` },
   supplierOem: { sql: "(COALESCE(i.product_data->>'oe','')<>'' AND h.hide_oem IS NOT TRUE)" },
@@ -91,9 +96,9 @@ export function minimumContentSql(): string {
   return `(${productIndexPolicy.minimumContent.map(signal => contentSignals[signal].sql).join("\n  OR ")})`;
 }
 
-export function productIndexable(product: { supplier: string; source: "store" | "supplier"; unavailable?: boolean }, content: ProductContent): boolean {
+export function productIndexable(product: { supplier: string; source: "store" | "supplier"; unavailable?: boolean; price_only?: boolean }, content: ProductContent): boolean {
   if (product.supplier === "demo") return false;
-  if (product.unavailable) return productIndexPolicy.unavailable;
+  if (product.unavailable) return product.price_only ? productIndexPolicy.priceOnly && hasMinimumContent(content) : productIndexPolicy.unavailable;
   if (product.source === "store") return true;
   return productIndexPolicy.supplierCatalog && hasMinimumContent(content);
 }

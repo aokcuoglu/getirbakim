@@ -7,7 +7,7 @@ import { productPath, type ProductAddress } from "./product-path";
 import { productChunkRange, productChunks } from "./sitemap";
 import { productPriceFields } from "@/modules/admin/product-override-fields";
 import { displayBrandSql } from "@/modules/store/display-brand-sql";
-import { adminEditedAtSql, descriptionFitmentItemsSql, indexableProductsSql, productAddressColumns } from "./sitemap.server";
+import { adminEditedAtSql, descriptionFitmentItemsSql, indexableProductsSql, priceOnlyDisplayBrandSql, productAddressColumns } from "./sitemap.server";
 
 // The content a search engine sees on the page: shown name, brand, part number, description, shown OEM and the
 // enrichment import (images, specifications, vehicles; only while the page shows that enrichment, the same condition as
@@ -18,9 +18,9 @@ import { adminEditedAtSql, descriptionFitmentItemsSql, indexableProductsSql, pro
 // derived_at only moves when the derivation writes a row (#798) and not when an admin hides a model. They are the
 // models the page shows (storefront_description_fits, #661): hiding one or a vehicle decision changes the hash. concat_ws skips NULLs, so a product without admin edits or fitments keeps its
 // earlier fingerprint.
-const supplierFingerprint = `md5(concat_ws(chr(31),
-  COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code),
-  ${displayBrandSql("i", "h")},
+const fingerprint = (name: string, brand: string) => `md5(concat_ws(chr(31),
+  ${name},
+  ${brand},
   COALESCE(h.part_number,i.code),
   COALESCE(h.description,i.product_data->>'ac2',''),
   CASE WHEN h.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,
@@ -28,6 +28,9 @@ const supplierFingerprint = `md5(concat_ws(chr(31),
   'a:'||${adminEditedAtSql(productPriceFields)}::text,
   'f:'||(SELECT md5(string_agg(DISTINCT concat_ws(':',f.model_id,COALESCE(f.year_from::text,''),COALESCE(f.year_to::text,'')),',')) FROM storefront_description_fits f
     WHERE f.supplier_item_id=ANY(${descriptionFitmentItemsSql}))))::uuid::text`;
+const supplierFingerprint = fingerprint("COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code)", displayBrandSql("i", "h"));
+// A Dinamik price-list-only card (#1068): named after its category, its brand read from the Dinamik label.
+const priceOnlyFingerprint = fingerprint("COALESCE(h.name,q.name,NULLIF(i.product_data->>'ac',''),i.code)", priceOnlyDisplayBrandSql);
 const storeFingerprint = "md5(concat_ws(chr(31),p.name,p.brand,p.code,p.description))::uuid::text";
 
 /** The indexable product pages of sitemap chunk `index` with their content fingerprint, ordered by id. */
@@ -36,6 +39,7 @@ export async function loadIndexNowChunk(index: number): Promise<IndexNowRow[]> {
   const sql = indexableProductsSql({
     supplier: `${productAddressColumns.supplier},${supplierFingerprint} AS fingerprint`,
     store: `${productAddressColumns.store},${storeFingerprint} AS fingerprint`,
+    priceOnly: `${productAddressColumns.priceOnly},${priceOnlyFingerprint} AS fingerprint`,
   });
   const { rows } = await boundedQuery<ProductAddress & { fingerprint: string }>(`SELECT id,name,name_overridden,display_brand,display_code,fingerprint FROM (${sql}) u ORDER BY id`,
     [storefrontCompanies(), from, to]);

@@ -27,8 +27,9 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
  // The card's rows: raw key plus Turkish label and value, translated on the server (#700).
  const card=details?.card??displaySpecifications(specifications);
  const brandClass=details?.specifications.find(s=>s[0]==="Brand class")?.[1];
- // No supplier sells it now (#475): no price, a link to the product page's "Gelince haber ver" form instead of stock.
- const price=p.unavailable?"Şu an tedarik edilemiyor":p.price_kurus===null?"Fiyat bilgisi güncelleniyor":money(servicePrice(p.price_kurus,discounted?account!.discount_percent:0));
+ // No supplier sells it now (#475): no price, a link to the product page's "Gelince haber ver" form instead of stock. The
+ // view's label says why: "Şu an tedarik edilemiyor", or "Stok bilgisi bekleniyor" for a price-list-only code (#1068).
+ const price=p.unavailable?p.stock_label:p.price_kurus===null?"Fiyat bilgisi güncelleniyor":money(servicePrice(p.price_kurus,discounted?account!.discount_percent:0));
  // A running campaign (#580): the regular price struck through, discounted like the price.
  const fit=cardFitBadge({fitsVehicle,vehicleSpecific:Boolean(details?.vehicleSpecific),vehicleChecked}),stock=stockLabelParts(p.stock_label);
  const regular=p.unavailable||p.price_kurus===null?null:listPrice(p),campaignEnd=regular===null?null:saleUntil(p);
