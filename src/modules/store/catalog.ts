@@ -41,6 +41,11 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
  offer_id?: string; offers?: number;
  /** No supplier sells the product now (db/storefront-catalog.sql, #475): listed last, without a price, not orderable. */
  unavailable?: boolean;
+ /**
+  * An unavailable card of a Dinamik price-list-only code with content (#1068): in the supplier's price list but without
+  * stock data, so never orderable; unlike other unavailable cards its page is indexed (productIndexable).
+  */
+ price_only?: boolean;
 };
 // Prices and availability are calculated by the shared commerce view.
 export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=ANY($1::text[])";

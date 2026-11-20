@@ -88,6 +88,8 @@ try {
  await pool.query("SELECT enrichment_product_states_sync()");
  // The storefront's enrichment links (#446): the schema queues a rebuild, done here before the release serves traffic.
  await pool.query("SELECT product_enrichment_shared_sync()");
+ // Dinamik price-list-only codes with content (#1068), from the links just synced.
+ await pool.query("SELECT storefront_price_only_refresh()");
  if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) throw new Error("Admin credentials required");
  const password = newPasswordSchema.parse(process.env.ADMIN_PASSWORD);
  await pool.query("INSERT INTO accounts (name,email,password_hash,role,approved) VALUES ($1,$2,$3,'admin',true) ON CONFLICT (email) DO NOTHING", ["Getirbakim Yönetim", process.env.ADMIN_EMAIL, await hash(password,12)]);
