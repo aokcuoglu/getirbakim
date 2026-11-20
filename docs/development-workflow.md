@@ -72,7 +72,7 @@ Sürüm çıkarırken:
 3. Hazırlığı kontrol ve PR üzerinden `dev`'e merge et. Sonrasında kapsamı belirli `dev` → `main` sürüm PR'ını aç; sürüm etiketini ve doğrulamayı ekle. Merge'den hemen önce kullanıcıdan açık onay al; onaylanan sürüm kapsamı ve zorunlu CI geçtikten sonra merge et. Merge deploy başlatmaz.
 4. İlgili `main` merge commit'ine açıklamalı (annotated) `vX.Y.Z` Git tag'i koy ve aynı sürümün GitHub Release notlarını yayımla. Tag ve Release notlarında sürüm kapsamını ve PR'ı belirt. Mevcut tag'leri taşıma, silme veya üzerine yazma.
 5. Merge, sürüm numarası, tag ve Release bağlantısını bildir.
-6. Production yayını ayrı adımdır: kullanıcı açıkça onaylarsa `main` üzerinden `release-aws` workflow'unu elle tetikle, GitHub `production` ortam onayını kullanıcıya bırak, sonucu ve smoke testleri bildir.
+6. Production yayını ayrı adımdır: kullanıcı açıkça onaylarsa `main` üzerinden `release-aws` workflow'unu sürüm girdisiyle elle tetikle (`gh workflow run release-aws.yml --ref main -f version=X.Y.Z`; depo sahibinin hesabıyla), sonucu ve smoke testleri bildir.
 7. Sürümde `data/vehicle_type_oil_specs.csv` veya `scripts/import-vehicle-oils.ts` değiştiyse: `release-aws` / `db:setup` bu veriyi içe aktarmaz. CHANGELOG "Deploy and operations" bölümüne yaz ve yayından sonra operations görevinde `scripts/import-vehicle-oils.ts` çalıştırılmasını hatırlat (`release-check` skill'inde `ecs run-task` biçimi var). AWS'de bunun için tanımlı bir otomasyon yoktur; açık iştir (#565).
 
 11 Ekim 2026 itibarıyla `main` geçmişindeki en yüksek normal sürüm tag'i `v0.22.0`, mevcut paket sürümü ise `0.1.0`'dır. Eski GitHub Release kayıtları da legacy döneme aittir. Sonraki sürüm hazırlığında ilgili yeni sistemin tag geçmişi esas alınarak manifestler uyumlu hale getirilir; eski etiketlerden veya `0.1.0` değerinden bağımsız, geriye giden sürüm üretilmez. Bu politika çalışması sürüm artırmaz.
@@ -81,7 +81,8 @@ Sürüm çıkarırken:
 
 Karar tarihi: 14 Kasım 2026 (11 Ekim 2026 Contabo kararının yerine geçer).
 
-- Production AWS'tedir. Yayın, `main` üzerinden `release-aws.yml` workflow'unun elle (`workflow_dispatch`) tetiklenmesiyle yapılır; GitHub `production` ortamı onay ister. `main`'e push/merge kendi başına deploy etmez.
+- Production AWS'tedir. Yayın, `main` üzerinden `release-aws.yml` workflow'unun elle (`workflow_dispatch`) tetiklenmesiyle yapılır. GitHub ortam onayı yerine koruma işi vardır: dal `main` değilse, tetikleyen depo sahibi değilse veya `version` girdisi `package.json` sürümüne eşit değilse CI'dan ve AWS'den önce durur. Değişkenler ve `INFRA_DEPLOY_KEY` depo düzeyindedir. `main`'e push/merge kendi başına deploy etmez.
+- CI varsayılan olarak GitHub-hosted koşar; depo private olunca `CI_RUNS_ON` değişkeniyle sahibin Mac'indeki self-hosted runner'a alınır ([CI için Mac runner](ci-mac-runner.md)). Depo public iken runner kaydedilmez, değişken tanımlanmaz.
 - Akış: `dev`'de geliştirme → kullanıcı onayıyla sürümlü `dev → main` merge → kullanıcının ayrı ve açık yayın onayıyla `release-aws` tetikleme. İki onay birbirinin yerine geçmez.
 - `dev` merge'i hiçbir ortama deploy etmez. Staging yoktur; kurulması kullanıcının ayrı talebiyle tasarlanır.
 - Contabo'ya otomatik deploy yapılmaz. Eski `deploy-production.yml` / `deploy-staging.yml` workflow'ları GitHub'da devre dışıdır ve açık talep olmadan etkinleştirilmez.

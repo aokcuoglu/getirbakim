@@ -2,6 +2,69 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## Unreleased
+
+## v0.32.0 — 2026-11-20
+
+Release of `dev` since v0.31.0 (12 pull requests). Unblocks the AWS release: v0.31.0's `db:setup` deadlocked with live storefront reads, so v0.31.0 never reached production and ships to AWS with this version. Also: order confirmation email, partner invoiced-mark correction, multi-window Turkish type-name search, single-row supplier currency anomalies kept out of pricing.
+
+### Added
+- **Order confirmation email** after payment, logged per order ([#1033](https://github.com/aokcuoglu/getirbakim/pull/1033)); sent only once SMTP is configured (see below).
+- **Partner invoices:** correct or undo an invoiced mark from `/yonetim` ([#1031](https://github.com/aokcuoglu/getirbakim/pull/1031)); server reasons shown in the invoice dialogs ([#1044](https://github.com/aokcuoglu/getirbakim/pull/1044)).
+- **Search:** several Turkish type-name windows translated together, with their first-page share recorded ([#1032](https://github.com/aokcuoglu/getirbakim/pull/1032)).
+- **Suppliers:** single-row currency anomalies kept out of pricing ([#1052](https://github.com/aokcuoglu/getirbakim/pull/1052)).
+- **Platform:** the production DB tunnel defaults to a read-only role ([#1041](https://github.com/aokcuoglu/getirbakim/pull/1041)); it exits 0 when its task is stopped ([#1051](https://github.com/aokcuoglu/getirbakim/pull/1051)).
+
+### Changed
+- **Performance:** header sheets, account panel and cookie settings load on first intent ([#1040](https://github.com/aokcuoglu/getirbakim/pull/1040)).
+- Legacy unconfirmed stock label removed ([#1025](https://github.com/aokcuoglu/getirbakim/pull/1025)); GA4 purchase value excludes the installment fee (docs, [#1024](https://github.com/aokcuoglu/getirbakim/pull/1024)).
+
+### Fixed
+- - **`db:setup` no longer deadlocks with storefront reads when nested views change** ([#1046](https://github.com/aokcuoglu/getirbakim/issues/1046)): v0.31.0's `release-aws` failed all 6 attempts with 40P01 because setup replaced `commerce_catalog_entries` before `storefront_catalog_entries` while storefront queries lock them outer first. A view replace or an ALTER TABLE now first locks the views that read it, outermost first (`setup_lock_dependent_views`, base tables untouched); a no-op run still takes no locks. Dependent views the setup role cannot alter are skipped with a NOTICE instead of failing. `supplier_items_brand_label_idx` is built `CONCURRENTLY` before the schema transaction (an INVALID leftover is rebuilt; 40P01/55P03 retried 3 times, progress logged); the build waits for every open transaction that could still see `supplier_items`, so a long-running transaction delays `db:setup` (it does not block reads or writes). ([#1055](https://github.com/aokcuoglu/getirbakim/pull/1055))
+- Mobile category sheet footer shows the session ([#1045](https://github.com/aokcuoglu/getirbakim/pull/1045)).
+
+### Deploy and operations
+- **Includes v0.31.0's deploy steps** (v0.31.0 was never released to AWS): `db:setup` before the new code, environment keys and CloudFront changes. The 12 new app secret keys (Geliver, partner orders, tags), the `geliver-sync` schedule (off) and CloudFront viewer headers are in getirbakim-infra#4; Geliver token, mode `live`, webhook secret, partner quote secret and the 100 TL default partner limit are set; the Geliver webhook is registered.
+- `db:setup` builds `supplier_items_brand_label_idx` `CONCURRENTLY` before its transaction; watch the `release-aws` log for "Built index" and no "hit a lock conflict" retries. Follow-up: #1054.
+- **After deploy:** refresh Başbuğ (or the BMW group) once from the panel so the new currency-anomaly table is filled ([#1052](https://github.com/aokcuoglu/getirbakim/pull/1052)); run the Geliver webhook test; enable `PRODUCTION_GELIVER_SYNC_ENABLED` once Geliver is live.
+- **Order email ([#1033](https://github.com/aokcuoglu/getirbakim/pull/1033)):** until `MAIL_TRANSPORT=smtp`, `MAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` reach the task (SES domain verification, port 587 egress), each order logs a `skipped` row.
+- Read-only tunnel role: create once on production per `docs/aws-db-tunnel.md` ([#1041](https://github.com/aokcuoglu/getirbakim/pull/1041)).
+- Vehicle oil specs are unchanged. Local: `npm run db:setup` after merging.
+
+## v0.31.0 — 2026-11-19
+
+Release of `dev` since v0.30.0 (43 pull requests): separate invoice address and account address book, Turkish names and Turkish search for English-named supplier products, Yurtiçi labels through Geliver, partner orders, Google Ads / Meta Pixel behind consent, faster brand and listing pages, lighter storefront and lock-free `db:setup`. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Checkout:** separate invoice address ([#982](https://github.com/aokcuoglu/getirbakim/pull/982)); VKN check digit validation ([#936](https://github.com/aokcuoglu/getirbakim/pull/936)); the order line and agreement carry the product name the cart shows ([#996](https://github.com/aokcuoglu/getirbakim/pull/996)).
+- **Account address book** under `/hesap/adresler` for approved service and admin accounts (max 10, default delivery/invoice), prefilling checkout ([#1005](https://github.com/aokcuoglu/getirbakim/pull/1005)).
+- **Turkish names for English supplier type names** on cards, product pages, cart and feeds; slugs follow, old URLs 308 + IndexNow ([#958](https://github.com/aokcuoglu/getirbakim/pull/958)).
+- **Search:** Turkish queries find English-named supplier products ([#970](https://github.com/aokcuoglu/getirbakim/pull/970)), exact single-word type names ([#976](https://github.com/aokcuoglu/getirbakim/pull/976)), Turkish-name ranking and suffixed forms ([#998](https://github.com/aokcuoglu/getirbakim/pull/998)), Turkish type-ahead suggestions ([#1016](https://github.com/aokcuoglu/getirbakim/pull/1016)).
+- **Shipping:** Yurtiçi labels through Geliver with webhook tracking ([#980](https://github.com/aokcuoglu/getirbakim/pull/980), [#984](https://github.com/aokcuoglu/getirbakim/pull/984)) and a periodic sync for missed webhooks ([#1003](https://github.com/aokcuoglu/getirbakim/pull/1003)).
+- **Partner (BakımX) orders:** quotes and on-account orders ([#1004](https://github.com/aokcuoglu/getirbakim/pull/1004)), cancellation and admin cancel requests ([#1013](https://github.com/aokcuoglu/getirbakim/pull/1013)), credit limits, exposure and invoiced marks ([#1019](https://github.com/aokcuoglu/getirbakim/pull/1019)).
+- **Google Ads conversion and Meta Pixel** behind the marketing consent ([#972](https://github.com/aokcuoglu/getirbakim/pull/972)).
+- **Platform:** Session Manager tunnel to the production database ([#938](https://github.com/aokcuoglu/getirbakim/pull/938)); parts2world type dictionary through the egress proxy ([#948](https://github.com/aokcuoglu/getirbakim/pull/948)).
+
+### Changed
+- **Performance:** manufacturer/brand listings through a brand label index ([#961](https://github.com/aokcuoglu/getirbakim/pull/961)); property facet driven from small listing scopes ([#997](https://github.com/aokcuoglu/getirbakim/pull/997)); enrichment queue, run selection, requeue and status read `enrichment_product_states` ([#941](https://github.com/aokcuoglu/getirbakim/pull/941), [#947](https://github.com/aokcuoglu/getirbakim/pull/947)).
+- **Storefront weight:** product fitment capped at 20 groups with the rest loaded on demand from a compressed, cacheable API ([#973](https://github.com/aokcuoglu/getirbakim/pull/973), [#1000](https://github.com/aokcuoglu/getirbakim/pull/1000), [#1012](https://github.com/aokcuoglu/getirbakim/pull/1012)); home classes moved to the stylesheet ([#995](https://github.com/aokcuoglu/getirbakim/pull/995)); zod kept out of the storefront bundle and the listing card CSS folded into the main stylesheet ([#1020](https://github.com/aokcuoglu/getirbakim/pull/1020)).
+- **`db:setup` takes no blocking locks on a second run:** unchanged constraints, columns, views, indexes and triggers are skipped ([#959](https://github.com/aokcuoglu/getirbakim/pull/959), [#971](https://github.com/aokcuoglu/getirbakim/pull/971), [#992](https://github.com/aokcuoglu/getirbakim/pull/992), [#1011](https://github.com/aokcuoglu/getirbakim/pull/1011)); scripts and the bundle import check the schema instead of applying DDL ([#937](https://github.com/aokcuoglu/getirbakim/pull/937), [#943](https://github.com/aokcuoglu/getirbakim/pull/943)).
+- Popular vehicle makes from a single source ([#945](https://github.com/aokcuoglu/getirbakim/pull/945)); `vehicle_brands.popular` no longer read or written ([#949](https://github.com/aokcuoglu/getirbakim/pull/949)); safe-area insets with `viewport-fit=cover` ([#942](https://github.com/aokcuoglu/getirbakim/pull/942)); dead listing CSS removed ([#935](https://github.com/aokcuoglu/getirbakim/pull/935)); VPS storefront sync target removed ([#991](https://github.com/aokcuoglu/getirbakim/pull/991)).
+
+### Fixed
+- Header search type selector visible between 600 and 850px ([#983](https://github.com/aokcuoglu/getirbakim/pull/983)); catalog toolbar no longer overflows at 768px ([#990](https://github.com/aokcuoglu/getirbakim/pull/990)); home hero flush under the header ([#978](https://github.com/aokcuoglu/getirbakim/pull/978)).
+- Tests: `pg_trgm` created in `public` before isolated schemas ([#988](https://github.com/aokcuoglu/getirbakim/pull/988)); Geliver webhook verification notes ([#1001](https://github.com/aokcuoglu/getirbakim/pull/1001)).
+
+### Deploy and operations
+- **`db:setup` is required and must run before the new code:** invoice address columns ([#982](https://github.com/aokcuoglu/getirbakim/pull/982)), `account_addresses` ([#1005](https://github.com/aokcuoglu/getirbakim/pull/1005)), `brand_label` view column and indexes ([#961](https://github.com/aokcuoglu/getirbakim/pull/961)), Geliver shipments ([#980](https://github.com/aokcuoglu/getirbakim/pull/980)), partner order columns ([#1004](https://github.com/aokcuoglu/getirbakim/pull/1004), [#1013](https://github.com/aokcuoglu/getirbakim/pull/1013), [#1019](https://github.com/aokcuoglu/getirbakim/pull/1019)); `release-aws` runs it first. First run takes short locks on `commerce_orders` and `accounts` (partner columns, address book FK); later runs are lock-free.
+- **Brand label index ([#961](https://github.com/aokcuoglu/getirbakim/pull/961)):** created inside `db:setup` it holds a SHARE lock on `supplier_items` while catalog views change in the same transaction (est. 20–60 s on RDS). Recommended before deploy: `CREATE INDEX CONCURRENTLY IF NOT EXISTS supplier_items_brand_label_idx ON supplier_items(supplier_item_brand(supplier,product_data)); ANALYZE supplier_items;`
+- **Environment (partner infra):** Geliver — `GELIVER_API_TOKEN`, `GELIVER_MODE=live`, `GELIVER_WEBHOOK_SECRET`, balance top-up, register the webhook once after go-live, schedule `npm run geliver:sync` every 2–4 h ([#980](https://github.com/aokcuoglu/getirbakim/pull/980), [#1003](https://github.com/aokcuoglu/getirbakim/pull/1003); secret rotation #975). Partner orders — `PARTNER_QUOTE_SIGNING_SECRET`, `PARTNER_ORDER_LIMIT_KURUS`, CloudFront forwards `cloudfront-viewer-address`; send contract v2.0 to BakımX; mark already delivered partner orders "Faturalandı" ([#1004](https://github.com/aokcuoglu/getirbakim/pull/1004), [#1019](https://github.com/aokcuoglu/getirbakim/pull/1019)). Ads/Pixel — `GOOGLE_ADS_ID`, `GOOGLE_ADS_PURCHASE_LABEL`, `META_PIXEL_ID` with this release (consent version 3), Enhanced conversions / Automatic Advanced Matching off ([#972](https://github.com/aokcuoglu/getirbakim/pull/972)).
+- **CloudFront:** `/api/product-fitments/*` and `/api/categories` are compressed by the app; forward `Accept-Encoding`; if caching is enabled later, key on the query string and normalized encoding, not cookies (partner note `data/partner/cloudfront-product-fitments-1008.pdf`).
+- **Turkish names ([#958](https://github.com/aokcuoglu/getirbakim/pull/958)):** ~4.1k product URLs change; old URLs 308 and IndexNow reports both.
+- **Privacy texts:** checkout now stores invoice addresses and the address book stores third-party addresses; the updated privacy/KVKK texts are pending legal review (#1010, not in this release).
+- `vehicle_brands.popular` can be dropped in the next release (#944). Vehicle oil specs are unchanged.
+- Local only: after `db:setup`, restart the enrichment workers from the current checkout.
+
 ## v0.30.0 — 2026-11-17
 
 Release of `dev` since v0.29.0 (41 pull requests): mobile storefront, structured checkout address and TAMI installments, product feed, hidden-OEM data rules, enrichment tombstones and admin tooling. Not deployed by this release; AWS production is released separately through `release-aws.yml`.

@@ -115,6 +115,21 @@ test("concurrent requests for one order make a single Geliver call", async () =>
   assert.equal((await labelRows(order.id)).length, 1);
 });
 
+test("a partner's open cancel request blocks the label until operations decide it (#426)", async () => {
+  const order = await seed();
+  await schema.pool.query("UPDATE commerce_orders SET cancel_requested_at=now() WHERE id=$1", [order.id]);
+  handler = fail;
+  calls.length = 0;
+  assert.equal((await create(order.id)).outcome, "not_allowed");
+  assert.equal(calls.length, 0);
+  assert.equal((await labelRows(order.id)).length, 0);
+  // Rejected: the order ships as usual.
+  await schema.pool.query("UPDATE commerce_orders SET cancel_request_rejected_at=now() WHERE id=$1", [order.id]);
+  handler = () => purchased();
+  assert.deepEqual(await create(order.id), { outcome: "purchased" });
+  assert.equal((await orderRow(order.id)).status, "shipped");
+});
+
 test("a refusal fails the row, keeps the order confirmed and allows another try", async () => {
   const order = await seed();
   handler = () => Response.json({ result: false, code: "E1066", message: "Organizasyonun yeterli bakiyesi yok" }, { status: 400 });
@@ -246,6 +261,41 @@ test("a label bought while the order was cancelled is recorded and noted, the or
   assert.equal(row.status, "cancelled"); assert.equal(row.carrier, null);
   assert.match(row.payment_note, /Geliver etiketi alındı \(barkod 86200000001\) ama sipariş durumu değişmişti/);
   assert.equal((await labelRows(order.id))[0].status, "purchased");
+});
+
+test("a label bought while a partner's cancel request opened waits for the decision: reject ships with it, approve does not (#426)", async () => {
+  const adminOrders = await import("../src/modules/admin/orders");
+  const openRequestDuringPurchase = async () => {
+    const order = await seed();
+    const remote = shipment({ trackingNumber: "TRK-HELD" });
+    handler = async () => {
+      await schema.pool.query("UPDATE commerce_orders SET cancel_requested_at=now() WHERE id=$1", [order.id]);
+      return purchased(remote);
+    };
+    const held = await create(order.id);
+    assert.deepEqual([held.outcome, held.orderNumber], ["purchased_on_hold", order.number]);
+    const row = await orderRow(order.id);
+    assert.deepEqual([row.status, row.carrier], ["confirmed", null]);
+    assert.match(row.payment_note, /iptal talebi karar bekliyor; reddedilirse sipariş bu etiketle kargoya verilir, onaylanırsa etiketi Geliver panelinden iptal edin/);
+    assert.equal((await labelRows(order.id))[0].status, "purchased");
+    return { order, remote };
+  };
+  handler = fail;
+
+  const rejected = await openRequestDuringPurchase();
+  calls.length = 0;
+  handler = fail;
+  assert.equal(await adminOrders.decidePartnerCancelRequest(rejected.order.id, "reject"), true);
+  let row = await orderRow(rejected.order.id);
+  assert.deepEqual([row.status, row.carrier, row.tracking_no], ["shipped", "yurtici", "TRK-HELD"]);
+  assert.ok(row.shipped_at);
+  assert.equal(calls.length, 0, "the purchased label is reused, no second Geliver call");
+
+  const approved = await openRequestDuringPurchase();
+  assert.equal(await adminOrders.decidePartnerCancelRequest(approved.order.id, "approve"), true);
+  row = await orderRow(approved.order.id);
+  assert.deepEqual([row.status, row.carrier, row.shipped_at], ["cancelled", null, null]);
+  assert.match(row.payment_note, /Partnerin iptal talebi onaylandı\. Geliver etiketi alınmıştı \(barkod 86200000001\); etiketi Geliver panelinden iptal edin\./);
 });
 
 const webhook = (body: unknown, auth: { header?: string | null; token?: string | null } = { token: SECRET }) =>

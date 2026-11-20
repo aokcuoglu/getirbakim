@@ -33,10 +33,12 @@ DO $setup$ DECLARE def text := $view$
  e.manufacturer_part_number,l.image_id,e.payload,l.imported_at,e.match_basis,l.donor_item_id,
  e.supplier_code AS donor_code,e.supplier_brand AS donor_brand,l.donor_oem,l.status,l.donor_master_brand
  FROM product_enrichment_shared_links l JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='storefront_enrichments' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='storefront_enrichments' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW storefront_enrichments AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;

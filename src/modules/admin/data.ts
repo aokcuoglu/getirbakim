@@ -7,12 +7,13 @@ import { manualCompany, setaCompany } from "@/modules/suppliers/storefront-sourc
 import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE } from "@/modules/suppliers/dinamik-import";
 import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
 import type { CommerceOrder } from "@/modules/store/orders";
-import { handledPaymentSql } from "@/modules/store/payment-states";
 import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules";
 import { restockDueCount } from "./restock";
 import { installmentSettings } from "@/modules/payments/installment-settings";
 import { procurementOpenSql, type AdminOrderLine } from "./order-procurement";
+import { dashboardOrdersSql, orderFilters, type OrderFilter } from "./order-filters";
 import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
+import type { PriceAnomalyEvidence } from "@/modules/suppliers/price-anomalies";
 
 type ServiceAccount = {
   id: string; name: string; email: string; approved: boolean; discount_percent: number;
@@ -63,17 +64,7 @@ export type AdminGeliverShipment = {
   tracking_status_at: string | null; error_code: string | null; error_message: string | null; requested_at: string;
 };
 
-export const orderFilters = {
-  all: { label: "Tümü", where: "true" },
-  action: { label: "Teyit bekleyen", where: `o.status='pending' AND o.payment_status IN ${handledPaymentSql}` },
-  shipping: { label: "Kargoya verilecek", where: "o.status='confirmed'" },
-  refund: { label: "İade bekleyen", where: "o.payment_status='refund_required'" },
-  awaiting_payment: { label: "Ödeme bekleyen", where: "o.status='awaiting_payment'" },
-  shipped: { label: "Kargoda", where: "o.status='shipped'" },
-  delivered: { label: "Teslim edildi", where: "o.status='delivered'" },
-  cancelled: { label: "İptal", where: "o.status='cancelled'" },
-} as const;
-export type OrderFilter = keyof typeof orderFilters;
+export { orderFilters, type OrderFilter };
 // Header sorting on the orders list (TableHead sortKey → column).
 const orderSorts = { created: "o.created_at", customer: "o.customer_name", total: "o.total_kurus" };
 
@@ -86,18 +77,24 @@ const procurementFilters = {
   done: `o.status IN ('pending','confirmed') AND NOT (${procurementOpenSql})`,
 };
 export type ProcurementFilter = keyof typeof procurementFilters;
-export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { sort?: string; dir?: string } = {}, rawProcurement?: string) {
+// The orders list's "Müşteri" column filter (#426, `sahip`): partner (API) orders or the store's own; tab counts stay unfiltered.
+const ownerFilters = { all: "true", partner: "o.owner_kind='partner'", store: "o.owner_kind<>'partner'" };
+export type OwnerFilter = keyof typeof ownerFilters;
+type PartnerCancelRequest = { cancel_requested_at: Date | null; cancel_request_rejected_at: Date | null; partner_invoiced_at: Date | null; partner_invoice_ref: string | null; partner_invoiced_by_name: string | null };
+export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { sort?: string; dir?: string } = {}, rawProcurement?: string, rawOwner?: string) {
   await requireAdmin();
   const requested = Number(rawPage);
   const page = Number.isSafeInteger(requested) ? Math.max(1, Math.min(10000, requested)) : 1;
   const filter: OrderFilter = pickKey(orderFilters, rawFilter, "all");
   const procurement: ProcurementFilter = pickKey(procurementFilters, rawProcurement, "all");
-  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[]; lines: AdminOrderLine[]; geliver: AdminGeliverShipment | null } & OrderAgreementSummary>(
+  const owner: OwnerFilter = pickKey(ownerFilters, rawOwner, "all");
+  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[]; lines: AdminOrderLine[]; geliver: AdminGeliverShipment | null } & OrderAgreementSummary & PartnerCancelRequest>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,o.refunded_at,
      o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,o.cancelled_by,o.cancelled_at,o.installment_count,o.installment_fee_kurus,
      o.delivery_province,o.delivery_district,o.delivery_address_line,o.delivery_postal_code,o.invoice_type,o.invoice_company,o.invoice_tax_no,o.invoice_tax_office,
-     o.invoice_province,o.invoice_district,o.invoice_address_line,o.invoice_postal_code,
+     o.invoice_province,o.invoice_district,o.invoice_address_line,o.invoice_postal_code,o.cancel_requested_at,o.cancel_request_rejected_at,o.partner_invoiced_at,o.partner_invoice_ref,
+     (SELECT COALESCE(NULLIF(ia.name,''),ia.email) FROM accounts ia WHERE ia.id=o.partner_invoiced_by) AS partner_invoiced_by_name,
      a.accepted_at AS agreement_at,a.ip AS agreement_ip,a.user_agent AS agreement_user_agent,a.legal_version AS agreement_version,
      COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
       'bank_reference',p.bank_reference,'paid_at',p.paid_at,'installment_count',p.installment_count) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments,
@@ -115,10 +112,10 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
       'tracking_sub_status_code',g.tracking_sub_status_code,'tracking_status_details',g.tracking_status_details,'tracking_location',g.tracking_location,
       'tracking_status_at',g.tracking_status_at,'error_code',g.error_code,'error_message',g.error_message,'requested_at',g.requested_at)
       FROM commerce_geliver_shipments g WHERE g.order_id=o.id ORDER BY g.requested_at DESC,g.id DESC LIMIT 1) AS geliver
-     FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} AND ${procurementFilters[procurement]} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
+     FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} AND ${procurementFilters[procurement]} AND ${ownerFilters[owner]} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50],
   ), db.query<Record<OrderFilter, number>>(`SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`)]);
-  return { orders: orders.rows, page, filter, procurement, counts: counts.rows[0] };
+  return { orders: orders.rows, page, filter, procurement, owner, counts: counts.rows[0] };
 }
 
 /** Badge counts for the workspace navigation; kept to cheap aggregate queries. */
@@ -127,7 +124,7 @@ const pendingBrandsSql = "SELECT count(DISTINCT brand_id)::int FROM supplier_bra
 export async function adminNavCounts() {
   await requireAdmin();
   const [{ rows }, restock] = await Promise.all([db.query<{ orders: number; services: number; enrichment: number; brands: number }>(`SELECT
-    (SELECT count(*)::int FROM commerce_orders o WHERE ${orderFilters.action.where} OR ${orderFilters.refund.where}) AS orders,
+    (SELECT count(*)::int FROM commerce_orders o WHERE ${orderFilters.action.where} OR ${orderFilters.refund.where} OR ${orderFilters.cancel_request.where}) AS orders,
     (SELECT count(*)::int FROM accounts WHERE role='service' AND NOT approved) AS services,
     (SELECT count(*)::int FROM product_enrichment_jobs WHERE status IN ('review','blocked','failed')) AS enrichment,
     (${pendingBrandsSql}) AS brands`), restockDueCount()]);
@@ -153,18 +150,15 @@ const basbugPresentItems = ttlMemo(60_000, async () =>
 const enrichmentStatusCounts = ttlMemo(60_000, async () =>
   (await db.query<{ status: string; count: number }>("SELECT status,count(*)::int AS count FROM product_enrichment_jobs GROUP BY status")).rows);
 
+type DashboardOrderFigures = {
+  action: number; shipping: number; cancel_request: number; refund: number; awaiting_payment: number;
+  revenue_30d: string; paid_30d: number; on_account_30d: number; revenue_prev_30d: string;
+};
+
 export async function adminDashboard() {
   await requireAdmin();
   const [orders, days, recent, catalog, enrichment, imports, brands] = await Promise.all([
-    db.query<{ action: number; shipping: number; refund: number; awaiting_payment: number; revenue_30d: string; paid_30d: number; revenue_prev_30d: string }>(`SELECT
-      count(*) FILTER (WHERE ${orderFilters.action.where})::int AS action,
-      count(*) FILTER (WHERE ${orderFilters.shipping.where})::int AS shipping,
-      count(*) FILTER (WHERE ${orderFilters.refund.where})::int AS refund,
-      count(*) FILTER (WHERE ${orderFilters.awaiting_payment.where})::int AS awaiting_payment,
-      COALESCE(sum(total_kurus) FILTER (WHERE paid_at>=now()-interval '30 days' AND payment_status='paid'),0) AS revenue_30d,
-      count(*) FILTER (WHERE paid_at>=now()-interval '30 days' AND payment_status='paid')::int AS paid_30d,
-      COALESCE(sum(total_kurus) FILTER (WHERE paid_at>=now()-interval '60 days' AND paid_at<now()-interval '30 days' AND payment_status='paid'),0) AS revenue_prev_30d
-      FROM commerce_orders o`),
+    db.query<DashboardOrderFigures>(dashboardOrdersSql),
     // An Istanbul calendar day as a created_at range, so commerce_orders_created_idx is used instead of a full scan.
     db.query<DashboardDay>(`SELECT to_char(d.day,'YYYY-MM-DD') AS day,count(o.id)::int AS orders
       FROM (SELECT (now() AT TIME ZONE 'Europe/Istanbul')::date-n AS day FROM generate_series(13,0,-1) n) d
@@ -298,6 +292,19 @@ export const adminSupplierCatalogMetrics = cache(async () => {
   [companies.basbug, companies.dinamik, companies.seta, manualCompany]);
   return pickBySupplier([...apiFeedKeys, "manual"], rows, { available: 0, saleable: 0 });
 });
+
+export type AdminPriceAnomaly = {
+  supplier_item_id: string; supplier: string; code: string; status: "open" | "dismissed"; evidence: PriceAnomalyEvidence;
+  detected_at: Date; last_seen_at: Date; decided_at: Date | null;
+};
+/** Single-row currency anomalies (#1030): open ones (unpriced) first, newest first. */
+export async function adminPriceAnomalies() {
+  await requireAdmin();
+  return (await db.query<AdminPriceAnomaly>(`SELECT a.supplier_item_id::text AS supplier_item_id,a.supplier,i.code,a.status,a.evidence,
+      a.detected_at,a.last_seen_at,a.decided_at
+    FROM supplier_price_anomalies a JOIN supplier_items i ON i.id=a.supplier_item_id
+    ORDER BY a.status,a.detected_at DESC LIMIT 200`)).rows;
+}
 
 // Scopes the manual "refresh" buttons run, in order. Dinamik has ~800 brands, so only the ones without a successful run
 // in the last day are offered (the oldest first); Başbuğ's 15 groups and SETA's single list always run in full.

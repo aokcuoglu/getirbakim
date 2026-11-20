@@ -7,7 +7,7 @@ import {Checkbox} from "@/components/ui/checkbox";
 import {Input} from "@/components/ui/input";
 import {cn} from "@/lib/utils";
 import {subscribeNewsletter} from "@/modules/store/newsletter";
-import {newsletterConsentText,type NewsletterState} from "@/modules/store/newsletter-schema";
+import {newsletterConsentText,type NewsletterState} from "@/modules/store/newsletter-consent";
 
 const initialState:NewsletterState={status:"idle",message:""};
 

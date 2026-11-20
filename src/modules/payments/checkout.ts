@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
 import { cancelLockedOrder } from "@/modules/store/order-cancel";
 import { money } from "@/modules/store/money";
+import { queueOrderConfirmation } from "@/modules/store/order-email";
 import { installmentTotal } from "./installment-plan";
 import { installmentSettings } from "./installment-settings";
 import {
@@ -249,6 +250,8 @@ async function recordPaid(orderId: string, attempt: Attempt, query: TamiQueryRes
     }
     const note = await installmentNote(client, order, query.installmentCount, attempt.provider_order_id, settled);
     if (note) await appendNote(client, orderId, note);
+    // Queued with the payment (#951): a settled order gets one confirmation email, sent after the response.
+    if (settled) await queueOrderConfirmation(client, orderId);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }

@@ -34,23 +34,29 @@ END $$;
 -- rate or freshness keeps the row unpriced (commerce_catalog below).
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='price_kurus' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_item_overrides');
   ALTER TABLE commerce_item_overrides ADD COLUMN price_kurus integer CHECK(price_kurus>0);
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='sale_price_kurus' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_item_overrides');
   ALTER TABLE commerce_item_overrides ADD COLUMN sale_price_kurus integer CHECK(sale_price_kurus>0);
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='sale_from' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_item_overrides');
   ALTER TABLE commerce_item_overrides ADD COLUMN sale_from timestamptz;
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='sale_until' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_item_overrides');
   ALTER TABLE commerce_item_overrides ADD COLUMN sale_until timestamptz;
  END IF;
  -- Store brand (a master brand's name) and manufacturer part number (#602), shown as display_brand / display_code.
  -- brand and code stay the supplier's values: order lines, enrichment lookups and matching read those.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='brand' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_item_overrides');
   ALTER TABLE commerce_item_overrides ADD COLUMN brand text;
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='part_number' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_item_overrides');
   ALTER TABLE commerce_item_overrides ADD COLUMN part_number text;
  END IF;
 END $$;
@@ -66,9 +72,11 @@ END $$;
 -- is ignored (enrichment_valid_data, #865) and matching drops it (#631, db/product-overrides.sql).
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_item_overrides'::regclass AND attname='hide_oem' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_item_overrides');
   ALTER TABLE commerce_item_overrides ADD COLUMN hide_oem boolean NOT NULL DEFAULT false;
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='basbug_checkout_mode' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_settings');
   ALTER TABLE commerce_settings ADD COLUMN basbug_checkout_mode text NOT NULL DEFAULT 'live'
    CHECK(basbug_checkout_mode IN ('live','snapshot'));
  END IF;
@@ -146,15 +154,18 @@ END $$;
 -- Views are replaced only when their definition changed (#954): CREATE OR REPLACE VIEW takes ACCESS EXCLUSIVE on the
 -- view even when nothing changes, queueing every reader behind setup. The body is created as a temporary probe view and
 -- the two pg_get_viewdef outputs are compared, so editing a body (or a column added behind a `*`) still replaces the
--- view on the next run. Dropping, renaming or reordering columns still needs a DROP VIEW first.
+-- view on the next run. Dropping, renaming or reordering columns still needs a DROP VIEW first. A replace (like an ALTER
+-- TABLE of a table views read) first locks the views that read it, outermost first: setup_lock_dependent_views (#1046).
 DO $setup$ DECLARE def text := $view$
 SELECT i.* FROM supplier_items i
 WHERE ((i.supplier='basbug' AND i.warehouse='MRK') OR i.supplier IN ('seta','manual') OR (i.supplier='dinamik' AND i.stock_data IS NOT NULL)) AND i.presence='present' AND NOT i.conflicting
 AND NOT EXISTS(SELECT 1 FROM store_products p WHERE p.supplier=i.supplier AND p.code=i.code);
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='commerce_supplier_items' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='commerce_supplier_items' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW commerce_supplier_items AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -171,7 +182,8 @@ $$;
 -- views). It stores supplier_item_brand()'s result: a changed function body needs a new index name (DROP + CREATE).
 -- Created here, before db/search.sql's ANALYZE supplier_items, so a first deploy has the expression's statistics.
 -- Only when missing (looked up in this schema): CREATE INDEX IF NOT EXISTS still takes SHARE on the write-hot
--- supplier_items on every setup run.
+-- supplier_items on every setup run. scripts/setup.ts builds it CONCURRENTLY before its transaction
+-- (scripts/setup-concurrent-indexes.ts, keep the definitions identical), so this only runs on a new database.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_brand_label_idx') THEN
   CREATE INDEX supplier_items_brand_label_idx ON supplier_items(supplier_item_brand(supplier,product_data));
@@ -216,10 +228,12 @@ LEFT JOIN supplier_brands sb ON sb.supplier=i.supplier AND sb.label=supplier_ite
 LEFT JOIN brands mb ON mb.id=sb.brand_id
 -- Hidden by an admin (#575): not for sale anywhere.
 WHERE ov.hidden IS NOT TRUE;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='commerce_catalog_entries' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='commerce_catalog_entries' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW commerce_catalog_entries AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -281,6 +295,22 @@ CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
 $$;
+-- Single-row currency anomalies (#1030): a supplier row whose currency disagrees with the rest of its brand and whose
+-- converted cost is far above the brand's median (Başbuğ once sent one KENTPAR row as EUR among 196 TRY rows: a 77k TL
+-- cost for a ~1.5k TL part). src/modules/suppliers/price-anomalies.ts detects them after a full list import; an open row
+-- keeps its offer unpriced in commerce_catalog below (the product stays listed, sold by another supplier or not at all)
+-- until the supplier corrects it (the next refresh deletes it) or an admin marks it "Anomali değil" (dismissed, kept
+-- through later refreshes). No foreign key to supplier_items on purpose: creating one locks supplier_items (SHARE ROW
+-- EXCLUSIVE) for the rest of the setup transaction and blocks order-time writes (basbug-item-refresh.ts); the refresh
+-- deletes rows whose item is gone. The accounts FK (decided_by) takes SHARE ROW EXCLUSIVE on accounts once, when the
+-- table is first created; later runs skip CREATE TABLE IF NOT EXISTS without locking it.
+CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
+ supplier_item_id uuid PRIMARY KEY, supplier text NOT NULL,
+ kind text NOT NULL DEFAULT 'currency' CHECK (kind IN ('currency')),
+ status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','dismissed')),
+ evidence jsonb NOT NULL, detected_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(),
+ decided_by uuid REFERENCES accounts(id), decided_at timestamptz
+);
 DO $setup$ DECLARE def text := $view$
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
@@ -304,7 +334,9 @@ WITH latest AS (
  -- The campaign price only inside its window; a NULL end is open.
  commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now()) AS sale_price,
  -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
- (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced
+ (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced,
+ -- An open currency anomaly (#1030, supplier_price_anomalies above) keeps the row unpriced.
+ (pa.supplier_item_id IS NOT NULL) AS price_anomaly
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
  LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
@@ -312,10 +344,11 @@ WITH latest AS (
  LEFT JOIN brands mb ON mb.id=sb.brand_id
  LEFT JOIN supplier_sync_scopes sc ON sc.supplier=i.supplier AND sc.company=i.company AND sc.list_group=i.list_group AND sc.warehouse=i.warehouse
  LEFT JOIN rates r ON r.supplier=i.supplier AND r.company=i.company AND r.currency=i.product_data->>'dc'
+ LEFT JOIN supplier_price_anomalies pa ON pa.supplier_item_id=i.id AND pa.status='open'
  WHERE ov.hidden IS NOT TRUE
 ), priced AS (
  -- The formula price (auto_price) is the only gate: an admin price never sells a row the formula cannot price.
- SELECT *,CASE WHEN cost>0 AND exchange_rate>0
+ SELECT *,CASE WHEN cost>0 AND exchange_rate>0 AND NOT price_anomaly
  AND (basbug_checkout_mode='snapshot' OR ((supplier='manual' OR rate_at>now()-make_interval(hours=>max_age_hours)) AND source_fresh))
  THEN commerce_formula_price(cost,exchange_rate,markup_percent,vat_percent) END AS auto_price
  FROM supplier_prices
@@ -371,10 +404,12 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  COALESCE(override_brand,master_brand,NULLIF(product_data->>'uk',''),'Belirtilmemiş'),COALESCE(override_part_number,code),
  override_name IS NOT NULL,supplier_item_brand(supplier,product_data)
 FROM final;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='commerce_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='commerce_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW commerce_catalog AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -382,11 +417,13 @@ END $setup$;
 -- Prepaid checkout: card payment is collected on TAMI's hosted page before operations confirm the order.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='shipping_fee_kurus' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_settings');
   ALTER TABLE commerce_settings ADD COLUMN shipping_fee_kurus integer NOT NULL DEFAULT 15000
    CHECK(shipping_fee_kurus BETWEEN 0 AND 10000000);
  END IF;
  -- Zero disables the free-shipping threshold.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='free_shipping_threshold_kurus' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_settings');
   ALTER TABLE commerce_settings ADD COLUMN free_shipping_threshold_kurus integer NOT NULL DEFAULT 150000
    CHECK(free_shipping_threshold_kurus BETWEEN 0 AND 1000000000);
  END IF;
@@ -661,18 +698,23 @@ DO $$ BEGIN
  -- Rates are the merchant commission percentages of the TAMI portal; the customer total of an n-installment order is
  -- cash × (1 − single rate) / (1 − n rate). installment_rates keys are "2".."12"; a missing key hides that option.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='installments_enabled' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_settings');
   ALTER TABLE commerce_settings ADD COLUMN installments_enabled boolean NOT NULL DEFAULT false;
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='installment_max' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_settings');
   ALTER TABLE commerce_settings ADD COLUMN installment_max integer NOT NULL DEFAULT 6 CHECK(installment_max BETWEEN 2 AND 12);
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='installment_min_basket_kurus' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_settings');
   ALTER TABLE commerce_settings ADD COLUMN installment_min_basket_kurus integer NOT NULL DEFAULT 0 CHECK(installment_min_basket_kurus BETWEEN 0 AND 1000000000);
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='installment_single_rate' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_settings');
   ALTER TABLE commerce_settings ADD COLUMN installment_single_rate numeric(5,2) NOT NULL DEFAULT 2.85 CHECK(installment_single_rate BETWEEN 0 AND 50);
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='installment_rates' AND NOT attisdropped) THEN
+  PERFORM setup_lock_dependent_views('commerce_settings');
   ALTER TABLE commerce_settings ADD COLUMN installment_rates jsonb NOT NULL
    DEFAULT '{"2":5.89,"3":7.95,"4":9.88,"5":11.72,"6":13.47,"7":15.39,"8":17.23,"9":18.97,"10":20.85,"11":22.71,"12":24.32}';
  END IF;
@@ -789,5 +831,70 @@ DO $$ DECLARE c text; BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_fingerprint' AND NOT attisdropped) THEN
   ALTER TABLE commerce_orders ADD COLUMN partner_fingerprint text;
   COMMENT ON COLUMN commerce_orders.partner_fingerprint IS 'Partner orders (#426): SHA-256 of the request body sent with the Idempotency-Key (request_key)';
+ END IF;
+ -- Partner cancel request (#426): a partner's DELETE on a confirmed order asks operations instead of cancelling. Open =
+ -- requested and not rejected; approving it cancels the order (cancelled_by 'customer'), rejecting it is final.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='cancel_requested_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN cancel_requested_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='cancel_request_rejected_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN cancel_request_rejected_at timestamptz;
+ END IF;
+ -- Partner invoicing (#426): operations mark a delivered partner order invoiced (invoice number + date); from then on it
+ -- no longer counts against the partner's open-order limit (src/modules/partner/limits.ts). Collection is not tracked.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_invoiced_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN partner_invoiced_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_invoice_ref' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN partner_invoice_ref text;
+ END IF;
+ -- Who marked it (audit). The FK takes SHARE ROW EXCLUSIVE on accounts once, on the first deploy that adds the column.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_invoiced_by' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_orders ADD COLUMN partner_invoiced_by uuid REFERENCES accounts(id);
+ END IF;
+END $$;
+-- Per-partner settings set in /yonetim/partnerler (#426). Partner identities still come from PARTNER_API_KEYS; a row here
+-- only overrides the PARTNER_ORDER_LIMIT_KURUS fallback. A partner with neither cannot order (503 ORDER_LIMIT_UNAVAILABLE).
+CREATE TABLE IF NOT EXISTS partner_settings(
+ partner_code text PRIMARY KEY,
+ order_limit_kurus bigint CHECK(order_limit_kurus > 0),
+ updated_at timestamptz NOT NULL DEFAULT now(),
+ updated_by uuid REFERENCES accounts(id)
+);
+-- Corrections of a partner invoiced mark (#1018): one row per order, the rows of one change share change_id. 'undo'
+-- clears the mark (the order counts against the partner's limit again), 'correct' rewrites the invoice number/date;
+-- the old values and the reason stay here for audit.
+CREATE TABLE IF NOT EXISTS partner_invoice_changes(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ change_id uuid NOT NULL,
+ order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
+ partner_code text NOT NULL,
+ action text NOT NULL CHECK(action IN ('undo','correct')),
+ old_invoice_ref text NOT NULL, old_invoiced_at timestamptz NOT NULL, old_invoiced_by uuid REFERENCES accounts(id),
+ new_invoice_ref text, new_invoiced_at timestamptz,
+ reason text NOT NULL CHECK(length(btrim(reason))>=5),
+ changed_by uuid REFERENCES accounts(id),
+ changed_at timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_invoice_changes'::regclass AND c.relname='partner_invoice_changes_partner_idx') THEN
+  CREATE INDEX partner_invoice_changes_partner_idx ON partner_invoice_changes(partner_code,changed_at DESC);
+ END IF;
+END $$;
+
+-- Order emails (#951): one row per order and kind, written in the payment transaction that settles the order
+-- (src/modules/payments/checkout.ts recordPaid); delivery (src/modules/store/order-email.ts) claims pending rows with a
+-- lease, so concurrent reconcilers send each email once. 'skipped' = no mail transport configured or too old to send.
+CREATE TABLE IF NOT EXISTS commerce_order_emails (
+ order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
+ kind text NOT NULL CHECK(kind IN ('confirmation')),
+ status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent','skipped','failed')),
+ attempts integer NOT NULL DEFAULT 0, claimed_at timestamptz, sent_at timestamptz,
+ message_id text, last_error text, created_at timestamptz NOT NULL DEFAULT now(),
+ PRIMARY KEY(order_id,kind)
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_order_emails'::regclass AND c.relname='commerce_order_emails_pending_idx') THEN
+  CREATE INDEX commerce_order_emails_pending_idx ON commerce_order_emails(created_at) WHERE status='pending';
  END IF;
 END $$;

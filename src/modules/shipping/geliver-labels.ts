@@ -16,9 +16,12 @@ import { findShipmentsByOrderNumber, geliverConfig, purchaseLabel, type GeliverR
 // leads to a second (paid) label: until "Geliver'de kontrol et" settles it, the order takes no new label.
 
 export type GeliverLabelOutcome = {
-  outcome: "purchased" | "failed" | "unknown" | "busy" | "not_allowed" | "unavailable" | "purchased_order_changed";
+  outcome: "purchased" | "failed" | "unknown" | "busy" | "not_allowed" | "unavailable" | "purchased_order_changed" | "purchased_on_hold";
   message?: string;
-  /** The order's number, for purchased_order_changed (the label to cancel in Geliver). */
+  /**
+   * The order's number, for purchased_order_changed (the label to cancel in Geliver) and purchased_on_hold (a label
+   * bought while a partner's cancel request opened, #426: it ships the order if the request is rejected).
+   */
   orderNumber?: string;
 };
 
@@ -33,13 +36,15 @@ const LABEL_LESS_STATES = new Set(["CREATED", "GOT_OFFERS", "OFFER_ACCEPTED"]);
 // Geliver's clock may run slightly behind ours.
 const CLOCK_SKEW_MS = 60_000;
 
-type LabelOrder = RecipientOrder & { id: string; number: string; status: string; payment_status: string; total_kurus: string };
+// cancel_request_open: a partner's undecided cancel request (#426); the order may not ship until operations decide it.
+type LabelOrder = RecipientOrder & { id: string; number: string; status: string; payment_status: string; total_kurus: string; cancel_request_open: boolean };
 type Settlement =
   | { status: "purchased"; shipment: GeliverShipment; transactionId: string | null; note?: string }
   | { status: "failed" | "unknown"; errorCode?: string | null; errorMessage: string };
 
 const lockOrder = async (client: PoolClient, orderId: string) => (await client.query<LabelOrder>(
-  `SELECT id,number::text,status,payment_status,total_kurus::text,customer_name,email,phone,delivery_province,delivery_district,delivery_address_line
+  `SELECT id,number::text,status,payment_status,total_kurus::text,customer_name,email,phone,delivery_province,delivery_district,delivery_address_line,
+   (cancel_requested_at IS NOT NULL AND cancel_request_rejected_at IS NULL) AS cancel_request_open
    FROM commerce_orders WHERE id=$1 FOR UPDATE`, [orderId],
 )).rows[0];
 
@@ -55,8 +60,8 @@ async function inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promi
 }
 
 const isUniqueViolation = (error: unknown) => typeof error === "object" && error !== null && "code" in error && error.code === "23505";
-const shippable = (order: Pick<LabelOrder, "status" | "payment_status"> | undefined) =>
-  Boolean(order && order.status === "confirmed" && isHandledPayment(order.payment_status));
+const shippable = (order: Pick<LabelOrder, "status" | "payment_status" | "cancel_request_open"> | undefined) =>
+  Boolean(order && order.status === "confirmed" && isHandledPayment(order.payment_status) && !order.cancel_request_open);
 
 const unavailable: GeliverLabelOutcome = { outcome: "unavailable", message: "Geliver ayarları eksik; Geliver'e istek gönderilmedi. Elle sevk hâlâ kullanılabilir." };
 const unknownMessage = "Geliver yanıtı alınamadı; etiket alınmış olabilir. Bir dakika sonra \"Geliver'de kontrol et\" ile sonucu alın.";
@@ -95,6 +100,12 @@ async function settleRow(client: PoolClient, rowId: string, from: string[], sett
  */
 async function shipAfterPurchase(client: PoolClient, order: LabelOrder | undefined, test: boolean, shipment: GeliverShipment): Promise<GeliverLabelOutcome> {
   if (!order) return { outcome: "purchased_order_changed" };
+  // A partner asked to cancel while the label was being bought (#426): the label is kept for the decision.
+  if (order.cancel_request_open && shippable({ ...order, cancel_request_open: false })) {
+    await appendNote(client, order.id, `Geliver etiketi alındı (barkod ${shipment.barcode ?? "yok"}) ama partnerin iptal talebi karar bekliyor; reddedilirse sipariş bu etiketle kargoya verilir, onaylanırsa etiketi Geliver panelinden iptal edin.`);
+    return { outcome: "purchased_on_hold", orderNumber: order.number,
+      message: "Geliver etiketi alındı ama partnerin iptal talebi karar bekliyor. Talebi reddederseniz sipariş bu etiketle kargoya verilir; onaylarsanız etiketi Geliver panelinden iptal edin." };
+  }
   if (!shippable(order)) {
     await appendNote(client, order.id, `Geliver etiketi alındı (barkod ${shipment.barcode ?? "yok"}) ama sipariş durumu değişmişti; etiketi Geliver panelinden iptal edin.`);
     return { outcome: "purchased_order_changed", orderNumber: order.number,
@@ -104,6 +115,27 @@ async function shipAfterPurchase(client: PoolClient, order: LabelOrder | undefin
   await client.query("UPDATE commerce_orders SET status='shipped',shipped_at=now(),carrier='yurtici',carrier_name=NULL,tracking_no=$2,tracking_url=$3 WHERE id=$1",
     [order.id, trackingNo, resolveGeliverTrackingUrl({ test, shipmentId: shipment.id, trackingNumber: trackingNo, trackingUrl: shipment.trackingUrl })]);
   return { outcome: "purchased" };
+}
+
+type HeldLabel = { test: boolean; geliver_shipment_id: string | null; barcode: string | null; tracking_number: string | null; tracking_url: string | null };
+/** The order's purchased Geliver label, if any; the caller holds the order row FOR UPDATE. */
+export async function purchasedLabel(client: PoolClient, orderId: string) {
+  return (await client.query<HeldLabel>(
+    "SELECT test,geliver_shipment_id,barcode,tracking_number,tracking_url FROM commerce_geliver_shipments WHERE order_id=$1 AND status='purchased'", [orderId],
+  )).rows[0] ?? null;
+}
+
+/**
+ * A partner's cancel request was rejected (#426) on a confirmed order whose label was bought meanwhile (purchased_on_hold):
+ * ships it with that label, as the purchase would have. False when the order has no purchased label. The caller holds
+ * the order row FOR UPDATE and has checked it may ship.
+ */
+export async function shipWithPurchasedLabel(client: PoolClient, orderId: string) {
+  const label = await purchasedLabel(client, orderId);
+  if (!label?.geliver_shipment_id) return false;
+  await client.query("UPDATE commerce_orders SET status='shipped',shipped_at=now(),carrier='yurtici',carrier_name=NULL,tracking_no=$2,tracking_url=$3 WHERE id=$1",
+    [orderId, label.tracking_number, resolveGeliverTrackingUrl({ test: label.test, shipmentId: label.geliver_shipment_id, trackingNumber: label.tracking_number, trackingUrl: label.tracking_url })]);
+  return true;
 }
 
 /** Ids only: never the request body (customer data) or the token. */

@@ -1,6 +1,25 @@
 name: Release to AWS
-# Manual only. The `production` GitHub environment holds the approval and the branch rule
-# (main; dev as well until the cutover), the release role in AWS trusts only jobs running in it.
+# Manual only, from main, by the repository owner, with the version being released:
+#   gh workflow run release-aws.yml --ref main -f version=X.Y.Z
+# The guard job stops anything else (another branch, another actor or re-runner, a version different from
+# package.json) before CI and before any AWS call; the release job repeats the branch and actor checks first,
+# because "Re-run failed jobs" does not rerun a guard job that passed. They replace the former `production`
+# environment approval, which a private repository on the GitHub Free plan does not have.
+#
+# The guards prevent an accidental release, not a collaborator with write access: without branch protection
+# (GitHub Free, private) such a collaborator can change this file on main, and the repository-level
+# INFRA_DEPLOY_KEY secret is readable by any workflow on any branch they push.
+#
+# Order of the switch (docs/ci-mac-runner.md):
+#   1. deploy getirbakim-infra PR #6 (Cicd stack: the release role trusts main, not the environment)
+#   2. customize the OIDC subject; without it the subject is repo:<repo>:ref:refs/heads/main and
+#      AssumeRole fails:
+#        gh api -X PUT repos/aokcuoglu/getirbakim/actions/oidc/customization/sub -F use_default=false \
+#          -f 'include_claim_keys[]=repo' -f 'include_claim_keys[]=context' -f 'include_claim_keys[]=job_workflow_ref'
+#   3. repository-level variables and secret below (including PRODUCTION_GELIVER_SYNC_ENABLED=false,
+#      missing from the production environment today)
+#   4. merge this workflow to main through a release
+#   5. make the repository private, register the Mac runner, set CI_RUNS_ON
 #
 # Same steps as an operator with the infrastructure repository:
 #   push-image.sh  build the app and operations images (linux/arm64), push them to ECR under the
@@ -8,31 +27,81 @@ name: Release to AWS
 #   release.sh     RDS snapshot, operations task definitions, scripts/setup.ts + ANALYZE, app
 #                  rolling update, released tags in SSM, smoke tests
 #
-# Environment `production`:
+# Repository-level configuration (Settings > Secrets and variables > Actions):
 #   variables  AWS_RELEASE_ROLE_ARN  Cicd stack output DeployRoleArn
 #              INFRA_REPOSITORY      owner/name of the infrastructure repository
 #              every key of the infrastructure repository's .env.example (its configuration;
-#              there is no .env in CI), e.g. gh variable set --env production -f .env
-#   secrets    INFRA_DEPLOY_KEY      private half of a read-only deploy key of that repository
+#              there is no .env in CI), e.g. from the infrastructure checkout:
+#                gh variable set -R aokcuoglu/getirbakim -f .env
+#                gh variable set -R aokcuoglu/getirbakim AWS_RELEASE_ROLE_ARN --body <DeployRoleArn>
+#                gh variable set -R aokcuoglu/getirbakim INFRA_REPOSITORY --body <owner/name>
+#   secrets    INFRA_DEPLOY_KEY      private half of a read-only deploy key of that repository:
+#                gh secret set -R aokcuoglu/getirbakim INFRA_DEPLOY_KEY < <deploy key file>
+# Every repository variable is exported to the infrastructure scripts except AWS_RELEASE_ROLE_ARN,
+# INFRA_REPOSITORY and CI_RUNS_ON (the CI runner choice, ci.yml); keep other variables out of the repository.
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version being released; must equal package.json on the dispatched commit (e.g. 0.31.0)
+        required: true
+        type: string
 permissions:
   contents: read
 concurrency:
   group: aws-production-release
   cancel-in-progress: false
 jobs:
+  guard:
+    # A failing job rather than a job-level `if`: a skipped release would look like a quiet success.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: package.json
+          sparse-checkout-cone-mode: false
+      - name: Check branch, actor and version
+        env:
+          REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          failed=0
+          if [ "$REF" != "refs/heads/main" ]; then echo "::error::Releases run only from main, not $REF"; failed=1; fi
+          if [ "$ACTOR" != "$OWNER" ] || [ "$TRIGGERING_ACTOR" != "$OWNER" ]; then
+            echo "::error::Only $OWNER may release (actor $ACTOR, triggered by $TRIGGERING_ACTOR)"; failed=1
+          fi
+          expected="$(jq -r .version package.json)"
+          if [ "$VERSION" != "$expected" ]; then
+            echo "::error::Input version '$VERSION' does not match package.json $expected"; failed=1
+          fi
+          exit "$failed"
   check:
+    needs: guard
     uses: ./.github/workflows/ci.yml
   release:
-    needs: check
+    needs: [guard, check]
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
-    environment: production
     permissions:
       contents: read
       id-token: write
     steps:
+      - name: Check branch and actor
+        # Repeats the guard job before any checkout or AWS step: a rerun of this job alone skips the guard.
+        env:
+          REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          if [ "$REF" != "refs/heads/main" ]; then echo "::error::Releases run only from main, not $REF"; exit 1; fi
+          if [ "$ACTOR" != "$OWNER" ] || [ "$TRIGGERING_ACTOR" != "$OWNER" ]; then
+            echo "::error::Only $OWNER may release (actor $ACTOR, triggered by $TRIGGERING_ACTOR)"; exit 1
+          fi
       - uses: actions/checkout@v7
         with:
           path: app
@@ -57,14 +126,14 @@ jobs:
           role-duration-seconds: 7200
           aws-region: eu-central-1
       - name: Load the infrastructure configuration
-        # The environment's variables, exported for the scripts and the CDK app (they read them
+        # The repository variables, exported for the scripts and the CDK app (they read them
         # when CI=true and there is no .env). Values are single-line; anything else is refused.
         env:
           VARS_JSON: ${{ toJSON(vars) }}
         run: |
           test ! -e infra/.env
           jq -r 'to_entries[]
-            | select(.key != "AWS_RELEASE_ROLE_ARN" and .key != "INFRA_REPOSITORY")
+            | select(.key != "AWS_RELEASE_ROLE_ARN" and .key != "INFRA_REPOSITORY" and .key != "CI_RUNS_ON")
             | if (.value | test("[\\r\\n]")) then error("multi-line value: \(.key)") else "\(.key)=\(.value)" end' \
             <<<"$VARS_JSON" >> "$GITHUB_ENV"
       - name: Store the credentials under the configured profile

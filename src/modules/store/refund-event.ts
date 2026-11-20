@@ -21,6 +21,7 @@ export async function claimRefund(orderId: string, owners: CartOwner[]): Promise
      RETURNING number::text,subtotal_kurus::text,shipping_kurus::text`,
     [orderId, owners.map(owner => owner.kind), owners.map(owner => owner.id)],
   )).rows[0];
+  // Same definition as purchase: the installment fee is intentionally excluded from value (#894).
   return order ? refund({ transactionId: order.number, subtotalKurus: Number(order.subtotal_kurus), shippingKurus: Number(order.shipping_kurus) }) : null;
 }
 

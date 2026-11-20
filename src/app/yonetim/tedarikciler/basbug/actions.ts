@@ -2,6 +2,7 @@
 import { requireAdmin } from "@/modules/auth/session";
 import { db } from "@/lib/db";
 import { importBasbug, importOptions, BasbugImportError } from "@/modules/suppliers/basbug-import";
+import { refreshBasbugPriceAnomalies } from "@/modules/suppliers/price-anomalies";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -12,6 +13,7 @@ export async function refreshBasbug(form: FormData) {
   let error = "";
   try {
     await importBasbug(db, input.data);
+    await refreshBasbugPriceAnomalies(db);
   } catch (cause) {
     error = cause instanceof BasbugImportError ? cause.reason : "upstream";
   }

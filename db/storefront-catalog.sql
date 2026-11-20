@@ -51,10 +51,12 @@ WHERE ((r.supplier='basbug' AND r.warehouse='MRK') OR r.supplier IN ('seta','man
    AND (n.last_seen_at>d.last_seen_at OR (n.last_seen_at=d.last_seen_at AND n.id<d.id))))
  -- Hidden by an admin (#575).
  AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=r.id AND h.hidden);
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='commerce_unavailable_items' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='commerce_unavailable_items' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW commerce_unavailable_items AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -75,10 +77,12 @@ SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
 FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id
 LEFT JOIN supplier_brands sb ON sb.supplier=u.supplier AND sb.label=supplier_item_brand(u.supplier,u.product_data)
 LEFT JOIN brands mb ON mb.id=sb.brand_id;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='storefront_catalog_entries' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='storefront_catalog_entries' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW storefront_catalog_entries AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -99,10 +103,12 @@ SELECT u.id,NULLIF(u.product_data->>'category',''),u.supplier,u.code,
 FROM commerce_unavailable_items u LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=u.id
 LEFT JOIN supplier_brands sb ON sb.supplier=u.supplier AND sb.label=supplier_item_brand(u.supplier,u.product_data)
 LEFT JOIN brands mb ON mb.id=sb.brand_id;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='storefront_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='storefront_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW storefront_catalog AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
