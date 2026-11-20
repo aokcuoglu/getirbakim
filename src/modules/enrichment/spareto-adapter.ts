@@ -51,7 +51,9 @@ export function parseProductPage(html:string):ProductPage{
  const partNumber=/<span itemprop='mpn'>([^<]+)<\/span>/.exec(html)?.[1];
  const name=/<span itemprop='name'>([^<]+)<\/span>/.exec(html)?.[1];
  if(!brand||!partNumber||!name)throw Error('Unrecognized spareto product page');
- const image=/<meta content='(https:\/\/cdn\.spareto\.com\/variants\/images\/[^']+)' itemprop='image'>/.exec(html)?.[1]??null;
+ // Photos are served under variants/images/ or, on newer pages, variants/images_webp/ (#1076); og:image carries the same one.
+ const image=/<meta content='(https:\/\/cdn\.spareto\.com\/variants\/images(?:_webp)?\/[^']+)' itemprop='image'>/.exec(html)?.[1]
+  ??/<meta content='(https:\/\/cdn\.spareto\.com\/variants\/images(?:_webp)?\/[^']+)' property='og:image'>/.exec(html)?.[1]??null;
  const specifications:[string,string][]=[];
  for(const row of html.matchAll(/<tr itemprop='additionalProperty'[^>]*>([\s\S]*?)<\/tr>/g)){
   const label=/itemprop='name'>([\s\S]*?)<\/td>/.exec(row[1]),value=/itemprop='value'>([\s\S]*?)<\/(?:td|span)>/.exec(row[1]),unit=/itemprop='unitText'>([\s\S]*?)<\/td>/.exec(row[1]);

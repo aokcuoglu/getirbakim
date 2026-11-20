@@ -27,6 +27,14 @@ test('product pages keep part properties and split OE from cross-reference numbe
  assert.deepEqual(data.vehicles,[]);
 });
 
+test('product photos under variants/images_webp are read from itemprop, then og:image (#1076)',async()=>{
+ const html=(await fixture('spareto-product.html')).replace(/<meta content='https:\/\/cdn\.spareto\.com\/variants\/images\/[^']+' (?:itemprop='image'|property='og:image')>/g,'');
+ assert.equal(parseProductPage(html).image,null);
+ const webp='https://cdn.spareto.com/variants/images_webp/002/077/378/original/tc3704-DBAF1309.webp?1793393325';
+ assert.equal(parseProductPage(`<meta content='${webp}' itemprop='image'>`+html).image,webp);
+ assert.equal(parseProductPage(`<meta content='${webp}' property='og:image'>`+html).image,webp);
+});
+
 test('identity prefers the same part, then a supplier OE number, then our own brand/part as a cross reference',async()=>{
  const page=parseProductPage(await fixture('spareto-product.html')),data=buildData(page);
  assert.deepEqual(identify({brand:'DT SPARE PARTS',code:'1.16046',oem:''},page,data),{type:'exact_part'});
