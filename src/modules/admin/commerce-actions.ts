@@ -174,7 +174,11 @@ export async function resendOrderEmail(form:FormData) {
  const input=z.object({id:z.uuid(),kind:z.enum(orderEmailKinds),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
  if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
  const orderNumber=await requeueOrderEmail(input.data.id,input.data.kind,admin.id);
- if(!orderNumber) redirect(orderListReturn(input.data.back,'error'));
+ if(!orderNumber) {
+  // In flight, just sent, or no longer due: the list shows why on the order's E-posta row.
+  const order=await db.query<{number:string}>('SELECT number::text FROM commerce_orders WHERE id=$1',[input.data.id]);
+  redirect(orderListReturn(input.data.back,'email_busy',order.rows[0]?.number));
+ }
  const result=await deliverOrderEmailsSafely({orderId:input.data.id});
  const outcome:OrderListOutcome=result?.sent ? 'email_sent' : result?.skipped ? 'email_skipped' : 'email_pending';
  revalidateOrder(input.data.id);

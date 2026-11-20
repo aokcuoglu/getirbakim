@@ -14,7 +14,9 @@ const time = (value: string) => formatDateTime(value, { year: true });
 /** Why an email cannot be resent from here; null when it can. A missing mail setup is a warning, the rest is neutral. */
 function blockedReason(email: AdminOrderEmail, order: EmailOrder, mailReady: boolean) {
   if (!mailReady) return { text: "E-posta gönderimi ayarlı değil; yeniden gönderilemez.", className: "text-warning" };
-  if (email.in_flight) return { text: "Gönderim sürüyor.", className: "text-muted-foreground" };
+  if (email.in_flight) return {
+    text: email.last_error ? "Son deneme başarısız; sistem birkaç dakika içinde yeniden dener." : "Gönderim sürüyor.", className: "text-muted-foreground",
+  };
   if (!canResendOrderEmail(email, order)) return { text: "Sipariş artık teyit beklemiyor; bu e-posta yeniden gönderilmez.", className: "text-muted-foreground" };
   return null;
 }
@@ -34,7 +36,8 @@ export function OrderEmails({ order, emails, back, mailReady }: { order: EmailOr
         <span className="flex flex-wrap items-center gap-2"><span>{label}</span><StatusBadge tone={look.tone}>{look.label}</StatusBadge></span>
         <span className="text-muted-foreground tabular-nums">{[
           `${email.attempts} deneme`,
-          email.status === "sent" && email.sent_at ? `Gönderildi ${time(email.sent_at)}` : null,
+          // Kept after a failed resend, so an earlier delivery is never hidden.
+          email.sent_at ? `Son gönderim ${time(email.sent_at)}` : null,
           email.requeued_at ? `Yeniden kuyruğa alındı ${time(email.requeued_at)}` : `Kuyruğa alındı ${time(email.created_at)}`,
         ].filter(Boolean).join(" · ")}</span>
         {email.last_error && <span className={`break-all ${email.status === "failed" ? "text-destructive" : "text-muted-foreground"}`}>{orderEmailErrorLabel(email.last_error)}</span>}

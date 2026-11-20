@@ -65,7 +65,7 @@ test("actions return to the list they came from; anything else falls back to the
     assert.equal(orderListReturn("/yonetim/siparisler?status=shipping&label_unknown=1&page=2", outcome), `/yonetim/siparisler?status=shipping&page=2&${outcome}=1`);
   }
   // Order email resend outcomes (#1035).
-  for (const outcome of ["email_sent", "email_skipped", "email_pending"] as const) {
+  for (const outcome of ["email_sent", "email_skipped", "email_pending", "email_busy"] as const) {
     assert.equal(orderListReturn("/yonetim/siparisler?status=action&saved=1&page=2", outcome, "1042"), `/yonetim/siparisler?status=action&page=2&${outcome}=1042`);
   }
   // A stale outcome and unknown parameters are dropped.

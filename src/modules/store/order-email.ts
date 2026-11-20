@@ -207,16 +207,22 @@ export async function deliverOrderEmails({ orderId, limit = 10, send = message =
   return result;
 }
 
+// orderEmailDue in SQL, per kind (o = commerce_orders): a resend is refused for an order that no longer wants the email.
+const dueSql: Record<OrderEmailKind, string> = { confirmation: "o.status='pending' AND o.payment_status='paid'" };
+
 /**
- * An admin's resend (#1035): puts the row back in the queue with no attempts, no backoff and a fresh day, unless a send
- * holds it right now (a claim within the lease). False when there is no such row or it is in flight. The order state is
- * not checked here: delivery decides whether the email is still due. Returns the order number, or null when not requeued.
+ * An admin's resend (#1035): puts the row back in the queue with no attempts, no backoff and a fresh day. Refused (null)
+ * when there is no such row, the order no longer wants the email, a send holds it right now (a claim within the lease)
+ * or it was sent within the last minute (a double click from two tabs). Returns the order number. Delivery still checks
+ * the order state before sending.
  */
 export async function requeueOrderEmail(orderId: string, kind: OrderEmailKind, adminId: string): Promise<string | null> {
+  if (!Object.hasOwn(dueSql, kind)) return null;
   const result = await db.query<{ number: string }>(
     `UPDATE commerce_order_emails e SET status='pending',attempts=0,claimed_at=NULL,last_error=NULL,requeued_at=now(),requeued_by=$3
-     FROM commerce_orders o WHERE o.id=e.order_id AND e.order_id=$1 AND e.kind=$2
+     FROM commerce_orders o WHERE o.id=e.order_id AND e.order_id=$1 AND e.kind=$2 AND (${dueSql[kind]})
       AND (e.status<>'pending' OR e.claimed_at IS NULL OR e.claimed_at < now()-make_interval(mins=>$4))
+      AND (e.sent_at IS NULL OR e.sent_at < now()-interval '1 minute')
      RETURNING o.number::text`,
     [orderId, kind, adminId, LEASE_MINUTES],
   );
