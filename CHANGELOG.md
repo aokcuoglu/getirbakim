@@ -4,8 +4,27 @@ All notable changes to this project are documented here. Versions follow [SemVer
 
 ## Unreleased
 
+## v0.33.0 — 2026-11-20
+
+Release of `dev` since v0.32.1 (6 pull requests): saved addresses at checkout, order email through Amazon SES, two supplier-sync fixes that kept the Dinamik alarm open and delayed the nightly import, and removal of the unused `vehicle_brands.popular` column. The privacy text update (#1014) is held back (reverted in #1074) until its legal placeholders are filled.
+
 ### Added
-- **Amazon SES mail transport:** `MAIL_TRANSPORT=ses` sends order emails through the SES v2 API with the ECS task role (no SMTP credentials); region from `SES_REGION` / `AWS_REGION` ([#1062](https://github.com/aokcuoglu/getirbakim/issues/1062)).
+- **Saved addresses at checkout:** approved service and admin accounts pick a saved delivery or invoice address on `/siparis-olustur` and can save a new one to their address book after a successful order (duplicates and a full book of 10 are skipped; saving never blocks the order) ([#1015](https://github.com/aokcuoglu/getirbakim/pull/1015), [#999](https://github.com/aokcuoglu/getirbakim/issues/999)).
+- **Amazon SES mail transport:** `MAIL_TRANSPORT=ses` sends order emails through the SES v2 API with the ECS task role (no SMTP credentials); region from `SES_REGION` / `AWS_REGION` ([#1064](https://github.com/aokcuoglu/getirbakim/pull/1064), [#1062](https://github.com/aokcuoglu/getirbakim/issues/1062)).
+
+### Fixed
+- **Supplier quality guard on small lists:** a rise of more than 10 points in missing stock/price now also needs at least 5 products to lose that data; 27-product Dinamik lists losing 3 stock rows were rejected every night and kept the supplier-sync alarm open ([#1067](https://github.com/aokcuoglu/getirbakim/pull/1067), [#1066](https://github.com/aokcuoglu/getirbakim/issues/1066)).
+- **Dinamik circuit breaker per brand:** one brand's HTTP 5xx or timeout (HELLA `getStockList` 500) no longer skips every remaining Dinamik brand in the tick; the breaker opens after 3 consecutive upstream failures, or immediately on 401/403, config or busy ([#1072](https://github.com/aokcuoglu/getirbakim/pull/1072), [#1071](https://github.com/aokcuoglu/getirbakim/issues/1071)).
+- Signed-in accounts without a service discount are no longer told to order without signing up at checkout ([#1070](https://github.com/aokcuoglu/getirbakim/pull/1070)).
+
+### Changed
+- `vehicle_brands.popular` dropped (unused since #949; guarded `DO` block, runs once) ([#1026](https://github.com/aokcuoglu/getirbakim/pull/1026), [#944](https://github.com/aokcuoglu/getirbakim/issues/944)). Safe because v0.32.x, live on AWS, no longer reads the column.
+
+### Deploy and operations
+- `db:setup` drops `vehicle_brands.popular` once; no other schema change. Vehicle oil specs are unchanged.
+- SES: `MAIL_TRANSPORT`, `MAIL_FROM`, `MAIL_REPLY_TO` app secret keys are wired by getirbakim-infra#7 and present in the app secret.
+- Geliver sync is enabled with this release (`PRODUCTION_GELIVER_SYNC_ENABLED=true` in the GitHub variables and the operator `.env`).
+- Release with `gh workflow run release-aws.yml --ref main -f version=0.33.0`.
 
 ## v0.32.1 — 2026-11-20
 
