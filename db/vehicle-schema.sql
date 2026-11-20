@@ -8,7 +8,14 @@ CREATE TABLE IF NOT EXISTS vehicle_brands (
  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
--- Older databases keep the unread popular column (NOT NULL DEFAULT false); drop it one release after this ships (#944).
+-- Popular makes come from popularVehicleMakes since #913; older databases still carry the unread flag (#944).
+-- Guarded so re-runs take no AccessExclusiveLock. Must not reach AWS before a release containing #949 (v0.31.0) is
+-- live there: v0.30.0 still selects the column during a rolling update or rollback.
+DO $$ BEGIN
+ IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='vehicle_brands'::regclass AND attname='popular' AND NOT attisdropped) THEN
+  ALTER TABLE vehicle_brands DROP COLUMN popular;
+ END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS vehicle_models (
  id integer PRIMARY KEY CHECK (id > 0),

@@ -9,6 +9,7 @@ import type { PurchasePreview, PurchaseState } from "@/modules/store/purchase-ty
 import { currentVehicle } from "@/modules/store/garage";
 import { headers } from "next/headers";
 import { checkoutErrorField, checkoutInput } from "@/modules/store/checkout-schema";
+import { saveCheckoutAddress } from "@/modules/store/account-addresses";
 import { clientEvidence } from "@/lib/client-address";
 
 export async function addToCart(_state: PurchaseState, form: FormData): Promise<PurchaseState> {
@@ -66,7 +67,11 @@ export async function placeOrder(form:FormData):Promise<{id:string;error?:undefi
  if(!owner) return {error:'session'};
  const {submitOrder}=await import('@/modules/store/orders');
  const result=await submitOrder(owner,input.data,await currentVehicle(),clientEvidence(await headers()));
- if(result.error===undefined) revalidatePath('/','layout');
+ if(result.error===undefined) {
+  // Best effort after the order exists (#999): the saver never throws and its outcome is not shown.
+  if(input.data.saveAddress) await saveCheckoutAddress(owner,input.data);
+  revalidatePath('/','layout');
+ }
  return result;
 }
 

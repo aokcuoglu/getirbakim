@@ -15,14 +15,16 @@ const invoiceMessages = { province: "Fatura ili seç.", district: "Fatura ilçes
  * individual or corporate, the corporate one with title, tax id (10-digit VKN, or a sole proprietor's 11-digit TC kimlik no, either passing its check digits) and tax office. `installments` is the chosen
  * payment option (#886). `invoiceAddressMode` "separate" takes an invoice address with the same fields (#916), checked like
  * the delivery one and returned as `invoiceAddress`; "same" (the default) ignores any submitted invoice address fields and
- * returns `invoiceAddress: null`.
+ * returns `invoiceAddress: null`. `saveAddress` ("on" when ticked, #999) asks to keep the delivery address in the account's address book
+ * under `saveAddressLabel`; both are best-effort, so a bad value never refuses the order.
  */
 export const checkoutInput=z.object({requestKey:z.uuid(),quote:z.string().regex(/^[a-f0-9]{64}$/),name:z.string().trim().min(2).max(150),email:z.email().max(200),phone:z.string().trim().regex(phonePattern),
  province:z.string().trim(),district:z.string().trim(),addressLine:z.string().trim().min(10).max(500),postalCode:z.string().trim().regex(/^(\d{5})?$/).optional().default(""),
  note:z.string().trim().max(1000),invoiceType:z.enum(["individual","corporate"]),invoiceCompany:optionalText(200),invoiceTaxNo:optionalText(11),invoiceTaxOffice:optionalText(100),
  consent:z.literal('on'),installments:z.coerce.number().int().min(1).max(12).default(1),
  invoiceAddressMode:z.enum(["same","separate"]).default("same"),invoiceProvince:optionalText(100),invoiceDistrict:optionalText(100),invoiceAddressLine:optionalText(500),
- invoicePostalCode:z.string().trim().regex(/^(\d{5})?$/).optional().default("")}).superRefine((input,ctx)=>{
+ invoicePostalCode:z.string().trim().regex(/^(\d{5})?$/).optional().default(""),
+ saveAddress:z.literal("on").optional().catch(undefined).transform(value=>value==="on"),saveAddressLabel:optionalText(60).catch("")}).superRefine((input,ctx)=>{
  // A postal code starts with the province's plate code (34xxx is İstanbul).
  const delivery=addressProblem(input);
  if(delivery) ctx.addIssue({code:"custom",path:[delivery],message:deliveryMessages[delivery]});

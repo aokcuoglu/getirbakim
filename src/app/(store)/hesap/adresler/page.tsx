@@ -2,13 +2,14 @@ import type { Metadata } from "next";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Check, ChevronRight, CircleCheck, MapPin, Trash2 } from "lucide-react";
+import { ChevronRight, CircleCheck, MapPin, Trash2 } from "lucide-react";
 import { privatePageRobots } from "@/modules/seo/crawlers";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { currentAccount } from "@/modules/auth/session";
 import { loginPath } from "@/modules/auth/return-to";
 import { ADDRESS_LIMIT, getAddress, listAddresses, type AccountAddress } from "@/modules/store/account-addresses";
 import { composeAddress } from "@/modules/store/tr-address";
+import { AddressNoticeScope } from "@/components/address-notice";
 import { AddressForm } from "@/components/address-form";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -44,7 +45,7 @@ export default async function Addresses({ searchParams }: { searchParams: Promis
   const deleting = params.sil && uuid.test(params.sil) ? params.sil : null;
   return <section className="mx-auto min-h-[55vh] w-full max-w-[1280px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10">
     <nav aria-label="Sayfa yolu" className="mb-7 flex flex-wrap items-center gap-[9px] text-[13px] leading-5 wrap-anywhere text-muted-foreground"><Link href="/" className="inline-flex min-h-8 items-center underline-offset-4 hover:text-primary hover:underline">Ana sayfa</Link><ChevronRight className="size-[13px]" aria-hidden/><span aria-current="page">Adreslerim</span></nav>
-    <div role="status" className="mx-auto max-w-[1120px]">{notice && <Alert className="mb-6 flex items-center gap-2 rounded-md border-0 bg-[#ebf5ed] p-[13px] text-sm leading-5 text-[#397247]"><Check className="size-[18px] shrink-0" aria-hidden/> {notice}</Alert>}</div>
+    <AddressNoticeScope notice={notice} noticeId={randomUUID()}>
     <div className="mx-auto grid max-w-[1120px] grid-cols-[minmax(0,1fr)_440px] gap-[56px] max-[1000px]:grid-cols-2 max-[1000px]:gap-[32px] max-[600px]:grid-cols-1 max-[600px]:gap-6">
       <div className="min-w-0">
         <span className="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]">GETİRBAKİM HESABIM</span>
@@ -86,5 +87,6 @@ export default async function Addresses({ searchParams }: { searchParams: Promis
           : <Alert className="rounded-md border-0 bg-[#eef7fd] p-3.5 text-sm leading-5">En çok {ADDRESS_LIMIT} adres kaydedebilirsin. Yeni adres eklemek için önce bir adresini sil ya da var olan bir adresi düzenle.</Alert>}
       </Card>
     </div>
+    </AddressNoticeScope>
   </section>;
 }

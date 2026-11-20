@@ -5,12 +5,13 @@ import nodemailer, { type Transporter } from "nodemailer";
 import { contactEmail } from "@/lib/site";
 
 /**
- * Outgoing email (#951). MAIL_TRANSPORT picks the transport: `smtp` (any provider, e.g. Amazon SES SMTP) or `file`
- * (writes .eml files for local checks, refused in production). Unset, unknown or incomplete settings send nothing:
+ * Outgoing email (#951). MAIL_TRANSPORT picks the transport: `smtp` (any provider, e.g. Amazon SES SMTP), `ses` (Amazon SES v2 API with the
+ * default AWS credential chain, i.e. the ECS task role; no keys in env) or `file` (writes .eml files for local checks, refused in production). Unset, unknown or incomplete settings send nothing:
  * sendMail returns `skipped` so callers record it instead of failing the order flow.
  */
 export type MailConfig =
   | { kind: "smtp"; from: string; replyTo: string; host: string; port: number; secure: boolean; user: string | null; password: string | null }
+  | { kind: "ses"; from: string; replyTo: string; region: string }
   | { kind: "file"; from: string; replyTo: string; dir: string }
   | { kind: "none"; reason: string };
 
@@ -23,7 +24,7 @@ const value = (env: Env, key: string) => env[key]?.trim() || null;
 export function mailConfig(env: Env = process.env): MailConfig {
   const transport = value(env, "MAIL_TRANSPORT");
   if (!transport) return { kind: "none", reason: "MAIL_TRANSPORT is not set" };
-  if (transport !== "smtp" && transport !== "file") return { kind: "none", reason: `unknown MAIL_TRANSPORT ${transport}` };
+  if (transport !== "smtp" && transport !== "file" && transport !== "ses") return { kind: "none", reason: `unknown MAIL_TRANSPORT ${transport}` };
   const from = value(env, "MAIL_FROM");
   if (!from) return { kind: "none", reason: "MAIL_FROM is missing" };
   const replyTo = value(env, "MAIL_REPLY_TO") ?? contactEmail;
@@ -31,6 +32,7 @@ export function mailConfig(env: Env = process.env): MailConfig {
     if (env.NODE_ENV === "production") return { kind: "none", reason: "MAIL_TRANSPORT=file is refused in production" };
     return { kind: "file", from, replyTo, dir: value(env, "MAIL_FILE_DIR") ?? ".local/mail" };
   }
+  if (transport === "ses") return { kind: "ses", from, replyTo, region: value(env, "SES_REGION") ?? value(env, "AWS_REGION") ?? "eu-central-1" };
   const host = value(env, "SMTP_HOST");
   if (!host) return { kind: "none", reason: "SMTP_HOST is missing" };
   const port = Number(value(env, "SMTP_PORT") ?? 587);
@@ -58,6 +60,18 @@ function smtpTransport(config: Extract<MailConfig, { kind: "smtp" }>) {
   return transporter;
 }
 
+async function sesTransport(config: Extract<MailConfig, { kind: "ses" }>) {
+  const key = JSON.stringify(config);
+  let transporter = transporters.get(key);
+  if (!transporter) {
+    // Loaded on demand so smtp/file deployments never initialise the AWS SDK.
+    const { SESv2Client, SendEmailCommand } = await import("@aws-sdk/client-sesv2");
+    transporter = nodemailer.createTransport({ SES: { sesClient: new SESv2Client({ region: config.region }), SendEmailCommand } });
+    transporters.set(key, transporter);
+  }
+  return transporter;
+}
+
 /** Sends one message; transport errors throw. An unconfigured transport returns `skipped` without throwing. */
 export async function sendMail(message: MailMessage, config: MailConfig = mailConfig()): Promise<MailResult> {
   if (config.kind === "none") return { status: "skipped", reason: config.reason };
@@ -65,6 +79,11 @@ export async function sendMail(message: MailMessage, config: MailConfig = mailCo
   if (config.kind === "smtp") {
     const info = await smtpTransport(config).sendMail(mail);
     return { status: "sent", messageId: info.messageId };
+  }
+  if (config.kind === "ses") {
+    const info = await (await sesTransport(config)).sendMail(mail);
+    // The raw MIME carries our Message-ID; info.messageId is SES's own, used only when none was given.
+    return { status: "sent", messageId: message.messageId ?? info.messageId };
   }
   const info = await nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "unix" }).sendMail(mail);
   if (!Buffer.isBuffer(info.message)) throw new Error("Mail file transport returned no buffer");
