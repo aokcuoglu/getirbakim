@@ -7,20 +7,21 @@ import { contactEmail, contactPhone, siteName, siteUrl } from "@/lib/site";
 import { money } from "./money";
 import type { CommerceOrder } from "./orders";
 import { invoiceAddressText, invoiceSummary, invoiceTypes } from "./tr-address";
+import { ORDER_EMAIL_LEASE_MINUTES, orderEmailDue, type OrderEmailKind } from "./order-email-state";
 
 /**
  * Order confirmation email (#951). recordPaid queues one row per order in the payment transaction that settles it;
  * deliverOrderEmails claims pending rows with a lease and sends them after the response (after()) or from the 5-minute
  * payment sweep. A row is sent at most once per claim. A failed send stays pending and is retried with a growing
  * backoff (RETRY_SQL) until the row is a day old; then it is given up as failed, so a provider outage of hours still
- * delivers.
+ * delivers. An admin's resend (requeueOrderEmail, #1035) puts any row that is not in flight back in the queue with a
+ * fresh day and backoff; delivery still checks the order state before sending.
  */
-// A claim older than this is not in flight any more (a send takes seconds; the SMTP timeouts are 10–15 s).
-const LEASE_MINUTES = 10;
+const LEASE_MINUTES = ORDER_EMAIL_LEASE_MINUTES;
 const STALE_HOURS = 24;
 // Minutes after the last claim before the next try: 10, 30, 90, 270, then every 8 hours (about 7 tries in a day).
 const RETRY_SQL = "LEAST(10*power(3,GREATEST(attempts-1,0)),480)::int";
-// Only an order still waiting for confirmation after a settled payment is confirmed; a cancel or refund in between skips it.
+// Recorded when the order no longer wants the email (orderEmailDue), e.g. a cancel or refund before the send.
 const NO_LONGER_PENDING = "order no longer pending";
 
 export type ConfirmationOrder = Pick<CommerceOrder,
@@ -133,7 +134,7 @@ export type DeliverResult = { sent: number; skipped: number; failed: number };
 
 const confirmationColumns = "id,number,email,customer_name,phone,address,note,created_at,subtotal_kurus,shipping_kurus,total_kurus,discount_percent,installment_count,installment_fee_kurus,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office,invoice_province,invoice_district,invoice_address_line,invoice_postal_code";
 
-async function confirmationMessage(orderId: string) {
+async function confirmationMessage(orderId: string, requeuedAt: Date | null) {
   const [order, items, agreement] = await Promise.all([
     db.query<ConfirmationOrder & { email: string; status: string; payment_status: string }>(`SELECT ${confirmationColumns},status,payment_status FROM commerce_orders WHERE id=$1`, [orderId]),
     db.query<ConfirmationItem>("SELECT name,code,quantity,unit_price_kurus FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id", [orderId]),
@@ -141,15 +142,16 @@ async function confirmationMessage(orderId: string) {
   ]);
   const row = order.rows[0];
   if (!row) throw new Error("Order not found");
-  if (row.status !== "pending" || row.payment_status !== "paid") return { number: row.number, message: null };
+  if (!orderEmailDue.confirmation(row)) return { number: row.number, message: null };
   const content = buildOrderConfirmation({ order: row, items: items.rows, hasAgreement: Boolean(agreement.rowCount), baseUrl: siteUrl });
-  // Deterministic, so a resend after a lost reply is recognisable as the same message.
-  return { number: row.number, message: { ...content, to: row.email, messageId: `<order-${orderId}-confirmation@${new URL(siteUrl).hostname}>` } };
+  // Deterministic, so a retry after a lost reply is recognisable as the same message; an admin's resend is a new one.
+  const resend = requeuedAt ? `-r${Math.floor(new Date(requeuedAt).getTime() / 1000)}` : "";
+  return { number: row.number, message: { ...content, to: row.email, messageId: `<order-${orderId}-confirmation${resend}@${new URL(siteUrl).hostname}>` } };
 }
 
 /**
  * Sends pending order emails: all of them (oldest first, up to `limit`) or only `orderId`'s. Rows older than a day are
- * given up: `failed` when tried, `skipped`/stale when never tried. Each row is claimed atomically (SKIP LOCKED plus the
+ * given up (counted from an admin's resend, if any): `failed` when tried, `skipped`/stale when never tried. Each row is claimed atomically (SKIP LOCKED plus the
  * retry backoff, which is never shorter than the lease), so concurrent calls never send it twice.
  */
 export async function deliverOrderEmails({ orderId, limit = 10, send = message => sendMail(message) }: DeliverOptions = {}): Promise<DeliverResult> {
@@ -159,24 +161,24 @@ export async function deliverOrderEmails({ orderId, limit = 10, send = message =
     `UPDATE commerce_order_emails e SET status=CASE WHEN e.attempts>0 THEN 'failed' ELSE 'skipped' END,
       last_error=CASE WHEN e.attempts>0 THEN left('stale after '||e.attempts||' attempts: '||coalesce(e.last_error,''),500) ELSE 'stale' END
      FROM commerce_orders o WHERE o.id=e.order_id AND e.status='pending'
-      AND e.created_at < now()-make_interval(hours=>$2) AND ($1::uuid IS NULL OR e.order_id=$1)
+      AND COALESCE(e.requeued_at,e.created_at) < now()-make_interval(hours=>$2) AND ($1::uuid IS NULL OR e.order_id=$1)
       AND (e.claimed_at IS NULL OR e.claimed_at < now()-make_interval(mins=>$3))
      RETURNING e.status,o.number::text,e.attempts`, [only, STALE_HOURS, LEASE_MINUTES],
   )).rows;
   for (const row of given) {
     if (row.status === "failed") { result.failed++; console.error("Order email given up", { order: row.number, attempts: row.attempts }); }
   }
-  const claimed = (await db.query<{ order_id: string; kind: string; attempts: number }>(
+  const claimed = (await db.query<{ order_id: string; kind: string; attempts: number; requeued_at: Date | null }>(
     `UPDATE commerce_order_emails SET claimed_at=now(),attempts=attempts+1 WHERE (order_id,kind) IN (
        SELECT order_id,kind FROM commerce_order_emails WHERE status='pending' AND ($1::uuid IS NULL OR order_id=$1)
         AND (claimed_at IS NULL OR claimed_at < now()-make_interval(mins=>${RETRY_SQL}))
        ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED)
-     RETURNING order_id::text,kind,attempts`, [only, limit],
+     RETURNING order_id::text,kind,attempts,requeued_at`, [only, limit],
   )).rows;
   for (const row of claimed) {
     let number: string | null = null;
     try {
-      const built = await confirmationMessage(row.order_id);
+      const built = await confirmationMessage(row.order_id, row.requeued_at);
       number = built.number;
       if (!built.message) {
         await db.query("UPDATE commerce_order_emails SET status='skipped',last_error=$3 WHERE order_id=$1 AND kind=$2", [row.order_id, row.kind, NO_LONGER_PENDING]);
@@ -203,6 +205,20 @@ export async function deliverOrderEmails({ orderId, limit = 10, send = message =
     }
   }
   return result;
+}
+
+/**
+ * An admin's resend (#1035): puts the row back in the queue with no attempts, no backoff and a fresh day, unless a send
+ * holds it right now (a claim within the lease). False when there is no such row or it is in flight. The order state is
+ * not checked here: delivery decides whether the email is still due.
+ */
+export async function requeueOrderEmail(orderId: string, kind: OrderEmailKind, adminId: string): Promise<boolean> {
+  const result = await db.query(
+    `UPDATE commerce_order_emails SET status='pending',attempts=0,claimed_at=NULL,last_error=NULL,requeued_at=now(),requeued_by=$3
+     WHERE order_id=$1 AND kind=$2 AND (status<>'pending' OR claimed_at IS NULL OR claimed_at < now()-make_interval(mins=>$4))`,
+    [orderId, kind, adminId, LEASE_MINUTES],
+  );
+  return (result.rowCount ?? 0) > 0;
 }
 
 /** deliverOrderEmails for after(): logs instead of throwing, so a mail problem never reaches the payment flow. */

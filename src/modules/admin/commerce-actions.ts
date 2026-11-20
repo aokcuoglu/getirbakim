@@ -14,6 +14,8 @@ import { INSTALLMENT_COUNTS } from '@/modules/payments/installment-plan';
 import { installmentInput } from './installment-input';
 import { parcelSchema } from '@/modules/shipping/geliver-parcel';
 import { createGeliverLabel,checkGeliverLabel,type GeliverLabelOutcome } from '@/modules/shipping/geliver-labels';
+import { orderEmailKinds } from '@/modules/store/order-email-state';
+import { deliverOrderEmailsSafely,requeueOrderEmail } from '@/modules/store/order-email';
 export async function savePricing(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({markup:z.coerce.number().min(0).max(1000).multipleOf(0.01),vat:z.coerce.number().min(0).max(100).multipleOf(0.01),age:z.coerce.number().int().min(1).max(168)}).safeParse(Object.fromEntries(form));
@@ -162,6 +164,20 @@ export async function checkGeliverShipment(form:FormData) {
  catch(error) { console.error('Geliver label check failed',{orderId:input.data.order,error:error instanceof Error ? error.message : error}); outcome='label_unknown'; }
  revalidateOrder(input.data.order);
  redirect(orderListReturn(input.data.back,outcome,orderNumber));
+}
+/**
+ * Resend of an order email (#1035): puts the row back in the queue and sends it now, so the list shows the outcome.
+ * Delivery still checks the order state (a confirmation only goes out while the order waits for confirmation).
+ */
+export async function resendOrderEmail(form:FormData) {
+ const admin=await requireAdmin();
+ const input=z.object({id:z.uuid(),kind:z.enum(orderEmailKinds),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
+ if(!await requeueOrderEmail(input.data.id,input.data.kind,admin.id)) redirect(orderListReturn(input.data.back,'error'));
+ const result=await deliverOrderEmailsSafely({orderId:input.data.id});
+ const outcome:OrderListOutcome=result?.sent ? 'email_sent' : result?.skipped ? 'email_skipped' : 'email_pending';
+ revalidateOrder(input.data.id);
+ redirect(orderListReturn(input.data.back,outcome));
 }
 // The admin panel (lists, sidebar counts, dashboard) and the customer's own order pages; nothing else shows order state.
 function revalidateOrder(id:string) {

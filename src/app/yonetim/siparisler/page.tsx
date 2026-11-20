@@ -11,6 +11,8 @@ import { carrierLabel } from "@/modules/store/shipment";
 import { isHandledPayment } from "@/modules/store/payment-states";
 import { OrderShipmentDialog, type GeliverOption } from "@/components/admin/order-shipment-dialog";
 import { geliverConfig } from "@/modules/shipping/geliver";
+import { mailConfig } from "@/lib/mail";
+import { OrderEmails } from "@/components/admin/order-emails";
 import {
   geliverErrorMessage, geliverTestBlocked, geliverTestBlockedMessage, recipientBlockLabel, recipientOf, trackingLook, type GeliverMode, type RecipientOrder,
 } from "@/modules/shipping/geliver-request";
@@ -70,6 +72,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
   const geliverMode = geliverConfig()?.mode ?? null;
+  const mailReady = mailConfig().kind !== "none";
   const [{ orders, page, filter, procurement, owner, counts }, fitment] = await Promise.all([adminOrders(params.page, params.status, params, params.tedarik, params.sahip), fitmentReturnReport()]);
   const href = (changes: { status?: string; page?: number; procurement?: string; owner?: string }) => {
     const query = new URLSearchParams();
@@ -107,6 +110,9 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.label_orphan && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>{/^\d+$/.test(params.label_orphan) ? `#${params.label_orphan} siparişinin Geliver etiketi` : "Geliver etiketi"} alındı ama sipariş durumu değişmişti; etiketi Geliver panelinden iptal edin.</AlertDescription></Alert>}
     {params.label_held && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>{/^\d+$/.test(params.label_held) ? `#${params.label_held} siparişinin Geliver etiketi` : "Geliver etiketi"} alındı ama partnerin iptal talebi karar bekliyor. Talebi reddederseniz sipariş bu etiketle kargoya verilir; onaylarsanız etiketi Geliver panelinden iptal edin.</AlertDescription></Alert>}
     {params.label_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu sipariş için başka bir Geliver isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
+    {params.email_sent && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>E-posta gönderildi.</AlertDescription></Alert>}
+    {params.email_skipped && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>E-posta gönderilmedi; nedeni siparişin Teslimat ve ödeme ayrıntısındaki E-posta satırında.</AlertDescription></Alert>}
+    {params.email_pending && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>E-posta şu an gönderilemedi ya da sırada. Sistem kendiliğinden yeniden dener; son hata siparişin E-posta satırında.</AlertDescription></Alert>}
     {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
 
     <Tabs value={filter}><ScrollArea className="pb-2">
@@ -184,6 +190,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                       {o.shipped_at && <dd className="text-muted-foreground">Kargoya veriliş: {time(o.shipped_at)}</dd>}
                       {o.delivered_at && <dd className="text-muted-foreground">Teslim: {time(o.delivered_at)}</dd>}
                     </div>}
+                    <OrderEmails order={o} emails={o.emails} back={back} mailReady={mailReady}/>
                     <div className="sm:col-span-2"><dt className="text-muted-foreground">Sözleşme onayı</dt>
                       {o.agreement_at ? <dd className="flex flex-col items-start gap-2">
                         <Badge variant="success"><CircleCheck data-icon="inline-start"/>Sözleşme onaylandı</Badge>
