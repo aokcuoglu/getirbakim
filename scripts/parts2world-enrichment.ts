@@ -74,7 +74,8 @@ if(viaProxy&&!egressProxy)throw Error('--via-proxy needs SUPPLIER_EGRESS_PROXY=h
 const egress=viaProxy?'proxy' as const:'direct' as const;
 const locks=parts2worldLockNames(egress);
 const newClient=()=>new Parts2WorldClient(Number(process.env.PARTS2WORLD_INTERVAL_MS||2500),1000,egressProxy);
-const checkpoint=resolve(option('out')||(viaProxy&&command==='collect'?'artifacts/parts2world/results.proxy.jsonl':'artifacts/parts2world/results.jsonl'));
+const checkpoints={direct:resolve('artifacts/parts2world/results.jsonl'),proxy:resolve('artifacts/parts2world/results.proxy.jsonl')};
+const checkpoint=resolve(option('out')||(viaProxy&&command==='collect'?checkpoints.proxy:checkpoints.direct));
 type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'imported'|'skipped';at:string;url?:string;error?:string;
  counts?:{image:boolean;categories?:number;oems:number;crossReferences:number;specifications:number;vehicles:number;known:number;total:number;invalid:number};package?:unknown};
 const record=async(entry:Omit<Entry,'at'>,queue:string=status)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
@@ -82,10 +83,10 @@ const record=async(entry:Omit<Entry,'at'>,queue:string=status)=>{await mkdir(res
   await recordAttempt(pool,'parts2world',queue,entry.supplierItemId,entry.outcome==='collected'?'found':entry.outcome);};
 // The checkpoint outgrows a single string (hundreds of MB), so it is read line by line; a package already imported or
 // skipped is dropped, only collected-but-unwritten ones are kept for flush.
-async function entries(){
+async function entries(file=checkpoint){
  const latest=new Map<string,Entry>();
  try{
-  for await(const line of createInterface({input:createReadStream(checkpoint,'utf8'),crlfDelay:Infinity}))if(line.trim()){const e=JSON.parse(line) as Entry;
+  for await(const line of createInterface({input:createReadStream(file,'utf8'),crlfDelay:Infinity}))if(line.trim()){const e=JSON.parse(line) as Entry;
    if(e.outcome==='imported'||e.outcome==='skipped'){const merged:Entry={...latest.get(e.supplierItemId),...e};delete merged.package;latest.set(e.supplierItemId,merged);}
    else latest.set(e.supplierItemId,e);}
  }catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
@@ -293,7 +294,9 @@ async function collect(){
   const done=await entries(),limit=Number(option('limit')||50),retry=args.includes('--retry');
   const ids=option('ids')?(await readFile(option('ids')!,'utf8')).split(/\s+/).filter(Boolean):null;
   if(status==='pending')await pool.query('SELECT enrichment_product_states_sync()');
-  const open=(row:Row)=>retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id);
+  // The other egress's worker walks the same queue (#1082): rows it already tried are left to it (#1094).
+  const other=retry||ids?new Map<string,Entry>():await entries(viaProxy?checkpoints.direct:checkpoints.proxy);
+  const open=(row:Row)=>(retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id))&&!other.has(row.id);
   const queued=(await pool.query<Row>(queueSql(Boolean(ids)),ids?[status,ids]:[status])).rows.filter(open);
   // Matched Dinamik price-list-only codes take their share of a pending pass (#1075).
   const share=status==='pending'&&!ids?priceOnlyShare(option('price-only-share')):0;
@@ -314,6 +317,8 @@ async function collect(){
   for(const row of rows){
    index++;
    const queue=row.priceOnly?'price_only':status;
+   // The row list is fixed at the start; a job another worker or source has written since costs no request (#1094).
+   if(!dryRun&&(await pool.query('SELECT 1 FROM product_enrichment_jobs WHERE supplier_item_id=$1 AND status=$2',[row.id,status])).rowCount===0)continue;
    try{
     const ids={articleId:row.articleId,linkId:row.linkId,vehicleTypeId:row.vehicleTypeId};
     const info=parseArticleInfo(await client.articleInfo(articleInfoPath(row.articleId,row.linkId,row.vehicleTypeId)));
