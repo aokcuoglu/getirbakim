@@ -309,7 +309,10 @@ export type VehicleSearchScope={productText:string;vehicleText:string;fitted:boo
 type CatalogSearch={parsed:ParsedSearch;ids:string[];correctedQuery?:string;vehicle?:VehicleSearchScope;tooShort?:boolean};
 // Broad one-word prefixes ("a") stop here instead of shipping every catalog id around.
 const maxSearchHits=50000;
-/** Ids of every catalog row the search matches: supplier items, store products and enriched OEM numbers. */
+/**
+ * Ids of every catalog row the search matches: supplier items, store products and enriched OEM numbers (`main`), and
+ * the price-only cards (`priceOnly`, #1068), kept apart so they never take the cap's slots from the others (#1081).
+ */
 function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
  // The stored search fields hold the supplier OEM; a row whose OEM field an admin hid (#615) is matched by
  // overrideItemMatch instead, on its text and code without the OEM. The anti-join reads the small overrides table.
@@ -322,10 +325,11 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
   // price-only branch (~130 ms for "bosch" at 100k price-only rows). The price-only hits are not checked against the
   // view here: a probe per hit cost ~9 µs (~170 ms for 16k name hits). Every reader of the ids reads them back through
   // the storefront views by id (summarizeSearch, catalogFilter, suggestProducts), so a row the view no longer lists
-  // (sold since the last refresh, or yielding to another card) is never shown.
-  `SELECT u.id FROM commerce_dropped_items u WHERE ${supplierItemMatch("u",parsed,bind,mode)} AND ${oemHidden("u")}`,
-  `SELECT q.supplier_item_id FROM storefront_price_only_items q WHERE ${priceOnlyItemMatch("q",parsed,bind,mode)}
-    AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=q.supplier_item_id AND ho.hide_oem)`];
+  // (sold since the last refresh, or yielding to another card) is never shown. The search's `ids` may therefore hold
+  // a few ids no listing shows; their count is not a result count.
+  `SELECT u.id FROM commerce_dropped_items u WHERE ${supplierItemMatch("u",parsed,bind,mode)} AND ${oemHidden("u")}`];
+ const priceOnly=`SELECT q.supplier_item_id FROM storefront_price_only_items q WHERE ${priceOnlyItemMatch("q",parsed,bind,mode)}
+    AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=q.supplier_item_id AND ho.hide_oem)`;
  // OEM numbers always carry digits. The trigram index on enrichment_oem_search (db/enrichment-search.sql, #609)
  // narrows the enrichments first; normalising every stored reference per query took ~3 s.
  if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact)){const key=bind(`%${parsed.compact}%`);hits.push(`SELECT e.supplier_item_id FROM storefront_enrichments e
@@ -345,7 +349,23 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
  // Rows renamed by an admin are found by the new name (#575), store brand and part number (#602).
  const overridden=overrideItemMatch(parsed,bind,mode);
  if(overridden)hits.push(overridden);
- return hits.join(" UNION ALL ");
+ return {main:hits.join(" UNION ALL "),priceOnly};
+}
+/**
+ * The search's hit ids, at most `cap`. DISTINCT on the uuid, text afterwards: sorting 20k+ ids as collated text took
+ * ~50 ms of the query. A secondary supplier offer counts as a hit of the product listing it; rows an admin hid (#575)
+ * are not hits. The price-only cards fill only the slots the other hits leave (#1081): broad name queries ("fren": ~58k
+ * saleable hits) would otherwise lose saleable rows to them under the unordered LIMIT.
+ */
+export function searchHitIdsSql(parsed:ParsedSearch,values:unknown[],mode:SearchMode,cap=maxSearchHits){
+ const {main,priceOnly}=searchHits(parsed,binder(values),mode);
+ const unique=(sql:string)=>`SELECT DISTINCT COALESCE(o.primary_id,hit.id) AS id FROM (${sql}) hit(id)
+   LEFT JOIN product_offers o ON o.item_id=hit.id
+   WHERE NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=hit.id AND h.hidden)`;
+ return `WITH main AS MATERIALIZED (${unique(main)} LIMIT ${Number(cap)})
+  SELECT id::text FROM main
+  UNION ALL SELECT id::text FROM (SELECT * FROM (${unique(priceOnly)}) price_only WHERE id NOT IN (SELECT id FROM main)
+   LIMIT ${Number(cap)}-(SELECT count(*) FROM main)) price_only`;
 }
 /** Parses the query and, when nothing matches as typed, retries it with mistyped words corrected. */
 // Memoised per request: the listing, its facets and the vehicle-fit count all filter by the same search.
@@ -356,12 +376,7 @@ const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearc
  // Admin synonyms (#822) join the parser before the query is read.
  await ensureCustomSynonyms();
  const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
-  // DISTINCT on the uuid, text afterwards: sorting 20k+ ids as collated text took ~50 ms of the query.
-  // A secondary supplier offer counts as a hit of the product listing it.
-  // Rows an admin hid (#575) are not hits.
-  return (await db.query<{id:string}>(`SELECT id::text FROM (SELECT DISTINCT COALESCE(o.primary_id,hit.id) AS id FROM (${searchHits(candidate,binder(values),mode)}) hit(id)
-   LEFT JOIN product_offers o ON o.item_id=hit.id
-   WHERE NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=hit.id AND h.hidden) LIMIT ${maxSearchHits}) unique_hits`,values)).rows.map(row=>row.id);};
+  return (await db.query<{id:string}>(searchHitIdsSql(candidate,values,mode),values)).rows.map(row=>row.id);};
  if(searchTooShort(raw))return {parsed:parseSearchQuery(raw),ids:[],tooShort:true};
  const parsed=parseSearchQuery(raw),ids=await hits(parsed);
  if(mode==="code")return {parsed,ids};

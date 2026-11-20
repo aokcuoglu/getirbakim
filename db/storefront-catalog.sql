@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS storefront_price_only_items (
 -- supplier_item_search_codes(). search_source holds the inputs search_doc was built from, so a refresh rebuilds only the
 -- documents whose inputs changed (~33 µs a row: 3.3 s of every refresh at 100k rows). Only as fresh as the last
 -- refresh: the readers of the hits read them back through the storefront views (src/modules/store/catalog.ts).
+-- search_source holds the inputs, not the functions: a change to catalog_search_doc or search_normalize (db/search.sql)
+-- needs `UPDATE storefront_price_only_items SET search_source=NULL` so the next refresh rebuilds every document.
 -- Added only when missing: ADD COLUMN locks the table (ACCESS EXCLUSIVE) even as a no-op.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='storefront_price_only_items'::regclass AND attname='search_doc' AND NOT attisdropped) THEN

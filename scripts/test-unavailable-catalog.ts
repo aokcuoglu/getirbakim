@@ -268,6 +268,21 @@ describe("Dinamik price-list-only codes", () => {
     assert.ok(!(await catalog.browseProducts({ q: "fren diskleri" })).items.some(row => row.id === ids.hiddenPrice));
   });
 
+  test("price-only hits only fill the slots the other hits leave under the cap (#1081)", async () => {
+    await item("trwSaleable", { supplier: "basbug", code: "TRW GDB1234", brand: "TRW", stock: 2 });
+    const { parseSearchQuery } = await import("../src/modules/search/query");
+    const hitIds = async (cap: number) => {
+      const values: unknown[] = [];
+      return (await schema.pool.query<{ id: string }>(catalog.searchHitIdsSql(parseSearchQuery("trw"), values, "all", cap), values)).rows.map(row => row.id);
+    };
+    assert.deepEqual(await hitIds(1), [ids.trwSaleable]);
+    const all = await hitIds(50);
+    assert.equal(all[0], ids.trwSaleable);
+    assert.ok(all.includes(ids.qualifying) && all.includes(ids.duplicateNew));
+    assert.equal(new Set(all).size, all.length);
+    assert.deepEqual(new Set(await hitIds(2)).size, 2);
+  });
+
   test("a code whose brand and part number another usable row carries gets no card, linked or not (#1081)", async () => {
     // Sold by Başbuğ under its own code, not grouped with it (no product_sources row).
     await priceOnly("identitySold", { code: "BREMBO 09.A123.11", brand: "BREMBO" });
@@ -318,6 +333,11 @@ describe("Dinamik price-list-only codes", () => {
     assert.equal(row?.available, true);
     assert.ok(row?.price_kurus);
     assert.deepEqual(await cards(), ["duplicateNew"]);
+    // Before the next refresh its stale price-only search fields still find it: once, as the saleable product.
+    for (const query of [{ q: "trw diskleri" }, { q: "trw diskleri", brand: "TRW" }]) {
+      const found = (await catalog.browseProducts(query)).items.filter(row => row.id === ids.qualifying);
+      assert.deepEqual(found.map(row => [row.unavailable, row.price_only]), [[false, false]], JSON.stringify(query));
+    }
     assert.equal(await refresh(), 1);
     assert.equal((await schema.pool.query("SELECT 1 FROM storefront_price_only_items WHERE supplier_item_id=$1", [ids.qualifying])).rowCount, 0);
   });
