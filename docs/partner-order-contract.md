@@ -138,12 +138,19 @@ together. A partner with no limit cannot order
 
 **Paused order intake.** GetirBakım can pause a partner's order intake from
 its admin. While paused, `POST /order-quotes` and new `POST /orders` are
-refused with `503 ORDER_INTAKE_PAUSED` (no `details`, no `Retry-After`), before
-the limit, the quote or a supplier check. `GET /products`, `GET /orders/:id`,
-`GET /orders/by-key/:key` and `DELETE /orders/:id` keep working, and repeating
-an order created before the pause with the same `Idempotency-Key` and body
-still answers `200` with that order. Do not retry automatically; ordering
-resumes once GetirBakım reopens intake.
+refused with `503 ORDER_INTAKE_PAUSED` (no `details`, no `Retry-After`). On
+`POST /order-quotes` body validation (`400 VALIDATION_ERROR`) and
+`QUOTE_CONFIGURATION_UNAVAILABLE` come first; on `POST /orders` the pause is
+checked after the replay of a known key and before the limit, the quote or a
+supplier check, and again when the order is created. `GET /products`,
+`GET /orders/:id`, `GET /orders/by-key/:key` and `DELETE /orders/:id` keep
+working, and repeating an order created before the pause with the same
+`Idempotency-Key` and body still answers `200` with that order. A key that did
+not create an order is not replayed: retrying it while paused, including a
+request that was in flight when the pause landed, gets `503` again. Quotes
+issued before a pause keep their 15-minute expiry, so after a longer pause the
+partner requests a new quote (`409 QUOTE_EXPIRED` otherwise). Do not retry
+automatically; ordering resumes once GetirBakım reopens intake.
 
 ## GET /orders/:id and GET /orders/by-key/:key
 

@@ -43,7 +43,8 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Partnerler ve cari limit</h1>
-        <p className="text-muted-foreground">Partner (API) siparişleri cari hesaba yazılır. Alacak; iptal edilmemiş ve teslim edilmemiş siparişler ile teslim edilmiş ama faturalanmamış siparişlerin toplamıdır (kargo dahil). Yeni sipariş alacağı limitin üstüne çıkaracaksa reddedilir; limiti olmayan partner sipariş veremez. Teslim edilen siparişler &quot;Faturalandı&quot; işaretlenince limitten düşer; yanlış işaret gerekçeyle düzeltilebilir ya da geri alınabilir. Bir partnerin sipariş alımı geçici olarak durdurulabilir; durdurulan partner yeni teklif alamaz ve sipariş veremez.</p>
+        <p className="text-muted-foreground">Partner (API) siparişleri cari hesaba yazılır. Alacak; iptal edilmemiş ve teslim edilmemiş siparişler ile teslim edilmiş ama faturalanmamış siparişlerin toplamıdır (kargo dahil). Yeni sipariş alacağı limitin üstüne çıkaracaksa reddedilir; limiti olmayan partner sipariş veremez. Teslim edilen siparişler &quot;Faturalandı&quot; işaretlenince limitten düşer; yanlış işaret gerekçeyle düzeltilebilir ya da geri alınabilir.</p>
+        <p className="text-muted-foreground">Bir partnerin sipariş alımı geçici olarak durdurulabilir; durdurulan partner yeni teklif alamaz ve sipariş veremez.</p>
       </div>
       <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler?sahip=partner"/>}>Partner siparişleri<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
     </div>
@@ -76,7 +77,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
                 <span className="font-medium">{p.code}</span>
                 {!p.configured && <StatusBadge tone="warning">API anahtarı yok</StatusBadge>}
                 {p.intakePausedAt && <>
-                  <StatusBadge tone="error" icon={CirclePause}>Sipariş alımı durduruldu</StatusBadge>
+                  <StatusBadge tone="warning" icon={CirclePause}>Sipariş alımı durduruldu</StatusBadge>
                   <span className="text-muted-foreground tabular-nums">{formatDateTime(p.intakePausedAt, { year: true })} · {p.intakePausedBy ?? "—"}</span>
                 </>}
               </div></TableCell>

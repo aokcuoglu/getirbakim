@@ -42,6 +42,8 @@ let supplierCalls = 0;
 // Codes MalzemeAra no longer knows (HTTP 604): the live check refuses them (#770).
 const gone = new Set<string>();
 let liveDown = false;
+// Runs once at the next supplier request: something that happens while the order waits for the live check.
+let onSupplierCall: (() => Promise<unknown>) | null = null;
 const codes = ["PART-A", "PART-B"];
 const offers: Record<string, string> = {};
 
@@ -76,6 +78,9 @@ before(async () => {
   for (const code of codes) { prices[code] = 100; stocks[code] = 5; }
   globalThis.fetch = async input => {
     supplierCalls++;
+    const hook = onSupplierCall;
+    onSupplierCall = null;
+    await hook?.();
     const url = String(input);
     const asked = url.includes("/material/MalzemeAra") ? new URL(url).searchParams.get("MalzemeNo") ?? "" : "";
     // new Response rejects 604, as in scripts/test-supplier-checkout.ts.
@@ -111,7 +116,7 @@ before(async () => {
 });
 beforeEach(async () => {
   for (const code of codes) { prices[code] = 100; stocks[code] = 5; }
-  gone.clear(); liveDown = false;
+  gone.clear(); liveDown = false; onSupplierCall = null;
   await reimport();
   supplierCalls = 0;
   // Each test starts without open or uninvoiced partner orders and without panel limits, so the limit sees only its own.
@@ -307,6 +312,25 @@ test("a paused partner (#1009) gets no quote and no new order; others, reads and
   await intake.setPartnerIntakePaused("bakimx", false, null);
   assert.equal((await intake.pausedPartners(["bakimx"])).size, 0);
   assert.equal((await partnerOrders.createPartnerOrder("bakimx", randomUUID(), pending, config())).replayed, false);
+});
+
+test("a pause (#1009) that lands during the live supplier check refuses the order under the partner's lock", async () => {
+  const { body } = await quoteAndBody([{ code: "PART-A", quantity: 1 }]);
+  const key = randomUUID();
+  const earlier = await partnerOrders.createPartnerOrder("bakimx", key, body, config());
+  const { body: pending } = await quoteAndBody([{ code: "PART-B", quantity: 1 }]);
+  const count = await orderCount();
+  supplierCalls = 0;
+  // The lock-free check passed; the pause lands while the supplier answers, before the order takes the lock.
+  onSupplierCall = () => intake.setPartnerIntakePaused("bakimx", true, null);
+  const late = randomUUID();
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", late, pending, config()), refusal("ORDER_INTAKE_PAUSED"));
+  assert.ok(supplierCalls > 0);
+  assert.equal(await orderCount(), count);
+  // The earlier key still replays; the late key created nothing, so it is refused again rather than replayed.
+  const again = await partnerOrders.createPartnerOrder("bakimx", key, body, config());
+  assert.deepEqual([again.replayed, again.order.id], [true, earlier.order.id]);
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", late, pending, config()), refusal("ORDER_INTAKE_PAUSED"));
 });
 
 test("the intake switch (#1009) and the panel limit leave each other alone; a second pause keeps the first time", async () => {
