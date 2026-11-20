@@ -93,7 +93,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
                   placeholder={p.source === "env" && p.limitKurus != null ? tl(p.limitKurus) : "Boş"} defaultValue={p.panelKurus == null ? "" : tl(p.panelKurus)}/>
                 <InputGroupAddon align="inline-end"><InputGroupText>TL</InputGroupText></InputGroupAddon>
               </InputGroup></TableCell>
-              <TableCell><div className="flex flex-wrap justify-end gap-2">
+              <TableCell className="whitespace-normal"><div className="flex flex-col items-end gap-2">
                 <form id={form} action={savePartnerLimit}><input type="hidden" name="partner" value={p.code}/><SubmitButton variant="outline" aria-label={`${p.code}: Limiti kaydet`}>Kaydet</SubmitButton></form>
                 <PartnerInvoiceDialog partner={p.code} days={p.days} today={today}/>
                 {p.intakePausedAt
