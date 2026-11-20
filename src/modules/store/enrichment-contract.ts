@@ -48,7 +48,9 @@ const normalize = (value: string) => value.toUpperCase().normalize("NFD").replac
 const aliases: Record<string, string> = { FEBI: "FEBIBILSTEIN", MANN: "MANNFILTER", HENGST: "HENGSTFILTER",
   // TecDoc data-supplier names (parts2world) of brands our suppliers list under their short name.
   SCHAEFFLERINA: "INA", SCHAEFFLERLUK: "LUK", SCHAEFFLERFAG: "FAG", AVACLEVERCHOICE: "AVA", BORGWARNERBERU: "BERU",
-  VDOCONTINENTAL: "VDO", AMSOSRAM: "OSRAM" };
+  VDOCONTINENTAL: "VDO", AMSOSRAM: "OSRAM",
+  // Trodo prints Dana's gasket brand as "REINZ"; spareto and Dinamik say "VICTOR REINZ" (#1111).
+  REINZ: "VICTORREINZ" };
 export const manufacturerBrandKey = (value: string) => aliases[normalize(value)] || normalize(value);
 const brandKey = manufacturerBrandKey;
 const prefixes: Record<string, string[]> = {
@@ -79,10 +81,15 @@ function matchesBrandPart(supplierBrand: string, supplierCode: string, manufactu
   const brand = brandKey(supplierBrand);
   if (brand !== brandKey(manufacturer)) return false;
   if (partKey(supplierCode) === partKey(partNumber)) return true;
-  const [prefix, ...rest] = supplierCode.trim().split(/\s+/);
-  // Dinamik also prefixes codes with the brand's own name ("BOSCH 0986424533", "TEKNOROT HY-1044K").
-  const known = (prefixes[brand] || []).includes(prefix.toUpperCase()) || brandKey(prefix) === brand;
-  return known && rest.length > 0 && partKey(rest.join(" ")) === partKey(partNumber);
+  const words = supplierCode.trim().split(/\s+/);
+  // Dinamik also prefixes codes with the brand's own name, several words long for some brands ("BOSCH 0986424533",
+  // "TEKNOROT HY-1044K", "VICTOR REINZ 61-36960-00", #1111).
+  return words.some((_, at) => {
+    if (at === 0) return false;
+    const prefix = words.slice(0, at).join(" ");
+    const known = (at === 1 && (prefixes[brand] || []).includes(prefix.toUpperCase())) || brandKey(prefix) === brand;
+    return known && partKey(words.slice(at).join(" ")) === partKey(partNumber);
+  });
 }
 
 export type PartCodeOem = { reference: string; source: "original_manufacturer_part_code" | "replica_part_code" };
