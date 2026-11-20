@@ -11,6 +11,8 @@ import { Card } from "@/components/ui/card";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { saveVehicle,removeVehicle,switchVehicleForm,removeVehicleForm } from "./actions";
+import {storeButton} from "@/components/store-button";
+import {cn} from "@/lib/utils";
 const vehicleMakes=["Volkswagen","BMW","Mercedes-Benz","Audi","Renault","Ford","Peugeot","Toyota","Fiat","Opel","Hyundai","Honda"];
 const label="text-sm leading-5 font-normal";
 const input="h-[52px] rounded-lg bg-white px-3.5 py-[13px] text-base leading-6 md:text-base placeholder:text-sm";
@@ -44,7 +46,7 @@ export default async function Garage({searchParams}:{searchParams:Promise<Search
     {vehicle && <form action={removeVehicle}><Button type="submit" variant="link" className="mt-3 h-auto min-h-0 border-0 bg-transparent px-0 py-[5px] text-sm leading-5 font-normal text-primary hover:bg-transparent hover:text-brand-strong hover:no-underline">Aracı garajımdan kaldır</Button></form>}
     {others.length>0 && <><h2 className="mt-6 mb-2 text-lg leading-7 font-semibold">Diğer kayıtlı araçlar</h2><ul className="grid divide-y divide-border">{others.map(entry=><li key={entry.key} className="flex items-center gap-3 py-2.5 text-sm leading-5"><span className="min-w-0 flex-1 wrap-anywhere">{garageVehicleLabel(entry)}</span>
      <form action={switchVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="link" className="h-auto min-h-0 px-0 text-sm font-normal text-primary">Bu aracı seç</Button></form>
-     <form action={removeVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="ghost" size="icon" className="size-8 text-muted-foreground hover:text-destructive" aria-label={`${shownVehicle(entry).makeLabel} ${shownVehicle(entry).modelLabel} aracını kaldır`}><Trash2 className="size-[15px]"/></Button></form></li>)}</ul></>}
+     <form action={removeVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="ghost" size="icon" className={cn(storeButton({intent:"ghost",size:"icon"}),"text-muted-foreground hover:text-destructive")} aria-label={`${shownVehicle(entry).makeLabel} ${shownVehicle(entry).modelLabel} aracını kaldır`}><Trash2 className="size-[15px]"/></Button></form></li>)}</ul></>}
    </Card>
   </div>
  </section>;

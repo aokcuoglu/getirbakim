@@ -49,7 +49,7 @@ export function OrderSummary({items,discount,shipping,checkout=false,className}:
     {!checkout && <div className="grid gap-4">
       {valid ? <Button nativeButton={false} className={cn(action, "font-semibold hover:bg-brand-strong max-[760px]:hidden")} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]" aria-hidden/>Siparişi tamamla</Button>
         : <p id="cart-invalid" className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]">Siparişe devam etmek için uygun olmayan ürünleri kaldır veya adetlerini güncelle.</p>}
-      <Button variant="outline" nativeButton={false} className={cn(action, "border-input bg-white font-medium text-foreground hover:bg-muted max-[760px]:hidden")} render={<Link href={catalogPath}/>}>Alışverişe devam et</Button>
+      <Button variant="outline" nativeButton={false} className={cn(action, "border-control-border bg-white font-medium text-foreground hover:bg-muted max-[760px]:hidden")} render={<Link href={catalogPath}/>}>Alışverişe devam et</Button>
     </div>}
     <p className="mt-3.5 mb-0 text-center text-xs text-muted-foreground">{PAYMENT_NOTICE}</p>
   </aside>;

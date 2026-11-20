@@ -8,6 +8,8 @@ import {Checkbox} from "@/components/ui/checkbox";
 import {Input} from "@/components/ui/input";
 import {requestRestock} from "@/modules/store/restock";
 import {restockConsentText,type RestockState} from "@/modules/store/restock-consent";
+import {storeButton} from "@/components/store-button";
+import {cn} from "@/lib/utils";
 
 const initialState:RestockState={status:"idle",message:""};
 
@@ -27,7 +29,7 @@ export function RestockRequestForm({productId,email,priceOnly=false}:{productId:
       <div className="flex gap-2.5 max-[600px]:flex-col">
         <Input type="email" name="email" defaultValue={email} placeholder="E-posta adresin" aria-label="Haber verilecek e-posta adresi" autoComplete="email" maxLength={254} required disabled={pending}
           className="h-12 min-w-0 flex-1 rounded-[5px] bg-white px-3 text-sm"/>
-        <Button type="submit" disabled={pending} className="h-12 rounded-[5px] border-[#2e78c7] bg-[#2e78c7] px-6 text-sm font-semibold text-white hover:bg-[#2168b1] disabled:cursor-wait disabled:opacity-65">{pending?"Kaydediliyor…":"Haber ver"}</Button>
+        <Button type="submit" disabled={pending} className={cn(storeButton({intent:"primary",size:"lg"}),"px-6 disabled:cursor-wait")}>{pending?"Kaydediliyor…":"Haber ver"}</Button>
       </div>
       <label className="flex items-start gap-2 text-xs leading-[18px] text-[#53677d]"><Checkbox name="consent" value="on" required disabled={pending} className="mt-0.5"/><span>{restockConsentText} <Link href="/gizlilik-politikasi" className="underline underline-offset-2 hover:text-[#0065c3]">Gizlilik Politikası</Link></span></label>
       <div className="absolute size-px overflow-hidden [clip-path:inset(50%)]" aria-hidden="true"><label>Website<input type="text" name="website" tabIndex={-1} autoComplete="off"/></label></div>

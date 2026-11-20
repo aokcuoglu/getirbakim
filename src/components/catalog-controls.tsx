@@ -36,7 +36,7 @@ function SidebarCategoryTree({nodes,selected,href,listed}:{nodes:SidebarCategory
  const item="flex min-h-[30px] items-center justify-between py-[5px] pr-[35px] pl-[25px] text-sm leading-5 font-medium text-foreground transition-colors hover:text-brand aria-[current=page]:bg-[#f8f9f9] aria-[current=page]:text-foreground";
  return <div>
   <label className={cn(searchBox,"mx-[25px] mb-[15px]")}><Search size={16} aria-hidden="true" className="shrink-0"/><input type="search" className={searchInput} aria-label="Kategori ara" placeholder="Kategori ara" value={search} onFocus={tree.load} onChange={e=>{setSearch(e.target.value);tree.load();}}/></label>
-  {term&&!tree.categories?(tree.error?<div role="alert" className="flex flex-col items-start gap-3 px-[25px] text-sm leading-[22px] text-muted-foreground"><p>Kategoriler yüklenemedi.</p><Button type="button" variant="outline" className="min-h-11 px-4 text-sm" onClick={tree.retry}>Tekrar dene</Button></div>:<p role="status" aria-busy="true" className="px-[25px] text-sm leading-[22px] text-muted-foreground">Kategoriler yükleniyor…</p>)
+  {term&&!tree.categories?(tree.error?<div role="alert" className="flex flex-col items-start gap-3 px-[25px] text-sm leading-[22px] text-muted-foreground"><p>Kategoriler yüklenemedi.</p><Button type="button" variant="outline" className="min-h-11 border-control-border px-4 text-sm" onClick={tree.retry}>Tekrar dene</Button></div>:<p role="status" aria-busy="true" className="px-[25px] text-sm leading-[22px] text-muted-foreground">Kategoriler yükleniyor…</p>)
   :term?<ul>{matches.map(c=><li key={c.id}><Link className={cn(item,"block")} href={href(c.slug)} aria-current={c.slug===selected?"page":undefined}>{c.name}<small className="mt-[3px] block text-[11px] leading-normal font-normal text-muted-foreground">{categoryPath(categories,c.id).slice(0,-1).map(n=>n.name).join(" / ")}</small></Link></li>)}{!matches.length&&<li className="px-[25px] text-sm leading-[22px] text-muted-foreground">Kategori bulunamadı.</li>}</ul>
   :<ul>{nodes.map(c=><li key={c.id}><Link className={item} href={href(c.slug)} aria-current={c.slug===selected?"page":undefined}><span>{c.name}</span>{c.hasChildren&&<ChevronRight size={14} aria-hidden="true"/>}</Link></li>)}</ul>}
  </div>;
@@ -129,7 +129,7 @@ export function CatalogFilterSheet({brands,facets,chipFacets,params,count,vehicl
  }
  function openChange(next:boolean){setOpen(next);if(next)pushed.current=false;else setDraft(null);}
  const plain="h-auto min-h-11 rounded-md text-sm font-medium";
- const primary="border-brand bg-brand text-white hover:bg-brand-strong",secondary="border-input bg-white text-foreground";
+ const primary="border-brand bg-brand text-white hover:bg-brand-strong",secondary="border-control-border bg-white text-foreground";
  const empty=count===0&&!pending;
  return <Sheet open={open} onOpenChange={openChange}>
   <SheetTrigger render={<Button type="button" variant="outline" className={cn(plain,secondary,"w-full gap-2 px-3")}/>}><SlidersHorizontal size={17} aria-hidden="true"/>Filtrele{chips.length>0&&<span className="tabular-nums">({chips.length})</span>}</SheetTrigger>

@@ -64,7 +64,7 @@ export default async function Cart({searchParams}:{searchParams:Promise<SearchPa
       </div></div>
       <OrderSummary className="max-[760px]:mt-2" items={items} discount={discount} shipping={shipping}/></div>
       <CartActionBar total={total} valid={valid}/>
-      <Button variant="outline" nativeButton={false} className="mt-3 h-auto min-h-11 w-full rounded-[5px] border-input bg-white text-sm font-medium min-[761px]:hidden" render={<Link href={catalogPath}/>}>Alışverişe devam et</Button></>
+      <Button variant="outline" nativeButton={false} className="mt-3 h-auto min-h-11 w-full rounded-[5px] border-control-border bg-white text-sm font-medium min-[761px]:hidden" render={<Link href={catalogPath}/>}>Alışverişe devam et</Button></>
     : <Empty className="gap-6 rounded-none border-0 px-4 py-16"><EmptyMedia className="mb-0"><ShoppingCart className="size-12" aria-hidden/></EmptyMedia><h2 className="m-0 text-2xl leading-[34px] font-semibold">Sepetin henüz boş.</h2><Button nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5 font-semibold hover:bg-brand-strong" render={<Link href={catalogPath}/>}>Alışverişe başla</Button></Empty>}
   </section></div>;
 }

@@ -38,6 +38,7 @@ import { returnReasonLabels, returnReasons, type ReturnReason } from "@/modules/
 import { carrierLabel } from "@/modules/store/shipment";
 import { invoiceAddressText, invoiceSummary, invoiceTypes } from "@/modules/store/tr-address";
 import { catalogPath } from "@/modules/seo/paths";
+import {storeButton} from "@/components/store-button";
 
 const eyebrow="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]";
 const noticeBox="rounded-md border-0 bg-[#eaf1f7] p-[15px] text-sm leading-5 text-[#50718e]";
@@ -148,9 +149,9 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
         {admin && p.fitment_level && <p className={panelMuted}>Uyumluluk (sipariş anında): {fitmentLevelLabels[p.fitment_level]}</p>}
         {admin && returns.filter(r=>r.product_id===p.product_id).map(r=><p key={r.id} className={panelMuted}>İade: {r.quantity} adet · {returnReasonLabels[r.reason as ReturnReason] ?? r.reason}{r.note ? ` · ${r.note}` : ""} · {time(r.created_at)}</p>)}
         {admin && shipment && <form action={recordReturn} className="mt-3 flex flex-wrap items-end gap-2.5"><input type="hidden" name="orderId" value={order.id}/><input type="hidden" name="productId" value={p.product_id}/>
-          <Input className="h-10 w-[85px] bg-white" name="quantity" type="number" min={1} max={p.quantity} defaultValue={1} aria-label="İade adedi" required/>
-          <NativeSelect className="[&>select]:h-10 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
-          <Input className="h-10 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className="h-10 px-4 hover:bg-brand-strong">İade kaydet</Button></form>}
+          <Input className="h-11 w-[85px] bg-white" name="quantity" type="number" min={1} max={p.quantity} defaultValue={1} aria-label="İade adedi" required/>
+          <NativeSelect className="[&>select]:h-11 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
+          <Input className="h-11 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className={storeButton({intent:"primary",size:"md"})}>İade kaydet</Button></form>}
       </div><strong className="shrink-0 font-semibold tabular-nums">{money(lineTotal(p))}</strong></div>)}
       {snapshotNoteTexts.map(text=><p key={text} className={cn(muted,"mt-3")}>{text}</p>)}
       </Card></div>
@@ -181,6 +182,6 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
         {agreement && <Card className={cn(panel,"min-w-0 gap-1 ring-0 max-[600px]:order-5")}><h2 className={panelTitle}>Sözleşmeler</h2><p className={panelText}>Ön bilgilendirme formunu ve mesafeli satış sözleşmesini {time(agreement.accepted_at)} tarihinde onayladın.</p><Link href={`/siparis/${order.id}/sozlesme`} className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 font-medium text-primary hover:underline">Sözleşme kopyasını görüntüle<span aria-hidden>→</span></Link></Card>}
       </div>
     </div>
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 max-[600px]:flex-col-reverse max-[600px]:items-stretch">{mine && <Link href="/siparisler" className="inline-flex min-h-11 items-center text-sm leading-5 font-medium text-primary hover:underline">← Siparişlerime dön</Link>}<Button variant="outline" nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-lg border-input bg-white px-5 py-3 text-sm leading-5 font-medium text-foreground hover:bg-muted" render={<Link href={catalogPath}/>}>Alışverişe devam et</Button></div>
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 max-[600px]:flex-col-reverse max-[600px]:items-stretch">{mine && <Link href="/siparisler" className="inline-flex min-h-11 items-center text-sm leading-5 font-medium text-primary hover:underline">← Siparişlerime dön</Link>}<Button variant="outline" nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-lg border-control-border bg-white px-5 py-3 text-sm leading-5 font-medium text-foreground hover:bg-muted" render={<Link href={catalogPath}/>}>Alışverişe devam et</Button></div>
   </section>;
 }

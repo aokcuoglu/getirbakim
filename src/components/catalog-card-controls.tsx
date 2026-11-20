@@ -7,6 +7,8 @@ import {Button} from "@/components/ui/button";
 import {Dialog,DialogContent,DialogTitle} from "@/components/ui/dialog";
 import {Table,TableBody,TableCell,TableHead,TableHeader,TableRow} from "@/components/ui/table";
 import {StoreCheckbox} from "@/components/site/store-checkbox";
+import {storeButton} from "@/components/store-button";
+import {cn} from "@/lib/utils";
 type Entry={id:string;href:string;title:string;price:string;card:CardSpecification[]};
 const CompareContext=createContext<{entries:Entry[];toggle:(entry:Entry)=>void}>({entries:[],toggle:()=>{}});
 const head="font-bold ";
@@ -20,12 +22,12 @@ export function ComparisonProvider({children}:{children:ReactNode}){
  return <CompareContext.Provider value={{entries,toggle}}>{children}
  {entries.length>0&&<div className="fixed bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-4 rounded-lg border border-[#dfe3e8] bg-white px-5 py-3 text-sm whitespace-nowrap shadow-[0_6px_24px_#0002] max-[600px]:max-w-[95vw] max-[600px]:gap-2 max-[600px]:p-2.5 max-[600px]:text-xs">
   <span>{entries.length}/3 ürün seçildi</span>
-  <Button className="h-8 min-h-0 rounded-[4px] bg-brand px-3 text-sm hover:bg-brand-strong" disabled={entries.length<2} onClick={()=>setOpen(true)}>Karşılaştır</Button>
-  <Button variant="ghost" size="icon" className="min-h-0 p-0 bg-transparent text-foreground" aria-label="Karşılaştırmayı temizle" onClick={()=>setEntries([])}><X className="size-4"/></Button>
+  <Button className={storeButton({intent:"primary",size:"compact"})} disabled={entries.length<2} onClick={()=>setOpen(true)}>Karşılaştır</Button>
+  <Button variant="ghost" size="icon" className={storeButton({intent:"ghost",size:"icon"})} aria-label="Karşılaştırmayı temizle" onClick={()=>setEntries([])}><X className="size-4"/></Button>
  </div>}
  <Dialog open={open} onOpenChange={setOpen}>
   <DialogContent showCloseButton={false} overlayClassName="bg-[#212b3680] supports-backdrop-filter:backdrop-blur-none" className="block max-h-[85dvh] w-auto max-w-[min(1000px,95vw)] overflow-auto rounded-[10px] border border-[#dfe3e8] bg-white p-8 ring-0 sm:max-w-[min(1000px,95vw)]">
-   <Button variant="ghost" size="icon" className="min-h-0 p-0 absolute top-3 right-3 bg-transparent text-foreground" aria-label="Karşılaştırmayı kapat" onClick={()=>setOpen(false)}><X className="size-5"/></Button>
+   <Button variant="ghost" size="icon" className={cn(storeButton({intent:"ghost",size:"icon"}),"absolute top-2 right-2")} aria-label="Karşılaştırmayı kapat" onClick={()=>setOpen(false)}><X className="size-5"/></Button>
    <DialogTitle className="mb-6 text-[26px] leading-[34px] font-semibold">Ürün karşılaştırması</DialogTitle>
    <Table className="min-w-[600px] border-collapse text-sm">
     <TableHeader><TableRow className="border-0 hover:bg-transparent"><TableHead className={head+cell}>Özellik</TableHead>{entries.map(e=><TableHead key={e.id} className={head+cell}><Link className="hover:text-primary hover:underline" href={e.href}>{e.title}</Link></TableHead>)}</TableRow></TableHeader>

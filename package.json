@@ -99,6 +99,7 @@
     "test:cart-count": "node --import tsx --test scripts/test-cart-count.ts",
     "test:vehicle-families": "node --import tsx --test scripts/test-vehicle-families.ts",
     "test:home": "node --import tsx --test scripts/test-home.ts",
+    "test:store-button": "node --import tsx --test scripts/test-store-button.ts",
     "test:client-imports": "node --import tsx --test scripts/test-store-client-imports.ts",
     "test:lazy-module": "node --import tsx --test scripts/test-lazy-module.ts",
     "test:vehicle-model-listing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-model-listing.ts",

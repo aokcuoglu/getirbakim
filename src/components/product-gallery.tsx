@@ -6,6 +6,8 @@ import { X, ZoomIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import type { CatalogProductImage } from "@/modules/store/product-enrichment";
+import {storeButton} from "@/components/store-button";
+import {cn} from "@/lib/utils";
 
 /** The product page's images (#581): the selected one large (zoomable), thumbnails below when there are several. */
 export function ProductGallery({ images, alt }: { images: CatalogProductImage[]; alt: string }) {
@@ -20,7 +22,7 @@ export function ProductGallery({ images, alt }: { images: CatalogProductImage[];
     </DialogTrigger>
     <DialogContent showCloseButton={false} overlayClassName="bg-[#172331b3] supports-backdrop-filter:backdrop-blur-none" className="w-[min(900px,95vw)] max-w-none rounded-lg bg-white p-10 ring-0 sm:max-w-none max-[750px]:px-3 max-[750px]:pt-10 max-[750px]:pb-3 data-open:zoom-in-100">
       <DialogTitle className="sr-only">{label}</DialogTitle>
-      <DialogClose render={<Button variant="secondary" size="icon-lg" className="min-h-0 p-0 absolute top-2.5 right-2.5 size-10 rounded-full bg-[#f7f8fa] text-foreground"/>} aria-label="Görseli kapat"><X className="size-6"/></DialogClose>
+      <DialogClose render={<Button variant="secondary" size="icon-lg" className={cn(storeButton({intent:"ghost",size:"icon"}),"absolute top-2 right-2 rounded-full bg-[#f7f8fa]")}/>} aria-label="Görseli kapat"><X className="size-6"/></DialogClose>
       <Image className="block h-[min(700px,72vh)] w-full object-contain" src={image.src} alt={label} width={image.width} height={image.height} sizes="90vw" />
     </DialogContent>
   </Dialog>;

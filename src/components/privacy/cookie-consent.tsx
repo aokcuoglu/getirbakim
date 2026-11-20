@@ -12,8 +12,8 @@ import { useConsentServices, useServerConsent } from "@/components/privacy/tag-m
 const cookieSettings = lazyModule(() => import("./cookie-settings"));
 const preloadSettings = () => { void cookieSettings.preload(); };
 
-const action = "h-auto min-h-[35px] rounded-[4px] border border-primary bg-primary px-3 py-2 text-xs leading-[18px] font-semibold text-white hover:border-[#0065a9] hover:bg-[#0065a9] max-[600px]:min-h-11 max-[600px]:flex-auto";
-const secondary = cn(action, "border-[#bcc6d0] bg-white font-normal text-foreground hover:border-muted-foreground hover:bg-[#f5f7f9] hover:text-foreground");
+const action = "h-auto min-h-11 rounded-[4px] border border-primary bg-primary px-3 py-2 text-sm leading-5 font-semibold text-white hover:border-[#0065a9] hover:bg-[#0065a9] max-[600px]:flex-auto";
+const secondary = cn(action, "border-control-border bg-white font-normal text-foreground hover:border-muted-foreground hover:bg-[#f5f7f9] hover:text-foreground");
 // The first-visit bar: reject and accept share one style (same size, border and tint), so neither is favoured.
 const choice = "h-auto min-h-11 flex-1 rounded-[4px] border border-primary bg-accent px-4 py-2 text-sm leading-5 font-semibold text-accent-foreground hover:bg-accent hover:text-accent-foreground min-[601px]:flex-none min-[601px]:px-6";
 const optionTexts = {

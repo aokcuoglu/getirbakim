@@ -14,7 +14,8 @@ export function ResponsiveFooterGroup({title,children,accent=false}:{title:strin
   const phone=useMediaQuery("(max-width: 599.98px)");
   const collapsible=useStoreRoute()==="home"&&phone;
   const [open,setOpen]=useState(false);
-  const links=cn("[&>a]:block [&>a]:py-1 [&>a]:text-sm [&>a]:leading-5",accent?"[&>a]:py-0 [&>a]:text-brand-strong":"[&>a]:text-foreground");
+  // Phones: each link is a 44px row (#1091); wider screens keep the compact column.
+  const links=cn("[&>a]:block [&>a]:py-1 [&>a]:text-sm [&>a]:leading-5 max-[600px]:[&>a]:flex max-[600px]:[&>a]:min-h-11 max-[600px]:[&>a]:items-center",accent?"[&>a]:py-0 [&>a]:text-brand-strong":"[&>a]:text-foreground");
   if(!collapsible) return <nav aria-label={title} className="min-w-0"><h2 className="mt-0 mb-4 text-sm leading-5 font-medium">{title}</h2><div className={links}>{children}</div></nav>;
   return <Collapsible open={open} onOpenChange={setOpen}>
     <h2 className="m-0 text-sm leading-5 font-semibold">

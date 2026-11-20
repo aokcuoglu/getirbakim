@@ -46,12 +46,12 @@
      `-product` modifier follows its base, so it wins where both set a property, as the merged class list did. */
   .buy-form { @apply mb-4 flex gap-2; }
   .buy-form-product { @apply mb-5 items-center gap-2.5; }
-  .buy-quantity { @apply h-12 w-[66px] flex-[0_0_66px] cursor-pointer rounded-md border border-input bg-white px-2.5 py-2 max-[767.98px]:w-[72px] max-[767.98px]:flex-[0_0_72px] text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed; }
+  .buy-quantity { @apply h-12 w-[66px] flex-[0_0_66px] cursor-pointer rounded-md border border-control-border bg-white px-2.5 py-2 max-[767.98px]:w-[72px] max-[767.98px]:flex-[0_0_72px] text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed; }
   .buy-quantity-product { @apply w-16 flex-[0_0_64px] rounded-[5px] py-2.5 max-[767.98px]:w-[72px] max-[767.98px]:flex-[0_0_72px]; }
   /* ui/button with the store override, minus the svg, icon, invalid and dark states a text-only submit never has. */
-  .buy-button { @apply inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-brand bg-brand bg-clip-padding px-2 py-[13px] text-sm font-medium whitespace-nowrap text-white transition-all outline-none select-none hover:bg-brand-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100 max-[600px]:group-data-[view=grid]/listing:px-1 max-[600px]:group-data-[view=grid]/listing:text-xs; }
+  .buy-button { @apply inline-flex h-12 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border border-primary bg-primary bg-clip-padding px-2 py-[13px] text-sm font-semibold whitespace-nowrap text-white transition-all outline-none select-none hover:border-brand-strong hover:bg-brand-strong focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100 max-[600px]:group-data-[view=grid]/listing:px-1 max-[360px]:group-data-[view=grid]/listing:px-0.5 max-[360px]:group-data-[view=grid]/listing:leading-4 max-[360px]:group-data-[view=grid]/listing:whitespace-normal; }
   /* The disabled background is repeated so it still wins over this hover, as it did in the utility order. */
-  .buy-button-product { @apply w-60 flex-none rounded-[5px] border-[#2e78c7] bg-[#2e78c7] font-semibold hover:bg-[#2168b1] disabled:bg-[#e6e9ec] disabled:text-[#7a8490] max-[750px]:w-auto max-[750px]:flex-1; }
+  .buy-button-product { @apply w-60 flex-none rounded-[5px] text-base disabled:bg-[#e6e9ec] disabled:text-[#7a8490] max-[750px]:w-auto max-[750px]:flex-1; }
 
   /* SiteHeader: top band, main row and category nav. Route variants: see RouteFrame; the `in-data-*-scrolled:`
      rules pin the main row while home and the catalog set body[data-home-scrolled] / body[data-catalog-scrolled]. */
@@ -86,8 +86,8 @@
     @apply [&>span>small]:block [&>span>small]:max-w-[115px] [&>span>small]:overflow-hidden [&>span>small]:text-[13px] [&>span>small]:leading-[18px] [&>span>small]:text-ellipsis [&>span>small]:whitespace-nowrap [&>span>small]:text-muted-foreground;
   }
   /* Checkout footer links. */
-  .checkout-footer-link { @apply block py-[5px] text-[13px] leading-[22px] text-muted-foreground [overflow-wrap:anywhere] hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:py-2.5; }
-  .checkout-footer-category { @apply text-muted-foreground hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:py-2; }
+  .checkout-footer-link { @apply block py-[5px] text-[13px] leading-[22px] text-muted-foreground [overflow-wrap:anywhere] hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:flex max-[600px]:min-h-11 max-[600px]:items-center max-[600px]:py-2.5; }
+  .checkout-footer-category { @apply text-muted-foreground hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:flex max-[600px]:min-h-11 max-[600px]:items-center max-[600px]:py-2; }
 }
 
 /* ProductFitment's engine rows. Unlayered like the utilities they replace had to win: ui/table's cells set their own

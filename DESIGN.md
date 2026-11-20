@@ -15,6 +15,16 @@ References: [Airbnb analysis](https://github.com/VoltAgent/awesome-design-md/blo
 - Storefront controls: 8px corners. Cards: 12–20px. Segmented search: pill on desktop, rounded stacked fields on mobile. Popovers and purchase summaries get restrained shadows; product cards primarily use borders.
 - Administration: 0–4px corners, thin borders, flat surfaces, aligned tabular numbers. Scope its styles to `.admin-workspace` / supplier classes.
 
+### Buttons and controls
+
+Storefront buttons take their size and colour from `storeButton({intent,size})` (`src/components/store-button.ts`) on `ui/button`; `ui/button` itself stays the registry's.
+
+- Sizes: hero 56px (`hero`, one per landing view; applied with the home hero in #1090), primary 48px (`lg`: purchase and checkout actions), standard 44px (`md`), compact 40px (`compact`) only from md up in pointer toolbars, 44px on touch widths. Icon buttons are 44×44 (`icon`) whatever the glyph size. Keep at least 8px between adjacent buttons.
+- Text: at least 14px; hero and primary 16px, primary weight 600. No 11–13px button labels.
+- Colour roles: one filled primary per view (`--primary` `#0077c7`, hover `#0063b4`). Secondary is the blue tint (`--accent` `#eef7fd` with `--accent-foreground` `#0063b4` text) or an outline whose border (`--control-border` `#84909c`) is at least 3:1 on white. Red only for errors and destructive actions, green only for positive states.
+- Focus: a 2px primary outline with a 2px offset on `storeButton` and the purchase form's `.buy-button` (white on dark photo backgrounds such as the newsletter band). Buttons still styled by hand move to `storeButton` in #1096.
+- “Sepete ekle” on the listing card and the product page (`.buy-button`) is the filled primary: 48px, 14px/600 on the card (44px on a phone grid card, wrapping to two lines below 360px rather than shrinking), 16px/600 on the product page. The add-to-cart dialog's suggestion “Sepete ekle” and “Alışverişe devam et” are outline (`md` / `lg`); its “Siparişi tamamla” is the dialog's one filled primary.
+
 ## Discovery and commerce
 
 - Make real product-name/brand and product/OEM-code search the main entry point. The search mode must travel with the query; category searches retain their category.
@@ -34,7 +44,7 @@ References: [Airbnb analysis](https://github.com/VoltAgent/awesome-design-md/blo
 
 ## Implementation map
 
-`src/app/globals.css` owns only the document reset. `src/styles/design-system.css` owns shared controls, tokens, typography, panels and status surfaces; `storefront.css` owns discovery/navigation; `catalog.css` owns catalog cards/filters; `commerce.css` owns detail/cart surfaces; `garage.css` owns the garage page; `admin-workspace.css` owns the admin shell, navigation and shared admin primitives; `supplier-admin.css` and `enrichment-admin.css` own their pages' specific surfaces. Import admin styles from its nested layout, keep route styles scoped, and verify production CSS order as well as development rendering. Feature components live under `components/auth`, `garage`, `navigation` and `privacy`; `components/ui` contains reusable controls and icons.
+`src/app/globals.css` owns the document reset, fonts and the shadcn tokens (storefront `:root`, admin `.admin-app`); `src/app/storefront.css` owns repeated storefront markup (header, purchase form, footer) and `src/app/catalog-card.css` the listing card; `src/components/store-button.ts` owns storefront button sizes and colours. Keep route styles scoped and verify production CSS order as well as development rendering. Feature components live under `components/auth`, `garage`, `navigation` and `privacy`; `components/ui` contains reusable controls and icons.
 
 Shared chrome is component-based: `components/layout/site-header.tsx` (`<SiteHeader />`) and `service-strip.tsx` are rendered once by the `(store)` route group's layout (`app/(store)/layout.tsx`), so every storefront route gets the same header; `/yonetim` has its own shell: the workspace navigation (`components/admin/admin-nav.tsx`) in `app/yonetim/layout.tsx`. Build admin pages from `components/admin/ui` (`AdminPage`, `AdminPageHeader`, `AdminPanel`, `AdminColumns`, `StatGrid`/`Stat`, `StatusMessage`, `StatusBadge`, `EmptyState`, `TableRegion`) with `.admin-table`, `.admin-form` and `.admin-inline-form`, not with per-page headings, notices or panel markup. Every admin page and data loader keeps its own `requireAdmin()`: layouts do not re-run on client navigation. Keep header controls at least 44px in both dimensions; at 370px and below the wordmark contracts to make room. On phones (600px and below) every route, home included, uses one header layout: logo and tools, a full-width search, then the category strip; the utility band is hidden. Form fields stay at 16px on phones so iOS Safari does not zoom on focus; that one rule lives in `app/storefront.css`, scoped to the storefront so `/yonetim` keeps its sizes.
 
