@@ -22,14 +22,14 @@ export const orderEmailStatusLook: Record<OrderEmailStatus, { tone: StatusTone; 
   failed: { tone: "error", label: "Gönderilemedi" },
 };
 
-/** last_error in the admin's words; a provider's own message is shown as it came. */
+/** last_error in the admin's words; a provider's own message is shown as it came, after "Son hata:". */
 export function orderEmailErrorLabel(lastError: string): string {
   if (lastError === "stale") return "Bir gün içinde gönderilemedi";
   if (lastError === "order no longer pending") return "Sipariş artık teyit beklemiyor (onaylandı, iptal ya da iade edildi)";
   if (/^(MAIL_|SMTP_|unknown MAIL_TRANSPORT)/.test(lastError)) return "E-posta gönderimi ayarlı değil";
   const stale = /^stale after (\d+) attempts: ([\s\S]*)$/.exec(lastError);
   if (stale) return `${stale[1]} denemeden sonra bırakıldı: ${stale[2]}`;
-  return lastError;
+  return `Son hata: ${lastError}`;
 }
 
 type OrderState = { status: string; payment_status: string };

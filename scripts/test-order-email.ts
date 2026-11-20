@@ -318,7 +318,8 @@ test("a given-up email is requeued with a fresh day and sent with a resend Messa
   const id = await paidOrder(), adminId = await admin();
   await db.query(`UPDATE commerce_order_emails SET status='failed',attempts=7,claimed_at=now()-interval '2 hours',created_at=now()-interval '25 hours',
     last_error='stale after 7 attempts: 421' WHERE order_id=$1`, [id]);
-  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), true);
+  // The order number comes back for the list's alert.
+  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), (await db.query("SELECT number::text FROM commerce_orders WHERE id=$1", [id])).rows[0].number);
   const [row] = await outbox(id);
   assert.equal(row.status, "pending"); assert.equal(row.attempts, 0); assert.equal(row.last_error, null);
   const meta = await requeued(id);
@@ -336,7 +337,7 @@ test("a sent email is sent again once after a resend", async () => {
   const { sent, send } = recorder();
   await email.deliverOrderEmails({ orderId: id, send });
   assert.equal(sent[0].messageId, `<order-${id}-confirmation@shop.example.invalid>`);
-  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), true);
+  assert.equal(typeof await email.requeueOrderEmail(id, "confirmation", adminId), "string");
   const results = await Promise.all([email.deliverOrderEmails({ orderId: id, send }), email.deliverOrderEmails({ orderId: id, send })]);
   assert.deepEqual(results.map(result => result.sent).sort(), [0, 1]);
   assert.equal(sent.length, 2); assert.match(sent[1].messageId ?? "", resendId(id));
@@ -347,7 +348,7 @@ test("a skipped email (no transport) is sent after a resend once mail works", as
   const id = await paidOrder(), adminId = await admin();
   await silence(() => email.deliverOrderEmails({ orderId: id, send: message => mail.sendMail(message, mail.mailConfig({})) }));
   assert.equal((await outbox(id))[0].status, "skipped");
-  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), true);
+  assert.equal(typeof await email.requeueOrderEmail(id, "confirmation", adminId), "string");
   const { sent, send } = recorder();
   assert.deepEqual(await email.deliverOrderEmails({ orderId: id, send }), { sent: 1, skipped: 0, failed: 0 });
   assert.equal(sent.length, 1);
@@ -356,11 +357,11 @@ test("a skipped email (no transport) is sent after a resend once mail works", as
 test("an email claimed within the lease is not requeued; an older claim is, and is tried at once", async () => {
   const id = await paidOrder(), adminId = await admin();
   await db.query("UPDATE commerce_order_emails SET attempts=1,claimed_at=now()-interval '1 minute',last_error='421' WHERE order_id=$1", [id]);
-  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), false);
+  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), null);
   let [row] = await outbox(id);
   assert.equal(row.attempts, 1); assert.equal(row.last_error, "421"); assert.equal((await requeued(id)).requeued_at, null);
   await db.query("UPDATE commerce_order_emails SET claimed_at=now()-interval '11 minutes' WHERE order_id=$1", [id]);
-  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), true);
+  assert.equal(typeof await email.requeueOrderEmail(id, "confirmation", adminId), "string");
   const { sent, send } = recorder();
   // Without the resend the backoff after the first attempt (10 min) would allow this too; attempts=0 and no claim make it immediate.
   assert.deepEqual(await email.deliverOrderEmails({ orderId: id, send }), { sent: 1, skipped: 0, failed: 0 });
@@ -375,7 +376,7 @@ test("a resend of an order that no longer waits for confirmation is skipped, not
     const id = await paidOrder();
     await email.deliverOrderEmails({ orderId: id, send });
     await db.query("UPDATE commerce_orders SET status=$2,payment_status=$3 WHERE id=$1", [id, status, payment]);
-    assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), true);
+    assert.equal(typeof await email.requeueOrderEmail(id, "confirmation", adminId), "string");
     assert.deepEqual(await email.deliverOrderEmails({ orderId: id, send }), { sent: 0, skipped: 1, failed: 0 });
     const [row] = await outbox(id);
     assert.equal(row.status, "skipped"); assert.equal(row.last_error, "order no longer pending");
@@ -386,15 +387,15 @@ test("a resend of an order that no longer waits for confirmation is skipped, not
 
 test("an unknown order or kind is not requeued", async () => {
   const adminId = await admin();
-  assert.equal(await email.requeueOrderEmail(randomUUID(), "confirmation", adminId), false);
+  assert.equal(await email.requeueOrderEmail(randomUUID(), "confirmation", adminId), null);
   const id = await paidOrder();
-  assert.equal(await email.requeueOrderEmail(id, "shipped" as "confirmation", adminId), false);
+  assert.equal(await email.requeueOrderEmail(id, "shipped" as "confirmation", adminId), null);
 });
 
 test("a requeued email is given up a day after the resend", async () => {
   const id = await paidOrder(), adminId = await admin();
   await db.query("UPDATE commerce_order_emails SET status='skipped',last_error='stale',created_at=now()-interval '3 days' WHERE order_id=$1", [id]);
-  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), true);
+  assert.equal(typeof await email.requeueOrderEmail(id, "confirmation", adminId), "string");
   await db.query("UPDATE commerce_order_emails SET requeued_at=now()-interval '25 hours' WHERE order_id=$1", [id]);
   let calls = 0;
   assert.deepEqual(await email.deliverOrderEmails({ orderId: id, send: async message => { calls++; return { status: "sent", messageId: message.messageId ?? "" }; } }),
@@ -410,7 +411,7 @@ test("admin labels and the resend rule", () => {
     assert.equal(orderEmailErrorLabel(reason), "E-posta gönderimi ayarlı değil", reason);
   }
   assert.equal(orderEmailErrorLabel("stale after 7 attempts: 421 try later"), "7 denemeden sonra bırakıldı: 421 try later");
-  assert.equal(orderEmailErrorLabel("421 try later"), "421 try later");
+  assert.equal(orderEmailErrorLabel("421 try later"), "Son hata: 421 try later");
   const waiting = { status: "pending", payment_status: "paid" };
   assert.equal(orderEmailDue.confirmation(waiting), true);
   for (const order of [{ status: "confirmed", payment_status: "paid" }, { status: "pending", payment_status: "unpaid" }, { status: "cancelled", payment_status: "refunded" }]) {

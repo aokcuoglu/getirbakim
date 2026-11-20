@@ -210,15 +210,17 @@ export async function deliverOrderEmails({ orderId, limit = 10, send = message =
 /**
  * An admin's resend (#1035): puts the row back in the queue with no attempts, no backoff and a fresh day, unless a send
  * holds it right now (a claim within the lease). False when there is no such row or it is in flight. The order state is
- * not checked here: delivery decides whether the email is still due.
+ * not checked here: delivery decides whether the email is still due. Returns the order number, or null when not requeued.
  */
-export async function requeueOrderEmail(orderId: string, kind: OrderEmailKind, adminId: string): Promise<boolean> {
-  const result = await db.query(
-    `UPDATE commerce_order_emails SET status='pending',attempts=0,claimed_at=NULL,last_error=NULL,requeued_at=now(),requeued_by=$3
-     WHERE order_id=$1 AND kind=$2 AND (status<>'pending' OR claimed_at IS NULL OR claimed_at < now()-make_interval(mins=>$4))`,
+export async function requeueOrderEmail(orderId: string, kind: OrderEmailKind, adminId: string): Promise<string | null> {
+  const result = await db.query<{ number: string }>(
+    `UPDATE commerce_order_emails e SET status='pending',attempts=0,claimed_at=NULL,last_error=NULL,requeued_at=now(),requeued_by=$3
+     FROM commerce_orders o WHERE o.id=e.order_id AND e.order_id=$1 AND e.kind=$2
+      AND (e.status<>'pending' OR e.claimed_at IS NULL OR e.claimed_at < now()-make_interval(mins=>$4))
+     RETURNING o.number::text`,
     [orderId, kind, adminId, LEASE_MINUTES],
   );
-  return (result.rowCount ?? 0) > 0;
+  return result.rows[0]?.number ?? null;
 }
 
 /** deliverOrderEmails for after(): logs instead of throwing, so a mail problem never reaches the payment flow. */

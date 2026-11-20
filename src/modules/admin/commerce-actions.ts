@@ -173,11 +173,12 @@ export async function resendOrderEmail(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({id:z.uuid(),kind:z.enum(orderEmailKinds),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
  if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
- if(!await requeueOrderEmail(input.data.id,input.data.kind,admin.id)) redirect(orderListReturn(input.data.back,'error'));
+ const orderNumber=await requeueOrderEmail(input.data.id,input.data.kind,admin.id);
+ if(!orderNumber) redirect(orderListReturn(input.data.back,'error'));
  const result=await deliverOrderEmailsSafely({orderId:input.data.id});
  const outcome:OrderListOutcome=result?.sent ? 'email_sent' : result?.skipped ? 'email_skipped' : 'email_pending';
  revalidateOrder(input.data.id);
- redirect(orderListReturn(input.data.back,outcome));
+ redirect(orderListReturn(input.data.back,outcome,orderNumber));
 }
 // The admin panel (lists, sidebar counts, dashboard) and the customer's own order pages; nothing else shows order state.
 function revalidateOrder(id:string) {
