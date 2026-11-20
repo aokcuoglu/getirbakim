@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { ArrowUpRight, CircleAlert, CircleCheck, FileText, Handshake } from "lucide-react";
+import { ArrowUpRight, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileText, Handshake, TriangleAlert } from "lucide-react";
 import { adminPartnerInvoices, adminPartners } from "@/modules/admin/partners";
-import { savePartnerLimit } from "@/modules/admin/partner-actions";
+import { savePartnerLimit, setPartnerIntake } from "@/modules/admin/partner-actions";
 import { istanbulToday } from "@/modules/admin/partner-input";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { money } from "@/modules/store/money";
+import { PartnerIntakeDialog } from "@/components/admin/partner-intake-dialog";
 import { PartnerInvoiceChangeDialog } from "@/components/admin/partner-invoice-change-dialog";
 import { PartnerInvoiceDialog } from "@/components/admin/partner-invoice-dialog";
 import { StatusBadge } from "@/components/admin/status-badge";
@@ -36,13 +37,14 @@ export default async function Partners({ searchParams }: { searchParams: Promise
   const corrected = countParam(params.corrected), undone = countParam(params.undone);
   // Query values are echoed only when they name a listed partner.
   const known = (value: string | undefined) => value && partners.some(p => p.code === value) ? value : null;
-  const saved = known(params.saved), partner = known(params.partner);
+  const saved = known(params.saved), partner = known(params.partner), paused = known(params.paused), resumed = known(params.resumed);
 
   return <div className="flex min-w-0 flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Partnerler ve cari limit</h1>
         <p className="text-muted-foreground">Partner (API) siparişleri cari hesaba yazılır. Alacak; iptal edilmemiş ve teslim edilmemiş siparişler ile teslim edilmiş ama faturalanmamış siparişlerin toplamıdır (kargo dahil). Yeni sipariş alacağı limitin üstüne çıkaracaksa reddedilir; limiti olmayan partner sipariş veremez. Teslim edilen siparişler &quot;Faturalandı&quot; işaretlenince limitten düşer; yanlış işaret gerekçeyle düzeltilebilir ya da geri alınabilir.</p>
+        <p className="text-muted-foreground">Bir partnerin sipariş alımı geçici olarak durdurulabilir; durdurulan partner yeni teklif alamaz ve sipariş veremez.</p>
       </div>
       <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler?sahip=partner"/>}>Partner siparişleri<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
     </div>
@@ -51,6 +53,9 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     {Number.isSafeInteger(invoiced) && invoiced > 0 && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{partner ? `${partner}: ` : ""}{formatNumber(invoiced)} sipariş faturalandı olarak işaretlendi ve limitten düştü.</AlertDescription></Alert>}
     {corrected && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{partner ? `${partner}: ` : ""}{formatNumber(corrected)} siparişin fatura bilgisi düzeltildi; alacak değişmedi.</AlertDescription></Alert>}
     {undone && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{partner ? `${partner}: ` : ""}{formatNumber(undone)} siparişin faturalandı işareti geri alındı; bu siparişler yeniden alacağa ve limite sayılıyor.</AlertDescription></Alert>}
+    {paused && <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertDescription>{paused} için sipariş alımı durduruldu; yeni teklif ve sipariş istekleri reddedilir.</AlertDescription></Alert>}
+    {resumed && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{resumed} için sipariş alımı yeniden açıldı.</AlertDescription></Alert>}
+    {params.error === "intake" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Sipariş alımı ayarı kaydedilemedi. Sayfayı yenileyip yeniden deneyin.</AlertDescription></Alert>}
     {params.error === "limit" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{partner ? `${partner}: limit kaydedilemedi` : "Limit kaydedilemedi"}</AlertTitle><AlertDescription>Limit 0 TL&apos;den büyük, en fazla iki ondalıklı bir tutar olmalı. Boş bırakılırsa varsayılan limit geçerli olur.</AlertDescription></Alert>}
 
     <Card>
@@ -68,9 +73,13 @@ export default async function Partners({ searchParams }: { searchParams: Promise
           <TableBody>{partners.map(p => {
             const form = `partner-limit-${p.code}`;
             return <TableRow key={p.code} className="align-top">
-              <TableCell><div className="flex flex-col items-start gap-1">
+              <TableCell className="whitespace-normal"><div className="flex flex-col items-start gap-1">
                 <span className="font-medium">{p.code}</span>
                 {!p.configured && <StatusBadge tone="warning">API anahtarı yok</StatusBadge>}
+                {p.intakePausedAt && <>
+                  <StatusBadge tone="warning" icon={CirclePause}>Durduruldu</StatusBadge>
+                  <span className="text-muted-foreground tabular-nums">Sipariş alımı durduruldu · {formatDateTime(p.intakePausedAt, { year: true })} · {p.intakePausedBy ?? "—"}</span>
+                </>}
               </div></TableCell>
               <TableCell className="text-right"><div className="tabular-nums">{p.limitKurus == null ? "—" : money(p.limitKurus)}</div><div className="text-muted-foreground">{sourceLabel[p.source]}</div></TableCell>
               <TableCell className="text-right"><div className="tabular-nums">{money(p.openKurus)}</div><div className="text-muted-foreground tabular-nums">{formatNumber(p.openCount)} sipariş</div></TableCell>
@@ -84,9 +93,13 @@ export default async function Partners({ searchParams }: { searchParams: Promise
                   placeholder={p.source === "env" && p.limitKurus != null ? tl(p.limitKurus) : "Boş"} defaultValue={p.panelKurus == null ? "" : tl(p.panelKurus)}/>
                 <InputGroupAddon align="inline-end"><InputGroupText>TL</InputGroupText></InputGroupAddon>
               </InputGroup></TableCell>
-              <TableCell><div className="flex flex-wrap justify-end gap-2">
+              <TableCell className="whitespace-normal"><div className="flex flex-col items-end gap-2">
                 <form id={form} action={savePartnerLimit}><input type="hidden" name="partner" value={p.code}/><SubmitButton variant="outline" aria-label={`${p.code}: Limiti kaydet`}>Kaydet</SubmitButton></form>
                 <PartnerInvoiceDialog partner={p.code} days={p.days} today={today}/>
+                {p.intakePausedAt
+                  ? <form action={setPartnerIntake}><input type="hidden" name="partner" value={p.code}/><input type="hidden" name="paused" value="0"/>
+                    <SubmitButton variant="outline" aria-label={`${p.code}: Sipariş alımını aç`} icon={<CirclePlay data-icon="inline-start" aria-hidden="true"/>}>Sipariş alımını aç</SubmitButton></form>
+                  : <PartnerIntakeDialog partner={p.code}/>}
               </div></TableCell>
             </TableRow>;
           })}</TableBody>
