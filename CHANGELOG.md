@@ -2,13 +2,29 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
-## Unreleased
+## v0.34.0 — 2026-11-20
+
+Release of `dev` since v0.33.0 (9 pull requests): GetirBakım search inside BakımX work orders (fitting parts first, correct limits, caching, per-partner rate limit), Dinamik price-only parts as indexable unavailable pages and an enrichment tier, a compact cookie bar and enrichment worker fixes. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
 
 ### Added
+- **Partner product search for BakımX** (contract 1.3, `docs/partner-products-contract.md`): ranked over-fetch with `limit` up to 30 and exact part/OEM matches beyond rank 24; with `vehicleTypeId` fitting parts come first (guaranteed → likely → unknown, nothing filtered) and a new `fitmentLevel` field; 10-min ranked-id cache and 30 s answer cache ([#1100](https://github.com/aokcuoglu/getirbakim/pull/1100), [#1093](https://github.com/aokcuoglu/getirbakim/issues/1093)).
+- **Dinamik price-list-only parts as product pages:** Dinamik codes without a stock-list row that carry an enrichment matched to their code and brand and a category with a Turkish label become unavailable cards named after that category ("Stok bilgisi bekleniyor", "Gelince haber ver", no price). Unlike other unavailable cards they are indexed and listed in the sitemap and IndexNow; never in the merchant feed, never orderable. Kept in `storefront_price_only_items` by `storefront_price_only_refresh()` ([#1068](https://github.com/aokcuoglu/getirbakim/issues/1068)).
 - **Dinamik price-list-only codes as an enrichment tier:** spareto and parts2world give a configurable share of their pending pass (`--price-only-share` / `ENRICHMENT_PRICE_ONLY_SHARE`, default 0) to unlinked Dinamik codes without a stock-list row: spareto for brands enabled in `enrichment_price_only_brands`, parts2world for every brand matched to an archived article. New `enrichment:price-only` CLI (`enqueue`, `enable`, `disable`, `status`) and a progress card on `/yonetim/urun-verileri` → Kaynaklar ([#1075](https://github.com/aokcuoglu/getirbakim/issues/1075)).
+- **Compact cookie consent bar** that keeps the first screen visible ([#1092](https://github.com/aokcuoglu/getirbakim/pull/1092)).
+
+### Changed
+- **Partner rate limit:** requests with a valid partner key are limited per partner (products 600/min, orders 300/min per task); the per-address limit (120 / 60) now counts failed key checks only, and an address over it gets 429 before the key check. BakımX sends every workshop's requests from one address ([#1100](https://github.com/aokcuoglu/getirbakim/pull/1100)).
+- Second parts2world collect worker through the egress proxy ([#1083](https://github.com/aokcuoglu/getirbakim/pull/1083)); explicit agent tool lists and English agent prompts ([#1080](https://github.com/aokcuoglu/getirbakim/pull/1080), [#1087](https://github.com/aokcuoglu/getirbakim/pull/1087)).
+
+### Fixed
+- spareto product photos served as `images_webp` are read ([#1078](https://github.com/aokcuoglu/getirbakim/pull/1078)); parts2world workers skip each other's tried rows ([#1095](https://github.com/aokcuoglu/getirbakim/pull/1095)).
 
 ### Deploy and operations
+- **`db:setup` is required and runs first** (`release-aws` does it); the view replacements follow the outermost-first lock order of #1046.
+- `db:setup` creates `storefront_price_only_items` and `storefront_price_only_runs` (first run only: `SHARE ROW EXCLUSIVE` on `supplier_items` for its foreign key until setup commits, as for earlier tables referencing it), replaces `commerce_unavailable_items`, `storefront_catalog_entries` and `storefront_catalog` (new `price_only` column at the end) and fills the list once; the app keeps it current afterwards ([#1068](https://github.com/aokcuoglu/getirbakim/issues/1068)).
 - `db:setup` adds `enrichment_price_only_brands` and the `price_only` value of `enrichment_source_attempts.queue` (guarded; a second run takes no lock). The tier stays off until `enrichment:price-only -- enqueue`, `enrichment:parts2world -- match`, `enable <brands>` and a non-zero share on the local workers (#1075).
+- BakımX: `PARTNER_API_KEYS` holds BakımX's key since 2026-11-20 (set in the app secret, tasks restarted); BakımX accepts contract 1.3 (bakimx#756). On key rotation, 120 bad-key calls/min from BakımX's address lock out its valid traffic for that minute.
+- Local only: spareto image fill ([#1078](https://github.com/aokcuoglu/getirbakim/pull/1078)), parts2world LaunchAgents restart / proxy worker ([#1083](https://github.com/aokcuoglu/getirbakim/pull/1083), [#1095](https://github.com/aokcuoglu/getirbakim/pull/1095)). Vehicle oil specs are unchanged.
 
 ## v0.33.0 — 2026-11-20
 
@@ -16,7 +32,6 @@ Release of `dev` since v0.32.1 (6 pull requests): saved addresses at checkout, o
 
 ### Added
 - **Saved addresses at checkout:** approved service and admin accounts pick a saved delivery or invoice address on `/siparis-olustur` and can save a new one to their address book after a successful order (duplicates and a full book of 10 are skipped; saving never blocks the order) ([#1015](https://github.com/aokcuoglu/getirbakim/pull/1015), [#999](https://github.com/aokcuoglu/getirbakim/issues/999)).
-- **Dinamik price-list-only parts as product pages:** Dinamik codes without a stock-list row that carry an enrichment matched to their code and brand and a category with a Turkish label become unavailable cards named after that category ("Stok bilgisi bekleniyor", "Gelince haber ver", no price). Unlike other unavailable cards they are indexed and listed in the sitemap and IndexNow; never in the merchant feed, never orderable. Kept in `storefront_price_only_items` by `storefront_price_only_refresh()` ([#1068](https://github.com/aokcuoglu/getirbakim/issues/1068)).
 - **Amazon SES mail transport:** `MAIL_TRANSPORT=ses` sends order emails through the SES v2 API with the ECS task role (no SMTP credentials); region from `SES_REGION` / `AWS_REGION` ([#1064](https://github.com/aokcuoglu/getirbakim/pull/1064), [#1062](https://github.com/aokcuoglu/getirbakim/issues/1062)).
 
 ### Fixed
@@ -32,9 +47,6 @@ Release of `dev` since v0.32.1 (6 pull requests): saved addresses at checkout, o
 - SES: `MAIL_TRANSPORT`, `MAIL_FROM`, `MAIL_REPLY_TO` app secret keys are wired by getirbakim-infra#7 and present in the app secret.
 - Geliver sync is enabled with this release (`PRODUCTION_GELIVER_SYNC_ENABLED=true` in the GitHub variables and the operator `.env`).
 - Release with `gh workflow run release-aws.yml --ref main -f version=0.33.0`.
-
-### Deploy and operations
-- `db:setup` creates `storefront_price_only_items` and `storefront_price_only_runs` (first run only: `SHARE ROW EXCLUSIVE` on `supplier_items` for its foreign key until setup commits, as for earlier tables referencing it), replaces `commerce_unavailable_items`, `storefront_catalog_entries` and `storefront_catalog` (new `price_only` column at the end) and fills the list once; the app keeps it current afterwards ([#1068](https://github.com/aokcuoglu/getirbakim/issues/1068)).
 
 ## v0.32.1 — 2026-11-20
 
