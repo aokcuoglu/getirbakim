@@ -19,7 +19,7 @@ References: [Airbnb analysis](https://github.com/VoltAgent/awesome-design-md/blo
 
 Storefront buttons take their size and colour from `storeButton({intent,size})` (`src/components/store-button.ts`) on `ui/button`; `ui/button` itself stays the registry's.
 
-- Sizes: hero 56px (`hero`, one per landing view; applied with the home hero in #1090), primary 48px (`lg`: purchase and checkout actions), standard 44px (`md`), compact 40px (`compact`) only from md up in pointer toolbars, 44px on touch widths. Icon buttons are 44×44 (`icon`) whatever the glyph size. Keep at least 8px between adjacent buttons.
+- Sizes: hero 56px (`hero`, one per landing view; the home hero vehicle button is `secondary` / `hero`), primary 48px (`lg`: purchase and checkout actions), standard 44px (`md`), compact 40px (`compact`) only from md up in pointer toolbars, 44px on touch widths. Icon buttons are 44×44 (`icon`) whatever the glyph size. Keep at least 8px between adjacent buttons.
 - Text: at least 14px; hero and primary 16px, primary weight 600. No 11–13px button labels.
 - Colour roles: one filled primary per view (`--primary` `#0077c7`, hover `#0063b4`). Secondary is the blue tint (`--accent` `#eef7fd` with `--accent-foreground` `#0063b4` text) or an outline whose border (`--control-border` `#84909c`) is at least 3:1 on white. Red only for errors and destructive actions, green only for positive states.
 - Focus: a 2px primary outline with a 2px offset on `storeButton` and the purchase form's `.buy-button` (white on dark photo backgrounds such as the newsletter band). Buttons still styled by hand move to `storeButton` in #1096.
@@ -27,6 +27,7 @@ Storefront buttons take their size and colour from `storeButton({intent,size})` 
 
 ## Discovery and commerce
 
+- Home first screen: a value-proposition H1 (no compatibility claim), a secondary vehicle button, a 3-item trust line sourced from the policy pages, static featured cards and no promo carousel.
 - Make real product-name/brand and product/OEM-code search the main entry point. The search mode must travel with the query; category searches retain their category.
 - Vehicle registration is a secondary entry. It saves a preference and does not filter the catalog: on a listing's first page the products linked to the garage vehicle come first, in an “… aracına uyanlar” row above the unchanged results, with a link to the fit filter. Never imply verified vehicle-part compatibility without supporting data.
 - Default consumer catalogs to a card grid at every width (two columns on phones, 320px included); approved service accounts start in list view. Let both switch views. Show name, brand, product code, available OEM, price and stock clearly; progressively disclose long technical descriptions. A phone grid card keeps the stock line and a full-width “Sepete ekle”; its technical rows open behind a toggle.

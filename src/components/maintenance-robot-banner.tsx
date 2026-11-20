@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, Wrench } from "lucide-react";
 
-/** Home carousel's first card: an ad-style banner for /bakim-robotu, sized like the photo promotions next to it. */
+/** Home's first static featured card: an ad-style banner for /bakim-robotu, as tall as the category cards next to it. */
 export function MaintenanceRobotBanner() {
   return <Link href="/bakim-robotu" aria-label="Bakım Robotu: aracına özel bakım setini kur"
     className="group relative grid h-[292px] grid-cols-[minmax(0,1fr)_236px] items-center gap-4 overflow-hidden rounded-md bg-[linear-gradient(118deg,#0a2540_0%,#0b4a85_55%,#0077c7_100%)] pr-7 pl-8 text-white max-[1100px]:grid-cols-[minmax(0,1fr)_190px] max-md:h-[250px] max-md:grid-cols-[minmax(0,1fr)_128px] max-md:gap-3 max-md:pr-4 max-md:pl-5">
