@@ -35,15 +35,25 @@ CREATE TABLE IF NOT EXISTS storefront_price_only_items (
  name text NOT NULL,
  qualified_at timestamptz NOT NULL DEFAULT now()
 );
+-- When the list was last rebuilt: every app task asks on its own timer, the database lets one of them rebuild per interval.
+CREATE TABLE IF NOT EXISTS storefront_price_only_runs (
+ singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+ refreshed_at timestamptz NOT NULL
+);
 -- Recomputes the list and writes only what changed: one row per Dinamik code (the newest observation) and per product
 -- group. Driven by the enrichment links (~165k rows locally), each reaching supplier_items by primary key: hash and merge
 -- joins are off inside the call, otherwise the planner reads the whole supplier_items table for them. One caller at a
--- time (others return 0). PL/pgSQL: product_enrichment_shared_links is created by a later setup file.
-CREATE OR REPLACE FUNCTION storefront_price_only_refresh() RETURNS integer
+-- time; `min_interval` skips the rebuild when one finished within it (setup and imports pass NULL: always). A skipped
+-- call (lock busy or too soon) returns NULL, a rebuild the number of rows written. A renamed row moves qualified_at (its
+-- address changes; the sitemap's lastmod follows). PL/pgSQL: product_enrichment_shared_links is created by a later setup file.
+CREATE OR REPLACE FUNCTION storefront_price_only_refresh(min_interval interval DEFAULT NULL) RETURNS integer
 LANGUAGE plpgsql AS $$
 DECLARE changed integer; hash_join text := current_setting('enable_hashjoin'); merge_join text := current_setting('enable_mergejoin');
 BEGIN
- IF NOT pg_try_advisory_xact_lock(20261001,schema_lock_key(12)) THEN RETURN 0; END IF;
+ IF NOT pg_try_advisory_xact_lock(20261001,schema_lock_key(12)) THEN RETURN NULL; END IF;
+ IF min_interval IS NOT NULL AND EXISTS (SELECT 1 FROM storefront_price_only_runs WHERE refreshed_at>clock_timestamp()-min_interval) THEN
+  RETURN NULL;
+ END IF;
  PERFORM set_config('enable_hashjoin','off',true);
  PERFORM set_config('enable_mergejoin','off',true);
  CREATE TEMP TABLE storefront_price_only_computed ON COMMIT DROP AS
@@ -68,7 +78,7 @@ BEGIN
  PERFORM set_config('enable_mergejoin',merge_join,true);
  WITH upserted AS (
   INSERT INTO storefront_price_only_items AS q(supplier_item_id,name) SELECT id,name FROM storefront_price_only_computed
-  ON CONFLICT (supplier_item_id) DO UPDATE SET name=EXCLUDED.name WHERE q.name IS DISTINCT FROM EXCLUDED.name
+  ON CONFLICT (supplier_item_id) DO UPDATE SET name=EXCLUDED.name,qualified_at=now() WHERE q.name IS DISTINCT FROM EXCLUDED.name
   RETURNING 1
  ), removed AS (
   DELETE FROM storefront_price_only_items q
@@ -76,6 +86,8 @@ BEGIN
  )
  SELECT (SELECT count(*) FROM upserted)+(SELECT count(*) FROM removed) INTO changed;
  DROP TABLE storefront_price_only_computed;
+ INSERT INTO storefront_price_only_runs(refreshed_at) VALUES (clock_timestamp())
+  ON CONFLICT (singleton) DO UPDATE SET refreshed_at=EXCLUDED.refreshed_at;
  RETURN changed;
 END $$;
 DO $setup$ DECLARE def text := $view$
@@ -140,7 +152,8 @@ $view$; cur regclass := (SELECT c.oid FROM pg_class c
 END $setup$;
 -- Columns are listed (not e.*): the replace below (CREATE OR REPLACE VIEW, see db/commerce.sql) cannot reorder or drop
 -- columns on a later run.
--- display_brand follows db/commerce.sql: override, master brand name (#811), raw label.
+-- display_brand follows db/commerce.sql: override, master brand name (#811), raw label; for the unavailable cards the raw
+-- label falls back to Dinamik's `marka` (price-list-only rows, #1068), as displayBrandSql (src/modules/store/display-brand-sql.ts).
 DO $setup$ DECLARE def text := $view$
 SELECT e.id,e.category,e.supplier,e.code,e.name,e.brand,e.description,e.updated_at,e.oem,e.source,e.company,false AS unavailable,
  e.display_brand,e.display_code,e.name_overridden,e.brand_label,false AS price_only

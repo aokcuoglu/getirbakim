@@ -7,7 +7,7 @@ import { productPath, type ProductAddress } from "./product-path";
 import { productChunkRange, productChunks } from "./sitemap";
 import { productPriceFields } from "@/modules/admin/product-override-fields";
 import { displayBrandSql } from "@/modules/store/display-brand-sql";
-import { adminEditedAtSql, descriptionFitmentItemsSql, indexableProductsSql, priceOnlyDisplayBrandSql, productAddressColumns } from "./sitemap.server";
+import { adminEditedAtSql, descriptionFitmentItemsSql, indexableProductsSql, productAddressColumns } from "./sitemap.server";
 
 // The content a search engine sees on the page: shown name, brand, part number, description, shown OEM and the
 // enrichment import (images, specifications, vehicles; only while the page shows that enrichment, the same condition as
@@ -29,8 +29,8 @@ const fingerprint = (name: string, brand: string) => `md5(concat_ws(chr(31),
   'f:'||(SELECT md5(string_agg(DISTINCT concat_ws(':',f.model_id,COALESCE(f.year_from::text,''),COALESCE(f.year_to::text,'')),',')) FROM storefront_description_fits f
     WHERE f.supplier_item_id=ANY(${descriptionFitmentItemsSql}))))::uuid::text`;
 const supplierFingerprint = fingerprint("COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code)", displayBrandSql("i", "h"));
-// A Dinamik price-list-only card (#1068): named after its category, its brand read from the Dinamik label.
-const priceOnlyFingerprint = fingerprint("COALESCE(h.name,q.name,NULLIF(i.product_data->>'ac',''),i.code)", priceOnlyDisplayBrandSql);
+// A Dinamik price-list-only card (#1068): named after its category.
+const priceOnlyFingerprint = fingerprint("COALESCE(h.name,q.name,NULLIF(i.product_data->>'ac',''),i.code)", displayBrandSql("i", "h"));
 const storeFingerprint = "md5(concat_ws(chr(31),p.name,p.brand,p.code,p.description))::uuid::text";
 
 /** The indexable product pages of sitemap chunk `index` with their content fingerprint, ordered by id. */

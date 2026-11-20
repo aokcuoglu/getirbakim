@@ -53,9 +53,6 @@ export function indexableProductsSql(columns: { supplier: string; store: string;
   return branches.join("\n UNION ALL\n ");
 }
 
-/** display_brand of the unavailable cards (db/storefront-catalog.sql): displayBrandSql with the Dinamik label (`marka`) last. */
-export const priceOnlyDisplayBrandSql = "COALESCE(h.brand,mb.name,NULLIF(i.product_data->>'uk',''),supplier_item_brand(i.supplier,i.product_data),'Belirtilmemiş')";
-
 /**
  * The columns a product address is built from (productPath): the shown name, brand and part number. The expressions are
  * those of commerce_catalog_entries (db/commerce.sql), so a page's canonical address and the one listed here are the same.
@@ -66,7 +63,7 @@ export const productAddressColumns = {
   store: "p.id::text AS id,p.name AS name,false AS name_overridden,p.brand AS display_brand,p.code AS display_code",
   // As the unavailable branch of storefront_catalog_entries (db/storefront-catalog.sql): the category name, the raw label.
   priceOnly: `i.id::text AS id,COALESCE(h.name,q.name,NULLIF(i.product_data->>'ac',''),i.code) AS name,h.name IS NOT NULL AS name_overridden,
-   ${priceOnlyDisplayBrandSql} AS display_brand,COALESCE(h.part_number,i.code) AS display_code`,
+   ${displayBrandSql("i", "h")} AS display_brand,COALESCE(h.part_number,i.code) AS display_code`,
 };
 
 /**

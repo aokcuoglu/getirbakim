@@ -28,7 +28,7 @@ Release of `dev` since v0.32.1 (6 pull requests): saved addresses at checkout, o
 - Release with `gh workflow run release-aws.yml --ref main -f version=0.33.0`.
 
 ### Deploy and operations
-- `db:setup` creates `storefront_price_only_items` (first run only: `SHARE ROW EXCLUSIVE` on `supplier_items` for its foreign key until setup commits, as for earlier tables referencing it), replaces `commerce_unavailable_items`, `storefront_catalog_entries` and `storefront_catalog` (new `price_only` column at the end) and fills the list once; the app keeps it current afterwards ([#1068](https://github.com/aokcuoglu/getirbakim/issues/1068)).
+- `db:setup` creates `storefront_price_only_items` and `storefront_price_only_runs` (first run only: `SHARE ROW EXCLUSIVE` on `supplier_items` for its foreign key until setup commits, as for earlier tables referencing it), replaces `commerce_unavailable_items`, `storefront_catalog_entries` and `storefront_catalog` (new `price_only` column at the end) and fills the list once; the app keeps it current afterwards ([#1068](https://github.com/aokcuoglu/getirbakim/issues/1068)).
 
 ## v0.32.1 — 2026-11-20
 

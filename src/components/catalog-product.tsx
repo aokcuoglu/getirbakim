@@ -54,7 +54,7 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
  </div>
  <CardSpecifications card={card}/>
  <div className="product-card-buy">
-  <div className={cn("product-card-price",p.price_kurus===null&&"text-base leading-6 text-muted-foreground max-[600px]:text-base")}>{price}{regular!==null&&<s className="ml-2 text-sm font-normal text-muted-foreground"><span className="sr-only">Önceki fiyat: </span>{money(servicePrice(regular,discounted?account!.discount_percent:0))}</s>}</div>
+  <div className={cn("product-card-price",(p.unavailable||p.price_kurus===null)&&"text-base leading-6 text-muted-foreground max-[600px]:text-base")}>{price}{regular!==null&&<s className="ml-2 text-sm font-normal text-muted-foreground"><span className="sr-only">Önceki fiyat: </span>{money(servicePrice(regular,discounted?account!.discount_percent:0))}</s>}</div>
   {p.price_kurus!==null&&<div className="product-card-vat">KDV dahil <span className="product-card-note">· Kargo hariç</span>{discounted&&<span className="product-card-note"> · Servisine özel fiyat</span>}{campaignEnd&&<span className="block">Kampanya {campaignEndText(campaignEnd)} tarihine kadar</span>}</div>}
   {p.unavailable?<Link className="product-card-stock font-medium text-[#0065c3] hover:underline" href={href+"#haber-ver"}><BellRing size={18} className="shrink-0"/>Gelince haber ver</Link>
    :<p className={cn("product-card-stock product-card-stock-dated",!p.available&&"text-muted-foreground")}><span className="min-w-0"><span className="product-card-stock-status">{stock.status}</span>{stock.note&&<span className="product-card-stock-note">{stock.note}</span>}</span></p>}

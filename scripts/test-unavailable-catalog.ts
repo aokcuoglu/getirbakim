@@ -202,6 +202,28 @@ describe("Dinamik price-list-only codes", () => {
     assert.equal(await refresh(), 0);
   });
 
+  test("tasks share one rebuild per interval; a renamed card moves qualified_at", async () => {
+    // A rebuild just ran: a task asking with an interval is skipped (null), an import or setup (no interval) is not.
+    const due = async (seconds: number) => (await schema.pool.query<{ n: number | null }>(
+      "SELECT storefront_price_only_refresh(make_interval(secs=>$1)) AS n", [seconds])).rows[0].n;
+    assert.equal(await due(600), null);
+    await schema.pool.query("UPDATE storefront_price_only_runs SET refreshed_at=now()-interval '11 minutes'");
+    assert.equal(await due(600), 0);
+    assert.equal(await due(600), null);
+    const qualified = async () => (await schema.pool.query<{ at: Date }>("SELECT qualified_at AS at FROM storefront_price_only_items WHERE supplier_item_id=$1",
+      [ids.qualifying])).rows[0].at;
+    await schema.pool.query("UPDATE storefront_price_only_items SET qualified_at=now()-interval '1 day' WHERE supplier_item_id=$1", [ids.qualifying]);
+    const before = await qualified();
+    assert.equal(await refresh(), 0);
+    assert.deepEqual(await qualified(), before);
+    // Every listed row in category 301 (the list keeps the view's cross-row checks to the view).
+    await schema.pool.query("UPDATE source_category_labels SET name='Fren diski' WHERE category_id=301");
+    assert.equal(await refresh(), 5);
+    assert.ok((await qualified()) > before);
+    await schema.pool.query("UPDATE source_category_labels SET name='Fren diskleri' WHERE category_id=301");
+    assert.equal(await refresh(), 5);
+  });
+
   test("a price-only card is named after its deepest category, keeps its real brand and cannot be ordered", async () => {
     const row = await catalog.getStorefrontProduct(ids.qualifying);
     assert.ok(row);

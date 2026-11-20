@@ -86,8 +86,8 @@ async function drainSharedLinks() {
       await new Promise(done => setTimeout(done, 1000));
     }
     // The price-only cards (#1068) follow the links and the imported categories; the app refreshes them too, this
-    // makes them current before the task ends.
-    const priceOnly = (await pool.query<{ n: number }>("SELECT storefront_price_only_refresh() AS n")).rows[0].n;
+    // makes them current before the task ends (null: an app task was rebuilding at that moment).
+    const priceOnly = (await pool.query<{ n: number | null }>("SELECT storefront_price_only_refresh() AS n")).rows[0].n;
     console.log(JSON.stringify({ sharedLinks: written, priceOnly }));
   } finally { await pool.end(); }
 }
