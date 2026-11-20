@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { Client } from "pg";
-import { applySetupFiles, isolatedSchema } from "./isolated-schema";
+import { readFile } from "node:fs/promises";
+import { applySetupFiles, isolatedSchema, setupFiles } from "./isolated-schema";
+import { postSetupMaintenance } from "./setup-maintenance";
 
 // db:setup re-runs every setup file on each deploy while the previous release serves traffic (#925, #954). On an already
 // set-up database it must not take ACCESS EXCLUSIVE on any table or view: such a lock is held until the single setup
@@ -194,4 +196,39 @@ test("a dropped index or trigger on a write-hot table is created again", async (
   assert.deepEqual(names(recreated.filter((entry) => !created.includes(entry))).sort(), ["index commerce_orders.commerce_orders_created_idx",
     "index supplier_items.supplier_items_scope_idx", "trigger brands.enrichment_shared_brands_update",
     "trigger commerce_order_agreements.commerce_order_agreement_immutable"]);
+});
+
+// Whole-table maintenance inside the setup transaction holds every view lock taken before it until COMMIT (#1054):
+// ANALYZE and the vocabulary rebuild run after it (scripts/setup-maintenance.ts). An indented ANALYZE inside a DO block
+// or function stays allowed: it runs conditionally or when called.
+test("setup files run no unconditional ANALYZE or vocabulary rebuild", async () => {
+  const offending: string[] = [];
+  for (const file of setupFiles) {
+    const sql = await readFile(`db/${file}.sql`, "utf8");
+    if (/^ANALYZE\b/m.test(sql) || /^SELECT refresh_search_vocabulary\(\)/m.test(sql)) offending.push(file);
+  }
+  assert.deepEqual(offending, []);
+});
+
+test("a setup re-run leaves the vocabulary alone; maintenance rebuilds it", async () => {
+  const words = async () => (await schema.pool.query<{ entry: string }>(
+    "SELECT scope||' '||word AS entry FROM search_vocabulary WHERE word IN ('zzzprobe','fren') ORDER BY 1")).rows.map((row) => row.entry);
+  await schema.pool.query("INSERT INTO search_vocabulary(scope,word,frequency) VALUES('product','zzzprobe',1)");
+  const { rows: [{ id }] } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,
+    product_data,product_count,price_count,stock_count,first_seen_at,last_seen_at,changed_at)
+    VALUES('basbug','C','L','MRK','VOCAB-PROBE','{"ac":"Fren Balatasi","uk":"BOSCH"}',1,0,0,now(),now(),now()) RETURNING id`);
+  const log = console.log;
+  console.log = () => undefined;
+  try {
+    await rerun();
+    assert.deepEqual(await words(), ["product zzzprobe"]);
+    await postSetupMaintenance(schema.pool);
+    assert.deepEqual(await words(), ["product fren"]);
+    const { rows: [{ stats }] } = await schema.pool.query<{ stats: number }>(
+      "SELECT count(*)::int AS stats FROM pg_stats WHERE schemaname=$1 AND tablename='supplier_items'", [schema.name]);
+    assert.ok(stats > 0);
+  } finally {
+    console.log = log;
+    await schema.pool.query("DELETE FROM supplier_items WHERE id=$1", [id]);
+  }
 });
