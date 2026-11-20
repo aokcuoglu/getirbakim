@@ -4,7 +4,6 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { enrichmentDataSchema, matchBasisSchema, matchesEnrichment } from "./enrichment-contract";
 import {catalogSpecifications} from "./catalog-filters";
 import {displaySpecifications,type CardSpecification} from "./specification-translations";
-import { genericImageIds } from "./generic-images";
 import { getOverrideImages } from "./product-images";
 import { applySpecOverrides } from "./product-spec-display";
 import { getOverrideSpecs } from "./product-specs";
@@ -28,8 +27,7 @@ export async function getCatalogProductImages(products: { id: string; code: stri
   return images;
 }
 
-// The enrichment image of the visible page in one query, without fetching vehicle fitments. Generic images (#1091) are
-// left out: the card draws PartArt.
+// The enrichment image of the visible page in one query, without fetching vehicle fitments.
 export async function getAutomaticProductImages(products: { id: string; code: string; brand: string }[]) {
   const images = new Map<string, CatalogProductImage>();
   if (!products.length) return images;
@@ -43,9 +41,7 @@ export async function getAutomaticProductImages(products: { id: string; code: st
     JOIN product_media_objects m ON m.id=e.image_id
     WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.presence='present' AND s.company=ANY($2::text[])`,
   [products.map(product => product.id), storefrontCompanies()])).rows;
-  const generic = await genericImageIds(rows.map(row => row.image_id));
   for (const row of rows) {
-    if (generic.has(row.image_id)) continue;
     const product = productsById.get(row.supplier_item_id);
     const valid = product && validEnrichment(row, product);
     if (!product || !valid) continue;
@@ -63,7 +59,7 @@ export async function getProductEnrichment(product: { id: string; code: string; 
   const valid = validEnrichment(row, product);
   if (!row || !valid) return null;
   const { data, basis } = valid;
-  const [generic, fitmentResult] = await Promise.all([genericImageIds(row.image_id ? [row.image_id] : []), db.query<{
+  const fitments = (await db.query<{
     source_index: number; vehicle_type_id: number | null; brand_id: number | null; model_id: number | null;
     brand: string | null; model: string | null; engine: string | null; fuel: string | null;
     kw: number | null; ps: number | null; cc: number | null; from: string | null; to: string | null;
@@ -74,8 +70,7 @@ export async function getProductEnrichment(product: { id: string; code: string; 
     LEFT JOIN vehicle_types v ON v.id=f.vehicle_type_id
     LEFT JOIN vehicle_models m ON m.id=v.model_id
     LEFT JOIN vehicle_brands b ON b.id=m.brand_id
-    WHERE f.supplier_item_id=$1 AND f.source_vehicle=$2::jsonb->'vehicles'->f.source_index`, [row.donor_item_id, JSON.stringify(row.payload)])]);
-  const fitments = fitmentResult.rows;
+    WHERE f.supplier_item_id=$1 AND f.source_vehicle=$2::jsonb->'vehicles'->f.source_index`, [row.donor_item_id, JSON.stringify(row.payload)])).rows;
   const fitmentByIndex = new Map(fitments.map(fitment => [fitment.source_index, fitment]));
   const vehicles = data.vehicles.map((source, index) => {
     const linked = fitmentByIndex.get(index);
@@ -95,8 +90,7 @@ export async function getProductEnrichment(product: { id: string; code: string; 
     sourceLabel: new URL(row.source_url).hostname.replace(/^www\./, ""),
     manufacturer: row.manufacturer,
     partNumber: row.manufacturer_part_number,
-    // A generic image (#1091) is not this product's photo; the page shows PartArt.
-    imagePath: row.image_id && !generic.has(row.image_id) ? `/api/product-media/${row.image_id}` : null,
+    imagePath: row.image_id ? `/api/product-media/${row.image_id}` : null,
   };
 }
 
