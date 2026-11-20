@@ -5,7 +5,7 @@ import { partnerDiscountEnv, resolvePartnerDiscountBps } from "@/modules/partner
 import { createRateLimiter } from "@/modules/partner/rate-limit";
 
 const maxVehicleTypeId = 2_147_483_647;
-// 120 a minute per address, 600 per partner (see partnerGuard).
+// 600 a minute per partner; 120 failed key checks a minute per address (see partnerGuard).
 const limiters = { address: createRateLimiter(120, 60_000), partner: createRateLimiter(600, 60_000) };
 
 function parseVehicleTypeId(raw: string | null): number | null | undefined {
@@ -16,11 +16,13 @@ function parseVehicleTypeId(raw: string | null): number | null | undefined {
 }
 
 /**
- * Partner catalog search, `GET /api/partner/v1/products` (#424; contract 1.2, consumed by BakımX).
+ * Partner catalog search, `GET /api/partner/v1/products` (#424; contract 1.3, consumed by BakımX;
+ * docs/partner-products-contract.md).
  *
- * `?partNo=` exact manufacturer part number, `?oem=` exact OEM number, otherwise `?q=` free text.
- * `?vehicleTypeId=` only reports `exactFitment`, it does not filter. Prices are kuruş, VAT excluded, and
- * `lastSyncedAt` is part of the contract: this endpoint does not promise live stock.
+ * `?partNo=` exact manufacturer part number, `?oem=` exact OEM number, otherwise `?q=` free text; `?limit=` 1-30.
+ * `?vehicleTypeId=` never filters: it puts the parts fitting that vehicle first and reports `exactFitment` and
+ * `fitmentLevel` (#1093). Prices are kuruş, VAT excluded, and `lastSyncedAt` is part of the contract: this endpoint
+ * does not promise live stock.
  */
 export async function GET(request: NextRequest) {
   const guard = partnerGuard(request, limiters);

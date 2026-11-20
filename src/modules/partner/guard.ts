@@ -17,24 +17,29 @@ type Limiter = ReturnType<typeof createRateLimiter>;
 export type PartnerLimiters = { address: Limiter; partner: Limiter };
 
 /**
- * Rate limit + API key check shared by every `/api/partner/v1` route (#424, #426). The client address is limited before
- * authentication, so a client guessing keys is limited too; the address is the one our edge reports (clientEvidence:
- * CloudFront's viewer address, else the last X-Forwarded-For hop), never a header the client can set. After a key
- * matches, the partner is limited again by its code, whatever addresses it calls from. One answer for a missing and a
- * wrong key. Counters live in process memory: with several app tasks each task counts on its own, so the effective
- * limit is the per-task limit times the number of tasks.
+ * Rate limit + API key check shared by every `/api/partner/v1` route (#424, #426). A request with a valid key is
+ * limited by its partner code only, whatever address it comes from: a partner calls from its own servers, so all of its
+ * workshops share one address (#1093). Failed key checks (missing or wrong key, one answer for both) are counted per
+ * client address, and an address over that budget is refused before its key is checked, so guessing keys stays
+ * limited. The address is the one our edge reports (clientEvidence: CloudFront's viewer address, else the last
+ * X-Forwarded-For hop), never a header the client can set. Counters live in process memory: with several app tasks
+ * each task counts on its own, so the effective limit is the per-task limit times the number of tasks.
  */
 export function partnerGuard(request: NextRequest, limiters: PartnerLimiters): { partner: PartnerIdentity } | { response: Response } {
   const limited = (limit: ReturnType<Limiter>) => limit.allowed ? null
     : { response: partnerError(429, "RATE_LIMITED", "Too many requests.", undefined, { "Retry-After": String(limit.retryAfterSeconds) }) };
-  const byAddress = limited(limiters.address(clientEvidence(request.headers).ip ?? "unknown"));
-  if (byAddress) return byAddress;
+  const address = clientEvidence(request.headers).ip ?? "unknown";
+  const blocked = limited(limiters.address.peek(address));
+  if (blocked) return blocked;
   const partner = resolvePartner(request.headers.get("authorization"), process.env[partnerKeysEnv]);
-  if (!partner) return { response: partnerError(401, "UNAUTHORIZED", "Valid partner API key required.") };
+  if (!partner) {
+    limiters.address(address);
+    return { response: partnerError(401, "UNAUTHORIZED", "Valid partner API key required.") };
+  }
   return limited(limiters.partner(partner.code)) ?? { partner };
 }
 
-/** The order routes (quotes, orders, order reads) share one budget: 60 a minute per address, 300 per partner. */
+/** The order routes (quotes, orders, order reads) share one budget: 300 a minute per partner, 60 failed key checks per address. */
 export const partnerOrderLimiters: PartnerLimiters = { address: createRateLimiter(60, 60_000), partner: createRateLimiter(300, 60_000) };
 
 /** JSON request body, or null when it is not JSON. */

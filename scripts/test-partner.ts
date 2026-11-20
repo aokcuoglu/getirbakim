@@ -8,6 +8,8 @@ import { orderRequestSchema, quoteRequestSchema } from "../src/modules/partner/o
 import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partnerQuoteTtlMs, signQuote, verifyQuote, type QuotePayload } from "../src/modules/partner/quotes";
 import { resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
 import { createRateLimiter } from "../src/modules/partner/rate-limit";
+import { exactMatches, fitmentLevelOf, fitsFirst } from "../src/modules/partner/search-order";
+import { ttlCache } from "../src/lib/ttl-cache";
 
 const key = "sk_".padEnd(minPartnerKeyLength + 4, "x");
 
@@ -101,11 +103,16 @@ test("partner availability follows the storefront's sellability", () => {
   assert.equal(partnerAvailability(row({ available: false, stock_label: "Stokta yok" })), "UNAVAILABLE");
 });
 
-test("partner product DTO keeps the 1.2 contract and leaks no supplier internals", () => {
+test("partner product DTO is contract 1.3, the 1.2 fields unchanged, and leaks no supplier internals", () => {
   const offer = row({ id: "11111111-2222-4333-8444-555555555555", supplier: "dinamik", available: false, stock_label: "Stokta yok",
     pricing_snapshot: { ...row().pricing_snapshot, observed_at: "2026-11-10T09:30:00Z" } });
-  const product = toPartnerProduct(row(), { offers: [row(), offer], discountBps: 0, imageUrl: "https://getirbakim.com/api/product-media/x", vehicleTypeId: 1234, fitted: true });
-  assert.equal(product.contractVersion, "1.2");
+  const product = toPartnerProduct(row(), { offers: [row(), offer], discountBps: 0, imageUrl: "https://getirbakim.com/api/product-media/x", vehicleTypeId: 1234, fitmentLevel: "guaranteed" });
+  assert.equal(product.contractVersion, "1.3");
+  // A 1.1/1.2 reader (BakımX) finds every field it reads; 1.3 only adds fitmentLevel (#1093).
+  assert.deepEqual(Object.keys(product).sort(), ["availability", "b2bPriceKurus", "brandName", "categoryName", "contractVersion", "currency", "discountBps",
+    "exactFitment", "fitmentLevel", "id", "imageUrl", "lastSyncedAt", "listPriceKurus", "manufacturerPartNumber", "name", "oemNumbers", "offers", "partNo",
+    "references", "sourceProductId", "stockQty", "vatRateBps"]);
+  assert.equal(product.fitmentLevel, "guaranteed");
   assert.equal(product.sourceProductId, row().id);
   assert.deepEqual(product.manufacturerPartNumber, { value: "LUK 510 0207 10", normalized: "LUK510020710" });
   assert.deepEqual(product.oemNumbers, ["55248403", "9S51-7548-AA"]);
@@ -117,19 +124,84 @@ test("partner product DTO keeps the 1.2 contract and leaks no supplier internals
   assert.match(product.offers[0].selectedOfferId, /^offer_[0-9a-f]{32}$/);
   const json = JSON.stringify(product);
   for (const internal of [`"nf"`, "103.19", "exchange_rate", "markup", "BASBUG", "MERKEZ", `"stok"`, "warehouse", "company"]) assert.ok(!json.includes(internal), internal);
-  assert.equal(toPartnerProduct(row(), { offers: [row()], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitted: false }).exactFitment.status, "NOT_REQUESTED");
+  assert.equal(toPartnerProduct(row(), { offers: [row()], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitmentLevel: null }).exactFitment.status, "NOT_REQUESTED");
   // An admin price (#580) reaches the product and its offer from the row's price; no new internals leak.
   const fixed = row({ price_kurus: 960000, pricing_snapshot: { ...row().pricing_snapshot, source: "override", price_kind: "fixed", auto_price_kurus: 888759,
     fixed_price_kurus: 960000, cost_kurus: 569720 } as PartnerCatalogRow["pricing_snapshot"] });
-  const overridden = toPartnerProduct(fixed, { offers: [fixed], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitted: false });
+  const overridden = toPartnerProduct(fixed, { offers: [fixed], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitmentLevel: null });
   assert.deepEqual([overridden.listPriceKurus, overridden.b2bPriceKurus, overridden.offers[0].informationalPriceKurus], [800000, 800000, 800000]);
   for (const internal of ["auto_price", "fixed_price", "cost_kurus", "888759", "override"]) assert.ok(!JSON.stringify(overridden).includes(internal), internal);
-  assert.equal(toPartnerProduct(row(), { offers: [row()], discountBps: 0, imageUrl: null, vehicleTypeId: 9, fitted: false }).exactFitment.status, "NOT_CONFIRMED");
+  assert.equal(toPartnerProduct(row(), { offers: [row()], discountBps: 0, imageUrl: null, vehicleTypeId: 9, fitmentLevel: null }).exactFitment.status, "NOT_CONFIRMED");
+});
+
+test("partner fitment level: likely is reported but stays NOT_CONFIRMED; no vehicle means no level (#1093)", () => {
+  const likely = toPartnerProduct(row(), { offers: [row()], discountBps: 0, imageUrl: null, vehicleTypeId: 9, fitmentLevel: "likely" });
+  assert.deepEqual([likely.fitmentLevel, likely.exactFitment], ["likely", { requestedVehicleTypeId: 9, status: "NOT_CONFIRMED", matchedVehicleTypeIds: [] }]);
+  assert.equal(toPartnerProduct(row(), { offers: [row()], discountBps: 0, imageUrl: null, vehicleTypeId: 9, fitmentLevel: null }).fitmentLevel, "unknown");
+  const none = toPartnerProduct(row(), { offers: [row()], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitmentLevel: "guaranteed" });
+  assert.deepEqual([none.fitmentLevel, none.exactFitment.status], [null, "NOT_REQUESTED"]);
+  // A fit of any grouped offer is the product's; an engine-type link beats a model fit.
+  const typeFitted = new Set(["offer-b"]), modelFitted = new Set(["a", "c"]);
+  assert.equal(fitmentLevelOf(["a", "offer-b"], typeFitted, modelFitted), "guaranteed");
+  assert.equal(fitmentLevelOf(["c"], typeFitted, modelFitted), "likely");
+  assert.equal(fitmentLevelOf(["d", "offer-d"], typeFitted, modelFitted), "unknown");
+  // A type the admin removed from the product is a storefront mismatch: never likely, reported unknown.
+  assert.equal(fitmentLevelOf(["c"], typeFitted, modelFitted, true), "unknown");
+});
+
+// The search's ranked candidates (rankedSearchDepth = 200): supplier rows `r0`…, every 10th a hand-entered store product.
+const ranked = Array.from({ length: 200 }, (_, index) => ({
+  ...row({ id: `r${index}`, code: `ART ${index}`, display_code: `ART ${index}`, oem: `OE-${index}` }), source: index % 10 === 9 ? "store" : "supplier",
+}));
+
+test("partner search: limit above one storefront page (24) and exact numbers ranked below it (#1093)", () => {
+  const supplierRows = exactMatches(ranked, {});
+  assert.equal(supplierRows.length, 180);
+  assert.ok(supplierRows.every(item => item.source === "supplier"));
+  // limit=30 returns 30 rows, the search's order kept.
+  assert.deepEqual(fitsFirst(supplierRows, null, 30).map(item => item.id), supplierRows.slice(0, 30).map(item => item.id));
+  // An exact part number or OEM ranked 150th is still found.
+  assert.deepEqual(exactMatches(ranked, { partNo: "art-150" }).map(item => item.id), ["r150"]);
+  assert.deepEqual(exactMatches(ranked, { oem: "oe 150" }).map(item => item.id), ["r150"]);
+  // The store's manufacturer part number matches too (#602); a store product never does.
+  const edited = [{ ...ranked[160], display_code: "XY 99" }, ranked[159]];
+  assert.deepEqual(exactMatches(edited, { partNo: "xy99" }).map(item => item.id), ["r160"]);
+  assert.deepEqual(exactMatches(edited, { partNo: "art159" }), []);
+});
+
+test("partner search: with a vehicle, guaranteed fits first, then likely, then the rest, nothing dropped (#1093)", () => {
+  const rows = exactMatches(ranked, {}).slice(0, 12);
+  const levels = new Map(rows.map(item => [item.id, "unknown" as const] as [string, "guaranteed" | "likely" | "unknown"]));
+  for (const id of ["r11", "r3"]) levels.set(id, "likely");
+  for (const id of ["r7", "r12"]) levels.set(id, "guaranteed");
+  const ordered = fitsFirst(rows, levels, 30).map(item => item.id);
+  assert.deepEqual(ordered, ["r7", "r12", "r3", "r11", "r0", "r1", "r2", "r4", "r5", "r6", "r8", "r10"]);
+  // A fitting part ranked deep reaches a short first page; the rest still fill it.
+  assert.deepEqual(fitsFirst(rows, levels, 3).map(item => item.id), ["r7", "r12", "r3"]);
+  assert.deepEqual(fitsFirst(rows, new Map(), 4).map(item => item.id), ["r0", "r1", "r2", "r3"]);
+});
+
+test("partner response cache: a repeat within the window is not loaded again; it expires, failures are not kept (#1093)", async () => {
+  let now = 0, loads = 0;
+  const cache = ttlCache<number>(30_000, 2, () => now);
+  const load = async () => ++loads;
+  assert.deepEqual(await Promise.all([cache("fren", load), cache("fren", load)]), [1, 1]);
+  now = 29_999;
+  assert.equal(await cache("fren", load), 1);
+  now = 30_000;
+  assert.equal(await cache("fren", load), 2);
+  await assert.rejects(cache("boom", async () => { throw new Error("db"); }));
+  assert.equal(await cache("boom", load), 3);
+  // Least recently used leaves first: "fren" was read after "boom" was stored, then "x" pushes "boom" out.
+  assert.equal(await cache("fren", load), 2);
+  await cache("x", load);
+  assert.equal(await cache("fren", load), 2);
+  assert.equal(await cache("boom", load), 5);
 });
 
 test("partner product shows the store brand and part number; partNo stays the supplier code (#602)", () => {
   const edited = row({ display_brand: "SCHAEFFLER", display_code: "510020710" });
-  const product = toPartnerProduct(edited, { offers: [edited], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitted: false });
+  const product = toPartnerProduct(edited, { offers: [edited], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitmentLevel: null });
   assert.equal(product.brandName, "SCHAEFFLER");
   assert.deepEqual(product.manufacturerPartNumber, { value: "510020710", normalized: "510020710" });
   assert.equal(product.partNo, "LUK 510 0207 10");
@@ -137,7 +209,7 @@ test("partner product shows the store brand and part number; partNo stays the su
 
 test("a hidden supplier OEM field (empty oem) gives no OEM numbers or references; the code still matches (#615)", () => {
   const hidden = row({ oem: "" });
-  const product = toPartnerProduct(hidden, { offers: [hidden], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitted: false });
+  const product = toPartnerProduct(hidden, { offers: [hidden], discountBps: 0, imageUrl: null, vehicleTypeId: null, fitmentLevel: null });
   assert.deepEqual([product.oemNumbers, product.references], [[], []]);
   assert.ok(!matchesOem(hidden, "55248403"));
   assert.ok(matchesOem(hidden, "510020710"));
@@ -161,6 +233,10 @@ test("rate limiter: fixed window per key", () => {
   assert.deepEqual(limit("a"), { allowed: false, retryAfterSeconds: 1 });
   now = 1000;
   assert.equal(limit("a").allowed, true);
+  // peek answers without counting.
+  assert.deepEqual([limit.peek("a"), limit.peek("a"), limit.peek("c")].map(result => result.allowed), [true, true, true]);
+  limit("a");
+  assert.equal(limit.peek("a").allowed, false);
 });
 
 test("partner catalog reads only saleable rows, never the storefront's unavailable products (#475)", async () => {
@@ -307,30 +383,38 @@ test("partner order DTO: the cancel request after confirmation is pending, appro
     { status: "REJECTED", requestedAt: "2026-11-19T08:00:00.000Z", decidedAt: "2026-11-19T09:00:00.000Z" });
 });
 
-test("partner guard: limits by the edge's address (not X-Real-IP), then by partner code", async () => {
+test("partner guard: a valid key is limited per partner only; failed key checks per edge address (not X-Real-IP) (#1093)", async () => {
   const { NextRequest } = await import("next/server");
   const { partnerGuard } = await import("../src/modules/partner/guard");
   const originalKeys = process.env.PARTNER_API_KEYS;
   process.env.PARTNER_API_KEYS = `bakimx:${key},other:${key}y`;
   try {
     const request = (headers: Record<string, string>) => new NextRequest("https://getirbakim.com/api/partner/v1/orders", { headers });
-    const seen: string[] = [];
-    const address = (value: string) => { seen.push(value); return { allowed: true as const }; };
-    const unlimited = () => ({ allowed: true as const });
+    const unlimited = Object.assign(() => ({ allowed: true as const }), { peek: () => ({ allowed: true as const }) });
+    const status = (result: ReturnType<typeof partnerGuard>) => "response" in result ? result.response.status : result.partner.code;
     // A client-chosen X-Real-IP and the first X-Forwarded-For hop are ignored; CloudFront's viewer address wins.
-    partnerGuard(request({ "x-real-ip": "203.0.113.9", "x-forwarded-for": "198.51.100.1, 10.0.0.7", authorization: `Bearer ${key}` }), { address, partner: unlimited });
-    partnerGuard(request({ "x-real-ip": "203.0.113.9", "cloudfront-viewer-address": "198.51.100.20:46532", authorization: `Bearer ${key}` }), { address, partner: unlimited });
+    const seen: string[] = [];
+    const address = Object.assign((value: string) => { seen.push(value); return { allowed: true as const }; }, { peek: () => ({ allowed: true as const }) });
+    partnerGuard(request({ "x-real-ip": "203.0.113.9", "x-forwarded-for": "198.51.100.1, 10.0.0.7", authorization: "Bearer wrong-key-wrong-key" }), { address, partner: unlimited });
+    partnerGuard(request({ "x-real-ip": "203.0.113.9", "cloudfront-viewer-address": "198.51.100.20:46532" }), { address, partner: unlimited });
+    // A valid key does not count against its address.
+    partnerGuard(request({ "x-forwarded-for": "10.0.0.7", authorization: `Bearer ${key}` }), { address, partner: unlimited });
     assert.deepEqual(seen, ["10.0.0.7", "198.51.100.20"]);
-    // A wrong key is 401; after a matching key the partner's own budget applies whatever address it calls from.
-    const denied = partnerGuard(request({ authorization: "Bearer wrong-key-wrong-key" }), { address: unlimited, partner: unlimited });
-    assert.ok("response" in denied && denied.response.status === 401);
-    const limit = createRateLimiter(1, 60_000);
-    const first = partnerGuard(request({ "x-forwarded-for": "10.0.0.1", authorization: `Bearer ${key}` }), { address: unlimited, partner: limit });
-    const second = partnerGuard(request({ "x-forwarded-for": "10.0.0.2", authorization: `Bearer ${key}` }), { address: unlimited, partner: limit });
-    const otherPartner = partnerGuard(request({ "x-forwarded-for": "10.0.0.2", authorization: `Bearer ${key}y` }), { address: unlimited, partner: limit });
-    assert.deepEqual("partner" in first && first.partner, { code: "bakimx" });
-    assert.ok("response" in second && second.response.status === 429 && second.response.headers.get("retry-after") === "60");
-    assert.deepEqual("partner" in otherPartner && otherPartner.partner, { code: "other" });
+    // One server address carries all of a partner's workshops: far past the address budget, only the partner's applies.
+    const perAddress = createRateLimiter(2, 60_000), perPartner = createRateLimiter(5, 60_000);
+    const limiters = { address: perAddress, partner: perPartner };
+    const valid = Array.from({ length: 5 }, () => status(partnerGuard(request({ "x-forwarded-for": "10.0.0.1", authorization: `Bearer ${key}` }), limiters)));
+    assert.deepEqual(valid, Array(5).fill("bakimx"));
+    const over = partnerGuard(request({ "x-forwarded-for": "10.0.0.9", authorization: `Bearer ${key}` }), limiters);
+    assert.ok("response" in over && over.response.status === 429 && over.response.headers.get("retry-after") === "60");
+    assert.equal(status(partnerGuard(request({ "x-forwarded-for": "10.0.0.1", authorization: `Bearer ${key}y` }), limiters)), "other");
+    // Missing or wrong keys count per address: 401 within the budget, then 429 before any key is checked, even a right one.
+    const guessing = [`Bearer ${key}x`, "", `Bearer ${key}z`].map(authorization =>
+      status(partnerGuard(request({ "x-forwarded-for": "10.0.0.2", ...authorization ? { authorization } : {} }), limiters)));
+    assert.deepEqual(guessing, [401, 401, 429]);
+    assert.equal(status(partnerGuard(request({ "x-forwarded-for": "10.0.0.2", authorization: `Bearer ${key}y` }), limiters)), 429);
+    // The partner's own address is unaffected by another address guessing.
+    assert.equal(status(partnerGuard(request({ "x-forwarded-for": "10.0.0.1", authorization: `Bearer ${key}y` }), limiters)), "other");
   } finally {
     if (originalKeys === undefined) delete process.env.PARTNER_API_KEYS; else process.env.PARTNER_API_KEYS = originalKeys;
   }

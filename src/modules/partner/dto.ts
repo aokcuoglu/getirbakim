@@ -1,12 +1,21 @@
 import { resolvePartnerPrice, type PartnerPrice, type SupplierPricing } from "./pricing";
 
 /**
- * The partner API's public data contract (#424), field for field the `contractVersion: "1.2"` shape BakımX
- * parses (`src/lib/parts/getirbakim/types.ts` there). Nothing outside these types reaches a partner: supplier
+ * The partner API's public data contract (#424), field for field the `contractVersion: "1.3"` shape BakımX
+ * parses (`src/lib/parts/getirbakim/types.ts` there; docs/partner-products-contract.md). 1.3 (#1093) only adds
+ * `fitmentLevel`: a 1.1/1.2 reader keeps working. Nothing outside these types reaches a partner: supplier
  * cost (`nf`), markup, exchange rate, company, list group, warehouse and stock counts are deliberately absent.
  */
 export type PartnerAvailability = "IN_STOCK" | "SUPPLYABLE" | "UNAVAILABLE";
 export type PartnerOfferAvailability = "IN_STOCK" | "SUPPLYABLE" | "UNKNOWN";
+
+/**
+ * How a product fits the vehicle the partner asked about (#1093), the storefront's fitment levels without "mismatch":
+ * `guaranteed` is linked to the requested engine type (exactFitment CONFIRMED), `likely` fits the type's model (an
+ * engine-level fit of another type of that model, or a model read from the supplier's description), `unknown` is
+ * neither. Null when no vehicle was requested.
+ */
+export type PartnerFitmentLevel = "guaranteed" | "likely" | "unknown";
 
 export type PartnerOffer = {
   /** Opaque, stable offer identity. */
@@ -23,7 +32,7 @@ export type PartnerOffer = {
 };
 
 export type PartnerProduct = {
-  contractVersion: "1.2";
+  contractVersion: "1.3";
   sourceProductId: string;
   id: string;
   partNo: string;
@@ -34,6 +43,8 @@ export type PartnerProduct = {
   oemNumbers: string[];
   references: { type: "OEM"; value: string; normalized: string; brand: null }[];
   exactFitment: { requestedVehicleTypeId: number | null; status: "CONFIRMED" | "NOT_CONFIRMED" | "NOT_REQUESTED"; matchedVehicleTypeIds: number[] };
+  /** Added in 1.3: "likely" is NOT_CONFIRMED in exactFitment. */
+  fitmentLevel: PartnerFitmentLevel | null;
   imageUrl: string | null;
   listPriceKurus: number | null;
   b2bPriceKurus: number | null;
@@ -137,16 +148,17 @@ export function toPartnerOffer(row: PartnerCatalogRow): PartnerOffer {
 
 /**
  * `row` is the listing row (the best sellable offer's price when several suppliers sell the product), `offers`
- * every grouped offer including the listing row itself. `fitted` lists the ids linked to the requested vehicle.
+ * every grouped offer including the listing row itself. `fitmentLevel`: how it fits the requested vehicle, null without one.
  */
 export function toPartnerProduct(row: PartnerCatalogRow, options: {
-  offers: PartnerCatalogRow[]; discountBps: number; imageUrl: string | null; vehicleTypeId: number | null; fitted: boolean;
+  offers: PartnerCatalogRow[]; discountBps: number; imageUrl: string | null; vehicleTypeId: number | null; fitmentLevel: PartnerFitmentLevel | null;
 }): PartnerProduct {
+  const fitted = options.fitmentLevel === "guaranteed";
   const productPrice = price(row, options.discountBps);
   const oemNumbers = splitOemNumbers(row.oem);
   const lastSyncedAt = [row, ...options.offers].map(observedAt).filter((value): value is string => value != null).sort().at(-1) ?? null;
   return {
-    contractVersion: "1.2",
+    contractVersion: "1.3",
     sourceProductId: row.id,
     id: row.id,
     // partNo stays the supplier code the partner orders by; the manufacturer number and brand are what the store shows.
@@ -159,9 +171,10 @@ export function toPartnerProduct(row: PartnerCatalogRow, options: {
     references: oemNumbers.map(value => ({ type: "OEM", value, normalized: normalizePartCode(value), brand: null })),
     exactFitment: {
       requestedVehicleTypeId: options.vehicleTypeId,
-      status: options.vehicleTypeId == null ? "NOT_REQUESTED" : options.fitted ? "CONFIRMED" : "NOT_CONFIRMED",
-      matchedVehicleTypeIds: options.vehicleTypeId != null && options.fitted ? [options.vehicleTypeId] : [],
+      status: options.vehicleTypeId == null ? "NOT_REQUESTED" : fitted ? "CONFIRMED" : "NOT_CONFIRMED",
+      matchedVehicleTypeIds: options.vehicleTypeId != null && fitted ? [options.vehicleTypeId] : [],
     },
+    fitmentLevel: options.vehicleTypeId == null ? null : options.fitmentLevel ?? "unknown",
     imageUrl: options.imageUrl,
     ...productPrice,
     stockQty: 0,
