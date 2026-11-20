@@ -2,11 +2,15 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { after, before, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { syncProductStates } from "./test-helpers/product-states";
 import { enqueueProductSources } from "../src/modules/enrichment/product-queue";
-import { pendingChunkSql, pendingOrderSql, pendingSuppliers, type PendingSupplier } from "../src/modules/enrichment/pending-queue";
+import { brandRateSql, pendingChunkSql, pendingOrderSql, pendingSuppliers, type PendingSupplier } from "../src/modules/enrichment/pending-queue";
+import {
+  enqueuePriceOnlySources, interleaveByShare, interleaveStreams, priceOnlyArticleQueueSql, priceOnlyChunkSql, priceOnlyOrderSql,
+  priceOnlyShare, priceOnlyStatsSql, priceOnlySuppliers,
+} from "../src/modules/enrichment/price-only-queue";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 
 // spareto's pending selection (#921), in an isolated copy of the schema: the order comes from the materialized
@@ -15,7 +19,7 @@ import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources
 const skip = !process.env.DATABASE_URL;
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 const ids: Record<string, string> = {};
-const [basbug] = storefrontCompanies();
+const [basbug, , dinamik] = storefrontCompanies();
 
 /** One supplier row, its own master product: in stock and saleable, saleable without stock, or (later) not offered. */
 async function item(key: string, tier: "stock" | "store" | "absent") {
@@ -275,4 +279,188 @@ test("retry-review, retry-partial and status read the materialized states, never
     await schema.pool.query("UPDATE supplier_items SET code=split_part(code,' ',1)||' 1000',product_data=product_data-'oe'");
     await schema.pool.query("UPDATE product_enrichment_jobs SET status='pending',oem='',updated_at=now()");
   }
+});
+
+test("interleaveByShare gives the secondary list its share, primary first, and runs either list out", () => {
+  assert.deepEqual(interleaveByShare([1, 2, 3, 4, 5, 6, 7, 8], [-1, -2, -3], 0.25), [1, 2, 3, -1, 4, 5, 6, -2, 7, 8, -3]);
+  assert.deepEqual(interleaveByShare([1], [-1, -2, -3], 0.25), [1, -1, -2, -3], "the secondary list continues alone");
+  assert.deepEqual(interleaveByShare([1, 2, 3], [], 0.5), [1, 2, 3], "the primary list continues alone");
+  assert.deepEqual(interleaveByShare([1, 2, 3, 4, 5], [-1, -2, -3, -4, -5], 0.2), [1, 2, 3, 4, -1, 5, -2, -3, -4, -5]);
+  assert.deepEqual(interleaveByShare([1, 2], [-1], 0), [1, 2], "share 0 never opens the secondary list");
+  assert.deepEqual(interleaveByShare([], [-1], -1), []);
+});
+
+test("interleaveStreams matches the list merge and pulls an item only when it is emitted", async () => {
+  const pulled: number[] = [];
+  async function* stream(values: number[]) { for (const value of values) { pulled.push(value); yield value; } }
+  const all = async (iterable: AsyncIterable<number>) => { const out: number[] = []; for await (const value of iterable) out.push(value); return out; };
+  assert.deepEqual(await all(interleaveStreams(stream([1, 2, 3, 4, 5, 6, 7, 8]), stream([-1, -2, -3]), 0.25)), [1, 2, 3, -1, 4, 5, 6, -2, 7, 8, -3]);
+  assert.deepEqual(await all(interleaveStreams(stream([1]), stream([-1, -2]), 0.25)), [1, -1, -2]);
+  pulled.length = 0;
+  assert.deepEqual(await all(interleaveStreams(stream([1, 2]), stream([-1]), 0)), [1, 2]);
+  assert.deepEqual(pulled, [1, 2], "share 0 never pulls from the secondary stream");
+  pulled.length = 0;
+  for await (const value of interleaveStreams(stream([1, 2, 3, 4]), stream([-1, -2]), 0.5)) if (value === 1) break;
+  assert.deepEqual(pulled, [1], "a stopped merge pulls nothing more");
+});
+
+test("priceOnlyShare reads the flag, then the environment, clamped to 0..1", () => {
+  assert.equal(priceOnlyShare(undefined, undefined), 0);
+  assert.equal(priceOnlyShare(undefined, "0.2"), 0.2);
+  assert.equal(priceOnlyShare("0.5", "0.2"), 0.5);
+  assert.equal(priceOnlyShare("3", undefined), 1);
+  assert.equal(priceOnlyShare("-1", undefined), 0);
+  assert.throws(() => priceOnlyShare("half", undefined), /between 0 and 1/);
+});
+
+// Dinamik price-list-only codes (#1075): rows without a stock-list row and without a master product link, queued through
+// their own jobs for the enabled brands (spareto) and for every brand matched to an archived article (parts2world).
+describe("Dinamik price-list-only codes", () => {
+  const price: Record<string, string> = {};
+  const keyOfPrice = (id: string) => Object.keys(price).find((key) => price[key] === id);
+  async function priceOnly(key: string, brand: string, { presence = "present", conflicting = false }: { presence?: string; conflicting?: boolean } = {}) {
+    const code = `${brand} ${key.toUpperCase()}`;
+    const { rows } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+      VALUES('dinamik',$1,'PRICE','ALL',$2,$3,'{"nf":100}',NULL,1,1,0,$4,$5,now()-interval '10 days',now()-interval '1 hour',now()-interval '1 hour') RETURNING id::text`,
+    [dinamik, code, { stokKodu: code, marka: brand }, conflicting, presence]);
+    price[key] = rows[0].id;
+  }
+  const spareto = async (tried = new Set<string>(), limit = 100, options?: { chunk?: number; reorderEvery?: number }, onRow?: (row: PendingSupplier) => Promise<void>) => {
+    const rows: PendingSupplier[] = [];
+    for await (const row of priceOnlySuppliers(schema.pool, tried, limit, options)) { rows.push(row); await onRow?.(row); }
+    return rows;
+  };
+  const article = async (key: string) => {
+    await schema.pool.query(`INSERT INTO parts2world_articles(brand_key,part_key,brand,part_number,article_id,link_id,vehicle_type_id)
+      VALUES($1,$1,'X',$1,1,1,1) ON CONFLICT DO NOTHING`, [key.toUpperCase()]);
+    await schema.pool.query("INSERT INTO parts2world_job_articles(supplier_item_id,brand_key,part_key) VALUES($1,$2,$2)", [price[key], key.toUpperCase()]);
+  };
+
+  before(async () => {
+    if (skip) return;
+    for (const key of ["ready1", "ready2", "matched", "linked", "master", "answered", "finished", "unaligned"]) await priceOnly(key, "PXA");
+    await priceOnly("other", "PXB");
+    await priceOnly("absent", "PXA", { presence: "pending_missing" });
+    await priceOnly("conflicting", "PXA", { conflicting: true });
+    // A legacy job: the right code, an empty brand.
+    await schema.pool.query("INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand) SELECT id,code,'' FROM supplier_items WHERE id=$1", [price.ready1]);
+    // A master product of another supplier's row with the same brand and part number.
+    await schema.pool.query(`INSERT INTO products(brand,part_number,brand_label,code) SELECT supplier_item_brand_key(supplier,product_data),
+      supplier_item_part_number(supplier,code,product_data),'PXA',code FROM supplier_items WHERE id=$1`, [price.master]);
+    const product = (await schema.pool.query<{ id: string }>("INSERT INTO products(brand,part_number,brand_label,code) VALUES('PXA','LINKEDOWN','PXA','PXA LINKEDOWN') RETURNING id::text")).rows[0].id;
+    await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id,method) VALUES($1,$2,'manual')", [price.linked, product]);
+    await schema.pool.query("INSERT INTO enrichment_price_only_brands(label) VALUES('PXA')");
+  });
+
+  test("enqueue gives each unlinked present row a job with its live identity; a second run writes nothing", { skip }, async () => {
+    // ready1 realigned, ready2 matched master answered finished unaligned other inserted; linked, absent and conflicting left out.
+    assert.equal(await enqueuePriceOnlySources(schema.pool), 8);
+    const jobs = (await schema.pool.query<{ id: string; code: string; brand: string; status: string }>(
+      "SELECT supplier_item_id::text AS id,supplier_code AS code,supplier_brand AS brand,status FROM product_enrichment_jobs WHERE supplier_item_id=ANY($1::uuid[])",
+      [Object.values(price)])).rows;
+    assert.deepEqual(jobs.map((job) => keyOfPrice(job.id)).sort(), ["answered", "finished", "master", "matched", "other", "ready1", "ready2", "unaligned"]);
+    assert.deepEqual(jobs.find((job) => job.id === price.ready1), { id: price.ready1, code: "PXA READY1", brand: "PXA", status: "pending" });
+    assert.equal(await enqueuePriceOnlySources(schema.pool), 0);
+    await schema.pool.query("UPDATE product_enrichment_jobs SET status='complete' WHERE supplier_item_id=$1", [price.finished]);
+    await schema.pool.query("UPDATE product_enrichment_jobs SET supplier_code='PXA OLD' WHERE supplier_item_id=$1", [price.unaligned]);
+    await schema.pool.query("INSERT INTO enrichment_source_attempts(source,queue,supplier_item_id,outcome) VALUES('spareto','price_only',$1,'not_found')", [price.answered]);
+    await article("matched");
+    await article("other");
+    await article("linked");
+  });
+
+  test("spareto takes only ready rows of enabled brands, rows parts2world reaches last", { skip }, async () => {
+    const rows = await spareto();
+    assert.deepEqual(rows.slice(0, 2).map((row) => keyOfPrice(row.id)).sort(), ["ready1", "ready2"]);
+    assert.deepEqual(rows.map((row) => keyOfPrice(row.id)).slice(2), ["matched"]);
+    assert.deepEqual({ ...rows[2], id: "" }, { id: "", code: "PXA MATCHED", brand: "PXA", oem: "", masterBrand: null, priceOnly: true });
+    const tried = new Set([price.ready1]);
+    assert.deepEqual((await spareto(tried, 1)).map((row) => keyOfPrice(row.id)), ["ready2"]);
+    assert.ok(tried.has(price.ready2), "a yielded id joins the tried set");
+    await schema.pool.query("DELETE FROM enrichment_price_only_brands");
+    try {
+      assert.deepEqual(await spareto(), [], "no enabled brand, no price-only search");
+    } finally {
+      await schema.pool.query("INSERT INTO enrichment_price_only_brands(label) VALUES('PXA')");
+    }
+  });
+
+  test("a row that gains a stock-list row between the order and its chunk is not searched", { skip }, async () => {
+    const seen: string[] = [];
+    try {
+      const rows = await spareto(new Set(), 100, { chunk: 1 }, async (row) => {
+        seen.push(row.id);
+        if (seen.length === 1) await schema.pool.query(`UPDATE supplier_items SET stock_data='{"stok":0}' WHERE id=ANY($1::uuid[]) AND id<>$2`,
+          [[price.ready1, price.ready2], row.id]);
+      });
+      assert.deepEqual(rows.map((row) => keyOfPrice(row.id)).filter((key) => key !== "matched").length, 1);
+    } finally {
+      await schema.pool.query("UPDATE supplier_items SET stock_data=NULL WHERE id=ANY($1::uuid[])", [[price.ready1, price.ready2]]);
+    }
+  });
+
+  test("share 0 leaves spareto's pending pass as it was", { skip }, async () => {
+    const all = async (iterable: AsyncIterable<PendingSupplier>) => { const out: PendingSupplier[] = []; for await (const row of iterable) out.push(row); return out; };
+    const plain = await all(pendingSuppliers(schema.pool, new Set(), 100));
+    assert.deepEqual(await all(interleaveStreams(pendingSuppliers(schema.pool, new Set(), 100), priceOnlySuppliers(schema.pool, new Set(), 100), 0)), plain);
+    const mixed = await all(interleaveStreams(pendingSuppliers(schema.pool, new Set(), 100), priceOnlySuppliers(schema.pool, new Set(), 100), 0.25));
+    assert.equal(mixed.length, plain.length + 3);
+    assert.deepEqual(mixed.filter((row) => !row.priceOnly), plain, "the pending order is kept");
+    assert.deepEqual(mixed.slice(0, 4).map((row) => Boolean(row.priceOnly)), [false, false, false, true]);
+  });
+
+  test("parts2world's price-only queue holds every brand's ready matched rows, in both directions", { skip }, async () => {
+    const forward = (await schema.pool.query<{ id: string; priceOnly: boolean; articleId: string }>(priceOnlyArticleQueueSql(false))).rows;
+    const backward = (await schema.pool.query<{ id: string }>(priceOnlyArticleQueueSql(true))).rows;
+    assert.deepEqual(forward.map((row) => keyOfPrice(row.id)).sort(), ["matched", "other"], "the linked row is left out");
+    assert.deepEqual(backward.map((row) => row.id), forward.map((row) => row.id).reverse());
+    assert.ok(forward.every((row) => row.priceOnly && row.articleId === "1"));
+    await schema.pool.query("UPDATE product_enrichment_jobs SET supplier_brand='' WHERE supplier_item_id=$1", [price.other]);
+    try {
+      assert.deepEqual((await schema.pool.query<{ id: string }>(priceOnlyArticleQueueSql(false))).rows.map((row) => keyOfPrice(row.id)), ["matched"],
+        "a job not aligned with its row is not searched");
+    } finally {
+      await schema.pool.query("UPDATE product_enrichment_jobs SET supplier_brand='PXB' WHERE supplier_item_id=$1", [price.other]);
+    }
+  });
+
+  test("the progress counts each enabled brand's rows", { skip }, async () => {
+    await schema.pool.query("INSERT INTO enrichment_source_attempts(source,queue,supplier_item_id,outcome) VALUES('parts2world','price_only',$1,'found')", [price.finished]);
+    const stats = (await schema.pool.query(priceOnlyStatsSql)).rows;
+    // ready1 ready2 matched master answered finished unaligned: present, unlinked, not conflicting.
+    assert.deepEqual(stats, [{ label: "PXA", total: 7, searched: 2, found: 1, enriched: 1, published: 0, remaining: 3 }]);
+  });
+
+  test("the brand hit rates ignore price-only searches", { skip }, async () => {
+    // Five searches of a storefront product's brand under each queue: only the pending ones count.
+    const rates = async () => (await schema.pool.query<{ rates: Record<string, number> }>(brandRateSql)).rows[0].rates;
+    const insert = (queue: string) => schema.pool.query(`INSERT INTO enrichment_source_attempts(source,queue,supplier_item_id,outcome)
+      SELECT 'spareto',$1,$2,'found' FROM generate_series(1,5)`, [queue, ids.stocka]);
+    try {
+      await insert("price_only");
+      assert.equal((await rates()).STOCKA, undefined);
+      await insert("pending");
+      assert.equal((await rates()).STOCKA, 1);
+    } finally {
+      await schema.pool.query("DELETE FROM enrichment_source_attempts WHERE supplier_item_id=$1", [ids.stocka]);
+    }
+  });
+
+  test("the CLI enables only labels a price-only row carries and reports each worker's next codes", { skip }, async () => {
+    assert.deepEqual(JSON.parse(await cli("scripts/enrichment-price-only.ts", ["enable", "PXB", "--note", "test"])), { enabled: ["PXA", "PXB"] });
+    assert.deepEqual(JSON.parse(await cli("scripts/enrichment-price-only.ts", ["disable", "PXB"])), { disabled: 1, enabled: ["PXA"] });
+    await assert.rejects(cli("scripts/enrichment-price-only.ts", ["enable", "NOPE"]), /No price-only Dinamik row carries NOPE/);
+    const status = JSON.parse(await cli("scripts/enrichment-price-only.ts", ["status"]));
+    assert.deepEqual(status.brands.map((row: { label: string }) => row.label), ["PXA", "parts2world, other brands"]);
+    assert.deepEqual([...status.next.spareto].sort(), ["PXA MATCHED", "PXA READY1", "PXA READY2"]);
+    assert.deepEqual([...status.next.parts2world].sort(), ["PXA MATCHED", "PXB OTHER"]);
+  });
+
+  test("the chunk query keeps the order it was given", { skip }, async () => {
+    const rows = (await schema.pool.query<{ id: string }>(priceOnlyChunkSql, [[price.ready2, price.other, price.ready1]])).rows;
+    assert.deepEqual(rows.map((row) => keyOfPrice(row.id)), ["ready2", "other", "ready1"], "the chunk checks readiness, not the brand list");
+    const order = (await schema.pool.query<{ id: string }>(priceOnlyOrderSql, [10, ["PXB"]])).rows;
+    assert.deepEqual(order.map((row) => keyOfPrice(row.id)), ["other"]);
+  });
 });

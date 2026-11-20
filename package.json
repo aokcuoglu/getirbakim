@@ -172,6 +172,7 @@
     "enrichment:otoparcasan": "node --env-file=.env.local --conditions=react-server --import tsx scripts/otoparcasan-enrichment.ts",
     "enrichment:spareto": "node --env-file=.env.local --conditions=react-server --import tsx scripts/spareto-enrichment.ts",
     "enrichment:parts2world": "node --env-file=.env.local --conditions=react-server --import tsx scripts/parts2world-enrichment.ts",
+    "enrichment:price-only": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-price-only.ts",
     "enrichment:attempts:backfill": "node --env-file=.env.local --import tsx scripts/backfill-source-attempts.ts",
     "enrichment:image-fill": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-image-fill.ts",
     "enrichment:fallback": "node --env-file=.env.local --import tsx scripts/enrichment-fallback.ts",

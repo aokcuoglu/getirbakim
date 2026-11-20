@@ -7,6 +7,7 @@ import { binder, enrichmentStateMatch } from "@/modules/search/sql";
 import { sourceHosts, summarizeSources, type PassPace, type SourceActivity, type SourceKey, type SourceRun } from "./enrichment-pace";
 import type { PartialGap } from "../enrichment/partial-gaps";
 import { shownImageSql, uploadedImageSql } from "../store/product-image-sql";
+import { priceOnlyStatsSql, type PriceOnlyStats } from "../enrichment/price-only-queue";
 
 import { dashboardTab, enrichmentStatuses } from "./enrichment-labels";
 export { enrichmentStatuses };
@@ -57,6 +58,26 @@ function passPace() {
     load().then(value => { pace.value = Promise.resolve(value); pace.at = Date.now(); }).catch(() => {}).finally(() => { pace.refreshing = false; });
   }
   return pace.value;
+}
+
+export type PriceOnlyProgress = { published: number; brands: Omit<PriceOnlyStats, "found">[] };
+// Dinamik price-list-only codes (#1075): one pass over the enabled brands' rows (~70k, under a second), reused for a
+// minute like the pass pace. A database set up before #1075 has no brand table: the card is left out.
+const priceOnly = { at: 0, value: null as Promise<PriceOnlyProgress | null> | null, refreshing: false };
+function priceOnlyProgress() {
+  const load = () => Promise.all([
+    db.query<PriceOnlyStats>(priceOnlyStatsSql),
+    db.query<{ count: number }>("SELECT count(*)::int AS count FROM storefront_price_only_items"),
+  ]).then(([brands, published]): PriceOnlyProgress => ({
+    published: published.rows[0].count,
+    brands: brands.rows.map(({ label, total, searched, enriched, published, remaining }) => ({ label, total, searched, enriched, published, remaining })),
+  })).catch((error: { code?: string }) => { if (error.code === "42P01") return null; throw error; });
+  if (!priceOnly.value) { priceOnly.at = Date.now(); priceOnly.value = load().catch(error => { priceOnly.value = null; throw error; }); }
+  else if (Date.now() - priceOnly.at > 60_000 && !priceOnly.refreshing) {
+    priceOnly.refreshing = true;
+    load().then(value => { priceOnly.value = Promise.resolve(value); priceOnly.at = Date.now(); }).catch(() => {}).finally(() => { priceOnly.refreshing = false; });
+  }
+  return priceOnly.value;
 }
 
 const like = (value: string) => `%${value.replace(/[\\%_]/g, match => `\\${match}`)}%`;
@@ -122,7 +143,7 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   if (brand) { values.push(brand); conditions.push(`COALESCE(j.supplier_brand,j.product_brand)=$${values.length}`); }
   if (gap) { joins += gapJoin; conditions.push(`(${gapConditions[gap]})`); }
   const from = `FROM enrichment_product_states j${joins} WHERE ${conditions.join(" AND ")}`;
-  const [active, products, metrics, total, pilot, pass, activity, written, brands, gaps, run] = await Promise.all([
+  const [active, products, metrics, total, pilot, pass, activity, written, brands, gaps, run, priceOnlyCards] = await Promise.all([
     // `images` counts the enrichment's own images (what the collectors found), not what the store shows (#596).
     db.query<{status:string;count:number;enriched:number;oem_matches:number;direct_matches:number;images:number;oem_numbers:number;vehicles:number;latest:Date|null}>(`SELECT status,count(*)::int AS count,
       count(*) FILTER(WHERE enriched)::int AS enriched,
@@ -168,13 +189,16 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
       ${facetFrom} AND COALESCE(j.supplier_brand,j.product_brand)<>'' GROUP BY 1 ORDER BY 3 DESC,1 LIMIT 1000`, facetValues),
     records&&status==="partial"?db.query<Record<PartialGap,number>>(`SELECT ${(Object.keys(gapConditions) as PartialGap[]).map(key=>`count(*) FILTER (WHERE ${gapConditions[key]})::int AS ${key}`).join(",")}
       FROM enrichment_product_states j${gapJoin} WHERE ${facetWhere}`, facetValues):Promise.resolve(null),
-    // parts2world's latest queue run: products searched (any outcome but a block answer) since it started (#403).
+    // parts2world's latest queue run: products searched (any outcome but a block answer) since it started (#403). A
+    // pending run also counts the price-list-only codes it searched (#1075).
     records?Promise.resolve(null):db.query<SourceRun>(`SELECT r.queue,r.total,r.started_at,r.finished_at,r.outcome,a.processed,a.errors,a.last FROM
       (SELECT * FROM enrichment_source_runs WHERE source='parts2world' ORDER BY started_at DESC LIMIT 1) r
-      CROSS JOIN LATERAL (SELECT count(DISTINCT supplier_item_id) FILTER(WHERE outcome<>'blocked')::int AS processed,
-        count(*) FILTER(WHERE outcome='error')::int AS errors,max(attempted_at) AS last FROM enrichment_source_attempts
-        WHERE source=r.source AND queue=r.queue AND attempted_at>=r.started_at AND (r.finished_at IS NULL OR attempted_at<=r.finished_at)) a`)
+      CROSS JOIN LATERAL (SELECT count(DISTINCT t.supplier_item_id) FILTER(WHERE t.outcome<>'blocked')::int AS processed,
+        count(*) FILTER(WHERE t.outcome='error')::int AS errors,max(t.attempted_at) AS last FROM enrichment_source_attempts t
+        WHERE t.source=r.source AND (t.queue=r.queue OR (r.queue='pending' AND t.queue='price_only'))
+         AND t.attempted_at>=r.started_at AND (r.finished_at IS NULL OR t.attempted_at<=r.finished_at)) a`)
       .catch(() => ({ rows: [] as SourceRun[] })),
+    records?Promise.resolve(null):priceOnlyProgress(),
   ]);
   const counts={rows:active.rows};
   const pending=products.rows[0].count-counts.rows.reduce((sum,row)=>sum+row.count,0);
@@ -197,6 +221,6 @@ export async function enrichmentDashboard(query: { q?: string; status?: string; 
   // every row OFFSET skipped (a deep pending page took minutes).
   const rows=records?await db.query<EnrichmentRow>(`${rowQuery(`SELECT j.* ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}`)} ORDER BY ${order}`,[...values,(page-1)*pageSize]):{rows:[] as EnrichmentRow[]};
   const sourceSummary=summarizeSources(activity.rows,Object.fromEntries((written?.rows??[]).map(row=>[row.host,row.count])),Boolean(pass.blocked)||pilot.rows[0]?.status==='blocked');
-  return { tab, pass, pilot:pilot.rows[0]??null, run:run?.rows[0]??null, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands?.rows??[], gaps:gaps?.rows[0]??null,
+  return { tab, pass, pilot:pilot.rows[0]??null, run:run?.rows[0]??null, priceOnly:priceOnlyCards, sourceSummary, counts:counts.rows, metrics:summary, rows:rows.rows, brands:brands?.rows??[], gaps:gaps?.rows[0]??null,
     total:totalCount, page,pages,pageSize, filters:{q,status,match,source,name,code,brand,gap,sort:query.sort&&Object.hasOwn(sortColumns,query.sort)?query.sort:'',dir:query.dir==='desc'?'desc':''} };
 }

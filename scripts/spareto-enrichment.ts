@@ -9,6 +9,9 @@
 //                 first and walks the rest of each tier from the other end, skips Trodo's unfinished run and runs
 //                 alone (spareto-pending lock);
 //                 products spareto cannot find stay pending for Trodo.
+//                 --price-only-share F (or ENRICHMENT_PRICE_ONLY_SHARE, default 0) gives that share of the pending
+//                 pass to Dinamik price-list-only codes of the brands enabled with enrichment:price-only (#1075);
+//                 their searches are recorded under the price_only queue.
 //                 Accepted identities: the same brand/part, an OE number the supplier names in the page's OE table,
 //                 or the supplier's own brand/part in the page's cross-reference table (an equivalent part).
 //                 partial re-collects products spareto already wrote as partial (e.g. before it collected vehicles)
@@ -27,7 +30,8 @@ import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {acquireSourceLock,tryExclusiveRun,withSourceLock} from '../src/modules/enrichment/source-lock';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
-import {pendingSuppliers} from '../src/modules/enrichment/pending-queue';
+import {pendingSuppliers,type PendingSupplier} from '../src/modules/enrichment/pending-queue';
+import {interleaveStreams,priceOnlyShare,priceOnlySuppliers} from '../src/modules/enrichment/price-only-queue';
 import {categoriesForType,loadTypeCategoriesOrEmpty,typeSlug} from '../src/modules/enrichment/type-categories';
 import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
 import {createFitmentMatcher,type FitmentCatalogModel,type FitmentCatalogType} from '../src/modules/store/fitment-matcher';
@@ -42,10 +46,10 @@ if(!statuses.includes(status))throw Error('--status must be pending, not_found, 
 const checkpoint=resolve(option('out')||(status==='partial'?'artifacts/spareto/partial.jsonl':'artifacts/spareto/results.jsonl'));
 type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'imported'|'skipped';at:string;url?:string;error?:string;
  counts?:{image:boolean;categories?:number;oems:number;crossReferences:number;specifications:number;basis:string;models?:number;modelsFetched?:number;vehicles?:number;resolved?:number;matched?:number;invalid?:number};package?:unknown};
-const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
+const record=async(entry:Omit<Entry,'at'>,queue:string=status)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
  // The admin page reads searches from the database; a dry run leaves no trace there.
  if(!args.includes('--dry-run')&&(entry.outcome==='collected'||entry.outcome==='not_found'||entry.outcome==='error'))
-  await recordAttempt(pool,'spareto',status,entry.supplierItemId,entry.outcome==='collected'?'found':entry.outcome);};
+  await recordAttempt(pool,'spareto',queue,entry.supplierItemId,entry.outcome==='collected'?'found':entry.outcome);};
 /**
  * The latest entry per supplier item. The checkpoint is read line by line (it grew past V8's 512 MB string limit, #757)
  * and only packages still waiting to be written ('collected') stay in memory.
@@ -121,15 +125,21 @@ async function downloadImage(client:SparetoClient,url:string|null,id:string){
 
 const describe=(basis:NonNullable<ReturnType<typeof identify>>)=>basis.type==='exact_part'?'exact brand/part verified'
  :basis.type==='oem_reference'?'original OEM verified: '+basis.reference:`cross reference verified: ${basis.referenceBrand} ${basis.reference}`;
-/** Suppliers to search: the status's whole list, or pending chunks read as the previous chunk is finished (#921). */
-async function* suppliers(done:Map<string,Entry>,limit:number,retry:boolean,ids:string[]|null):AsyncGenerator<Supplier&{id:string}>{
+/** Suppliers to search: the status's whole list, or pending chunks read as the previous chunk is finished (#921), with
+ *  the price-only share of Dinamik price-list-only codes woven in (#1075). */
+async function* suppliers(done:Map<string,Entry>,limit:number,retry:boolean,ids:string[]|null):AsyncGenerator<Supplier&{id:string;priceOnly?:boolean}>{
  if(status!=='pending'){
   const rows=(await pool.query<Supplier&{id:string}>(`SELECT * FROM (${status==='partial'?partialSql:supplierSql}${ids?' AND j.supplier_item_id=ANY($2::uuid[])':''}
    ORDER BY COALESCE(ps.product_id,j.supplier_item_id),s.presence='present' DESC,j.supplier_item_id) x ORDER BY id`,ids?[status,ids]:[status])).rows
    .filter(row=>retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id)).slice(0,limit);
   yield* rows;return;
  }
- yield* pendingSuppliers(pool,new Set(done.keys()),limit);
+ const tried=new Set(done.keys()),share=priceOnlyShare(option('price-only-share'));
+ if(!(share>0)){yield* pendingSuppliers(pool,tried,limit);return;}
+ let left=limit;
+ for await(const supplier of interleaveStreams<PendingSupplier>(pendingSuppliers(pool,tried,limit),priceOnlySuppliers(pool,tried,limit),share)){
+  yield supplier;if(--left<=0)return;
+ }
 }
 async function vehicleRows(client:SparetoClient,page:ProductPage,maxModels:number){
  const rows:FitmentRow[]=[];let fetched=0;
@@ -159,10 +169,11 @@ async function collect(){
  // One spareto client at a time: the pending pass yields between products, a queue pass holds the lock throughout.
  const whole=status==='pending'?null:await acquireSourceLock(pool,'spareto-source');
  /** Searches and writes one product; true when the run must stop. */
- const handle=async(supplier:Supplier&{id:string})=>{
+ const handle=async(supplier:Supplier&{id:string;priceOnly?:boolean})=>{
+  const queue=supplier.priceOnly?'price_only':status;
   try{
    const {found,candidates}=await find(client,supplier);
-   if(!found){await record({supplierItemId:supplier.id,outcome:'not_found',error:candidates?`${candidates} unverified candidates`:undefined});
+   if(!found){await record({supplierItemId:supplier.id,outcome:'not_found',error:candidates?`${candidates} unverified candidates`:undefined},queue);
     console.log(`${index} ${supplier.code} → bulunamadı${candidates?` (${candidates} aday doğrulanamadı)`:''}`);return false;}
    const sourceRows=await vehicleRows(client,found.page,maxModels),vehicle=resolveVehicles(sourceRows.rows,models,types);
    const data=buildData(found.page,vehicle.vehicles,categoriesForType(dictionary,typeSlug(found.page.name))),image=await downloadImage(client,found.page.image,supplier.id);
@@ -175,14 +186,14 @@ async function collect(){
    const matched=data.vehicles.map(match).filter(row=>row.status==='matched').length;
    const counts={image:Boolean(image),categories:data.categories.length,oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,specifications:data.specifications.length,basis:found.basis.type,
     models:modelCount,modelsFetched:sourceRows.fetched,vehicles:data.vehicles.length,resolved:vehicle.resolved,matched,invalid:vehicle.invalid.length};
-   await record({supplierItemId:supplier.id,outcome:'collected',url:pkg.source,counts,package:pkg});
+   await record({supplierItemId:supplier.id,outcome:'collected',url:pkg.source,counts,package:pkg},queue);
    const written=dryRun?'toplandı':await write({supplierItemId:supplier.id,package:pkg})==='imported'?`yazıldı (${pkg.completeness==='complete'?'tamamlandı':'kısmi'})`:'yazılmadı';
    console.log(`${index} ${supplier.code} → ${pkg.source} [${found.basis.type}] ${found.page.brand} ${found.page.partNumber} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · kategori ${counts.categories} · araç ${matched}/${counts.vehicles} eşleşti (model ${sourceRows.fetched}/${modelCount}) · görsel ${image?'var':'yok'} · ${written}`);
   }catch(error){
-   if(error instanceof SourceBlocked&&!dryRun)await recordAttempt(pool,'spareto',status,supplier.id,'blocked');
+   if(error instanceof SourceBlocked&&!dryRun)await recordAttempt(pool,'spareto',queue,supplier.id,'blocked');
    if(error instanceof SourceBlocked||error instanceof DatabaseUnavailable){console.error(String(error));process.exitCode=2;return true;}
    if(connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;return true;}
-   await record({supplierItemId:supplier.id,outcome:'error',error:String(error)});console.log(`${index} ${supplier.code} → hata: ${error}`);
+   await record({supplierItemId:supplier.id,outcome:'error',error:String(error)},queue);console.log(`${index} ${supplier.code} → hata: ${error}`);
   }
   return false;
  };
