@@ -9,6 +9,7 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { decodeOfferId, encodeOfferId } from "./dto";
 import { lineAmounts, partnerOrderLimitEnv, resolveOrderLimitKurus, toPartnerOrderDto, type PartnerOrderLineRow, type PartnerOrderRow } from "./order-dto";
 import { addressText, type OrderRequest, type QuoteRequest } from "./order-schema";
+import { assertPartnerIntakeOpen } from "./intake";
 import { lockPartnerOrders, partnerExposure, partnerOrderLimit } from "./limits";
 import { partnerDiscountEnv, resolvePartnerDiscountBps, resolvePartnerPrice } from "./pricing";
 import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partnerQuoteSecretEnv, partnerQuoteTtlMs, quoteSecret, signQuote, verifyQuote, type QuoteLine } from "./quotes";
@@ -92,6 +93,8 @@ export async function quotePartnerOrder(partner: string, request: QuoteRequest, 
   const now = (config.now ?? Date.now)();
   // Fails closed before any database work when the signing secret is missing.
   quoteSecret(config.secret);
+  // A paused partner (#1009) gets no new quote.
+  await assertPartnerIntakeOpen(partner);
   const lines = decodeLines(request.lines);
   const [rows, rule] = await Promise.all([offerRows(lines.map(line => line.id)), shippingRule()]);
   const priced = priceLines(lines, rows, config.discountBps);
@@ -150,15 +153,18 @@ function replay(found: NonNullable<Awaited<ReturnType<typeof readOrder>>>, finge
 }
 
 /**
- * Places a partner order on account. Checked in this order: idempotent replay, configuration (limit, quote secret),
- * the signed quote (partner, lines, expiry), the live supplier check, then in one transaction under the partner's lock:
- * availability, prices against the quote, the open-order limit, and the insert.
+ * Places a partner order on account. Checked in this order: idempotent replay, the partner's order intake switch (#1009),
+ * configuration (limit, quote secret), the signed quote (partner, lines, expiry), the live supplier check, then in one
+ * transaction under the partner's lock: replay and the intake switch again, availability, prices against the quote, the
+ * open-order limit, and the insert. An order created before a pause still replays.
  */
 export async function createPartnerOrder(partner: string, idempotencyKey: string, request: OrderRequest, config: PartnerOrderConfig) {
   const fingerprint = fingerprintOrderRequest(request);
   // Completed retries are answered without the quote, the limit or a supplier call.
   const previous = await readOrder(partner, "request_key", idempotencyKey);
   if (previous) return replay(previous, fingerprint);
+  // A paused partner is refused before the limit, the quote or a supplier call; read again under the lock below.
+  await assertPartnerIntakeOpen(partner);
   // Fails closed before the quote or a supplier call; the limit is read again under the partner's lock below.
   if ((await partnerOrderLimit(partner, config.limitKurus)).limitKurus == null) throw limitUnavailable();
   const quote = verifyQuote(request.confirmationToken, config.secret);
@@ -179,6 +185,8 @@ export async function createPartnerOrder(partner: string, idempotencyKey: string
     await lockPartnerOrders(client, partner);
     const existing = await readOrder(partner, "request_key", idempotencyKey, client);
     if (existing) { await client.query("COMMIT"); return replay(existing, fingerprint); }
+    // Paused meanwhile in /yonetim (setPartnerIntakePaused takes the same lock).
+    await assertPartnerIntakeOpen(partner, client);
     // (#770, #788) The supplier no longer knows the code, or the live answer said sold out: refused and named.
     const gone = [...refreshed.gone, ...refreshed.soldOut].filter(id => ids.includes(id));
     if (gone.length) throw unavailable(gone);

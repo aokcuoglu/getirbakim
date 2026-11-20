@@ -17,12 +17,20 @@ test("supplier prefix and manufacturer aliases can match the same part", () => {
   assert.equal(matchesSupplierPart("BLUE PRINT", "BLU ADBP210047", "BLUE PRINT", "ADBP210047"), true);
   assert.equal(matchesSupplierPart("BOSCH", "BOSCH 0986424533", "BOSCH", "0 986 424 533"), true);
   assert.equal(matchesSupplierPart("TEKNOROT", "TEKNOROT HY-1044K", "TEKNOROT", "HY1044K"), true);
+  // A brand name of several words prefixes the code as a whole (#1111); Trodo's "REINZ" is the same manufacturer.
+  assert.equal(matchesSupplierPart("VICTOR REINZ", "VICTOR REINZ 61-36960-00", "VICTOR REINZ", "61-36960-00"), true);
+  assert.equal(matchesSupplierPart("VICTOR REINZ", "VICTOR REINZ 61-36960-00", "REINZ", "613696000"), true);
+  assert.equal(matchesSupplierPart("KIT KTB", "KIT KTB 102203", "KIT KTB", "102203"), true);
 });
 test("exact-part matching rejects a different part or manufacturer", () => {
   assert.equal(matchesSupplierPart("DEPO", "DPO 445-1134RMLDEM2", "DEPO", "445-1134LMLDEM2"), false);
   assert.equal(matchesSupplierPart("DEPO", "DPO 445-1134RMLDEM2", "TYC", "445-1134RMLDEM2"), false);
   assert.equal(matchesSupplierPart("OTHER", "ABC 104620", "OTHER", "104620"), false);
   assert.equal(matchesSupplierPart("BOSCH", "BOSCH 0986424533", "TRW", "0986424533"), false);
+  assert.equal(matchesSupplierPart("VICTOR REINZ", "VICTOR REINZ 61-36960-00", "VICTOR REINZ", "61-36960-01"), false);
+  assert.equal(matchesSupplierPart("VICTOR REINZ", "VICTOR REINZ 61-36960-00", "ELRING", "61-36960-00"), false);
+  // Only the whole brand name is a prefix: "VICTOR" alone leaves "REINZ 61-36960-00", which is not the part.
+  assert.equal(matchesSupplierPart("VICTOR REINZ", "VICTOR REINZ 61-36960-00", "VICTOR REINZ", "REINZ 61-36960-00"), false);
   // A label's reviewed master brand also identifies the manufacturer, never a different one.
   assert.equal(matchesSupplierPart("KRAFTVOLL BALATA", "KRAFTVOLL 07010372", "KRAFTVOLL", "07010372"), false);
   assert.equal(matchesSupplierPart("KRAFTVOLL BALATA", "KRAFTVOLL 07010372", "KRAFTVOLL", "07010372", "KRAFTVOLL"), true);

@@ -855,12 +855,23 @@ DO $$ DECLARE c text; BEGIN
 END $$;
 -- Per-partner settings set in /yonetim/partnerler (#426). Partner identities still come from PARTNER_API_KEYS; a row here
 -- only overrides the PARTNER_ORDER_LIMIT_KURUS fallback. A partner with neither cannot order (503 ORDER_LIMIT_UNAVAILABLE).
+-- order_intake_paused_at (#1009) pauses the partner's new quotes and orders (503 ORDER_INTAKE_PAUSED) until it is cleared;
+-- reads, cancels and replays of existing orders keep working. NULL = open.
 CREATE TABLE IF NOT EXISTS partner_settings(
  partner_code text PRIMARY KEY,
  order_limit_kurus bigint CHECK(order_limit_kurus > 0),
  updated_at timestamptz NOT NULL DEFAULT now(),
  updated_by uuid REFERENCES accounts(id)
 );
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='order_intake_paused_at' AND NOT attisdropped) THEN
+  ALTER TABLE partner_settings ADD COLUMN order_intake_paused_at timestamptz;
+ END IF;
+ -- Who paused it (audit). The FK takes SHARE ROW EXCLUSIVE on accounts once, on the first deploy that adds the column.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='order_intake_paused_by' AND NOT attisdropped) THEN
+  ALTER TABLE partner_settings ADD COLUMN order_intake_paused_by uuid REFERENCES accounts(id);
+ END IF;
+END $$;
 -- Corrections of a partner invoiced mark (#1018): one row per order, the rows of one change share change_id. 'undo'
 -- clears the mark (the order counts against the partner's limit again), 'correct' rewrites the invoice number/date;
 -- the old values and the reason stay here for audit.
