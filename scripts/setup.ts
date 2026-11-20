@@ -7,6 +7,8 @@ import { createConcurrentIndexes } from "./setup-concurrent-indexes";
 import { postSetupMaintenance } from "./setup-maintenance";
 // --dry-run applies the schema in a transaction that is rolled back and only reports its timings (#1054): no concurrent
 // index builds, nothing after the transaction. Reader-blocking locks are still held while it runs.
+// Only for a database already at this branch's schema, never production: it can still build missing in-transaction
+// indexes under SHARE before rolling back, and holds advisory locks 1/3/4/8 (pausing local supplier imports) meanwhile.
 const dryRun = process.argv.includes("--dry-run");
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 // Locks that queue every reader of a table or view until the transaction ends (temporary probe views excluded).
