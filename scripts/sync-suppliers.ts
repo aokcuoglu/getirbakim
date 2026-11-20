@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import { z } from "zod";
 import { BasbugImportError, importBasbug } from "../src/modules/suppliers/basbug-import";
+import { nextDinamikBreaker } from "../src/modules/suppliers/dinamik-breaker";
 import { DinamikImportError, discoverDinamikBrands, dinamikBrandPattern, importDinamik } from "../src/modules/suppliers/dinamik-import";
 import { SetaImportError, importSeta, setaScope } from "../src/modules/suppliers/seta-import";
 import { supplierSyncAlerts } from "../src/modules/suppliers/health";
@@ -28,6 +29,7 @@ const dinamikConfigured = ["DINAMIK_BASE", "DINAMIK_APIKEY", "DINAMIK_SECRETKEY"
 // this budget and leave the rest due for the following ticks. Forced runs are not limited.
 const dinamikBudgetMs = z.coerce.number().positive().max(80).parse(process.env.DINAMIK_TICK_MINUTES || 10) * 60_000;
 // These failures say the supplier itself is unreachable or occupied; trying the remaining groups now only adds load.
+// Dinamik decides per brand in nextDinamikBreaker (#1071): one brand's 5xx or timeout does not stop the others.
 const stopReasons = new Set(["upstream", "config", "busy", "paused"]);
 
 // Peak resident memory of this run so far; the sync worker's limits come from these numbers (#253, #277).
@@ -73,6 +75,7 @@ try {
     let basbugFullSucceeded = false;
     const tickStarted = Date.now();
     const circuitOpen = new Set<string>();
+    let dinamikFailures = 0;
     for (const [index, scope] of scopes.entries()) {
       if (circuitOpen.has(scope.supplier)) continue;
       const started = Date.now();
@@ -86,11 +89,15 @@ try {
           console.log({ supplier: "dinamik", brand: scope.list_group, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats, peakRssMB: peakRssMB() });
           // Dinamik names are sold and searched on the storefront too.
           if (result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
+          dinamikFailures = nextDinamikBreaker(dinamikFailures, { ok: true }).failures;
         } catch (error) {
           const reason = error instanceof DinamikImportError ? error.message : "Dinamik import failed";
           console.error({ supplier: "dinamik", brand: scope.list_group, reason, seconds: Math.round((Date.now() - started) / 1000) });
           process.exitCode = 1;
-          if (error instanceof DinamikImportError && stopReasons.has(error.reason)) {
+          if (!(error instanceof DinamikImportError)) continue;
+          const breaker = nextDinamikBreaker(dinamikFailures, { ok: false, reason: error.reason, detail: error.detail });
+          dinamikFailures = breaker.failures;
+          if (breaker.open) {
             circuitOpen.add("dinamik");
             console.error({ circuitOpen: error.reason, supplier: "dinamik", skipped: scopes.slice(index + 1).filter(next => next.supplier === "dinamik").length });
           }
