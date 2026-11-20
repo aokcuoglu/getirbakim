@@ -28,6 +28,7 @@ let adminOrders: typeof import("../src/modules/admin/orders");
 let partnerCancel: typeof import("../src/modules/partner/order-cancel");
 let adminData: typeof import("../src/modules/admin/order-filters");
 let limits: typeof import("../src/modules/partner/limits");
+let intake: typeof import("../src/modules/partner/intake");
 let checkout: typeof import("../src/modules/payments/checkout");
 let reimport: () => Promise<unknown>;
 let closeDb: () => Promise<void>;
@@ -98,6 +99,7 @@ before(async () => {
     import("../src/modules/partner/dto"), import("../src/modules/admin/orders"), import("../src/modules/payments/checkout"),
     import("../src/modules/partner/order-cancel"), import("../src/modules/admin/order-filters")]);
   limits = await import("../src/modules/partner/limits");
+  intake = await import("../src/modules/partner/intake");
   partnerOrders = ordersModule; quotes = quotesModule; dto = dtoModule; adminOrders = adminModule; checkout = checkoutModule;
   partnerCancel = cancelModule; adminData = dataModule;
   closeDb = () => db.end();
@@ -279,6 +281,55 @@ test("a /yonetim limit overrides the fallback; clearing it falls back; with neit
   assert.deepEqual(await limits.partnerOrderLimit("bakimx", null), { limitKurus: null, source: "none" });
 });
 
+test("a paused partner (#1009) gets no quote and no new order; others, reads and replays keep working; resume reopens", async () => {
+  const { body } = await quoteAndBody([{ code: "PART-A", quantity: 1 }]);
+  const key = randomUUID();
+  const earlier = await partnerOrders.createPartnerOrder("bakimx", key, body, config());
+  const { body: pending } = await quoteAndBody([{ code: "PART-B", quantity: 1 }]);
+  await intake.setPartnerIntakePaused("bakimx", true, null);
+  assert.deepEqual([...(await intake.pausedPartners(["bakimx", "other"])).keys()], ["bakimx"]);
+  const count = await orderCount();
+  supplierCalls = 0;
+  await assert.rejects(partnerOrders.quotePartnerOrder("bakimx", { lines: [{ selectedOfferId: offers["PART-A"], quantity: 1 }] }, config()), refusal("ORDER_INTAKE_PAUSED"));
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), pending, config()), (error: unknown) =>
+    refusal("ORDER_INTAKE_PAUSED")(error) && error instanceof quotes.PartnerOrderError && error.status === 503 && error.details === undefined);
+  // Paused wins over a missing limit: the partner is told the real reason.
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), pending, config({ limitKurus: null })), refusal("ORDER_INTAKE_PAUSED"));
+  assert.equal(await orderCount(), count);
+  assert.equal(supplierCalls, 0);
+  // An order created before the pause still replays and reads.
+  const again = await partnerOrders.createPartnerOrder("bakimx", key, body, config());
+  assert.deepEqual([again.replayed, again.order.id], [true, earlier.order.id]);
+  assert.equal((await partnerOrders.getPartnerOrder("bakimx", earlier.order.id)).id, earlier.order.id);
+  // Another partner is not affected.
+  assert.ok((await placeOrder("PART-A", "other")).id);
+  // Resumed: a new key orders again.
+  await intake.setPartnerIntakePaused("bakimx", false, null);
+  assert.equal((await intake.pausedPartners(["bakimx"])).size, 0);
+  assert.equal((await partnerOrders.createPartnerOrder("bakimx", randomUUID(), pending, config())).replayed, false);
+});
+
+test("the intake switch (#1009) and the panel limit leave each other alone; a second pause keeps the first time", async () => {
+  await limits.savePartnerOrderLimit("bakimx", 30_000, null);
+  await intake.setPartnerIntakePaused("bakimx", true, null);
+  const settings = async () => (await schema.pool.query<{ order_limit_kurus: string | null; order_intake_paused_at: Date | null }>(
+    "SELECT order_limit_kurus::text,order_intake_paused_at FROM partner_settings WHERE partner_code='bakimx'")).rows[0];
+  const first = (await settings()).order_intake_paused_at;
+  assert.ok(first);
+  await intake.setPartnerIntakePaused("bakimx", true, null);
+  assert.equal((await settings()).order_intake_paused_at?.getTime(), first.getTime());
+  // Saving the limit does not reopen intake.
+  await limits.savePartnerOrderLimit("bakimx", 40_000, null);
+  assert.deepEqual([(await settings()).order_limit_kurus, (await settings()).order_intake_paused_at?.getTime()], ["40000", first.getTime()]);
+  await intake.setPartnerIntakePaused("bakimx", false, null);
+  assert.deepEqual(await settings(), { order_limit_kurus: "40000", order_intake_paused_at: null });
+  assert.deepEqual(await limits.partnerOrderLimit("bakimx", null), { limitKurus: 40_000, source: "panel" });
+  // A partner paused without a saved limit gets a row without one.
+  await intake.setPartnerIntakePaused("other", true, null);
+  assert.deepEqual(await limits.partnerOrderLimit("other", null), { limitKurus: null, source: "none" });
+  await intake.setPartnerIntakePaused("other", false, null);
+});
+
 test("invoicing releases delivered orders up to a day, once, for one partner only", async () => {
   const deliver = (id: string, at: string) => schema.pool.query("UPDATE commerce_orders SET status='delivered',delivered_at=$2::timestamptz WHERE id=$1", [id, at]);
   // Delivered on 10 and 12 November (Istanbul days; 21:30Z on the 10th is already the 11th in Istanbul).
@@ -428,7 +479,12 @@ test("a correction (#1018) never merges two invoices and waits for the partner's
 });
 
 test("admin partner input: TL limits become kuruş, dates are past Istanbul days, usage tones follow the limit", async () => {
-  const { partnerLimitInput, partnerInvoiceInput, partnerInvoiceChangeInput, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
+  const { partnerLimitInput, partnerInvoiceInput, partnerInvoiceChangeInput, partnerIntakeInput, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
+  assert.deepEqual(partnerIntakeInput.safeParse({ partner: " bakimx ", paused: "1" }).data, { partner: "bakimx", paused: true });
+  assert.deepEqual(partnerIntakeInput.safeParse({ partner: "bakimx", paused: "0" }).data, { partner: "bakimx", paused: false });
+  for (const bad of [{ partner: "bakimx", paused: "true" }, { partner: "bakimx", paused: "" }, { partner: "bakimx" }, { partner: " ", paused: "1" }, { paused: "1" }]) {
+    assert.equal(partnerIntakeInput.safeParse(bad).success, false, JSON.stringify(bad));
+  }
   const limit = (value: string) => partnerLimitInput.safeParse({ partner: "bakimx", limit: value });
   assert.equal(limit("4500").data?.limit, 450_000);
   assert.equal(limit(" 4500,5 ").data?.limit, 450_050);
@@ -665,6 +721,20 @@ test("route handlers: key, Idempotency-Key and body checks, 201 then 200 replay,
   assert.deepEqual([response.status, await errorCode(response)], [404, "ORDER_NOT_FOUND"]);
   response = await orderRoute.GET(get(`/orders/${created.order.id}`, {}), { params: Promise.resolve({ id: created.order.id }) });
   assert.equal(response.status, 401);
+
+  // A paused partner (#1009): new quotes and orders are 503 ORDER_INTAKE_PAUSED, no-store; reads still answer.
+  await intake.setPartnerIntakePaused("bakimx", true, null);
+  response = await quoteRoute.POST(post("/order-quotes", { lines: [{ selectedOfferId: offers["PART-A"], quantity: 1 }] }, auth));
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual([response.status, await errorCode(response)], [503, "ORDER_INTAKE_PAUSED"]);
+  response = await ordersRoute.POST(post("/orders", body, { ...auth, "idempotency-key": randomUUID() }));
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual([response.status, await errorCode(response)], [503, "ORDER_INTAKE_PAUSED"]);
+  response = await ordersRoute.POST(post("/orders", body, { ...auth, "idempotency-key": key }));
+  assert.equal(response.status, 200);
+  response = await orderRoute.GET(get(`/orders/${created.order.id}`), { params: Promise.resolve({ id: created.order.id }) });
+  assert.equal(response.status, 200);
+  await intake.setPartnerIntakePaused("bakimx", false, null);
 
   // DELETE: 401 without a key, 404 for another partner's order, 200 when cancelled, 202 when requested.
   const remove = (id: string, headers: Record<string, string> = auth) =>
