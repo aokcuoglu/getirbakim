@@ -4,6 +4,9 @@ All notable changes to this project are documented here. Versions follow [SemVer
 
 ## Unreleased
 
+### Added
+- **Amazon SES mail transport:** `MAIL_TRANSPORT=ses` sends order emails through the SES v2 API with the ECS task role (no SMTP credentials); region from `SES_REGION` / `AWS_REGION` ([#1062](https://github.com/aokcuoglu/getirbakim/issues/1062)).
+
 ## v0.32.0 — 2026-11-20
 
 Release of `dev` since v0.31.0 (12 pull requests). Unblocks the AWS release: v0.31.0's `db:setup` deadlocked with live storefront reads, so v0.31.0 never reached production and ships to AWS with this version. Also: order confirmation email, partner invoiced-mark correction, multi-window Turkish type-name search, single-row supplier currency anomalies kept out of pricing.
