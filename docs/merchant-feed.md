@@ -87,7 +87,7 @@ npm run test:merchant-feed      # birim + izole şema testleri (ortak veritaban�
 - `feed`: `completed`, `failed`, `skipped` ya da `disabled`.
 - `items`, `checked`
 - `skipped`: elenme nedenlerine göre sayılar (`demo`, `noPrice`, `notAvailable`, `noImage`).
-- `missing`: dizine açık olup satılabilir katalogda bulunmayanlar. Bunlar `noPrice` içinde de sayılır.
+- `missing`: dizine açık olup satılabilir katalogda bulunmayanlar. Bunlar `noPrice` içinde de sayılır. Dinamik'in yalnız fiyat listesindeki kodlarının kartları (#1068) dizine açıktır ama beslemenin sorgusuna hiç girmez, burada sayılmaz.
 - `checkoutMode`, `bytes`, `ms`, varsa `previousItems`, `note`, `reason`, `error`.
 
 Canlı ortamda (`operations` görevi) komut `node --conditions=react-server --import tsx scripts/merchant-feed.ts` olur (`.env.local` yok).
