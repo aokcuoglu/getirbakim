@@ -108,8 +108,8 @@ Headers: `Idempotency-Key: <UUID>` (required).
 - The same key with another body is `409 IDEMPOTENCY_CONFLICT`.
 - Keys are per partner: another partner's key never collides.
 
-At order time the server, in this order: replays a known key; refuses when
-ordering is not configured; verifies the token (partner, lines, expiry); checks
+At order time the server, in this order: replays a known key; refuses a
+partner whose order intake is paused; refuses when ordering is not configured; verifies the token (partner, lines, expiry); checks
 the suppliers live (the storefront's checkout rule, `supplier-checkout-policy`:
 Başbuğ, SETA and Dinamik are asked for these codes when the live mode is on; a
 supplier that does not answer leaves the line on its fresh saved data, marked
@@ -135,6 +135,22 @@ default `PARTNER_ORDER_LIMIT_KURUS`. Orders of one partner are created one at
 a time, so two concurrent orders cannot both pass a limit they exceed
 together. A partner with no limit cannot order
 (`503 ORDER_LIMIT_UNAVAILABLE`).
+
+**Paused order intake.** GetirBakım can pause a partner's order intake from
+its admin. While paused, `POST /order-quotes` and new `POST /orders` are
+refused with `503 ORDER_INTAKE_PAUSED` (no `details`, no `Retry-After`). On
+`POST /order-quotes` body validation (`400 VALIDATION_ERROR`) and
+`QUOTE_CONFIGURATION_UNAVAILABLE` come first; on `POST /orders` the pause is
+checked after the replay of a known key and before the limit, the quote or a
+supplier check, and again when the order is created. `GET /products`,
+`GET /orders/:id`, `GET /orders/by-key/:key` and `DELETE /orders/:id` keep
+working, and repeating an order created before the pause with the same
+`Idempotency-Key` and body still answers `200` with that order. A key that did
+not create an order is not replayed: retrying it while paused, including a
+request that was in flight when the pause landed, gets `503` again. Quotes
+issued before a pause keep their 15-minute expiry, so after a longer pause the
+partner requests a new quote (`409 QUOTE_EXPIRED` otherwise). Do not retry
+automatically; ordering resumes once GetirBakım reopens intake.
 
 ## GET /orders/:id and GET /orders/by-key/:key
 
@@ -229,6 +245,7 @@ nothing expires); `REJECTED` is not emitted, an order operations refuse is
 | 429 | `RATE_LIMITED` | Too many requests | |
 | 503 | `QUOTE_CONFIGURATION_UNAVAILABLE` | `PARTNER_QUOTE_SIGNING_SECRET` missing (< 32 chars) | |
 | 503 | `ORDER_LIMIT_UNAVAILABLE` | No limit for the partner (admin value or `PARTNER_ORDER_LIMIT_KURUS`) | |
+| 503 | `ORDER_INTAKE_PAUSED` | GetirBakım paused new quotes and orders for this partner; reads and cancels keep working. Do not retry automatically | |
 | 503 | `SUPPLIER_CHECK_UNAVAILABLE` | The live check failed on our side; retry with the same key | |
 | 500 | `INTERNAL_ERROR` | Unexpected | |
 

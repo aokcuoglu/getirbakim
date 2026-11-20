@@ -2,8 +2,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/modules/auth/session";
+import { setPartnerIntakePaused } from "@/modules/partner/intake";
 import { changePartnerInvoice, invoicePartnerOrders, knownPartners, savePartnerOrderLimit } from "@/modules/partner/limits";
-import { partnerInvoiceChangeInput, partnerInvoiceInput, partnerLimitInput } from "./partner-input";
+import { partnerInvoiceChangeInput, partnerInvoiceInput, partnerIntakeInput, partnerLimitInput } from "./partner-input";
 
 /** A partner's open-order limit (#426): a TL amount, or empty to fall back to PARTNER_ORDER_LIMIT_KURUS. */
 export async function savePartnerLimit(form: FormData) {
@@ -18,6 +19,17 @@ export async function savePartnerLimit(form: FormData) {
   await savePartnerOrderLimit(input.data.partner, input.data.limit, admin.id);
   revalidatePath("/yonetim/partnerler");
   redirect(`/yonetim/partnerler?saved=${encodeURIComponent(input.data.partner)}`);
+}
+
+/** Pauses or resumes a partner's order intake (#1009): paused partners get 503 ORDER_INTAKE_PAUSED for new quotes and orders. */
+export async function setPartnerIntake(form: FormData) {
+  const admin = await requireAdmin();
+  const input = partnerIntakeInput.safeParse(Object.fromEntries(form));
+  const { codes } = await knownPartners();
+  if (!input.success || !codes.includes(input.data.partner)) redirect("/yonetim/partnerler?error=intake");
+  await setPartnerIntakePaused(input.data.partner, input.data.paused, admin.id);
+  revalidatePath("/yonetim/partnerler");
+  redirect(`/yonetim/partnerler?${input.data.paused ? "paused" : "resumed"}=${encodeURIComponent(input.data.partner)}`);
 }
 
 export type PartnerInvoiceResult = {
