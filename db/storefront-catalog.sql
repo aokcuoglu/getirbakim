@@ -120,9 +120,12 @@ BEGIN
      AND l.supplier_code=r.code AND l.supplier_brand=supplier_item_brand(r.supplier,r.product_data)
      AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=l.donor_oem)
      -- Another usable row (the view's source rules, sold or dropped) is the same product.
-     AND NOT EXISTS (SELECT 1 FROM supplier_items d
+     -- The part-key lookup is fenced (OFFSET 0): without statistics (a fresh database) the planner otherwise ANDs the
+     -- scope indexes into it and reads every Başbuğ MRK row per candidate, minutes at 100k rows (#1108).
+     AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM supplier_items d
+       WHERE part_number_key(substring(d.code from position(' ' in d.code)+1))=part_number_key(substring(r.code from position(' ' in r.code)+1))
+       OFFSET 0) d
       WHERE length(k.part_number)>=4
-       AND part_number_key(substring(d.code from position(' ' in d.code)+1))=part_number_key(substring(r.code from position(' ' in r.code)+1))
        AND d.id<>r.id
        AND ((d.supplier='basbug' AND d.warehouse='MRK') OR d.supplier IN ('seta','manual') OR (d.supplier='dinamik' AND d.stock_data IS NOT NULL))
        AND d.presence IN ('present','pending_missing','inactive') AND NOT d.conflicting
