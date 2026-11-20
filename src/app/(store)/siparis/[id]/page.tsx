@@ -149,9 +149,9 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
         {admin && p.fitment_level && <p className={panelMuted}>Uyumluluk (sipariş anında): {fitmentLevelLabels[p.fitment_level]}</p>}
         {admin && returns.filter(r=>r.product_id===p.product_id).map(r=><p key={r.id} className={panelMuted}>İade: {r.quantity} adet · {returnReasonLabels[r.reason as ReturnReason] ?? r.reason}{r.note ? ` · ${r.note}` : ""} · {time(r.created_at)}</p>)}
         {admin && shipment && <form action={recordReturn} className="mt-3 flex flex-wrap items-end gap-2.5"><input type="hidden" name="orderId" value={order.id}/><input type="hidden" name="productId" value={p.product_id}/>
-          <Input className="h-10 w-[85px] bg-white" name="quantity" type="number" min={1} max={p.quantity} defaultValue={1} aria-label="İade adedi" required/>
-          <NativeSelect className="[&>select]:h-10 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
-          <Input className="h-10 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className={storeButton({intent:"primary",size:"md"})}>İade kaydet</Button></form>}
+          <Input className="h-11 w-[85px] bg-white" name="quantity" type="number" min={1} max={p.quantity} defaultValue={1} aria-label="İade adedi" required/>
+          <NativeSelect className="[&>select]:h-11 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
+          <Input className="h-11 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className={storeButton({intent:"primary",size:"md"})}>İade kaydet</Button></form>}
       </div><strong className="shrink-0 font-semibold tabular-nums">{money(lineTotal(p))}</strong></div>)}
       {snapshotNoteTexts.map(text=><p key={text} className={cn(muted,"mt-3")}>{text}</p>)}
       </Card></div>
