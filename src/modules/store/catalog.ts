@@ -635,11 +635,11 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
 export const rankedSearchDepth=200;
 const cachedRankedSearches=staleCache<string[]>(aggregateTtl,300,listings);
 // The hit set the two API rankings below share (#1119): loaded once when both miss together (a partner request with a
-// vehicle), not searched twice. Few and short-lived entries: a broad search holds up to maxSearchHits ids. Not tied to
-// the listing epoch: after an admin edit a ranking may reload from a hit set up to 30 s old (rows are read live).
-const sharedApiSearches=ttlCache<CatalogSearch>(30_000,8);
+// vehicle), not searched twice. Few and short-lived entries: a broad search holds up to maxSearchHits ids. Keyed by the
+// listing epoch too, so a ranking reloaded after an admin edit never starts from a hit set found before it.
+const sharedApiSearches=ttlCache<CatalogSearch>(30_000,4);
 const apiSearchKey=(raw:string,mode:SearchMode)=>`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`;
-const apiSearch=(raw:string,mode:SearchMode)=>sharedApiSearches(apiSearchKey(raw,mode),()=>catalogSearch(raw,mode));
+const apiSearch=async(raw:string,mode:SearchMode)=>sharedApiSearches(`${await listingEpoch()}|${apiSearchKey(raw,mode)}`,()=>catalogSearch(raw,mode));
 /**
  * The first rankedSearchDepth saleable matches of a search (no unavailable cards), in the storefront's relevance order
  * (#1093). For the BakımX partner API, which filters and reorders them per request: cached like plainSearch, so repeated
@@ -649,10 +649,11 @@ export const rankedSearchIds=(raw:string,mode:SearchMode)=>cachedRankedSearches(
  async()=>(await summarizeSearch(await apiSearch(raw,mode),false)).ids.slice(0,rankedSearchDepth));
 /**
  * The listed products a vehicle type's linked supplier rows belong to (#1119): typeFittedIds names supplier rows, and a
- * search hit is the product's listing row (a secondary offer counts as the primary it is grouped under). Cached with the
- * type's fits.
+ * search hit is the product's listing row (a secondary offer counts as the primary it is grouped under). Cached per type
+ * in its own LRU (reloaded with the listing epoch), apart from the storefront's fit sets.
  */
-const typeFittedListingIds=(typeId:number)=>cachedFitted(`type-listing:${typeId}`,async()=>{
+const cachedFittedListings=staleCache<string[]>(10*60*1000,300,listings);
+const typeFittedListingIds=(typeId:number)=>cachedFittedListings(String(typeId),async()=>{
  const fitted=await typeFittedIds(typeId);
  if(!fitted.length)return [];
  return (await db.query<{id:string}>(`SELECT DISTINCT COALESCE(o.primary_id,f.id)::text AS id FROM unnest($1::uuid[]) f(id)
