@@ -14,6 +14,8 @@ const preloadSettings = () => { void cookieSettings.preload(); };
 
 const action = "h-auto min-h-[35px] rounded-[4px] border border-primary bg-primary px-3 py-2 text-xs leading-[18px] font-semibold text-white hover:border-[#0065a9] hover:bg-[#0065a9] max-[600px]:min-h-11 max-[600px]:flex-auto";
 const secondary = cn(action, "border-[#bcc6d0] bg-white font-normal text-foreground hover:border-muted-foreground hover:bg-[#f5f7f9] hover:text-foreground");
+// The first-visit bar: reject and accept share one style (same size, border and tint), so neither is favoured.
+const choice = "h-auto min-h-11 flex-1 rounded-[4px] border border-primary bg-accent px-4 py-2 text-sm leading-5 font-semibold text-accent-foreground hover:bg-accent hover:text-accent-foreground min-[601px]:min-h-10 min-[601px]:flex-none min-[601px]:px-6";
 const optionTexts = {
   necessary: { title: "Gerekli çerezler", text: "Oturum, sepet ve garaj işlevleri için gereklidir. Her zaman aktiftir." },
   analytics: {
@@ -113,6 +115,22 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
   const checked = { necessary: true, analytics, marketing };
   const setters = { necessary: undefined, analytics: setAnalytics, marketing: setMarketing };
 
+  if (!settings) {
+    return <section data-nosnippet="" aria-label="Çerez bildirimi" className="fixed inset-x-0 bottom-0 z-90 border-t border-[#cbd2d9] bg-white pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-foreground shadow-[0_-4px_20px_#212b360d]">
+      <div className="mx-auto flex max-w-[1404px] flex-col gap-2 px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] min-[601px]:flex-row min-[601px]:items-center min-[601px]:justify-between min-[601px]:gap-6 min-[601px]:px-[38px] min-[601px]:py-2.5 min-[601px]:pb-[calc(10px+env(safe-area-inset-bottom))]">
+        <p className="m-0 text-sm leading-5">
+          Deneyimi iyileştirmek için çerez kullanıyoruz.{" "}
+          <Link href="/bilgi/cerez-politikasi" className="text-primary underline underline-offset-2">Ayrıntılar</Link>
+        </p>
+        <div className="flex items-center gap-2">
+          <Button type="button" className={choice} onClick={() => choose(false, false)}>Reddet</Button>
+          <Button type="button" className={choice} onClick={() => choose(true, true)}>Kabul et</Button>
+          <Button type="button" variant="link" className="h-auto min-h-11 px-2 text-sm leading-5 font-normal text-primary underline underline-offset-2 min-[601px]:min-h-10" data-cookie-settings-opener="" aria-expanded={false} aria-controls="cookie-settings" onPointerEnter={preloadSettings} onFocus={preloadSettings} onClick={() => openCookieSettings(null)}>Tercihler</Button>
+        </div>
+      </div>
+    </section>;
+  }
+
   return <section data-nosnippet="" aria-labelledby="cookie-title" className="fixed inset-x-0 bottom-0 z-90 max-h-[85dvh] pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] overflow-y-auto overscroll-contain border-t border-[#cbd2d9] bg-white text-foreground shadow-[0_-4px_20px_#212b360d]">
     <div className="mx-auto max-w-[1404px] px-[38px] pt-[18px] pb-[calc(10px+env(safe-area-inset-bottom))] max-[600px]:p-4 max-[600px]:pb-[calc(16px+env(safe-area-inset-bottom))]">
       <h2 id="cookie-title" className="mt-0 mb-[7px] text-base leading-6 font-semibold tracking-normal">Bu web sitesi çerez kullanır</h2>
@@ -121,14 +139,12 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
         Analiz ve reklam çerezleri yalnızca izin vermeniz hâlinde etkinleşir; tercihinizi sayfanın altındaki “Çerez tercihleri” bağlantısından değiştirebilirsiniz.
         Ayrıntılar için <Link href="/bilgi/cerez-politikasi" className="text-primary underline underline-offset-2">Çerez politikamızı</Link> inceleyin.
       </p>
-      {settings && fields && <fields.CookieSettings options={options} checked={checked} setters={setters} />}
+      {fields && <fields.CookieSettings options={options} checked={checked} setters={setters} />}
       <div className="flex flex-wrap gap-2">
         <Button type="button" className={action} onClick={() => choose(true, true)}>Tümünü kabul et</Button>
-        {settings
-          ? <Button type="button" className={secondary} disabled={!fields} onClick={() => choose(analytics, marketing)}>Tercihleri kaydet</Button>
-          : <Button type="button" className={secondary} data-cookie-settings-opener="" aria-expanded={false} aria-controls="cookie-settings" onPointerEnter={preloadSettings} onFocus={preloadSettings} onClick={() => openCookieSettings(null)}>Tercihleri ayarla</Button>}
+        <Button type="button" className={secondary} disabled={!fields} onClick={() => choose(analytics, marketing)}>Tercihleri kaydet</Button>
         <Button type="button" className={secondary} onClick={() => choose(false, false)}>Tümünü reddet</Button>
-        {settings && consent && <Button type="button" className={secondary} onClick={closeCookieSettings}>Vazgeç</Button>}
+        {consent && <Button type="button" className={secondary} onClick={closeCookieSettings}>Vazgeç</Button>}
       </div>
     </div>
   </section>;
