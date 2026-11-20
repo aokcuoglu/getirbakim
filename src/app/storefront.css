@@ -57,10 +57,11 @@
      rules pin the main row while home and the catalog set body[data-home-scrolled] / body[data-catalog-scrolled] (600px and up).
      Phones (#1089): HeaderPin sets body[data-header-pin] once the header has left the viewport. The whole frame turns sticky
      (it never leaves the flow, so nothing shifts) and is moved by translate only: `parked` and `hidden` out of view, `shown`
-     back in; the transparent header and the invisible category strip leave the logo/tools and search rows on a white card.
+     back in; the transparent header and the invisible category strip leave the logo/tools and search rows on a white card,
+     the only part that takes taps (the frame and header pass them through to the page under the empty strip).
      Focus or an open menu inside keeps it in view. */
   .site-chrome {
-    @apply max-[599.98px]:in-data-header-pin:sticky max-[599.98px]:in-data-header-pin:top-0 max-[599.98px]:in-data-header-pin:z-41;
+    @apply max-[599.98px]:in-data-header-pin:pointer-events-none max-[599.98px]:in-data-header-pin:sticky max-[599.98px]:in-data-header-pin:top-0 max-[599.98px]:in-data-header-pin:z-41;
     @apply max-[599.98px]:in-data-[header-pin=parked]:-translate-y-full max-[599.98px]:in-data-[header-pin=hidden]:-translate-y-full;
     @apply motion-safe:max-[599.98px]:in-data-[header-pin=shown]:transition-[translate] motion-safe:max-[599.98px]:in-data-[header-pin=shown]:duration-200 motion-safe:max-[599.98px]:in-data-[header-pin=hidden]:transition-[translate] motion-safe:max-[599.98px]:in-data-[header-pin=hidden]:duration-200;
     @apply max-[599.98px]:has-focus-visible:translate-none max-[599.98px]:has-aria-expanded:translate-none;

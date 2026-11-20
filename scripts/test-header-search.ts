@@ -267,6 +267,16 @@ test("the header shows after 24px up and hides after 8px down (#1089)", () => {
   assert.equal(run([400, 500, 476, 470, 478, 460, 454]).pin, "shown");
 });
 
+test("within the header's height the rows never hide (#1089)", () => {
+  // Shown near the top: scrolling down inside the header's height keeps them, the anchor still tracks.
+  assert.deepEqual(run([400, 300, 60, 68]), { pin: "shown", anchor: 60 });
+  assert.equal(run([400, 300, 60, 68, 150, 161]).pin, "shown");
+  assert.equal(run([400, 300, 60, 68, 162]).pin, "hidden");
+  // Hidden and back within the header's height (less than 24px up): shown, not a blank slot.
+  assert.equal(nextHeaderPin({ pin: "hidden", anchor: 175 }, 162, 161).pin, "hidden");
+  assert.deepEqual(nextHeaderPin({ pin: "hidden", anchor: 175 }, 155, 161), { pin: "shown", anchor: 155 });
+});
+
 test("5px of jitter never flips the header (#1089)", () => {
   for (const start of ["parked", "shown", "hidden"] as const) {
     let track: PinTrack = { pin: start, anchor: 600 };

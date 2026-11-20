@@ -19,6 +19,7 @@ type SearchBoxProps = {
 
 const variants = {
   // The header row: hidden on checkout; on phones its own full-width row, the mode selector an icon beside its chevron (#1089).
+  // The phone form is 44px tall with its border, so the selector and the submit button fill its 42px inside.
   header: {
     form: "h-10 min-h-10 min-w-[220px] flex-1 rounded-[3px] border-input -mr-2 max-[850.98px]:mr-0 max-[850.98px]:min-w-0 max-[600px]:order-3 max-[600px]:w-full max-[600px]:flex-[0_0_100%] max-[600px]:h-11 max-[600px]:min-h-11 group-data-[route=checkout]/route:hidden",
     select: "w-[164px] min-w-[164px] min-[851px]:max-[1100px]:w-[156px] min-[851px]:max-[1100px]:min-w-[156px] min-[600px]:max-[850.98px]:w-[84px] max-[600px]:w-[52px] max-[600px]:min-w-[52px]",

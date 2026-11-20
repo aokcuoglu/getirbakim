@@ -5,12 +5,13 @@ import { useStoreRoute } from "./store-route";
 import { nextHeaderPin, type PinTrack } from "./header-pin-state";
 
 const phoneQuery = "(max-width: 599.98px)";
+const lockedOverflow = /hidden|clip/;
 
 /**
  * Phones (#1089): the header slides away while scrolling down and its logo/tools and search rows come back on the
  * way up. Writes body[data-header-pin] (see header-pin-state.ts) and --header-pin-h, the pinned rows' height, for
- * the `.site-chrome` rules in storefront.css; renders nothing. Off on checkout, from 600px up and while a dialog
- * locks the page scroll.
+ * the `.site-chrome` rules in storefront.css; renders nothing. Off on checkout and from 600px up; while a dialog
+ * locks the page scroller (overflow hidden on <html> or <body>, as Base UI does) the state does not change.
  */
 export function HeaderPin() {
   const route = useStoreRoute();
@@ -36,11 +37,13 @@ export function HeaderPin() {
     };
     const update = () => {
       frame = 0;
-      if (!phone.matches || root.hasAttribute("data-base-ui-scroll-locked")) return;
+      if (!phone.matches) return;
       // Clamped so the iOS rubber band past either end does not flip the header.
       const y = Math.min(Math.max(window.scrollY, 0), Math.max(root.scrollHeight - window.innerHeight, 0));
       const next = nextHeaderPin(track, y, headerHeight);
       if (next.pin !== track.pin) {
+        // Style is read only when the pin would flip: a scroll lock keeps the header as it is.
+        if (lockedOverflow.test(getComputedStyle(root).overflowY) || lockedOverflow.test(getComputedStyle(body).overflowY)) return;
         if (next.pin) body.dataset.headerPin = next.pin;
         else delete body.dataset.headerPin;
       }
