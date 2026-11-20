@@ -41,6 +41,11 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
  offer_id?: string; offers?: number;
  /** No supplier sells the product now (db/storefront-catalog.sql, #475): listed last, without a price, not orderable. */
  unavailable?: boolean;
+ /**
+  * An unavailable card of a Dinamik price-list-only code with content (#1068): in the supplier's price list but without
+  * stock data, so never orderable; unlike other unavailable cards its page is indexed (productIndexable).
+  */
+ price_only?: boolean;
 };
 // Prices and availability are calculated by the shared commerce view.
 export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=ANY($1::text[])";
@@ -86,16 +91,25 @@ export async function getStorefrontProduct(id: string): Promise<CatalogProduct |
  * Where the store shows a row it does not list itself (an old link): the same supplier code sold from another scope
  * or list (Dinamik's FALKON → "FALKON - AUTOKIT"), a saleable row of its product group, else the group's or the code's
  * unavailable card. Product ids are row ids; a merged product follows `merged_into`.
+ * The unavailable candidates (the same supplier + code through supplier_items_part_key_idx, the group's members) are
+ * found first and each tested against commerce_unavailable_items by id: OFFSET 0 keeps that a per-row probe reaching
+ * every branch of the view by primary key. Joined on supplier + code the planner computed the whole view, price-only
+ * branch included (#1068): 57 ms → 0.1 ms per unknown product address in an isolated schema with 60k price-only cards
+ * (0.3-0.6 s measured at production size before).
  */
 const canonicalSql = `WITH source AS (SELECT id,supplier,code FROM supplier_items WHERE id=$2),
  product AS (SELECT COALESCE(p.merged_into,p.id) AS id FROM products p WHERE p.id=$2
   UNION SELECT s.product_id FROM product_sources s WHERE s.supplier_item_id=$2),
- members AS (SELECT m.supplier_item_id AS id,m.product_id FROM product_sources m WHERE m.product_id IN (SELECT id FROM product))
+ members AS (SELECT m.supplier_item_id AS id,m.product_id FROM product_sources m WHERE m.product_id IN (SELECT id FROM product)),
+ same_code AS (SELECT c.id,c.code FROM source JOIN supplier_items c
+  ON part_number_key(substring(c.code from position(' ' in c.code)+1))=part_number_key(substring(source.code from position(' ' in source.code)+1))
+  AND c.supplier=source.supplier AND c.code=source.code)
  SELECT id::text FROM (
   SELECT c.id,0 AS step,0 AS own,storefront_supplier_rank(c.supplier) AS supplier_rank,c.code FROM source JOIN commerce_supplier_items c ON c.supplier=source.supplier AND c.code=source.code
   UNION ALL SELECT c.id,1,CASE WHEN c.id=m.product_id THEN 0 ELSE 1 END,storefront_supplier_rank(c.supplier),c.code FROM members m JOIN commerce_supplier_items c ON c.id=m.id
-  UNION ALL SELECT u.id,2,0,0,u.code FROM source JOIN commerce_unavailable_items u ON u.supplier=source.supplier AND u.code=source.code
-  UNION ALL SELECT u.id,3,0,0,u.code FROM members m JOIN commerce_unavailable_items u ON u.id=m.id) target
+  UNION ALL SELECT k.id,2,0,0,k.code FROM same_code k WHERE EXISTS (SELECT 1 FROM commerce_unavailable_items u WHERE u.id=k.id OFFSET 0)
+  UNION ALL SELECT m.id,3,0,0,i.code FROM members m JOIN supplier_items i ON i.id=m.id
+   WHERE EXISTS (SELECT 1 FROM commerce_unavailable_items u WHERE u.id=m.id OFFSET 0)) target
  WHERE id<>$2 AND EXISTS (SELECT 1 FROM supplier_items i WHERE i.id=target.id AND i.company=ANY($1::text[]))
   AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=target.id AND h.hidden)
  ORDER BY step,own,supplier_rank,code,id LIMIT 1`;

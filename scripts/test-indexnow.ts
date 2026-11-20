@@ -541,4 +541,42 @@ describe("IndexNow runs", () => {
     assert.equal(quiet.urls, 0);
     assert.equal(after.calls.length, 0);
   });
+
+  test("a Dinamik price-list-only card with content is reported; a renamed category sends old and new address (#1068)", async () => {
+    const dinamik = storefrontCompanies()[2];
+    const priceOnly = async (name: string, id: string) => {
+      await schema.pool.query(`INSERT INTO supplier_items(id,supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+        product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+        VALUES($1,'dinamik',$2,'PRICE','ALL',$3,$4,'{"nf":100}',NULL,1,1,0,false,'present',now()-interval '10 days',now()-interval '1 hour',now()-interval '1 hour')`,
+      [id, dinamik, `TRW ${name}`, { stokKodu: `TRW ${name}`, marka: "TRW" }]);
+      ids[name] = id;
+    };
+    await priceOnly("DF4185", idInChunk(48, 7));
+    await priceOnly("DF0001", idInChunk(48, 8));
+    await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
+      VALUES($1,'TRW DF4185','TRW','https://example.test/p','test','TRW','DF4185','{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}')`, [ids.DF4185]);
+    await schema.pool.query(`INSERT INTO product_enrichment_shared_links(supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,imported_at)
+      VALUES($1,'TRW DF4185','TRW',$1,'','complete',now())`, [ids.DF4185]);
+    await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw)
+      VALUES('trodo',301,NULL,'Brake discs','brake-discs','{301}','','{}')`);
+    await schema.pool.query("INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES('trodo',301,'tr','Fren diskleri','fren-diskleri-301')");
+    await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',301)", [ids.DF4185]);
+    await schema.pool.query("SELECT storefront_price_only_refresh()");
+    const page = (await indexnow.loadIndexNowChunk(48)).find(row => row.id === ids.DF4185);
+    const shown = (await schema.pool.query<{ id: string; name: string; name_overridden: boolean; display_brand: string; display_code: string }>(
+      "SELECT id::text,name,name_overridden,display_brand,display_code FROM storefront_catalog_entries WHERE id=$1", [ids.DF4185])).rows[0];
+    assert.equal(page?.path, productPath(shown));
+    assert.equal(page?.path, `/urun/trw-fren-diskleri-df4185-${ids.DF4185}`);
+    const network = fakeFetch([200]);
+    const result = await run({ network });
+    assert.equal(result.added, 1);
+    assert.deepEqual(sent(network.calls), [url(page!.path)]);
+    // The category's Turkish label changes: the card's name and address move.
+    await schema.pool.query("UPDATE source_category_labels SET name='Fren diski' WHERE category_id=301");
+    await schema.pool.query("SELECT storefront_price_only_refresh()");
+    const renamed = fakeFetch([200]);
+    const next = await run({ network: renamed });
+    assert.equal(next.changed, 1);
+    assert.deepEqual(sent(renamed.calls), both(page!.path, `/urun/trw-fren-diski-df4185-${ids.DF4185}`));
+  });
 });

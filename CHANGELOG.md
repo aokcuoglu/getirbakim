@@ -10,6 +10,7 @@ Release of `dev` since v0.32.1 (6 pull requests): saved addresses at checkout, o
 
 ### Added
 - **Saved addresses at checkout:** approved service and admin accounts pick a saved delivery or invoice address on `/siparis-olustur` and can save a new one to their address book after a successful order (duplicates and a full book of 10 are skipped; saving never blocks the order) ([#1015](https://github.com/aokcuoglu/getirbakim/pull/1015), [#999](https://github.com/aokcuoglu/getirbakim/issues/999)).
+- **Dinamik price-list-only parts as product pages:** Dinamik codes without a stock-list row that carry an enrichment matched to their code and brand and a category with a Turkish label become unavailable cards named after that category ("Stok bilgisi bekleniyor", "Gelince haber ver", no price). Unlike other unavailable cards they are indexed and listed in the sitemap and IndexNow; never in the merchant feed, never orderable. Kept in `storefront_price_only_items` by `storefront_price_only_refresh()` ([#1068](https://github.com/aokcuoglu/getirbakim/issues/1068)).
 - **Amazon SES mail transport:** `MAIL_TRANSPORT=ses` sends order emails through the SES v2 API with the ECS task role (no SMTP credentials); region from `SES_REGION` / `AWS_REGION` ([#1064](https://github.com/aokcuoglu/getirbakim/pull/1064), [#1062](https://github.com/aokcuoglu/getirbakim/issues/1062)).
 
 ### Fixed
@@ -25,6 +26,9 @@ Release of `dev` since v0.32.1 (6 pull requests): saved addresses at checkout, o
 - SES: `MAIL_TRANSPORT`, `MAIL_FROM`, `MAIL_REPLY_TO` app secret keys are wired by getirbakim-infra#7 and present in the app secret.
 - Geliver sync is enabled with this release (`PRODUCTION_GELIVER_SYNC_ENABLED=true` in the GitHub variables and the operator `.env`).
 - Release with `gh workflow run release-aws.yml --ref main -f version=0.33.0`.
+
+### Deploy and operations
+- `db:setup` creates `storefront_price_only_items` and `storefront_price_only_runs` (first run only: `SHARE ROW EXCLUSIVE` on `supplier_items` for its foreign key until setup commits, as for earlier tables referencing it), replaces `commerce_unavailable_items`, `storefront_catalog_entries` and `storefront_catalog` (new `price_only` column at the end) and fills the list once; the app keeps it current afterwards ([#1068](https://github.com/aokcuoglu/getirbakim/issues/1068)).
 
 ## v0.32.1 — 2026-11-20
 

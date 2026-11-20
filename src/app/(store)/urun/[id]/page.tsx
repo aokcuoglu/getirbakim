@@ -286,9 +286,11 @@ export default async function Detail({ params, searchParams }: { params: Promise
           <div className="flex min-w-0 items-center gap-2"><dt className="text-[#53677d]">Ürün kodu</dt><dd className="m-0 flex min-w-0 items-center gap-1"><span className="min-w-0 rounded-lg border border-border bg-[#f7f8fa] px-2.5 py-1 font-mono text-sm font-semibold wrap-anywhere">{displayPartNumber}</span><CopyCodeButton code={displayPartNumber}/></dd></div>
         </dl>
         {product.unavailable ? <>
-          <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Şu an tedarik edilemiyor</h2><p className="text-[#53677d]">Tedarikçilerimiz bu ürünü şu an sunmuyor; yeniden satışa sunulduğunda sipariş verebilirsin.</p></div>
+          <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">{product.stock_label}</h2><p className="text-[#53677d]">{product.price_only
+            ? "Bu parça tedarikçimizin listesinde, ancak güncel stok ve fiyat bilgisi henüz yok; şu an sipariş verilemiyor. Bilgi geldiğinde haber verebiliriz."
+            : "Tedarikçilerimiz bu ürünü şu an sunmuyor; yeniden satışa sunulduğunda sipariş verebilirsin."}</p></div>
           <PurchaseForm productId={product.id} name={product.display_code} available={false} maxQuantity={1} variant="product"/>
-          <RestockRequestForm productId={product.id} email={account?.email}/>
+          <RestockRequestForm productId={product.id} email={account?.email} priceOnly={product.price_only}/>
         </> : product.price_kurus === null ? <div className="py-[15px]"><h2 className="text-2xl leading-[34px] font-semibold">Fiyat bilgisi güncelleniyor</h2><p>Güncel fiyat alındığında siparişe açılacak.</p></div> : <>
           {isB2B && <span className="text-xs text-[#53677d]">Servisine özel B2B fiyatı</span>}
           <p className="mt-2.5 mb-0.5 text-[32px] leading-10 font-semibold tracking-[-.7px]">{price}</p>

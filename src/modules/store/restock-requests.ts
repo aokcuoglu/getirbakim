@@ -26,7 +26,8 @@ export async function createRestockRequest(form:Record<string,unknown>,context:{
     if(budget.rows.some(row=>row.attempts>(row.key==="global"?limits.global:row.key.startsWith("email:")?limits.email:limits.ip)))
       return {status:"error",message:"Çok fazla deneme yapıldı. Bir süre sonra tekrar dene."};
     const product=(await db.query<{id:string;supplier:string;code:string;brand:string;name:string;product_id:string|null}>(`SELECT u.id,u.supplier,u.code,
-      COALESCE(NULLIF(u.product_data->>'uk',''),'Belirtilmemiş') AS brand,COALESCE(NULLIF(u.product_data->>'ac',''),u.code) AS name,
+      COALESCE(NULLIF(u.product_data->>'uk',''),supplier_item_brand(u.supplier,u.product_data),'Belirtilmemiş') AS brand,
+      COALESCE((SELECT q.name FROM storefront_price_only_items q WHERE q.supplier_item_id=u.id),NULLIF(u.product_data->>'ac',''),u.code) AS name,
       (SELECT COALESCE(p.merged_into,p.id) FROM product_sources s JOIN products p ON p.id=s.product_id WHERE s.supplier_item_id=u.id) AS product_id
       FROM commerce_unavailable_items u WHERE u.id=$2 AND u.company=ANY($1::text[])`,[storefrontCompanies(),productId])).rows[0];
     if(!product)return {status:"error",message:"Bu ürün şu an satışta; sayfayı yenileyip sepete ekleyebilirsin."};

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, before, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 
@@ -128,4 +128,147 @@ test("a row offered again is saleable at once", async () => {
   assert.equal(row?.available, true);
   assert.ok(row?.price_kurus);
   assert.ok(!(await unavailableIds()).includes(ids.pending));
+});
+
+// Dinamik price-list-only codes (#1068): a row of Dinamik's price list without a stock-list row carries only its code and
+// brand label. With an enrichment matched to that code and brand and a category with a Turkish label, it becomes an
+// unavailable card named after the category; without content it gets no card.
+describe("Dinamik price-list-only codes", () => {
+  async function priceOnly(key: string, { code, brand, group = "PRICE", conflicting = false, seenHoursAgo = 1 }:
+    { code: string; brand: string; group?: string; conflicting?: boolean; seenHoursAgo?: number }) {
+    const { rows } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+      VALUES('dinamik',$1,$2,'ALL',$3,$4,'{"nf":100}',NULL,1,1,0,$5,'present',now()-interval '10 days',now()-make_interval(hours=>$6),now()-make_interval(hours=>$6))
+      RETURNING id::text`, [dinamik, group, code, { stokKodu: code, marka: brand }, conflicting, seenHoursAgo]);
+    ids[key] = rows[0].id;
+  }
+  // The row's own enrichment (its donor) and its storefront link; `linkBrand` other than the label is a stale link.
+  async function enrich(key: string, brand: string, categories: number[], linkBrand = brand) {
+    const code = (await schema.pool.query<{ code: string }>("SELECT code FROM supplier_items WHERE id=$1", [ids[key]])).rows[0].code;
+    await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
+      VALUES($1,$2,$3,'https://example.test/p','test',$3,$4,'{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}')`,
+    [ids[key], code, brand, code.slice(code.indexOf(" ") + 1)]);
+    await schema.pool.query(`INSERT INTO product_enrichment_shared_links(supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,imported_at)
+      VALUES($1,$2,$3,$1,'','complete',now())`, [ids[key], code, linkBrand]);
+    for (const category of categories) await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',$2)", [ids[key], category]);
+  }
+  const refresh = async () => (await schema.pool.query<{ n: number }>("SELECT storefront_price_only_refresh() AS n")).rows[0].n;
+  const keys = ["qualifying", "bare", "noLabel", "staleLink", "soldElsewhere", "groupSold", "conflictingPrice", "duplicateOld", "duplicateNew", "hiddenPrice"];
+  const cards = async () => {
+    const shown = new Set(await unavailableIds());
+    return keys.filter(key => shown.has(ids[key]));
+  };
+
+  before(async () => {
+    await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
+      ('trodo',300,NULL,'Brake system','brake-system','{300}','','{}'),('trodo',301,300,'Brake discs','brake-discs','{300,301}','','{}'),
+      ('trodo',302,NULL,'Untranslated','untranslated','{302}','','{}')`);
+    await schema.pool.query(`INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES
+      ('trodo',300,'tr','Fren sistemi','fren-sistemi-300'),('trodo',301,'tr','Fren diskleri','fren-diskleri-301')`);
+    await priceOnly("qualifying", { code: "TRW DF4185", brand: "TRW" });
+    await enrich("qualifying", "TRW", [300, 301]);
+    await priceOnly("bare", { code: "TRW DF0001", brand: "TRW" });
+    await priceOnly("noLabel", { code: "TRW DF0002", brand: "TRW" });
+    await enrich("noLabel", "TRW", [302]);
+    await priceOnly("staleLink", { code: "TRW DF0003", brand: "TRW" });
+    await enrich("staleLink", "TRW", [301], "TRW OLD");
+    // Sold under the same code from Dinamik's stock list in another scope.
+    await priceOnly("soldElsewhere", { code: "FEBI 1000", brand: "FEBI" });
+    await enrich("soldElsewhere", "FEBI", [301]);
+    await item("febiStock", { supplier: "dinamik", code: "FEBI 1000", brand: "FEBI", group: "FEBI", stock: 3 });
+    // Its product group is sold by a Başbuğ row.
+    await priceOnly("groupSold", { code: "VALEO 826694", brand: "VALEO" });
+    await enrich("groupSold", "VALEO", [301]);
+    await item("valeoBasbug", { supplier: "basbug", code: "VAL 826694", brand: "VALEO", stock: 2 });
+    await schema.pool.query("INSERT INTO products(id,brand,part_number,name,brand_label,code) VALUES($1,'VALEO','826694','DEBRIYAJ','VALEO','VAL 826694')", [ids.valeoBasbug]);
+    await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($2,$1)", [ids.valeoBasbug, ids.groupSold]);
+    await priceOnly("conflictingPrice", { code: "TRW DF0004", brand: "TRW", conflicting: true });
+    await enrich("conflictingPrice", "TRW", [301]);
+    // The same code in two price-list scopes: the newest observation is the card.
+    await priceOnly("duplicateOld", { code: "TRW DF0005", brand: "TRW", group: "OLD", seenHoursAgo: 5 });
+    await enrich("duplicateOld", "TRW", [301]);
+    await priceOnly("duplicateNew", { code: "TRW DF0005", brand: "TRW", group: "NEW" });
+    await enrich("duplicateNew", "TRW", [301]);
+    await priceOnly("hiddenPrice", { code: "TRW DF0006", brand: "TRW" });
+    await enrich("hiddenPrice", "TRW", [301]);
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.hiddenPrice]);
+  });
+
+  test("only price-list-only rows with an enrichment and a Turkish category become cards, one per code", async () => {
+    assert.deepEqual(await cards(), []);
+    assert.ok(await refresh() > 0);
+    assert.deepEqual(await cards(), ["qualifying", "duplicateNew"]);
+    // A second run writes nothing.
+    assert.equal(await refresh(), 0);
+  });
+
+  test("tasks share one rebuild per interval; a renamed card moves qualified_at", async () => {
+    // A rebuild just ran: a task asking with an interval is skipped (null), an import or setup (no interval) is not.
+    const due = async (seconds: number) => (await schema.pool.query<{ n: number | null }>(
+      "SELECT storefront_price_only_refresh(make_interval(secs=>$1)) AS n", [seconds])).rows[0].n;
+    assert.equal(await due(600), null);
+    await schema.pool.query("UPDATE storefront_price_only_runs SET refreshed_at=now()-interval '11 minutes'");
+    assert.equal(await due(600), 0);
+    assert.equal(await due(600), null);
+    const qualified = async () => (await schema.pool.query<{ at: Date }>("SELECT qualified_at AS at FROM storefront_price_only_items WHERE supplier_item_id=$1",
+      [ids.qualifying])).rows[0].at;
+    await schema.pool.query("UPDATE storefront_price_only_items SET qualified_at=now()-interval '1 day' WHERE supplier_item_id=$1", [ids.qualifying]);
+    const before = await qualified();
+    assert.equal(await refresh(), 0);
+    assert.deepEqual(await qualified(), before);
+    // Every listed row in category 301 (the list keeps the view's cross-row checks to the view).
+    await schema.pool.query("UPDATE source_category_labels SET name='Fren diski' WHERE category_id=301");
+    assert.equal(await refresh(), 5);
+    assert.ok((await qualified()) > before);
+    await schema.pool.query("UPDATE source_category_labels SET name='Fren diskleri' WHERE category_id=301");
+    assert.equal(await refresh(), 5);
+  });
+
+  test("a price-only card is named after its deepest category, keeps its real brand and cannot be ordered", async () => {
+    const row = await catalog.getStorefrontProduct(ids.qualifying);
+    assert.ok(row);
+    assert.equal(row.unavailable, true);
+    assert.equal(row.price_only, true);
+    assert.equal(row.name, "Fren diskleri");
+    assert.equal(row.brand, "TRW");
+    assert.equal(row.display_brand, "TRW");
+    assert.equal(row.price_kurus, null);
+    assert.equal(row.available, false);
+    assert.equal(row.max_quantity, 0);
+    assert.equal(row.stock_label, "Stok bilgisi bekleniyor");
+    assert.equal(await catalog.getProduct(ids.qualifying), undefined);
+    assert.deepEqual(await catalog.searchCatalogItems("TRW DF4185", "code"), []);
+    // Other unavailable cards keep their label and are no price-only cards.
+    assert.equal((await catalog.getStorefrontProduct(ids.lemforderNew))?.price_only, false);
+    // Bare rows have no page.
+    assert.deepEqual(await catalog.getStoreProduct(ids.bare), {});
+    assert.equal(await catalog.getStorefrontProduct(ids.noLabel), undefined);
+  });
+
+  test("search finds a price-only card by its code, after saleable products", async () => {
+    const found = await catalog.browseProducts({ q: "TRW DF4185", searchBy: "code" });
+    assert.deepEqual(found.items.map(row => [row.id, row.unavailable, row.price_kurus]), [[ids.qualifying, true, null]]);
+    assert.ok(!(await catalog.browseProducts({ q: "TRW DF0001", searchBy: "code" })).items.some(row => row.id === ids.bare));
+  });
+
+  test("'Gelince haber ver' stores the card's name and brand", async () => {
+    const requests = await import("../src/modules/store/restock-requests");
+    const result = await requests.createRestockRequest({ productId: ids.qualifying, email: "fiyat@example.invalid", consent: "on", website: "" });
+    assert.equal(result.status, "success");
+    const stored = (await schema.pool.query("SELECT supplier,code,brand,name FROM restock_requests WHERE supplier_item_id=$1", [ids.qualifying])).rows[0];
+    assert.deepEqual(stored, { supplier: "dinamik", code: "TRW DF4185", brand: "TRW", name: "Fren diskleri" });
+  });
+
+  test("a stock-list row makes the code saleable at once; the next refresh drops it from the list", async () => {
+    await schema.pool.query(`UPDATE supplier_items SET stock_data='{"stok":2}',product_data=product_data||'{"uk":"TRW","ac":"FREN DISKI","dc":"TL"}'::jsonb
+      WHERE id=$1`, [ids.qualifying]);
+    const row = await catalog.getStorefrontProduct(ids.qualifying);
+    assert.equal(row?.unavailable, false);
+    assert.equal(row?.price_only, false);
+    assert.equal(row?.available, true);
+    assert.ok(row?.price_kurus);
+    assert.deepEqual(await cards(), ["duplicateNew"]);
+    assert.equal(await refresh(), 1);
+    assert.equal((await schema.pool.query("SELECT 1 FROM storefront_price_only_items WHERE supplier_item_id=$1", [ids.qualifying])).rowCount, 0);
+  });
 });

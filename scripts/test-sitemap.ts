@@ -31,6 +31,11 @@ describe("sitemap helpers", () => {
     assert.deepEqual(productIndexPolicy.minimumContent, ["enrichment", "descriptionFitment", "supplierOem", "adminContent"]);
     assert.equal(productIndexPolicy.supplierCatalog, true);
     assert.equal(productIndexPolicy.unavailable, false);
+    // Dinamik price-list-only cards (#1068): indexed with minimum content, unlike other unavailable cards.
+    assert.equal(productIndexPolicy.priceOnly, true);
+    assert.equal(productIndexable({ supplier: "dinamik", source: "supplier", unavailable: true, price_only: true }, { ...bare, enrichment: true }), true);
+    assert.equal(productIndexable({ supplier: "dinamik", source: "supplier", unavailable: true, price_only: true }, bare), false);
+    assert.equal(productIndexable({ supplier: "dinamik", source: "supplier", unavailable: true, price_only: false }, full), false);
   });
 
   test("productContent reads the page's loaders; the SQL condition holds every minimum-content signal", () => {
@@ -391,5 +396,44 @@ describe("sitemap queries", () => {
     assert.notEqual(after, before);
     assert.equal(after, productPath((await catalog.getStorefrontProduct(ids.dinamik))!));
     assert.match(after!, /^\/urun\/zf-sachs-/);
+  });
+
+  test("Dinamik price-list-only cards with content are listed under their page's address; bare ones are not (#1068)", async () => {
+    const priceOnly = async (key: string, code: string) => {
+      ids[key] = (await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+        product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+        VALUES('dinamik',$1,'PRICE','ALL',$2,$3,'{"nf":100}',NULL,1,1,0,false,'present',now()-interval '10 days',now()-interval '1 hour',now()-interval '1 hour')
+        RETURNING id::text`, [dinamik, code, { stokKodu: code, marka: "TRW" }])).rows[0].id;
+    };
+    await priceOnly("priceOnly", "TRW DF4185");
+    await priceOnly("priceOnlyBare", "TRW DF0001");
+    await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
+      VALUES($1,'TRW DF4185','TRW','https://example.test/p','test','TRW','DF4185','{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}')`, [ids.priceOnly]);
+    await schema.pool.query(`INSERT INTO product_enrichment_shared_links(supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,imported_at)
+      VALUES($1,'TRW DF4185','TRW',$1,'','complete',now()-interval '2 hours')`, [ids.priceOnly]);
+    await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',100),($1,'trodo',102)", [ids.priceOnly]);
+    await schema.pool.query("SELECT storefront_price_only_refresh()");
+    const rows = await allChunks();
+    const listed = rows.find(row => row.id === ids.priceOnly);
+    assert.equal(listed?.path, `/urun/trw-disk-df4185-${ids.priceOnly}`);
+    assert.equal(listed?.path, productPath((await catalog.getStorefrontProduct(ids.priceOnly))!));
+    // lastmod: the newest of the row's change, its enrichment import and the time it qualified.
+    const qualified = (await schema.pool.query<{ at: string }>(`SELECT to_char(qualified_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at
+      FROM storefront_price_only_items WHERE supplier_item_id=$1`, [ids.priceOnly])).rows[0].at;
+    assert.equal(listed?.lastmod, qualified);
+    assert.ok(!rows.some(row => row.id === ids.priceOnlyBare));
+    // Same rule as the page.
+    const inSitemap = new Set(rows.map(row => row.id));
+    for (const [key, id] of Object.entries(ids)) {
+      const { product } = await catalog.getStoreProduct(id);
+      const indexable = product ? productIndexable(product, productContent({
+        enrichment: await enrichments.getProductEnrichment({ id: product.id, code: product.code, brand: product.brand }),
+        descriptionModels: await fitments.getDescriptionFitments(product.id), oem: product.oem, adminContent: await pageAdminContent(product.id) })) : false;
+      assert.equal(indexable, inSitemap.has(id), `${key}: page indexable ⇔ in the sitemap`);
+    }
+    // Hidden by an admin: no card, no sitemap entry.
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.priceOnly]);
+    assert.ok(!(await allChunks()).some(row => row.id === ids.priceOnly));
+    await schema.pool.query("DELETE FROM commerce_item_overrides WHERE supplier_item_id=$1", [ids.priceOnly]);
   });
 });

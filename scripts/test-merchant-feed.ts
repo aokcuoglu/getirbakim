@@ -194,13 +194,14 @@ describe("feed queries and run", () => {
   const allSources = async () => {
     const names = await feed.loadCategoryNames();
     const sources = [];
-    let checked = 0;
+    let checked = 0, missing = 0;
     for (let index = 0; index < 64; index++) {
       const chunk = await feed.loadFeedChunk(index, names);
       checked += chunk.checked;
+      missing += chunk.missing;
       sources.push(...chunk.sources);
     }
-    return { sources, checked, byId: new Map(sources.map(source => [source.id, source])) };
+    return { sources, checked, missing, byId: new Map(sources.map(source => [source.id, source])) };
   };
   const memoryStore = () => {
     const objects = new Map<string, Buffer>();
@@ -246,6 +247,17 @@ describe("feed queries and run", () => {
     await item("groupSecondary", { supplier: "dinamik", code: "FEBI 7", brand: "FEBI", cost: 60 });
     await image("groupPrimary");
     await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1)", [ids.groupPrimary, ids.groupSecondary]);
+    // A Dinamik price-list-only card with content (#1068): an indexed page, but never in the feed.
+    ids.priceOnly = (await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
+      VALUES('dinamik',$1,'PRICE','ALL','TRW DF4185','{"stokKodu":"TRW DF4185","marka":"TRW"}','{"nf":100}',NULL,1,1,0,'present',now()-interval '40 days',now(),now())
+      RETURNING id::text`, [dinamik])).rows[0].id;
+    await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
+      VALUES($1,'TRW DF4185','TRW','https://example.test/p','test','TRW','DF4185','{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}')`, [ids.priceOnly]);
+    await schema.pool.query(`INSERT INTO product_enrichment_shared_links(supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,imported_at)
+      VALUES($1,'TRW DF4185','TRW',$1,'','complete',now())`, [ids.priceOnly]);
+    await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',101)", [ids.priceOnly]);
+    await schema.pool.query("SELECT storefront_price_only_refresh()");
     const [{ db }, feedModule, catalogModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/seo/merchant-feed.server"),
       import("../src/modules/store/catalog")]);
     feed = feedModule;
@@ -255,8 +267,11 @@ describe("feed queries and run", () => {
   after(async () => { await closeDb?.(); await schema?.drop(); });
 
   test("the chunks hold the indexable rows only, once each", async () => {
-    const { sources, checked } = await allSources();
+    const { sources, checked, missing } = await allSources();
     assert.equal(checked, sources.length);
+    // The price-only card (#1068) is a listed, indexed page, yet neither read nor counted as missing.
+    assert.equal((await catalog.getStorefrontProduct(ids.priceOnly))?.price_only, true);
+    assert.equal(missing, 0);
     assert.deepEqual(sources.map(source => source.id).sort(), ["full", "barcode", "twoBarcodes", "noImage", "smallImage", "outOfStock", "stale", "groupPrimary"]
       .map(key => ids[key]).sort());
   });
