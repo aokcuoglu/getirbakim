@@ -51,10 +51,10 @@ function Pager({label, grid}: {label: string; grid?: boolean}) {
 
 const productBasis: Record<number, string> = {3: "min-[48.0625rem]:basis-1/3", 4: "min-[48.0625rem]:basis-1/4", 5: "min-[48.0625rem]:basis-1/5", 6: "min-[48.0625rem]:basis-1/6"};
 
-export function HomeCarousel({children,label,kind="promotions",columns=5}:{children:ReactNode;label:string;kind?:"promotions"|"products";columns?:number}) {
+export function HomeCarousel({children,label,columns=5}:{children:ReactNode;label:string;columns?:number}) {
   const slides = Children.toArray(children);
   if (!slides.length) return null;
-  const basis = kind==="products" ? cn("basis-1/2", productBasis[columns] ?? "min-[48.0625rem]:basis-1/5") : "basis-full min-[48.0625rem]:basis-1/2";
+  const basis = cn("basis-1/2", productBasis[columns] ?? "min-[48.0625rem]:basis-1/5");
   return <Carousel opts={{align: "start", slidesToScroll: "auto", containScroll: "trimSnaps"}} aria-label={label} aria-roledescription="slider" className="min-w-0">
     <CarouselContent className="items-stretch">{slides.map((slide, index) => <CarouselItem key={index} className={basis}>{slide}</CarouselItem>)}</CarouselContent>
     <Pager label={label}/>
