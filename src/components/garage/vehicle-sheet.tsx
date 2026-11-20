@@ -17,14 +17,12 @@ import { splitPopularBrands, vehicleModelFamilies, vehicleModelFamilyKey, vehicl
 import { oilCapacity } from "@/modules/store/vehicle-oil";
 import { useVehicleCatalog } from "./use-vehicle-catalog";
 import { catalogPath } from "@/modules/seo/paths";
+import { storeButton } from "@/components/store-button";
 
 type Step = "brand" | "family" | "model" | "fuel" | "engine" | "confirm";
 type Tab = "search" | "garage";
 const titles: Record<Step, string> = { brand: "Marka seç", family: "Model seç", model: "Kasa / nesil seç", fuel: "Yakıt türü seç", engine: "Motor seç", confirm: "Aracını onayla" };
 
-const plain = "h-auto min-h-0 rounded-none border-0 bg-transparent p-0 font-normal hover:bg-transparent";
-const saveButton = "mt-4 flex h-auto min-h-12 w-full items-center justify-center gap-2.5 rounded-[5px] border border-brand bg-brand p-3 text-sm leading-5 font-medium text-white hover:border-brand-strong hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
-const secondaryButton = "mt-3 h-auto min-h-12 w-full rounded-[5px] border border-control-border bg-white px-[27px] py-[13px] text-sm leading-5 font-medium text-foreground hover:bg-[#f8f9f9] hover:text-foreground disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
 const summaryBox = "mb-[22px] overflow-hidden rounded-[5px] border border-border bg-white [&>div]:border-t [&>div]:border-border [&>div]:px-[18px] [&>div]:py-3.5 [&_strong]:block [&_strong]:text-base [&_strong]:leading-6 [&_strong]:font-semibold [&_p]:my-0.5 [&_p]:text-[13px] [&_p]:leading-5 [&_small]:block [&_small]:text-xs [&_small]:leading-5 [&_small]:text-muted-foreground";
 // The saved vehicle's technical data, REPXPERT's where it has the type; missing values leave their row out.
 function vehicleSpecRows(vehicle: CatalogVehicle): [string, string][] {
@@ -150,8 +148,8 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   }
   function rows(items: { key: string; label: string; action: () => void; detail?: string }[]) {
     const detailed = items.some(item => item.detail);
-    return <ul className="m-0 list-none p-0">{items.map(({ key, label, action, detail }) => <li key={key}>
-      <Button type="button" onClick={action} className={cn(plain, "flex min-h-11 w-full items-center justify-between gap-3 bg-white py-[7px] text-left text-sm leading-5 whitespace-normal text-foreground hover:bg-[#f1f7fb] hover:text-brand [&>svg]:shrink-0", detailed && "border-b border-[#f1f3f5] py-3")}>
+    return <ul className="m-0 list-none p-0">{items.map(({ key, label, action, detail }) => <li key={key} className={detailed ? "border-b border-[#f1f3f5]" : undefined}>
+      <Button type="button" onClick={action} className={cn(storeButton({ intent: "ghost", size: "md" }), "w-full justify-between gap-3 px-0 text-left font-normal whitespace-normal [&>svg]:shrink-0")}>
         <span>{label}{detail && <small className="mt-[3px] block text-xs leading-[18px] text-muted-foreground">{detail}</small>}</span><ChevronRight size={14} aria-hidden="true" />
       </Button>
     </li>)}</ul>;
@@ -174,29 +172,29 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             <Search size={19} aria-hidden="true" />
             <input aria-label="Marka, model veya yakıt türü ara" placeholder="Marka, model, yakıt türü ara" value={query} maxLength={120} onChange={event => { setQuery(event.target.value); setSearchOffset(0); }}
               className="h-11 w-full min-w-0 flex-1 rounded-none border-0 bg-transparent p-0 text-sm text-foreground outline-none placeholder:text-sm placeholder:text-muted-foreground focus:outline-none focus-visible:outline-none" />
-            {query && <Button type="button" aria-label="Aramayı temizle" onClick={() => { setQuery(""); setSearchOffset(0); }} className={cn(plain, "-mr-2.5 grid size-11 min-h-11 shrink-0 place-items-center text-muted-foreground hover:text-foreground")}><X size={16} /></Button>}
+            {query && <Button type="button" aria-label="Aramayı temizle" onClick={() => { setQuery(""); setSearchOffset(0); }} className={cn(storeButton({ intent: "ghost", size: "icon" }), "-mr-2.5 shrink-0 text-muted-foreground")}><X size={16} /></Button>}
           </label>
           <div className="mb-[18px] flex items-center gap-3">
-            {step !== "brand" && !query.trim() && <Button type="button" aria-label="Önceki seçim adımına dön" onClick={back} className={cn(plain, "-ml-2.5 grid size-11 min-h-11 place-items-center text-foreground [&_svg:not([class*='size-'])]:size-[18px]")}><ArrowLeft size={18} /></Button>}
+            {step !== "brand" && !query.trim() && <Button type="button" aria-label="Önceki seçim adımına dön" onClick={back} className={cn(storeButton({ intent: "ghost", size: "icon" }), "-ml-2.5")}><ArrowLeft size={18} /></Button>}
             <h3 ref={heading} tabIndex={-1} className={stepHeading}>{query.trim() ? "Arama sonuçları" : titles[step]}</h3>
           </div>
-          {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-1.5 text-muted-foreground [&>button]:min-h-11 [&>button]:text-xs [&>button]:text-muted-foreground [&>button:hover]:text-brand [&>button:hover]:underline" aria-label="Araç seçim adımları">
-            <Button type="button" className={plain} onClick={() => go("brand")}>{brand?.label ?? brand?.name}</Button>
-            {family && step !== "family" && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("family")}>{family.label}</Button></>}
-            {model && !["family", "model"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go(family?.models.length === 1 ? "family" : "model")}>{model.label ?? model.name}</Button></>}
-            {fuel && ["engine", "confirm"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={plain} onClick={() => go("fuel")}>{fuel}</Button></>}
+          {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-1.5 text-muted-foreground" aria-label="Araç seçim adımları">
+            <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => go("brand")}>{brand?.label ?? brand?.name}</Button>
+            {family && step !== "family" && <><ChevronRight size={12} /><Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => go("family")}>{family.label}</Button></>}
+            {model && !["family", "model"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => go(family?.models.length === 1 ? "family" : "model")}>{model.label ?? model.name}</Button></>}
+            {fuel && ["engine", "confirm"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => go("fuel")}>{fuel}</Button></>}
           </nav>}
           {query.trim() && tooShort ? <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">Aramak için en az {minSearchLength} harf veya rakam yaz.</p>
             : activeRequest.loading ? <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">Araç verileri yükleniyor…</p>
-            : activeRequest.error ? <div className={emptyBox}><p role="alert">{activeRequest.error}</p><Button type="button" className={secondaryButton} onClick={activeRequest.retry}>Tekrar dene</Button></div>
+            : activeRequest.error ? <div className={emptyBox}><p role="alert">{activeRequest.error}</p><Button type="button" className={cn(storeButton({ intent: "outline", size: "lg" }), "mt-3 w-full")} onClick={activeRequest.retry}>Tekrar dene</Button></div>
             : query.trim() ? <>
               <p className="mt-0 mb-3 text-xs text-muted-foreground">{searchTotal} araç seçeneği{searchTotal > 60 && ` · ${searchOffset + 1}–${Math.min(searchOffset + 60, searchTotal)} gösteriliyor`}</p>
               {searchRequest.data?.correctedQuery && <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">“{query.trim()}” bulunamadı, “{searchRequest.data.correctedQuery}” için sonuçlar gösteriliyor.</p>}
               {searchResults.length ? rows(searchResults.map(v => ({ key: v.id, label: `${v.makeLabel} ${v.modelLabel}`, action: () => pick(v), detail: `${v.engine} · ${v.fuel} · ${v.power} · ${vehicleProductionDates(v.dateFrom, v.dateTo)}` })))
                 : <div className={emptyBox}><Search size={28} /><p>Aradığın araç bulunamadı.</p><small>Başka bir marka, model veya yakıt türü dene.</small></div>}
               {searchTotal > 60 && <div className="mt-4 flex gap-3">
-                <Button type="button" className={cn(secondaryButton, "mt-0")} disabled={searchOffset === 0} onClick={() => { setSearchOffset(value => Math.max(0, value - 60)); content.current?.scrollTo(0, 0); }}>Önceki</Button>
-                <Button type="button" className={cn(secondaryButton, "mt-0")} disabled={searchOffset + 60 >= searchTotal} onClick={() => { setSearchOffset(value => value + 60); content.current?.scrollTo(0, 0); }}>Sonraki</Button>
+                <Button type="button" className={cn(storeButton({ intent: "outline", size: "lg" }), "w-full")} disabled={searchOffset === 0} onClick={() => { setSearchOffset(value => Math.max(0, value - 60)); content.current?.scrollTo(0, 0); }}>Önceki</Button>
+                <Button type="button" className={cn(storeButton({ intent: "outline", size: "lg" }), "w-full")} disabled={searchOffset + 60 >= searchTotal} onClick={() => { setSearchOffset(value => value + 60); content.current?.scrollTo(0, 0); }}>Sonraki</Button>
               </div>}
             </> : <>
               {step === "brand" && ([[true, brandGroups.popular], [false, brandGroups.others]] as const).filter(([popular, group]) => !popular || group.length > 0).map(([popular, group]) => <div className="border-[#dfe3e8] [&+&]:mt-[22px] [&+&]:border-t [&+&]:pt-[22px]" key={String(popular)}>
@@ -216,7 +214,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
                 <NativeSelect id={`${id}-year`} value={year} onChange={event => setYear(Number(event.target.value))} className="mb-5 w-full [&>select]:h-[52px] [&>select]:rounded-[5px] [&>select]:bg-white [&>select]:pl-3.5 [&>select]:text-sm [&>select]:text-foreground">
                   {Array.from({ length: selected.to - selected.from + 1 }, (_, index) => selected.to - index).map(value => <NativeSelectOption key={value} value={value}>{value}</NativeSelectOption>)}
                 </NativeSelect>
-                <Button className={saveButton} type="button" disabled={pending} onClick={save}><Check size={18} />{pending ? "Kaydediliyor…" : "Aracımı seç"}</Button>
+                <Button className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-4 w-full gap-2.5")} type="button" disabled={pending} onClick={save}><Check size={18} />{pending ? "Kaydediliyor…" : "Aracımı seç"}</Button>
                 <p className="mt-[18px] mb-0 text-xs leading-5 text-muted-foreground">Parça uyumluluğunu OEM kodu ve araç özellikleriyle ayrıca kontrol et.</p>
               </div>}
             </>}
@@ -238,14 +236,14 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
               {savedOil.approvals.length > 0 && <><dt>Üretici onayı</dt><dd>{savedOil.approvals.join(", ")}</dd></>}
             </dl>}
           </div>}
-          <Button className={saveButton} type="button" onClick={onClose}>Bu araçla devam et <ChevronRight size={16} /></Button>
-          <Button className={secondaryButton} type="button" disabled={pending} onClick={() => { setTab("search"); go("brand"); }}>Başka araç seç</Button>
-          <Button className={cn(plain, "mx-auto mt-4 flex min-h-11 items-center justify-center gap-2 py-2 text-sm text-muted-foreground hover:text-[#c53333] disabled:bg-transparent")} type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</Button>
-        </> : garage && !others.length && <div className={emptyBox}><CarFront size={52} strokeWidth={1.3} /><p>Aracın her zaman elinin altında olsun.</p><small>Marka ve model seçerek aracını garajına ekle.</small><Button className={saveButton} type="button" onClick={() => { setTab("search"); go("brand"); }}>Araç seç <ChevronRight size={16} /></Button></div>}
+          <Button className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-4 w-full gap-2.5")} type="button" onClick={onClose}>Bu araçla devam et <ChevronRight size={16} /></Button>
+          <Button className={cn(storeButton({ intent: "outline", size: "lg" }), "mt-3 w-full")} type="button" disabled={pending} onClick={() => { setTab("search"); go("brand"); }}>Başka araç seç</Button>
+          <Button className={cn(storeButton({ intent: "ghost", size: "md" }), "mx-auto mt-4 text-muted-foreground hover:text-destructive")} type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</Button>
+        </> : garage && !others.length && <div className={emptyBox}><CarFront size={52} strokeWidth={1.3} /><p>Aracın her zaman elinin altında olsun.</p><small>Marka ve model seçerek aracını garajına ekle.</small><Button className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-4 w-full gap-2.5")} type="button" onClick={() => { setTab("search"); go("brand"); }}>Araç seç <ChevronRight size={16} /></Button></div>}
         {others.length > 0 && <div className="mt-6"><h4 className="mb-2 text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground">{vehicle ? "DİĞER KAYITLI ARAÇLAR" : "KAYITLI ARAÇLAR"}</h4>
           <ul className="m-0 list-none p-0">{others.map(entry => <li key={entry.key} className="flex items-center gap-2 border-b border-[#f1f3f5]">
-            <Button type="button" disabled={pending} onClick={() => switchTo(entry.key)} className={cn(plain, "flex min-h-11 flex-1 items-center justify-between gap-3 bg-white py-3 text-left text-sm leading-5 whitespace-normal text-foreground hover:bg-[#f1f7fb] hover:text-brand [&>svg]:shrink-0")}><span>{entry.makeLabel} {entry.modelLabel}<small className="block text-xs text-muted-foreground">{[entry.year, entry.engine, entry.fuel].filter(Boolean).join(" · ")}</small></span><ChevronRight size={14} aria-hidden="true" /></Button>
-            <Button type="button" variant="ghost" size="icon" disabled={pending} className="size-11 text-muted-foreground hover:text-[#c53333]" aria-label={`${entry.makeLabel} ${entry.modelLabel} aracını garajdan kaldır`} onClick={() => forget(entry.key)}><Trash2 size={15} /></Button>
+            <Button type="button" disabled={pending} onClick={() => switchTo(entry.key)} className={cn(storeButton({ intent: "ghost", size: "md" }), "flex-1 justify-between gap-3 px-0 text-left font-normal whitespace-normal [&>svg]:shrink-0")}><span>{entry.makeLabel} {entry.modelLabel}<small className="block text-xs text-muted-foreground">{[entry.year, entry.engine, entry.fuel].filter(Boolean).join(" · ")}</small></span><ChevronRight size={14} aria-hidden="true" /></Button>
+            <Button type="button" variant="ghost" size="icon" disabled={pending} className={cn(storeButton({ intent: "ghost", size: "icon" }), "text-muted-foreground hover:text-destructive")} aria-label={`${entry.makeLabel} ${entry.modelLabel} aracını garajdan kaldır`} onClick={() => forget(entry.key)}><Trash2 size={15} /></Button>
           </li>)}</ul></div>}
         {!vehicle && !others.length && !garage && <p className="text-xs text-muted-foreground" role="status">Kayıtlı araçlar yükleniyor…</p>}
         {garage && !garage.signedIn && <p className="mt-[18px] mb-0 text-xs leading-5 text-muted-foreground">Araçların bu tarayıcıda saklanır (en çok 5). B2B hesabınla giriş yaparsan hesabına kaydedilir ve her cihazda görünür.</p>}
@@ -254,7 +252,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
     </div>
     <div className="shrink-0 border-t border-border bg-white p-5 pb-[max(20px,env(safe-area-inset-bottom))]">
       <Button nativeButton={false} render={<Link href={catalogPath} onClick={onClose} />}
-        className="flex h-auto min-h-11 w-full items-center justify-center rounded-[5px] border border-input bg-white px-3 py-2.5 text-[13px] leading-5 font-medium text-foreground hover:border-[#54626e] hover:bg-[#f9fafb] hover:text-foreground">Araç seçmeden alışveriş yap</Button>
+        className={cn(storeButton({ intent: "outline", size: "md" }), "w-full")}>Araç seçmeden alışveriş yap</Button>
     </div>
   </Tabs>;
 }

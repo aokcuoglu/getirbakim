@@ -4,6 +4,8 @@ import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbP
 import { guideCategoryLabels, guidesPath, type Guide } from "@/content/guides";
 import { guideBodies } from "@/content/guides/bodies";
 import { categoryPath, catalogPath } from "@/modules/seo/paths";
+import { storeButton } from "@/components/store-button";
+import { cn } from "@/lib/utils";
 
 const date = new Intl.DateTimeFormat("tr-TR", { dateStyle: "long", timeZone: "UTC" });
 const prose = "text-[15px] leading-[1.9] text-muted-foreground [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-3 [&_h2]:mt-9 [&_h2]:mb-3 [&_h2]:text-[22px] [&_h2]:leading-8 [&_h2]:font-semibold [&_h2]:tracking-[-.4px] [&_h2]:text-foreground [&_li]:mb-1.5 [&_p]:mb-4 [&_table]:w-full [&_table]:min-w-[28rem] [&_table]:border-collapse [&_table]:text-left [&_table]:text-sm [&_td]:border [&_td]:border-border [&_td]:p-3 [&_th]:border [&_th]:border-border [&_th]:bg-[#f7f8fa] [&_th]:p-3 [&_th]:font-semibold [&_th]:text-foreground [&_ul]:mb-4 [&_ul]:list-disc [&_ul]:pl-6";
@@ -37,7 +39,7 @@ export function GuidePage({ guide }: { guide: Guide }) {
     {guide.related?.length ? <section aria-labelledby="ilgili-yazilar"><h2 id="ilgili-yazilar" className={h2}>İlgili sayfalar</h2>
       <ul className="list-disc pl-6 text-[15px] leading-[1.9]">{guide.related.map(link => <li key={link.path}><Link className="inline-block py-2 text-primary underline underline-offset-3" href={link.path}>{link.title}</Link></li>)}</ul>
     </section> : null}
-    <Button nativeButton={false} className="mt-10 h-auto min-h-12 gap-2.5 rounded-lg border-primary px-[27px] py-[13px] text-sm leading-5 font-medium hover:bg-brand-strong" render={<Link href={catalogPath}/>}>Kataloğa göz at →</Button>
+    <Button nativeButton={false} className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-10")} render={<Link href={catalogPath}/>}>Kataloğa göz at →</Button>
   </article>;
 }
 

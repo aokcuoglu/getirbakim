@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { catalogPath } from "@/modules/seo/paths";
+import { storeButton } from "@/components/store-button";
+import { cn } from "@/lib/utils";
 
 const field="gap-2";
 const label="text-sm leading-5 font-normal";
@@ -28,7 +30,7 @@ export default async function Login({searchParams}:{searchParams:Promise<SearchP
    {returnTo && <input type="hidden" name="next" value={returnTo}/>}
    <Field className={field}><FieldLabel htmlFor="login-email" className={label}>E-posta</FieldLabel><Input id="login-email" className={input} type="email" name="email" autoComplete="username" maxLength={200} required/></Field>
    <Field className={field}><FieldLabel htmlFor="login-password" className={label}>Şifre</FieldLabel><Input id="login-password" className={input} type="password" name="password" autoComplete="current-password" maxLength={72} required/></Field>
-   <Button type="submit" className="h-auto min-h-12 w-full rounded-lg px-[27px] py-[13px] text-sm leading-5 font-medium hover:bg-brand-strong">Giriş yap ↗</Button>
+   <Button type="submit" className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full")}>Giriş yap ↗</Button>
   </form>
   <p className="mt-4 text-[13px] leading-[1.8] [&_a]:text-primary [&_a]:underline"><Link href="/kvkk-aydinlatma-metni">KVKK Aydınlatma Metni</Link> · <Link href="/gizlilik-politikasi">Gizlilik Politikası</Link></p>
   <p className="mt-[25px] text-sm leading-[22px] text-muted-foreground">Hesaplar Getirbakim yönetimi tarafından servis onayından sonra açılır.</p>

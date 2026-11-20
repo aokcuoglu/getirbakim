@@ -5,7 +5,9 @@ import { cn } from "@/lib/utils";
  * Storefront button scale and colour roles (DESIGN.md "Buttons and controls", #1091). Use on ui/button as
  * `<Button className={cn(storeButton({intent,size}),extras)}>`: ui/button stays the registry's (admin uses it as is),
  * and the storefront look lives here instead of in per-file class lists. Every size is at least 44px tall; `compact`
- * drops to 40px only from md up, for pointer toolbars.
+ * drops to 40px only from md up, for pointer toolbars. The `extras` after the call are layout only (width, flex, margin,
+ * position, gap, px-0/px-2 on text links, text-left, whitespace-normal, justify-between, responsive hidden): never
+ * height, size, font size or brand colours, which belong to the size and intent here.
  */
 export const storeButtonSizes = {
   hero: "min-h-14 px-7 py-3.5 text-base leading-6",
@@ -21,7 +23,7 @@ export const storeButtonIntents = {
   outline: "border-control-border bg-white text-foreground hover:bg-muted hover:text-foreground",
   ghost: "border-transparent bg-transparent text-foreground hover:bg-muted hover:text-foreground",
   link: "border-transparent bg-transparent text-primary underline-offset-4 hover:bg-transparent hover:underline",
-  danger: "border-transparent bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive",
+  danger: "border-transparent bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive",
 } as const;
 
 const variants = cva(

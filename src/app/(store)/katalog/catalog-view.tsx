@@ -49,6 +49,7 @@ import {catalogItem} from "@/modules/analytics/events";
 import {legacyCategoryIds} from "@/modules/store/category-tree";
 import {manufacturerTexts,manufacturerTrail} from "@/modules/store/manufacturers";
 import {scopeCategoryCounts} from "@/modules/store/listing-categories.server";
+import { storeButton } from "@/components/store-button";
 const descriptions:Record<string,string>={
  "fren-diskleri-269":"Ön ve arka fren disklerini BOSCH, FEBI ve diğer üreticilerden seçeneklerle incele. Dolu veya havalandırmalı diskleri, ölçülerini ve montaj konumlarını karşılaştırarak aracına uygun parçayı bul. Bazı araçlarda sağ ve sol tarafta farklı diskler kullanılır; seçim yaparken OEM numarasını ve araç uyumluluğunu kontrol et. Aynı aks üzerindeki diskleri birlikte değiştir ve balataların durumunu da kontrol et.",
  "yedek-parca":"Aracının bakım ve onarımı için yedek parçaları tek yerde keşfet. Motor, fren, filtre ve diğer parça gruplarında ürünleri üreticiye göre incele; doğru parçayı bulmak için ürün kodu veya OEM numarasıyla ara. Sipariş vermeden önce parçanın araç modeli, motor tipi ve üretim yılıyla uyumluluğunu kontrol et.",
@@ -75,7 +76,7 @@ function CatalogFinder({compact,home,query,vehicle}:{compact:boolean;home:string
      className={cn("h-[54px] w-full min-w-0 border-0 bg-white px-2.5 py-3.5 text-sm text-ellipsis text-[#54626e] outline-none placeholder:text-ellipsis placeholder:text-[#637381]",compact&&"h-[46px]")}/>
    </label>
    <input type="hidden" name="searchBy" value="code"/>
-   <Button type="submit" aria-label="OEM ile ara" className={cn("size-14 rounded-md border-brand bg-brand text-white hover:bg-brand-strong",compact&&"size-12")}><Search className="size-5" aria-hidden="true"/></Button>
+   <Button type="submit" aria-label="OEM ile ara" className={cn(storeButton({intent:"primary",size:compact?"lg":"hero"}),"px-0",compact?"w-12":"w-14")}><Search className="size-5" aria-hidden="true"/></Button>
   </form>
   <span className={cn("relative mx-[25px] w-4 py-[18px] text-center text-xs font-medium whitespace-nowrap text-white/75 uppercase before:absolute before:top-0 before:left-1/2 before:h-[17px] before:w-px before:bg-[#e6e9ec33] after:absolute after:bottom-0 after:left-1/2 after:h-[17px] after:w-px after:bg-[#e6e9ec33] max-[850px]:mx-4 max-[600px]:hidden",!compact&&"min-[600px]:max-[768px]:hidden")}>veya</span>
   {/* GarageButton belongs to the site chrome; only its size in this slot is set here. */}
@@ -228,7 +229,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
       filters={<CatalogFilterSheet brands={facetData.brands} facets={facetData.attributes} chipFacets={chipFacets} params={params} count={result.total} vehicleName={vehicleName||undefined}/>}
       active={<CatalogActiveFilters items={chips} clearHref={listingHref(clearAllFilters)}/>} lead={lead||undefined}>
       {products.length ? products.map(card) :
-       <div className="col-span-full min-h-[300px] rounded-md border border-border px-6 py-16 text-center"><Search size={38} className="mx-auto mb-5 text-muted-foreground"/><h2 className="mb-3 text-[22px] leading-[30px] font-semibold">{params.fits ? "Bu listede aracına bağlı ürün bulunamadı." : params.oil ? "Aracının yağ önerisine uyan ürün bulunamadı." : filtered ? "Aramana uygun ürün bulunamadı." : "Bu kategoride şu an ürün bulunmuyor."}</h2><p className="mb-6 text-sm leading-[22px] text-muted-foreground">{params.fits ? "Tüm ürünlerde OEM numarasıyla arayabilir veya araç filtresini kaldırabilirsin." : params.oil ? "Yağ filtrelerinden birini kaldırarak benzer özellikteki yağları görebilirsin." : filtered ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Diğer kategorileri inceleyebilir veya aradığın parça için bize ulaşabilirsin."}</p><Button className="h-12 bg-brand px-[27px] hover:bg-brand-strong" nativeButton={false} render={<Link href={allProducts}/>}>Tüm ürünlere göz at</Button></div>}
+       <div className="col-span-full min-h-[300px] rounded-md border border-border px-6 py-16 text-center"><Search size={38} className="mx-auto mb-5 text-muted-foreground"/><h2 className="mb-3 text-[22px] leading-[30px] font-semibold">{params.fits ? "Bu listede aracına bağlı ürün bulunamadı." : params.oil ? "Aracının yağ önerisine uyan ürün bulunamadı." : filtered ? "Aramana uygun ürün bulunamadı." : "Bu kategoride şu an ürün bulunmuyor."}</h2><p className="mb-6 text-sm leading-[22px] text-muted-foreground">{params.fits ? "Tüm ürünlerde OEM numarasıyla arayabilir veya araç filtresini kaldırabilirsin." : params.oil ? "Yağ filtrelerinden birini kaldırarak benzer özellikteki yağları görebilirsin." : filtered ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Diğer kategorileri inceleyebilir veya aradığın parça için bize ulaşabilirsin."}</p><Button className={storeButton({intent:"primary",size:"lg"})} nativeButton={false} render={<Link href={allProducts}/>}>Tüm ürünlere göz at</Button></div>}
      </CatalogResults>
      </div>
     </div>

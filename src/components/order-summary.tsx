@@ -11,8 +11,8 @@ import { PAYMENT_NOTICE } from "@/modules/payments/messages";
 import { catalogPath } from "@/modules/seo/paths";
 import { shownProductName } from "@/modules/store/product-name";
 import { InstallmentAmount, InstallmentFeeRow } from "./checkout-installments";
+import { storeButton } from "@/components/store-button";
 
-const action = "h-auto min-h-11 w-full gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5";
 
 function SummaryLines({items,discount}:{items:CartItem[];discount:number}) {
   return <ul className="m-0 list-none p-0 pt-4 text-[13px]">{items.map(p=><li key={p.id} className="flex justify-between gap-5 border-b border-border py-2 leading-5"><span>{shownProductName(p)} {p.display_brand}</span><span className="shrink-0 max-[760px]:max-w-[45%] max-[760px]:shrink max-[760px]:text-right">{p.quantity} × {money(servicePrice(p.price_kurus??0,discount))}</span></li>)}</ul>;
@@ -47,9 +47,9 @@ export function OrderSummary({items,discount,shipping,checkout=false,className}:
     {checkout && <SummaryLines items={items} discount={discount}/>}
     <SummaryTotals totals={totals} discount={discount} checkout={checkout}/>
     {!checkout && <div className="grid gap-4">
-      {valid ? <Button nativeButton={false} className={cn(action, "font-semibold hover:bg-brand-strong max-[760px]:hidden")} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]" aria-hidden/>Siparişi tamamla</Button>
+      {valid ? <Button nativeButton={false} className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full gap-2.5 max-[760px]:hidden")} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]" aria-hidden/>Siparişi tamamla</Button>
         : <p id="cart-invalid" className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]">Siparişe devam etmek için uygun olmayan ürünleri kaldır veya adetlerini güncelle.</p>}
-      <Button variant="outline" nativeButton={false} className={cn(action, "border-control-border bg-white font-medium text-foreground hover:bg-muted max-[760px]:hidden")} render={<Link href={catalogPath}/>}>Alışverişe devam et</Button>
+      <Button variant="outline" nativeButton={false} className={cn(storeButton({ intent: "outline", size: "lg" }), "w-full gap-2.5 max-[760px]:hidden")} render={<Link href={catalogPath}/>}>Alışverişe devam et</Button>
     </div>}
     <p className="mt-3.5 mb-0 text-center text-xs text-muted-foreground">{PAYMENT_NOTICE}</p>
   </aside>;

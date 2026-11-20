@@ -138,7 +138,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
       {payNow && order.installment_count>1 && <Alert role="note" className={noticeBox}>Siparişin {order.installment_count} taksitli (vade farkı dahil) toplamla oluşturuldu. {installmentHint(order.installment_count)}.</Alert>}
       {payNow && <PayButton orderId={order.id} total={total} installments={order.installment_count}/>}
       {payNow && <p className={panelMuted}>{PAYMENT_NOTICE}{order.payment_due_at && <><br/>Son ödeme zamanı: <time dateTime={new Date(order.payment_due_at).toISOString()}>{time(order.payment_due_at)}</time></>}</p>}
-      {trackUrl && <Button nativeButton={false} className="h-auto min-h-12 w-full gap-2.5 rounded-lg px-5 py-3 text-sm leading-5 font-medium hover:bg-brand-strong" render={<a href={order.tracking_url ?? undefined} target="_blank" rel="noopener noreferrer"/>}>Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span></Button>}
+      {trackUrl && <Button nativeButton={false} className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full")} render={<a href={order.tracking_url ?? undefined} target="_blank" rel="noopener noreferrer"/>}>Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span></Button>}
       {cancelAction && <div className="flex flex-wrap items-center gap-x-3 border-t border-border pt-3">{pendingCancel && <p className={cn(muted,"m-0")}>Teyitten önce siparişini iptal edebilirsin.</p>}{cancelAction}</div>}
     </Card>
     {order.payment_status==="awaiting" && <PaymentWatcher orderId={order.id} state={`${order.status}:${order.payment_status}`}/>}
@@ -182,6 +182,6 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
         {agreement && <Card className={cn(panel,"min-w-0 gap-1 ring-0 max-[600px]:order-5")}><h2 className={panelTitle}>Sözleşmeler</h2><p className={panelText}>Ön bilgilendirme formunu ve mesafeli satış sözleşmesini {time(agreement.accepted_at)} tarihinde onayladın.</p><Link href={`/siparis/${order.id}/sozlesme`} className="mt-1 inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 font-medium text-primary hover:underline">Sözleşme kopyasını görüntüle<span aria-hidden>→</span></Link></Card>}
       </div>
     </div>
-    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 max-[600px]:flex-col-reverse max-[600px]:items-stretch">{mine && <Link href="/siparisler" className="inline-flex min-h-11 items-center text-sm leading-5 font-medium text-primary hover:underline">← Siparişlerime dön</Link>}<Button variant="outline" nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-lg border-control-border bg-white px-5 py-3 text-sm leading-5 font-medium text-foreground hover:bg-muted" render={<Link href={catalogPath}/>}>Alışverişe devam et</Button></div>
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 max-[600px]:flex-col-reverse max-[600px]:items-stretch">{mine && <Link href="/siparisler" className="inline-flex min-h-11 items-center text-sm leading-5 font-medium text-primary hover:underline">← Siparişlerime dön</Link>}<Button variant="outline" nativeButton={false} className={storeButton({ intent: "outline", size: "lg" })} render={<Link href={catalogPath}/>}>Alışverişe devam et</Button></div>
   </section>;
 }

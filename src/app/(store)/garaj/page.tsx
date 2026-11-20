@@ -41,11 +41,11 @@ export default async function Garage({searchParams}:{searchParams:Promise<Search
      <datalist id="vehicle-makes">{vehicleMakes.map(m=><option key={m} value={m}/>)}</datalist>
      <Field className="gap-2"><FieldLabel htmlFor="garage-model" className={label}>Model</FieldLabel><Input id="garage-model" className={input} name="model" defaultValue={shown?.modelLabel} placeholder="Örn. Golf 1.6 TDI" maxLength={60} required/></Field>
      <Field className="gap-2"><FieldLabel htmlFor="garage-year" className={label}>Model yılı</FieldLabel><Input id="garage-year" className={input} name="year" type="number" min={1950} max={new Date().getFullYear()+1} defaultValue={vehicle?.year} placeholder="Örn. 2018" required/></Field>
-     <Button type="submit" className="h-auto min-h-12 w-full gap-2.5 rounded-lg px-[27px] py-[13px] text-sm leading-5 font-medium hover:bg-brand-strong">Aracımı kaydet <ChevronRight className="size-4" aria-hidden/></Button>
+     <Button type="submit" className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full gap-2.5")}>Aracımı kaydet <ChevronRight className="size-4" aria-hidden/></Button>
     </form>
-    {vehicle && <form action={removeVehicle}><Button type="submit" variant="link" className="mt-3 h-auto min-h-0 border-0 bg-transparent px-0 py-[5px] text-sm leading-5 font-normal text-primary hover:bg-transparent hover:text-brand-strong hover:no-underline">Aracı garajımdan kaldır</Button></form>}
+    {vehicle && <form action={removeVehicle}><Button type="submit" variant="link" className={cn(storeButton({ intent: "link", size: "md" }), "mt-1 px-0")}>Aracı garajımdan kaldır</Button></form>}
     {others.length>0 && <><h2 className="mt-6 mb-2 text-lg leading-7 font-semibold">Diğer kayıtlı araçlar</h2><ul className="grid divide-y divide-border">{others.map(entry=><li key={entry.key} className="flex items-center gap-3 py-2.5 text-sm leading-5"><span className="min-w-0 flex-1 wrap-anywhere">{garageVehicleLabel(entry)}</span>
-     <form action={switchVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="link" className="h-auto min-h-0 px-0 text-sm font-normal text-primary">Bu aracı seç</Button></form>
+     <form action={switchVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="link" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")}>Bu aracı seç</Button></form>
      <form action={removeVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="ghost" size="icon" className={cn(storeButton({intent:"ghost",size:"icon"}),"text-muted-foreground hover:text-destructive")} aria-label={`${shownVehicle(entry).makeLabel} ${shownVehicle(entry).modelLabel} aracını kaldır`}><Trash2 className="size-[15px]"/></Button></form></li>)}</ul></>}
    </Card>
   </div>
