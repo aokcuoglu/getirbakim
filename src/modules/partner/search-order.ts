@@ -15,10 +15,11 @@ export function exactMatches<T extends Pick<PartnerCatalogRow, "code" | "display
 /**
  * The fitment level of a listed product from the ids linked to the vehicle type and to its model. `memberIds` are the
  * product's own id and its grouped supplier offers' ids (product_offers): a fit of any offer is the product's.
+ * `removed`: the admin removed the type from the product (#583), which the storefront shows as a mismatch: never likely.
  */
-export function fitmentLevelOf(memberIds: string[], typeFitted: ReadonlySet<string>, modelFitted: ReadonlySet<string>): PartnerFitmentLevel {
+export function fitmentLevelOf(memberIds: string[], typeFitted: ReadonlySet<string>, modelFitted: ReadonlySet<string>, removed = false): PartnerFitmentLevel {
   if (memberIds.some(id => typeFitted.has(id))) return "guaranteed";
-  if (memberIds.some(id => modelFitted.has(id))) return "likely";
+  if (!removed && memberIds.some(id => modelFitted.has(id))) return "likely";
   return "unknown";
 }
 

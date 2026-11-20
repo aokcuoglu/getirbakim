@@ -5,7 +5,7 @@ import { partnerDiscountEnv, resolvePartnerDiscountBps } from "@/modules/partner
 import { createRateLimiter } from "@/modules/partner/rate-limit";
 
 const maxVehicleTypeId = 2_147_483_647;
-// 120 a minute per address, 600 per partner (see partnerGuard).
+// 600 a minute per partner; 120 failed key checks a minute per address (see partnerGuard).
 const limiters = { address: createRateLimiter(120, 60_000), partner: createRateLimiter(600, 60_000) };
 
 function parseVehicleTypeId(raw: string | null): number | null | undefined {

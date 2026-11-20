@@ -11,7 +11,8 @@ let partner: typeof import("../src/modules/partner/catalog");
 let catalog: typeof import("../src/modules/store/catalog");
 let closeDb: () => Promise<void>;
 const ids: string[] = [];
-const [basbug] = storefrontCompanies();
+const [basbug, , dinamik] = storefrontCompanies();
+const groupIds: Record<string, string> = {};
 const vehicleTypeId = 100;
 
 before(async () => {
@@ -24,7 +25,20 @@ before(async () => {
     [basbug, `TEX ${1000 + index}`, { uk: "TEXTAR", ac: "TEXTAR FREN BALATASI ON", ac2: "", dc: "TL" }]);
     ids.push(rows[0].id);
   }
+  // One brake disc sold by Başbuğ and, cheaper, by Dinamik (one listing, two offers); another the admin hid.
+  for (const [key, supplier, code, cost] of [["basbug", "basbug", "TEX 92000", 100], ["dinamik", "dinamik", "TEXTAR 92000", 60],
+    ["hidden", "basbug", "TEX 93000", 10]] as const) {
+    const name = "TEXTAR FREN DISKI";
+    const { rows } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+      VALUES($1,$2,'G',$3,$4,$5,$6,'{"stok":2}',1,1,1,false,'present',now()-interval '10 days',now()-interval '1 hour',now()-interval '1 hour') RETURNING id::text`,
+    [supplier, supplier === "basbug" ? basbug : dinamik, supplier === "basbug" ? "MRK" : "ALL", code,
+      { uk: "TEXTAR", ac: name, ac2: "", dc: "TL", ...(supplier === "dinamik" ? { marka: "TEXTAR", stokAdi: name } : {}) }, { nf: cost }]);
+    groupIds[key] = rows[0].id;
+  }
   await schema.pool.query("SELECT refresh_product_matches()");
+  await schema.pool.query("INSERT INTO product_overrides(product_id,hidden) SELECT product_id,true FROM product_sources WHERE supplier_item_id=$1", [groupIds.hidden]);
+  await schema.pool.query("SELECT product_overrides_project(ARRAY(SELECT product_id FROM product_sources WHERE supplier_item_id=$1))", [groupIds.hidden]);
   await schema.pool.query(`INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VOLKSWAGEN');
     INSERT INTO vehicle_models(id,brand_id,name) VALUES(10,1,'GOLF VII'),(11,1,'PASSAT');
     INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,year_of_constr_to,search_text) VALUES
@@ -72,6 +86,16 @@ test("with a vehicle: the engine type's fits first, then the model's, then the r
   assert.deepEqual(products[0].exactFitment.matchedVehicleTypeIds, [vehicleTypeId]);
   assert.deepEqual(products.slice(3).map(item => item.id), ranked.slice(0, 28).filter(id => id !== ranked[25]));
   assert.ok(products.slice(3).every(item => item.fitmentLevel === "unknown"));
+  // The admin removed the type from a product that fits another type of the model: a storefront mismatch, so not
+  // likely and not put first.
+  await schema.pool.query("INSERT INTO storefront_model_fits(model_id,supplier_item_id) VALUES(10,$1)", [ranked[33]]);
+  await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,$2,'remove')", [await product(ranked[33]), vehicleTypeId]);
+  const removed = await search("textar balata", { vehicleTypeId, limit: 29 });
+  assert.deepEqual(removed.products.slice(0, 3).map(item => item.id), [ranked[35], ranked[25], ranked[30]]);
+  assert.ok(!removed.products.slice(0, 3).some(item => item.id === ranked[33]));
+  const all = await search("textar balata", { vehicleTypeId: 101 });
+  // Type 101 (same model, not removed) still counts it as likely.
+  assert.equal(all.products.find(item => item.id === ranked[33])?.fitmentLevel, "likely");
   // Another model's vehicle: nothing fits, the search's order stays.
   const other = await search("textar balata", { vehicleTypeId: 110 });
   assert.deepEqual(other.products.map(item => item.id), ranked.slice(0, 30));
@@ -84,4 +108,21 @@ test("an identical request within the window is answered from memory; another li
   const other = await search("tex balata", { limit: 11 });
   assert.notEqual(other.products, first.products);
   assert.deepEqual(other.products.slice(0, 10).map(item => item.id), first.products.map(item => item.id));
+});
+
+test("a product sold by two suppliers is one result with both offers, priced by the cheaper; a hidden product is not listed", async () => {
+  const offers = (await schema.pool.query<{ item_id: string; primary_id: string }>("SELECT item_id::text,primary_id::text FROM product_offers WHERE primary_id=$1", [groupIds.basbug])).rows;
+  assert.deepEqual(offers.map(row => row.item_id).sort(), [groupIds.basbug, groupIds.dinamik].sort());
+  const { products } = await search("textar fren diski");
+  assert.deepEqual(products.map(item => item.id), [groupIds.basbug]);
+  const [disc] = products;
+  assert.deepEqual(disc.offers.map(offer => offer.supplierDisplayName), ["Başbuğ", "Dinamik"]);
+  const [basbugOffer, dinamikOffer] = disc.offers.map(offer => offer.informationalPriceKurus!);
+  assert.ok(dinamikOffer < basbugOffer, "Dinamik is cheaper");
+  assert.deepEqual([disc.listPriceKurus, disc.b2bPriceKurus], [dinamikOffer, dinamikOffer]);
+  assert.equal(disc.partNo, "TEX 92000");
+  // The hidden disc is a real match the storefront drops: found by its own number only while not hidden.
+  assert.equal((await schema.pool.query("SELECT hidden FROM commerce_item_overrides WHERE supplier_item_id=$1", [groupIds.hidden])).rows[0]?.hidden, true);
+  assert.equal((await search("", { partNo: "TEX 93000" })).products.length, 0);
+  assert.equal((await search("", { partNo: "TEX 92000" })).products.length, 1);
 });

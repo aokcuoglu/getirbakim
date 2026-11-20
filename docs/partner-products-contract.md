@@ -74,11 +74,20 @@ returns up to 30 parts. A match ranked below 200 is not returned.
 | --- | --- | --- |
 | `guaranteed` | `CONFIRMED` | Linked to this engine type (the store's "Araç tipine bağlı"). |
 | `likely` | `NOT_CONFIRMED` | Fits the type's model, the engine type is not verified: an engine-level fit of another type of the same model, or a model read from the supplier's description (the store's "Model eşleşiyor, motor tipi doğrulanmadı"). |
-| `unknown` | `NOT_CONFIRMED` | Neither. Not a statement that the part does not fit. |
+| `unknown` | `NOT_CONFIRMED` | Neither, or the admin removed this engine type from the product. Not a statement that the part does not fit. |
 
-A product fits when any of its grouped supplier offers fits. The admin's
-fitment decisions apply as on the storefront. The endpoint never reports a
-mismatch.
+A product fits when any of its grouped supplier offers fits. The levels follow
+the storefront's fitment levels with these rules:
+
+- An engine type the admin added counts as `guaranteed`; one the admin removed
+  is never `guaranteed` or `likely` (the store shows a mismatch there; this
+  endpoint never reports a mismatch and answers `unknown`).
+- A model read from the supplier's description counts only as the store uses
+  it: when the admin has not decided the product's vehicles and the offer has
+  no trusted enrichment naming vehicles or vehicle models.
+- One known difference: when the admin hid every enrichment vehicle and
+  model of a product, the store falls back to the description models; this
+  endpoint does not, and reports `unknown` there.
 
 Order: `guaranteed` parts first, then `likely`, then the rest; inside each
 group the search's ranking is kept. Nothing is filtered out: a part that does
@@ -90,16 +99,22 @@ not fit the vehicle is still returned after the fitting ones.
   minutes (stale-while-revalidate, like the storefront search) and reloaded at
   once when an admin edit changes the listings. Prices and availability are
   not part of it.
-- A whole answer is kept for 30 seconds per identical request (`source`, text
-  ignoring case, `limit`, `vehicleTypeId`, discount). It is never served after
+- A whole answer is kept for 30 seconds per identical request (`source`, the
+  text as the search reads it: case-folded and Turkish letters folded, with the
+  typed words, `limit`, `vehicleTypeId`, discount), at most 100 answers per
+  task. It is never served after
   30 seconds; a type-ahead repeating a request within that window gets the
   same answer without a new search or price read. Nothing partner-specific is
   in the answer: the discount is one setting for every partner.
 
 ## Limits and errors
 
-- 120 requests a minute per client address and 600 per partner key, counted
-  per application task; over it `429 RATE_LIMITED` with `Retry-After`.
+- A request with a valid key is limited per partner key only: 600 requests a
+  minute, whatever address it comes from (a partner's server carries all of its
+  workshops). Requests with a missing or wrong key count per client address:
+  120 a minute; an address over it is refused before its key is checked.
+  Counted per application task; over a limit `429 RATE_LIMITED` with
+  `Retry-After`.
 - `401 UNAUTHORIZED` without a valid key, `400 VALIDATION_ERROR` for an
   invalid `vehicleTypeId`, `500 INTERNAL_ERROR` when the search fails.
 - Error body: `{ "error": { "code", "message" } }`.

@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
 import { ttlCache } from "@/lib/ttl-cache";
+import { normalizeSearchText } from "@/modules/search/query";
 import { catalogRowsByIds, rankedSearchIds, typeFittedIds, withBestOffer, type CatalogProduct } from "@/modules/store/catalog";
 import { getCatalogProductImages } from "@/modules/store/product-enrichment";
 import { toPartnerProduct, type PartnerCatalogRow, type PartnerFitmentLevel, type PartnerProduct } from "./dto";
@@ -26,7 +27,7 @@ export type PartnerSearch = { q?: string | null; oem?: string | null; partNo?: s
 export type PartnerSearchSource = "part_no" | "oem" | "search";
 
 // Nothing partner-specific goes in: the discount is one setting for every partner, and it is part of the key.
-const cachedResponses = ttlCache<PartnerProduct[]>(partnerResponseTtlMs, 500);
+const cachedResponses = ttlCache<PartnerProduct[]>(partnerResponseTtlMs, 100);
 
 /**
  * Partner search over the storefront catalog: the same search engine, ranking, visibility and prices the shop uses, so
@@ -39,7 +40,8 @@ export async function searchPartnerProducts(input: PartnerSearch): Promise<{ pro
   const source: PartnerSearchSource = partNo ? "part_no" : oem ? "oem" : "search";
   const text = (partNo || oem || q).slice(0, 120);
   if (text.length < partnerMinQueryLength) return { products: [], source };
-  const key = JSON.stringify([source, text.toLocaleLowerCase("tr"), input.limit, input.vehicleTypeId, input.discountBps]);
+  // The search's own cache key (rankedSearchIds): the folded text, and the typed words, which its vehicle reading uses.
+  const key = JSON.stringify([source, normalizeSearchText(text), text.toLocaleLowerCase("tr"), input.limit, input.vehicleTypeId, input.discountBps]);
   const products = await cachedResponses(key, () => loadPartnerProducts(text, source, { ...input, partNo, oem }));
   return { products, source };
 }
@@ -64,20 +66,35 @@ async function offerMembers(ids: string[]) {
 }
 
 /**
- * The fitment level of every listed id for one vehicle type: its engine-type links (typeFittedIds, cached, the
- * storefront's fit badge) and the fits of the type's model that the model pages list (storefront_model_fits and
- * storefront_description_fits), read by key for these rows only.
+ * The fitment level of every listed id for one vehicle type, the storefront's fitmentLevel (fitment-level.ts) read as
+ * id sets so 200 candidates cost three indexed reads instead of their enrichment payloads:
+ * - guaranteed: linked to the type (typeFittedIds, cached; an admin's added types in, removed ones out);
+ * - not likely when the admin removed the type from the listed product: the storefront calls that a mismatch, which
+ *   this endpoint reports as unknown;
+ * - likely: an engine-level fit of another type of the model (storefront_model_fits), or a model read from the
+ *   supplier's description (storefront_description_fits: none once the admin decided the product's vehicles) when the
+ *   offer has no trusted enrichment naming vehicles or models, the case where the storefront falls back to it
+ *   (modelFallbacks). Unlike the storefront, enrichment rows the admin hid all (#661) do not bring the description back.
  */
 async function fitmentLevels(members: Map<string, string[]>, vehicleTypeId: number) {
   const itemIds = [...members.values()].flat();
-  const [typeFitted, modelFitted] = await Promise.all([
+  const [typeFitted, modelFits] = await Promise.all([
     typeFittedIds(vehicleTypeId).then(fitted => new Set(fitted)),
-    db.query<{ id: string }>(`WITH model AS (SELECT model_id FROM vehicle_types WHERE id=$1)
-      SELECT f.supplier_item_id::text AS id FROM storefront_model_fits f JOIN model ON f.model_id=model.model_id WHERE f.supplier_item_id=ANY($2::uuid[])
-      UNION SELECT f.supplier_item_id::text FROM storefront_description_fits f JOIN model ON f.model_id=model.model_id WHERE f.supplier_item_id=ANY($2::uuid[])`,
-    [vehicleTypeId, itemIds]).then(result => new Set(result.rows.map(row => row.id))),
+    db.query<{ id: string; kind: "model" | "removed" }>(`WITH model AS (SELECT model_id FROM vehicle_types WHERE id=$1)
+      SELECT f.supplier_item_id::text AS id,'model' AS kind FROM storefront_model_fits f JOIN model ON f.model_id=model.model_id WHERE f.supplier_item_id=ANY($2::uuid[])
+      UNION SELECT f.supplier_item_id::text,'model' FROM storefront_description_fits f JOIN model ON f.model_id=model.model_id WHERE f.supplier_item_id=ANY($2::uuid[])
+       AND NOT EXISTS (SELECT 1 FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code
+        AND s.product_data->>'uk'=e.supplier_brand AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
+        WHERE e.supplier_item_id=f.supplier_item_id
+         AND (COALESCE(e.payload->'vehicles','[]'::jsonb)<>'[]'::jsonb OR COALESCE(e.payload->'vehicleModels','[]'::jsonb)<>'[]'::jsonb))
+      UNION SELECT ps.supplier_item_id::text,'removed' FROM product_override_fitments o JOIN product_sources ps ON ps.product_id=o.product_id
+       WHERE o.vehicle_type_id=$1 AND o.mode='remove' AND ps.supplier_item_id=ANY($3::uuid[])`,
+    [vehicleTypeId, itemIds, [...members.keys()]]).then(result => result.rows),
   ]);
-  return new Map<string, PartnerFitmentLevel>([...members].map(([id, memberIds]) => [id, fitmentLevelOf(memberIds, typeFitted, modelFitted)]));
+  const modelFitted = new Set(modelFits.filter(row => row.kind === "model").map(row => row.id));
+  const removed = new Set(modelFits.filter(row => row.kind === "removed").map(row => row.id));
+  return new Map<string, PartnerFitmentLevel>([...members].map(([id, memberIds]) =>
+    [id, fitmentLevelOf(memberIds, typeFitted, modelFitted, removed.has(id))]));
 }
 
 async function toPartnerProducts(rows: CatalogProduct[], candidates: CatalogProduct[], members: Map<string, string[]>, input: PartnerSearch,

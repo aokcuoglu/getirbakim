@@ -145,6 +145,8 @@ test("partner fitment level: likely is reported but stays NOT_CONFIRMED; no vehi
   assert.equal(fitmentLevelOf(["a", "offer-b"], typeFitted, modelFitted), "guaranteed");
   assert.equal(fitmentLevelOf(["c"], typeFitted, modelFitted), "likely");
   assert.equal(fitmentLevelOf(["d", "offer-d"], typeFitted, modelFitted), "unknown");
+  // A type the admin removed from the product is a storefront mismatch: never likely, reported unknown.
+  assert.equal(fitmentLevelOf(["c"], typeFitted, modelFitted, true), "unknown");
 });
 
 // The search's ranked candidates (rankedSearchDepth = 200): supplier rows `r0`…, every 10th a hand-entered store product.
@@ -231,6 +233,10 @@ test("rate limiter: fixed window per key", () => {
   assert.deepEqual(limit("a"), { allowed: false, retryAfterSeconds: 1 });
   now = 1000;
   assert.equal(limit("a").allowed, true);
+  // peek answers without counting.
+  assert.deepEqual([limit.peek("a"), limit.peek("a"), limit.peek("c")].map(result => result.allowed), [true, true, true]);
+  limit("a");
+  assert.equal(limit.peek("a").allowed, false);
 });
 
 test("partner catalog reads only saleable rows, never the storefront's unavailable products (#475)", async () => {
@@ -377,30 +383,38 @@ test("partner order DTO: the cancel request after confirmation is pending, appro
     { status: "REJECTED", requestedAt: "2026-11-19T08:00:00.000Z", decidedAt: "2026-11-19T09:00:00.000Z" });
 });
 
-test("partner guard: limits by the edge's address (not X-Real-IP), then by partner code", async () => {
+test("partner guard: a valid key is limited per partner only; failed key checks per edge address (not X-Real-IP) (#1093)", async () => {
   const { NextRequest } = await import("next/server");
   const { partnerGuard } = await import("../src/modules/partner/guard");
   const originalKeys = process.env.PARTNER_API_KEYS;
   process.env.PARTNER_API_KEYS = `bakimx:${key},other:${key}y`;
   try {
     const request = (headers: Record<string, string>) => new NextRequest("https://getirbakim.com/api/partner/v1/orders", { headers });
-    const seen: string[] = [];
-    const address = (value: string) => { seen.push(value); return { allowed: true as const }; };
-    const unlimited = () => ({ allowed: true as const });
+    const unlimited = Object.assign(() => ({ allowed: true as const }), { peek: () => ({ allowed: true as const }) });
+    const status = (result: ReturnType<typeof partnerGuard>) => "response" in result ? result.response.status : result.partner.code;
     // A client-chosen X-Real-IP and the first X-Forwarded-For hop are ignored; CloudFront's viewer address wins.
-    partnerGuard(request({ "x-real-ip": "203.0.113.9", "x-forwarded-for": "198.51.100.1, 10.0.0.7", authorization: `Bearer ${key}` }), { address, partner: unlimited });
-    partnerGuard(request({ "x-real-ip": "203.0.113.9", "cloudfront-viewer-address": "198.51.100.20:46532", authorization: `Bearer ${key}` }), { address, partner: unlimited });
+    const seen: string[] = [];
+    const address = Object.assign((value: string) => { seen.push(value); return { allowed: true as const }; }, { peek: () => ({ allowed: true as const }) });
+    partnerGuard(request({ "x-real-ip": "203.0.113.9", "x-forwarded-for": "198.51.100.1, 10.0.0.7", authorization: "Bearer wrong-key-wrong-key" }), { address, partner: unlimited });
+    partnerGuard(request({ "x-real-ip": "203.0.113.9", "cloudfront-viewer-address": "198.51.100.20:46532" }), { address, partner: unlimited });
+    // A valid key does not count against its address.
+    partnerGuard(request({ "x-forwarded-for": "10.0.0.7", authorization: `Bearer ${key}` }), { address, partner: unlimited });
     assert.deepEqual(seen, ["10.0.0.7", "198.51.100.20"]);
-    // A wrong key is 401; after a matching key the partner's own budget applies whatever address it calls from.
-    const denied = partnerGuard(request({ authorization: "Bearer wrong-key-wrong-key" }), { address: unlimited, partner: unlimited });
-    assert.ok("response" in denied && denied.response.status === 401);
-    const limit = createRateLimiter(1, 60_000);
-    const first = partnerGuard(request({ "x-forwarded-for": "10.0.0.1", authorization: `Bearer ${key}` }), { address: unlimited, partner: limit });
-    const second = partnerGuard(request({ "x-forwarded-for": "10.0.0.2", authorization: `Bearer ${key}` }), { address: unlimited, partner: limit });
-    const otherPartner = partnerGuard(request({ "x-forwarded-for": "10.0.0.2", authorization: `Bearer ${key}y` }), { address: unlimited, partner: limit });
-    assert.deepEqual("partner" in first && first.partner, { code: "bakimx" });
-    assert.ok("response" in second && second.response.status === 429 && second.response.headers.get("retry-after") === "60");
-    assert.deepEqual("partner" in otherPartner && otherPartner.partner, { code: "other" });
+    // One server address carries all of a partner's workshops: far past the address budget, only the partner's applies.
+    const perAddress = createRateLimiter(2, 60_000), perPartner = createRateLimiter(5, 60_000);
+    const limiters = { address: perAddress, partner: perPartner };
+    const valid = Array.from({ length: 5 }, () => status(partnerGuard(request({ "x-forwarded-for": "10.0.0.1", authorization: `Bearer ${key}` }), limiters)));
+    assert.deepEqual(valid, Array(5).fill("bakimx"));
+    const over = partnerGuard(request({ "x-forwarded-for": "10.0.0.9", authorization: `Bearer ${key}` }), limiters);
+    assert.ok("response" in over && over.response.status === 429 && over.response.headers.get("retry-after") === "60");
+    assert.equal(status(partnerGuard(request({ "x-forwarded-for": "10.0.0.1", authorization: `Bearer ${key}y` }), limiters)), "other");
+    // Missing or wrong keys count per address: 401 within the budget, then 429 before any key is checked, even a right one.
+    const guessing = [`Bearer ${key}x`, "", `Bearer ${key}z`].map(authorization =>
+      status(partnerGuard(request({ "x-forwarded-for": "10.0.0.2", ...authorization ? { authorization } : {} }), limiters)));
+    assert.deepEqual(guessing, [401, 401, 429]);
+    assert.equal(status(partnerGuard(request({ "x-forwarded-for": "10.0.0.2", authorization: `Bearer ${key}y` }), limiters)), 429);
+    // The partner's own address is unaffected by another address guessing.
+    assert.equal(status(partnerGuard(request({ "x-forwarded-for": "10.0.0.1", authorization: `Bearer ${key}y` }), limiters)), "other");
   } finally {
     if (originalKeys === undefined) delete process.env.PARTNER_API_KEYS; else process.env.PARTNER_API_KEYS = originalKeys;
   }
