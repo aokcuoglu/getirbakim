@@ -37,5 +37,5 @@ try {
 }
 if (/no violations/.test(out)) process.exit(0)
 
-const context = `getirbakim admin-ui-lint for ${rel} (AGENTS.md → Yönetim paneli UI kuralı; fix errors before moving on, judge warnings):\n\n${out.trim()}`
+const context = `getirbakim admin-ui-lint for ${rel} (AGENTS.md → Admin panel UI rule; fix errors before moving on, judge warnings):\n\n${out.trim()}`
 process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: context } }))

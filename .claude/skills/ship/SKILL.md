@@ -4,58 +4,58 @@ description: Orchestrate one getirbakim development end to end — issue → wor
 argument-hint: <issue number | short description>
 ---
 
-Bir getirbakim geliştirmesinin **orkestratörüsün**. `getirbakim-*` ajanlarını koordine edersin; ürün kodunu kendin yazmazsın (küçük yapıştırıcı işler serbest). Akış `docs/development-workflow.md`, kurallar `AGENTS.md`, altyapı `docs/harness/README.md`. Kullanıcıya her aşama değişiminde Türkçe tek satır bilgi ver.
+You are the **orchestrator** of one getirbakim development. You coordinate the `getirbakim-*` agents; you do not write product code yourself (small glue work is fine). Rules are in `AGENTS.md` and the agent files; do not re-read `docs/development-workflow.md` or `docs/harness/README.md` unless a step below is unclear. Give the user a one-line Turkish update at every stage change.
 
-Argüman: `$ARGUMENTS` — Issue numarası ya da açıklama (o zaman önce `/issue` kurallarıyla Issue aç).
+Argument: `$ARGUMENTS` — Issue number or description (then first open an Issue under `/issue` rules).
 
-## 0. Ön koşullar
-- Ana checkout `/Users/void/www/getirbakim` (dal `dev`); başka oturumların commit edilmemiş işine dokunma. `git fetch origin`.
-- `gh issue view <N>`; `<tür>` (feat|fix|perf|refactor|docs|chore|ci|test), `<alan>`, `<konu>` (kebab, ≤5 kelime) çıkar.
-- `git worktree list` + `gh pr list`: aynı Issue için dal/worktree/PR zaten varsa onu kullan, yenisini açma.
+## 0. Preconditions
+- Main checkout `/Users/void/www/getirbakim` (branch `dev`); do not touch other sessions' uncommitted work. `git fetch origin`.
+- `gh issue view <N>`; derive `<type>` (feat|fix|perf|refactor|docs|chore|ci|test), `<area>`, `<slug>` (kebab, ≤5 words).
+- `git worktree list` + `gh pr list`: if a branch/worktree/PR already exists for the Issue, use it; do not open a new one.
 
 ## 1. Worktree
 ```
-git worktree add ../getirbakim-<N> -b <tür>/<N>-<konu> origin/dev
+git worktree add ../getirbakim-<N> -b <type>/<N>-<slug> origin/dev
 ln -s /Users/void/www/getirbakim/.env.local ../getirbakim-<N>/.env.local
-ln -s /Users/void/www/getirbakim/node_modules ../getirbakim-<N>/node_modules   # lint/tsc/test için yeterli; tarayıcı QA'sı gerçek npm ci yapar
+ln -s /Users/void/www/getirbakim/node_modules ../getirbakim-<N>/node_modules   # enough for lint/tsc/test; browser QA does a real npm ci
 ```
-Herdr içindeysen (`HERDR_ENV=1`) aynı işi `herdr worktree create --branch <tür>/<N>-<konu> --base origin/dev --path ../getirbakim-<N>` ile yap (kenar çubuğu ağacı için). `WT=/Users/void/www/getirbakim-<N>`; her ajana bu yolu ver. `package.json` bağımlılığı değişecekse symlink yerine worktree'de `npm ci`.
+Inside Herdr (`HERDR_ENV=1`) do the same with `herdr worktree create --branch <type>/<N>-<slug> --base origin/dev --path ../getirbakim-<N>` (for the sidebar tree). `WT=/Users/void/www/getirbakim-<N>`; give this path to every agent. If `package.json` dependencies change, run `npm ci` in the worktree instead of the symlink.
 
 ## 2. Plan
-`getirbakim-planner`'ı Issue no + `WT` ile çağır (tek dosyalık küçük düzeltmede atla). Plan geliştiricinin brief'i ve QA rota listesidir. Plan "çok büyük" diyorsa takip Issue'larını şimdi aç, ilk dilimle devam et.
+Call `getirbakim-planner` with the Issue no + `WT` (skip for a small one-file fix). The plan is the developer's brief and the QA route list. If the plan says "too big", open the follow-up Issues now and continue with the first slice.
 
-## 3. Uygulama
-`getirbakim-developer`'ı `WT`, Issue no ve planın tamamıyla çağır. Varsayılan sonnet; `db/*.sql` şema değişikliği, yetki/ödeme/sipariş kodu, tedarikçi sync çekirdeği, modüller arası refactor veya iki inceleme döngüsünde kalan sonnet çalışması için `model: "opus"` geç. Rapordaki **Kontroller** (ve kontrollerin SHA'sı) ile **Yapılmayanlar**'ı oku; Kontroller ve SHA'yı inceleyicilere ve QA'ya brief'te aynen ilet; başarısız kontrolü aynı ajana SendMessage ile geri gönder (yeni ajan açma).
+## 3. Implement
+Call `getirbakim-developer` with `WT`, the Issue no and the full plan. Default sonnet; pass `model: "opus"` for `db/*.sql` schema changes, auth/payment/order code, supplier-sync core, cross-module refactors, or sonnet work still failing after two review rounds. Read **Checks** (and their SHA) and **Not done** in the report; pass Checks and SHA verbatim to the reviewers and QA in their brief; send a failed check back to the same agent via SendMessage (do not open a new agent).
 
-## 4. İnceleme
-Küçük salt-UI değişiklikte (≤2 `.tsx`/`.css` dosyası; `db/`, `src/modules/`, `src/lib/`, `actions.ts`, `route.ts`, yetki/ödeme/sync dokunuşu yok) yalnız `getirbakim-ui-ux` (`WT` + QA rotaları) çağrılır. Diğer durumlarda tek mesajda paralel:
+## 4. Review
+For a small UI-only change (≤2 `.tsx`/`.css` files; no `db/`, `src/modules/`, `src/lib/`, `actions.ts`, `route.ts`, auth/payment/sync touch) call only `getirbakim-ui-ux` (`WT` + QA routes). Otherwise, in parallel in one message:
 - `getirbakim-reviewer` (`WT`).
-- `getirbakim-ui-ux` (`WT` + QA rotaları) — yalnız `.tsx`/`.css` değiştiyse.
-🔴 ve 🟡 bulguları geliştiriciye gönder → düzeltme turunda aynı inceleyiciye SendMessage ile yalnız düzeltilen maddeleri sor, yeni ajan açma. En fazla iki düzeltme döngüsü; sonra kalanları kullanıcıya raporla.
+- `getirbakim-ui-ux` (`WT` + QA routes) — only if `.tsx`/`.css` changed.
+Send 🔴 and 🟡 findings to the developer → in the fix round ask the same reviewer via SendMessage about the fixed items only; do not open a new agent. At most two fix rounds; then report the rest to the user.
 
 ## 5. QA
-Rota/bileşen değiştiyse `getirbakim-qa`'yı `WT`, plandaki rotalar/roller ve Issue kabul kriterleriyle çağır; kontrollerin SHA'sını ver, QA tarayıcı turuna odaklanır. Tarayıcı QA'sı aynı anda yalnız bir tane (Chrome tek). ❌ → geliştiriciye bir döngü, sonra kullanıcıya.
+If a route/component changed, call `getirbakim-qa` with `WT`, the planned routes/roles and the Issue's acceptance criteria; give the checks' SHA so QA focuses on the browser walk. Only one browser QA at a time (single Chrome). ❌ → one round with the developer, then the user.
 
 ## 6. PR
-Son deterministik kapı CI'dır. QA sonrası küçük düzeltme commit'leri için yerelde yalnız `admin-ui-lint --changed` (gerekirse `tsc`) yeter; kalanını CI yakalar.
+CI is the final deterministic gate. For small fix commits after QA, locally `admin-ui-lint --changed` (and `tsc` if needed) is enough; CI catches the rest.
 
-`WT`'de:
-- `git status` temiz; commit'ler conventional; `git fetch origin && git rebase origin/dev` (çakışmayı geliştirici çözer); `git push -u origin <dal>`.
-- `gh pr create --base dev --title "<tür>(<alan>): <özet>" --body-file -` — gövde: Özet (problem, ortaya çıkan davranış), Doğrulama (inceleme/QA kararları, koşulan testler), Operasyon (prod'da gereken komut ya da "yok"), `Closes #<N>`; sonunda sistem hatırlatmasındaki attribution satırı. Etiketler Issue ile aynı: tür etiketi + `area:*` + davranış değişiyorsa `release:minor|patch` (`--label`).
-- CI'ı bekle. CI kapısı (atlanamaz): `gh pr checks <PR> --watch --fail-fast` komutunu **pipe'sız** koş (`| tail` gibi bir zincir çıkış kodunu yutar, #528). Merge'den hemen önce her kontrolü ayrıca doğrula:
+In `WT`:
+- `git status` clean; commits conventional; `git fetch origin && git rebase origin/dev` (the developer resolves conflicts); `git push -u origin <branch>`.
+- `gh pr create --base dev --title "<type>(<area>): <summary>" --body-file -` — body: Summary (problem, resulting behaviour), Verification (review/QA verdicts, tests run), Operations (command needed in prod or "none"), `Closes #<N>`; finish with the attribution line from the system reminder. Labels same as the Issue: type label + `area:*` + `release:minor|patch` for behaviour changes (`--label`).
+- Wait for CI. CI gate (never skip): run `gh pr checks <PR> --watch --fail-fast` **unpiped** (a chain like `| tail` swallows the exit code, #528). Right before merge verify every check separately:
   ```
   gh pr view <PR> --json statusCheckRollup -q '[.statusCheckRollup[] | .conclusion] | all(. == "SUCCESS")'
   ```
-  Çıktı `true` değilse merge YOK. Hata bu PR'ın koduyla ilgisiz ve dalgalı görünüyorsa: `gh run rerun <run> --failed`, yeniden bekle, yine doğrula; ilgisiz dalgalı test için Issue aç (`Found in #<PR>`) ve PR'a not düş.
-- Kırmızıysa ve hata bu PR'dan geliyorsa log'u (`gh run view --log-failed`) geliştiriciye ver, düzelt, push, tekrar bekle.
+  If the output is not `true`, NO merge. If the failure is unrelated to this PR and looks flaky: `gh run rerun <run> --failed`, wait again, verify again; open an Issue for the unrelated flaky test (`Found in #<PR>`) and note it on the PR.
+- If red and caused by this PR, give the log (`gh run view --log-failed`) to the developer, fix, push, wait again.
 
-## 7. Merge ve temizlik (izin sormadan — politika bunu kapsar)
-1. Yukarıdaki CI kapısı `true` + `gh pr view <PR> --json mergeable,baseRefName` (base `dev` olmalı) → `gh pr merge <PR> --merge --delete-branch` (guard base=dev'i serbest bırakır; başka base onaya düşer — o zaman DUR).
-2. Ana checkout'u güncelle: `cd /Users/void/www/getirbakim && git merge --ff-only origin/dev` (önce `git fetch`). Başka oturumun commit edilmemiş dosyası ff'yi durdurursa dosya origin/dev ile birebir aynıysa (`cmp`) stash → ff → stash drop; farklıysa dokunma, kullanıcıya söyle. 3000'deki dev sunucusunu öldürme; yeni bağımlılık geldiyse `npm install` + `touch next.config.ts`.
-3. Yalnız bu işin worktree'sini kaldır: `git worktree remove ../getirbakim-<N>` (temizse; symlink'ler engel değil) + `git worktree prune`; yerel dal `git branch -D <dal>`; `git fetch --prune`.
-4. Rapor: Issue ve PR bağlantıları, tek paragraf özet, inceleme/QA kararları, CI sonucu, merge commit'i, operasyon adımı, kapsam dışı kalanlar (açılan takip Issue'larıyla). dev'de biriken iş çoksa `/release-check` öner — ama main'e yalnız kullanıcı onayıyla.
+## 7. Merge and cleanup (without asking — the policy covers it)
+1. CI gate above is `true` + `gh pr view <PR> --json mergeable,baseRefName` (base must be `dev`) → `gh pr merge <PR> --merge --delete-branch` (the guard allows base=dev; any other base asks for approval — then STOP).
+2. Update the main checkout: `cd /Users/void/www/getirbakim && git merge --ff-only origin/dev` (after `git fetch`). If another session's uncommitted file blocks the ff and the file is identical to origin/dev (`cmp`): stash → ff → stash drop; if different, do not touch it, tell the user. Do not kill the dev server on 3000; if new dependencies arrived, `npm install` + `touch next.config.ts`.
+3. Remove only this work's worktree: `git worktree remove ../getirbakim-<N>` (if clean; symlinks do not block) + `git worktree prune`; local branch `git branch -D <branch>`; `git fetch --prune`.
+4. Report (Turkish): Issue and PR links, one-paragraph summary, review/QA verdicts, CI result, merge commit, operations step, out-of-scope items (with follow-up Issues opened). If a lot has piled up on dev, suggest `/release-check` — but main only with the user's approval.
 
-## Kurallar
-- `dev`/`main` üzerinde commit yok; main'e push, dev→main merge, version tag, `release-aws` — yalnız `/release-check` akışında, kullanıcının açık onayıyla.
-- Kapsamı genişletme. Keşfedilen başka işler yeni Issue olur (önce `gh issue list --search`), gövdeye `Found in #N`.
-- Başka worktree'leri, dalları, ana checkout'taki commit edilmemiş işleri ve 3000'deki dev sunucusunu koru.
+## Rules
+- No commits on `dev`/`main`; push to main, dev→main merge, version tags, `release-aws` — only in the `/release-check` flow with the user's explicit approval.
+- Do not widen scope. Other work you discover becomes a new Issue (first `gh issue list --search`), body `Found in #N`.
+- Protect other worktrees, branches, uncommitted work in the main checkout and the dev server on 3000.
