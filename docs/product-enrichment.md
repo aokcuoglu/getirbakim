@@ -563,3 +563,35 @@ npm run enrichment:otoparcasan -- images                # görselsiz yazılmış
 Her paket önce checkpoint'e eklenir, sonra `importEnrichments` ile yazılır (#224). Bağlantı hatasında 5 sn, 30 sn ve 2 dk sonra tekrar denenir. Yine olmazsa çalışma durur; paket checkpoint'te kalır ve bir sonraki `collect` ya da `import` önce bekleyenleri yazar. Sözleşmenin reddettiği ya da artık açık olmayan ürün atlanır. `--status pending` Trodo'nun henüz uğramadığı işleri arar; ana ürün başına tek tedarikçi satırı seçilir ve başka satırı zaten zenginleştirilmiş ürün atlanır (#236). `--status review` Trodo'nun aday bulup doğrulayamadığı işleri arar (#245). Yazımdan hemen önce iş hâlâ `not_found`, `pending` ya da `review` değilse (ör. Trodo bu arada tamamladıysa) ürün atlanır. `collect` kaldığı yerden devam eder; `--retry` önceki sonuçları (yazılanlar hariç) yeniden dener, `--ids <dosya>` belirli ürünleri işler. `images` görseli bulunmayan ürünleri `artifacts/otoparcasan/images.jsonl`'e yazar ve tekrar denemez; eklenen görselde `imported_at` güncellenir. Yazılan veri gece `storefront:sync` ile canlıya gider.
 
 İlk 26 ürünlük örneklemde 19 ürün bulundu, yanlış eşleşme olmadı. 1.613 ticari araç satırı atıldı. Kalan 228 binek araç satırının 190'ı katalogdaki tek bir tiple eşleşti. Eşleşmeyenlerin nedenleri: modelin katalogda olmaması (20), sitenin bitiş tarihini açık bırakması (14), güç ya da motor adı farkı (4).
+
+## Fiyat listesi ürünleri (#1075)
+
+Dinamik'in yalnız fiyat listesinde olan, stok listesinde satırı olmayan (`stock_data IS NULL`) ve hiçbir ana ürüne bağlanmamış kodları satılamaz, bu yüzden mağazanın bekleyen kuyruğuna (`enrichment_product_states`) hiç girmez. Zenginleşenler #1068 ile "Gelince haber ver" kartı olur (`storefront_price_only_items`). Bu kodlar spareto ve parts2world'e ortak, ikincil bir kademe olarak verilir (`src/modules/enrichment/price-only-queue.ts`):
+
+- **Kayıt:** kuyruk ayrı bir tablo değil, satırların eski `product_enrichment_jobs` işleridir (yerelde ~379 bin `pending` iş, neredeyse hepsinin markası boş; ~20 bin satırın işi yok). Bir iş yalnız kodu ve markası canlı satırla aynıyken aranır, bu yüzden merge tek başına hiçbir şeyi değiştirmez. `enrichment:price-only -- enqueue` eksik işleri ekler, kodu/markası/OEM'i farklı açık işleri canlı kimliğe hizalayıp `pending` yapar (yalnız açılmış markalar değil, tüm markalar: parts2world'ün `match` adımı işleri okur); ikinci koşu hiçbir şey yazmaz.
+- **Uygun satır:** Dinamik, fiyat listesinde (`presence='present'`), çakışmasız, ürün bağlantısız, işi `pending` ve hizalı; aynı marka anahtarı + parça numarasıyla bir ana ürün varsa atlanır (o ürün mağaza kuyruğundan zenginleşip paylaşılır).
+- **spareto:** yalnız `enrichment_price_only_brands` tablosunda açılmış markaların satırlarını, spareto'nun henüz `found`/`not_found` demediklerini arar; parts2world arşivinde eşleşen satırlar sona kalır (onları parts2world alır), sonra ters hash sırası. Sıra `supplier_items_brand_label_idx` üzerinden okunur (yerelde 5 marka, ~70 bin satır: ~0,6–0,8 sn).
+- **parts2world:** marka listesine bakmaz; arşiv makalesiyle eşleşmiş (`parts2world_job_articles`) tüm uygun satırları alır, vekil işçi ters yönden yürür (yerelde ~42 bin satır, ~0,8 sn).
+- **Pay:** iki işçi de bekleyen turunda `--price-only-share F` ya da `ENRICHMENT_PRICE_ONLY_SHARE` kadarını bu kademeye verir (0–1 arası, varsayılan 0: kapalı). 0,2'de her beşinci arama fiyat listesi kodudur; mağaza sırası korunur ve bir taraf bitince diğeri devam eder. Hız ve bekleme aralıkları değişmez.
+- **Kayıt ve sayaç:** bu aramalar `enrichment_source_attempts.queue='price_only'` ile yazılır. spareto'nun marka isabet oranları (`brandRateSql`) bunları saymaz; parts2world turu ilerlemesi bekleyen turda bunları da sayar. `/yonetim/urun-verileri` → Kaynaklar sekmesindeki "Fiyat listesi ürünleri (Dinamik)" kartı açık markaların kapsam / aranan / zenginleşen / yayında / kalan sayılarını gösterir (bir dakika önbellekli, yerelde ~1,5 sn; Kalan = henüz aranmamış kodlar).
+
+```bash
+npm run enrichment:price-only -- enqueue                       # işleri ekler/hizalar; sonra parts2world eşleşmesi:
+npm run enrichment:parts2world -- match
+npm run enrichment:price-only -- enable BLUEPRINT DELPHI SWAG VALEO FEBI --note "ilk parti"
+npm run enrichment:price-only -- disable VALEO
+npm run enrichment:price-only -- status                        # marka başına sayılar + her işçinin sıradaki 10 kodu
+ENRICHMENT_PRICE_ONLY_SHARE=0.2 npm run enrichment:spareto -- collect --status pending --limit 2000
+```
+
+`enqueue` yalnız açık işleri (`pending`/`not_found`/`review`) hizalar; `complete`/`partial` bir işi yeniden açmaz (zenginleştirme gizlenir, AWS'nin uygulamadığı bir `job_invalidated` tombstone'u yazılırdı). İlk koşu ~380 bin işi günceller: paylaşım kuyruğu tek bir tam yeniden kurmaya döner (yerelde 10–20 sn) ve tabloda ~380 bin ölü satır kalır (autovacuum toplar). Pay, `db:setup` uygulanmadan yükseltilmez: `price_only` kuyruk değeri yoksa aramaların kaydı yazılamaz.
+
+Açılış sırası: `db:setup` (marka tablosu ve `price_only` kuyruk değeri) → `enqueue` → `parts2world match` → `enable` → işçilerde `ENRICHMENT_PRICE_ONLY_SHARE=0.2` ve yeniden başlatma → 24 ve 72 saatte ölçüm. Ölçüm sorguları:
+
+```sql
+-- Kaynak başına arama ve isabet (son 24 saat)
+SELECT source,count(*) FILTER (WHERE outcome<>'blocked') AS aranan,count(*) FILTER (WHERE outcome='found') AS bulunan
+FROM enrichment_source_attempts WHERE queue='price_only' AND attempted_at>now()-interval '24 hours' GROUP BY 1;
+-- Kart olan fiyat listesi kodları
+SELECT count(*) FROM storefront_price_only_items;
+```

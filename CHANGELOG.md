@@ -4,6 +4,12 @@ All notable changes to this project are documented here. Versions follow [SemVer
 
 ## Unreleased
 
+### Added
+- **Dinamik price-list-only codes as an enrichment tier:** spareto and parts2world give a configurable share of their pending pass (`--price-only-share` / `ENRICHMENT_PRICE_ONLY_SHARE`, default 0) to unlinked Dinamik codes without a stock-list row: spareto for brands enabled in `enrichment_price_only_brands`, parts2world for every brand matched to an archived article. New `enrichment:price-only` CLI (`enqueue`, `enable`, `disable`, `status`) and a progress card on `/yonetim/urun-verileri` → Kaynaklar ([#1075](https://github.com/aokcuoglu/getirbakim/issues/1075)).
+
+### Deploy and operations
+- `db:setup` adds `enrichment_price_only_brands` and the `price_only` value of `enrichment_source_attempts.queue` (guarded; a second run takes no lock). The tier stays off until `enrichment:price-only -- enqueue`, `enrichment:parts2world -- match`, `enable <brands>` and a non-zero share on the local workers (#1075).
+
 ## v0.33.0 — 2026-11-20
 
 Release of `dev` since v0.32.1 (6 pull requests): saved addresses at checkout, order email through Amazon SES, two supplier-sync fixes that kept the Dinamik alarm open and delayed the nightly import, and removal of the unused `vehicle_brands.popular` column. The privacy text update (#1014) is held back (reverted in #1074) until its legal placeholders are filled.

@@ -102,7 +102,7 @@ END $$;
 -- run stopped on. A NULL queue is a search imported from a checkpoint written before this table existed.
 CREATE TABLE IF NOT EXISTS enrichment_source_attempts (
  id bigserial PRIMARY KEY, source text NOT NULL CHECK(source IN ('otoparcasan','spareto')),
- queue text CHECK(queue IN ('pending','not_found','review','partial')), supplier_item_id uuid NOT NULL,
+ queue text CHECK(queue IN ('pending','not_found','review','partial','price_only')), supplier_item_id uuid NOT NULL,
  outcome text NOT NULL CHECK(outcome IN ('found','not_found','error','blocked')), attempted_at timestamptz NOT NULL DEFAULT now()
 );
 DO $$ BEGIN
@@ -110,16 +110,17 @@ DO $$ BEGIN
   ALTER TABLE enrichment_source_attempts ALTER COLUMN queue DROP NOT NULL;
  END IF;
 END $$;
--- spareto re-collects its own partial products (queue 'partial').
+-- spareto re-collects its own partial products (queue 'partial'); 'price_only' marks a search of an unlinked Dinamik
+-- price-list-only code (#1075, src/modules/enrichment/price-only-queue.ts).
 -- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
 -- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly, so
 -- any change to the list (add, remove, rename, reorder) edits both. Inline, not a helper: tests load single files.
 DO $$ BEGIN
  IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
    WHERE k.conrelid='enrichment_source_attempts'::regclass AND k.conname='enrichment_source_attempts_queue_check' AND k.convalidated ORDER BY r.i)
-  IS DISTINCT FROM ARRAY['pending','not_found','review','partial'] THEN
+  IS DISTINCT FROM ARRAY['pending','not_found','review','partial','price_only'] THEN
   ALTER TABLE enrichment_source_attempts DROP CONSTRAINT IF EXISTS enrichment_source_attempts_queue_check;
-  ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial'));
+  ALTER TABLE enrichment_source_attempts ADD CONSTRAINT enrichment_source_attempts_queue_check CHECK(queue IN ('pending','not_found','review','partial','price_only'));
  END IF;
 END $$;
 DO $$ BEGIN
@@ -132,6 +133,12 @@ DO $$ BEGIN
   CREATE INDEX enrichment_source_attempts_item_idx ON enrichment_source_attempts(supplier_item_id);
  END IF;
 END $$;
+-- Brands whose Dinamik price-list-only codes (no stock-list row, linked to no master product) spareto searches after
+-- the storefront's pending products (#1075); `label` is supplier_item_brand()'s label (Dinamik's marka). Set with
+-- `npm run enrichment:price-only -- enable|disable`; parts2world takes every brand's matched codes regardless.
+CREATE TABLE IF NOT EXISTS enrichment_price_only_brands (
+ label text PRIMARY KEY, note text, enabled_at timestamptz NOT NULL DEFAULT now()
+);
 -- Every Trodo search lists ~10 products, often exact parts of other pending items. They are kept by part number so a
 -- later item opens its product page directly instead of spending its own rate-limited search (#376). The keys follow
 -- partKey()/manufacturerBrandKey() in enrichment-contract.ts; the SQL functions only order batches, identity is always

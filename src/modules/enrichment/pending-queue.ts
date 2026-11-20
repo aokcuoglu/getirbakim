@@ -1,14 +1,16 @@
 import type { Pool } from "pg";
 
-export type PendingSupplier = { id: string; code: string; brand: string; oem: string; masterBrand: string | null };
+/** `priceOnly` marks an unlinked Dinamik price-list-only code (price-only-queue.ts, #1075); its searches are recorded as such. */
+export type PendingSupplier = { id: string; code: string; brand: string; oem: string; masterBrand: string | null; priceOnly?: boolean };
 
 // Brand hit rates for the pending order (#380): spareto's from its own searches, Trodo's from its finished run items.
 // While Trodo's host is blocked it collects nothing, so its rates are dropped (#390). A brand either source tried fewer
-// than 5 times is left out and counts as 0.5 in the order.
+// than 5 times is left out and counts as 0.5 in the order. Searches of price-list-only codes (#1075) are left out: their
+// brands are chosen by hand and would skew the storefront products' order.
 export const brandRateSql = `SELECT COALESCE(jsonb_object_agg(brand,hit),'{}'::jsonb) AS rates FROM (SELECT b.supplier_brand AS brand,
   count(*) FILTER (WHERE a.outcome='found')::float/count(*) AS hit FROM enrichment_source_attempts a
   JOIN product_enrichment_jobs b ON b.supplier_item_id=a.supplier_item_id
-  WHERE a.source='spareto' AND a.outcome IN ('found','not_found') GROUP BY 1 HAVING count(*)>=5) r`;
+  WHERE a.source='spareto' AND a.outcome IN ('found','not_found') AND a.queue IS DISTINCT FROM 'price_only' GROUP BY 1 HAVING count(*)>=5) r`;
 export const trodoRateSql = `SELECT COALESCE(jsonb_object_agg(supplier_brand,hit),'{}'::jsonb) AS rates FROM (SELECT supplier_brand,
   count(*) FILTER (WHERE status IN ('complete','partial'))::float/count(*) AS hit FROM enrichment_run_items
   WHERE status IN ('complete','partial','review','not_found') GROUP BY 1 HAVING count(*)>=5) r
