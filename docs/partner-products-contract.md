@@ -66,7 +66,8 @@ The search ranks matches the way the storefront does. The first 200 ranked
 matches are read; the `partNo`/`oem` filters and the vehicle order work on
 those 200, and `limit` is applied last. So an exact number is found even when
 the free-text ranking puts it below the first result page, and `limit=30`
-returns up to 30 parts. A match ranked below 200 is not returned.
+returns up to 30 parts. A match ranked below 200 is not returned, except a
+part linked to the requested engine type (see below).
 
 ## Fitment with `vehicleTypeId`
 
@@ -92,6 +93,19 @@ the storefront's fitment levels with these rules:
 Order: `guaranteed` parts first, then `likely`, then the rest; inside each
 group the search's ranking is kept. Nothing is filtered out: a part that does
 not fit the vehicle is still returned after the fitting ones.
+
+Where each level is looked for (#1119):
+
+- `guaranteed` parts come from **every** match of the search, like the store's
+  "Aracına uyanlar" lead: the whole match set is intersected with the parts
+  linked to the engine type, and the first 200 of those (by search rank) are
+  candidates. A broad search ("yağ filtresi", thousands of matches) still
+  lists the filters linked to the vehicle first.
+- `likely` and `unknown` parts come from the first 200 ranked matches. A part
+  that only fits the vehicle's model and ranks below 200 is not returned:
+  model-level sets are large (a popular model: tens of thousands of parts) and
+  their description rule needs per-product checks, so they are not read for
+  the whole match set.
 
 ## Caching
 
@@ -123,5 +137,6 @@ not fit the vehicle is still returned after the fitting ones.
 
 - **1.3** (#1093): `fitmentLevel`; fitting parts first; `limit` up to 30
   honoured; exact filters over the first 200 matches; 30-second answer cache.
+  Engine-type fits are taken from the whole match set (#1119, same contract).
 - **1.2** (#424): the endpoint's first version here, the shape BakımX's
   1.1/1.2 parser reads.

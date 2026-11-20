@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
 import { ttlCache } from "@/lib/ttl-cache";
 import { normalizeSearchText } from "@/modules/search/query";
-import { catalogRowsByIds, rankedSearchIds, typeFittedIds, withBestOffer, type CatalogProduct } from "@/modules/store/catalog";
+import { catalogRowsByIds, rankedFittingSearchIds, rankedSearchIds, typeFittedIds, withBestOffer, type CatalogProduct } from "@/modules/store/catalog";
 import { getCatalogProductImages } from "@/modules/store/product-enrichment";
 import { toPartnerProduct, type PartnerCatalogRow, type PartnerFitmentLevel, type PartnerProduct } from "./dto";
 import { exactMatches, fitmentLevelOf, fitsFirst } from "./search-order";
@@ -33,7 +33,8 @@ const cachedResponses = ttlCache<PartnerProduct[]>(partnerResponseTtlMs, 100);
  * Partner search over the storefront catalog: the same search engine, ranking, visibility and prices the shop uses, so
  * a partner never sees a product or price the storefront would not sell. Hand-entered store products are left out;
  * partners get supplier-backed parts only. The exact part number / OEM filters and the vehicle order work on the first
- * rankedSearchDepth matches (#1093), so a match ranked below one result page is still found; `limit` is cut last.
+ * rankedSearchDepth matches (#1093), so a match ranked below one result page is still found; `limit` is cut last. With a
+ * vehicle, the matches linked to its type are read from the whole hit set too (#1119).
  */
 export async function searchPartnerProducts(input: PartnerSearch): Promise<{ products: PartnerProduct[]; source: PartnerSearchSource }> {
   const partNo = input.partNo?.trim(), oem = input.oem?.trim(), q = input.q?.trim() ?? "";
@@ -47,8 +48,15 @@ export async function searchPartnerProducts(input: PartnerSearch): Promise<{ pro
 }
 
 async function loadPartnerProducts(text: string, source: PartnerSearchSource, input: PartnerSearch & { partNo?: string; oem?: string }) {
-  // The storefront's ranking, without the listing facets the partner never reads (#431), kept per search.
-  const ids = await rankedSearchIds(text, source === "search" ? "all" : "code");
+  // The storefront's ranking, without the listing facets the partner never reads (#431), kept per search. With a
+  // vehicle, the parts linked to its type come from the whole hit set (#1119) ahead of the ranked top matches; fitsFirst
+  // keeps them first, in search order, then the top matches' likely and unknown parts.
+  const mode = source === "search" ? "all" : "code";
+  const [fitting, ranked] = await Promise.all([
+    input.vehicleTypeId == null ? Promise.resolve([] as string[]) : rankedFittingSearchIds(text, mode, input.vehicleTypeId),
+    rankedSearchIds(text, mode),
+  ]);
+  const ids = [...new Set([...fitting, ...ranked])];
   const candidates = exactMatches(await catalogRowsByIds(ids), { partNo: input.partNo, oem: input.oem });
   if (!candidates.length) return [];
   const members = await offerMembers(candidates.map(row => row.id));
@@ -67,7 +75,7 @@ async function offerMembers(ids: string[]) {
 
 /**
  * The fitment level of every listed id for one vehicle type, the storefront's fitmentLevel (fitment-level.ts) read as
- * id sets so 200 candidates cost three indexed reads instead of their enrichment payloads:
+ * id sets so up to 400 candidates cost three indexed reads instead of their enrichment payloads:
  * - guaranteed: linked to the type (typeFittedIds, cached; an admin's added types in, removed ones out);
  * - not likely when the admin removed the type from the listed product: the storefront calls that a mismatch, which
  *   this endpoint reports as unknown;

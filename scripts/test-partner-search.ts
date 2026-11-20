@@ -36,6 +36,11 @@ before(async () => {
       { uk: "TEXTAR", ac: name, ac2: "", dc: "TL", ...(supplier === "dinamik" ? { marka: "TEXTAR", stokAdi: name } : {}) }, { nf: cost }]);
     groupIds[key] = rows[0].id;
   }
+  // 300 oil filters (#1119): a broad search, deeper than rankedSearchDepth (200). The oldest ranks last among equals.
+  await schema.pool.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+    product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+    SELECT 'basbug',$1,'G','MRK','MAN W'||n,'{"uk":"MANN","ac":"MANN YAG FILTRESI","ac2":"","dc":"TL"}','{"nf":100}','{"stok":2}',1,1,1,false,'present',
+     now()-interval '30 days',now()-interval '1 hour',now()-make_interval(mins=>n) FROM generate_series(1,300) n`, [basbug]);
   await schema.pool.query("SELECT refresh_product_matches()");
   await schema.pool.query("INSERT INTO product_overrides(product_id,hidden) SELECT product_id,true FROM product_sources WHERE supplier_item_id=$1", [groupIds.hidden]);
   await schema.pool.query("SELECT product_overrides_project(ARRAY(SELECT product_id FROM product_sources WHERE supplier_item_id=$1))", [groupIds.hidden]);
@@ -44,6 +49,7 @@ before(async () => {
     INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,year_of_constr_to,search_text) VALUES
      (100,10,'1.6 TDI',1598,'Diesel','Dizel',110,81,'2013-01-01','2020-12-01','1.6 TDI'),
      (101,10,'1.4 TSI',1395,'Petrol','Benzin',125,92,'2013-01-01','2020-12-01','1.4 TSI'),
+     (102,10,'2.0 TDI',1968,'Diesel','Dizel',150,110,'2013-01-01','2020-12-01','2.0 TDI'),
      (110,11,'2.0 TDI',1968,'Diesel','Dizel',150,110,'2015-01-01','2020-12-01','2.0 TDI');`);
   const [{ db }, partnerModule, catalogModule] = await Promise.all([
     import("../src/lib/db"), import("../src/modules/partner/catalog"), import("../src/modules/store/catalog")]);
@@ -125,4 +131,22 @@ test("a product sold by two suppliers is one result with both offers, priced by 
   assert.equal((await schema.pool.query("SELECT hidden FROM commerce_item_overrides WHERE supplier_item_id=$1", [groupIds.hidden])).rows[0]?.hidden, true);
   assert.equal((await search("", { partNo: "TEX 93000" })).products.length, 0);
   assert.equal((await search("", { partNo: "TEX 92000" })).products.length, 1);
+});
+
+test("with a vehicle, a part linked to its type is found in the whole match set, below the ranked depth (#1119)", async () => {
+  const ranked = await catalog.rankedSearchIds("mann yag filtresi", "all");
+  assert.equal(ranked.length, 200);
+  // MAN W250 ranks 250th of 300 (changed 250 minutes ago, newest first among equal matches): outside the ranked depth.
+  const deep = (await schema.pool.query<{ id: string; product_id: string }>(`SELECT s.id::text,ps.product_id::text FROM supplier_items s
+    JOIN product_sources ps ON ps.supplier_item_id=s.id WHERE s.code='MAN W250'`)).rows[0];
+  assert.ok(!ranked.includes(deep.id));
+  await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,102,'add')", [deep.product_id]);
+  const { products } = await search("mann yag filtresi", { vehicleTypeId: 102 });
+  assert.equal(products.length, 30);
+  assert.deepEqual([products[0].partNo, products[0].fitmentLevel, products[0].exactFitment.status], ["MAN W250", "guaranteed", "CONFIRMED"]);
+  // The rest are the search's top matches, none dropped.
+  assert.deepEqual(products.slice(1).map(item => item.id), ranked.slice(0, 29));
+  assert.ok(products.slice(1).every(item => item.fitmentLevel === "unknown"));
+  // Without the vehicle it stays out of the first page.
+  assert.ok(!(await search("mann yag filtresi")).products.some(item => item.id === deep.id));
 });
