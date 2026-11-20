@@ -4,6 +4,9 @@ All notable changes to this project are documented here. Versions follow [SemVer
 
 ## Unreleased
 
+### Added
+- **Amazon SES mail transport:** `MAIL_TRANSPORT=ses` sends order emails through the SES v2 API with the ECS task role (no SMTP credentials); region from `SES_REGION` / `AWS_REGION` ([#1062](https://github.com/aokcuoglu/getirbakim/issues/1062)).
+
 ## v0.32.1 — 2026-11-20
 
 Patch release of `dev` since v0.32.0 (1 pull request): CI runner selection and an AWS release without the GitHub `production` environment, so the repository can go private on GitHub Free. Application code is unchanged. Not deployed by this release; AWS production is released separately through `release-aws.yml`.

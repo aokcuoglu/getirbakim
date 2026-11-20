@@ -128,6 +128,42 @@ test("mail settings: unset, incomplete or production file transport send nothing
   assert.deepEqual(secure, { kind: "smtp", from: "a@example.invalid", replyTo: "r@example.invalid", host: "h", port: 465, secure: true, user: "u", password: "p" });
 });
 
+test("ses settings: region precedence, default and missing sender", () => {
+  const base = { MAIL_TRANSPORT: "ses", MAIL_FROM: "Getirbakim <siparis@getirbakim.com>" };
+  assert.deepEqual(mail.mailConfig({ MAIL_TRANSPORT: "ses" }), { kind: "none", reason: "MAIL_FROM is missing" });
+  assert.deepEqual(mail.mailConfig(base), { kind: "ses", from: base.MAIL_FROM, replyTo: "hey@getirbakim.com", region: "eu-central-1" });
+  assert.equal((mail.mailConfig({ ...base, AWS_REGION: "eu-west-1" }) as { region: string }).region, "eu-west-1");
+  assert.equal((mail.mailConfig({ ...base, AWS_REGION: "eu-west-1", SES_REGION: "us-east-1", MAIL_REPLY_TO: "r@example.invalid" }) as { region: string; replyTo: string }).region, "us-east-1");
+});
+
+test("the ses transport sends raw MIME through the SESv2 client with our Message-ID", async () => {
+  const { SESv2Client } = await import("@aws-sdk/client-sesv2");
+  const original = SESv2Client.prototype.send;
+  const inputs: { FromEmailAddress?: string; Destination?: { ToAddresses?: string[] }; Content?: { Raw?: { Data?: Uint8Array } } }[] = [];
+  let failNext = false;
+  (SESv2Client.prototype as { send: unknown }).send = async function (command: { input: (typeof inputs)[number] }) {
+    inputs.push(command.input);
+    if (failNext) throw Object.assign(new Error("MessageRejected"), { name: "MessageRejected" });
+    return { MessageId: "ses-id-1" };
+  };
+  try {
+    const config = { kind: "ses" as const, from: "Getirbakim <siparis@getirbakim.com>", replyTo: "hey@getirbakim.com", region: "eu-central-1" };
+    const messageId = "<order-x-confirmation@shop.example.invalid>";
+    assert.deepEqual(await mail.sendMail({ ...build(), to: "musteri@example.invalid", messageId }, config), { status: "sent", messageId });
+    assert.equal(inputs.length, 1);
+    assert.equal(inputs[0].FromEmailAddress, "Getirbakim <siparis@getirbakim.com>");
+    assert.deepEqual(inputs[0].Destination?.ToAddresses, ["musteri@example.invalid"]);
+    const raw = Buffer.from(inputs[0].Content?.Raw?.Data ?? []).toString("utf8");
+    assert.match(raw, /^To: musteri@example\.invalid\r?$/m);
+    assert.match(raw, /^Reply-To: hey@getirbakim\.com\r?$/m);
+    assert.match(raw, /^Message-ID: <order-x-confirmation@shop\.example\.invalid>\r?$/m);
+    failNext = true;
+    await assert.rejects(mail.sendMail({ ...build(), to: "musteri@example.invalid", messageId }, config), /MessageRejected/);
+  } finally {
+    SESv2Client.prototype.send = original;
+  }
+});
+
 test("an unconfigured transport skips without throwing", async () => {
   assert.deepEqual(await mail.sendMail({ to: "a@example.invalid", subject: "s", text: "t", html: "<p>t</p>" }, { kind: "none", reason: "off" }),
     { status: "skipped", reason: "off" });
