@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 /** The checkout these scripts live in (main checkout or a worktree). */
 export const SCRIPT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 
-/** Folders that make up the /yonetim admin UI (AGENTS.md → "Yönetim paneli UI kuralı"). */
+/** Folders that make up the /yonetim admin UI (AGENTS.md → "Admin panel UI rule"). */
 export const ADMIN_ROOTS = ["src/app/yonetim", "src/components/admin"]
 
 export function git(cwd, ...args) {

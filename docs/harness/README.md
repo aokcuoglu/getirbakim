@@ -74,5 +74,7 @@ Nerede koşar:
 
 ## Ajan eklemek/değiştirmek
 1. `.claude/agents/<ad>.md` Markdown'ını düzenle (frontmatter: `name`, `description`, isteğe bağlı `tools`, `model`). Brief kendi kendine yetmeli: alt ajanlar sohbeti görmez.
-2. `AGENTS.md`/`DESIGN.md`/akış kuralı değişirse onu uygulayan ajanı ve kural mekanikse lint/guard'ı (testleriyle) güncelle.
-3. Değişikliği her iş gibi gönder: Issue → worktree → PR (`chore(platform): …`).
+2. Ajan/skill talimatları ve `AGENTS.md` **İngilizce** yazılır (Türkçe aynı içerik için ~%30–50 daha fazla token tutar; bu dosyalar her oturumda ve her alt ajanda yüklenir). Kullanıcıya dönüş, Issue gövdesi ve UI metinleri Türkçe kalır; bunlar talimatta kural olarak yazılır. İnsanlara yönelik belgeler (`docs/**`) Türkçe kalır (#1079).
+3. Proje `.claude/settings.json` içinde ilgisiz kullanıcı eklentilerini kapatır (`enabledPlugins`, ör. Vercel — proje AWS'de); yeni bir eklenti her oturuma skill/araç listesi ekler, gerekmedikçe açma.
+4. `AGENTS.md`/`DESIGN.md`/akış kuralı değişirse onu uygulayan ajanı ve kural mekanikse lint/guard'ı (testleriyle) güncelle.
+5. Değişikliği her iş gibi gönder: Issue → worktree → PR (`chore(platform): …`).

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Deterministic check of the /yonetim UI rule in AGENTS.md ("Yönetim paneli (/yonetim) UI kuralı"):
+// Deterministic check of the /yonetim UI rule in AGENTS.md ("Admin panel (/yonetim) UI rule"):
 // admin screens are built from stock shadcn/ui components only. What a regex can see is checked here;
 // the rest (re-coloring a Badge through className, wrong variant for a status) is for the
 // getirbakim-ui-ux agent.
@@ -57,7 +57,7 @@ export const RULES = [
   },
   {
     id: "restyle",
-    // Corner and elevation changes on components (AGENTS.md: no köşe/gölge değiştirme).
+    // Corner and elevation changes on components (AGENTS.md: no corner/shadow changes).
     pattern: /(?<![\w-])(?:[\w-]+:)*(?:rounded(?:-[trblse]{1,2})?(?:-(?:none|xs|sm|md|lg|xl|2xl|3xl|4xl))?|shadow(?:-(?:none|2xs|xs|sm|md|lg|xl|2xl|inner))?)(?![\w-])/,
     classOnly: true,
     // Warning only: the ui-ux agent judges whether it re-skins a component. A framed part goes in a
