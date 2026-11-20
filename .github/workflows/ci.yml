@@ -10,17 +10,51 @@ concurrency:
   cancel-in-progress: true
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    # GitHub-hosted by default. The repository variable CI_RUNS_ON (JSON) moves the job to the owner's
+    # self-hosted Mac once the repository is private, e.g. ["self-hosted","macOS","ARM64","getirbakim"]
+    # (docs/ci-mac-runner.md). Never set it while the repository is public: fork pull requests would run on the Mac.
+    runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-24.04"') }}
     timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: pricing_test
-        ports: [5432:5432]
-        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
+      - name: Refuse a self-hosted runner on a public repository
+        # Before the checkout, so no pull request code runs on the Mac.
+        if: runner.environment == 'self-hosted' && github.event.repository.private != true
+        run: |
+          echo "::error::CI_RUNS_ON points to a self-hosted runner while the repository is public; unset it (docs/ci-mac-runner.md)."
+          exit 1
+      # A throwaway Postgres 16 in Docker (job services exist only on Linux runners). Docker picks a free host port
+      # on 127.0.0.1, so it never collides with a local database or tunnel on the Mac; the steps that need a database
+      # read CI_DATABASE_URL, the others run without one.
+      - name: Start Postgres
+        env:
+          RUNNER_KIND: ${{ runner.environment }}
+        run: |
+          # One self-hosted runner runs one job at a time: any labelled container left by a killed job is stale.
+          if [ "$RUNNER_KIND" = self-hosted ]; then
+            stale="$(docker ps -aq --filter label=getirbakim-ci)"
+            if [ -n "$stale" ]; then echo "$stale" | xargs docker rm -f >/dev/null; fi
+          fi
+          name="getirbakim-ci-pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "CI_PG_CONTAINER=$name" >> "$GITHUB_ENV"
+          docker rm -f "$name" >/dev/null 2>&1 || true
+          docker run -d --rm --name "$name" --label getirbakim-ci=postgres \
+            -e POSTGRES_PASSWORD=test -e POSTGRES_DB=pricing_test \
+            -p 127.0.0.1::5432 postgres:16 >/dev/null
+          address="$(docker port "$name" 5432/tcp | head -n 1)"
+          port="${address##*:}"
+          test -n "$port"
+          # TCP check: the init-time server listens on the socket only, so this waits for the final server.
+          for _ in $(seq 1 60); do
+            if docker exec "$name" pg_isready -q -h 127.0.0.1 -p 5432 -U postgres -d pricing_test; then
+              echo "CI_DATABASE_URL=postgresql://postgres:test@127.0.0.1:$port/pricing_test" >> "$GITHUB_ENV"
+              echo "Postgres ready on 127.0.0.1:$port"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs "$name" || true
+          echo "::error::Postgres did not become ready"
+          exit 1
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
@@ -32,39 +66,50 @@ jobs:
       - run: npm run harness:lint && npm run harness:test
       - run: npm run test:ads-tags
       - run: npm run test:home
+      - run: npm run test:client-imports
+      - run: npm run test:lazy-module
       - run: npm run test:checkout-address
       - run: npm run test:cart-checkout-ui
       - run: npm run test:header-search
-      - run: node --conditions=react-server --import tsx --test scripts/test-product-pricing.ts scripts/test-supplier-checkout.ts scripts/test-enrichment-import.ts scripts/test-storefront-bundle-items.ts scripts/test-storefront-split.ts scripts/test-storefront-sync.ts scripts/test-storefront-tombstones.ts
+      - run: node --conditions=react-server --import tsx --test scripts/test-product-pricing.ts scripts/test-price-anomalies.ts scripts/test-supplier-checkout.ts scripts/test-enrichment-import.ts scripts/test-storefront-bundle-items.ts scripts/test-storefront-split.ts scripts/test-storefront-sync.ts scripts/test-storefront-tombstones.ts
         env:
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
-      - run: npm run test:review && npm run test:partner && npm run test:basbug && node --import tsx --test scripts/test-supplier-changes.ts scripts/test-product-match-schedule.ts scripts/test-supplier-run-error.ts scripts/test-supplier-health-status.tsx scripts/test-admin-format.tsx && npm run test:seta && npm run test:supplier-items && npm run test:supplier-data-status && npm run test:egress-proxy && npm run test:pick-key && npm run test:matching-same && npm run test:suffix-signals && npm run test:manual && npm run test:spareto && npm run test:parts2world && npm run test:cache-handler && node --import tsx --test scripts/test-product-enrichment.ts && npm run test:part-art && npm run test:data-table && npm run test:brand && npm run test:fitment && npm run test:fitment-level && npm run test:description-fitment && node --import tsx --test scripts/test-enrichment-pace.ts && npm run test:logos && node --import tsx --test scripts/test-enrichment-worker.ts && node --conditions=react-server --import tsx --test scripts/test-enrichment-search-products.ts && npm run test:otoparcasan && npm run test:vehicle-oil && npm run test:maintenance-kit && npm run test:vehicle-families && npm run test:vehicle-repxpert && npm run test:app-version && npm run test:seo && npm run test:site-metadata && npm run test:structured-data && npm run test:guides && npm run test:listing-paths && npm run test:session-cookie && npm run test:product-paths && npm run test:analytics && npm run test:cart-count && npm run test:product-meta && npm run test:product-tabs && npm run test:vehicle-model-groups && npm run test:vehicle-label && npm run test:checkout-refresh && npm run test:checkout-error-alert && npm run test:remote-image && npm run test:related-suggestions && npm run test:category-tree && npm run test:image-config && npm run test:manufacturers && npm run test:installments
-      - run: npm run test:catalog-filters && npm run test:unavailable && npm run test:vehicle-lead && npm run test:garage && npm run test:maintenance-kit-query && npm run test:vehicle-model-listing && npm run test:manufacturer-listing && npm run test:brand-logos && npm run test:sitemap && npm run test:indexnow && npm run test:merchant-feed && npm run test:product-overrides && npm run test:product-equivalents && npm run test:product-override-images && npm run test:product-override-references && npm run test:product-override-specs && npm run test:vehicle-oil-overrides && npm run test:product-override-fitments && npm run test:fitment-rebuild && npm run test:description-fitment-sync && npm run test:restock && npm run test:search-analytics && npm run test:payments && npm run test:payment-return-url && npm run test:payment-refunds && npm run test:order-actions && npm run test:order-cancel && npm run test:purchase-event && npm run test:refund-event && npm run test:order-progress && npm run test:order-supplier-note && npm run test:order-agreement && node --import tsx --test --test-name-pattern='catalog CLI|master product' scripts/test-enrichment-worker.ts && node --import tsx --test scripts/test-storefront-make-fits.ts && node --conditions=react-server --import tsx --test scripts/test-enrichment-search-products.ts && npm run test:related-suggestions-query && npm run test:match-lock && npm run test:candidate-hints && npm run test:enrichment-pending && npm run test:geliver && npm run test:account-addresses
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+      - run: npm run test:review && npm run test:partner && npm run test:basbug && node --import tsx --test scripts/test-supplier-changes.ts scripts/test-product-match-schedule.ts scripts/test-supplier-run-error.ts scripts/test-supplier-health-status.tsx scripts/test-admin-format.tsx && npm run test:seta && npm run test:supplier-items && npm run test:supplier-data-status && npm run test:egress-proxy && npm run test:pick-key && npm run test:matching-same && npm run test:suffix-signals && npm run test:manual && npm run test:spareto && npm run test:parts2world && npm run test:cache-handler && node --import tsx --test scripts/test-product-enrichment.ts && npm run test:part-art && npm run test:data-table && npm run test:brand && npm run test:fitment && npm run test:fitment-level && npm run test:description-fitment && node --import tsx --test scripts/test-enrichment-pace.ts && npm run test:logos && node --import tsx --test scripts/test-enrichment-worker.ts && node --conditions=react-server --import tsx --test scripts/test-enrichment-search-products.ts && npm run test:otoparcasan && npm run test:vehicle-oil && npm run test:maintenance-kit && npm run test:vehicle-families && npm run test:vehicle-repxpert && npm run test:app-version && npm run test:seo && npm run test:site-metadata && npm run test:structured-data && npm run test:guides && npm run test:listing-paths && npm run test:session-cookie && npm run test:product-paths && npm run test:analytics && npm run test:cart-count && npm run test:product-meta && npm run test:product-tabs && npm run test:vehicle-model-groups && npm run test:vehicle-label && npm run test:checkout-refresh && npm run test:checkout-error-alert && npm run test:remote-image && npm run test:related-suggestions && npm run test:category-tree && npm run test:image-config && npm run test:manufacturers && npm run test:installments && npm run test:scram-verifier
+      - run: npm run test:catalog-filters && npm run test:unavailable && npm run test:vehicle-lead && npm run test:garage && npm run test:maintenance-kit-query && npm run test:vehicle-model-listing && npm run test:manufacturer-listing && npm run test:brand-logos && npm run test:sitemap && npm run test:indexnow && npm run test:merchant-feed && npm run test:product-overrides && npm run test:product-equivalents && npm run test:product-override-images && npm run test:product-override-references && npm run test:product-override-specs && npm run test:vehicle-oil-overrides && npm run test:product-override-fitments && npm run test:fitment-rebuild && npm run test:description-fitment-sync && npm run test:restock && npm run test:search-analytics && npm run test:payments && npm run test:payment-return-url && npm run test:payment-refunds && npm run test:order-actions && npm run test:order-cancel && npm run test:purchase-event && npm run test:refund-event && npm run test:order-progress && npm run test:order-supplier-note && npm run test:order-agreement && node --import tsx --test --test-name-pattern='catalog CLI|master product' scripts/test-enrichment-worker.ts && node --import tsx --test scripts/test-storefront-make-fits.ts && node --conditions=react-server --import tsx --test scripts/test-enrichment-search-products.ts && npm run test:related-suggestions-query && npm run test:match-lock && npm run test:candidate-hints && npm run test:enrichment-pending && npm run test:geliver && npm run test:account-addresses && npm run test:order-email
         env:
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
       - run: npm run test:listing-card
       # The manual list bulk CSV test needs a database (#832); the step running test:manual has none, where it skips.
       - run: node --conditions=react-server --import tsx --test scripts/test-manual-bulk-db.ts
         env:
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
       # The Dinamik import and checkout tests need a database (#788); in the step above without one they skip.
       - run: npm run test:dinamik
         env:
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
       # Partner orders (#426) need a database; the step running test:partner has none.
       - run: npm run test:partner-orders
         env:
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
       - run: npm run test:media-gc
         env:
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
       - run: npm run test:type-categories
         env:
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
       - run: npm run test:setup-locks
         env:
-          DATABASE_URL: postgresql://postgres:test@localhost:5432/pricing_test
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
+      # Replacing nested views under a storefront read (#1046).
+      - run: npm run test:setup-view-locks
+        env:
+          DATABASE_URL: ${{ env.CI_DATABASE_URL }}
       - run: npm run build
         env:
           APP_ENV: staging
           SITE_URL: http://localhost:3103
+      - name: Remove Postgres
+        # Also after a failure or a cancel; the container is --rm, so stopping it removes it.
+        if: always()
+        run: |
+          if [ -n "${CI_PG_CONTAINER:-}" ]; then docker rm -f "$CI_PG_CONTAINER" >/dev/null 2>&1 || true; fi

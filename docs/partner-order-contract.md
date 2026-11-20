@@ -43,6 +43,7 @@ order time like the prices, stored on the order and counted in the limit.
    shipping address.
 4. Follow the order with `GET /orders/:id` or `GET /orders/by-key/:key`
    (no webhooks yet).
+5. To cancel, `DELETE /orders/:id` (see below).
 
 ## POST /order-quotes
 
@@ -114,11 +115,21 @@ the open-order limit and creates the order.
 **Payment is on account.** No payment is taken; GetirBakım invoices the partner
 later.
 
-**Open-order limit.** The gross total of the partner's orders that are neither
-cancelled nor delivered, plus the new order, must not exceed
-`PARTNER_ORDER_LIMIT_KURUS` (VAT and shipping included). Orders of one
-partner are created one at a time, so two concurrent orders cannot both pass
-a limit they exceed together. An unset limit refuses every order
+**Open-order limit.** The partner's outstanding amount is the gross total
+(VAT and shipping included) of its orders that are neither cancelled nor
+delivered, plus its delivered orders GetirBakım has not invoiced yet. The
+outstanding amount plus the new order must not exceed the partner's limit;
+a delivered order stops counting once operations mark it invoiced. Returned
+items do not reduce it: a delivered order stays in the outstanding amount
+(`openKurus` in `CREDIT_LIMIT_EXCEEDED`) with its full total until it is
+invoiced. If operations undo a wrong invoiced mark, those orders count again;
+orders already accepted are not affected, but a new order may then be refused
+with `CREDIT_LIMIT_EXCEEDED`. Correcting an invoice's number or date does not
+change the outstanding amount. The limit
+is the one set for the partner in the GetirBakım admin, else the deployment
+default `PARTNER_ORDER_LIMIT_KURUS`. Orders of one partner are created one at
+a time, so two concurrent orders cannot both pass a limit they exceed
+together. A partner with no limit cannot order
 (`503 ORDER_LIMIT_UNAVAILABLE`).
 
 ## GET /orders/:id and GET /orders/by-key/:key
@@ -127,6 +138,25 @@ a limit they exceed together. An unset limit refuses every order
 anything else, including a malformed id or key, is `404 ORDER_NOT_FOUND`.
 `by-key` lets a client whose create call timed out find out whether the order
 exists before retrying.
+
+## DELETE /orders/:id
+
+Cancels one of the calling partner's orders, or asks operations to:
+
+| Order status | Answer | Effect |
+| --- | --- | --- |
+| `REQUESTED` | `200 { "order", "cancellation": "CANCELLED" }` | Cancelled at once; `cancelledBy: "PARTNER"`. |
+| `CONFIRMED` | `202 { "order", "cancellation": "REQUESTED" }` | A cancel request is recorded (`cancellationRequest.status: "PENDING"`); the order is not shipped until operations decide it. |
+| `CONFIRMED`, request rejected | `409 CANCELLATION_REJECTED` | Final: the order ships; a return goes through operations. |
+| `SHIPPED`, `COMPLETED` | `409 ORDER_ALREADY_SHIPPED` | Returns are arranged with operations. |
+| `CANCELLED` | `200 { "order", "cancellation": "CANCELLED" }` | Nothing changes. |
+
+`DELETE` is repeatable: a repeated call answers the same and keeps the first
+request time. Another partner's order, or a malformed id, is
+`404 ORDER_NOT_FOUND`. There is no request body. After a `202`, follow the
+decision with `GET /orders/:id`: approved, the order becomes `CANCELLED` with
+`cancelledBy: "PARTNER"`; rejected, `cancellationRequest.status` becomes
+`REJECTED` and the order continues to `SHIPPED`.
 
 ## Order
 
@@ -144,12 +174,20 @@ exists before retrying.
   "note": "",
   "shipment": null,
   "cancelledBy": null, "cancelledAt": null,
+  "cancellationRequest": null,
   "createdAt": "2026-11-18T10:01:00.000Z"
 }
 ```
 
 `shipment` is set once the order ships:
 `{ "carrier", "trackingNo", "trackingUrl", "shippedAt", "deliveredAt" }`.
+
+`cancellationRequest` is `null` unless the partner asked to cancel a confirmed
+order: `{ "status", "requestedAt", "decidedAt" }`, `status` one of `PENDING`
+(operations have not decided; `decidedAt: null`), `APPROVED` (the order was
+cancelled; `decidedAt` = `cancelledAt`) or `REJECTED` (final; `decidedAt` =
+the rejection time). If operations cancel such an order themselves,
+`cancelledBy` is `GETIRBAKIM` and the request reads `APPROVED`.
 
 ### Statuses
 
@@ -163,8 +201,8 @@ exists before retrying.
 
 Changes from 1.0: `RESERVATION_EXPIRED` is gone (nothing is reserved and
 nothing expires); `REJECTED` is not emitted, an order operations refuse is
-`CANCELLED` with `cancelledBy: "GETIRBAKIM"`. Partner cancellation (`DELETE`)
-comes in a later version.
+`CANCELLED` with `cancelledBy: "GETIRBAKIM"`. A partner's own cancellation
+(`DELETE`, or an approved cancel request) is `cancelledBy: "PARTNER"`.
 
 ## Errors
 
@@ -180,16 +218,19 @@ comes in a later version.
 | 409 | `PRICE_CHANGED` | A line's price or the shipping fee moved since the quote | `lines: [{ selectedOfferId, expectedUnitNetKurus, unitNetKurus }]`; `unitNetKurus` is the new price, or `null` while the supplier's new cost is still being saved; `shipping: { expectedShippingKurus, shippingKurus }` when the fee changed |
 | 409 | `QUOTE_EXPIRED` | The quote is older than 15 minutes | `expiredAt` |
 | 409 | `QUOTE_CHANGED` | Token not signed by us, for another partner, or lines differ; checkout rules changed | |
-| 409 | `CREDIT_LIMIT_EXCEEDED` | Open orders + this order exceed the limit | `limitKurus, openKurus, orderKurus` |
+| 409 | `CREDIT_LIMIT_EXCEEDED` | Outstanding amount (open + delivered, uninvoiced orders) + this order exceed the limit | `limitKurus, openKurus` (outstanding amount), `orderKurus` |
 | 409 | `IDEMPOTENCY_CONFLICT` | Key reused with another body | |
+| 409 | `CANCELLATION_REJECTED` | `DELETE` on a confirmed order whose cancel request operations rejected | |
+| 409 | `ORDER_ALREADY_SHIPPED` | `DELETE` on a shipped or delivered order | |
 | 429 | `RATE_LIMITED` | Too many requests | |
 | 503 | `QUOTE_CONFIGURATION_UNAVAILABLE` | `PARTNER_QUOTE_SIGNING_SECRET` missing (< 32 chars) | |
-| 503 | `ORDER_LIMIT_UNAVAILABLE` | `PARTNER_ORDER_LIMIT_KURUS` missing | |
+| 503 | `ORDER_LIMIT_UNAVAILABLE` | No limit for the partner (admin value or `PARTNER_ORDER_LIMIT_KURUS`) | |
 | 503 | `SUPPLIER_CHECK_UNAVAILABLE` | The live check failed on our side; retry with the same key | |
 | 500 | `INTERNAL_ERROR` | Unexpected | |
 
-On every 409 except `IDEMPOTENCY_CONFLICT` the partner requests a new quote and
-orders with a new `Idempotency-Key`.
+On every order-creation 409 except `IDEMPOTENCY_CONFLICT` the partner requests
+a new quote and orders with a new `Idempotency-Key`. The `DELETE` 409s are final
+for that order.
 
 ## Storage
 
@@ -203,6 +244,10 @@ rounded, for the store's screens; `reserved_quantity` 0;
 `pricing_snapshot.partner` = binding unit net, VAT rate and the line's net, VAT
 and gross). `email` is stored as an empty string when none is sent (the column
 is NOT NULL for store orders).
+A partner cancel is stored as `cancelled_by='customer'` (the owner kind tells
+partner from store customer); a cancel request as `cancel_requested_at` and,
+when rejected, `cancel_request_rejected_at`. While a request is open (requested,
+not rejected) the order cannot be shipped by hand or with a Geliver label.
 Operations handle it in `/yonetim/siparisler` like a paid order; the TAMI payment
 window and its expiry never touch it. Invoice columns stay empty (the partner
 is invoiced) and no consumer pre-contract documents are stored.
@@ -211,5 +256,6 @@ is invoiced) and no consumer pre-contract documents are stored.
 
 - `PARTNER_API_KEYS`: `code:key` pairs (see `.env.example`).
 - `PARTNER_QUOTE_SIGNING_SECRET`: at least 32 characters; rotating it voids open quotes.
-- `PARTNER_ORDER_LIMIT_KURUS`: open-order limit per partner, VAT included.
+- `PARTNER_ORDER_LIMIT_KURUS`: default open-order limit per partner in kuruş, VAT and shipping included; a limit set in
+  `/yonetim/partnerler` overrides it.
 - `PARTNER_B2B_DISCOUNT_BPS`: optional discount, as for the products endpoint.

@@ -1,10 +1,35 @@
-import {z} from "zod";
-const values=z.array(z.string().trim().min(1).max(200)).max(30);
 /** Most raw values one attribute group may carry in the URL (a merged sidebar option adds several, #703). */
 export const maxAttributeValues=40;
-export const attributesSchema=z.record(z.string().min(1).max(200),z.array(z.string().trim().min(1).max(200)).max(maxAttributeValues)).refine(v=>Object.keys(v).length<=8);
-export function selectedBrands(query:{brand?:string;brands?:string}):string[]{try{return query.brands?values.parse(JSON.parse(query.brands)):query.brand?[query.brand]:[];}catch{return [];}}
-export function selectedAttributes(query:{attributes?:string}):Record<string,string[]>{try{return query.attributes?attributesSchema.parse(JSON.parse(query.attributes)):{};}catch{return {};}}
+// Plain checks instead of zod: this file is imported by client components and zod is ~90 kB of transfer (#968).
+// Any bad element rejects the whole group, as the former schemas did.
+function trimmedTexts(value:unknown,max:number):string[]|undefined{
+ if(!Array.isArray(value)||value.length>max)return undefined;
+ const out:string[]=[];
+ for(const item of value){
+  if(typeof item!=="string")return undefined;
+  const text=item.trim();
+  if(!text||text.length>200)return undefined;
+  out.push(text);
+ }
+ return out;
+}
+export function selectedBrands(query:{brand?:string;brands?:string}):string[]{try{return query.brands?trimmedTexts(JSON.parse(query.brands),30)??[]:query.brand?[query.brand]:[];}catch{return [];}}
+export function selectedAttributes(query:{attributes?:string}):Record<string,string[]>{
+ try{
+  if(!query.attributes)return {};
+  const parsed:unknown=JSON.parse(query.attributes);
+  if(typeof parsed!=="object"||parsed===null||Array.isArray(parsed))return {};
+  const entries=Object.entries(parsed);
+  if(entries.length>8)return {};
+  const out:[string,string[]][]=[];
+  for(const [key,value] of entries){
+   const list=key.length>=1&&key.length<=200?trimmedTexts(value,maxAttributeValues):undefined;
+   if(!list)return {};
+   out.push([key,list]);
+  }
+  return Object.fromEntries(out);
+ }catch{return {};}
+}
 /** `values`: the raw spellings one sidebar option stands for (equivalent translations are merged, #703). */
 export type CatalogFacet={key:string;label:string;options:{label:string;values:string[]}[]};
 const sourceIdentityFields=new Set(["Brand class","Manufacturer","Manufacturer Part Number","EAN","Trade numbers"]);

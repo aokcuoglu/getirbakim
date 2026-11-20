@@ -2,8 +2,8 @@
 // name ("BRAKE DISC"); the store shows them as "Fren Diski" (src/modules/store/suggestion-names.ts), so a Turkish query
 // should find them too. Pure (no server-only): the header search tests import it. Never import it from a client
 // component: the dictionary stays on the server (query.ts is shared with the browser and must not import this).
-import { typeNameEntries } from "@/modules/store/suggestion-names";
-import { normalizeSearchText, prefixTsQuery, type ParsedSearch } from "./query";
+import { turkishTypeName, typeNameEntries } from "@/modules/store/suggestion-names";
+import { normalizeSearchText, parseSearchQuery, prefixTsQuery, type ParsedSearch } from "./query";
 
 /**
  * English words too ambiguous to search for as words, though the store may still translate them:
@@ -53,7 +53,7 @@ function roots(word: string, shortest: number) {
 }
 
 /** A Turkish name as the roots of each word, with the English name (folded words joined by one space) it translates. */
-type Entry = { words: Set<string>[]; english: string };
+type Entry = { words: Set<string>[]; normalizedWords: string[]; english: string };
 const entries: Entry[] = [];
 /** The ambiguous English names, matched only as a whole name. */
 const exactEntries: Entry[] = [];
@@ -62,7 +62,8 @@ for (const [name, turkish] of typeNameEntries()) {
   const english = normalizeSearchText(name);
   const normalized = normalizeSearchText(turkish);
   if (english === normalized) continue;
-  (ambiguousEnglish.has(english) ? exactEntries : entries).push({ words: normalized.split(" ").map(word => roots(word, 4)), english });
+  const normalizedWords = normalized.split(" ");
+  (ambiguousEnglish.has(english) ? exactEntries : entries).push({ words: normalizedWords.map(word => roots(word, 4)), normalizedWords, english });
 }
 
 /** The English names whose Turkish name the query words spell, word by word with any ending, in dictionary order. */
@@ -95,19 +96,64 @@ function typeNameWindows(parsed: ParsedSearch) {
 
 const phrase = (english: string) => english.split(" ").map(word => `'${word}'`).join(" <-> ");
 
+type Window = ReturnType<typeof typeNameWindows>[number];
+
+/**
+ * The runs that name a type each and share no word, taken longest first ("kapı camı" → kapı, camı; "fren diski kapağı" →
+ * fren diski, kapağı; "diski" overlaps "fren diski" and is left out), in query order. Null under two runs. One greedy set,
+ * not every combination: each extra query is one more index scan.
+ */
+function combinedWindows(windows: Window[]) {
+  const chosen: Window[] = [];
+  for (const window of windows)
+    if (chosen.every(other => window.end < other.start || window.start > other.end)) chosen.push(window);
+  return chosen.length < 2 ? null : chosen.sort((a, b) => a.start - b.start);
+}
+
+/** The query without the terms the runs cover, as a prefix tsquery ("" when nothing is left). */
+function otherWords(parsed: ParsedSearch, windows: Window[]) {
+  const covered = (index: number) => windows.some(({ start, end }) => index >= start && index <= end);
+  return prefixTsQuery({ ...parsed, terms: parsed.terms.filter((_, index) => !covered(index)) });
+}
+
 /**
  * Extra tsqueries for the English supplier names a run of query words names in Turkish, each with the other required
- * words: "fren diski bosch" → `('brake' <-> 'disc') & ('bosch':*)`, "motor kapağı" → `('cover') & ('motor':*)`.
- * Longest runs first, at most four.
+ * words: "fren diski bosch" → `('brake' <-> 'disc') & ('bosch':*)`, "motor kapağı" → `('cover') & ('motor':*)`. When
+ * several runs each name a type (#989), their names together come first: "kapı camı" → `('door') & ('glass')` (DOOR GLASS),
+ * then each run with the other words. Longest runs first, at most four besides the combined one.
  */
 export function typeNameTsQueries(parsed: ParsedSearch): string[] {
-  const { terms } = parsed;
-  const queries = typeNameWindows(parsed).map(({ start, end, english }) => {
-    const others = prefixTsQuery({ ...parsed, terms: terms.filter((_, index) => index < start || index > end) });
-    const names = `(${english.map(phrase).join(" | ")})`;
+  const windows = typeNameWindows(parsed);
+  const query = (chosen: Window[]) => {
+    const names = chosen.map(({ english }) => `(${english.map(phrase).join(" | ")})`).join(" & ");
+    const others = otherWords(parsed, chosen);
     return others ? `${names} & ${others}` : names;
-  });
-  return [...new Set(queries)].slice(0, maxQueries);
+  };
+  const combined = combinedWindows(windows);
+  // The combined query comes on top of the four: it must not push out a single run.
+  const singles = [...new Set(windows.map(window => query([window])))].slice(0, maxQueries);
+  return combined ? [query(combined), ...singles] : singles;
+}
+
+/**
+ * The English supplier names whose Turkish name the typed words begin ("fren hor" → BRAKE HOSE), for the type-ahead (#962):
+ * the earlier words match whole (with any ending), the last one as a prefix. Ambiguous names are included. At most `max`
+ * names; null when a code is typed or nothing matches. `query` selects the rows by their text index; the caller rechecks
+ * the name against `names`.
+ */
+export function typeNamePrefixQuery(parsed: ParsedSearch, max = 12): { query: string; names: string[] } | null {
+  const { terms } = parsed;
+  if (!terms.length || terms.some(term => term.parts)) return null;
+  const words = terms.flatMap(term => term.text.split(" "));
+  const queryRoots = words.map(word => roots(word, 3));
+  const last = words.length - 1;
+  const matching = [...entries, ...exactEntries].filter(entry => entry.normalizedWords.length >= words.length
+    && words.every((_, index) => index === last
+      ? [...queryRoots[index]].some(root => entry.normalizedWords[index].startsWith(root))
+      : [...queryRoots[index]].some(root => entry.words[index].has(root))));
+  const names = [...new Set(matching.map(entry => entry.english))].slice(0, max);
+  if (!names.length) return null;
+  return { query: names.map(phrase).map(text => `(${text})`).join(" | "), names };
 }
 
 /**
@@ -137,21 +183,35 @@ export type TypeNameBoost = { query: string; english: string[]; turkish: string;
 
 /**
  * The ranking swaps for the type names a query spells in Turkish ("fren diski" → BRAKE DISC), longest runs first, at most
- * four. Known limit: each swap stands alone, so a row named after two windows ("kapı camı" → DOOR GLASS) gets the better
- * of the two swaps, not both Turkish names.
+ * four besides the combined one. Runs that each name a type (#989) swap together first: a row named DOOR GLASS ranks as "kapi cami". Known limit:
+ * only the one greedy set of runs combines (as in typeNameTsQueries), and an ambiguous name (CAP, ARM…) never joins it.
  */
 export function typeNameRankBoosts(parsed: ParsedSearch): TypeNameBoost[] {
   const { terms } = parsed;
   const typed = (start: number, end: number) => terms.slice(start, end + 1).map(term => term.text).join(" ");
-  const boosts: TypeNameBoost[] = typeNameWindows(parsed).map(({ start, end, english }) => ({
-    query: `(${english.map(name => name.split(" ").map(word => `'${word}':A`).join(" <-> ")).join(" | ")})`,
-    english: [...new Set(english.flatMap(name => name.split(" ")))],
-    turkish: typed(start, end),
-  }));
+  const nameQuery = (english: string[]) => `(${english.map(name => name.split(" ").map(word => `'${word}':A`).join(" <-> ")).join(" | ")})`;
+  const englishWords = (english: string[]) => [...new Set(english.flatMap(name => name.split(" ")))];
+  const windows = typeNameWindows(parsed);
+  const combined = combinedWindows(windows);
+  const boosts: TypeNameBoost[] = windows.map(({ start, end, english }) => ({ query: nameQuery(english), english: englishWords(english), turkish: typed(start, end) }));
   terms.forEach((term, index) => {
     if (term.parts) return;
     const names = englishNames(exactEntries, term.text.split(" "));
     if (names.length) boosts.push({ query: `(${names.map(name => `'${name}':A`).join(" | ")})`, english: names, turkish: typed(index, index), names });
   });
-  return boosts.slice(0, maxQueries);
+  // The combined swap comes on top of the four, as in typeNameTsQueries: an ambiguous name's swap stays.
+  return combined ? [{
+    query: combined.map(({ english }) => nameQuery(english)).join(" & "),
+    english: englishWords(combined.flatMap(({ english }) => english)),
+    turkish: combined.map(({ start, end }) => typed(start, end)).join(" "),
+  }, ...boosts.slice(0, maxQueries)] : boosts.slice(0, maxQueries);
+}
+
+/**
+ * How many products of a search's first page show an English supplier name translated to Turkish (#989): the measure of
+ * the type-name expansion recorded with the search. Null for a code search or a query that names no type.
+ */
+export function typeNameFirstPage(query: string, mode: "all" | "code", products: { name: string; name_overridden: boolean }[]): number | null {
+  if (mode !== "all" || !typeNameRankBoosts(parseSearchQuery(query)).length) return null;
+  return products.filter(product => !product.name_overridden && turkishTypeName(product.name) !== undefined).length;
 }

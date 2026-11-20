@@ -15,9 +15,21 @@ CREATE TABLE IF NOT EXISTS enrichment_product_states (
  refreshed_at timestamptz NOT NULL DEFAULT now()
 );
 -- Both sort directions walk one index: ORDER BY sorted_at, supplier_item_id with the same direction on both keys.
-CREATE INDEX IF NOT EXISTS enrichment_product_states_status_idx ON enrichment_product_states(status, sorted_at, supplier_item_id);
-CREATE INDEX IF NOT EXISTS enrichment_product_states_enriched_idx ON enrichment_product_states(sorted_at, supplier_item_id) WHERE enriched;
-CREATE INDEX IF NOT EXISTS enrichment_product_states_item_idx ON enrichment_product_states(supplier_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_product_states'::regclass AND c.relname='enrichment_product_states_status_idx') THEN
+  CREATE INDEX enrichment_product_states_status_idx ON enrichment_product_states(status, sorted_at, supplier_item_id);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_product_states'::regclass AND c.relname='enrichment_product_states_enriched_idx') THEN
+  CREATE INDEX enrichment_product_states_enriched_idx ON enrichment_product_states(sorted_at, supplier_item_id) WHERE enriched;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_product_states'::regclass AND c.relname='enrichment_product_states_item_idx') THEN
+  CREATE INDEX enrichment_product_states_item_idx ON enrichment_product_states(supplier_item_id);
+ END IF;
+END $$;
 
 -- Product ids whose state row is stale. The all-zero id asks for a full rebuild (brand mapping changes touch everything).
 CREATE TABLE IF NOT EXISTS enrichment_product_state_queue (
@@ -36,10 +48,12 @@ DO $setup$ DECLARE def text := $view$
   COALESCE(jsonb_array_length(c.payload->'specifications'),0) AS specification_count,
   now() AS refreshed_at
  FROM enrichment_product_catalog c;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='enrichment_product_state_rows' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='enrichment_product_state_rows' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW enrichment_product_state_rows AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;

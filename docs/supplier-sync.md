@@ -107,6 +107,22 @@ Satış adaptörü açılırken uygulanması gereken sözleşme:
 
 Mağaza ortak ticari görünümden fiyat ve bulunabilirlik okur. Siparişler teyit bekleyen durumda oluşturulur; kaynak stoğu rezerve edilmiş sayılmaz. Bu otomasyon ödeme sağlayıcısı veya tedarikçi rezervasyon entegrasyonu eklemez.
 
+## Para birimi anomalisi (#1030)
+
+Başbuğ her satıra kendi para birimini (`dc`) yazar; tek bir satırın yanlış etiketlenmesi (196 TL satırlı KENTPAR'da tek EUR satırı: 1.390,71 "EUR" → ~77.000 TL maliyet) fiyatı onlarca kat şişirir. `src/modules/suppliers/price-anomalies.ts` böyle satırları `supplier_price_anomalies` tablosuna yazar; açık (`open`) anomali satırı `commerce_catalog`'da kalır ama **fiyatlanmaz** (formül fiyatı yok → sabit/kampanya fiyatı da satmaz). Ürün başka tedarikçiden satılıyorsa o teklif, yoksa "Stokta yok/fiyatsız" görünür.
+
+Kural (eşikler `priceAnomalyThresholds`, 19 Kas 2026 Başbuğ ölçümüyle seçildi; marka = `supplier_item_brand`, kapsam = tedarikçi + firma, liste grupları birlikte; yalnız satılabilir, `nf>0` satırlar; TL ≡ TRY):
+
+1. Markanın en az 20 fiyatlı satırı var.
+2. Satırın para birimi markanın baskın para biriminden farklı ve o para biriminde en çok 3 satır, en çok %2 pay var (iki para birimiyle fiyatlanan BSG/FEBI gibi markalar elenir).
+3. Satırın kurla çevrilmiş maliyeti marka medyanının (baskın para birimindeki satırların TL maliyeti) en az 10 katı.
+4. Değer baskın para biriminde okunursa normal (10 katın altında): yalnız etiket yanlış.
+5. Aynı ürünü (`product_sources`) satan başka tedarikçinin TL teklifi maliyetin en az üçte biri ise fiyat gerçek sayılır, anomali değildir.
+
+Çalışma: zamanlayıcıda başarılı bir Başbuğ tam liste (`full`) çekiminden sonra bir kez (gece 03:00; 30 dakikalık fiyat/stok çekimleri para birimini değiştirmez) ve panelden Başbuğ yenilemesinden sonra. ~0,5 s okur, `supplier_items`'a yazmaz; eşzamanlı ikinci çalışma `pg_try_advisory_xact_lock(20261001,11)` ile atlanır. Hata zamanlayıcıyı başarısız yapmaz, önceki liste kalır. Artık tespit edilmeyen açık satırlar tablodan silinir ve yeniden fiyatlanır. "Anomali değil" denmiş (`dismissed`) satır yalnız tedarikçi satırı silindiğinde ya da satırın para birimi değiştiğinde silinir; bir taramanın onu kaçırması (teyit eden teklif gelip gitti, marka satır sayısı düştü) kararı silmez. Son çekimde gereken kur yoksa o tarama hiçbir satırı silmez.
+
+`/yonetim/tedarikciler`: açık anomali "Açık sorunlar"da ve "Para birimi anomalileri" tablosunda (kanıt: para birimleri, çevrilmiş maliyet, marka medyanı, oran, diğer teklif) görünür; Başbuğ ürün sayfası uyarı gösterir. "Anomali değil" satırı `dismissed` yapar: satır yeniden fiyatlanır ve sonraki taramalar kararı korur; "Yeniden işaretle" geri alır. Veriyi tedarikçi düzeltir; panelde fiyat elle düzeltilmez.
+
 ## Doğrulama ve bakım
 
 - `npm run test:basbug`: ham sözleşme, tekrarlar, çelişkiler, eksikler, boş/bozuk yanıt.

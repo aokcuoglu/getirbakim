@@ -25,7 +25,7 @@ Kullanıcıya göster: mevcut sürüm → önerilen `vX.Y.Z`, PR listesi (tür v
 7. Rapor: merge, sürüm, tag, Release bağlantısı.
 
 ## 4. Production yayını — AYRI adım
-`main` merge'i deploy etmez. Yayını yalnız kullanıcı ayrıca ve açıkça isterse yap: `gh workflow run release-aws.yml --ref main`, GitHub `production` ortam onayını kullanıcıya bırak, `gh run watch` ile izle, sonucu ve smoke testleri (`https://getirbakim.com` ana sayfa, arama, `/api/health/suppliers`) bildir. Deploy workflow'larını değiştirme; Contabo workflow'larını etkinleştirme.
+`main` merge'i deploy etmez. Yayını yalnız kullanıcı ayrıca ve açıkça isterse yap: `gh workflow run release-aws.yml --ref main -f version=X.Y.Z` (X.Y.Z = `main`'deki `package.json` sürümü; koruma işi dal, tetikleyen ve sürüm uyuşmazsa AWS'den önce durdurur), `gh run watch` ile izle, sonucu ve smoke testleri (`https://getirbakim.com` ana sayfa, arama, `/api/health/suppliers`) bildir. Deploy workflow'larını değiştirme; Contabo workflow'larını etkinleştirme.
 
 ### Araç yağı verisi AWS'ye ayrıca aktarılır
 Sürümde `data/vehicle_type_oil_specs.csv` (veya `scripts/import-vehicle-oils.ts`) değiştiyse, `release-aws` bittikten sonra kullanıcıya hatırlat: operations imajı (`COPY . .`) CSV'yi taşır ama içe aktarma otomatik koşmaz. İdempotent görev (DB'ye yazar; yalnız kullanıcı onayıyla), `scripts/sync-storefront-production.ts`'in `ecs run-task` biçimiyle, operations görev tanımı ve ağ ayarları App/Network yığın çıktılarından alınarak:

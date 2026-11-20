@@ -27,8 +27,12 @@ DO $$ BEGIN
 END $$;
 -- /yonetim/urun-verileri search by manufacturer part number (#617). Only enriched products carry one (~80k of ~780k
 -- rows), so the index is partial; the query repeats the predicate. Same REINDEX rule as above when search_compact changes.
-CREATE INDEX IF NOT EXISTS enrichment_product_states_part_number_search_idx ON enrichment_product_states
- USING gin (search_compact(manufacturer_part_number) gin_trgm_ops) WHERE manufacturer_part_number IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_product_states'::regclass AND c.relname='enrichment_product_states_part_number_search_idx') THEN
+  CREATE INDEX enrichment_product_states_part_number_search_idx ON enrichment_product_states
+    USING gin (search_compact(manufacturer_part_number) gin_trgm_ops) WHERE manufacturer_part_number IS NOT NULL;
+ END IF;
+END $$;
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_stats WHERE schemaname=current_schema() AND tablename='enrichment_product_states_part_number_search_idx') THEN
   ANALYZE enrichment_product_states;

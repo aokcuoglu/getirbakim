@@ -11,9 +11,21 @@ CREATE TABLE IF NOT EXISTS product_enrichment_shared_links (
  image_id uuid, imported_at timestamptz NOT NULL,
  refreshed_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS product_enrichment_shared_links_donor_idx ON product_enrichment_shared_links(donor_item_id);
-CREATE INDEX IF NOT EXISTS product_enrichment_shared_links_image_idx ON product_enrichment_shared_links(image_id) WHERE image_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS product_enrichment_shared_links_imported_idx ON product_enrichment_shared_links(imported_at DESC, supplier_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichment_shared_links'::regclass AND c.relname='product_enrichment_shared_links_donor_idx') THEN
+  CREATE INDEX product_enrichment_shared_links_donor_idx ON product_enrichment_shared_links(donor_item_id);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichment_shared_links'::regclass AND c.relname='product_enrichment_shared_links_image_idx') THEN
+  CREATE INDEX product_enrichment_shared_links_image_idx ON product_enrichment_shared_links(image_id) WHERE image_id IS NOT NULL;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_enrichment_shared_links'::regclass AND c.relname='product_enrichment_shared_links_imported_idx') THEN
+  CREATE INDEX product_enrichment_shared_links_imported_idx ON product_enrichment_shared_links(imported_at DESC, supplier_item_id);
+ END IF;
+END $$;
 
 -- Same columns, in the same order, as product_enrichment_shared: storefront queries swap one name for the other.
 DO $setup$ DECLARE def text := $view$
@@ -21,10 +33,12 @@ DO $setup$ DECLARE def text := $view$
  e.manufacturer_part_number,l.image_id,e.payload,l.imported_at,e.match_basis,l.donor_item_id,
  e.supplier_code AS donor_code,e.supplier_brand AS donor_brand,l.donor_oem,l.status,l.donor_master_brand
  FROM product_enrichment_shared_links l JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='storefront_enrichments' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='storefront_enrichments' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW storefront_enrichments AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;

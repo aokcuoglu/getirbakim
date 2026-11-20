@@ -9,6 +9,7 @@ import { Search,ChevronRight,ShieldCheck,Truck,CarFront,CircleCheck,Info } from 
 import { after } from "next/server";
 import { headers } from "next/headers";
 import { recordSearch } from "@/modules/search/analytics";
+import { typeNameFirstPage } from "@/modules/search/type-names";
 import { browseProducts,isPlainSearch,catalogFacets,vehicleFitCount,vehicleLead,productsFittingVehicle,servicePrice } from "@/modules/store/catalog";
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { currentAccount } from "@/modules/auth/session";
@@ -107,7 +108,10 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
   const request=await headers();
   const crawler=/bot|crawl|spider|slurp|preview|headless|lighthouse/i.test(request.get("user-agent")??"");
   const prefetch=request.has("next-router-prefetch")||/prefetch/i.test(request.get("sec-purpose")??request.get("purpose")??"");
-  if(!crawler&&!prefetch)after(()=>recordSearch({query:params.q!,mode:params.searchBy==="code"?"code":"all",total:result.total,correctedQuery:result.correctedQuery}));
+  const mode=params.searchBy==="code"?"code":"all";
+  // #989: how many first-page cards the type-name expansion translated, measured after the response too; a corrected
+  // search ran the corrected query.
+  if(!crawler&&!prefetch)after(()=>recordSearch({query:params.q!,mode,total:result.total,correctedQuery:result.correctedQuery,typeNameFirstPage:typeNameFirstPage(result.correctedQuery??params.q!,mode,result.items)}));
  }
  const [images,logos,details,fitting]=await Promise.all([getCatalogProductImages(cards),getManufacturerLogos(cards.map(product=>product.display_brand)),getCatalogProductDetails(cards),vehicleTypeId?productsFittingVehicle(cards.map(product=>product.id),vehicleTypeId):new Set<string>()]);
  // On a make or model listing only the categories holding its products are linked: an empty one would be a 404 (#673).

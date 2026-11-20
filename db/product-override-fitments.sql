@@ -35,6 +35,8 @@ END $$;
 -- rows a merge carries (product_override_fitments_carry) keep NULL; rows written before #816 have none (no backfill).
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_override_fitments'::regclass AND attname='batch_id' AND NOT attisdropped) THEN
+  -- Views that read the table first (#1046, db/schema.sql); fixtures that load this file alone have no helper.
+  IF to_regprocedure('setup_lock_dependent_views(regclass)') IS NOT NULL THEN PERFORM setup_lock_dependent_views('product_override_fitments'); END IF;
   ALTER TABLE product_override_fitments ADD COLUMN batch_id uuid;
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_override_changes'::regclass AND attname='batch_id' AND NOT attisdropped) THEN
@@ -63,9 +65,21 @@ CREATE TABLE IF NOT EXISTS product_override_fitment_hides (
  CHECK ((kind='description_model')=(model_id IS NOT NULL)),
  CHECK ((kind='description_model')=(source_key IS NULL))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS product_override_fitment_hides_model_key ON product_override_fitment_hides(product_id,model_id) WHERE kind='description_model';
-CREATE UNIQUE INDEX IF NOT EXISTS product_override_fitment_hides_source_key ON product_override_fitment_hides(product_id,kind,md5(source_key)) WHERE source_key IS NOT NULL;
-CREATE INDEX IF NOT EXISTS product_override_fitment_hides_carried_idx ON product_override_fitment_hides(carried_from) WHERE carried_from IS NOT NULL;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitment_hides'::regclass AND c.relname='product_override_fitment_hides_model_key') THEN
+  CREATE UNIQUE INDEX product_override_fitment_hides_model_key ON product_override_fitment_hides(product_id,model_id) WHERE kind='description_model';
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitment_hides'::regclass AND c.relname='product_override_fitment_hides_source_key') THEN
+  CREATE UNIQUE INDEX product_override_fitment_hides_source_key ON product_override_fitment_hides(product_id,kind,md5(source_key)) WHERE source_key IS NOT NULL;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_fitment_hides'::regclass AND c.relname='product_override_fitment_hides_carried_idx') THEN
+  CREATE INDEX product_override_fitment_hides_carried_idx ON product_override_fitment_hides(carried_from) WHERE carried_from IS NOT NULL;
+ END IF;
+END $$;
 
 -- The description models the store lists (#392, #661): every reader (make and model pages, category counts, sitemaps,
 -- the index signal, the product page, related suggestions) reads this view instead of product_model_fitments. A model
@@ -78,10 +92,12 @@ DO $setup$ DECLARE def text := $view$
    WHERE h.kind='description_model' AND ps.supplier_item_id=f.supplier_item_id AND h.model_id=f.model_id)
   AND NOT EXISTS (SELECT 1 FROM product_override_fitments d JOIN product_sources ps ON ps.product_id=d.product_id
    WHERE ps.supplier_item_id=f.supplier_item_id);
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='storefront_description_fits' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='storefront_description_fits' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW storefront_description_fits AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;

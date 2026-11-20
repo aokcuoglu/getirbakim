@@ -33,14 +33,10 @@ test("a second setup run takes no ACCESS EXCLUSIVE lock on any table or view", a
   }
 });
 
-// Indexes and triggers on these tables are created only when missing (#925, #964, #965): CREATE INDEX IF NOT EXISTS
-// takes SHARE and CREATE [OR REPLACE] TRIGGER takes SHARE ROW EXCLUSIVE before finding the object, and either queues
-// every insert, update and delete behind setup until it commits.
-const writeHot = ["accounts", "guest_carts", "supplier_items", "products", "product_sources", "product_enrichments", "product_enrichment_jobs",
-  "product_vehicle_fitments", "vehicle_types", "vehicle_models", "commerce_orders", "commerce_order_agreements", "supplier_brands", "brands",
-  "product_override_fitments"];
-
-test("a second setup run takes no writer-blocking lock on the write-hot tables", async (t) => {
+// Indexes and triggers are created only when missing (#925, #964, #965, #993): CREATE INDEX IF NOT EXISTS takes SHARE and
+// CREATE [OR REPLACE] TRIGGER takes SHARE ROW EXCLUSIVE before finding the object, and either queues every insert,
+// update and delete behind setup until it commits. No table may take such a lock.
+test("a second setup run takes no writer-blocking lock on any table", async () => {
   const client = await schema.pool.connect();
   try {
     await client.query("BEGIN");
@@ -49,9 +45,7 @@ test("a second setup run takes no writer-blocking lock on the write-hot tables",
       `SELECT c.relname,l.mode FROM pg_locks l JOIN pg_class c ON c.oid=l.relation
        WHERE l.pid=pg_backend_pid() AND l.locktype='relation' AND c.relnamespace=$1::regnamespace AND c.relkind='r'
         AND l.mode IN ('ShareLock','ShareRowExclusiveLock','ExclusiveLock','AccessExclusiveLock') ORDER BY 2,1`, [schema.name]);
-    // The other tables still take SHARE from CREATE INDEX IF NOT EXISTS: reported, not asserted.
-    for (const row of rows.filter((row) => !writeHot.includes(row.relname))) t.diagnostic(`${row.mode}: ${row.relname}`);
-    assert.deepEqual(rows.filter((row) => writeHot.includes(row.relname)).map((row) => `${row.mode}: ${row.relname}`), []);
+    assert.deepEqual(rows.map((row) => `${row.mode}: ${row.relname}`), []);
   } finally {
     await client.query("ROLLBACK").catch(() => undefined);
     client.release();

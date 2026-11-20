@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS product_enrichments (
 -- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_enrichments'::regclass AND attname='match_basis' AND NOT attisdropped) THEN
+  -- Views that read the table first (#1046, db/schema.sql); fixtures that load this file alone have no helper.
+  IF to_regprocedure('setup_lock_dependent_views(regclass)') IS NOT NULL THEN PERFORM setup_lock_dependent_views('product_enrichments'); END IF;
   ALTER TABLE product_enrichments ADD COLUMN match_basis jsonb NOT NULL DEFAULT '{"type":"exact_part"}';
  END IF;
 END $$;

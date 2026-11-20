@@ -11,7 +11,6 @@ import type {ManufacturerLogo} from "@/modules/store/manufacturer-logos";
 import {displaySpecifications,translateSpecificationValue,type CardSpecification} from "@/modules/store/specification-translations";
 import {cn} from "@/lib/utils";
 import {campaignEndText,listPrice,saleUntil} from "@/modules/store/best-offer";
-import "@/app/catalog-card.css";
 import {CardSpecifications,CompareCheckbox} from "./catalog-card-controls";
 import {productPath} from "@/modules/seo/product-path";
 import {catalogCardTitle} from "@/modules/store/product-override-display";

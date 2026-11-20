@@ -93,10 +93,12 @@ DO $setup$ DECLARE def text := $view$
  SELECT DISTINCT ON (product_brand_key(sb.label)) product_brand_key(sb.label) AS alias, b.key AS canonical
  FROM supplier_brands sb JOIN brands b ON b.id=sb.brand_id
  ORDER BY product_brand_key(sb.label), sb.items DESC, b.key;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='brand_key_aliases' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='brand_key_aliases' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW brand_key_aliases AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -188,8 +190,16 @@ CREATE TABLE IF NOT EXISTS product_match_items (
  supplier_item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
  supplier text NOT NULL, brand text NOT NULL, part_number text NOT NULL, name text
 );
-CREATE INDEX IF NOT EXISTS product_match_items_key_idx ON product_match_items(brand,part_number);
-CREATE INDEX IF NOT EXISTS product_match_items_part_idx ON product_match_items(part_number);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_match_items'::regclass AND c.relname='product_match_items_key_idx') THEN
+  CREATE INDEX product_match_items_key_idx ON product_match_items(brand,part_number);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_match_items'::regclass AND c.relname='product_match_items_part_idx') THEN
+  CREATE INDEX product_match_items_part_idx ON product_match_items(part_number);
+ END IF;
+END $$;
 -- Keys shared by two or more items (same supplier or not).
 CREATE TABLE IF NOT EXISTS product_match_groups (
  brand text NOT NULL, part_number text NOT NULL, members integer NOT NULL, suppliers text[] NOT NULL,
@@ -204,7 +214,11 @@ CREATE TABLE IF NOT EXISTS product_references (
  kind text NOT NULL CHECK (kind IN ('cross','oem')), brand text NOT NULL, part_number text NOT NULL,
  PRIMARY KEY (supplier_item_id,kind,brand,part_number)
 );
-CREATE INDEX IF NOT EXISTS product_references_key_idx ON product_references(brand,part_number);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_references'::regclass AND c.relname='product_references_key_idx') THEN
+  CREATE INDEX product_references_key_idx ON product_references(brand,part_number);
+ END IF;
+END $$;
 -- Reference keys (ORIJINAL + OEM number, or a competitor's brand + part number) that tie at least two different
 -- products together: items whose own key is the reference (direct) plus items that state it (referencing).
 CREATE TABLE IF NOT EXISTS product_equivalence_groups (
@@ -218,7 +232,11 @@ CREATE TABLE IF NOT EXISTS product_offers (
  item_id uuid PRIMARY KEY REFERENCES supplier_items(id) ON DELETE CASCADE,
  primary_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS product_offers_primary_idx ON product_offers(primary_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_offers'::regclass AND c.relname='product_offers_primary_idx') THEN
+  CREATE INDEX product_offers_primary_idx ON product_offers(primary_id);
+ END IF;
+END $$;
 -- One counter bumped by every statement that changes product_offers, whatever the writer (matcher, admin decisions,
 -- supplier_items cascades) or process. App processes key their in-memory grouping (admin "Eşleşenler", #504) by it;
 -- being transactional, a new value becomes visible together with the rows that caused it. Statement-level and only
@@ -272,7 +290,11 @@ CREATE TABLE IF NOT EXISTS product_seta_references (
  seta_item_id uuid NOT NULL REFERENCES supplier_items(id) ON DELETE CASCADE,
  brand text NOT NULL, part_number text NOT NULL, PRIMARY KEY (item_id,seta_item_id)
 );
-CREATE INDEX IF NOT EXISTS product_seta_references_seta_idx ON product_seta_references(seta_item_id);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_seta_references'::regclass AND c.relname='product_seta_references_seta_idx') THEN
+  CREATE INDEX product_seta_references_seta_idx ON product_seta_references(seta_item_id);
+ END IF;
+END $$;
 -- Master catalog: one row per physical product, persistent across refreshes. Supplier rows attach through
 -- product_sources; price and stock stay on the supplier rows (the store sells the cheapest available source).
 -- Identity is (brand key, part number); variant 0 is the automatic product of that key, variants above 0 were split
@@ -303,6 +325,8 @@ END $$;
 -- Added only when missing: ADD COLUMN IF NOT EXISTS locks the table (ACCESS EXCLUSIVE) until setup commits even as a no-op.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='products'::regclass AND attname='suppliers' AND NOT attisdropped) THEN
+  -- Views that read the table first (#1046, db/schema.sql); fixtures that load this file alone have no helper.
+  IF to_regprocedure('setup_lock_dependent_views(regclass)') IS NOT NULL THEN PERFORM setup_lock_dependent_views('products'); END IF;
   ALTER TABLE products ADD COLUMN suppliers text[] NOT NULL DEFAULT '{}';
  END IF;
 END $$;
@@ -376,7 +400,11 @@ DO $$ BEGIN
  END IF;
 END $$;
 -- The shared-candidate check looks for other candidates of the same Dinamik product (#543).
-CREATE INDEX IF NOT EXISTS product_match_candidates_b_idx ON product_match_candidates(product_b);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_match_candidates'::regclass AND c.relname='product_match_candidates_b_idx') THEN
+  CREATE INDEX product_match_candidates_b_idx ON product_match_candidates(product_b);
+ END IF;
+END $$;
 -- Part-type terms of a product name, for telling candidates apart whose numbers collide by chance (EL FREN TEL KLIPSI
 -- vs MOTOR SUBAP TAKIMI). Turkish letters are folded, possessive endings and position words dropped, and words cut to
 -- four letters so AYNA/AYNASI and FILTRE/FILTRESI meet; a few trade synonyms share one term (SUPAP=SUBAP,

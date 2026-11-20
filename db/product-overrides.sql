@@ -82,7 +82,11 @@ DO $$ BEGIN
   ALTER TABLE product_overrides ADD COLUMN short_description text CHECK (char_length(short_description)<=300);
  END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS product_override_changes_product_idx ON product_override_changes(product_id,changed_at DESC,id DESC);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_changes'::regclass AND c.relname='product_override_changes_product_idx') THEN
+  CREATE INDEX product_override_changes_product_idx ON product_override_changes(product_id,changed_at DESC,id DESC);
+ END IF;
+END $$;
 -- NULL: an admin's save. carry: copied from a product merged into this one; uncarry: that merge was undone.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='product_override_changes'::regclass AND attname='reason' AND NOT attisdropped) THEN
@@ -99,7 +103,11 @@ CREATE TABLE IF NOT EXISTS product_override_carries (
  carried_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY (target,source)
 );
-CREATE INDEX IF NOT EXISTS product_override_carries_source_idx ON product_override_carries(source);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='product_override_carries'::regclass AND c.relname='product_override_carries_source_idx') THEN
+  CREATE INDEX product_override_carries_source_idx ON product_override_carries(source);
+ END IF;
+END $$;
 
 -- The catalog views read edits per supplier row (commerce_item_overrides, db/commerce.sql): rewrite that copy for
 -- the given products from their current sources. Rows that left those products lose the edit.

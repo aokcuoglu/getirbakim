@@ -3,6 +3,8 @@
 @import "shadcn/tailwind.css";
 /* Part of this stylesheet, not its own chunk: one more render-blocking request delayed the product image (#642). */
 @import "./storefront.css";
+/* Listing card rules live in the main stylesheet: a separate chunk was a second render-blocking request (#968). */
+@import "./catalog-card.css";
 
 @custom-variant dark (&:is(.dark *));
 

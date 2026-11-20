@@ -176,6 +176,28 @@ test("product search: rows named in English rank like the same row named in Turk
   assert.equal(storedRank("s", parseSearchQuery("bosch"), binder([]), "q"), "catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, q)");
 });
 
+test("product search: two type-name windows find and rank the row named after both (#989)", async () => {
+  // A made-up row, so the test does not depend on a supplier listing DOOR GLASS.
+  const row = `(SELECT gen_random_uuid() AS id, 'X989'::text AS code, '{"ac":"DOOR GLASS","uk":"TEST"}'::jsonb AS product_data,
+    catalog_search_doc($1, 'TEST', 'X989', '', '') AS search_doc, search_compact('X989') AS search_code, ''::text AS search_oem) s`;
+  const parsed = parseSearchQuery("kapı camı");
+  const found: unknown[] = ["DOOR GLASS"];
+  const { rows: [{ n }] } = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${row} WHERE ${supplierItemMatch("s", parsed, binder(found))}`, found);
+  assert.equal(n, 1);
+  const values: unknown[] = ["DOOR GLASS"];
+  const bind = binder(values);
+  const queries = `to_tsquery('simple', ${bind(prefixTsQuery(parsed))}::text), to_tsquery('simple', ${bind(exactTsQuery(parsed))}::text), ${bind(parsed.compact)}::text`;
+  const { rows: [rank] } = await db.query<{ base: number; swapped: number; named: number }>(`SELECT
+      catalog_search_rank_doc(s.search_doc, s.search_code, s.search_oem, ${queries}) AS base,
+      ${storedRank("s", parsed, bind, queries)} AS swapped,
+      catalog_search_rank_doc(catalog_search_doc('KAPI CAMI', 'TEST', 'X989', '', ''), s.search_code, s.search_oem, ${queries}) AS named
+    FROM ${row}`, values);
+  assert.ok(rank.swapped >= rank.base, `${rank.swapped} < ${rank.base}`);
+  assert.ok(rank.swapped >= rank.named - 1e-6, `${rank.swapped} < ${rank.named}`);
+  // Never above the same row named in Turkish.
+  assert.ok(rank.swapped <= rank.named + 1e-6, `${rank.swapped} > ${rank.named}`);
+});
+
 test("vehicle search matches words, not letters inside codes", async () => {
   const tesla = await searchVehicleCatalog("tesla model y");
   assert.ok(tesla.total > 0);
@@ -243,7 +265,7 @@ test("searches need at least two letters or digits", async () => {
 test("type-ahead suggests the best distinct products, words before code fragments", async () => {
   // Broad: product names, most shared first.
   const oil = await suggestProducts("yag", "all");
-  assert.ok(oil.products.length > 0 && oil.products.length <= 6 && oil.products.every(p => p.kind === "name"));
+  assert.ok(oil.products.length > 0 && oil.products.length <= 12 && oil.products.every(p => p.kind === "name"));
   assert.ok(oil.products.every(p => normalizeSearchText(p.name).split(" ").some(word => word.startsWith("yag") || word.startsWith("oil"))));
   const shared = oil.products.map(p => p.kind === "name" ? p.products : 0);
   assert.deepEqual(shared, [...shared].sort((a, b) => b - a));
@@ -253,4 +275,14 @@ test("type-ahead suggests the best distinct products, words before code fragment
   assert.equal(new Set(pump.products.map(p => p.kind === "product" ? `${p.name}|${p.brand}` : p.name)).size, pump.products.length);
   assert.equal((await suggestProducts("a", "all")).products.length, 0);
   assert.equal((await suggestProducts("fren balatası passat", "all")).vehicleScope?.vehicleText, "passat");
+});
+
+test("type-ahead suggests the Turkish name of English-named products (#962)", async () => {
+  const hose = await suggestProducts("fren hor", "all");
+  assert.ok(hose.products.some(p => p.kind === "name" && p.name === "BRAKE HOSE"));
+  // Even when the Turkish words rank nothing, the English names are still suggested.
+  const master = await suggestProducts("fren ana", "all");
+  assert.ok(master.products.some(p => p.kind === "name" && p.name.startsWith("BRAKE MASTER CYLINDER")));
+  // Code mode searches codes: no type names are suggested.
+  assert.ok((await suggestProducts("fren", "code")).products.every(p => p.kind !== "name"));
 });

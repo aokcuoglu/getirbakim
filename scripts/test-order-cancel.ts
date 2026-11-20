@@ -204,6 +204,8 @@ test("a payment landing after the customer cancelled keeps the order cancelled a
   assert.match(current.payment_note, /Mükerrer ödeme alındı/);
   assert.equal(refundRules.refundablePayments(current, await payments(id), []).length, 2);
   assert.equal(await stock(), 10);
+  // A payment that does not settle the order sends no confirmation email (#951).
+  assert.equal((await schema.pool.query("SELECT 1 FROM commerce_order_emails WHERE order_id=$1", [id])).rowCount, 0);
   // Without a recorded customer cancel the note does not claim one.
   const unattributed = await order("cancelled", "cancelled", [{ quantity: 1, reserved: 0 }]);
   const third = await attempt(unattributed);

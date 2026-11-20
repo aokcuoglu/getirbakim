@@ -7,10 +7,12 @@ DO $setup$ DECLARE def text := $view$
  WHERE p.merged_into IS NULL AND (ps.method='manual' OR
   (p.brand=COALESCE(b.key,product_brand_key(supplier_item_brand(s.supplier,s.product_data)))
    AND p.part_number=supplier_item_part_number(s.supplier,s.code,s.product_data)));
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='enrichment_current_sources' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='enrichment_current_sources' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW enrichment_current_sources AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -37,10 +39,12 @@ DO $setup$ DECLARE def text := $view$
 -- turns per-product lookups into full scans. Both ids are primary keys, so NOT IN's NULL caveat does not apply.
 AND NOT (e.match_basis->>'type'='oem_reference' AND COALESCE(e.match_basis->>'referenceSource','supplier_oem')='supplier_oem'
   AND e.supplier_item_id IN (SELECT ho.supplier_item_id FROM commerce_item_overrides ho WHERE ho.hide_oem));
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='enrichment_valid_data' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='enrichment_valid_data' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW enrichment_valid_data AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -82,10 +86,12 @@ DO $setup$ DECLARE def text := $view$
  LEFT JOIN brands b ON b.id=sb.brand_id
  LEFT JOIN product_enrichment_jobs j ON j.supplier_item_id=s.id
  LEFT JOIN enrichment_valid_data e ON e.supplier_item_id=s.id;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='enrichment_product_candidates' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='enrichment_product_candidates' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW enrichment_product_candidates AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -104,10 +110,12 @@ DO $setup$ DECLARE def text := $view$
   SELECT DISTINCT ON (product_id) * FROM enrichment_product_candidates
   ORDER BY product_id,coherent DESC,priority,present DESC,oem<>'' DESC,supplier_item_id=product_id DESC,supplier_item_id
  ) r ON r.product_id=p.id WHERE p.merged_into IS NULL;
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='enrichment_product_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='enrichment_product_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW enrichment_product_catalog AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -132,10 +140,12 @@ DO $setup$ DECLARE def text := $view$
  SELECT e.supplier_item_id,e.supplier_code,e.supplier_brand,e.source_url,e.source_method,e.manufacturer,
  e.manufacturer_part_number,e.image_id,e.payload,e.imported_at,e.match_basis,e.supplier_item_id,e.supplier_code,e.supplier_brand,e.donor_oem,e.status,e.donor_master_brand
  FROM enrichment_valid_data e WHERE NOT EXISTS(SELECT 1 FROM product_sources ps WHERE ps.supplier_item_id=e.supplier_item_id);
-$view$; BEGIN
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='product_enrichment_shared' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
- IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM (SELECT pg_get_viewdef(c.oid) FROM pg_class c
-   WHERE c.relname='product_enrichment_shared' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v') THEN
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW product_enrichment_shared AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
@@ -158,4 +168,8 @@ DO $$ BEGIN
   ALTER TABLE enrichment_run_items ADD CONSTRAINT enrichment_run_items_status_check CHECK(status IN ('queued','collecting','complete','partial','review','not_found','failed','blocked','skipped'));
  END IF;
 END $$;
-CREATE INDEX IF NOT EXISTS enrichment_run_items_product_idx ON enrichment_run_items(product_id,finished_at);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='enrichment_run_items'::regclass AND c.relname='enrichment_run_items_product_idx') THEN
+  CREATE INDEX enrichment_run_items_product_idx ON enrichment_run_items(product_id,finished_at);
+ END IF;
+END $$;
