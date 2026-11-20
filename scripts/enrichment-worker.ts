@@ -54,7 +54,7 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
   // come first: a miss costs several rate-limited searches, and spareto works the same queue, so Trodo's scarce
   // requests go where only it adds products (#380). Trodo's brand yield is smoothed toward the overall rate so brands
   // with few finished items stay in the middle until measured; spareto's counts once it searched a brand 5 times
-  // (else 0.5, as in spareto-enrichment.ts) and is 0 for an item spareto already missed. The product is bucketed
+  // (else 0.5, as in spareto-enrichment.ts; price-list-only searches, #1075, left out) and is 0 for an item spareto already missed. The product is bucketed
   // so brands of similar value are still interleaved. Items an earlier search already listed come first in their
   // tier: they cost no search of their own (#376). Pending products come from the dashboard's materialized states
   // (synced before the transaction); the catalog view rebuilt for every pending row took minutes (#921). serve()
@@ -67,7 +67,7 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
    overall AS (SELECT COALESCE(sum(ok)::numeric/NULLIF(sum(n),0),0.5) AS rate FROM finished),
    spareto AS (SELECT b.supplier_brand,count(*) FILTER(WHERE a.outcome='found')::numeric/count(*) AS rate FROM enrichment_source_attempts a
     JOIN product_enrichment_jobs b ON b.supplier_item_id=a.supplier_item_id WHERE a.source='spareto' AND a.outcome IN ('found','not_found')
-    GROUP BY 1 HAVING count(*)>=5),
+     AND a.queue IS DISTINCT FROM 'price_only' GROUP BY 1 HAVING count(*)>=5),
    spareto_missed AS (SELECT DISTINCT supplier_item_id FROM enrichment_source_attempts WHERE source='spareto' AND outcome='not_found'),
    listed_brands AS MATERIALIZED (SELECT b.supplier_brand,enrichment_brand_key(b.supplier_brand) AS brand_key
     FROM (SELECT DISTINCT supplier_brand FROM enrichment_product_states WHERE status='pending' AND supplier_item_id IS NOT NULL AND supplier_brand<>'') b

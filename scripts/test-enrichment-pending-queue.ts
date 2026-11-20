@@ -363,6 +363,15 @@ describe("Dinamik price-list-only codes", () => {
     assert.deepEqual(jobs.find((job) => job.id === price.ready1), { id: price.ready1, code: "PXA READY1", brand: "PXA", status: "pending" });
     assert.equal(await enqueuePriceOnlySources(schema.pool), 0);
     await schema.pool.query("UPDATE product_enrichment_jobs SET status='complete' WHERE supplier_item_id=$1", [price.finished]);
+    // A finished job keeps its identity when the live row changes: enqueue never reopens it.
+    await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"oe":"OE 1075","uk":"PXZ"}' WHERE id=$1`, [price.finished]);
+    try {
+      assert.equal(await enqueuePriceOnlySources(schema.pool), 0);
+      assert.deepEqual((await schema.pool.query("SELECT supplier_brand,oem,status FROM product_enrichment_jobs WHERE supplier_item_id=$1", [price.finished])).rows[0],
+        { supplier_brand: "PXA", oem: "", status: "complete" });
+    } finally {
+      await schema.pool.query("UPDATE supplier_items SET product_data=product_data-'oe'-'uk' WHERE id=$1", [price.finished]);
+    }
     await schema.pool.query("UPDATE product_enrichment_jobs SET supplier_code='PXA OLD' WHERE supplier_item_id=$1", [price.unaligned]);
     await schema.pool.query("INSERT INTO enrichment_source_attempts(source,queue,supplier_item_id,outcome) VALUES('spareto','price_only',$1,'not_found')", [price.answered]);
     await article("matched");

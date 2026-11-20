@@ -133,8 +133,8 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
             <CardFooter className="text-sm text-muted-foreground tabular-nums">{`Başladı ${date(run.started_at)}${run.finished_at?` · bitti ${date(run.finished_at)}`:""} · son yanıt ${run.last?date(run.last):"henüz yok"}`}</CardFooter>
           </Card>}
           {data.priceOnly&&<Card>
-            <CardHeader><CardTitle><h2>Fiyat listesi ürünleri (Dinamik)</h2></CardTitle><CardDescription>Stok satırı olmayan kodlar, satıştaki ürünlerden sonra sırayla aranır.</CardDescription><CardAction><Badge variant="info" className="tabular-nums"><Info data-icon="inline-start" aria-hidden="true"/>{number(data.priceOnly.published)} kart yayında</Badge></CardAction></CardHeader>
-            <CardContent>{data.priceOnly.brands.length?<Table controls={false}><TableHeader><TableRow><TableHead>Marka</TableHead><TableHead className="text-right">Kapsam</TableHead><TableHead className="text-right">Aranan</TableHead><TableHead className="text-right">Zenginleşen</TableHead><TableHead className="text-right">Yayında</TableHead><TableHead className="text-right">Kalan</TableHead></TableRow></TableHeader>
+            <CardHeader><CardTitle><h2>Fiyat listesi ürünleri (Dinamik)</h2></CardTitle><CardDescription>Stok satırı olmayan kodlar, satıştaki ürünlerden sonra sırayla aranır. Kalan: henüz aranmamış kodlar.</CardDescription><CardAction><Badge variant="info" className="tabular-nums"><Info data-icon="inline-start" aria-hidden="true"/>{number(data.priceOnly.published)} kart yayında</Badge></CardAction></CardHeader>
+            <CardContent>{data.priceOnly.brands.length?<Table controls={false}><TableHeader><TableRow><TableHead>Marka</TableHead><TableHead className="text-right">Kod sayısı</TableHead><TableHead className="text-right">Aranan</TableHead><TableHead className="text-right">Zenginleşen</TableHead><TableHead className="text-right">Yayında</TableHead><TableHead className="text-right">Kalan</TableHead></TableRow></TableHeader>
               <TableBody>{data.priceOnly.brands.map(brand=><TableRow key={brand.label}>
                 <TableCell className="font-medium">{brand.label}</TableCell>
                 <TableCell className="text-right tabular-nums">{number(brand.total)}</TableCell>
@@ -143,7 +143,7 @@ export default async function ProductDataAdmin({searchParams}:{searchParams:Prom
                 <TableCell className="text-right tabular-nums">{number(brand.published)}</TableCell>
                 <TableCell className="text-right tabular-nums">{number(brand.remaining)}</TableCell>
               </TableRow>)}</TableBody>
-            </Table>:<Empty><EmptyHeader><EmptyMedia variant="icon"><Layers3/></EmptyMedia><EmptyTitle>Öncelikli marka tanımlı değil</EmptyTitle><EmptyDescription>Zenginleştirme yerel ortamda çalışır; markalar <code>enrichment:price-only enable</code> ile açılır.</EmptyDescription></EmptyHeader></Empty>}</CardContent>
+            </Table>:<Empty><EmptyHeader><EmptyMedia variant="icon"><Layers3/></EmptyMedia><EmptyTitle>Henüz öncelikli marka açılmadı</EmptyTitle><EmptyDescription>Markalar yerelde <code>npm run enrichment:price-only -- enable &lt;MARKA&gt;</code> komutuyla açılır.</EmptyDescription></EmptyHeader></Empty>}</CardContent>
           </Card>}
           <Card>
             <CardHeader><CardTitle><h2>Toplanan veri</h2></CardTitle><CardDescription>Veriler PostgreSQL&apos;de, görseller özel MinIO alanında.</CardDescription></CardHeader>

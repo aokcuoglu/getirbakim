@@ -160,7 +160,9 @@ export function priceOnlyShare(flag?: string, env = process.env.ENRICHMENT_PRICE
 const enqueueChunk = 10_000;
 /**
  * Gives every present, unlinked price-only Dinamik row with a brand a job carrying its live code, brand and OEM: a
- * missing job is inserted, one whose identity differs (the legacy jobs carry an empty brand) is realigned and reopened.
+ * missing job is inserted, an open one (pending, not_found, review) whose identity differs (the legacy jobs carry an
+ * empty brand) is realigned and reopened. A finished job (complete, partial…) is never touched: reopening it would hide
+ * its enrichment and log a tombstone the AWS import does not apply.
  * Every brand, not only the enabled ones: parts2world's match reads the jobs. The candidates are read once, then written
  * in chunks that re-check the live row, so a run of hundreds of thousands of rows holds no long transaction; a second
  * run writes nothing. Returns the number of jobs written.
@@ -168,7 +170,7 @@ const enqueueChunk = 10_000;
 export async function enqueuePriceOnlySources(pool: Pool | PoolClient) {
   const ids = (await pool.query<{ id: string }>(`SELECT s.id FROM supplier_items s LEFT JOIN product_enrichment_jobs j ON j.supplier_item_id=s.id
     WHERE ${priceOnlySourceSql} AND ${brandSql}<>''
-     AND (j.supplier_item_id IS NULL OR j.supplier_code<>s.code OR j.supplier_brand<>${brandSql} OR j.oem<>COALESCE(s.product_data->>'oe',''))
+     AND (j.supplier_item_id IS NULL OR j.status IN ('pending','not_found','review') AND (j.supplier_code<>s.code OR j.supplier_brand<>${brandSql} OR j.oem<>COALESCE(s.product_data->>'oe','')))
     ORDER BY s.id`)).rows.map((row) => row.id);
   let written = 0;
   for (let at = 0; at < ids.length; at += enqueueChunk) {
@@ -177,9 +179,10 @@ export async function enqueuePriceOnlySources(pool: Pool | PoolClient) {
       WHERE ${priceOnlySourceSql} AND ${brandSql}<>''
       ON CONFLICT(supplier_item_id) DO UPDATE SET supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
         oem=EXCLUDED.oem,status='pending',last_error=NULL,updated_at=now()
-      WHERE product_enrichment_jobs.supplier_code<>EXCLUDED.supplier_code
+      WHERE product_enrichment_jobs.status IN ('pending','not_found','review')
+       AND (product_enrichment_jobs.supplier_code<>EXCLUDED.supplier_code
         OR product_enrichment_jobs.supplier_brand<>EXCLUDED.supplier_brand
-        OR product_enrichment_jobs.oem<>EXCLUDED.oem`, [ids.slice(at, at + enqueueChunk)])).rowCount ?? 0;
+        OR product_enrichment_jobs.oem<>EXCLUDED.oem)`, [ids.slice(at, at + enqueueChunk)])).rowCount ?? 0;
   }
   return written;
 }
