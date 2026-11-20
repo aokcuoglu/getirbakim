@@ -180,7 +180,7 @@ LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
 $$;
 -- Manufacturer pages and the brand filter (#771) reach a brand's rows through this index (brand_label of the catalog
 -- views). It stores supplier_item_brand()'s result: a changed function body needs a new index name (DROP + CREATE).
--- Created here, before db/search.sql's ANALYZE supplier_items, so a first deploy has the expression's statistics.
+-- On a new database the ANALYZE supplier_items after setup commits (scripts/setup-maintenance.ts) gives it statistics.
 -- Only when missing (looked up in this schema): CREATE INDEX IF NOT EXISTS still takes SHARE on the write-hot
 -- supplier_items on every setup run. scripts/setup.ts builds it CONCURRENTLY before its transaction
 -- (scripts/setup-concurrent-indexes.ts, keep the definitions identical), so this only runs on a new database.

@@ -4,6 +4,7 @@ import { hash } from "bcryptjs";
 import { migrateSupplierSnapshots } from "../src/modules/suppliers/sync";
 import { newPasswordSchema } from "../src/modules/auth/schemas";
 import { createConcurrentIndexes } from "./setup-concurrent-indexes";
+import { postSetupMaintenance } from "./setup-maintenance";
 // --dry-run applies the schema in a transaction that is rolled back and only reports its timings (#1054): no concurrent
 // index builds, nothing after the transaction. Reader-blocking locks are still held while it runs.
 const dryRun = process.argv.includes("--dry-run");
@@ -116,6 +117,8 @@ try {
  }
  if (dryRun) console.log("Dry run: schema rolled back; maintenance, syncs and the administrator skipped.");
  else {
+  // ANALYZE and the search vocabulary rebuild, outside the schema locks (#1054).
+  await postSetupMaintenance(pool);
   // The dashboard's materialized catalog: a first deployment queues a full rebuild, which must not run under the schema locks.
   await pool.query("SELECT enrichment_product_states_sync()");
   // The storefront's enrichment links (#446): the schema queues a rebuild, done here before the release serves traffic.

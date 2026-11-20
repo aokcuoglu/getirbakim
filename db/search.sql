@@ -106,13 +106,12 @@ DO $$ BEGIN
    USING gin (to_tsvector('simple', search_normalize(search_text)));
  END IF;
 END $$;
--- Expression statistics only exist after ANALYZE; without them the planner guesses the search
--- matches thousands of rows and seq-scans supplier_items (~5 s instead of <1 ms).
-ANALYZE supplier_items;
-ANALYZE vehicle_types;
+-- The expression indexes need statistics (ANALYZE) before the planner uses them. ANALYZE runs in
+-- scripts/setup-maintenance.ts after setup commits, so it is not held under the catalog view locks (#1054).
 
 -- Words the catalogs actually contain, for "did you mean" corrections of mistyped queries
--- ("volksvagen pasat" → "volkswagen passat"). Rebuilt on every setup; refresh after large imports.
+-- ("volksvagen pasat" → "volkswagen passat"). Rebuilt after setup commits (scripts/setup-maintenance.ts, #1054)
+-- and by the supplier scheduler after imports that change catalog words.
 CREATE TABLE IF NOT EXISTS search_vocabulary (
  scope text NOT NULL CHECK (scope IN ('vehicle','product')),
  word text NOT NULL,
@@ -155,4 +154,3 @@ CREATE OR REPLACE FUNCTION refresh_search_vocabulary() RETURNS void LANGUAGE sql
  SELECT name, search_normalize(name), count(*) FROM (SELECT product_data->>'ac' AS name FROM supplier_items
   WHERE presence='present' AND NOT conflicting) items WHERE name ~ '[[:alpha:]]' GROUP BY name;
 $$;
-SELECT refresh_search_vocabulary();
