@@ -18,7 +18,7 @@ export const storeButtonSizes = {
 } as const;
 
 export const storeButtonIntents = {
-  primary: "border-primary bg-primary font-semibold text-primary-foreground hover:border-brand-strong hover:bg-brand-strong disabled:border-border disabled:bg-border disabled:text-muted-foreground disabled:opacity-100",
+  primary: "border-primary bg-primary font-semibold text-primary-foreground hover:border-brand-strong hover:bg-brand-strong hover:text-primary-foreground disabled:border-border disabled:bg-border disabled:text-muted-foreground disabled:opacity-100",
   secondary: "border-transparent bg-accent text-accent-foreground hover:bg-[color-mix(in_oklch,var(--accent),var(--accent-foreground)_8%)] hover:text-accent-foreground",
   outline: "border-control-border bg-white text-foreground hover:bg-muted hover:text-foreground",
   ghost: "border-transparent bg-transparent text-foreground hover:bg-muted hover:text-foreground",

@@ -149,7 +149,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   function rows(items: { key: string; label: string; action: () => void; detail?: string }[]) {
     const detailed = items.some(item => item.detail);
     return <ul className="m-0 list-none p-0">{items.map(({ key, label, action, detail }) => <li key={key} className={detailed ? "border-b border-[#f1f3f5]" : undefined}>
-      <Button type="button" onClick={action} className={cn(storeButton({ intent: "ghost", size: "md" }), "w-full justify-between gap-3 px-0 text-left font-normal whitespace-normal [&>svg]:shrink-0")}>
+      <Button type="button" onClick={action} className={cn(storeButton({ intent: "ghost", size: "md" }), "-mx-2 w-full justify-between gap-3 px-2 text-left font-normal whitespace-normal [&>svg]:shrink-0")}>
         <span>{label}{detail && <small className="mt-[3px] block text-xs leading-[18px] text-muted-foreground">{detail}</small>}</span><ChevronRight size={14} aria-hidden="true" />
       </Button>
     </li>)}</ul>;
@@ -175,14 +175,14 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             {query && <Button type="button" aria-label="Aramayı temizle" onClick={() => { setQuery(""); setSearchOffset(0); }} className={cn(storeButton({ intent: "ghost", size: "icon" }), "-mr-2.5 shrink-0 text-muted-foreground")}><X size={16} /></Button>}
           </label>
           <div className="mb-[18px] flex items-center gap-3">
-            {step !== "brand" && !query.trim() && <Button type="button" aria-label="Önceki seçim adımına dön" onClick={back} className={cn(storeButton({ intent: "ghost", size: "icon" }), "-ml-2.5")}><ArrowLeft size={18} /></Button>}
+            {step !== "brand" && !query.trim() && <Button type="button" aria-label="Önceki seçim adımına dön" onClick={back} className={cn(storeButton({ intent: "ghost", size: "icon" }), "-ml-2.5")}><ArrowLeft size={18} className="size-[18px]" /></Button>}
             <h3 ref={heading} tabIndex={-1} className={stepHeading}>{query.trim() ? "Arama sonuçları" : titles[step]}</h3>
           </div>
-          {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-1.5 text-muted-foreground" aria-label="Araç seçim adımları">
-            <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => go("brand")}>{brand?.label ?? brand?.name}</Button>
-            {family && step !== "family" && <><ChevronRight size={12} /><Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => go("family")}>{family.label}</Button></>}
-            {model && !["family", "model"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => go(family?.models.length === 1 ? "family" : "model")}>{model.label ?? model.name}</Button></>}
-            {fuel && ["engine", "confirm"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => go("fuel")}>{fuel}</Button></>}
+          {!query.trim() && step !== "brand" && <nav className="mb-[22px] flex flex-wrap items-center gap-x-1.5 gap-y-0 text-muted-foreground" aria-label="Araç seçim adımları">
+            <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "max-w-full px-0 text-left whitespace-normal")} onClick={() => go("brand")}>{brand?.label ?? brand?.name}</Button>
+            {family && step !== "family" && <><ChevronRight size={12} /><Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "max-w-full px-0 text-left whitespace-normal")} onClick={() => go("family")}>{family.label}</Button></>}
+            {model && !["family", "model"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "max-w-full px-0 text-left whitespace-normal")} onClick={() => go(family?.models.length === 1 ? "family" : "model")}>{model.label ?? model.name}</Button></>}
+            {fuel && ["engine", "confirm"].includes(step) && <><ChevronRight size={12} /><Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "max-w-full px-0 text-left whitespace-normal")} onClick={() => go("fuel")}>{fuel}</Button></>}
           </nav>}
           {query.trim() && tooShort ? <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">Aramak için en az {minSearchLength} harf veya rakam yaz.</p>
             : activeRequest.loading ? <p className="mt-0 mb-3 text-xs text-muted-foreground" role="status">Araç verileri yükleniyor…</p>
@@ -238,11 +238,11 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
           </div>}
           <Button className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-4 w-full gap-2.5")} type="button" onClick={onClose}>Bu araçla devam et <ChevronRight size={16} /></Button>
           <Button className={cn(storeButton({ intent: "outline", size: "lg" }), "mt-3 w-full")} type="button" disabled={pending} onClick={() => { setTab("search"); go("brand"); }}>Başka araç seç</Button>
-          <Button className={cn(storeButton({ intent: "ghost", size: "md" }), "mx-auto mt-4 text-muted-foreground hover:text-destructive")} type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</Button>
+          <Button className={cn(storeButton({ intent: "ghost", size: "md" }), "mx-auto mt-4 flex w-fit text-muted-foreground hover:text-destructive")} type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</Button>
         </> : garage && !others.length && <div className={emptyBox}><CarFront size={52} strokeWidth={1.3} /><p>Aracın her zaman elinin altında olsun.</p><small>Marka ve model seçerek aracını garajına ekle.</small><Button className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-4 w-full gap-2.5")} type="button" onClick={() => { setTab("search"); go("brand"); }}>Araç seç <ChevronRight size={16} /></Button></div>}
         {others.length > 0 && <div className="mt-6"><h4 className="mb-2 text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground">{vehicle ? "DİĞER KAYITLI ARAÇLAR" : "KAYITLI ARAÇLAR"}</h4>
           <ul className="m-0 list-none p-0">{others.map(entry => <li key={entry.key} className="flex items-center gap-2 border-b border-[#f1f3f5]">
-            <Button type="button" disabled={pending} onClick={() => switchTo(entry.key)} className={cn(storeButton({ intent: "ghost", size: "md" }), "flex-1 justify-between gap-3 px-0 text-left font-normal whitespace-normal [&>svg]:shrink-0")}><span>{entry.makeLabel} {entry.modelLabel}<small className="block text-xs text-muted-foreground">{[entry.year, entry.engine, entry.fuel].filter(Boolean).join(" · ")}</small></span><ChevronRight size={14} aria-hidden="true" /></Button>
+            <Button type="button" disabled={pending} onClick={() => switchTo(entry.key)} className={cn(storeButton({ intent: "ghost", size: "md" }), "-mx-2 flex-1 justify-between gap-3 px-2 text-left font-normal whitespace-normal [&>svg]:shrink-0")}><span>{entry.makeLabel} {entry.modelLabel}<small className="block text-xs text-muted-foreground">{[entry.year, entry.engine, entry.fuel].filter(Boolean).join(" · ")}</small></span><ChevronRight size={14} aria-hidden="true" /></Button>
             <Button type="button" variant="ghost" size="icon" disabled={pending} className={cn(storeButton({ intent: "ghost", size: "icon" }), "text-muted-foreground hover:text-destructive")} aria-label={`${entry.makeLabel} ${entry.modelLabel} aracını garajdan kaldır`} onClick={() => forget(entry.key)}><Trash2 size={15} /></Button>
           </li>)}</ul></div>}
         {!vehicle && !others.length && !garage && <p className="text-xs text-muted-foreground" role="status">Kayıtlı araçlar yükleniyor…</p>}

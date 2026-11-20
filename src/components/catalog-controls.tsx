@@ -144,8 +144,8 @@ export function CatalogFilterSheet({brands,facets,chipFacets,params,count,vehicl
    </div>
    {/* No result: "Temizle" becomes the main action; the other button still closes the sheet. */}
    <div className="flex shrink-0 gap-3 border-t border-border bg-white px-5 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))]">
-    <Button type="button" variant="outline" className={cn(storeButton({intent:empty&&panelSelected?"primary":"outline",size:"md"}),"flex-1")} disabled={!panelSelected} onClick={()=>change(clearPanelFilters)}>Temizle</Button>
-    <Button type="button" variant="outline" className={cn(storeButton({intent:empty&&panelSelected?"outline":"primary",size:"md"}),"flex-2")} onClick={()=>openChange(false)}>{pending?"Güncelleniyor…":empty?"Sonuç yok — filtreleri değiştir":`${count.toLocaleString("tr-TR")} ürünü göster`}</Button>
+    <Button type="button" variant="outline" className={cn(storeButton({intent:empty&&panelSelected?"primary":"outline",size:"md"}),"flex-1 text-center whitespace-normal")} disabled={!panelSelected} onClick={()=>change(clearPanelFilters)}>Temizle</Button>
+    <Button type="button" variant="outline" className={cn(storeButton({intent:empty&&panelSelected?"outline":"primary",size:"md"}),"flex-2 text-center whitespace-normal")} onClick={()=>openChange(false)}>{pending?"Güncelleniyor…":empty?"Sonuç yok — filtreleri değiştir":`${count.toLocaleString("tr-TR")} ürünü göster`}</Button>
    </div>
   </SheetContent>
  </Sheet>;
@@ -165,9 +165,9 @@ export function CatalogResults({count,page,pages,pageSize,params,children,defaul
  {lead}
  <div className="mb-[25px] flex min-h-11 items-center justify-between gap-4 max-[768px]:mb-4 max-[768px]:flex-wrap max-[768px]:gap-3"><span className="text-sm leading-5 text-foreground max-[768px]:order-2 max-[768px]:flex-1 max-[600px]:text-xs">{listingRangeLabel(count,page,pageSize)}</span>
  <div className="flex items-center gap-[15px] max-[768px]:contents">
-  <div className="flex h-11 items-center gap-0 rounded-md border border-input p-0 max-[768px]:order-2">
-   <Button variant="ghost" className={cn(storeButton({intent:"ghost",size:"icon"}),"[&>img]:opacity-20 aria-pressed:[&>img]:opacity-100")} aria-label="Liste görünümü" aria-pressed={view==="list"} onClick={()=>setView("list")}><Image src="/media/site/icons/layout-list.svg" width={24} height={24} alt="" unoptimized/></Button>
-   <Button variant="ghost" className={cn(storeButton({intent:"ghost",size:"icon"}),"[&>img]:opacity-20 aria-pressed:[&>img]:opacity-100")} aria-label="Izgara görünümü" aria-pressed={view==="grid"} onClick={()=>setView("grid")}><Image src="/media/site/icons/layout-grid.svg" width={24} height={24} alt="" unoptimized/></Button>
+  <div className="flex items-center gap-1 max-[768px]:order-2">
+   <Button variant="ghost" className={cn(storeButton({intent:"ghost",size:"icon"}),"aria-pressed:bg-accent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100")} aria-label="Liste görünümü" aria-pressed={view==="list"} onClick={()=>setView("list")}><Image src="/media/site/icons/layout-list.svg" width={24} height={24} alt="" unoptimized/></Button>
+   <Button variant="ghost" className={cn(storeButton({intent:"ghost",size:"icon"}),"aria-pressed:bg-accent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100")} aria-label="Izgara görünümü" aria-pressed={view==="grid"} onClick={()=>setView("grid")}><Image src="/media/site/icons/layout-grid.svg" width={24} height={24} alt="" unoptimized/></Button>
   </div>
   {filters&&<div className={cn("min-[768px]:hidden",half)}>{filters}</div>}
   <NativeSelect name="sort" aria-label="Ürünleri sırala" value={params.sort ?? (params.q ? "relevance" : "newest")} onChange={event=>router.push(listingUrl(params,{sort:event.target.value as Query["sort"]}))}

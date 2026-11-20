@@ -67,8 +67,8 @@ export function AccountPanel({ account, defaultOpen, initialPhoneOffset, restore
             <Button nativeButton={false} variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 flex w-full first:mt-0")} render={<Link href="/hesap/adresler" onClick={() => setOpen(false)} />}>Adreslerim</Button>
             <form action={logout} className="mt-3"><Button type="submit" variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "flex w-full")}>Çıkış yap</Button></form>
           </> : <>
-            <Button type="button" className={cn(storeButton({ intent: "primary", size: "md" }), "mt-3 flex w-full first:mt-0")} onClick={() => openModal("login")}>Log In</Button>
-            <Button type="button" variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 flex w-full first:mt-0")} onClick={() => openModal("register")}>Register</Button>
+            <Button type="button" className={cn(storeButton({ intent: "primary", size: "md" }), "mt-3 flex w-full first:mt-0")} onClick={() => openModal("login")}>Giriş yap</Button>
+            <Button type="button" variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 flex w-full first:mt-0")} onClick={() => openModal("register")}>Kayıt ol</Button>
             <ul className="mt-6 mb-0 list-none p-0">
               {benefits.map(({ icon: Icon, title, text }) => <li key={title} className="flex gap-2.5 border-t border-border py-3 first:border-t-0 first:pt-0 last:pb-0">
                 <Icon size={20} strokeWidth={1.5} className="shrink-0" />
