@@ -54,28 +54,43 @@
   .buy-button-product { @apply w-60 flex-none rounded-[5px] text-base disabled:bg-[#e6e9ec] disabled:text-[#7a8490] max-[750px]:w-auto max-[750px]:flex-1; }
 
   /* SiteHeader: top band, main row and category nav. Route variants: see RouteFrame; the `in-data-*-scrolled:`
-     rules pin the main row while home and the catalog set body[data-home-scrolled] / body[data-catalog-scrolled]. */
+     rules pin the main row while home and the catalog set body[data-home-scrolled] / body[data-catalog-scrolled] (600px and up).
+     Phones (#1089): HeaderPin sets body[data-header-pin] once the header has left the viewport. The whole frame turns sticky
+     (it never leaves the flow, so nothing shifts) and is moved by translate only: `parked` and `hidden` out of view, `shown`
+     back in; the transparent header and the invisible category strip leave the logo/tools and search rows on a white card,
+     the only part that takes taps (the frame and header pass them through to the page under the empty strip).
+     Focus or an open menu inside keeps it in view. */
+  .site-chrome {
+    @apply max-[599.98px]:in-data-header-pin:pointer-events-none max-[599.98px]:in-data-header-pin:sticky max-[599.98px]:in-data-header-pin:top-0 max-[599.98px]:in-data-header-pin:z-41;
+    @apply max-[599.98px]:in-data-[header-pin=parked]:-translate-y-full max-[599.98px]:in-data-[header-pin=hidden]:-translate-y-full;
+    @apply motion-safe:max-[599.98px]:in-data-[header-pin=shown]:transition-[translate] motion-safe:max-[599.98px]:in-data-[header-pin=shown]:duration-200 motion-safe:max-[599.98px]:in-data-[header-pin=hidden]:transition-[translate] motion-safe:max-[599.98px]:in-data-[header-pin=hidden]:duration-200;
+    @apply max-[599.98px]:has-focus-visible:translate-none max-[599.98px]:has-aria-expanded:translate-none;
+  }
   .site-topbar { @apply h-[42px] border-b border-border bg-white max-[600px]:hidden group-data-[route=checkout]/route:hidden; }
   .site-topbar-inner { @apply mx-auto flex h-full w-full max-w-[1350px] items-center justify-between gap-6 px-[15px]; }
   .site-topbar-links { @apply flex h-full items-center gap-6 [&>a]:inline-flex [&>a]:items-center [&>a]:gap-1.5 [&>a:hover]:text-brand max-[850px]:[&>a:first-child]:hidden max-[640px]:[&>a:last-child]:hidden; }
-  .site-header { @apply relative border-b border-border bg-white min-[600px]:in-data-home-scrolled:h-[131px] min-[600px]:in-data-catalog-scrolled:h-[131px]; }
+  .site-header {
+    @apply relative border-b border-border bg-white min-[600px]:in-data-home-scrolled:h-[131px] min-[600px]:in-data-catalog-scrolled:h-[131px];
+    @apply max-[599.98px]:in-data-header-pin:pointer-events-none max-[599.98px]:in-data-header-pin:border-transparent max-[599.98px]:in-data-header-pin:bg-transparent;
+  }
   .site-header-row {
     @apply mx-auto flex h-[88px] w-full max-w-[1350px] items-center gap-7 px-[15px] py-6 max-[1100px]:gap-5 max-[850.98px]:gap-4;
     @apply max-[600px]:h-auto max-[600px]:min-h-0 max-[600px]:flex-wrap max-[600px]:gap-x-3 max-[600px]:gap-y-2 max-[600px]:py-2.5;
     @apply group-data-[route=checkout]/route:h-[65px] group-data-[route=checkout]/route:min-h-[65px] group-data-[route=checkout]/route:py-4;
     @apply min-[600px]:in-data-home-scrolled:fixed min-[600px]:in-data-home-scrolled:inset-x-0 min-[600px]:in-data-home-scrolled:top-0 min-[600px]:in-data-home-scrolled:z-41 min-[600px]:in-data-home-scrolled:max-w-none! min-[600px]:in-data-home-scrolled:border-b min-[600px]:in-data-home-scrolled:border-border min-[600px]:in-data-home-scrolled:bg-white min-[600px]:in-data-home-scrolled:px-[max(15px,calc((100vw-1320px)/2),env(safe-area-inset-left),env(safe-area-inset-right))]! min-[600px]:in-data-home-scrolled:pt-[calc(24px+env(safe-area-inset-top))] min-[600px]:in-data-home-scrolled:h-[calc(88px+env(safe-area-inset-top))];
+    @apply max-[599.98px]:in-data-header-pin:pointer-events-auto max-[599.98px]:in-data-header-pin:bg-white max-[599.98px]:in-data-header-pin:shadow-[0_1px_0_var(--border),0_4px_16px_#212b3614];
     @apply min-[600px]:in-data-catalog-scrolled:fixed min-[600px]:in-data-catalog-scrolled:inset-x-0 min-[600px]:in-data-catalog-scrolled:top-0 min-[600px]:in-data-catalog-scrolled:z-41 min-[600px]:in-data-catalog-scrolled:max-w-none! min-[600px]:in-data-catalog-scrolled:border-b min-[600px]:in-data-catalog-scrolled:border-border min-[600px]:in-data-catalog-scrolled:bg-white min-[600px]:in-data-catalog-scrolled:px-[max(15px,calc((100vw-1320px)/2),env(safe-area-inset-left),env(safe-area-inset-right))]! min-[600px]:in-data-catalog-scrolled:pt-[calc(24px+env(safe-area-inset-top))] min-[600px]:in-data-catalog-scrolled:h-[calc(88px+env(safe-area-inset-top))];
   }
   .site-header-nav {
     @apply relative mx-auto flex h-[42px] min-h-[42px] w-full max-w-[1350px] items-center gap-7 px-[15px] pt-0 pb-[14px] text-sm font-medium whitespace-nowrap max-[1358px]:gap-6 max-[1280px]:gap-5 max-[1180px]:gap-4 max-[1180px]:text-[13px] scroll-px-[15px];
     @apply max-[1100px]:gap-[18px] max-[1100px]:text-[13px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-[600px]:h-11 max-[600px]:min-h-11 max-[600px]:py-0 has-data-mega-open:z-50 group-data-[route=checkout]/route:hidden;
-    @apply min-[600px]:in-data-home-scrolled:invisible min-[600px]:in-data-catalog-scrolled:invisible;
+    @apply min-[600px]:in-data-home-scrolled:invisible min-[600px]:in-data-catalog-scrolled:invisible max-[599.98px]:in-data-header-pin:invisible;
   }
   /* HeaderTools: account, garage and cart. */
   .header-tools {
     @apply flex shrink-0 basis-[422px] items-center justify-between gap-0 max-[1100px]:basis-[310px] max-[1100px]:gap-[15px] max-[850.98px]:basis-auto max-[600px]:ml-auto max-[600px]:basis-auto max-[600px]:gap-1 group-data-[route=checkout]/route:hidden;
   }
-  .header-cart { @apply relative flex h-10 w-8 items-center justify-center max-[1100px]:size-11; }
+  .header-cart { @apply relative flex size-11 items-center justify-center; }
   /* The account trigger's full width; before .header-tool so its phone width (w-11) still wins, as in the merged list. */
   .header-tool-wide { @apply w-full min-w-0; }
   /* Account and garage buttons: icon + two-line label; icon only from 1100px down. */
@@ -120,5 +135,12 @@
 @media (max-width: 767.98px) {
   html:not(:has(.admin-app)) :is(input:not([type=checkbox], [type=radio], [type=range], [type=hidden], [type=file], [type=button], [type=submit], [type=reset], [type=color]), select, textarea) {
     font-size: 16px;
+  }
+}
+
+/* The phone header comes back over the page on the way up (#1089): anchor and focus scrolling stop below its rows. */
+@media (max-width: 599.98px) {
+  html:not(:has(.admin-app)) {
+    scroll-padding-top: calc(var(--header-pin-h, 116px) + 8px);
   }
 }

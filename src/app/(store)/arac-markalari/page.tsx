@@ -37,8 +37,8 @@ export default async function VehicleMakes() {
    <p className="mb-8 max-w-[720px] text-[15px] leading-[22px] text-muted-foreground">Aracının markasını seç, o markanın modellerine uygun listelenen yedek parçaları kategori ve üreticiye göre incele.</p>
    {popular.length>0&&<section aria-labelledby="markalar-populer"><h2 id="markalar-populer" className={h2}>Popüler araç markaları</h2><ul className={grid}>{popular.map(tile)}</ul></section>}
    <section aria-labelledby="markalar-tumu"><h2 id="markalar-tumu" className={h2}>Tüm araç markaları</h2>
-    <nav className="sticky top-0 z-[1] mb-2 flex flex-wrap gap-1 bg-white py-2 max-md:flex-nowrap max-md:overflow-x-auto" aria-label="Harfe göre markalar">{groups.map(([letter])=><a key={letter} href={"#marka-"+letter} className="grid h-8 min-w-8 shrink-0 place-items-center rounded-[4px] border border-border text-[13px] font-semibold text-foreground hover:border-brand hover:text-primary">{letter}</a>)}</nav>
-    {groups.map(([letter,items])=><section key={letter} id={"marka-"+letter} className="scroll-mt-14" aria-label={letter}><h3 className="mt-6 mb-3 text-lg leading-6 font-semibold">{letter}</h3><ul className={grid}>{items.map(tile)}</ul></section>)}
+    <nav className="sticky top-0 z-[1] max-[599.98px]:in-data-[header-pin=shown]:top-(--header-pin-h) mb-2 flex flex-wrap gap-1 bg-white py-2 max-md:flex-nowrap max-md:overflow-x-auto" aria-label="Harfe göre markalar">{groups.map(([letter])=><a key={letter} href={"#marka-"+letter} className="grid h-8 min-w-8 shrink-0 place-items-center rounded-[4px] border border-border text-[13px] font-semibold text-foreground hover:border-brand hover:text-primary">{letter}</a>)}</nav>
+    {groups.map(([letter,items])=><section key={letter} id={"marka-"+letter} className="scroll-mt-14 max-[599.98px]:scroll-mt-0" aria-label={letter}><h3 className="mt-6 mb-3 text-lg leading-6 font-semibold">{letter}</h3><ul className={grid}>{items.map(tile)}</ul></section>)}
    </section>
   </section>
  </div>;
