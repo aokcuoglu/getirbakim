@@ -2878,7 +2878,7 @@
     "title": "Gizlilik Politikası",
     "sourceUrl": "https://getirbakim.com/gizlilik-politikasi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-11-19",
+    "updatedAt": "2026-11-15",
     "description": "Mevcut site hizmetlerinde kişisel verilerin kullanılması, güvenliği ve başvuru hakları.",
     "sections": [
       {
@@ -2956,7 +2956,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Sipariş verildiğinde ad, e-posta, telefon, teslimat ve fatura bilgileri siparişin alınması, ödemesi, teslimi ve faturalanması için işlenir. Pazarlama amaçlı e-posta gönderimi yapılmaz."
+              "Sipariş verildiğinde ad, e-posta, telefon ve teslimat adresi siparişin alınması, teyidi ve teslimi için işlenir. Pazarlama amaçlı e-posta gönderimi yapılmaz."
             ]
           }
         ]
@@ -3054,48 +3054,6 @@
                 "children": [
                   "İletişim kanallarına başvurduğunuzda paylaştığınız iletişim bilgileri ve talep içeriği."
                 ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Sipariş: ad ve soyad, e-posta, telefon, teslimat adresi, sipariş notu, sipariş kalemleri, tutarlar ile sipariş ve ödeme durumu."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Fatura: fatura türü; kurumsal faturada unvan, vergi dairesi ve vergi kimlik numarası veya T.C. kimlik numarası; ayrı fatura adresi."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Ödeme: ödeme kuruluşunun işlem referansı, tutar, taksit sayısı, ödeme sonucu, banka referansı ve onay kodu. Kart bilgileri şirkete ulaşmaz."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Sipariş onayı kaydı: onay zamanı, IP adresi, tarayıcı bilgisi, onay metni ve siparişe özgü sözleşme kopyası."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Kargo: gönderi etiketi, takip numarası ve gönderi durumu."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Servis hesaplarının adres defteri: kaydedilen adreslerdeki alıcı adı, telefon ve adres bilgileri."
-                ]
               }
             ]
           },
@@ -3103,94 +3061,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Siparişe, ödemeye, teslimata ve faturaya ilişkin ayrıntılar aşağıdaki “Sipariş, Ödeme, Teslimat ve Fatura Verileri” ve “Adres Defteri (Servis Hesapları)” bölümlerindedir. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
-            ]
-          }
-        ]
-      },
-      {
-        "title": "Sipariş, Ödeme, Teslimat ve Fatura Verileri",
-        "blocks": [
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Siparişi üye girişi yapmadan veya hesabınla verebilirsin. Sipariş formunda girdiğin ad ve soyad, e-posta, telefon, teslimat adresi (il, ilçe, açık adres ve varsa posta kodu) ile sipariş notun; siparişin alınması, ödemesinin tamamlanması, hazırlanması, kargoya verilmesi, teslimi ve iade veya iptal işlemleri için işlenir."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Fatura bilgileri bireysel veya kurumsal olarak girilir. Kurumsal faturada fatura unvanı, vergi dairesi ve 10 haneli vergi kimlik numarası (şahıs işletmeleri için 11 haneli T.C. kimlik numarası) alınır. İstersen teslimat adresinden farklı bir fatura adresi (il, ilçe, açık adres ve varsa posta kodu) girebilirsin; bu adres teslimat adresinden ayrı saklanır."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Ödeme, ödeme kuruluşu TAMI’nin barındırdığı ödeme sayfasında yapılır. Kart bilgilerini yalnızca bu sayfada girersin; kart bilgileri şirketin sistemlerine ulaşmaz ve saklanmaz. TAMI’ye ödeme tutarı, şirketin ürettiği ödeme referansı, telefon numaran ve dönüş adresleri iletilir. TAMI’den ise ödemenin sonucu, banka referansı, onay kodu ve taksit sayısı alınıp saklanır."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Ön Bilgilendirme Formu ve Mesafeli Satış Sözleşmesini onayladığında, siparişe özgü metinler sipariş bilgilerinle birlikte sonradan değiştirilemeyen bir kopya olarak saklanır. Onayın ispatı için onay zamanı, IP adresi, tarayıcı bilgisi ve onay metni de kaydedilir."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Sipariş kargoya verilirken Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo’ya alıcının adı, e-posta adresi, telefon numarası ve teslimat adresi (il, ilçe, açık adres), ürün adları ve adetleri, sipariş numarası ve tutarı ile paket ölçüleri iletilir. Fatura bilgilerin (vergi kimlik numarası, vergi dairesi, unvan) kargo şirketine iletilmez. Gönderi etiketi, takip numarası ve gönderi durumu siparişle birlikte saklanır."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Analiz çerezlerine izin verdiysen tamamlanan sipariş için sipariş numarası, ürünler ve tutarlar analiz hizmetine gönderilir; ad, e-posta, telefon, adres veya kart bilgisi gönderilmez. Ayrıntılar Çerez Politikası’ndadır."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "[Hukuki onay bekliyor: Bu bölümün metni yayımlanmadan önce hukuki incelemeden geçecektir; taslaktır.]"
-            ]
-          }
-        ]
-      },
-      {
-        "title": "Adres Defteri (Servis Hesapları)",
-        "blocks": [
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Onaylı servis hesapları, sonraki siparişlerde kullanmak üzere en fazla 10 teslimat veya fatura adresi kaydedebilir. Her kayıtta adres etiketi, alıcı adı, telefon, il, ilçe, açık adres, varsa posta kodu ve varsayılan teslimat veya fatura işareti bulunur."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Bu adresler çoğunlukla servisin kendi müşterilerine ait olabilir; yani adres defterinde hesap sahibi dışındaki kişilerin ad, telefon ve adres bilgileri yer alabilir. Bu kişilerin bilgilerini adres defterine kaydeden hesap sahibi, onları kişisel verilerinin işleneceği konusunda bilgilendirmekten ve bu kaydı yapmak için gerekli hukuki sebebe dayanmaktan kendisi sorumludur."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Şirket bu bilgileri hesap sahibinin talebiyle adres defterinde tutar ve hesap sahibi bir siparişte kullandığında teslimat ve fatura için işler. [Hukuki onay bekliyor: Adres defterindeki üçüncü kişi verileri bakımından şirketin ve hesap sahibinin rolü (ayrı veri sorumlusu veya veri işleyen) ve bu kişilere yönelik aydınlatma.]"
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Adres defteri kayıtlarını hesap sahibi hesap sayfasından düzenleyebilir veya silebilir; hesap kaydı silinirse adresler de silinir. Bir siparişte kullanılan adres siparişin kendi kaydında ayrıca saklandığından, adres defterinden silmek verilmiş siparişleri değiştirmez. Adresi kaydedilen kişiler, haklarına ilişkin başvurularını bu metindeki yöntemlerle şirkete iletebilir."
+              "Şu anda internet sitesinde sipariş veya ödeme alınmamaktadır. Site üzerinden sipariş, ödeme kartı veya teslimat adresi verisi toplanmaz. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
             ]
           }
         ]
@@ -3202,7 +3073,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap bilgileri yetkili yönetici tarafından servis hesabı oluşturulurken sisteme girilir. Giriş bilgileri giriş formu üzerinden, sepet bilgileri sepet işlemleriyle, araç tercihi garaj formuyla ve çerez tercihi tercih ekranıyla elektronik ortamda elde edilir. Sipariş, teslimat ve fatura bilgileri sipariş formundan, adres defteri bilgileri hesap sayfasındaki adres formundan; ödeme sonucu ve gönderi durumu ise ödeme kuruluşundan ve kargo hizmetinden elektronik ortamda elde edilir."
+              "Hesap bilgileri yetkili yönetici tarafından servis hesabı oluşturulurken sisteme girilir. Giriş bilgileri giriş formu üzerinden, sepet bilgileri sepet işlemleriyle, araç tercihi garaj formuyla ve çerez tercihi tercih ekranıyla elektronik ortamda elde edilir."
             ]
           },
           {
@@ -3226,34 +3097,6 @@
                 "attrs": {},
                 "children": [
                   "Hesap erişimi, sepetin sürdürülmesi ve açıkça talep edilen araç tercihinin hatırlanması: ilgili hizmet ilişkisinin kurulması veya yerine getirilmesi için gerekli olduğu ölçüde KVKK madde 5/2(c)."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Siparişin alınması, ödemesinin tamamlanması, hazırlanması, kargoya verilmesi ve teslimi, iade ve iptal işlemleri: sözleşmenin kurulması veya ifası için gerekli olduğu ölçüde KVKK madde 5/2(c)."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Fatura düzenlenmesi ile vergi, muhasebe ve tüketici mevzuatındaki kayıt yükümlülükleri: ilgili yükümlülük bulunduğunda KVKK madde 5/2(a) veya 5/2(ç)."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Sipariş onayının ispatı ve bir uyuşmazlıkta hakkın tesisi, kullanılması veya korunması: KVKK madde 5/2(e)."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Servis hesabının adres defterinde adres saklanması ve siparişlerde kullanılması: hesap sahibi bakımından hizmet ilişkisinin ifası için gerekli olduğu ölçüde KVKK madde 5/2(c). [Hukuki onay bekliyor: adresi kaydedilen üçüncü kişiler bakımından hukuki sebep.]"
                 ]
               },
               {
@@ -3302,14 +3145,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "[Hukuki onay bekliyor: ödeme kuruluşu ve kargo/gönderi hizmeti alıcılarının rolü (veri işleyen veya ayrı veri sorumlusu), aktarımın KVKK madde 8 ve 9 bakımından dayanağı ve alıcıların yurt içinde mi yurt dışında mı bulunduğu.]"
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde ödeme kuruluşu ve kargo şirketiyle paylaşılır; bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -3358,13 +3194,6 @@
             "children": [
               "Bu metin, planlanan aktarımın hukuken tamamlandığını veya gerekli güvencelerin sağlandığını beyan etmez. Sitenin kullanılması ya da genel bir çerez tercihi, bu barındırma planına verilmiş açık rıza sayılmaz."
             ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "[Hukuki onay bekliyor: sipariş, ödeme, adres ve fatura verilerinin barındırıldığı AWS Frankfurt için aktarım dayanağı (KVKK madde 9) ve barındırmanın başlangıç durumu.]"
-            ]
           }
         ]
       },
@@ -3390,13 +3219,6 @@
             "attrs": {},
             "children": [
               "Hesap kayıtlarının süresi hizmet ilişkisinin devamına, talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Sipariş, fatura, ödeme, sözleşme kopyası ve kargo kayıtları için sunucuda henüz otomatik bir silme veya anonimleştirme işlemi çalışmamaktadır. [Hukuki onay bekliyor: saklama süresi]. Adres defteri kayıtları hesap sahibi tarafından silinebilir; hesap kaydı silindiğinde birlikte silinir."
             ]
           }
         ]
@@ -3748,7 +3570,7 @@
     "title": "KVKK Aydınlatma Metni",
     "sourceUrl": "https://getirbakim.com/kvkk-aydinlatma-metni",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-11-19",
+    "updatedAt": "2026-11-15",
     "description": "Mevcut site hizmetlerinde işlenen kişisel veriler, işleme amaçları ve hukuki sebepler ile ilgili kişi hakları.",
     "sections": [
       {
@@ -3860,48 +3682,6 @@
                 "children": [
                   "İletişim kanallarına başvurduğunuzda paylaştığınız iletişim bilgileri ve talep içeriği."
                 ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Sipariş: ad ve soyad, e-posta, telefon, teslimat adresi, sipariş notu, sipariş kalemleri, tutarlar ile sipariş ve ödeme durumu."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Fatura: fatura türü; kurumsal faturada unvan, vergi dairesi ve vergi kimlik numarası veya T.C. kimlik numarası; ayrı fatura adresi."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Ödeme: ödeme kuruluşunun işlem referansı, tutar, taksit sayısı, ödeme sonucu, banka referansı ve onay kodu. Kart bilgileri şirkete ulaşmaz."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Sipariş onayı kaydı: onay zamanı, IP adresi, tarayıcı bilgisi, onay metni ve siparişe özgü sözleşme kopyası."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Kargo: gönderi etiketi, takip numarası ve gönderi durumu."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Servis hesaplarının adres defteri: kaydedilen adreslerdeki alıcı adı, telefon ve adres bilgileri."
-                ]
               }
             ]
           },
@@ -3909,94 +3689,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Siparişe, ödemeye, teslimata ve faturaya ilişkin ayrıntılar aşağıdaki “Sipariş, Ödeme, Teslimat ve Fatura Verileri” ve “Adres Defteri (Servis Hesapları)” bölümlerindedir. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
-            ]
-          }
-        ]
-      },
-      {
-        "title": "Sipariş, Ödeme, Teslimat ve Fatura Verileri",
-        "blocks": [
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Siparişi üye girişi yapmadan veya hesabınla verebilirsin. Sipariş formunda girdiğin ad ve soyad, e-posta, telefon, teslimat adresi (il, ilçe, açık adres ve varsa posta kodu) ile sipariş notun; siparişin alınması, ödemesinin tamamlanması, hazırlanması, kargoya verilmesi, teslimi ve iade veya iptal işlemleri için işlenir."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Fatura bilgileri bireysel veya kurumsal olarak girilir. Kurumsal faturada fatura unvanı, vergi dairesi ve 10 haneli vergi kimlik numarası (şahıs işletmeleri için 11 haneli T.C. kimlik numarası) alınır. İstersen teslimat adresinden farklı bir fatura adresi (il, ilçe, açık adres ve varsa posta kodu) girebilirsin; bu adres teslimat adresinden ayrı saklanır."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Ödeme, ödeme kuruluşu TAMI’nin barındırdığı ödeme sayfasında yapılır. Kart bilgilerini yalnızca bu sayfada girersin; kart bilgileri şirketin sistemlerine ulaşmaz ve saklanmaz. TAMI’ye ödeme tutarı, şirketin ürettiği ödeme referansı, telefon numaran ve dönüş adresleri iletilir. TAMI’den ise ödemenin sonucu, banka referansı, onay kodu ve taksit sayısı alınıp saklanır."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Ön Bilgilendirme Formu ve Mesafeli Satış Sözleşmesini onayladığında, siparişe özgü metinler sipariş bilgilerinle birlikte sonradan değiştirilemeyen bir kopya olarak saklanır. Onayın ispatı için onay zamanı, IP adresi, tarayıcı bilgisi ve onay metni de kaydedilir."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Sipariş kargoya verilirken Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo’ya alıcının adı, e-posta adresi, telefon numarası ve teslimat adresi (il, ilçe, açık adres), ürün adları ve adetleri, sipariş numarası ve tutarı ile paket ölçüleri iletilir. Fatura bilgilerin (vergi kimlik numarası, vergi dairesi, unvan) kargo şirketine iletilmez. Gönderi etiketi, takip numarası ve gönderi durumu siparişle birlikte saklanır."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Analiz çerezlerine izin verdiysen tamamlanan sipariş için sipariş numarası, ürünler ve tutarlar analiz hizmetine gönderilir; ad, e-posta, telefon, adres veya kart bilgisi gönderilmez. Ayrıntılar Çerez Politikası’ndadır."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "[Hukuki onay bekliyor: Bu bölümün metni yayımlanmadan önce hukuki incelemeden geçecektir; taslaktır.]"
-            ]
-          }
-        ]
-      },
-      {
-        "title": "Adres Defteri (Servis Hesapları)",
-        "blocks": [
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Onaylı servis hesapları, sonraki siparişlerde kullanmak üzere en fazla 10 teslimat veya fatura adresi kaydedebilir. Her kayıtta adres etiketi, alıcı adı, telefon, il, ilçe, açık adres, varsa posta kodu ve varsayılan teslimat veya fatura işareti bulunur."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Bu adresler çoğunlukla servisin kendi müşterilerine ait olabilir; yani adres defterinde hesap sahibi dışındaki kişilerin ad, telefon ve adres bilgileri yer alabilir. Bu kişilerin bilgilerini adres defterine kaydeden hesap sahibi, onları kişisel verilerinin işleneceği konusunda bilgilendirmekten ve bu kaydı yapmak için gerekli hukuki sebebe dayanmaktan kendisi sorumludur."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Şirket bu bilgileri hesap sahibinin talebiyle adres defterinde tutar ve hesap sahibi bir siparişte kullandığında teslimat ve fatura için işler. [Hukuki onay bekliyor: Adres defterindeki üçüncü kişi verileri bakımından şirketin ve hesap sahibinin rolü (ayrı veri sorumlusu veya veri işleyen) ve bu kişilere yönelik aydınlatma.]"
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Adres defteri kayıtlarını hesap sahibi hesap sayfasından düzenleyebilir veya silebilir; hesap kaydı silinirse adresler de silinir. Bir siparişte kullanılan adres siparişin kendi kaydında ayrıca saklandığından, adres defterinden silmek verilmiş siparişleri değiştirmez. Adresi kaydedilen kişiler, haklarına ilişkin başvurularını bu metindeki yöntemlerle şirkete iletebilir."
+              "Şu anda internet sitesinde sipariş veya ödeme alınmamaktadır. Site üzerinden sipariş, ödeme kartı veya teslimat adresi verisi toplanmaz. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
             ]
           }
         ]
@@ -4053,7 +3746,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap bilgileri yetkili yönetici tarafından servis hesabı oluşturulurken sisteme girilir. Giriş bilgileri giriş formu üzerinden, sepet bilgileri sepet işlemleriyle, araç tercihi garaj formuyla ve çerez tercihi tercih ekranıyla elektronik ortamda elde edilir. Sipariş, teslimat ve fatura bilgileri sipariş formundan, adres defteri bilgileri hesap sayfasındaki adres formundan; ödeme sonucu ve gönderi durumu ise ödeme kuruluşundan ve kargo hizmetinden elektronik ortamda elde edilir."
+              "Hesap bilgileri yetkili yönetici tarafından servis hesabı oluşturulurken sisteme girilir. Giriş bilgileri giriş formu üzerinden, sepet bilgileri sepet işlemleriyle, araç tercihi garaj formuyla ve çerez tercihi tercih ekranıyla elektronik ortamda elde edilir."
             ]
           },
           {
@@ -4077,34 +3770,6 @@
                 "attrs": {},
                 "children": [
                   "Hesap erişimi, sepetin sürdürülmesi ve açıkça talep edilen araç tercihinin hatırlanması: ilgili hizmet ilişkisinin kurulması veya yerine getirilmesi için gerekli olduğu ölçüde KVKK madde 5/2(c)."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Siparişin alınması, ödemesinin tamamlanması, hazırlanması, kargoya verilmesi ve teslimi, iade ve iptal işlemleri: sözleşmenin kurulması veya ifası için gerekli olduğu ölçüde KVKK madde 5/2(c)."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Fatura düzenlenmesi ile vergi, muhasebe ve tüketici mevzuatındaki kayıt yükümlülükleri: ilgili yükümlülük bulunduğunda KVKK madde 5/2(a) veya 5/2(ç)."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Sipariş onayının ispatı ve bir uyuşmazlıkta hakkın tesisi, kullanılması veya korunması: KVKK madde 5/2(e)."
-                ]
-              },
-              {
-                "tag": "li",
-                "attrs": {},
-                "children": [
-                  "Servis hesabının adres defterinde adres saklanması ve siparişlerde kullanılması: hesap sahibi bakımından hizmet ilişkisinin ifası için gerekli olduğu ölçüde KVKK madde 5/2(c). [Hukuki onay bekliyor: adresi kaydedilen üçüncü kişiler bakımından hukuki sebep.]"
                 ]
               },
               {
@@ -4153,14 +3818,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "[Hukuki onay bekliyor: ödeme kuruluşu ve kargo/gönderi hizmeti alıcılarının rolü (veri işleyen veya ayrı veri sorumlusu), aktarımın KVKK madde 8 ve 9 bakımından dayanağı ve alıcıların yurt içinde mi yurt dışında mı bulunduğu.]"
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde ödeme kuruluşu ve kargo şirketiyle paylaşılır; bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -4209,13 +3867,6 @@
             "children": [
               "Bu metin, planlanan aktarımın hukuken tamamlandığını veya gerekli güvencelerin sağlandığını beyan etmez. Sitenin kullanılması ya da genel bir çerez tercihi, bu barındırma planına verilmiş açık rıza sayılmaz."
             ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "[Hukuki onay bekliyor: sipariş, ödeme, adres ve fatura verilerinin barındırıldığı AWS Frankfurt için aktarım dayanağı (KVKK madde 9) ve barındırmanın başlangıç durumu.]"
-            ]
           }
         ]
       },
@@ -4241,13 +3892,6 @@
             "attrs": {},
             "children": [
               "Hesap kayıtlarının süresi hizmet ilişkisinin devamına, talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Sipariş, fatura, ödeme, sözleşme kopyası ve kargo kayıtları için sunucuda henüz otomatik bir silme veya anonimleştirme işlemi çalışmamaktadır. [Hukuki onay bekliyor: saklama süresi]. Adres defteri kayıtları hesap sahibi tarafından silinebilir; hesap kaydı silindiğinde birlikte silinir."
             ]
           }
         ]
