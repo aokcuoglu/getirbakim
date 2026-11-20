@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## Unreleased
+
+### Fixed
+- **Price-only refresh without statistics:** the identity check in `storefront_price_only_refresh()` is fenced onto `supplier_items_part_key_idx`, so a fresh database no longer ANDs the scope indexes into it (100k candidates: >60 s → 1.6 s; with statistics 0.35 s → 0.82 s, no parallel anti-join) ([#1108](https://github.com/aokcuoglu/getirbakim/issues/1108)).
+
 ## v0.34.0 — 2026-11-20
 
 Release of `dev` since v0.33.0 (10 pull requests): GetirBakım search inside BakımX work orders (fitting parts first, correct limits, caching, per-partner rate limit), Dinamik price-only parts as indexable unavailable pages and an enrichment tier, a compact cookie bar, a storefront button scale and enrichment worker fixes. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
