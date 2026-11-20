@@ -13,6 +13,7 @@ import { installmentSettings } from "@/modules/payments/installment-settings";
 import { procurementOpenSql, type AdminOrderLine } from "./order-procurement";
 import { dashboardOrdersSql, orderFilters, type OrderFilter } from "./order-filters";
 import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
+import type { PriceAnomalyEvidence } from "@/modules/suppliers/price-anomalies";
 
 type ServiceAccount = {
   id: string; name: string; email: string; approved: boolean; discount_percent: number;
@@ -291,6 +292,19 @@ export const adminSupplierCatalogMetrics = cache(async () => {
   [companies.basbug, companies.dinamik, companies.seta, manualCompany]);
   return pickBySupplier([...apiFeedKeys, "manual"], rows, { available: 0, saleable: 0 });
 });
+
+export type AdminPriceAnomaly = {
+  supplier_item_id: string; supplier: string; code: string; status: "open" | "dismissed"; evidence: PriceAnomalyEvidence;
+  detected_at: Date; last_seen_at: Date; decided_at: Date | null;
+};
+/** Single-row currency anomalies (#1030): open ones (unpriced) first, newest first. */
+export async function adminPriceAnomalies() {
+  await requireAdmin();
+  return (await db.query<AdminPriceAnomaly>(`SELECT a.supplier_item_id::text AS supplier_item_id,a.supplier,i.code,a.status,a.evidence,
+      a.detected_at,a.last_seen_at,a.decided_at
+    FROM supplier_price_anomalies a JOIN supplier_items i ON i.id=a.supplier_item_id
+    ORDER BY a.status,a.detected_at DESC LIMIT 200`)).rows;
+}
 
 // Scopes the manual "refresh" buttons run, in order. Dinamik has ~800 brands, so only the ones without a successful run
 // in the last day are offered (the oldest first); Başbuğ's 15 groups and SETA's single list always run in full.

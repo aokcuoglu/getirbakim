@@ -75,6 +75,7 @@ export async function claimPurchase(orderId: string, owners: CartOwner[]): Promi
     const rate = line.vat_percent === null ? fallbackVat : Number(line.vat_percent);
     return sum + vatIncludedKurus(Number(line.unit_price_kurus) * line.quantity, Number.isFinite(rate) ? rate : fallbackVat);
   }, 0);
+  // value = subtotal + shipping; the installment fee (installment_fee_kurus) is intentionally excluded (#894).
   const payload = purchase({
     transactionId: order.number, subtotalKurus: Number(order.subtotal_kurus), shippingKurus: Number(order.shipping_kurus), taxKurus, items,
   });

@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { privatePageRobots } from "@/modules/seo/crawlers";
 import { currentOrder, orderRefundedKurus } from "@/modules/store/order-read";
+import { deliverOrderEmailsSafely } from "@/modules/store/order-email";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { money } from "@/modules/store/catalog";
 import { orderStatus, paymentStatus } from "@/modules/store/orders";
@@ -71,6 +73,8 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     // Other views never wait on TAMI while rendering; PaymentWatcher checks once after the page is shown (#711).
     try { await reconcileOrderPayments(id,{minIntervalSeconds:5,deadlineMs:INTERACTIVE_RECONCILE_MS}); result=await currentOrder(id) ?? result; }
     catch(error) { console.error("Order page payment reconciliation failed",{id,error:error instanceof Error ? error.message : error}); }
+    // A payment settled here queued the confirmation email (#951); it is sent after the page.
+    after(()=>deliverOrderEmailsSafely({orderId:id}));
   }
   const {order,items,agreement,mine}=result;
   const account=await currentAccount();

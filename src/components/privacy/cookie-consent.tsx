@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
+import { lazyModule } from "@/lib/lazy-module";
 import { consentBannerOpen, consentSnapshot, parseConsent, saveConsent, subscribeConsent, type CookieConsent as Consent } from "@/lib/cookie-consent";
 import { useConsentServices, useServerConsent } from "@/components/privacy/tag-manager";
 
-const focusSettings = (node: HTMLFieldSetElement | null) => node?.focus({ preventScroll: true });
+// The checkboxes (Base UI checkbox) come with the first hover, focus or click on a preferences button (#1017).
+const cookieSettings = lazyModule(() => import("./cookie-settings"));
+const preloadSettings = () => { void cookieSettings.preload(); };
 
 const action = "h-auto min-h-[35px] rounded-[4px] border border-primary bg-primary px-3 py-2 text-xs leading-[18px] font-semibold text-white hover:border-[#0065a9] hover:bg-[#0065a9] max-[600px]:min-h-11 max-[600px]:flex-auto";
 const secondary = cn(action, "border-[#bcc6d0] bg-white font-normal text-foreground hover:border-muted-foreground hover:bg-[#f5f7f9] hover:text-foreground");
@@ -41,6 +43,8 @@ function setSettings(open: boolean) {
 function openCookieSettings(trigger: HTMLElement | null) {
   opener = trigger;
   setSettings(true);
+  // A failed download closes the panel again (focus back on the opener); the next click retries.
+  cookieSettings.preload().catch(() => closeCookieSettings());
 }
 
 /**
@@ -61,7 +65,7 @@ function closeCookieSettings() {
 
 /** The footer's "Çerez tercihleri" link-styled button; the banner itself is <CookieBanner/>. */
 export function CookieConsent() {
-  return <button type="button" data-cookie-preferences="" onClick={event => openCookieSettings(event.currentTarget)}
+  return <button type="button" data-cookie-preferences="" onPointerEnter={preloadSettings} onFocus={preloadSettings} onClick={event => openCookieSettings(event.currentTarget)}
     className="inline min-h-6 cursor-pointer rounded-none border-0 bg-transparent p-0 text-[length:inherit] leading-[inherit] text-inherit font-normal underline underline-offset-3 hover:bg-transparent hover:text-primary">
     Çerez tercihleri
   </button>;
@@ -91,6 +95,7 @@ export function CookieBanner() {
 
 function BannerPanel({ settings, consent }: { settings: boolean; consent: Consent | null }) {
   const services = useConsentServices();
+  const fields = cookieSettings.useModule();
   const options = [
     { key: "necessary", ...optionTexts.necessary },
     { key: "analytics", title: optionTexts.analytics.title, text: services.analytics ? optionTexts.analytics.text : optionTexts.analytics.idle },
@@ -116,19 +121,12 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
         Analiz ve reklam çerezleri yalnızca izin vermeniz hâlinde etkinleşir; tercihinizi sayfanın altındaki “Çerez tercihleri” bağlantısından değiştirebilirsiniz.
         Ayrıntılar için <Link href="/bilgi/cerez-politikasi" className="text-primary underline underline-offset-2">Çerez politikamızı</Link> inceleyin.
       </p>
-      {settings && <fieldset id="cookie-settings" tabIndex={-1} ref={focusSettings} className="m-0 mb-3.5 grid min-w-0 gap-3.5 rounded-[4px] border border-[#dfe4e9] px-4 py-3 outline-none max-[600px]:p-2.5">
-        <legend className="px-1.5 text-[13px] font-semibold">Çerez tercihlerinizi ayarlayın</legend>
-        {options.map(option => <label key={option.key} className="flex cursor-pointer items-start gap-2.5">
-          <Checkbox checked={checked[option.key]} disabled={option.key === "necessary"} onCheckedChange={value => setters[option.key]?.(value === true)}
-            className="mt-0.5 size-[17px] min-h-0 rounded-[3px] border-[#767676] bg-white p-0 data-checked:border-primary data-checked:bg-primary data-disabled:opacity-100 data-disabled:data-checked:border-[#c4cdd5] data-disabled:data-checked:bg-[#c4cdd5]" />
-          <span><strong className="block text-xs leading-5 font-semibold">{option.title}</strong><small className="block text-xs leading-[19px] text-muted-foreground">{option.text}</small></span>
-        </label>)}
-      </fieldset>}
+      {settings && fields && <fields.CookieSettings options={options} checked={checked} setters={setters} />}
       <div className="flex flex-wrap gap-2">
         <Button type="button" className={action} onClick={() => choose(true, true)}>Tümünü kabul et</Button>
         {settings
-          ? <Button type="button" className={secondary} onClick={() => choose(analytics, marketing)}>Tercihleri kaydet</Button>
-          : <Button type="button" className={secondary} data-cookie-settings-opener="" aria-expanded={false} aria-controls="cookie-settings" onClick={() => openCookieSettings(null)}>Tercihleri ayarla</Button>}
+          ? <Button type="button" className={secondary} disabled={!fields} onClick={() => choose(analytics, marketing)}>Tercihleri kaydet</Button>
+          : <Button type="button" className={secondary} data-cookie-settings-opener="" aria-expanded={false} aria-controls="cookie-settings" onPointerEnter={preloadSettings} onFocus={preloadSettings} onClick={() => openCookieSettings(null)}>Tercihleri ayarla</Button>}
         <Button type="button" className={secondary} onClick={() => choose(false, false)}>Tümünü reddet</Button>
         {settings && consent && <Button type="button" className={secondary} onClick={closeCookieSettings}>Vazgeç</Button>}
       </div>

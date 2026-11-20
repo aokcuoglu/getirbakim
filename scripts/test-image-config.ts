@@ -49,6 +49,7 @@ const optimizedImages = new Set([
   "src/components/home-controls.tsx :: category.imagePath",
   "src/components/home-product-card.tsx :: image.src",
   "src/components/navigation/category-menu.tsx :: category.imagePath",
+  "src/components/navigation/category-parts.tsx :: category.imagePath",
   "src/components/product-gallery.tsx :: image.src",
   "src/components/product-gallery.tsx :: thumbnail.src",
   "src/components/purchase-form.tsx :: p.image",

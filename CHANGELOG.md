@@ -2,6 +2,48 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## Unreleased
+
+## v0.32.1 — 2026-11-20
+
+Patch release of `dev` since v0.32.0 (1 pull request): CI runner selection and an AWS release without the GitHub `production` environment, so the repository can go private on GitHub Free. Application code is unchanged. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Changed
+- **CI runner selectable** with the repository variable `CI_RUNS_ON` (unset: GitHub-hosted `ubuntu-24.04`); Postgres starts with `docker run` on a free localhost port and is always removed; Mac runner setup in `scripts/ci/mac-runner-setup.sh` and `docs/ci-mac-runner.md` ([#1053](https://github.com/aokcuoglu/getirbakim/pull/1053), [#1047](https://github.com/aokcuoglu/getirbakim/issues/1047)).
+- **`release-aws.yml` without the `production` environment:** started with `-f version=<package.json version>`; a guard job (main, owner as actor and triggering actor, matching version) and the same branch/actor check as the first step of the release job stop everything before AWS ([#1053](https://github.com/aokcuoglu/getirbakim/pull/1053)).
+
+### Deploy and operations
+- Done before this release: getirbakim-infra#6 (release role trusts `release-aws.yml` on main via `job_workflow_ref`), repository OIDC subject template (`repo`, `context`, `job_workflow_ref`), release variables and `INFRA_DEPLOY_KEY` at repository level.
+- Release with `gh workflow run release-aws.yml --ref main -f version=0.32.1`. After it succeeds: the repository can go private, then register the Mac runner and set `CI_RUNS_ON` (`docs/ci-mac-runner.md`); afterwards drop the environment subjects from the release role trust.
+- No schema change; `db:setup` is a no-op. Vehicle oil specs are unchanged.
+
+## v0.32.0 — 2026-11-20
+
+Release of `dev` since v0.31.0 (12 pull requests). Unblocks the AWS release: v0.31.0's `db:setup` deadlocked with live storefront reads, so v0.31.0 never reached production and ships to AWS with this version. Also: order confirmation email, partner invoiced-mark correction, multi-window Turkish type-name search, single-row supplier currency anomalies kept out of pricing.
+
+### Added
+- **Order confirmation email** after payment, logged per order ([#1033](https://github.com/aokcuoglu/getirbakim/pull/1033)); sent only once SMTP is configured (see below).
+- **Partner invoices:** correct or undo an invoiced mark from `/yonetim` ([#1031](https://github.com/aokcuoglu/getirbakim/pull/1031)); server reasons shown in the invoice dialogs ([#1044](https://github.com/aokcuoglu/getirbakim/pull/1044)).
+- **Search:** several Turkish type-name windows translated together, with their first-page share recorded ([#1032](https://github.com/aokcuoglu/getirbakim/pull/1032)).
+- **Suppliers:** single-row currency anomalies kept out of pricing ([#1052](https://github.com/aokcuoglu/getirbakim/pull/1052)).
+- **Platform:** the production DB tunnel defaults to a read-only role ([#1041](https://github.com/aokcuoglu/getirbakim/pull/1041)); it exits 0 when its task is stopped ([#1051](https://github.com/aokcuoglu/getirbakim/pull/1051)).
+
+### Changed
+- **Performance:** header sheets, account panel and cookie settings load on first intent ([#1040](https://github.com/aokcuoglu/getirbakim/pull/1040)).
+- Legacy unconfirmed stock label removed ([#1025](https://github.com/aokcuoglu/getirbakim/pull/1025)); GA4 purchase value excludes the installment fee (docs, [#1024](https://github.com/aokcuoglu/getirbakim/pull/1024)).
+
+### Fixed
+- - **`db:setup` no longer deadlocks with storefront reads when nested views change** ([#1046](https://github.com/aokcuoglu/getirbakim/issues/1046)): v0.31.0's `release-aws` failed all 6 attempts with 40P01 because setup replaced `commerce_catalog_entries` before `storefront_catalog_entries` while storefront queries lock them outer first. A view replace or an ALTER TABLE now first locks the views that read it, outermost first (`setup_lock_dependent_views`, base tables untouched); a no-op run still takes no locks. Dependent views the setup role cannot alter are skipped with a NOTICE instead of failing. `supplier_items_brand_label_idx` is built `CONCURRENTLY` before the schema transaction (an INVALID leftover is rebuilt; 40P01/55P03 retried 3 times, progress logged); the build waits for every open transaction that could still see `supplier_items`, so a long-running transaction delays `db:setup` (it does not block reads or writes). ([#1055](https://github.com/aokcuoglu/getirbakim/pull/1055))
+- Mobile category sheet footer shows the session ([#1045](https://github.com/aokcuoglu/getirbakim/pull/1045)).
+
+### Deploy and operations
+- **Includes v0.31.0's deploy steps** (v0.31.0 was never released to AWS): `db:setup` before the new code, environment keys and CloudFront changes. The 12 new app secret keys (Geliver, partner orders, tags), the `geliver-sync` schedule (off) and CloudFront viewer headers are in getirbakim-infra#4; Geliver token, mode `live`, webhook secret, partner quote secret and the 100 TL default partner limit are set; the Geliver webhook is registered.
+- `db:setup` builds `supplier_items_brand_label_idx` `CONCURRENTLY` before its transaction; watch the `release-aws` log for "Built index" and no "hit a lock conflict" retries. Follow-up: #1054.
+- **After deploy:** refresh Başbuğ (or the BMW group) once from the panel so the new currency-anomaly table is filled ([#1052](https://github.com/aokcuoglu/getirbakim/pull/1052)); run the Geliver webhook test; enable `PRODUCTION_GELIVER_SYNC_ENABLED` once Geliver is live.
+- **Order email ([#1033](https://github.com/aokcuoglu/getirbakim/pull/1033)):** until `MAIL_TRANSPORT=smtp`, `MAIL_FROM`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD` reach the task (SES domain verification, port 587 egress), each order logs a `skipped` row.
+- Read-only tunnel role: create once on production per `docs/aws-db-tunnel.md` ([#1041](https://github.com/aokcuoglu/getirbakim/pull/1041)).
+- Vehicle oil specs are unchanged. Local: `npm run db:setup` after merging.
+
 ## v0.31.0 — 2026-11-19
 
 Release of `dev` since v0.30.0 (43 pull requests): separate invoice address and account address book, Turkish names and Turkish search for English-named supplier products, Yurtiçi labels through Geliver, partner orders, Google Ads / Meta Pixel behind consent, faster brand and listing pages, lighter storefront and lock-free `db:setup`. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
