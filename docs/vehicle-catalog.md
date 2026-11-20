@@ -8,7 +8,7 @@ Katalog PostgreSQL'de tutulur. Mağazanın çalışma anında CSV okumaya veya b
 
 | Tablo | Kimlik ve ilişki | Alanlar |
 | --- | --- | --- |
-| `vehicle_brands` | `id`: TecDoc marka kimliği | Kaynak adı, gösterim adı, popülerlik |
+| `vehicle_brands` | `id`: TecDoc marka kimliği | Kaynak adı, gösterim adı (popüler markalar koddaki `popularVehicleMakes` listesinden gelir) |
 | `vehicle_models` | `id`: TecDoc model kimliği; `brand_id` → marka | Model/kasa adı, üretim başlangıç/bitiş ayı |
 | `vehicle_types` | `id`: TecDoc tip kimliği; `model_id` → model | Motor adı, cm³, kaynak yakıt adı, Türkçe yakıt adı, hp, kW, üretim ayları, normalize arama metni |
 
