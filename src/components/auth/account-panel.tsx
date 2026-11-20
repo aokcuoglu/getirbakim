@@ -13,7 +13,7 @@ import { logout } from "@/modules/auth/actions";
 
 const menuButton = "mt-3 flex h-auto min-h-11 w-full rounded-[3px] px-4 py-2.5 text-xs leading-5 font-medium first:mt-0";
 const primaryButton = cn(menuButton, "border-brand bg-brand text-white hover:border-brand-strong hover:bg-brand-strong active:bg-[#005a9f]");
-const outlineButton = cn(menuButton, "border-input bg-white text-foreground hover:border-[#54626e] hover:bg-[#f9fafb] hover:text-foreground");
+const outlineButton = cn(menuButton, "border-control-border bg-white text-foreground hover:border-[#54626e] hover:bg-[#f9fafb] hover:text-foreground");
 const benefits = [
   { icon: ShieldCheck, title: "Güvenli hesap erişimi", text: "Servis hesabınla sana özel fiyatları görüntüle." },
   { icon: CarFront, title: "Aracın her zaman elinin altında", text: "Araç bilgilerini garajına ekleyerek kolayca ulaş." },

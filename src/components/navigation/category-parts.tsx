@@ -13,7 +13,7 @@ export const sheetRow="flex w-full items-center gap-3 text-left text-foreground 
 export function TreeStatus({error,missing,retry,rows,rowClass}:{error:boolean;missing?:boolean;retry:()=>void;rows:number;rowClass:string}){
  if(error||missing)return <div role="alert" className="flex flex-col items-start gap-3 px-4 py-6 text-sm leading-5 text-foreground">
   <p>{missing?"Bu kategori bulunamadı.":"Kategoriler yüklenemedi."}</p>
-  {error&&<Button type="button" variant="outline" onClick={retry} className="min-h-11 px-4 text-sm">Tekrar dene</Button>}
+  {error&&<Button type="button" variant="outline" onClick={retry} className="min-h-11 border-control-border px-4 text-sm">Tekrar dene</Button>}
  </div>;
  return <div role="status" aria-busy="true"><span className="sr-only">Kategoriler yükleniyor…</span>{Array.from({length:rows},(_,index)=><div key={index} aria-hidden="true" className={cn("flex items-center gap-3 px-4",rowClass)}><Skeleton className="h-[30px] w-[45px] shrink-0"/><Skeleton className="h-4 flex-1"/></div>)}</div>;
 }
