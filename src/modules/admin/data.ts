@@ -7,6 +7,7 @@ import { manualCompany, setaCompany } from "@/modules/suppliers/storefront-sourc
 import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE } from "@/modules/suppliers/dinamik-import";
 import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
 import type { CommerceOrder } from "@/modules/store/orders";
+import { ORDER_EMAIL_LEASE_MINUTES, type AdminOrderEmail } from "@/modules/store/order-email-state";
 import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules";
 import { restockDueCount } from "./restock";
 import { installmentSettings } from "@/modules/payments/installment-settings";
@@ -88,7 +89,7 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
   const filter: OrderFilter = pickKey(orderFilters, rawFilter, "all");
   const procurement: ProcurementFilter = pickKey(procurementFilters, rawProcurement, "all");
   const owner: OwnerFilter = pickKey(ownerFilters, rawOwner, "all");
-  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[]; lines: AdminOrderLine[]; geliver: AdminGeliverShipment | null } & OrderAgreementSummary & PartnerCancelRequest>(
+  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[]; lines: AdminOrderLine[]; geliver: AdminGeliverShipment | null; emails: AdminOrderEmail[] } & OrderAgreementSummary & PartnerCancelRequest>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,o.refunded_at,
      o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,o.cancelled_by,o.cancelled_at,o.installment_count,o.installment_fee_kurus,
@@ -111,9 +112,14 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
      (SELECT jsonb_build_object('id',g.id,'status',g.status,'test',g.test,'barcode',g.barcode,'label_url',g.label_url,'tracking_status_code',g.tracking_status_code,
       'tracking_sub_status_code',g.tracking_sub_status_code,'tracking_status_details',g.tracking_status_details,'tracking_location',g.tracking_location,
       'tracking_status_at',g.tracking_status_at,'error_code',g.error_code,'error_message',g.error_message,'requested_at',g.requested_at)
-      FROM commerce_geliver_shipments g WHERE g.order_id=o.id ORDER BY g.requested_at DESC,g.id DESC LIMIT 1) AS geliver
+      FROM commerce_geliver_shipments g WHERE g.order_id=o.id ORDER BY g.requested_at DESC,g.id DESC LIMIT 1) AS geliver,
+     -- Order emails (#1035); in_flight = claimed by a send within the lease, so a resend is refused.
+     COALESCE((SELECT jsonb_agg(jsonb_build_object('kind',e.kind,'status',e.status,'attempts',e.attempts,'last_error',e.last_error,'sent_at',e.sent_at,
+      'created_at',e.created_at,'claimed_at',e.claimed_at,'requeued_at',e.requeued_at,
+      'in_flight',e.status='pending' AND e.claimed_at IS NOT NULL AND e.claimed_at > now()-make_interval(mins=>$2)) ORDER BY e.created_at,e.kind)
+      FROM commerce_order_emails e WHERE e.order_id=o.id),'[]') AS emails
      FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} AND ${procurementFilters[procurement]} AND ${ownerFilters[owner]} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
-    [(page - 1) * 50],
+    [(page - 1) * 50, ORDER_EMAIL_LEASE_MINUTES],
   ), db.query<Record<OrderFilter, number>>(`SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`)]);
   return { orders: orders.rows, page, filter, procurement, owner, counts: counts.rows[0] };
 }
