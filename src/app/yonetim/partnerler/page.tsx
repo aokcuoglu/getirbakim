@@ -77,8 +77,8 @@ export default async function Partners({ searchParams }: { searchParams: Promise
                 <span className="font-medium">{p.code}</span>
                 {!p.configured && <StatusBadge tone="warning">API anahtarı yok</StatusBadge>}
                 {p.intakePausedAt && <>
-                  <StatusBadge tone="warning" icon={CirclePause}>Sipariş alımı durduruldu</StatusBadge>
-                  <span className="text-muted-foreground tabular-nums">{formatDateTime(p.intakePausedAt, { year: true })} · {p.intakePausedBy ?? "—"}</span>
+                  <StatusBadge tone="warning" icon={CirclePause}>Durduruldu</StatusBadge>
+                  <span className="text-muted-foreground tabular-nums">Sipariş alımı durduruldu · {formatDateTime(p.intakePausedAt, { year: true })} · {p.intakePausedBy ?? "—"}</span>
                 </>}
               </div></TableCell>
               <TableCell className="text-right"><div className="tabular-nums">{p.limitKurus == null ? "—" : money(p.limitKurus)}</div><div className="text-muted-foreground">{sourceLabel[p.source]}</div></TableCell>
