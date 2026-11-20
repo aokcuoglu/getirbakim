@@ -332,7 +332,7 @@ test("the partner API and reference links drop a hidden supplier OEM (#615)", as
   const listed = rows.find(row => row.id === ids.valeoBasbug || row.id === ids.valeoDinamik);
   assert.ok(listed, "the product is still sold");
   const product = toPartnerProduct(listed as unknown as PartnerCatalogRow, { offers: [listed as unknown as PartnerCatalogRow], discountBps: 0, imageUrl: null,
-    vehicleTypeId: null, fitted: false });
+    vehicleTypeId: null, fitmentLevel: null });
   assert.deepEqual(product.oemNumbers, []);
   assert.deepEqual(product.references, []);
   assert.equal(matchesOem(listed as unknown as PartnerCatalogRow, "9673689380"), false);

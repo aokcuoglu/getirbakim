@@ -87,8 +87,8 @@ jobs:
       - run: npm run test:dinamik
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
-      # Partner orders (#426) need a database; the step running test:partner has none.
-      - run: npm run test:partner-orders
+      # Partner orders (#426) and the partner search (#1093) need a database; the step running test:partner has none.
+      - run: npm run test:partner-orders && npm run test:partner-search
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
       - run: npm run test:media-gc

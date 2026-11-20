@@ -73,14 +73,26 @@ export async function withBestOffers<T extends CatalogProduct>(items: T[]): Prom
  const offers = (await db.query<CatalogProduct & { primary_id: string }>(`SELECT o.primary_id::text,priced.* FROM product_offers o
   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.item_id OFFSET 0) priced ON true
   WHERE o.primary_id=ANY($2::uuid[])`, [company(), ids])).rows;
- return items.map(item => {
-  const group = offers.filter(offer => offer.primary_id === item.id);
-  if (group.length < 2) return item;
-  const best = group.filter(offer => offer.available && offer.price_kurus !== null).sort(compareOffers(item.id))[0];
-  if (!best) return { ...item, offers: group.length };
-  return { ...item, price_kurus: best.price_kurus, available: best.available, max_quantity: best.max_quantity, stock_label: best.stock_label,
-   pricing_snapshot: best.pricing_snapshot, offer_id: best.id, offers: group.length };
- });
+ return items.map(item => withBestOffer(item, offers.filter(offer => offer.primary_id === item.id)));
+}
+/** `item` priced and stocked by the best of its grouped offers (`group`, priced rows of product_offers), as withBestOffers does. */
+export function withBestOffer<T extends CatalogProduct>(item: T, group: CatalogProduct[]): T {
+ if (group.length < 2) return item;
+ const best = group.filter(offer => offer.available && offer.price_kurus !== null).sort(compareOffers(item.id))[0];
+ if (!best) return { ...item, offers: group.length };
+ return { ...item, price_kurus: best.price_kurus, available: best.available, max_quantity: best.max_quantity, stock_label: best.stock_label,
+  pricing_snapshot: best.pricing_snapshot, offer_id: best.id, offers: group.length };
+}
+/**
+ * The saleable rows (catalogSql) of these ids, in the order given; an id that is not saleable now is left out (#1093).
+ * Read as `id=ANY(...)`, the view reaches supplier_items by primary key once for all ids: the per-id LATERAL read of
+ * browseProducts repeats the view's pricing joins per row (200 ids: ~0.9 s against ~12 ms locally).
+ */
+export async function catalogRowsByIds(ids:string[]){
+ if(!ids.length)return [] as CatalogProduct[];
+ const rows=(await db.query<CatalogProduct>(`SELECT * FROM (${catalogSql}) catalog WHERE catalog.id=ANY($2::uuid[])`,[company(),ids])).rows;
+ const byId=new Map(rows.map(row=>[row.id,row]));
+ return ids.flatMap(id=>byId.get(id)??[]);
 }
 /** A row the store shows: saleable, or (`unavailable`) a product no supplier sells now. */
 export async function getStorefrontProduct(id: string): Promise<CatalogProduct | undefined> {
@@ -593,14 +605,24 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
  return {ids:summary.ids.slice(0,cachedPages*catalogPageSize),total:summary.ids.length,brands:summary.brands,attributes,
   correctedQuery:search.correctedQuery,vehicle:search.vehicle,tooShort:search.tooShort};
 });
+/** How deep API searches read the ranking (#1093): exact-number filters and fit-first ordering work on these ids. */
+export const rankedSearchDepth=200;
+const cachedRankedSearches=staleCache<string[]>(aggregateTtl,300,listings);
+/**
+ * The first rankedSearchDepth saleable matches of a search (no unavailable cards), in the storefront's relevance order
+ * (#1093). For the BakımX partner API, which filters and reorders them per request: cached like plainSearch, so repeated
+ * keystrokes skip the search and its ranking (~0.2-0.5 s), while prices and stock are read live for the ids.
+ */
+export const rankedSearchIds=(raw:string,mode:SearchMode)=>cachedRankedSearches(`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`,
+ async()=>(await summarizeSearch(await catalogSearch(raw,mode),false)).ids.slice(0,rankedSearchDepth));
 /** No filter but the search (mirrors the clauses catalogFilter adds). */
 export function isPlainSearch(query:CatalogQuery){
  return Boolean(query.q?.trim())&&!query.category&&!query.make&&!query.model&&!query.manufacturer&&query.fits!=="vehicle"&&!query.oil&&!query.availability
   &&!selectedBrands(query).length&&!Object.values(selectedAttributes(query)).some(options=>options.length);
 }
 /**
- * The best matches of a search, priced, without the listing's counts and facets (#431). For API consumers that only
- * need the first results (the BakımX partner API): the facets of a broad search read every match and took 11-20 s
+ * The best matches of a search, priced, without the listing's counts and facets (#431). The partner API's first page
+ * before #1093 (now rankedSearchIds), kept for the search tests: the facets of a broad search read every match and took 11-20 s
  * cold, while the ids and their ranking take ~0.2 s. Same ids, order and prices as the first page of a plain search.
  */
 export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalogPageSize){
