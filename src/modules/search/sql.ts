@@ -38,6 +38,24 @@ export function supplierItemMatch(alias: string, parsed: ParsedSearch, bind: Bin
 }
 
 /**
+ * Condition over a storefront_price_only_items row `alias` (#1081), through its own indexes (db/storefront-catalog.sql):
+ * the stored fields of the card as shown, so it is found by its Turkish category name as well as its brand, code and
+ * OEM, like a row named in Turkish. The English type-name clauses run on the same document. The ambiguous ones
+ * (typeNameExactQueries) are left out: they only find rows named exactly the English word, and a price-only card's
+ * name is the Turkish label.
+ */
+export function priceOnlyItemMatch(alias: string, parsed: ParsedSearch, bind: Bind, mode: SearchMode = "all") {
+  const clauses: string[] = [];
+  // compact is [a-z0-9] only, so it needs no LIKE escaping.
+  if (parsed.compact.length >= 3) clauses.push(`${alias}.search_codes LIKE ${bind(`%${parsed.compact}%`)}`);
+  const query = prefixTsQuery(parsed);
+  if (mode === "all" && query) clauses.push(`${alias}.search_doc @@ to_tsquery('simple', ${bind(query)})`);
+  if (mode === "all") for (const names of typeNameTsQueries(parsed))
+    clauses.push(`${alias}.search_doc @@ to_tsquery('simple', ${bind(names)})`);
+  return clauses.length ? `(${clauses.join(" OR ")})` : "false";
+}
+
+/**
  * Condition over an enrichment_product_states row `alias` (/yonetim/urun-verileri search, #617): its supplier item
  * matches like the storefront, or its manufacturer part number or one of its enrichment's OEM numbers holds the code.
  * Each branch is an indexed id set (db/search.sql, db/enrichment-search.sql) reached through the primary key; as an
@@ -139,7 +157,8 @@ export function storeProductMatch(alias: string, parsed: ParsedSearch, bind: Bin
 
 /**
  * Relevance of a supplier row `alias` from its stored ranking inputs (search_doc, search_code, search_oem; db/search.sql).
- * `queries`: the prefix tsquery, exact tsquery and compact code arguments of catalog_search_rank_doc.
+ * `queries`: the prefix tsquery, exact tsquery and compact code arguments of catalog_search_rank_doc. `name`: the row's
+ * name as stored in its document (a storefront_price_only_items row passes its own, #1081).
  *
  * A row found only by the English supplier name of a Turkish query ("fren diski" → BRAKE DISC, #953) would rank far
  * below the rows named in Turkish: its stored document holds none of the typed words. Such a row ranks as if it carried
@@ -149,13 +168,13 @@ export function storeProductMatch(alias: string, parsed: ParsedSearch, bind: Bin
  * A fixed boost (or the best of an English-query rank) put every English-named row above every Turkish one (#969).
  * A row named after several typed type names (DOOR GLASS for "kapı camı", #989) swaps them all at once (the first boost).
  */
-export function storedRank(alias: string, parsed: ParsedSearch, bind: Bind, queries: string) {
+export function storedRank(alias: string, parsed: ParsedSearch, bind: Bind, queries: string, name = `${alias}.product_data->>'ac'`) {
   const base = `catalog_search_rank_doc(${alias}.search_doc, ${alias}.search_code, ${alias}.search_oem, ${queries})`;
   const boosts = typeNameRankBoosts(parsed);
   if (!boosts.length) return base;
   const swapped = boosts.map(boost => {
-    const name = boost.names ? ` AND search_normalize(${alias}.product_data->>'ac') = ANY(${bind(boost.names)}::text[])` : "";
-    return `CASE WHEN ${alias}.search_doc @@ to_tsquery('simple', ${bind(boost.query)}::text)${name}
+    const named = boost.names ? ` AND search_normalize(${name}) = ANY(${bind(boost.names)}::text[])` : "";
+    return `CASE WHEN ${alias}.search_doc @@ to_tsquery('simple', ${bind(boost.query)}::text)${named}
       THEN catalog_search_rank_doc(ts_delete(${alias}.search_doc, ${bind(boost.english)}::text[])
         || setweight(to_tsvector('simple', ${bind(boost.turkish)}::text), 'A'), ${alias}.search_code, ${alias}.search_oem, ${queries}) END`;
   });
@@ -163,8 +182,8 @@ export function storedRank(alias: string, parsed: ParsedSearch, bind: Bind, quer
 }
 
 /**
- * Relevance of a catalog-shaped row (name, brand, code, oem, description, display_brand, display_code columns), highest
- * first. Keep in step with summarizeSearch (src/modules/store/catalog.ts).
+ * Relevance of a catalog-shaped row (name, brand, code, oem, description, display_brand, display_code, price_only columns),
+ * highest first. Keep in step with summarizeSearch (src/modules/store/catalog.ts).
  */
 export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
   const queries = `to_tsquery('simple', ${bind(prefixTsQuery(parsed))}::text), to_tsquery('simple', ${bind(exactTsQuery(parsed))}::text), ${bind(parsed.compact)}::text`;
@@ -177,10 +196,16 @@ export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
   // better of the two, so an exact match of either ranks first. A row whose supplier OEM field is hidden (#615) ranks
   // on the computed path too: its view oem is empty, the stored search_oem is not. The stored inputs carry the supplier's
   // brand label, the computed path the shown brand (display_brand: the master brand name, #811).
-  return `COALESCE((SELECT ${storedRank("s", parsed, bind, queries)}
-    FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides o WHERE o.supplier_item_id = s.id
-        AND (o.name IS NOT NULL OR o.description IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL OR o.hide_oem))),
+  // A price-only card (#1081) ranks the stored fields of its card (storefront_price_only_items: its Turkish name), not the
+  // supplier row's.
+  const edited = (id: string) => `EXISTS (SELECT 1 FROM commerce_item_overrides o WHERE o.supplier_item_id = ${id}
+        AND (o.name IS NOT NULL OR o.description IS NOT NULL OR o.brand IS NOT NULL OR o.part_number IS NOT NULL OR o.hide_oem))`;
+  return `COALESCE((SELECT ${storedRank("pq", parsed, bind, queries, "pq.name")}
+    FROM storefront_price_only_items pq WHERE ${alias}.price_only AND pq.supplier_item_id = ${alias}.id AND pq.search_doc IS NOT NULL
+      AND NOT ${edited("pq.supplier_item_id")}),
+    (SELECT ${storedRank("s", parsed, bind, queries)}
+    FROM supplier_items s WHERE s.id = ${alias}.id AND s.search_doc IS NOT NULL AND NOT ${alias}.price_only
+      AND NOT ${edited("s.id")}),
     CASE WHEN ${alias}.display_code <> ${alias}.code THEN GREATEST(${rank("code")}, ${rank("display_code")}) ELSE ${rank("code")} END)`;
 }
 

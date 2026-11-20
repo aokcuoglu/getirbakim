@@ -16,7 +16,7 @@ import {getVehicleModelGroup,getVehicleModelGroups} from './vehicle-model-groups
 import {normalizeSearchText,parseSearchQuery,exactTsQuery,prefixTsQuery,searchTooShort,wholeWords,withoutSynonyms,type ParsedSearch} from '@/modules/search/query';
 import {ensureCustomSynonyms} from '@/modules/search/custom-synonyms';
 import {typeNamePrefixQuery} from '@/modules/search/type-names';
-import {binder,catalogRank,correctSearch,storedRank,overrideItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
+import {binder,catalogRank,correctSearch,storedRank,overrideItemMatch,priceOnlyItemMatch,storeProductMatch,supplierItemMatch,vehicleTypeMatch,type Bind,type SearchMode} from '@/modules/search/sql';
 import {facetOptions} from './specification-translations';
 import {facetSpecificationKeys,selectedBrands,selectedAttributes,specificationLabel,type CatalogFacet} from './catalog-filters';
 import {engineOilCategoryId,parseOilFilters} from './vehicle-oil';
@@ -316,8 +316,16 @@ function searchHits(parsed:ParsedSearch,bind:Bind,mode:SearchMode){
  const oemHidden=(alias:string)=>`NOT EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=${alias}.id AND ho.hide_oem)`;
  const hits=[`SELECT i.id FROM commerce_supplier_items i WHERE ${supplierItemMatch("i",parsed,bind,mode)} AND ${oemHidden("i")}`,
   `SELECT p.id FROM store_products p WHERE ${storeProductMatch("p",parsed,bind,mode)}`,
-  // Products no supplier sells now are found too; the listing puts them last (#475).
-  `SELECT u.id FROM commerce_unavailable_items u WHERE ${supplierItemMatch("u",parsed,bind,mode)} AND ${oemHidden("u")}`];
+  // Products no supplier sells now are found too; the listing puts them last (#475). Dropped rows through the supplier
+  // search indexes (commerce_dropped_items); price-only cards (#1068) through their own stored fields and indexes
+  // (storefront_price_only_items, #1081). Read through commerce_unavailable_items, every match computed the whole
+  // price-only branch (~130 ms for "bosch" at 100k price-only rows). The price-only hits are not checked against the
+  // view here: a probe per hit cost ~9 µs (~170 ms for 16k name hits). Every reader of the ids reads them back through
+  // the storefront views by id (summarizeSearch, catalogFilter, suggestProducts), so a row the view no longer lists
+  // (sold since the last refresh, or yielding to another card) is never shown.
+  `SELECT u.id FROM commerce_dropped_items u WHERE ${supplierItemMatch("u",parsed,bind,mode)} AND ${oemHidden("u")}`,
+  `SELECT q.supplier_item_id FROM storefront_price_only_items q WHERE ${priceOnlyItemMatch("q",parsed,bind,mode)}
+    AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides ho WHERE ho.supplier_item_id=q.supplier_item_id AND ho.hide_oem)`];
  // OEM numbers always carry digits. The trigram index on enrichment_oem_search (db/enrichment-search.sql, #609)
  // narrows the enrichments first; normalising every stored reference per query took ~3 s.
  if(parsed.compact.length>=3&&/[0-9]/.test(parsed.compact)){const key=bind(`%${parsed.compact}%`);hits.push(`SELECT e.supplier_item_id FROM storefront_enrichments e
@@ -572,17 +580,19 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
     -- number ranks the edit (#575, #602), the part number as the better of it and the supplier code. A price-only edit
     -- (#580) keeps the stored inputs. A hidden supplier OEM field (#615) ranks without the OEM. Same rule as catalogRank
     -- (src/modules/search/sql.ts).
+    -- A price-only card (#1081) ranks its card's stored fields (pq: its Turkish name), as storefront_catalog names it.
     COALESCE(CASE WHEN ov.name IS NULL AND ov.description IS NULL AND ov.brand IS NULL AND ov.part_number IS NULL AND ov.hide_oem IS NOT TRUE
-      THEN ${storedRank('i',search.parsed,bind,queries)} END,
-     GREATEST(catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),${displayBrandSql('i','ov')},
+      THEN CASE WHEN pq.supplier_item_id IS NOT NULL THEN ${storedRank('pq',search.parsed,bind,queries,'pq.name')} ELSE ${storedRank('i',search.parsed,bind,queries)} END END,
+     GREATEST(catalog_search_rank(COALESCE(ov.name,pq.name,NULLIF(i.product_data->>'ac',''),i.code),${displayBrandSql('i','ov')},
       i.code,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,COALESCE(ov.description,i.product_data->>'ac2',''),${queries}),
-      CASE WHEN ov.part_number IS NOT NULL AND ov.part_number<>i.code THEN catalog_search_rank(COALESCE(ov.name,NULLIF(i.product_data->>'ac',''),i.code),
+      CASE WHEN ov.part_number IS NOT NULL AND ov.part_number<>i.code THEN catalog_search_rank(COALESCE(ov.name,pq.name,NULLIF(i.product_data->>'ac',''),i.code),
        ${displayBrandSql('i','ov')},ov.part_number,CASE WHEN ov.hide_oem THEN '' ELSE COALESCE(i.product_data->>'oe','') END,
        COALESCE(ov.description,i.product_data->>'ac2',''),${queries}) END)) AS rank
    FROM (SELECT s.*,s.changed_at AS updated_at,false AS unavailable FROM commerce_supplier_items s WHERE s.id=ANY($2::uuid[]) AND s.company=ANY($1::text[])
     UNION ALL
     SELECT u.*,u.last_seen_at,true FROM commerce_unavailable_items u WHERE ${includeUnavailable} AND u.id=ANY($2::uuid[]) AND u.company=ANY($1::text[])) i
    LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
+   LEFT JOIN storefront_price_only_items pq ON i.unavailable AND pq.supplier_item_id=i.id
    -- The brand facet lists the shown brands (display_brand: master brand names, #811), as the generic path does.
    ${masterBrandJoinSql('i')}
    UNION ALL

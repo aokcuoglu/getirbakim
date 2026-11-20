@@ -71,7 +71,7 @@ test("dependent views are locked outermost first, and never their base tables", 
     await blocker.query("COMMIT");
     await locking;
     assert.deepEqual(await accessExclusive(monitor, pid), ["v commerce_catalog", "v commerce_catalog_entries",
-      "v commerce_unavailable_items", "v storefront_catalog", "v storefront_catalog_entries"]);
+      "v commerce_dropped_items", "v commerce_unavailable_items", "v storefront_catalog", "v storefront_catalog_entries"]);
     // A table's dependents, without the table itself.
     await setup.query("SELECT setup_lock_dependent_views('supplier_items')");
     assert.ok(!(await accessExclusive(monitor, pid)).some((entry) => entry.startsWith("r ")));
