@@ -43,7 +43,7 @@ test('search products round-trip through the database and SQL keys order batches
   assert.deepEqual((await knownSearchProducts(pool,'TRW GDB3368')).map(p=>p.entity_id),[11]);
   assert.deepEqual((await knownSearchProducts(pool,'FEBI 02562')).map(p=>p.entity_id),[12]);
   assert.deepEqual(await knownSearchProducts(pool,'NOPE 1'),[]);
-  for(const value of ['GDB3368','0 986 494 123','00','ap 034/2','FEBI','Mann','HENGST FILTER','febi bilstein']){
+  for(const value of ['GDB3368','0 986 494 123','00','ap 034/2','FEBI','Mann','HENGST FILTER','febi bilstein','REINZ','Victor Reinz']){
    const sql=(await pool.query('SELECT enrichment_part_key($1) AS part,enrichment_brand_key($1) AS brand',[value])).rows[0];
    assert.deepEqual(sql,{part:partKey(value),brand:manufacturerBrandKey(value)},value);
   }
