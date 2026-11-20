@@ -4,6 +4,7 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
 import { staleCache } from "@/lib/stale-cache";
+import { ttlCache } from "@/lib/ttl-cache";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { listingEpoch } from "./listing-epoch";
@@ -633,13 +634,43 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
 /** How deep API searches read the ranking (#1093): exact-number filters and fit-first ordering work on these ids. */
 export const rankedSearchDepth=200;
 const cachedRankedSearches=staleCache<string[]>(aggregateTtl,300,listings);
+// The hit set the two API rankings below share (#1119): loaded once when both miss together (a partner request with a
+// vehicle), not searched twice. Few and short-lived entries: a broad search holds up to maxSearchHits ids. Keyed by the
+// listing epoch too, so a ranking reloaded after an admin edit never starts from a hit set found before it.
+const sharedApiSearches=ttlCache<CatalogSearch>(30_000,4);
+const apiSearchKey=(raw:string,mode:SearchMode)=>`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`;
+const apiSearch=async(raw:string,mode:SearchMode)=>sharedApiSearches(`${await listingEpoch()}|${apiSearchKey(raw,mode)}`,()=>catalogSearch(raw,mode));
 /**
  * The first rankedSearchDepth saleable matches of a search (no unavailable cards), in the storefront's relevance order
  * (#1093). For the BakımX partner API, which filters and reorders them per request: cached like plainSearch, so repeated
  * keystrokes skip the search and its ranking (~0.2-0.5 s), while prices and stock are read live for the ids.
  */
-export const rankedSearchIds=(raw:string,mode:SearchMode)=>cachedRankedSearches(`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`,
- async()=>(await summarizeSearch(await catalogSearch(raw,mode),false)).ids.slice(0,rankedSearchDepth));
+export const rankedSearchIds=(raw:string,mode:SearchMode)=>cachedRankedSearches(apiSearchKey(raw,mode),
+ async()=>(await summarizeSearch(await apiSearch(raw,mode),false)).ids.slice(0,rankedSearchDepth));
+/**
+ * The listed products a vehicle type's linked supplier rows belong to (#1119): typeFittedIds names supplier rows, and a
+ * search hit is the product's listing row (a secondary offer counts as the primary it is grouped under). Cached per type
+ * in its own LRU (reloaded with the listing epoch), apart from the storefront's fit sets.
+ */
+const cachedFittedListings=staleCache<string[]>(10*60*1000,300,listings);
+const typeFittedListingIds=(typeId:number)=>cachedFittedListings(String(typeId),async()=>{
+ const fitted=await typeFittedIds(typeId);
+ if(!fitted.length)return [];
+ return (await db.query<{id:string}>(`SELECT DISTINCT COALESCE(o.primary_id,f.id)::text AS id FROM unnest($1::uuid[]) f(id)
+  LEFT JOIN product_offers o ON o.item_id=f.id`,[fitted])).rows.map(row=>row.id);
+});
+const cachedRankedFits=staleCache<string[]>(aggregateTtl,300,listings);
+/**
+ * The first rankedSearchDepth saleable matches of a search that are linked to the vehicle type, in relevance order
+ * (#1119): the whole hit set intersected with the type's fits, as the storefront's "Aracına uyanlar" lead does
+ * (catalogFilter with fits=vehicle), so a fitting part ranked far below rankedSearchIds' depth is still found. Only the
+ * intersection is ranked (usually tens of ids). Cached per search and vehicle type like rankedSearchIds.
+ */
+export const rankedFittingSearchIds=(raw:string,mode:SearchMode,typeId:number)=>cachedRankedFits(`${typeId}|${apiSearchKey(raw,mode)}`,async()=>{
+  const [search,listed]=await Promise.all([apiSearch(raw,mode),typeFittedListingIds(typeId)]);
+  const linked=new Set(listed),ids=search.ids.filter(id=>linked.has(id));
+  return ids.length?(await summarizeSearch({...search,ids},false)).ids.slice(0,rankedSearchDepth):[];
+ });
 /** No filter but the search (mirrors the clauses catalogFilter adds). */
 export function isPlainSearch(query:CatalogQuery){
  return Boolean(query.q?.trim())&&!query.category&&!query.make&&!query.model&&!query.manufacturer&&query.fits!=="vehicle"&&!query.oil&&!query.availability
