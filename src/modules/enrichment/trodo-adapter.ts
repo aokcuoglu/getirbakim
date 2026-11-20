@@ -10,9 +10,10 @@ const relationshipsSchema=z.object({oe_numbers:z.record(z.string(),z.array(z.obj
 export type SourceProduct=z.infer<typeof productSchema>;
 export type SourceView=z.infer<typeof relationshipsSchema>;
 export function sourcePartQuery(brand:string,code:string){
- // Strip only prefixes accepted by the shared exact-match contract.
- const rest=code.trim().split(/\s+/).slice(1).join(' ');
- return rest&&matchesSupplierPart(brand,code,brand,rest)?rest:code;
+ // Strip only prefixes accepted by the shared exact-match contract; a brand name may span several words ("VICTOR REINZ").
+ const words=code.trim().split(/\s+/);
+ for(let at=1;at<words.length;at++){const rest=words.slice(at).join(' ');if(matchesSupplierPart(brand,code,brand,rest))return rest;}
+ return code;
 }
 export function sourcePartQueries(brand:string,code:string){
  const part=sourcePartQuery(brand,code).trim(),name=brand.trim();

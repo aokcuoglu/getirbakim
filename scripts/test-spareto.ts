@@ -4,6 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {buildData,identify,sparetoTypeFromUrl,improvesPartial,sparetoComplete,parseFitment,parseProductPage,parseSearch,parseVehicleFrames,partQuery,resolveVehicles,searchPath} from '../src/modules/enrichment/spareto-adapter';
 import {createFitmentMatcher} from '../src/modules/store/fitment-matcher';
 import {typeSlug} from '../src/modules/enrichment/type-categories';
+import {sourcePartQueries} from '../src/modules/enrichment/trodo-adapter';
 import {enrichmentImportSchema,matchesEnrichment} from '../src/modules/store/enrichment-contract';
 
 const fixture=(name:string)=>readFile(`tests/fixtures/${name}`,'utf8');
@@ -25,6 +26,14 @@ test('product pages keep part properties and split OE from cross-reference numbe
  const data=buildData(page);
  assert.deepEqual(data.crossReferences['DT SPARE PARTS'],['1.16046']);
  assert.deepEqual(data.vehicles,[]);
+});
+
+test('product photos under variants/images_webp are read from itemprop, then og:image (#1076)',async()=>{
+ const html=(await fixture('spareto-product.html')).replace(/<meta content='https:\/\/cdn\.spareto\.com\/variants\/images\/[^']+' (?:itemprop='image'|property='og:image')>/g,'');
+ assert.equal(parseProductPage(html).image,null);
+ const webp='https://cdn.spareto.com/variants/images_webp/002/077/378/original/tc3704-DBAF1309.webp?1793393325';
+ assert.equal(parseProductPage(`<meta content='${webp}' itemprop='image'>`+html).image,webp);
+ assert.equal(parseProductPage(`<meta content='${webp}' property='og:image'>`+html).image,webp);
 });
 
 test('identity prefers the same part, then a supplier OE number, then our own brand/part as a cross reference',async()=>{
@@ -59,6 +68,14 @@ test('cross references never authorize another brand, a cross-reference OE numbe
 test('a supplier number without the leading zero is the same part',async()=>{
  const page={...parseProductPage(await fixture('spareto-product.html')),brand:'FEBI BILSTEIN',partNumber:'02562',crossReferences:{}};
  assert.deepEqual(identify({brand:'FEBI',code:'FEBI 2562',oem:'',masterBrand:'FEBI'},page,buildData(page)),{type:'exact_part'});
+});
+
+test('a code prefixed with a brand name of several words is searched and matched without it (#1111)',async()=>{
+ assert.deepEqual(sourcePartQueries('VICTOR REINZ','VICTOR REINZ 61-36960-00'),['61-36960-00','613696000','VICTOR REINZ 61-36960-00']);
+ const page={...parseProductPage(await fixture('spareto-product.html')),brand:'VICTOR REINZ',partNumber:'61-36960-00',crossReferences:{}};
+ assert.deepEqual(identify({brand:'VICTOR REINZ',code:'VICTOR REINZ 61-36960-00',oem:'',masterBrand:'VICTOR REINZ'},page,buildData(page)),{type:'exact_part'});
+ assert.equal(identify({brand:'VICTOR REINZ',code:'VICTOR REINZ 61-36960-10',oem:'',masterBrand:'VICTOR REINZ'},page,buildData(page)),null);
+ assert.equal(sparetoTypeFromUrl('https://spareto.com/products/reinz-gasket-cylinder-head/61-36960-00','VICTOR REINZ'),'gasket-cylinder-head');
 });
 
 test('unrecognized product pages fail instead of importing guessed identities',()=>{

@@ -83,7 +83,7 @@ export function AuthModal({ ref, onClosed }: { ref: Ref<{ open: (mode: AuthMode)
               {notice && <p className="mt-0 mb-4 rounded-md border border-[#c9dfef] bg-[#f0f6fb] p-3 text-[13px] leading-5" role="status">{notice}</p>}
               {mode === "login" ? <form action={login} key="login">
                 <div className="grid gap-3"><AuthField name="email" label="E-posta adresi" type="email" autoComplete="username" /><AuthField name="password" label="Şifre" type="password" autoComplete="current-password" /></div>
-                <Button type="button" className={`${linkButton} mt-3 block text-[13px] leading-5`} onClick={() => switchMode("reset")}>Şifreni mi unuttun?</Button>
+                <Button type="button" className={`${linkButton} mt-3 block text-sm leading-5`} onClick={() => switchMode("reset")}>Şifreni mi unuttun?</Button>
                 <LoginSubmit />
               </form> : mode === "register" ? <div>
                 <p className="mt-0 mb-3.5">Servis bilgilerinle başvur; onaydan sonra B2B fiyatlarına ulaş.</p>

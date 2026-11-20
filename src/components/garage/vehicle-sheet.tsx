@@ -24,7 +24,7 @@ const titles: Record<Step, string> = { brand: "Marka seç", family: "Model seç"
 
 const plain = "h-auto min-h-0 rounded-none border-0 bg-transparent p-0 font-normal hover:bg-transparent";
 const saveButton = "mt-4 flex h-auto min-h-12 w-full items-center justify-center gap-2.5 rounded-[5px] border border-brand bg-brand p-3 text-sm leading-5 font-medium text-white hover:border-brand-strong hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
-const secondaryButton = "mt-3 h-auto min-h-12 w-full rounded-[5px] border border-input bg-white px-[27px] py-[13px] text-sm leading-5 font-medium text-foreground hover:bg-[#f8f9f9] hover:text-foreground disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
+const secondaryButton = "mt-3 h-auto min-h-12 w-full rounded-[5px] border border-control-border bg-white px-[27px] py-[13px] text-sm leading-5 font-medium text-foreground hover:bg-[#f8f9f9] hover:text-foreground disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
 const summaryBox = "mb-[22px] overflow-hidden rounded-[5px] border border-border bg-white [&>div]:border-t [&>div]:border-border [&>div]:px-[18px] [&>div]:py-3.5 [&_strong]:block [&_strong]:text-base [&_strong]:leading-6 [&_strong]:font-semibold [&_p]:my-0.5 [&_p]:text-[13px] [&_p]:leading-5 [&_small]:block [&_small]:text-xs [&_small]:leading-5 [&_small]:text-muted-foreground";
 // The saved vehicle's technical data, REPXPERT's where it has the type; missing values leave their row out.
 function vehicleSpecRows(vehicle: CatalogVehicle): [string, string][] {
@@ -240,7 +240,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
           </div>}
           <Button className={saveButton} type="button" onClick={onClose}>Bu araçla devam et <ChevronRight size={16} /></Button>
           <Button className={secondaryButton} type="button" disabled={pending} onClick={() => { setTab("search"); go("brand"); }}>Başka araç seç</Button>
-          <Button className={cn(plain, "mx-auto mt-4 flex min-h-9 items-center justify-center gap-2 py-2 text-xs text-muted-foreground hover:text-[#c53333] disabled:bg-transparent")} type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</Button>
+          <Button className={cn(plain, "mx-auto mt-4 flex min-h-11 items-center justify-center gap-2 py-2 text-sm text-muted-foreground hover:text-[#c53333] disabled:bg-transparent")} type="button" disabled={pending} onClick={remove}><Trash2 size={15} />{pending ? "Kaldırılıyor…" : "Aracı garajımdan kaldır"}</Button>
         </> : garage && !others.length && <div className={emptyBox}><CarFront size={52} strokeWidth={1.3} /><p>Aracın her zaman elinin altında olsun.</p><small>Marka ve model seçerek aracını garajına ekle.</small><Button className={saveButton} type="button" onClick={() => { setTab("search"); go("brand"); }}>Araç seç <ChevronRight size={16} /></Button></div>}
         {others.length > 0 && <div className="mt-6"><h4 className="mb-2 text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground">{vehicle ? "DİĞER KAYITLI ARAÇLAR" : "KAYITLI ARAÇLAR"}</h4>
           <ul className="m-0 list-none p-0">{others.map(entry => <li key={entry.key} className="flex items-center gap-2 border-b border-[#f1f3f5]">

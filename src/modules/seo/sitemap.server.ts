@@ -12,7 +12,8 @@ const isoUtc = (column: string) => `to_char(${column} AT TIME ZONE 'UTC','YYYY-M
 
 // The supplier branch selects what productIndexable (./indexing) accepts: the rows the store lists (commerce_supplier_items
 // as in commerce_catalog, without secondary offers like `listedOnly` in src/modules/store/catalog.ts), not hidden by an
-// admin, with minimum content (#641). Unavailable cards (commerce_unavailable_items) and demo rows stay out. Plan: a
+// admin, with minimum content (#641). Unavailable cards (commerce_unavailable_items; the price-only ones have their own
+// branch below, #1068) and demo rows stay out. Plan: a
 // bitmap scan of supplier_items_saleable_order_v3_idx per file; the content signals are index probes per row
 // (product_model_fitments_pkey, product_offers_primary_idx), no sequential scan of supplier_items.
 const supplierRows = `FROM commerce_supplier_items i
@@ -25,15 +26,31 @@ const supplierRows = `FROM commerce_supplier_items i
   AND ${minimumContentSql()}`;
 const storeRows = `FROM store_products p
  WHERE p.supplier<>'demo' AND p.id BETWEEN $2::uuid AND $3::uuid`;
+// Dinamik price-list-only cards (#1068): the rows of storefront_price_only_items (a small table, read by its primary key
+// range) that commerce_unavailable_items lists now, with minimum content (productIndexable's `priceOnly`). OFFSET 0 keeps
+// the EXISTS a per-row probe whose id reaches each branch of the view by primary key (~1 ms for 105 rows locally); as a
+// semi-join the planner computes the whole view first (~40 ms per file, growing with the dropped rows).
+const priceOnlyRows = `FROM storefront_price_only_items q
+ JOIN supplier_items i ON i.id=q.supplier_item_id
+ LEFT JOIN product_enrichment_shared_links l ON l.supplier_item_id=i.id
+ LEFT JOIN commerce_item_overrides h ON h.supplier_item_id=i.id
+ ${masterBrandJoinSql("i")}
+ WHERE i.company=ANY($1::text[]) AND q.supplier_item_id BETWEEN $2::uuid AND $3::uuid
+  AND EXISTS (SELECT 1 FROM commerce_unavailable_items u WHERE u.id=q.supplier_item_id OFFSET 0)
+  AND ${minimumContentSql()}`;
 
 /**
  * The indexable product pages of one id range: `columns.supplier` over the supplier row `i`, its enrichment link `l`
- * and override `h`; `columns.store` over the store row `p`, in the same order and names. Parameters: $1 the storefront
- * companies, $2/$3 the uuid range. The sitemap (loadProductChunk) and IndexNow (indexnow.server.ts) share it.
+ * and override `h`; `columns.store` over the store row `p`; `columns.priceOnly` (optional, #1068) over the same `i`,
+ * `l`, `h` and the price-only row `q`; all in the same order and names. Without `priceOnly` the price-only cards are
+ * left out (the merchant feed: never orderable). Parameters: $1 the storefront companies, $2/$3 the uuid range. The
+ * sitemap (loadProductChunk), IndexNow (indexnow.server.ts) and the merchant feed share it.
  */
-export function indexableProductsSql(columns: { supplier: string; store: string }): string {
-  const store = `SELECT ${columns.store} ${storeRows}`;
-  return productIndexPolicy.supplierCatalog ? `SELECT ${columns.supplier} ${supplierRows}\n UNION ALL\n ${store}` : store;
+export function indexableProductsSql(columns: { supplier: string; store: string; priceOnly?: string }): string {
+  const branches = [`SELECT ${columns.store} ${storeRows}`];
+  if (productIndexPolicy.supplierCatalog) branches.unshift(`SELECT ${columns.supplier} ${supplierRows}`);
+  if (productIndexPolicy.priceOnly && columns.priceOnly) branches.push(`SELECT ${columns.priceOnly} ${priceOnlyRows}`);
+  return branches.join("\n UNION ALL\n ");
 }
 
 /**
@@ -44,6 +61,9 @@ export const productAddressColumns = {
   supplier: `i.id::text AS id,COALESCE(h.name,NULLIF(i.product_data->>'ac',''),i.code) AS name,h.name IS NOT NULL AS name_overridden,
    ${displayBrandSql("i", "h")} AS display_brand,COALESCE(h.part_number,i.code) AS display_code`,
   store: "p.id::text AS id,p.name AS name,false AS name_overridden,p.brand AS display_brand,p.code AS display_code",
+  // As the unavailable branch of storefront_catalog_entries (db/storefront-catalog.sql): the category name, the raw label.
+  priceOnly: `i.id::text AS id,COALESCE(h.name,q.name,NULLIF(i.product_data->>'ac',''),i.code) AS name,h.name IS NOT NULL AS name_overridden,
+   ${displayBrandSql("i", "h")} AS display_brand,COALESCE(h.part_number,i.code) AS display_code`,
 };
 
 /**
@@ -77,6 +97,7 @@ export async function loadProductChunk(index: number): Promise<ProductSitemapRow
     supplier: `${productAddressColumns.supplier},${isoUtc(`GREATEST(i.changed_at,l.imported_at,${adminEditedAtSql()},
      (SELECT max(f.derived_at) FROM product_model_fitments f WHERE f.supplier_item_id=ANY(${descriptionFitmentItemsSql})))`)} AS lastmod`,
     store: `${productAddressColumns.store},${isoUtc("p.updated_at")} AS lastmod`,
+    priceOnly: `${productAddressColumns.priceOnly},${isoUtc(`GREATEST(i.changed_at,l.imported_at,q.qualified_at,${adminEditedAtSql()})`)} AS lastmod`,
   });
   const { rows } = await boundedQuery<ProductAddress & { lastmod: string }>(`SELECT id,name,name_overridden,display_brand,display_code,lastmod FROM (${branches}) u ORDER BY id LIMIT ${sitemapUrlLimit + 1}`,
     [storefrontCompanies(), from, to]);

@@ -1,6 +1,6 @@
 {
   "name": "getirbakim",
-  "version": "0.33.0",
+  "version": "0.34.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -43,6 +43,7 @@
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
     "test:partner": "node --import tsx --test scripts/test-partner.ts",
     "test:partner-orders": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-partner-orders.ts",
+    "test:partner-search": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-partner-search.ts",
     "test:seta": "node --import tsx --test scripts/test-seta.ts",
     "test:supplier-items": "node --conditions=react-server --import tsx --test scripts/test-supplier-items.ts",
     "test:supplier-data-status": "node --import tsx --test scripts/test-supplier-data-status.ts",
@@ -98,6 +99,7 @@
     "test:cart-count": "node --import tsx --test scripts/test-cart-count.ts",
     "test:vehicle-families": "node --import tsx --test scripts/test-vehicle-families.ts",
     "test:home": "node --import tsx --test scripts/test-home.ts",
+    "test:store-button": "node --import tsx --test scripts/test-store-button.ts",
     "test:client-imports": "node --import tsx --test scripts/test-store-client-imports.ts",
     "test:lazy-module": "node --import tsx --test scripts/test-lazy-module.ts",
     "test:vehicle-model-listing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-model-listing.ts",
@@ -172,6 +174,7 @@
     "enrichment:otoparcasan": "node --env-file=.env.local --conditions=react-server --import tsx scripts/otoparcasan-enrichment.ts",
     "enrichment:spareto": "node --env-file=.env.local --conditions=react-server --import tsx scripts/spareto-enrichment.ts",
     "enrichment:parts2world": "node --env-file=.env.local --conditions=react-server --import tsx scripts/parts2world-enrichment.ts",
+    "enrichment:price-only": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-price-only.ts",
     "enrichment:attempts:backfill": "node --env-file=.env.local --import tsx scripts/backfill-source-attempts.ts",
     "enrichment:image-fill": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-image-fill.ts",
     "enrichment:fallback": "node --env-file=.env.local --import tsx scripts/enrichment-fallback.ts",

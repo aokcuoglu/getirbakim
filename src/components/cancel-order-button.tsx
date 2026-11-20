@@ -15,7 +15,7 @@ function ConfirmButton() {
 
 function KeepButton({ ref }: { ref: Ref<HTMLButtonElement> }) {
   const { pending } = useFormStatus();
-  return <DialogClose ref={ref} disabled={pending} render={<Button type="button" variant="outline" className={cn(storeDialogAction, "border-input bg-white font-medium text-foreground hover:bg-muted")}/>}>Vazgeç</DialogClose>;
+  return <DialogClose ref={ref} disabled={pending} render={<Button type="button" variant="outline" className={cn(storeDialogAction, "border-control-border bg-white font-medium text-foreground hover:bg-muted")}/>}>Vazgeç</DialogClose>;
 }
 
 /**

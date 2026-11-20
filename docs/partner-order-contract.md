@@ -6,13 +6,17 @@ the 1.0 pilot (single line, reservation TTL, `RESERVATION_EXPIRED`); it is not
 backwards compatible.
 
 All endpoints live under `/api/partner/v1`, take `Authorization: Bearer <key>`
-(`PARTNER_API_KEYS`) and answer JSON with `Cache-Control: no-store`. The order
-endpoints share a limit of 60 requests per minute per client address and 300
-per partner key (products: 120 and 600); over it the answer is
-`429 RATE_LIMITED` with `Retry-After`. The address is the one our edge reports
-(CloudFront's viewer address, else the last `X-Forwarded-For` hop), never
-`X-Real-IP`. Counters are kept per application task, so with several tasks
-the effective limit is the per-task limit times the task count. The partner identity comes only from the key: request bodies
+(`PARTNER_API_KEYS`) and answer JSON with `Cache-Control: no-store`. A
+request with a valid key is limited per partner key only, whatever address it
+comes from: the order endpoints share 300 requests per minute (products: 600).
+A partner calling from its own servers therefore shares no budget between its
+workshops' addresses (#1093). Requests with a missing or wrong key are counted
+per client address (order endpoints: 60 per minute, products: 120); an address
+over that budget is refused before its key is checked. Over a limit the answer
+is `429 RATE_LIMITED` with `Retry-After`. The address is the one our edge
+reports (CloudFront's viewer address, else the last `X-Forwarded-For` hop),
+never `X-Real-IP`. Counters are kept per application task, so with several
+tasks the effective limit is the per-task limit times the task count. The partner identity comes only from the key: request bodies
 are strict and refuse unknown fields, including any partner field.
 
 Amounts are integer kuruş in TRY. `*NetKurus` excludes VAT, `*VatKurus` is the

@@ -5,13 +5,17 @@
 //   collect [--status partial] [--limit N] [--dry-run]   products without an image, one per master product; a product
 //                 whose candidates have no photo is logged and not retried. A blocked source is left out for the rest
 //                 of the run; the run stops when both are.
+//                 --retry-no-image retries products logged as having no photo (#1076: spareto photos under images_webp were missed).
+//   own-spareto [--limit N] [--dry-run]   partial products whose own data source is a spareto page but that were saved
+//                 without its photo (#1076): the stored page is read again (identity was verified when it was collected)
+//                 and only its photo is written. One page per URL; checkpoint artifacts/image-fill/spareto-own.jsonl.
 //   report        summarises the checkpoint
 import {appendFile,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {Pool} from 'pg';
 import {OTOPARCASAN,findProduct as findOtoparcasan,imageSize,type Supplier} from '../src/modules/enrichment/otoparcasan-adapter';
 import {OtoparcasanClient,SourceBlocked as OtoparcasanBlocked} from '../src/modules/enrichment/otoparcasan-client';
-import {SPARETO,findProduct as findSpareto} from '../src/modules/enrichment/spareto-adapter';
+import {SPARETO,findProduct as findSpareto,parseProductPage as parseSparetoPage} from '../src/modules/enrichment/spareto-adapter';
 import {SparetoClient,SourceBlocked as SparetoBlocked} from '../src/modules/enrichment/spareto-client';
 import {attachProductImage,type ImageFillResult} from '../src/modules/enrichment/image-fill';
 import {recordAttempt,type FallbackSource} from '../src/modules/enrichment/source-attempts';
@@ -24,7 +28,7 @@ const option=(name:string)=>{const at=args.indexOf('--'+name);return at>=0?args[
 const status=option('status')||'partial';
 if(status!=='partial')throw Error('--status must be partial');
 const dryRun=args.includes('--dry-run');
-const checkpoint=resolve(option('out')||'artifacts/image-fill/results.jsonl');
+const checkpoint=resolve(option('out')||(command==='own-spareto'?'artifacts/image-fill/spareto-own.jsonl':'artifacts/image-fill/results.jsonl'));
 type Entry={supplierItemId:string;outcome:'image'|'no_image'|'error';source?:string;url?:string;result?:ImageFillResult;error?:string;at:string};
 const record=async(entry:Omit<Entry,'at'>)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');};
 async function entries(){
@@ -76,8 +80,8 @@ function setup(){
 }
 
 async function collect(){
- const done=await entries(),limit=Number(option('limit')||100);
- const rows=(await pool.query<Candidate>(candidateSql)).rows.filter(row=>!done.has(row.id)).slice(0,limit);
+ const done=await entries(),limit=Number(option('limit')||100),retryNoImage=args.includes('--retry-no-image');
+ const rows=(await pool.query<Candidate>(candidateSql)).rows.filter(row=>{const entry=done.get(row.id);return !entry||retryNoImage&&entry.outcome==='no_image';}).slice(0,limit);
  const clients=setup(),blocked=new Set<FallbackSource>();
  const counts={image:0,complete:0,noImage:0,errors:0};
  console.log(JSON.stringify({collecting:rows.length,status,checkpoint,dryRun}));
@@ -110,6 +114,46 @@ async function collect(){
  console.log(JSON.stringify({...counts,requests:clients.requests()}));
 }
 
+
+// Partial products collected from a spareto page that has a photo the adapter did not read before #1076.
+const ownSparetoSql=`SELECT e.source_url AS url,array_agg(j.supplier_item_id ORDER BY j.supplier_item_id) AS ids
+ FROM product_enrichment_jobs j JOIN product_enrichments e USING(supplier_item_id)
+ WHERE j.status='partial' AND e.image_id IS NULL AND e.source_url LIKE '${SPARETO}/products/%'
+ GROUP BY e.source_url ORDER BY e.source_url`;
+async function ownSpareto(){
+ const done=await entries(),limit=Number(option('limit')||1000000);
+ const pages=(await pool.query<{url:string;ids:string[]}>(ownSparetoSql)).rows.filter(page=>page.ids.some(id=>!done.has(id))).slice(0,limit);
+ const spareto=new SparetoClient(Number(process.env.SPARETO_INTERVAL_MS||1500)),counts={pages:0,image:0,complete:0,noImage:0,errors:0};
+ console.log(JSON.stringify({ownSpareto:pages.length,checkpoint,dryRun}));
+ for(const [index,{url,ids}] of pages.entries()){
+  const label=`${index+1}/${pages.length} ${url}`;
+  try{
+   // One spareto client at a time (#371): the lock is held per page, so the pending pass can interleave.
+   const image=await withSourceLock(pool,'spareto-source',async()=>{
+    const html=await spareto.page(new URL(url).pathname);
+    const photo=html?parseSparetoPage(html).image:null;
+    return photo?{photo,bytes:await spareto.image(photo)}:null;
+   });
+   counts.pages++;
+   if(!image?.bytes){counts.noImage+=ids.length;if(!dryRun)for(const id of ids)await record({supplierItemId:id,outcome:'no_image',source:'spareto.com',url});console.log(`${label} → görsel yok`);continue;}
+   for(const id of ids){
+    const saved=await saveImage(image.bytes,image.photo,id);
+    if(!saved){counts.noImage++;if(!dryRun)await record({supplierItemId:id,outcome:'no_image',source:'spareto.com',url});continue;}
+    if(dryRun){counts.image++;continue;}
+    const result=await attachProductImage(pool,{supplierItemId:id,...saved});
+    if(result==='complete')counts.complete++;else if(result==='partial')counts.image++;
+    await record({supplierItemId:id,outcome:'image',source:'spareto.com',url,result});
+   }
+   console.log(`${label} → ${ids.length} ürün · görsel ${dryRun?'bulundu (dry-run)':'eklendi'}`);
+  }catch(error){
+   if(error instanceof SparetoBlocked){console.error(String(error));process.exitCode=2;break;}
+   if(connectionError(error))throw error;
+   counts.errors++;if(!dryRun)for(const id of ids)await record({supplierItemId:id,outcome:'error',source:'spareto.com',url,error:String(error)});console.log(`${label} → hata: ${error}`);
+  }
+ }
+ console.log(JSON.stringify({...counts,requests:spareto.requests}));
+}
+
 async function report(){
  const all=[...(await entries()).values()],by=(outcome:string)=>all.filter(e=>e.outcome===outcome).length;
  console.log(JSON.stringify({checkpoint,total:all.length,images:by('image'),completed:all.filter(e=>e.result==='complete').length,noImage:by('no_image'),errors:by('error'),
@@ -117,8 +161,8 @@ async function report(){
 }
 
 try{
- if(command==='collect')await collect();else if(command==='report')await report();
- else throw Error('Usage: enrichment-image-fill.ts collect|report');
+ if(command==='collect')await collect();else if(command==='own-spareto')await ownSpareto();else if(command==='report')await report();
+ else throw Error('Usage: enrichment-image-fill.ts collect|own-spareto|report');
 }catch(error){
  if(connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;}else throw error;
 }finally{await pool.end();}

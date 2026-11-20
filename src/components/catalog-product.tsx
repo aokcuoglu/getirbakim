@@ -27,8 +27,9 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
  // The card's rows: raw key plus Turkish label and value, translated on the server (#700).
  const card=details?.card??displaySpecifications(specifications);
  const brandClass=details?.specifications.find(s=>s[0]==="Brand class")?.[1];
- // No supplier sells it now (#475): no price, a link to the product page's "Gelince haber ver" form instead of stock.
- const price=p.unavailable?"Şu an tedarik edilemiyor":p.price_kurus===null?"Fiyat bilgisi güncelleniyor":money(servicePrice(p.price_kurus,discounted?account!.discount_percent:0));
+ // No supplier sells it now (#475): no price, a link to the product page's "Gelince haber ver" form instead of stock. The
+ // view's label says why: "Şu an tedarik edilemiyor", or "Stok bilgisi bekleniyor" for a price-list-only code (#1068).
+ const price=p.unavailable?p.stock_label:p.price_kurus===null?"Fiyat bilgisi güncelleniyor":money(servicePrice(p.price_kurus,discounted?account!.discount_percent:0));
  // A running campaign (#580): the regular price struck through, discounted like the price.
  const fit=cardFitBadge({fitsVehicle,vehicleSpecific:Boolean(details?.vehicleSpecific),vehicleChecked}),stock=stockLabelParts(p.stock_label);
  const regular=p.unavailable||p.price_kurus===null?null:listPrice(p),campaignEnd=regular===null?null:saleUntil(p);
@@ -53,7 +54,7 @@ export function CatalogProduct({product:p,image,logo,account,details,fitsVehicle
  </div>
  <CardSpecifications card={card}/>
  <div className="product-card-buy">
-  <div className={cn("product-card-price",p.price_kurus===null&&"text-base leading-6 text-muted-foreground max-[600px]:text-base")}>{price}{regular!==null&&<s className="ml-2 text-sm font-normal text-muted-foreground"><span className="sr-only">Önceki fiyat: </span>{money(servicePrice(regular,discounted?account!.discount_percent:0))}</s>}</div>
+  <div className={cn("product-card-price",(p.unavailable||p.price_kurus===null)&&"text-base leading-6 text-muted-foreground max-[600px]:text-base")}>{price}{regular!==null&&<s className="ml-2 text-sm font-normal text-muted-foreground"><span className="sr-only">Önceki fiyat: </span>{money(servicePrice(regular,discounted?account!.discount_percent:0))}</s>}</div>
   {p.price_kurus!==null&&<div className="product-card-vat">KDV dahil <span className="product-card-note">· Kargo hariç</span>{discounted&&<span className="product-card-note"> · Servisine özel fiyat</span>}{campaignEnd&&<span className="block">Kampanya {campaignEndText(campaignEnd)} tarihine kadar</span>}</div>}
   {p.unavailable?<Link className="product-card-stock font-medium text-[#0065c3] hover:underline" href={href+"#haber-ver"}><BellRing size={18} className="shrink-0"/>Gelince haber ver</Link>
    :<p className={cn("product-card-stock product-card-stock-dated",!p.available&&"text-muted-foreground")}><span className="min-w-0"><span className="product-card-stock-status">{stock.status}</span>{stock.note&&<span className="product-card-stock-note">{stock.note}</span>}</span></p>}

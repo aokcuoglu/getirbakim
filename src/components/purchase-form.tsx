@@ -14,12 +14,13 @@ import { cn } from "@/lib/utils";
 import { addToCart as addToCartEvent, catalogItem } from "@/modules/analytics/events";
 import { track } from "@/modules/analytics/track";
 import { cartCount } from "@/modules/store/cart-count";
+import {storeButton} from "@/components/store-button";
 
 const initial: PurchaseState = { error:null, added:null, suggestions:[] };
 // The dialog's follow-up request for related parts gives up after this.
 const suggestionTimeoutMs=5000;
 const money=(value:number)=>new Intl.NumberFormat("tr-TR",{style:"currency",currency:"TRY"}).format(value/100);
-const outline="h-auto min-h-12 rounded-[5px] border-input bg-white px-4 py-3 text-sm leading-5 font-medium text-foreground hover:bg-muted";
+const outline=storeButton({intent:"outline",size:"lg"});
 
 // `variant="product"` is the larger product-page form; `className` adds layout classes from the caller.
 export function PurchaseForm({productId,name,available,maxQuantity=99,className,variant="listing",price}:{productId:string;name:string;available:boolean;maxQuantity?:number;className?:string;variant?:"listing"|"product";price?:string}) {
@@ -87,7 +88,7 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
           suggestions===null||suggestions.length ? "min-h-[490px]" : state.suggestionsPending ? "min-h-[490px] grid-cols-1" : "min-h-[300px] grid-cols-1")}>
         {/* Outside the suggestions column, so it stays when the column (or its skeleton) goes; sr-only takes no grid cell. */}
         <p role="status" aria-live="polite" className="sr-only">{status}</p>
-        <DialogClose render={<Button variant="secondary" size="icon" className="min-h-0 p-0 absolute top-2.5 right-2.5 z-1 rounded-[5px] bg-[#e6e9ec] text-foreground hover:bg-[#d9dfe4]"/>} aria-label="Pencereyi kapat"><X className="size-5"/></DialogClose>
+        <DialogClose render={<Button variant="secondary" size="icon" className={cn(storeButton({intent:"ghost",size:"icon"}),"absolute top-1 right-1 z-1 bg-[#e6e9ec] hover:bg-[#d9dfe4]")}/>} aria-label="Pencereyi kapat"><X className="size-5"/></DialogClose>
         {(suggestions===null||suggestions.length>0) && <section aria-busy={suggestions===null} className="border-r border-[#e0e4e8] p-8 max-[760px]:border-t max-[760px]:border-r-0 max-[760px]:px-5 max-[760px]:py-6">
           <h2 className="mb-9 text-center text-2xl leading-8 font-semibold tracking-[-.5px] max-[760px]:mb-7 max-[760px]:text-left max-[760px]:text-xl">Bunları da inceleyebilirsin</h2>
           {suggestions===null && <>{[0,1,2].map(i=><div key={i} aria-hidden className="grid grid-cols-[60px_1fr_auto] items-start gap-4 border-b border-[#dfe3e8] pt-[18px] pb-6 last:border-b-0 last:pb-0">
@@ -96,7 +97,7 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
           {suggestions?.map(p=><article key={p.id} className="grid grid-cols-[60px_1fr_auto] items-start gap-4 border-b border-[#dfe3e8] pt-[18px] pb-6 last:border-b-0 last:pb-0">
           <Link className="flex h-20 items-center justify-center text-muted-foreground" href={p.href}>{p.image ? <Image className="max-h-20 max-w-[60px] object-contain" src={p.image} width={80} height={80} alt={p.name}/> : <Package size={36}/>}</Link>
           <div><Link className="block text-sm leading-5 font-medium text-foreground hover:text-primary" href={p.href}>{p.name}</Link><strong className="mt-2.5 mb-1 block text-sm text-[#007bc4]">{money(p.price)}</strong><small className="text-[13px] text-muted-foreground">KDV dahil · Kargo hariç</small></div>
-          <form action={action}><input type="hidden" name="productId" value={p.id}/><input type="hidden" name="quantity" value="1"/><Button type="submit" variant="outline" className={cn(outline,"min-h-[42px] px-3 py-2.5 text-[13px]")} disabled={pending}>Sepete ekle</Button></form>
+          <form action={action}><input type="hidden" name="productId" value={p.id}/><input type="hidden" name="quantity" value="1"/><Button type="submit" variant="outline" className={storeButton({intent:"outline",size:"md"})} disabled={pending}>Sepete ekle</Button></form>
         </article>)}</section>}
         <section className="bg-[#f8f9f9] p-8 max-[760px]:row-start-1 max-[760px]:px-5 max-[760px]:py-7">
           <DialogTitle id={titleId} className="mb-9 flex items-center gap-2.5 text-2xl leading-8 font-semibold tracking-[-.5px] max-[760px]:mb-7 max-[760px]:text-[22px] max-[760px]:leading-7"><CheckCircle2 size={30} className="shrink-0 text-[#459938]"/>Ürün sepetine eklendi</DialogTitle>
@@ -105,7 +106,7 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
             <div><Link className="mb-2.5 block font-medium text-foreground hover:text-primary" href={state.added.href}>{state.added.name}</Link><div className="flex items-center gap-6 [&_select]:h-8 [&_select]:min-h-8 [&_select]:w-[54px] max-md:[&_select]:h-11 max-md:[&_select]:min-h-11 max-md:[&_select]:w-[72px] [&_select]:rounded-[5px] [&_select]:border [&_select]:border-input [&_select]:bg-white [&_select]:px-2 [&_select]:py-1 [&_select]:text-sm"><CartQuantity key={`${state.added.id}-${state.added.quantity}`} productId={state.added.id} name={state.added.code} quantity={state.added.quantity} maxQuantity={state.added.maxQuantity} analyticsItem={catalogItem({id:state.added.itemId,name:state.added.itemName,brand:state.added.brand},state.added.price)}/><strong className="text-sm font-medium">{money(state.added.price)}</strong></div></div>
           </div>
           <DialogClose render={<Button variant="outline" className={cn(outline,"mb-4 w-full")}/>}>Alışverişe devam et</DialogClose>
-          <Button className="h-auto min-h-12 w-full gap-2.5 rounded-[5px] border-[#007bc4] bg-[#007bc4] px-4 py-3 text-sm leading-5 font-semibold text-white hover:bg-[#006bb0]" nativeButton={false} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]"/>Siparişi tamamla</Button>
+          <Button className={cn(storeButton({intent:"primary",size:"lg"}),"w-full gap-2.5")} nativeButton={false} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]"/>Siparişi tamamla</Button>
           <Link className="mt-4 block text-center text-[13px] text-[#0065a5] hover:underline" href="/sepet">Sepeti görüntüle</Link>
         </section>
       </DialogContent>}

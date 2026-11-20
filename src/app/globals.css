@@ -63,6 +63,7 @@
   --color-brand-strong: var(--brand-strong);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-control-border: var(--control-border);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
@@ -113,6 +114,8 @@
   --brand-strong: #0063b4;
   --border: #e6e9ec;
   --input: #c4cdd5;
+  /* Outline button and quantity borders: at least 3:1 on white (#1091). */
+  --control-border: #84909c;
   --ring: #0077c7;
   --chart-1: #0077c7;
   --chart-2: #22a356;

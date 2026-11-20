@@ -11,9 +11,9 @@ import { AuthModal, type AuthMode } from "./auth-modal";
 import { AccountTriggerLabel, accountTriggerClass, type HeaderAccount } from "./account-trigger";
 import { logout } from "@/modules/auth/actions";
 
-const menuButton = "mt-3 flex h-auto min-h-11 w-full rounded-[3px] px-4 py-2.5 text-xs leading-5 font-medium first:mt-0";
+const menuButton = "mt-3 flex h-auto min-h-11 w-full rounded-[3px] px-4 py-2.5 text-sm leading-5 font-medium first:mt-0";
 const primaryButton = cn(menuButton, "border-brand bg-brand text-white hover:border-brand-strong hover:bg-brand-strong active:bg-[#005a9f]");
-const outlineButton = cn(menuButton, "border-input bg-white text-foreground hover:border-[#54626e] hover:bg-[#f9fafb] hover:text-foreground");
+const outlineButton = cn(menuButton, "border-control-border bg-white text-foreground hover:border-[#54626e] hover:bg-[#f9fafb] hover:text-foreground");
 const benefits = [
   { icon: ShieldCheck, title: "Güvenli hesap erişimi", text: "Servis hesabınla sana özel fiyatları görüntüle." },
   { icon: CarFront, title: "Aracın her zaman elinin altında", text: "Araç bilgilerini garajına ekleyerek kolayca ulaş." },
@@ -51,7 +51,7 @@ export function AccountPanel({ account, defaultOpen, initialPhoneOffset, restore
         <PopoverTrigger ref={trigger} aria-label="Hesabım" className={accountTriggerClass}>
           <AccountTriggerLabel account={account} />
         </PopoverTrigger>
-        {open && <div aria-hidden="true" className="fixed inset-0 z-49 bg-[rgba(33,43,54,.5)]" />}
+        {open && <div aria-hidden="true" className="pointer-events-auto fixed inset-0 z-49 bg-[rgba(33,43,54,.5)]" />}
         <PopoverContent
           side="bottom" sideOffset={phone ? 31 : 6}
           align={tablet ? "end" : "start"} alignOffset={phone ? phoneOffset : tablet ? 0 : -64}

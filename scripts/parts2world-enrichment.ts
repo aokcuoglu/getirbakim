@@ -27,9 +27,13 @@
 //                    enrichment:categories -- backfill-types --source parts2world writes the categories. Holds the same
 //                    locks as collect; --retry re-asks articles answered without a name. A 404, an empty or an invalid
 //                    answer is stored without a name; 10 transient errors in a row stop the run.
-//   --via-proxy      (fetch-types only; collect shares the checkpoint and source run with the direct worker) sends every request through SUPPLIER_EGRESS_PROXY (the VPS squid, which must list
+//   --via-proxy      (fetch-types and collect) sends every request through SUPPLIER_EGRESS_PROXY (the VPS squid, which must list
 //                    www.parts2world.com in allowed-hosts.txt) and takes the locks parts2world-collect:proxy / parts2world-source:proxy,
 //                    so it runs beside a direct run (the site limits per IP); without the proxy variable it refuses to start.
+//                    A proxy collect keeps its own checkpoint (results.proxy.jsonl) and walks the queue from the other
+//                    end (md5 descending within each tier), so the two workers meet only at the end (#1082).
+//   --price-only-share F  (collect --status pending; or ENRICHMENT_PRICE_ONLY_SHARE, default 0) gives that share of the
+//                    run to matched Dinamik price-list-only codes of any brand (#1075), recorded under the price_only queue.
 //   trim-oem-vehicles [--dry-run]  products written through an OE number keep only the maker's vehicles and no EAN,
 //                    properties or cross references of the other article (#422)
 //                    (#401; collect filters new ones the same way)
@@ -52,6 +56,7 @@ import {categoriesForType,loadTypeCategoriesOrEmpty,typeSlug} from '../src/modul
 import {pendingArticleTypes,saveArticleType} from '../src/modules/enrichment/parts2world-types';
 import {lockFitmentSync} from '../src/modules/store/fitment-sync';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
+import {interleaveByShare,priceOnlyArticleQueueSql,priceOnlyShare} from '../src/modules/enrichment/price-only-queue';
 import {enrichmentImportSchema,manufacturerBrandKey,matchesSupplierPart,partCodeOems,partKey,supplierOemReferences} from '../src/modules/store/enrichment-contract';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3});
@@ -64,12 +69,13 @@ if(command==='collect'&&!statuses.includes(status))throw Error('--status must be
 const viaProxy=args.includes('--via-proxy');
 /** --via-proxy sends every request through SUPPLIER_EGRESS_PROXY (own egress IP, own locks); no silent direct fallback. */
 const egressProxy=viaProxy?parseEgressProxy(process.env.SUPPLIER_EGRESS_PROXY):undefined;
-if(viaProxy&&command!=='fetch-types')throw Error('--via-proxy is only supported for fetch-types');
+if(viaProxy&&command!=='fetch-types'&&command!=='collect')throw Error('--via-proxy is only supported for fetch-types and collect');
 if(viaProxy&&!egressProxy)throw Error('--via-proxy needs SUPPLIER_EGRESS_PROXY=http://user:password@host:port');
 const egress=viaProxy?'proxy' as const:'direct' as const;
 const locks=parts2worldLockNames(egress);
 const newClient=()=>new Parts2WorldClient(Number(process.env.PARTS2WORLD_INTERVAL_MS||2500),1000,egressProxy);
-const checkpoint=resolve(option('out')||'artifacts/parts2world/results.jsonl');
+const checkpoints={direct:resolve('artifacts/parts2world/results.jsonl'),proxy:resolve('artifacts/parts2world/results.proxy.jsonl')};
+const checkpoint=resolve(option('out')||(viaProxy&&command==='collect'?checkpoints.proxy:checkpoints.direct));
 type Entry={supplierItemId:string;outcome:'collected'|'not_found'|'error'|'imported'|'skipped';at:string;url?:string;error?:string;
  counts?:{image:boolean;categories?:number;oems:number;crossReferences:number;specifications:number;vehicles:number;known:number;total:number;invalid:number};package?:unknown};
 const record=async(entry:Omit<Entry,'at'>,queue:string=status)=>{await mkdir(resolve(checkpoint,'..'),{recursive:true});await appendFile(checkpoint,JSON.stringify({...entry,at:new Date().toISOString()})+'\n');
@@ -77,10 +83,10 @@ const record=async(entry:Omit<Entry,'at'>,queue:string=status)=>{await mkdir(res
   await recordAttempt(pool,'parts2world',queue,entry.supplierItemId,entry.outcome==='collected'?'found':entry.outcome);};
 // The checkpoint outgrows a single string (hundreds of MB), so it is read line by line; a package already imported or
 // skipped is dropped, only collected-but-unwritten ones are kept for flush.
-async function entries(){
+async function entries(file=checkpoint){
  const latest=new Map<string,Entry>();
  try{
-  for await(const line of createInterface({input:createReadStream(checkpoint,'utf8'),crlfDelay:Infinity}))if(line.trim()){const e=JSON.parse(line) as Entry;
+  for await(const line of createInterface({input:createReadStream(file,'utf8'),crlfDelay:Infinity}))if(line.trim()){const e=JSON.parse(line) as Entry;
    if(e.outcome==='imported'||e.outcome==='skipped'){const merged:Entry={...latest.get(e.supplierItemId),...e};delete merged.package;latest.set(e.supplierItemId,merged);}
    else latest.set(e.supplierItemId,e);}
  }catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
@@ -212,7 +218,7 @@ async function match(){
  console.log(JSON.stringify({articles:articles.size,scanned,matched:found.length,viaOem,viaSupplierOem,byStatus:Object.fromEntries(byStatus.map(r=>[r.status,r.count]))}));
 }
 
-type Row=Supplier&{id:string;articleId:string;linkId:string;vehicleTypeId:number;oemReference:string|null};
+type Row=Supplier&{id:string;articleId:string;linkId:string;vehicleTypeId:number;oemReference:string|null;priceOnly?:boolean};
 // One supplier row per master product (present rows first). A product another row already enriched is skipped; for the
 // partial queue only a complete one. Pending, like Trodo and spareto, takes only storefront catalog products still
 // pending there (a supplier row linked to no master product is not in the catalog, #386), goes in the Trodo pass's
@@ -232,7 +238,7 @@ const queueSql=(withIds:boolean)=>`SELECT id,code,brand,oem,make,"masterBrand","
    AND NOT EXISTS(SELECT 1 FROM enrichment_run_items i JOIN enrichment_runs r ON r.id=i.run_id
    WHERE i.product_id=ps.product_id AND r.status IN ('prepared','running','blocked','stopped'))`:''}
  ORDER BY COALESCE(ps.product_id,j.supplier_item_id),s.presence='present' DESC,j.supplier_item_id) x
- ORDER BY tier,md5(id::text)`;
+ ORDER BY tier,md5(id::text)${viaProxy?' DESC':''}`;
 
 class DatabaseUnavailable extends Error {}
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
@@ -288,8 +294,14 @@ async function collect(){
   const done=await entries(),limit=Number(option('limit')||50),retry=args.includes('--retry');
   const ids=option('ids')?(await readFile(option('ids')!,'utf8')).split(/\s+/).filter(Boolean):null;
   if(status==='pending')await pool.query('SELECT enrichment_product_states_sync()');
-  const rows=(await pool.query<Row>(queueSql(Boolean(ids)),ids?[status,ids]:[status])).rows
-   .filter(row=>retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id)).slice(0,limit);
+  // The other egress's worker walks the same queue (#1082): rows it already tried are left to it (#1094).
+  const other=retry||ids?new Map<string,Entry>():await entries(viaProxy?checkpoints.direct:checkpoints.proxy);
+  const open=(row:Row)=>(retry?done.get(row.id)?.outcome!=='imported':!done.has(row.id))&&!other.has(row.id);
+  const queued=(await pool.query<Row>(queueSql(Boolean(ids)),ids?[status,ids]:[status])).rows.filter(open);
+  // Matched Dinamik price-list-only codes take their share of a pending pass (#1075).
+  const share=status==='pending'&&!ids?priceOnlyShare(option('price-only-share')):0;
+  const priceOnly=share>0?(await pool.query<Row>(priceOnlyArticleQueueSql(viaProxy))).rows.filter(open):[];
+  const rows=interleaveByShare(queued,priceOnly,share).slice(0,limit);
   const catalog=new Map((await pool.query<CatalogType>(`SELECT t.id,b.name AS brand,m.name AS model,t.name,t.fuel_type,t.cc,t.hp,t.kwt,
    to_char(t.year_of_constr_from,'YYYY-MM') AS date_from,to_char(t.year_of_constr_to,'YYYY-MM') AS date_to
    FROM vehicle_types t JOIN vehicle_models m ON m.id=t.model_id JOIN vehicle_brands b ON b.id=m.brand_id`)).rows.map(t=>[t.id,t]));
@@ -304,6 +316,9 @@ async function collect(){
   try{
   for(const row of rows){
    index++;
+   const queue=row.priceOnly?'price_only':status;
+   // The row list is fixed at the start; a job another worker or source has written since costs no request (#1094).
+   if(!dryRun&&(await pool.query('SELECT 1 FROM product_enrichment_jobs WHERE supplier_item_id=$1 AND status=$2',[row.id,status])).rowCount===0)continue;
    try{
     const ids={articleId:row.articleId,linkId:row.linkId,vehicleTypeId:row.vehicleTypeId};
     const info=parseArticleInfo(await client.articleInfo(articleInfoPath(row.articleId,row.linkId,row.vehicleTypeId)));
@@ -314,14 +329,14 @@ async function collect(){
       console.warn('Uyarı: parts2world_article_types tablosu yok; parça tipleri saklanmayacak (npm run db:setup)');});
     const basis=info&&identifyBasis(row,info);
     if(!info||!basis){
-     await record({supplierItemId:row.id,outcome:'not_found',error:info?`answer names ${info.brand} ${info.name}`:'no article for the archived ids'});
+     await record({supplierItemId:row.id,outcome:'not_found',error:info?`answer names ${info.brand} ${info.name}`:'no article for the archived ids'},queue);
      console.log(`${index} ${row.code} → bulunamadı${info?` (yanıt: ${info.brand} ${info.name})`:''}`);continue;
     }
     // Through an OE number only the part code's maker's vehicles apply (#401): the article may serve many makers.
     const makers=basis.type!=='oem_reference'?null:basis.referenceSource==='supplier_oem'?oemBrandMakers(info.oenNumbers,basis.reference):partCodeMakers(row),listed=info.applicability||[];
     const applicability=makers?makerApplicability(listed,makers,catalog):listed;
     if(makers&&listed.length&&!applicability.length){
-     await record({supplierItemId:row.id,outcome:'not_found',error:`no ${makers.join('/')} vehicle among the ${listed.length} of ${info.brand} ${info.name}`});
+     await record({supplierItemId:row.id,outcome:'not_found',error:`no ${makers.join('/')} vehicle among the ${listed.length} of ${info.brand} ${info.name}`},queue);
      console.log(`${index} ${row.code} → bulunamadı (${info.brand} ${info.name}: ${makers.join('/')} aracı yok)`);continue;
     }
     const vehicle=buildVehicles(applicability,catalog),built=buildData(info,vehicle.vehicles,categoriesForType(dictionary,type?typeSlug(type):null));
@@ -334,13 +349,13 @@ async function collect(){
      manufacturer:info.brand,partNumber:info.name,matchBasis:basis,imageFile:image?.file,imageSource:image?.source,completeness:complete?'complete':'partial',data});
     const counts={image:Boolean(image),categories:data.categories.length,oems:Object.values(data.oemNumbers).flat().length,crossReferences:Object.values(data.crossReferences).flat().length,
      specifications:data.specifications.length,vehicles:data.vehicles.length,known:vehicle.known,total:vehicle.total,invalid:vehicle.invalid.length};
-    await record({supplierItemId:row.id,outcome:'collected',url:pkg.source,counts,package:pkg});
+    await record({supplierItemId:row.id,outcome:'collected',url:pkg.source,counts,package:pkg},queue);
     const written=dryRun?'toplandı':await write({supplierItemId:row.id,package:pkg})==='imported'?`yazıldı (${complete?'tamamlandı':'kısmi'})`:'yazılmadı';
     console.log(`${index} ${row.code} → ${info.brand} ${info.name} · kategori ${counts.categories} · OEM ${counts.oems} · muadil ${counts.crossReferences} · özellik ${counts.specifications} · araç ${vehicle.known}/${vehicle.total} katalogda · görsel ${image?'var':'yok'} · ${written}`);
    }catch(error){
-    if(error instanceof SourceBlocked){if(!dryRun)await recordAttempt(pool,'parts2world',status,row.id,'blocked');console.error(String(error));process.exitCode=2;outcome='blocked';break;}
+    if(error instanceof SourceBlocked){if(!dryRun)await recordAttempt(pool,'parts2world',queue,row.id,'blocked');console.error(String(error));process.exitCode=2;outcome='blocked';break;}
     if(error instanceof DatabaseUnavailable||connectionError(error)){console.error('Veritabanı bağlantısı yok:',String(error));process.exitCode=2;break;}
-    await record({supplierItemId:row.id,outcome:'error',error:String(error)});console.log(`${index} ${row.code} → hata: ${error}`);
+    await record({supplierItemId:row.id,outcome:'error',error:String(error)},queue);console.log(`${index} ${row.code} → hata: ${error}`);
    }
   }
   if(!process.exitCode)outcome='complete';

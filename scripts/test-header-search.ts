@@ -8,6 +8,7 @@ import { typeNameExactQueries, typeNameFirstPage, typeNamePrefixQuery, typeNameR
 import { mergeNameSuggestions } from "../src/modules/store/name-suggestions";
 import { searchPath } from "../src/modules/seo/paths";
 import { isEnglishTypeName, turkishTypeName, typeNameEntries } from "../src/modules/store/suggestion-names";
+import { nextHeaderPin, PIN_HIDE_DOWN, PIN_SHOW_UP, type HeaderPin, type PinTrack } from "../src/components/layout/header-pin-state";
 
 test("known English type names get a Turkish name", () => {
   assert.equal(turkishTypeName("BRAKE PAD SET, DISC BRAKE"), "Disk Fren Balata Seti");
@@ -243,4 +244,69 @@ test("name suggestions of both spellings add up under the Turkish label (#962)",
   assert.equal(merged[0].detail, `${(1220).toLocaleString("tr-TR")} ürün`);
   assert.equal(merged[0].href, searchPath({ q: "fren hortumu" }));
   assert.equal(mergeNameSuggestions([{ name: "BRAKE HOSE", products: 220 }], 6)[0].href, searchPath({ q: "fren hortumu" }));
+});
+
+// The phone header pin (#1089): header 161px high in these cases.
+const run = (ys: number[], start: PinTrack = { pin: null, anchor: 0 }) => ys.reduce((track, y) => nextHeaderPin(track, y, 161), start);
+
+test("the header stays in the flow within its own height and parks past it (#1089)", () => {
+  assert.equal(run([50, 120, 161]).pin, null);
+  assert.deepEqual(run([50, 162]), { pin: "parked", anchor: 162 });
+  // Parked and back within the header's height: the header in the flow shows again.
+  assert.equal(run([400, 390, 150]).pin, null);
+});
+
+test("the header shows after 24px up and hides after 8px down (#1089)", () => {
+  assert.equal(PIN_SHOW_UP, 24);
+  assert.equal(PIN_HIDE_DOWN, 8);
+  assert.equal(run([400, 500, 477]).pin, "parked");
+  assert.equal(run([400, 500, 476]).pin, "shown");
+  assert.equal(run([400, 500, 476, 480, 483]).pin, "shown");
+  assert.equal(run([400, 500, 476, 470, 478]).pin, "hidden");
+  assert.equal(run([400, 500, 476, 470, 478, 460, 455]).pin, "hidden");
+  assert.equal(run([400, 500, 476, 470, 478, 460, 454]).pin, "shown");
+});
+
+test("within the header's height the rows never hide (#1089)", () => {
+  // Shown near the top: scrolling down inside the header's height keeps them, the anchor still tracks.
+  assert.deepEqual(run([400, 300, 60, 68]), { pin: "shown", anchor: 60 });
+  assert.equal(run([400, 300, 60, 68, 150, 161]).pin, "shown");
+  assert.equal(run([400, 300, 60, 68, 162]).pin, "hidden");
+  // Hidden and back within the header's height (less than 24px up): shown, not a blank slot.
+  assert.equal(nextHeaderPin({ pin: "hidden", anchor: 175 }, 162, 161).pin, "hidden");
+  assert.deepEqual(nextHeaderPin({ pin: "hidden", anchor: 175 }, 155, 161), { pin: "shown", anchor: 155 });
+});
+
+test("5px of jitter never flips the header (#1089)", () => {
+  for (const start of ["parked", "shown", "hidden"] as const) {
+    let track: PinTrack = { pin: start, anchor: 600 };
+    for (let i = 0; i < 20; i++) track = nextHeaderPin(track, 600 + (i % 2 ? 5 : 0), 161);
+    assert.equal(track.pin, start, start);
+  }
+});
+
+test("the anchor follows the scroll extreme the next flip is measured from (#1089)", () => {
+  assert.equal(run([400, 800, 900]).anchor, 900);
+  assert.equal(run([400, 900, 880]).anchor, 900);
+  const shown = run([400, 900, 870]);
+  assert.equal(shown.pin, "shown");
+  assert.equal(run([500, 450], shown).anchor, 450);
+  assert.equal(run([500, 450, 455], shown).anchor, 450);
+});
+
+test("the top of the page clears every state (#1089)", () => {
+  for (const pin of [null, "parked", "shown", "hidden"] satisfies HeaderPin[]) {
+    assert.deepEqual(nextHeaderPin({ pin, anchor: 300 }, 0, 161), { pin: null, anchor: 0 });
+    assert.deepEqual(nextHeaderPin({ pin, anchor: 300 }, -40, 161), { pin: null, anchor: 0 });
+  }
+});
+
+test("the phone header keeps an explicit, compact search mode and a 44px cart (#1089)", () => {
+  const box = readFileSync("src/components/navigation/search-box.tsx", "utf8");
+  assert.match(box, /name="searchBy"/);
+  assert.match(box, /value: "code"/);
+  const width = box.match(/max-\[600px\]:w-\[(\d+)px\]/);
+  assert.ok(width && Number(width[1]) <= 54, "phone selector width");
+  const css = readFileSync("src/app/storefront.css", "utf8");
+  assert.match(css.match(/\.header-cart \{[^}]*\}/)?.[0] ?? "", /size-11/);
 });

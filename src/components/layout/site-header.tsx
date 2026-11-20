@@ -8,6 +8,7 @@ import { SearchBox } from "@/components/navigation/search-box";
 import { Select } from "@/components/site/select";
 import { SiteIcon } from "@/components/site/site-icon";
 import { RouteFrame } from "@/components/layout/store-route";
+import { HeaderPin } from "@/components/layout/header-pin";
 import { getStoreCategories } from "@/modules/store/categories";
 import { headerCategoryLinks } from "@/modules/store/category-tree";
 
@@ -16,11 +17,14 @@ const localeTrigger = "h-8 min-h-8 border-0 bg-transparent py-1.5 pr-[25px] pl-2
 /**
  * The one site header: every storefront route renders this; the administration workspace has its own shell.
  * Route variants (see RouteFrame): checkout shows the logo only; phones (≤600px) stack logo and tools, a full-width search and the category strip, on every route;
- * home and the catalog pin the main row while their pages set body[data-home-scrolled] / body[data-catalog-scrolled].
+ * home and the catalog pin the main row while their pages set body[data-home-scrolled] / body[data-catalog-scrolled] (600px and up).
+ * On phones HeaderPin makes the whole frame (`.site-chrome`) sticky once it has left the viewport: it hides while scrolling down and
+ * brings back the logo/tools and search rows, without the category strip, on the way up (#1089).
  */
 export async function SiteHeader() {
   const categories = await getStoreCategories();
-  return <RouteFrame className="text-sm leading-5 font-normal text-foreground">
+  return <RouteFrame className="site-chrome text-sm leading-5 font-normal text-foreground">
+    <HeaderPin/>
     <div className="site-topbar">
       <div className="site-topbar-inner">
         <div className="site-topbar-links">
