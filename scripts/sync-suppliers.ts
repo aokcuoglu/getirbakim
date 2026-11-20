@@ -99,7 +99,7 @@ try {
           dinamikFailures = breaker.failures;
           if (breaker.open) {
             circuitOpen.add("dinamik");
-            console.error({ circuitOpen: error.reason, supplier: "dinamik", skipped: scopes.slice(index + 1).filter(next => next.supplier === "dinamik").length });
+            console.error({ circuitOpen: error.reason, supplier: "dinamik", failures: breaker.failures, skipped: scopes.slice(index + 1).filter(next => next.supplier === "dinamik").length });
           }
         }
         continue;
