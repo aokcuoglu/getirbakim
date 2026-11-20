@@ -32,6 +32,9 @@ test("quality guards distinguish a normal fluctuation from a suspect full respon
   assert.equal(rejectionReason({ ...small, missingPrices: 4 }, small), null);
   assert.match(rejectionReason({ ...small, missingStocks: 5 }, small)!, /missing-stocks/);
   assert.match(rejectionReason({ ...small, missingPrices: 5 }, small)!, /missing-prices/);
+  assert.match(rejectionReason({ uniqueProducts: 30, missingPrices: 0, missingStocks: 30 }, { uniqueProducts: 30, missingPrices: 0, missingStocks: 0 })!, /missing-stocks/);
+  // Trade-off: a list where fewer than 5 products carry the data can no longer be rejected; missing data goes off sale.
+  assert.equal(rejectionReason({ uniqueProducts: 4, missingPrices: 0, missingStocks: 4 }, { uniqueProducts: 4, missingPrices: 0, missingStocks: 0 }), null);
   assert.match(rejectionReason({ uniqueProducts: 1000, missingPrices: 0, missingStocks: 200 }, { uniqueProducts: 1000, missingPrices: 0, missingStocks: 50 })!, /missing-stocks/);
 });
 

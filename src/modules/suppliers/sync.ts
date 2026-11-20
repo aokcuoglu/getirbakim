@@ -9,7 +9,7 @@ export type ObservationItem = {
 export type SyncStats = { added: number; changed: number; unchanged: number; missing: number; inactive: number; restored: number };
 
 // All thresholds are conservative operational defaults, not claims about upstream completeness.
-// On small lists a few products crossing zero stock exceed 10 points without any data loss (#1066: a 27-product list
+// On small lists a few products losing their stock row exceed 10 points without any data loss (#1066: a 27-product list
 // rejected for 0 → 3 and 18 → 21 stockless products), so the points rule also needs this many products to lose the data.
 const minimumLostProducts = 5;
 
