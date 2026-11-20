@@ -24,6 +24,18 @@ test("quality guards distinguish a normal fluctuation from a suspect full respon
   assert.equal(rejectionReason({ uniqueProducts: 7, missingPrices: 0, missingStocks: 2 }, { uniqueProducts: 6, missingPrices: 0, missingStocks: 1 }), null);
   assert.equal(rejectionReason({ uniqueProducts: 120, missingPrices: 20, missingStocks: 0 }, old), null);
   assert.match(rejectionReason({ uniqueProducts: 919, missingPrices: 0, missingStocks: 349 }, { uniqueProducts: 919, missingPrices: 0, missingStocks: 244 })!, /missing-stocks/);
+  // Small lists need at least 5 products to lose the data before the 10-point rule rejects (#1066).
+  const small = { uniqueProducts: 27, missingPrices: 0, missingStocks: 0 };
+  assert.equal(rejectionReason({ ...small, missingStocks: 3 }, small), null);
+  assert.equal(rejectionReason({ ...small, missingStocks: 21 }, { ...small, missingStocks: 18 }), null);
+  assert.equal(rejectionReason({ ...small, missingStocks: 4 }, small), null);
+  assert.equal(rejectionReason({ ...small, missingPrices: 4 }, small), null);
+  assert.match(rejectionReason({ ...small, missingStocks: 5 }, small)!, /missing-stocks/);
+  assert.match(rejectionReason({ ...small, missingPrices: 5 }, small)!, /missing-prices/);
+  assert.match(rejectionReason({ uniqueProducts: 30, missingPrices: 0, missingStocks: 30 }, { uniqueProducts: 30, missingPrices: 0, missingStocks: 0 })!, /missing-stocks/);
+  // Trade-off: a list where fewer than 5 products carry the data can no longer be rejected; missing data goes off sale.
+  assert.equal(rejectionReason({ uniqueProducts: 4, missingPrices: 0, missingStocks: 4 }, { uniqueProducts: 4, missingPrices: 0, missingStocks: 0 }), null);
+  assert.match(rejectionReason({ uniqueProducts: 1000, missingPrices: 0, missingStocks: 200 }, { uniqueProducts: 1000, missingPrices: 0, missingStocks: 50 })!, /missing-stocks/);
 });
 
 test("PostgreSQL: idempotence, changes, disappearance, return, rollback, retention, replay and importer lifecycle", async () => {

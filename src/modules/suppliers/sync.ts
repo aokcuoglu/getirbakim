@@ -9,13 +9,18 @@ export type ObservationItem = {
 export type SyncStats = { added: number; changed: number; unchanged: number; missing: number; inactive: number; restored: number };
 
 // All thresholds are conservative operational defaults, not claims about upstream completeness.
+// On small lists a few products losing their stock row exceed 10 points without any data loss (#1066: a 27-product list
+// rejected for 0 → 3 and 18 → 21 stockless products), so the points rule also needs this many products to lose the data.
+const minimumLostProducts = 5;
+
 export function rejectionReason(current: { uniqueProducts: number; missingPrices: number; missingStocks: number }, previous?: typeof current): string | null {
   if (!current.uniqueProducts) return "empty-products";
   if (!previous?.uniqueProducts) return null;
   if (current.uniqueProducts < previous.uniqueProducts * 0.8) return "product-drop-over-20-percent";
   // A missing share that grows only because the list added products without a price or stock row lost no data: only
   // fewer products with that data is suspect (#857: Dinamik added 54 stockless products to a 189-product list).
-  const lost = (key: "missingPrices" | "missingStocks") => current.uniqueProducts - current[key] < previous.uniqueProducts - previous[key]
+  const lost = (key: "missingPrices" | "missingStocks") =>
+    (previous.uniqueProducts - previous[key]) - (current.uniqueProducts - current[key]) >= minimumLostProducts
     && current[key] / current.uniqueProducts > previous[key] / previous.uniqueProducts + 0.1;
   if (lost("missingPrices")) return "missing-prices-increased-over-10-points";
   if (lost("missingStocks")) return "missing-stocks-increased-over-10-points";
