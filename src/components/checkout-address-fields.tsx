@@ -4,11 +4,13 @@ import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { districtsOf, findProvince, invoiceTypes, matchName, postalCodeFits, provinces, type InvoiceType } from "@/modules/store/tr-address";
-import { checkoutCombobox, checkoutControl, checkoutLabel, checkoutRequiredMark, checkoutTextarea } from "./checkout-field-classes";
+import type { AccountAddress } from "@/modules/store/account-addresses";
+import { checkoutCheckbox, checkoutCombobox, checkoutControl, checkoutLabel, checkoutRequiredMark, checkoutSelect, checkoutTextarea } from "./checkout-field-classes";
 
 const provinceNames = provinces.map(province => province.name);
 const required = <span className={checkoutRequiredMark} aria-hidden>*</span>;
@@ -21,6 +23,21 @@ function postalError(code: string, province: string | null) {
 }
 
 export type AddressInitial = { province: string | null; district: string | null; addressLine: string | null; postalCode: string | null };
+
+export const addressInitialOf = (address: AccountAddress): AddressInitial =>
+  ({ province: address.province, district: address.district, addressLine: address.address_line, postalCode: address.postal_code });
+
+/**
+ * The account's saved addresses as a select (#999); the last option, value "", is a new address. It has no `name`, so it
+ * is never submitted: the page only uses it to fill the fields.
+ */
+export function SavedAddressSelect({ id, addresses, value, onChange }: { id: string; addresses: readonly AccountAddress[]; value: string; onChange: (id: string) => void }) {
+  return <Field className="gap-1.5"><FieldLabel htmlFor={id} className={checkoutLabel}>Kayıtlı adreslerim</FieldLabel>
+    <NativeSelect id={id} className={checkoutSelect} value={value} onChange={event => onChange(event.currentTarget.value)}>
+      {addresses.map(address => <NativeSelectOption key={address.id} value={address.id}>{`${address.label} · ${address.district}/${address.province}`}</NativeSelectOption>)}
+      <NativeSelectOption value="">Yeni adres gir</NativeSelectOption>
+    </NativeSelect></Field>;
+}
 
 /** Typing (and deleting) keeps filtering the list; only text written at once, as the browser's autofill does, may select. */
 function typed(event: Event | undefined) {
@@ -105,9 +122,15 @@ export type InvoiceInitial = { invoiceType: InvoiceType | null; company: string 
  * province starts with it shown. While the box is ticked the address block stays mounted but hidden and disabled, so
  * ticking it again keeps what was typed, and its fields are neither submitted nor checked by the browser.
  */
-export function CheckoutInvoiceFields({ initial }: { initial?: InvoiceInitial | null }) {
+export function CheckoutInvoiceFields({ initial, addresses = [], selectedId = null }: { initial?: InvoiceInitial | null; addresses?: readonly AccountAddress[]; selectedId?: string | null }) {
   const [type, setType] = useState<InvoiceType>(initial?.invoiceType ?? "individual");
   const [same, setSame] = useState(!initial?.address?.province);
+  // Choosing a saved address (or "Yeni adres gir") remounts the invoice address fields with it (#999).
+  const [picked, setPicked] = useState<{ id: string; initial: AddressInitial | null | undefined; rev: number }>({ id: selectedId ?? "", initial: initial?.address, rev: 0 });
+  const pick = (id: string) => {
+    const chosen = addresses.find(address => address.id === id);
+    setPicked(current => ({ id, initial: chosen ? addressInitialOf(chosen) : null, rev: current.rev + 1 }));
+  };
   return <><FieldSet className="gap-4">
     <FieldLegend variant="label" className={cn(checkoutLabel, "mb-0")}>Fatura türü</FieldLegend>
     <RadioGroup name="invoiceType" value={type} onValueChange={value => setType(value === "corporate" ? "corporate" : "individual")} className="flex flex-wrap gap-x-6 gap-y-0">
@@ -135,11 +158,12 @@ export function CheckoutInvoiceFields({ initial }: { initial?: InvoiceInitial | 
     <FieldLegend variant="label" className={cn(checkoutLabel, "mb-0")}>Fatura adresi</FieldLegend>
     <input type="hidden" name="invoiceAddressMode" value={same ? "same" : "separate"}/>
     <Field orientation="horizontal" className="items-start gap-2.5">
-      <Checkbox id="checkout-invoice-same" checked={same} onCheckedChange={value => setSame(value === true)} className="my-0.5 size-5"
+      <Checkbox id="checkout-invoice-same" checked={same} onCheckedChange={value => setSame(value === true)} className={checkoutCheckbox}
         aria-controls="checkout-invoice-address" aria-expanded={!same}/>
       <FieldLabel htmlFor="checkout-invoice-same" className="block text-sm leading-[22px] font-normal">Fatura adresi teslimat adresiyle aynı</FieldLabel></Field>
     <FieldSet id="checkout-invoice-address" className="gap-4" hidden={same} disabled={same}>
-      <CheckoutAddressFields scope="invoice" initial={initial?.address}/>
+      {addresses.length > 0 && <SavedAddressSelect id="checkout-invoice-saved" addresses={addresses} value={picked.id} onChange={pick}/>}
+      <CheckoutAddressFields key={picked.rev} scope="invoice" initial={picked.initial}/>
     </FieldSet>
   </FieldSet></>;
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, beforeEach, mock, test } from "node:test";
-import { addressErrorField, addressFieldErrors, addressInput } from "../src/modules/store/address-schema";
+import { addressErrorField, addressFieldErrors, addressInput, addressKey } from "../src/modules/store/address-schema";
 import { checkoutPrefill } from "../src/modules/store/checkout-prefill";
 import type { AccountAddress } from "../src/modules/store/account-addresses";
 import type { CheckoutDetails } from "../src/modules/store/orders";
@@ -53,18 +53,18 @@ const lastInvoice = { province: "İzmir", district: "Konak", addressLine: "Fatur
 test("the checkout starts from the default addresses ahead of the account name and the latest order", () => {
   const account = { name: "Servis AŞ" };
   // Guest or new account: nothing saved, nothing ordered.
-  assert.deepEqual(checkoutPrefill(null, null, null), { name: undefined, phone: undefined, delivery: null, invoice: null });
-  assert.deepEqual(checkoutPrefill(account, { delivery: null, invoice: null }, null), { name: "Servis AŞ", phone: undefined, delivery: null, invoice: null });
+  assert.deepEqual(checkoutPrefill(null, null, null), { name: undefined, phone: undefined, delivery: null, deliveryAddressId: null, invoiceAddressId: null, invoice: null });
+  assert.deepEqual(checkoutPrefill(account, { delivery: null, invoice: null }, null), { name: "Servis AŞ", phone: undefined, delivery: null, deliveryAddressId: null, invoiceAddressId: null, invoice: null });
   // No defaults: the latest order fills everything (#881).
   assert.deepEqual(checkoutPrefill(account, { delivery: null, invoice: null }, last), {
     name: "Servis AŞ", phone: last.phone, delivery: { province: "İstanbul", district: "Kadıköy", addressLine: "Moda Cad. No 1", postalCode: "34710" },
-    invoice: { ...identity, address: lastInvoice },
+    deliveryAddressId: null, invoiceAddressId: null, invoice: { ...identity, address: lastInvoice },
   });
   // One row both defaults: its recipient, phone and address; the invoice goes to the delivery address, identity from the order.
   const both = row("a", { default_delivery: true, default_invoice: true, postal_code: "06100" });
   assert.deepEqual(checkoutPrefill(account, { delivery: both, invoice: both }, last), {
     name: "Alıcı a", phone: both.phone, delivery: { province: "Ankara", district: "Çankaya", addressLine: "Atatürk Bulvarı No a", postalCode: "06100" },
-    invoice: { ...identity, address: null },
+    deliveryAddressId: "a", invoiceAddressId: null, invoice: { ...identity, address: null },
   });
   // Separate default invoice row.
   const delivery = row("a", { default_delivery: true }), invoice = row("bb", { default_invoice: true });
@@ -80,6 +80,17 @@ test("the checkout starts from the default addresses ahead of the account name a
   assert.equal(invoiceOnly.invoice?.address?.addressLine, "Atatürk Bulvarı No bb");
   // Only a default delivery address: the invoice address still from the order.
   assert.deepEqual(checkoutPrefill(account, { delivery, invoice: null }, last).invoice, { ...identity, address: lastInvoice });
+});
+
+test("the address key ignores case and punctuation, with Turkish case rules", () => {
+  const key = (province: string, district: string, addressLine: string) => addressKey({ province, district, addressLine });
+  assert.equal(key("İstanbul", "Kadıköy", "Moda Cad. No:1"), "istanbul|kadıköy|moda cad no 1");
+  assert.equal(key("İSTANBUL", "KADIKÖY", "  MODA   CAD., NO:1 "), key("İstanbul", "Kadıköy", "Moda Cad. No:1"));
+  assert.equal(key("İstanbul", "Kadıköy", "Moda Cad. No:5"), key("İstanbul", "Kadıköy", "moda cad no 5"));
+  assert.equal(key("İstanbul", "Kadıköy", "Ali'nin Sok."), key("İstanbul", "Kadıköy", "ali nin sok"));
+  assert.equal(key("Iğdır", "Merkez", "A-B/C"), "ığdır|merkez|a b c");
+  assert.notEqual(key("Iğdır", "Merkez", "x"), key("İğdır", "Merkez", "x"));
+  assert.notEqual(key("Ankara", "Çankaya", "No 1"), key("Ankara", "Çankaya", "No 2"));
 });
 
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
@@ -227,4 +238,53 @@ test("the phone is 10 to 20 characters in the form and in the table", async () =
   assert.ok("id" in await book.createAddress(accountId, input({ phone: twenty })));
   assert.ok("id" in await book.createAddress(accountId, input({ phone: "5".repeat(10) })));
   await assert.rejects(book.createAddress(accountId, input({ phone: long })), { code: "23514" });
+});
+
+const checkout = { name: "Ayşe Yılmaz", phone: "0555 123 45 67", province: "İstanbul", district: "Kadıköy", addressLine: "Caferağa Mah. Moda Cad. No 1", postalCode: "34710" as string | null, saveAddressLabel: "" };
+
+test("a placed order's address is saved once, with the first one default and a default label", async () => {
+  const owner = { kind: "account", id: accountId };
+  assert.equal(await book.saveCheckoutAddress(owner, checkout), "saved");
+  const [saved] = (await schema.pool.query<{ label: string; recipient_name: string; default_delivery: boolean; default_invoice: boolean; postal_code: string | null }>(
+    "SELECT label,recipient_name,default_delivery,default_invoice,postal_code FROM account_addresses WHERE account_id=$1", [accountId])).rows;
+  assert.deepEqual(saved, { label: "Kadıköy / İstanbul", recipient_name: "Ayşe Yılmaz", default_delivery: true, default_invoice: true, postal_code: "34710" });
+  // Same address with other case and punctuation is a duplicate; nothing is written.
+  assert.equal(await book.saveCheckoutAddress(owner, { ...checkout, addressLine: "CAFERAĞA MAH, MODA CAD. NO 1", saveAddressLabel: "Başka" }), "duplicate");
+  // A later address takes no default and the label it was given; defaults of the first stay.
+  assert.equal(await book.saveCheckoutAddress(owner, { ...checkout, addressLine: "Başka Mah. Başka Cad. No 9", saveAddressLabel: "Depo", postalCode: null }), "saved");
+  assert.deepEqual((await flags(accountId)).map(row => [row.label, row.default_delivery, row.default_invoice]), [["Kadıköy / İstanbul", true, true], ["Depo", false, false]]);
+});
+
+test("saving the order's address is skipped for guests and invalid candidates, refused when the book is full, and never throws", async () => {
+  assert.equal(await book.saveCheckoutAddress({ kind: "guest", id: randomUUID() }, checkout), "skipped");
+  const owner = { kind: "account", id: accountId };
+  // The checkout phone allows 21 characters, the address book 20.
+  assert.equal(await book.saveCheckoutAddress(owner, { ...checkout, phone: "+" + "5".repeat(20) }), "skipped");
+  assert.equal(await book.saveCheckoutAddress(owner, { ...checkout, saveAddressLabel: "x".repeat(61) }), "skipped");
+  assert.deepEqual(await flags(accountId), []);
+  for (let i = 0; i < book.ADDRESS_LIMIT; i++) await book.createAddress(accountId, input({ label: `Adres ${i}`, addressLine: `Moda Cad. No ${i + 10}` }));
+  assert.equal(await book.saveCheckoutAddress(owner, checkout), "limit");
+  assert.equal((await flags(accountId)).length, book.ADDRESS_LIMIT);
+  // An id that is not a uuid makes the query fail: still no throw.
+  const error = mock.method(console, "error", () => {});
+  assert.equal(await book.saveCheckoutAddress({ kind: "account", id: "not-a-uuid" }, checkout), "skipped");
+  assert.equal(error.mock.callCount(), 1);
+  error.mock.restore();
+});
+
+test("a stuck account lock makes the save give up within seconds instead of holding the order", async () => {
+  const holder = await schema.pool.connect();
+  const error = mock.method(console, "error", () => {});
+  try {
+    await holder.query("BEGIN");
+    await holder.query("SELECT 1 FROM accounts WHERE id=$1 FOR UPDATE", [accountId]);
+    const started = Date.now();
+    assert.equal(await book.saveCheckoutAddress({ kind: "account", id: accountId }, checkout), "skipped");
+    assert.ok(Date.now() - started < 4000);
+  } finally {
+    await holder.query("ROLLBACK");
+    holder.release();
+    error.mock.restore();
+  }
+  assert.deepEqual(await flags(accountId), []);
 });
