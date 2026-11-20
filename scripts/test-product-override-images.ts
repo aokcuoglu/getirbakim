@@ -547,3 +547,42 @@ test("converting refuses a foreign image, a full gallery and a merged product (#
   // Without payload dimensions the image is 480x480.
   assert.deepEqual((await store.loadProductImages(schema.pool, otherProduct)).images.map(image => [image.width, image.height]), [[480, 480]]);
 });
+
+/** `count` Başbuğ rows of one brand whose enrichments share one media object, each with its own part number (#1091). */
+async function sharedImageItems(prefix: string, brand: string, count: number) {
+  const mediaId = (await schema.pool.query<{ id: string }>(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
+    VALUES('product-media',$1,$2,'image/webp',1000,'https://www.trodo.com/g.webp') RETURNING id::text`,
+  [`products/gn/${prefix}.webp`, createHash("sha256").update(`shared-${prefix}`).digest("hex")])).rows[0].id;
+  const cards = [];
+  for (let index = 0; index < count; index++) {
+    const key = `${prefix}${index}`, part = String(5001 + index), code = `${brand} ${part}`;
+    await item(key, { supplier: "basbug", code, brand, name: `${brand} URUN ${index}` });
+    await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,$2,$3,'complete')`, [ids[key], code, brand]);
+    await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload)
+      VALUES($1,$2,$3,'https://www.trodo.com/g','test',$3,$4,$5,$6)`,
+    [ids[key], code, brand, part, mediaId, JSON.stringify({ specifications: [], oemNumbers: {}, crossReferences: {}, vehicles: [], imageWidth: 600, imageHeight: 400 })]);
+    cards.push(card(key, code, brand));
+  }
+  return { mediaId, cards };
+}
+
+test("an automatic image shared by 5 part numbers is generic: the store leaves it out, the admin still sees it (#1091)", async () => {
+  const generic = await sharedImageItems("gen", "GENA", 5);
+  const real = await sharedImageItems("var", "VARA", 4);
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await syncSharedLinks(schema.pool);
+  assert.equal((await enrichment.getCatalogProductImages(generic.cards)).size, 0);
+  const page = await enrichment.getProductEnrichment(generic.cards[0]);
+  assert.ok(page, "the enrichment itself is still shown");
+  assert.equal(page.imagePath, null);
+  // Four part numbers are a product family's photo, not a placeholder.
+  const shown = await enrichment.getCatalogProductImages(real.cards);
+  assert.deepEqual(real.cards.map(entry => shown.get(entry.id)?.src), real.cards.map(() => `/api/product-media/${real.mediaId}`));
+  assert.equal((await enrichment.getProductEnrichment(real.cards[0]))?.imagePath, `/api/product-media/${real.mediaId}`);
+  // The admin still lists the automatic image, and an upload on the same product is always shown.
+  const product = await productOf("gen0");
+  assert.deepEqual((await store.loadProductImages(schema.pool, product)).automatic.map(image => image.src), [`/api/product-media/${generic.mediaId}`]);
+  assert.deepEqual(await upload(product, await solid(200), "gercek.jpg"), { ok: true });
+  const uploaded = (await store.loadProductImages(schema.pool, product)).images[0].src;
+  assert.equal((await enrichment.getCatalogProductImages([generic.cards[0]])).get(generic.cards[0].id)?.src, uploaded);
+});
