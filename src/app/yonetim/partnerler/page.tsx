@@ -73,7 +73,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
           <TableBody>{partners.map(p => {
             const form = `partner-limit-${p.code}`;
             return <TableRow key={p.code} className="align-top">
-              <TableCell><div className="flex flex-col items-start gap-1">
+              <TableCell className="whitespace-normal"><div className="flex flex-col items-start gap-1">
                 <span className="font-medium">{p.code}</span>
                 {!p.configured && <StatusBadge tone="warning">API anahtarı yok</StatusBadge>}
                 {p.intakePausedAt && <>
