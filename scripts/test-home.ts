@@ -26,8 +26,10 @@ test("home first-screen copy is policy-backed and makes no unsupported claims", 
   assert.equal(homeFeatured.length, 2);
   const copy = JSON.stringify({ homeHero, homeTrust, homeFeatured });
   assert.doesNotMatch(copy, /ücretsiz|bedava/i);
-  assert.doesNotMatch(`${homeHero.title} ${homeHero.lead}`, /uyumlu|uyar|garanti/i);
+  assert.doesNotMatch(copy, /uyumlu|uyar|garanti/i);
   const policy = JSON.stringify((JSON.parse(readFileSync("src/content/legal-pages.json", "utf8")) as Record<string, unknown>)["teslimat-ve-iade"]);
+  assert.ok(policy.includes("14 gün içinde gerekçe göstermeden"));
+  assert.match(homeTrust.map(item => item.title).join(" "), /cayma/i);
   const trustCopy = homeTrust.map(item => `${item.title} ${item.text}`).join(" ");
   const days: string[] = trustCopy.match(/\d+ gün/g) ?? [];
   assert.ok(days.includes("14 gün"));

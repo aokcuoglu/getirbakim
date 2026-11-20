@@ -14,7 +14,7 @@ export function HomeTrustLine() {
       {homeTrust.map(({ icon, title, text, href }) => {
         const Icon = icons[icon];
         return <li key={icon}>
-          <Link href={href} className="flex min-h-11 items-center gap-3 py-4 text-foreground hover:text-primary max-md:py-2">
+          <Link href={href} className="flex min-h-11 items-center gap-3 py-4 text-foreground hover:text-primary max-md:py-2 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring">
             <Icon size={22} aria-hidden="true" className="shrink-0 text-primary"/>
             <span className="min-w-0"><strong className="block text-sm leading-5 font-medium">{title}</strong><span className="block text-[13px] leading-[18px] text-muted-foreground max-md:hidden">{text}</span></span>
           </Link>
