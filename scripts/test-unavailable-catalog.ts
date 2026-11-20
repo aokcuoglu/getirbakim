@@ -216,12 +216,13 @@ describe("Dinamik price-list-only codes", () => {
     const before = await qualified();
     assert.equal(await refresh(), 0);
     assert.deepEqual(await qualified(), before);
-    // Every listed row in category 301 (the list keeps the view's cross-row checks to the view).
+    // Every listed row in category 301 (the list keeps the view's per-code and group checks to the view; the rows sold
+    // under the same identity, soldElsewhere and groupSold, are not listed, #1081).
     await schema.pool.query("UPDATE source_category_labels SET name='Fren diski' WHERE category_id=301");
-    assert.equal(await refresh(), 5);
+    assert.equal(await refresh(), 3);
     assert.ok((await qualified()) > before);
     await schema.pool.query("UPDATE source_category_labels SET name='Fren diskleri' WHERE category_id=301");
-    assert.equal(await refresh(), 5);
+    assert.equal(await refresh(), 3);
   });
 
   test("a price-only card is named after its deepest category, keeps its real brand and cannot be ordered", async () => {
@@ -251,6 +252,70 @@ describe("Dinamik price-list-only codes", () => {
     assert.ok(!(await catalog.browseProducts({ q: "TRW DF0001", searchBy: "code" })).items.some(row => row.id === ids.bare));
   });
 
+  test("search finds a price-only card by its name and brand too, through the card's stored fields (#1081)", async () => {
+    const stored = (await schema.pool.query<{ doc: string; codes: string }>(
+      "SELECT search_doc::text AS doc,search_codes AS codes FROM storefront_price_only_items WHERE supplier_item_id=$1", [ids.qualifying])).rows[0];
+    assert.match(stored.doc, /'fren':1A/);
+    assert.match(stored.doc, /'trw':\d+B/);
+    assert.equal(stored.codes, "trwdf4185");
+    // The plain search (summarizeSearch) and a filtered one (catalogRank) both list it.
+    assert.ok((await catalog.browseProducts({ q: "fren diskleri" })).items.some(row => row.id === ids.qualifying));
+    assert.ok((await catalog.browseProducts({ q: "trw fren" })).items.some(row => row.id === ids.qualifying));
+    assert.ok((await catalog.browseProducts({ q: "fren diskleri", brand: "TRW" })).items.some(row => row.id === ids.qualifying));
+    // A code search does not read names.
+    assert.deepEqual((await catalog.browseProducts({ q: "fren diskleri", searchBy: "code" })).items, []);
+    // Hidden by an admin: in the list, not a hit.
+    assert.ok(!(await catalog.browseProducts({ q: "fren diskleri" })).items.some(row => row.id === ids.hiddenPrice));
+  });
+
+  test("price-only hits only fill the slots the other hits leave under the cap (#1081)", async () => {
+    await item("trwSaleable", { supplier: "basbug", code: "TRW GDB1234", brand: "TRW", stock: 2 });
+    const { parseSearchQuery } = await import("../src/modules/search/query");
+    const hitIds = async (cap: number) => {
+      const values: unknown[] = [];
+      return (await schema.pool.query<{ id: string }>(catalog.searchHitIdsSql(parseSearchQuery("trw"), values, "all", cap), values)).rows.map(row => row.id);
+    };
+    assert.deepEqual(await hitIds(1), [ids.trwSaleable]);
+    const all = await hitIds(50);
+    assert.equal(all[0], ids.trwSaleable);
+    assert.ok(all.includes(ids.qualifying) && all.includes(ids.duplicateNew));
+    assert.equal(new Set(all).size, all.length);
+    assert.deepEqual(new Set(await hitIds(2)).size, 2);
+  });
+
+  test("a code whose brand and part number another usable row carries gets no card, linked or not (#1081)", async () => {
+    // Sold by Başbuğ under its own code, not grouped with it (no product_sources row).
+    await priceOnly("identitySold", { code: "BREMBO 09.A123.11", brand: "BREMBO" });
+    await enrich("identitySold", "BREMBO", [301]);
+    await item("bremboBasbug", { supplier: "basbug", code: "BRE 09A12311", brand: "BREMBO", stock: 2 });
+    // Dropped by Başbuğ: that row is the unavailable card.
+    await priceOnly("identityDropped", { code: "ATE 24.0122-0101.1", brand: "ATE" });
+    await enrich("identityDropped", "ATE", [301]);
+    await item("ateBasbug", { supplier: "basbug", code: "ATE 240122-01011", brand: "ATE", presence: "inactive", stock: 0 });
+    // Two price-list codes of one part: one card.
+    await priceOnly("twinA", { code: "TEXTAR 2345601", brand: "TEXTAR" });
+    await enrich("twinA", "TEXTAR", [301]);
+    await priceOnly("twinB", { code: "TEXTAR 23456-01", brand: "TEXTAR" });
+    await enrich("twinB", "TEXTAR", [301]);
+    // The same part number under another brand is another product.
+    await priceOnly("otherBrand", { code: "FEBI 09A12311", brand: "FEBI" });
+    await enrich("otherBrand", "FEBI", [301]);
+    await refresh();
+    const listed = new Set((await schema.pool.query<{ id: string }>("SELECT supplier_item_id::text AS id FROM storefront_price_only_items")).rows.map(row => row.id));
+    assert.deepEqual(["identitySold", "identityDropped", "otherBrand"].filter(key => listed.has(ids[key])), ["otherBrand"]);
+    assert.equal([ids.twinA, ids.twinB].filter(id => listed.has(id)).length, 1);
+    const shown = await unavailableIds();
+    assert.ok(shown.includes(ids.ateBasbug));
+    assert.ok(!shown.includes(ids.identitySold) && !shown.includes(ids.identityDropped));
+    // The sold row dropped is the product's unavailable card; once unusable, the price-only card comes back.
+    await schema.pool.query("UPDATE supplier_items SET presence='inactive',stock_data='{\"stok\":0}' WHERE id=$1", [ids.bremboBasbug]);
+    await refresh();
+    assert.ok(!(await schema.pool.query("SELECT 1 FROM storefront_price_only_items WHERE supplier_item_id=$1", [ids.identitySold])).rowCount);
+    await schema.pool.query("UPDATE supplier_items SET conflicting=true WHERE id=$1", [ids.bremboBasbug]);
+    await refresh();
+    assert.ok((await schema.pool.query("SELECT 1 FROM storefront_price_only_items WHERE supplier_item_id=$1", [ids.identitySold])).rowCount);
+  });
+
   test("'Gelince haber ver' stores the card's name and brand", async () => {
     const requests = await import("../src/modules/store/restock-requests");
     const result = await requests.createRestockRequest({ productId: ids.qualifying, email: "fiyat@example.invalid", consent: "on", website: "" });
@@ -268,6 +333,11 @@ describe("Dinamik price-list-only codes", () => {
     assert.equal(row?.available, true);
     assert.ok(row?.price_kurus);
     assert.deepEqual(await cards(), ["duplicateNew"]);
+    // Before the next refresh its stale price-only search fields still find it: once, as the saleable product.
+    for (const query of [{ q: "trw diskleri" }, { q: "trw diskleri", brand: "TRW" }]) {
+      const found = (await catalog.browseProducts(query)).items.filter(row => row.id === ids.qualifying);
+      assert.deepEqual(found.map(row => [row.unavailable, row.price_only]), [[false, false]], JSON.stringify(query));
+    }
     assert.equal(await refresh(), 1);
     assert.equal((await schema.pool.query("SELECT 1 FROM storefront_price_only_items WHERE supplier_item_id=$1", [ids.qualifying])).rowCount, 0);
   });

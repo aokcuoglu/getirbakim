@@ -20,8 +20,9 @@ export function refreshPriceOnlyItems(minIntervalSeconds?: number) {
   return db.query<{ written: number | null }>("SELECT storefront_price_only_refresh(make_interval(secs=>$1)) AS written",
     [minIntervalSeconds ?? null]).then(result => result.rows[0].written);
 }
-// The rebuild reads every link (~0.3 s on ~165k links): at most once a minute (across all tasks) after links changed,
-// and every 10 minutes anyway, since category labels and category-only imports do not move the links.
+// The rebuild reads every link (~0.3 s on ~165k links; ~1.5 s with 100k qualifying codes, #1081): at most once a minute
+// (across all tasks) after links changed, and every 10 minutes anyway, since category labels and category-only imports
+// do not move the links.
 const priceOnlyChangedSeconds = 60, priceOnlyMaxAgeSeconds = 10 * 60;
 
 const started = globalThis as unknown as { getirbakimEnrichmentLinkSync?: boolean };

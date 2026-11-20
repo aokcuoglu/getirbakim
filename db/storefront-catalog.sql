@@ -8,7 +8,7 @@
 --  * one card per supplier + code (newest observation) and one per product group (the product's own row, then
 --    Başbuğ, Dinamik, SETA, manual, then code).
 -- A second branch lists Dinamik price-list-only codes that carry content (storefront_price_only_items below, #1068): still
--- in the price list (present) but never saleable without a stock-list row.
+-- in the price list (present) but never saleable without a stock-list row. The first kind is commerce_dropped_items.
 -- NOT EXISTS keeps the view inlinable, so `id = ANY(...)` filters reach supplier_items by primary key.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_items'::regclass AND c.relname='supplier_items_saleable_code_idx') THEN
@@ -35,17 +35,48 @@ CREATE TABLE IF NOT EXISTS storefront_price_only_items (
  name text NOT NULL,
  qualified_at timestamptz NOT NULL DEFAULT now()
 );
+-- The card's own search fields (#1081), written by the refresh: the storefront search reads this table through its own
+-- indexes instead of computing the view's price-only branch for every match (16.7 ms at 105 rows, 128 ms at 100k).
+-- Built like supplier_items' stored fields (db/search.sql) from the fields the card shows: the Turkish category label as
+-- the name (the row itself has none), the brand, code, OEM and description. search_codes is
+-- supplier_item_search_codes(). search_source holds the inputs search_doc was built from, so a refresh rebuilds only the
+-- documents whose inputs changed (~33 µs a row: 3.3 s of every refresh at 100k rows). Only as fresh as the last
+-- refresh: the readers of the hits read them back through the storefront views (src/modules/store/catalog.ts).
+-- search_source holds the inputs, not the functions: a change to catalog_search_doc or search_normalize (db/search.sql)
+-- needs `UPDATE storefront_price_only_items SET search_source=NULL` so the next refresh rebuilds every document.
+-- Added only when missing: ADD COLUMN locks the table (ACCESS EXCLUSIVE) even as a no-op.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='storefront_price_only_items'::regclass AND attname='search_doc' AND NOT attisdropped) THEN
+  -- Views that read the table first (#1046, db/schema.sql).
+  PERFORM setup_lock_dependent_views('storefront_price_only_items');
+  ALTER TABLE storefront_price_only_items ADD COLUMN search_doc tsvector, ADD COLUMN search_code text, ADD COLUMN search_oem text,
+   ADD COLUMN search_codes text, ADD COLUMN search_source text;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='storefront_price_only_items'::regclass AND c.relname='storefront_price_only_items_search_doc_idx') THEN
+  CREATE INDEX storefront_price_only_items_search_doc_idx ON storefront_price_only_items USING gin (search_doc);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='storefront_price_only_items'::regclass AND c.relname='storefront_price_only_items_search_codes_idx') THEN
+  CREATE INDEX storefront_price_only_items_search_codes_idx ON storefront_price_only_items USING gin (search_codes gin_trgm_ops);
+ END IF;
+END $$;
 -- When the list was last rebuilt: every app task asks on its own timer, the database lets one of them rebuild per interval.
 CREATE TABLE IF NOT EXISTS storefront_price_only_runs (
  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
  refreshed_at timestamptz NOT NULL
 );
--- Recomputes the list and writes only what changed: one row per Dinamik code (the newest observation) and per product
--- group. Driven by the enrichment links (~165k rows locally), each reaching supplier_items by primary key: hash and merge
+-- Recomputes the list and writes only what changed: one row per Dinamik code (the newest observation), per product
+-- group and per product identity (master brand key + part number, as the matcher keys products: product_match_items).
+-- A code whose identity another usable row already carries (sold, or dropped and so an unavailable card) is left out,
+-- linked or not (#1081): an unlinked row has no product group, and would otherwise give the same part a second page.
+-- That row is found through supplier_items_part_key_idx (the code after its first word) and compared on the matcher's
+-- full identity; a SETA, manual or Başbuğ OE row whose code holds a space is keyed differently there and not seen.
+-- Unlike the row conditions, this identity rule lives here only: commerce_unavailable_items does not re-check it.
+-- Driven by the enrichment links (~165k rows locally), each reaching supplier_items by primary key: hash and merge
 -- joins are off inside the call, otherwise the planner reads the whole supplier_items table for them. One caller at a
 -- time; `min_interval` skips the rebuild when one finished within it (setup and imports pass NULL: always). A skipped
 -- call (lock busy or too soon) returns NULL, a rebuild the number of rows written. A renamed row moves qualified_at (its
--- address changes; the sitemap's lastmod follows). PL/pgSQL: product_enrichment_shared_links is created by a later setup file.
+-- address changes; the sitemap's lastmod follows); a row whose search fields alone change (its supplier data) is
+-- rewritten without moving it. PL/pgSQL: product_enrichment_shared_links is created by a later setup file.
 CREATE OR REPLACE FUNCTION storefront_price_only_refresh(min_interval interval DEFAULT NULL) RETURNS integer
 LANGUAGE plpgsql AS $$
 DECLARE changed integer; hash_join text := current_setting('enable_hashjoin'); merge_join text := current_setting('enable_mergejoin');
@@ -57,28 +88,63 @@ BEGIN
  PERFORM set_config('enable_hashjoin','off',true);
  PERFORM set_config('enable_mergejoin','off',true);
  CREATE TEMP TABLE storefront_price_only_computed ON COMMIT DROP AS
-  SELECT DISTINCT ON (x.grp) x.id,x.name FROM (
-   SELECT DISTINCT ON (r.code) r.id,r.code,COALESCE(ps.product_id,r.id) AS grp,cat.name
-   FROM product_enrichment_shared_links l
-   JOIN supplier_items r ON r.id=l.supplier_item_id
-   JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id
-   CROSS JOIN LATERAL (SELECT sl.name FROM product_source_categories pc
-     JOIN source_categories c ON c.source=pc.source AND c.category_id=pc.category_id
-     JOIN source_category_labels sl ON sl.source=pc.source AND sl.category_id=pc.category_id AND sl.locale='tr'
-     WHERE pc.supplier_item_id=l.donor_item_id ORDER BY cardinality(c.path_ids) DESC,pc.source,pc.category_id LIMIT 1) cat
-   LEFT JOIN product_sources ps ON ps.supplier_item_id=r.id
-   WHERE r.supplier='dinamik' AND r.stock_data IS NULL AND r.presence='present' AND NOT r.conflicting
-    -- The enrichment the product page shows (getProductEnrichment): the link's code and brand are the row's, and its basis
-    -- is one the category listing trusts.
-    AND l.supplier_code=r.code AND l.supplier_brand=supplier_item_brand(r.supplier,r.product_data)
-    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=l.donor_oem)
-   ORDER BY r.code,r.last_seen_at DESC,r.id) x
-  ORDER BY x.grp,x.code,x.id;
+  SELECT y.id,y.name,f.source AS search_source,
+   -- The stored search fields of db/search.sql's trigger, with the card's name and brand (storefront_catalog); the
+   -- document is built again only when its inputs changed. The supplier row's search_code/search_oem come from the same
+   -- trigger, and search_codes is supplier_item_search_codes() from them.
+   CASE WHEN q.search_source=f.source THEN q.search_doc ELSE
+    catalog_search_doc(y.name,shown.brand,s.code,COALESCE(s.product_data->>'oe',''),COALESCE(s.product_data->>'ac2','')) END AS search_doc,
+   s.search_code,s.search_oem,concat_ws(' ',s.search_code,NULLIF(s.search_oem,'')) AS search_codes
+  -- Byte order (COLLATE "C") for the identity: only equal keys matter, and a collated sort of 100k keys took ~0.2 s.
+  FROM (SELECT DISTINCT ON (COALESCE(x.identity,x.id::text) COLLATE "C") x.id,x.name FROM (
+   SELECT DISTINCT ON (x.grp) x.id,x.code,x.name,x.identity FROM (
+    SELECT DISTINCT ON (r.code) r.id,r.code,COALESCE(ps.product_id,r.id) AS grp,cat.name,
+     -- Rows without a full identity (no brand key, a part number under four characters, as the matcher drops) stand alone.
+     CASE WHEN length(k.part_number)>=4 THEN k.brand_key||' '||k.part_number END AS identity
+    FROM product_enrichment_shared_links l
+    JOIN supplier_items r ON r.id=l.supplier_item_id
+    JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id
+    CROSS JOIN LATERAL (SELECT sl.name FROM product_source_categories pc
+      JOIN source_categories c ON c.source=pc.source AND c.category_id=pc.category_id
+      JOIN source_category_labels sl ON sl.source=pc.source AND sl.category_id=pc.category_id AND sl.locale='tr'
+      WHERE pc.supplier_item_id=l.donor_item_id ORDER BY cardinality(c.path_ids) DESC,pc.source,pc.category_id LIMIT 1) cat
+    LEFT JOIN product_sources ps ON ps.supplier_item_id=r.id
+    -- The matcher's identity (refresh_product_matches): master brand key of the label, else its plain key.
+    LEFT JOIN supplier_brands sb ON sb.supplier=r.supplier AND sb.label=supplier_item_brand(r.supplier,r.product_data)
+    LEFT JOIN brands b ON b.id=sb.brand_id
+    CROSS JOIN LATERAL (SELECT COALESCE(b.key,product_brand_key(supplier_item_brand(r.supplier,r.product_data))) AS brand_key,
+      supplier_item_part_number(r.supplier,r.code,r.product_data) AS part_number) k
+    WHERE r.supplier='dinamik' AND r.stock_data IS NULL AND r.presence='present' AND NOT r.conflicting
+     -- The enrichment the product page shows (getProductEnrichment): the link's code and brand are the row's, and its basis
+     -- is one the category listing trusts.
+     AND l.supplier_code=r.code AND l.supplier_brand=supplier_item_brand(r.supplier,r.product_data)
+     AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=l.donor_oem)
+     -- Another usable row (the view's source rules, sold or dropped) is the same product.
+     AND NOT EXISTS (SELECT 1 FROM supplier_items d
+      WHERE length(k.part_number)>=4
+       AND part_number_key(substring(d.code from position(' ' in d.code)+1))=part_number_key(substring(r.code from position(' ' in r.code)+1))
+       AND d.id<>r.id
+       AND ((d.supplier='basbug' AND d.warehouse='MRK') OR d.supplier IN ('seta','manual') OR (d.supplier='dinamik' AND d.stock_data IS NOT NULL))
+       AND d.presence IN ('present','pending_missing','inactive') AND NOT d.conflicting
+       AND supplier_item_part_number(d.supplier,d.code,d.product_data)=k.part_number
+       AND supplier_item_brand_key(d.supplier,d.product_data)=k.brand_key)
+    ORDER BY r.code,r.last_seen_at DESC,r.id) x
+   ORDER BY x.grp,x.code,x.id) x
+  ORDER BY COALESCE(x.identity,x.id::text) COLLATE "C",x.code,x.id) y
+  JOIN supplier_items s ON s.id=y.id
+  CROSS JOIN LATERAL (SELECT COALESCE(NULLIF(s.product_data->>'uk',''),supplier_item_brand(s.supplier,s.product_data),'Belirtilmemiş') AS brand) shown
+  CROSS JOIN LATERAL (SELECT concat_ws(E'\x1f',y.name,shown.brand,s.code,COALESCE(s.product_data->>'oe',''),COALESCE(s.product_data->>'ac2','')) AS source) f
+  LEFT JOIN storefront_price_only_items q ON q.supplier_item_id=y.id;
  PERFORM set_config('enable_hashjoin',hash_join,true);
  PERFORM set_config('enable_mergejoin',merge_join,true);
  WITH upserted AS (
-  INSERT INTO storefront_price_only_items AS q(supplier_item_id,name) SELECT id,name FROM storefront_price_only_computed
-  ON CONFLICT (supplier_item_id) DO UPDATE SET name=EXCLUDED.name,qualified_at=now() WHERE q.name IS DISTINCT FROM EXCLUDED.name
+  INSERT INTO storefront_price_only_items AS q(supplier_item_id,name,search_doc,search_code,search_oem,search_codes,search_source)
+  SELECT id,name,search_doc,search_code,search_oem,search_codes,search_source FROM storefront_price_only_computed
+  ON CONFLICT (supplier_item_id) DO UPDATE SET name=EXCLUDED.name,search_doc=EXCLUDED.search_doc,search_code=EXCLUDED.search_code,
+   search_oem=EXCLUDED.search_oem,search_codes=EXCLUDED.search_codes,search_source=EXCLUDED.search_source,
+   qualified_at=CASE WHEN q.name IS DISTINCT FROM EXCLUDED.name THEN now() ELSE q.qualified_at END
+  WHERE (q.name,q.search_source,q.search_code,q.search_oem)
+   IS DISTINCT FROM (EXCLUDED.name,EXCLUDED.search_source,EXCLUDED.search_code,EXCLUDED.search_oem)
   RETURNING 1
  ), removed AS (
   DELETE FROM storefront_price_only_items q
@@ -90,6 +156,8 @@ BEGIN
   ON CONFLICT (singleton) DO UPDATE SET refreshed_at=EXCLUDED.refreshed_at;
  RETURN changed;
 END $$;
+-- The unavailable cards of rows their supplier dropped (the first kind above). A view of its own so the storefront
+-- search reads it without the price-only cards, which it finds through their own indexes (#1081).
 DO $setup$ DECLARE def text := $view$
 SELECT r.* FROM supplier_items r
 WHERE ((r.supplier='basbug' AND r.warehouse='MRK') OR r.supplier IN ('seta','manual') OR (r.supplier='dinamik' AND r.stock_data IS NOT NULL))
@@ -120,7 +188,19 @@ WHERE ((r.supplier='basbug' AND r.warehouse='MRK') OR r.supplier IN ('seta','man
    AND n.presence IN ('pending_missing','inactive') AND NOT n.conflicting
    AND (n.last_seen_at>d.last_seen_at OR (n.last_seen_at=d.last_seen_at AND n.id<d.id))))
  -- Hidden by an admin (#575).
- AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=r.id AND h.hidden)
+ AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=r.id AND h.hidden);
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='commerce_dropped_items' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
+  EXECUTE 'CREATE OR REPLACE VIEW commerce_dropped_items AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
+DO $setup$ DECLARE def text := $view$
+SELECT d.* FROM commerce_dropped_items d
 UNION ALL
 -- Dinamik price-list-only codes with content (storefront_price_only_items, #1068), still listed and not sold anywhere.
 -- They yield to every other card: a usable row of the same code (sold or dropped) and a usable member of the product
