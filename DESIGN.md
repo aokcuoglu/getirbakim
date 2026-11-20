@@ -19,12 +19,11 @@ References: [Airbnb analysis](https://github.com/VoltAgent/awesome-design-md/blo
 
 Storefront buttons take their size and colour from `storeButton({intent,size})` (`src/components/store-button.ts`) on `ui/button`; `ui/button` itself stays the registry's.
 
-- Sizes: hero 56px (`hero`, one per landing view), primary 48px (`lg`: purchase and checkout actions), standard 44px (`md`), compact 40px (`compact`) only from md up in pointer toolbars, 44px on touch widths. Icon buttons are 44×44 (`icon`) whatever the glyph size. Keep at least 8px between adjacent buttons.
+- Sizes: hero 56px (`hero`, one per landing view; applied with the home hero in #1090), primary 48px (`lg`: purchase and checkout actions), standard 44px (`md`), compact 40px (`compact`) only from md up in pointer toolbars, 44px on touch widths. Icon buttons are 44×44 (`icon`) whatever the glyph size. Keep at least 8px between adjacent buttons.
 - Text: at least 14px; hero and primary 16px, primary weight 600. No 11–13px button labels.
 - Colour roles: one filled primary per view (`--primary` `#0077c7`, hover `#0063b4`). Secondary is the blue tint (`--accent` `#eef7fd` with `--accent-foreground` `#0063b4` text) or an outline whose border (`--control-border` `#84909c`) is at least 3:1 on white. Red only for errors and destructive actions, green only for positive states.
-- Focus: a 2px primary outline with a 2px offset on every button.
-- The listing card's “Sepete ekle” is a standard-size filled button (44–48px, 14px/600); the product page's is primary (48px, 16px/600).
-- Generic supplier images (“Generic image for illustration purpose only”, watermark tiles, “Image coming soon”, legal notices, stock drawings) are not product photos: an automatic image shared by 5 or more distinct manufacturer part numbers (`product_enrichments.image_id`) is not shown on the storefront, which falls back to the neutral part illustration. Admin uploads are always shown; the admin still sees the automatic image.
+- Focus: a 2px primary outline with a 2px offset on `storeButton` and the purchase form's `.buy-button` (white on dark photo backgrounds such as the newsletter band). Buttons still styled by hand move to `storeButton` in #1096.
+- “Sepete ekle” on the listing card and the product page (`.buy-button`) is the filled primary: 48px, 14px/600 on the card (44px on a phone grid card, wrapping to two lines below 360px rather than shrinking), 16px/600 on the product page. The add-to-cart dialog's suggestion “Sepete ekle” and “Alışverişe devam et” are outline (`md` / `lg`); its “Siparişi tamamla” is the dialog's one filled primary.
 
 ## Discovery and commerce
 
