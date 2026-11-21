@@ -4,6 +4,7 @@ import { useActionState, useId, useState, type ReactNode } from "react";
 import { Ban, CircleAlert, Undo2 } from "lucide-react";
 import { setSharedImageBlock, type SharedImageBlockState } from "@/app/yonetim/ortak-gorseller/actions";
 import { PendingDialogCancel } from "@/components/admin/pending-dialog-cancel";
+import { SharedImageThumb } from "@/components/admin/shared-image-thumb";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -16,8 +17,8 @@ import {
 /**
  * "Engelle" / "Engeli kaldır" of a shared automatic image (#1136): confirmed first, with an optional note when
  * blocking. A refused change keeps the dialog open with its message; a saved one closes it and the page refreshes.
- * Unblocking shows the block's note and the image's source address: the store no longer serves a blocked image, so the
- * source is how the admin looks at it again.
+ * Unblocking shows the image through the admin-only preview route (#1176; the store no longer serves a blocked image),
+ * with the block's note and the image's source address.
  */
 export function SharedImageBlockDialog({ imageId, blocked, label, note, sourceUrl }: {
   imageId: string; blocked: boolean;
@@ -61,11 +62,14 @@ function BlockForm({ imageId, blocked, action, icon, blockNote, sourceUrl, onSav
         ? "Görsel, kullanan ürünlerde mağazada yeniden gösterilir. Yöneticinin gizlediği otomatik görseller gizli kalır."
         : "Bu görsel mağazada, ürün görsellerinde ve ürün akışında gizlenir. Yönetici yüklemeleri etkilenmez."}</AlertDialogDescription>
     </AlertDialogHeader>
-    {blocked && <dl className="grid min-w-0 gap-2">
-      <div className="min-w-0"><dt className="text-muted-foreground">Engel notu</dt><dd className="break-words">{blockNote || "Not yok"}</dd></div>
-      {sourceUrl && <div className="min-w-0"><dt className="text-muted-foreground">Kaynak adresi</dt>
-        <dd className="truncate"><a className="underline-offset-4 hover:underline" href={sourceUrl} target="_blank" rel="noreferrer" title={sourceUrl}>{sourceUrl}<span className="sr-only"> (yeni sekmede açılır)</span></a></dd></div>}
-    </dl>}
+    {blocked && <div className="flex min-w-0 flex-wrap items-start gap-4">
+      <SharedImageThumb imageId={imageId} blocked shown={false} size="lg" alt="Engeli kaldırılacak görsel"/>
+      <dl className="grid min-w-0 flex-1 gap-2">
+        <div className="min-w-0"><dt className="text-muted-foreground">Engel notu</dt><dd className="break-words">{blockNote || "Not yok"}</dd></div>
+        {sourceUrl && <div className="min-w-0"><dt className="text-muted-foreground">Kaynak adresi</dt>
+          <dd className="truncate"><a className="underline-offset-4 hover:underline" href={sourceUrl} target="_blank" rel="noreferrer" title={sourceUrl}>{sourceUrl}<span className="sr-only"> (yeni sekmede açılır)</span></a></dd></div>}
+      </dl>
+    </div>}
     {!blocked && <Field>
       <FieldLabel htmlFor={`${id}-note`}>Not (isteğe bağlı)</FieldLabel>
       <Input id={`${id}-note`} name="note" maxLength={200} autoComplete="off" value={note} onChange={event => setNote(event.currentTarget.value)}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { after, before, describe, test } from "node:test";
+import { after, before, describe, mock, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
@@ -145,7 +145,12 @@ test("the placeholder status tells in-use, cleaned and absent entries apart in l
 describe("blocking a shared image", () => {
   let blocks: typeof import("../src/modules/admin/shared-image-blocks");
   let images: typeof import("../src/modules/store/product-images");
+  let adminRoute: typeof import("../src/app/api/admin/product-media/[id]/route");
+  let publicRoute: typeof import("../src/app/api/product-media/[id]/route");
   let admin: string;
+  // The admin preview route (#1176) reads the session and the object storage, both mocked; the database is the schema.
+  let account: { id: string } | null = null;
+  const get = (route: { GET: typeof adminRoute.GET }, id: string) => route.GET(new Request(`http://localhost/${id}`), { params: Promise.resolve({ id }) });
   const blockKeys = ["x1", "x2", "x3"];
   const linkImages = async () => (await schema.pool.query<{ supplier_item_id: string; image_id: string | null }>(
     `SELECT supplier_item_id::text, image_id::text FROM product_enrichment_shared_links
@@ -171,7 +176,12 @@ describe("blocking a shared image", () => {
     }
     await sync();
     admin = (await schema.pool.query<{ id: string }>("SELECT id::text FROM accounts WHERE role='admin' LIMIT 1")).rows[0].id;
-    [blocks, images] = await Promise.all([import("../src/modules/admin/shared-image-blocks"), import("../src/modules/store/product-images")]);
+    mock.module("../src/modules/auth/session.ts", { namedExports: { adminApiAccount: async () => account } });
+    mock.module("../src/lib/object-storage.ts", { namedExports: {
+      objectStorage: () => ({ send: async () => ({ Body: { transformToWebStream: () => new Blob(["x"]).stream() } }) }),
+    } });
+    [blocks, images, adminRoute, publicRoute] = await Promise.all([import("../src/modules/admin/shared-image-blocks"), import("../src/modules/store/product-images"),
+      import("../src/app/api/admin/product-media/[id]/route"), import("../src/app/api/product-media/[id]/route")]);
   });
 
   test("a block empties the image on every link of its donors after a sync; unblocking restores it", async () => {
@@ -216,6 +226,29 @@ describe("blocking a shared image", () => {
     assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_image_blocks WHERE sha256=$1", [sha("a")])).rows[0].n, 0);
   });
 
+  test("the admin preview finds only blocked media; the public route still refuses it", async () => {
+    assert.equal((await blocks.blockedProductMedia(schema.pool, media.x))?.object_key, "products/x.webp");
+    assert.equal(await images.servableProductMedia(media.x, companies), undefined);
+    assert.equal(await blocks.blockedProductMedia(schema.pool, media.a), undefined);
+    assert.equal(await blocks.blockedProductMedia(schema.pool, randomUUID()), undefined);
+    assert.equal((await get(publicRoute, media.x)).status, 404);
+  });
+
+  test("the admin preview route answers only an admin, only for blocked media, and is never cached", async () => {
+    account = null;
+    const refused = await get(adminRoute, media.x);
+    assert.deepEqual([refused.status, refused.headers.get("Cache-Control"), refused.headers.get("X-Content-Type-Options")], [403, "private, no-store", "nosniff"]);
+    account = { id: admin };
+    try {
+      assert.equal((await get(adminRoute, media.a)).status, 404);
+      assert.equal((await get(adminRoute, "not-a-uuid")).status, 404);
+      const shown = await get(adminRoute, media.x);
+      assert.deepEqual([shown.status, shown.headers.get("Cache-Control"), shown.headers.get("Content-Type"), shown.headers.get("ETag")],
+        [200, "private, no-store", "image/webp", null]);
+      assert.equal(await shown.text(), "x");
+    } finally { account = null; }
+  });
+
   test("the media route stops serving a blocked image unless an admin also uploaded it", async () => {
     assert.equal(await images.servableProductMedia(media.x, companies), undefined);
     const product = await productOf("x1");
@@ -225,6 +258,13 @@ describe("blocking a shared image", () => {
     assert.deepEqual(await blocks.unblockSharedImage(schema.pool, media.x), { ok: true });
     await sync();
     assert.ok(await images.servableProductMedia(media.x, companies));
+  });
+
+  test("an unblocked image leaves the admin preview and returns to the public route", async () => {
+    assert.equal(await blocks.blockedProductMedia(schema.pool, media.x), undefined);
+    assert.ok(await images.servableProductMedia(media.x, companies));
+    account = { id: admin };
+    try { assert.equal((await get(adminRoute, media.x)).status, 404); } finally { account = null; }
   });
 
   test("a stale block is lifted even when no enrichment uses the image any more", async () => {

@@ -1,16 +1,15 @@
-import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Ban, ChevronLeft, ImageOff, Images } from "lucide-react";
+import { Ban, ChevronLeft, Images } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SharedImageBlockDialog } from "@/components/admin/shared-image-block-dialog";
+import { SharedImageThumb } from "@/components/admin/shared-image-thumb";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SupplierPagination } from "@/components/admin/supplier-pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { ItemMedia } from "@/components/ui/item";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatNumber } from "@/modules/admin/format";
 import { productTabHref } from "@/modules/admin/product-tabs";
@@ -31,9 +30,8 @@ export default async function SharedImage({ params, searchParams }: { params: Pr
   return <div className="flex flex-col gap-6">
     <div><Button variant="ghost" nativeButton={false} render={<Link href={backHref}/>}><ChevronLeft data-icon="inline-start" aria-hidden="true"/>Ortak görseller</Button></div>
     <Card size="sm"><CardContent className="flex flex-wrap items-start gap-4">
-      <ItemMedia variant="image" className="size-40">{header.store_rows === 0
-        ? <ImageOff className="text-muted-foreground" role="img" aria-label="Mağazada gösterilmiyor"/>
-        : <Image src={`/api/product-media/${header.image_id}`} alt={`Ortak görsel, ${header.host}`} width={160} height={160} unoptimized/>}</ItemMedia>
+      <SharedImageThumb imageId={header.image_id} blocked={header.blocked} shown={header.store_rows > 0} size="lg"
+        alt={header.blocked ? `Engellenen görsel önizlemesi, ${header.host}` : `Ortak görsel, ${header.host}`}/>
       <dl className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
         {([["Kaynak", header.host], ["Üretici", header.manufacturers.join(", ") || "—"], ["Parça", formatNumber(header.parts)],
           ["Zenginleştirme kaydı", formatNumber(header.donors)], ["Mağaza satırı", formatNumber(header.store_rows)]] as const).map(([label, value]) =>
