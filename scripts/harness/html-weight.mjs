@@ -87,20 +87,24 @@ export function markupStats(html, flight = flightOf(html).flight) {
   return { classBytes, moduleBytes, jsonLdBytes };
 }
 
-// `--budget "/urun/=160,/=410"` -> [[prefix, KB]]; the longest matching prefix decides a path's limit.
+// `--budget "/urun/=160,/=410"` -> [[prefix, KB]]; the longest matching prefix decides a path's limit. Throws on an
+// entry that is not `/prefix=<positive KB>`, so a typo cannot switch the gate off.
 export function parseBudget(spec) {
-  return String(spec ?? "").split(",").map((part) => part.trim()).filter(Boolean).map((part) => {
-    const index = part.lastIndexOf("=");
-    return [part.slice(0, index), Number(part.slice(index + 1))];
-  }).filter(([prefix, limit]) => prefix.startsWith("/") && Number.isFinite(limit));
+  if (typeof spec !== "string" || !spec.trim()) throw new Error("--budget needs a value like \"/urun/=160,/=410\"");
+  return spec.split(",").map((part) => {
+    const entry = part.trim(), index = entry.lastIndexOf("="), prefix = entry.slice(0, index), limit = entry.slice(index + 1).trim();
+    if (index === -1 || !prefix.startsWith("/") || !/^\d+(\.\d+)?$/.test(limit) || Number(limit) <= 0) throw new Error(`Invalid --budget entry "${entry}": expected /prefix=<KB>`);
+    return [prefix, Number(limit)];
+  });
 }
 
+// "/" is the home page only; any other prefix matches itself and what lies below it on a segment boundary.
 export function budgetFor(budget, path) {
   const pathname = path.split("?")[0];
   let best;
   for (const entry of budget) {
     const [prefix] = entry;
-    const matches = prefix === "/" ? pathname === "/" : pathname.startsWith(prefix);
+    const matches = pathname === prefix || (prefix !== "/" && pathname.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`));
     if (matches && (!best || prefix.length > best[0].length)) best = entry;
   }
   return best?.[1];

@@ -36,11 +36,27 @@ test("markupStats counts class attributes, module rows and JSON-LD", () => {
 });
 
 test("budgetFor lets the longest matching prefix decide; / matches only the home page", () => {
-  const budget = parseBudget("/urun/=160, /=410,/urun/special=200,bad,/x=abc");
+  const budget = parseBudget("/urun/=160, /=410,/urun/special=200");
   assert.deepEqual(budget, [["/urun/", 160], ["/", 410], ["/urun/special", 200]]);
   assert.equal(budgetFor(budget, "/"), 410);
+  assert.equal(budgetFor(budget, "/?x=1"), 410);
   assert.equal(budgetFor(budget, "/urun/abc"), 160);
-  assert.equal(budgetFor(budget, "/urun/special-1?x=1"), 200);
+  assert.equal(budgetFor(budget, "/urun/special"), 200);
+  assert.equal(budgetFor(budget, "/urun/special/sub?x=1"), 200);
   assert.equal(budgetFor(budget, "/katalog"), undefined);
   assert.equal(budgetFor([], "/"), undefined);
+});
+
+test("budgetFor matches on a segment boundary", () => {
+  const budget = parseBudget("/marka=300");
+  assert.equal(budgetFor(budget, "/marka"), 300);
+  assert.equal(budgetFor(budget, "/marka/bosch"), 300);
+  assert.equal(budgetFor(budget, "/markalar"), undefined);
+  assert.equal(budgetFor(parseBudget("/urun=1"), "/urunler"), undefined);
+});
+
+test("parseBudget rejects anything but prefix=positive number", () => {
+  for (const spec of ["", "  ", undefined, "bad", "/x=abc", "/x=", "/x=0", "/x=-5", "urun=5", "/a=1,", "/a=1,/b", "/a=1e3"]) {
+    assert.throws(() => parseBudget(spec), /--budget/, String(spec));
+  }
 });

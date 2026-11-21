@@ -5,7 +5,7 @@
 // at a production build (`npm run build && npx next start -p <port>`), not `next dev`.
 // Columns classKB (class attributes) and modKB (module rows of the payload) show what the markup, not the props, weighs.
 // --budget "/urun/=160,/=410": the longest matching path prefix gives the HTML limit in KB ("/" matches only the home
-// page); the exit code is 1 when a page exceeds it.
+// page); the exit code is 1 when a page exceeds it or is not 200 (2 for an invalid budget).
 // The first of the runs warms the route and is left out of the TTFB median. Avoid search URLs (/katalog?q=…): they
 // record the search in the database.
 import { gzipSync } from "node:zlib";
@@ -20,7 +20,15 @@ const option = (name, fallback) => {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 };
 const budgetIndex = argv.indexOf("--budget");
-const budget = budgetIndex === -1 ? [] : parseBudget(argv.splice(budgetIndex, 2)[1]);
+let budget = [];
+if (budgetIndex !== -1) {
+  try {
+    budget = parseBudget(argv.splice(budgetIndex, 2)[1]);
+  } catch (error) {
+    console.error(error.message);
+    process.exit(2);
+  }
+}
 const runs = Math.max(2, option("--runs", 5));
 const top = option("--top", 6);
 const [base, ...paths] = argv;
@@ -57,7 +65,8 @@ for (const path of paths) {
   times.sort((a, b) => a - b);
   const bytes = Buffer.byteLength(page.html), { bytes: rsc, flight } = flightOf(page.html), markup = markupStats(page.html, flight);
   const limit = budgetFor(budget, path);
-  if (limit !== undefined && bytes / 1024 > limit) exceeded.push(`${path}: ${kb(bytes)} KB > ${limit} KB`);
+  if (budget.length && page.status !== 200) exceeded.push(`${path}: HTTP ${page.status}`);
+  else if (limit !== undefined && bytes / 1024 > limit) exceeded.push(`${path}: ${kb(bytes)} KB > ${limit} KB`);
   rows.push({ path: path.length > 48 ? `${path.slice(0, 45)}…` : path, status: page.status, htmlKB: +kb(bytes), rscKB: +kb(rsc),
     rscPct: Math.round((rsc / bytes) * 100), classKB: +kb(markup.classBytes), modKB: +kb(markup.moduleBytes), gzipKB: +kb(gzipSync(page.html).length), ttfbMs: Math.round(times[Math.floor((times.length - 1) / 2)]) });
   details.push([path, clientProps(flight)]);
@@ -72,6 +81,6 @@ for (const [path, stats] of details) {
   }
 }
 if (exceeded.length) {
-  console.error(`\nOver budget:\n  ${exceeded.join("\n  ")}`);
+  console.error(`\nBudget check failed:\n  ${exceeded.join("\n  ")}`);
   process.exit(1);
 }

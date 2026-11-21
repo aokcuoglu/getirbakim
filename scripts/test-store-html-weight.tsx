@@ -50,3 +50,11 @@ test("the changed components keep no long utility list in a class literal", () =
     for (const match of source.matchAll(/className="([^"]*)"/g)) assert.ok(match[1].length <= 120, `${file}: ${match[1].slice(0, 60)}…`);
   }
 });
+
+test("the components use the named classes", () => {
+  const source = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
+  const controls = source("../src/components/catalog-controls.tsx");
+  for (const name of ["facet-tree-link", "facet-trigger", "facet-options"]) assert.ok(controls.includes(name), `catalog-controls.tsx: ${name}`);
+  assert.ok(source("../src/components/catalog-category-chips.tsx").includes("category-chip"));
+  assert.ok(source("../src/app/(store)/katalog/catalog-view.tsx").includes("make-list-item"));
+});
