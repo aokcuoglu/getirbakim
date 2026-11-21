@@ -339,3 +339,148 @@ test("the admin summary counts waiting and given-up events per partner and lists
   assert.ok(problems.some(problem => problem.status === "pending" && problem.lastHttpStatus === 503));
   assert.ok(problems.every(problem => /^\d+$/.test(problem.orderNumber)));
 });
+
+// Requeue and retention (#1002 slice 2b). These run after the summary test above: the bulk requeue and the pruning touch
+// rows of every earlier test.
+const newAdmin = async () => (await schema.pool.query<{ id: string }>(`INSERT INTO accounts(name,email,password_hash,role,approved)
+  VALUES('Admin',$1,'x','admin',true) RETURNING id::text`, [`${randomUUID()}@example.invalid`])).rows[0].id;
+/** A partner order with one event given up after 15 attempts, 73 hours after it was written. */
+async function deadEvent(partner = "bakimx") {
+  const orderId = await partnerOrder(partner);
+  await update(orderId, "status='confirmed'");
+  const id = (await schema.pool.query<{ id: string }>(`UPDATE partner_webhook_events SET status='dead',attempts=15,last_http_status=500,
+    last_error='gave up after 15 attempts: HTTP 500',created_at=now()-interval '73 hours',claimed_at=now()-interval '3 hours'
+    WHERE order_id=$1 RETURNING id::text`, [orderId])).rows[0].id;
+  return { orderId, id };
+}
+const row = async (id: string) => (await schema.pool.query<{ status: string; attempts: number; claimed_at: Date | null; last_error: string | null; last_http_status: number | null;
+  requeued_at: Date | null; requeued_by: string | null; created_at: Date }>(
+  "SELECT status,attempts,claimed_at,last_error,last_http_status,requeued_at,requeued_by::text,created_at FROM partner_webhook_events WHERE id=$1", [id])).rows[0];
+
+test("a requeued dead event is pending again with no attempts and goes out with the same eventId and a fresh signature", async () => {
+  const admin = await newAdmin();
+  const { orderId, id } = await deadEvent();
+  const written = (await row(id)).created_at;
+  assert.deepEqual(await webhooks.requeuePartnerWebhook(id, admin, ["bakimx"]), { orderId, partner: "bakimx" });
+  const requeued = await row(id);
+  assert.deepEqual([requeued.status, requeued.attempts, requeued.claimed_at, requeued.last_error, requeued.last_http_status, requeued.requeued_by],
+    ["pending", 0, null, null, null, admin]);
+  assert.ok(requeued.requeued_at instanceof Date);
+  assert.equal(requeued.created_at.getTime(), written.getTime(), "created_at (occurredAt) is kept");
+  assert.equal(await webhooks.requeuePartnerWebhook(id, admin, ["bakimx"]), null, "a second requeue finds no dead row");
+
+  // Written 73 hours ago, but the 72 hours count from the requeue: delivered, not given up.
+  const started = Math.floor(Date.now() / 1000);
+  const { sent, send } = recorder(204);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId, send, config }), { delivered: 1, skipped: 0, dead: 0, retried: 0 });
+  assert.equal(sent.length, 1);
+  const [request] = sent;
+  const body = JSON.parse(request.body);
+  assert.deepEqual([request.headers["X-GetirBakim-Event-Id"], body.eventId, body.occurredAt], [id, id, written.toISOString()]);
+  const timestamp = request.headers["X-GetirBakim-Timestamp"];
+  assert.ok(Number(timestamp) >= started);
+  assert.equal(request.headers["X-GetirBakim-Signature"], `v1=${createHmac("sha256", secret).update(`${timestamp}.${request.body}`).digest("hex")}`);
+  assert.deepEqual([(await row(id)).status, (await row(id)).attempts], ["delivered", 1]);
+});
+
+test("a requeued event is given up again 72 hours after the requeue", async () => {
+  const admin = await newAdmin();
+  const { orderId, id } = await deadEvent();
+  await webhooks.requeuePartnerWebhook(id, admin, ["bakimx"]);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId, send: recorder(500).send, config }), { delivered: 0, skipped: 0, dead: 0, retried: 1 });
+  assert.equal((await row(id)).status, "pending");
+  await schema.pool.query("UPDATE partner_webhook_events SET requeued_at=now()-interval '73 hours',claimed_at=now()-interval '3 hours' WHERE id=$1", [id]);
+  const { sent, send } = recorder(204);
+  const original = console.error;
+  console.error = () => undefined;
+  try {
+    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId, send, config }), { delivered: 0, skipped: 0, dead: 1, retried: 0 });
+  } finally { console.error = original; }
+  assert.equal(sent.length, 0);
+  assert.deepEqual([(await row(id)).status, (await row(id)).last_error], ["dead", "gave up after 1 attempts: HTTP 500"]);
+});
+
+test("a requeue refuses pending, delivered and skipped events, an unknown id and another partner's event", async () => {
+  const admin = await newAdmin();
+  const statuses = new Map<string, string>();
+  for (const status of ["pending", "delivered", "skipped"]) {
+    const { id } = await deadEvent();
+    await schema.pool.query("UPDATE partner_webhook_events SET status=$2 WHERE id=$1", [id, status]);
+    statuses.set(id, status);
+    assert.equal(await webhooks.requeuePartnerWebhook(id, admin, ["bakimx"]), null, status);
+  }
+  for (const [id, status] of statuses) assert.deepEqual([(await row(id)).status, (await row(id)).requeued_by], [status, null]);
+  assert.equal(await webhooks.requeuePartnerWebhook(randomUUID(), admin, ["bakimx"]), null);
+  const { id } = await deadEvent();
+  assert.equal(await webhooks.requeuePartnerWebhook(id, admin, ["other"]), null);
+  assert.equal(await webhooks.requeuePartnerWebhook(id, admin, []), null);
+  assert.deepEqual([(await row(id)).status, (await row(id)).requeued_by], ["dead", null]);
+});
+
+test("requeuing all of a partner's given-up events touches only that partner's dead rows", async () => {
+  const admin = await newAdmin();
+  const mine = [await deadEvent(), await deadEvent()];
+  const other = await deadEvent("other");
+  const pendingOrder = await partnerOrder();
+  await update(pendingOrder, "status='confirmed'");
+  const deadBefore = (await schema.pool.query<{ count: number }>("SELECT count(*)::int AS count FROM partner_webhook_events WHERE partner_code='bakimx' AND status='dead'")).rows[0].count;
+  assert.ok(deadBefore >= 2);
+  assert.equal(await webhooks.requeuePartnerWebhooks("bakimx", admin), deadBefore);
+  for (const { id } of mine) assert.deepEqual([(await row(id)).status, (await row(id)).requeued_by], ["pending", admin]);
+  assert.deepEqual([(await row(other.id)).status, (await row(other.id)).requeued_by], ["dead", null]);
+  assert.deepEqual((await events(pendingOrder)).map(event => [event.status, event.attempts]), [["pending", 0]]);
+  assert.equal((await schema.pool.query<{ count: number }>("SELECT count(*)::int AS count FROM partner_webhook_events WHERE partner_code='bakimx' AND status='dead'")).rows[0].count, 0);
+  assert.equal(await webhooks.requeuePartnerWebhooks("bakimx", admin), 0);
+});
+
+test("pruning deletes delivered, skipped and dead events 90 days after their last change and keeps pending ones", async () => {
+  const aged = async (set: string) => {
+    const orderId = await partnerOrder();
+    await update(orderId, "status='confirmed'");
+    const id = (await schema.pool.query<{ id: string }>(`UPDATE partner_webhook_events SET ${set} WHERE order_id=$1 RETURNING id::text`, [orderId])).rows[0].id;
+    return id;
+  };
+  const gone = [
+    await aged("status='delivered',created_at=now()-interval '95 days',delivered_at=now()-interval '91 days'"),
+    await aged("status='skipped',created_at=now()-interval '91 days'"),
+    await aged("status='dead',created_at=now()-interval '91 days'"),
+    await aged("status='dead',created_at=now()-interval '120 days',requeued_at=now()-interval '91 days'"),
+  ];
+  const kept = [
+    await aged("created_at=now()-interval '91 days',claimed_at=now()"),
+    await aged("status='delivered',created_at=now()-interval '100 days',requeued_at=now()-interval '10 days',delivered_at=now()-interval '9 days'"),
+    await aged("status='dead',created_at=now()-interval '100 days',requeued_at=now()-interval '10 days'"),
+    await aged("status='delivered',created_at=now()-interval '91 days',delivered_at=now()-interval '89 days'"),
+  ];
+  assert.equal(await webhooks.prunePartnerWebhookEvents(), gone.length);
+  for (const id of gone) assert.equal(await row(id), undefined);
+  for (const id of kept) assert.ok(await row(id));
+  assert.equal(await webhooks.prunePartnerWebhookEventsSafely(), 0);
+});
+
+test("the 5-minute sweep prunes old partner webhook events after delivering the pending ones", async () => {
+  const route = await readFile("src/app/api/payments/tami/reconcile/route.ts", "utf8");
+  assert.match(route, /await deliverPartnerWebhooksSafely\(\{ limit: 20 \}\);\s*await prunePartnerWebhookEventsSafely\(\);/);
+});
+
+test("a requeued event queues from its requeue, so fresh events written before it are claimed first", async () => {
+  const original = console.error;
+  console.error = () => undefined;
+  try {
+    // Drain what earlier tests left claimable (failures wait for their backoff and are not claimed again).
+    const drain = recorder(204);
+    for (let result = await webhooks.deliverPartnerWebhooks({ send: drain.send, config, limit: 22 }); result.delivered + result.skipped + result.retried > 0;
+      result = await webhooks.deliverPartnerWebhooks({ send: drain.send, config, limit: 22 }));
+  } finally { console.error = original; }
+  const admin = await newAdmin();
+  const old = await deadEvent();
+  const fresh = await partnerOrder();
+  await update(fresh, "status='confirmed'");
+  const [freshEvent] = await events(fresh);
+  await webhooks.requeuePartnerWebhook(old.id, admin, ["bakimx"]);
+  const { sent, send } = recorder(204);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ send, config, limit: 1 }), { delivered: 1, skipped: 0, dead: 0, retried: 0 });
+  assert.deepEqual(sent.map(request => request.headers["X-GetirBakim-Event-Id"]), [freshEvent.id]);
+  await webhooks.deliverPartnerWebhooks({ send, config, limit: 1 });
+  assert.deepEqual(sent.map(request => request.headers["X-GetirBakim-Event-Id"]), [freshEvent.id, old.id]);
+});

@@ -1,15 +1,18 @@
 "use server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { requireAdmin } from "@/modules/auth/session";
 import { savePartnerDiscount } from "@/modules/partner/discounts";
 import { setPartnerIntakePaused } from "@/modules/partner/intake";
 import { changePartnerInvoice, invoicePartnerOrders, knownPartners, savePartnerOrderLimit, undoPartnerOrderInvoice } from "@/modules/partner/limits";
 import { recordInvoicePayment, savePartnerPaymentTerm as storePaymentTerm, voidInvoicePayment } from "@/modules/partner/collections";
+import { parsePartnerWebhooks, partnerWebhooksEnv } from "@/modules/partner/webhook-contract";
+import { deliverPartnerWebhooksSafely, readPartnerWebhookEvent, requeuePartnerWebhook, requeuePartnerWebhooks } from "@/modules/partner/webhooks";
 import { money } from "@/modules/store/money";
 import { orderListReturn } from "./order-list-return";
 import { partnerDiscountInput, partnerInvoiceChangeInput, partnerInvoiceInput, partnerIntakeInput, partnerLimitInput, partnerOrderInvoiceUndoInput, partnerPaymentInput,
-  partnerPaymentVoidInput, partnerTermInput } from "./partner-input";
+  partnerPaymentVoidInput, partnerTermInput, partnerWebhookRequeueAllInput, partnerWebhookRequeueInput } from "./partner-input";
 
 /** A partner's open-order limit (#426): a TL amount, or empty to fall back to PARTNER_ORDER_LIMIT_KURUS. */
 export async function savePartnerLimit(form: FormData) {
@@ -52,6 +55,46 @@ export async function setPartnerIntake(form: FormData) {
   await setPartnerIntakePaused(input.data.partner, input.data.paused, admin.id);
   revalidatePath("/yonetim/partnerler");
   redirect(`/yonetim/partnerler?${input.data.paused ? "paused" : "resumed"}=${encodeURIComponent(input.data.partner)}`);
+}
+
+/** Whether the partner has a usable webhook endpoint now; a requeue without one would only wait or be skipped. */
+const hasWebhookEndpoint = (partner: string) => parsePartnerWebhooks(process.env[partnerWebhooksEnv]).endpoints.has(partner);
+const webhookReturn = (outcome: string, partner?: string, count?: number) =>
+  `/yonetim/partnerler?webhook=${outcome}${partner ? `&partner=${encodeURIComponent(partner)}` : ""}${count ? `&count=${count}` : ""}`;
+
+/**
+ * Sends one given-up partner webhook again (#1002): the event keeps its id, gets a fresh 72 hours and is sent now, so the
+ * page shows the outcome. Refused while the partner has no usable endpoint.
+ */
+export async function requeuePartnerWebhookEvent(form: FormData) {
+  const admin = await requireAdmin();
+  const input = partnerWebhookRequeueInput.safeParse(Object.fromEntries(form));
+  if (!input.success) redirect(webhookReturn("gone"));
+  const { codes } = await knownPartners();
+  const event = await readPartnerWebhookEvent(input.data.event);
+  if (!event || event.status !== "dead" || !codes.includes(event.partner)) redirect(webhookReturn("gone"));
+  if (!hasWebhookEndpoint(event.partner)) redirect(webhookReturn("no_endpoint", event.partner));
+  const requeued = await requeuePartnerWebhook(input.data.event, admin.id, [event.partner]);
+  if (!requeued) redirect(webhookReturn("gone"));
+  // Sends the order's pending events now (a few, so the form waits at most a few timeouts); this one is claimed at once
+  // (no claim, a fresh requeue). A sweep sending it at the same moment leaves it pending here: the page says "not yet".
+  await deliverPartnerWebhooksSafely({ orderId: requeued.orderId, limit: 5 });
+  const sent = await readPartnerWebhookEvent(input.data.event);
+  revalidatePath("/yonetim/partnerler");
+  redirect(webhookReturn(sent?.status === "delivered" ? "delivered" : sent?.status === "pending" ? "pending" : "gone", requeued.partner));
+}
+
+/** Requeues every given-up webhook event of one partner (#1002); they go out right after the answer (next sweep at the latest). */
+export async function requeuePartnerWebhookEvents(form: FormData) {
+  const admin = await requireAdmin();
+  const input = partnerWebhookRequeueAllInput.safeParse(Object.fromEntries(form));
+  const { codes } = await knownPartners();
+  if (!input.success || !codes.includes(input.data.partner)) redirect(webhookReturn("gone"));
+  if (!hasWebhookEndpoint(input.data.partner)) redirect(webhookReturn("no_endpoint", input.data.partner));
+  const count = await requeuePartnerWebhooks(input.data.partner, admin.id);
+  if (count > 0) after(() => deliverPartnerWebhooksSafely({ limit: 20 }));
+  revalidatePath("/yonetim/partnerler");
+  redirect(count > 0 ? webhookReturn("queued", input.data.partner, count) : webhookReturn("gone"));
 }
 
 export type PartnerInvoiceResult = {
