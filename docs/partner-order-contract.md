@@ -332,10 +332,14 @@ as it is **when the event is sent**, not as it was at `occurredAt`.
 | Header | Value |
 | --- | --- |
 | `User-Agent` | `GetirBakim-Webhooks/1` |
-| `X-GetirBakim-Event-Id` | Same as `eventId`; unchanged across retries |
-| `X-GetirBakim-Event-Type` | Same as `eventType` |
+| `X-GetirBakim-Event-Id` | Copy of `eventId`; unchanged across retries |
+| `X-GetirBakim-Event-Type` | Copy of `eventType` |
 | `X-GetirBakim-Timestamp` | Unix time in seconds of this attempt |
 | `X-GetirBakim-Signature` | `v1=` + hex HMAC-SHA256 of `<timestamp>.<raw body>` with the partner's webhook secret |
+
+`X-GetirBakim-Event-Id` and `X-GetirBakim-Event-Type` are unsigned convenience
+copies for logging; only the body is signed. Deduplicate and route on the
+body's `eventId` and `eventType` after verifying the signature.
 
 **Verification.** Read the raw body bytes before parsing JSON. Compute
 `HMAC-SHA256(secret, timestamp + "." + rawBody)` in hex, compare it to the
@@ -345,10 +349,16 @@ your clock. Each attempt is signed afresh, so a retry carries a current
 timestamp.
 
 ```js
-const expected = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
-const ok = signature.startsWith("v1=") && signature.length === expected.length + 3
-  && timingSafeEqual(Buffer.from(signature.slice(3)), Buffer.from(expected))
-  && Math.abs(Date.now() / 1000 - Number(timestamp)) <= 300;
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verify(secret, timestamp, signature, rawBody) {
+  if (!/^\d+$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
+  if (!/^v1=[0-9a-f]{64}$/.test(signature)) return false;
+  const expected = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest();
+  const received = Buffer.from(signature.slice(3), "hex");
+  // Equal lengths are checked first: timingSafeEqual throws a RangeError on different lengths.
+  return received.length === expected.length && timingSafeEqual(received, expected);
+}
 ```
 
 **Semantics.**
@@ -365,14 +375,19 @@ const ok = signature.startsWith("v1=") && signature.length === expected.length +
 **Delivery.** Answer with any `2xx` within 10 seconds; the body is ignored.
 Anything else is a failure: another status, a timeout, a network error, or a
 redirect (`3xx` answers are not followed; configure the final URL). Failed
-events are retried after 5, 15, 45 and 135 minutes, then every 6 hours, and
-given up 72 hours after the change. Events are sent by a sweep that runs every
-5 minutes, so expect a delay of up to about 5 minutes after the change.
+events are retried by the sweep that runs every 5 minutes: the first retry on
+the next sweep (about 5 minutes later), then after about 15, 45 and 135 minutes,
+then every 6 hours, and given up 72 hours after the change. The first attempt
+also waits for the sweep, so expect a delay of up to about 5 minutes after the
+change.
 
 **Configuration.** Each partner's endpoint and secret are set by GetirBakım in
 `PARTNER_WEBHOOKS_JSON` (see [Configuration](#configuration)); the URL must be
 `https://` and carry no credentials. The secret is exchanged out of band;
-rotating it means a coordinated switch.
+rotating it means a coordinated switch. A partner without an entry gets no
+webhooks (its events are recorded and skipped); while its entry is invalid or
+disabled, or the variable is unreadable, its events wait (and still give up
+after 72 hours).
 
 ## Errors
 
@@ -446,5 +461,6 @@ answer's body, the endpoint and the secret are never stored.
   `/yonetim/partnerler` (see the products contract's Discount section).
 - `PARTNER_WEBHOOKS_JSON`: optional webhook endpoints per partner (#1002), JSON
   `{"bakimx":{"url":"https://…","secret":"<at least 32 characters>","enabled":true}}`. An entry with a non-https URL
-  (in production), credentials in the URL, a shorter secret or `"enabled": false` is ignored; the other partners still
-  receive webhooks. Broken JSON disables all webhooks.
+  (in production), credentials in the URL, a shorter secret or `"enabled": false` holds that partner's events (logged
+  every sweep); the other partners still receive webhooks. Broken JSON holds every partner's events. Only a partner with
+  no entry has its events skipped.

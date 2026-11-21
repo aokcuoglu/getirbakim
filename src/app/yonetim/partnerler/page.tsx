@@ -139,50 +139,62 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     <Card>
       <CardHeader>
         <CardTitle>Webhook bildirimleri</CardTitle>
-        <CardDescription>Partner siparişinin durumu, kargosu ya da iptali değişince partnerin sistemine imzalı bildirim gönderilir. Teslim edilemeyen bildirim 72 saat boyunca yeniden denenir, sonra bırakılır.</CardDescription>
+        <CardDescription>Webhook, partnerin sistemine sipariş değiştiğinde otomatik gönderilen doğrulanabilir HTTP bildirimidir. Partner siparişinin durumu, kargo bilgisi, iptali ya da iptal talebi değişince gönderilir; teslim edilemeyen bildirim 72 saat boyunca yeniden denenir, sonra bırakılır.</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-6">
+      <CardContent className="flex flex-col gap-4">
+        {webhooks.parseError && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertTitle>Webhook ayarı okunamadı</AlertTitle><AlertDescription>PARTNER_WEBHOOKS_JSON geçerli bir JSON nesnesi değil. Bildirimler gönderilmiyor, 72 saat boyunca bekletiliyor; sistem yöneticisine bildirin.</AlertDescription></Alert>}
         {webhooks.configured ? <Table controls={false}>
           <TableHeader><TableRow>
-            <TableHead>Partner</TableHead><TableHead>Uç nokta</TableHead><TableHead className="text-right">Sırada</TableHead>
-            <TableHead className="text-right">Teslim edilemedi</TableHead><TableHead>Son teslim</TableHead>
+            <TableHead>Partner</TableHead><TableHead>Uç nokta</TableHead><TableHead className="text-right">Bekleyen</TableHead>
+            <TableHead className="text-right">Bırakılan</TableHead><TableHead className="text-right">Atlanan</TableHead><TableHead>Son teslim</TableHead>
           </TableRow></TableHeader>
           <TableBody>{webhooks.partners.map(p => <TableRow key={p.code}>
             <TableCell className="font-medium">{p.code}</TableCell>
-            <TableCell>{p.endpointHost ? <StatusBadge tone="success">Tanımlı · {p.endpointHost}</StatusBadge> : <StatusBadge tone="warning">Tanımsız</StatusBadge>}</TableCell>
+            <TableCell>{p.endpointState === "configured" ? <StatusBadge tone="info">Tanımlı · {p.endpointHost}</StatusBadge>
+              : p.endpointState === "disabled" ? <StatusBadge tone="warning">Kapalı · bildirimler bekletiliyor</StatusBadge>
+              : p.endpointState === "invalid" ? <StatusBadge tone="warning">Ayar geçersiz · bildirimler bekletiliyor</StatusBadge>
+              : p.endpointState === "unreadable" ? <StatusBadge tone="warning">Ayar okunamadı</StatusBadge>
+              : <StatusBadge tone="neutral">Tanımsız</StatusBadge>}</TableCell>
             <TableCell className="text-right tabular-nums">{formatNumber(p.pending)}</TableCell>
-            <TableCell className="text-right">{p.dead > 0 ? <StatusBadge tone="error">{formatNumber(p.dead)} bildirim</StatusBadge> : <span className="tabular-nums">0</span>}</TableCell>
+            <TableCell className="text-right">{p.dead > 0 ? <StatusBadge tone="error">{formatNumber(p.dead)} bırakıldı</StatusBadge> : <span className="tabular-nums">0</span>}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatNumber(p.skipped)}</TableCell>
             <TableCell className="tabular-nums">{p.lastDeliveredAt ? formatDateTime(p.lastDeliveredAt, { year: true }) : "—"}</TableCell>
           </TableRow>)}</TableBody>
         </Table> : <Empty>
           <EmptyHeader>
             <EmptyMedia variant="icon"><Webhook/></EmptyMedia>
             <EmptyTitle>Webhook uç noktası tanımlı değil</EmptyTitle>
-            <EmptyDescription>Uç noktalar PARTNER_WEBHOOKS_JSON ortam değişkeniyle tanımlanır.</EmptyDescription>
+            <EmptyDescription>Uç noktalar PARTNER_WEBHOOKS_JSON ortam değişkeniyle tanımlanır. Tanımlamak için sistem yöneticisine bildirin.</EmptyDescription>
           </EmptyHeader>
         </Empty>}
-        {webhooks.problems.length > 0 && <div className="flex flex-col gap-2">
-          <h2 className="font-medium">Sorunlu bildirimler</h2>
-          <p className="text-muted-foreground">En az bir kez teslim edilemeyen son 50 bildirim. Yanıt gövdesi saklanmaz; yalnızca HTTP durumu ya da hata özeti görünür.</p>
-          <Table controls={false}>
-            <TableHeader><TableRow>
-              <TableHead>Zaman</TableHead><TableHead>Partner</TableHead><TableHead>Sipariş</TableHead><TableHead>Durum</TableHead>
-              <TableHead className="text-right">Deneme</TableHead><TableHead>Son yanıt</TableHead>
-            </TableRow></TableHeader>
-            <TableBody>{webhooks.problems.map(problem => <TableRow key={problem.id} className="align-top">
-              <TableCell value={problem.createdAt.toISOString()} className="tabular-nums">{formatDateTime(problem.createdAt, { year: true })}</TableCell>
-              <TableCell className="font-medium">{problem.partner}</TableCell>
-              <TableCell><Button variant="link" nativeButton={false} render={<Link href="/yonetim/siparisler?sahip=partner"/>}>#{problem.orderNumber}<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button></TableCell>
-              <TableCell>{problem.status === "dead"
-                ? <StatusBadge tone="error">Bırakıldı</StatusBadge>
-                : <StatusBadge tone="info" icon={RotateCw}>Yeniden denenecek</StatusBadge>}</TableCell>
-              <TableCell className="text-right tabular-nums">{formatNumber(problem.attempts)}</TableCell>
-              <TableCell className="max-w-xs whitespace-normal">{problem.lastError ?? (problem.lastHttpStatus ? `HTTP ${problem.lastHttpStatus}` : "—")}</TableCell>
-            </TableRow>)}</TableBody>
-          </Table>
-        </div>}
+        <p className="text-muted-foreground">Atlanan: partner için uç nokta tanımlı olmadığından gönderilmeyen bildirimler.</p>
       </CardContent>
     </Card>
+
+    {webhooks.problems.length > 0 && <Card>
+      <CardHeader>
+        <CardTitle>Sorunlu bildirimler</CardTitle>
+        <CardDescription>En az bir kez teslim edilemeyen bildirimler. Bırakıldı: partnerin uç noktası 72 saat boyunca başarılı yanıt vermedi; bildirim yeniden gönderilmez. Partner sipariş durumunu API&apos;den sorgulayabilir; uç noktayı partnerle birlikte kontrol edin.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table controls={false}>
+          <TableHeader><TableRow>
+            <TableHead>Zaman</TableHead><TableHead>Partner</TableHead><TableHead>Sipariş</TableHead><TableHead>Durum</TableHead>
+            <TableHead className="text-right">Deneme</TableHead><TableHead>Son yanıt</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>{webhooks.problems.map(problem => <TableRow key={problem.id} className="align-top">
+            <TableCell value={problem.createdAt.toISOString()} className="tabular-nums">{formatDateTime(problem.createdAt, { year: true })}</TableCell>
+            <TableCell className="font-medium">{problem.partner}</TableCell>
+            <TableCell className="tabular-nums">#{problem.orderNumber}</TableCell>
+            <TableCell>{problem.status === "dead"
+              ? <StatusBadge tone="error">Bırakıldı</StatusBadge>
+              : <StatusBadge tone="warning" icon={RotateCw}>Yeniden denenecek</StatusBadge>}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatNumber(problem.attempts)}</TableCell>
+            <TableCell className="max-w-xs whitespace-normal">{problem.lastError ?? (problem.lastHttpStatus ? `HTTP ${problem.lastHttpStatus}` : "—")}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table>
+      </CardContent>
+    </Card>}
 
     <Card>
       <CardHeader>

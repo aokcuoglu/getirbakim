@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
-import type { PartnerWebhookEndpoint } from "../src/modules/partner/webhook-contract";
+import type { PartnerWebhookConfig } from "../src/modules/partner/webhook-contract";
 import type { WebhookRequest } from "../src/modules/partner/webhooks";
 
 // Partner webhook outbox (#1002) in an isolated copy of the schema: the trigger on commerce_orders, delivery, retries,
@@ -13,7 +13,7 @@ let orders: typeof import("../src/modules/partner/orders");
 let closeDb: () => Promise<void>;
 
 const secret = "test-webhook-secret-0123456789abcdef";
-const endpoints = new Map<string, PartnerWebhookEndpoint>([["bakimx", { url: "https://bakimx.example.invalid/hooks", secret }]]);
+const config: PartnerWebhookConfig = { endpoints: new Map([["bakimx", { url: "https://bakimx.example.invalid/hooks", secret }]]), invalid: new Map(), parseError: false };
 
 before(async () => {
   schema = await isolatedSchema("partner_webhooks_test");
@@ -99,7 +99,7 @@ test("a 2xx answer delivers the current order, signed, with the contract headers
   await update(id, "status='shipped',shipped_at=now(),carrier='yurtici',tracking_no='999'");
   const { sent, send } = recorder(200);
   const started = Math.floor(Date.now() / 1000);
-  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, endpoints }), { delivered: 2, skipped: 0, dead: 0, retried: 0 });
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config }), { delivered: 2, skipped: 0, dead: 0, retried: 0 });
   const rows = await events(id);
   assert.deepEqual(rows.map(row => [row.status, row.attempts, row.last_http_status, row.last_error]), [["delivered", 1, 200, null], ["delivered", 1, 200, null]]);
   const current = (await orders.readOrder("bakimx", "id", id))!.dto;
@@ -121,7 +121,7 @@ test("a 2xx answer delivers the current order, signed, with the contract headers
     for (const internal of ["BASBUG", `"nf"`, "basbug", secret]) assert.ok(!request.body.includes(internal), internal);
   }
   // Delivered rows are not sent again.
-  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, endpoints }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
   assert.equal(sent.length, 2);
 });
 
@@ -130,27 +130,81 @@ test("a non-2xx answer, a redirect or a network error keeps the event pending un
     const id = await partnerOrder();
     await update(id, "status='confirmed'");
     const failing = recorder(answer);
-    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send: failing.send, endpoints }), { delivered: 0, skipped: 0, dead: 0, retried: 1 });
+    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send: failing.send, config }), { delivered: 0, skipped: 0, dead: 0, retried: 1 });
     assert.deepEqual((await events(id)).map(row => [row.status, row.attempts, row.last_http_status, row.last_error]), [["pending", 1, httpStatus, error]]);
     // Within the 5-minute backoff the event is not claimed again.
     const ok = recorder(204);
-    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send: ok.send, endpoints }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
+    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send: ok.send, config }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
     assert.equal(ok.sent.length, 0);
     await schema.pool.query("UPDATE partner_webhook_events SET claimed_at=claimed_at-interval '6 minutes' WHERE order_id=$1", [id]);
-    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send: ok.send, endpoints }), { delivered: 1, skipped: 0, dead: 0, retried: 0 });
+    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send: ok.send, config }), { delivered: 1, skipped: 0, dead: 0, retried: 0 });
     assert.deepEqual((await events(id)).map(row => [row.status, row.attempts, row.last_http_status, row.last_error]), [["delivered", 2, 204, null]]);
   }
   // The second failure waits 15 minutes, not 5.
   const id = await partnerOrder();
   await update(id, "status='confirmed'");
   const failing = recorder(503);
-  await webhooks.deliverPartnerWebhooks({ orderId: id, send: failing.send, endpoints });
+  await webhooks.deliverPartnerWebhooks({ orderId: id, send: failing.send, config });
   await schema.pool.query("UPDATE partner_webhook_events SET claimed_at=claimed_at-interval '6 minutes' WHERE order_id=$1", [id]);
-  await webhooks.deliverPartnerWebhooks({ orderId: id, send: failing.send, endpoints });
+  await webhooks.deliverPartnerWebhooks({ orderId: id, send: failing.send, config });
   await schema.pool.query("UPDATE partner_webhook_events SET claimed_at=claimed_at-interval '6 minutes' WHERE order_id=$1", [id]);
-  await webhooks.deliverPartnerWebhooks({ orderId: id, send: failing.send, endpoints });
+  await webhooks.deliverPartnerWebhooks({ orderId: id, send: failing.send, config });
   assert.equal(failing.sent.length, 2);
   assert.deepEqual((await events(id)).map(row => [row.status, row.attempts]), [["pending", 2]]);
+});
+
+test("the first retry comes after 4 minutes, so it lands on the next 5-minute sweep", async () => {
+  const id = await partnerOrder();
+  await update(id, "status='confirmed'");
+  await webhooks.deliverPartnerWebhooks({ orderId: id, send: recorder(500).send, config });
+  await schema.pool.query("UPDATE partner_webhook_events SET claimed_at=claimed_at-interval '3 minutes 50 seconds' WHERE order_id=$1", [id]);
+  const ok = recorder(204);
+  await webhooks.deliverPartnerWebhooks({ orderId: id, send: ok.send, config });
+  assert.equal(ok.sent.length, 0);
+  await schema.pool.query("UPDATE partner_webhook_events SET claimed_at=claimed_at-interval '15 seconds' WHERE order_id=$1", [id]);
+  await webhooks.deliverPartnerWebhooks({ orderId: id, send: ok.send, config });
+  assert.equal(ok.sent.length, 1);
+});
+
+test("a fetch TypeError keeps only its cause's code next to the message", async () => {
+  const id = await partnerOrder();
+  await update(id, "status='confirmed'");
+  const error = new TypeError("fetch failed", { cause: Object.assign(new Error("connect ECONNREFUSED 10.0.0.1:443"), { code: "ECONNREFUSED" }) });
+  await webhooks.deliverPartnerWebhooks({ orderId: id, send: recorder(error).send, config });
+  assert.deepEqual((await events(id)).map(row => [row.status, row.last_http_status, row.last_error]), [["pending", null, "fetch failed (ECONNREFUSED)"]]);
+});
+
+test("a broken or disabled entry and broken JSON keep events pending; only a partner without an entry is skipped", async () => {
+  const id = await partnerOrder();
+  await update(id, "status='confirmed'");
+  const { sent, send } = recorder(204);
+  const errors: unknown[][] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => { errors.push(args); };
+  try {
+    for (const reason of ["disabled", "URL is not https"]) {
+      const held: PartnerWebhookConfig = { endpoints: new Map(), invalid: new Map([["bakimx", reason]]), parseError: false };
+      assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config: held }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
+      assert.ok(errors.some(args => JSON.stringify(args).includes(reason) && JSON.stringify(args).includes("bakimx")), reason);
+    }
+    errors.length = 0;
+    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config: { endpoints: new Map(), invalid: new Map(), parseError: true } }),
+      { delivered: 0, skipped: 0, dead: 0, retried: 0 });
+    assert.equal(errors.length, 1);
+    assert.ok(!JSON.stringify(errors).includes(secret));
+  } finally { console.error = original; }
+  assert.equal(sent.length, 0);
+  // Untouched: no attempt counted and no claim, so a fixed configuration sends it at once.
+  assert.deepEqual((await events(id)).map(row => [row.status, row.attempts]), [["pending", 0]]);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config }), { delivered: 1, skipped: 0, dead: 0, retried: 0 });
+  // Still given up after 72 hours while the configuration stays broken.
+  const late = await partnerOrder();
+  await update(late, "status='confirmed'");
+  await schema.pool.query("UPDATE partner_webhook_events SET created_at=now()-interval '73 hours' WHERE order_id=$1", [late]);
+  console.error = () => undefined;
+  try {
+    assert.equal((await webhooks.deliverPartnerWebhooks({ orderId: late, send, config: { endpoints: new Map(), invalid: new Map(), parseError: true } })).dead, 1);
+  } finally { console.error = original; }
 });
 
 test("an event undelivered for 72 hours is given up; a partner without an endpoint is skipped", async () => {
@@ -158,13 +212,13 @@ test("an event undelivered for 72 hours is given up; a partner without an endpoi
   await update(id, "status='confirmed'");
   await schema.pool.query("UPDATE partner_webhook_events SET created_at=now()-interval '73 hours',attempts=4,last_error='HTTP 500',claimed_at=now()-interval '3 hours' WHERE order_id=$1", [id]);
   const { sent, send } = recorder(204);
-  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, endpoints }), { delivered: 0, skipped: 0, dead: 1, retried: 0 });
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config }), { delivered: 0, skipped: 0, dead: 1, retried: 0 });
   assert.equal(sent.length, 0);
   assert.deepEqual((await events(id)).map(row => [row.status, row.last_error]), [["dead", "gave up after 4 attempts: HTTP 500"]]);
 
   const other = await partnerOrder("other");
   await update(other, "status='confirmed'");
-  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: other, send, endpoints }), { delivered: 0, skipped: 1, dead: 0, retried: 0 });
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: other, send, config }), { delivered: 0, skipped: 1, dead: 0, retried: 0 });
   assert.equal(sent.length, 0);
   assert.deepEqual((await events(other)).map(row => [row.status, row.last_error]), [["skipped", "no endpoint configured"]]);
 });
@@ -176,7 +230,7 @@ test("two concurrent deliveries send each event once", async () => {
   assert.equal(mine.length, 4);
   // The whole queue: the trigger tests' events are claimed too, so every send is counted.
   const { sent, send } = recorder(204, 50);
-  const results = await Promise.all([webhooks.deliverPartnerWebhooks({ send, endpoints }), webhooks.deliverPartnerWebhooks({ send, endpoints })]);
+  const results = await Promise.all([webhooks.deliverPartnerWebhooks({ send, config }), webhooks.deliverPartnerWebhooks({ send, config })]);
   const sentIds = sent.map(request => request.headers["X-GetirBakim-Event-Id"]);
   assert.equal(new Set(sentIds).size, sentIds.length, "no event is sent twice");
   assert.equal(results[0].delivered + results[1].delivered, sentIds.length);
@@ -187,6 +241,7 @@ test("two concurrent deliveries send each event once", async () => {
 test("the admin summary counts waiting and given-up events per partner and lists the failing ones", async () => {
   const summary = await webhooks.partnerWebhookSummary(["bakimx", "other", "nobody"]);
   assert.ok((summary.get("bakimx")?.dead ?? 0) >= 1);
+  assert.equal(summary.get("other")?.skipped, 1);
   assert.ok(summary.get("bakimx")?.lastDeliveredAt instanceof Date);
   assert.equal(summary.has("nobody"), false);
   const problems = await webhooks.recentPartnerWebhookProblems(["bakimx"]);

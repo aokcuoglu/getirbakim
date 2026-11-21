@@ -11,8 +11,10 @@ export const partnerWebhooksEnv = "PARTNER_WEBHOOKS_JSON";
 export const PARTNER_WEBHOOK_SPEC_VERSION = "1.0";
 export const PARTNER_ORDER_EVENT_TYPE = "partner.order.updated";
 export const minPartnerWebhookSecretLength = 32;
-/** A claimed row is not claimed again within this window; the shortest retry backoff equals it. */
+/** An event claimed this recently is never given up: its attempt may still be running. */
 export const PARTNER_WEBHOOK_LEASE_MINUTES = 5;
+/** The first retry waits this long, so it lands on the next 5-minute sweep; later ones wait 15, 45, 135 minutes, then 6 hours. */
+export const PARTNER_WEBHOOK_FIRST_RETRY_MINUTES = 4;
 /** One delivery attempt waits this long for the partner's answer. */
 export const PARTNER_WEBHOOK_TIMEOUT_MS = 10_000;
 /** An event still undelivered this long after it was written (or requeued) is given up as dead. */
@@ -26,32 +28,51 @@ const entrySchema = z.object({
   enabled: z.boolean().optional(),
 });
 
-/** The endpoint URL when it is usable: https (http only outside production), no credentials. */
-function endpointUrl(raw: string, production: boolean) {
+/** Why an endpoint URL is unusable, or null: https only (http allowed outside production), no credentials. */
+function urlProblem(raw: string, production: boolean) {
   let url: URL;
-  try { url = new URL(raw); } catch { return null; }
-  if (url.protocol !== "https:" && (production || url.protocol !== "http:")) return null;
-  if (url.username || url.password) return null;
-  return url.toString();
+  try { url = new URL(raw); } catch { return "URL is not valid"; }
+  if (url.protocol !== "https:" && (production || url.protocol !== "http:")) return production ? "URL is not https" : "URL is not http(s)";
+  if (url.username || url.password) return "URL carries credentials";
+  return null;
 }
 
+export type PartnerWebhookConfig = {
+  endpoints: Map<string, PartnerWebhookEndpoint>;
+  /** Partners with an entry that is broken or disabled → the reason (never the secret). Their events wait. */
+  invalid: Map<string, string>;
+  /** The variable is set but is not a JSON object: every partner's events wait. */
+  parseError: boolean;
+};
+
 /**
- * `PARTNER_WEBHOOKS_JSON` as partner code → endpoint. Tolerant like parsePartnerKeys: broken JSON is no endpoint at all,
- * a broken or disabled entry is skipped and the others still deliver. A partner without an entry gets no webhooks.
+ * `PARTNER_WEBHOOKS_JSON` as partner code → endpoint. Tolerant like parsePartnerKeys: a broken or disabled entry only
+ * affects its partner. Only a partner with no entry at all (or an unset variable) has no webhooks; a broken entry or
+ * broken JSON is reported in `invalid` / `parseError`, so delivery keeps those events instead of dropping them.
  */
-export function parsePartnerWebhooks(raw: string | undefined | null, production = process.env.NODE_ENV === "production") {
-  const endpoints = new Map<string, PartnerWebhookEndpoint>();
+export function parsePartnerWebhooks(raw: string | undefined | null, production = process.env.NODE_ENV === "production"): PartnerWebhookConfig {
+  const config: PartnerWebhookConfig = { endpoints: new Map(), invalid: new Map(), parseError: false };
+  const text = raw?.trim() ?? "";
+  if (!text) return config;
   let parsed: unknown;
-  try { parsed = JSON.parse(raw?.trim() || "{}"); } catch { return endpoints; }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return endpoints;
+  try { parsed = JSON.parse(text); } catch { return { ...config, parseError: true }; }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ...config, parseError: true };
   for (const [key, value] of Object.entries(parsed)) {
     const code = key.trim();
+    if (!code || code.length > 64) continue;
     const entry = entrySchema.safeParse(value);
-    if (!code || code.length > 64 || !entry.success || entry.data.enabled === false) continue;
-    const url = endpointUrl(entry.data.url, production);
-    if (url) endpoints.set(code, { url, secret: entry.data.secret });
+    if (!entry.success) {
+      const secret = value && typeof value === "object" && "secret" in value ? (value as { secret: unknown }).secret : undefined;
+      config.invalid.set(code, typeof secret === "string" && secret.length < minPartnerWebhookSecretLength
+        ? `secret shorter than ${minPartnerWebhookSecretLength} characters` : "entry needs url and secret strings");
+      continue;
+    }
+    if (entry.data.enabled === false) { config.invalid.set(code, "disabled"); continue; }
+    const problem = urlProblem(entry.data.url, production);
+    if (problem) { config.invalid.set(code, problem); continue; }
+    config.endpoints.set(code, { url: new URL(entry.data.url).toString(), secret: entry.data.secret });
   }
-  return endpoints;
+  return config;
 }
 
 /** The request body, serialized once: the signature is computed over exactly these bytes. */

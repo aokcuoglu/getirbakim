@@ -477,11 +477,17 @@ test("partner guard: a valid key is limited per partner only; failed key checks 
 
 const webhookSecret = "test-webhook-secret-0123456789abcdef";
 
-test("partner webhooks (#1002): endpoints parse per partner; broken JSON or entries are skipped, never fatal", () => {
+test("partner webhooks (#1002): endpoints parse per partner; a broken entry or broken JSON is reported, never fatal", () => {
   const valid = { url: "https://bakimx.example.invalid/hooks/getirbakim", secret: webhookSecret, enabled: true };
-  assert.deepEqual([...parsePartnerWebhooks(JSON.stringify({ bakimx: valid }), true)],
-    [["bakimx", { url: valid.url, secret: webhookSecret }]]);
-  for (const raw of [undefined, null, "", "{", "[]", "\"text\"", "null"]) assert.equal(parsePartnerWebhooks(raw, true).size, 0, String(raw));
+  const one = parsePartnerWebhooks(JSON.stringify({ bakimx: valid }), true);
+  assert.deepEqual([...one.endpoints], [["bakimx", { url: valid.url, secret: webhookSecret }]]);
+  assert.deepEqual([one.invalid.size, one.parseError], [0, false]);
+  // Unset is "no webhooks"; set but unreadable is a parse error (events wait).
+  for (const raw of [undefined, null, "", "  "]) assert.deepEqual(parsePartnerWebhooks(raw, true), { endpoints: new Map(), invalid: new Map(), parseError: false }, String(raw));
+  for (const raw of ["{", "[]", "\"text\"", "null", "42"]) {
+    const config = parsePartnerWebhooks(raw, true);
+    assert.deepEqual([config.endpoints.size, config.parseError], [0, true], raw);
+  }
   const entries = {
     bakimx: valid,
     short: { ...valid, secret: "x".repeat(31) },
@@ -493,9 +499,16 @@ test("partner webhooks (#1002): endpoints parse per partner; broken JSON or entr
     missing: { url: valid.url },
     other: { url: "https://other.example.invalid/hook", secret: "y".repeat(32) },
   };
-  // One bad entry keeps the others; http is refused only in production.
-  assert.deepEqual([...parsePartnerWebhooks(JSON.stringify(entries), true).keys()], ["bakimx", "other"]);
-  assert.deepEqual([...parsePartnerWebhooks(JSON.stringify(entries), false).keys()], ["bakimx", "plain", "other"]);
+  // One bad entry keeps the others; http is refused only in production. Reasons never carry the secret.
+  const production = parsePartnerWebhooks(JSON.stringify(entries), true);
+  assert.deepEqual([...production.endpoints.keys()], ["bakimx", "other"]);
+  assert.deepEqual(Object.fromEntries(production.invalid), {
+    short: "secret shorter than 32 characters", plain: "URL is not https", creds: "URL carries credentials", off: "disabled",
+    notUrl: "URL is not valid", ftp: "URL is not https", missing: "entry needs url and secret strings",
+  });
+  const local = parsePartnerWebhooks(JSON.stringify(entries), false);
+  assert.deepEqual([...local.endpoints.keys()], ["bakimx", "plain", "other"]);
+  assert.equal(local.invalid.get("ftp"), "URL is not http(s)");
 });
 
 test("partner webhooks (#1002): the signature is v1= HMAC-SHA256 over timestamp.body, and the headers carry it", () => {

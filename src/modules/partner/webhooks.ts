@@ -3,19 +3,25 @@ import "server-only";
 import { db } from "@/lib/db";
 import { readOrder } from "./orders";
 import {
-  buildPartnerOrderEvent, parsePartnerWebhooks, partnerWebhooksEnv, PARTNER_WEBHOOK_GIVE_UP_HOURS, PARTNER_WEBHOOK_LEASE_MINUTES,
-  PARTNER_WEBHOOK_TIMEOUT_MS, signPartnerWebhook, webhookHeaders, type PartnerWebhookEndpoint,
+  buildPartnerOrderEvent, parsePartnerWebhooks, partnerWebhooksEnv, PARTNER_WEBHOOK_FIRST_RETRY_MINUTES, PARTNER_WEBHOOK_GIVE_UP_HOURS,
+  PARTNER_WEBHOOK_LEASE_MINUTES, PARTNER_WEBHOOK_TIMEOUT_MS, signPartnerWebhook, webhookHeaders, type PartnerWebhookConfig,
 } from "./webhook-contract";
 
 /**
  * Partner webhook delivery (#1002). db/partner.sql's trigger writes one pending row per partner-visible order change;
- * deliverPartnerWebhooks claims pending rows with a lease (SKIP LOCKED plus the retry backoff, never shorter than the
- * lease, so concurrent calls send a row once per claim) and POSTs the order as it is now (readOrder), signed with the
+ * deliverPartnerWebhooks claims pending rows atomically (SKIP LOCKED plus the retry backoff; a sweep's batch is
+ * capped so its sends end before the shortest backoff, so concurrent calls send a row once per claim) and POSTs the order as it is now (readOrder), signed with the
  * partner's secret. A non-2xx answer, a redirect, a timeout or a network error keeps the row pending for the next try;
- * after 72 hours it is given up as dead. A partner without an endpoint gets its rows skipped.
+ * after 72 hours it is given up as dead. A partner with no entry in PARTNER_WEBHOOKS_JSON gets its rows skipped; a broken
+ * or disabled entry, or broken JSON, keeps them pending (logged every sweep) so a configuration mistake loses nothing
+ * within the 72 hours.
  */
-// Minutes after the last claim before the next try: 5, 15, 45, 135, then every 6 hours (about 15 tries in 72 hours).
-const RETRY_SQL = "LEAST(5*power(3,GREATEST(attempts-1,0)),360)::int";
+// Minutes after the last claim before the next try: 4 (the next 5-minute sweep), 15, 45, 135, then every 6 hours
+// (about 15 tries in 72 hours).
+const RETRY_SQL = `(CASE WHEN attempts<=1 THEN ${PARTNER_WEBHOOK_FIRST_RETRY_MINUTES} ELSE LEAST(5*power(3,attempts-1),360)::int END)`;
+// A sweep must finish its sends before any of its rows can be claimed again (the shortest backoff): at most one timeout
+// per row, two rows' worth of margin for the database work. 4 min / 10 s - 2 = 22 rows.
+const MAX_LIMIT = Math.floor(Math.min(PARTNER_WEBHOOK_LEASE_MINUTES, PARTNER_WEBHOOK_FIRST_RETRY_MINUTES) * 60_000 / PARTNER_WEBHOOK_TIMEOUT_MS) - 2;
 const ERROR_LENGTH = 500;
 
 export type WebhookRequest = { url: string; headers: Record<string, string>; body: string };
@@ -23,8 +29,8 @@ export type WebhookRequest = { url: string; headers: Record<string, string>; bod
 export type WebhookSend = (request: WebhookRequest) => Promise<{ status: number }>;
 export type DeliverWebhooksOptions = {
   limit?: number; orderId?: string; send?: WebhookSend;
-  /** Partner code → endpoint; defaults to PARTNER_WEBHOOKS_JSON. */
-  endpoints?: Map<string, PartnerWebhookEndpoint>;
+  /** Parsed endpoints; defaults to PARTNER_WEBHOOKS_JSON. */
+  config?: PartnerWebhookConfig;
 };
 /** `retried`: attempts that failed and stay pending; `dead`: rows given up in this call. */
 export type DeliverWebhooksResult = { delivered: number; skipped: number; dead: number; retried: number };
@@ -46,9 +52,11 @@ type ClaimedEvent = { id: string; partner_code: string; event_type: string; orde
  * 72 hours (counted from a requeue, if any) that no attempt holds are given up as dead first.
  */
 export async function deliverPartnerWebhooks({
-  limit = 20, orderId, send = fetchSend, endpoints = parsePartnerWebhooks(process.env[partnerWebhooksEnv]),
+  limit = 20, orderId, send = fetchSend, config = parsePartnerWebhooks(process.env[partnerWebhooksEnv]),
 }: DeliverWebhooksOptions = {}): Promise<DeliverWebhooksResult> {
   const only = orderId ?? null;
+  const { endpoints, invalid, parseError } = config;
+  const batch = Math.max(1, Math.min(Math.floor(limit), MAX_LIMIT));
   const result: DeliverWebhooksResult = { delivered: 0, skipped: 0, dead: 0, retried: 0 };
   const given = (await db.query<{ id: string; partner_code: string; attempts: number }>(
     `UPDATE partner_webhook_events SET status='dead',
@@ -61,14 +69,25 @@ export async function deliverPartnerWebhooks({
     result.dead++;
     console.error("Partner webhook given up", { event: row.id, partner: row.partner_code, attempts: row.attempts });
   }
+  if (parseError) {
+    // Nothing is claimed: an attempt would count against the events while no partner can be reached.
+    console.error("Partner webhooks waiting: PARTNER_WEBHOOKS_JSON is not a JSON object");
+    return result;
+  }
+  const held = [...invalid.keys()];
+  if (held.length) {
+    const waiting = (await db.query<{ partner_code: string; count: number }>(
+      "SELECT partner_code,count(*)::int AS count FROM partner_webhook_events WHERE status='pending' AND partner_code=ANY($1::text[]) GROUP BY partner_code", [held])).rows;
+    for (const row of waiting) console.error("Partner webhooks waiting: invalid PARTNER_WEBHOOKS_JSON entry", { partner: row.partner_code, reason: invalid.get(row.partner_code), events: row.count });
+  }
   // Sent in queue order; a partner still cannot rely on it (a retried event arrives after later ones).
   const claimed = (await db.query<ClaimedEvent>(
     `WITH claimed AS (UPDATE partner_webhook_events SET claimed_at=now(),attempts=attempts+1 WHERE id IN (
-       SELECT id FROM partner_webhook_events WHERE status='pending' AND ($1::uuid IS NULL OR order_id=$1)
+       SELECT id FROM partner_webhook_events WHERE status='pending' AND ($1::uuid IS NULL OR order_id=$1) AND NOT partner_code=ANY($3::text[])
         AND (claimed_at IS NULL OR claimed_at < now()-make_interval(mins=>${RETRY_SQL}))
        ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED)
      RETURNING id::text,partner_code,event_type,order_id::text,attempts,created_at)
-     SELECT * FROM claimed ORDER BY created_at,id`, [only, limit],
+     SELECT * FROM claimed ORDER BY created_at,id`, [only, batch, held],
   )).rows;
   for (const row of claimed) {
     const endpoint = endpoints.get(row.partner_code);
@@ -99,7 +118,9 @@ export async function deliverPartnerWebhooks({
     } catch (error) {
       // Stays pending: the next claim waits for the backoff, and a 72-hour-old row is given up above. Only the status and
       // the error's message are kept, never the answer's body, the endpoint or the secret.
-      const message = error instanceof Error ? error.message : String(error);
+      // fetch's TypeError ("fetch failed") hides the reason in its cause: only the cause's code is added.
+      const cause = error instanceof Error && error.cause && typeof error.cause === "object" && "code" in error.cause ? String(error.cause.code) : null;
+      const message = (error instanceof Error ? error.message : String(error)) + (cause ? ` (${cause})` : "");
       await db.query("UPDATE partner_webhook_events SET last_http_status=$2,last_error=$3 WHERE id=$1", [row.id, httpStatus, message.slice(0, ERROR_LENGTH)]);
       result.retried++;
       console.error("Partner webhook failed", { event: row.id, partner: row.partner_code, attempt: row.attempts, status: httpStatus });
@@ -117,15 +138,15 @@ export async function deliverPartnerWebhooksSafely(options: DeliverWebhooksOptio
   }
 }
 
-export type PartnerWebhookSummary = { pending: number; dead: number; lastDeliveredAt: Date | null };
+export type PartnerWebhookSummary = { pending: number; dead: number; skipped: number; lastDeliveredAt: Date | null };
 
-/** Per partner: events waiting, events given up and the last successful delivery. */
+/** Per partner: events waiting, given up and skipped (no endpoint), and the last successful delivery. */
 export async function partnerWebhookSummary(partners: string[]) {
-  const { rows } = await db.query<{ partner: string; pending: number; dead: number; last_delivered_at: Date | null }>(
+  const { rows } = await db.query<{ partner: string; pending: number; dead: number; skipped: number; last_delivered_at: Date | null }>(
     `SELECT partner_code AS partner,count(*) FILTER (WHERE status='pending')::int AS pending,count(*) FILTER (WHERE status='dead')::int AS dead,
-      max(delivered_at) AS last_delivered_at
+      count(*) FILTER (WHERE status='skipped')::int AS skipped,max(delivered_at) AS last_delivered_at
      FROM partner_webhook_events WHERE partner_code=ANY($1::text[]) GROUP BY partner_code`, [partners]);
-  return new Map<string, PartnerWebhookSummary>(rows.map(row => [row.partner, { pending: row.pending, dead: row.dead, lastDeliveredAt: row.last_delivered_at }]));
+  return new Map<string, PartnerWebhookSummary>(rows.map(row => [row.partner, { pending: row.pending, dead: row.dead, skipped: row.skipped, lastDeliveredAt: row.last_delivered_at }]));
 }
 
 export type PartnerWebhookProblem = {
