@@ -25,6 +25,10 @@ node --import tsx --test scripts/test-product-enrichment.ts
 
 `enrichment:prepare` şemayı oluşturur ve `supplier_items` kayıtlarını takip tablosuna ekler. Tekrar çalıştırılması tamamlanan kayıtları sıfırlamaz. Şema dosyalarını 5 sn'lik `lock_timeout` ile uygular: her tablo kilidi için en fazla 5 sn bekler, alamazsa "schema is busy" hatasıyla çıkar; sonra yeniden deneyin. Alınan şema kilitleri yalnız şema dosyalarının transaction'ı boyunca tutulur; kuyruğu dolduran ve `enrichment_product_states`'i okuyan (#923) adım ayrı transaction'da, yalnız satır kilitleriyle koşar. İki `prepare` aynı anda koşmaz (oturum düzeyinde advisory lock). İşçiler (`enrichment:continue`, spareto, parts2world, `vehicles:oil-trodo`) açılışta şema uygulamaz, yalnız tabloların var olduğunu kilitsiz denetler; eksikse `npm run db:setup` ister (#921). Önceden her açılıştaki `ALTER TABLE`, uzun bir okumanın arkasında beklerken `/yonetim/urun-verileri` okumalarını da sıraya sokuyordu. Bu **kuyruk hazırlığıdır**; bekleyen ürünlerin kaynaktan çekildiği anlamına gelmez. Yeni tedarikçi kayıtları geldikten sonra yeniden çalıştırılabilir.
 
+## Yer tutucu görseller
+
+Yer tutucu (ürün fotoğrafı olmayan) kaynak görseller `src/modules/enrichment/placeholder-images.ts` içindeki SHA-256 listesinde tutulur; yerel işçiler, temizlik ve AWS mağazası aynı sabiti kullanır. `/yonetim/ortak-gorseller` listenin durumunu salt okunur gösterir (kullanılıyor, temizlendi, bu veritabanında yok); panelden liste değiştirilmez. Akış: `npm run enrichment:placeholders -- candidates` → görsellere bakıp inceleme → sabite ekleme → `clean --apply` → `npm run storefront:sync`.
+
 ## Veriler
 
 - `product_enrichments`: ürün kimliği, eşleştirilen tedarikçi marka/kodu, kaynak URL/yöntem, üretici parça kodu ve JSONB özellikler/OEM/muadil/araç verileri.
