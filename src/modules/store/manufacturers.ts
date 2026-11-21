@@ -153,6 +153,6 @@ export function manufacturerTexts(name: string, total: number) {
     title: `${name} yedek parçaları`,
     heading: `${name} ürünlerini keşfet`,
     intro: `${name} üreticisinin ${count} yedek parça ve bakım ürünü listeleniyor. Ürünleri kategori ve teknik özelliklerine göre süz, ürün kodu veya OEM numarasıyla ara. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`,
-    description: fitDescription(`${name} üreticisinin ${count} yedek parça ve bakım ürünü: ürün kodu veya OEM numarasıyla ara, fiyat ve stok bilgisini gör. Siparişten önce araç uyumluluğunu kontrol et.`, manufacturerDescriptionLimit),
+    description: fitDescription(`${name} üreticisinin ${count} yedek parça ve bakım ürünü: ürün kodu veya OEM numarasıyla ara, fiyat ve stok durumunu gör. Siparişten önce araç uyumluluğunu kontrol et.`, manufacturerDescriptionLimit),
   };
 }

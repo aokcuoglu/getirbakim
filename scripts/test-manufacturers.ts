@@ -134,7 +134,7 @@ test("the page texts name the manufacturer and its count", () => {
   const long = manufacturerTexts("A VERY LONG MANUFACTURER NAME ".repeat(3).trim(), 1_000_000).description;
   assert.ok(long.length <= 160, String(long.length));
   assert.match(long, /[^\s,.:;]…$/);
-  const full = `A VERY LONG MANUFACTURER NAME `.repeat(3).trim() + " üreticisinin 1.000.000 yedek parça ve bakım ürünü: ürün kodu veya OEM numarasıyla ara, fiyat ve stok bilgisini gör. Siparişten önce araç uyumluluğunu kontrol et.";
+  const full = `A VERY LONG MANUFACTURER NAME `.repeat(3).trim() + " üreticisinin 1.000.000 yedek parça ve bakım ürünü: ürün kodu veya OEM numarasıyla ara, fiyat ve stok durumunu gör. Siparişten önce araç uyumluluğunu kontrol et.";
   assert.ok(full.startsWith(long.slice(0, -1)) && [" ", ",", ":", "."].includes(full[long.length - 1]), long);
   assert.equal(manufacturerDescriptionLimit, 160);
   assert.ok(bosch.description.length >= 100 && bosch.description.length <= 160, bosch.description);
