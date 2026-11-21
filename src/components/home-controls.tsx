@@ -23,14 +23,32 @@ function useMobile() {
 
 /**
  * Slides outside the first page stay in the HTML (links for SEO) but are not rendered
- * (`content-visibility: hidden`), so their lazy images do not download. The first
- * interaction with the carousel (pointer, touch, focus, key) arms it and the browser's
- * native lazy loading takes over. Slides keep their size, so layout does not shift.
+ * (`content-visibility: hidden`), so their lazy images do not compete with the first page.
+ * The carousel is armed on the first interaction (pointer, touch, focus, key, click) or,
+ * at the latest, when the window has loaded and the browser is idle; the browser's native
+ * lazy loading then takes over (carousels below the fold still wait for scroll). Slides
+ * keep their size, so layout does not shift.
  */
 function useArmed() {
   const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    let timer: number | undefined;
+    let idle: number | undefined;
+    const arm = () => setArmed(true);
+    const schedule = () => {
+      if (typeof window.requestIdleCallback === "function") idle = window.requestIdleCallback(arm);
+      else timer = window.setTimeout(arm, 1500);
+    };
+    if (document.readyState === "complete") schedule();
+    else window.addEventListener("load", schedule, {once: true});
+    return () => {
+      window.removeEventListener("load", schedule);
+      if (idle !== undefined) window.cancelIdleCallback(idle);
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, []);
   const arm = () => setArmed(true);
-  return {armed, handlers: {onPointerEnter: arm, onTouchStart: arm, onFocus: arm}};
+  return {armed, handlers: {onPointerEnter: arm, onTouchStart: arm, onFocus: arm, onKeyDown: arm, onClick: arm}};
 }
 
 const arrow = "z-[2] size-9 min-h-0 p-0 border-border bg-white/95 text-foreground hover:bg-white disabled:hidden [&_svg:not([class*='size-'])]:size-[18px]";
@@ -62,6 +80,8 @@ function Pager({label, grid}: {label: string; grid?: boolean}) {
 }
 
 const deferred = "[content-visibility:hidden]";
+// `columns` N shows N slides from md up, so defer from slide n+(N+1); below md 2 are visible, defer from n+3.
+// `not-min-` is the exact complement of the `min-` basis breakpoint, so the ranges never overlap.
 const deferredFrom: Record<number, string> = {
   3: "min-[48.0625rem]:nth-[n+4]:[content-visibility:hidden]",
   4: "min-[48.0625rem]:nth-[n+5]:[content-visibility:hidden]",
@@ -76,7 +96,7 @@ export function HomeCarousel({children,label,columns=5}:{children:ReactNode;labe
   const {armed, handlers} = useArmed();
   if (!slides.length) return null;
   const basis = cn("basis-1/2", productBasis[columns] ?? "min-[48.0625rem]:basis-1/5");
-  const defer = armed ? "" : cn("max-[48.0625rem]:nth-[n+3]:[content-visibility:hidden]", deferredFrom[columns] ?? deferredFrom[5]);
+  const defer = armed ? "" : cn("not-min-[48.0625rem]:nth-[n+3]:[content-visibility:hidden]", deferredFrom[columns] ?? deferredFrom[5]);
   return <Carousel opts={{align: "start", slidesToScroll: "auto", containScroll: "trimSnaps"}} aria-label={label} aria-roledescription="slider" className="min-w-0" {...handlers}>
     <CarouselContent className="items-stretch">{slides.map((slide, index) => <CarouselItem key={index} className={cn(basis, defer)}>{slide}</CarouselItem>)}</CarouselContent>
     <Pager label={label}/>
