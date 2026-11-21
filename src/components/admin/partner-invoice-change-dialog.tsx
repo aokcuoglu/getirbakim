@@ -4,6 +4,7 @@ import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, Info, Pencil, TriangleAlert, Undo2 } from "lucide-react";
 import { changePartnerInvoiceMark, type PartnerInvoiceChangeResult } from "@/modules/admin/partner-actions";
+import { formatDay } from "@/modules/admin/format";
 import { money } from "@/modules/store/money";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -15,9 +16,6 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 
 export type MarkedInvoice = { partner: string; invoiceRef: string; invoiceDate: string; count: number; totalKurus: number };
-
-/** `YYYY-MM-DD` → `DD.MM.YYYY`. */
-const day = (value: string) => value.split("-").reverse().join(".");
 
 /**
  * Düzelt / geri al (#1018): a wrong invoiced mark gets a new invoice number and date, or is removed so its orders count
@@ -32,7 +30,7 @@ export function PartnerInvoiceChangeDialog({ invoice, today }: { invoice: Marked
     <DialogContent className="sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>{invoice.partner} · {invoice.invoiceRef} faturasını düzelt</DialogTitle>
-        <DialogDescription>{day(invoice.invoiceDate)} tarihli bu fatura ile işaretlenen siparişlerin fatura bilgisini düzeltin ya da işareti gerekçeyle geri alın. Değişiklik kayıt altına alınır.</DialogDescription>
+        <DialogDescription>{formatDay(invoice.invoiceDate)} tarihli bu fatura ile işaretlenen siparişlerin fatura bilgisini düzeltin ya da işareti gerekçeyle geri alın. Değişiklik kayıt altına alınır.</DialogDescription>
       </DialogHeader>
       {/* Remounted on each open: fields start from the current invoice and the last result is not shown again. */}
       {open && <ChangeForm invoice={invoice} today={today} onSaved={() => setOpen(false)}/>}

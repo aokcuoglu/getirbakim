@@ -3,7 +3,7 @@ import { ArrowUpRight, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileTe
 import { adminPartnerInvoices, adminPartners, adminPartnerWebhooks } from "@/modules/admin/partners";
 import { savePartnerDiscountRate, savePartnerLimit, setPartnerIntake } from "@/modules/admin/partner-actions";
 import { istanbulToday, percentText } from "@/modules/admin/partner-input";
-import { formatDateTime, formatNumber } from "@/modules/admin/format";
+import { formatDateTime, formatDay, formatNumber } from "@/modules/admin/format";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
 import { money } from "@/modules/store/money";
@@ -25,8 +25,6 @@ const discountSourceLabel = { panel: "Panelden", env: "Varsayılan (ortam deği�
 const discountText = (bps: number | null) => bps == null ? "varsayılan" : `%${percentText(bps)}`;
 /** Kuruş → the TL text the limit input shows ("4500" or "4500.50"). */
 const tl = (kurus: number) => kurus % 100 ? (kurus / 100).toFixed(2) : String(kurus / 100);
-/** `YYYY-MM-DD` → `DD.MM.YYYY`. */
-const day = (value: string) => value.split("-").reverse().join(".");
 /** A positive whole count from the query string, else null. */
 const countParam = (value: string | undefined) => { const count = Number(value); return Number.isSafeInteger(count) && count > 0 ? count : null; };
 
@@ -199,7 +197,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     <Card>
       <CardHeader>
         <CardTitle>Kesilen faturalar</CardTitle>
-        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre (son 100 fatura). Yanlış işaret gerekçeyle düzeltilir ya da geri alınır.</CardDescription>
+        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre (son 100 fatura). Yanlış işaret gerekçeyle düzeltilir ya da geri alınır. Tek bir siparişin işareti Siparişler sayfasından geri alınır.</CardDescription>
       </CardHeader>
       <CardContent>
         {invoices.length ? <Table controls={false}>
@@ -210,7 +208,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
           <TableBody>{invoices.map(invoice => <TableRow key={`${invoice.partner}|${invoice.invoiceRef}|${invoice.invoiceDate}`}>
             <TableCell className="font-medium">{invoice.partner}</TableCell>
             <TableCell>{invoice.invoiceRef}</TableCell>
-            <TableCell value={invoice.invoiceDate} className="tabular-nums">{day(invoice.invoiceDate)}</TableCell>
+            <TableCell value={invoice.invoiceDate} className="tabular-nums">{formatDay(invoice.invoiceDate)}</TableCell>
             <TableCell className="text-right tabular-nums">{formatNumber(invoice.count)}</TableCell>
             <TableCell className="text-right tabular-nums">{money(invoice.totalKurus)}</TableCell>
             <TableCell>{invoice.markedBy ?? "—"}</TableCell>
@@ -241,7 +239,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
             <TableCell value={change.changedAt.toISOString()} className="whitespace-normal tabular-nums">{formatDateTime(change.changedAt, { year: true })}<span className="block text-muted-foreground">{change.changedBy ?? "—"}</span></TableCell>
             <TableCell className="font-medium">{change.partner}</TableCell>
             <TableCell>{change.action === "undo" ? <StatusBadge tone="warning">Geri alındı</StatusBadge> : <StatusBadge tone="info">Düzeltildi</StatusBadge>}</TableCell>
-            <TableCell className="max-w-xs whitespace-normal tabular-nums">{change.oldRef} · {day(change.oldDate)} → {change.newRef && change.newDate ? `${change.newRef} · ${day(change.newDate)}` : "işaret kaldırıldı"}</TableCell>
+            <TableCell className="max-w-xs whitespace-normal tabular-nums">{change.oldRef} · {formatDay(change.oldDate)} → {change.newRef && change.newDate ? `${change.newRef} · ${formatDay(change.newDate)}` : "işaret kaldırıldı"}</TableCell>
             <TableCell className="text-right tabular-nums">{formatNumber(change.count)}</TableCell>
             <TableCell className="max-w-xs whitespace-normal">{change.reason}</TableCell>
           </TableRow>)}</TableBody>

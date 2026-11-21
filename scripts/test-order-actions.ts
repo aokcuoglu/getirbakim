@@ -62,6 +62,9 @@ test("actions return to the list they came from; anything else falls back to the
   // An orphaned label names its order: the number is the outcome's value (digits only).
   assert.equal(orderListReturn("/yonetim/siparisler?status=shipping", "label_orphan", "1042"), "/yonetim/siparisler?status=shipping&label_orphan=1042");
   assert.equal(orderListReturn("/yonetim/siparisler", "label_orphan", "1042&x=y"), "/yonetim/siparisler?label_orphan=1");
+  // The per-order invoice undo (#1038) names the order too.
+  assert.equal(orderListReturn("/yonetim/siparisler?status=delivered&sahip=partner&invoice_undone=9", "invoice_undone", "123"), "/yonetim/siparisler?status=delivered&sahip=partner&invoice_undone=123");
+  assert.equal(orderListReturn("/yonetim/siparisler", "invoice_emptied", "123"), "/yonetim/siparisler?invoice_emptied=123");
   for (const outcome of ["label_created", "label_unknown", "label_failed", "label_busy", "label_orphan", "label_held"] as const) {
     assert.equal(orderListReturn("/yonetim/siparisler?status=shipping&label_unknown=1&page=2", outcome), `/yonetim/siparisler?status=shipping&page=2&${outcome}=1`);
   }

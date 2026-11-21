@@ -4,6 +4,7 @@ import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, FileCheck, Info, TriangleAlert } from "lucide-react";
 import { markPartnerInvoiced, type PartnerInvoiceResult } from "@/modules/admin/partner-actions";
+import { formatDay } from "@/modules/admin/format";
 import { money } from "@/modules/store/money";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -72,7 +73,7 @@ function InvoiceForm({ partner, days, today, onSaved }: { partner: string; days:
         <FieldLabel htmlFor={`${id}-deliveredUntil`}>Bu güne kadar teslim edilenler</FieldLabel>
         <Input id={`${id}-deliveredUntil`} name="deliveredUntil" type="date" required max={today} value={values.deliveredUntil} onChange={set("deliveredUntil")}
           aria-invalid={Boolean(errors.deliveredUntil)} aria-describedby={describe("deliveredUntil", true)}/>
-        <FieldDescription id={`${id}-deliveredUntil-hint`}>İlk faturalanmamış teslim: {days[0] ? days[0].day.split("-").reverse().join(".") : "—"}. Teslim günü İstanbul saatine göredir.</FieldDescription>
+        <FieldDescription id={`${id}-deliveredUntil-hint`}>İlk faturalanmamış teslim: {days[0] ? formatDay(days[0].day) : "—"}. Teslim günü İstanbul saatine göredir.</FieldDescription>
         {errors.deliveredUntil && <FieldError id={`${id}-deliveredUntil-error`}>{errors.deliveredUntil[0]}</FieldError>}
       </Field>
       <Field data-invalid={Boolean(errors.invoiceRef)}>
