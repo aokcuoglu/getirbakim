@@ -56,10 +56,13 @@ jobs:
           echo "::error::Postgres did not become ready"
           exit 1
       - uses: actions/checkout@v7
+      # The npm cache only pays off on fresh GitHub-hosted machines. On the self-hosted Mac its post step archived and
+      # uploaded the owner's whole ~/.npm (~2.8 GB, ~8.5 min per run) while npm ci already takes seconds there (#1225).
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-          cache: npm
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          package-manager-cache: ${{ runner.environment == 'github-hosted' }}
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
