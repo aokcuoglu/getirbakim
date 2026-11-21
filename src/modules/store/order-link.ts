@@ -103,3 +103,14 @@ export function orderLinkGrant({ orderId, token, page, siteUrl, secret, now = ne
   const maxAge = Number(token.split(".")[0]) - Math.floor(now.getTime() / 1000);
   return { status, notice, target, cookie: { name: ORDER_LINK_COOKIE, value: token, options: { httpOnly: true, secure: production, sameSite: "lax", path, maxAge } } };
 }
+
+/**
+ * Where /siparis/<id>/erisim sends the visitor, and the cookie to set. A cookie only for a granted link on a guest order;
+ * a browser that can already view the order goes to it regardless of the link; everything else lands on the notice
+ * page (expired for a genuinely signed old link, invalid otherwise, including a valid link for a non-guest order).
+ */
+export function orderLinkOutcome(grant: OrderLinkGrant, { guestOrder, viewable, siteUrl }: { guestOrder: boolean; viewable: boolean; siteUrl: string }) {
+  if (grant.cookie && guestOrder) return { location: grant.target, cookie: grant.cookie };
+  if (viewable) return { location: grant.target, cookie: null };
+  return { location: grant.status === "valid" ? orderLinkNoticeUrl("invalid", siteUrl) : grant.notice, cookie: null };
+}

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { siteUrl } from "@/lib/site";
 import { guestOrderExists, viewableOrder } from "@/modules/store/order-read";
-import { ORDER_LINK_TOKEN_MAX, orderLinkGrant, orderLinkNoticeUrl, orderLinkSecret } from "@/modules/store/order-link";
+import { ORDER_LINK_TOKEN_MAX, orderLinkGrant, orderLinkNoticeUrl, orderLinkOutcome, orderLinkSecret } from "@/modules/store/order-link";
 
 /**
  * The confirmation email's signed guest link (#1034): a valid token for an existing guest order becomes a cookie scoped
@@ -31,11 +31,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const token = parsed.success ? parsed.data.t : undefined;
   const page = parsed.success ? parsed.data.sayfa : undefined;
   const grant = orderLinkGrant({ orderId: id, token, page, siteUrl, secret: orderLinkSecret(), production: process.env.NODE_ENV === "production" });
-  if (grant.cookie && await guestOrderExists(id)) {
-    const response = see(grant.target);
-    response.cookies.set(grant.cookie.name, grant.cookie.value, grant.cookie.options);
-    return response;
-  }
-  if (await viewableOrder(id)) return see(grant.target);
-  return see(grant.status === "valid" ? orderLinkNoticeUrl("invalid", siteUrl) : grant.notice);
+  const guestOrder = grant.cookie ? await guestOrderExists(id) : false;
+  const viewable = grant.cookie && guestOrder ? false : Boolean(await viewableOrder(id));
+  const outcome = orderLinkOutcome(grant, { guestOrder, viewable, siteUrl });
+  const response = see(outcome.location);
+  if (outcome.cookie) response.cookies.set(outcome.cookie.name, outcome.cookie.value, outcome.cookie.options);
+  return response;
 }

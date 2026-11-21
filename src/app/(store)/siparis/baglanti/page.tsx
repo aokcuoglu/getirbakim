@@ -17,20 +17,20 @@ export const metadata: Metadata = { title: "Sipariş bağlantısı", robots: pri
 const eyebrow = "mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]";
 const panel = "rounded-2xl border border-border bg-white p-[25px] text-sm max-[600px]:p-5";
 const panelTitle = "text-[23px] leading-[34px] font-semibold";
-const contactLink = "font-medium underline underline-offset-2 wrap-anywhere";
+const contactLink = "inline-flex min-h-11 items-center font-medium underline underline-offset-2 wrap-anywhere";
 
 const copy = {
   expired: {
     title: "Bu bağlantının süresi doldu",
-    lead: `E-postandaki sipariş bağlantıları güvenlik nedeniyle gönderildikten sonra ${ORDER_LINK_DAYS} gün geçerlidir. Bu, siparişinde bir sorun olduğu anlamına gelmez.`,
+    lead: `E-postandaki sipariş bağlantıları güvenlik nedeniyle ${ORDER_LINK_DAYS} gün geçerlidir. Bu, siparişinde bir sorun olduğu anlamına gelmez.`,
   },
   invalid: {
     title: "Bu bağlantı açılamadı",
-    lead: "Bağlantı eksik kopyalanmış ya da artık geçerli olmayabilir. E-postandaki “Siparişini görüntüle” düğmesine yeniden tıklamayı ya da bağlantının tamamını kopyalamayı dene.",
+    lead: "Bağlantı eksik kopyalanmış ya da artık geçerli olmayabilir. E-postandaki “Siparişini görüntüle” düğmesine yeniden tıklamayı ya da bağlantının tamamını kopyalamayı dene. Yine açılmazsa aşağıdan yeni bağlantı isteyebilirsin.",
   },
 } as const;
 
-const mailto = `mailto:${contactEmail}?subject=${encodeURIComponent("Sipariş bağlantısı")}`;
+const mailto = `mailto:${contactEmail}?subject=${encodeURIComponent("Sipariş bağlantısı")}&body=${encodeURIComponent("Sipariş numaram: \nSiparişte kullandığım e-posta: ")}`;
 
 // Explains a signed guest link that did not open an order (#1148); the route sends only the status, never the order id or token.
 export default async function OrderLinkNotice({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -48,11 +48,11 @@ export default async function OrderLinkNotice({ searchParams }: { searchParams: 
         <div>
           <h3 className="font-semibold">Yeni bağlantı iste</h3>
           <p>Sipariş numaranı ve siparişte kullandığın e-posta adresini bize yaz; onay e-postanı yeni bir bağlantıyla yeniden gönderelim.</p>
-          <p><a href={mailto} className={contactLink}>{contactEmail}</a> · <a href={`tel:${contactPhone}`} className={cn(contactLink, "whitespace-nowrap")}>{aboutContact.phone}</a></p>
+          <p className="text-muted-foreground">{contactEmail} · {aboutContact.phone}</p>
         </div>
         <div>
           <h3 className="font-semibold">Siparişi verdiğin tarayıcıyı kullan</h3>
-          <p>Siparişi verdiğin telefon ya da bilgisayardaki tarayıcıda sipariş sayfan bağlantı olmadan da açılır.</p>
+          <p>Siparişi verdiğin telefon ya da bilgisayardaki tarayıcıda sipariş sayfan genellikle bağlantı olmadan da açılır; açılmazsa yeni bağlantı iste.</p>
         </div>
         <div>
           <h3 className="font-semibold">Servis hesabınla sipariş verdiysen</h3>
@@ -62,7 +62,7 @@ export default async function OrderLinkNotice({ searchParams }: { searchParams: 
     </Card>
     <div className="flex flex-wrap items-center gap-3 max-[600px]:flex-col max-[600px]:items-stretch">
       <Button nativeButton={false} className={cn(storeButton({ intent: "primary", size: "lg" }), "max-[600px]:w-full")} render={<a href={mailto}/>}>E-posta gönder</Button>
-      <Button nativeButton={false} className={cn(storeButton({ intent: "outline", size: "lg" }), "max-[600px]:w-full")} render={<Link href="/siparisler"/>}>Siparişlerim</Button>
+      <Button nativeButton={false} className={cn(storeButton({ intent: "outline", size: "lg" }), "max-[600px]:w-full")} render={<a href={`tel:${contactPhone}`}/>}>Bizi ara</Button>
       <Button nativeButton={false} className={cn(storeButton({ intent: "link", size: "lg" }), "max-[600px]:w-full")} render={<Link href={catalogPath}/>}>Alışverişe devam et</Button>
     </div>
   </section>;

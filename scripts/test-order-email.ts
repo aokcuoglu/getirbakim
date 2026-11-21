@@ -8,7 +8,7 @@ import { Pool, type PoolClient } from "pg";
 import type { MailMessage, MailResult } from "../src/lib/mail";
 import type { ConfirmationData, StatusOrder } from "../src/modules/store/order-email";
 import { canResendOrderEmail, orderEmailDue, orderEmailErrorLabel, orderEmailKinds, orderEmailNotDueLabel } from "../src/modules/store/order-email-state";
-import { ORDER_LINK_COOKIE, ORDER_LINK_DAYS, orderLinkGrant, orderLinkPath, orderLinkSecret, orderLinkSecretEnv, orderLinkStatus, orderLinkToken, signOrderLink, verifyOrderLink } from "../src/modules/store/order-link";
+import { ORDER_LINK_COOKIE, ORDER_LINK_DAYS, orderLinkGrant, orderLinkOutcome, orderLinkPath, orderLinkSecret, orderLinkSecretEnv, orderLinkStatus, orderLinkToken, signOrderLink, verifyOrderLink } from "../src/modules/store/order-link";
 
 // Order confirmation email (#951): content, mail settings, the .eml file transport and the outbox in a throwaway
 // schema (db/schema.sql + db/commerce.sql applied twice). No mail leaves the machine: sends are injected or written to a temp dir.
@@ -178,6 +178,24 @@ test("the erisim grant names the notice for an expired or invalid link without l
     assert.ok(grant.notice.endsWith(`durum=${durum}`), grant.notice);
     assert.ok(!grant.notice.includes(linkOrder) && !grant.notice.includes(token));
   }
+});
+
+test("the erisim outcome: cookie only for a granted guest order, viewable browsers pass, the rest get the notice", () => {
+  const exp = new Date(linkNow.getTime() + 3_600_000);
+  const token = signOrderLink(linkOrder, exp, linkSecret);
+  const siteUrl = "https://shop.example.invalid";
+  const base = { orderId: linkOrder, token, page: undefined, siteUrl, secret: linkSecret, now: linkNow, production: true } as const;
+  const target = `${siteUrl}/siparis/${linkOrder}`;
+  const notice = (durum: string) => `${siteUrl}/siparis/baglanti?durum=${durum}`;
+  const valid = orderLinkGrant(base);
+  const expired = orderLinkGrant({ ...base, now: exp });
+  const invalid = orderLinkGrant({ ...base, token: undefined });
+  assert.deepEqual(orderLinkOutcome(valid, { guestOrder: true, viewable: false, siteUrl }), { location: target, cookie: valid.cookie });
+  assert.deepEqual(orderLinkOutcome(valid, { guestOrder: false, viewable: false, siteUrl }), { location: notice("gecersiz"), cookie: null });
+  assert.deepEqual(orderLinkOutcome(valid, { guestOrder: false, viewable: true, siteUrl }), { location: target, cookie: null });
+  assert.deepEqual(orderLinkOutcome(invalid, { guestOrder: false, viewable: true, siteUrl }), { location: target, cookie: null });
+  assert.deepEqual(orderLinkOutcome(expired, { guestOrder: true, viewable: false, siteUrl }), { location: notice("suresi-doldu"), cookie: null });
+  assert.deepEqual(orderLinkOutcome(invalid, { guestOrder: true, viewable: false, siteUrl }), { location: notice("gecersiz"), cookie: null });
 });
 
 test("the erisim route checks the guest order before the cookie, never sets one otherwise, and the notice page reads no order", async () => {
