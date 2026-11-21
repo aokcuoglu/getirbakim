@@ -11,6 +11,8 @@ import type { Pool } from "pg";
  * from the same product's other-supplier offers whose value fits them in another currency (offerOutlier). #1142 reopens
  * a dismissed anomaly when the supplier's value moves REOPEN_FACTOR times from the one the admin dismissed. #1153 re-checks
  * the rows whose value a Başbuğ price/stock run changed (refreshPriceAnomaliesAfterImports), not only after full lists.
+ * #1172 re-checks the rows whose value the order-time MalzemeAra refresh wrote (refreshPriceAnomaliesAfterCheckout),
+ * before the same order opens its transaction.
  */
 export const priceAnomalyThresholds = {
   /** A brand needs this many priced rows before its median means anything. */
@@ -350,6 +352,11 @@ export async function setPriceAnomalyStatus(connection: Pick<Pool, "query">, id:
 
 /** How long a refresh waits for another one holding the lock (#1153). */
 const LOCK_TIMEOUT_MS = 5_000;
+/**
+ * How long the order-time re-check waits (#1172): it runs inside a customer's order request, so it gives up sooner and
+ * the order continues; the next price/stock run re-checks the row.
+ */
+const CHECKOUT_LOCK_TIMEOUT_MS = 2_000;
 
 // The latest successful import's rates per company, and whether an anomaly row `a` cannot be judged with them: its
 // own currency or its relabel/dominant currency has no rate (an offer-outlier's relabel currency drops out of the scan
@@ -380,7 +387,8 @@ const unjudgeableSql = `EXISTS(
  * otherwise a row the run could not judge (no rate for its own or its relabel currency, or skipped as unrated) is kept.
  * `itemIds` (#1153): judge, reopen and delete only these rows; others keep their state until a full refresh. Another
  * refresh running: waits up to `lockTimeoutMs` for it (a refresh takes under 2 s, and skipping would drop a scoped
- * run's rows or a panel's full refresh), then `{ skipped: true }`.
+ * run's rows or a panel's full refresh), then `{ skipped: true }`. The order-time re-check (#1172) scopes it to the rows
+ * the order's MalzemeAra refresh repriced and waits less (refreshPriceAnomaliesAfterCheckout).
  */
 export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySupplier, itemIds?: string[],
   { lockTimeoutMs = LOCK_TIMEOUT_MS }: { lockTimeoutMs?: number } = {}) {
@@ -482,6 +490,25 @@ export async function refreshPriceAnomaliesAfterImports(pool: Pool, supplier: Pr
   [importIds, supplier])).rows.map(row => row.id);
   if (!ids.length) return { changed: 0 };
   return { changed: ids.length, ...await refreshPriceAnomalies(pool, supplier, ids.length > maxScopedRows ? undefined : ids, { lockTimeoutMs }) };
+}
+
+/**
+ * After the order-time MalzemeAra refresh wrote a different nf (#1172): re-checks only those rows, after the refresh
+ * committed and before the order opens its transaction, so a reopened anomaly unprices the row (commerce_catalog) and
+ * the same order refuses the line. Never throws: a skipped run (lock held longer than `lockTimeoutMs`) or a failure is
+ * logged and the order continues; the next price/stock run re-checks the row.
+ */
+export async function refreshPriceAnomaliesAfterCheckout(pool: Pool, supplier: PriceAnomalySupplier, itemIds: string[],
+  { lockTimeoutMs = CHECKOUT_LOCK_TIMEOUT_MS }: { lockTimeoutMs?: number } = {}) {
+  if (!itemIds.length) return { changed: 0 };
+  try {
+    const result = await refreshPriceAnomalies(pool, supplier, itemIds, { lockTimeoutMs });
+    if (result.skipped) console.error({ priceAnomalies: "skipped", source: "checkout", rows: itemIds.length });
+    return { changed: itemIds.length, ...result };
+  } catch (error) {
+    console.error({ priceAnomalies: "failed", source: "checkout", code: (error as { code?: string }).code });
+    return { changed: itemIds.length, failed: true as const };
+  }
 }
 
 /** After a manual Başbuğ list refresh in the panel (#1030): a failure is logged and keeps the previous list. */
