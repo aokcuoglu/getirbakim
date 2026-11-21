@@ -7,7 +7,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { isClockSkewError, sendWithSkewRetry } from "./storefront-media-read";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
-import { checkPartUpload, expectedPartObjects, parsePartListing, parseRootListing, strayEntries, uploadFailure, uploadParts, type UploadIo } from "./storefront-upload";
+import {
+  checkPartUpload, expectedPartObjects, KEEP_RUNS, parsePartListing, parsePrefixMode, parseRootListing, runDirName, staleRunEntries, strayEntries, SYNC_BASE_PREFIX,
+  uploadFailure, uploadParts, withS3Concurrency, type UploadIo,
+} from "./storefront-upload";
 import {
   acquireLock, buildInboundReport, checkInboundReport, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
   sinceFrom, STATE_PATH, summarizeParts, tombstoneWarnings,
@@ -258,6 +261,103 @@ test("a stale part of an earlier run is removed before the upload; a stray root 
     await assert.rejects(uploadParts({ partsDir, parts: PARTS, io: rooted.io, log: () => {} }), /Unexpected objects directly under the run prefix: manifest\.json/);
     assert.deepEqual(rooted.synced, []);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("the prefix mode is current unless run is asked for; a mistyped value is an error", () => {
+  assert.equal(parsePrefixMode(undefined), "current");
+  assert.equal(parsePrefixMode(""), "current");
+  assert.equal(parsePrefixMode("current"), "current");
+  assert.equal(parsePrefixMode("run"), "run");
+  for (const value of ["runs", "RUN", "1", "true"]) assert.throws(() => parsePrefixMode(value), /must be current or run/, value);
+});
+
+test("a run directory is named after the snapshot and sorts in time order", () => {
+  assert.equal(runDirName("2026-11-21T08:52:01.308Z"), "run-20261121T085201308Z");
+  assert.equal(runDirName("2026-11-21T11:52:01+03:00"), "run-20261121T085201000Z");
+  assert.ok(runDirName("2026-11-21T08:52:01.308Z") < runDirName("2026-11-21T10:00:00.000Z"));
+  assert.ok(runDirName("2026-11-09T23:59:59.999Z") < runDirName("2026-11-10T00:00:00.000Z"));
+  assert.throws(() => runDirName("nonsense"), /Invalid snapshotAt/);
+});
+
+test("cleanup removes the fixed-layout parts and runs older than the newest kept; never the current run or a newer one", () => {
+  const current = "run-20261121T085201308Z";
+  const listed = ["part-00/", "part-01/", "part-12/", "run-20261119T013000000Z/", "run-20261120T013005410Z/", "run-20261121T014213907Z/",
+    `${current}/`, "run-20261122T000000000Z/", "notes/", "run-latest/"];
+  assert.equal(KEEP_RUNS, 2);
+  assert.deepEqual(staleRunEntries(listed, current), ["part-00/", "part-01/", "part-12/", "run-20261120T013005410Z/", "run-20261119T013000000Z/"]);
+  assert.deepEqual(staleRunEntries(listed, current, 1), ["part-00/", "part-01/", "part-12/", "run-20261121T014213907Z/", "run-20261120T013005410Z/", "run-20261119T013000000Z/"]);
+  assert.deepEqual(staleRunEntries(listed, current, 10), ["part-00/", "part-01/", "part-12/"]);
+  assert.deepEqual(staleRunEntries([`${current}/`], current), []);
+  for (const keep of [0, -1, 1.5]) assert.throws(() => staleRunEntries(listed, current, keep), /keep must be a positive integer/);
+  assert.throws(() => staleRunEntries(listed, "part-01"), /Not a run directory/);
+});
+
+// Keys are full bucket keys; the io works on one run prefix like the AWS target does.
+function prefixedBucket(partsDir: string, objects: Map<string, number>, prefix: string): UploadIo {
+  const under = (base: string) => [...objects].filter(([key]) => key.startsWith(base)).map(([key, size]) => ({ key: key.slice(base.length), size }));
+  return {
+    syncPart: async part => {
+      for (const object of await expectedPartObjects(join(partsDir, part))) objects.set(`${prefix}/${part}/${object.key}`, object.size);
+    },
+    listPart: part => under(`${prefix}/${part}/`),
+    listRoot: () => {
+      const entries = under(`${prefix}/`).map(object => object.key);
+      return { keys: entries.filter(key => !key.includes("/")), prefixes: [...new Set(entries.filter(key => key.includes("/")).map(key => `${key.split("/")[0]}/`))] };
+    },
+    removePrefix: path => { for (const key of [...objects.keys()].filter(name => name.startsWith(`${prefix}/${path}`))) objects.delete(key); },
+  };
+}
+
+test("a run prefix ignores leftovers of the fixed layout and older runs, and cleanup then removes them", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-run-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    // The 2026-11-21 incident layout: part-01 of an earlier run with other media and no manifest.
+    const objects = new Map<string, number>([
+      [`${SYNC_BASE_PREFIX}/part-01/media/p/old.jpg`, 3], [`${SYNC_BASE_PREFIX}/part-01/media/p/a.jpg`, 1],
+      [`${SYNC_BASE_PREFIX}/run-20261120T013005410Z/part-01/manifest.json`, 9], [`${SYNC_BASE_PREFIX}/run-20261119T013000000Z/part-00/manifest.json`, 9],
+    ]);
+    const run = runDirName("2026-11-21T08:52:01.308Z");
+    const stats = await uploadParts({ partsDir, parts: PARTS, io: prefixedBucket(partsDir, objects, `${SYNC_BASE_PREFIX}/${run}`), log: () => {} });
+    assert.deepEqual(stats.map(entry => entry.attempts), [1, 1, 1]);
+    // The upload left everything outside its own prefix alone.
+    assert.equal(objects.get(`${SYNC_BASE_PREFIX}/part-01/media/p/old.jpg`), 3);
+
+    const base = prefixedBucket(partsDir, objects, SYNC_BASE_PREFIX);
+    const stale = staleRunEntries((await base.listRoot()).prefixes, run);
+    assert.deepEqual(stale, ["part-01/", "run-20261119T013000000Z/"]);
+    for (const entry of stale) await base.removePrefix(entry);
+    assert.deepEqual([...new Set([...objects.keys()].map(key => key.split("/").slice(0, 3).join("/")))].sort(),
+      [`${SYNC_BASE_PREFIX}/run-20261120T013005410Z`, `${SYNC_BASE_PREFIX}/${run}`]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a run prefix with a part missing its manifest or with a mis-sized file fails before the import", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-run-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const prefix = `${SYNC_BASE_PREFIX}/${runDirName("2026-11-21T08:52:01.308Z")}`;
+    for (const [damage, pattern] of [
+      [(objects: Map<string, number>) => objects.delete(`${prefix}/part-01/manifest.json`), /part-01 is incomplete: 1 missing \(manifest\.json\)/],
+      [(objects: Map<string, number>) => objects.set(`${prefix}/part-01/media/p/a.jpg`, 59), /part-01 is incomplete: 1 size mismatch \(media\/p\/a\.jpg\)/],
+    ] as const) {
+      const objects = new Map<string, number>();
+      const io = prefixedBucket(partsDir, objects, prefix);
+      const sync = io.syncPart;
+      io.syncPart = async part => { await sync(part); if (part === "part-01") damage(objects); };
+      await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {} }), pattern);
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("the S3 concurrency goes into the profile's s3 block of a config copy; other profiles and s3 settings stay", () => {
+  const config = ["[default]", "region = eu-west-1", "", "[profile sync]", "role_arn = arn:x", "source_profile = base", "", "[profile base]", "region = eu-central-1", ""].join("\n");
+  assert.equal(withS3Concurrency(config, "sync", 32),
+    ["[default]", "region = eu-west-1", "", "[profile sync]", "s3 =", "  max_concurrent_requests = 32", "role_arn = arn:x", "source_profile = base", "", "[profile base]", "region = eu-central-1", ""].join("\n"));
+  const nested = ["[profile sync]", "s3 =", "  max_concurrent_requests = 4", "  multipart_threshold = 64MB", "region = eu-central-1"].join("\n");
+  assert.equal(withS3Concurrency(nested, "sync", 20),
+    ["[profile sync]", "s3 =", "  max_concurrent_requests = 20", "  multipart_threshold = 64MB", "region = eu-central-1"].join("\n"));
+  assert.throws(() => withS3Concurrency(config, "missing", 8), /\[profile missing\] is not in the AWS config/);
 });
 
 const item = (n: number) => ({ id: `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`, supplier: "basbug", company: "C", list_group: "L", warehouse: "MRK", code: `C${n}` });

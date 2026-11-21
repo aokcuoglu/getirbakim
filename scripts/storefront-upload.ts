@@ -94,7 +94,8 @@ export async function uploadParts({ partsDir, parts, io, log, now = Date.now }: 
     let attempts = 0;
     let check: PartCheck;
     // Only a silent drop (sync exits 0 but the listing is short) is retried; a non-zero `s3 sync` exit throws and fails
-    // the run, which is safe. Verification is key + size only: a stale object of the same size passes (#1137 fixes that).
+    // the run, which is safe. Verification is key + size only: in the fixed `current` layout a stale object of the same size
+    // passes; a run prefix (STOREFRONT_SYNC_PREFIX_MODE=run, #1137) starts empty, so nothing stale is there to pass.
     do {
       attempts += 1;
       await io.syncPart(part);
@@ -111,4 +112,73 @@ export async function uploadParts({ partsDir, parts, io, log, now = Date.now }: 
   const stray = strayEntries(parts, after.prefixes, after.keys);
   if (stray.length) throw new Error(`Unexpected entries under the run prefix after the upload: ${stray.slice(0, SHOWN_KEYS).join(", ")}; the import was not started; the watermark stays`);
   return stats;
+}
+
+// Run prefixes (#1137): with STOREFRONT_SYNC_PREFIX_MODE=run every run uploads to its own
+// `storefront/current/run-<snapshotAt>/` and the import task is pointed at it, so objects of an earlier run can never be
+// imported. The import script takes the prefix as an argument, so every deployed operations image handles it. Run
+// prefixes stay under `storefront/current/` because the sync role may list/put/delete only there; the import report then
+// lands at `internal/storefront-sync/storefront/current/run-…/report.json`, which the role can read only after the
+// infra change widening `ReadImportReport` (docs/product-enrichment.md). Until then the default stays `current`.
+
+/** Where the parts of every run live, and the only prefix the sync role may write to. */
+export const SYNC_BASE_PREFIX = "storefront/current";
+/** Run prefixes kept after a successful import, the current one included. */
+export const KEEP_RUNS = 2;
+const RUN_DIR = /^run-\d{8}T\d{9}Z\/$/;
+const LEGACY_PART_DIR = /^part-\d+\/$/;
+
+export type PrefixMode = "current" | "run";
+
+/** STOREFRONT_SYNC_PREFIX_MODE: unset or `current` (one fixed prefix), `run` (a prefix per run); anything else is an error. */
+export function parsePrefixMode(value: string | undefined): PrefixMode {
+  if (value === undefined || value === "" || value === "current") return "current";
+  if (value === "run") return "run";
+  throw new Error(`STOREFRONT_SYNC_PREFIX_MODE must be current or run: ${value}`);
+}
+
+/** `run-20261121T085201308Z` for snapshotAt 2026-11-21T08:52:01.308Z; sorts in time order. */
+export function runDirName(snapshotAt: string) {
+  const at = new Date(snapshotAt);
+  if (Number.isNaN(at.getTime())) throw new Error(`Invalid snapshotAt for a run prefix: ${snapshotAt}`);
+  return `run-${at.toISOString().replace(/[-:.]/g, "")}`;
+}
+
+/**
+ * Entries directly under SYNC_BASE_PREFIX (`part-01/`, `run-…/`) to remove after the import of `current` succeeded: parts
+ * of the fixed-prefix layout and older runs beyond the newest `keep - 1`. The current run, runs newer than it and
+ * anything that is neither a part nor a run directory are never returned.
+ */
+export function staleRunEntries(listedPrefixes: string[], current: string, keep = KEEP_RUNS): string[] {
+  const own = `${current}/`;
+  if (!RUN_DIR.test(own)) throw new Error(`Not a run directory: ${current}`);
+  if (!Number.isInteger(keep) || keep < 1) throw new Error(`keep must be a positive integer: ${keep}`);
+  const older = listedPrefixes.filter(entry => RUN_DIR.test(entry) && entry < own).sort().reverse();
+  return [...listedPrefixes.filter(entry => LEGACY_PART_DIR.test(entry)), ...older.slice(keep - 1)];
+}
+
+/**
+ * The AWS config with `max_concurrent_requests` set in the `s3` block of `profile` (STOREFRONT_SYNC_S3_CONCURRENCY): the sync
+ * writes it to a temporary file and points only its own `aws s3` calls at it (AWS_CONFIG_FILE), ~/.aws/config is untouched.
+ * Other settings of an existing `s3` block are kept.
+ */
+export function withS3Concurrency(config: string, profile: string, concurrency: number) {
+  const lines = config.split("\n");
+  const header = lines.findIndex(line => line.trim() === `[profile ${profile}]`);
+  if (header < 0) throw new Error(`[profile ${profile}] is not in the AWS config`);
+  const next = lines.findIndex((line, index) => index > header && /^\s*\[/.test(line));
+  const end = next < 0 ? lines.length : next;
+  const section: string[] = [];
+  let s3Line = -1;
+  let inS3 = false;
+  for (const line of lines.slice(header + 1, end)) {
+    if (/^s3\s*=\s*$/.test(line)) { inS3 = true; s3Line = section.length; section.push(line); continue; }
+    if (inS3 && /^\s+\S/.test(line)) { if (!/^\s+max_concurrent_requests\s*=/.test(line)) section.push(line); continue; }
+    inS3 = false;
+    section.push(line);
+  }
+  const setting = `  max_concurrent_requests = ${concurrency}`;
+  if (s3Line < 0) section.unshift("s3 =", setting);
+  else section.splice(s3Line + 1, 0, setting);
+  return [...lines.slice(0, header + 1), ...section, ...lines.slice(end)].join("\n");
 }
