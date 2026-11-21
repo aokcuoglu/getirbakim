@@ -21,17 +21,17 @@ export function resolve(from: string, specifier: string) {
   return [`${base}.ts`, `${base}.tsx`, path.join(base, "index.ts"), path.join(base, "index.tsx"), base].find(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
 }
 
-/** Static value imports and re-exports (`import … from "x"`, `export … from "x"`); `import type` is skipped. */
+/** Static value imports and re-exports (`import … from "x"`, `export … from 'x'`, either quote); `import type` is skipped. */
 export function imports(text: string) {
-  return [...text.matchAll(/^(?:import|export)\s+(?!type\b)[^;]*?from\s+"([^"]+)"/gm)].map(match => match[1]);
+  return [...text.matchAll(/^(?:import|export)\s+(?!type\b)[^;]*?from\s+["']([^"']+)["']/gm)].map(match => match[1]);
 }
 
 /** Every specifier a module loads at runtime: static imports, side-effect `import "x"` and `import("x")`. */
 export function allImports(text: string) {
   return [
     ...imports(text),
-    ...[...text.matchAll(/^import\s+"([^"]+)"/gm)].map(match => match[1]),
-    ...[...text.matchAll(/\bimport\(\s*"([^"]+)"\s*\)/g)].map(match => match[1]),
+    ...[...text.matchAll(/^import\s+["']([^"']+)["']/gm)].map(match => match[1]),
+    ...[...text.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)].map(match => match[1]),
   ];
 }
 

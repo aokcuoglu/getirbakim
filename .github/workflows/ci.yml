@@ -110,6 +110,8 @@ jobs:
         env:
           APP_ENV: staging
           SITE_URL: http://localhost:3103
+      # The workspace stylesheet stays off storefront routes and loads after the storefront sheet (#1027).
+      - run: npm run harness:css-chunks
       - name: Remove Postgres
         # Also after a failure or a cancel; the container is --rm, so stopping it removes it.
         if: always()

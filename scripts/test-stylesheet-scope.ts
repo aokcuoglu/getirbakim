@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { adminSentinel, compileCss } from "./harness/measure-css.mjs";
-import { chain, reach, sourceFiles } from "./test-helpers/import-graph";
+import { allImports, chain, reach, sourceFiles } from "./test-helpers/import-graph";
 
 // The storefront stylesheet (globals.css) scans only storefront sources; the /yonetim workspace adds admin.css, a full
 // scan that is a superset of the storefront utilities (#1027). These checks keep the two in step with the import graph.
@@ -37,11 +37,31 @@ test("every ui file the storefront does not use is left out of its scan", () => 
   assert.deepEqual(missing, [], "add it to @source not in globals.css");
 });
 
-test("modules, lib and hooks hold no class names (globals.css does not scan them)", () => {
-  const found = ["src/modules", "src/lib", "src/hooks"]
-    .flatMap(dir => sourceFiles(dir))
-    .filter(file => /\bclassName\b|(?<!function )\bcn\(/.test(fs.readFileSync(file, "utf8")));
+// Everything under src that globals.css does not scan, so a new top-level src/<dir> is covered too.
+const unscanned = fs
+  .readdirSync("src", { withFileTypes: true })
+  .filter(entry => !(entry.isDirectory() && ["app", "components", "content"].includes(entry.name)))
+  .flatMap(entry => {
+    const full = path.join("src", entry.name);
+    return entry.isDirectory() ? sourceFiles(full) : /\.tsx?$/.test(entry.name) ? [full] : [];
+  });
+
+test("files outside app, components and content hold no class names (globals.css does not scan them)", () => {
+  assert.ok(unscanned.some(file => file.startsWith("src/lib/")), "src/lib is checked");
+  const found = unscanned.filter(file => /\bclassName\b|(?<!function )\bcn\(/.test(fs.readFileSync(file, "utf8")));
   assert.deepEqual(found, [], "move the markup to src/components or add the folder to the @source list in globals.css");
+});
+
+test("the import graph reads single- and double-quoted specifiers", () => {
+  const fixture = [
+    "import { a } from 'single';",
+    'import b from "double";',
+    "export { c } from './re-export';",
+    "import type { D } from 'types-only';",
+    "import './side-effect.css';",
+    "const lazy = () => import('./lazy');",
+  ].join("\n");
+  assert.deepEqual(allImports(fixture).sort(), ["./lazy", "./re-export", "./side-effect.css", "double", "single"]);
 });
 
 /** The class names used in the selectors of `css` (minified output). */

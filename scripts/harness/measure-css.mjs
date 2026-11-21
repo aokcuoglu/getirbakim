@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import tailwind from "@tailwindcss/postcss";
 import postcss from "postcss";
+import { adminSentinel } from "./css-chunks.mjs";
 
 /** Compiles one stylesheet with the project's Tailwind plugin; `minify: false` keeps it readable for assertions. */
 export async function compileCss(file, { minify = true } = {}) {
@@ -20,8 +21,7 @@ export async function compileCss(file, { minify = true } = {}) {
 
 export const gzipSize = (text) => gzipSync(text, { level: 9 }).length;
 
-/** Selector that only the /yonetim sidebar emits; a storefront chunk must not contain it. */
-export const adminSentinel = "collapsible=icon";
+export { adminSentinel };
 
 const kb = (bytes) => (bytes / 1024).toFixed(1);
 

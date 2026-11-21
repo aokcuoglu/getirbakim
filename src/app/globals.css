@@ -1,5 +1,5 @@
 @import "tailwindcss" source(none);
-/* Storefront sources only (#1027). New folders are scanned by default; admin-only files are excluded. */
+/* Storefront sources only (#1027). New folders under app/ and components/ are scanned by default; admin-only files are excluded. */
 @source "./";
 @source not "./yonetim";
 @source "../components";

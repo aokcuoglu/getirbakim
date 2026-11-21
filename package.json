@@ -12,6 +12,7 @@
     "harness:cls": "node scripts/harness/measure-cls.mjs",
     "harness:html": "node scripts/harness/measure-html.mjs",
     "harness:css": "node scripts/harness/measure-css.mjs",
+    "harness:css-chunks": "node scripts/harness/css-chunks.mjs",
     "harness:test": "node --test scripts/harness/*.test.mjs scripts/flow/*.test.mjs",
     "db:setup": "node scripts/flow/db-setup-guard.mjs && node --env-file=.env.local --import tsx scripts/setup.ts",
     "db:demo": "node --env-file=.env.local --import tsx scripts/demo.ts",
