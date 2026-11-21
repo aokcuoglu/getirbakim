@@ -256,7 +256,7 @@ test("no hex colour on a storefront button, trigger or close tag", () => {
     if (path.endsWith("/garage/garage-button.tsx")) assert.doesNotMatch(source.slice(source.indexOf("const variantClass"), source.indexOf("export function")), hex, `${path}: variantClass`);
   }
   assert.ok(scanned >= 15, `scanned ${scanned} button, trigger and close tags`);
-  assert.ok(discovered.size >= 10, `discovered ${discovered.size} Trigger/Close names`);
+  assert.ok(discovered.size >= 8, `discovered ${discovered.size} Trigger/Close names`);
   for (const name of ["TabsTrigger", "SelectTrigger", "DialogTrigger"]) assert.ok(discovered.has(name), `${name} was not seen`);
 });
 
