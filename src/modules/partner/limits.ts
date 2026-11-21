@@ -121,12 +121,14 @@ export type InvoiceOutcome = { status: "invoiced"; count: number; totalKurus: nu
 /**
  * Marks the partner's delivered, uninvoiced orders delivered on or before `deliveredUntil` (Istanbul day) as invoiced
  * with one invoice number and date. Idempotent: invoiced orders are never touched again, so a repeated submit finds
- * nothing to mark. Other partners' and store orders are out of reach.
+ * nothing to mark. Other partners' and store orders are out of reach. Runs under the partner's order lock (taken before
+ * the row locks, like everywhere else) so a correction or undo of the same invoice runs wholly before or after it.
  */
 export async function invoicePartnerOrders(request: InvoiceRequest): Promise<InvoiceOutcome> {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
+    await lockPartnerOrders(client, request.partner);
     const { rows } = await client.query<{ id: string; total_kurus: string }>(
       `SELECT o.id::text,o.total_kurus::text FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND ${uninvoicedSql}
        AND ${deliveredDaySql}<=$2::date ORDER BY o.id FOR UPDATE`, [request.partner, request.deliveredUntil]);
@@ -210,9 +212,11 @@ export async function changePartnerInvoice(request: InvoiceChangeRequest): Promi
     if (rows.length !== request.expected.count || totalKurus !== request.expected.totalKurus) { await client.query("ROLLBACK"); return { status: "changed" }; }
     const correct = request.action === "correct" ? request : null;
     if (correct && correct.newInvoiceRef === request.invoiceRef && correct.newInvoiceDate === request.invoiceDate) { await client.query("ROLLBACK"); return { status: "same" }; }
-    // Another invoice of the partner with the new number and day would silently absorb these orders.
-    if (correct && (await client.query(`SELECT 1 FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND o.partner_invoice_ref=$2
-      AND o.partner_invoiced_at IS NOT NULL AND ${invoicedDaySql}=$3::date LIMIT 1`, [request.partner, correct.newInvoiceRef, correct.newInvoiceDate])).rowCount) {
+    // Another invoice of the partner with the new number and day would silently absorb these orders; active payments
+    // already under that key (entered outside this flow) would be absorbed the same way (#1006).
+    if (correct && ((await client.query(`SELECT 1 FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND o.partner_invoice_ref=$2
+      AND o.partner_invoiced_at IS NOT NULL AND ${invoicedDaySql}=$3::date LIMIT 1`, [request.partner, correct.newInvoiceRef, correct.newInvoiceDate])).rowCount
+      || await activeCollectedKurus(client, request.partner, correct.newInvoiceRef, correct.newInvoiceDate) > 0)) {
       await client.query("ROLLBACK"); return { status: "merge" };
     }
     // An undo would leave the invoice's payments without an invoice: the payments are voided first (#1006).
@@ -230,10 +234,6 @@ export async function changePartnerInvoice(request: InvoiceChangeRequest): Promi
       // The payments (voided ones too, for their history) follow the invoice to its new number and day (#1006).
       await client.query(`UPDATE partner_invoice_payments SET invoice_ref=$4,invoice_day=$5::date
         WHERE partner_code=$1 AND invoice_ref=$2 AND invoice_day=$3::date`, [request.partner, request.invoiceRef, request.invoiceDate, correct.newInvoiceRef, correct.newInvoiceDate]);
-      // Active payments already waiting under the new key (entered outside this flow) must not push it over its total.
-      if (await activeCollectedKurus(client, request.partner, correct.newInvoiceRef, correct.newInvoiceDate) > totalKurus) {
-        await client.query("ROLLBACK"); return { status: "merge" };
-      }
     } else await client.query("UPDATE commerce_orders SET partner_invoiced_at=NULL,partner_invoice_ref=NULL,partner_invoiced_by=NULL WHERE id=ANY($1::uuid[])", [ids]);
     await client.query("COMMIT");
     return { status: correct ? "corrected" : "undone", count: rows.length, totalKurus };

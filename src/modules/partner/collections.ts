@@ -83,7 +83,7 @@ export async function voidInvoicePayment(request: PaymentVoidRequest): Promise<P
 }
 
 export type LedgerInvoice = {
-  partner: string; invoiceRef: string; invoiceDate: string; count: number; totalKurus: number; collectedKurus: number; markedBy: string | null;
+  partner: string; invoiceRef: string; invoiceDate: string; count: number; totalKurus: number; collectedKurus: number;
 };
 
 /**
@@ -92,11 +92,10 @@ export type LedgerInvoice = {
  */
 export async function partnerInvoiceLedger(partners: string[], connection: Connection = db): Promise<LedgerInvoice[]> {
   const { rows } = await connection.query<{ partner: string; invoice_ref: string; invoice_date: string; count: number; total_kurus: string;
-    collected_kurus: string; marked_by: string | null }>(
+    collected_kurus: string }>(
     `WITH invoices AS (
-      SELECT o.owner_id AS partner,o.partner_invoice_ref AS invoice_ref,${invoicedDaySql} AS invoice_day,count(*)::int AS count,sum(o.total_kurus) AS total_kurus,
-       string_agg(DISTINCT COALESCE(NULLIF(a.name,''),a.email),', ') AS marked_by
-      FROM commerce_orders o LEFT JOIN accounts a ON a.id=o.partner_invoiced_by
+      SELECT o.owner_id AS partner,o.partner_invoice_ref AS invoice_ref,${invoicedDaySql} AS invoice_day,count(*)::int AS count,sum(o.total_kurus) AS total_kurus
+      FROM commerce_orders o
       WHERE o.owner_kind='partner' AND o.owner_id=ANY($1::text[]) AND o.partner_invoiced_at IS NOT NULL AND o.partner_invoice_ref IS NOT NULL
       GROUP BY 1,2,3),
      paid AS (
@@ -106,10 +105,10 @@ export async function partnerInvoiceLedger(partners: string[], connection: Conne
       SELECT i.*,COALESCE(p.kurus,0) AS collected_kurus,
        row_number() OVER (PARTITION BY i.total_kurus>COALESCE(p.kurus,0) ORDER BY i.invoice_day DESC,i.invoice_ref) AS position
       FROM invoices i LEFT JOIN paid p ON p.partner_code=i.partner AND p.invoice_ref=i.invoice_ref AND p.invoice_day=i.invoice_day)
-     SELECT partner,invoice_ref,to_char(invoice_day,'YYYY-MM-DD') AS invoice_date,count,total_kurus::text,collected_kurus::text,marked_by
+     SELECT partner,invoice_ref,to_char(invoice_day,'YYYY-MM-DD') AS invoice_date,count,total_kurus::text,collected_kurus::text
      FROM ledger WHERE total_kurus>collected_kurus OR position<=100 ORDER BY invoice_day DESC,invoice_ref`, [partners]);
   return rows.map(row => ({ partner: row.partner, invoiceRef: row.invoice_ref, invoiceDate: row.invoice_date, count: row.count, totalKurus: Number(row.total_kurus),
-    collectedKurus: Number(row.collected_kurus), markedBy: row.marked_by }));
+    collectedKurus: Number(row.collected_kurus) }));
 }
 
 export type InvoicePayment = {
@@ -117,15 +116,22 @@ export type InvoicePayment = {
   recordedBy: string | null; recordedAt: Date; voidedAt: Date | null; voidedBy: string | null; voidReason: string | null;
 };
 
-/** The last 50 payments, voided ones included, newest first, with who recorded and who voided them. */
+/**
+ * Every active payment (each must stay voidable: a void is the only way to fix one, and an undo waits for it) plus the
+ * last 50 voided ones, newest first, with who recorded and who voided them.
+ */
 export async function recentInvoicePayments(partners: string[], connection: Connection = db): Promise<InvoicePayment[]> {
   const { rows } = await connection.query<{ id: string; partner: string; invoice_ref: string; invoice_date: string; amount_kurus: string; paid_on: string;
     method: PaymentMethod; note: string; recorded_by: string | null; recorded_at: Date; voided_at: Date | null; voided_by: string | null; void_reason: string | null }>(
-    `SELECT p.id::text,p.partner_code AS partner,p.invoice_ref,to_char(p.invoice_day,'YYYY-MM-DD') AS invoice_date,p.amount_kurus::text,
+    `WITH listed AS (
+      SELECT * FROM partner_invoice_payments WHERE partner_code=ANY($1::text[]) AND voided_at IS NULL
+      UNION ALL
+      (SELECT * FROM partner_invoice_payments WHERE partner_code=ANY($1::text[]) AND voided_at IS NOT NULL ORDER BY recorded_at DESC,id DESC LIMIT 50))
+     SELECT p.id::text,p.partner_code AS partner,p.invoice_ref,to_char(p.invoice_day,'YYYY-MM-DD') AS invoice_date,p.amount_kurus::text,
       to_char(p.paid_on,'YYYY-MM-DD') AS paid_on,p.method,p.note,COALESCE(NULLIF(r.name,''),r.email) AS recorded_by,p.recorded_at,p.voided_at,
       COALESCE(NULLIF(v.name,''),v.email) AS voided_by,p.void_reason
-     FROM partner_invoice_payments p LEFT JOIN accounts r ON r.id=p.recorded_by LEFT JOIN accounts v ON v.id=p.voided_by
-     WHERE p.partner_code=ANY($1::text[]) ORDER BY p.recorded_at DESC,p.id DESC LIMIT 50`, [partners]);
+     FROM listed p LEFT JOIN accounts r ON r.id=p.recorded_by LEFT JOIN accounts v ON v.id=p.voided_by
+     ORDER BY p.recorded_at DESC,p.id DESC`, [partners]);
   return rows.map(row => ({ id: row.id, partner: row.partner, invoiceRef: row.invoice_ref, invoiceDate: row.invoice_date, amountKurus: Number(row.amount_kurus),
     paidOn: row.paid_on, method: row.method, note: row.note, recordedBy: row.recorded_by, recordedAt: row.recorded_at, voidedAt: row.voided_at,
     voidedBy: row.voided_by, voidReason: row.void_reason }));

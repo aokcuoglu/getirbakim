@@ -22,8 +22,8 @@ type Props = { paymentId: string; partner: string; invoiceRef: string; amountKur
 export function PartnerPaymentVoidDialog(props: Props) {
   const [open, setOpen] = useState(false);
   return <Dialog open={open} onOpenChange={setOpen}>
-    <DialogTrigger render={<Button variant="outline" size="sm" aria-label={`${props.partner} ${props.invoiceRef} tahsilatını iptal et`}/>}>
-      <CircleX data-icon="inline-start" aria-hidden="true"/>İptal et
+    <DialogTrigger render={<Button variant="outline" size="sm" aria-label={`Tahsilatı iptal et: ${props.partner} ${props.invoiceRef} ${money(props.amountKurus)}`}/>}>
+      <CircleX data-icon="inline-start" aria-hidden="true"/>Tahsilatı iptal et
     </DialogTrigger>
     <DialogContent className="sm:max-w-lg">
       <DialogHeader>

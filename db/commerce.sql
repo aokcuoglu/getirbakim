@@ -881,7 +881,8 @@ DO $$ BEGIN
   ALTER TABLE partner_settings ADD COLUMN discount_bps integer CHECK(discount_bps BETWEEN 0 AND 9000);
  END IF;
  -- The partner's payment term in days (#1006): an invoice is due on its invoice day + this term. NULL = no term, so the
- -- partner's invoices are never overdue. Informational only; it does not change the open-order limit.
+ -- partner's invoices are never overdue. Informational only; it does not change the open-order limit. The first deploy
+ -- that adds it takes ACCESS EXCLUSIVE on partner_settings (a few rows) once; later runs take no lock.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='payment_term_days' AND NOT attisdropped) THEN
   ALTER TABLE partner_settings ADD COLUMN payment_term_days integer CHECK(payment_term_days BETWEEN 0 AND 365);
  END IF;

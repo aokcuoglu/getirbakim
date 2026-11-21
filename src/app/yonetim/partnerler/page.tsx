@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileText, Handshake, RotateCw, TriangleAlert, Webhook } from "lucide-react";
+import { ArrowUpRight, Banknote, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileText, Handshake, RotateCw, TriangleAlert, Webhook } from "lucide-react";
 import { adminPartnerInvoices, adminPartners, adminPartnerWebhooks } from "@/modules/admin/partners";
 import { savePartnerDiscountRate, savePartnerLimit, savePartnerPaymentTerm, setPartnerIntake } from "@/modules/admin/partner-actions";
 import { istanbulToday, paymentMethodLabel, percentText } from "@/modules/admin/partner-input";
@@ -48,7 +48,6 @@ export default async function Partners({ searchParams }: { searchParams: Promise
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Partnerler, cari limit ve B2B indirim</h1>
         <p className="text-muted-foreground">Partner (API) siparişleri cari hesaba yazılır. Alacak; iptal edilmemiş ve teslim edilmemiş siparişler ile teslim edilmiş ama faturalanmamış siparişlerin toplamıdır (kargo dahil). Yeni sipariş alacağı limitin üstüne çıkaracaksa reddedilir; limiti olmayan partner sipariş veremez. Teslim edilen siparişler &quot;Faturalandı&quot; işaretlenince limitten düşer; yanlış işaret gerekçeyle düzeltilebilir ya da geri alınabilir.</p>
-        <p className="text-muted-foreground">Faturalara partnerin yaptığı ödemeler tahsilat olarak girilir; vade, fatura tarihine partnerin vade gününün eklenmesiyle bulunur. Tahsilat ve vade yalnız takip içindir, cari limiti değiştirmez.</p>
         <p className="text-muted-foreground">B2B indirim, partnerin KDV hariç liste fiyatından düşülür ve ürün fiyatlarına, tekliflere ve siparişlere hemen uygulanır; fiyat hiçbir zaman maliyetin altına inmez. Değişiklikten önce alınmış teklifle verilen sipariş &quot;fiyat değişti&quot; diye reddedilir, partner yeni teklif alır.</p>
         <p className="text-muted-foreground">Bir partnerin sipariş alımı geçici olarak durdurulabilir; durdurulan partner yeni teklif alamaz ve sipariş veremez.</p>
       </div>
@@ -142,13 +141,13 @@ export default async function Partners({ searchParams }: { searchParams: Promise
       </CardContent>
     </Card>
 
-    {collections.length > 0 && <Card>
+    <Card>
       <CardHeader>
         <CardTitle>Tahsilat ve vade</CardTitle>
         <CardDescription>Vade, faturanın tarihine eklenen gün sayısıdır; kalan tutarı olan fatura vade tarihinden sonraki gün vadesi geçmiş sayılır. Vade boş bırakılırsa tanımsızdır ve faturalar vadesi geçmiş sayılmaz. Tutarlar cari limiti etkilemez.</CardDescription>
       </CardHeader>
       <CardContent>
-        <Table controls={false}>
+        {collections.length ? <Table controls={false}>
           <TableHeader><TableRow>
             <TableHead>Partner</TableHead><TableHead>Vade (gün)</TableHead><TableHead className="text-right">Tahsil edilmemiş</TableHead><TableHead className="text-right">Vadesi geçmiş</TableHead>
           </TableRow></TableHeader>
@@ -157,19 +156,26 @@ export default async function Partners({ searchParams }: { searchParams: Promise
             <TableCell><form action={savePartnerPaymentTerm} className="flex flex-wrap items-center gap-2">
               <input type="hidden" name="partner" value={c.code}/>
               <InputGroup className="w-28">
-                <InputGroupInput className="text-right tabular-nums" name="term" inputMode="numeric" aria-label={`${c.code} vade (gün)`} placeholder="Tanımsız" defaultValue={c.termDays ?? ""}/>
+                <InputGroupInput className="text-right tabular-nums" name="term" inputMode="numeric" aria-label={`Vade (gün) · ${c.code}`} placeholder="Tanımsız" defaultValue={c.termDays ?? ""}/>
                 <InputGroupAddon align="inline-end"><InputGroupText>gün</InputGroupText></InputGroupAddon>
               </InputGroup>
-              <SubmitButton variant="outline" aria-label={`${c.code}: Vadeyi kaydet`}>Vadeyi kaydet</SubmitButton>
+              <SubmitButton variant="outline" aria-label={`Vadeyi kaydet · ${c.code}`}>Vadeyi kaydet</SubmitButton>
             </form></TableCell>
             <TableCell className="text-right tabular-nums">{money(c.uncollectedKurus)}</TableCell>
             <TableCell className="text-right">{c.overdueCount > 0
-              ? <StatusBadge tone="error">{money(c.overdueKurus)} · {formatNumber(c.overdueCount)} fatura</StatusBadge>
-              : <span className="tabular-nums">{money(0)}</span>}</TableCell>
+              ? <><div className="flex items-center justify-end gap-1 font-medium text-destructive tabular-nums"><CircleAlert className="size-4" aria-hidden="true"/>{money(c.overdueKurus)}</div>
+                <div className="text-muted-foreground tabular-nums">{formatNumber(c.overdueCount)} fatura vadesi geçti</div></>
+              : <span className="text-muted-foreground tabular-nums">{money(0)}</span>}</TableCell>
           </TableRow>)}</TableBody>
-        </Table>
+        </Table> : <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><Handshake/></EmptyMedia>
+            <EmptyTitle>Henüz partner yok</EmptyTitle>
+            <EmptyDescription>Partner tanımlanınca vadesi ve tahsil edilmemiş tutarı burada görünür.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>}
       </CardContent>
-    </Card>}
+    </Card>
 
     <Card>
       <CardHeader>
@@ -234,32 +240,30 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     <Card>
       <CardHeader>
         <CardTitle>Kesilen faturalar</CardTitle>
-        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre: kalan tutarı olan tüm faturalar ve tamamı ödenmiş son 100 fatura. Ödemeler &quot;Tahsilat gir&quot; ile girilir; kısmi ödeme girilebilir, kalan tutardan fazlası girilemez. Yanlış işaret gerekçeyle düzeltilir ya da geri alınır; tahsilatı olan faturanın işareti, tahsilatlar iptal edilmeden geri alınamaz. Tek bir siparişin işareti Siparişler sayfasından geri alınır.</CardDescription>
+        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre: kalan tutarı olan tüm faturalar ve tamamı ödenmiş son 100 fatura. Partnerin ödemeleri &quot;Tahsilat gir&quot; ile girilir; kısmi ödeme girilebilir, kalan tutardan fazlası girilemez. Vade tarihi = fatura tarihi + partnerin vadesi. Tahsilat ve vade yalnız takip içindir, cari limiti değiştirmez. Yanlış işaret gerekçeyle düzeltilir ya da geri alınır; tahsilatı olan faturanın işareti, tahsilatlar iptal edilmeden geri alınamaz. Tek bir siparişin işareti Siparişler sayfasından geri alınır.</CardDescription>
       </CardHeader>
       <CardContent>
         {invoices.length ? <Table controls={false}>
           <TableHeader><TableRow>
-            <TableHead>Partner</TableHead><TableHead>Fatura no</TableHead><TableHead>Fatura tarihi</TableHead><TableHead>Vade tarihi</TableHead><TableHead className="text-right">Sipariş</TableHead>
-            <TableHead className="text-right">Tutar</TableHead><TableHead className="text-right">Kalan</TableHead><TableHead>Durum</TableHead><TableHead>İşaretleyen</TableHead>
-            <TableHead><span className="sr-only">İşlem</span></TableHead>
+            <TableHead>Partner</TableHead><TableHead>Fatura no</TableHead><TableHead>Durum</TableHead><TableHead>Fatura tarihi</TableHead><TableHead>Vade tarihi</TableHead>
+            <TableHead className="text-right">Tutar</TableHead><TableHead className="text-right">Kalan</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead>
           </TableRow></TableHeader>
           <TableBody>{invoices.map(invoice => <TableRow key={`${invoice.partner}|${invoice.invoiceRef}|${invoice.invoiceDate}`} className="align-top">
             <TableCell className="font-medium">{invoice.partner}</TableCell>
             <TableCell>{invoice.invoiceRef}</TableCell>
-            <TableCell className="tabular-nums">{formatDay(invoice.invoiceDate)}</TableCell>
-            <TableCell className="tabular-nums">{invoice.dueDate ? formatDay(invoice.dueDate) : <span className="text-muted-foreground">Tanımsız</span>}</TableCell>
-            <TableCell className="text-right tabular-nums">{formatNumber(invoice.count)}</TableCell>
-            <TableCell className="text-right tabular-nums">{money(invoice.totalKurus)}</TableCell>
-            <TableCell className="text-right"><div className="font-medium tabular-nums">{money(invoice.balanceKurus)}</div>
-              {invoice.collectedKurus > 0 && <div className="text-muted-foreground tabular-nums">Tahsil edilen {money(invoice.collectedKurus)}</div>}</TableCell>
             <TableCell>{invoice.state === "paid" ? <StatusBadge tone="success">Ödendi</StatusBadge>
               : invoice.state === "overdue" ? <div className="flex flex-col items-start gap-1">
                 <StatusBadge tone="error">Vadesi geçti · {formatNumber(invoice.overdueDays)} gün</StatusBadge>
-                {invoice.collectedKurus > 0 && <span className="text-muted-foreground">Kısmi ödendi</span>}
+                {invoice.collectedKurus > 0 && <StatusBadge tone="warning">Kısmi ödendi</StatusBadge>}
               </div>
-              : invoice.state === "partial" ? <StatusBadge tone="info">Kısmi ödendi</StatusBadge>
+              : invoice.state === "partial" ? <StatusBadge tone="warning">Kısmi ödendi</StatusBadge>
               : <StatusBadge tone="neutral">{invoice.dueDate ? "Açık" : "Açık · vade tanımsız"}</StatusBadge>}</TableCell>
-            <TableCell>{invoice.markedBy ?? "—"}</TableCell>
+            <TableCell className="tabular-nums">{formatDay(invoice.invoiceDate)}</TableCell>
+            <TableCell className="tabular-nums">{invoice.dueDate ? formatDay(invoice.dueDate) : <span className="text-muted-foreground">Tanımsız</span>}</TableCell>
+            <TableCell className="text-right"><div className="tabular-nums">{money(invoice.totalKurus)}</div>
+              <div className="text-muted-foreground tabular-nums">{formatNumber(invoice.count)} sipariş</div></TableCell>
+            <TableCell className="text-right"><div className={invoice.balanceKurus ? "font-medium tabular-nums" : "text-muted-foreground tabular-nums"}>{money(invoice.balanceKurus)}</div>
+              {invoice.collectedKurus > 0 && <div className="text-muted-foreground tabular-nums">Tahsil edilen {money(invoice.collectedKurus)}</div>}</TableCell>
             <TableCell><div className="flex flex-wrap justify-end gap-2">
               {invoice.state !== "paid" && <PartnerPaymentDialog invoice={invoice} today={today}/>}
               <PartnerInvoiceChangeDialog invoice={invoice} today={today}/>
@@ -275,15 +279,15 @@ export default async function Partners({ searchParams }: { searchParams: Promise
       </CardContent>
     </Card>
 
-    {payments.length > 0 && <Card>
+    <Card>
       <CardHeader>
         <CardTitle>Tahsilatlar</CardTitle>
-        <CardDescription>Faturalara girilen son 50 tahsilat, iptal edilenler dahil. Yanlış girilen tahsilat düzeltilmez ya da silinmez; gerekçeyle iptal edilir ve doğrusu yeniden girilir.</CardDescription>
+        <CardDescription>Geçerli tüm tahsilatlar ve iptal edilen son 50 tahsilat. Yanlış girilen tahsilat düzeltilmez ya da silinmez; gerekçeyle iptal edilir ve doğrusu yeniden girilir. Tahsilatı olan faturanın işareti, tahsilatlar iptal edilmeden geri alınamaz.</CardDescription>
       </CardHeader>
       <CardContent>
-        <Table controls={false}>
+        {payments.length ? <Table controls={false}>
           <TableHeader><TableRow>
-            <TableHead>Zaman · Kaydeden</TableHead><TableHead>Partner</TableHead><TableHead>Fatura</TableHead><TableHead>Ödeme tarihi</TableHead><TableHead>Yöntem</TableHead>
+            <TableHead>Kayıt zamanı</TableHead><TableHead>Partner</TableHead><TableHead>Fatura</TableHead><TableHead>Ödeme tarihi</TableHead><TableHead>Yöntem</TableHead>
             <TableHead className="text-right">Tutar</TableHead><TableHead>Not</TableHead><TableHead>Durum</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead>
           </TableRow></TableHeader>
           <TableBody>{payments.map(payment => <TableRow key={payment.id} className="align-top">
@@ -300,13 +304,19 @@ export default async function Partners({ searchParams }: { searchParams: Promise
                 <span className="text-muted-foreground tabular-nums">{formatDateTime(payment.voidedAt, { year: true })} · {payment.voidedBy ?? "—"}</span>
                 <span>{payment.voidReason}</span>
               </div>
-              : <StatusBadge tone="success">Geçerli</StatusBadge>}</TableCell>
+              : <StatusBadge tone="neutral" icon={CircleCheck}>Geçerli</StatusBadge>}</TableCell>
             <TableCell><div className="flex justify-end">{!payment.voidedAt && <PartnerPaymentVoidDialog paymentId={payment.id} partner={payment.partner}
               invoiceRef={payment.invoiceRef} amountKurus={payment.amountKurus} paidOn={payment.paidOn}/>}</div></TableCell>
           </TableRow>)}</TableBody>
-        </Table>
+        </Table> : <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><Banknote/></EmptyMedia>
+            <EmptyTitle>Henüz tahsilat yok</EmptyTitle>
+            <EmptyDescription>Kesilen faturalardan &quot;Tahsilat gir&quot; ile girilen ödemeler burada listelenir.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>}
       </CardContent>
-    </Card>}
+    </Card>
 
     {changes.length > 0 && <Card>
       <CardHeader>

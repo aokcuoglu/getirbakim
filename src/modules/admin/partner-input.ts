@@ -116,6 +116,9 @@ export const partnerOrderInvoiceUndoInput = z.object({
 /** How a payment method reads in /yonetim (#1006). */
 export const paymentMethodLabel = (method: PaymentMethod) => paymentMethodLabels[method];
 
+/** The Istanbul calendar day 2 years before today, `YYYY-MM-DD`: the oldest payment day accepted. */
+const twoYearsBack = (now: Date) => { const today = istanbulToday(now); return `${Number(today.slice(0, 4)) - 2}${today.slice(4)}`; };
+
 /**
  * A payment against a marked invoice (#1006): the invoice by its number and day, a TL amount, a past payment day, the
  * method and an optional note; expectedTotal/expectedCollected are what the dialog showed.
@@ -125,7 +128,8 @@ export const partnerPaymentInput = (now = new Date()) => z.object({
   invoiceRef: z.string().trim().min(1).max(60),
   invoiceDate: z.string().trim().refine(validDay),
   amount: amountTl,
-  paidOn: pastDay(now),
+  // Up to 2 years back; a day before the invoice day is fine (partners may pay in advance).
+  paidOn: pastDay(now).refine(value => value >= twoYearsBack(now), "Ödeme tarihi en fazla 2 yıl önce olabilir."),
   method: z.enum(paymentMethods, "Ödeme yöntemini seçin."),
   note: z.string().trim().max(500, "Not en fazla 500 karakter olabilir."),
   expectedTotal,

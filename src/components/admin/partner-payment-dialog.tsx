@@ -30,7 +30,7 @@ const tlText = (kurus: number) => kurus % 100 ? (kurus / 100).toFixed(2).replace
 export function PartnerPaymentDialog({ invoice, today }: { invoice: CollectableInvoice; today: string }) {
   const [open, setOpen] = useState(false);
   return <Dialog open={open} onOpenChange={setOpen}>
-    <DialogTrigger render={<Button variant="outline" size="sm" aria-label={`${invoice.partner} ${invoice.invoiceRef} faturasına tahsilat gir`}/>}>
+    <DialogTrigger render={<Button variant="outline" size="sm" aria-label={`Tahsilat gir: ${invoice.partner} ${invoice.invoiceRef}`}/>}>
       <Banknote data-icon="inline-start" aria-hidden="true"/>Tahsilat gir
     </DialogTrigger>
     <DialogContent className="sm:max-w-lg">

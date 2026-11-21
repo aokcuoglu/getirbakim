@@ -77,7 +77,7 @@ test("partial payments add up to a paid invoice; the ledger follows and the limi
   const ref = newRef();
   await order(1000, ref); await order(500, ref);
   const exposure = await limits.partnerExposure("bakimx");
-  assert.deepEqual(await ledgerOf(ref), { partner: "bakimx", invoiceRef: ref, invoiceDate: day, count: 2, totalKurus: 1500, collectedKurus: 0, markedBy: "Tahsilat Admin" });
+  assert.deepEqual(await ledgerOf(ref), { partner: "bakimx", invoiceRef: ref, invoiceDate: day, count: 2, totalKurus: 1500, collectedKurus: 0 });
   const first = await pay(ref, 600, { totalKurus: 1500, collectedKurus: 0 });
   assert.equal(first.status, "recorded");
   assert.equal(first.status === "recorded" && first.balanceKurus, 900);
@@ -135,6 +135,43 @@ test("correcting an invoice carries its payments, voided ones too, to the new nu
   assert.equal(await collections.orphanPaymentCount(["bakimx"]), 0);
 });
 
+test("a correction never carries payments onto a key that already has active payments or another invoice", async () => {
+  const ref = newRef(), target = newRef();
+  await order(1000, ref);
+  await pay(ref, 100, { totalKurus: 1000, collectedKurus: 0 });
+  // An active payment already waits under the target key (entered outside the app): it would be absorbed.
+  await schema.pool.query(`INSERT INTO partner_invoice_payments(partner_code,invoice_ref,invoice_day,amount_kurus,paid_on,method)
+    VALUES('bakimx',$1,$2,50,'2026-11-16','other')`, [target, day]);
+  const correct = { partner: "bakimx", invoiceRef: ref, invoiceDate: day, action: "correct" as const, newInvoiceRef: target, newInvoiceDate: day,
+    reason: "Numara yanlış yazıldı", adminId: admin, expected: { count: 1, totalKurus: 1000 } };
+  assert.deepEqual(await limits.changePartnerInvoice(correct), { status: "merge" });
+  assert.deepEqual((await paymentRows()).map(row => [row.invoice_ref, row.amount_kurus]), [[ref, "100"], [target, "50"]]);
+  assert.equal((await ledgerOf(ref))?.count, 1);
+  assert.equal((await schema.pool.query("SELECT count(*)::int AS count FROM partner_invoice_changes")).rows[0].count, 0);
+  // Onto another invoice of the partner that has payments: the orders and payments would merge.
+  const other = newRef();
+  await order(500, other);
+  await pay(other, 200, { totalKurus: 500, collectedKurus: 0 });
+  assert.deepEqual(await limits.changePartnerInvoice({ ...correct, newInvoiceRef: other }), { status: "merge" });
+  assert.deepEqual([(await ledgerOf(ref))?.collectedKurus, (await ledgerOf(other))?.collectedKurus], [100, 200]);
+});
+
+test("every active payment stays listed (and voidable) beyond 50; voided ones are capped at the last 50", async () => {
+  const ref = newRef();
+  await order(100, ref);
+  for (let paid = 0; paid < 60; paid++) assert.equal((await pay(ref, 1, { totalKurus: 100, collectedKurus: paid })).status, "recorded");
+  const all = await collections.recentInvoicePayments(["bakimx"]);
+  assert.equal(all.filter(payment => !payment.voidedAt).length, 60);
+  // Void 55 of them, the oldest first: the 5 newest stay active and listed, with the 50 newest voids.
+  for (const payment of [...all].reverse().slice(0, 55)) {
+    assert.equal((await collections.voidInvoicePayment({ paymentId: payment.id, reason: "Toplu iptal testi", adminId: admin })).status, "voided");
+  }
+  const listed = await collections.recentInvoicePayments(["bakimx"]);
+  assert.equal(listed.filter(payment => !payment.voidedAt).length, 5);
+  assert.equal(listed.filter(payment => payment.voidedAt).length, 50);
+  assert.equal((await ledgerOf(ref))?.collectedKurus, 5);
+});
+
 test("a whole-invoice undo is refused while a payment is active and allowed once it is voided", async () => {
   const ref = newRef();
   await order(1000, ref); await order(500, ref);
@@ -177,6 +214,26 @@ test("re-marking orders with the same number and day grows the invoice: a paid o
   const invoice = await ledgerOf(ref);
   assert.deepEqual([invoice?.totalKurus, invoice?.collectedKurus], [1250, 1000]);
   assert.equal(input.invoiceCollection({ totalKurus: 1250, collectedKurus: 1000, invoiceDate: day, termDays: null, today: "2026-11-21" }).state, "partial");
+});
+
+test("marking orders invoiced waits for the partner's order lock", async () => {
+  const ref = newRef();
+  await order(300, null);
+  const holder = await schema.pool.connect();
+  try {
+    await holder.query("BEGIN");
+    await limits.lockPartnerOrders(holder, "bakimx");
+    let settled = false;
+    const pending = limits.invoicePartnerOrders({ partner: "bakimx", deliveredUntil: "2026-11-10", invoiceRef: ref, invoiceDate: day, adminId: admin,
+      expected: { count: 1, totalKurus: 300 } }).finally(() => { settled = true; });
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(settled, false, "the mark ran while the partner's order lock was held");
+    await holder.query("COMMIT");
+    assert.equal((await pending).status, "invoiced");
+  } finally {
+    await holder.query("ROLLBACK").catch(() => undefined);
+    holder.release();
+  }
 });
 
 test("a payment waits for the partner's order lock", async () => {
@@ -230,8 +287,10 @@ test("payment, void and term inputs: TL amounts, past days, known methods, reaso
   assert.equal(input.partnerPaymentInput(now).safeParse(valid).success, false, "1.234,5 is not a TL amount the parser accepts");
   const parsed = input.partnerPaymentInput(now).parse({ ...valid, amount: "1234,5" });
   assert.deepEqual([parsed.amount, parsed.method, parsed.note, parsed.expectedTotal, parsed.expectedCollected], [123450, "offset", "not", 1000, 0]);
+  // Up to 2 years back, before the invoice day included (an advance transfer).
+  assert.equal(input.partnerPaymentInput(now).safeParse({ ...valid, amount: "10", paidOn: "2024-11-21" }).success, true);
   for (const bad of [{ amount: "0" }, { amount: "" }, { amount: "-5" }, { paidOn: "2026-11-22" }, { paidOn: "2026-02-30" }, { method: "cash" }, { note: "x".repeat(501) },
-    { expectedCollected: "-1" }, { expectedTotal: "0" }, { invoiceDate: "15.11.2026" }]) {
+    { expectedCollected: "-1" }, { expectedTotal: "0" }, { invoiceDate: "15.11.2026" }, { paidOn: "2024-11-20" }]) {
     assert.equal(input.partnerPaymentInput(now).safeParse({ ...valid, amount: "10", ...bad }).success, false, JSON.stringify(bad));
   }
   assert.deepEqual(input.partnerPaymentVoidInput.parse({ payment: "42", reason: " Yanlış girdi " }), { payment: "42", reason: "Yanlış girdi" });
@@ -252,6 +311,7 @@ test("the /yonetim actions: admin first, the term redirect, payment and void res
   await assert.rejects(actions.recordPartnerPayment({ status: "idle" }, paymentForm("400", "0")), /NEXT_REDIRECT \/giris/);
   await assert.rejects(actions.savePartnerPaymentTerm(form({ partner: "bakimx", term: "30" })), /NEXT_REDIRECT \/giris/);
   assert.deepEqual(await paymentRows(), []);
+  assert.equal((await collections.paymentTerms(["bakimx"])).size, 0);
   signedIn = admin;
   await assert.rejects(actions.savePartnerPaymentTerm(form({ partner: "bakimx", term: "400" })), /NEXT_REDIRECT \/yonetim\/partnerler\?error=term&partner=bakimx$/);
   await assert.rejects(actions.savePartnerPaymentTerm(form({ partner: "stranger", term: "30" })), /NEXT_REDIRECT \/yonetim\/partnerler\?error=term$/);
@@ -279,6 +339,11 @@ test("the /yonetim actions: admin first, the term redirect, payment and void res
   const single = await actions.undoPartnerOrderInvoiceMark({ status: "idle" }, form({ order: only, invoiceRef: ref, invoiceDate: "2026-10-01", reason: "Yanlış işaretlendi" }));
   assert.deepEqual(single, { status: "error", message: "Bu faturaya tahsilat girilmiş; önce tahsilatı iptal edin." });
 
+  // Signed out, the void is refused before any write.
+  signedIn = null;
+  await assert.rejects(actions.voidPartnerPayment({ status: "idle" }, form({ payment: view.payments[0].id, reason: "Çek karşılıksız çıktı" })), /NEXT_REDIRECT \/giris/);
+  assert.deepEqual((await paymentRows()).map(row => row.voided), [false]);
+  signedIn = admin;
   const short = await actions.voidPartnerPayment({ status: "idle" }, form({ payment: view.payments[0].id, reason: "abc" }));
   assert.ok(short.errors?.reason?.length);
   assert.deepEqual(await actions.voidPartnerPayment({ status: "idle" }, form({ payment: view.payments[0].id, reason: "Çek karşılıksız çıktı" })),
