@@ -348,6 +348,9 @@ export async function setPriceAnomalyStatus(connection: Pick<Pool, "query">, id:
   return (updated.rowCount ?? 0) > 0;
 }
 
+/** How long a refresh waits for another one holding the lock (#1153). */
+const LOCK_TIMEOUT_MS = 5_000;
+
 // The latest successful import's rates per company, and whether an anomaly row `a` cannot be judged with them: its
 // own currency or its relabel/dominant currency has no rate (an offer-outlier's relabel currency drops out of the scan
 // without one, #1050). Shared by the DELETE guard and the unjudged reopen (#1153); $1 is the supplier.
@@ -376,16 +379,22 @@ const unjudgeableSql = `EXISTS(
  * offer or the brand's row count came and went). A run with a missing rate for a currency candidate deletes nothing;
  * otherwise a row the run could not judge (no rate for its own or its relabel currency, or skipped as unrated) is kept.
  * `itemIds` (#1153): judge, reopen and delete only these rows; others keep their state until a full refresh. Another
- * refresh already running: `{ skipped: true }`.
+ * refresh running: waits up to `lockTimeoutMs` for it (a refresh takes under 2 s, and skipping would drop a scoped
+ * run's rows or a panel's full refresh), then `{ skipped: true }`.
  */
-export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySupplier, itemIds?: string[]) {
+export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySupplier, itemIds?: string[],
+  { lockTimeoutMs = LOCK_TIMEOUT_MS }: { lockTimeoutMs?: number } = {}) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    if (!(await client.query<{ locked: boolean }>("SELECT pg_try_advisory_xact_lock(20261001,11) AS locked")).rows[0].locked) {
+    await client.query("SELECT set_config('lock_timeout',$1,true)", [`${lockTimeoutMs}ms`]);
+    try { await client.query("SELECT pg_advisory_xact_lock(20261001,11)"); }
+    catch (error) {
+      if ((error as { code?: string }).code !== "55P03") throw error;
       await client.query("ROLLBACK");
       return { skipped: true as const };
     }
+    await client.query("SET LOCAL lock_timeout TO DEFAULT");
     const { flagged, ratesMissing, unrated } = await detectPriceAnomalies(client, supplier, priceAnomalyThresholds, itemIds);
     const flaggedIds = flagged.map(row => row.id);
     // Kept regardless of this run: detected again, or skipped for want of a rate.
@@ -425,7 +434,7 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
           CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 'TRY' ELSE i.product_data->>'dc' END AS currency,
           CASE WHEN jsonb_typeof(i.price_data->'nf')='number' THEN (i.price_data->>'nf')::numeric END AS nf
         FROM supplier_items i WHERE i.supplier=$1) cur
-      WHERE cur.id=a.supplier_item_id AND a.supplier=$1 AND a.status='dismissed' AND a.supplier_item_id<>ALL($2::uuid[])
+      WHERE cur.id=a.supplier_item_id AND cur.nf>0 AND a.supplier=$1 AND a.status='dismissed' AND a.supplier_item_id<>ALL($2::uuid[])
       AND ($3::uuid[] IS NULL OR a.supplier_item_id=ANY($3)) AND ${unjudgeableSql}
       AND (COALESCE(a.evidence->>'dismissed_currency',a.evidence->>'currency') IS DISTINCT FROM cur.currency
         OR (jsonb_typeof(COALESCE(a.evidence->'dismissed_nf',a.evidence->'nf'))='number'
@@ -433,7 +442,8 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
           AND (cur.nf>=COALESCE(a.evidence->>'dismissed_nf',a.evidence->>'nf')::numeric*$4::numeric
             OR cur.nf*$4::numeric<=COALESCE(a.evidence->>'dismissed_nf',a.evidence->>'nf')::numeric)))`,
       [supplier, flaggedIds, itemIds ?? null, priceAnomalyThresholds.REOPEN_FACTOR])).rowCount ?? 0;
-    // Never deletes a row the run could not judge (judgedRatesCte).
+    // Never deletes a row the run could not judge (judgedRatesCte). A row reopened above with a new currency can become
+    // judgeable and, now open and not flagged, be deleted in the same run: counted in both `reopened` and `removed`.
     const removed = ratesMissing ? 0 : (await client.query(`${judgedRatesCte}
       DELETE FROM supplier_price_anomalies a
       WHERE a.supplier=$1 AND a.supplier_item_id<>ALL($2::uuid[]) AND ($3::uuid[] IS NULL OR a.supplier_item_id=ANY($3))
@@ -463,19 +473,22 @@ const MAX_SCOPED_ROWS = 20_000;
  * never changes a row's currency, so a run without nf changes needs no detection (`{ changed: 0 }`). The changes are
  * the imports' supplier_item_changes rows (changed_at = the import's completed_at, supplier_item_changes_date_idx).
  */
-export async function refreshPriceAnomaliesAfterImports(pool: Pool, supplier: PriceAnomalySupplier, importIds: string[]) {
+export async function refreshPriceAnomaliesAfterImports(pool: Pool, supplier: PriceAnomalySupplier, importIds: string[],
+  { maxScopedRows = MAX_SCOPED_ROWS, lockTimeoutMs }: { maxScopedRows?: number; lockTimeoutMs?: number } = {}) {
   if (!importIds.length) return { changed: 0 };
   const ids = (await pool.query<{ id: string }>(`SELECT DISTINCT c.item_id::text AS id FROM supplier_imports r
     JOIN supplier_item_changes c ON c.changed_at=r.completed_at AND c.import_id=r.id
     WHERE r.id=ANY($1::uuid[]) AND r.supplier=$2 AND c.before_data->'price'->'nf' IS DISTINCT FROM c.after_data->'price'->'nf'`,
   [importIds, supplier])).rows.map(row => row.id);
   if (!ids.length) return { changed: 0 };
-  if (ids.length > MAX_SCOPED_ROWS) return { changed: ids.length, ...await refreshPriceAnomalies(pool, supplier) };
-  return { changed: ids.length, ...await refreshPriceAnomalies(pool, supplier, ids) };
+  return { changed: ids.length, ...await refreshPriceAnomalies(pool, supplier, ids.length > maxScopedRows ? undefined : ids, { lockTimeoutMs }) };
 }
 
 /** After a manual Başbuğ list refresh in the panel (#1030): a failure is logged and keeps the previous list. */
 export async function refreshBasbugPriceAnomalies(pool: Pool) {
-  try { return await refreshPriceAnomalies(pool, "basbug"); }
-  catch (error) { console.error({ priceAnomalies: "failed", code: (error as { code?: string }).code }); }
+  try {
+    const result = await refreshPriceAnomalies(pool, "basbug");
+    if (result.skipped) console.error({ priceAnomalies: "skipped" });
+    return result;
+  } catch (error) { console.error({ priceAnomalies: "failed", code: (error as { code?: string }).code }); }
 }

@@ -150,8 +150,11 @@ try {
     // Single-row currency anomalies (#1030): a failed refresh keeps the previous list and does not fail the scheduler.
     if (basbugFullSucceeded || basbugCommerceImports.length) {
       try {
-        console.log({ priceAnomalies: basbugFullSucceeded ? await refreshPriceAnomalies(pool, "basbug")
-          : await refreshPriceAnomaliesAfterImports(pool, "basbug", basbugCommerceImports) });
+        const result = basbugFullSucceeded ? await refreshPriceAnomalies(pool, "basbug")
+          : await refreshPriceAnomaliesAfterImports(pool, "basbug", basbugCommerceImports);
+        // Skipped after waiting for another refresh's lock: the rows this tick changed wait for the next full list.
+        if ("skipped" in result && result.skipped) console.error({ priceAnomalies: "skipped", ...result });
+        else console.log({ priceAnomalies: result });
       } catch (error) { console.error({ priceAnomalies: "failed", code: (error as { code?: string }).code }); }
     }
     // New brand labels and products reach the master catalog only through this refresh (~1–2 min); scheduled ticks run
