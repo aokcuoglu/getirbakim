@@ -32,6 +32,22 @@ for(const [file,from,to,reader] of byIdReads) test(`${file} ${from.replace(/^.* 
   assert.doesNotMatch(part,/JOIN LATERAL \([^)]*commerce_catalog/);
 });
 
+// Planning was most of these hot by-id reads' time (#1170): they go out as named prepared statements. rowsByIds returns
+// the view's `*` row, so it is named on the pool only, never on a transaction's client.
+const preparedReads:[string,string,string|undefined][]=[
+  ["src/modules/store/cart.ts","export async function cartFor","export async function cartLineQuantity"],
+  ["src/modules/store/supplier-checkout.ts","export async function livePriceChanges",undefined],
+  ["src/modules/store/catalog.ts","export async function getSetaEquivalents","/**"],
+  ["src/modules/store/catalog.ts","export async function getDecidedEquivalents","export function servicePrice"],
+  ["src/modules/store/catalog.ts","export async function getStorefrontProduct","/**"],
+  ["src/modules/store/catalog.ts","async function rowsByIds","/**"],
+];
+for(const [file,from,to] of preparedReads) test(`${file} ${from.replace(/^.* /,"")} is a named prepared statement (#1170)`, async()=> {
+  const part=slice(await readFile(file,"utf8"),from,to);
+  assert.match(part,/preparedQuery(<[^(]*>)?\(/);
+  if(from.endsWith("rowsByIds")) assert.ok(part.includes("connection===db"),"rowsByIds names its * read on the pool only");
+});
+
 test("submitOrder waits CHECKOUT_LOCK_TIMEOUT for supplier rows, then goes on without the share lock (#790)", async()=> {
   const source=await readFile("src/modules/store/orders.ts","utf8");
   const submitOrder=source.slice(source.indexOf("export async function submitOrder"),source.indexOf("export const orderStatus"));
@@ -586,5 +602,31 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     globalThis.fetch=originalFetch;process.env.DATABASE_URL=originalUrl;
     [...keys,...unset].forEach((key,index)=>{if(originalEnv[index]===undefined) delete process.env[key];else process.env[key]=originalEnv[index];});
     await db.end();await control.query(`DROP SCHEMA ${namespace} CASCADE`);await control.query("SELECT pg_advisory_unlock(20261001,2)");control.release();await root.end();
+  }
+});
+
+test("a named read on a pool survives a view gaining a column: the stale plan's client is dropped, the read retried (#1170)", async()=> {
+  // Placed last: src/lib/db creates its pool on import, which the checkout test above does with its own schema.
+  const {preparedQuery}=await import("../src/lib/db");
+  const root=new Pool({connectionString:process.env.DATABASE_URL});
+  const namespace=`prepared_test_${randomBytes(8).toString("hex")}`;
+  const view=`${namespace}.v`;
+  const pool=new Pool({connectionString:process.env.DATABASE_URL,max:1,idleTimeoutMillis:0});
+  const raw=await root.connect();
+  try {
+    await root.query(`CREATE SCHEMA ${namespace}`);
+    await root.query(`CREATE VIEW ${view} AS SELECT 1 AS a`);
+    const sql=`SELECT * FROM ${view}`;
+    assert.deepEqual((await preparedQuery(pool,sql,[])).rows,[{a:1}]);
+    await raw.query({name:"prepared_test_raw",text:sql,values:[]});
+    await root.query(`CREATE OR REPLACE VIEW ${view} AS SELECT 1 AS a,2 AS b`);
+    // The failure this guards against: the same named statement on a connection that prepared it.
+    await assert.rejects(raw.query({name:"prepared_test_raw",text:sql,values:[]}),(error:{code?:string})=>error.code==="0A000");
+    assert.deepEqual((await preparedQuery(pool,sql,[])).rows,[{a:1,b:2}]);
+    // The replacement client prepares the new shape.
+    assert.deepEqual((await preparedQuery(pool,sql,[])).rows,[{a:1,b:2}]);
+  } finally {
+    raw.release(true);await pool.end();
+    await root.query(`DROP SCHEMA IF EXISTS ${namespace} CASCADE`);await root.end();
   }
 });
