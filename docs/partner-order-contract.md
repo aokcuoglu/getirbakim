@@ -69,9 +69,14 @@ order time like the prices, stored on the order and counted in the limit.
 } }
 ```
 
-The unit price is the partner's B2B price before VAT (`PARTNER_B2B_DISCOUNT_BPS`
+The unit price is the partner's B2B price before VAT (the partner's discount
 applied, never below cost), from the storefront's current saved price. Only
-supplier offers the storefront sells right now can be quoted.
+supplier offers the storefront sells right now can be quoted. The discount is
+the partner's `/yonetim/partnerler` value, else `PARTNER_B2B_DISCOUNT_BPS`, else
+none, read fresh for every quote and again inside the order transaction. The
+token binds the unit prices, so a discount changed between quote and order is
+refused with `PRICE_CHANGED` (the new unit price in `details.lines`); the
+partner requests a new quote.
 
 ## POST /orders
 
@@ -279,4 +284,5 @@ is invoiced) and no consumer pre-contract documents are stored.
 - `PARTNER_QUOTE_SIGNING_SECRET`: at least 32 characters; rotating it voids open quotes.
 - `PARTNER_ORDER_LIMIT_KURUS`: default open-order limit per partner in kuruş, VAT and shipping included; a limit set in
   `/yonetim/partnerler` overrides it.
-- `PARTNER_B2B_DISCOUNT_BPS`: optional discount, as for the products endpoint.
+- `PARTNER_B2B_DISCOUNT_BPS`: optional fallback discount in basis points for partners without a discount set in
+  `/yonetim/partnerler` (see the products contract's Discount section).

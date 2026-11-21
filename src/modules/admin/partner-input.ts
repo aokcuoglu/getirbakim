@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { maxPartnerDiscountBps } from "@/modules/partner/pricing";
 
 /**
  * /yonetim/partnerler form input and view rules (#426), kept pure so scripts/test-partner-orders.ts checks it without a session.
@@ -28,7 +29,24 @@ export const limitTl = z.string().trim().transform((value, context) => {
   return kurus;
 });
 
+/** Percent text ("10", "12,5", "7.25") → basis points 0–9000 (#1130); empty clears the panel discount (null). */
+export const discountPercent = z.string().trim().transform((value, context) => {
+  if (!value) return null;
+  const match = /^%?\s*(\d{1,2})(?:[.,](\d{1,2}))?\s*%?$/.exec(value);
+  const bps = match ? Number(match[1]) * 100 + Number((match[2] ?? "").padEnd(2, "0")) : -1;
+  if (bps < 0 || bps > maxPartnerDiscountBps) {
+    context.addIssue({ code: "custom", message: "İndirim %0 ile %90 arasında, en fazla iki ondalıklı bir oran olmalı." });
+    return z.NEVER;
+  }
+  return bps;
+});
+
+/** Basis points → the percent text the discount input shows ("10" or "12,5"). */
+export const percentText = (bps: number) => (bps / 100).toLocaleString("tr-TR", { maximumFractionDigits: 2, useGrouping: false });
+
 const partnerCode = z.string().trim().min(1).max(100);
+
+export const partnerDiscountInput = z.object({ partner: partnerCode, discount: discountPercent });
 
 export const partnerLimitInput = z.object({ partner: partnerCode, limit: limitTl });
 

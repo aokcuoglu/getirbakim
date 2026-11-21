@@ -53,6 +53,19 @@ export function resolvePartnerDiscountBps(raw: string | undefined | null): numbe
   return Math.min(Math.round(parsed), maxPartnerDiscountBps);
 }
 
+export type PartnerDiscountSource = "panel" | "env" | "none";
+export type PartnerDiscount = { discountBps: number; source: PartnerDiscountSource };
+
+/**
+ * The partner's requested discount (#1130): its /yonetim value (`panelBps`, partner_settings.discount_bps, 0 included)
+ * first, then the deployment fallback (`fallbackBps`, PARTNER_B2B_DISCOUNT_BPS), else none. The cost floor applies later.
+ */
+export function resolvePartnerDiscount(panelBps: number | null | undefined, fallbackBps: number): PartnerDiscount {
+  if (panelBps != null) return { discountBps: Math.min(Math.max(Math.trunc(panelBps), 0), maxPartnerDiscountBps), source: "panel" };
+  if (fallbackBps > 0) return { discountBps: fallbackBps, source: "env" };
+  return { discountBps: defaultPartnerDiscountBps, source: "none" };
+}
+
 /** The storefront's pricing inputs (`commerce_catalog.pricing_snapshot` of a supplier row). */
 export type SupplierPricing = { source?: unknown; nf?: unknown; exchange_rate?: unknown; markup_percent?: unknown; vat_percent?: unknown };
 
