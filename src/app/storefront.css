@@ -98,6 +98,8 @@
   .social-list { @apply m-0 flex list-none items-center gap-2 p-0; }
   .social-link { @apply flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-brand; }
   .cookie-preferences { @apply inline min-h-6 cursor-pointer rounded-none border-0 bg-transparent p-0 text-[length:inherit] leading-[inherit] text-inherit font-normal underline underline-offset-3 hover:bg-transparent hover:text-primary; }
+  /* Landscape notch (#911): viewport-fit=cover lets the page run under the side safe areas; the static chrome and main content pad by them (0 elsewhere). Fixed bars pad themselves. */
+  .site-topbar, .site-header, #main-content, .site-footer { @apply pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]; }
   .site-header {
     @apply relative border-b border-border bg-white min-[600px]:in-data-home-scrolled:h-[131px] min-[600px]:in-data-catalog-scrolled:h-[131px];
     @apply max-[599.98px]:in-data-header-pin:pointer-events-none max-[599.98px]:in-data-header-pin:border-transparent max-[599.98px]:in-data-header-pin:bg-transparent;
