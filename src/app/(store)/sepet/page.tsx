@@ -19,6 +19,7 @@ import { CartFreshness } from "@/components/navigation/cart-badge";
 import { TrackCart } from "@/components/privacy/track-commerce";
 import { cartAnalyticsItems } from "@/modules/analytics/cart-items.server";
 import { Alert } from "@/components/ui/alert";
+import { storeErrorBox } from "@/components/store-alert-classes";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Empty, EmptyMedia } from "@/components/ui/empty";
@@ -42,7 +43,7 @@ export default async function Cart({searchParams}:{searchParams:Promise<SearchPa
   return <div className="bg-[#f8f9f9] text-foreground"><CartFreshness count={items.reduce((n,p)=>n+p.quantity,0)}/><section className="mx-auto min-h-[550px] w-full max-w-[1350px] px-[15px] pb-12 max-[760px]:px-3 max-[760px]:pb-6">
     <nav className="mb-7 flex items-center gap-2 pt-4 text-[13px] text-muted-foreground" aria-label="Sayfa yolu"><Link href="/" className="hover:text-primary hover:underline">Ana sayfa</Link><ChevronRight className="size-[13px]" aria-hidden/><span aria-current="page">Sepetim</span></nav>
     <div className="mb-9 flex items-center gap-6 max-[760px]:mb-6 max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-2"><h1 className="m-0 text-[36px] leading-[44px] font-semibold tracking-[-1px] max-[760px]:text-[30px]">Sepetim</h1><Link href="/siparisler" className="text-sm text-[#0065a5] hover:underline">Siparişlerimi görüntüle</Link></div>
-    {params.error && <Alert className="mb-4 rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">Ürün fiyatı veya stok durumu uygun değil. Sepetini kontrol edip güncelle.</Alert>}
+    {params.error && <Alert className={cn(storeErrorBox, "mb-4")}>Ürün fiyatı veya stok durumu uygun değil. Sepetini kontrol edip güncelle.</Alert>}
     {items.length ? <><div className="grid grid-cols-[minmax(0,1.76fr)_minmax(320px,1fr)] items-start gap-4 max-[1000px]:grid-cols-[minmax(0,1.6fr)_minmax(280px,1fr)] max-[760px]:grid-cols-1"><TrackCart lines={analytics}/><div>
       <Card className="gap-0 rounded-[10px] py-0 ring-0 border border-border">
         <div className="grid grid-cols-[1fr_64px_90px] gap-6 border-b border-border px-5 py-[18px] text-sm max-[1000px]:grid-cols-[1fr_56px_80px] max-[1000px]:gap-3 max-[1000px]:px-4 max-[760px]:hidden" aria-hidden><span>Ürün</span><span>Adet</span><span className="text-right">Fiyat</span></div>

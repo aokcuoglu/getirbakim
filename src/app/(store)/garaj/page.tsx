@@ -6,6 +6,7 @@ import { CarFront,ChevronRight,Check,Trash2 } from "lucide-react";
 import { currentVehicle,savedVehicles,vehicleKey,garageVehicleLabel } from "@/modules/store/garage";
 import { shownVehicle } from "@/modules/store/vehicle-label";
 import { Alert } from "@/components/ui/alert";
+import { storeErrorBox } from "@/components/store-alert-classes";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -34,7 +35,7 @@ export default async function Garage({searchParams}:{searchParams:Promise<Search
    </div>
    <Card className="gap-0 rounded-2xl border border-border bg-white p-[25px] ring-0 max-[600px]:p-5">
     {params.saved && <Alert role="status" className="mb-4 flex items-center gap-2 rounded-md border-0 bg-[#ebf5ed] p-[13px] text-sm leading-5 text-[#397247]"><Check className="size-[18px] shrink-0" aria-hidden/> Araç bilgilerin kaydedildi.</Alert>}
-    {params.error && <Alert className="mb-4 rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">Marka, model ve yılı kontrol et.</Alert>}
+    {params.error && <Alert className={cn(storeErrorBox, "mb-4")}>Marka, model ve yılı kontrol et.</Alert>}
     <h2 className="text-[23px] leading-[34px] font-semibold">{vehicle ? "Araç bilgilerini güncelle" : "Garajına araç ekle"}</h2>
     <form action={saveVehicle} className="grid gap-5">
      <Field className="gap-2"><FieldLabel htmlFor="garage-make" className={label}>Marka</FieldLabel><Input id="garage-make" className={input} name="make" defaultValue={params.make?.slice(0,40) ?? shown?.makeLabel ?? ""} placeholder="Örn. Volkswagen" minLength={2} maxLength={40} required list="vehicle-makes"/></Field>

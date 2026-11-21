@@ -129,7 +129,14 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     const itemRow=async()=>(await db.query("SELECT product_data,price_data,stock_data,last_seen_at,changed_at FROM supplier_items WHERE id=$1",[id])).rows[0];
     // #763: the live check asks MalzemeAra for the cart's own code only, without the list endpoints or the import lock.
     const listUrls=/FiyatGetir|StokGetir|MalzemeleriGetir|ListeGrubuGetir|DovizBilgisiGetir/;
-    urls.length=0;price=20;assert.equal((await submitOrder(owner,input)).error,"price");
+    // #1172: the repriced row is re-checked for price anomalies in the same request, against the real schema
+    // (product_sources included): no failure or skip is logged, and an ordinary price change leaves no anomaly.
+    const loggedError=console.error;const anomalyLogs:unknown[]=[];
+    console.error=(...args:unknown[])=>{if(args.some(arg=>typeof arg==="object"&&arg!==null&&"priceAnomalies" in arg)) anomalyLogs.push(args);else loggedError(...args);};
+    urls.length=0;price=20;
+    try { assert.equal((await submitOrder(owner,input)).error,"price"); } finally { console.error=loggedError; }
+    assert.deepEqual(anomalyLogs,[]);
+    assert.equal((await db.query("SELECT 1 FROM supplier_price_anomalies WHERE supplier_item_id=$1",[id])).rowCount,0);
     assert.ok(urls.some(url=>url.includes("/material/MalzemeAra")));assert.doesNotMatch(urls.join(" "),listUrls);
     assert.ok(urls.filter(url=>url.includes("/auth/Login")).length<=1);
     assert.equal((await itemRow()).price_data.nf,20);

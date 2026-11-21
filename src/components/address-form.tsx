@@ -3,6 +3,7 @@ import { useActionState } from "react";
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
+import { storeErrorBox } from "@/components/store-alert-classes";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -35,7 +36,7 @@ export function AddressForm({ address, first }: { address: AccountAddress | null
     { name: "defaultInvoice", id: "address-default-invoice", text: "Varsayılan fatura adresim olsun", locked: address?.default_invoice ?? false },
   ] as const;
   return <form action={action} onSubmit={dismiss} className="grid gap-4">
-    {state && <Alert role="alert" className="rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">{state.error}</Alert>}
+    {state && <Alert role="alert" className={storeErrorBox}>{state.error}</Alert>}
     {address && <input type="hidden" name="id" value={address.id}/>}
     <div key={`${address?.id ?? "new"}-${state?.attempt ?? 0}`} className="grid gap-4">
       <Field className="gap-1.5"><FieldLabel htmlFor="address-label" className={checkoutLabel}>Adres başlığı {required}</FieldLabel>

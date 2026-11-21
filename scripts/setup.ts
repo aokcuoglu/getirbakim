@@ -130,7 +130,20 @@ try {
   // The dashboard's materialized catalog: a first deployment queues a full rebuild, which must not run under the schema locks.
   await pool.query("SELECT enrichment_product_states_sync()");
   // The storefront's enrichment links (#446): the schema queues a rebuild, done here before the release serves traffic.
-  await pool.query("SELECT product_enrichment_shared_sync()");
+  // The sync returns 0 without a word while another session (the previous release's background sync) holds its lock:
+  // the rebuild marker then stays queued and the precomputed tables (storefront_facet_specs on a first deploy, #994)
+  // stay as they were. A few short retries; past them the app's background sync drains it, the deploy goes on.
+  const rebuildQueued = async () => (await pool.query<{ queued: boolean }>(`SELECT EXISTS (SELECT 1 FROM product_enrichment_shared_queue
+   WHERE kind='p' AND id='00000000-0000-0000-0000-000000000000') AS queued`)).rows[0].queued;
+  for (let attempt = 1; ; attempt++) {
+   await pool.query("SELECT product_enrichment_shared_sync()");
+   if (!await rebuildQueued()) break;
+   if (attempt === 6) {
+    console.warn("product_enrichment_shared_sync: another session held the lock for ~45 s; the full rebuild stays queued for the app's background sync.");
+    break;
+   }
+   await new Promise(resolve => setTimeout(resolve, attempt * 3000));
+  }
   // Dinamik price-list-only codes with content (#1068), from the links just synced. NULL: another task holds the rebuild
   // lock, so the new search fields (#1081) are written by that run or the app's next one (within 10 minutes).
   const priceOnly = (await pool.query<{ written: number | null }>("SELECT storefront_price_only_refresh() AS written")).rows[0].written;

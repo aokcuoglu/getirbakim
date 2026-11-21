@@ -52,13 +52,12 @@ export const manualGroupsSql = "SELECT DISTINCT o.primary_id::text AS primary_id
 
 /**
  * The latest exchange rate per supplier and currency (`supplier`, `currency`, `rate`) from the last succeeded import of
- * each supplier and company; the company is ignored (commerce_catalog keys rates by company too). Shared by
- * productCostTrySql and scripts/measure-suffix-signals.ts (#587, #899).
+ * each supplier and company (supplier_latest_imports, db/schema.sql, #1169); the company is ignored (commerce_catalog
+ * keys rates by company too). Shared by productCostTrySql and scripts/measure-suffix-signals.ts (#587, #899).
  */
 export const latestSupplierRatesSql = `
     WITH latest AS (
-     SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
-     FROM supplier_imports WHERE status='succeeded' ORDER BY supplier,company,completed_at DESC,id DESC
+     SELECT supplier,company,currencies_data,completed_at FROM supplier_latest_imports
     ), rates AS (
      SELECT supplier,completed_at,r->>'dovizCinsi' AS currency,(r->>'satis')::numeric AS rate
      FROM latest CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(currencies_data->'dovizListesi')='array' THEN currencies_data->'dovizListesi' ELSE '[]'::jsonb END) r

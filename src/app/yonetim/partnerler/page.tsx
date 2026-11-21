@@ -137,7 +137,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     <Card>
       <CardHeader>
         <CardTitle>Webhook bildirimleri</CardTitle>
-        <CardDescription>Webhook, partnerin sistemine sipariş değiştiğinde otomatik gönderilen doğrulanabilir HTTP bildirimidir. Partner siparişinin durumu, kargo bilgisi, iptali ya da iptal talebi değişince gönderilir; teslim edilemeyen bildirim 72 saat boyunca yeniden denenir, sonra bırakılır.</CardDescription>
+        <CardDescription>Webhook, partnerin sistemine sipariş değiştiğinde otomatik gönderilen doğrulanabilir HTTP bildirimidir. Partner siparişinin durumu, kargo bilgisi, iptali ya da iptal talebi değişince ve iade talebi onaylanınca ya da reddedilince gönderilir; teslim edilemeyen bildirim 72 saat boyunca yeniden denenir, sonra bırakılır.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {webhooks.parseError && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertTitle>Webhook ayarı okunamadı</AlertTitle><AlertDescription>PARTNER_WEBHOOKS_JSON geçerli bir JSON nesnesi değil. Bildirimler gönderilmiyor, 72 saat boyunca bekletiliyor; sistem yöneticisine bildirin.</AlertDescription></Alert>}

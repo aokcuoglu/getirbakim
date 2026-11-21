@@ -590,3 +590,95 @@ test("PostgreSQL: a price/stock run re-checks only the rows whose value it chang
     await schema.drop();
   }
 });
+
+test("PostgreSQL: the order-time Başbuğ check re-checks the rows whose value it wrote (#1172)", { skip: !process.env.DATABASE_URL && "DATABASE_URL not set" }, async () => {
+  const schema = await isolatedSchema("price_checkout_test");
+  const { pool } = schema;
+  // The operator's real Başbuğ pause marker (.local/basbug-paused, relative to cwd) must not skip the check.
+  const originalCwd = process.cwd();
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const sandbox = await mkdtemp(join(tmpdir(), "getirbakim-price-checkout-"));
+  process.chdir(sandbox);
+  try {
+    const { refreshPriceAnomalies, refreshPriceAnomaliesAfterCheckout, refreshPriceAnomaliesAfterImports, setPriceAnomalyStatus } = await import("../src/modules/suppliers/price-anomalies");
+    const { refreshBasbugItems } = await import("../src/modules/suppliers/basbug-item-refresh");
+    const rates = JSON.stringify({ dovizListesi: [{ dovizCinsi: "EUR", satis: "55" }] });
+    await pool.query(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
+      VALUES('basbug','BASBUG','G','MRK',now(),now(),'{}','{}','{}',$1,'succeeded')`, [rates]);
+    const rows = async (brand: string, currency: string, first: number, count: number) => (await pool.query<{ id: string }>(
+      `INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,product_count,price_count,stock_count,first_seen_at,last_seen_at,changed_at)
+      SELECT 'basbug','BASBUG','G','MRK',$1||' '||$2||' '||($3::numeric+n),jsonb_build_object('uk',$1,'marka',$1,'ac','Test','dc',$2),jsonb_build_object('nf',$3::numeric+n),'{"stok":1}',1,1,1,now(),now(),now()
+      FROM generate_series(0,$4::int-1) n RETURNING id::text`, [brand, currency, first, count])).rows.map(row => row.id);
+    // A GLASER-like brand with one TL row flagged low (see the #1142 and #1153 tests).
+    await rows("GLASX", "EUR", 10, 200);
+    const [item] = await rows("GLASX", "TL", 300, 1);
+    const price = async () => (await pool.query<{ price_kurus: number | null }>("SELECT price_kurus FROM commerce_catalog WHERE id=$1", [item])).rows[0].price_kurus;
+    const anomaly = async () => (await pool.query<{ status: string; evidence: PriceAnomalyEvidence }>(
+      "SELECT status,evidence FROM supplier_price_anomalies WHERE supplier_item_id=$1", [item])).rows[0];
+    // MalzemeAra's answer for the item (scripts/test-basbug.ts's shape).
+    const fetchFor = (nf: number) => async (_company: string, code: string) =>
+      Response.json({ no: code, nf, mif: nf, k: 0, sMrk: 5, sIzm: 0, sAnk: 0, sAdn: 0, sErz: 0 });
+
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 0, reopened: 0, ratesMissing: false, unrated: 0 });
+    assert.equal(await setPriceAnomalyStatus(pool, item, "dismissed", null, { nf: 300, currency: "TRY" }), true);
+    assert.ok((await price() ?? 0) > 0);
+
+    // Stock only: written, but no nf moved, so nothing is re-checked.
+    let result = await refreshBasbugItems(pool, [item], { fetchItem: fetchFor(300) });
+    assert.deepEqual([result.changed, result.repriced], [1, []]);
+    assert.equal((await anomaly()).status, "dismissed");
+    assert.ok((await price() ?? 0) > 0);
+
+    // The live cost moves to 300 / 1.5: the same request reopens the anomaly and unprices the row, with no full refresh.
+    result = await refreshBasbugItems(pool, [item], { fetchItem: fetchFor(200) });
+    assert.deepEqual([result.changed, result.repriced], [1, [item]]);
+    const row = await anomaly();
+    assert.equal(row.status, "open");
+    assert.deepEqual(row.evidence.reopened_from, { nf: 300, currency: "TRY" });
+    assert.equal(await price(), null);
+    const change = (await pool.query<{ import_id: string | null; source: string }>(`SELECT import_id::text,after_data->>'source' AS source
+      FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 1`, [item])).rows[0];
+    assert.deepEqual(change, { import_id: null, source: "checkout" });
+
+    // Another refresh holding the lock: skipped and logged, never thrown into the order.
+    assert.deepEqual(await refreshPriceAnomaliesAfterCheckout(pool, "basbug", []), { changed: 0 });
+    const holder = await pool.connect();
+    try {
+      await holder.query("BEGIN");
+      await holder.query("SELECT pg_advisory_xact_lock(20261001,11)");
+      assert.deepEqual(await refreshPriceAnomaliesAfterCheckout(pool, "basbug", [item], { lockTimeoutMs: 100 }), { changed: 1, skipped: true });
+    } finally { await holder.query("ROLLBACK"); holder.release(); }
+
+    // A checkout move whose own re-check was skipped (lock held past its 2 s wait) is picked up by the next tick's scoped
+    // run, though that commerce run itself changed nothing.
+    assert.equal(await setPriceAnomalyStatus(pool, item, "dismissed", null, { nf: 200, currency: "TRY" }), true);
+    const blocker = await pool.connect();
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT pg_advisory_xact_lock(20261001,11)");
+      result = await refreshBasbugItems(pool, [item], { fetchItem: fetchFor(300) });
+    } finally { await blocker.query("ROLLBACK"); blocker.release(); }
+    assert.deepEqual(result.repriced, [item]);
+    assert.equal((await anomaly()).status, "dismissed");
+    assert.ok((await price() ?? 0) > 0);
+    const tick = (await pool.query<{ id: string }>(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,run_kind,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
+      VALUES('basbug','BASBUG','G','MRK','commerce',now(),now(),'{}','{}','{}',$1,'succeeded') RETURNING id::text`, [rates])).rows[0].id;
+    assert.deepEqual(await refreshPriceAnomaliesAfterImports(pool, "basbug", [tick]),
+      { changed: 1, skipped: false, flagged: 1, open: 1, removed: 0, reopened: 1, ratesMissing: false, unrated: 0 });
+    const reopened = await anomaly();
+    assert.deepEqual([reopened.status, reopened.evidence.reopened_from], ["open", { nf: 200, currency: "TRY" }]);
+    assert.equal(await price(), null);
+    // Changes from before the previous succeeded import started were already that tick's to re-check.
+    await pool.query("UPDATE supplier_item_changes SET changed_at=changed_at-interval '1 hour' WHERE item_id=$1", [item]);
+    await pool.query("UPDATE supplier_imports SET started_at=now()-interval '30 minutes',completed_at=now()-interval '30 minutes' WHERE id=$1", [tick]);
+    const next = (await pool.query<{ id: string }>(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,run_kind,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
+      VALUES('basbug','BASBUG','G','MRK','commerce',now(),now(),'{}','{}','{}',$1,'succeeded') RETURNING id::text`, [rates])).rows[0].id;
+    assert.deepEqual(await refreshPriceAnomaliesAfterImports(pool, "basbug", [next]), { changed: 0 });
+  } finally {
+    process.chdir(originalCwd);
+    await rm(sandbox, { recursive: true, force: true });
+    await schema.drop();
+  }
+});

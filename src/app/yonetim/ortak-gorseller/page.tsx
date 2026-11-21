@@ -1,15 +1,14 @@
-import Image from "next/image";
 import Link from "next/link";
-import { Ban, ImageOff, Images, TriangleAlert } from "lucide-react";
+import { Ban, Images, TriangleAlert } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { SharedImageBlockDialog } from "@/components/admin/shared-image-block-dialog";
+import { SharedImageThumb } from "@/components/admin/shared-image-thumb";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SupplierPagination } from "@/components/admin/supplier-pagination";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { ItemMedia } from "@/components/ui/item";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -58,9 +57,8 @@ export default async function SharedImages({ searchParams }: { searchParams: Pro
             <TableHead><span className="sr-only">İşlem</span></TableHead>
           </TableRow></TableHeader>
           <TableBody>{data.images.map(image => <TableRow key={image.image_id}>
-            <TableCell><ItemMedia variant="image" className="size-16">{image.store_rows === 0
-              ? <ImageOff className="text-muted-foreground" role="img" aria-label="Mağazada gösterilmiyor"/>
-              : <Image src={`/api/product-media/${image.image_id}`} alt={`Ortak görsel, ${image.host}`} width={64} height={64} unoptimized/>}</ItemMedia></TableCell>
+            <TableCell><SharedImageThumb imageId={image.image_id} blocked={image.blocked} shown={image.store_rows > 0} size="sm"
+              alt={image.blocked ? `Engellenen görsel önizlemesi, ${image.host}` : `Ortak görsel, ${image.host}`}/></TableCell>
             <TableCell className="max-w-40 truncate" title={image.source_url}>{image.host}</TableCell>
             <TableCell className="max-w-48 truncate" title={image.manufacturers.join(", ")}>{image.manufacturers.length
               ? <>{image.manufacturers.slice(0, 2).join(", ")}{image.manufacturers.length > 2 && ` +${image.manufacturers.length - 2}`}</>
@@ -91,10 +89,11 @@ export default async function SharedImages({ searchParams }: { searchParams: Pro
       <CardContent>
         {blocks.length ? <Table><caption className="sr-only">Engellenen görseller</caption>
           <TableHeader><TableRow>
-            <TableHead>Not</TableHead><TableHead>Kaynak</TableHead><TableHead>Engelleyen</TableHead><TableHead>Tarih</TableHead><TableHead>SHA-256</TableHead>
+            <TableHead><span className="sr-only">Görsel</span></TableHead><TableHead>Not</TableHead><TableHead>Kaynak</TableHead><TableHead>Engelleyen</TableHead><TableHead>Tarih</TableHead><TableHead>SHA-256</TableHead>
             <TableHead>Zenginleştirme kaydı</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead>
           </TableRow></TableHeader>
           <TableBody>{blocks.map(block => <TableRow key={block.sha256}>
+            <TableCell><SharedImageThumb imageId={block.image_id} blocked shown={false} size="sm" alt={`Engellenen görsel önizlemesi, SHA-256 ${block.sha256.slice(0, 12)}`}/></TableCell>
             <TableCell className="max-w-80 whitespace-normal">{block.note || <span className="text-muted-foreground">Not yok</span>}</TableCell>
             <TableCell className="max-w-40 truncate" value={block.source_url ?? ""}>{block.source_url
               ? <a className="underline-offset-4 hover:underline" href={block.source_url} target="_blank" rel="noreferrer" title={block.source_url}>{block.source_url.split("/")[2] || block.source_url}<span className="sr-only"> (kaynak adresi, yeni sekmede açılır)</span></a>

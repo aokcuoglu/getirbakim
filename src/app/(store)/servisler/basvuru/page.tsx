@@ -2,6 +2,7 @@ import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
+import { storeErrorBox } from "@/components/store-alert-classes";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -26,7 +27,7 @@ export default async function Application({ searchParams }: { searchParams: Prom
       <Button nativeButton={false} className={storeButton({ intent: "primary", size: "lg" })} render={<Link href="/giris"/>}>Servis girişine git</Button>
     </> : <>
       <p className="text-base leading-6 text-muted-foreground">Servisini tanıyalım, parça ihtiyaçlarına birlikte bakalım. B2B fiyatları yönetici onayından sonra açılır.</p>
-      {error && <Alert className="mt-4 rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">{error === "limit" ? "Başvuru deneme sınırına ulaşıldı. Bir saat sonra tekrar dene veya destek ekibimize ulaş." : "Alanları kontrol et. Şifre en az 12 karakter ve en fazla 72 UTF-8 bayt olmalı; telefon 10–15 rakam içermeli. Kullanım koşullarını kabul et."}</Alert>}
+      {error && <Alert className={cn(storeErrorBox, "mt-4")}>{error === "limit" ? "Başvuru deneme sınırına ulaşıldı. Bir saat sonra tekrar dene veya destek ekibimize ulaş." : "Alanları kontrol et. Şifre en az 12 karakter ve en fazla 72 UTF-8 bayt olmalı; telefon 10–15 rakam içermeli. Kullanım koşullarını kabul et."}</Alert>}
       <form action={applyForService} className="mt-6 grid gap-5">
         <Field className={field}><FieldLabel htmlFor="application-name" className={label}>Servis adı</FieldLabel><Input id="application-name" className={input} name="name" autoComplete="organization" minLength={2} maxLength={150} required/></Field>
         <Field className={field}><FieldLabel htmlFor="application-contact" className={label}>Yetkili adı ve soyadı</FieldLabel><Input id="application-contact" className={input} name="contactName" autoComplete="name" minLength={2} maxLength={150} required/></Field>
