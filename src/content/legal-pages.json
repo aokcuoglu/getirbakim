@@ -4,7 +4,7 @@
     "sourceUrl": "https://getirbakim.com/iletisim",
     "importedAt": "2026-10-03",
     "updatedAt": "2026-10-19",
-    "description": "Müşteri hizmetleri, şirket kimlik bilgileri, iletişim adresleri ve başvuru kanalları.",
+    "description": "Getirbakim müşteri hizmetleri telefon ve e-posta bilgileri, şirket kimlik bilgileri, iade adresi ve başvuru kanalları.",
     "sections": [
       {
         "title": "Müşteri Hizmetleri",
@@ -379,7 +379,7 @@
     "sourceUrl": "https://getirbakim.com/teslimat-ve-iade",
     "importedAt": "2026-10-03",
     "updatedAt": "2026-10-19",
-    "description": "Teslimat süreleri, cayma bildirimi, ürünün geri gönderilmesi, geri ödeme ve ayıplı mal hakları.",
+    "description": "Teslimat süreleri ve kargo, cayma bildirimi, ürünün geri gönderilmesi, geri ödeme süreci ve ayıplı mal hakları.",
     "sections": [
       {
         "title": "Kapsam ve Bilgilendirme",
@@ -971,7 +971,7 @@
     "sourceUrl": "https://getirbakim.com/mesafeli-satis-sozlesmesi",
     "importedAt": "2026-10-03",
     "updatedAt": "2026-10-19",
-    "description": "Tüketiciyle kurulacak mesafeli satış sözleşmesinin genel hükümleri ve tarafların hakları.",
+    "description": "Getirbakim siparişlerinde tüketiciyle kurulan mesafeli satış sözleşmesinin genel hükümleri, cayma hakkı ve tarafların hakları.",
     "sections": [
       {
         "title": "Kapsam ve Bilgilendirme",
@@ -1716,7 +1716,7 @@
     "sourceUrl": "https://getirbakim.com/on-bilgilendirme-formu",
     "importedAt": "2026-10-03",
     "updatedAt": "2026-10-19",
-    "description": "Sipariş öncesinde sunulan bilgilerin kapsamı ve tüketici hakları.",
+    "description": "Getirbakim’de sipariş öncesinde sunulan ön bilgilendirme: satıcı bilgileri, ürün ve ödeme koşulları, teslimat ve tüketici hakları.",
     "sections": [
       {
         "title": "Kapsam ve Bilgilendirme",
@@ -2469,7 +2469,7 @@
     "sourceUrl": "https://getirbakim.com/uyelik-ve-kullanim-kosullari",
     "importedAt": "2026-10-03",
     "updatedAt": "2026-10-19",
-    "description": "Site kullanımı, servis hesapları, içerik hakları ve tarafların sorumluluklarına ilişkin koşullar.",
+    "description": "Getirbakim site kullanımı, üyelik ve servis hesapları, içerik hakları ve tarafların sorumluluklarına ilişkin koşullar.",
     "sections": [
       {
         "title": "Kapsam ve Kabul",
@@ -2879,7 +2879,7 @@
     "sourceUrl": "https://getirbakim.com/gizlilik-politikasi",
     "importedAt": "2026-10-03",
     "updatedAt": "2026-11-19",
-    "description": "Mevcut site hizmetlerinde kişisel verilerin kullanılması, güvenliği ve başvuru hakları.",
+    "description": "Getirbakim site hizmetlerinde kişisel verilerin nasıl kullanıldığı, nasıl korunduğu ve ilgili kişilerin başvuru hakları.",
     "sections": [
       {
         "title": "Veri Sorumlusunun Kimliği",
@@ -4527,7 +4527,7 @@
     "sourceUrl": "https://getirbakim.com/cerez-politikasi",
     "importedAt": "2026-10-03",
     "updatedAt": "2026-11-18",
-    "description": "Sitede kullanılan çerez ve yerel depolama kayıtları, amaçları, süreleri ve tercihlerin yönetimi.",
+    "description": "Getirbakim’de kullanılan çerez ve yerel depolama kayıtları, kullanım amaçları, saklama süreleri ve tercihlerin yönetimi.",
     "sections": [
       {
         "title": "Veri Sorumlusunun Kimliği",

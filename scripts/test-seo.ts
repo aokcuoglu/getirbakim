@@ -10,6 +10,8 @@ import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, with
 import { legalLinks } from "../src/content/legal";
 import { sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
 import { startSitemapWarmup, warmIntervalMs, warmSitemaps } from "../src/modules/seo/sitemap-warmup";
+import { brandedTitle, brandSuffix, catalogMetaDescription, categoryDescription, descriptionMax, descriptionMin, fitDescription, listingTitlePad, titleMax } from "../src/modules/seo/meta-text";
+import { readFileSync } from "node:fs";
 
 type Group = { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
 const list = (value: string | string[] | undefined) => (value === undefined ? [] : Array.isArray(value) ? value : [value]);
@@ -184,4 +186,63 @@ test("startSitemapWarmup ticks on its interval, skips a running round and stops 
   assert.equal(overlapped, false);
   await new Promise(resolve => setTimeout(resolve, 80));
   assert.equal(ticks, stopped);
+});
+
+test("a page title keeps the brand suffix up to 65 characters, else stands alone and is cut at a word (#1218)", () => {
+  const page = (length: number) => "a".repeat(length);
+  assert.equal(brandSuffix.length, 13);
+  assert.deepEqual(brandedTitle(page(52)), { title: page(52) });
+  assert.deepEqual(brandedTitle(page(53)), { title: page(53), absoluteTitle: true });
+  const long = brandedTitle("Ford Tourneo Connect / Grand Tourneo Connect V761 gergiler, kasnaklar ve sönümleyiciler");
+  assert.equal(long.absoluteTitle, true);
+  assert.ok(long.title.length <= titleMax && long.title.endsWith("…") && !/[,\s]…$/.test(long.title), long.title);
+});
+
+// The curated category texts live in catalog-view.tsx, which needs the server runtime; the test reads them from source.
+const catalogView = readFileSync("src/app/(store)/katalog/catalog-view.tsx", "utf8");
+const curated = (slug: string) => catalogView.match(new RegExp(`"?${slug}"?:"([^"]+)"`))?.[1] ?? "";
+
+test("curated category copy fits 160 characters without a mid-word cut (#1218)", () => {
+  for (const slug of ["filtre", "fren-diskleri-269", "yedek-parca"]) {
+    const text = curated(slug);
+    assert.ok(text.length > descriptionMax, slug);
+    const fitted = fitDescription(text);
+    assert.ok(fitted.length >= descriptionMin && fitted.length <= descriptionMax, `${slug}: ${fitted.length}`);
+    const body = fitted.replace(/…$/, "");
+    assert.ok(text.startsWith(body) && /[\s,.;:]/.test(text[body.length] ?? " "), `${slug}: ${fitted}`);
+    assert.ok(!/[\s,.:;/-]…$/.test(fitted), fitted);
+  }
+  assert.equal(fitDescription("Kısa metin."), "Kısa metin.");
+  // Whole sentences stay when they make 100 characters; "12.345" is no sentence end.
+  const sentences = `${"Birinci cümle 12.345 ürünle uzun bir açıklama yapar ve yüz karakteri geçecek kadar devam eder burada"}. İkinci cümle ${"uzun ".repeat(20)}biter.`;
+  assert.equal(fitDescription(sentences), `${sentences.split(". ")[0]}.`);
+});
+
+test("/katalog has its own description, apart from the root category's (#1218)", () => {
+  assert.notEqual(catalogMetaDescription, fitDescription(curated("yedek-parca")));
+  assert.ok(catalogMetaDescription.length >= descriptionMin && catalogMetaDescription.length <= descriptionMax);
+});
+
+test("a category without curated copy gets a description of 100–160 characters (#1218)", () => {
+  for (let length = 3; length <= 60; length++) {
+    const description = categoryDescription("Ç".repeat(length));
+    assert.ok(description.length >= descriptionMin && description.length <= descriptionMax, `${length}: ${description.length}`);
+  }
+});
+
+test("a short listing title is padded, a longer one is not (#1218)", () => {
+  assert.equal(listingTitlePad("Volanlar"), "Volanlar çeşitleri ve fiyatları");
+  assert.equal(listingTitlePad("Krank mili yatakları"), "Krank mili yatakları");
+});
+
+test("a clipped model × category title has no separator before the ellipsis (#1218)", () => {
+  const ford = { name: "TOURNEO CONNECT / GRAND TOURNEO CONNECT V761", dateFrom: "2013-10", dateTo: null };
+  const title = vehicleModelCategoryLabels("FORD", ford, "gergiler, kasnaklar ve sönümleyiciler").title;
+  assert.ok(title.length <= 60, title);
+  assert.ok(!title.includes(",…"), title);
+});
+
+test("robots.txt closes 38 paths for every crawler and keeps the static pages open (#1218)", () => {
+  assert.equal(list(groups[0].disallow).length, 38);
+  for (const url of ["/bilgi/hakkimizda", "/iletisim", "/rehber", "/servisler", "/bakim-robotu", "/marka/bosch"]) assert.equal(allowed(groups[0], url), true, url);
 });

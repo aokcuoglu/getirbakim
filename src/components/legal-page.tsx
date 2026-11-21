@@ -36,10 +36,17 @@ export const legalBodyClass = "[&_li]:text-base [&_li]:leading-[1.9] [&_li]:text
 export const legalCardClass = "rounded-md border border-border p-[22px] max-[600px]:p-[18px]";
 export const legalHeadingClass = "m-0 mb-3.5 text-[19px] leading-[1.5] font-semibold";
 
+// <title>s of pages whose footer label is too short for a search result (#1218); the label and breadcrumb stay short.
+const metaTitles: Record<string, string> = {
+  iletisim: "İletişim ve müşteri hizmetleri",
+  "teslimat-ve-iade": "Teslimat ve İade Koşulları",
+  "cerez-politikasi": "Çerez Politikası ve tercihler",
+};
+
 export function legalMetadata(slug: string): Metadata {
   const page = legalDocument(slug);
   if (!page) notFound();
-  return pageMetadata({ title: legalTitle(slug) ?? page.title, description: page.description, path: `/${slug}` });
+  return pageMetadata({ title: metaTitles[slug] ?? legalTitle(slug) ?? page.title, description: page.description, path: `/${slug}` });
 }
 
 export function LegalPage({ slug }: { slug: string }) {

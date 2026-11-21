@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { manufacturerSlug } from "../src/modules/seo/manufacturer-path";
-import { buildManufacturerDirectory, featuredManufacturers, manufacturerIndexable, manufacturerTexts, manufacturerTrail, unindexedManufacturerSlugs, type ManufacturerRow } from "../src/modules/store/manufacturers";
+import { buildManufacturerDirectory, featuredManufacturers, manufacturerIndexable, manufacturerDescriptionLimit, manufacturerTexts, manufacturerTrail, unindexedManufacturerSlugs, type ManufacturerRow } from "../src/modules/store/manufacturers";
 
 // Manufacturer pages (#660): slugs, the label directory, the index rule and the page texts. Pure.
 
@@ -132,10 +132,11 @@ test("the page texts name the manufacturer and its count", () => {
   for (const key of ["title", "heading", "intro", "description"] as const) assert.notEqual(bosch[key], febi[key], key);
   // A long description ends at a word boundary with "…", never mid-word.
   const long = manufacturerTexts("A VERY LONG MANUFACTURER NAME ".repeat(3).trim(), 1_000_000).description;
-  assert.ok(long.length <= 180, String(long.length));
+  assert.ok(long.length <= 160, String(long.length));
   assert.match(long, /[^\s,.:;]…$/);
   const full = `A VERY LONG MANUFACTURER NAME `.repeat(3).trim() + " üreticisinin 1.000.000 yedek parça ve bakım ürünü: ürün kodu veya OEM numarasıyla ara, fiyat ve stok bilgisini gör. Siparişten önce araç uyumluluğunu kontrol et.";
   assert.ok(full.startsWith(long.slice(0, -1)) && [" ", ",", ":", "."].includes(full[long.length - 1]), long);
-  assert.ok(bosch.description.length <= 180);
+  assert.equal(manufacturerDescriptionLimit, 160);
+  assert.ok(bosch.description.length >= 100 && bosch.description.length <= 160, bosch.description);
   assert.deepEqual(manufacturerTrail({ name: "BOSCH", slug: "bosch" }).map(crumb => crumb.path), ["/", "/katalog", "/marka/bosch"]);
 });

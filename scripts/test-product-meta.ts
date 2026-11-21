@@ -80,13 +80,13 @@ test("title never cuts the brand or the part number and drops an open parenthesi
 
 test("descriptions of the design table", () => {
   assert.equal(productSeoDescription({ brand: "ORIJINAL", name: "Yağ Filtresi", partNumber: "ORJINAL 1520900Q0H", vehicles: megane }),
-    "ORIJINAL ORJINAL 1520900Q0H Yağ Filtresi. Uyumlu araçlar: Renault Megane III.");
+    "ORIJINAL ORJINAL 1520900Q0H Yağ Filtresi. Uyumlu araçlar: Renault Megane III. Siparişten önce araç uyumluluğunu OEM numarası ve araç bilgileriyle kontrol et.");
   assert.equal(productSeoDescription({ brand: "FEBI", name: "Radyatör Su Hortumu", partNumber: "175566", oem: "1K0122101BQ", vehicles: [], text: "Otomatik" }),
-    "FEBI 175566 Radyatör Su Hortumu. OEM: 1K0122101BQ. Otomatik.");
+    "FEBI 175566 Radyatör Su Hortumu. OEM: 1K0122101BQ. Otomatik. Siparişten önce araç uyumluluğunu OEM numarası ve araç bilgileriyle kontrol et.");
   assert.equal(productSeoDescription({ brand: "SETA", name: "Hava Filtresi", partNumber: "STA-1573", oem: "13780-62M00", vehicles: ["SUZUKI SX4 S-CROSS (JY)", "SUZUKI VITARA (LY)"], hint: "VITARA" }),
-    "SETA STA-1573 Hava Filtresi. OEM: 13780-62M00. Uyumlu araçlar: Suzuki Vitara, Suzuki SX4 S-Cross.");
+    "SETA STA-1573 Hava Filtresi. OEM: 13780-62M00. Uyumlu araçlar: Suzuki Vitara, Suzuki SX4 S-Cross. Ürün koduyla Getirbakim’de ara, fiyat ve stok durumunu gör.");
   assert.equal(productSeoDescription({ brand: "CONTINENTAL-D", name: "Kış Lastiği", partNumber: "LTRC353196", vehicles: [], text: "205/55R16 91H CONTINENTAL TS830P SSR *" }),
-    "CONTINENTAL-D LTRC353196 Kış Lastiği. 205/55R16 91H Continental TS830P SSR *.");
+    "CONTINENTAL-D LTRC353196 Kış Lastiği. 205/55R16 91H Continental TS830P SSR *. Siparişten önce araç uyumluluğunu OEM numarası ve araç bilgileriyle kontrol et.");
 });
 
 test("descriptions stay within 160, summarize many vehicles and cut the text at a word", () => {
@@ -222,8 +222,8 @@ test("primary vehicle: a list the hint does not name has no vehicle; the make st
 });
 
 test("description: the product text is readable and a text without letters is skipped", () => {
-  assert.equal(productSeoDescription({ brand: "A", name: "Ad", partNumber: "1", vehicles: [], text: "SURGULU KAPAK" }), "A 1 Ad. Sürgülü Kapak.");
-  assert.equal(productSeoDescription({ brand: "A", name: "Ad", partNumber: "1", vehicles: [], text: "." }), "A 1 Ad.");
+  assert.equal(productSeoDescription({ brand: "A", name: "Ad", partNumber: "1", vehicles: [], text: "SURGULU KAPAK", min: 0 }), "A 1 Ad. Sürgülü Kapak.");
+  assert.equal(productSeoDescription({ brand: "A", name: "Ad", partNumber: "1", vehicles: [], text: ".", min: 0 }), "A 1 Ad.");
 });
 
 test("a multi-word brand loses its first word at the start of the part number", () => {
@@ -233,7 +233,7 @@ test("a multi-word brand loses its first word at the start of the part number", 
   assert.equal(title("PSA ORIJINAL", "PSA 1618Q4"), "PSA ORIJINAL Dikiz Aynası 1618Q4");
   assert.equal(title("KALE RADYATOR", "KALE RADYATOR 123456"), "KALE RADYATOR Dikiz Aynası 123456");
   assert.equal(title("KALE RADYATOR", "KALE"), "KALE RADYATOR Dikiz Aynası KALE");
-  assert.equal(productSeoDescription({ brand: "KALE RADYATOR", name: "Radyatör", partNumber: "KALE 123456", vehicles: [] }), "KALE RADYATOR 123456 Radyatör.");
+  assert.equal(productSeoDescription({ brand: "KALE RADYATOR", name: "Radyatör", partNumber: "KALE 123456", vehicles: [], min: 0 }), "KALE RADYATOR 123456 Radyatör.");
 });
 
 test("a name with a third of its letters in lower case is a human's; a stray written word does not protect an upper case name", () => {
@@ -317,4 +317,22 @@ test("brand prefix needs whitespace; hyphenated codes and brand-first titles", a
   assert.equal(withoutBrandPrefix("TRW - DF1", ["TRW"]), "DF1");
   assert.equal(titleWithoutIdentity("Rulman SNR 3TM-6312", "SNR-AV", "3TM-6312"), "Rulman");
   assert.equal(titleWithoutIdentity("Rulman SNR", "SNR-AV", "3TM-6312"), "Rulman SNR");
+});
+
+test("a title under 17 characters gains its first OEM number unless that is the part number (#1218)", () => {
+  assert.equal(productSeoTitle({ brand: "NGK", name: "Buji", partNumber: "3052", oem: "96469288 / 55 555", vehicles: [], hint: "" }), "NGK Buji 3052 – OEM 96469288");
+  assert.equal(productSeoTitle({ brand: "NGK", name: "Buji", partNumber: "3052", oem: "NGK 3052", vehicles: [], hint: "" }), "NGK Buji 3052");
+  assert.equal(productSeoTitle({ brand: "NGK", name: "Buji", partNumber: "NGK 3052", oem: "3052", vehicles: [], hint: "" }), "NGK Buji 3052");
+  assert.equal(productSeoTitle({ brand: "NGK", name: "Buji", partNumber: "3052", oem: "", vehicles: [], hint: "" }), "NGK Buji 3052");
+  assert.equal(productSeoTitle({ brand: "FEBI", name: "Radyatör Su Hortumu", partNumber: "175566", oem: "1K0122101BQ", vehicles: [], hint: "" }), "FEBI Radyatör Su Hortumu 175566");
+});
+
+test("the OEM sentence loses a trailing separator and is left out when it repeats the part number (#1218)", () => {
+  const trailing = productSeoDescription({ brand: "OPAR", name: "Buji", partNumber: "1234", oem: "96469288 /", vehicles: [] });
+  assert.ok(trailing.includes("OEM: 96469288."), trailing);
+  const ngk = productSeoDescription({ brand: "NGK", name: "Buji", partNumber: "3052", oem: "NGK 3052", vehicles: [] });
+  assert.ok(!ngk.includes("OEM:"), ngk);
+  assert.ok(ngk.length >= 100 && ngk.length <= 160, `${ngk} (${ngk.length})`);
+  assert.ok(ngk.startsWith("NGK 3052 Buji."), ngk);
+  assert.ok(!/stok bilgisi|stoku/i.test(ngk), ngk);
 });

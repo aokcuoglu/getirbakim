@@ -1,4 +1,5 @@
 import { commonMake, foldText, modelKeyword, primaryVehicle, readableProductName, vehicleLabel } from "@/modules/store/product-name";
+import { descriptionMin } from "./meta-text";
 
 // The page part of a search title stays within 60 characters: the root template appends " | Getirbakim" to it, and
 // results show roughly 60 characters before cutting, so the brand, name and part number come first.
@@ -19,6 +20,20 @@ export function numberWithoutBrand(partNumber: string, brand: string): string {
     if (prefix && number.startsWith(`${prefix} `) && partNumber.slice(prefix.length).trim()) return partNumber.slice(prefix.length).trim();
   }
   return partNumber.trim();
+}
+
+const codeKey = (text: string) => foldText(text).replace(/[^a-z0-9]+/g, "");
+
+/**
+ * The product's OEM text without a trailing separator ("96469288 /" → "96469288"); empty when it only repeats the part
+ * number, alone or after the brand ("NGK 3052" beside NGK 3052).
+ */
+function cleanOem(oem: string | undefined, brand: string, partNumber: string): string {
+  const cleaned = (oem ?? "").trim().replace(/[\s/,;-]+$/, "");
+  const key = codeKey(cleaned);
+  if (!key) return "";
+  const number = numberWithoutBrand(partNumber, brand);
+  return [partNumber, number, `${brand} ${number}`].some(code => codeKey(code) === key) ? "" : cleaned;
 }
 
 /** Name words that fit `room` characters, cut at a word boundary and never left with an open parenthesis. */
@@ -52,10 +67,22 @@ function makeSuffix(base: string, input: { brand: string; name: string; vehicles
  * "‹Marka› ‹ad› ‹parça no›", then " – ‹araç› uyumlu" when it fits (the full vehicle name, else the short one, else none;
  * none too when the name already carries the model). Several models of one make that the name does not single out give
  * " – ‹Marka› uyumlu"; across two makes or more nothing is added. Only the name gives way to the limit: brand and part number are the
- * product's identity and are never cut.
+ * product's identity and are never cut. A title still shorter than 17 characters (under 30 with the site suffix) gains
+ * " – OEM ‹kod›" with the first OEM number that is not the part number itself, when it fits.
  */
-export function productSeoTitle(input: { brand: string; name: string; partNumber: string; vehicles: string[]; hint: string; max?: number }): string {
+export function productSeoTitle(input: { brand: string; name: string; partNumber: string; oem?: string; vehicles: string[]; hint: string; max?: number }): string {
   const max = input.max ?? titleBudget;
+  const title = baseSeoTitle(input, max);
+  if (title.length >= 17) return title;
+  // Lists are written "A / B", "A, B" or "A; B"; a slash inside a number ("171/2") stays.
+  const first = (input.oem ?? "").split(/\s+\/\s*|\s*[,;|\n]\s*/).find(code => code.trim()) ?? "";
+  const oem = cleanOem(first, input.brand, input.partNumber);
+  const candidate = `${title} – OEM ${oem}`;
+  return oem && candidate.length <= max ? candidate : title;
+}
+
+/** The title before a short one gains its OEM number. */
+function baseSeoTitle(input: { brand: string; name: string; partNumber: string; vehicles: string[]; hint: string }, max: number): string {
   const number = numberWithoutBrand(input.partNumber, input.brand);
   const fixed = [input.brand, number].filter(Boolean);
   const room = max - fixed.join(" ").length - 1;
@@ -75,14 +102,21 @@ export function productSeoTitle(input: { brand: string; name: string; partNumber
   return base;
 }
 
+// Stock is named as a state ("stok durumu"), never as a quantity (docs/brand-guide.md).
+const fillerSentences = [
+  "Siparişten önce araç uyumluluğunu OEM numarası ve araç bilgileriyle kontrol et.",
+  "Ürün koduyla Getirbakim’de ara, fiyat ve stok durumunu gör.",
+];
+
 const sentence = (text: string) => (/[.!?…]$/.test(text) ? text : `${text}.`);
 
 /**
  * Sentences added while they fit 160 characters: "‹Marka› ‹parça no› ‹ad›.", "OEM: ‹kod›.", "Uyumlu araçlar: A, B ve N model
  * daha.", then the product's own description. The part number keeps descriptions of different products apart; price and
- * stock are left out, they change faster than a search result is refreshed.
+ * stock figures are left out, they change faster than a search result is refreshed. The OEM sentence is left out when it
+ * only repeats the part number. A description still shorter than `min` (100) gains fixed advice sentences while they fit.
  */
-export function productSeoDescription(input: { brand: string; name: string; partNumber: string; oem?: string; vehicles: string[]; text?: string; hint?: string; max?: number }): string {
+export function productSeoDescription(input: { brand: string; name: string; partNumber: string; oem?: string; vehicles: string[]; text?: string; hint?: string; max?: number; min?: number }): string {
   const max = input.max ?? descriptionBudget;
   const number = numberWithoutBrand(input.partNumber, input.brand);
   const lead = [input.brand, number].filter(Boolean).join(" ");
@@ -92,7 +126,7 @@ export function productSeoDescription(input: { brand: string; name: string; part
     description = `${description} ${next}`;
     return true;
   };
-  const oem = input.oem?.trim();
+  const oem = cleanOem(input.oem, input.brand, input.partNumber);
   if (oem) append(`OEM: ${oem}.`);
   const main = mainVehicle(input.vehicles, input.hint ?? input.name);
   const labels = [...new Set(input.vehicles.map(vehicleLabel).filter(label => label.short).map(label => label.full))];
@@ -110,5 +144,6 @@ export function productSeoDescription(input: { brand: string; name: string; part
       if (cut) append(`${cut}…`);
     }
   }
+  for (const advice of fillerSentences) if (description.length < (input.min ?? descriptionMin)) append(advice);
   return description;
 }
