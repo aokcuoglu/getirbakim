@@ -28,16 +28,18 @@ jobs:
       - name: Start Postgres
         env:
           RUNNER_KIND: ${{ runner.environment }}
+          RUNNER_LABEL: ${{ runner.name }}
         run: |
-          # One self-hosted runner runs one job at a time: any labelled container left by a killed job is stale.
+          # One runner runs one job at a time, so a container left by a killed job of THIS runner is stale. Two runners
+          # share the Mac (#1235): never touch the other runner's containers, its job may be using them right now.
           if [ "$RUNNER_KIND" = self-hosted ]; then
-            stale="$(docker ps -aq --filter label=getirbakim-ci)"
+            stale="$(docker ps -aq --filter "label=getirbakim-ci.runner=$RUNNER_LABEL")"
             if [ -n "$stale" ]; then echo "$stale" | xargs docker rm -f >/dev/null; fi
           fi
           name="getirbakim-ci-pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "CI_PG_CONTAINER=$name" >> "$GITHUB_ENV"
           docker rm -f "$name" >/dev/null 2>&1 || true
-          docker run -d --rm --name "$name" --label getirbakim-ci=postgres \
+          docker run -d --rm --name "$name" --label getirbakim-ci=postgres --label "getirbakim-ci.runner=$RUNNER_LABEL" \
             -e POSTGRES_PASSWORD=test -e POSTGRES_DB=pricing_test \
             -p 127.0.0.1::5432 postgres:16 >/dev/null
           address="$(docker port "$name" 5432/tcp | head -n 1)"
@@ -56,10 +58,13 @@ jobs:
           echo "::error::Postgres did not become ready"
           exit 1
       - uses: actions/checkout@v7
+      # The npm cache only pays off on fresh GitHub-hosted machines. On the self-hosted Mac its post step archived and
+      # uploaded the owner's whole ~/.npm (~2.8 GB, ~8.5 min per run) while npm ci already takes seconds there (#1225).
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-          cache: npm
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
+          package-manager-cache: ${{ runner.environment == 'github-hosted' }}
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
@@ -67,6 +72,7 @@ jobs:
       - run: npm run test:ads-tags
       - run: npm run test:home
       - run: npm run test:client-imports
+      - run: npm run test:stylesheet-scope
       - run: npm run test:lazy-module
       - run: npm run test:checkout-address
       - run: npm run test:cart-checkout-ui
@@ -88,8 +94,8 @@ jobs:
       - run: npm run test:dinamik
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
-      # Partner orders (#426), the partner search (#1093), the discount action (#1130) and the webhook outbox (#1002) need a database; the step running test:partner has none.
-      - run: npm run test:partner-orders && npm run test:partner-search && npm run test:partner-discount && npm run test:partner-webhooks
+      # Partner orders (#426), the partner search (#1093), the discount action (#1130), collections (#1006) and the webhook outbox (#1002) need a database; the step running test:partner has none.
+      - run: npm run test:partner-orders && npm run test:partner-search && npm run test:partner-discount && npm run test:partner-collections && npm run test:partner-webhooks
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
       - run: npm run test:media-gc
@@ -109,6 +115,8 @@ jobs:
         env:
           APP_ENV: staging
           SITE_URL: http://localhost:3103
+      # The workspace stylesheet stays off storefront routes and loads after the storefront sheet (#1027).
+      - run: npm run harness:css-chunks
       - name: Remove Postgres
         # Also after a failure or a cancel; the container is --rm, so stopping it removes it.
         if: always()

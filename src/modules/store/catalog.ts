@@ -1,6 +1,6 @@
 import "server-only";
 import type { PoolClient } from "pg";
-import { boundedQuery, db } from "@/lib/db";
+import { boundedQuery, db, preparedQuery } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
@@ -103,6 +103,9 @@ export function withBestOffer<T extends CatalogProduct>(item: T, group: CatalogP
  * `ARRAY(SELECT …)` with the whole read inside a MATERIALIZED CTE (`WITH p AS MATERIALIZED (${catalogRowsByIdsSql(…)})`),
  * which plans as one InitPlan feeding the primary key scan. Never `IN (subquery)`, a plain join against the view or a
  * per-row LATERAL: the planner then builds the whole view (seconds) or repeats it per row.
+ * The hot reads go out as named prepared statements (preparedQuery, #1170): planning was most of their time. Name a
+ * statement on any connection only when its outer select lists its columns; one returning `*` (the view's row) only on
+ * the pool, where a cached plan broken by a view gaining a column is retried, never inside a transaction it would abort.
  */
 export const catalogRowsByIdsSql = (idsSql: string, sourceSql = catalogSql) => `SELECT * FROM (${sourceSql}) catalog WHERE catalog.id=ANY(${idsSql})`;
 /**
@@ -111,7 +114,9 @@ export const catalogRowsByIdsSql = (idsSql: string, sourceSql = catalogSql) => `
  */
 async function rowsByIds(sourceSql:string,ids:string[],connection:Pick<PoolClient,"query">=db){
  if(!ids.length)return [] as CatalogProduct[];
- const rows=(await connection.query<CatalogProduct>(catalogRowsByIdsSql("$2::uuid[]",sourceSql),[company(),ids])).rows;
+ const sql=catalogRowsByIdsSql("$2::uuid[]",sourceSql);
+ // `*` result: named only on the pool (catalogRowsByIdsSql); a transaction's client keeps it unnamed.
+ const rows=(connection===db?await preparedQuery<CatalogProduct>(db,sql,[company(),ids]):await connection.query<CatalogProduct>(sql,[company(),ids])).rows;
  const byId=new Map<string,CatalogProduct[]>();
  for(const row of rows)byId.set(row.id,[...byId.get(row.id)??[],row]);
  return ids.flatMap(id=>byId.get(id)??[]);
@@ -127,7 +132,7 @@ export async function storefrontRowsByIds(ids:string[],connection:Pick<PoolClien
 /** A row the store shows: saleable, or (`unavailable`) a product no supplier sells now. */
 export async function getStorefrontProduct(id: string): Promise<CatalogProduct | undefined> {
  if (!z.uuid().safeParse(id).success) return undefined;
- return (await db.query<CatalogProduct>(`SELECT * FROM (${storefrontCatalogSql}) catalog WHERE id=$2`,[company(),id])).rows[0];
+ return (await preparedQuery<CatalogProduct>(db,`SELECT * FROM (${storefrontCatalogSql}) catalog WHERE id=$2`,[company(),id])).rows[0];
 }
 /**
  * Where the store shows a row it does not list itself (an old link): the same supplier code sold from another scope
@@ -186,7 +191,7 @@ export async function getStoreProduct(id: string): Promise<{ product?: CatalogPr
 /** SETA products stating one of this product's (or its grouped offers') OEM numbers or its own number. */
 export async function getSetaEquivalents(id: string) {
  // The references first, then their priced rows by id array (catalogRowsByIdsSql, #1158): no view read per reference.
- return (await db.query<CatalogProduct & { via_brand: string; via_part: string }>(`WITH refs AS MATERIALIZED (
+ return (await preparedQuery<CatalogProduct & { via_brand: string; via_part: string }>(db,`WITH refs AS MATERIALIZED (
    SELECT r.seta_item_id,r.brand,r.part_number FROM product_seta_references r
    WHERE r.item_id IN (SELECT $2::uuid UNION SELECT item_id FROM product_offers WHERE primary_id=$2::uuid)),
   priced AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT seta_item_id FROM refs)")})
@@ -206,7 +211,7 @@ export async function getDecidedEquivalents(id: string) {
  // An admin's store brand and part number of the equivalent (#602) win, as on its own page. The equivalents, their
  // candidate rows and those rows' prices are read once each (catalogRowsByIdsSql, #1158); the per-equivalent LATERAL
  // only picks among them.
- return (await db.query<{ id: string | null; name: string | null; name_overridden: boolean | null; display_brand: string | null; display_code: string | null; brand: string; code: string; available: boolean | null }>(`WITH eq AS MATERIALIZED (
+ return (await preparedQuery<{ id: string | null; name: string | null; name_overridden: boolean | null; display_brand: string | null; display_code: string | null; brand: string; code: string; available: boolean | null }>(db,`WITH eq AS MATERIALIZED (
    SELECT q.id FROM product_sources s
    JOIN product_equivalents e ON e.product_id=s.product_id AND e.kind IN ('manual','brand')
    JOIN products q ON q.id=e.equivalent_id AND q.merged_into IS NULL

@@ -47,6 +47,23 @@ export const priceAnomalyThresholds = {
 };
 export type PriceAnomalyThresholds = typeof priceAnomalyThresholds;
 
+/** WHERE fragment on `supplier_items`: rows with an open price anomaly (#1049). */
+export const openPriceAnomalyFilter = "supplier_items.id IN (SELECT a.supplier_item_id FROM supplier_price_anomalies a WHERE a.status='open')";
+
+/**
+ * Open anomalies (#1049). Without a scope: all of them. With one: Başbuğ rows the admin list shows by default (company,
+ * MRK depot, present in the list, optional group), so the card figure equals the filtered list total.
+ */
+export async function openPriceAnomalyCount(pool: Pick<Pool, "query">, scope?: { company: string; group?: string }) {
+  const result = scope
+    ? await pool.query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM supplier_price_anomalies a JOIN supplier_items i ON i.id=a.supplier_item_id
+       WHERE a.status='open' AND i.supplier='basbug' AND i.company=$1 AND i.warehouse='MRK' AND i.presence='present' AND ($2='' OR i.list_group=$2)`,
+      [scope.company, scope.group ?? ""])
+    : await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM supplier_price_anomalies WHERE status='open'");
+  return result.rows[0].count;
+}
+
 /**
  * Only Başbuğ sends a currency per row; Dinamik and manual lists store a fixed TRY (dinamik-import.ts,
  * manual-import.ts) and SETA a literal TRY (seta-import.ts). The rule itself is supplier-agnostic.

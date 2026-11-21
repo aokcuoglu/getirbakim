@@ -25,7 +25,10 @@ import {NewsletterSignup} from "@/components/newsletter-signup";
 import {HomeFeaturedCards,HomeTrustLine} from "@/components/home-highlights";
 import {homeHero} from "@/content/home";
 import {cn} from "@/lib/utils";
-import {pageMetadata,siteDescription} from "@/lib/site";
+import heroMobile from "@/assets/hero/Hero_image-mobile.webp";
+import hero1920 from "@/assets/hero/Hero_image-1920.webp";
+import hero3840 from "@/assets/hero/Hero_image-3840.webp";
+import {homeTitle,pageMetadata,siteDescription} from "@/lib/site";
 import {catalogPath,categoryPath,makePath,makesPath,searchPath} from "@/modules/seo/paths";
 
 const manufacturerOrder=["BOSCH","FEBI","LUK","SKF","GATES","SACHS","FAG","MANN","TRW","LEMFORDER","DENSO","CONTITECH","ELRING","MOOG","PIERBURG","CTR","VALEO","INA","BLUE PRINT","LESJOFORS","DELPHI","HELLA","MAHLE","NGK","DAYCO","NRF","DEPO","PURFLUX","HENGST","ATE","BERU","CHAMPION","FERODO","JURID","TEXTAR","CORTECO","BORGWARNER","GARRETT","NTN-SNR","AISIN","GKN","STABILUS","VERNET","UFI","SHELL","TOTAL","OSRAM","VDO"];
@@ -47,7 +50,7 @@ const centeredTitle="mb-8 text-center [&_h2]:mb-2";
 const titleLink="inline-flex items-center gap-2 text-sm leading-5 font-medium text-brand max-md:text-[13px] max-md:whitespace-nowrap";
 const h2="text-[28px] leading-[34px] font-semibold tracking-[-.5px] max-md:text-[22px] max-md:leading-7";
 
-export const metadata=pageMetadata({title:"Getirbakim | Aracın için doğru parça",absoluteTitle:true,description:siteDescription,path:"/"});
+export const metadata=pageMetadata({title:homeTitle,absoluteTitle:true,description:siteDescription,path:"/"});
 
 export default async function Home({searchParams}:{searchParams:Promise<SearchParams>}) {
   const {q}=normalizeSearchParams(await searchParams);
@@ -64,7 +67,7 @@ export default async function Home({searchParams}:{searchParams:Promise<SearchPa
   return <div className="bg-white text-foreground">
     <HomeScrollHeader/>
     <section className="relative flow-root min-h-[280px] bg-[#212b36] py-10 text-white max-[37.5rem]:min-h-[200px] max-[37.5rem]:py-6">
-      <HeroBackdrop mobile="/media/site/images/Hero_image-mobile.webp" desktop="/media/site/images/Hero_image-1920.webp" desktop2x="/media/site/images/Hero_image-3840.webp"/>
+      <HeroBackdrop mobile={heroMobile} desktop={hero1920} desktop2x={hero3840}/>
       <div className="relative mx-auto flex w-full max-w-[1384px] flex-col items-center px-8 text-center max-[37.5rem]:px-4"><h1 className="mb-3 max-w-[820px] text-[34px] leading-[42px] font-semibold tracking-[-.7px] text-balance max-[37.5rem]:text-2xl max-[37.5rem]:leading-[32px]">{homeHero.title}</h1><p className="mb-6 max-w-[640px] text-base leading-6 text-white/85 max-[37.5rem]:mb-5 max-[37.5rem]:text-sm max-[37.5rem]:leading-5">{homeHero.lead}</p>
         <GarageButton vehicle={shownVehicle(vehicle)} variant="home"/>
       </div>

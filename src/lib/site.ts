@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { catalogPath } from "@/modules/seo/paths";
 
 export const siteUrl = (process.env.SITE_URL || "https://getirbakim.com").replace(/\/$/, "");
 
@@ -18,9 +19,11 @@ export const socialProfiles = {
 };
 
 export const siteName = "Getirbakim";
+/** Homepage title, 50–60 characters for the search snippet; the only page title that carries the brand suffix by hand (#1215). */
+export const homeTitle = "Yedek Parçayı OEM Koduyla ya da Markasıyla Bul | Getirbakim";
 /** The year Getirbakim was founded (owner-confirmed, #646). */
 export const foundingYear = 2025;
-export const siteDescription = "Aracın için, parçadan anlayan insanların yedek parça mağazası. Bir bakalım, doğru parçayı bulalım.";
+export const siteDescription = "Fren, filtre, yağ, silecek: yedek parçayı OEM koduyla ya da aracına göre bul. Fiyatı ve stok durumunu siparişten önce, kargo ücretini sepette gör.";
 export const contactPhone = "+902163870078";
 
 /** The seller's address, as printed under "Adres ve İade Noktası" in src/content/legal-pages.json. */
@@ -92,6 +95,11 @@ export const siteJsonLd = {
       url: siteUrl,
       inLanguage: "tr-TR",
       publisher: { "@id": organizationId },
+      potentialAction: {
+        "@type": "SearchAction",
+        target: { "@type": "EntryPoint", urlTemplate: `${siteUrl}${catalogPath}?q={search_term_string}` },
+        "query-input": "required name=search_term_string",
+      },
     },
   ],
 };

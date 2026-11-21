@@ -199,7 +199,9 @@ function clipWords(text: string, room: number) {
     if (next.length + 1 > room) break;
     clipped = next;
   }
-  return clipped && clipped !== text ? `${clipped}…` : "";
+  // "gergiler,…" reads as a broken list: the separator before the ellipsis goes.
+  const trimmed = clipped.replace(/[\s,.:;/-]+$/, "");
+  return trimmed && clipped !== text ? `${trimmed}…` : "";
 }
 
 /**

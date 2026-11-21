@@ -5,6 +5,7 @@
 import { isIndexableListing, type CatalogQuery } from "./catalog-query";
 import { minIndexableListingProducts } from "@/modules/seo/indexing";
 import { manufacturerSlug } from "@/modules/seo/manufacturer-path";
+import { descriptionMax, fitDescription } from "@/modules/seo/meta-text";
 import { catalogPath, manufacturerPath } from "@/modules/seo/paths";
 import type { Crumb } from "@/modules/seo/structured-data";
 
@@ -140,17 +141,10 @@ export function manufacturerTrail(manufacturer: { name: string; slug: string }):
   return [{ name: "Ana sayfa", path: "/" }, { name: "Katalog", path: catalogPath }, { name: manufacturer.name, path: manufacturerPath(manufacturer.slug) }];
 }
 
-export const manufacturerDescriptionLimit = 180;
-
-/** `text` within `limit` characters: cut at the last word boundary that leaves room for "…". */
-function fitText(text: string, limit: number) {
-  if (text.length <= limit) return text;
-  const cut = text.slice(0, limit - 1), space = cut.lastIndexOf(" ");
-  return `${(space > 0 ? cut.slice(0, space) : cut).replace(/[\s,.:;]+$/, "")}…`;
-}
+export const manufacturerDescriptionLimit = descriptionMax;
 
 /**
- * The page's title (also its H1), section heading, intro paragraph and meta description (at most 180 characters).
+ * The page's title (also its H1), section heading, intro paragraph and meta description (at most 160 characters, fitDescription).
  * "Üretici", not "marka": the store says "marka" for vehicle makes.
  */
 export function manufacturerTexts(name: string, total: number) {
@@ -159,6 +153,6 @@ export function manufacturerTexts(name: string, total: number) {
     title: `${name} yedek parçaları`,
     heading: `${name} ürünlerini keşfet`,
     intro: `${name} üreticisinin ${count} yedek parça ve bakım ürünü listeleniyor. Ürünleri kategori ve teknik özelliklerine göre süz, ürün kodu veya OEM numarasıyla ara. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`,
-    description: fitText(`${name} üreticisinin ${count} yedek parça ve bakım ürünü: ürün kodu veya OEM numarasıyla ara, fiyat ve stok bilgisini gör. Siparişten önce araç uyumluluğunu kontrol et.`, manufacturerDescriptionLimit),
+    description: fitDescription(`${name} üreticisinin ${count} yedek parça ve bakım ürünü: ürün kodu veya OEM numarasıyla ara, fiyat ve stok durumunu gör. Siparişten önce araç uyumluluğunu kontrol et.`, manufacturerDescriptionLimit),
   };
 }

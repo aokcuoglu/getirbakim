@@ -1,3 +1,4 @@
+import "../admin.css"; // admin-ui-lint-ignore: the workspace utilities + .admin-app tokens sheet (#1027), not custom styling
 import { cookies } from "next/headers";
 import { AdminBreadcrumb } from "@/components/admin/admin-breadcrumb";
 import { AdminTheme } from "@/components/admin/admin-theme";
@@ -14,8 +15,9 @@ import { feedNavTone } from "@/modules/suppliers/data-status";
 export const metadata = { title: { default: "Yönetim", template: "%s | Getirbakim" }, robots: { index: false, follow: false } };
 
 // The workspace has its own shell: storefront header and footer live in (store)/layout.tsx only. .admin-app also
-// scopes the stock shadcn neutral theme in globals.css. Every page and data loader still checks the session itself:
-// layouts do not re-run on client navigation. TableControls gives every table sorting, header filters and search.
+// scopes the IBM Carbon tokens in admin.css, which carries the workspace utilities the storefront sheet (globals.css)
+// does not scan (#1027). Every page and data loader still checks the session itself: layouts do not re-run on client
+// navigation. TableControls gives every table sorting, header filters and search.
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const account = await requireAdmin();
   const [counts, feeds, jar] = await Promise.all([adminNavCounts(), adminSupplierFeedStatus().catch(() => null), cookies()]);

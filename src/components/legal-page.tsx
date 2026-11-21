@@ -7,6 +7,7 @@ import { JsonLd } from "@/components/json-ld";
 import { breadcrumbJsonLd, pageTrail } from "@/modules/seo/structured-data";
 import { pageMetadata, siteUrl } from "@/lib/site";
 import { legalDocument, legalLinks, legalTitle, type LegalNode } from "@/content/legal";
+import { legalMetaDescriptions, legalMetaTitles } from "@/content/legal-meta";
 
 // Render only semantic text and links from the reviewed local content.
 const allowedTags = new Set(["p", "ul", "ol", "li", "a", "span", "strong", "em", "br"]);
@@ -39,7 +40,7 @@ export const legalHeadingClass = "m-0 mb-3.5 text-[19px] leading-[1.5] font-semi
 export function legalMetadata(slug: string): Metadata {
   const page = legalDocument(slug);
   if (!page) notFound();
-  return pageMetadata({ title: legalTitle(slug) ?? page.title, description: page.description, path: `/${slug}` });
+  return pageMetadata({ title: legalMetaTitles[slug] ?? legalTitle(slug) ?? page.title, description: legalMetaDescriptions[slug] ?? page.description, path: `/${slug}` });
 }
 
 export function LegalPage({ slug }: { slug: string }) {

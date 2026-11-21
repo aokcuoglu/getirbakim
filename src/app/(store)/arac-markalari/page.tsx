@@ -11,8 +11,8 @@ import {JsonLd} from "@/components/json-ld";
 import {breadcrumbJsonLd,pageTrail} from "@/modules/seo/structured-data";
 import {makePath,makesPath} from "@/modules/seo/paths";
 
-export const metadata=pageMetadata({title:"Araç markaları",
- description:"Tüm araç markalarını incele ve aracının markasına uygun yedek parçaları keşfet.",
+export const metadata=pageMetadata({title:"Araç markaları ve yedek parçaları",
+ description:"Tüm araç markalarını harf sırasıyla incele; markanı seç, modeline uygun yedek parçaları ürün kodu ve OEM numarasıyla karşılaştır.",
  path:makesPath});
 
 // Group under the plain Latin initial so "CITROËN" sits with C; digits share one group.

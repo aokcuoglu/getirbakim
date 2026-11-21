@@ -37,7 +37,7 @@ export const RULES = [
   {
     id: "hex-color",
     pattern: /(?<![\w&])#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3}(?:[0-9a-fA-F]{2})?)?\b/,
-    message: "hex color — use theme tokens (.admin-app in src/app/globals.css)",
+    message: "hex color — use theme tokens (.admin-app in src/app/admin.css)",
   },
   {
     id: "palette-color",

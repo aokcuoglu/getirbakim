@@ -2,7 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { randomBytes, createHash } from "node:crypto";
 const tokenHash = (token:string) => createHash("sha256").update(token).digest("hex");
-import { db } from "@/lib/db";
+import { db, preparedQuery } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import type { PoolClient } from "pg";
 import { catalogRowsByIdsSql, catalogSql, type CatalogProduct } from "./catalog";
@@ -51,7 +51,8 @@ export async function cartFor(owner: CartOwner | null, connection: Pick<PoolClie
  if (!owner) return [];
  // Keep removed/unpublished products visible so they can be removed, never silently ordered.
  // The cart's priced rows by id array, read once for all lines (catalogRowsByIdsSql, #1158).
- return (await connection.query<CartItem>(`WITH p AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT product_id FROM commerce_cart_items WHERE owner_kind=$2 AND owner_id=$3)")})
+ // Named (preparedQuery, #1170): its outer select lists the columns, so it is safe inside the order transaction too.
+ return (await preparedQuery<CartItem>(connection,`WITH p AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT product_id FROM commerce_cart_items WHERE owner_kind=$2 AND owner_id=$3)")})
  SELECT COALESCE(p.id,c.product_id) id,
  COALESCE(p.name,'Ürün artık satışta değil') name,COALESCE(p.code,'') code,COALESCE(p.brand,'') brand,
  COALESCE(p.display_brand,'') display_brand,COALESCE(p.display_code,'') display_code,COALESCE(p.name_overridden,false) name_overridden,

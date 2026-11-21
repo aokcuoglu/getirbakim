@@ -38,3 +38,31 @@ test("home first-screen copy is policy-backed and makes no unsupported claims", 
   assert.doesNotMatch(readFileSync("src/app/(store)/page.tsx", "utf8"), /promotions/);
   assert.doesNotMatch(readFileSync("src/components/home-controls.tsx", "utf8"), /promotions/);
 });
+
+test("hero images are content-hashed static imports (#1217)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const read = (path: string) => readFileSync(path, "utf8");
+  assert.match(read("src/components/hero-backdrop.tsx").match(/<img [^>]*>/)?.[0] ?? "", /width=\{[^}]+\}\s+height=\{[^}]+\}/);
+  for (const path of ["src/app/(store)/page.tsx", "src/app/(store)/katalog/catalog-view.tsx"]) {
+    assert.doesNotMatch(read(path), /\/media\/site\/images\/(Hero_image|brake-system-banner|mobile-catalog)/, path);
+  }
+  assert.doesNotMatch(read("src/components/catalog-sticky-finder.tsx"), /\/media\/site\/images\//);
+});
+
+test("HeroBackdrop preloads exactly the URLs its <source> and <img> use (#1217)", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { HeroBackdrop } = await import("@/components/hero-backdrop");
+  const image = (name: string, width: number) => ({ src: `/_next/static/media/${name}.abc.webp?dpl=x`, width, height: 100 });
+  const html = renderToStaticMarkup(createElement(HeroBackdrop, { mobile: image("m", 750), desktop: image("d", 1920), desktop2x: image("d2", 3840) }));
+  const srcSet = `/_next/static/media/d.abc.webp?dpl=x 1920w, /_next/static/media/d2.abc.webp?dpl=x 3840w`;
+  const attr = (tag: string, name: string) => tag.match(new RegExp(`\\s${name}="([^"]*)"`, "i"))?.[1]?.replaceAll("&amp;", "&");
+  const links = html.match(/<link [^>]*>/g) ?? [];
+  const sources = html.match(/<source [^>]*>/g) ?? [];
+  assert.equal(links.length, 2);
+  assert.equal(sources.length, 2);
+  assert.equal(attr(links[0], "href"), attr(sources[0], "srcSet"));
+  assert.equal(attr(links[1], "imageSrcSet"), srcSet);
+  assert.equal(attr(links[1], "imageSrcSet"), attr(sources[1], "srcSet"));
+  assert.equal(attr(links[1], "href"), attr(html.match(/<img [^>]*>/)?.[0] ?? "", "src"));
+});
