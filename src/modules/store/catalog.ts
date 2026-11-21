@@ -667,7 +667,7 @@ const cachedPages=20,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,30
 type PlainSearch={ids:string[];total:number;brands:string[];attributes:CatalogFacet[];correctedQuery?:string;vehicle?:VehicleSearchScope;tooShort?:boolean};
 const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`,async()=>{
  const search=await catalogSearch(raw,mode),summary=await summarizeSearch(search);
- const {attributes}=await attributeFacets(summary.brands,[summary.ids],"SELECT unnest($1::uuid[]) AS id");
+ const attributes=await attributeFacets([summary.ids],"SELECT unnest($1::uuid[]) AS id");
  return {ids:summary.ids.slice(0,cachedPages*catalogPageSize),total:summary.ids.length,brands:summary.brands,attributes,
   correctedQuery:search.correctedQuery,vehicle:search.vehicle,tooShort:search.tooShort};
 });
@@ -862,55 +862,35 @@ export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}
  return search ? load() : cachedFacets(filterKey(scope,context),load);
 }
 async function facetsFor(values:unknown[],from:string){
- const brands=(await db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand ${from} ORDER BY brand`,values)).rows.map(r=>r.brand);
- return attributeFacets(brands,values,`SELECT catalog.id ${from}`);
+ // Independent reads: the brand list and the property facet run side by side (#994).
+ const [brands,attributes]=await Promise.all([
+  db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand ${from} ORDER BY brand`,values).then(result=>result.rows.map(r=>r.brand)),
+  attributeFacets(values,`SELECT catalog.id ${from}`),
+ ]);
+ return {brands,attributes};
 }
-/** Listings up to this many products read the property facet product by product; larger ones hash every link (#955). */
-const facetNestedScope=50_000;
-/**
- * The property facet query. `scopedSql` selects the listing's ids (one `id` column), `keys` is the facet keys
- * parameter, `nestedScope` the listing size up to which the enrichments are looked up per product.
- */
-export function attributeFacetsSql(scopedSql:string,keys:string,nestedScope=facetNestedScope){
- // Two branches by listing size (#955). The planner cannot size `scoped` (a category estimated at 107k ids returns
- // 1.8k), so one plan served every listing: it hashed all ~127k shared links and enrichments and looked up as many
- // supplier_items (~255 ms) before reading a single product of the listing. A small listing now reads its own links
- // by key (bosch ~880 -> ~575 ms, a category ~600 -> ~91, "fren balatası" ~238 -> ~160); a large one
- // (/katalog, orijinal) keeps the hash join, where per-product lookups take 4-5 s. The size is counted only up to the
- // threshold; the branch whose guard is false is never executed.
- // The small branch spells out storefront_enrichments (db/enrichment-shared-links.sql: the links joined to the
- // donor's enrichment) so the lookup reaches the links' key; OFFSET 0 keeps it a per-product subquery. Same rows.
- const limit=Number(nestedScope);
- const sized=`(SELECT count(*) FROM (SELECT 1 FROM scoped LIMIT ${limit+1}) sized)`;
- const specRows=(from:string,guard:string)=>`SELECT spec->>0 AS key,spec->>1 AS value
-  FROM ${from}
-  CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
-  WHERE ${guard} AND spec->>0=ANY(${keys}) AND length(spec->>1)<=200
-  AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')
-  AND NOT EXISTS (SELECT 1 FROM ov WHERE ov.id=scoped.id AND ov.key=spec->>0)`;
- const nested=specRows(`scoped JOIN LATERAL (SELECT e.payload,e.match_basis FROM product_enrichment_shared_links l
-   JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id
-   JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
-   WHERE l.supplier_item_id=scoped.id AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=l.donor_oem)
-   OFFSET 0) e ON true`,`${sized}<=${limit}`);
- const hashed=specRows(`scoped JOIN storefront_enrichments e ON e.supplier_item_id=scoped.id JOIN supplier_items s ON s.id=e.supplier_item_id
-  AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-  AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)`,`${sized}>${limit}`);
- // MATERIALIZED: inlined, the search filter gets planned across the enrichment joins (~60 s instead of ms).
+/** The property facet query. `scopedSql` selects the listing's ids (one `id` column), `keys` is the facet keys parameter. */
+export function attributeFacetsSql(scopedSql:string,keys:string){
+ // The facet rows are precomputed per offer in storefront_facet_specs (db/enrichment-shared-links.sql, #994) with the
+ // guards the readers apply (the offer's own code and brand, no cross-reference match, "Brand class" only from an
+ // exact part). Unpacking every listed payload here took ~2.3 s of the unfiltered /katalog facet's 3.4 s (warm; 6.6 s
+ // cold); reading the ~83k rows instead brings it under a second. The table holds the facet keys only, so `fs` is one
+ // small scan whatever the listing; the two size-dependent branches of #955 went with the payloads.
+ // MATERIALIZED: inlined, the search filter gets planned across the joins (~60 s instead of ms).
  // `ov`: the admin's specifications of the facet keys (#603); a set or hidden key replaces the row's automatic values.
  return `WITH scoped AS MATERIALIZED (${scopedSql}),
  ov AS MATERIALIZED (SELECT ps.supplier_item_id AS id,o.key,o.action,o.value FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=ANY(${keys})),
+ fs AS MATERIALIZED (SELECT supplier_item_id,key,value FROM storefront_facet_specs WHERE key=ANY(${keys})),
  specs AS (
-  ${nested}
-  UNION ALL
-  ${hashed}
+  SELECT f.key,f.value FROM scoped JOIN fs f ON f.supplier_item_id=scoped.id
+  WHERE NOT EXISTS (SELECT 1 FROM ov WHERE ov.id=scoped.id AND ov.key=f.key)
   UNION ALL
   SELECT ov.key,ov.value FROM ov JOIN scoped ON scoped.id=ov.id WHERE ov.action='set' AND length(ov.value)<=200)
  SELECT key,array_agg(DISTINCT value ORDER BY value) AS values FROM specs
  GROUP BY key HAVING count(DISTINCT value)<=40 ORDER BY CASE WHEN key='Fitting Position' THEN 0 WHEN key='Brand class' THEN 1 ELSE 2 END,key LIMIT 8`;
 }
 /** `scopedSql` selects the listing's ids (one `id` column) using `values`. */
-async function attributeFacets(brands:string[],values:unknown[],scopedSql:string){
+async function attributeFacets(values:unknown[],scopedSql:string):Promise<CatalogFacet[]>{
  const rows=(await db.query<{key:string;values:string[]}>(attributeFacetsSql(scopedSql,`$${values.length+1}::text[]`),[...values,facetSpecificationKeys])).rows;
- return {brands,attributes:rows.map(row=>({key:row.key,label:specificationLabel(row.key),options:facetOptions(row.values)}))};
+ return rows.map(row=>({key:row.key,label:specificationLabel(row.key),options:facetOptions(row.values)}));
 }
