@@ -50,6 +50,9 @@ import {legacyCategoryIds} from "@/modules/store/category-tree";
 import {manufacturerTexts,manufacturerTrail} from "@/modules/store/manufacturers";
 import {scopeCategoryCounts} from "@/modules/store/listing-categories.server";
 import { storeButton } from "@/components/store-button";
+import brakeBannerMobile from "@/assets/hero/brake-system-banner-mobile.webp";
+import brakeBanner from "@/assets/hero/brake-system-banner.webp";
+import catalogBanner from "@/assets/hero/mobile-catalog.webp";
 const descriptions:Record<string,string>={
  "fren-diskleri-269":"Ön ve arka fren disklerini BOSCH, FEBI ve diğer üreticilerden seçeneklerle incele. Dolu veya havalandırmalı diskleri, ölçülerini ve montaj konumlarını karşılaştırarak aracına uygun parçayı bul. Bazı araçlarda sağ ve sol tarafta farklı diskler kullanılır; seçim yaparken OEM numarasını ve araç uyumluluğunu kontrol et. Aynı aks üzerindeki diskleri birlikte değiştir ve balataların durumunu da kontrol et.",
  "yedek-parca":"Aracının bakım ve onarımı için yedek parçaları tek yerde keşfet. Motor, fren, filtre ve diğer parça gruplarında ürünleri üreticiye göre incele; doğru parçayı bulmak için ürün kodu veya OEM numarasıyla ara. Sipariş vermeden önce parçanın araç modeli, motor tipi ve üretim yılıyla uyumluluğunu kontrol et.",
@@ -193,8 +196,8 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  return (
   <div data-catalog-page="" className="bg-white text-sm leading-5 text-foreground">
    <section className="relative h-[280px] bg-[#212b36] pb-10 text-white min-[600px]:max-[768px]:h-auto max-[600px]:h-auto max-[600px]:min-h-0 max-[600px]:pb-4">
-    {isBrakeCategory?<HeroBackdrop mobile="/media/site/images/brake-system-banner-mobile.webp" desktop="/media/site/images/brake-system-banner.webp"/>
-     :<HeroBackdrop desktop="/media/site/images/mobile-catalog.webp" overlay={false}/>}
+    {isBrakeCategory?<HeroBackdrop mobile={brakeBannerMobile} desktop={brakeBanner}/>
+     :<HeroBackdrop desktop={catalogBanner} overlay={false}/>}
     <div className="relative flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/85 max-[600px]:hidden"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
     <div className="relative mx-auto w-full max-w-[1384px] px-8 max-[600px]:px-[15px]">
      {/* Manufacturer names and make / model headings ("Volkswagen Golf 7 (2012–2022) fren sistemi") can run to three

@@ -33,7 +33,7 @@ export function HomeFeaturedCards({ categories }: { categories: Category[] }) {
     {homeFeatured.map(card => {
       const category = categories.find(({ id }) => id === card.category);
       return <Link key={card.image} href={category ? categoryPath(category.slug) : catalogPath} className="relative block h-[292px] min-w-0 overflow-hidden rounded-md bg-foreground text-white after:absolute after:inset-[65%_0_0] after:bg-[linear-gradient(transparent,#0008_30%,#000_90%)] max-md:h-40">
-        <Image src={"/media/site/images/" + card.image} fill sizes="(max-width:768px) 50vw, (max-width:1279px) 50vw, 322px" alt="" unoptimized className="object-cover"/>
+        <Image src={"/media/site/images/" + card.image} width={656} height={292} alt="" unoptimized className="absolute inset-0 size-full object-cover"/>
         <span className="absolute top-5 left-5 z-[1] rounded-[2px] bg-brand-strong px-2.5 py-1.5 text-sm leading-5 font-semibold text-white max-md:top-3 max-md:left-3 max-md:text-xs">{card.label}</span>
         <div className="absolute inset-x-0 bottom-5 z-[1] px-5 [text-shadow:1px_1px_2px_black] max-md:bottom-3 max-md:px-3"><h2 className="mb-1 text-xl leading-[26px] font-semibold tracking-[-.5px] max-md:text-base max-md:leading-5">{card.title}</h2><p className="text-sm leading-5 max-md:hidden">{card.description}</p></div>
       </Link>;
