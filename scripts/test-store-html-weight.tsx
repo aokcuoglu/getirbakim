@@ -1,0 +1,87 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import test from "node:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import { CatalogCategoryChips } from "../src/components/catalog-category-chips";
+import { CategoryCards } from "../src/components/category-cards";
+import { SocialLinks } from "../src/components/social-links";
+import type { StoreCategory } from "../src/modules/store/category-tree";
+
+// #642: the listing markup repeated per category carries named classes, not utility lists. A card or chip that grows
+// back to its old size (~600 / ~330 bytes) fails here before the HTML does on a real page.
+// next/image does not load under tsx, so the cards render with their icon; the image has its own class (checked below).
+const css = readFileSync(new URL("../src/app/storefront.css", import.meta.url), "utf8");
+const categories = Array.from({ length: 8 }, (_, index) => ({
+  id: index + 1, slug: `kategori-${index + 1}`, name: `Kategori ${index + 1}`, imagePath: null,
+})) as unknown as StoreCategory[];
+
+const classesOf = (html: string) => new Set([...html.matchAll(/\sclass="([^"]*)"/g)].flatMap((match) => match[1].split(/\s+/)));
+const defined = (name: string) => new RegExp(`\\.${name}\\s*[{,]`).test(css);
+
+test("CategoryCards use named classes and stay small", () => {
+  for (const variant of ["default", "related"] as const) {
+    // The placeholder icon is lucide's svg, not the markup this guards.
+    const html = renderToStaticMarkup(<CategoryCards categories={categories} variant={variant} />).replace(/<svg[\s\S]*?<\/svg>/g, "");
+    const cards = html.split("<a ").slice(1);
+    assert.equal(cards.length, 8);
+    for (const card of cards) assert.ok(Buffer.byteLength(card) <= 420, `${variant} card ${Buffer.byteLength(card)} bytes`);
+    for (const name of ["category-card", "category-card-image"]) assert.ok(classesOf(html).has(name), name);
+    assert.equal(classesOf(html).has("category-card-related"), variant === "related");
+  }
+});
+
+test("CatalogCategoryChips use the named chip class and stay small", () => {
+  const html = renderToStaticMarkup(<CatalogCategoryChips categories={categories} />);
+  const chips = html.split("<li ").slice(1);
+  assert.equal(chips.length, 8);
+  for (const chip of chips) assert.ok(Buffer.byteLength(chip) <= 190, `chip ${Buffer.byteLength(chip)} bytes`);
+  assert.ok(classesOf(html).has("category-chip"));
+});
+
+test("every named listing class exists in storefront.css", () => {
+  for (const name of ["facet-tree-link", "facet-trigger", "facet-search", "facet-search-input", "facet-options", "facet-options-open", "facet-options-folded",
+    "category-card", "category-card-related", "category-card-image", "category-chip", "make-list-item", "model-family", "model-family-title", "model-family-list"]) {
+    assert.ok(defined(name), `.${name} is missing from storefront.css`);
+  }
+});
+
+test("the changed components keep no long utility list in a class literal", () => {
+  for (const file of ["category-cards", "vehicle-model-list"]) {
+    const source = readFileSync(new URL(`../src/components/${file}.tsx`, import.meta.url), "utf8");
+    for (const match of source.matchAll(/className="([^"]*)"/g)) assert.ok(match[1].length <= 120, `${file}: ${match[1].slice(0, 60)}…`);
+  }
+});
+
+test("the components use the named classes", () => {
+  const source = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
+  const controls = source("../src/components/catalog-controls.tsx");
+  for (const name of ["facet-tree-link", "facet-trigger", "facet-options"]) assert.ok(controls.includes(name), `catalog-controls.tsx: ${name}`);
+  assert.ok(source("../src/components/catalog-category-chips.tsx").includes("category-chip"));
+  assert.ok(source("../src/app/(store)/katalog/catalog-view.tsx").includes("make-list-item"));
+});
+
+// #1133: the per-page shell (header, footer, 404) is named classes too; the checkout footer and the locale selects are gone from other pages.
+const source = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
+
+test("every named shell class exists in storefront.css", () => {
+  for (const name of ["site-topbar-locale", "site-logo", "site-nav-robot", "site-nav-help", "site-nav-all", "site-nav-catalog", "site-nav-item", "site-nav-trigger",
+    "sheet-account-row", "site-footer", "site-footer-grid", "site-footer-bar", "site-footer-bar-end", "footer-links", "footer-links-accent", "footer-group-title",
+    "social-list", "social-link", "cookie-preferences", "store-not-found", "store-not-found-title", "store-not-found-text", "store-cta"]) {
+    assert.ok(defined(name), `.${name} is missing from storefront.css`);
+  }
+});
+
+test("SocialLinks use the named classes and stay small", () => {
+  const html = renderToStaticMarkup(<SocialLinks />);
+  assert.ok(classesOf(html).has("social-list") && classesOf(html).has("social-link"));
+  assert.ok(Buffer.byteLength(html) <= 1300, `social links ${Buffer.byteLength(html)} bytes`);
+});
+
+test("the shell stays free of the heavy per-page parts", () => {
+  assert.ok(!source("../src/components/layout/site-header.tsx").includes("@/components/site/select"), "site-header.tsx imports the Select");
+  assert.ok(!source("../src/components/layout/store-route.tsx").includes("FooterVariants"), "store-route.tsx still has FooterVariants");
+  assert.ok(!source("../src/app/(store)/not-found.tsx").includes("@/components/ui/button"), "not-found.tsx imports ui/button");
+  assert.match(source("../src/components/site-footer.tsx"), /export async function CheckoutFooter/);
+  assert.ok(source("../src/components/site-footer.tsx").includes('<RouteFrame except="checkout">'), "SiteFooter must keep except=\"checkout\" (double footer otherwise)");
+  assert.ok(source("../src/app/(store)/siparis-olustur/layout.tsx").includes("<CheckoutFooter"), "siparis-olustur/layout.tsx must render CheckoutFooter");
+});

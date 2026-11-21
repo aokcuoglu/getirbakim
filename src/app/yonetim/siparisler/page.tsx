@@ -21,6 +21,7 @@ import { OrderDeliveryDetails, OrderRecipient } from "@/components/admin/order-a
 import { OrderDeliveredDialog } from "@/components/admin/order-delivered-dialog";
 import { OrderRefundDialog } from "@/components/admin/order-refund-dialog";
 import { OrderLinesDialog } from "@/components/admin/order-lines-dialog";
+import { OrderReturnRequestDialog } from "@/components/admin/order-return-request-dialog";
 import { supplierNames } from "@/modules/admin/products";
 import { orderLineView } from "@/modules/admin/order-procurement";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
@@ -68,7 +69,7 @@ function LabelLink({ url, number }: { url: string; number: string }) {
 }
 // The resend outcome carries the order number (#1035); digits only, else the alert stays generic.
 const emailOrder = (value: string) => /^\d+$/.test(value) ? `#${value} siparişinin` : "Siparişin";
-const tabOrder: OrderFilter[] = ["all", "action", "shipping", "cancel_request", "refund", "awaiting_payment", "shipped", "delivered", "cancelled"];
+const tabOrder: OrderFilter[] = ["all", "action", "shipping", "cancel_request", "return_request", "refund", "awaiting_payment", "shipped", "delivered", "cancelled"];
 
 export default async function Orders({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
@@ -116,6 +117,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.email_skipped && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>{emailOrder(params.email_skipped)} e-postası gönderilmedi. Nedenini görmek için siparişin &quot;Teslimat ve ödeme&quot; bölümünü açın (E-posta satırı).</AlertDescription></Alert>}
     {params.email_pending && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{emailOrder(params.email_pending)} e-postası şu an gönderilemedi ya da sırada; sistem kendiliğinden yeniden dener. Son hata için siparişin &quot;Teslimat ve ödeme&quot; bölümünü açın (E-posta satırı).</AlertDescription></Alert>}
     {params.email_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{emailOrder(params.email_busy)} e-postası şu an gönderiliyor ya da artık gönderilemez; siparişin &quot;Teslimat ve ödeme&quot; bölümündeki E-posta satırına bakın.</AlertDescription></Alert>}
+    {params.return_stale && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>İade talebi artık karar beklemiyor ya da kalan adede sığmıyor. Listeyi yenileyin.</AlertDescription></Alert>}
     {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
 
     <Tabs value={filter}><ScrollArea className="pb-2">
@@ -219,6 +221,12 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                 {o.geliver?.status === "purchased" && <Badge variant="info"><Info data-icon="inline-start"/>Geliver etiketi alındı, karar bekliyor</Badge>}
               </>}
               {o.cancel_request_rejected_at && o.status !== "cancelled" && <Badge variant="secondary"><Info data-icon="inline-start"/>İptal talebi reddedildi</Badge>}
+              {o.return_requests.map(r => <div key={r.id} className="flex flex-col items-start gap-1">
+                {r.status === "requested" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>İade talebi bekliyor</Badge>
+                  : r.status === "approved" ? <Badge variant="success"><CircleCheck data-icon="inline-start"/>İade onaylandı</Badge>
+                  : <Badge variant="secondary"><Info data-icon="inline-start"/>İade talebi reddedildi</Badge>}
+                <span className="text-muted-foreground tabular-nums">{r.decided_at ? `Karar: ${time(r.decided_at)}` : `Talep: ${time(r.requested_at)}`}</span>
+              </div>)}
               {supplierOrdered && <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Tedarikçiye sipariş verilmişti</Badge>}
             </div></TableCell>
             <TableCell><OrderLinesDialog number={o.number} orderId={o.id} orderStatus={o.status}
@@ -243,6 +251,10 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                   <input type="hidden" name="back" value={back}/>
                   <SubmitButton variant="outline" aria-label={`#${o.number}: Talebi reddet (partner iptal talebi)`}>Talebi reddet</SubmitButton>
                 </form>
+              </div>}
+              {o.return_requests.some(r => r.status === "requested") && <div className="flex flex-wrap justify-end gap-2">
+                {o.return_requests.filter(r => r.status === "requested").map((r, _, open) => <OrderReturnRequestDialog key={r.id} orderId={o.id} number={o.number}
+                  request={r} orderLines={o.lines} back={back} requestedAt={open.length > 1 ? time(r.requested_at) : null}/>)}
               </div>}
               {!cancelRequest && ["pending", "confirmed"].includes(o.status) && isHandledPayment(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
                 {o.status === "confirmed" && <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="ship" recipient={<OrderRecipient order={o}/>}

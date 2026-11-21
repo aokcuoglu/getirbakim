@@ -2,7 +2,7 @@ import type { StatusTone } from "@/modules/suppliers/run-status";
 
 // Order email state shared by delivery (order-email.ts) and /yonetim/siparisler (#1035); no database access here.
 
-export const orderEmailKinds = ["confirmation"] as const;
+export const orderEmailKinds = ["confirmation", "shipped", "cancelled", "refunded"] as const;
 export type OrderEmailKind = (typeof orderEmailKinds)[number];
 export type OrderEmailStatus = "pending" | "sent" | "skipped" | "failed";
 /** A claim older than this is not in flight any more (a send takes seconds; the SMTP timeouts are 10–15 s). */
@@ -14,7 +14,9 @@ export type AdminOrderEmail = {
   created_at: string; claimed_at: string | null; requeued_at: string | null; in_flight: boolean;
 };
 
-export const orderEmailKindLabel: Record<OrderEmailKind, string> = { confirmation: "Sipariş onay e-postası" };
+export const orderEmailKindLabel: Record<OrderEmailKind, string> = {
+  confirmation: "Sipariş onay e-postası", shipped: "Kargoya verildi e-postası", cancelled: "Sipariş iptal e-postası", refunded: "Ödeme iadesi e-postası",
+};
 export const orderEmailStatusLook: Record<OrderEmailStatus, { tone: StatusTone; label: string }> = {
   sent: { tone: "success", label: "Gönderildi" },
   pending: { tone: "info", label: "Sırada" },
@@ -25,7 +27,7 @@ export const orderEmailStatusLook: Record<OrderEmailStatus, { tone: StatusTone; 
 /** last_error in the admin's words; a provider's own message is shown as it came, after "Son hata:". */
 export function orderEmailErrorLabel(lastError: string): string {
   if (lastError === "stale") return "Bir gün içinde gönderilemedi";
-  if (lastError === "order no longer pending") return "Sipariş artık teyit beklemiyor (onaylandı, iptal ya da iade edildi)";
+  if (lastError === "order no longer pending") return "Sipariş durumu değişti; bu e-posta artık gönderilmez";
   if (/^(MAIL_|SMTP_|unknown MAIL_TRANSPORT)/.test(lastError)) return "E-posta gönderimi ayarlı değil";
   const stale = /^stale after (\d+) attempts: ([\s\S]*)$/.exec(lastError);
   if (stale) return `${stale[1]} denemeden sonra bırakıldı: ${stale[2]}`;
@@ -37,6 +39,18 @@ type OrderState = { status: string; payment_status: string };
 export const orderEmailDue: Record<OrderEmailKind, (order: OrderState) => boolean> = {
   // Only an order still waiting for confirmation after a settled payment is confirmed; a cancel or refund in between skips it.
   confirmation: order => order.status === "pending" && order.payment_status === "paid",
+  // Status emails (#1036) follow the order's current state: a shipped email for an order since delivered is not sent late.
+  shipped: order => order.status === "shipped",
+  cancelled: order => order.status === "cancelled",
+  refunded: order => order.payment_status === "refunded",
+};
+
+/** Why the admin cannot resend an email whose order no longer wants it (orderEmailDue false). */
+export const orderEmailNotDueLabel: Record<OrderEmailKind, string> = {
+  confirmation: "Sipariş artık teyit beklemiyor; bu e-posta yeniden gönderilmez.",
+  shipped: "Sipariş artık kargoda değil; bu e-posta yeniden gönderilmez.",
+  cancelled: "Sipariş iptal durumunda değil; bu e-posta yeniden gönderilmez.",
+  refunded: "Siparişin iadesi tamamlanmış durumda değil; bu e-posta yeniden gönderilmez.",
 };
 
 /** An admin may put the email back in the queue unless a send is under way or the order no longer wants it. */

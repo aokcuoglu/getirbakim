@@ -12,7 +12,7 @@ type LockedOrder = { status: string; cancel_requested_at: Date | null; cancel_re
 /**
  * `DELETE /orders/:id` (#426): before confirmation the order is cancelled at once (cancelled_by 'customer', like a
  * customer's own cancel); after confirmation a cancel request is recorded for operations (/yonetim/siparisler). Repeating
- * it answers the same; a rejected request is final; a shipped order goes through returns with operations.
+ * it answers the same; a rejected request is final; a shipped order is returned with POST /orders/:id/returns (returns.ts).
  */
 export async function cancelPartnerOrder(partner: string, id: string) {
   if (!uuidPattern.test(id)) throw notFound();
@@ -36,7 +36,7 @@ export async function cancelPartnerOrder(partner: string, id: string) {
       await client.query("UPDATE commerce_orders SET cancel_requested_at=COALESCE(cancel_requested_at,now()) WHERE id=$1", [id]);
       cancellation = "REQUESTED";
     } else if (order.status === "shipped" || order.status === "delivered") {
-      throw new PartnerOrderError("ORDER_ALREADY_SHIPPED", "The order has been shipped; arrange a return with operations.", 409);
+      throw new PartnerOrderError("ORDER_ALREADY_SHIPPED", "The order has been shipped; request a return with POST /orders/:id/returns.", 409);
     } else {
       throw new Error(`Partner order ${id} has unexpected status ${order.status}`);
     }

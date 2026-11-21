@@ -71,10 +71,17 @@ export async function getProduct(id: string): Promise<CatalogProduct | undefined
 export async function withBestOffers<T extends CatalogProduct>(items: T[]): Promise<T[]> {
  const ids = items.filter(item => item.source === "supplier" && !item.unavailable).map(item => item.id);
  if (!ids.length) return items;
- const offers = (await db.query<CatalogProduct & { primary_id: string }>(`SELECT o.primary_id::text,priced.* FROM product_offers o
-  JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.item_id OFFSET 0) priced ON true
-  WHERE o.primary_id=ANY($2::uuid[])`, [company(), ids])).rows;
- return items.map(item => withBestOffer(item, offers.filter(offer => offer.primary_id === item.id)));
+ // Two reads, never a join against the view (#1135): the offer ids first, then their priced rows by id array. The
+ // per-offer LATERAL repeated the view per row (24 cards: ~281 ms against ~7 ms), and a plain join
+ // `product_offers JOIN (catalogSql) ON id=item_id` lets the planner build the whole view (~2.3 s).
+ const links = (await db.query<{ primary_id: string; item_id: string }>(
+  "SELECT o.primary_id::text,o.item_id::text FROM product_offers o WHERE o.primary_id=ANY($1::uuid[])", [ids])).rows;
+ if (!links.length) return items;
+ const priced = new Map<string, CatalogProduct[]>();
+ for (const row of await catalogRowsByIds([...new Set(links.map(link => link.item_id))])) priced.set(row.id, [...priced.get(row.id) ?? [], row]);
+ const groups = new Map<string, CatalogProduct[]>();
+ for (const link of links) groups.set(link.primary_id, [...groups.get(link.primary_id) ?? [], ...priced.get(link.item_id) ?? []]);
+ return items.map(item => withBestOffer(item, groups.get(item.id) ?? []));
 }
 /** `item` priced and stocked by the best of its grouped offers (`group`, priced rows of product_offers), as withBestOffers does. */
 export function withBestOffer<T extends CatalogProduct>(item: T, group: CatalogProduct[]): T {
@@ -85,15 +92,28 @@ export function withBestOffer<T extends CatalogProduct>(item: T, group: CatalogP
   pricing_snapshot: best.pricing_snapshot, offer_id: best.id, offers: group.length };
 }
 /**
- * The saleable rows (catalogSql) of these ids, in the order given; an id that is not saleable now is left out (#1093).
- * Read as `id=ANY(...)`, the view reaches supplier_items by primary key once for all ids: the per-id LATERAL read of
- * browseProducts repeats the view's pricing joins per row (200 ids: ~0.9 s against ~12 ms locally).
+ * The rows of `sourceSql` (catalogSql, storefrontCatalogSql) with these ids, in the order given; an id without a row is
+ * left out, an id with several rows keeps them all. Read as `id=ANY(...)`, the view reaches supplier_items by primary
+ * key once for all ids and computes its "latest succeeded import per supplier" step (a scan and sort of
+ * supplier_imports) once. A per-id `JOIN LATERAL (… WHERE priced.id=page.id OFFSET 0)` repeats that step per row,
+ * ~5.8 ms each (#1135): 24 listing cards on storefront_catalog took 138-157 ms against 6.4 ms, 24 home cards on
+ * commerce_catalog 139 ms against 6.0 ms (200 ids: ~0.9 s against ~12 ms, #1093). Never `IN (subquery)` or a plain
+ * join against the view either: the planner then builds the whole view (seconds).
  */
-export async function catalogRowsByIds(ids:string[]){
+async function rowsByIds(sourceSql:string,ids:string[]){
  if(!ids.length)return [] as CatalogProduct[];
- const rows=(await db.query<CatalogProduct>(`SELECT * FROM (${catalogSql}) catalog WHERE catalog.id=ANY($2::uuid[])`,[company(),ids])).rows;
- const byId=new Map(rows.map(row=>[row.id,row]));
+ const rows=(await db.query<CatalogProduct>(`SELECT * FROM (${sourceSql}) catalog WHERE catalog.id=ANY($2::uuid[])`,[company(),ids])).rows;
+ const byId=new Map<string,CatalogProduct[]>();
+ for(const row of rows)byId.set(row.id,[...byId.get(row.id)??[],row]);
  return ids.flatMap(id=>byId.get(id)??[]);
+}
+/** The saleable rows (catalogSql) of these ids, in the order given; an id that is not saleable now is left out (#1093). */
+export async function catalogRowsByIds(ids:string[]){
+ return rowsByIds(catalogSql,ids);
+}
+/** The store's rows (storefrontCatalogSql: saleable or `unavailable`) of these ids, in the order given (#1135). */
+export async function storefrontRowsByIds(ids:string[]){
+ return rowsByIds(storefrontCatalogSql,ids);
 }
 /** A row the store shows: saleable, or (`unavailable`) a product no supplier sells now. */
 export async function getStorefrontProduct(id: string): Promise<CatalogProduct | undefined> {
@@ -683,9 +703,7 @@ export function isPlainSearch(query:CatalogQuery){
  */
 export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalogPageSize){
  const {ids}=await summarizeSearch(await catalogSearch(raw,mode),false);
- const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
-  JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids.slice(0,limit)])).rows;
- return withBestOffers(items);
+ return withBestOffers(await catalogRowsByIds(ids.slice(0,limit)));
 }
 /**
  * The product count of a listing without a search, as browseProducts reports it (the same cache entry): the model
@@ -706,8 +724,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const page=Number.isSafeInteger(requested)?Math.min(pages,Math.max(1,requested)):1;
   const ranked=page<=cachedPages?plain.ids:(await summarizeSearch(await catalogSearch(query.q!,mode))).ids;
   const ids=ranked.slice((page-1)*pageSize,page*pageSize);
-  const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
-   JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids])).rows;
+  const items=await storefrontRowsByIds(ids);
   return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
  }
  const {values,where,from,search}=await catalogFilter(query,context);
@@ -726,8 +743,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  if(!search&&!pricedSort){
   const ids=await pageIdCache(query)(`${filterKey(query,context)}|${page}`,async()=>(await db.query<{id:string}>(
    `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id));
-  const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
-   JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ids.slice(0,take)])).rows;
+  const items=await storefrontRowsByIds(ids.slice(0,take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
  // A price order prices every listed row before it sorts (VW make page: ~50k rows, ~3 s per page). Its first
@@ -737,15 +753,14 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  if(!search&&pricedSort&&page<=cachedPages){
   const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>(await db.query<{id:string}>(
    `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values)).rows.map(row=>row.id));
-  const items=(await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
-   JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,[company(),ordered.slice((page-1)*pageSize,(page-1)*pageSize+take)])).rows;
+  const items=await storefrontRowsByIds(ordered.slice((page-1)*pageSize,(page-1)*pageSize+take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
- const items = (await db.query<CatalogProduct>(pricedSort
-  ? `SELECT * FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`
-  : `WITH page AS MATERIALIZED (SELECT id,updated_at,unavailable,${rank} AS rank ${from} ORDER BY unavailable,rank DESC,${order} LIMIT ${take} OFFSET ${offset})
-     SELECT catalog.* FROM page JOIN LATERAL (SELECT * FROM (${storefrontCatalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true
-     ORDER BY page.unavailable,page.rank DESC,page.updated_at DESC,page.id`, pageValues)).rows;
+ // The page's ids first, then its cards by id array (storefrontRowsByIds, #1135).
+ const items = pricedSort
+  ? (await db.query<CatalogProduct>(`SELECT * FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`, pageValues)).rows
+  : await storefrontRowsByIds((await db.query<{id:string}>(`SELECT id::text FROM (SELECT id,updated_at,unavailable,${rank} AS rank ${from}
+     ORDER BY unavailable,rank DESC,${order} LIMIT ${take} OFFSET ${offset}) page`, pageValues)).rows.map(row=>row.id));
  return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
 }
 /** A product, or (for broad searches) a product name shared by `products` items. */

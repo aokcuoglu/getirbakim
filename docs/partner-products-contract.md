@@ -51,7 +51,7 @@ characters.
 | `exactFitment` | `{ requestedVehicleTypeId, status, matchedVehicleTypeIds }`, unchanged from 1.2: `CONFIRMED` when the product is linked to the requested engine type, else `NOT_CONFIRMED`; `NOT_REQUESTED` without `vehicleTypeId`. |
 | `fitmentLevel` | **1.3.** `"guaranteed"`, `"likely"`, `"unknown"`, or `null` without `vehicleTypeId` (see below). |
 | `imageUrl` | Absolute URL or null. |
-| `listPriceKurus`, `b2bPriceKurus`, `discountBps`, `vatRateBps`, `currency` | Informational B2B price, kuruş, VAT excluded (`PARTNER_B2B_DISCOUNT_BPS`, floored at cost). Null when the store cannot price the row. |
+| `listPriceKurus`, `b2bPriceKurus`, `discountBps`, `vatRateBps`, `currency` | Informational B2B price, kuruş, VAT excluded: the partner's discount (see [Discount](#discount)), floored at cost. Null when the store cannot price the row. |
 | `stockQty` | Always 0: stock counts are not shared. |
 | `availability` | `IN_STOCK`, `SUPPLYABLE` or `UNAVAILABLE`. |
 | `lastSyncedAt` | When the supplier price/stock was last observed (ISO-8601). Stock is not live: show its age. |
@@ -118,8 +118,21 @@ Where each level is looked for (#1119):
   typed words, `limit`, `vehicleTypeId`, discount), at most 100 answers per
   task. It is never served after
   30 seconds; a type-ahead repeating a request within that window gets the
-  same answer without a new search or price read. Nothing partner-specific is
-  in the answer: the discount is one setting for every partner.
+  same answer without a new search or price read. The answer holds no partner
+  identity; the discount is part of the key, so two partners with the same
+  discount share it and a changed discount is never answered from the old one.
+
+## Discount
+
+`discountBps` is the partner's own B2B discount in basis points (0–9000), set
+by operations in `/yonetim/partnerler` (`partner_settings.discount_bps`, every
+change recorded in `partner_discount_changes`). A partner without one gets the
+deployment fallback `PARTNER_B2B_DISCOUNT_BPS`, else no discount. The price is
+never below cost, so the reported `discountBps` can be smaller than the
+configured one. A change applies without a deploy: each application task reads
+the partner's discount through a 5-second cache (dropped at once in the task
+that saved it), and because the answer cache is keyed by the discount the next
+answer carries the new price. Quotes and orders read the discount fresh.
 
 ## Limits and errors
 

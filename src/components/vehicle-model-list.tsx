@@ -18,9 +18,9 @@ export async function VehicleModelList({ brandId, makeName, makeSlug }: { brandI
   return sections.map(section => <section key={section.id} className="mb-8 max-[768px]:mb-6" aria-labelledby={section.id}>
     <h2 id={section.id} className="mb-[15px] text-xl leading-7 font-medium tracking-[-.4px]">{section.title}</h2>
     <div className="columns-4 gap-8 max-[992px]:columns-3 max-[768px]:columns-2 max-[420px]:columns-1">
-      {vehicleModelGroupFamilies(section.groups).map(family => <div key={family.family} className="mb-4 break-inside-avoid">
-        <h3 className="mb-1 text-sm leading-5 font-semibold">{readableProductName(family.family)}</h3>
-        <ul className="text-[13px] leading-[18px]">{family.groups.map(group => {
+      {vehicleModelGroupFamilies(section.groups).map(family => <div key={family.family} className="model-family">
+        <h3 className="model-family-title">{readableProductName(family.family)}</h3>
+        <ul className="model-family-list">{family.groups.map(group => {
           const years = vehicleModelGroupYears(group);
           return <li key={group.slug}><Link prefetch={false} className="model-link" href={modelPath(makeSlug, group.slug)}>
             {vehicleModelLabels(makeName, group).model}{years && <span>{years}</span>}

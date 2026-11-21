@@ -2,13 +2,8 @@ import Link from "next/link";
 import {Suspense} from "react";
 import {UserRound} from "lucide-react";
 import {currentAccount} from "@/modules/auth/session";
-import {cn} from "@/lib/utils";
-import {sheetRow} from "./category-parts";
-
-const row=cn(sheetRow,"min-h-[49px] border-b border-border px-4 py-3 text-sm font-normal");
-
 function AccountRow({signedIn}:{signedIn:boolean}){
- return <Link href={signedIn?"/hesap":"/giris"} className={row}><UserRound size={15}/><span>{signedIn?"Hesabım":"Giriş yap"}</span></Link>;
+ return <Link href={signedIn?"/hesap":"/giris"} className="sheet-account-row"><UserRound size={15}/><span>{signedIn?"Hesabım":"Giriş yap"}</span></Link>;
 }
 
 async function SessionAccountRow(){

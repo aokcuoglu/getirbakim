@@ -295,7 +295,7 @@ CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
 $$;
--- Single-row currency anomalies (#1030): a supplier row whose currency disagrees with the rest of its brand and whose
+-- Single-row price anomalies (#1030, #1050): a supplier row whose currency disagrees with the rest of its brand and whose
 -- converted cost is far above the brand's median (Başbuğ once sent one KENTPAR row as EUR among 196 TRY rows: a 77k TL
 -- cost for a ~1.5k TL part). src/modules/suppliers/price-anomalies.ts detects them after a full list import; an open row
 -- keeps its offer unpriced in commerce_catalog below (the product stays listed, sold by another supplier or not at all)
@@ -304,9 +304,13 @@ $$;
 -- EXCLUSIVE) for the rest of the setup transaction and blocks order-time writes (basbug-item-refresh.ts); the refresh
 -- deletes rows whose item is gone. The accounts FK (decided_by) takes SHARE ROW EXCLUSIVE on accounts once, when the
 -- table is first created; later runs skip CREATE TABLE IF NOT EXISTS without locking it.
+-- kind (#1050): 'currency' covers both directions (evidence.direction: absent/'high' = converted cost far above the
+-- brand's median, 'low' = a rare-currency row far below it); 'offer-outlier' = a row 10× away from the same product's
+-- other-supplier offers whose value fits them when read in another currency its brand prices in. On an existing table
+-- the kind list is widened by scripts/setup-constraint-swaps.ts before the schema transaction; keep both lists equal.
 CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  supplier_item_id uuid PRIMARY KEY, supplier text NOT NULL,
- kind text NOT NULL DEFAULT 'currency' CHECK (kind IN ('currency')),
+ kind text NOT NULL DEFAULT 'currency' CHECK (kind IN ('currency','offer-outlier')),
  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','dismissed')),
  evidence jsonb NOT NULL, detected_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(),
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz
@@ -335,7 +339,7 @@ WITH latest AS (
  commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now()) AS sale_price,
  -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
  (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced,
- -- An open currency anomaly (#1030, supplier_price_anomalies above) keeps the row unpriced.
+ -- An open price anomaly (#1030, #1050, supplier_price_anomalies above) keeps the row unpriced.
  (pa.supplier_item_id IS NOT NULL) AS price_anomaly
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
@@ -856,7 +860,7 @@ END $$;
 -- Per-partner settings set in /yonetim/partnerler (#426). Partner identities still come from PARTNER_API_KEYS; a row here
 -- only overrides the PARTNER_ORDER_LIMIT_KURUS fallback. A partner with neither cannot order (503 ORDER_LIMIT_UNAVAILABLE).
 -- order_intake_paused_at (#1009) pauses the partner's new quotes and orders (503 ORDER_INTAKE_PAUSED) until it is cleared;
--- reads, cancels and replays of existing orders keep working. NULL = open.
+-- reads, cancels and replays of existing orders keep working. NULL = open. discount_bps (#1130) is the partner's B2B discount.
 CREATE TABLE IF NOT EXISTS partner_settings(
  partner_code text PRIMARY KEY,
  order_limit_kurus bigint CHECK(order_limit_kurus > 0),
@@ -870,6 +874,25 @@ DO $$ BEGIN
  -- Who paused it (audit). The FK takes SHARE ROW EXCLUSIVE on accounts once, on the first deploy that adds the column.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='order_intake_paused_by' AND NOT attisdropped) THEN
   ALTER TABLE partner_settings ADD COLUMN order_intake_paused_by uuid REFERENCES accounts(id);
+ END IF;
+ -- The partner's B2B discount in basis points (#1130), applied to its product prices, quotes and orders; never below
+ -- cost (src/modules/partner/pricing.ts). NULL = the PARTNER_B2B_DISCOUNT_BPS fallback, then no discount.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='discount_bps' AND NOT attisdropped) THEN
+  ALTER TABLE partner_settings ADD COLUMN discount_bps integer CHECK(discount_bps BETWEEN 0 AND 9000);
+ END IF;
+END $$;
+-- Every change of a partner's panel discount (#1130): old and new value (NULL = fallback), who and when.
+CREATE TABLE IF NOT EXISTS partner_discount_changes(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ partner_code text NOT NULL,
+ old_discount_bps integer,
+ new_discount_bps integer,
+ changed_by uuid REFERENCES accounts(id),
+ changed_at timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_discount_changes'::regclass AND c.relname='partner_discount_changes_partner_idx') THEN
+  CREATE INDEX partner_discount_changes_partner_idx ON partner_discount_changes(partner_code,changed_at DESC);
  END IF;
 END $$;
 -- Corrections of a partner invoiced mark (#1018): one row per order, the rows of one change share change_id. 'undo'
@@ -892,14 +915,59 @@ DO $$ BEGIN
   CREATE INDEX partner_invoice_changes_partner_idx ON partner_invoice_changes(partner_code,changed_at DESC);
  END IF;
 END $$;
+-- Partner return requests (#1007): POST /api/partner/v1/orders/:id/returns on a shipped or delivered order. Operations
+-- decide them in /yonetim/siparisler; only an approval writes commerce_returns (one row per line, linked back here), so
+-- the store's return readers see accepted returns only. Pending requests hold their quantity: accepted + pending never
+-- exceeds the ordered quantity (src/modules/partner/returns.ts, recordOrderReturn). request_key = the Idempotency-Key.
+CREATE TABLE IF NOT EXISTS partner_return_requests(
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
+ partner_code text NOT NULL,
+ request_key uuid NOT NULL,
+ fingerprint text NOT NULL,
+ status text NOT NULL DEFAULT 'requested' CHECK(status IN ('requested','approved','rejected')),
+ note text NOT NULL DEFAULT '',
+ requested_at timestamptz NOT NULL DEFAULT now(),
+ decided_at timestamptz,
+ decided_by uuid REFERENCES accounts(id),
+ UNIQUE(partner_code,request_key),
+ -- Target of the lines' (request_id,order_id) key: a line always belongs to its request's order.
+ UNIQUE(id,order_id),
+ CHECK((status='requested')=(decided_at IS NULL))
+);
+CREATE TABLE IF NOT EXISTS partner_return_request_lines(
+ request_id uuid NOT NULL,
+ order_id uuid NOT NULL,
+ product_id uuid NOT NULL,
+ quantity integer NOT NULL CHECK(quantity BETWEEN 1 AND 99),
+ reason text NOT NULL CHECK(reason IN ('not_fit','wrong_item','damaged','defective','changed_mind','other')),
+ PRIMARY KEY(request_id,product_id),
+ FOREIGN KEY(request_id,order_id) REFERENCES partner_return_requests(id,order_id) ON DELETE CASCADE,
+ FOREIGN KEY(order_id,product_id) REFERENCES commerce_order_items(order_id,product_id)
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_return_requests'::regclass AND c.relname='partner_return_requests_order_idx') THEN
+  CREATE INDEX partner_return_requests_order_idx ON partner_return_requests(order_id);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_return_request_lines'::regclass AND c.relname='partner_return_request_lines_line_idx') THEN
+  CREATE INDEX partner_return_request_lines_line_idx ON partner_return_request_lines(order_id,product_id);
+ END IF;
+ -- The partner request an accepted return came from. The first deploy that creates these tables and the column takes,
+ -- for that run only, SHARE ROW EXCLUSIVE on commerce_orders, accounts and commerce_order_items (the new tables' FKs)
+ -- and on partner_return_requests, and ACCESS EXCLUSIVE on commerce_returns (a small table) for ADD COLUMN.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_returns'::regclass AND attname='partner_return_request_id' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_returns ADD COLUMN partner_return_request_id uuid REFERENCES partner_return_requests(id) ON DELETE SET NULL;
+ END IF;
+END $$;
 
 -- Order emails (#951): one row per order and kind, written in the payment transaction that settles the order
 -- (src/modules/payments/checkout.ts recordPaid); delivery (src/modules/store/order-email.ts) claims pending rows with a
 -- lease, so concurrent reconcilers send each email once. 'skipped' = no mail transport configured or too old to send.
 -- requeued_at: an admin's resend (#1035); staleness counts from it.
+-- kind: status emails (#1036); an existing table gets the list from scripts/setup-constraint-swaps.ts, which must match.
 CREATE TABLE IF NOT EXISTS commerce_order_emails (
  order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
- kind text NOT NULL CHECK(kind IN ('confirmation')),
+ kind text NOT NULL CHECK(kind IN ('confirmation','shipped','cancelled','refunded')),
  status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent','skipped','failed')),
  attempts integer NOT NULL DEFAULT 0, claimed_at timestamptz, sent_at timestamptz,
  message_id text, last_error text, created_at timestamptz NOT NULL DEFAULT now(),

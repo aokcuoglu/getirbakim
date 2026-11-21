@@ -7,6 +7,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
+import { drainSharedLinks } from "./enrichment-derived-sync";
 import { buildInboundReport, type PartReport, reportKey } from "./storefront-sync-state";
 import { objectStorage } from "../src/lib/object-storage";
 
@@ -19,7 +20,7 @@ import { objectStorage } from "../src/lib/object-storage";
 // Parts are downloaded one at a time, so task storage holds a single part (≤ ~100 MB of media) at a time.
 //
 // Usage: node --conditions=react-server --import tsx scripts/import-storefront-inbound.ts <prefix>
-//   e.g. storefront/current
+//   e.g. storefront/current, or a run prefix storefront/current/run-20261121T085201308Z (STOREFRONT_SYNC_PREFIX_MODE=run, #1137)
 // No pre-import backup is taken: RDS point-in-time recovery (7 days) covers it.
 //
 // Table decisions (#553; the full table is in docs/product-enrichment.md):
@@ -70,26 +71,10 @@ function node(flags: string[], script: string, args: string[]) {
 }
 
 // The import's triggers queued the products it touched; the app drains that queue every few seconds, but the task
-// must not finish before the storefront tables are current. product_enrichment_shared_sync() returns 0 while another
-// caller (the app) holds its lock, and that caller's pass empties the queue, so wait for an empty queue either way
-// (same pattern as scripts/enrichment-states.ts).
-async function drainSharedLinks() {
+// must not finish before the storefront tables are current (scripts/enrichment-derived-sync.ts).
+async function drainDerived() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-  try {
-    let written = 0;
-    // A full refresh by the app (a large queue) can take minutes.
-    const deadline = Date.now() + 10 * 60 * 1000;
-    for (;;) {
-      written += (await pool.query<{ n: number }>("SELECT product_enrichment_shared_sync() AS n")).rows[0].n;
-      if (!(await pool.query("SELECT 1 FROM product_enrichment_shared_queue LIMIT 1")).rowCount) break;
-      if (Date.now() > deadline) throw new Error("The shared-link queue is still busy after 10 minutes.");
-      await new Promise(done => setTimeout(done, 1000));
-    }
-    // The price-only cards (#1068) follow the links and the imported categories; the app refreshes them too, this
-    // makes them current before the task ends (null: an app task was rebuilding at that moment).
-    const priceOnly = (await pool.query<{ n: number | null }>("SELECT storefront_price_only_refresh() AS n")).rows[0].n;
-    console.log(JSON.stringify({ sharedLinks: written, priceOnly }));
-  } finally { await pool.end(); }
+  try { console.log(JSON.stringify(await drainSharedLinks(pool))); } finally { await pool.end(); }
 }
 
 // Parts are named part-01, part-02, ... (split-storefront-bundle.ts) and are imported in numeric order
@@ -126,7 +111,7 @@ try {
   if (missingItems >= 0) throw new Error(`The report of applied part ${missingItems + 1} has no items array; the fitment rebuild has no scope.`);
   await writeFile(fitmentItems, JSON.stringify([...new Set(applied.flatMap(part => part.items ?? []))]));
   node([], "scripts/rebuild-product-fitments.ts", [`--items=${fitmentItems}`]);
-  await drainSharedLinks();
+  await drainDerived();
   node([], "scripts/enrichment-states.ts", ["sync"]);
   // The data is committed by now, but without the report the sync cannot know what was skipped: the task fails, so
   // the sync keeps its watermark and the next run re-sends (idempotent). Each run overwrites the report.

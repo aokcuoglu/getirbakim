@@ -2,6 +2,38 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.36.0 — 2026-11-21
+
+Release of `dev` since v0.35.0 (21 pull requests): shipped, cancelled and refunded customer emails with a signed guest order link, partner returns and per-partner B2B discounts, new supplier price-anomaly rules with reopening of dismissed decisions, a shared-images admin list, a verified storefront sync upload, smaller logos and storefront performance work. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Order status emails:** shipped (carrier, tracking number, http(s)-only tracking link), cancelled (accepted orders only; expiry and unpaid cancels send nothing) and payment refunded (amount only when reliable) on the order email outbox, queued in the same transaction as the state change, one per order and kind, never for partner orders; admin rows, resend and per-kind reasons on `/yonetim/siparisler` ([#1160](https://github.com/aokcuoglu/getirbakim/pull/1160), [#1036](https://github.com/aokcuoglu/getirbakim/issues/1036)).
+- **Signed guest order link** so order emails open the order on any device; 90-day token, off until `ORDER_LINK_SIGNING_SECRET` is set ([#1145](https://github.com/aokcuoglu/getirbakim/pull/1145)).
+- **Partner returns endpoint** for shipped orders and return decisions in `/yonetim/siparisler`; partner contract v2.1 ([#1150](https://github.com/aokcuoglu/getirbakim/pull/1150)).
+- **Per-partner B2B discount** set on `/yonetim/partnerler` instead of `PARTNER_B2B_DISCOUNT_BPS` ([#1138](https://github.com/aokcuoglu/getirbakim/pull/1138)).
+- **Price anomalies:** cross-offer outliers (≥10× from other suppliers' offers and explained by a currency the brand genuinely uses) and underpriced rare-currency rows are unpriced until dismissed; a run never deletes an anomaly it could not judge for want of a rate ([#1146](https://github.com/aokcuoglu/getirbakim/pull/1146), [#1050](https://github.com/aokcuoglu/getirbakim/issues/1050)).
+- **Ortak görseller** (`/yonetim/ortak-gorseller`): automatic images shared by many part numbers and the products using each, linking to the product's image tab ([#1144](https://github.com/aokcuoglu/getirbakim/pull/1144), [#1097](https://github.com/aokcuoglu/getirbakim/issues/1097)); each image shows whether it is on the placeholder denylist ([#1154](https://github.com/aokcuoglu/getirbakim/pull/1154)).
+
+### Fixed
+- **Dismissed price anomalies reopen** when the supplier value reaches 1.5× or 1/1.5 of the decided value or the currency changes; stale admin decisions are ignored ([#1156](https://github.com/aokcuoglu/getirbakim/pull/1156), [#1142](https://github.com/aokcuoglu/getirbakim/issues/1142)).
+- **Storefront sync verifies every uploaded part** against its manifest before the AWS import starts; a failed check leaves the watermark in place ([#1140](https://github.com/aokcuoglu/getirbakim/pull/1140), [#1129](https://github.com/aokcuoglu/getirbakim/issues/1129)).
+- **Storefront sync run prefixes (opt-in):** `STOREFRONT_SYNC_PREFIX_MODE=run` uploads every run to `storefront/current/run-<snapshotAt>/`, points the import task at it and removes the fixed-layout parts and older runs (keeping the newest previous one) after a successful import, so leftovers of an earlier run can no longer be imported; the default stays the fixed prefix until the infra change letting the sync role read run reports is deployed. `STOREFRONT_SYNC_S3_CONCURRENCY` sets `max_concurrent_requests` for the run's own `aws s3` calls without touching `~/.aws/config`; the dry run prints export/split timings ([#1155](https://github.com/aokcuoglu/getirbakim/pull/1155), [#1137](https://github.com/aokcuoglu/getirbakim/issues/1137)).
+- **Enrichment part keys** come from every word suffix of the supplier code, and stale alias brand keys (REINZ, AVACLEVERCHOICE) are rewritten; Trodo search strips the label or master brand prefix ([#1141](https://github.com/aokcuoglu/getirbakim/pull/1141), [#1117](https://github.com/aokcuoglu/getirbakim/issues/1117)).
+- **Known placeholder images** are denylisted at display, import and cleanup ([#1147](https://github.com/aokcuoglu/getirbakim/pull/1147)).
+- **SQL brand and part keys fold diacritics** like the TypeScript normaliser (LEMFÖRDER → LEMFORDER); changed stored keys are rewritten once ([#1162](https://github.com/aokcuoglu/getirbakim/pull/1162), [#1139](https://github.com/aokcuoglu/getirbakim/issues/1139)).
+
+### Changed
+- **Logos re-encoded to 2× display size:** vehicle 1,495 KB → 701 KB, manufacturer 300 KB → 208 KB; new imports are fitted unless that would grow the file; a stale `?v=` on `/api/manufacturer-logos` serves current bytes instead of 404 ([#1159](https://github.com/aokcuoglu/getirbakim/pull/1159), [#1029](https://github.com/aokcuoglu/getirbakim/issues/1029)).
+- Storefront performance: per-page shell HTML trimmed ([#1161](https://github.com/aokcuoglu/getirbakim/pull/1161)), listing and home cards read by id array ([#1157](https://github.com/aokcuoglu/getirbakim/pull/1157)), off-page home carousel images deferred ([#1143](https://github.com/aokcuoglu/getirbakim/pull/1143)), named listing markup classes and an HTML budget probe ([#1132](https://github.com/aokcuoglu/getirbakim/pull/1132)); raw storefront buttons moved onto `storeButton` ([#1131](https://github.com/aokcuoglu/getirbakim/pull/1131)).
+- Privacy and KVKK texts cover orders, payments and the address book ([#1128](https://github.com/aokcuoglu/getirbakim/pull/1128)).
+
+### Deploy and operations
+- **`db:setup` runs first** (`release-aws`). Before the schema transaction, short constraint swaps widen `supplier_price_anomalies.kind` (`offer-outlier`) and `commerce_order_emails.kind` (`shipped`, `cancelled`, `refunded`); without them ship/cancel/refund steps fail. Also: partner return tables and column ([#1150](https://github.com/aokcuoglu/getirbakim/pull/1150), SHARE ROW EXCLUSIVE once on `commerce_orders`, `accounts`, `commerce_order_items`), partner discount column ([#1138](https://github.com/aokcuoglu/getirbakim/pull/1138)), `enrichment_supplier_part_keys()` and the alias backfill ([#1141](https://github.com/aokcuoglu/getirbakim/pull/1141)); diacritic-folding key functions, rewriting only changed `enrichment_search_products` keys ([#1162](https://github.com/aokcuoglu/getirbakim/pull/1162)).
+- **Before release:** add `ORDER_LINK_SIGNING_SECRET` to the AWS app task environment (infra), otherwise the signed guest link stays off. Status emails need the mail transport (SES production access still pending).
+- **After release:** set BakımX's discount on `/yonetim/partnerler`; tell BakımX that contract v2.1 adds the returns endpoint.
+- **Separately approved data steps:** `npm run enrichment:placeholders -- clean --apply` then `storefront:sync` ([#1147](https://github.com/aokcuoglu/getirbakim/pull/1147)); `npm run logos:reencode -- db --apply` then `storefront:sync` ([#1159](https://github.com/aokcuoglu/getirbakim/pull/1159)). Storefront sync run-prefix mode needs getirbakim-infra#9 first.
+- The KVKK text says the AWS standard contract is signed and notified; that must actually be done by the owner ([#1128](https://github.com/aokcuoglu/getirbakim/pull/1128)). Vehicle oil specs are unchanged.
+
 ## v0.35.0 — 2026-11-21
 
 Release of `dev` since v0.34.0 (3 pull requests): BakımX partner search ranks the parts fitting the work-order vehicle from every match, a per-partner order intake switch and order email state with resend in the admin. Not deployed by this release; AWS production is released separately through `release-aws.yml`.

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
+import { lineAmounts } from "../src/modules/partner/order-dto";
 import type { OrderRequest } from "../src/modules/partner/order-schema";
 import type { PartnerOrderConfig } from "../src/modules/partner/orders";
 
@@ -26,9 +27,11 @@ let quotes: typeof import("../src/modules/partner/quotes");
 let dto: typeof import("../src/modules/partner/dto");
 let adminOrders: typeof import("../src/modules/admin/orders");
 let partnerCancel: typeof import("../src/modules/partner/order-cancel");
+let partnerReturns: typeof import("../src/modules/partner/returns");
 let adminData: typeof import("../src/modules/admin/order-filters");
 let limits: typeof import("../src/modules/partner/limits");
 let intake: typeof import("../src/modules/partner/intake");
+let discounts: typeof import("../src/modules/partner/discounts");
 let checkout: typeof import("../src/modules/payments/checkout");
 let reimport: () => Promise<unknown>;
 let closeDb: () => Promise<void>;
@@ -105,6 +108,8 @@ before(async () => {
     import("../src/modules/partner/order-cancel"), import("../src/modules/admin/order-filters")]);
   limits = await import("../src/modules/partner/limits");
   intake = await import("../src/modules/partner/intake");
+  discounts = await import("../src/modules/partner/discounts");
+  partnerReturns = await import("../src/modules/partner/returns");
   partnerOrders = ordersModule; quotes = quotesModule; dto = dtoModule; adminOrders = adminModule; checkout = checkoutModule;
   partnerCancel = cancelModule; adminData = dataModule;
   closeDb = () => db.end();
@@ -122,6 +127,7 @@ beforeEach(async () => {
   // Each test starts without open or uninvoiced partner orders and without panel limits, so the limit sees only its own.
   await schema.pool.query("UPDATE commerce_orders SET status='delivered',partner_invoiced_at=COALESCE(partner_invoiced_at,now()) WHERE owner_kind='partner'");
   await schema.pool.query("DELETE FROM partner_settings");
+  await schema.pool.query("DELETE FROM partner_discount_changes");
   // The store's shipping rule (VAT included): 50.00 TL, free from 400.00 TL of goods.
   await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode='live',shipping_fee_kurus=5000,free_shipping_threshold_kurus=40000");
 });
@@ -284,6 +290,63 @@ test("a /yonetim limit overrides the fallback; clearing it falls back; with neit
   // Another partner's panel limit is its own.
   await limits.savePartnerOrderLimit("other", 20_000, null);
   assert.deepEqual(await limits.partnerOrderLimit("bakimx", null), { limitKurus: null, source: "none" });
+});
+
+test("a /yonetim discount (#1130) prices quotes and orders at once, falls back when cleared and never goes below cost", async () => {
+  const unit = async (partner = "bakimx", cfg = config()) => (await quoteAndBody([{ code: "PART-A", quantity: 1 }], partner, cfg)).quote.lines[0].unitNetKurus;
+  const fallback = config({ discountBps: 500 });
+  // 130.00 TL before VAT; the deployment fallback (PARTNER_B2B_DISCOUNT_BPS) takes 5%.
+  assert.equal(await unit("bakimx", fallback), 12_350);
+  const before = await quoteAndBody([{ code: "PART-A", quantity: 1 }], "bakimx", fallback);
+  await discounts.savePartnerDiscount("bakimx", 1000, null);
+  assert.deepEqual(await discounts.partnerDiscount("bakimx", 500), { discountBps: 1000, source: "panel" });
+  assert.equal(await unit("bakimx", fallback), 11_700);
+  // A quote made before the change is refused at order time with the new price, nothing is written.
+  const count = await orderCount();
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), before.body, fallback), refusal("PRICE_CHANGED", details => {
+    assert.deepEqual(details?.lines, [{ selectedOfferId: offers["PART-A"], expectedUnitNetKurus: 12_350, unitNetKurus: 11_700 }]);
+  }));
+  assert.equal(await orderCount(), count);
+  const { order } = await partnerOrders.createPartnerOrder("bakimx", randomUUID(), (await quoteAndBody([{ code: "PART-A", quantity: 1 }], "bakimx", fallback)).body, fallback);
+  const snapshot = (await schema.pool.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1", [order.id])).rows[0].pricing_snapshot;
+  assert.deepEqual([snapshot.partner.unit_net_kurus, snapshot.partner.discount_bps], [11_700, 1000]);
+  // Another partner keeps the fallback.
+  assert.equal(await unit("other", fallback), 12_350);
+  // 0 on the panel overrides the fallback: no discount.
+  await discounts.savePartnerDiscount("bakimx", 0, null);
+  assert.equal(await unit("bakimx", fallback), 13_000);
+  // 50% would be 65.00 TL, below the 100.00 TL cost: floored at cost.
+  await discounts.savePartnerDiscount("bakimx", 5000, null);
+  assert.equal(await unit("bakimx", fallback), 10_000);
+  // Cleared: the fallback, then none.
+  await discounts.savePartnerDiscount("bakimx", null, null);
+  assert.equal(await unit("bakimx", fallback), 12_350);
+  assert.deepEqual(await discounts.partnerDiscount("bakimx", 0), { discountBps: 0, source: "none" });
+  assert.equal(await unit("bakimx", config()), 13_000);
+  // Every change is recorded with the old and new value; saving the same value again records nothing.
+  assert.deepEqual(await discounts.savePartnerDiscount("bakimx", null, null), { changed: false });
+  const history = (await schema.pool.query<{ old_discount_bps: number | null; new_discount_bps: number | null }>(
+    "SELECT old_discount_bps,new_discount_bps FROM partner_discount_changes WHERE partner_code='bakimx' ORDER BY id")).rows;
+  assert.deepEqual(history.map(row => [row.old_discount_bps, row.new_discount_bps]), [[null, 1000], [1000, 0], [0, 5000], [5000, null]]);
+  assert.deepEqual((await discounts.lastDiscountChanges(["bakimx", "other"])).get("bakimx")?.newBps, null);
+  assert.equal((await discounts.lastDiscountChanges(["other"])).size, 0);
+  // Clearing a partner without a row creates none.
+  await discounts.savePartnerDiscount("nobody", null, null);
+  assert.equal((await schema.pool.query("SELECT 1 FROM partner_settings WHERE partner_code='nobody'")).rowCount, 0);
+});
+
+test("the products endpoint's discount cache (#1130) serves a saved change at once in this process", async () => {
+  assert.deepEqual(await discounts.cachedPartnerDiscount("bakimx", 500), { discountBps: 500, source: "env" });
+  // A write behind the panel's back stays cached ...
+  await schema.pool.query("INSERT INTO partner_settings(partner_code,discount_bps) VALUES('bakimx',700)");
+  assert.deepEqual(await discounts.cachedPartnerDiscount("bakimx", 500), { discountBps: 500, source: "env" });
+  // ... a panel save drops it.
+  await discounts.savePartnerDiscount("bakimx", 1200, null);
+  assert.deepEqual(await discounts.cachedPartnerDiscount("bakimx", 500), { discountBps: 1200, source: "panel" });
+  await discounts.savePartnerDiscount("bakimx", null, null);
+  assert.deepEqual(await discounts.cachedPartnerDiscount("bakimx", 0), { discountBps: 0, source: "none" });
+  // The column refuses more than 90%.
+  await assert.rejects(schema.pool.query("UPDATE partner_settings SET discount_bps=9001 WHERE partner_code='bakimx'"), /check/i);
 });
 
 test("a paused partner (#1009) gets no quote and no new order; others, reads and replays keep working; resume reopens", async () => {
@@ -503,7 +566,16 @@ test("a correction (#1018) never merges two invoices and waits for the partner's
 });
 
 test("admin partner input: TL limits become kuruş, dates are past Istanbul days, usage tones follow the limit", async () => {
-  const { partnerLimitInput, partnerInvoiceInput, partnerInvoiceChangeInput, partnerIntakeInput, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
+  const { partnerLimitInput, partnerInvoiceInput, partnerInvoiceChangeInput, partnerIntakeInput, partnerDiscountInput, percentText, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
+  const discount = (value: string) => partnerDiscountInput.safeParse({ partner: "bakimx", discount: value });
+  assert.equal(discount("10").data?.discount, 1000);
+  assert.equal(discount(" 12,5 ").data?.discount, 1250);
+  assert.equal(discount("%7.25").data?.discount, 725);
+  assert.equal(discount("90").data?.discount, 9000);
+  assert.equal(discount("0").data?.discount, 0);
+  assert.equal(discount("").data?.discount, null);
+  for (const bad of ["90,01", "100", "-5", "abc", "1,234", "5.5.5"]) assert.equal(discount(bad).success, false, bad);
+  assert.deepEqual([percentText(1000), percentText(1250), percentText(725), percentText(0)], ["10", "12,5", "7,25", "0"]);
   assert.deepEqual(partnerIntakeInput.safeParse({ partner: " bakimx ", paused: "1" }).data, { partner: "bakimx", paused: true });
   assert.deepEqual(partnerIntakeInput.safeParse({ partner: "bakimx", paused: "0" }).data, { partner: "bakimx", paused: false });
   for (const bad of [{ partner: "bakimx", paused: "true" }, { partner: "bakimx", paused: "" }, { partner: "bakimx" }, { partner: " ", paused: "1" }, { paused: "1" }]) {
@@ -781,4 +853,228 @@ test("route handlers: key, Idempotency-Key and body checks, 201 then 200 replay,
   assert.equal(await adminOrders.decidePartnerCancelRequest(confirmed.id, "reject"), true);
   response = await remove(confirmed.id);
   assert.deepEqual([response.status, await errorCode(response)], [409, "CANCELLATION_REJECTED"]);
+});
+
+// Partner return requests (#1007).
+const shippedOrder = async (lines: { code: string; quantity: number }[], partner = "bakimx") => {
+  const order = (await partnerOrders.createPartnerOrder(partner, randomUUID(), (await quoteAndBody(lines, partner)).body, config())).order;
+  assert.equal(await adminOrders.transitionOrder(order.id, "confirmed"), true);
+  assert.equal(await adminOrders.shipOrder(order.id, yurtici), true);
+  return order;
+};
+const returnBody = (lines: { code: string; quantity: number; reason?: string }[], note?: string) => ({
+  lines: lines.map(line => ({ selectedOfferId: offers[line.code], quantity: line.quantity, reason: (line.reason ?? "defective") as "defective" })),
+  note: note ?? "",
+});
+const productOf = (code: string) => dto.decodeOfferId(offers[code]) as string;
+const acceptedReturns = async (orderId: string) => (await schema.pool.query<{ product_id: string; quantity: number; reason: string; note: string; created_by: string | null; partner_return_request_id: string | null }>(
+  "SELECT product_id::text,quantity,reason,note,created_by::text,partner_return_request_id::text FROM commerce_returns WHERE order_id=$1 ORDER BY created_at,product_id", [orderId])).rows;
+let returnAdmin = "";
+const adminId = async () => returnAdmin ||= (await schema.pool.query<{ id: string }>(
+  "INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Operasyon','returns-admin@example.invalid','x','admin',true) RETURNING id::text")).rows[0].id;
+
+test("return requests (#1007) need a shipped or delivered order; a request writes no commerce_returns row and leaves the exposure", async () => {
+  const pending = await placeOrder();
+  await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", pending.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }])),
+    refusal("ORDER_NOT_SHIPPED", details => assert.deepEqual(details, { status: "REQUESTED" })));
+  assert.equal(await adminOrders.transitionOrder(pending.id, "confirmed"), true);
+  await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", pending.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }])),
+    refusal("ORDER_NOT_SHIPPED", details => assert.deepEqual(details, { status: "CONFIRMED" })));
+  const cancelled = await placeOrder();
+  await partnerCancel.cancelPartnerOrder("bakimx", cancelled.id);
+  await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", cancelled.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }])),
+    refusal("ORDER_NOT_SHIPPED", details => assert.deepEqual(details, { status: "CANCELLED" })));
+
+  const order = await shippedOrder([{ code: "PART-A", quantity: 3 }, { code: "PART-B", quantity: 1 }]);
+  const exposure = await limits.partnerExposure("bakimx");
+  const key = randomUUID();
+  const created = await partnerReturns.requestPartnerReturn("bakimx", order.id, key, returnBody([{ code: "PART-A", quantity: 2, reason: "not_fit" }], "Uymadı"));
+  assert.equal(created.replayed, false);
+  const line = order.lines.find(item => item.selectedOfferId === offers["PART-A"]);
+  assert.ok(line);
+  assert.deepEqual([created.return.status, created.return.orderId, created.return.idempotencyKey, created.return.note, created.return.decidedAt, created.return.contractVersion],
+    ["REQUESTED", order.id, key, "Uymadı", null, "2.1"]);
+  assert.deepEqual(created.return.lines, [{ selectedOfferId: offers["PART-A"], partNo: line.partNo, name: line.name, quantity: 2, reason: "NOT_FIT",
+    unitNetKurus: line.unitNetKurus, vatRateBps: line.vatRateBps, ...lineAmounts(line.unitNetKurus, 2, line.vatRateBps) }]);
+  assert.deepEqual(await acceptedReturns(order.id), []);
+  assert.deepEqual(await limits.partnerExposure("bakimx"), exposure);
+  // Delivered orders take requests too.
+  await schema.pool.query("UPDATE commerce_orders SET status='delivered',delivered_at=now() WHERE id=$1", [order.id]);
+  const delivered = await partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-B", quantity: 1 }]));
+  assert.equal(delivered.return.status, "REQUESTED");
+  assert.deepEqual((await partnerReturns.listPartnerReturns("bakimx", order.id)).map(item => item.id), [created.return.id, delivered.return.id]);
+});
+
+test("return requests (#1007): Idempotency-Key replays the request, conflicts on another body or order, and concurrent retries make one", async () => {
+  const order = await shippedOrder([{ code: "PART-A", quantity: 3 }]);
+  const other = await shippedOrder([{ code: "PART-A", quantity: 3 }]);
+  const key = randomUUID(), body = returnBody([{ code: "PART-A", quantity: 1 }]);
+  const created = await partnerReturns.requestPartnerReturn("bakimx", order.id, key, body);
+  const replayed = await partnerReturns.requestPartnerReturn("bakimx", order.id, key, body);
+  assert.deepEqual(replayed, { return: created.return, replayed: true });
+  await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", order.id, key, returnBody([{ code: "PART-A", quantity: 2 }])), refusal("IDEMPOTENCY_CONFLICT"));
+  await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", other.id, key, body), refusal("IDEMPOTENCY_CONFLICT"));
+  const concurrentKey = randomUUID();
+  const results = await Promise.all([1, 2].map(() => partnerReturns.requestPartnerReturn("bakimx", other.id, concurrentKey, body)));
+  assert.deepEqual(results.map(result => result.replayed).sort(), [false, true]);
+  assert.equal(results[0].return.id, results[1].return.id);
+  assert.equal(Number((await schema.pool.query("SELECT count(*) FROM partner_return_requests WHERE request_key=$1", [concurrentKey])).rows[0].count), 1);
+});
+
+test("return requests (#1007): accepted + pending + requested stay within the ordered quantity; admin returns count pending units; decisions", async () => {
+  const order = await shippedOrder([{ code: "PART-A", quantity: 3 }]);
+  const productId = productOf("PART-A");
+  const admin = await adminId();
+  const pending = await partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 2 }], "Kusurlu çıktı"));
+  // Operations' own return record sees the pending 2 units: 2 + 2 > 3 is refused, 1 still fits.
+  const record = (quantity: number) => adminOrders.recordOrderReturn({ orderId: order.id, productId, quantity, reason: "damaged", note: "", adminId: admin });
+  assert.equal(await record(2), false);
+  assert.equal(await record(1), true);
+  await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }])),
+    refusal("RETURN_QUANTITY_EXCEEDED", details => assert.deepEqual(details, { lines: [{ selectedOfferId: offers["PART-A"], orderedQuantity: 3,
+      returnedQuantity: 1, pendingQuantity: 2, requestedQuantity: 1 }] })));
+  // A rejection releases the quantity; deciding again is refused.
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(pending.return.id, "reject", admin), true);
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(pending.return.id, "approve", admin), false);
+  assert.equal((await partnerReturns.listPartnerReturns("bakimx", order.id))[0].status, "REJECTED");
+  const again = await partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 2, reason: "wrong_item" }], "Yanlış ürün"));
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(again.return.id, "approve", admin), true);
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(again.return.id, "reject", admin), false);
+  assert.deepEqual((await acceptedReturns(order.id)).map(row => [row.quantity, row.reason, row.note, row.created_by, row.partner_return_request_id]),
+    [[1, "damaged", "", admin, null], [2, "wrong_item", "Yanlış ürün", admin, again.return.id]]);
+  const decided = (await partnerReturns.listPartnerReturns("bakimx", order.id))[1];
+  assert.equal(decided.status, "APPROVED");
+  assert.ok(decided.decidedAt);
+  await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }])),
+    refusal("RETURN_QUANTITY_EXCEEDED", details => assert.equal((details?.lines as { returnedQuantity: number }[])[0].returnedQuantity, 3)));
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(randomUUID(), "approve", admin), false);
+});
+
+test("return requests (#1007): two requests for the last unit at once, exactly one is recorded", async () => {
+  const order = await shippedOrder([{ code: "PART-B", quantity: 1 }]);
+  const results = await Promise.allSettled([1, 2].map(() => partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-B", quantity: 1 }]))));
+  assert.deepEqual(results.map(result => result.status).sort(), ["fulfilled", "rejected"]);
+  const refused = results.find(result => result.status === "rejected");
+  assert.ok(refused && refusal("RETURN_QUANTITY_EXCEEDED")(refused.reason));
+});
+
+test("return requests (#1007): unknown lines, other partners' orders and malformed ids; a paused partner may still return", async () => {
+  const order = await shippedOrder([{ code: "PART-A", quantity: 1 }]);
+  await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-B", quantity: 1 }])),
+    refusal("RETURN_LINE_UNKNOWN", details => assert.deepEqual(details, { selectedOfferIds: [offers["PART-B"]] })));
+  const foreign = await shippedOrder([{ code: "PART-A", quantity: 1 }], "other");
+  await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", foreign.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }])), refusal("ORDER_NOT_FOUND"));
+  await assert.rejects(partnerReturns.listPartnerReturns("bakimx", foreign.id), refusal("ORDER_NOT_FOUND"));
+  await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", "not-a-uuid", randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }])), refusal("ORDER_NOT_FOUND"));
+  await assert.rejects(partnerReturns.listPartnerReturns("bakimx", "not-a-uuid"), refusal("ORDER_NOT_FOUND"));
+  assert.deepEqual(await partnerReturns.listPartnerReturns("bakimx", order.id), []);
+  await intake.setPartnerIntakePaused("bakimx", true, null);
+  try {
+    const created = await partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }]));
+    assert.equal(created.return.status, "REQUESTED");
+  } finally {
+    await intake.setPartnerIntakePaused("bakimx", false, null);
+  }
+});
+
+test("return requests (#1007): the İade talebi tab lists an order only while a request is pending", async () => {
+  const order = await shippedOrder([{ code: "PART-A", quantity: 2 }]);
+  const listed = async () => (await schema.pool.query<{ listed: boolean }>(`SELECT ${adminData.orderFilters.return_request.where} AS listed FROM commerce_orders o WHERE o.id=$1`,
+    [order.id])).rows[0].listed;
+  assert.equal(await listed(), false);
+  const first = await partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }]));
+  assert.equal(await listed(), true);
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(first.return.id, "approve", null), true);
+  assert.equal(await listed(), false);
+  const second = await partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }]));
+  assert.equal(await listed(), true);
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(second.return.id, "reject", null), true);
+  assert.equal(await listed(), false);
+});
+
+test("return requests (#1007) in the admin list: per-order jsonb list, tab count and navigation badge count only pending ones", async () => {
+  const order = await shippedOrder([{ code: "PART-A", quantity: 3 }]);
+  const counts = async () => {
+    const tabs = (await schema.pool.query<Record<string, number>>(adminData.orderTabCountsSql)).rows[0];
+    const nav = (await schema.pool.query<{ count: number }>(adminData.navOrderCountSql)).rows[0].count;
+    return { tab: tabs.return_request, nav, shipped: tabs.shipped };
+  };
+  const listed = async () => (await schema.pool.query<{ return_requests: { id: string; status: string; note: string; requested_at: string; decided_at: string | null;
+    lines: { product_id: string; quantity: number; reason: string }[] }[] }>(
+    `SELECT ${adminData.orderReturnRequestsSql} AS return_requests FROM commerce_orders o WHERE o.id=$1`, [order.id])).rows[0].return_requests;
+  assert.deepEqual(await listed(), []);
+  const before = await counts();
+  const request = (reason: string, note: string) => partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1, reason }], note));
+  const approved = await request("damaged", "Hasarlı");
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(approved.return.id, "approve", null), true);
+  const rejected = await request("changed_mind", "Vazgeçti");
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(rejected.return.id, "reject", null), true);
+  assert.deepEqual(await counts(), before, "decided requests are not counted");
+  const pending = await request("not_fit", "");
+  assert.deepEqual(await counts(), { tab: before.tab + 1, nav: before.nav + 1, shipped: before.shipped });
+  const list = await listed();
+  assert.deepEqual(list.map(item => [item.id, item.status, item.note, item.decided_at === null]), [
+    [approved.return.id, "approved", "Hasarlı", false], [rejected.return.id, "rejected", "Vazgeçti", false], [pending.return.id, "requested", "", true]]);
+  for (const [item, reason] of list.map((item, index) => [item, ["damaged", "changed_mind", "not_fit"][index]] as const)) {
+    assert.deepEqual(item.lines, [{ product_id: productOf("PART-A"), quantity: 1, reason }]);
+    assert.ok(!Number.isNaN(Date.parse(item.requested_at)));
+  }
+  // A request's lines belong to its own order (composite key).
+  const other = await shippedOrder([{ code: "PART-B", quantity: 1 }]);
+  await assert.rejects(schema.pool.query("INSERT INTO partner_return_request_lines(request_id,order_id,product_id,quantity,reason) VALUES($1,$2,$3,1,'other')",
+    [pending.return.id, other.id, productOf("PART-B")]), (error: { code?: string }) => error.code === "23503");
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(pending.return.id, "reject", null), true);
+  assert.deepEqual(await counts(), { ...before, shipped: before.shipped + 1 });
+});
+
+test("return route handlers (#1007): key, Idempotency-Key and body checks, 201 then 200 replay, tenant-scoped GET, no-store", async () => {
+  const [{ NextRequest }, returnsRoute] = await Promise.all([import("next/server"), import("../src/app/api/partner/v1/orders/[id]/returns/route")]);
+  const auth = { authorization: `Bearer ${"k".repeat(24)}` };
+  const base = "https://getirbakim.com/api/partner/v1";
+  const order = await shippedOrder([{ code: "PART-A", quantity: 2 }]);
+  const context = (id: string) => ({ params: Promise.resolve({ id }) });
+  const post = (id: string, body: unknown, headers: Record<string, string>) => returnsRoute.POST(new NextRequest(`${base}/orders/${id}/returns`,
+    { method: "POST", headers: { "content-type": "application/json", ...headers }, body: typeof body === "string" ? body : JSON.stringify(body) }), context(id));
+  const get = (id: string, headers: Record<string, string> = auth) => returnsRoute.GET(new NextRequest(`${base}/orders/${id}/returns`, { headers }), context(id));
+  const errorCode = async (response: Response) => ((await response.json()) as { error: { code: string } }).error.code;
+  const body = { lines: [{ selectedOfferId: offers["PART-A"], quantity: 1, reason: "DEFECTIVE" }] };
+
+  let response = await post(order.id, body, { "idempotency-key": randomUUID() });
+  assert.deepEqual([response.status, await errorCode(response)], [401, "UNAUTHORIZED"]);
+  response = await get(order.id, {});
+  assert.equal(response.status, 401);
+  for (const headers of [auth, { ...auth, "idempotency-key": "not-a-uuid" }]) {
+    response = await post(order.id, body, headers);
+    assert.deepEqual([response.status, await errorCode(response)], [400, "VALIDATION_ERROR"]);
+  }
+  const key = randomUUID();
+  for (const invalid of ["{not json", { ...body, partner: "other" }, { lines: [] }, { lines: [{ ...body.lines[0], reason: "defective" }] }]) {
+    response = await post(order.id, invalid, { ...auth, "idempotency-key": key });
+    assert.deepEqual([response.status, await errorCode(response)], [400, "VALIDATION_ERROR"]);
+    assert.equal(response.headers.get("cache-control"), "no-store");
+  }
+  response = await post(order.id, body, { ...auth, "idempotency-key": key });
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const created = await response.json() as { return: { id: string; status: string; lines: { reason: string }[] }; replayed: boolean };
+  assert.deepEqual([created.replayed, created.return.status, created.return.lines[0].reason], [false, "REQUESTED", "DEFECTIVE"]);
+  response = await post(order.id, body, { ...auth, "idempotency-key": key.toUpperCase() });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ...created, replayed: true });
+  response = await post(order.id, { ...body, note: "Başka" }, { ...auth, "idempotency-key": key });
+  assert.deepEqual([response.status, await errorCode(response)], [409, "IDEMPOTENCY_CONFLICT"]);
+  response = await post(order.id, { lines: [{ ...body.lines[0], quantity: 2 }] }, { ...auth, "idempotency-key": randomUUID() });
+  assert.deepEqual([response.status, await errorCode(response)], [409, "RETURN_QUANTITY_EXCEEDED"]);
+
+  response = await get(order.id);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(((await response.json()) as { returns: { id: string }[] }).returns.map(item => item.id), [created.return.id]);
+  const foreign = await placeOrder("PART-B", "other");
+  for (const id of [foreign.id, randomUUID(), "not-a-uuid"]) {
+    response = await get(id);
+    assert.deepEqual([response.status, await errorCode(response)], [404, "ORDER_NOT_FOUND"]);
+    response = await post(id, body, { ...auth, "idempotency-key": randomUUID() });
+    assert.deepEqual([response.status, await errorCode(response)], [404, "ORDER_NOT_FOUND"]);
+  }
 });

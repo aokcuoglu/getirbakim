@@ -6,16 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { cancelOrder } from "@/app/(store)/siparis/[id]/actions";
-import { storeDialogAction, storeDialogContent, storeDialogOverlay } from "./store-dialog-classes";
+import { storeDialogContent, storeDialogOverlay } from "./store-dialog-classes";
+import { storeButton } from "@/components/store-button";
 
 function ConfirmButton() {
   const { pending } = useFormStatus();
-  return <Button type="submit" variant="destructive" disabled={pending} className={cn(storeDialogAction, "font-semibold")}>{pending ? "İptal ediliyor…" : "Siparişi iptal et"}</Button>;
+  return <Button type="submit" variant="destructive" disabled={pending} className={cn(storeButton({ intent: "danger", size: "lg" }), "w-full gap-2.5")}>{pending ? "İptal ediliyor…" : "Siparişi iptal et"}</Button>;
 }
 
 function KeepButton({ ref }: { ref: Ref<HTMLButtonElement> }) {
   const { pending } = useFormStatus();
-  return <DialogClose ref={ref} disabled={pending} render={<Button type="button" variant="outline" className={cn(storeDialogAction, "border-control-border bg-white font-medium text-foreground hover:bg-muted")}/>}>Vazgeç</DialogClose>;
+  return <DialogClose ref={ref} disabled={pending} render={<Button type="button" variant="outline" className={cn(storeButton({ intent: "outline", size: "lg" }), "w-full")}/>}>Vazgeç</DialogClose>;
 }
 
 /**
@@ -35,7 +36,7 @@ export function CancelOrderButton({ orderId, number, expected, total, paid }: {
       ? `#${number} numaralı siparişin iptal edilecek. Kartından tahsilat yapılmadı. Sepetin korunur; istersen yeniden sipariş verebilirsin. Bu işlem geri alınamaz.`
       : `#${number} numaralı siparişin iptal edilecek. Bu sipariş için ödeme alınmadı. Bu işlem geri alınamaz.`;
   return <Dialog disablePointerDismissal>
-    <DialogTrigger render={<Button variant="ghost" className="h-auto min-h-11 gap-2.5 rounded-lg px-3 py-2 text-sm leading-5 font-medium text-muted-foreground hover:bg-transparent hover:text-destructive hover:underline"/>}>Siparişi iptal et</DialogTrigger>
+    <DialogTrigger render={<Button variant="ghost" className={cn(storeButton({ intent: "ghost", size: "md" }), "text-muted-foreground hover:text-destructive")}/>}>Siparişi iptal et</DialogTrigger>
     <DialogContent showCloseButton={false} role="alertdialog" initialFocus={keep} overlayClassName={storeDialogOverlay} className={storeDialogContent}>
       <div className="mx-auto grid size-14 place-items-center rounded-full bg-[#fff0ec] text-[#a74130]"><CircleAlert className="size-7" aria-hidden/></div>
       <DialogTitle className="mt-4 mb-2 text-[22px] leading-7 font-semibold tracking-[-0.4px]">Siparişi iptal edelim mi?</DialogTitle>

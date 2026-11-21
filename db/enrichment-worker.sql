@@ -141,21 +141,45 @@ CREATE TABLE IF NOT EXISTS enrichment_price_only_brands (
 );
 -- Every Trodo search lists ~10 products, often exact parts of other pending items. They are kept by part number so a
 -- later item opens its product page directly instead of spending its own rate-limited search (#376). The keys follow
--- partKey()/manufacturerBrandKey() in enrichment-contract.ts; the SQL functions only order batches, identity is always
--- re-checked in the worker.
+-- partKey()/manufacturerBrandKey()/supplierPartKeys() in enrichment-contract.ts; the SQL functions only order batches,
+-- identity is always re-checked in the worker.
 CREATE TABLE IF NOT EXISTS enrichment_search_products (
  part_key text NOT NULL, entity_id text NOT NULL, brand_key text NOT NULL,
  product jsonb NOT NULL CHECK(jsonb_typeof(product)='object'), seen_at timestamptz NOT NULL DEFAULT now(),
  PRIMARY KEY(part_key,entity_id)
 );
+-- Folds a name or code to the ASCII key normalize() in enrichment-contract.ts builds. These SQL keys match supplier
+-- brands and codes at query time (createRun's listed lookup); before #1139 they dropped every non-ASCII letter
+-- (LUBRİCO -> LUBRCO) and missed the TS-written keys. Diacritics are stripped
+-- after NFD (LEMFÖRDER -> LEMFORDER, LUBRİCO -> LUBRICO), the letters toUpperCase() expands to ASCII (ß, ı, ſ, ŉ, ẚ,
+-- the ﬀ-ﬆ ligatures) are spelled out first, and the ASCII-only C upper() keeps the key independent of the locale.
+-- Each function names its argument once and has no FROM, so the planner inlines it into the caller: the per-call
+-- SQL function overhead, not the Unicode steps, is what a key costs over the 638k pending codes of createRun.
+CREATE OR REPLACE FUNCTION enrichment_key_fold(value text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
+ SELECT regexp_replace(upper(translate(regexp_replace(normalize(
+  replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(
+   value,'ß','ss'),'ŉ','n'),'ẚ','a'),'ﬀ','ff'),'ﬁ','fi'),'ﬂ','fl'),'ﬃ','ffi'),'ﬄ','ffl'),'ﬅ','st'),'ﬆ','st'),NFD),
+  '['||chr(768)||'-'||chr(879)||']','','g'),'ıſ','is') COLLATE "C"),'[^A-Z0-9]','','g') $$;
+-- An all-digit key loses its leading zeros but keeps one digit, as partKey().
 CREATE OR REPLACE FUNCTION enrichment_part_key(value text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
- SELECT CASE WHEN k ~ '^[0-9]+$' THEN regexp_replace(k,'^0+(?=[0-9])','') ELSE k END
- FROM (SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') AS k) s $$;
+ SELECT regexp_replace(enrichment_key_fold(value),'^0+(?=[0-9]+$)','') $$;
 CREATE OR REPLACE FUNCTION enrichment_brand_key(value text) RETURNS text LANGUAGE sql IMMUTABLE AS $$
  SELECT CASE k WHEN 'FEBI' THEN 'FEBIBILSTEIN' WHEN 'MANN' THEN 'MANNFILTER' WHEN 'HENGST' THEN 'HENGSTFILTER'
   WHEN 'SCHAEFFLERINA' THEN 'INA' WHEN 'SCHAEFFLERLUK' THEN 'LUK' WHEN 'SCHAEFFLERFAG' THEN 'FAG' WHEN 'AVACLEVERCHOICE' THEN 'AVA'
   WHEN 'BORGWARNERBERU' THEN 'BERU' WHEN 'VDOCONTINENTAL' THEN 'VDO' WHEN 'AMSOSRAM' THEN 'OSRAM' WHEN 'REINZ' THEN 'VICTORREINZ' ELSE k END
- FROM (SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') AS k) s $$;
+ FROM (SELECT enrichment_key_fold(value) AS k) s $$;
+-- Part keys of a supplier code and of every word suffix of it, as supplierPartKeys() (#1117): a brand prefix may span
+-- several words ("VICTOR REINZ 61-36960-00").
+CREATE OR REPLACE FUNCTION enrichment_supplier_part_keys(code text) RETURNS text[] LANGUAGE sql IMMUTABLE AS $$
+ SELECT COALESCE(array_agg(DISTINCT k) FILTER(WHERE k<>''),'{}'::text[])
+ FROM (SELECT enrichment_part_key(array_to_string(w[i:],' ')) AS k
+  FROM (SELECT regexp_split_to_array(btrim(code),'[[:space:]]+') AS w) s,generate_subscripts(w,1) i) t $$;
+-- Stored keys are written by manufacturerBrandKey() in TS; rows stored before an alias was added carry a stale one
+-- (REINZ, AVACLEVERCHOICE seen locally). Every key is recomputed from the stored manufacturer, so alias changes and any
+-- drift between the SQL and TS keys heal on the next setup (#1139), and touching only changed rows keeps re-runs
+-- write-free. part_key is in the primary key and is left as written.
+UPDATE enrichment_search_products SET brand_key=enrichment_brand_key(product->>'manufacturer')
+ WHERE brand_key<>enrichment_brand_key(product->>'manufacturer');
 
 -- parts2world.com (TecDoc, #382) has no part-number search: its article-info call needs the article id, the article link
 -- id and a vehicle type the link belongs to. The ids come from the archive of the old v1 parts2world catalog crawl

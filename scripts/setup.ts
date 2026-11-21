@@ -4,6 +4,7 @@ import { hash } from "bcryptjs";
 import { migrateSupplierSnapshots } from "../src/modules/suppliers/sync";
 import { newPasswordSchema } from "../src/modules/auth/schemas";
 import { createConcurrentIndexes } from "./setup-concurrent-indexes";
+import { swapConstraints } from "./setup-constraint-swaps";
 import { postSetupMaintenance } from "./setup-maintenance";
 // --dry-run applies the schema in a transaction that is rolled back and only reports its timings (#1054): no concurrent
 // index builds, nothing after the transaction. Reader-blocking locks are still held while it runs.
@@ -22,6 +23,9 @@ try {
  // New indexes on large write-hot tables, built without blocking writers before the schema transaction (#1046): inside it
  // the build would hold SHARE on the table and every view lock taken before it until commit.
  if (!dryRun) await createConcurrentIndexes(pool);
+ // Widened CHECK value lists, each in its own short transaction (#1050): inside the schema transaction the swap would
+ // hold ACCESS EXCLUSIVE on the table until commit.
+ if (!dryRun) await swapConstraints(pool);
  // The schema runs while the previous release still serves traffic. Its catalog queries read views and
  // tables this transaction replaces, so a lock wait can deadlock with them (40P01) or, with lock_timeout,
  // give up (55P03) instead of stalling every reader queued behind it. Both roll back cleanly: retry.

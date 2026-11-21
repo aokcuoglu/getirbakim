@@ -15,8 +15,8 @@ export function ResponsiveFooterGroup({title,children,accent=false}:{title:strin
   const collapsible=useStoreRoute()==="home"&&phone;
   const [open,setOpen]=useState(false);
   // Phones: each link is a 44px row (#1091); wider screens keep the compact column.
-  const links=cn("[&>a]:block [&>a]:py-1 [&>a]:text-sm [&>a]:leading-5 max-[600px]:[&>a]:flex max-[600px]:[&>a]:min-h-11 max-[600px]:[&>a]:items-center",accent?"[&>a]:py-0 [&>a]:text-brand-strong":"[&>a]:text-foreground");
-  if(!collapsible) return <nav aria-label={title} className="min-w-0"><h2 className="mt-0 mb-4 text-sm leading-5 font-medium">{title}</h2><div className={links}>{children}</div></nav>;
+  const links=accent?"footer-links-accent":"footer-links";
+  if(!collapsible) return <nav aria-label={title} className="min-w-0"><h2 className="footer-group-title">{title}</h2><div className={links}>{children}</div></nav>;
   return <Collapsible open={open} onOpenChange={setOpen}>
     <h2 className="m-0 text-sm leading-5 font-semibold">
       <CollapsibleTrigger className="flex h-auto min-h-0 w-full cursor-pointer items-center justify-between rounded-none border-0 border-b border-border bg-transparent px-0 py-4 text-left text-sm leading-5 font-semibold text-foreground hover:bg-transparent [&[data-panel-open]>svg]:rotate-180">

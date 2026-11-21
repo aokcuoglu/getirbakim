@@ -8,6 +8,8 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { privatePageRobots } from "@/modules/seo/crawlers";
 import { applyForService } from "@/modules/auth/service-application";
+import { storeButton } from "@/components/store-button";
+import { cn } from "@/lib/utils";
 export const metadata: Metadata = { title: "Servis hesabı başvurusu", robots: privatePageRobots };
 const field="gap-2";
 const label="text-sm leading-5 font-normal";
@@ -21,7 +23,7 @@ export default async function Application({ searchParams }: { searchParams: Prom
     {sent === "1" ? <>
       <Alert role="status" className="rounded-md border-0 bg-[#eaf1f7] p-[15px] text-sm leading-5 text-[#50718e]">Başvurun alındı. Yeni başvurular servis bilgileri kontrol edildikten sonra değerlendirilir. Bu e-posta ile zaten bir hesabın varsa mevcut hesabını kullanabilirsin.</Alert>
       <p className="my-4">Başvurun onaylandıktan sonra belirlediğin şifreyle giriş yapabilirsin. Soruların için <a href="tel:+902163870078" className="text-primary hover:underline">0216 387 00 78</a> üzerinden bize ulaş.</p>
-      <Button nativeButton={false} className="h-auto min-h-12 rounded-lg border-primary px-[27px] py-[13px] text-sm leading-5 font-medium hover:bg-brand-strong" render={<Link href="/giris"/>}>Servis girişine git</Button>
+      <Button nativeButton={false} className={storeButton({ intent: "primary", size: "lg" })} render={<Link href="/giris"/>}>Servis girişine git</Button>
     </> : <>
       <p className="text-base leading-6 text-muted-foreground">Servisini tanıyalım, parça ihtiyaçlarına birlikte bakalım. B2B fiyatları yönetici onayından sonra açılır.</p>
       {error && <Alert className="mt-4 rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">{error === "limit" ? "Başvuru deneme sınırına ulaşıldı. Bir saat sonra tekrar dene veya destek ekibimize ulaş." : "Alanları kontrol et. Şifre en az 12 karakter ve en fazla 72 UTF-8 bayt olmalı; telefon 10–15 rakam içermeli. Kullanım koşullarını kabul et."}</Alert>}
@@ -35,7 +37,7 @@ export default async function Application({ searchParams }: { searchParams: Prom
         <label className="hidden" aria-hidden="true">Web sitesi<input name="website" tabIndex={-1} autoComplete="off" defaultValue=""/></label>
         <Field orientation="horizontal" className="items-start gap-3"><Checkbox id="application-terms" name="terms" required className="mt-[5px]"/><FieldLabel htmlFor="application-terms" className="block text-sm leading-[1.8] font-normal"><Link href="/uyelik-ve-kullanim-kosullari" className="text-primary underline">Üyelik ve kullanım koşullarını</Link> okudum, kabul ediyorum.</FieldLabel></Field>
         <p className="text-sm leading-[22px] text-muted-foreground">Başvurudaki iletişim bilgilerini değerlendirme ve hesap işlemleri için kullanırız. Ayrıntılar: <Link href="/kvkk-aydinlatma-metni" className="hover:text-primary hover:underline">KVKK Aydınlatma Metni</Link> ve <Link href="/gizlilik-politikasi" className="hover:text-primary hover:underline">Gizlilik Politikası</Link>.</p>
-        <Button type="submit" className="h-auto min-h-12 w-full rounded-lg px-[27px] py-[13px] text-sm leading-5 font-medium hover:bg-brand-strong">Başvuruyu gönder</Button>
+        <Button type="submit" className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full")}>Başvuruyu gönder</Button>
       </form></>}
   </section>;
 }

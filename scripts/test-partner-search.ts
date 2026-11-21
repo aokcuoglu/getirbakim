@@ -82,8 +82,8 @@ before(async () => {
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
 
-const search = (q: string, input: { limit?: number; vehicleTypeId?: number | null; partNo?: string } = {}) =>
-  partner.searchPartnerProducts({ q, partNo: input.partNo, limit: input.limit ?? 30, vehicleTypeId: input.vehicleTypeId ?? null, discountBps: 0 });
+const search = (q: string, input: { limit?: number; vehicleTypeId?: number | null; partNo?: string; discountBps?: number } = {}) =>
+  partner.searchPartnerProducts({ q, partNo: input.partNo, limit: input.limit ?? 30, vehicleTypeId: input.vehicleTypeId ?? null, discountBps: input.discountBps ?? 0 });
 
 test("limit 30 returns 30 parts in the storefront's order, past one storefront page (#1093)", async () => {
   const ranked = await catalog.rankedSearchIds("textar fren balatasi", "all");
@@ -137,6 +137,20 @@ test("an identical request within the window is answered from memory; another li
   const other = await search("tex balata", { limit: 11 });
   assert.notEqual(other.products, first.products);
   assert.deepEqual(other.products.slice(0, 10).map(item => item.id), first.products.map(item => item.id));
+});
+
+test("a changed partner discount (#1130) is not answered from the cached prices", async () => {
+  const before = await search("tex balata", { limit: 5 });
+  const discounted = await search("tex balata", { limit: 5, discountBps: 1000 });
+  assert.notEqual(discounted.products, before.products);
+  assert.deepEqual(discounted.products.map(item => item.id), before.products.map(item => item.id));
+  for (const [index, product] of discounted.products.entries()) {
+    const list = before.products[index];
+    assert.equal(list.discountBps, 0);
+    assert.equal(product.listPriceKurus, list.listPriceKurus);
+    assert.equal(product.discountBps, 1000);
+    assert.equal(product.b2bPriceKurus, Math.round((list.listPriceKurus ?? 0) * 0.9));
+  }
 });
 
 test("a product sold by two suppliers is one result with both offers, priced by the cheaper; a hidden product is not listed", async () => {

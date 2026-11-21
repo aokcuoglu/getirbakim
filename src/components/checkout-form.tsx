@@ -10,6 +10,8 @@ import { addPaymentInfo, type AnalyticsItem } from "@/modules/analytics/events";
 import { track } from "@/modules/analytics/track";
 import { money } from "@/modules/store/money";
 import { useInstallment } from "./checkout-installments";
+import { storeButton } from "@/components/store-button";
+import { cn } from "@/lib/utils";
 
 /**
  * Creates the order and opens TAMI over this page. The popup is opened before the order request,
@@ -49,7 +51,7 @@ export function CheckoutForm({children,disabled,total,errors,lineNames={},initia
     {error && <CheckoutErrorAlert error={error} errors={errors}/>}
     <form action={checkout} onSubmit={submit} className="grid gap-4">{children}
       <noscript><p className="m-0 text-sm leading-5 text-destructive">Siparişi tamamlamak için JavaScript gerekir. Tarayıcında JavaScript&apos;i açıp sayfayı yenile.</p></noscript>
-      <Button type="submit" className="mt-2 h-auto min-h-12 w-full gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5 font-semibold hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100" disabled={disabled || pending || payment!==null}><LockKeyhole className="size-[18px]" aria-hidden/>{pending ? "Ödeme sayfası hazırlanıyor…" : "Ödemeye geç"}</Button>
+      <Button type="submit" className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-2 w-full gap-2.5")} disabled={disabled || pending || payment!==null}><LockKeyhole className="size-[18px]" aria-hidden/>{pending ? "Ödeme sayfası hazırlanıyor…" : "Ödemeye geç"}</Button>
     </form>
     {payment && <PaymentDialog orderId={payment.orderId} popup={payment.popup} total={option ? money(option.totalKurus) : total} installments={option?.count} onDismiss={()=>router.push(`/siparis/${payment.orderId}`)}/>}
   </>;

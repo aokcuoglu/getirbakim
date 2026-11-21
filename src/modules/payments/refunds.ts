@@ -1,6 +1,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
+import { queueOrderEmail } from "@/modules/store/order-email-queue";
 import { appendNote } from "./checkout";
 import { istanbulLocalTime, refundablePayments, refundKindLabel, reversalKind, type ReversalKind } from "./refund-rules";
 import {
@@ -121,8 +122,9 @@ async function settleOrderAfterRefund(client: PoolClient, order: Order, provider
     `SELECT r.kind,p.provider_order_id,r.bank_reference FROM commerce_payment_refunds r JOIN commerce_payments p ON p.id=r.payment_id
      WHERE r.order_id=$1 AND r.status='succeeded' AND ($2::timestamptz IS NULL OR r.completed_at>$2::timestamptz) ORDER BY r.completed_at,r.id`, [order.id, order.refunded_at],
   )).rows.map(r => `TAMI ${refundKindLabel[r.kind]} ${r.provider_order_id}${r.bank_reference ? ` · banka ref. ${r.bank_reference}` : ""}`);
-  await client.query(`UPDATE commerce_orders SET payment_status='refunded',refunded_at=now(),refund_reference=concat_ws('; ',NULLIF(refund_reference,''),NULLIF($2,''))
+  const refunded = await client.query(`UPDATE commerce_orders SET payment_status='refunded',refunded_at=now(),refund_reference=concat_ws('; ',NULLIF(refund_reference,''),NULLIF($2,''))
     WHERE id=$1 AND payment_status='refund_required'`, [order.id, references.join("; ")]);
+  if (refunded.rowCount) await queueOrderEmail(client, order.id, "refunded");
 }
 
 const outcomeMessage: Record<Settlement["status"], string> = {

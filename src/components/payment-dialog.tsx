@@ -6,7 +6,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { storeDialogAction, storeDialogContent, storeDialogOverlay } from "./store-dialog-classes";
+import { storeDialogContent, storeDialogOverlay } from "./store-dialog-classes";
 import { paymentState } from "@/app/(store)/siparis/[id]/actions";
 import { PAYMENT_NOTICE, PAYMENT_WINDOW, paymentErrors } from "@/modules/payments/messages";
 import { installmentHint } from "@/modules/payments/installment-plan";
@@ -98,10 +98,9 @@ export function PaymentDialog({ orderId, popup, total, installments = 1, onDismi
       : "Ödeme penceresi kapandı. Ödemeyi tamamlamadıysan yeniden deneyebilirsin; siparişin ve sepetin korunuyor.");
   const canRetry = !paid && (!error || error === paymentErrors.provider);
 
-  const action = storeDialogAction;
   return <Dialog open={open} disablePointerDismissal onOpenChange={next => { if (!next && !paid) dismiss(); }}>
     <DialogContent showCloseButton={false} overlayClassName={storeDialogOverlay} aria-labelledby="payment-dialog-title" className={storeDialogContent}>
-        {!paid && <Button variant="secondary" className={cn(storeButton({intent:"ghost",size:"icon"}),"absolute top-1 right-1 bg-[#e6e9ec] hover:bg-[#d9dfe4]")} onClick={dismiss} aria-label="Ödeme penceresini kapat"><X className="size-5" aria-hidden/></Button>}
+        {!paid && <Button variant="ghost" className={cn(storeButton({intent:"ghost",size:"icon"}),"absolute top-1 right-1")} onClick={dismiss} aria-label="Ödeme penceresini kapat"><X className="size-5" aria-hidden/></Button>}
         <div className={cn("mx-auto grid size-14 place-items-center rounded-full", paid ? "bg-[#ebf5ed] text-[#2e7d32]" : "bg-[#e5f2fa] text-primary")}>{paid ? <CheckCircle2 className="size-8" aria-hidden/> : <LockKeyhole className="size-7" aria-hidden/>}</div>
         <DialogTitle id="payment-dialog-title" className="mt-4 mb-1 text-[22px] leading-7 font-semibold tracking-[-0.4px]">{title}</DialogTitle>
         <p className="mb-4 text-xl font-semibold text-primary">{total}</p>
@@ -112,9 +111,9 @@ export function PaymentDialog({ orderId, popup, total, installments = 1, onDismi
           <span className="mt-5 block h-[3px] animate-[payment-progress_1.4s_linear_infinite] rounded-[3px] bg-[linear-gradient(90deg,#e5f2fa_0,#007bc4_50%,#e5f2fa_100%)] bg-size-[200%_100%] motion-reduce:animate-none motion-reduce:bg-primary" aria-hidden/>
         </>}
         {!paid && <div className="mt-6 grid gap-2.5">
-          {phase === "open" ? <Button className={cn(action, "font-semibold hover:bg-brand-strong")} onClick={focus}><ExternalLink className="size-[18px]" aria-hidden/>Ödeme penceresine git</Button>
-            : canRetry && <Button className={cn(action, "font-semibold hover:bg-brand-strong")} onClick={retry}><LockKeyhole className="size-[18px]" aria-hidden/>{phase === "blocked" ? "Ödeme penceresini aç" : "Yeniden dene"}</Button>}
-          <Button variant="outline" className={cn(action, "border-control-border bg-white font-medium text-foreground hover:bg-muted")} onClick={dismiss}>Daha sonra öde</Button>
+          {phase === "open" ? <Button className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full gap-2.5")} onClick={focus}><ExternalLink className="size-[18px]" aria-hidden/>Ödeme penceresine git</Button>
+            : canRetry && <Button className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full gap-2.5")} onClick={retry}><LockKeyhole className="size-[18px]" aria-hidden/>{phase === "blocked" ? "Ödeme penceresini aç" : "Yeniden dene"}</Button>}
+          <Button variant="outline" className={cn(storeButton({ intent: "outline", size: "lg" }), "w-full")} onClick={dismiss}>Daha sonra öde</Button>
         </div>}
         {!paid && <small className="mt-[18px] block text-xs leading-[18px] text-muted-foreground">{PAYMENT_NOTICE} Siparişin ödeme süresi boyunca sipariş sayfasından tekrar ödeyebilirsin.</small>}
     </DialogContent>

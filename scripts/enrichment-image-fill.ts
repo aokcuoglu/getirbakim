@@ -20,6 +20,7 @@ import {SparetoClient,SourceBlocked as SparetoBlocked} from '../src/modules/enri
 import {attachProductImage,type ImageFillResult} from '../src/modules/enrichment/image-fill';
 import {recordAttempt,type FallbackSource} from '../src/modules/enrichment/source-attempts';
 import {withSourceLock} from '../src/modules/enrichment/source-lock';
+import {isPlaceholderImage} from '../src/modules/enrichment/placeholder-images';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:2});
 pool.on('error',error=>console.error('Database connection lost:',String(error)));
@@ -54,7 +55,8 @@ type Candidate=Supplier&{id:string;host:string};
 
 async function saveImage(bytes:Buffer|null,source:string,id:string){
  const size=bytes&&imageSize(bytes);
- if(!bytes||!size)return null;
+ // A listed source placeholder (#1098) is no photo: the product is saved without one.
+ if(!bytes||!size||isPlaceholderImage(bytes))return null;
  const directory=resolve(checkpoint,'..','images');await mkdir(directory,{recursive:true});
  const file=resolve(directory,`${id}.bin`);await writeFile(file,bytes);
  return {file,source,...size};

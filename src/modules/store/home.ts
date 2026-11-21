@@ -1,6 +1,6 @@
 import "server-only";
 import {boundedQuery,db} from "@/lib/db";
-import {catalogSql, categoryMovedAwaySql, withBestOffers, type CatalogProduct} from "./catalog";
+import {catalogRowsByIds, categoryMovedAwaySql, withBestOffers, type CatalogProduct} from "./catalog";
 import {getStoreCategories} from "./categories";
 import type {StoreCategory} from "./category-tree";
 import {storefrontCompanies} from "@/modules/suppliers/storefront-sources";
@@ -9,8 +9,8 @@ import {listingEpoch} from "./listing-epoch";
 import {hiddenAutomaticItemsSql} from "./product-image-sql";
 
 // Picking the newest enriched items reads every enrichment (~0.4 s, four times per home page). The
-// pick only changes when enrichments are imported, so the ids are cached; price and stock are joined
-// fresh on every request. An admin-hidden product is left out of the pick so the rail keeps its 24 cards (the catalog
+// pick only changes when enrichments are imported, so the ids are cached; price and stock are read
+// fresh on every request (catalogRowsByIds). An admin-hidden product is left out of the pick so the rail keeps its 24 cards (the catalog
 // view would drop it from the page anyway), and the pick reloads when an admin edit bumps the listing epoch (#650).
 // A rail card needs an image the store shows (#596): either a trusted automatic image the admin did not hide, or an
 // admin upload (no trust or enrichment needed). Each arm picks its newest 24; a row in both counts by its later date,
@@ -55,9 +55,8 @@ export const homeProductIds=(categoryIds:number[]|null)=>cachedHomeIds(categoryI
 export async function getHomeProducts(categoryId?:number):Promise<CatalogProduct[]> {
   const categoryIds=categoryId?(await getStoreCategories()).filter(category=>category.path.includes(categoryId)).map(category=>category.id):null;
   const ids=await homeProductIds(categoryIds);
-  return withBestOffers((await db.query<CatalogProduct>(`SELECT catalog.* FROM unnest($2::uuid[]) WITH ORDINALITY page(id,ordinal)
-    JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=page.id OFFSET 0) catalog ON true ORDER BY page.ordinal`,
-    [storefrontCompanies(),ids])).rows);
+  // Priced by id array, not per id (#1135): 24 cards ~6 ms against ~139 ms, four rails per home page.
+  return withBestOffers(await catalogRowsByIds(ids));
 }
 
 export async function getHomeProductCategories(products:{id:string}[]) {

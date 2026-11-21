@@ -9,6 +9,7 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { decodeOfferId, encodeOfferId } from "./dto";
 import { lineAmounts, partnerOrderLimitEnv, resolveOrderLimitKurus, toPartnerOrderDto, type PartnerOrderLineRow, type PartnerOrderRow } from "./order-dto";
 import { addressText, type OrderRequest, type QuoteRequest } from "./order-schema";
+import { partnerDiscount } from "./discounts";
 import { assertPartnerIntakeOpen } from "./intake";
 import { lockPartnerOrders, partnerExposure, partnerOrderLimit } from "./limits";
 import { partnerDiscountEnv, resolvePartnerDiscountBps, resolvePartnerPrice } from "./pricing";
@@ -22,7 +23,10 @@ import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partner
  */
 type Connection = Pick<PoolClient, "query">;
 type OfferRow = CatalogProduct & { id: string };
-/** `limitKurus` is the deployment fallback (PARTNER_ORDER_LIMIT_KURUS); a partner's /yonetim limit overrides it (limits.ts). */
+/**
+ * `limitKurus` and `discountBps` are the deployment fallbacks (PARTNER_ORDER_LIMIT_KURUS, PARTNER_B2B_DISCOUNT_BPS); a
+ * partner's /yonetim limit (limits.ts) and discount (discounts.ts) override them.
+ */
 export type PartnerOrderConfig = { discountBps: number; secret: string | undefined; limitKurus: number | null; now?: () => number };
 
 /** The deployment's partner order settings; a missing secret or limit is refused where it is needed (fail closed). */
@@ -96,8 +100,8 @@ export async function quotePartnerOrder(partner: string, request: QuoteRequest, 
   // A paused partner (#1009) gets no new quote.
   await assertPartnerIntakeOpen(partner);
   const lines = decodeLines(request.lines);
-  const [rows, rule] = await Promise.all([offerRows(lines.map(line => line.id)), shippingRule()]);
-  const priced = priceLines(lines, rows, config.discountBps);
+  const [rows, rule, discount] = await Promise.all([offerRows(lines.map(line => line.id)), shippingRule(), partnerDiscount(partner, config.discountBps)]);
+  const priced = priceLines(lines, rows, discount.discountBps);
   const totals = orderAmounts(priced, rule);
   const expiresAt = now + partnerQuoteTtlMs;
   const confirmationToken = signQuote({
@@ -193,7 +197,9 @@ export async function createPartnerOrder(partner: string, idempotencyKey: string
     await client.query("SELECT id FROM commerce_settings FOR SHARE");
     if (await supplierCheckoutMode(client) !== refreshed.mode) throw new PartnerOrderError("QUOTE_CHANGED", "Checkout rules changed; request a new quote.", 409);
     await lockCheckoutSources(client, ids, `partner ${partner}, request ${idempotencyKey}`);
-    const priced = priceLines(lines, await offerRows(ids, client), config.discountBps);
+    // The partner's discount now (#1130): one changed in /yonetim since the quote changes the unit prices → PRICE_CHANGED below.
+    const { discountBps } = await partnerDiscount(partner, config.discountBps, client);
+    const priced = priceLines(lines, await offerRows(ids, client), discountBps);
     // (#861) A live cost the locked rows kept from being saved: refused only if the sale price would change. Its new
     // price is not known yet, so it is reported as null (request a new quote shortly).
     const repriced = new Set(await livePriceChanges(client, priced.flatMap(({ line, row }) =>

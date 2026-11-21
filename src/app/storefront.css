@@ -61,6 +61,7 @@
      the only part that takes taps (the frame and header pass them through to the page under the empty strip).
      Focus or an open menu inside keeps it in view. */
   .site-chrome {
+    @apply text-sm leading-5 font-normal text-foreground;
     @apply max-[599.98px]:in-data-header-pin:pointer-events-none max-[599.98px]:in-data-header-pin:sticky max-[599.98px]:in-data-header-pin:top-0 max-[599.98px]:in-data-header-pin:z-41;
     @apply max-[599.98px]:in-data-[header-pin=parked]:-translate-y-full max-[599.98px]:in-data-[header-pin=hidden]:-translate-y-full;
     @apply motion-safe:max-[599.98px]:in-data-[header-pin=shown]:transition-[translate] motion-safe:max-[599.98px]:in-data-[header-pin=shown]:duration-200 motion-safe:max-[599.98px]:in-data-[header-pin=hidden]:transition-[translate] motion-safe:max-[599.98px]:in-data-[header-pin=hidden]:duration-200;
@@ -69,6 +70,28 @@
   .site-topbar { @apply h-[42px] border-b border-border bg-white max-[600px]:hidden group-data-[route=checkout]/route:hidden; }
   .site-topbar-inner { @apply mx-auto flex h-full w-full max-w-[1350px] items-center justify-between gap-6 px-[15px]; }
   .site-topbar-links { @apply flex h-full items-center gap-6 [&>a]:inline-flex [&>a]:items-center [&>a]:gap-1.5 [&>a:hover]:text-brand max-[850px]:[&>a:first-child]:hidden max-[640px]:[&>a:last-child]:hidden; }
+  /* The country and currency are fixed (one option each), so they are plain text, sized like the select triggers they replaced. */
+  .site-topbar-locale { @apply flex h-full items-center [&>span]:flex [&>span]:h-8 [&>span]:items-center [&>span]:py-1.5 [&>span]:pr-[25px] [&>span]:pl-2 [&>span]:text-sm [&>span]:leading-5 [&>span]:whitespace-nowrap [&>span:first-child]:w-[112px] [&>span:last-child]:w-20; }
+  .site-logo { @apply w-[158px] max-[600px]:w-[148px] max-[370px]:w-[120px] group-data-[route=checkout]/route:w-[180px] group-data-[route=checkout]/route:max-[600px]:w-[148px] group-data-[route=checkout]/route:max-[370px]:w-[120px]; }
+  .site-nav-robot { @apply ml-auto inline-flex min-h-5 items-center gap-1.5 text-brand hover:underline hover:underline-offset-3 max-[600px]:min-h-11; }
+  .site-nav-help { @apply inline-flex min-h-5 items-center gap-1.5 text-[#923830] max-[1300px]:hidden; }
+  /* CategoryMenu: the bar's links and the buttons that open the mega menu (the buttons add the reset). */
+  .site-nav-all { @apply w-[101px] shrink-0 border-r border-input max-[1100px]:w-[60px]; }
+  .site-nav-catalog { @apply flex h-7 min-h-7 w-[76px] items-center justify-center gap-2 rounded-none border-0 bg-white p-0 text-sm font-medium text-foreground hover:bg-[#f7f8fa] hover:text-brand max-[1100px]:w-11 max-[600px]:h-11 max-[600px]:min-h-11; }
+  .site-nav-item { @apply inline-flex min-h-5 shrink-0 items-center gap-1.5 text-[length:inherit] leading-[inherit] font-medium hover:text-brand aria-expanded:text-brand max-[600px]:min-h-11 max-[600px]:min-w-11 max-[600px]:justify-center; }
+  .site-nav-trigger { @apply rounded-none border-0 bg-transparent p-0 text-inherit hover:bg-transparent inline-flex min-h-5 shrink-0 items-center gap-1.5 text-[length:inherit] leading-[inherit] font-medium hover:text-brand aria-expanded:text-brand max-[600px]:min-h-11 max-[600px]:min-w-11 max-[600px]:justify-center; }
+  .sheet-account-row { @apply flex w-full items-center gap-3 text-left text-foreground hover:bg-[#f4f5f6] hover:text-brand [&>svg:last-child]:ml-auto [&>svg:last-child]:shrink-0 min-h-[49px] border-b border-border px-4 py-3 text-sm font-normal; }
+  /* SiteFooter (links variant), its link groups, social icons and the preferences button. */
+  .site-footer { @apply border-t border-border bg-white pt-12 text-sm leading-5 text-foreground group-data-[route=home]/route:max-[600px]:pt-4; }
+  .site-footer-grid { @apply mx-auto grid w-full max-w-[1350px] grid-cols-[2fr_1fr_1fr] gap-5 px-[15px] pb-10 group-data-[route=standard]/route:max-[768px]:grid-cols-2 group-data-[route=standard]/route:max-[768px]:[&>*:first-child]:col-span-full group-data-[route=home]/route:max-[600px]:grid-cols-1 group-data-[route=home]/route:max-[600px]:gap-0 group-data-[route=home]/route:max-[600px]:pb-4; }
+  .site-footer-bar { @apply mx-auto flex w-full max-w-[1350px] items-center justify-between gap-6 border-t border-border bg-[#f8f9f9] px-[15px] py-4 text-xs leading-5 text-muted-foreground max-[600px]:flex-col max-[600px]:items-stretch max-[600px]:gap-2 max-[600px]:text-[11px]; }
+  .site-footer-bar-end { @apply flex items-center gap-4 max-[600px]:justify-between; }
+  .footer-links { @apply [&>a]:block [&>a]:py-1 [&>a]:text-sm [&>a]:leading-5 max-[600px]:[&>a]:flex max-[600px]:[&>a]:min-h-11 max-[600px]:[&>a]:items-center [&>a]:text-foreground; }
+  .footer-links-accent { @apply [&>a]:block [&>a]:text-sm [&>a]:leading-5 max-[600px]:[&>a]:flex max-[600px]:[&>a]:min-h-11 max-[600px]:[&>a]:items-center [&>a]:py-0 [&>a]:text-brand-strong; }
+  .footer-group-title { @apply mt-0 mb-4 text-sm leading-5 font-medium; }
+  .social-list { @apply m-0 flex list-none items-center gap-2 p-0; }
+  .social-link { @apply flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-brand; }
+  .cookie-preferences { @apply inline min-h-6 cursor-pointer rounded-none border-0 bg-transparent p-0 text-[length:inherit] leading-[inherit] text-inherit font-normal underline underline-offset-3 hover:bg-transparent hover:text-primary; }
   .site-header {
     @apply relative border-b border-border bg-white min-[600px]:in-data-home-scrolled:h-[131px] min-[600px]:in-data-catalog-scrolled:h-[131px];
     @apply max-[599.98px]:in-data-header-pin:pointer-events-none max-[599.98px]:in-data-header-pin:border-transparent max-[599.98px]:in-data-header-pin:bg-transparent;
@@ -100,6 +123,11 @@
     @apply [&>span>strong]:flex [&>span>strong]:max-w-[115px] [&>span>strong]:items-center [&>span>strong]:gap-[5px] [&>span>strong]:overflow-hidden [&>span>strong]:text-ellipsis [&>span>strong]:text-sm [&>span>strong]:leading-5 [&>span>strong]:font-medium;
     @apply [&>span>small]:block [&>span>small]:max-w-[115px] [&>span>small]:overflow-hidden [&>span>small]:text-[13px] [&>span>small]:leading-[18px] [&>span>small]:text-ellipsis [&>span>small]:whitespace-nowrap [&>span>small]:text-muted-foreground;
   }
+  /* Not-found page: the ui/button, ui/empty and storeButton class lists as rendered (no svg, icon, invalid or dark states). */
+  .store-not-found { @apply flex min-w-0 flex-1 flex-col items-center p-6 text-center text-balance mx-auto min-h-[55vh] w-full max-w-[1280px] justify-start gap-0 rounded-2xl border border-dashed border-border bg-[#f7f8fa] px-6 py-14; }
+  .store-not-found-title { @apply font-heading text-[22px] leading-5 font-semibold tracking-normal; }
+  .store-not-found-text { @apply mx-auto mb-6 max-w-[460px] text-sm leading-6 text-muted-foreground; }
+  .store-cta { @apply inline-flex shrink-0 items-center justify-center border bg-clip-padding whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring active:not-aria-[haspopup]:translate-y-px h-auto gap-2 rounded-lg focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring border-primary bg-primary font-semibold text-primary-foreground hover:border-brand-strong hover:bg-brand-strong hover:text-primary-foreground min-h-12 px-5 py-3 text-base leading-6; }
   /* Checkout footer links. */
   .checkout-footer-link { @apply block py-[5px] text-[13px] leading-[22px] text-muted-foreground [overflow-wrap:anywhere] hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:flex max-[600px]:min-h-11 max-[600px]:items-center max-[600px]:py-2.5; }
   .checkout-footer-category { @apply text-muted-foreground hover:text-brand hover:underline hover:underline-offset-3 max-[600px]:flex max-[600px]:min-h-11 max-[600px]:items-center max-[600px]:py-2; }
@@ -129,6 +157,30 @@
   .home-category-tile { @apply flex h-[180px] flex-col items-center justify-center rounded-[4px] border border-[#dfe3e8] bg-white p-6 text-center text-foreground hover:border-brand hover:text-brand max-md:h-40 max-md:px-2 max-md:py-3.5; }
   .home-category-tile-image { @apply grid h-[90px] w-[135px] max-w-full shrink-0 place-items-center; }
   .home-category-tile-name { @apply flex h-10 w-full items-center justify-center overflow-hidden text-sm leading-[18px] font-medium; }
+}
+
+@layer components {
+  /* Listing markup repeated per category, filter group or model family (#642). Each class is the exact utility list the
+     element carried before; the -related, -open and -folded classes follow their base class and override it. */
+  .facet-tree-link { @apply flex min-h-[30px] items-center justify-between py-[5px] pr-[35px] pl-[25px] text-sm leading-5 font-medium text-foreground transition-colors hover:text-brand aria-[current=page]:bg-[#f8f9f9] aria-[current=page]:text-foreground; }
+  .facet-trigger { @apply flex min-h-[50px] w-full cursor-pointer rounded-none border-0 bg-transparent text-foreground items-center justify-between px-[25px] py-[15px] max-[768px]:px-5 text-left text-base leading-5 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset; }
+  .facet-search { @apply relative mx-[25px] mb-[15px] block pt-[5px]; }
+  .facet-search-input { @apply h-10 w-full max-[768px]:h-11 rounded-md border border-input bg-white py-2 pr-2.5 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50; }
+  .facet-options { @apply max-h-[300px] overflow-auto px-[25px] pt-[5px] pb-[25px] max-[768px]:px-5 max-[768px]:pb-4; }
+  .facet-options-open { @apply max-[768px]:max-h-80 max-[768px]:overscroll-contain; }
+  .facet-options-folded { @apply max-[768px]:max-h-none max-[768px]:overflow-visible; }
+
+  /* CategoryCards (default and "related" band) and the phone's CatalogCategoryChips. */
+  .category-card { @apply flex min-h-[176px] flex-col items-center justify-center gap-3 rounded-[4px] border border-[#e5e7eb] bg-white px-4 py-6 text-center text-sm text-foreground transition-colors hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring; }
+  .category-card-related { @apply rounded-md border-border max-[600px]:min-h-[190px]; }
+  .category-card-image { @apply grid h-[90px] w-full place-items-center; }
+  .category-chip { @apply flex min-h-11 items-center rounded-full border border-border bg-white px-4 text-sm whitespace-nowrap text-foreground transition-colors hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring; }
+
+  /* Catalog popular-make list items and a make page's model families (VehicleModelList). */
+  .make-list-item { @apply text-[13px] leading-[18px] not-last:after:ml-px not-last:after:content-[',']; }
+  .model-family { @apply mb-4 break-inside-avoid; }
+  .model-family-title { @apply mb-1 text-sm leading-5 font-semibold; }
+  .model-family-list { @apply text-[13px] leading-[18px]; }
 }
 
 /* iOS Safari zooms the page when a focused field is under 16px (#879). Unlayered so it beats size utilities; scoped like the storefront typography defaults, so /yonetim (.admin-app, portals included) keeps its sizes. */

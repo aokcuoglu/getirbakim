@@ -35,6 +35,7 @@ import {interleaveStreams,priceOnlyShare,priceOnlySuppliers} from '../src/module
 import {categoriesForType,loadTypeCategoriesOrEmpty,typeSlug} from '../src/modules/enrichment/type-categories';
 import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
 import {createFitmentMatcher,type FitmentCatalogModel,type FitmentCatalogType} from '../src/modules/store/fitment-matcher';
+import {isPlaceholderImage} from '../src/modules/enrichment/placeholder-images';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3});
 pool.on('error',error=>console.error('Database connection lost:',String(error)));
@@ -117,7 +118,8 @@ async function flush(){
 async function downloadImage(client:SparetoClient,url:string|null,id:string){
  if(!url)return null;
  const bytes=await client.image(url),size=bytes&&imageSize(bytes);
- if(!bytes||!size)return null;
+ // A listed source placeholder (#1098) is no photo: the product is saved without one.
+ if(!bytes||!size||isPlaceholderImage(bytes))return null;
  const directory=resolve(checkpoint,'..','images');await mkdir(directory,{recursive:true});
  const file=resolve(directory,`${id}.bin`);await writeFile(file,bytes);
  return {file,source:url,...size};

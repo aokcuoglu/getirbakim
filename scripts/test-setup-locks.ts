@@ -4,6 +4,7 @@ import { Client } from "pg";
 import { readFile } from "node:fs/promises";
 import { applySetupFiles, isolatedSchema, setupFiles } from "./isolated-schema";
 import { postSetupMaintenance } from "./setup-maintenance";
+import { swapConstraints } from "./setup-constraint-swaps";
 
 // db:setup re-runs every setup file on each deploy while the previous release serves traffic (#925, #954). On an already
 // set-up database it must not take ACCESS EXCLUSIVE on any table or view: such a lock is held until the single setup
@@ -124,6 +125,44 @@ test("a value list that differs in any way is still replaced", async () => {
     await rerun();
     assert.equal(await definition(), current);
   }
+});
+
+test("a widened CHECK list is swapped before the schema transaction once, then left alone (#1050)", async () => {
+  const definition = async () => (await schema.pool.query<{ def: string }>(
+    "SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid='supplier_price_anomalies'::regclass AND conname='supplier_price_anomalies_kind_check'")).rows[0].def;
+  const current = await definition();
+  // A fresh schema already carries the widened list inline: nothing to do.
+  assert.deepEqual(await swapConstraints(schema.pool), []);
+  await schema.pool.query(`ALTER TABLE supplier_price_anomalies DROP CONSTRAINT supplier_price_anomalies_kind_check,
+    ADD CONSTRAINT supplier_price_anomalies_kind_check CHECK (kind IN ('currency'))`);
+  assert.notEqual(await definition(), current);
+  assert.deepEqual(await swapConstraints(schema.pool), ["supplier_price_anomalies_kind_check"]);
+  const oid = async () => (await schema.pool.query<{ oid: number }>(
+    "SELECT oid FROM pg_constraint WHERE conrelid='supplier_price_anomalies'::regclass AND conname='supplier_price_anomalies_kind_check'")).rows[0].oid;
+  const swapped = await oid();
+  assert.equal(await definition(), current);
+  assert.deepEqual(await swapConstraints(schema.pool), []);
+  assert.equal(await oid(), swapped);
+  // The schema file then leaves it alone too.
+  await rerun();
+  assert.equal(await oid(), swapped);
+});
+
+test("the order email kinds are widened on an existing table the same way (#1036)", async () => {
+  const constraint = "SELECT oid,pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid='commerce_order_emails'::regclass AND conname='commerce_order_emails_kind_check'";
+  const read = async () => (await schema.pool.query<{ oid: number; def: string }>(constraint)).rows[0];
+  const current = await read();
+  assert.match(current.def, /'confirmation'.*'shipped'.*'cancelled'.*'refunded'/);
+  assert.deepEqual(await swapConstraints(schema.pool), []);
+  // The list a database set up before #1036 carries.
+  await schema.pool.query(`ALTER TABLE commerce_order_emails DROP CONSTRAINT commerce_order_emails_kind_check,
+    ADD CONSTRAINT commerce_order_emails_kind_check CHECK (kind IN ('confirmation'))`);
+  assert.deepEqual(await swapConstraints(schema.pool), ["commerce_order_emails_kind_check"]);
+  const swapped = await read();
+  assert.equal(swapped.def, current.def);
+  assert.deepEqual(await swapConstraints(schema.pool), []);
+  await rerun();
+  assert.equal((await read()).oid, swapped.oid);
 });
 
 test("columns in an older shape are still altered", async () => {

@@ -14,7 +14,6 @@ import {CategoryThumb,TreeStatus,reset} from "./category-parts";
 // Phones and tablets only: fetched on the first hover, focus or tap below 769px; the desktop never downloads it (#1017).
 const categorySheet=lazyModule(()=>import("./category-sheet"));
 const mobile=()=>!window.matchMedia('(min-width:769px)').matches;
-const navItem="inline-flex min-h-5 shrink-0 items-center gap-1.5 text-[length:inherit] leading-[inherit] font-medium hover:text-brand aria-expanded:text-brand max-[600px]:min-h-11 max-[600px]:min-w-11 max-[600px]:justify-center";
 const megaLink="flex min-h-9 items-center gap-1.5 px-4 pt-3 pb-0 text-xs font-medium text-brand hover:underline hover:underline-offset-3";
 /**
  * The header category navigation: desktop mega menu (from 769px) and the phone/tablet category sheet.
@@ -77,9 +76,9 @@ export function CategoryMenu({links,account}:{links:CategoryLink[];account:React
  // Hover/focus on a trigger: the tree for both layouts, the sheet's code only where the sheet is used.
  function intent(){tree.load();if(mobile())void categorySheet.preload();}
  function selectDesktop(id:number){setDesktop(previous=>previous?{...previous,selectedId:id}:null);}
- return <><div ref={menu} data-mega-open={desktopOpen?"":undefined} className="w-[101px] shrink-0 border-r border-input max-[1100px]:w-[60px]">
+ return <><div ref={menu} data-mega-open={desktopOpen?"":undefined} className="site-nav-all">
   <button data-category-trigger type="button" aria-label="Tüm kategoriler" aria-expanded={open||desktop!==null} aria-busy={open&&!sheet&&selected===null?true:undefined} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={intent} onFocus={intent} onClick={event=>show(3,event.currentTarget,true)}
-   className={cn(reset,"flex h-7 min-h-7 w-[76px] items-center justify-center gap-2 bg-white text-sm font-medium text-foreground hover:bg-[#f7f8fa] hover:text-brand max-[1100px]:w-11 max-[600px]:h-11 max-[600px]:min-h-11")}>
+   className="site-nav-catalog">
    <Menu size={18}/><span className="text-sm font-semibold max-[1100px]:hidden">Katalog</span>
   </button>
   {desktop&&<>
@@ -122,6 +121,6 @@ export function CategoryMenu({links,account}:{links:CategoryLink[];account:React
   </>}
   {sheet&&<sheet.CategorySheet open={open} onOpenChange={next=>{if(!next)setOpen(false);}} trigger={trigger} tree={tree} links={links} account={account} selected={selected} onSelect={setSelected} onClose={close}/>}
  </div>{links.map(category=>category.hasChildren
-  ?<button data-category-trigger className={cn(reset,navItem)} key={category.id} type="button" aria-busy={open&&!sheet&&selected===category.id?true:undefined} aria-expanded={desktop?.rootId===category.id||(open&&(selected===category.id||path.some(c=>c.id===category.id)))} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={intent} onFocus={intent} onClick={event=>show(category.id,event.currentTarget)}>{category.name}</button>
-  :<Link className={navItem} key={category.id} href={categoryHref(category.slug)}>{category.name}</Link>)}</>;
+  ?<button data-category-trigger className="site-nav-trigger" key={category.id} type="button" aria-busy={open&&!sheet&&selected===category.id?true:undefined} aria-expanded={desktop?.rootId===category.id||(open&&(selected===category.id||path.some(c=>c.id===category.id)))} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={intent} onFocus={intent} onClick={event=>show(category.id,event.currentTarget)}>{category.name}</button>
+  :<Link className="site-nav-item" key={category.id} href={categoryHref(category.slug)}>{category.name}</Link>)}</>;
 }

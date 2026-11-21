@@ -10,10 +10,8 @@ import { cn } from "@/lib/utils";
 import { AuthModal, type AuthMode } from "./auth-modal";
 import { AccountTriggerLabel, accountTriggerClass, type HeaderAccount } from "./account-trigger";
 import { logout } from "@/modules/auth/actions";
+import { storeButton } from "@/components/store-button";
 
-const menuButton = "mt-3 flex h-auto min-h-11 w-full rounded-[3px] px-4 py-2.5 text-sm leading-5 font-medium first:mt-0";
-const primaryButton = cn(menuButton, "border-brand bg-brand text-white hover:border-brand-strong hover:bg-brand-strong active:bg-[#005a9f]");
-const outlineButton = cn(menuButton, "border-control-border bg-white text-foreground hover:border-[#54626e] hover:bg-[#f9fafb] hover:text-foreground");
 const benefits = [
   { icon: ShieldCheck, title: "Güvenli hesap erişimi", text: "Servis hesabınla sana özel fiyatları görüntüle." },
   { icon: CarFront, title: "Aracın her zaman elinin altında", text: "Araç bilgilerini garajına ekleyerek kolayca ulaş." },
@@ -65,12 +63,12 @@ export function AccountPanel({ account, defaultOpen, initialPhoneOffset, restore
           {account ? <>
             <h3 className="mt-0 mb-2.5 text-lg leading-[26px] font-semibold">{account.name}</h3>
             <p className="mt-0 mb-5 text-sm leading-5 text-muted-foreground">Onaylı profesyonel hesabınla devam et.</p>
-            <Button nativeButton={false} className={primaryButton} render={<Link href={account.role === "admin" ? "/yonetim" : "/garaj"} onClick={() => setOpen(false)} />}>{account.role === "admin" ? "Yönetim paneli" : "Garajım"}</Button>
-            <Button nativeButton={false} variant="outline" className={outlineButton} render={<Link href="/hesap/adresler" onClick={() => setOpen(false)} />}>Adreslerim</Button>
-            <form action={logout} className="mt-3"><Button type="submit" variant="outline" className={cn(outlineButton, "mt-0")}>Çıkış yap</Button></form>
+            <Button nativeButton={false} className={cn(storeButton({ intent: "primary", size: "md" }), "mt-3 flex w-full first:mt-0")} render={<Link href={account.role === "admin" ? "/yonetim" : "/garaj"} onClick={() => setOpen(false)} />}>{account.role === "admin" ? "Yönetim paneli" : "Garajım"}</Button>
+            <Button nativeButton={false} variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 flex w-full first:mt-0")} render={<Link href="/hesap/adresler" onClick={() => setOpen(false)} />}>Adreslerim</Button>
+            <form action={logout} className="mt-3"><Button type="submit" variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "flex w-full")}>Çıkış yap</Button></form>
           </> : <>
-            <Button type="button" className={primaryButton} onClick={() => openModal("login")}>Log In</Button>
-            <Button type="button" variant="outline" className={outlineButton} onClick={() => openModal("register")}>Register</Button>
+            <Button type="button" className={cn(storeButton({ intent: "primary", size: "md" }), "mt-3 flex w-full first:mt-0")} onClick={() => openModal("login")}>Giriş yap</Button>
+            <Button type="button" variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 flex w-full first:mt-0")} onClick={() => openModal("register")}>Kayıt ol</Button>
             <ul className="mt-6 mb-0 list-none p-0">
               {benefits.map(({ icon: Icon, title, text }) => <li key={title} className="flex gap-2.5 border-t border-border py-3 first:border-t-0 first:pt-0 last:pb-0">
                 <Icon size={20} strokeWidth={1.5} className="shrink-0" />

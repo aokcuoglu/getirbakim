@@ -172,6 +172,8 @@ test("a verified refund marks the order refunded with the bank reference; nothin
   const updated = await orderRow(order);
   assert.equal(updated.payment_status, "refunded"); assert.ok(updated.refunded_at instanceof Date);
   assert.equal(updated.refund_reference, `TAMI İade ${payment.provider} · banka ref. BANK-${payment.provider}`);
+  // The refund email (#1036) is queued with the settled refund.
+  assert.deepEqual((await schema.pool.query("SELECT kind,status FROM commerce_order_emails WHERE order_id=$1", [order])).rows, [{ kind: "refunded", status: "pending" }]);
   assert.deepEqual(await refund(order, payment.id), { outcome: "not_allowed" });
   assert.equal(calls.length, 1);
 });

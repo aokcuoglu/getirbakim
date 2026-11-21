@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
+import type { CatalogProduct } from "../src/modules/store/catalog";
 
 // Products no supplier sells now (#475) in an isolated copy of the schema: db/storefront-catalog.sql and the store
 // catalog reading it. Nothing is written to the shared database's tables.
@@ -99,6 +100,46 @@ test("listings put unavailable products last; 'Tedarik edilebilir' hides them", 
   assert.equal(supplied.total, 3);
   assert.ok(supplied.items.every(row => !row.unavailable));
   assert.deepEqual(supplied.items.map(row => row.id).sort(), [ids.falkonNew, ids.boschDinamik, ids.ngk].sort());
+});
+
+// Cards are read by id array after their ids (#1135): the page keeps the order of its ids, and a grouped product is
+// priced through its offers.
+test("a listing page keeps its order and prices a grouped product by its cheapest sellable offer", async () => {
+  const { invalidateListings } = await import("../src/modules/store/listing-epoch");
+  const setSeen = (key: string, hours: number) => schema.pool.query(
+    "UPDATE supplier_items SET changed_at=now()-make_interval(hours=>$2) WHERE id=$1", [ids[key], hours]);
+  // Başbuğ sells the Bosch product again, dearer than Dinamik: the product has two offers.
+  await schema.pool.query(`UPDATE supplier_items SET presence='present',last_seen_at=now(),stock_data='{"stok":2}',price_data='{"nf":80}'
+    WHERE id=$1`, [ids.boschBasbug]);
+  await setSeen("falkonNew", 3);
+  await setSeen("boschDinamik", 2);
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await invalidateListings();
+  try {
+    const { items, total } = await catalog.browseProducts({ sort: "newest" });
+    assert.equal(total, 6);
+    const unavailableOrder = (await schema.pool.query<{ id: string }>(
+      "SELECT id::text FROM storefront_catalog WHERE unavailable ORDER BY updated_at DESC,id")).rows.map(row => row.id);
+    assert.deepEqual(items.map(row => row.id), [ids.ngk, ids.boschDinamik, ids.falkonNew, ...unavailableOrder]);
+    const bosch = items.find(row => row.id === ids.boschDinamik);
+    const dinamikRow = await catalog.getProduct(ids.boschDinamik), basbugRow = await catalog.getProduct(ids.boschBasbug);
+    assert.ok(dinamikRow?.price_kurus && basbugRow?.price_kurus && dinamikRow.price_kurus < basbugRow.price_kurus);
+    assert.equal(bosch?.offers, 2);
+    assert.equal(bosch?.offer_id, ids.boschDinamik);
+    assert.equal(bosch?.price_kurus, dinamikRow.price_kurus);
+    // The partner search (saleable rows) lists the plain search's first page in the same order and prices.
+    const plain = (await catalog.browseProducts({ q: "PARCA" })).items.filter(row => !row.unavailable);
+    const partner = await catalog.searchCatalogItems("PARCA", "all");
+    assert.ok(partner.length >= 3);
+    const card = (row: CatalogProduct) => [row.id, row.price_kurus, row.offer_id ?? null];
+    assert.deepEqual(partner.map(card), plain.map(card));
+  } finally {
+    await schema.pool.query("UPDATE supplier_items SET presence='inactive',stock_data='{\"stok\":0}',price_data='{\"nf\":100}' WHERE id=$1", [ids.boschBasbug]);
+    await setSeen("falkonNew", 1);
+    await setSeen("boschDinamik", 1);
+    await schema.pool.query("SELECT refresh_product_matches()");
+    await invalidateListings();
+  }
 });
 
 test("search finds unavailable products after saleable ones; the partner API never sees them", async () => {

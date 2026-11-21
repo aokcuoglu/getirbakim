@@ -2,9 +2,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/modules/auth/session";
+import { savePartnerDiscount } from "@/modules/partner/discounts";
 import { setPartnerIntakePaused } from "@/modules/partner/intake";
 import { changePartnerInvoice, invoicePartnerOrders, knownPartners, savePartnerOrderLimit } from "@/modules/partner/limits";
-import { partnerInvoiceChangeInput, partnerInvoiceInput, partnerIntakeInput, partnerLimitInput } from "./partner-input";
+import { partnerDiscountInput, partnerInvoiceChangeInput, partnerInvoiceInput, partnerIntakeInput, partnerLimitInput } from "./partner-input";
 
 /** A partner's open-order limit (#426): a TL amount, or empty to fall back to PARTNER_ORDER_LIMIT_KURUS. */
 export async function savePartnerLimit(form: FormData) {
@@ -19,6 +20,23 @@ export async function savePartnerLimit(form: FormData) {
   await savePartnerOrderLimit(input.data.partner, input.data.limit, admin.id);
   revalidatePath("/yonetim/partnerler");
   redirect(`/yonetim/partnerler?saved=${encodeURIComponent(input.data.partner)}`);
+}
+
+/**
+ * A partner's B2B discount (#1130): a percent (0–90) applied to its product prices, quotes and orders at once, or empty
+ * to fall back to PARTNER_B2B_DISCOUNT_BPS. The change is recorded with the admin (partner_discount_changes).
+ */
+export async function savePartnerDiscountRate(form: FormData) {
+  const admin = await requireAdmin();
+  const input = partnerDiscountInput.safeParse(Object.fromEntries(form));
+  const { codes } = await knownPartners();
+  const partner = form.get("partner");
+  if (!input.success || !codes.includes(input.data.partner)) {
+    redirect(`/yonetim/partnerler?error=discount${typeof partner === "string" && codes.includes(partner) ? `&partner=${encodeURIComponent(partner)}` : ""}`);
+  }
+  await savePartnerDiscount(input.data.partner, input.data.discount, admin.id);
+  revalidatePath("/yonetim/partnerler");
+  redirect(`/yonetim/partnerler?discount=${encodeURIComponent(input.data.partner)}`);
 }
 
 /** Pauses or resumes a partner's order intake (#1009): paused partners get 503 ORDER_INTAKE_PAUSED for new quotes and orders. */

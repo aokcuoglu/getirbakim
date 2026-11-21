@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
+import { placeholderImageSha256 } from "@/modules/enrichment/placeholder-images";
 import { enrichmentDataSchema, matchBasisSchema, matchesEnrichment } from "./enrichment-contract";
 import {catalogSpecifications} from "./catalog-filters";
 import {displaySpecifications,type CardSpecification} from "./specification-translations";
@@ -27,7 +28,8 @@ export async function getCatalogProductImages(products: { id: string; code: stri
   return images;
 }
 
-// The enrichment image of the visible page in one query, without fetching vehicle fitments.
+// The enrichment image of the visible page in one query, without fetching vehicle fitments. Listed source placeholders
+// (#1098) are left out: the card draws PartArt.
 export async function getAutomaticProductImages(products: { id: string; code: string; brand: string }[]) {
   const images = new Map<string, CatalogProductImage>();
   if (!products.length) return images;
@@ -39,8 +41,8 @@ export async function getAutomaticProductImages(products: { id: string; code: st
       e.payload,e.match_basis,e.image_id,e.donor_code,e.donor_brand,e.donor_item_id,e.donor_master_brand,e.donor_oem AS current_oem
     FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
     JOIN product_media_objects m ON m.id=e.image_id
-    WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.presence='present' AND s.company=ANY($2::text[])`,
-  [products.map(product => product.id), storefrontCompanies()])).rows;
+    WHERE e.supplier_item_id=ANY($1::uuid[]) AND s.presence='present' AND s.company=ANY($2::text[]) AND m.sha256<>ALL($3::text[])`,
+  [products.map(product => product.id), storefrontCompanies(), [...placeholderImageSha256]])).rows;
   for (const row of rows) {
     const product = productsById.get(row.supplier_item_id);
     const valid = product && validEnrichment(row, product);
@@ -54,8 +56,9 @@ export async function getAutomaticProductImages(products: { id: string; code: st
 export async function getProductEnrichment(product: { id: string; code: string; brand: string }) {
   const row = (await db.query<{
     supplier_code: string; supplier_brand: string; source_url: string; match_basis: unknown; current_oem: string; donor_code: string; donor_brand: string; donor_item_id: string; donor_master_brand: string | null;
-    manufacturer: string; manufacturer_part_number: string; payload: unknown; image_id: string | null; status: string;
-  }>("SELECT e.*,e.donor_oem AS current_oem FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE e.supplier_item_id=$1", [product.id])).rows[0];
+    manufacturer: string; manufacturer_part_number: string; payload: unknown; image_id: string | null; image_sha256: string | null; status: string;
+  }>(`SELECT e.*,e.donor_oem AS current_oem,m.sha256 AS image_sha256 FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
+    LEFT JOIN product_media_objects m ON m.id=e.image_id WHERE e.supplier_item_id=$1`, [product.id])).rows[0];
   const valid = validEnrichment(row, product);
   if (!row || !valid) return null;
   const { data, basis } = valid;
@@ -90,7 +93,8 @@ export async function getProductEnrichment(product: { id: string; code: string; 
     sourceLabel: new URL(row.source_url).hostname.replace(/^www\./, ""),
     manufacturer: row.manufacturer,
     partNumber: row.manufacturer_part_number,
-    imagePath: row.image_id ? `/api/product-media/${row.image_id}` : null,
+    // A listed source placeholder (#1098) is not this product's photo; the page shows PartArt.
+    imagePath: row.image_id && !(row.image_sha256 && placeholderImageSha256.has(row.image_sha256)) ? `/api/product-media/${row.image_id}` : null,
   };
 }
 

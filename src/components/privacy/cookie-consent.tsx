@@ -7,15 +7,14 @@ import { cn } from "@/lib/utils";
 import { lazyModule } from "@/lib/lazy-module";
 import { consentBannerOpen, consentSnapshot, parseConsent, saveConsent, subscribeConsent, type CookieConsent as Consent } from "@/lib/cookie-consent";
 import { useConsentServices, useServerConsent } from "@/components/privacy/tag-manager";
+import { storeButton } from "@/components/store-button";
 
 // The checkboxes (Base UI checkbox) come with the first hover, focus or click on a preferences button (#1017).
 const cookieSettings = lazyModule(() => import("./cookie-settings"));
 const preloadSettings = () => { void cookieSettings.preload(); };
 
-const action = "h-auto min-h-11 rounded-[4px] border border-primary bg-primary px-3 py-2 text-sm leading-5 font-semibold text-white hover:border-[#0065a9] hover:bg-[#0065a9] max-[600px]:flex-auto";
-const secondary = cn(action, "border-control-border bg-white font-normal text-foreground hover:border-muted-foreground hover:bg-[#f5f7f9] hover:text-foreground");
 // The first-visit bar: reject and accept share one style (same size, border and tint), so neither is favoured.
-const choice = "h-auto min-h-11 flex-1 rounded-[4px] border border-primary bg-accent px-4 py-2 text-sm leading-5 font-semibold text-accent-foreground hover:bg-accent hover:text-accent-foreground min-[601px]:flex-none min-[601px]:px-6";
+const choice = cn(storeButton({ intent: "secondary", size: "md" }), "flex-1 min-[601px]:flex-none min-[601px]:px-6");
 const optionTexts = {
   necessary: { title: "Gerekli çerezler", text: "Oturum, sepet ve garaj işlevleri için gereklidir. Her zaman aktiftir." },
   analytics: {
@@ -68,7 +67,7 @@ function closeCookieSettings() {
 /** The footer's "Çerez tercihleri" link-styled button; the banner itself is <CookieBanner/>. */
 export function CookieConsent() {
   return <button type="button" data-cookie-preferences="" onPointerEnter={preloadSettings} onFocus={preloadSettings} onClick={event => openCookieSettings(event.currentTarget)}
-    className="inline min-h-6 cursor-pointer rounded-none border-0 bg-transparent p-0 text-[length:inherit] leading-[inherit] text-inherit font-normal underline underline-offset-3 hover:bg-transparent hover:text-primary">
+    className="cookie-preferences">
     Çerez tercihleri
   </button>;
 }
@@ -125,7 +124,7 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
         <div className="flex items-center gap-2">
           <Button type="button" className={choice} onClick={() => choose(false, false)}>Reddet</Button>
           <Button type="button" className={choice} onClick={() => choose(true, true)}>Kabul et</Button>
-          <Button type="button" variant="link" className="h-auto min-h-11 px-2 text-sm leading-5 font-normal text-primary underline underline-offset-2" data-cookie-settings-opener="" aria-expanded={false} aria-controls="cookie-settings" onPointerEnter={preloadSettings} onFocus={preloadSettings} onClick={() => openCookieSettings(null)}>Tercihler</Button>
+          <Button type="button" variant="link" className={cn(storeButton({ intent: "link", size: "md" }), "px-2 underline")} data-cookie-settings-opener="" aria-expanded={false} aria-controls="cookie-settings" onPointerEnter={preloadSettings} onFocus={preloadSettings} onClick={() => openCookieSettings(null)}>Tercihler</Button>
         </div>
       </div>
     </section>;
@@ -141,10 +140,10 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
       </p>
       {fields && <fields.CookieSettings options={options} checked={checked} setters={setters} />}
       <div className="flex flex-wrap gap-2">
-        <Button type="button" className={action} onClick={() => choose(true, true)}>Tümünü kabul et</Button>
-        <Button type="button" className={secondary} disabled={!fields} onClick={() => choose(analytics, marketing)}>Tercihleri kaydet</Button>
-        <Button type="button" className={secondary} onClick={() => choose(false, false)}>Tümünü reddet</Button>
-        {consent && <Button type="button" className={secondary} onClick={closeCookieSettings}>Vazgeç</Button>}
+        <Button type="button" className={cn(storeButton({ intent: "primary", size: "md" }), "max-[600px]:flex-auto")} onClick={() => choose(true, true)}>Tümünü kabul et</Button>
+        <Button type="button" className={cn(storeButton({ intent: "outline", size: "md" }), "max-[600px]:flex-auto")} disabled={!fields} onClick={() => choose(analytics, marketing)}>Tercihleri kaydet</Button>
+        <Button type="button" className={cn(storeButton({ intent: "outline", size: "md" }), "max-[600px]:flex-auto")} onClick={() => choose(false, false)}>Tümünü reddet</Button>
+        {consent && <Button type="button" className={cn(storeButton({ intent: "outline", size: "md" }), "max-[600px]:flex-auto")} onClick={closeCookieSettings}>Vazgeç</Button>}
       </div>
     </div>
   </section>;

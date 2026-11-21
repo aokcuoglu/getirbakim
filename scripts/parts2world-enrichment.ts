@@ -48,6 +48,7 @@ import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2w
 import {parts2worldLockNames} from '../src/modules/enrichment/parts2world-locks';
 import {parseEgressProxy} from '../src/modules/suppliers/egress-proxy';
 import {requireEnrichmentSchema} from '../src/modules/enrichment/schema';
+import {supplierPartKeys} from '../src/modules/store/enrichment-contract';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt,startSourceRun,type RunOutcome} from '../src/modules/enrichment/source-attempts';
@@ -58,6 +59,7 @@ import {lockFitmentSync} from '../src/modules/store/fitment-sync';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
 import {interleaveByShare,priceOnlyArticleQueueSql,priceOnlyShare} from '../src/modules/enrichment/price-only-queue';
 import {enrichmentImportSchema,manufacturerBrandKey,matchesSupplierPart,partCodeOems,partKey,supplierOemReferences} from '../src/modules/store/enrichment-contract';
+import {isPlaceholderImage} from '../src/modules/enrichment/placeholder-images';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3});
 pool.on('error',error=>console.error('Database connection lost:',String(error)));
@@ -155,12 +157,12 @@ async function indexOems(){
 }
 const oemKey=(value:string)=>value.toUpperCase().replace(/[^A-Z0-9]/g,'');
 
-/** Key pairs a supplier row can name: its label and master brand with the code as given and without a leading word
- *  (a supplier prefix such as "BCH 0986…"); matchesSupplierPart decides which of them really names the article. */
+/** Key pairs a supplier row can name: its label and master brand with the code as given and with every leading word
+ *  run dropped (a supplier prefix such as "BCH 0986…" or "VICTOR REINZ 61-…"); matchesSupplierPart decides which of
+ *  them really names the article. */
 function candidateKeys(row:Supplier){
- const codes=[row.code],rest=row.code.trim().split(/\s+/).slice(1);if(rest.length)codes.push(rest.join(' '));
  const keys=new Set<string>();
- for(const brand of [row.brand,row.masterBrand])if(brand)for(const code of codes)keys.add(`${manufacturerBrandKey(brand)}|${partKey(code)}`);
+ for(const brand of [row.brand,row.masterBrand])if(brand)for(const part of supplierPartKeys(row.code))keys.add(`${manufacturerBrandKey(brand)}|${part}`);
  return [...keys];
 }
 async function match(){
@@ -276,7 +278,8 @@ async function flush(){
 async function downloadImage(client:Parts2WorldClient,url:string|null,id:string){
  if(!url)return null;
  const bytes=await client.image(url),size=bytes&&imageSize(bytes);
- if(!bytes||!size)return null;
+ // A listed source placeholder (#1098) is no photo: the product is saved without one.
+ if(!bytes||!size||isPlaceholderImage(bytes))return null;
  const directory=resolve(checkpoint,'..','images');await mkdir(directory,{recursive:true});
  const file=resolve(directory,`${id}.bin`);await writeFile(file,bytes);
  return {file,source:url,...size};

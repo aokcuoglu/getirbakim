@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { clampPartnerLimit, partnerMinQueryLength, searchPartnerProducts } from "@/modules/partner/catalog";
+import { cachedPartnerDiscount } from "@/modules/partner/discounts";
 import { partnerError, partnerGuard, partnerNoStore } from "@/modules/partner/guard";
 import { partnerDiscountEnv, resolvePartnerDiscountBps } from "@/modules/partner/pricing";
 import { createRateLimiter } from "@/modules/partner/rate-limit";
@@ -36,7 +37,8 @@ export async function GET(request: NextRequest) {
     const { products, source } = await searchPartnerProducts({
       q: params.get("q"), oem: params.get("oem"), partNo: params.get("partNo"),
       limit: clampPartnerLimit(params.get("limit")), vehicleTypeId,
-      discountBps: resolvePartnerDiscountBps(process.env[partnerDiscountEnv]),
+      // The partner's /yonetim discount (#1130), else PARTNER_B2B_DISCOUNT_BPS; the answer cache is keyed by it.
+      discountBps: (await cachedPartnerDiscount(partner.code, resolvePartnerDiscountBps(process.env[partnerDiscountEnv]))).discountBps,
     });
     return Response.json({ products, source, minQueryLength: partnerMinQueryLength }, { headers: partnerNoStore });
   } catch (error) {

@@ -5,8 +5,9 @@ import { minPartnerKeyLength, parsePartnerKeys, resolvePartner } from "../src/mo
 import { decodeOfferId, encodeOfferId, matchesOem, matchesPartNo, partnerAvailability, splitOemNumbers, toPartnerProduct, type PartnerCatalogRow } from "../src/modules/partner/dto";
 import { cancellationRequest, partnerOrderStatus, resolveOrderLimitKurus, lineAmounts, toPartnerOrderDto, type PartnerOrderRow } from "../src/modules/partner/order-dto";
 import { orderRequestSchema, quoteRequestSchema } from "../src/modules/partner/order-schema";
+import { partnerReturnStatus, returnRequestSchema, toPartnerReturnDto, type PartnerReturnRow } from "../src/modules/partner/return-dto";
 import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partnerQuoteTtlMs, signQuote, verifyQuote, type QuotePayload } from "../src/modules/partner/quotes";
-import { resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
+import { resolvePartnerDiscount, resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
 import { createRateLimiter } from "../src/modules/partner/rate-limit";
 import { exactMatches, fitmentLevelOf, fitsFirst } from "../src/modules/partner/search-order";
 import { ttlCache } from "../src/lib/ttl-cache";
@@ -85,6 +86,19 @@ test("partner discount: unset, invalid and excessive rates", () => {
   assert.equal(resolvePartnerDiscountBps("-5"), 0);
   assert.equal(resolvePartnerDiscountBps("1500"), 1500);
   assert.equal(resolvePartnerDiscountBps("95000"), 9000);
+});
+
+test("partner discount (#1130): the panel value wins, 0 included; cleared falls back to the env rate, then none", () => {
+  assert.deepEqual(resolvePartnerDiscount(1000, 500), { discountBps: 1000, source: "panel" });
+  assert.deepEqual(resolvePartnerDiscount(0, 500), { discountBps: 0, source: "panel" });
+  assert.deepEqual(resolvePartnerDiscount(null, 500), { discountBps: 500, source: "env" });
+  assert.deepEqual(resolvePartnerDiscount(undefined, 0), { discountBps: 0, source: "none" });
+  // Out-of-range stored values are clamped like the env rate.
+  assert.deepEqual(resolvePartnerDiscount(12_000, 0), { discountBps: 9000, source: "panel" });
+  // The resolved rate prices the row and the cost floor still holds: list 130.00 TL, cost 100.00 TL.
+  const pricing = { nf: "100", exchange_rate: "1", markup_percent: "30", vat_percent: "20" };
+  assert.equal(resolvePartnerPrice(pricing, 15600, resolvePartnerDiscount(1000, 0).discountBps).b2bPriceKurus, 11700);
+  assert.deepEqual(resolvePartnerPrice(pricing, 15600, resolvePartnerDiscount(5000, 0).discountBps), { listPriceKurus: 13000, b2bPriceKurus: 10000, discountBps: 2308, vatRateBps: 2000, currency: "TRY" });
 });
 
 const row = (overrides: Partial<PartnerCatalogRow> = {}): PartnerCatalogRow => ({
@@ -381,6 +395,46 @@ test("partner order DTO: the cancel request after confirmation is pending, appro
   // A rejected request stays rejected after the order ships.
   assert.deepEqual(cancellationRequest({ ...base, status: "shipped", cancel_requested_at: requested, cancel_request_rejected_at: decided }),
     { status: "REJECTED", requestedAt: "2026-11-19T08:00:00.000Z", decidedAt: "2026-11-19T09:00:00.000Z" });
+});
+
+test("partner return request body (#1007): strict, offers once, quantity and reason bounds, reasons map to store reasons", () => {
+  const line = { selectedOfferId: offerA, quantity: 1, reason: "DEFECTIVE" };
+  assert.deepEqual(returnRequestSchema.parse({ lines: [line] }), { lines: [{ selectedOfferId: offerA, quantity: 1, reason: "defective" }], note: "" });
+  const reasons = ["NOT_FIT", "WRONG_ITEM", "DAMAGED", "DEFECTIVE", "CHANGED_MIND", "OTHER"].map(reason => returnRequestSchema.parse({ lines: [{ ...line, reason }] }).lines[0].reason);
+  assert.deepEqual(reasons, ["not_fit", "wrong_item", "damaged", "defective", "changed_mind", "other"]);
+  assert.equal(returnRequestSchema.parse({ lines: [line], note: "  kutusu açılmadı  " }).note, "kutusu açılmadı");
+  for (const invalid of [
+    {}, { lines: [] }, { lines: [line], partner: "other" }, { lines: [{ ...line, extra: 1 }] }, { lines: [line, { ...line, quantity: 2 }] },
+    { lines: [{ ...line, quantity: 0 }] }, { lines: [{ ...line, quantity: 100 }] }, { lines: [{ ...line, quantity: 1.5 }] },
+    { lines: [{ ...line, reason: "defective" }] }, { lines: [{ ...line, reason: "BROKEN" }] }, { lines: [{ ...line, selectedOfferId: "offer_x" }] },
+    { lines: [line], note: "x".repeat(1001) }, { lines: Array.from({ length: 21 }, (_, index) => ({ ...line, selectedOfferId: `offer_${String(index).padStart(32, "0")}` })) },
+  ]) assert.equal(returnRequestSchema.safeParse(invalid).success, false, JSON.stringify(invalid).slice(0, 80));
+});
+
+test("partner return DTO (#1007): statuses, amounts at the order's unit price per returned quantity; no supplier internals", () => {
+  assert.deepEqual(["requested", "approved", "rejected"].map(partnerReturnStatus), ["REQUESTED", "APPROVED", "REJECTED"]);
+  const request: PartnerReturnRow = { id: "4f1c0000-0000-4000-8000-000000000002", order_id: "9b0f8a1e-0000-4000-8000-000000000001",
+    request_key: "7c1e3a52-2222-4222-8222-222222222222", status: "approved", note: "Kusurlu", requested_at: new Date("2026-11-21T08:00:00Z"), decided_at: new Date("2026-11-21T09:00:00Z") };
+  const snapshot = { nf: 103.19, company: "BASBUG", markup_percent: 30,
+    partner: { unit_net_kurus: 740632, vat_rate_bps: 2000, line_net_kurus: 2221896, line_vat_kurus: 444379, line_gross_kurus: 2666275 } };
+  const dto = toPartnerReturnDto(request, [
+    { product_id: "0000a569-053e-4b84-a484-d510f04fab3b", code: "LUK 510 0207 10", name: "DEBRIYAJ RULMANI", ordered_quantity: 3, quantity: 2, reason: "defective",
+      unit_price_kurus: "888759", pricing_snapshot: snapshot },
+    // A hand-edited line without the partner price: the unit gross with no VAT, like the order DTO.
+    { product_id: "0000a569-053e-4b84-a484-d510f04fab3c", code: "X-1", name: "Filtre", ordered_quantity: 1, quantity: 1, reason: "not_fit",
+      unit_price_kurus: "1200", pricing_snapshot: {} },
+  ]);
+  const first = lineAmounts(740632, 2, 2000);
+  assert.deepEqual([dto.contractVersion, dto.status, dto.orderId, dto.idempotencyKey, dto.requestedAt, dto.decidedAt, dto.note],
+    ["2.1", "APPROVED", request.order_id, request.request_key, "2026-11-21T08:00:00.000Z", "2026-11-21T09:00:00.000Z", "Kusurlu"]);
+  assert.deepEqual(dto.lines[0], { selectedOfferId: offerA, partNo: "LUK 510 0207 10", name: "DEBRIYAJ RULMANI", quantity: 2, reason: "DEFECTIVE",
+    unitNetKurus: 740632, vatRateBps: 2000, ...first });
+  assert.deepEqual(dto.lines[1], { selectedOfferId: encodeOfferId("0000a569-053e-4b84-a484-d510f04fab3c"), partNo: "X-1", name: "Filtre", quantity: 1, reason: "NOT_FIT",
+    unitNetKurus: 1200, vatRateBps: 0, lineNetKurus: 1200, lineVatKurus: 0, lineGrossKurus: 1200 });
+  assert.deepEqual(dto.totals, { netKurus: first.lineNetKurus + 1200, vatKurus: first.lineVatKurus, grossKurus: first.lineGrossKurus + 1200 });
+  assert.equal(toPartnerReturnDto({ ...request, status: "requested", decided_at: null }, []).decidedAt, null);
+  const json = JSON.stringify(dto);
+  for (const internal of [`"nf"`, "103.19", "BASBUG", "markup", "fingerprint", "partner_code", "888759"]) assert.ok(!json.includes(internal), internal);
 });
 
 test("partner guard: a valid key is limited per partner only; failed key checks per edge address (not X-Real-IP) (#1093)", async () => {

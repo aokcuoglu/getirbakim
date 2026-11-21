@@ -3,11 +3,13 @@ import { requireAdmin } from '@/modules/auth/session';
 import { db } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { after } from 'next/server';
 import { z } from 'zod';
 import { returnReasons } from '@/modules/store/returns';
 import { shipmentSchema,type ShipmentResult } from '@/modules/store/shipment';
 import { transitionOrder,decidePartnerCancelRequest,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn,setLineProcurement } from './orders';
 import { procurementInput } from './order-procurement';
+import { decidePartnerReturnRequest } from '@/modules/partner/returns';
 import { orderListBack,orderListReturn,type OrderListOutcome } from './order-list-return';
 import { refundPayment,checkRefund,type RefundOutcome } from '@/modules/payments/refunds';
 import { INSTALLMENT_COUNTS } from '@/modules/payments/installment-plan';
@@ -71,6 +73,16 @@ export async function decideCancelRequest(form:FormData) {
  const ok=await decidePartnerCancelRequest(input.data.id,input.data.decision);
  revalidateOrder(input.data.id);
  redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
+}
+/** A partner's return request on a shipped order (#1007): approve records the returns, reject releases the quantity. */
+export async function decideReturnRequest(form:FormData) {
+ const admin=await requireAdmin();
+ const input=z.object({id:z.uuid(),order:z.uuid(),decision:z.enum(['approve','reject']),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
+ const ok=await decidePartnerReturnRequest(input.data.id,input.data.decision,admin.id);
+ revalidateOrder(input.data.order);
+ // Refused: decided meanwhile (another tab or admin), or an approval no longer fits the ordered quantity.
+ redirect(orderListReturn(input.data.back,ok ? 'saved' : 'return_stale'));
 }
 /**
  * Ship dialog (#605): `ship` hands a confirmed order to the carrier, `edit` corrects the details of a shipped one.
@@ -185,8 +197,10 @@ export async function resendOrderEmail(form:FormData) {
  redirect(orderListReturn(input.data.back,outcome,orderNumber));
 }
 // The admin panel (lists, sidebar counts, dashboard) and the customer's own order pages; nothing else shows order state.
+/** Also sends what the step queued (shipped, cancelled or refunded email, #1036) after the reply. */
 function revalidateOrder(id:string) {
  revalidatePath('/yonetim','layout');revalidatePath(`/siparis/${id}`);revalidatePath('/siparisler');
+ after(()=>deliverOrderEmailsSafely({orderId:id}));
 }
 /** Shipped or delivered lines; partial returns may add up to the ordered quantity. */
 export async function recordReturn(form:FormData) {
