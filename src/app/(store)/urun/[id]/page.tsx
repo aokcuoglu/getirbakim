@@ -13,6 +13,7 @@ import { LoginButton } from "@/components/auth/login-button";
 import { getProductEnrichment } from "@/modules/store/product-enrichment";
 import { shownProductName, titleWithoutIdentity } from "@/modules/store/product-name";
 import { productSeoDescription, productSeoTitle } from "@/modules/seo/product-meta";
+import { brandedTitle } from "@/modules/seo/meta-text";
 import { getItemOverride } from "@/modules/store/product-overrides";
 import { getItemReferences } from "@/modules/store/product-references";
 import { applyReferenceOverrides, gtinProperty } from "@/modules/store/product-reference-display";
@@ -118,13 +119,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const vehicles = await vehicleModels(enrichment, product.id, fitmentOverrides);
   const hint = `${product.name} ${product.description}`;
   const meta = productMeta(override, {
-    title: productSeoTitle({ brand: product.display_brand, name, partNumber: product.display_code, vehicles: vehicles.confirmed, hint }),
+    title: productSeoTitle({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles: vehicles.confirmed, hint }),
     description: productSeoDescription({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles: vehicles.all, text: productSeoText(override, description), hint }),
   });
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
+  // A title (an admin's too) that would pass 65 characters with the site suffix stands alone (#1218).
   return {
-    title: meta.title,
+    title: brandedTitle(meta.title).absoluteTitle ? { absolute: meta.title } : meta.title,
     description: meta.description,
     alternates: { canonical: path },
     openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description, url: path,

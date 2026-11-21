@@ -11,7 +11,7 @@ import { pageMetadata } from "@/lib/site";
 import { KitBuilder } from "./kit-builder";
 
 export const metadata = pageMetadata({
-  title: "Bakım Robotu",
+  title: "Bakım Robotu: aracına uygun bakım seti",
   description: "Garajındaki araç için 3'lü, 4'lü veya 5'li filtre ve motor yağı bakım setini markalarını seçerek kur; set görselini ve toplam fiyatı anında gör, tek tıkla sepete ekle.",
   path: "/bakim-robotu",
 });

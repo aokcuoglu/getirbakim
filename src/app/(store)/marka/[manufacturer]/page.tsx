@@ -7,6 +7,7 @@ import { manufacturerPath, slugPattern } from "@/modules/seo/paths";
 import { listingTotal } from "@/modules/store/catalog";
 import { parseCatalogQuery, type CatalogQuery } from "@/modules/store/catalog-query";
 import { manufacturerIndexable, manufacturerTexts } from "@/modules/store/manufacturers";
+import { brandedTitle } from "@/modules/seo/meta-text";
 import { findManufacturer } from "@/modules/store/manufacturers.server";
 import { CatalogView } from "../../katalog/catalog-view";
 
@@ -39,7 +40,7 @@ async function loadPage({ params, searchParams }: Props) {
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const { manufacturer, query, total } = await loadPage(props);
   const { title, description } = manufacturerTexts(manufacturer.name, total);
-  return pageMetadata({ title, description, path: manufacturerPath(manufacturer.slug),
+  return pageMetadata({ ...brandedTitle(title), description, path: manufacturerPath(manufacturer.slug),
     robots: manufacturerIndexable(manufacturer.slug, query, total) ? undefined : { index: false, follow: true } });
 }
 
