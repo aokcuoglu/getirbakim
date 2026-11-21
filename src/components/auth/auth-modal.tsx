@@ -8,6 +8,8 @@ import { BadgePercent, Clock3, Route, X } from "lucide-react";
 import { Dialog, DialogClose, DialogOverlay, DialogPortal, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { login } from "@/modules/auth/actions";
+import { storeButton } from "@/components/store-button";
+import { cn } from "@/lib/utils";
 
 export type AuthMode = "login" | "register" | "reset";
 
@@ -17,8 +19,6 @@ const benefits = [
   { icon: BadgePercent, title: "Sana özel fiyatlar", description: "Onaylı servis hesabınla profesyonellere özel B2B fiyatlarını görüntüle." },
 ];
 
-const linkButton = "inline h-auto min-h-0 rounded-none border-0 bg-transparent p-0 text-left text-[length:inherit] leading-[inherit] font-medium text-brand hover:bg-transparent hover:text-brand-strong hover:underline";
-const submitButton = "mt-6 h-auto min-h-12 w-full rounded-lg border border-brand bg-brand px-[27px] py-[13px] text-sm leading-5 font-medium text-white hover:border-brand-strong hover:bg-brand-strong active:bg-[#005a9f] disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-[#98a4af] disabled:opacity-100";
 
 function AuthField({ name, label, type = "text", autoComplete }: {
   name: string; label: string; type?: string; autoComplete: string;
@@ -44,7 +44,7 @@ function AuthField({ name, label, type = "text", autoComplete }: {
 
 function LoginSubmit() {
   const { pending } = useFormStatus();
-  return <Button className={submitButton} type="submit" disabled={pending}>{pending ? "Giriş yapılıyor…" : "Giriş yap"}</Button>;
+  return <Button className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-6 w-full")} type="submit" disabled={pending}>{pending ? "Giriş yapılıyor…" : "Giriş yap"}</Button>;
 }
 
 export function AuthModal({ ref, onClosed }: { ref: Ref<{ open: (mode: AuthMode) => void }>; onClosed: () => void }) {
@@ -83,18 +83,18 @@ export function AuthModal({ ref, onClosed }: { ref: Ref<{ open: (mode: AuthMode)
               {notice && <p className="mt-0 mb-4 rounded-md border border-[#c9dfef] bg-[#f0f6fb] p-3 text-[13px] leading-5" role="status">{notice}</p>}
               {mode === "login" ? <form action={login} key="login">
                 <div className="grid gap-3"><AuthField name="email" label="E-posta adresi" type="email" autoComplete="username" /><AuthField name="password" label="Şifre" type="password" autoComplete="current-password" /></div>
-                <Button type="button" className={`${linkButton} mt-3 block text-sm leading-5`} onClick={() => switchMode("reset")}>Şifreni mi unuttun?</Button>
+                <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "mt-1 px-0")} onClick={() => switchMode("reset")}>Şifreni mi unuttun?</Button>
                 <LoginSubmit />
               </form> : mode === "register" ? <div>
                 <p className="mt-0 mb-3.5">Servis bilgilerinle başvur; onaydan sonra B2B fiyatlarına ulaş.</p>
-                <Button nativeButton={false} className="h-auto min-h-12 rounded-lg border border-brand bg-brand px-[27px] py-[13px] text-sm leading-5 font-medium text-white hover:bg-brand-strong" render={<Link href="/servisler/basvuru" onClick={close} />}>Servis hesabına başvur</Button>
+                <Button nativeButton={false} className={storeButton({ intent: "primary", size: "lg" })} render={<Link href="/servisler/basvuru" onClick={close} />}>Servis hesabına başvur</Button>
               </div> : <form key="reset" onSubmit={previewSubmit}>
                 <p className="mt-0 mb-6 text-sm leading-[22px] text-muted-foreground">Hesabına kayıtlı e-posta adresini gir.</p>
                 <AuthField name="email" label="E-posta adresi" type="email" autoComplete="email" />
-                <Button className={submitButton} type="submit">Şifremi yenile</Button>
+                <Button className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-6 w-full")} type="submit">Şifremi yenile</Button>
               </form>}
               <p className="mt-0 mb-6 text-sm leading-[22px] text-muted-foreground"><Link className="font-medium text-brand hover:text-brand-strong hover:underline" href="/kvkk-aydinlatma-metni" onClick={close}>KVKK Aydınlatma Metni</Link></p>
-              <p className="mt-4 mb-0 text-center text-sm leading-[22px]">{mode === "register" ? <>Zaten hesabın var mı? <Button type="button" className={linkButton} onClick={() => switchMode("login")}>Giriş yap</Button></> : mode === "reset" ? <Button type="button" className={linkButton} onClick={() => switchMode("login")}>Giriş ekranına dön</Button> : <>Henüz hesabın yok mu? <Button type="button" className={linkButton} onClick={() => switchMode("register")}>Kayıt ol</Button></>}</p>
+              <p className="mt-4 mb-0 flex flex-wrap items-center justify-center gap-x-1 text-center text-sm leading-[22px]">{mode === "register" ? <>Zaten hesabın var mı? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("login")}>Giriş yap</Button></> : mode === "reset" ? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("login")}>Giriş ekranına dön</Button> : <>Henüz hesabın yok mu? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("register")}>Kayıt ol</Button></>}</p>
             </div>
           </section>
         </div>

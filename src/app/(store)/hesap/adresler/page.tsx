@@ -17,19 +17,20 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Empty } from "@/components/ui/empty";
 import { makeDefault, removeAddress } from "./actions";
+import { storeButton } from "@/components/store-button";
+import { cn } from "@/lib/utils";
 
 // Only these fixed texts are shown; the query values themselves never are. The form's own refusals show in the form.
 const errors = { missing: "Adres bulunamadı. Sayfayı yenileyip yeniden dene." };
 const notices = { saved: "Adres kaydedildi.", removed: "Adres silindi.", default: "Varsayılan adres güncellendi." };
 const fixedText = <T extends Record<string, string>>(texts: T, key: string | undefined) => key && Object.hasOwn(texts, key) ? texts[key as keyof T] : null;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const linkButton = "h-auto min-h-11 px-0 text-sm leading-5 font-normal text-primary hover:text-brand-strong";
 
 export const metadata: Metadata = { title: "Adreslerim", robots: privatePageRobots };
 
 function DefaultForm({ address, kind, text }: { address: AccountAddress; kind: "delivery" | "invoice"; text: string }) {
   return <form action={makeDefault}><input type="hidden" name="id" value={address.id}/><input type="hidden" name="kind" value={kind}/>
-    <Button type="submit" variant="link" className={linkButton}>{text}</Button></form>;
+    <Button type="submit" variant="link" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")}>{text}</Button></form>;
 }
 
 /** Saved delivery and invoice addresses of an approved B2B service or admin account (#950). */
@@ -73,7 +74,7 @@ export default async function Addresses({ searchParams }: { searchParams: Promis
                 <span className="block font-normal text-muted-foreground">Bu adres varsayılan {[address.default_delivery && "teslimat", address.default_invoice && "fatura"].filter(Boolean).join(" ve ")} adresin; silinirse yerine başka adres atanmaz.</span>}</p>
               <div className="flex flex-wrap items-center gap-x-5">
                 <form action={removeAddress}><input type="hidden" name="id" value={address.id}/>
-                  <Button type="submit" variant="destructive" className="h-auto min-h-11 rounded-lg px-4 text-sm leading-5 font-medium">Evet, sil</Button></form>
+                  <Button type="submit" variant="destructive" className={storeButton({ intent: "danger", size: "md" })}>Evet, sil</Button></form>
                 <Link href={`/hesap/adresler#adres-${address.id}`} className="inline-flex min-h-11 items-center text-sm leading-5 text-primary underline-offset-4 hover:underline">Vazgeç</Link>
               </div>
             </div>}

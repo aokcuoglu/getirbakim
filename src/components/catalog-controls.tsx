@@ -20,6 +20,7 @@ import { storeDialogOverlay } from "@/components/store-dialog-classes";
 // filter in the query string.
 import {listingPath,listingUrl} from "@/modules/seo/paths";
 import {ComparisonProvider} from "./catalog-card-controls";
+import { storeButton } from "@/components/store-button";
 
 type Query=CatalogQuery;
 const searchBox="flex h-10 items-center gap-2 rounded-md border border-input bg-white px-3 focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50";
@@ -36,7 +37,7 @@ function SidebarCategoryTree({nodes,selected,href,listed}:{nodes:SidebarCategory
  const item="flex min-h-[30px] items-center justify-between py-[5px] pr-[35px] pl-[25px] text-sm leading-5 font-medium text-foreground transition-colors hover:text-brand aria-[current=page]:bg-[#f8f9f9] aria-[current=page]:text-foreground";
  return <div>
   <label className={cn(searchBox,"mx-[25px] mb-[15px]")}><Search size={16} aria-hidden="true" className="shrink-0"/><input type="search" className={searchInput} aria-label="Kategori ara" placeholder="Kategori ara" value={search} onFocus={tree.load} onChange={e=>{setSearch(e.target.value);tree.load();}}/></label>
-  {term&&!tree.categories?(tree.error?<div role="alert" className="flex flex-col items-start gap-3 px-[25px] text-sm leading-[22px] text-muted-foreground"><p>Kategoriler yüklenemedi.</p><Button type="button" variant="outline" className="min-h-11 border-control-border px-4 text-sm" onClick={tree.retry}>Tekrar dene</Button></div>:<p role="status" aria-busy="true" className="px-[25px] text-sm leading-[22px] text-muted-foreground">Kategoriler yükleniyor…</p>)
+  {term&&!tree.categories?(tree.error?<div role="alert" className="flex flex-col items-start gap-3 px-[25px] text-sm leading-[22px] text-muted-foreground"><p>Kategoriler yüklenemedi.</p><Button type="button" variant="outline" className={storeButton({intent:"outline",size:"md"})} onClick={tree.retry}>Tekrar dene</Button></div>:<p role="status" aria-busy="true" className="px-[25px] text-sm leading-[22px] text-muted-foreground">Kategoriler yükleniyor…</p>)
   :term?<ul>{matches.map(c=><li key={c.id}><Link className={cn(item,"block")} href={href(c.slug)} aria-current={c.slug===selected?"page":undefined}>{c.name}<small className="mt-[3px] block text-[11px] leading-normal font-normal text-muted-foreground">{categoryPath(categories,c.id).slice(0,-1).map(n=>n.name).join(" / ")}</small></Link></li>)}{!matches.length&&<li className="px-[25px] text-sm leading-[22px] text-muted-foreground">Kategori bulunamadı.</li>}</ul>
   :<ul>{nodes.map(c=><li key={c.id}><Link className={item} href={href(c.slug)} aria-current={c.slug===selected?"page":undefined}><span>{c.name}</span>{c.hasChildren&&<ChevronRight size={14} aria-hidden="true"/>}</Link></li>)}</ul>}
  </div>;
@@ -128,30 +129,27 @@ export function CatalogFilterSheet({brands,facets,chipFacets,params,count,vehicl
   else{pushed.current=true;router.push(listingUrl(next),{scroll:false});}
  }
  function openChange(next:boolean){setOpen(next);if(next)pushed.current=false;else setDraft(null);}
- const plain="h-auto min-h-11 rounded-md text-sm font-medium";
- const primary="border-brand bg-brand text-white hover:bg-brand-strong",secondary="border-control-border bg-white text-foreground";
  const empty=count===0&&!pending;
  return <Sheet open={open} onOpenChange={openChange}>
-  <SheetTrigger render={<Button type="button" variant="outline" className={cn(plain,secondary,"w-full gap-2 px-3")}/>}><SlidersHorizontal size={17} aria-hidden="true"/>Filtrele{chips.length>0&&<span className="tabular-nums">({chips.length})</span>}</SheetTrigger>
+  <SheetTrigger render={<Button type="button" variant="outline" className={cn(storeButton({intent:"outline",size:"md"}),"w-full")}/>}><SlidersHorizontal size={17} aria-hidden="true"/>Filtrele{chips.length>0&&<span className="tabular-nums">({chips.length})</span>}</SheetTrigger>
   <SheetContent side="bottom" showCloseButton={false} overlayClassName={storeDialogOverlay} className="max-h-[85dvh] gap-0 rounded-t-[14px] border-0 bg-white p-0 text-foreground">
    <div className="flex shrink-0 items-center justify-between border-b border-border py-1 pr-1.5 pl-5">
     <SheetTitle className="text-lg leading-6 font-semibold">Filtreler</SheetTitle>
-    <SheetClose aria-label="Filtreleri kapat" render={<Button type="button" variant="ghost" className="size-11 min-h-11 rounded-md p-0 text-foreground"/>}><X size={20} aria-hidden="true"/></SheetClose>
+    <SheetClose aria-label="Filtreleri kapat" render={<Button type="button" variant="ghost" className={storeButton({intent:"ghost",size:"icon"})}/>}><X size={20} aria-hidden="true"/></SheetClose>
    </div>
    <p className="sr-only" role="status" aria-live="polite" aria-busy={pending}>{pending?"Sonuçlar güncelleniyor":`${count.toLocaleString("tr-TR")} ürün bulundu`}</p>
    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-    {chips.length>0&&<ul aria-label="Seçili filtreler" className="flex flex-wrap gap-2 border-b border-border px-5 py-3">{chips.map(chip=><li key={chip.key}><Button type="button" variant="outline" className={cn(plain,secondary,"max-w-full gap-1.5 rounded-full px-3 font-normal whitespace-normal")} onClick={()=>change(chip.remove)}><span className="text-left">{chip.label}<span className="sr-only"> filtresini kaldır</span></span><X size={14} aria-hidden="true"/></Button></li>)}</ul>}
+    {chips.length>0&&<ul aria-label="Seçili filtreler" className="flex flex-wrap gap-2 border-b border-border px-5 py-3">{chips.map(chip=><li key={chip.key}><Button type="button" variant="outline" className={cn(storeButton({intent:"outline",size:"md"}),"max-w-full gap-1.5 rounded-full px-3 font-normal whitespace-normal")} onClick={()=>change(chip.remove)}><span className="text-left">{chip.label}<span className="sr-only"> filtresini kaldır</span></span><X size={14} aria-hidden="true"/></Button></li>)}</ul>}
     <CatalogFilterGroups panel brands={brands} facets={facets} params={query} onChange={change}/>
    </div>
    {/* No result: "Temizle" becomes the main action; the other button still closes the sheet. */}
    <div className="flex shrink-0 gap-3 border-t border-border bg-white px-5 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))]">
-    <Button type="button" variant="outline" className={cn(plain,empty&&panelSelected?primary:secondary,"flex-1 px-4")} disabled={!panelSelected} onClick={()=>change(clearPanelFilters)}>Temizle</Button>
-    <Button type="button" variant="outline" className={cn(plain,empty&&panelSelected?secondary:primary,"flex-2 px-4")} onClick={()=>openChange(false)}>{pending?"Güncelleniyor…":empty?"Sonuç yok — filtreleri değiştir":`${count.toLocaleString("tr-TR")} ürünü göster`}</Button>
+    <Button type="button" variant="outline" className={cn(storeButton({intent:empty&&panelSelected?"primary":"outline",size:"md"}),"flex-1 text-center whitespace-normal")} disabled={!panelSelected} onClick={()=>change(clearPanelFilters)}>Temizle</Button>
+    <Button type="button" variant="outline" className={cn(storeButton({intent:empty&&panelSelected?"outline":"primary",size:"md"}),"flex-2 text-center whitespace-normal")} onClick={()=>openChange(false)}>{pending?"Güncelleniyor…":empty?"Sonuç yok — filtreleri değiştir":`${count.toLocaleString("tr-TR")} ürünü göster`}</Button>
    </div>
   </SheetContent>
  </Sheet>;
 }
-const pageButton="h-12 rounded-md border-brand bg-brand px-[27px] text-sm text-white hover:bg-brand-strong";
 // `filters`: the phone filter button (CatalogFilterSheet), first in the toolbar's top row with the sort beside it; `active`:
 // the selected filters as removable chips (CatalogActiveFilters), under the toolbar.
 // `lead`: shown above the results' toolbar and chips, which belong to the results (the garage vehicle's fits and the
@@ -160,30 +158,29 @@ const pageButton="h-12 rounded-md border-brand bg-brand px-[27px] text-sm text-w
 export function CatalogResults({count,page,pages,pageSize,params,children,defaultView="grid",filters,active,lead}:{count:number;page:number;pages:number;pageSize:number;params:Query;children:ReactNode;defaultView?:"list"|"grid";filters?:ReactNode;active?:ReactNode;lead?:ReactNode}) {
  const [view,setView]=useState(defaultView);const router=useRouter();
  // 44px touch targets on a phone (#878).
- const viewButton="h-7 min-h-7 w-[22px] rounded-none border-0 bg-transparent p-0 hover:bg-transparent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100 max-[768px]:size-11 max-[768px]:min-h-11";
  // Phones (≤768px): filter and sort share the top row, the range and the view buttons the second (the right-hand group
  // dissolves into the toolbar so its items can be ordered).
  const half="max-[768px]:order-1 max-[768px]:grow max-[768px]:basis-[calc(50%-6px)]";
  return <ComparisonProvider><div className="min-w-0">
  {lead}
- <div className="mb-[25px] flex min-h-[42px] items-center justify-between gap-4 max-[768px]:mb-4 max-[768px]:flex-wrap max-[768px]:gap-3"><span className="text-sm leading-5 text-foreground max-[768px]:order-2 max-[768px]:flex-1 max-[600px]:text-xs">{listingRangeLabel(count,page,pageSize)}</span>
+ <div className="mb-[25px] flex min-h-11 items-center justify-between gap-4 max-[768px]:mb-4 max-[768px]:flex-wrap max-[768px]:gap-3"><span className="text-sm leading-5 text-foreground max-[768px]:order-2 max-[768px]:flex-1 max-[600px]:text-xs">{listingRangeLabel(count,page,pageSize)}</span>
  <div className="flex items-center gap-[15px] max-[768px]:contents">
-  <div className="flex h-[42px] items-center gap-3 rounded-md border border-input px-3 py-1 max-[768px]:order-2 max-[768px]:h-11 max-[768px]:gap-0 max-[768px]:p-0">
-   <Button variant="ghost" className={viewButton} aria-label="Liste görünümü" aria-pressed={view==="list"} onClick={()=>setView("list")}><Image src="/media/site/icons/layout-list.svg" width={24} height={24} alt="" unoptimized/></Button>
-   <Button variant="ghost" className={viewButton} aria-label="Izgara görünümü" aria-pressed={view==="grid"} onClick={()=>setView("grid")}><Image src="/media/site/icons/layout-grid.svg" width={24} height={24} alt="" unoptimized/></Button>
+  <div className="flex items-center gap-1 max-[768px]:order-2">
+   <Button variant="ghost" className={cn(storeButton({intent:"ghost",size:"icon"}),"aria-pressed:bg-accent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100")} aria-label="Liste görünümü" aria-pressed={view==="list"} onClick={()=>setView("list")}><Image src="/media/site/icons/layout-list.svg" width={24} height={24} alt="" unoptimized/></Button>
+   <Button variant="ghost" className={cn(storeButton({intent:"ghost",size:"icon"}),"aria-pressed:bg-accent [&>img]:opacity-20 aria-pressed:[&>img]:opacity-100")} aria-label="Izgara görünümü" aria-pressed={view==="grid"} onClick={()=>setView("grid")}><Image src="/media/site/icons/layout-grid.svg" width={24} height={24} alt="" unoptimized/></Button>
   </div>
   {filters&&<div className={cn("min-[768px]:hidden",half)}>{filters}</div>}
   <NativeSelect name="sort" aria-label="Ürünleri sırala" value={params.sort ?? (params.q ? "relevance" : "newest")} onChange={event=>router.push(listingUrl(params,{sort:event.target.value as Query["sort"]}))}
-   className={cn("w-[180px] max-[768px]:w-auto [&>select]:h-[42px] max-[768px]:[&>select]:h-11 [&>select]:rounded-md [&>select]:bg-white [&>select]:pr-[30px] [&>select]:pl-3 [&>select]:text-sm [&>svg]:text-foreground",half)}>
+   className={cn("w-[180px] max-[768px]:w-auto [&>select]:h-11 [&>select]:rounded-md [&>select]:bg-white [&>select]:pr-[30px] [&>select]:pl-3 [&>select]:text-sm [&>svg]:text-foreground",half)}>
    {params.q&&<NativeSelectOption value="relevance">En alakalı</NativeSelectOption>}<NativeSelectOption value="newest">Son eklenenler</NativeSelectOption><NativeSelectOption value="price-asc">Fiyat: düşükten yükseğe</NativeSelectOption><NativeSelectOption value="price-desc">Fiyat: yüksekten düşüğe</NativeSelectOption>
   </NativeSelect>
  </div></div>
  {active}
  <div className="group/listing" data-view={view}><div className="flex flex-col gap-4 group-data-[view=grid]/listing:mx-[-2px] group-data-[view=grid]/listing:grid group-data-[view=grid]/listing:grid-cols-3 group-data-[view=grid]/listing:items-stretch group-data-[view=grid]/listing:gap-x-4 group-data-[view=grid]/listing:gap-y-6 max-[992px]:group-data-[view=grid]/listing:grid-cols-2 max-[600px]:group-data-[view=grid]/listing:mx-0 max-[600px]:group-data-[view=grid]/listing:gap-x-2 max-[600px]:group-data-[view=grid]/listing:gap-y-4">{children}</div></div>
  {pages>1 && <Pagination aria-label="Katalog sayfaları" className="mt-[25px]"><PaginationContent className="flex-wrap justify-center gap-4 text-sm">
-  {page>1 && <PaginationItem><Button className={pageButton} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page-1)})}/>}>Önceki sayfa</Button></PaginationItem>}
+  {page>1 && <PaginationItem><Button className={storeButton({intent:"primary",size:"lg"})} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page-1)})}/>}>Önceki sayfa</Button></PaginationItem>}
   <PaginationItem><span>Sayfa {page} / {pages}</span></PaginationItem>
-  {page<pages && <PaginationItem><Button className={pageButton} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page+1)})}/>}>Sonraki sayfa</Button></PaginationItem>}
+  {page<pages && <PaginationItem><Button className={storeButton({intent:"primary",size:"lg"})} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page+1)})}/>}>Sonraki sayfa</Button></PaginationItem>}
  </PaginationContent></Pagination>}
  </div></ComparisonProvider>;
 }

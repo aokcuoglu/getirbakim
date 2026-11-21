@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { storeButton, storeButtonIntents, storeButtonSizes } from "@/components/store-button";
 
@@ -79,4 +80,116 @@ test("the purchase form's button keeps 14px text and the primary colour", () => 
   const product = storefront.match(/\.buy-button-product \{ @apply ([^;]+);/)?.[1];
   assert.ok(product, ".buy-button-product rule");
   assert.doesNotMatch(product, /#2e78c7/);
+});
+
+/**
+ * Storefront tsx sources: the (store) routes and the shared components, minus the admin panel and the stock ui.
+ * Only `<Button>` elements are in scope; raw `<button>` elements are not checked.
+ */
+function storefrontSources() {
+  const files: string[] = [];
+  const walk = (dir: URL, skip: string[] = []) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory() && skip.includes(entry.name)) continue;
+      const child = new URL(entry.name + (entry.isDirectory() ? "/" : ""), dir);
+      if (entry.isDirectory()) walk(child);
+      else if (entry.name.endsWith(".tsx")) files.push(fileURLToPath(child));
+    }
+  };
+  walk(new URL("../src/app/(store)/", import.meta.url));
+  walk(new URL("../src/components/", import.meta.url), ["admin", "ui"]);
+  return files.map(path => ({ path, source: readFileSync(path, "utf8") }));
+}
+
+/** Index of the character that closes the bracket opened at `open` (braces, parentheses), skipping quoted strings. */
+function closing(source: string, open: number, openChar: string, closeChar: string) {
+  let depth = 0;
+  let quote = "";
+  for (let i = open; i < source.length; i++) {
+    const char = source[i];
+    if (quote) { if (char === quote && source[i - 1] !== "\\") quote = ""; continue; }
+    if (char === '"' || char === "'" || char === "`") quote = char;
+    else if (char === openChar) depth++;
+    else if (char === closeChar && --depth === 0) return i;
+  }
+  return source.length - 1;
+}
+
+/** Each `<Button …>` opening tag, found by scanning to the first `>` outside braces and quotes. */
+function buttonTags(source: string) {
+  const tags: string[] = [];
+  for (const match of source.matchAll(/<Button(?=[\s>])/g)) {
+    let end = match.index;
+    for (; end < source.length; end++) {
+      const char = source[end];
+      if (char === "{") end = closing(source, end, "{", "}");
+      else if (char === '"') end = source.indexOf('"', end + 1);
+      else if (char === ">") break;
+    }
+    tags.push(source.slice(match.index, end + 1));
+  }
+  return tags;
+}
+
+/** The `className={…}` expression of a tag, without the braces. */
+function classExpression(tag: string) {
+  const start = tag.indexOf("className={");
+  if (start < 0) return "";
+  const open = start + "className=".length;
+  return tag.slice(open + 1, closing(tag, open, "{", "}"));
+}
+
+/** The text with every `storeButton(…)` call cut out. */
+function withoutStoreButton(text: string) {
+  let result = text;
+  for (let start = result.indexOf("storeButton("); start >= 0; start = result.indexOf("storeButton(")) {
+    const open = start + "storeButton".length;
+    result = result.slice(0, start) + result.slice(closing(result, open, "(", ")") + 1);
+  }
+  return result;
+}
+
+/** Same-file `const name = cn(…)` / `storeButton(…)` initialisers (multi-line, `export const` included) that call storeButton. */
+function storeButtonConsts(source: string) {
+  const consts = new Map<string, string>();
+  for (const match of source.matchAll(/^\s*(?:export )?const (\w+)\s*=\s*(cn|storeButton)\(/gm)) {
+    const open = match.index + match[0].length - 1;
+    const init = source.slice(open - match[2].length, closing(source, open, "(", ")") + 1);
+    if (init.includes("storeButton(")) consts.set(match[1], init);
+  }
+  return consts;
+}
+
+test("every storefront Button takes its size and colour from storeButton", () => {
+  let scanned = 0;
+  for (const { path, source } of storefrontSources()) {
+    const consts = storeButtonConsts(source);
+    for (const tag of buttonTags(source)) {
+      scanned++;
+      const classes = classExpression(tag);
+      const viaConst = [...consts.keys()].some(name => new RegExp(`\\b${name}\\b`).test(classes));
+      assert.ok(classes.includes("storeButton(") || viaConst, `${path}: ${tag.slice(0, 160)}`);
+    }
+  }
+  assert.ok(scanned >= 90, `scanned ${scanned} Button tags`);
+});
+
+test("storeButton extras never override height, size, font size or the brand colour", () => {
+  const forbidden = /(^|[\s"'`:!])!?(min-h-\S|h-\S|size-\S|text-(xs|sm|base|lg|\[\d+px\])|bg-brand|border-brand)/;
+  for (const { path, source } of storefrontSources()) {
+    const consts = storeButtonConsts(source);
+    const resolved = (tag: string) => {
+      const classes = classExpression(tag);
+      return [classes, ...[...consts].filter(([name]) => new RegExp(`\\b${name}\\b`).test(classes)).map(([, init]) => init)];
+    };
+    for (const tag of buttonTags(source))
+      for (const piece of resolved(tag)) assert.doesNotMatch(withoutStoreButton(piece), forbidden, `${path}: ${tag.slice(0, 160)}`);
+    for (const [name, init] of consts) assert.doesNotMatch(withoutStoreButton(init), forbidden, `${path}: const ${name}`);
+  }
+});
+
+test("dialog actions use storeButton; the destructive confirm is the danger tint", async () => {
+  const dialog = await import("@/components/store-dialog-classes");
+  assert.ok(!("storeDialogAction" in dialog));
+  assert.match(storeButtonIntents.danger, /(^|\s)bg-destructive\/10(\s|$)/);
 });

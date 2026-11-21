@@ -25,6 +25,8 @@ import { Empty, EmptyMedia } from "@/components/ui/empty";
 import { updateCart } from "./actions";
 import { catalogPath } from "@/modules/seo/paths";
 import { productPath } from "@/modules/seo/product-path";
+import { storeButton } from "@/components/store-button";
+import { cn } from "@/lib/utils";
 
 const benefit = "flex-row gap-3.5 rounded-[5px] p-5 text-sm leading-[22px] ring-0 border border-border [&>svg]:size-[23px] [&>svg]:shrink-0";
 
@@ -50,7 +52,7 @@ export default async function Cart({searchParams}:{searchParams:Promise<SearchPa
             <Link className="mt-2 grid h-[100px] place-items-center max-[760px]:row-span-2" href={href}>{image ? <Image className="max-h-[100px] w-20 object-contain max-[1000px]:w-[60px]" src={image.src} width={100} height={100} alt={`${shownProductName(p)} ${p.display_brand}`}/> : <PartArt className="size-20" kind={categories.find(c=>c.slug===p.category)?.art}/>}</Link>
             <div className="max-[760px]:col-span-2"><Link href={href} className="hover:text-primary"><h2 className="mt-0.5 mb-2 text-base leading-[22px] font-medium wrap-anywhere">{shownProductName(p)} {p.display_brand}</h2></Link><p className="mb-3.5 text-[13px] text-muted-foreground">Kod: {p.display_code}</p><p className="mb-1 flex items-start gap-2"><CalendarCheck className="mt-0.5 size-[18px] shrink-0" aria-hidden/>{p.stock_label}</p>
               {(!p.available || !p.price_kurus || p.quantity>p.max_quantity) && <p className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]">Sipariş için uygun değil; adedi güncelle veya ürünü kaldır.</p>}
-              <form action={updateCart} data-cart-remove><input type="hidden" name="productId" value={p.id}/><input type="hidden" name="quantity" value="0"/><Button type="submit" variant="link" className="-ml-2 h-11 min-h-11 border-0 bg-transparent px-2 text-sm font-medium text-[#0065a5] hover:bg-transparent">Kaldır</Button></form>
+              <form action={updateCart} data-cart-remove><input type="hidden" name="productId" value={p.id}/><input type="hidden" name="quantity" value="0"/><Button type="submit" variant="link" className={cn(storeButton({ intent: "link", size: "md" }), "-ml-2 px-2")}>Kaldır</Button></form>
             </div>
             <CartQuantity refreshPage className="max-[1000px]:min-[768px]:[&_select]:w-14 max-[760px]:col-start-2" key={`${p.id}-${p.quantity}`} productId={p.id} name={p.display_code} quantity={p.quantity} maxQuantity={p.max_quantity} analyticsItem={analytics.find(line=>line.productId===p.id)?.item}/>
             <div className="pt-2 text-right wrap-anywhere max-[760px]:col-start-3 max-[760px]:row-start-2"><strong className="block text-base font-medium">{p.price_kurus ? money(unit*p.quantity) : "Fiyat bekleniyor"}</strong>{p.price_kurus && <small className="mt-1 block text-[13px] text-muted-foreground">{money(unit)} / adet</small>}</div>
@@ -64,7 +66,7 @@ export default async function Cart({searchParams}:{searchParams:Promise<SearchPa
       </div></div>
       <OrderSummary className="max-[760px]:mt-2" items={items} discount={discount} shipping={shipping}/></div>
       <CartActionBar total={total} valid={valid}/>
-      <Button variant="outline" nativeButton={false} className="mt-3 h-auto min-h-11 w-full rounded-[5px] border-control-border bg-white text-sm font-medium min-[761px]:hidden" render={<Link href={catalogPath}/>}>Alışverişe devam et</Button></>
-    : <Empty className="gap-6 rounded-none border-0 px-4 py-16"><EmptyMedia className="mb-0"><ShoppingCart className="size-12" aria-hidden/></EmptyMedia><h2 className="m-0 text-2xl leading-[34px] font-semibold">Sepetin henüz boş.</h2><Button nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-[5px] px-4 py-3 text-sm leading-5 font-semibold hover:bg-brand-strong" render={<Link href={catalogPath}/>}>Alışverişe başla</Button></Empty>}
+      <Button variant="outline" nativeButton={false} className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 w-full min-[761px]:hidden")} render={<Link href={catalogPath}/>}>Alışverişe devam et</Button></>
+    : <Empty className="gap-6 rounded-none border-0 px-4 py-16"><EmptyMedia className="mb-0"><ShoppingCart className="size-12" aria-hidden/></EmptyMedia><h2 className="m-0 text-2xl leading-[34px] font-semibold">Sepetin henüz boş.</h2><Button nativeButton={false} className={storeButton({ intent: "primary", size: "lg" })} render={<Link href={catalogPath}/>}>Alışverişe başla</Button></Empty>}
   </section></div>;
 }

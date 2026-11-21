@@ -10,6 +10,7 @@ import { kitContentLine, kitCountLabel, kitImageHref, kitKindLabel, kitName, kit
 import type { KitCandidate, KitSlotOptions } from "@/modules/store/maintenance-kit.server";
 import { addKitToCart, type KitCartResult } from "./actions";
 import { cartCount } from "@/modules/store/cart-count";
+import { storeButton } from "@/components/store-button";
 
 type Choice = { brand: string; productId: string; quantity: number };
 const money = (kurus: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(kurus / 100);
@@ -124,7 +125,7 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
       </ul>
       <p className="mt-4 flex items-baseline justify-between gap-3"><span className="text-sm leading-5 text-muted-foreground">Set toplamı · KDV dahil</span><strong className="text-[22px] leading-7 font-semibold tabular-nums">{money(total)}</strong></p>
       <p className="mt-0.5 text-xs leading-[18px] text-muted-foreground">{pieces.length} parça · Kargo hariç · Parçalar sepete tek tek girer.</p>
-      <Button type="button" onClick={submit} disabled={!pieces.length || pending} className="mt-4 h-12 w-full gap-2 rounded-lg border-brand bg-brand text-sm font-semibold text-white hover:bg-brand-strong disabled:border-[#e6e9ec] disabled:bg-[#e6e9ec] disabled:text-muted-foreground disabled:opacity-100">
+      <Button type="button" onClick={submit} disabled={!pieces.length || pending} className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-4 w-full")}>
         {pending ? <Loader2 size={18} className="animate-spin" aria-hidden="true"/> : <ShoppingCart size={18} aria-hidden="true"/>}{pending ? "Ekleniyor…" : "Seti sepete ekle"}</Button>
       {result && (result.error ? <p role="alert" className="mt-3 text-[13px] leading-5 text-[#ae3025]">{result.error}</p>
         : <div role="status" className={cn("mt-3 rounded-lg px-3.5 py-3 text-[13px] leading-5", result.failed.length ? "border border-[#f1d08a] bg-[#fff9eb]" : "bg-[#ebf5ed] text-[#397247]")}>

@@ -13,6 +13,8 @@ import { useDismissNotice } from "@/components/address-notice";
 import { saveAddress } from "@/app/(store)/hesap/adresler/actions";
 import type { AccountAddress } from "@/modules/store/account-addresses";
 import type { AddressFormValues } from "@/modules/store/address-schema";
+import { storeButton } from "@/components/store-button";
+import { cn } from "@/lib/utils";
 
 const required = <span className={checkoutRequiredMark} aria-hidden>*</span>;
 
@@ -54,7 +56,7 @@ export function AddressForm({ address, first }: { address: AccountAddress | null
           </div>
         </Field>)}
     </div>
-    <Button type="submit" disabled={pending} className="h-auto min-h-12 w-full gap-2.5 rounded-lg px-[27px] py-[13px] text-sm leading-5 font-medium hover:bg-brand-strong">{pending ? "Kaydediliyor…" : address ? "Değişiklikleri kaydet" : "Adresi kaydet"} <ChevronRight className="size-4" aria-hidden/></Button>
+    <Button type="submit" disabled={pending} className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full gap-2.5")}>{pending ? "Kaydediliyor…" : address ? "Değişiklikleri kaydet" : "Adresi kaydet"} <ChevronRight className="size-4" aria-hidden/></Button>
     {address && <Link href="/hesap/adresler" className="inline-flex min-h-11 items-center justify-center text-sm leading-5 text-primary underline-offset-4 hover:underline">Vazgeç</Link>}
   </form>;
 }

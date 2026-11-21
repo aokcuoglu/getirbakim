@@ -9,6 +9,7 @@ import { aboutPageJsonLd, breadcrumbJsonLd, pageTrail } from "@/modules/seo/stru
 import { AboutContent, FaqContent, Paragraphs } from "@/components/info-pages";
 import { aboutDescription, aboutTitle } from "@/content/about";
 import { catalogPath } from "@/modules/seo/paths";
+import { storeButton } from "@/components/store-button";
 const pages:Record<string,{title:string;seoTitle:string;description:string;paragraphs:string[]}>={
  hakkimizda:{title:aboutTitle,seoTitle:"Hakkımızda",description:aboutDescription,paragraphs:[]},
  uyumluluk:{title:"Doğru parçayı nasıl bulursun?",seoTitle:"Parça uyumluluğu rehberi",description:"Aracına uyan parçayı OEM kodu, motor kodu, üretim yılı ve Garajım ile nasıl doğrulayacağını adım adım öğren.",paragraphs:["Ürün veya OEM kodunu biliyorsan arama alanına yaz. Katalogda ürün adı ve markasıyla da arama yapabilirsin.","Aynı modelin farklı motor, üretim yılı ve donanım seçeneklerinde farklı parçalar kullanılır. OEM kodu, motor kodu ve araç özelliklerini karşılaştırmadan uyumluluğu varsayma.","Garajım alanına aracını eklediğinde katalog o araca göre filtrelenir. Siparişten önce ürün sayfasındaki OEM numaralarını ve uyumlu araç listesini kontrol et; emin olamadığında bize danışabilirsin."]},
@@ -36,6 +37,6 @@ export default async function Info({params}:{params:Promise<{slug:string}>}) {
   {slug==="yardim"&&<FaqContent/>}
   <Paragraphs items={page.paragraphs}/>
   {slug==="uyumluluk"&&<p className="mb-6 text-sm leading-[1.9] text-[#546371]">Numarayı nerede bulacağını <Link className="text-primary underline underline-offset-3" href="/rehber/oem-numarasi-nedir-nasil-bulunur">OEM numarası nedir, nasıl bulunur?</Link> yazısında anlattık.</p>}
-  <Button nativeButton={false} className="h-auto min-h-12 gap-2.5 rounded-lg border-primary px-[27px] py-[13px] text-sm leading-5 font-medium hover:bg-brand-strong" render={<Link href={catalogPath}/>}>Kataloğa göz at →</Button>
+  <Button nativeButton={false} className={storeButton({ intent: "primary", size: "lg" })} render={<Link href={catalogPath}/>}>Kataloğa göz at →</Button>
  </section>;
 }
