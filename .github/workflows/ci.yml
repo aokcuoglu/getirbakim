@@ -93,8 +93,8 @@ jobs:
       - run: npm run test:dinamik
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
-      # Partner orders (#426), the partner search (#1093), the discount action (#1130) and the webhook outbox (#1002) need a database; the step running test:partner has none.
-      - run: npm run test:partner-orders && npm run test:partner-search && npm run test:partner-discount && npm run test:partner-webhooks
+      # Partner orders (#426), the partner search (#1093), the discount action (#1130), collections (#1006) and the webhook outbox (#1002) need a database; the step running test:partner has none.
+      - run: npm run test:partner-orders && npm run test:partner-search && npm run test:partner-discount && npm run test:partner-collections && npm run test:partner-webhooks
         env:
           DATABASE_URL: ${{ env.CI_DATABASE_URL }}
       - run: npm run test:media-gc
