@@ -1,13 +1,16 @@
 -- Partner webhooks (#1002): an outbox of events for a partner's own system. A change to a partner order that the partner
 -- can see (its status, shipment, cancellation or cancel request; the columns toPartnerOrderDto reads that change after
--- the order is placed) adds one 'pending' row in the same transaction, by the trigger below. Delivery
--- (src/modules/partner/webhooks.ts) claims pending rows with a lease and POSTs the order as it is at send time, signed per
--- partner (PARTNER_WEBHOOKS_JSON). 'skipped' = the partner has no endpoint; 'dead' = undelivered after 72 hours.
+-- the order is placed) adds one 'partner.order.updated' row, and a decision on a partner return request (approved or
+-- rejected) one 'partner.return.updated' row, each in the same transaction, by the triggers below. Delivery
+-- (src/modules/partner/webhooks.ts) claims pending rows with a lease and POSTs the order or the return request as it is
+-- at send time, signed per partner (PARTNER_WEBHOOKS_JSON). 'skipped' = the partner has no endpoint (or the order or
+-- request is gone); 'dead' = undelivered after 72 hours.
 -- Applied last in scripts/setup.ts: it reads commerce_orders, partner_return_requests and accounts.
 --
 -- Locks: the first deploy that creates the table takes, for that run only, SHARE ROW EXCLUSIVE on commerce_orders,
--- partner_return_requests and accounts (the foreign keys) and on commerce_orders again for the trigger. Later runs take
--- no table lock: the indexes and the trigger are created only when missing. A changed function body needs only its
+-- partner_return_requests and accounts (the foreign keys) and on commerce_orders again for the order trigger. The first
+-- run that adds the return trigger takes SHARE ROW EXCLUSIVE on partner_return_requests once. Later runs take no table
+-- lock: the indexes and the triggers are created only when missing. A changed function body needs only its
 -- CREATE OR REPLACE FUNCTION; a changed trigger definition (columns, WHEN) needs a DROP TRIGGER in the same change.
 CREATE TABLE IF NOT EXISTS partner_webhook_events(
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -55,5 +58,20 @@ DO $$ BEGIN
     IS DISTINCT FROM (NEW.status,NEW.carrier,NEW.carrier_name,NEW.tracking_no,NEW.tracking_url,NEW.shipped_at,
      NEW.delivered_at,NEW.cancelled_by,NEW.cancelled_at,NEW.cancel_requested_at,NEW.cancel_request_rejected_at))
    EXECUTE FUNCTION partner_webhook_order_event();
+ END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION partner_webhook_return_event() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ INSERT INTO partner_webhook_events(partner_code,event_type,order_id,return_request_id,order_status)
+  SELECT NEW.partner_code,'partner.return.updated',NEW.order_id,NEW.id,o.status FROM commerce_orders o WHERE o.id=NEW.order_id;
+ RETURN NULL;
+END $$;
+-- Only a decision (requested → approved or rejected) adds an event: the partner's own POST answer carries the new request.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='partner_return_requests'::regclass AND tgname='partner_webhook_return_event') THEN
+  CREATE TRIGGER partner_webhook_return_event AFTER UPDATE ON partner_return_requests FOR EACH ROW
+   WHEN (OLD.status IS DISTINCT FROM NEW.status)
+   EXECUTE FUNCTION partner_webhook_return_event();
  END IF;
 END $$;

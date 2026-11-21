@@ -10,7 +10,7 @@ import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partner
 import { resolvePartnerDiscount, resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
 import { createRateLimiter } from "../src/modules/partner/rate-limit";
 import { exactMatches, fitmentLevelOf, fitsFirst } from "../src/modules/partner/search-order";
-import { buildPartnerOrderEvent, parsePartnerWebhooks, signPartnerWebhook, webhookHeaders } from "../src/modules/partner/webhook-contract";
+import { buildPartnerOrderEvent, buildPartnerReturnEvent, parsePartnerWebhooks, signPartnerWebhook, webhookHeaders } from "../src/modules/partner/webhook-contract";
 import { ttlCache } from "../src/lib/ttl-cache";
 
 const key = "sk_".padEnd(minPartnerKeyLength + 4, "x");
@@ -538,4 +538,21 @@ test("partner webhooks (#1002): the event body wraps the order DTO and leaks no 
   assert.deepEqual([event.specVersion, event.eventId, event.eventType, event.occurredAt, event.partnerId], ["1.0", "e2", "partner.order.updated", "2026-11-19T10:00:01.000Z", "bakimx"]);
   assert.deepEqual(event.order, JSON.parse(JSON.stringify(dto)));
   for (const internal of [`"nf"`, "103.19", "BASBUG", "basbug", "cost", "569720", "markup", "fingerprint", "payment_status"]) assert.ok(!body.includes(internal), internal);
+});
+
+test("partner webhooks (#1002): the return event wraps the Return object under `return` and leaks no supplier internals", () => {
+  const request: PartnerReturnRow = {
+    id: "5d2c1b0a-0000-4000-8000-000000000003", order_id: "9b0f8a1e-0000-4000-8000-000000000002", request_key: "7c1e3a52-1111-4111-8111-111111111113",
+    status: "approved", note: "Kutusu hasarlı", requested_at: new Date("2026-11-20T09:00:00Z"), decided_at: new Date("2026-11-20T11:00:00Z"),
+  };
+  const dto = toPartnerReturnDto(request, [{ product_id: "0000a569-053e-4b84-a484-d510f04fab3b", code: "LUK 510 0207 10", name: "DEBRIYAJ RULMANI", quantity: 1,
+    ordered_quantity: 2, reason: "defective", unit_price_kurus: "888759", pricing_snapshot: { nf: 103.19, company: "BASBUG", supplier: "basbug", cost_kurus: 569720,
+      markup_percent: 30, partner: { unit_net_kurus: 740632, vat_rate_bps: 2000, line_net_kurus: 1481264, line_vat_kurus: 296253, line_gross_kurus: 1777517 } } }]);
+  const body = buildPartnerReturnEvent({ eventId: "e3", occurredAt: new Date("2026-11-20T11:00:01Z"), partnerId: "bakimx", return: dto });
+  const event = JSON.parse(body);
+  assert.deepEqual(Object.keys(event), ["specVersion", "eventId", "eventType", "occurredAt", "partnerId", "return"]);
+  assert.deepEqual([event.specVersion, event.eventId, event.eventType, event.occurredAt, event.partnerId], ["1.0", "e3", "partner.return.updated", "2026-11-20T11:00:01.000Z", "bakimx"]);
+  assert.deepEqual(event.return, JSON.parse(JSON.stringify(dto)));
+  assert.deepEqual([event.return.contractVersion, event.return.status], ["2.1", "APPROVED"]);
+  for (const internal of [`"nf"`, "103.19", "BASBUG", "basbug", "cost", "569720", "markup", "fingerprint", "partner_code"]) assert.ok(!body.includes(internal), internal);
 });

@@ -18,6 +18,7 @@ import { parcelSchema } from '@/modules/shipping/geliver-parcel';
 import { createGeliverLabel,checkGeliverLabel,type GeliverLabelOutcome } from '@/modules/shipping/geliver-labels';
 import { orderEmailKinds } from '@/modules/store/order-email-state';
 import { deliverOrderEmailsSafely,requeueOrderEmail } from '@/modules/store/order-email';
+import { deliverPartnerWebhooksSafely } from '@/modules/partner/webhooks';
 export async function savePricing(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({markup:z.coerce.number().min(0).max(1000).multipleOf(0.01),vat:z.coerce.number().min(0).max(100).multipleOf(0.01),age:z.coerce.number().int().min(1).max(168)}).safeParse(Object.fromEntries(form));
@@ -201,6 +202,8 @@ export async function resendOrderEmail(form:FormData) {
 function revalidateOrder(id:string) {
  revalidatePath('/yonetim','layout');revalidatePath(`/siparis/${id}`);revalidatePath('/siparisler');
  after(()=>deliverOrderEmailsSafely({orderId:id}));
+ // A partner order's events (order steps, return decisions) go out now instead of on the next 5-minute sweep (#1002).
+ after(()=>deliverPartnerWebhooksSafely({orderId:id}));
 }
 const returnCodes:Record<OrderReturnResult,string>={recorded:'kaydedildi',unavailable:'kapali',exceeded:'adet',pending:'talep'};
 /** Shipped or delivered lines; partial returns plus pending partner requests may add up to the ordered quantity. */

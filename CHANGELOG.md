@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## Unreleased
+
+### Added
+- **Partner return webhooks:** approving or rejecting a partner return request records a `partner.return.updated` event (a trigger on `partner_return_requests`; creating a request records none) and delivers the Return object as it is at send time; an operations step on an order and an applied Geliver tracking update now send that order's partner webhooks right after the answer instead of on the next 5-minute sweep; partner contract v2.3 ([#1002](https://github.com/aokcuoglu/getirbakim/issues/1002)).
+
+### Deploy and operations
+- **`db:setup`** adds the `partner_webhook_return_event` trigger; its first run takes SHARE ROW EXCLUSIVE on `partner_return_requests` until commit. Send contract v2.3 to BakımX.
+
 ## v0.37.0 — 2026-11-21
 
 Release of `dev` since v0.36.0 (9 pull requests): partner order webhooks, admin blocking of wrong shared images, a notice page for expired guest order links, pending partner returns on the manual return form, price-anomaly re-checks after every Başbuğ price sync, faster make pages and catalog reads, and the last storefront controls on the shared button scale. Not deployed by this release; AWS production is released separately through `release-aws.yml`.

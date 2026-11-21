@@ -1,4 +1,4 @@
-# Partner order contract (v2.2)
+# Partner order contract (v2.3)
 
 Partner orders (#426) let a partner (BakımX) order parts found through
 `GET /api/partner/v1/products` for delivery to a workshop. Version 2.0 replaces
@@ -7,7 +7,10 @@ backwards compatible. Version 2.1 (#1007) adds return requests on shipped
 orders (`POST`/`GET /orders/:id/returns`, the Return object); Order objects are
 unchanged and keep `contractVersion: "2.0"`. Version 2.2 (#1002) adds
 [webhooks](#webhooks): a signed `partner.order.updated` event when an order
-changes; Order (`"2.0"`) and Return (`"2.1"`) objects are unchanged.
+changes; Order (`"2.0"`) and Return (`"2.1"`) objects are unchanged. Version
+2.3 (#1002) adds the `partner.return.updated` event when operations approve or
+reject a return request, and sends events right after an operations step or a
+carrier update instead of waiting for the next sweep; objects are unchanged.
 
 All endpoints live under `/api/partner/v1`, take `Authorization: Bearer <key>`
 (`PARTNER_API_KEYS`) and answer JSON with `Cache-Control: no-store`. A
@@ -49,11 +52,12 @@ order time like the prices, stored on the order and counted in the limit.
 3. `POST /orders` with an `Idempotency-Key` header, the token, the same lines
    with `expectedUnitNetKurus` = the quoted `unitNetKurus`, and the workshop's
    shipping address.
-4. Follow the order with `GET /orders/:id` or `GET /orders/by-key/:key`
-   (no webhooks yet).
+4. Follow the order with [webhooks](#webhooks) (`partner.order.updated`), or
+   poll `GET /orders/:id` or `GET /orders/by-key/:key`.
 5. To cancel, `DELETE /orders/:id` (see below).
 6. To return lines of a shipped or delivered order, `POST /orders/:id/returns`
-   and follow the decision with `GET /orders/:id/returns` (no webhooks).
+   and follow the decision with webhooks (`partner.return.updated`) or
+   `GET /orders/:id/returns`.
 
 ## POST /order-quotes
 
@@ -300,18 +304,26 @@ nothing expires); `REJECTED` is not emitted, an order operations refuse is
 
 ## Webhooks
 
-GetirBakım tells the partner's system when one of its orders changes, so it
-does not have to poll `GET /orders/:id`. Webhooks are optional: a partner
+GetirBakım tells the partner's system when one of its orders or return
+requests changes, so it does not have to poll `GET /orders/:id` or
+`GET /orders/:id/returns`. Webhooks are optional: a partner
 without a configured endpoint gets none and keeps polling.
 
-**Event.** `partner.order.updated` fires when a partner-visible field of the
-order changes: its status (confirmed, shipped, delivered, cancelled), the
-shipment (carrier, tracking number or link, shipped/delivered time), the
-cancellation, or a cancel request and its rejection. Placing an order sends no
-event (the `POST /orders` answer carries it); invoicing and internal changes
-send none.
+**Events.**
 
-**Body** (`Content-Type: application/json`):
+- `partner.order.updated` fires when a partner-visible field of the order
+  changes: its status (confirmed, shipped, delivered, cancelled), the shipment
+  (carrier, tracking number or link, shipped/delivered time), the cancellation,
+  or a cancel request and its rejection. Placing an order sends no event (the
+  `POST /orders` answer carries it); invoicing and internal changes send none.
+- `partner.return.updated` fires when operations approve or reject a return
+  request. Creating one sends no event (the `POST /orders/:id/returns` answer
+  carries it).
+
+Route on the body's `eventType` and ignore (answer `2xx` to) types you do not
+know: new event types may be added without a new `specVersion`.
+
+**Body** of `partner.order.updated` (`Content-Type: application/json`):
 
 ```json
 {
@@ -324,8 +336,23 @@ send none.
 }
 ```
 
+Body of `partner.return.updated`: the same envelope with `return` instead of
+`order`.
+
+```json
+{
+  "specVersion": "1.0",
+  "eventId": "uuid",
+  "eventType": "partner.return.updated",
+  "occurredAt": "2026-11-21T11:00:00.000Z",
+  "partnerId": "bakimx",
+  "return": { "contractVersion": "2.1", "id": "uuid", "orderId": "uuid", "status": "APPROVED", "…": "the Return object" }
+}
+```
+
 `occurredAt` is when the change happened; `order` is the [Order](#order) object
-as it is **when the event is sent**, not as it was at `occurredAt`.
+and `return` the [Return](#return) object as it is **when the event is sent**,
+not as it was at `occurredAt`.
 
 **Headers.**
 
@@ -365,9 +392,9 @@ function verify(secret, timestamp, signature, rawBody) {
 
 - At least once: the same event can arrive more than once; deduplicate on
   `eventId`.
-- State-carrying: `order` is the order at send time, so a late or repeated
-  event never moves your copy backwards if you apply the newest
-  `order` you have seen. Several changes in quick succession may each send the
+- State-carrying: `order` (or `return`) is the object at send time, so a late
+  or repeated event never moves your copy backwards if you apply the newest
+  object you have seen. Several changes in quick succession may each send the
   same final state.
 - Order is not guaranteed: a retried event can arrive after a later one.
 - `GET /orders/:id` stays authoritative; read it when in doubt or after a gap.
@@ -375,11 +402,12 @@ function verify(secret, timestamp, signature, rawBody) {
 **Delivery.** Answer with any `2xx` within 10 seconds; the body is ignored.
 Anything else is a failure: another status, a timeout, a network error, or a
 redirect (`3xx` answers are not followed; configure the final URL). Failed
-events are retried by the sweep that runs every 5 minutes: the first retry on
-the next sweep (about 5 minutes later), then after about 15, 45 and 135 minutes,
+events are retried by the sweep that runs every 5 minutes: the first retry
+about 5–10 minutes later (on a 5-minute sweep), then after about 15, 45 and 135 minutes,
 then every 6 hours, and given up 72 hours after the change. The first attempt
-also waits for the sweep, so expect a delay of up to about 5 minutes after the
-change.
+is made right after a change made by operations or reported by the carrier;
+any other change (or a first attempt that could not run then) waits for the next
+sweep, so expect a delay of up to about 5 minutes.
 
 **Configuration.** Each partner's endpoint and secret are set by GetirBakım in
 `PARTNER_WEBHOOKS_JSON` (see [Configuration](#configuration)); the URL must be
@@ -448,8 +476,10 @@ Only an approval writes `commerce_returns` rows (one per line, with
 `partner_return_request_id`); pending requests hold their quantity against
 returns operations record by hand as well.
 Webhook events are `partner_webhook_events` rows (`db/partner.sql`), written by
-an `AFTER UPDATE` trigger on `commerce_orders` for partner orders only; the
-answer's body, the endpoint and the secret are never stored.
+an `AFTER UPDATE` trigger on `commerce_orders` for partner orders only and by
+one on `partner_return_requests` when a request's status changes
+(`return_request_id` set); the answer's body, the endpoint and the secret are
+never stored.
 
 ## Configuration
 
@@ -462,5 +492,5 @@ answer's body, the endpoint and the secret are never stored.
 - `PARTNER_WEBHOOKS_JSON`: optional webhook endpoints per partner (#1002), JSON
   `{"bakimx":{"url":"https://…","secret":"<at least 32 characters>","enabled":true}}`. An entry with a non-https URL
   (in production), credentials in the URL, a shorter secret or `"enabled": false` holds that partner's events (logged
-  every sweep); the other partners still receive webhooks. Broken JSON holds every partner's events. Only a partner with
+  on each sweep); the other partners still receive webhooks. Broken JSON holds every partner's events. Only a partner with
   no entry has its events skipped.
