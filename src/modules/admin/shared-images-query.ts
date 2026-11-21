@@ -16,7 +16,7 @@ export type ListParams = { min?: string; host?: string; page?: string; sort?: st
 export type DetailParams = { page?: string; sort?: string; dir?: string };
 
 export type SharedImage = {
-  image_id: string; parts: number; donors: number; manufacturers: string[]; sha256: string; source_url: string; host: string;
+  image_id: string; parts: number; donors: number; manufacturers: string[]; source_url: string; host: string;
   store_rows: number; samples: string[]; total: number;
 };
 export type SharedImageHeader = Omit<SharedImage, "total" | "samples">;
@@ -41,12 +41,12 @@ export async function sharedImagesPage(database: Database, params: ListParams, c
   const min = minPartsOptions[pickKey(minPartsOptions, params.min, "5")];
   const host = params.host ?? "";
   const order = sortOrder(params, listOrder, listFallback);
-  const listed = `listed AS (SELECT sh.*, m.sha256, m.source_url, split_part(m.source_url,'/',3) AS host
+  const listed = `listed AS (SELECT sh.*, m.source_url, split_part(m.source_url,'/',3) AS host
     FROM shared sh JOIN product_media_objects m ON m.id=sh.image_id WHERE ($3::text='' OR split_part(m.source_url,'/',3)=$3))`;
   const at = async (page: number) => (await database.query<SharedImage>(
     `WITH shared AS (${aggregate("", " HAVING count(DISTINCT e.manufacturer_part_number) >= $1")}), ${listed},
       paged AS (SELECT sh.*, count(*) OVER()::int AS total FROM listed sh ORDER BY ${order} LIMIT $4 OFFSET $5)
-     SELECT sh.image_id, sh.parts, sh.donors, sh.manufacturers, sh.sha256, sh.source_url, sh.host, sh.total,
+     SELECT sh.image_id, sh.parts, sh.donors, sh.manufacturers, sh.source_url, sh.host, sh.total,
        (${storeRowsSql}) AS store_rows,
        ARRAY(SELECT DISTINCT supplier_item_name(s.supplier, s.product_data) FROM product_enrichment_shared_links l JOIN supplier_items s ON s.id=l.supplier_item_id
          WHERE l.image_id=sh.image_id AND supplier_item_name(s.supplier, s.product_data) IS NOT NULL LIMIT 3) AS samples
@@ -75,7 +75,7 @@ export async function sharedImageDetail(database: Database, id: string, params: 
   if (!z.uuid().safeParse(id).success) return null;
   const header = (await database.query<SharedImageHeader>(
     `WITH shared AS (${aggregate(" AND e.image_id=$1", "")})
-     SELECT sh.image_id, sh.parts, sh.donors, sh.manufacturers, m.sha256, m.source_url, split_part(m.source_url,'/',3) AS host,
+     SELECT sh.image_id, sh.parts, sh.donors, sh.manufacturers, m.source_url, split_part(m.source_url,'/',3) AS host,
        (${storeRowsSql}) AS store_rows
      FROM shared sh JOIN product_media_objects m ON m.id=sh.image_id`, [id, companies])).rows[0];
   if (!header) return null;
