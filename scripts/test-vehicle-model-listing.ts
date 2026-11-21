@@ -33,6 +33,10 @@ async function item(key: string) {
 const fit = (table: "storefront_model_fits" | "product_model_fitments", model: number, key: string) => table === "storefront_model_fits"
   ? schema.pool.query("INSERT INTO storefront_model_fits(model_id,supplier_item_id) VALUES($1,$2)", [model, ids[key]])
   : schema.pool.query("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($2,$1,'test')", [model, ids[key]]);
+// The make page reads the description fits' makes precomputed per row (#956); the fixtures write the make table by hand
+// rather than through the refresh, so the description makes are mirrored from the view the same way after a change.
+const mirrorDescriptionMakes = () => schema.pool.query(`DELETE FROM storefront_make_description_fits;
+  INSERT INTO storefront_make_description_fits(brand_id,supplier_item_id) SELECT brand_id,supplier_item_id FROM storefront_make_description_fits_compute()`);
 // The category tree (getStoreCategories) calls connection(), which needs a request scope: a static work store lets it
 // run. Next reads the global AsyncLocalStorage when its storage module loads (before, ahead of the other imports).
 let workStorage: typeof import("next/dist/server/app-render/work-async-storage.external").workAsyncStorage;
@@ -120,6 +124,7 @@ before(async () => {
   await schema.pool.query(`WITH product AS (INSERT INTO products(brand,part_number,name,brand_label,code) VALUES('TESTBRAND','G11','g11 PARCA','TESTBRAND','TB g11') RETURNING id),
     source AS (INSERT INTO product_sources(supplier_item_id,product_id,method) SELECT $1,id,'manual' FROM product)
     INSERT INTO product_overrides(product_id,category_id) SELECT id,252 FROM product`, [ids.g11]);
+  await mirrorDescriptionMakes();
   Object.assign(globalThis, { AsyncLocalStorage });
   workStorage = (await import("next/dist/server/app-render/work-async-storage.external")).workAsyncStorage;
   const [{ db }, module, listing, groupsModule, scoped, sitemapModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"),
@@ -346,6 +351,7 @@ test("hidden description models and a vehicle decision (#661, #583) leave the ma
   await hideModel(await product("G5", ["g5"]), 10);
   await hideModel(await product("G4", ["g4", "g4s"]), 11);
   await schema.pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,100,'remove')", [await product("G6", ["g6"])]);
+  await mirrorDescriptionMakes();
   await invalidateListings();
   assert.deepEqual((await catalog.getListedModelGroups("1")).map(group => group.slug).sort(), ["golf-7", "polo-6"]);
   assert.deepEqual(await listed({ make: "vw" }), ["g1", "g7", "g8", "g9", "g10", "g11", "p2"].map(key => ids[key]).sort());

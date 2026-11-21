@@ -1,14 +1,18 @@
 import "server-only";
 import { db } from "@/lib/db";
+import { invalidateListings } from "./listing-epoch";
+import { fitsBumpDue } from "./listing-bump";
 
 /**
  * Keeps product_enrichment_shared_links (db/enrichment-shared-links.sql), which the storefront reads through
  * storefront_enrichments, current: writers queue the products and offers they touch, and this drains the queue.
  * A queued product is recomputed in milliseconds; a full rebuild (brand mapping, deployment) takes ~10-20 s while
  * readers keep the previous rows. The database lock lets one app container work at a time; the others skip.
+ * `fitsChanged` counts the make, description make and model fit rows the same pass changed (storefront_fits_sync, #956).
  */
 export function syncEnrichmentLinks() {
-  return db.query<{ written: number }>("SELECT product_enrichment_shared_sync() AS written").then(result => result.rows[0].written);
+  return db.query<{ written: number; fits_changed: string }>("SELECT written,fits_changed::text FROM storefront_fits_sync()")
+    .then(result => ({ written: result.rows[0].written, fitsChanged: Number(result.rows[0].fits_changed) }));
 }
 
 /**
@@ -29,16 +33,25 @@ const started = globalThis as unknown as { getirbakimEnrichmentLinkSync?: boolea
 /**
  * Runs syncEnrichmentLinks every `intervalMs` in the server process, then refreshPriceOnlyItems (due a minute after links
  * changed, else every 10 minutes, counted across tasks in the database); one run at a time, failures logged once a minute.
+ * Changed fit rows bump the listing epoch (throttled, see listing-bump.ts): only the task holding the sync lock sees
+ * them, and the epoch reaches every task.
  */
 export function startEnrichmentLinkSync(intervalMs: number) {
   if (started.getirbakimEnrichmentLinkSync || !(intervalMs > 0)) return;
   started.getirbakimEnrichmentLinkSync = true;
-  let running = false, lastError = 0, linksChanged = false;
+  let running = false, lastError = 0, linksChanged = false, fitsPending = false, lastFitsBump = 0;
   const tick = async () => {
     if (running) return;
     running = true;
     try {
-      if (await syncEnrichmentLinks() > 0) linksChanged = true;
+      const { written, fitsChanged } = await syncEnrichmentLinks();
+      if (written > 0) linksChanged = true;
+      if (fitsChanged > 0) fitsPending = true;
+      if (fitsBumpDue(fitsPending, lastFitsBump, Date.now())) {
+        fitsPending = false;
+        lastFitsBump = Date.now();
+        await invalidateListings();
+      }
       // A cheap check in the database when it is not due; a change seen here waits until some task's rebuild.
       if (await refreshPriceOnlyItems(linksChanged ? priceOnlyChangedSeconds : priceOnlyMaxAgeSeconds) !== null) linksChanged = false;
     }
