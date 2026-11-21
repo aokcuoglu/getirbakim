@@ -41,11 +41,12 @@ const nextConfig: NextConfig = {
   // went out raw (#453). The VPS edge nginx and Cloudflare leave an already compressed response as it is.
   compress: true,
   // Security headers go on every response. public/ files default to max-age=0, so the CDN would revalidate every
-  // logo with the origin: /media and /brand get a 1-day browser / 7-day CDN cache (bare URLs and ?v= logos keep
-  // it). Only the build's own ?dpl=<BUILD_VERSION> (appended by next/image through deploymentId) is immutable:
-  // Next does not route on dpl, so during a rolling deploy an old task may serve old content under a new dpl, and
-  // any other dpl value must not be cached for a year. The no-referrer entries come last because config headers
-  // win over the same header set in route handlers (payment and order-access routes send no-referrer themselves).
+  // logo with the origin: /media and /brand get a 1-day browser / 7-day CDN cache. Only the build's own
+  // ?dpl=<BUILD_VERSION> (appended by next/image through deploymentId) is immutable, and URLs without this build's
+  // dpl keep the short cache. Next does not route on dpl, so during a rolling deploy an old task may answer a new
+  // ?dpl= with old bytes; it never pins them for a year (it returns the short cache, as before). The no-referrer
+  // entries come last because config headers win over the same header set in route handlers (payment and
+  // order-access routes send no-referrer themselves).
   async headers() {
     const security = [
       { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
@@ -56,7 +57,8 @@ const nextConfig: NextConfig = {
     const noReferrer = [{ key: "Referrer-Policy", value: "no-referrer" }];
     const cache = [{ key: "Cache-Control", value: "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800" }];
     const immutable = [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }];
-    const build = process.env.BUILD_VERSION;
+    // The Dockerfile default "development" is no build id.
+    const build = process.env.BUILD_VERSION !== "development" ? process.env.BUILD_VERSION : undefined;
     // Next anchors a has value as ^...$ and reads it as a regex, so the build id is escaped.
     const thisBuild = build
       ? [{ type: "query" as const, key: "dpl", value: build.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") }]

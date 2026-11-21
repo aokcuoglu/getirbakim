@@ -38,6 +38,12 @@ test("every route carries exactly the four security headers", async () => {
   }
 });
 
+test("deploymentId is the build id the dpl match relies on", async () => {
+  process.env.BUILD_VERSION = build;
+  const mod = (await import(`../next.config?v=deployment`)) as { default: { deploymentId?: string } };
+  assert.equal(mod.default.deploymentId, build);
+});
+
 test("this build's own dpl is immutable", async () => {
   const rules = await load(build);
   assert.equal(effective(rules, "/media/site/images/x.jpg", { dpl: build })["Cache-Control"], immutable);
@@ -62,6 +68,7 @@ test("payment and order-access routes send no referrer", async () => {
 
 test("without BUILD_VERSION nothing is immutable; a dotted id is matched literally", async () => {
   const none = await load(undefined);
+  assert.equal(effective(await load("development"), "/media/x.jpg", { dpl: "development" })["Cache-Control"], short);
   assert.equal(effective(none, "/media/x.jpg", { dpl: build })["Cache-Control"], short);
   const dotted = await load("ab.cd");
   assert.equal(effective(dotted, "/media/x.jpg", { dpl: "ab.cd" })["Cache-Control"], immutable);
