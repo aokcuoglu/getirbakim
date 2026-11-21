@@ -28,16 +28,18 @@ jobs:
       - name: Start Postgres
         env:
           RUNNER_KIND: ${{ runner.environment }}
+          RUNNER_LABEL: ${{ runner.name }}
         run: |
-          # One self-hosted runner runs one job at a time: any labelled container left by a killed job is stale.
+          # One runner runs one job at a time, so a container left by a killed job of THIS runner is stale. Two runners
+          # share the Mac (#1235): never touch the other runner's containers, its job may be using them right now.
           if [ "$RUNNER_KIND" = self-hosted ]; then
-            stale="$(docker ps -aq --filter label=getirbakim-ci)"
+            stale="$(docker ps -aq --filter "label=getirbakim-ci.runner=$RUNNER_LABEL")"
             if [ -n "$stale" ]; then echo "$stale" | xargs docker rm -f >/dev/null; fi
           fi
           name="getirbakim-ci-pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "CI_PG_CONTAINER=$name" >> "$GITHUB_ENV"
           docker rm -f "$name" >/dev/null 2>&1 || true
-          docker run -d --rm --name "$name" --label getirbakim-ci=postgres \
+          docker run -d --rm --name "$name" --label getirbakim-ci=postgres --label "getirbakim-ci.runner=$RUNNER_LABEL" \
             -e POSTGRES_PASSWORD=test -e POSTGRES_DB=pricing_test \
             -p 127.0.0.1::5432 postgres:16 >/dev/null
           address="$(docker port "$name" 5432/tcp | head -n 1)"
