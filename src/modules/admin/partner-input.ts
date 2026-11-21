@@ -32,6 +32,9 @@ const partnerCode = z.string().trim().min(1).max(100);
 
 export const partnerLimitInput = z.object({ partner: partnerCode, limit: limitTl });
 
+/** Order intake switch (#1009): "1" pauses the partner's new quotes and orders, "0" resumes them. */
+export const partnerIntakeInput = z.object({ partner: partnerCode, paused: z.enum(["1", "0"]).transform(value => value === "1") });
+
 /** The invoice number operations type, when marking and when correcting a mark. */
 const invoiceRef = z.string().trim().min(1, "Fatura numarasını girin.").max(60, "Fatura numarası en fazla 60 karakter olabilir.");
 const expectedCount = z.coerce.number().int().min(1);

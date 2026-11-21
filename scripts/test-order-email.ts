@@ -7,6 +7,7 @@ import { after, before, test } from "node:test";
 import { Pool, type PoolClient } from "pg";
 import type { MailMessage, MailResult } from "../src/lib/mail";
 import type { ConfirmationData } from "../src/modules/store/order-email";
+import { canResendOrderEmail, orderEmailDue, orderEmailErrorLabel } from "../src/modules/store/order-email-state";
 
 // Order confirmation email (#951): content, mail settings, the .eml file transport and the outbox in a throwaway
 // schema (db/schema.sql + db/commerce.sql applied twice). No mail leaves the machine: sends are injected or written to a temp dir.
@@ -298,4 +299,130 @@ test("deliverOrderEmailsSafely never throws", async () => {
   assert.equal(result, null);
   assert.equal((await outbox(id))[0].status, "pending");
   await db.query("DELETE FROM commerce_order_emails WHERE order_id=$1", [id]);
+});
+
+// Admin resend (#1035): requeueOrderEmail puts a row back in the queue; delivery still decides whether it goes out.
+async function admin() {
+  return (await db.query<{ id: string }>("INSERT INTO accounts(name,email,password_hash,role,approved) VALUES('Yönetici',$1,'x','admin',true) RETURNING id::text",
+    [`admin-${randomBytes(6).toString("hex")}@example.invalid`])).rows[0].id;
+}
+const requeued = async (id: string) => (await db.query<{ requeued_at: Date | null; requeued_by: string | null; claimed_at: Date | null }>(
+  "SELECT requeued_at,requeued_by::text,claimed_at FROM commerce_order_emails WHERE order_id=$1", [id])).rows[0];
+const recorder = () => {
+  const sent: MailMessage[] = [];
+  return { sent, send: async (message: MailMessage): Promise<MailResult> => { sent.push(message); return { status: "sent", messageId: message.messageId ?? "" }; } };
+};
+const resendId = (id: string) => new RegExp(`^<order-${id}-confirmation-r\\d+@shop\\.example\\.invalid>$`);
+
+test("a given-up email is requeued with a fresh day and sent with a resend Message-ID", async () => {
+  const id = await paidOrder(), adminId = await admin();
+  await db.query(`UPDATE commerce_order_emails SET status='failed',attempts=7,claimed_at=now()-interval '2 hours',created_at=now()-interval '25 hours',
+    last_error='stale after 7 attempts: 421' WHERE order_id=$1`, [id]);
+  // The order number comes back for the list's alert.
+  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), (await db.query("SELECT number::text FROM commerce_orders WHERE id=$1", [id])).rows[0].number);
+  const [row] = await outbox(id);
+  assert.equal(row.status, "pending"); assert.equal(row.attempts, 0); assert.equal(row.last_error, null);
+  const meta = await requeued(id);
+  assert.ok(meta.requeued_at); assert.equal(meta.requeued_by, adminId); assert.equal(meta.claimed_at, null);
+  const { sent, send } = recorder();
+  // The row is 25 hours old, but the day counts from the resend: it is sent, not given up.
+  assert.deepEqual(await email.deliverOrderEmails({ orderId: id, send }), { sent: 1, skipped: 0, failed: 0 });
+  assert.equal(sent.length, 1); assert.match(sent[0].messageId ?? "", resendId(id));
+  const [after] = await outbox(id);
+  assert.equal(after.status, "sent"); assert.equal(after.attempts, 1); assert.equal(after.message_id, sent[0].messageId);
+});
+
+test("a sent email is sent again once after a resend", async () => {
+  const id = await paidOrder(), adminId = await admin();
+  const { sent, send } = recorder();
+  await email.deliverOrderEmails({ orderId: id, send });
+  assert.equal(sent[0].messageId, `<order-${id}-confirmation@shop.example.invalid>`);
+  // A resend within a minute of the send is refused (a double click from two tabs).
+  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), null);
+  assert.equal((await requeued(id)).requeued_at, null);
+  await db.query("UPDATE commerce_order_emails SET sent_at=now()-interval '2 minutes' WHERE order_id=$1", [id]);
+  assert.equal(typeof await email.requeueOrderEmail(id, "confirmation", adminId), "string");
+  const results = await Promise.all([email.deliverOrderEmails({ orderId: id, send }), email.deliverOrderEmails({ orderId: id, send })]);
+  assert.deepEqual(results.map(result => result.sent).sort(), [0, 1]);
+  assert.equal(sent.length, 2); assert.match(sent[1].messageId ?? "", resendId(id));
+  assert.equal((await outbox(id))[0].status, "sent");
+});
+
+test("a skipped email (no transport) is sent after a resend once mail works", async () => {
+  const id = await paidOrder(), adminId = await admin();
+  await silence(() => email.deliverOrderEmails({ orderId: id, send: message => mail.sendMail(message, mail.mailConfig({})) }));
+  assert.equal((await outbox(id))[0].status, "skipped");
+  assert.equal(typeof await email.requeueOrderEmail(id, "confirmation", adminId), "string");
+  const { sent, send } = recorder();
+  assert.deepEqual(await email.deliverOrderEmails({ orderId: id, send }), { sent: 1, skipped: 0, failed: 0 });
+  assert.equal(sent.length, 1);
+});
+
+test("an email claimed within the lease is not requeued; an older claim is, and is tried at once", async () => {
+  const id = await paidOrder(), adminId = await admin();
+  await db.query("UPDATE commerce_order_emails SET attempts=1,claimed_at=now()-interval '1 minute',last_error='421' WHERE order_id=$1", [id]);
+  assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), null);
+  let [row] = await outbox(id);
+  assert.equal(row.attempts, 1); assert.equal(row.last_error, "421"); assert.equal((await requeued(id)).requeued_at, null);
+  await db.query("UPDATE commerce_order_emails SET claimed_at=now()-interval '11 minutes' WHERE order_id=$1", [id]);
+  assert.equal(typeof await email.requeueOrderEmail(id, "confirmation", adminId), "string");
+  const { sent, send } = recorder();
+  // Without the resend the backoff after the first attempt (10 min) would allow this too; attempts=0 and no claim make it immediate.
+  assert.deepEqual(await email.deliverOrderEmails({ orderId: id, send }), { sent: 1, skipped: 0, failed: 0 });
+  [row] = await outbox(id);
+  assert.equal(row.status, "sent"); assert.equal(row.attempts, 1); assert.equal(sent.length, 1);
+});
+
+test("a resend of an order that no longer waits for confirmation is refused and leaves the row as it was", async () => {
+  const adminId = await admin();
+  const { sent, send } = recorder();
+  for (const [status, payment] of [["confirmed", "paid"], ["cancelled", "refund_required"], ["pending", "refunded"]]) {
+    const id = await paidOrder();
+    await email.deliverOrderEmails({ orderId: id, send });
+    await db.query("UPDATE commerce_order_emails SET sent_at=now()-interval '2 minutes' WHERE order_id=$1", [id]);
+    await db.query("UPDATE commerce_orders SET status=$2,payment_status=$3 WHERE id=$1", [id, status, payment]);
+    assert.equal(await email.requeueOrderEmail(id, "confirmation", adminId), null);
+    const [row] = await outbox(id);
+    assert.equal(row.status, "sent"); assert.equal(row.attempts, 1); assert.equal((await requeued(id)).requeued_at, null);
+    assert.deepEqual(await email.deliverOrderEmails({ orderId: id, send }), { sent: 0, skipped: 0, failed: 0 });
+  }
+  // Only the three first sends went out.
+  assert.equal(sent.length, 3);
+});
+
+test("an unknown order or kind is not requeued", async () => {
+  const adminId = await admin();
+  assert.equal(await email.requeueOrderEmail(randomUUID(), "confirmation", adminId), null);
+  const id = await paidOrder();
+  assert.equal(await email.requeueOrderEmail(id, "shipped" as "confirmation", adminId), null);
+});
+
+test("a requeued email is given up a day after the resend", async () => {
+  const id = await paidOrder(), adminId = await admin();
+  await db.query("UPDATE commerce_order_emails SET status='skipped',last_error='stale',created_at=now()-interval '3 days' WHERE order_id=$1", [id]);
+  assert.equal(typeof await email.requeueOrderEmail(id, "confirmation", adminId), "string");
+  await db.query("UPDATE commerce_order_emails SET requeued_at=now()-interval '25 hours' WHERE order_id=$1", [id]);
+  let calls = 0;
+  assert.deepEqual(await email.deliverOrderEmails({ orderId: id, send: async message => { calls++; return { status: "sent", messageId: message.messageId ?? "" }; } }),
+    { sent: 0, skipped: 0, failed: 0 });
+  const [row] = await outbox(id);
+  assert.equal(row.status, "skipped"); assert.equal(row.last_error, "stale"); assert.equal(calls, 0);
+});
+
+test("admin labels and the resend rule", () => {
+  assert.equal(orderEmailErrorLabel("stale"), "Bir gün içinde gönderilemedi");
+  assert.equal(orderEmailErrorLabel("order no longer pending"), "Sipariş artık teyit beklemiyor (onaylandı, iptal ya da iade edildi)");
+  for (const reason of ["MAIL_TRANSPORT is not set", "MAIL_FROM is missing", "SMTP_HOST is missing", "unknown MAIL_TRANSPORT x", "MAIL_TRANSPORT=file is refused in production"]) {
+    assert.equal(orderEmailErrorLabel(reason), "E-posta gönderimi ayarlı değil", reason);
+  }
+  assert.equal(orderEmailErrorLabel("stale after 7 attempts: 421 try later"), "7 denemeden sonra bırakıldı: 421 try later");
+  assert.equal(orderEmailErrorLabel("421 try later"), "Son hata: 421 try later");
+  const waiting = { status: "pending", payment_status: "paid" };
+  assert.equal(orderEmailDue.confirmation(waiting), true);
+  for (const order of [{ status: "confirmed", payment_status: "paid" }, { status: "pending", payment_status: "unpaid" }, { status: "cancelled", payment_status: "refunded" }]) {
+    assert.equal(orderEmailDue.confirmation(order), false, JSON.stringify(order));
+    assert.equal(canResendOrderEmail({ kind: "confirmation", in_flight: false }, order), false);
+  }
+  assert.equal(canResendOrderEmail({ kind: "confirmation", in_flight: false }, waiting), true);
+  assert.equal(canResendOrderEmail({ kind: "confirmation", in_flight: true }, waiting), false);
 });

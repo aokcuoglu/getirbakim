@@ -855,12 +855,23 @@ DO $$ DECLARE c text; BEGIN
 END $$;
 -- Per-partner settings set in /yonetim/partnerler (#426). Partner identities still come from PARTNER_API_KEYS; a row here
 -- only overrides the PARTNER_ORDER_LIMIT_KURUS fallback. A partner with neither cannot order (503 ORDER_LIMIT_UNAVAILABLE).
+-- order_intake_paused_at (#1009) pauses the partner's new quotes and orders (503 ORDER_INTAKE_PAUSED) until it is cleared;
+-- reads, cancels and replays of existing orders keep working. NULL = open.
 CREATE TABLE IF NOT EXISTS partner_settings(
  partner_code text PRIMARY KEY,
  order_limit_kurus bigint CHECK(order_limit_kurus > 0),
  updated_at timestamptz NOT NULL DEFAULT now(),
  updated_by uuid REFERENCES accounts(id)
 );
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='order_intake_paused_at' AND NOT attisdropped) THEN
+  ALTER TABLE partner_settings ADD COLUMN order_intake_paused_at timestamptz;
+ END IF;
+ -- Who paused it (audit). The FK takes SHARE ROW EXCLUSIVE on accounts once, on the first deploy that adds the column.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='order_intake_paused_by' AND NOT attisdropped) THEN
+  ALTER TABLE partner_settings ADD COLUMN order_intake_paused_by uuid REFERENCES accounts(id);
+ END IF;
+END $$;
 -- Corrections of a partner invoiced mark (#1018): one row per order, the rows of one change share change_id. 'undo'
 -- clears the mark (the order counts against the partner's limit again), 'correct' rewrites the invoice number/date;
 -- the old values and the reason stay here for audit.
@@ -885,6 +896,7 @@ END $$;
 -- Order emails (#951): one row per order and kind, written in the payment transaction that settles the order
 -- (src/modules/payments/checkout.ts recordPaid); delivery (src/modules/store/order-email.ts) claims pending rows with a
 -- lease, so concurrent reconcilers send each email once. 'skipped' = no mail transport configured or too old to send.
+-- requeued_at: an admin's resend (#1035); staleness counts from it.
 CREATE TABLE IF NOT EXISTS commerce_order_emails (
  order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
  kind text NOT NULL CHECK(kind IN ('confirmation')),
@@ -896,5 +908,16 @@ CREATE TABLE IF NOT EXISTS commerce_order_emails (
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='commerce_order_emails'::regclass AND c.relname='commerce_order_emails_pending_idx') THEN
   CREATE INDEX commerce_order_emails_pending_idx ON commerce_order_emails(created_at) WHERE status='pending';
+ END IF;
+END $$;
+-- An admin's resend from /yonetim/siparisler (#1035): when and by whom a row was put back in the queue. Added only when
+-- missing (ADD COLUMN IF NOT EXISTS locks the table even as a no-op); no view reads this table. The FK takes SHARE ROW
+-- EXCLUSIVE on accounts once, on the first deploy that adds the column.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_order_emails'::regclass AND attname='requeued_at' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_order_emails ADD COLUMN requeued_at timestamptz;
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_order_emails'::regclass AND attname='requeued_by' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_order_emails ADD COLUMN requeued_by uuid REFERENCES accounts(id);
  END IF;
 END $$;
