@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { BasbugImportError, importBasbug, importOptions } from "@/modules/suppliers/basbug-import";
 import { DinamikImportError, dinamikImportOptions, importDinamik } from "@/modules/suppliers/dinamik-import";
-import { refreshBasbugPriceAnomalies } from "@/modules/suppliers/price-anomalies";
+import { refreshBasbugPriceAnomalies, setPriceAnomalyStatus as storePriceAnomalyStatus } from "@/modules/suppliers/price-anomalies";
 import { importSeta, SetaImportError } from "@/modules/suppliers/seta-import";
 
 export type SupplierRefreshResult = { ok: boolean; error?: string; products?: number };
@@ -40,12 +40,14 @@ export async function refreshSupplierScope(supplier: string, group: string): Pro
 }
 
 const anomalyStatusSchema = z.object({ id: z.uuid(), status: z.enum(["open", "dismissed"]) });
-/** "Anomali değil" (dismissed: priced again, kept through later refreshes) or "Yeniden işaretle" (open: unpriced). */
+/**
+ * "Anomali değil" (dismissed: priced again, kept through later refreshes until the supplier value moves materially,
+ * #1142) or "Yeniden işaretle" (open: unpriced).
+ */
 export async function setPriceAnomalyStatus(form: FormData) {
   const admin = await requireAdmin();
   const input = anomalyStatusSchema.safeParse({ id: form.get("id"), status: form.get("status") });
   if (!input.success) return;
-  await db.query("UPDATE supplier_price_anomalies SET status=$2,decided_by=$3,decided_at=now() WHERE supplier_item_id=$1",
-    [input.data.id, input.data.status, admin.id]);
+  await storePriceAnomalyStatus(db, input.data.id, input.data.status, admin.id);
   revalidatePath("/yonetim/tedarikciler");
 }
