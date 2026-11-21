@@ -24,3 +24,6 @@ export const shownImageSql = (product: string, automatic: string) =>
 /** Supplier rows whose product's automatic image is hidden. */
 export const hiddenAutomaticItemsSql =
   "SELECT ps.supplier_item_id FROM product_override_image_settings st JOIN product_sources ps ON ps.product_id=st.product_id WHERE st.hide_automatic";
+
+/** Media ids of automatic images an admin blocked (product_image_blocks, #1136); sha256 ties them across machines. */
+export const blockedMediaSql = "SELECT m.id FROM product_image_blocks b JOIN product_media_objects m ON m.sha256=b.sha256";

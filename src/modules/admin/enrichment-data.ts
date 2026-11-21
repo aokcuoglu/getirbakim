@@ -6,7 +6,7 @@ import { parseSearchQuery } from "@/modules/search/query";
 import { binder, enrichmentStateMatch } from "@/modules/search/sql";
 import { sourceHosts, summarizeSources, type PassPace, type SourceActivity, type SourceKey, type SourceRun } from "./enrichment-pace";
 import type { PartialGap } from "../enrichment/partial-gaps";
-import { shownImageSql, uploadedImageSql } from "../store/product-image-sql";
+import { blockedMediaSql, shownImageSql, uploadedImageSql } from "../store/product-image-sql";
 import { priceOnlyStatsSql, type PriceOnlyStats } from "../enrichment/price-only-queue";
 
 import { dashboardTab, enrichmentStatuses } from "./enrichment-labels";
@@ -80,12 +80,14 @@ function priceOnlyProgress() {
   return priceOnly.value;
 }
 
+// The row's automatic image counts as shown unless an admin blocked it (#1136).
+const automaticShown = `(j.image_id IS NOT NULL AND j.image_id NOT IN (${blockedMediaSql}))`;
 const like = (value: string) => `%${value.replace(/[\\%_]/g, match => `\\${match}`)}%`;
 // SQL twins of partialGaps() over the import note, for the partial tab's header filter and its counts.
 const coveredBelow = (label: string) => `(SELECT m[1]::int < m[2]::int FROM regexp_match(g.source_method,'${label} (\\d+)/(\\d+)') m)`;
 const gapConditions: Record<PartialGap, string> = {
   // No image the store shows (#596): an upload counts, a hidden automatic image does not.
-  image: `NOT ${shownImageSql("j.product_id", "j.image_id IS NOT NULL")}`,
+  image: `NOT ${shownImageSql("j.product_id", automaticShown)}`,
   vehicles_not_collected: "g.source_method ~ 'vehicles not collected'",
   no_vehicles: "g.source_method ~ 'no vehicles listed' AND g.source_method !~ 'vehicles not collected'",
   unresolved_vehicles: `g.source_method !~ 'vehicles not collected' AND COALESCE(${coveredBelow("source IDs covered")},${coveredBelow("vehicle models")},false)`,
@@ -97,7 +99,7 @@ const gapJoin = " LEFT JOIN product_enrichments g ON g.supplier_item_id=j.suppli
 const rowQuery=(source:string)=>`SELECT COALESCE(j.supplier_item_id,j.product_id) AS id,j.product_id,COALESCE(j.supplier_code,j.part_number) AS code,COALESCE(j.supplier_brand,j.product_brand) AS brand,
     COALESCE(j.product_name,'') AS name,j.oem,j.status,j.attempts,j.last_error,j.updated_at,
     j.imported_at,j.source_url,j.manufacturer,j.manufacturer_part_number,j.image_id,
-    ${shownImageSql("j.product_id","j.image_id IS NOT NULL")} AS image_shown,${uploadedImageSql("j.product_id")} AS image_uploaded,
+    ${shownImageSql("j.product_id",automaticShown)} AS image_shown,${uploadedImageSql("j.product_id")} AS image_uploaded,
     j.match_type,j.reference,j.oem_count,j.vehicle_count,j.specification_count,
     CASE WHEN j.status='partial' THEN (SELECT e.source_method FROM product_enrichments e WHERE e.supplier_item_id=j.supplier_item_id) END AS source_method,
     -- Trodo's searches are run items of the product; fallback searches are attempt rows of any of its supplier items.

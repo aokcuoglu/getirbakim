@@ -19,6 +19,8 @@ export type DetailParams = { page?: string; sort?: string; dir?: string };
 export type SharedImage = {
   image_id: string; parts: number; donors: number; manufacturers: string[]; source_url: string; host: string;
   store_rows: number; samples: string[]; total: number; sha256: string; listed: boolean;
+  /** Blocked by an admin (product_image_blocks, #1136): the store's links leave it out. */
+  blocked: boolean;
 };
 export type SharedImageHeader = Omit<SharedImage, "total" | "samples">;
 export type SharedImageRow = {
@@ -35,6 +37,7 @@ const aggregate = (where: string, having: string) => `
   SELECT e.image_id, count(DISTINCT e.manufacturer_part_number)::int AS parts, count(*)::int AS donors,
     COALESCE(array_agg(DISTINCT e.manufacturer) FILTER (WHERE e.manufacturer IS NOT NULL), '{}') AS manufacturers
   FROM product_enrichments e WHERE e.image_id IS NOT NULL${where} GROUP BY e.image_id${having}`;
+const blockedSql = "EXISTS (SELECT 1 FROM product_image_blocks b WHERE b.sha256=m.sha256)";
 const storeRowsSql = "SELECT count(*)::int FROM product_enrichment_shared_links l JOIN supplier_items s ON s.id=l.supplier_item_id WHERE l.image_id=sh.image_id AND s.presence='present' AND s.company=ANY($2::text[])";
 
 /** The list page; `database` is injectable for tests (the session check lives in listSharedImages). */
@@ -44,15 +47,16 @@ export async function sharedImagesPage(
   const min = minPartsOptions[pickKey(minPartsOptions, params.min, "5")];
   const host = params.host ?? "";
   const order = sortOrder(params, listOrder, listFallback);
-  const listed = `listed AS (SELECT sh.*, m.source_url, split_part(m.source_url,'/',3) AS host, m.sha256, (m.sha256=ANY($6::text[])) AS listed
+  const listed = `listed AS (SELECT sh.*, m.source_url, split_part(m.source_url,'/',3) AS host, m.sha256, (m.sha256=ANY($6::text[])) AS listed, ${blockedSql} AS blocked
     FROM shared sh JOIN product_media_objects m ON m.id=sh.image_id WHERE ($3::text='' OR split_part(m.source_url,'/',3)=$3))`;
   const at = async (page: number) => (await database.query<SharedImage>(
     `WITH shared AS (${aggregate("", " HAVING count(DISTINCT e.manufacturer_part_number) >= $1")}), ${listed},
       paged AS (SELECT sh.*, count(*) OVER()::int AS total FROM listed sh ORDER BY ${order} LIMIT $4 OFFSET $5)
-     SELECT sh.image_id, sh.parts, sh.donors, sh.manufacturers, sh.source_url, sh.host, sh.total, sh.sha256, sh.listed,
+     SELECT sh.image_id, sh.parts, sh.donors, sh.manufacturers, sh.source_url, sh.host, sh.total, sh.sha256, sh.listed, sh.blocked,
        (${storeRowsSql}) AS store_rows,
        ARRAY(SELECT DISTINCT supplier_item_name(s.supplier, s.product_data) FROM product_enrichment_shared_links l JOIN supplier_items s ON s.id=l.supplier_item_id
-         WHERE l.image_id=sh.image_id AND supplier_item_name(s.supplier, s.product_data) IS NOT NULL LIMIT 3) AS samples
+         WHERE l.donor_item_id IN (SELECT e.supplier_item_id FROM product_enrichments e WHERE e.image_id=sh.image_id)
+           AND supplier_item_name(s.supplier, s.product_data) IS NOT NULL LIMIT 3) AS samples
      FROM paged sh ORDER BY ${order}`,
     [min, companies, host, sharedImagePageSize, (page - 1) * sharedImagePageSize, [...denylist]],
   )).rows;
@@ -81,7 +85,7 @@ export async function sharedImageDetail(
   const header = (await database.query<SharedImageHeader>(
     `WITH shared AS (${aggregate(" AND e.image_id=$1", "")})
      SELECT sh.image_id, sh.parts, sh.donors, sh.manufacturers, m.source_url, split_part(m.source_url,'/',3) AS host,
-       (${storeRowsSql}) AS store_rows, m.sha256, (m.sha256=ANY($3::text[])) AS listed
+       (${storeRowsSql}) AS store_rows, m.sha256, (m.sha256=ANY($3::text[])) AS listed, ${blockedSql} AS blocked
      FROM shared sh JOIN product_media_objects m ON m.id=sh.image_id`, [id, companies, [...denylist]])).rows[0];
   if (!header) return null;
   const order = sortOrder(params, detailOrder, detailFallback);
@@ -89,7 +93,9 @@ export async function sharedImageDetail(
     `WITH page AS (
        SELECT l.supplier_item_id, l.supplier_code, l.supplier_brand, s.supplier, supplier_item_name(s.supplier, s.product_data) AS name,
          (s.presence='present' AND s.company=ANY($2::text[])) AS in_store, count(*) OVER()::int AS total
-       FROM product_enrichment_shared_links l JOIN supplier_items s ON s.id=l.supplier_item_id WHERE l.image_id=$1
+       FROM product_enrichment_shared_links l JOIN supplier_items s ON s.id=l.supplier_item_id
+       -- By donor, not by the link's image: a blocked image is no longer on its links (#1136) but they still use it.
+       WHERE l.donor_item_id IN (SELECT e.supplier_item_id FROM product_enrichments e WHERE e.image_id=$1)
        ORDER BY ${order} LIMIT $3 OFFSET $4)
      SELECT l.supplier_item_id, l.supplier, l.supplier_code, l.supplier_brand, l.name, l.in_store, l.total, ps.product_id,
        COALESCE(${uploadedImageSql("ps.product_id")}, false) AS uploaded, COALESCE(${automaticImageHiddenSql("ps.product_id")}, false) AS hidden
