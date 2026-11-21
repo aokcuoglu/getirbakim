@@ -611,6 +611,9 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
 // The plain listings' counts, page ids and facets (persistable below) are also kept in storefront_listing_cache (#957), so a
 // new or restarted container serves them at once: up to 24 hours old there, the first visitor sees the stored value while
 // one refresh runs. Listings narrowed by brand, property, availability or a vehicle have too many variants to share.
+// The stored keys must stay bounded until the 2-day prune: a crawler walking model x category pages (~5.8k models x ~590
+// categories) would add hundreds of thousands of rows, so model listings stay in memory, and a make's listing keeps its
+// first page only (deeper pages of the plain, category and manufacturer listings are stored up to page 20; a price order is one key).
 const aggregateTtl=10*60*1000,persistedFor={maxStaleMs:24*60*60*1000};
 const cachedCounts=staleCache<number>(aggregateTtl,500,{...listings,...persistedFor,store:listingCacheStore<number>("count",1)});
 const cachedPageIds=staleCache<string[]>(aggregateTtl,500,{...listings,...persistedFor,store:listingCacheStore<string[]>("page-ids",1)});
@@ -622,7 +625,8 @@ const countCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehicleCounts:
 const pageIdCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehiclePageIds:cachedPageIds;
 type Facets={brands:string[];attributes:CatalogFacet[]};
 const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...listings,...persistedFor,store:listingCacheStore<Facets>("facets",1)}),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
-const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
+const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
+const persistablePage=(query:CatalogQuery,page:number)=>persistable(query)&&page<=(query.make?1:cachedPages);
 /** The listing filter built at most once, on the first call: a cached listing never builds it (its id sets take queries too). */
 function lazyFilter(query:CatalogQuery,context:CatalogContext){
  let filter:ReturnType<typeof catalogFilter>|undefined;
@@ -773,7 +777,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  if(!search&&!pricedSort){
   const ids=await pageIdCache(query)(`${filterKey(query,context)}|${page}`,async()=>{const {values,from}=await filter();return (await db.query<{id:string}>(
    `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id);},
-   {persist:persistable(query)&&page<=cachedPages});
+   {persist:persistablePage(query,page)});
   const items=await storefrontRowsByIds(ids.slice(0,take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
@@ -781,7 +785,8 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // cachedPages pages are ordered once and kept like the page ids above; the cards are still read live, so a card shows
  // the current price and stock, while its position follows the prices of up to 10 minutes ago (supplier syncs, and admin
  // price edits, which do not move the listing epoch). Deeper pages keep the live query. The priced rows are sorted before
- // the limit (VW: ~57 MB): at the default 4 MB work_mem that sort spilled to disk (external merge), 64 MB keeps it in memory.
+ // the limit (VW: ~57 MB): it spilled to disk (external merge) at both the local default (4 MB) and the production RDS
+ // setting (16 MB); 64 MB for this read keeps it in memory.
  if(!search&&pricedSort&&page<=cachedPages){
   const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>{const {values,where}=await filter();return (await boundedQuery<{id:string}>(
    `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},

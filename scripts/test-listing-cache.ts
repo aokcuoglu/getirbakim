@@ -150,6 +150,15 @@ test("the home rails pick skips admin-hidden products and reloads on an epoch bu
 });
 
 // The persisted level (#957): a store shared by every process, here an in-memory fake with explicit ages.
+/** Polls `read` until `done` holds or the deadline passes (the stores write without being awaited). */
+async function until<T>(read: () => Promise<T>, done: (value: T) => boolean, timeoutMs = 3_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await read();
+    if (done(value) || Date.now() > deadline) return value;
+    await sleep(10);
+  }
+}
 function fakeStore<T>() {
   const rows = new Map<string, { value: T; writtenAt: number; epoch: number }>();
   let reads = 0, writes = 0;
@@ -261,20 +270,38 @@ test("listingCacheStore round-trips values and never lets an older epoch overwri
   assert.equal(await cacheStore.listingCacheStore<number>("test-count", 2).read("a"), null);
 });
 
-test("plain listings persist their count and page ids; searches and brand filters do not", async () => {
-  await sleep(50);
+test("listingCacheStore skips values over 256 KB and is off with LISTING_CACHE_PERSIST=0", async () => {
+  const ids = cacheStore.listingCacheStore<string[]>("test-ids", 1);
+  await ids.write("large", Array.from({ length: 10_000 }, (_, i) => `${i}`.padStart(30, "0")), 1);
+  assert.equal(await ids.read("large"), null, "over 256 KB serialized: not stored");
+  await ids.write("small", ["x"], 1);
+  try {
+    process.env.LISTING_CACHE_PERSIST = "0";
+    assert.equal(await ids.read("small"), null, "off: a stored row is not read");
+    await ids.write("off", ["y"], 1);
+  } finally { delete process.env.LISTING_CACHE_PERSIST; }
+  assert.deepEqual((await ids.read("small"))?.value, ["x"]);
+  assert.equal(await ids.read("off"), null, "off: nothing was written");
+});
+
+test("plain and make listings persist their count, page ids and facets; searches, brand filters and models do not", async () => {
   await schema.pool.query("TRUNCATE storefront_listing_cache");
   await epoch.invalidateListings();
-  await catalog.browseProducts({ sort: "newest", page: "1" });
+  const stored = async () => (await schema.pool.query<{ namespace: string; n: number }>(
+    "SELECT namespace,count(*)::int AS n FROM storefront_listing_cache GROUP BY namespace ORDER BY namespace")).rows;
+  // Not persisted: a search, a brand filter and a model listing (too many keys).
   await catalog.browseProducts({ q: "MAHLE" });
   await catalog.browseProducts({ brands: JSON.stringify(["MAHLE"]) });
-  await sleep(100);
-  const { rows } = await schema.pool.query<{ namespace: string; n: number }>(
-    "SELECT namespace,count(*)::int AS n FROM storefront_listing_cache GROUP BY namespace ORDER BY namespace");
-  assert.deepEqual(rows, [{ namespace: "count", n: 1 }, { namespace: "page-ids", n: 1 }]);
+  await catalog.browseProducts({ make: "volkswagen", model: "golf" });
+  await catalog.catalogFacets({ make: "volkswagen", model: "golf" });
+  await catalog.listingTotal({ make: "volkswagen", model: "golf" });
+  // Persisted: the plain listing's and the make's count and first page ids, and the plain listing's facets. (A make's
+  // deeper pages stay in memory; these few rows cannot reach page 2.)
+  await catalog.browseProducts({ make: "volkswagen" });
+  await catalog.browseProducts({ sort: "newest", page: "1" });
   await catalog.catalogFacets({});
-  await sleep(100);
-  assert.equal((await schema.pool.query("SELECT 1 FROM storefront_listing_cache WHERE namespace='facets'")).rowCount, 1);
+  const expected = [{ namespace: "count", n: 2 }, { namespace: "facets", n: 1 }, { namespace: "page-ids", n: 2 }];
+  assert.deepEqual(await until(stored, rows => JSON.stringify(rows) === JSON.stringify(expected)), expected);
 });
 
 test("boundedQuery raises work_mem for its read only and refuses a malformed value", async () => {
