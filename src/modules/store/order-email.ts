@@ -8,6 +8,7 @@ import { money } from "./money";
 import type { CommerceOrder } from "./orders";
 import { invoiceAddressText, invoiceSummary, invoiceTypes } from "./tr-address";
 import { ORDER_EMAIL_LEASE_MINUTES, orderEmailDue, type OrderEmailKind } from "./order-email-state";
+import { orderLinkPath, orderLinkToken } from "./order-link";
 
 /**
  * Order confirmation email (#951). recordPaid queues one row per order in the payment transaction that settles it;
@@ -29,7 +30,11 @@ export type ConfirmationOrder = Pick<CommerceOrder,
   | "discount_percent" | "installment_count" | "installment_fee_kurus" | "invoice_type" | "invoice_company" | "invoice_tax_no" | "invoice_tax_office"
   | "invoice_province" | "invoice_district" | "invoice_address_line" | "invoice_postal_code">;
 export type ConfirmationItem = { name: string; code: string; quantity: number; unit_price_kurus: string };
-export type ConfirmationData = { order: ConfirmationOrder; items: ConfirmationItem[]; hasAgreement: boolean; baseUrl: string };
+/** guestLink: a signed link (#1034) for a guest order, so the email opens it on any device; null keeps the plain links. */
+export type ConfirmationData = {
+  order: ConfirmationOrder; items: ConfirmationItem[]; hasAgreement: boolean; baseUrl: string;
+  guestLink?: { token: string; expiresAt: Date } | null;
+};
 
 const colors = { text: "#222831", muted: "#626b75", link: "#0077c7", divider: "#e5e7eb" };
 
@@ -38,16 +43,17 @@ function escapeHtml(value: string) {
 }
 const html = (value: string) => escapeHtml(value).replace(/\r?\n/g, "<br>");
 const time = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "long", timeStyle: "short" });
+const linkDate = (value: Date) => value.toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "long" });
 /** +902163870078 → +90 216 387 00 78 */
 const phoneLabel = (phone: string) => phone.replace(/^\+90(\d{3})(\d{3})(\d{2})(\d{2})$/, "+90 $1 $2 $3 $4");
 
 /** Subject, plain text and HTML of the confirmation; every customer-sourced value is escaped in the HTML. */
-export function buildOrderConfirmation({ order, items, hasAgreement, baseUrl }: ConfirmationData): Omit<MailMessage, "to" | "messageId"> {
+export function buildOrderConfirmation({ order, items, hasAgreement, baseUrl, guestLink }: ConfirmationData): Omit<MailMessage, "to" | "messageId"> {
   const base = baseUrl.replace(/\/$/, "");
   const orderUrl = `${base}/siparis/${order.id}`;
   const links = [
-    { label: "Siparişini görüntüle", url: orderUrl },
-    ...(hasAgreement ? [{ label: "Sözleşme kopyan", url: `${orderUrl}/sozlesme` }] : []),
+    { label: "Siparişini görüntüle", url: guestLink ? base + orderLinkPath(order.id, guestLink.token) : orderUrl },
+    ...(hasAgreement ? [{ label: "Sözleşme kopyan", url: guestLink ? base + orderLinkPath(order.id, guestLink.token, "sozlesme") : `${orderUrl}/sozlesme` }] : []),
     { label: "Mesafeli satış sözleşmesi", url: `${base}/mesafeli-satis-sozlesmesi` },
     { label: "Ön bilgilendirme formu", url: `${base}/on-bilgilendirme-formu` },
   ];
@@ -67,7 +73,9 @@ export function buildOrderConfirmation({ order, items, hasAgreement, baseUrl }: 
   }));
   const subject = `Siparişini aldık — #${order.number}`;
   const intro = "Siparişini aldık, teşekkür ederiz. Ödemen alındı; siparişin teyit bekliyor. Stok ve fiyat teyidinden sonra siparişini hazırlayıp kargoya vereceğiz. Teyit edilemezse ödemenin tamamı iade edilir.";
-  const pageNote = "Sipariş sayfası, siparişi verdiğin hesapla ya da siparişi verdiğin tarayıcıdan açılır.";
+  const pageNote = guestLink
+    ? `Bu bağlantılar ${linkDate(guestLink.expiresAt)} tarihine kadar her cihazda açılır. Siparişinin bilgilerini gösterdiği için kimseyle paylaşma.`
+    : "Sipariş sayfası, siparişi verdiğin hesapla ya da siparişi verdiğin tarayıcıdan açılır.";
   const contact = `Sorun olursa bize ${contactEmail} adresinden ya da ${phoneLabel(contactPhone)} numarasından ulaşabilirsin.`;
 
   const text = [
@@ -136,14 +144,16 @@ const confirmationColumns = "id,number,email,customer_name,phone,address,note,cr
 
 async function confirmationMessage(orderId: string, requeuedAt: Date | null) {
   const [order, items, agreement] = await Promise.all([
-    db.query<ConfirmationOrder & { email: string; status: string; payment_status: string }>(`SELECT ${confirmationColumns},status,payment_status FROM commerce_orders WHERE id=$1`, [orderId]),
+    db.query<ConfirmationOrder & { email: string; status: string; payment_status: string; owner_kind: string }>(`SELECT ${confirmationColumns},status,payment_status,owner_kind FROM commerce_orders WHERE id=$1`, [orderId]),
     db.query<ConfirmationItem>("SELECT name,code,quantity,unit_price_kurus FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id", [orderId]),
     db.query("SELECT 1 FROM commerce_order_agreements WHERE order_id=$1", [orderId]),
   ]);
   const row = order.rows[0];
   if (!row) throw new Error("Order not found");
   if (!orderEmailDue.confirmation(row)) return { number: row.number, message: null };
-  const content = buildOrderConfirmation({ order: row, items: items.rows, hasAgreement: Boolean(agreement.rowCount), baseUrl: siteUrl });
+  // Signed at send time, so an admin's resend (#1035) carries a fresh 90-day link. Account orders keep the sign-in rule.
+  const guestLink = row.owner_kind === "guest" ? orderLinkToken(orderId) : null;
+  const content = buildOrderConfirmation({ order: row, items: items.rows, hasAgreement: Boolean(agreement.rowCount), baseUrl: siteUrl, guestLink });
   // Deterministic, so a retry after a lost reply is recognisable as the same message; an admin's resend is a new one.
   const resend = requeuedAt ? `-r${Math.floor(new Date(requeuedAt).getTime() / 1000)}` : "";
   return { number: row.number, message: { ...content, to: row.email, messageId: `<order-${orderId}-confirmation${resend}@${new URL(siteUrl).hostname}>` } };
