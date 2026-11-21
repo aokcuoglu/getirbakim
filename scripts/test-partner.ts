@@ -10,6 +10,7 @@ import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partner
 import { resolvePartnerDiscount, resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
 import { createRateLimiter } from "../src/modules/partner/rate-limit";
 import { exactMatches, fitmentLevelOf, fitsFirst } from "../src/modules/partner/search-order";
+import { buildPartnerOrderEvent, parsePartnerWebhooks, signPartnerWebhook, webhookHeaders } from "../src/modules/partner/webhook-contract";
 import { ttlCache } from "../src/lib/ttl-cache";
 
 const key = "sk_".padEnd(minPartnerKeyLength + 4, "x");
@@ -472,4 +473,69 @@ test("partner guard: a valid key is limited per partner only; failed key checks 
   } finally {
     if (originalKeys === undefined) delete process.env.PARTNER_API_KEYS; else process.env.PARTNER_API_KEYS = originalKeys;
   }
+});
+
+const webhookSecret = "test-webhook-secret-0123456789abcdef";
+
+test("partner webhooks (#1002): endpoints parse per partner; a broken entry or broken JSON is reported, never fatal", () => {
+  const valid = { url: "https://bakimx.example.invalid/hooks/getirbakim", secret: webhookSecret, enabled: true };
+  const one = parsePartnerWebhooks(JSON.stringify({ bakimx: valid }), true);
+  assert.deepEqual([...one.endpoints], [["bakimx", { url: valid.url, secret: webhookSecret }]]);
+  assert.deepEqual([one.invalid.size, one.parseError], [0, false]);
+  // Unset is "no webhooks"; set but unreadable is a parse error (events wait).
+  for (const raw of [undefined, null, "", "  "]) assert.deepEqual(parsePartnerWebhooks(raw, true), { endpoints: new Map(), invalid: new Map(), parseError: false }, String(raw));
+  for (const raw of ["{", "[]", "\"text\"", "null", "42"]) {
+    const config = parsePartnerWebhooks(raw, true);
+    assert.deepEqual([config.endpoints.size, config.parseError], [0, true], raw);
+  }
+  const entries = {
+    bakimx: valid,
+    short: { ...valid, secret: "x".repeat(31) },
+    plain: { ...valid, url: "http://plain.example.invalid/hook" },
+    creds: { ...valid, url: "https://user:pass@creds.example.invalid/hook" },
+    off: { ...valid, enabled: false },
+    notUrl: { ...valid, url: "not a url" },
+    ftp: { ...valid, url: "ftp://files.example.invalid/hook" },
+    missing: { url: valid.url },
+    other: { url: "https://other.example.invalid/hook", secret: "y".repeat(32) },
+  };
+  // One bad entry keeps the others; http is refused only in production. Reasons never carry the secret.
+  const production = parsePartnerWebhooks(JSON.stringify(entries), true);
+  assert.deepEqual([...production.endpoints.keys()], ["bakimx", "other"]);
+  assert.deepEqual(Object.fromEntries(production.invalid), {
+    short: "secret shorter than 32 characters", plain: "URL is not https", creds: "URL carries credentials", off: "disabled",
+    notUrl: "URL is not valid", ftp: "URL is not https", missing: "entry needs url and secret strings",
+  });
+  const local = parsePartnerWebhooks(JSON.stringify(entries), false);
+  assert.deepEqual([...local.endpoints.keys()], ["bakimx", "plain", "other"]);
+  assert.equal(local.invalid.get("ftp"), "URL is not http(s)");
+});
+
+test("partner webhooks (#1002): the signature is v1= HMAC-SHA256 over timestamp.body, and the headers carry it", () => {
+  assert.equal(signPartnerWebhook(webhookSecret, "1767225600", '{"eventId":"e1"}'),
+    "v1=3d23b84b1e6c09b71354f18c44be04f6c4cce3dae971a0304540f9f44315d567");
+  assert.notEqual(signPartnerWebhook(webhookSecret, "1767225601", '{"eventId":"e1"}'), signPartnerWebhook(webhookSecret, "1767225600", '{"eventId":"e1"}'));
+  assert.deepEqual(webhookHeaders({ eventId: "e1", eventType: "partner.order.updated", timestamp: "1767225600", signature: "v1=ab" }), {
+    "Content-Type": "application/json", "User-Agent": "GetirBakim-Webhooks/1", "X-GetirBakim-Event-Id": "e1",
+    "X-GetirBakim-Event-Type": "partner.order.updated", "X-GetirBakim-Timestamp": "1767225600", "X-GetirBakim-Signature": "v1=ab",
+  });
+});
+
+test("partner webhooks (#1002): the event body wraps the order DTO and leaks no supplier internals", () => {
+  const order: PartnerOrderRow = {
+    id: "9b0f8a1e-0000-4000-8000-000000000002", number: "1043", request_key: "7c1e3a52-1111-4111-8111-111111111112", status: "shipped", payment_status: "on_account",
+    total_kurus: "1777517", shipping_kurus: "0", note: "", customer_name: "Usta Oto Servis", phone: "05320000000", email: "",
+    delivery_province: "İstanbul", delivery_district: "Kadıköy", delivery_address_line: "Test Mahallesi 1. Sokak No 2", delivery_postal_code: null,
+    carrier: "yurtici", carrier_name: null, tracking_no: "123456789012", tracking_url: null, shipped_at: new Date("2026-11-19T10:00:00Z"), delivered_at: null,
+    cancelled_by: null, cancelled_at: null, created_at: new Date("2026-11-18T09:00:00Z"), cancel_requested_at: null, cancel_request_rejected_at: null,
+  };
+  const dto = toPartnerOrderDto(order, [{ product_id: "0000a569-053e-4b84-a484-d510f04fab3b", code: "LUK 510 0207 10", name: "DEBRIYAJ RULMANI", quantity: 2,
+    unit_price_kurus: "888759", pricing_snapshot: { nf: 103.19, company: "BASBUG", supplier: "basbug", cost_kurus: 569720, markup_percent: 30,
+      partner: { unit_net_kurus: 740632, vat_rate_bps: 2000, line_net_kurus: 1481264, line_vat_kurus: 296253, line_gross_kurus: 1777517 } } }]);
+  const body = buildPartnerOrderEvent({ eventId: "e2", occurredAt: new Date("2026-11-19T10:00:01Z"), partnerId: "bakimx", order: dto });
+  const event = JSON.parse(body);
+  assert.deepEqual(Object.keys(event), ["specVersion", "eventId", "eventType", "occurredAt", "partnerId", "order"]);
+  assert.deepEqual([event.specVersion, event.eventId, event.eventType, event.occurredAt, event.partnerId], ["1.0", "e2", "partner.order.updated", "2026-11-19T10:00:01.000Z", "bakimx"]);
+  assert.deepEqual(event.order, JSON.parse(JSON.stringify(dto)));
+  for (const internal of [`"nf"`, "103.19", "BASBUG", "basbug", "cost", "569720", "markup", "fingerprint", "payment_status"]) assert.ok(!body.includes(internal), internal);
 });
