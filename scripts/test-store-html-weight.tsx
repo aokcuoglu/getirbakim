@@ -82,5 +82,6 @@ test("the shell stays free of the heavy per-page parts", () => {
   assert.ok(!source("../src/components/layout/store-route.tsx").includes("FooterVariants"), "store-route.tsx still has FooterVariants");
   assert.ok(!source("../src/app/(store)/not-found.tsx").includes("@/components/ui/button"), "not-found.tsx imports ui/button");
   assert.match(source("../src/components/site-footer.tsx"), /export async function CheckoutFooter/);
+  assert.ok(source("../src/components/site-footer.tsx").includes('<RouteFrame except="checkout">'), "SiteFooter must keep except=\"checkout\" (double footer otherwise)");
   assert.ok(source("../src/app/(store)/siparis-olustur/layout.tsx").includes("<CheckoutFooter"), "siparis-olustur/layout.tsx must render CheckoutFooter");
 });
