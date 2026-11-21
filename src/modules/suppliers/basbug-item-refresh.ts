@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import { BasbugImportError, basbugBase, basbugLogin, basbugPaused } from "./basbug-import";
 import { supplierFetch } from "./egress-proxy";
 import { CHECKOUT_LOCK_TIMEOUT, CHECKOUT_REFRESH_BUDGET_MS, fallbackReason, type FallbackReason } from "./checkout-fallback";
+import { refreshPriceAnomaliesAfterCheckout } from "./price-anomalies";
 
 /**
  * Checkout-time check of just the cart's Başbuğ rows through the per-code MalzemeAra endpoint (verified 16 Nov 2026:
@@ -96,10 +97,12 @@ export function basbugLiveVerdict(saved: { nf: number | null; depolar: Record<st
  * `soldOut` (the order refuses it), a line with a new cost in `recosted` with its live `nf` in the row's currency (the
  * order refuses it only if its sale price would change, #861), and only an unchanged line is marked "busy".
  * The whole check shares CHECKOUT_REFRESH_BUDGET_MS unless `budgetMs` says otherwise.
+ * Rows whose cost (nf) it wrote come back in `repriced` and are re-checked for price anomalies after the write commits
+ * and its connection is released (#1172), so a reopened anomaly unprices the row before the order reads it.
  */
 export async function refreshBasbugItems(pool: Pool, ids: string[], options: { fetchItem?: BasbugItemFetch; budgetMs?: number } = {}) {
   const failed: Record<string, FallbackReason> = {};
-  const result = { refreshed: 0, changed: 0, gone: [] as string[], soldOut: [] as string[], recosted: {} as Record<string, number>, failed };
+  const result = { refreshed: 0, changed: 0, gone: [] as string[], soldOut: [] as string[], recosted: {} as Record<string, number>, repriced: [] as string[], failed };
   if (!ids.length) return result;
   if (basbugPaused()) {
     for (const id of ids) failed[id] = "paused";
@@ -151,7 +154,7 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
     // and sFarkliDepo the sum over every other depot after the merge. A code the supplier no longer knows is out of
     // stock in every depot until a list import decides its presence; that is not a sighting, so last_seen_at stays.
     // product_data is not written, so the enrichment and search triggers (UPDATE OF code,product_data) stay quiet.
-    const changed = await client.query(`WITH incoming AS (
+    const changed = await client.query<{ id: string; repriced: boolean }>(`WITH incoming AS (
         SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(id uuid,gone boolean,nf numeric,mif numeric,k numeric,depots jsonb)),
       existing AS (
         SELECT o.id,o.code,o.price_data,n.gone,n.nf,n.mif,n.k,n.depots,
@@ -185,13 +188,15 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
       INSERT INTO supplier_item_changes(item_id,import_id,changed_at,kind,before_data,after_data)
       SELECT u.id,NULL,now(),'changed',b.data,jsonb_build_object('product',u.product_data,'price',u.price_data,'stock',u.stock_data,
         'conflicting',u.conflicting,'variants',u.source_variants,'presence',u.presence,'source','checkout')
-      FROM updated u JOIN before b ON b.id=u.id`, [JSON.stringify(observed)]);
+      FROM updated u JOIN before b ON b.id=u.id
+      RETURNING item_id::text AS id,(before_data->'price'->'nf' IS DISTINCT FROM after_data->'price'->'nf') AS repriced`,
+    [JSON.stringify(observed)]);
     await client.query("UPDATE supplier_items SET last_seen_at=now() WHERE id=ANY($1::uuid[])", [observed.filter(item => !item.gone).map(item => item.id)]);
     await client.query("COMMIT");
     result.refreshed = observed.length;
     result.changed = changed.rowCount ?? 0;
     result.gone = observed.filter(item => item.gone).map(item => item.id);
-    return result;
+    result.repriced = changed.rows.filter(row => row.repriced).map(row => row.id);
   } catch (error) {
     // Nothing was written, but the answers still count: codes it no longer knows (604) are reported gone, lines no depot
     // has sold out (the order refuses them) and lines with a new cost come back with it, for the order to judge by the
@@ -210,4 +215,7 @@ export async function refreshBasbugItems(pool: Pool, ids: string[], options: { f
     }
     return result;
   } finally { client?.release(); }
+  // After the COMMIT and with the connection back in the pool: the re-check takes its own (#1172).
+  if (result.repriced.length) await refreshPriceAnomaliesAfterCheckout(pool, "basbug", result.repriced);
+  return result;
 }
