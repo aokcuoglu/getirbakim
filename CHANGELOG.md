@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## Unreleased
+
+### Fixed
+- **Storefront sync run prefixes (opt-in):** `STOREFRONT_SYNC_PREFIX_MODE=run` uploads every run to `storefront/current/run-<snapshotAt>/`, points the import task at it and removes the fixed-layout parts and older runs (keeping the newest previous one) after a successful import, so leftovers of an earlier run can no longer be imported; the default stays the fixed prefix until the infra change letting the sync role read run reports is deployed. `STOREFRONT_SYNC_S3_CONCURRENCY` sets `max_concurrent_requests` for the run's own `aws s3` calls without touching `~/.aws/config`; the dry run prints export/split timings ([#1129](https://github.com/aokcuoglu/getirbakim/issues/1129), [#1137](https://github.com/aokcuoglu/getirbakim/issues/1137)).
+
 ## v0.35.0 — 2026-11-21
 
 Release of `dev` since v0.34.0 (3 pull requests): BakımX partner search ranks the parts fitting the work-order vehicle from every match, a per-partner order intake switch and order email state with resend in the admin. Not deployed by this release; AWS production is released separately through `release-aws.yml`.

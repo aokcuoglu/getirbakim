@@ -20,7 +20,7 @@ import { objectStorage } from "../src/lib/object-storage";
 // Parts are downloaded one at a time, so task storage holds a single part (≤ ~100 MB of media) at a time.
 //
 // Usage: node --conditions=react-server --import tsx scripts/import-storefront-inbound.ts <prefix>
-//   e.g. storefront/current
+//   e.g. storefront/current, or a run prefix storefront/current/run-20261121T085201308Z (STOREFRONT_SYNC_PREFIX_MODE=run, #1137)
 // No pre-import backup is taken: RDS point-in-time recovery (7 days) covers it.
 //
 // Table decisions (#553; the full table is in docs/product-enrichment.md):

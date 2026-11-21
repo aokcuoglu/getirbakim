@@ -1,14 +1,17 @@
 import { spawn, spawnSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import {
-  acquireLock, checkInboundReport, type InboundReport, LOCK_PATH, nextRetry, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, STATE_PATH, summarizeParts, SYNC_DIR,
+  acquireLock, checkInboundReport, type InboundReport, LOCK_PATH, nextRetry, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, STATE_PATH, summarizeParts, SYNC_DIR,
   reportKey, type SyncState, tombstoneWarnings,
 } from "./storefront-sync-state";
 import { TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
-import { parsePartListing, parseRootListing, uploadParts } from "./storefront-upload";
+import {
+  parsePartListing, parsePrefixMode, parseRootListing, runDirName, staleRunEntries, SYNC_BASE_PREFIX, uploadParts, withS3Concurrency,
+} from "./storefront-upload";
 
 // Carries locally collected storefront data (Trodo enrichments, categories, logos) to production:
 // incremental export → split into parts → transfer → dry-run every part → import every part → rebuild fitments.
@@ -22,6 +25,11 @@ import { parsePartListing, parseRootListing, uploadParts } from "./storefront-up
 // caffeinate assertion on macOS so the Mac does not sleep mid-transfer. Needs PRODUCTION_AWS_PROFILE (a profile in ~/.aws/config, never `default`);
 // PRODUCTION_AWS_REGION and PRODUCTION_AWS_STACK_PREFIX default to eu-central-1 and GetirbakimProduction.
 // The VPS target was removed (#563); STOREFRONT_SYNC_TARGET is no longer read, only rejected when it is not `aws`.
+// STOREFRONT_SYNC_PREFIX_MODE=run (#1137) uploads every run to its own storefront/current/run-<snapshotAt>/ and removes older
+// runs after a successful import; unset/`current` keeps the one fixed storefront/current/ prefix. `run` needs the infra change
+// that lets the sync role read the run's report (storefront-upload.ts, docs/product-enrichment.md). Every operations image
+// takes the prefix as an argument. STOREFRONT_SYNC_S3_CONCURRENCY=<n> (1–64) sets the AWS CLI's max_concurrent_requests (default 10)
+// for this run's `aws s3` calls only, through a temporary copy of ~/.aws/config.
 //
 // The watermark lives in .local/storefront-sync/state.aws.json (storefront-sync-state.ts STATE_PATH).
 // Flags:
@@ -51,6 +59,10 @@ const state = resolve(STATE_PATH);
 const OVERLAP_MS = 60 * 60 * 1000;
 // Media bytes per part, well under the operations container's memory (see split-storefront-bundle.ts).
 const PART_BYTES = 100 * 1024 * 1024;
+const prefixMode = parsePrefixMode(process.env.STOREFRONT_SYNC_PREFIX_MODE);
+const s3Concurrency = process.env.STOREFRONT_SYNC_S3_CONCURRENCY
+  ? parsePositiveInteger(process.env.STOREFRONT_SYNC_S3_CONCURRENCY, "STOREFRONT_SYNC_S3_CONCURRENCY") : null;
+if (s3Concurrency !== null && s3Concurrency > 64) throw new Error(`STOREFRONT_SYNC_S3_CONCURRENCY must be at most 64: ${s3Concurrency}`);
 
 function run(command: string, args: string[], env?: NodeJS.ProcessEnv) {
   const result = spawnSync(command, args, { stdio: ["ignore", "inherit", "inherit"], env });
@@ -73,7 +85,7 @@ function awsTarget() {
   const outputs = (stack: string) => Object.fromEntries(
     (aws(["cloudformation", "describe-stacks", "--stack-name", `${stackPrefix}-${stack}`])
       .Stacks[0].Outputs as { OutputKey: string; OutputValue: string }[]).map(o => [o.OutputKey, o.OutputValue]));
-  return async (partsDir: string, parts: string[]) => {
+  return async (partsDir: string, parts: string[], snapshotAt: string) => {
     const data = outputs("Data"), app = outputs("App"), network = outputs("Network");
     // A previous import task still running (e.g. this machine slept through its wait) would read the prefix this
     // upload replaces. A failing check stops the run too: an unknown state is not "nothing running".
@@ -81,23 +93,34 @@ function awsTarget() {
     if (!Array.isArray(running?.taskArns)) throw new Error("aws ecs list-tasks returned no task list");
     if (running.taskArns.length) throw new Error(`A storefront import task is still running: ${running.taskArns.join(", ")}`);
     const bucket = data.InboundBucketName;
-    const prefix = "storefront/current";
+    const runDir = prefixMode === "run" ? runDirName(snapshotAt) : null;
+    const prefix = runDir ? `${SYNC_BASE_PREFIX}/${runDir}` : SYNC_BASE_PREFIX;
     // The import task writes report.json to its media bucket (S3_BUCKET): a Data stack output if there is one,
     // otherwise the operations task definition's own S3_BUCKET, the value the task runs with.
     const mediaBucket: string | undefined = data.MediaBucketName ?? (aws(["ecs", "describe-task-definition", "--task-definition", app.OperationsTaskFamily])
       .taskDefinition.containerDefinitions as { name: string; environment?: { name: string; value: string }[] }[])
       .find(container => container.name === app.OperationsContainerName)?.environment?.find(variable => variable.name === "S3_BUCKET")?.value;
     if (!mediaBucket) throw new Error("The media bucket (S3_BUCKET of the operations task) could not be determined");
-    // One fixed prefix: `s3 sync` per part uploads only changed files (category images repeat every run). Each part is
-    // listed back and checked against its manifest before the import task may start.
+    // Each `aws s3` call is its own process, so the profile's assume-role credentials are fetched (or refreshed from the
+    // CLI cache) per part and a single long upload no longer spans the whole run.
+    let s3Env = env;
+    if (s3Concurrency !== null) {
+      const configFile = join(partsDir, "..", "aws-config");
+      await writeFile(configFile, withS3Concurrency(await readFile(join(homedir(), ".aws", "config"), "utf8"), profile, s3Concurrency), { mode: 0o600 });
+      s3Env = { ...env, AWS_CONFIG_FILE: configFile };
+    }
+    const s3 = (args: string[]) => run("aws", ["s3", ...args, "--only-show-errors", "--profile", profile, "--region", region], s3Env);
     const list = (extra: string[], query: string) => aws(["s3api", "list-objects-v2", "--bucket", bucket, ...extra, "--query", query]);
+    const listRoot = (root: string) => parseRootListing(list(["--prefix", `${root}/`, "--delimiter", "/"], "{keys: Contents[].Key, prefixes: CommonPrefixes[].Prefix}"), root);
+    // `current` mode: `s3 sync` per part uploads only changed files (category images repeat every run). `run` mode starts
+    // from an empty prefix. Either way each part is listed back and checked against its manifest before the task may start.
     await uploadParts({
       partsDir, parts, log: console.log,
       io: {
-        syncPart: part => run("aws", ["s3", "sync", "--delete", "--only-show-errors", `${partsDir}/${part}/`, `s3://${bucket}/${prefix}/${part}/`, "--profile", profile, "--region", region], env),
+        syncPart: part => s3(["sync", "--delete", `${partsDir}/${part}/`, `s3://${bucket}/${prefix}/${part}/`]),
         listPart: part => parsePartListing(list(["--prefix", `${prefix}/${part}/`], "Contents[].[Key,Size]"), `${prefix}/${part}/`),
-        listRoot: () => parseRootListing(list(["--prefix", `${prefix}/`, "--delimiter", "/"], "{keys: Contents[].Key, prefixes: CommonPrefixes[].Prefix}"), prefix),
-        removePrefix: path => run("aws", ["s3", "rm", "--recursive", "--only-show-errors", `s3://${bucket}/${prefix}/${path}`, "--profile", profile, "--region", region], env),
+        listRoot: () => listRoot(prefix),
+        removePrefix: path => s3(["rm", "--recursive", `s3://${bucket}/${prefix}/${path}`]),
       },
     });
     const overrides = { containerOverrides: [{ name: app.OperationsContainerName,
@@ -116,11 +139,24 @@ function awsTarget() {
       if (task.lastStatus !== "STOPPED") continue;
       const exitCode = task.containers?.[0]?.exitCode;
       if (exitCode !== 0) throw new Error(`Import task stopped with exit code ${exitCode ?? "none"} (${task.stoppedReason})`);
+      // Called only once the report matched this bundle: the parts of the fixed layout and runs older than the newest
+      // KEEP_RUNS - 1 go; the current run's never does.
+      const cleanup = () => {
+        if (!runDir) return [];
+        const stale = staleRunEntries(listRoot(SYNC_BASE_PREFIX).prefixes, runDir);
+        for (const entry of stale) s3(["rm", "--recursive", `s3://${bucket}/${SYNC_BASE_PREFIX}/${entry}`]);
+        return stale;
+      };
       // An operations image older than #553 writes no report (checkInboundReport then stops the run).
       try {
-        return aws(["s3", "cp", `s3://${mediaBucket}/${reportKey(prefix)}`, "-"]) as InboundReport;
+        return { report: aws(["s3", "cp", `s3://${mediaBucket}/${reportKey(prefix)}`, "-"]) as InboundReport, cleanup };
       } catch (error) {
-        if (/\b404\b|Not Found|NoSuchKey/i.test((error as Error).message)) return null;
+        if (/\b404\b|Not Found|NoSuchKey/i.test((error as Error).message)) return { report: null, cleanup };
+        // Without s3:ListBucket on the media bucket S3 answers 403 for a missing key too, so a 403 on a run report is either
+        // the missing infra change (STOREFRONT_SYNC_PREFIX_MODE=run, #1137) or a task that wrote no report.
+        if (runDir && /AccessDenied|\b403\b|Forbidden/i.test((error as Error).message)) {
+          throw new Error(`The import task finished, but ${reportKey(prefix)} could not be read (403): either the sync role may not read run reports yet (deploy the infra change widening ReadImportReport, or unset STOREFRONT_SYNC_PREFIX_MODE) or the task wrote no report. The watermark stays; the next run re-sends (idempotent). (${(error as Error).message})`);
+        }
         throw error;
       }
     }
@@ -187,7 +223,7 @@ try {
     if (!transfer) {
       const summary = await summarizeParts(partsDir);
       console.log(JSON.stringify({
-        dryRun: true, target, since, snapshotAt: manifest.snapshotAt, retried: retry.length, tombstones, invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions,
+        dryRun: true, target, since, snapshotAt: manifest.snapshotAt, exportMs, splitMs, retried: retry.length, tombstones, invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions,
         totals: { ...summary.totals, mediaMB: Math.round(summary.totals.mediaBytes / 1024 / 1024 * 10) / 10 }, base: summary.base, parts: summary.parts,
       }, null, 2));
     } else {
@@ -195,9 +231,9 @@ try {
         target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, tombstones,
         invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length, exportMs, splitMs,
       }));
-      const result = await transfer(partsDir, parts);
+      const result = await transfer(partsDir, parts, manifest.snapshotAt);
       // Throws (the watermark stays) when the report is missing or belongs to another bundle.
-      const report = checkInboundReport(result, manifest.snapshotAt);
+      const report = checkInboundReport(result.report, manifest.snapshotAt);
       const outcome = nextRetry(report);
       for (const warning of outcome.warnings) console.warn(`WARNING: ${warning}`);
       const next = outcome.retry;
@@ -210,6 +246,13 @@ try {
       };
       await writeFile(state, JSON.stringify(written, null, 2));
       console.log(JSON.stringify({ synced: name, target, snapshotAt: manifest.snapshotAt, retry: next.length }));
+      // The import is done and recorded; a failed cleanup only leaves old prefixes for the next run to remove.
+      try {
+        const removed = result.cleanup();
+        if (removed.length) console.log(JSON.stringify({ removedPrefixes: removed }));
+      } catch (error) {
+        console.warn(`WARNING: removing older run prefixes failed; the next run retries: ${(error as Error).message}`);
+      }
     }
   }
 } finally {
