@@ -46,7 +46,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
   return <div className="flex min-w-0 flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Partnerler ve cari limit</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Partnerler, cari limit ve B2B indirim</h1>
         <p className="text-muted-foreground">Partner (API) siparişleri cari hesaba yazılır. Alacak; iptal edilmemiş ve teslim edilmemiş siparişler ile teslim edilmiş ama faturalanmamış siparişlerin toplamıdır (kargo dahil). Yeni sipariş alacağı limitin üstüne çıkaracaksa reddedilir; limiti olmayan partner sipariş veremez. Teslim edilen siparişler &quot;Faturalandı&quot; işaretlenince limitten düşer; yanlış işaret gerekçeyle düzeltilebilir ya da geri alınabilir.</p>
         <p className="text-muted-foreground">B2B indirim, partnerin KDV hariç liste fiyatından düşülür ve ürün fiyatlarına, tekliflere ve siparişlere hemen uygulanır; fiyat hiçbir zaman maliyetin altına inmez. Değişiklikten önce alınmış teklifle verilen sipariş &quot;fiyat değişti&quot; diye reddedilir, partner yeni teklif alır.</p>
         <p className="text-muted-foreground">Bir partnerin sipariş alımı geçici olarak durdurulabilir; durdurulan partner yeni teklif alamaz ve sipariş veremez.</p>
@@ -100,22 +100,22 @@ export default async function Partners({ searchParams }: { searchParams: Promise
                   placeholder={p.source === "env" && p.limitKurus != null ? tl(p.limitKurus) : "Boş"} defaultValue={p.panelKurus == null ? "" : tl(p.panelKurus)}/>
                 <InputGroupAddon align="inline-end"><InputGroupText>TL</InputGroupText></InputGroupAddon>
               </InputGroup></TableCell>
-              <TableCell className="whitespace-normal"><div className="flex flex-col gap-1">
-                <form action={savePartnerDiscountRate} className="flex items-center gap-2">
+              <TableCell className="max-w-48 whitespace-normal"><div className="flex flex-col gap-1">
+                <form action={savePartnerDiscountRate} className="flex flex-wrap items-center gap-2">
                   <input type="hidden" name="partner" value={p.code}/>
                   <InputGroup className="w-28">
-                    <InputGroupAddon><InputGroupText>%</InputGroupText></InputGroupAddon>
                     <InputGroupInput className="text-right tabular-nums" name="discount" inputMode="decimal" aria-label={`${p.code} B2B indirim (yüzde)`}
                       placeholder={p.discount.source === "env" ? percentText(p.discount.discountBps) : "Boş"} defaultValue={p.panelDiscountBps == null ? "" : percentText(p.panelDiscountBps)}/>
+                    <InputGroupAddon align="inline-end"><InputGroupText>%</InputGroupText></InputGroupAddon>
                   </InputGroup>
-                  <SubmitButton variant="outline" aria-label={`${p.code}: İndirimi kaydet`}>Kaydet</SubmitButton>
+                  <SubmitButton variant="outline" aria-label={`${p.code}: İndirimi kaydet`}>İndirimi kaydet</SubmitButton>
                 </form>
                 <span className="tabular-nums">Geçerli: %{percentText(p.discount.discountBps)}</span>
                 <span className="text-muted-foreground">{discountSourceLabel[p.discount.source]}</span>
                 {p.discountChange && <span className="text-muted-foreground tabular-nums">Son değişiklik: {discountText(p.discountChange.oldBps)} → {discountText(p.discountChange.newBps)} · {formatDateTime(p.discountChange.changedAt, { year: true })} · {p.discountChange.changedBy ?? "—"}</span>}
               </div></TableCell>
               <TableCell className="whitespace-normal"><div className="flex flex-col items-end gap-2">
-                <form id={form} action={savePartnerLimit}><input type="hidden" name="partner" value={p.code}/><SubmitButton variant="outline" aria-label={`${p.code}: Limiti kaydet`}>Kaydet</SubmitButton></form>
+                <form id={form} action={savePartnerLimit}><input type="hidden" name="partner" value={p.code}/><SubmitButton variant="outline" aria-label={`${p.code}: Limiti kaydet`}>Limiti kaydet</SubmitButton></form>
                 <PartnerInvoiceDialog partner={p.code} days={p.days} today={today}/>
                 {p.intakePausedAt
                   ? <form action={setPartnerIntake}><input type="hidden" name="partner" value={p.code}/><input type="hidden" name="paused" value="0"/>

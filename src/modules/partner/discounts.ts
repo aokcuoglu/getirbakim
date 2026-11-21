@@ -2,6 +2,7 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { ttlCache } from "@/lib/ttl-cache";
+import { lockPartnerOrders } from "./limits";
 import { resolvePartnerDiscount } from "./pricing";
 
 /**
@@ -45,6 +46,8 @@ export async function savePartnerDiscount(partner: string, discountBps: number |
   const client = await db.connect();
   try {
     await client.query("BEGIN");
+    // Under the partner's order lock, like the intake switch: an order being placed sees either the old or the new discount.
+    await lockPartnerOrders(client, partner);
     // Clearing needs no row: a partner without one already falls back.
     if (discountBps != null) await client.query("INSERT INTO partner_settings(partner_code) VALUES($1) ON CONFLICT(partner_code) DO NOTHING", [partner]);
     const old = (await client.query<{ discount_bps: number | null }>("SELECT discount_bps FROM partner_settings WHERE partner_code=$1 FOR UPDATE", [partner])).rows[0];
