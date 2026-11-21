@@ -23,7 +23,7 @@ export const siteName = "Getirbakim";
 export const homeTitle = "Yedek Parçayı OEM Koduyla ya da Markasıyla Bul | Getirbakim";
 /** The year Getirbakim was founded (owner-confirmed, #646). */
 export const foundingYear = 2025;
-export const siteDescription = "Fren, filtre, yağ, silecek ve daha fazlası: yedek parçayı OEM koduyla ya da aracına göre bul. Fiyatı ve stoku siparişten önce, kargo ücretini sepette gör.";
+export const siteDescription = "Fren, filtre, yağ, silecek: yedek parçayı OEM koduyla ya da aracına göre bul. Fiyatı ve stok durumunu siparişten önce, kargo ücretini sepette gör.";
 export const contactPhone = "+902163870078";
 
 /** The seller's address, as printed under "Adres ve İade Noktası" in src/content/legal-pages.json. */

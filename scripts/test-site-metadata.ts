@@ -82,8 +82,7 @@ test("homepage title and description fit search snippet lengths", () => {
   assert.doesNotMatch(siteDescription, /ücretsiz|bedava|uyumlu|garanti/i);
 });
 
-test("the root layout and the homepage both take their title from homeTitle", () => {
-  for (const file of ["src/app/layout.tsx", "src/app/(store)/page.tsx"]) {
-    assert.match(readFileSync(file, "utf8"), /\bhomeTitle\b/, file);
-  }
+test("only the homepage takes its title from homeTitle; the root layout keeps the neutral default", () => {
+  assert.match(readFileSync("src/app/(store)/page.tsx", "utf8"), /title:\s*homeTitle/);
+  assert.doesNotMatch(readFileSync("src/app/layout.tsx", "utf8"), /homeTitle/);
 });
