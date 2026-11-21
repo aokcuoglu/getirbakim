@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -8,15 +8,18 @@ import {
   reportKey, type SyncState, tombstoneWarnings,
 } from "./storefront-sync-state";
 import { TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
+import { type RemoteObject, uploadParts } from "./storefront-upload";
 
 // Carries locally collected storefront data (Trodo enrichments, categories, logos) to production:
 // incremental export → split into parts → transfer → dry-run every part → import every part → rebuild fitments.
 // The watermark only advances after production applied all parts, so a failed run is retried in full next time
 // (the import is an idempotent upsert, so parts applied before a failure are harmless to repeat).
 //
-// The only target is AWS: `aws s3 sync` to the inbound bucket, then one ECS task in the operations task definition runs
+// The only target is AWS: every part is `aws s3 sync`ed to the inbound bucket one by one and listed back against its own
+// manifest (present, same size, no leftovers; storefront-upload.ts, #1129), stale parts are removed, and only then one ECS task in the operations task definition runs
 // scripts/import-storefront-inbound.ts (dry-run all, apply all, rebuild fitments). RDS point-in-time recovery
-// is the backup. Needs PRODUCTION_AWS_PROFILE (a profile in ~/.aws/config, never `default`);
+// is the backup. A failed upload check stops the run before the import and the watermark stays. A real run holds a
+// caffeinate assertion on macOS so the Mac does not sleep mid-transfer. Needs PRODUCTION_AWS_PROFILE (a profile in ~/.aws/config, never `default`);
 // PRODUCTION_AWS_REGION and PRODUCTION_AWS_STACK_PREFIX default to eu-central-1 and GetirbakimProduction.
 // The VPS target was removed (#563); STOREFRONT_SYNC_TARGET is no longer read, only rejected when it is not `aws`.
 //
@@ -70,7 +73,7 @@ function awsTarget() {
   const outputs = (stack: string) => Object.fromEntries(
     (aws(["cloudformation", "describe-stacks", "--stack-name", `${stackPrefix}-${stack}`])
       .Stacks[0].Outputs as { OutputKey: string; OutputValue: string }[]).map(o => [o.OutputKey, o.OutputValue]));
-  return async (partsDir: string) => {
+  return async (partsDir: string, parts: string[]) => {
     const data = outputs("Data"), app = outputs("App"), network = outputs("Network");
     // A previous import task still running (e.g. this machine slept through its wait) would read the prefix this
     // upload replaces. A failing check stops the run too: an unknown state is not "nothing running".
@@ -85,8 +88,22 @@ function awsTarget() {
       .taskDefinition.containerDefinitions as { name: string; environment?: { name: string; value: string }[] }[])
       .find(container => container.name === app.OperationsContainerName)?.environment?.find(variable => variable.name === "S3_BUCKET")?.value;
     if (!mediaBucket) throw new Error("The media bucket (S3_BUCKET of the operations task) could not be determined");
-    // One fixed prefix: `s3 sync` then uploads only changed files (category images repeat every run).
-    run("aws", ["s3", "sync", "--delete", "--only-show-errors", `${partsDir}/`, `s3://${bucket}/${prefix}/`, "--profile", profile, "--region", region], env);
+    // One fixed prefix: `s3 sync` per part uploads only changed files (category images repeat every run). Each part is
+    // listed back and checked against its manifest before the import task may start.
+    const list = (extra: string[], query: string) => aws(["s3api", "list-objects-v2", "--bucket", bucket, ...extra, "--query", query]);
+    await uploadParts({
+      partsDir, parts, log: console.log,
+      io: {
+        syncPart: part => run("aws", ["s3", "sync", "--delete", "--only-show-errors", `${partsDir}/${part}/`, `s3://${bucket}/${prefix}/${part}/`, "--profile", profile, "--region", region], env),
+        listPart: part => ((list(["--prefix", `${prefix}/${part}/`], "Contents[].[Key,Size]") ?? []) as [string, number][])
+          .map(([key, size]): RemoteObject => ({ key: key.slice(`${prefix}/${part}/`.length), size })),
+        listRoot: () => {
+          const listing = list(["--prefix", `${prefix}/`, "--delimiter", "/"], "{keys: Contents[].Key, prefixes: CommonPrefixes[].Prefix}") as { keys: string[] | null; prefixes: string[] | null } | null;
+          return { keys: (listing?.keys ?? []).map(key => key.slice(prefix.length + 1)), prefixes: (listing?.prefixes ?? []).map(entry => entry.slice(prefix.length + 1)) };
+        },
+        removePrefix: path => run("aws", ["s3", "rm", "--recursive", "--only-show-errors", `s3://${bucket}/${prefix}/${path}`, "--profile", profile, "--region", region], env),
+      },
+    });
     const overrides = { containerOverrides: [{ name: app.OperationsContainerName,
       command: ["node", "--conditions=react-server", "--import", "tsx", "scripts/import-storefront-inbound.ts", prefix] }] };
     const started = aws(["ecs", "run-task", "--cluster", app.ClusterName, "--task-definition", app.OperationsTaskFamily,
@@ -96,7 +113,7 @@ function awsTarget() {
       "--overrides", JSON.stringify(overrides)]);
     const taskArn: string | undefined = started.tasks?.[0]?.taskArn;
     if (!taskArn) throw new Error(`run-task started no task: ${JSON.stringify(started.failures)}`);
-    console.log(JSON.stringify({ task: taskArn.split("/").at(-1), bucket, prefix }));
+    console.log(JSON.stringify({ task: taskArn.split("/").at(-1), bucket, prefix, at: new Date().toISOString() }));
     for (;;) {
       await new Promise(done => setTimeout(done, 15_000));
       const task = aws(["ecs", "describe-tasks", "--cluster", app.ClusterName, "--tasks", taskArn]).tasks[0];
@@ -133,6 +150,8 @@ const transfer = dryRun || baseline ? null : awsTarget();
 if (writesState) {
   await mkdir(SYNC_DIR, { recursive: true });
   acquireLock(LOCK_PATH, { pid: process.pid, target });
+  // A sleeping Mac stalls the upload for hours (#1129): hold an idle-sleep assertion for this process's lifetime.
+  if (!baseline && process.platform === "darwin") spawn("/usr/bin/caffeinate", ["-i", "-w", String(process.pid)], { stdio: "ignore" }).unref();
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => {
       releaseLock(LOCK_PATH);
@@ -154,6 +173,7 @@ try {
     const retryFile = resolve(local, "retry.json");
     if (retry.length) await writeFile(retryFile, JSON.stringify(parseRetryItems(JSON.stringify(retry))));
     const fullDir = resolve(local, "full");
+    const startedAt = Date.now();
     run(process.execPath, ["--env-file=.env.local", "--conditions=react-server", "--import", "tsx", "scripts/export-storefront-bundle.ts", fullDir,
       ...(since ? [`--since=${since}`] : []), ...(retry.length ? [`--retry-file=${retryFile}`] : []), ...(maxDeletions ? [`--max-deletions=${maxDeletions}`] : []),
       // Pruning the local log is a write: only real runs do it.
@@ -162,8 +182,11 @@ try {
       snapshotAt: string; enrichments: unknown[]; jobs?: unknown[]; tombstones?: unknown[]; invalidatedJobs?: number; maxDeletions?: number;
     };
     const tombstones = manifest.tombstones?.length ?? 0;
+    const exportMs = Date.now() - startedAt;
+    const splitStart = Date.now();
     const partsDir = resolve(local, "parts");
     const parts = (await splitStorefrontBundle(fullDir, partsDir, PART_BYTES)).map(dir => dir.split("/").at(-1)!);
+    const splitMs = Date.now() - splitStart;
     if (!transfer) {
       const summary = await summarizeParts(partsDir);
       console.log(JSON.stringify({
@@ -173,9 +196,9 @@ try {
     } else {
       console.log(JSON.stringify({
         target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, tombstones,
-        invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length,
+        invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length, exportMs, splitMs,
       }));
-      const result = await transfer(partsDir);
+      const result = await transfer(partsDir, parts);
       // Throws (the watermark stays) when the report is missing or belongs to another bundle.
       const report = checkInboundReport(result, manifest.snapshotAt);
       const outcome = nextRetry(report);
