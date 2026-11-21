@@ -52,7 +52,7 @@ export function basbugPartTableProps(items: AdminSupplierItem[], warehouse: Basb
       { key: "currency", label: "PB", title: "Kaynak para birimi", filter: { param: "currency", values: lists.currencies } },
       costColumn, saleColumn,
       ...basbugWarehouses.map(depot => ({ key: depot, label: depot === warehouse ? <strong>{depot}</strong> : depot, align: "center" as const, title: `${depot} depo stok durumu` })),
-      checkColumn([["missing-price", "Fiyatı eksik"], ["duplicates", "Tekrarlanan kod"], ["conflicts", "Çelişkili kayıt"]]),
+      checkColumn([["missing-price", "Fiyatı eksik"], ["duplicates", "Tekrarlanan kod"], ["conflicts", "Çelişkili kayıt"], ["price-anomaly", "Fiyat anomalisi"]]),
     ],
     rows: items.map(item => {
       const p = item.product_data;
@@ -67,7 +67,7 @@ export function basbugPartTableProps(items: AdminSupplierItem[], warehouse: Basb
             const stock = basbugWarehouseStock(item.stock_data, depot);
             return [depot, stockCell(stock === null ? null : stock > 0, stock === null ? `${depot}: Stok verisi alınamadı veya bu depoya erişim yok` : `${depot}: ${basbugStockLabel(stock)}`)];
           })),
-          check: checkCell(item, !item.price_data, repeated),
+          check: item.presence === "present" && item.price_anomaly ? { value: "Fiyat anomalisi", tone: "warning" } : checkCell(item, !item.price_data, repeated),
         },
       };
     }),

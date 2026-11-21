@@ -3,7 +3,8 @@ import { test } from "node:test";
 import type { ReactElement } from "react";
 import { renderToString } from "react-dom/server";
 import { SupplierHealthStatus } from "../src/components/admin/supplier-health-status";
-import type { SupplierHealthScope } from "../src/modules/suppliers/health";
+import { SupplierQualityCard } from "../src/components/admin/supplier-quality-card";
+import { supplierHealthBody, type SupplierHealthScope } from "../src/modules/suppliers/health";
 
 const now = new Date("2026-11-14T09:00:00Z");
 const scope = (supplier: string, list_group: string, issue: Partial<SupplierHealthScope> = {}): SupplierHealthScope => ({
@@ -58,4 +59,25 @@ test("a silent scheduler over current data is an informational notice, not a war
   // Some but not all scopes past their SLA read "kısmen güncel", the overview's word.
   const partial = render(<SupplierHealthStatus health={health([scope("basbug", "FIAT", { catalog_stale: true }), scope("basbug", "BMW")])} supplier="basbug" name="Başbuğ" unit="grup" warehouse="MRK" refresh={refresh} refreshField="group" refreshDescription="x"/>);
   assert.match(partial, /Başbuğ verileri kısmen güncel; güncelleme gerekiyor/);
+});
+
+test("the health body reports open price anomalies without changing the status (#1049)", () => {
+  const healthy = { ...health([scope("basbug", "FIAT")]), healthy: true };
+  assert.deepEqual([supplierHealthBody(healthy, 7).status, supplierHealthBody(healthy, 7).body.status, supplierHealthBody(healthy, 7).body.open_price_anomalies], [200, "ok", 7]);
+  assert.equal(supplierHealthBody(healthy, null).status, 200);
+  assert.equal(supplierHealthBody(healthy, null).body.open_price_anomalies, null);
+  const unhealthy = health([scope("basbug", "FIAT", { catalog_stale: true })]);
+  for (const open of [0, 7, null]) assert.deepEqual([supplierHealthBody(unhealthy, open).status, supplierHealthBody(unhealthy, open).body.status], [503, "degraded"]);
+});
+
+test("the quality card adds a price anomaly figure that links to the page's group", () => {
+  const quality = { uniqueProducts: 10, productRows: 10, missingPrices: 0, duplicateCodes: 0, conflictingCodes: 0 };
+  const some = render(<SupplierQualityCard quality={quality} filters={{ group: "OTHER" }} priceAnomalies={{ open: 2, filters: { group: "FIAT" } }}/>);
+  assert.match(some, /Fiyat anomalisi/);
+  assert.match(some, /href="\?group=FIAT&amp;quality=price-anomaly"/);
+  const none = render(<SupplierQualityCard quality={quality} priceAnomalies={{ open: 0 }}/>);
+  assert.match(none, /Fiyat anomalisi/);
+  assert.doesNotMatch(none, /price-anomaly/);
+  assert.match(none, /Sorun yok/);
+  assert.doesNotMatch(render(<SupplierQualityCard quality={quality}/>), /Fiyat anomalisi/);
 });
