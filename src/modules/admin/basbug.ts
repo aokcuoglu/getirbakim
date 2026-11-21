@@ -12,7 +12,7 @@ import { getProduct } from "@/modules/store/catalog";
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 import type { SupplierChange } from "./supplier-changes";
 import { basbugWarehouse, type BasbugStockData } from "@/modules/suppliers/basbug-stock";
-import type { PriceAnomalyEvidence } from "@/modules/suppliers/price-anomalies";
+import type { PriceAnomalyEvidence, PriceAnomalyKind } from "@/modules/suppliers/price-anomalies";
 
 export type BasbugParams = { q?: string; group?: string; brand?: string; currency?: string; warehouse?: string; stock?: string; quality?: string; presence?: string; page?: string; sort?: string; dir?: string; updated?: string; error?: string };
 // Header sorting on the item list (TableHead sortKey → column); the same order is applied to the page and its join.
@@ -114,8 +114,8 @@ export async function adminBasbugItem(id: string) {
     ),
     db.query<SupplierChange>("SELECT * FROM supplier_item_changes WHERE item_id=$1 ORDER BY changed_at DESC,id DESC LIMIT 20", [id]),
     getProduct(id), adminProductPricing(id),
-    // A currency anomaly (#1030) keeps the offer unpriced while open.
-    db.query<{ status: "open" | "dismissed"; evidence: PriceAnomalyEvidence }>("SELECT status,evidence FROM supplier_price_anomalies WHERE supplier_item_id=$1", [id]),
+    // A price anomaly (#1030, #1050) keeps the offer unpriced while open.
+    db.query<{ kind: PriceAnomalyKind; status: "open" | "dismissed"; evidence: PriceAnomalyEvidence }>("SELECT kind,status,evidence FROM supplier_price_anomalies WHERE supplier_item_id=$1", [id]),
   ]);
   const item = result.rows[0];
   return item ? { ...item, changes: changes.rows, sale, pricing, anomaly: anomaly.rows[0] ?? null } : null;

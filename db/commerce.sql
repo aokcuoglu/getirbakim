@@ -295,7 +295,7 @@ CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
 $$;
--- Single-row currency anomalies (#1030): a supplier row whose currency disagrees with the rest of its brand and whose
+-- Single-row price anomalies (#1030, #1050): a supplier row whose currency disagrees with the rest of its brand and whose
 -- converted cost is far above the brand's median (Başbuğ once sent one KENTPAR row as EUR among 196 TRY rows: a 77k TL
 -- cost for a ~1.5k TL part). src/modules/suppliers/price-anomalies.ts detects them after a full list import; an open row
 -- keeps its offer unpriced in commerce_catalog below (the product stays listed, sold by another supplier or not at all)
@@ -304,13 +304,26 @@ $$;
 -- EXCLUSIVE) for the rest of the setup transaction and blocks order-time writes (basbug-item-refresh.ts); the refresh
 -- deletes rows whose item is gone. The accounts FK (decided_by) takes SHARE ROW EXCLUSIVE on accounts once, when the
 -- table is first created; later runs skip CREATE TABLE IF NOT EXISTS without locking it.
+-- kind (#1050): 'currency' covers both directions (evidence.direction: absent/'high' = converted cost far above the
+-- brand's median, 'low' = a rare-currency row far below it); 'offer-outlier' = a row 10× away from the same product's
+-- other-supplier offers whose value fits them when read in another of the supplier's currencies.
 CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  supplier_item_id uuid PRIMARY KEY, supplier text NOT NULL,
- kind text NOT NULL DEFAULT 'currency' CHECK (kind IN ('currency')),
+ kind text NOT NULL DEFAULT 'currency' CHECK (kind IN ('currency','offer-outlier')),
  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','dismissed')),
  evidence jsonb NOT NULL, detected_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(),
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz
 );
+-- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
+-- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly.
+DO $$ BEGIN
+ IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
+   WHERE k.conrelid='supplier_price_anomalies'::regclass AND k.conname='supplier_price_anomalies_kind_check' AND k.convalidated ORDER BY r.i)
+  IS DISTINCT FROM ARRAY['currency','offer-outlier'] THEN
+  ALTER TABLE supplier_price_anomalies DROP CONSTRAINT IF EXISTS supplier_price_anomalies_kind_check;
+  ALTER TABLE supplier_price_anomalies ADD CONSTRAINT supplier_price_anomalies_kind_check CHECK (kind IN ('currency','offer-outlier'));
+ END IF;
+END $$;
 DO $setup$ DECLARE def text := $view$
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at

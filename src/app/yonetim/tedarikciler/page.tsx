@@ -120,7 +120,7 @@ export default async function Suppliers() {
     title: `Manuel yükleme: ${number(manualMissing)} ürünün fiyatı yok`, description: "Fiyatı olmayan ürünler mağazada satışa kapalı kalır." });
   const openAnomalies = anomalies.filter(row => row.status === "open").length;
   if (openAnomalies) issues.push({ key: "price-anomalies", tone: "warning", href: "#fiyat-anomalileri", action: "İncele",
-    title: `Başbuğ: ${number(openAnomalies)} üründe para birimi anomalisi`, description: "Bu teklifler fiyatlamadan çıkarıldı; tedarikçiye bildirilmeli." });
+    title: `Başbuğ: ${number(openAnomalies)} üründe fiyat anomalisi`, description: "Bu teklifler fiyatlamadan çıkarıldı; tedarikçiye bildirilmeli." });
   for (const { key, name, href } of feeds) {
     const unstocked = metrics[key].unstocked;
     if (unstocked) issues.push({ key: `${key}-unstocked`, tone: "info", href: filtered(href, { quality: key === "dinamik" ? "price-only" : undefined }), action: "İncele",
