@@ -82,8 +82,8 @@ test('search products round-trip through the database and SQL keys order batches
   await pool.query("UPDATE enrichment_search_products SET brand_key='REINZ' WHERE entity_id='21'");
   await pool.query(await readFile('db/enrichment-worker.sql','utf8'));
   assert.equal((await pool.query("SELECT brand_key FROM enrichment_search_products WHERE entity_id='21'")).rows[0].brand_key,'VICTORREINZ');
-  // Keys stored before the diacritic fold (#1139) are recomputed from the stored manufacturer, and a second re-run
-  // writes nothing.
+  // A stored key that drifted from its manufacturer is recomputed by setup (#1139), and a second re-run writes
+  // nothing.
   await pool.query(`UPDATE enrichment_search_products SET brand_key='LEMFRDER',product=jsonb_set(product,'{manufacturer}','"LEMFÖRDER"') WHERE entity_id='11'`);
   await pool.query(await readFile('db/enrichment-worker.sql','utf8'));
   const folded=(await pool.query("SELECT brand_key,xmin::text AS xmin FROM enrichment_search_products WHERE entity_id='11'")).rows[0];
