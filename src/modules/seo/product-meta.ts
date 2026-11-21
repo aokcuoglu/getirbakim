@@ -25,11 +25,11 @@ export function numberWithoutBrand(partNumber: string, brand: string): string {
 const codeKey = (text: string) => foldText(text).replace(/[^a-z0-9]+/g, "");
 
 /**
- * The product's OEM text without a trailing separator ("96469288 /" → "96469288"); empty when it only repeats the part
- * number, alone or after the brand ("NGK 3052" beside NGK 3052).
+ * The product's OEM text without a leading "OEM:" label or a trailing separator ("96469288 /" → "96469288"); empty when
+ * it only repeats the part number, alone or after the brand ("NGK 3052" beside NGK 3052).
  */
 function cleanOem(oem: string | undefined, brand: string, partNumber: string): string {
-  const cleaned = (oem ?? "").trim().replace(/[\s/,;-]+$/, "");
+  const cleaned = (oem ?? "").trim().replace(/^oem\s*:?\s*/i, "").replace(/[\s/,;-]+$/, "");
   const key = codeKey(cleaned);
   if (!key) return "";
   const number = numberWithoutBrand(partNumber, brand);
@@ -68,7 +68,7 @@ function makeSuffix(base: string, input: { brand: string; name: string; vehicles
  * none too when the name already carries the model). Several models of one make that the name does not single out give
  * " – ‹Marka› uyumlu"; across two makes or more nothing is added. Only the name gives way to the limit: brand and part number are the
  * product's identity and are never cut. A title still shorter than 17 characters (under 30 with the site suffix) gains
- * " – OEM ‹kod›" with the first OEM number that is not the part number itself, when it fits.
+ * " – OEM ‹kod›" with the first OEM number that has a digit and is not the part number itself, when it fits.
  */
 export function productSeoTitle(input: { brand: string; name: string; partNumber: string; oem?: string; vehicles: string[]; hint: string; max?: number }): string {
   const max = input.max ?? titleBudget;
@@ -78,7 +78,8 @@ export function productSeoTitle(input: { brand: string; name: string; partNumber
   const first = (input.oem ?? "").split(/\s+\/\s*|\s*[,;|\n]\s*/).find(code => code.trim()) ?? "";
   const oem = cleanOem(first, input.brand, input.partNumber);
   const candidate = `${title} – OEM ${oem}`;
-  return oem && candidate.length <= max ? candidate : title;
+  // A code without a digit ("YOK", "ORIJINAL") is a placeholder, not an OEM number.
+  return /\d/.test(oem) && candidate.length <= max ? candidate : title;
 }
 
 /** The title before a short one gains its OEM number. */
@@ -105,7 +106,7 @@ function baseSeoTitle(input: { brand: string; name: string; partNumber: string; 
 // Stock is named as a state ("stok durumu"), never as a quantity (docs/brand-guide.md).
 const fillerSentences = [
   "Siparişten önce araç uyumluluğunu OEM numarası ve araç bilgileriyle kontrol et.",
-  "Ürün koduyla Getirbakim’de ara, fiyat ve stok durumunu gör.",
+  "Fiyat ve stok durumunu ürün sayfasında gör.",
 ];
 
 const sentence = (text: string) => (/[.!?…]$/.test(text) ? text : `${text}.`);

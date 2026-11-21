@@ -139,6 +139,17 @@ before(async () => {
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
 
+test("a search result's title says the query within 65 characters and stays noindex,follow (#1218)", async () => {
+  const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
+  for (const q of ["fren", "bosch fren diski ön sol havalandırmalı golf 7 passat b8 tiguan 2.0 tdi"]) {
+    const meta = listingMetadata({ query: { q } });
+    const title = typeof meta.title === "string" ? meta.title : (meta.title as { absolute: string }).absolute;
+    assert.ok(title.startsWith("“") && title.endsWith("” için arama sonuçları"), title);
+    assert.ok(title.length + (typeof meta.title === "string" ? " | Getirbakim".length : 0) <= 65, title);
+    assert.deepEqual(meta.robots, { index: false, follow: true });
+  }
+});
+
 test("the make page lists its engine-level fits and the models read from descriptions, each product once (#674)", async () => {
   // g1 is in both sources; g4s's description lists its primary g4; the hidden item stays out. g2, g3, g12 and p1 are
   // only in the model table, which the make page does not read (the make table holds a make's engine-level fits).

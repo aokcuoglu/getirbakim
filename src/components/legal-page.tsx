@@ -7,6 +7,7 @@ import { JsonLd } from "@/components/json-ld";
 import { breadcrumbJsonLd, pageTrail } from "@/modules/seo/structured-data";
 import { pageMetadata, siteUrl } from "@/lib/site";
 import { legalDocument, legalLinks, legalTitle, type LegalNode } from "@/content/legal";
+import { legalMetaDescriptions, legalMetaTitles } from "@/content/legal-meta";
 
 // Render only semantic text and links from the reviewed local content.
 const allowedTags = new Set(["p", "ul", "ol", "li", "a", "span", "strong", "em", "br"]);
@@ -36,28 +37,10 @@ export const legalBodyClass = "[&_li]:text-base [&_li]:leading-[1.9] [&_li]:text
 export const legalCardClass = "rounded-md border border-border p-[22px] max-[600px]:p-[18px]";
 export const legalHeadingClass = "m-0 mb-3.5 text-[19px] leading-[1.5] font-semibold";
 
-// <title>s of pages whose footer label is too short for a search result (#1218); the label and breadcrumb stay short.
-const metaTitles: Record<string, string> = {
-  iletisim: "İletişim ve müşteri hizmetleri",
-  "teslimat-ve-iade": "Teslimat ve İade Koşulları",
-  "cerez-politikasi": "Çerez Politikası ve tercihler",
-};
-
-// Meta descriptions of 100–160 characters (#1218); the JSON's reviewed `description` stays the visible lead paragraph.
-const metaDescriptions: Record<string, string> = {
-  iletisim: "Getirbakim müşteri hizmetleri telefon ve e-posta bilgileri, şirket kimlik bilgileri, iade adresi ve başvuru kanalları.",
-  "teslimat-ve-iade": "Teslimat süreleri ve kargo, cayma bildirimi, ürünün geri gönderilmesi, geri ödeme süreci ve ayıplı mal hakları.",
-  "mesafeli-satis-sozlesmesi": "Getirbakim siparişlerinde tüketiciyle kurulan mesafeli satış sözleşmesinin genel hükümleri, cayma hakkı ve tarafların hakları.",
-  "on-bilgilendirme-formu": "Getirbakim’de sipariş öncesinde sunulan ön bilgilendirme: satıcı bilgileri, ürün ve ödeme koşulları, teslimat ve tüketici hakları.",
-  "uyelik-ve-kullanim-kosullari": "Getirbakim site kullanımı, üyelik ve servis hesapları, içerik hakları ve tarafların sorumluluklarına ilişkin koşullar.",
-  "gizlilik-politikasi": "Getirbakim site hizmetlerinde kişisel verilerin nasıl kullanıldığı, nasıl korunduğu ve ilgili kişilerin başvuru hakları.",
-  "cerez-politikasi": "Getirbakim’de kullanılan çerez ve yerel depolama kayıtları, kullanım amaçları, saklama süreleri ve tercihlerin yönetimi.",
-};
-
 export function legalMetadata(slug: string): Metadata {
   const page = legalDocument(slug);
   if (!page) notFound();
-  return pageMetadata({ title: metaTitles[slug] ?? legalTitle(slug) ?? page.title, description: metaDescriptions[slug] ?? page.description, path: `/${slug}` });
+  return pageMetadata({ title: legalMetaTitles[slug] ?? legalTitle(slug) ?? page.title, description: legalMetaDescriptions[slug] ?? page.description, path: `/${slug}` });
 }
 
 export function LegalPage({ slug }: { slug: string }) {

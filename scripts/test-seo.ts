@@ -10,8 +10,10 @@ import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, with
 import { legalLinks } from "../src/content/legal";
 import { sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
 import { startSitemapWarmup, warmIntervalMs, warmSitemaps } from "../src/modules/seo/sitemap-warmup";
-import { brandedTitle, brandSuffix, catalogMetaDescription, categoryDescription, descriptionMax, descriptionMin, fitDescription, listingTitlePad, titleMax } from "../src/modules/seo/meta-text";
-import { readFileSync } from "node:fs";
+import { brandedTitle, brandSuffix, catalogMetaDescription, categoryDescription, descriptionMax, descriptionMin, fitDescription, listingTitlePad, searchResultsTitle, titleMax, titleMin } from "../src/modules/seo/meta-text";
+import { legalMetaDescriptions, legalMetaTitles } from "../src/content/legal-meta";
+import { legalDocument, legalTitle } from "../src/content/legal";
+import { catalogDescription } from "../src/app/(store)/katalog/catalog-descriptions";
 
 type Group = { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
 const list = (value: string | string[] | undefined) => (value === undefined ? [] : Array.isArray(value) ? value : [value]);
@@ -198,9 +200,7 @@ test("a page title keeps the brand suffix up to 65 characters, else stands alone
   assert.ok(long.title.length <= titleMax && long.title.endsWith("…") && !/[,\s]…$/.test(long.title), long.title);
 });
 
-// The curated category texts live in catalog-view.tsx, which needs the server runtime; the test reads them from source.
-const catalogView = readFileSync("src/app/(store)/katalog/catalog-view.tsx", "utf8");
-const curated = (slug: string) => catalogView.match(new RegExp(`"?${slug}"?:"([^"]+)"`))?.[1] ?? "";
+const curated = (slug: string) => catalogDescription(slug) ?? "";
 
 test("curated category copy fits 160 characters without a mid-word cut (#1218)", () => {
   for (const slug of ["filtre", "fren-diskleri-269", "yedek-parca"]) {
@@ -230,9 +230,40 @@ test("a category without curated copy gets a description of 100–160 characters
   }
 });
 
-test("a short listing title is padded, a longer one is not (#1218)", () => {
-  assert.equal(listingTitlePad("Volanlar"), "Volanlar çeşitleri ve fiyatları");
+test("a short listing title is padded, a longer one is not, and both land within 30–65 with the suffix (#1218)", () => {
+  assert.equal(listingTitlePad("Volanlar"), "Volanlar: modeller ve fiyatlar");
   assert.equal(listingTitlePad("Krank mili yatakları"), "Krank mili yatakları");
+  for (let length = 3; length <= 52; length++) {
+    const title = listingTitlePad("Ç".repeat(length)) + brandSuffix;
+    assert.ok(title.length >= titleMin && title.length <= titleMax, `${length}: ${title.length}`);
+  }
+});
+
+test("category descriptions read right for real category names (#1218)", () => {
+  assert.equal(categoryDescription("Volanlar"),
+    "Volanlar kategorisindeki ürünleri üreticiye göre incele. Ürün kodu veya OEM numarasıyla ara, siparişten önce araç uyumluluğunu kontrol et.");
+  for (const name of ["Volanlar", "Fren balataları", "Krank mili yatakları"]) {
+    const description = categoryDescription(name);
+    assert.ok(description.startsWith(`${name} kategorisindeki ürünleri `), description);
+    assert.ok(description.length >= descriptionMin && description.length <= descriptionMax, `${name}: ${description.length}`);
+  }
+});
+
+test("legal pages have meta titles of 30–65 characters with the suffix and descriptions of 100–160 (#1218)", () => {
+  for (const { slug } of legalLinks) {
+    const title = (legalMetaTitles[slug] ?? legalTitle(slug) ?? "") + brandSuffix;
+    assert.ok(title.length >= titleMin && title.length <= titleMax, `${slug}: ${title}`);
+    const description = legalMetaDescriptions[slug] ?? legalDocument(slug)?.description ?? "";
+    assert.ok(description.length >= descriptionMin && description.length <= descriptionMax, `${slug}: ${description.length}`);
+  }
+});
+
+test("a long search query is cut by code point at a word boundary (#1218)", () => {
+  assert.equal(searchResultsTitle("fren diski"), "“fren diski” için arama sonuçları");
+  const title = searchResultsTitle("bosch fren diski ön sol havalandırmalı 🚗🚗 golf 7 passat b8");
+  assert.equal(title, "“bosch fren diski ön sol havalandırmalı…” için arama sonuçları");
+  assert.ok(!title.includes("\uFFFD"));
+  assert.ok(brandedTitle(title).title.length <= titleMax);
 });
 
 test("a clipped model × category title has no separator before the ellipsis (#1218)", () => {
@@ -242,7 +273,12 @@ test("a clipped model × category title has no separator before the ellipsis (#1
   assert.ok(!title.includes(",…"), title);
 });
 
-test("robots.txt closes 38 paths for every crawler and keeps the static pages open (#1218)", () => {
-  assert.equal(list(groups[0].disallow).length, 38);
-  for (const url of ["/bilgi/hakkimizda", "/iletisim", "/rehber", "/servisler", "/bakim-robotu", "/marka/bosch"]) assert.equal(allowed(groups[0], url), true, url);
+test("robots.txt closes the private paths and keeps the static pages open (#1218)", () => {
+  for (const group of groups) {
+    const disallow = list(group.disallow);
+    for (const path of privatePaths) assert.ok(disallow.includes(path), path);
+    for (const url of ["/bilgi/hakkimizda", "/bilgi/uyumluluk", "/iletisim", "/teslimat-ve-iade", "/cerez-politikasi", "/rehber", "/servisler", "/bakim-robotu", "/arac-markalari", "/marka/bosch"]) {
+      assert.equal(allowed(group, url), true, url);
+    }
+  }
 });

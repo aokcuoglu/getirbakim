@@ -39,19 +39,41 @@ export function fitDescription(text: string, max = descriptionMax): string {
   return kept.length >= descriptionMin ? kept : clipAtWord(text, max);
 }
 
-/** A short listing title ("Volanlar") reads "Volanlar çeşitleri ve fiyatları"; a longer one stays as it is. */
+/**
+ * A short listing title ("Volanlar") reads "Volanlar: modeller ve fiyatlar", which suits any category name, plural or
+ * not; a title of 17 characters or more stays as it is.
+ */
 export function listingTitlePad(page: string): string {
-  return page.length < 17 ? `${page} çeşitleri ve fiyatları` : page;
+  return page.length < 17 ? `${page}: modeller ve fiyatlar` : page;
 }
 
-/** The meta description of a category without curated copy: the longest of three texts that fits 160 characters. */
+/**
+ * The meta description of a category without curated copy: the first of two texts that fits 160 characters, else a
+ * shorter fallback fitted with fitDescription. "‹ad› kategorisindeki ürünler" reads right for any category name.
+ */
 export function categoryDescription(name: string): string {
   const action = "Ürün kodu veya OEM numarasıyla ara, siparişten önce araç uyumluluğunu kontrol et.";
   const candidates = [
-    `${name} çeşitlerini üreticiye ve teknik özelliklerine göre incele. ${action}`,
-    `${name} çeşitlerini üreticiye göre incele. ${action}`,
+    `${name} kategorisindeki ürünleri üreticiye ve teknik özelliklerine göre incele. ${action}`,
+    `${name} kategorisindeki ürünleri üreticiye göre incele. ${action}`,
   ];
-  return candidates.find(text => text.length <= descriptionMax) ?? fitDescription(`${name} ürünlerini incele. Ürün kodu ve OEM numarasıyla uyumluluğu kontrol et.`);
+  return candidates.find(text => text.length <= descriptionMax) ?? fitDescription(`${name} kategorisindeki ürünleri incele. Ürün kodu ve OEM numarasıyla uyumluluğu kontrol et.`);
+}
+
+/**
+ * A search query within `room` characters, counted by code point so an emoji or a combining mark is never split; a
+ * longer one is cut at a word boundary with "…".
+ */
+export function searchQueryLabel(q: string, room = 40): string {
+  const chars = [...q.trim()];
+  if (chars.length <= room) return chars.join("");
+  const cut = chars.slice(0, room - 1).join(""), space = cut.lastIndexOf(" ");
+  return `${(space > 0 ? cut.slice(0, space) : cut).replace(trailingSeparators, "")}…`;
+}
+
+/** The page title of a search result, as its H1 says it: "“‹sorgu›” için arama sonuçları". */
+export function searchResultsTitle(q: string): string {
+  return `“${searchQueryLabel(q)}” için arama sonuçları`;
 }
 
 /** /katalog's own description; the root category's curated copy stays on /kategori/yedek-parca. */
