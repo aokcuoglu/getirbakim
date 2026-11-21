@@ -6,6 +6,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { isolatedSchema } from "./isolated-schema";
 import { orderListBack, orderListReturn } from "../src/modules/admin/order-list-return";
 import { lineFigures, liveCheckReasonLabel, needsProcurement, orderLineView, procurementOpenSql, procurementSummary, supplierItemHref } from "../src/modules/admin/order-procurement";
+import { returnRefusal, returnRoom } from "../src/modules/store/returns";
 import { carrierCodes, defaultCarrier, resolveTrackingUrl, shipmentSchema, startingCarrier, yurticiTrackingRule } from "../src/modules/store/shipment";
 
 // Admin order steps (#516) in an isolated copy of the schema; nothing touches the shared database's tables.
@@ -203,21 +204,22 @@ test("returns are recorded on shipped and delivered orders only, up to the order
   const line = (orderId: string, quantity: number) => ({ orderId, productId: product, quantity, reason: "not_fit", note: "", adminId: admin });
   const returned = async (id: string) => Number((await schema.pool.query("SELECT COALESCE(sum(quantity),0) AS n FROM commerce_returns WHERE order_id=$1", [id])).rows[0].n);
   const confirmed = await order("confirmed", "paid", [{ quantity: 2, reserved: 0 }]);
-  assert.equal(await orders.recordOrderReturn(line(confirmed, 1)), false);
+  assert.equal(await orders.recordOrderReturn(line(confirmed, 1)), "unavailable");
   const shipped = await order("shipped", "paid", [{ quantity: 2, reserved: 0 }]);
-  assert.equal(await orders.recordOrderReturn(line(shipped, 1)), true);
-  assert.equal(await orders.recordOrderReturn(line(shipped, 2)), false);
-  assert.equal(await orders.recordOrderReturn(line(shipped, 1)), true);
-  assert.equal(await orders.recordOrderReturn(line(shipped, 1)), false);
+  assert.equal(await orders.recordOrderReturn(line(shipped, 1)), "recorded");
+  assert.equal(await orders.recordOrderReturn(line(shipped, 2)), "exceeded");
+  assert.equal(await orders.recordOrderReturn(line(shipped, 1)), "recorded");
+  assert.equal(await orders.recordOrderReturn(line(shipped, 1)), "exceeded");
   assert.equal(await returned(shipped), 2);
   const delivered = await order("delivered", "paid", [{ quantity: 3, reserved: 0 }]);
-  assert.equal(await orders.recordOrderReturn(line(delivered, 3)), true);
-  assert.equal(await orders.recordOrderReturn(line(delivered, 1)), false);
+  assert.equal(await orders.recordOrderReturn(line(delivered, 3)), "recorded");
+  assert.equal(await orders.recordOrderReturn(line(delivered, 1)), "exceeded");
   assert.equal(await returned(delivered), 3); assert.equal(await returned(confirmed), 0);
   // Concurrent returns of the same one-unit line: only one fits.
   const single = await order("delivered", "paid", [{ quantity: 1, reserved: 0 }]);
   const results = await Promise.all([1, 2, 3].map(() => orders.recordOrderReturn(line(single, 1))));
-  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal(results.filter(result => result === "recorded").length, 1);
+  assert.deepEqual(results.filter(result => result !== "recorded"), ["exceeded", "exceeded"]);
   assert.equal(await returned(single), 1);
   // Deterministic: the calls queue behind a held line lock while another return commits; none may count without it.
   const held = await order("delivered", "paid", [{ quantity: 1, reserved: 0 }]);
@@ -229,11 +231,23 @@ test("returns are recorded on shipped and delivered orders only, up to the order
     await sleep(300);
     await blocker.query("INSERT INTO commerce_returns(order_id,product_id,quantity,reason,note,created_by) VALUES($1,$2,1,'not_fit','',$3)", [held, product, admin]);
     await blocker.query("COMMIT");
-    assert.deepEqual(await waiting, [false, false, false]);
+    assert.deepEqual(await waiting, ["exceeded", "exceeded", "exceeded"]);
   } finally { blocker.release(); }
   assert.equal(await returned(held), 1);
   // A product that is not on the order.
-  assert.equal(await orders.recordOrderReturn({ ...line(delivered, 1), productId: randomUUID() }), false);
+  assert.equal(await orders.recordOrderReturn({ ...line(delivered, 1), productId: randomUUID() }), "unavailable");
+});
+
+test("return room and refusal: accepted returns and pending partner requests share the ordered quantity (#1151)", () => {
+  assert.equal(returnRoom(3, 0, 0), 3);
+  assert.equal(returnRoom(3, 1, 2), 0);
+  assert.equal(returnRoom(3, 2, 2), 0);
+  assert.equal(returnRefusal(3, 1, 0, 2), null);
+  assert.equal(returnRefusal(3, 0, 2, 1), null);
+  assert.equal(returnRefusal(3, 0, 2, 2), "pending");
+  assert.equal(returnRefusal(3, 1, 2, 2), "pending");
+  assert.equal(returnRefusal(3, 1, 2, 3), "exceeded");
+  assert.equal(returnRefusal(3, 3, 0, 1), "exceeded");
 });
 
 test("the status check accepts delivered and nothing unknown, and survives a re-run of the schema", async () => {

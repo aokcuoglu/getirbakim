@@ -8,6 +8,7 @@ import { isHandledPayment } from "@/modules/store/payment-states";
 import { resolveTrackingUrl, type Shipment } from "@/modules/store/shipment";
 import { purchasedLabel, shipWithPurchasedLabel } from "@/modules/shipping/geliver-labels";
 import { queueOrderEmail } from "@/modules/store/order-email-queue";
+import { returnRefusal, type OrderReturnResult } from "@/modules/store/returns";
 import { openCancelRequestSql } from "./order-filters";
 import type { ProcurementStatus } from "./order-procurement";
 
@@ -122,23 +123,31 @@ export async function setLineProcurement({ orderId, productId, status, reference
 }
 
 export type OrderReturnInput = { orderId: string; productId: string; quantity: number; reason: string; note: string; adminId: string };
-/** Shipped or delivered lines only; partial returns plus pending partner return requests may add up to the ordered quantity. */
-export async function recordOrderReturn({ orderId, productId, quantity, reason, note, adminId }: OrderReturnInput) {
+/**
+ * Shipped or delivered lines only; partial returns plus pending partner return requests may add up to the ordered
+ * quantity. "unavailable": no such line or the order is not shipped/delivered; "exceeded": the quantity overruns the
+ * ordered quantity even without pending requests; "pending": a pending partner request holds the missing units.
+ */
+export async function recordOrderReturn({ orderId, productId, quantity, reason, note, adminId }: OrderReturnInput): Promise<OrderReturnResult> {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
     const line = (await client.query<{ quantity: number }>(`SELECT i.quantity FROM commerce_order_items i JOIN commerce_orders o ON o.id=i.order_id
      WHERE i.order_id=$1 AND i.product_id=$2 AND o.status IN ('shipped','delivered') FOR UPDATE OF i`, [orderId, productId])).rows[0];
-    // Summed in its own statement, after the lock: a snapshot taken before waiting would miss a return committed meanwhile.
-    // A partner's pending return request (#1007) holds its quantity until operations decide it.
-    const returned = line ? (await client.query<{ returned: number }>(`SELECT ((SELECT COALESCE(sum(quantity),0) FROM commerce_returns WHERE order_id=$1 AND product_id=$2)
-      + (SELECT COALESCE(sum(l.quantity),0) FROM partner_return_request_lines l JOIN partner_return_requests r ON r.id=l.request_id
-         WHERE l.order_id=$1 AND l.product_id=$2 AND r.status='requested'))::integer AS returned`,
-    [orderId, productId])).rows[0].returned : 0;
-    const ok = Boolean(line && returned + quantity <= line.quantity);
-    if (ok) await client.query("INSERT INTO commerce_returns(order_id,product_id,quantity,reason,note,created_by) VALUES($1,$2,$3,$4,$5,$6)", [orderId, productId, quantity, reason, note, adminId]);
+    let result: OrderReturnResult = "unavailable";
+    if (line) {
+      // Summed in its own statement, after the lock: a snapshot taken before waiting would miss a return committed meanwhile.
+      // A partner's pending return request (#1007) holds its quantity until operations decide it.
+      const { accepted, pending } = (await client.query<{ accepted: number; pending: number }>(
+        `SELECT (SELECT COALESCE(sum(quantity),0) FROM commerce_returns WHERE order_id=$1 AND product_id=$2)::integer AS accepted,
+          (SELECT COALESCE(sum(l.quantity),0) FROM partner_return_request_lines l JOIN partner_return_requests r ON r.id=l.request_id
+           WHERE l.order_id=$1 AND l.product_id=$2 AND r.status='requested')::integer AS pending`,
+        [orderId, productId])).rows[0];
+      result = returnRefusal(line.quantity, accepted, pending, quantity) ?? "recorded";
+    }
+    if (result === "recorded") await client.query("INSERT INTO commerce_returns(order_id,product_id,quantity,reason,note,created_by) VALUES($1,$2,$3,$4,$5,$6)", [orderId, productId, quantity, reason, note, adminId]);
     await client.query("COMMIT");
-    return ok;
+    return result;
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
 }
