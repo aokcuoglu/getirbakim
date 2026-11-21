@@ -16,10 +16,10 @@ type Variant = "header" | "hero" | "catalog" | "home" | "product";
 
 const variantClass: Record<Variant, string> = {
   header: headerToolClass,
-  product: "block h-auto min-h-0 rounded-none border-0 bg-transparent p-0 text-left text-sm leading-5 font-medium text-[#212b36] underline underline-offset-4 hover:bg-transparent hover:text-[#0069c7]",
-  catalog: "flex h-14 min-h-14 w-[320px] items-center justify-between gap-2.5 rounded-md border-2 border-white bg-white py-4 pr-[18px] pl-[15px] text-left text-base leading-6 font-normal text-[#54626e] hover:border-white hover:bg-white max-[850px]:text-sm min-[600px]:max-[850px]:w-60 min-w-0 max-[600px]:mt-3 max-[600px]:w-full [&>span]:truncate",
+  product: cn(storeButton({ intent: "link", size: "md" }), "block px-0 text-left whitespace-normal underline"),
+  catalog: "flex h-14 min-h-14 w-[320px] items-center justify-between gap-2.5 rounded-md border-2 border-white bg-white py-4 pr-[18px] pl-[15px] text-left text-base leading-6 font-normal text-muted-foreground hover:border-white hover:bg-white max-[850px]:text-sm min-[600px]:max-[850px]:w-60 min-w-0 max-[600px]:mt-3 max-[600px]:w-full [&>span]:truncate",
   home: cn("inline-flex max-w-full min-w-0 items-center justify-center border max-[600px]:w-full", storeButton({ intent: "secondary", size: "hero" }), "focus-visible:outline-white"),
-  hero: "inline-flex min-h-16 max-w-full min-w-[260px] items-center gap-3 rounded-xl border border-border bg-[#f7f8fa] px-4 py-2.5 text-left text-foreground shadow-none hover:border-[#b8d9ee] hover:bg-accent",
+  hero: "inline-flex min-h-16 max-w-full min-w-[260px] items-center gap-3 rounded-xl border border-border bg-muted px-4 py-2.5 text-left text-foreground shadow-none hover:border-primary hover:bg-accent",
 };
 
 export function GarageButton({ vehicle, variant = "header", className }: { vehicle: ShownVehicle | null; variant?: Variant; className?: string }) {
