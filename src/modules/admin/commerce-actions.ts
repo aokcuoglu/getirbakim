@@ -80,7 +80,8 @@ export async function decideReturnRequest(form:FormData) {
  if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
  const ok=await decidePartnerReturnRequest(input.data.id,input.data.decision,admin.id);
  revalidateOrder(input.data.order);
- redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
+ // Refused: decided meanwhile (another tab or admin), or an approval no longer fits the ordered quantity.
+ redirect(orderListReturn(input.data.back,ok ? 'saved' : 'return_stale'));
 }
 /**
  * Ship dialog (#605): `ship` hands a confirmed order to the carrier, `edit` corrects the details of a shipped one.

@@ -24,6 +24,17 @@ export const orderFilters = {
 } as const;
 export type OrderFilter = keyof typeof orderFilters;
 
+/** One count per tab of the order list. */
+export const orderTabCountsSql = `SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`;
+/** The navigation badge: orders operations must act on (confirm, refund, a partner's cancel or return request). */
+export const navOrderCountSql = `SELECT count(*)::int FROM commerce_orders o WHERE ${orderFilters.action.where} OR ${orderFilters.refund.where}
+  OR ${orderFilters.cancel_request.where} OR ${orderFilters.return_request.where}`;
+/** An order's partner return requests (#1007) for the list (correlated on `o`), oldest first, with their lines. */
+export const orderReturnRequestsSql = `COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rr.id,'status',rr.status,'note',rr.note,'requested_at',rr.requested_at,
+  'decided_at',rr.decided_at,'lines',(SELECT jsonb_agg(jsonb_build_object('product_id',rl.product_id,'quantity',rl.quantity,'reason',rl.reason) ORDER BY rl.product_id)
+   FROM partner_return_request_lines rl WHERE rl.request_id=rr.id)) ORDER BY rr.requested_at,rr.id)
+  FROM partner_return_requests rr WHERE rr.order_id=o.id),'[]')`;
+
 // Revenue (#426, product decision 2026-11-19): paid orders by payment time, plus partner on-account orders (invoiced
 // later) by order time while not cancelled.
 const paid30 = "payment_status='paid' AND paid_at>=now()-interval '30 days'";

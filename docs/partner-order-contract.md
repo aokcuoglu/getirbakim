@@ -245,7 +245,10 @@ partner's order, or a malformed id, is `404 ORDER_NOT_FOUND`.
 `status`: `REQUESTED` (operations have not decided; `decidedAt: null`),
 `APPROVED` (the lines are recorded as returned) or `REJECTED` (final for this
 request; its quantity can be requested again). Amounts are the order line's
-unit price for the returned quantity, computed like order lines.
+unit price for the returned quantity, computed like order lines. They are
+indicative: line VAT is rounded again for the returned quantity, so partial
+returns of one line may differ by a kuruş from the order line's share; the
+credit note GetirBakım issues is authoritative.
 
 ## Order
 

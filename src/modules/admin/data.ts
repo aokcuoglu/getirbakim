@@ -13,7 +13,7 @@ import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules
 import { restockDueCount } from "./restock";
 import { installmentSettings } from "@/modules/payments/installment-settings";
 import { procurementOpenSql, type AdminOrderLine } from "./order-procurement";
-import { dashboardOrdersSql, orderFilters, type OrderFilter } from "./order-filters";
+import { dashboardOrdersSql, navOrderCountSql, orderFilters, orderReturnRequestsSql, orderTabCountsSql, type OrderFilter } from "./order-filters";
 import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 import type { PriceAnomalyEvidence, PriceAnomalyKind } from "@/modules/suppliers/price-anomalies";
 
@@ -124,14 +124,10 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
       'created_at',e.created_at,'claimed_at',e.claimed_at,'requeued_at',e.requeued_at,
       'in_flight',e.status='pending' AND e.claimed_at IS NOT NULL AND e.claimed_at > now()-make_interval(mins=>$2)) ORDER BY e.created_at,e.kind)
       FROM commerce_order_emails e WHERE e.order_id=o.id),'[]') AS emails,
-     -- Partner return requests (#1007), oldest first, with their lines.
-     COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rr.id,'status',rr.status,'note',rr.note,'requested_at',rr.requested_at,'decided_at',rr.decided_at,
-      'lines',(SELECT jsonb_agg(jsonb_build_object('product_id',rl.product_id,'quantity',rl.quantity,'reason',rl.reason) ORDER BY rl.product_id)
-       FROM partner_return_request_lines rl WHERE rl.request_id=rr.id)) ORDER BY rr.requested_at,rr.id)
-      FROM partner_return_requests rr WHERE rr.order_id=o.id),'[]') AS return_requests
+     ${orderReturnRequestsSql} AS return_requests
      FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} AND ${procurementFilters[procurement]} AND ${ownerFilters[owner]} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50, ORDER_EMAIL_LEASE_MINUTES],
-  ), db.query<Record<OrderFilter, number>>(`SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`)]);
+  ), db.query<Record<OrderFilter, number>>(orderTabCountsSql)]);
   return { orders: orders.rows, page, filter, procurement, owner, counts: counts.rows[0] };
 }
 
@@ -141,7 +137,7 @@ const pendingBrandsSql = "SELECT count(DISTINCT brand_id)::int FROM supplier_bra
 export async function adminNavCounts() {
   await requireAdmin();
   const [{ rows }, restock] = await Promise.all([db.query<{ orders: number; services: number; enrichment: number; brands: number }>(`SELECT
-    (SELECT count(*)::int FROM commerce_orders o WHERE ${orderFilters.action.where} OR ${orderFilters.refund.where} OR ${orderFilters.cancel_request.where} OR ${orderFilters.return_request.where}) AS orders,
+    (${navOrderCountSql}) AS orders,
     (SELECT count(*)::int FROM accounts WHERE role='service' AND NOT approved) AS services,
     (SELECT count(*)::int FROM product_enrichment_jobs WHERE status IN ('review','blocked','failed')) AS enrichment,
     (${pendingBrandsSql}) AS brands`), restockDueCount()]);

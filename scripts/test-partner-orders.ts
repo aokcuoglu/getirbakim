@@ -992,6 +992,41 @@ test("return requests (#1007): the İade talebi tab lists an order only while a 
   assert.equal(await listed(), false);
 });
 
+test("return requests (#1007) in the admin list: per-order jsonb list, tab count and navigation badge count only pending ones", async () => {
+  const order = await shippedOrder([{ code: "PART-A", quantity: 3 }]);
+  const counts = async () => {
+    const tabs = (await schema.pool.query<Record<string, number>>(adminData.orderTabCountsSql)).rows[0];
+    const nav = (await schema.pool.query<{ count: number }>(adminData.navOrderCountSql)).rows[0].count;
+    return { tab: tabs.return_request, nav, shipped: tabs.shipped };
+  };
+  const listed = async () => (await schema.pool.query<{ return_requests: { id: string; status: string; note: string; requested_at: string; decided_at: string | null;
+    lines: { product_id: string; quantity: number; reason: string }[] }[] }>(
+    `SELECT ${adminData.orderReturnRequestsSql} AS return_requests FROM commerce_orders o WHERE o.id=$1`, [order.id])).rows[0].return_requests;
+  assert.deepEqual(await listed(), []);
+  const before = await counts();
+  const request = (reason: string, note: string) => partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1, reason }], note));
+  const approved = await request("damaged", "Hasarlı");
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(approved.return.id, "approve", null), true);
+  const rejected = await request("changed_mind", "Vazgeçti");
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(rejected.return.id, "reject", null), true);
+  assert.deepEqual(await counts(), before, "decided requests are not counted");
+  const pending = await request("not_fit", "");
+  assert.deepEqual(await counts(), { tab: before.tab + 1, nav: before.nav + 1, shipped: before.shipped });
+  const list = await listed();
+  assert.deepEqual(list.map(item => [item.id, item.status, item.note, item.decided_at === null]), [
+    [approved.return.id, "approved", "Hasarlı", false], [rejected.return.id, "rejected", "Vazgeçti", false], [pending.return.id, "requested", "", true]]);
+  for (const [item, reason] of list.map((item, index) => [item, ["damaged", "changed_mind", "not_fit"][index]] as const)) {
+    assert.deepEqual(item.lines, [{ product_id: productOf("PART-A"), quantity: 1, reason }]);
+    assert.ok(!Number.isNaN(Date.parse(item.requested_at)));
+  }
+  // A request's lines belong to its own order (composite key).
+  const other = await shippedOrder([{ code: "PART-B", quantity: 1 }]);
+  await assert.rejects(schema.pool.query("INSERT INTO partner_return_request_lines(request_id,order_id,product_id,quantity,reason) VALUES($1,$2,$3,1,'other')",
+    [pending.return.id, other.id, productOf("PART-B")]), (error: { code?: string }) => error.code === "23503");
+  assert.equal(await partnerReturns.decidePartnerReturnRequest(pending.return.id, "reject", null), true);
+  assert.deepEqual(await counts(), { ...before, shipped: before.shipped + 1 });
+});
+
 test("return route handlers (#1007): key, Idempotency-Key and body checks, 201 then 200 replay, tenant-scoped GET, no-store", async () => {
   const [{ NextRequest }, returnsRoute] = await Promise.all([import("next/server"), import("../src/app/api/partner/v1/orders/[id]/returns/route")]);
   const auth = { authorization: `Bearer ${"k".repeat(24)}` };

@@ -931,15 +931,18 @@ CREATE TABLE IF NOT EXISTS partner_return_requests(
  decided_at timestamptz,
  decided_by uuid REFERENCES accounts(id),
  UNIQUE(partner_code,request_key),
+ -- Target of the lines' (request_id,order_id) key: a line always belongs to its request's order.
+ UNIQUE(id,order_id),
  CHECK((status='requested')=(decided_at IS NULL))
 );
 CREATE TABLE IF NOT EXISTS partner_return_request_lines(
- request_id uuid NOT NULL REFERENCES partner_return_requests(id) ON DELETE CASCADE,
+ request_id uuid NOT NULL,
  order_id uuid NOT NULL,
  product_id uuid NOT NULL,
  quantity integer NOT NULL CHECK(quantity BETWEEN 1 AND 99),
  reason text NOT NULL CHECK(reason IN ('not_fit','wrong_item','damaged','defective','changed_mind','other')),
  PRIMARY KEY(request_id,product_id),
+ FOREIGN KEY(request_id,order_id) REFERENCES partner_return_requests(id,order_id) ON DELETE CASCADE,
  FOREIGN KEY(order_id,product_id) REFERENCES commerce_order_items(order_id,product_id)
 );
 DO $$ BEGIN
@@ -949,8 +952,9 @@ DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_return_request_lines'::regclass AND c.relname='partner_return_request_lines_line_idx') THEN
   CREATE INDEX partner_return_request_lines_line_idx ON partner_return_request_lines(order_id,product_id);
  END IF;
- -- The partner request an accepted return came from. The FK takes SHARE ROW EXCLUSIVE on partner_return_requests once,
- -- on the first deploy that adds the column (ACCESS EXCLUSIVE on commerce_returns, a small table, for that run only).
+ -- The partner request an accepted return came from. The first deploy that creates these tables and the column takes,
+ -- for that run only, SHARE ROW EXCLUSIVE on commerce_orders, accounts and commerce_order_items (the new tables' FKs)
+ -- and on partner_return_requests, and ACCESS EXCLUSIVE on commerce_returns (a small table) for ADD COLUMN.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_returns'::regclass AND attname='partner_return_request_id' AND NOT attisdropped) THEN
   ALTER TABLE commerce_returns ADD COLUMN partner_return_request_id uuid REFERENCES partner_return_requests(id) ON DELETE SET NULL;
  END IF;

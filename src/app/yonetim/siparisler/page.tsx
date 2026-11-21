@@ -117,6 +117,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.email_skipped && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>{emailOrder(params.email_skipped)} e-postası gönderilmedi. Nedenini görmek için siparişin &quot;Teslimat ve ödeme&quot; bölümünü açın (E-posta satırı).</AlertDescription></Alert>}
     {params.email_pending && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{emailOrder(params.email_pending)} e-postası şu an gönderilemedi ya da sırada; sistem kendiliğinden yeniden dener. Son hata için siparişin &quot;Teslimat ve ödeme&quot; bölümünü açın (E-posta satırı).</AlertDescription></Alert>}
     {params.email_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{emailOrder(params.email_busy)} e-postası şu an gönderiliyor ya da artık gönderilemez; siparişin &quot;Teslimat ve ödeme&quot; bölümündeki E-posta satırına bakın.</AlertDescription></Alert>}
+    {params.return_stale && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>İade talebi artık karar beklemiyor ya da kalan adede sığmıyor. Listeyi yenileyin.</AlertDescription></Alert>}
     {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
 
     <Tabs value={filter}><ScrollArea className="pb-2">
@@ -221,10 +222,10 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
               </>}
               {o.cancel_request_rejected_at && o.status !== "cancelled" && <Badge variant="secondary"><Info data-icon="inline-start"/>İptal talebi reddedildi</Badge>}
               {o.return_requests.map(r => <div key={r.id} className="flex flex-col items-start gap-1">
-                {r.status === "requested" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>İade talebi</Badge>
+                {r.status === "requested" ? <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>İade talebi bekliyor</Badge>
                   : r.status === "approved" ? <Badge variant="success"><CircleCheck data-icon="inline-start"/>İade onaylandı</Badge>
                   : <Badge variant="secondary"><Info data-icon="inline-start"/>İade talebi reddedildi</Badge>}
-                <span className="text-muted-foreground tabular-nums">{time(r.decided_at ?? r.requested_at)}</span>
+                <span className="text-muted-foreground tabular-nums">{r.decided_at ? `Karar: ${time(r.decided_at)}` : `Talep: ${time(r.requested_at)}`}</span>
               </div>)}
               {supplierOrdered && <Badge variant="warning"><TriangleAlert data-icon="inline-start"/>Tedarikçiye sipariş verilmişti</Badge>}
             </div></TableCell>
@@ -252,8 +253,8 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                 </form>
               </div>}
               {o.return_requests.some(r => r.status === "requested") && <div className="flex flex-wrap justify-end gap-2">
-                {o.return_requests.filter(r => r.status === "requested").map(r => <OrderReturnRequestDialog key={r.id} orderId={o.id} number={o.number}
-                  request={r} orderLines={o.lines} back={back}/>)}
+                {o.return_requests.filter(r => r.status === "requested").map((r, _, open) => <OrderReturnRequestDialog key={r.id} orderId={o.id} number={o.number}
+                  request={r} orderLines={o.lines} back={back} requestedAt={open.length > 1 ? time(r.requested_at) : null}/>)}
               </div>}
               {!cancelRequest && ["pending", "confirmed"].includes(o.status) && isHandledPayment(o.payment_status) && <div className="flex flex-wrap justify-end gap-2">
                 {o.status === "confirmed" && <OrderShipmentDialog orderId={o.id} number={o.number} back={back} mode="ship" recipient={<OrderRecipient order={o}/>}
