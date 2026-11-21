@@ -26,6 +26,27 @@ test("logo already inside the box is returned untouched and never enlarged", asy
   assert.deepEqual([out.width, out.height], [100, 40]);
 });
 
+test("a re-encode that would be larger keeps the input untouched", async () => {
+  // A 2-colour palette PNG is tiny; the resized full-colour re-encode is bigger.
+  const stripes = Buffer.alloc(260 * 130 * 3);
+  for (let i = 0; i < stripes.length; i++) stripes[i] = Math.floor(i / 3 / 4) % 2 ? 255 : 0;
+  const input = await sharp(stripes, { raw: { width: 260, height: 130, channels: 3 } }).png({ palette: true, colours: 2 }).toBuffer();
+  const out = await fitLogo(input, box, "png");
+  assert.equal(out.changed, false);
+  assert(out.bytes.equals(input));
+  assert.deepEqual([out.width, out.height], [260, 130]);
+});
+
+test("an oversized photo-like logo still shrinks", async () => {
+  const noise = Buffer.alloc(800 * 400 * 3);
+  for (let i = 0; i < noise.length; i++) noise[i] = (i * 7919 + (i >> 3) * 104729) & 255;
+  const input = await sharp(noise, { raw: { width: 800, height: 400, channels: 3 } }).png().toBuffer();
+  const out = await fitLogo(input, box, "png");
+  assert.equal(out.changed, true);
+  assert(out.bytes.length < input.length);
+  assert(out.width <= box.width && out.height <= box.height);
+});
+
 test("a second pass is idempotent", async () => {
   const first = await fitLogo(await solid(600, 300, "webp"), box, "webp");
   const second = await fitLogo(first.bytes, box, "webp");

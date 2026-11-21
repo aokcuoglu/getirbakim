@@ -14,7 +14,7 @@ export type LogoBox = { width: number; height: number };
 
 /**
  * Fits a logo inside `box` without enlarging it. A logo already inside the box is returned untouched, so a second
- * run never adds another lossy pass.
+ * run never adds another lossy pass. The goal is fewer bytes: a re-encode that is not smaller is discarded too.
  */
 export async function fitLogo(bytes: Buffer, box: LogoBox, format: "webp" | "png") {
   const meta = await sharp(bytes).metadata();
@@ -27,6 +27,7 @@ export async function fitLogo(bytes: Buffer, box: LogoBox, format: "webp" | "png
     ? resized.webp({ quality: 90, alphaQuality: 100, effort: 6 })
     : resized.png({ compressionLevel: 9 })
   ).toBuffer({ resolveWithObject: true });
+  if (data.length >= bytes.length) return { bytes, width: meta.width, height: meta.height, sha256: sha256Of(bytes), changed: false };
   return { bytes: data, width: info.width, height: info.height, sha256: sha256Of(data), changed: true };
 }
 
