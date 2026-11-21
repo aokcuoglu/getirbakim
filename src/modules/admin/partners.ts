@@ -1,13 +1,14 @@
 import "server-only";
 import { requireAdmin } from "@/modules/auth/session";
-import { limitUsage } from "./partner-input";
+import { invoiceCollection, istanbulToday, limitUsage } from "./partner-input";
+import { orphanPaymentCount, partnerInvoiceLedger, paymentTerms, recentInvoicePayments } from "@/modules/partner/collections";
 import { partnerOrderLimitEnv, resolveOrderLimitKurus } from "@/modules/partner/order-dto";
 import { lastDiscountChanges, panelDiscounts } from "@/modules/partner/discounts";
 import { pausedPartners } from "@/modules/partner/intake";
 import { partnerDiscountEnv, resolvePartnerDiscount, resolvePartnerDiscountBps } from "@/modules/partner/pricing";
 import { parsePartnerWebhooks, partnerWebhooksEnv } from "@/modules/partner/webhook-contract";
 import { partnerWebhookSummary, recentPartnerWebhookProblems } from "@/modules/partner/webhooks";
-import { knownPartners, noExposure, panelLimits, partnerExposures, partnerInvoiceChanges, partnerInvoices, resolvePartnerLimit, uninvoicedDays } from "@/modules/partner/limits";
+import { knownPartners, noExposure, panelLimits, partnerExposures, partnerInvoiceChanges, resolvePartnerLimit, uninvoicedDays } from "@/modules/partner/limits";
 
 /** /yonetim/partnerler (#426): every partner with its limit, its exposure and what can be invoiced. */
 export async function adminPartners() {
@@ -28,12 +29,24 @@ export async function adminPartners() {
   });
 }
 
-/** /yonetim/partnerler (#1018): marked invoices that can be corrected or undone, and the last corrections. */
+/**
+ * /yonetim/partnerler (#1018, #1006): marked invoices with their collection status (open ones however old, plus the
+ * newest settled), the last payments and corrections, and per partner its term, what is uncollected and what is overdue.
+ */
 export async function adminPartnerInvoices() {
   await requireAdmin();
   const { codes } = await knownPartners();
-  const [invoices, changes] = await Promise.all([partnerInvoices(codes), partnerInvoiceChanges(codes)]);
-  return { invoices, changes };
+  const [ledger, changes, payments, orphanCount, terms] = await Promise.all([partnerInvoiceLedger(codes), partnerInvoiceChanges(codes),
+    recentInvoicePayments(codes), orphanPaymentCount(codes), paymentTerms(codes)]);
+  const today = istanbulToday();
+  const invoices = ledger.map(invoice => ({ ...invoice, ...invoiceCollection({ ...invoice, termDays: terms.get(invoice.partner) ?? null, today }) }));
+  const collections = codes.map(code => {
+    const own = invoices.filter(invoice => invoice.partner === code);
+    const overdue = own.filter(invoice => invoice.state === "overdue");
+    return { code, termDays: terms.get(code) ?? null, uncollectedKurus: own.reduce((sum, invoice) => sum + invoice.balanceKurus, 0),
+      overdueKurus: overdue.reduce((sum, invoice) => sum + invoice.balanceKurus, 0), overdueCount: overdue.length };
+  });
+  return { invoices, changes, payments, orphanCount, collections };
 }
 
 /**

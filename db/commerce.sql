@@ -844,7 +844,8 @@ DO $$ DECLARE c text; BEGIN
   ALTER TABLE commerce_orders ADD COLUMN cancel_request_rejected_at timestamptz;
  END IF;
  -- Partner invoicing (#426): operations mark a delivered partner order invoiced (invoice number + date); from then on it
- -- no longer counts against the partner's open-order limit (src/modules/partner/limits.ts). Collection is not tracked.
+ -- no longer counts against the partner's open-order limit (src/modules/partner/limits.ts). Collections against the
+ -- invoice (#1006) are recorded in partner_invoice_payments and never change the limit.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_invoiced_at' AND NOT attisdropped) THEN
   ALTER TABLE commerce_orders ADD COLUMN partner_invoiced_at timestamptz;
  END IF;
@@ -878,6 +879,11 @@ DO $$ BEGIN
  -- cost (src/modules/partner/pricing.ts). NULL = the PARTNER_B2B_DISCOUNT_BPS fallback, then no discount.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='discount_bps' AND NOT attisdropped) THEN
   ALTER TABLE partner_settings ADD COLUMN discount_bps integer CHECK(discount_bps BETWEEN 0 AND 9000);
+ END IF;
+ -- The partner's payment term in days (#1006): an invoice is due on its invoice day + this term. NULL = no term, so the
+ -- partner's invoices are never overdue. Informational only; it does not change the open-order limit.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='payment_term_days' AND NOT attisdropped) THEN
+  ALTER TABLE partner_settings ADD COLUMN payment_term_days integer CHECK(payment_term_days BETWEEN 0 AND 365);
  END IF;
 END $$;
 -- Every change of a partner's panel discount (#1130): old and new value (NULL = fallback), who and when.
@@ -962,6 +968,36 @@ DO $$ BEGIN
  -- and on partner_return_requests, and ACCESS EXCLUSIVE on commerce_returns (a small table) for ADD COLUMN.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_returns'::regclass AND attname='partner_return_request_id' AND NOT attisdropped) THEN
   ALTER TABLE commerce_returns ADD COLUMN partner_return_request_id uuid REFERENCES partner_return_requests(id) ON DELETE SET NULL;
+ END IF;
+END $$;
+-- Collections against partner invoices (#1006), entered in /yonetim/partnerler. An invoice has no table of its own: it is
+-- the partner's marked orders sharing an invoice number and Istanbul invoice day (src/modules/partner/limits.ts), so a
+-- payment names it by (partner_code, invoice_ref, invoice_day) without a foreign key. Correcting an invoice's number or
+-- day carries its payments along; undoing a mark is refused while the invoice has active payments. Invariant, kept under
+-- the partner's order lock (src/modules/partner/collections.ts): the active (not voided) payments of an invoice never
+-- exceed its total. A wrong payment is voided with a reason, never edited or deleted. 'offset' settles the part covered
+-- by a return credit note issued outside the system. Payments never change the partner's open-order limit.
+-- The first deploy that creates the table takes, for that run only, SHARE ROW EXCLUSIVE on accounts (the foreign keys).
+CREATE TABLE IF NOT EXISTS partner_invoice_payments(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ partner_code text NOT NULL,
+ invoice_ref text NOT NULL,
+ invoice_day date NOT NULL,
+ amount_kurus bigint NOT NULL CHECK(amount_kurus>0),
+ paid_on date NOT NULL,
+ method text NOT NULL CHECK(method IN ('bank_transfer','check','offset','other')),
+ note text NOT NULL DEFAULT '' CHECK(length(note)<=500),
+ recorded_by uuid REFERENCES accounts(id),
+ recorded_at timestamptz NOT NULL DEFAULT now(),
+ voided_at timestamptz,
+ voided_by uuid REFERENCES accounts(id),
+ void_reason text,
+ CHECK((voided_at IS NULL)=(void_reason IS NULL)),
+ CHECK(void_reason IS NULL OR length(btrim(void_reason))>=5)
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_invoice_payments'::regclass AND c.relname='partner_invoice_payments_invoice_idx') THEN
+  CREATE INDEX partner_invoice_payments_invoice_idx ON partner_invoice_payments(partner_code,invoice_ref,invoice_day);
  END IF;
 END $$;
 
