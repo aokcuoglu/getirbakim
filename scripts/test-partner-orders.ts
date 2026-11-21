@@ -926,16 +926,22 @@ test("return requests (#1007): accepted + pending + requested stay within the or
   const productId = productOf("PART-A");
   const admin = await adminId();
   const pending = await partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 2 }], "Kusurlu çıktı"));
-  // Operations' own return record sees the pending 2 units: 2 + 2 > 3 is refused, 1 still fits.
+  // Operations' own return record sees the pending 2 units: 2 + 2 > 3 is held by the request, 1 still fits (#1151).
   const record = (quantity: number) => adminOrders.recordOrderReturn({ orderId: order.id, productId, quantity, reason: "damaged", note: "", adminId: admin });
-  assert.equal(await record(2), false);
-  assert.equal(await record(1), true);
+  assert.equal(await record(2), "pending");
+  assert.equal(await record(1), "recorded");
+  // 1 accepted + 3 overruns the ordered 3 even without the request.
+  assert.equal(await record(3), "exceeded");
+  // The order page lists the pending request's line beside the manual return form.
+  assert.deepEqual((await partnerReturns.pendingReturnLines(order.id)).map(line => [line.request_id, line.product_id, line.quantity, line.reason, line.note]),
+    [[pending.return.id, productId, 2, "defective", "Kusurlu çıktı"]]);
   await assert.rejects(partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 1 }])),
     refusal("RETURN_QUANTITY_EXCEEDED", details => assert.deepEqual(details, { lines: [{ selectedOfferId: offers["PART-A"], orderedQuantity: 3,
       returnedQuantity: 1, pendingQuantity: 2, requestedQuantity: 1 }] })));
   // A rejection releases the quantity; deciding again is refused.
   assert.equal(await partnerReturns.decidePartnerReturnRequest(pending.return.id, "reject", admin), true);
   assert.equal(await partnerReturns.decidePartnerReturnRequest(pending.return.id, "approve", admin), false);
+  assert.deepEqual(await partnerReturns.pendingReturnLines(order.id), []);
   assert.equal((await partnerReturns.listPartnerReturns("bakimx", order.id))[0].status, "REJECTED");
   const again = await partnerReturns.requestPartnerReturn("bakimx", order.id, randomUUID(), returnBody([{ code: "PART-A", quantity: 2, reason: "wrong_item" }], "Yanlış ürün"));
   assert.equal(await partnerReturns.decidePartnerReturnRequest(again.return.id, "approve", admin), true);
