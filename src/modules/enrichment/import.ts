@@ -8,7 +8,7 @@ import { enrichmentImportSchema, matchesEnrichment } from "../store/enrichment-c
 import { lockFitmentSync, loadFitmentMatcher, syncProductFitments } from "../store/fitment-sync";
 import { importManufacturerLogo } from "../store/manufacturer-logo-import";
 import { keepsRicherPartial } from "./partial-gaps";
-import { isPlaceholderImage } from "./placeholder-images";
+import { isPlaceholderImage, placeholderImageSha256 } from "./placeholder-images";
 
 /** Verifies a downloaded WebP/JPEG/PNG, stores it once per content hash and returns its media object id. */
 export async function storeProductImage(client: Pick<PoolClient, "query">, file: string, source: string, storage: Pick<S3Client, "send"> = objectStorage(), folder = "products") {
@@ -54,7 +54,11 @@ export async function storeProductImageBytes(client: Pick<PoolClient, "query">, 
   return id;
 }
 
-export async function importEnrichments(pool: Pool, entries: unknown[], matcher: (client: PoolClient)=>ReturnType<typeof loadFitmentMatcher> = loadFitmentMatcher) {
+/** The data without the dropped image's dimensions (readers fall back to the schema default). */
+const withoutImageSize = (data: object) => Object.fromEntries(Object.entries(data).filter(([key]) => key !== "imageWidth" && key !== "imageHeight"));
+
+export async function importEnrichments(pool: Pool, entries: unknown[], matcher: (client: PoolClient)=>ReturnType<typeof loadFitmentMatcher> = loadFitmentMatcher,
+  placeholders: ReadonlySet<string> = placeholderImageSha256) {
  const items = entries.map(entry => enrichmentImportSchema.parse(entry));
     for (const item of items) {
       const client = await pool.connect();
@@ -84,14 +88,14 @@ export async function importEnrichments(pool: Pool, entries: unknown[], matcher:
           if (!item.imageSource) throw new Error("Image source URL is required");
           const bytes = await readFile(resolve(item.imageFile));
           // A listed source placeholder (#1098) the collector let through: the enrichment is imported without it.
-          placeholder = isPlaceholderImage(bytes);
+          placeholder = isPlaceholderImage(bytes, placeholders);
           if (!placeholder) imageId = await storeProductImageBytes(client, bytes, item.imageSource);
         }
         await client.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload,match_basis)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(supplier_item_id) DO UPDATE SET
           supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,source_url=EXCLUDED.source_url,source_method=EXCLUDED.source_method,
           manufacturer=EXCLUDED.manufacturer,manufacturer_part_number=EXCLUDED.manufacturer_part_number,image_id=COALESCE(EXCLUDED.image_id,product_enrichments.image_id),payload=EXCLUDED.payload,match_basis=EXCLUDED.match_basis,imported_at=now()`,
-          [item.supplierItemId, item.supplierCode, item.supplierBrand, item.source, item.sourceMethod, item.manufacturer, item.partNumber, imageId, JSON.stringify(item.data), JSON.stringify(item.matchBasis)]);
+          [item.supplierItemId, item.supplierCode, item.supplierBrand, item.source, item.sourceMethod, item.manufacturer, item.partNumber, imageId, JSON.stringify(placeholder ? withoutImageSize(item.data) : item.data), JSON.stringify(item.matchBasis)]);
         await client.query('DELETE FROM product_source_categories WHERE supplier_item_id=$1',[item.supplierItemId]);
         for(const category of item.data.categories)await client.query(`INSERT INTO product_source_categories(supplier_item_id,source,category_id)
           SELECT $1,source,category_id FROM source_categories WHERE source=$2 AND category_id=$3 ON CONFLICT DO NOTHING`,[item.supplierItemId,category.source,category.id]);

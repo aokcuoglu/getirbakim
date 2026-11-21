@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, test } from "node:test";
 import sharp from "sharp";
@@ -7,6 +9,8 @@ import { isolatedSchema } from "./isolated-schema";
 import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { placeholderImages } from "../src/modules/enrichment/placeholder-images";
+import { clearPlaceholderImages, placeholderImageUse } from "../src/modules/enrichment/placeholder-clean";
+import { importEnrichments } from "../src/modules/enrichment/import";
 import { galleryImages, socialImage } from "../src/modules/store/product-image-display";
 import { moveImage } from "../src/modules/admin/product-image-order";
 import { prepareProductImage, ProductImageError } from "../src/modules/admin/product-image-upload";
@@ -587,4 +591,40 @@ test("a listed placeholder image is hidden from the store, a widely shared real 
   assert.deepEqual(await upload(product, await solid(247), "gercek.jpg"), { ok: true });
   const uploaded = (await store.loadProductImages(schema.pool, product)).images[0].src;
   assert.equal((await enrichment.getCatalogProductImages([listed.cards[0]])).get(listed.cards[0].id)?.src, uploaded);
+});
+
+test("clean drops a listed image from its enrichments and demotes their complete jobs; a second run changes nothing (#1098)", async () => {
+  const sha256 = placeholderImages[1].sha256;
+  await sharedImageItems("cln", "CLNA", 2, sha256);
+  const kept = await sharedImageItems("kep", "KEPA", 1, createHash("sha256").update("kept-photo").digest("hex"));
+  const rows = [ids.cln0, ids.cln1, ids.kep0];
+  await schema.pool.query("UPDATE product_enrichments SET imported_at=now()-interval '1 day' WHERE supplier_item_id=ANY($1::uuid[])", [rows]);
+  await schema.pool.query("UPDATE product_enrichment_jobs SET status='partial' WHERE supplier_item_id=$1", [ids.cln1]);
+  assert.deepEqual(await placeholderImageUse(schema.pool, [sha256]), { enrichments: 2, images: 1, demoted: 1 });
+  assert.deepEqual(await clearPlaceholderImages(schema.pool, [sha256]), { cleared: 2, demoted: 1 });
+  const state = async () => new Map((await schema.pool.query<{ id: string; image_id: string | null; fresh: boolean; status: string; width: unknown; height: unknown }>(
+    `SELECT e.supplier_item_id::text AS id, e.image_id::text, e.imported_at > now()-interval '1 hour' AS fresh, j.status,
+       e.payload->'imageWidth' AS width, e.payload->'imageHeight' AS height
+     FROM product_enrichments e JOIN product_enrichment_jobs j USING(supplier_item_id) WHERE e.supplier_item_id=ANY($1::uuid[])`, [rows])).rows.map(row => [row.id, row]));
+  const after = await state();
+  for (const id of [ids.cln0, ids.cln1]) assert.deepEqual({ ...after.get(id), id: undefined }, { id: undefined, image_id: null, fresh: true, status: "partial", width: null, height: null });
+  assert.deepEqual({ ...after.get(ids.kep0), id: undefined }, { id: undefined, image_id: kept.mediaId, fresh: false, status: "complete", width: 600, height: 400 });
+  assert.deepEqual(await clearPlaceholderImages(schema.pool, [sha256]), { cleared: 0, demoted: 0 });
+});
+
+test("an import whose image is a listed placeholder is written without the image (#1098)", async () => {
+  await item("imp", { supplier: "basbug", code: "IMPA 6001", brand: "IMPA", name: "IMPA URUN" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  const dir = await mkdtemp(join(tmpdir(), "placeholder-import-"));
+  try {
+    const bytes = await solid(248), file = join(dir, "image.bin");
+    await writeFile(file, bytes);
+    const placeholders = new Set([createHash("sha256").update(bytes).digest("hex")]);
+    await importEnrichments(schema.pool, [{ supplierItemId: ids.imp, supplierCode: "IMPA 6001", supplierBrand: "IMPA", source: "https://www.trodo.com/impa",
+      sourceMethod: "test", manufacturer: "IMPA", partNumber: "6001", completeness: "complete", imageFile: file, imageSource: "https://picdn.trodo.com/p.jpg",
+      data: { specifications: [], oemNumbers: {}, crossReferences: {}, vehicles: [], imageWidth: 600, imageHeight: 400 } }], undefined, placeholders);
+    const row = (await schema.pool.query<{ image_id: string | null; width: unknown }>(
+      "SELECT image_id::text, payload->'imageWidth' AS width FROM product_enrichments WHERE supplier_item_id=$1", [ids.imp])).rows[0];
+    assert.deepEqual(row, { image_id: null, width: null });
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

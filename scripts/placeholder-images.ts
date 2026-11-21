@@ -8,9 +8,15 @@
 //   candidates [--min-parts=5] [--out=artifacts/placeholder-images]   candidates.json, index.html, sheet-NN.png
 //   report [--sha256-file=FILE]   JSON: what the listed images still touch. FILE (one sha256 per line) replaces the
 //                                 committed list, to weigh a proposed entry before it is listed.
-//   clean [--apply]               dry run counts; --apply sets image_id=NULL, imported_at=now() on the enrichments
-//                                 that use a listed image (the incremental storefront sync carries that), then drains
-//                                 the shared-link and state queues. Idempotent: a second run finds nothing.
+//   clean [--apply]               dry run counts; --apply runs clearPlaceholderImages (src/modules/enrichment/placeholder-clean.ts)
+//                                 in one transaction: image_id=NULL, payload image dimensions removed, imported_at=now()
+//                                 on the enrichments that use a listed image, and their complete jobs turn partial (image
+//                                 fill retries them). Then the shared-link and state queues are drained. Idempotent: a
+//                                 second run finds nothing. The storefront sync carries both: the enrichment by its newer
+//                                 imported_at, the job status because the bundle sends every complete/partial job.
+//                                 Side effect: the newer imported_at makes the cleaned row the newest donor in
+//                                 product_enrichment_shared_compute, but its status now ranks it (partial) below a
+//                                 complete sibling of the same product, so a sibling with its own photo still wins.
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -18,6 +24,7 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import sharp from "sharp";
 import { objectStorage } from "../src/lib/object-storage";
+import { clearPlaceholderImages, placeholderImageUse } from "../src/modules/enrichment/placeholder-clean";
 import { placeholderImageSha256 } from "../src/modules/enrichment/placeholder-images";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { drainSharedLinks, syncEnrichmentStates } from "./enrichment-derived-sync";
@@ -111,27 +118,21 @@ async function report() {
     byHost: Object.fromEntries(rows.map(row => [row.host, { images: row.images, donors: row.donors ?? {}, storefront: row.storefront, uploaded: row.uploaded }])) }, null, 2));
 }
 
-const cleanSql = `UPDATE product_enrichments e SET image_id=NULL, imported_at=now() FROM product_media_objects m
-  WHERE m.id=e.image_id AND m.sha256=ANY($1::text[])`;
-
-// The media objects stay: media:gc collects them once nothing references them.
 async function clean() {
   const list = [...placeholderImageSha256], apply = args.includes("--apply");
   if (!list.length) throw new Error("The placeholder list is empty; nothing to clean.");
-  const affected = (await pool.query<{ enrichments: number; images: number }>(`SELECT count(*)::int AS enrichments, count(DISTINCT e.image_id)::int AS images
-    FROM product_enrichments e JOIN product_media_objects m ON m.id=e.image_id WHERE m.sha256=ANY($1::text[])`, [list])).rows[0];
-  if (!apply) { console.log(JSON.stringify({ dryRun: true, listed: list.length, ...affected })); return; }
+  if (!apply) { console.log(JSON.stringify({ dryRun: true, listed: list.length, ...await placeholderImageUse(pool, list) })); return; }
   const client = await pool.connect();
-  let cleared: number;
+  let result: Awaited<ReturnType<typeof clearPlaceholderImages>>;
   try {
     await client.query("BEGIN");
-    cleared = (await client.query(cleanSql, [list])).rowCount ?? 0;
+    result = await clearPlaceholderImages(client, list);
     await client.query("COMMIT");
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
   const derived = await drainSharedLinks(pool);
   const states = await syncEnrichmentStates(pool);
-  console.log(JSON.stringify({ listed: list.length, cleared, ...derived, states }));
+  console.log(JSON.stringify({ listed: list.length, ...result, ...derived, states }));
 }
 
 const hostOf = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
