@@ -169,6 +169,8 @@
     "storefront:sync:uninstall": "node --import tsx scripts/install-storefront-sync-launchd.ts --uninstall",
     "logos:prepare": "node --env-file=.env.local --import tsx scripts/manufacturer-logos.ts prepare",
     "logos:import": "node --env-file=.env.local --import tsx scripts/manufacturer-logos.ts import",
+    "logos:reencode": "node --env-file-if-exists=.env.local --import tsx scripts/reencode-logos.ts",
+    "test:logo-encode": "node --import tsx --test scripts/test-logo-encode.ts",
     "test:logos": "node --import tsx --test scripts/test-manufacturer-logos.ts",
     "enrichment:pilot": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-worker.ts pilot",
     "enrichment:run": "node --env-file=.env.local --conditions=react-server --import tsx scripts/enrichment-worker.ts run",

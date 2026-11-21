@@ -1,3 +1,4 @@
+import {fitLogo,logoBoxes} from '../src/modules/store/logo-encode';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -19,4 +20,10 @@ test('logo import validates raster format, bounds and truncation',()=>{
  assert.throws(()=>readLogoPng(Buffer.from('<svg onload="alert(1)"/>')));
  const invalid=Buffer.from(png);invalid.writeUInt32BE(0,16);assert.throws(()=>readLogoPng(invalid));
  invalid.writeUInt32BE(3000,16);assert.throws(()=>readLogoPng(invalid));
+});
+test('fitLogo keeps a manufacturer PNG valid and inside the 2x box',async()=>{
+ const out=await fitLogo(readFileSync('tests/fixtures/BOSCH.png'),logoBoxes.manufacturer,'png');
+ const parsed=readLogoPng(out.bytes);
+ assert(parsed.width<=logoBoxes.manufacturer.width&&parsed.height<=logoBoxes.manufacturer.height);
+ assert.equal(parsed.sha256,out.sha256);
 });

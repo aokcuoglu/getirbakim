@@ -5,6 +5,7 @@ import {createHash} from "node:crypto";
 import {readFile,writeFile} from "node:fs/promises";
 import sharp from "sharp";
 import {z} from "zod";
+import {logoBoxes} from "../src/modules/store/logo-encode";
 import {vehicleBrandSlug} from "../src/modules/store/vehicle-catalog";
 
 const registryPath="data/brand-logos.json";
@@ -27,8 +28,8 @@ async function download(url:string) {
 for(const [name,source] of Object.entries(sources)) {
   try {
     const input=await download(source);
-    // Same treatment as the existing set: trim outer padding, fit into 320 × 144, keep colours and ratio.
-    const {data,info}=await sharp(input,{density:300,limitInputPixels:false}).trim().resize({width:320,height:144,fit:"inside"})
+    // Same treatment as the existing set: trim outer padding, fit into the 2x vehicle box (logoBoxes.vehicle), keep colours and ratio.
+    const {data,info}=await sharp(input,{density:300,limitInputPixels:false}).trim().resize({...logoBoxes.vehicle,fit:"inside"})
       .webp({quality:90,alphaQuality:100}).toBuffer({resolveWithObject:true});
     const src=`/media/logos/vehicles/${vehicleBrandSlug(name)}.webp`;
     await writeFile("public"+src,data);

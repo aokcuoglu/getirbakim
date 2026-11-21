@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
+import { fitLogo, logoBoxes } from "./logo-encode";
 import { manufacturerBrandKey, matchesSupplierPart } from "./enrichment-contract";
 
 export function verifiedLogoBrand(supplier: {brand: string; code: string}, source: {manufacturer: string; partNumber: string}) {
@@ -30,8 +31,9 @@ export async function importManufacturerLogo(client: PoolClient, productId: stri
     JOIN product_enrichments e ON e.supplier_item_id=s.id WHERE s.id=$1 FOR SHARE OF s,e`,[productId])).rows[0];
   if (!row || row.code !== row.supplier_code || row.brand !== row.supplier_brand) throw new Error("Logo evidence does not match current supplier product");
   const key = verifiedLogoBrand(row,{manufacturer:row.manufacturer,partNumber:row.manufacturer_part_number});
-  const bytes = await readFile(logo.imageFile);
-  const {width,height,sha256} = readLogoPng(bytes);
+  const source = await readFile(logo.imageFile);
+  readLogoPng(source);
+  const {bytes,width,height,sha256} = await fitLogo(source,logoBoxes.manufacturer,"png");
   await client.query(`INSERT INTO manufacturer_logos(brand_key,manufacturer,image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(brand_key) DO UPDATE SET
     manufacturer=EXCLUDED.manufacturer,image_data=EXCLUDED.image_data,sha256=EXCLUDED.sha256,
