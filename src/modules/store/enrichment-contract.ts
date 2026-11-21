@@ -77,6 +77,17 @@ export function matchesSupplierPart(supplierBrand: string, supplierCode: string,
 // Suppliers drop the leading zeros of all-digit catalogue numbers ("FEBI 2562" for FEBI 02562); within one brand an
 // all-digit number names the same part with or without them.
 export const partKey = (value: string) => { const key = normalize(value); return /^\d+$/.test(key) ? key.replace(/^0+(?=\d)/, "") : key; };
+/** A supplier code and every word suffix of it: the whole code first, then the code without its first word, two words…
+ *  ("VICTOR REINZ 61-36960-00" → "REINZ 61-36960-00", "61-36960-00"). */
+export function supplierCodeSuffixes(code: string): string[] {
+  const words = code.trim().split(/\s+/);
+  return words.map((_, at) => words.slice(at).join(" "));
+}
+/** Part number keys a supplier code can match a source part by, whole-code key first (#1117). These are lookup keys
+ *  only: a brand prefix of any length is covered, but matchesSupplierPart decides identity. */
+export function supplierPartKeys(code: string): string[] {
+  return [...new Set(supplierCodeSuffixes(code).map(partKey))].filter(Boolean);
+}
 function matchesBrandPart(supplierBrand: string, supplierCode: string, manufacturer: string, partNumber: string) {
   const brand = brandKey(supplierBrand);
   if (brand !== brandKey(manufacturer)) return false;

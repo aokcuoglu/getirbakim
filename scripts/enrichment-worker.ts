@@ -28,7 +28,7 @@ const responseSchema=z.object({id:z.uuid(),token:z.uuid(),httpStatus:z.number().
 async function prepare(){
  const client=await pool.connect();try{await client.query('BEGIN');await applySchemaFiles(client,['db/enrichment-worker.sql','db/source-categories.sql','db/enrichment-products.sql']);await client.query('COMMIT');}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
 }
-const requireSchema=()=>requireEnrichmentSchema(pool,['enrichment_runs','enrichment_run_items','enrichment_source_hosts','enrichment_source_requests','enrichment_source_attempts','enrichment_search_products','enrichment_product_states','enrichment_product_catalog','product_source_categories']);
+const requireSchema=()=>requireEnrichmentSchema(pool,['enrichment_runs','enrichment_run_items','enrichment_source_hosts','enrichment_source_requests','enrichment_source_attempts','enrichment_search_products','enrichment_product_states','enrichment_product_catalog','product_source_categories'],['enrichment_supplier_part_keys(text)']);
 async function report(runId:string){
  const run=(await pool.query('SELECT * FROM enrichment_runs WHERE id=$1',[runId])).rows[0];
  const outcomes=(await pool.query('SELECT status,count(*)::int AS count FROM enrichment_run_items WHERE run_id=$1 GROUP BY status ORDER BY status',[runId])).rows;
@@ -61,7 +61,9 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
   // (synced before the transaction); the catalog view rebuilt for every pending row took minutes (#921). serve()
   // re-checks each item against the view before visiting the source. The listed lookup only runs for brands that have
   // any search product (listed_brands), and the batch is cut to `size` before numbering: ranking every pending row
-  // first took seconds (#923). The per-brand window still sees every pending row.
+  // first took seconds (#923). The per-brand window still sees every pending row. Its part keys cover every word suffix
+  // of the supplier code, so a multi-word brand prefix ("VICTOR REINZ 61-36960-00") is listed as well (#1117); codes of
+  // one or two words keep the cheaper inline keys, which are the same set.
   await client.query(`WITH finished AS (
     SELECT supplier_brand,count(*) AS n,count(*) FILTER(WHERE status IN ('complete','partial')) AS ok
     FROM enrichment_run_items WHERE status IN ('complete','partial','review','not_found') GROUP BY supplier_brand),
@@ -78,7 +80,8 @@ async function createRun(size:number,seed:string,allowShort=false,spreadBrands=t
     SELECT j.*,md5($2||j.product_id::text) AS hash,
      round(20*(COALESCE(f.ok,0)+10*o.rate)/(COALESCE(f.n,0)+10)*(1-CASE WHEN m.supplier_item_id IS NULL THEN COALESCE(sp.rate,0.5) ELSE 0 END)) AS yield_bucket,
      CASE WHEN lb.brand_key IS NULL THEN false ELSE EXISTS(SELECT 1 FROM enrichment_search_products sp WHERE sp.brand_key=lb.brand_key
-      AND sp.part_key IN (enrichment_part_key(j.supplier_code),enrichment_part_key(substring(btrim(j.supplier_code) from '[[:space:]]+(.+)$')))) END AS listed,
+      AND sp.part_key=ANY(CASE WHEN btrim(j.supplier_code) ~ '[^[:space:]][[:space:]]+[^[:space:]]+[[:space:]]' THEN enrichment_supplier_part_keys(j.supplier_code)
+       ELSE ARRAY[enrichment_part_key(j.supplier_code),enrichment_part_key(substring(btrim(j.supplier_code) from '[[:space:]]+(.+)$'))] END)) END AS listed,
      CASE WHEN $4 AND row_number() OVER(PARTITION BY j.supplier_brand ORDER BY md5($2||j.supplier_item_id::text))=1 THEN 0
       WHEN c.id IS NULL THEN 3
       WHEN COALESCE((c.stock_data->>'stok')::numeric,0)>0 OR COALESCE((c.stock_data->>'sFarkliDepo')::numeric,0)>0 THEN 1
@@ -150,7 +153,8 @@ async function serve(runId:string,port:number,chrome=false){
    const lease=randomUUID();
    const item=(await pool.query(`WITH picked AS(SELECT supplier_item_id FROM enrichment_run_items WHERE run_id=$1 AND
     (status='queued' OR(status='collecting' AND lease_until<now())) ORDER BY ${pickOrder} FOR UPDATE SKIP LOCKED LIMIT 1)
-    UPDATE enrichment_run_items i SET status='collecting',lease_token=$2,lease_until=now()+interval '2 minutes',attempts=attempts+1,started_at=coalesce(started_at,now()) FROM picked WHERE i.run_id=$1 AND i.supplier_item_id=picked.supplier_item_id RETURNING i.*`,[runId,lease])).rows[0];
+    UPDATE enrichment_run_items i SET status='collecting',lease_token=$2,lease_until=now()+interval '2 minutes',attempts=attempts+1,started_at=coalesce(started_at,now()) FROM picked WHERE i.run_id=$1 AND i.supplier_item_id=picked.supplier_item_id RETURNING i.*,
+    (SELECT b.name FROM supplier_items s JOIN supplier_brands sb ON sb.supplier=s.supplier AND sb.label=supplier_item_brand(s.supplier,s.product_data) JOIN brands b ON b.id=sb.brand_id WHERE s.id=i.supplier_item_id) AS master_brand`,[runId,lease])).rows[0];
    if(!item){
     const remaining=(await pool.query("SELECT count(*)::int AS n FROM enrichment_run_items WHERE run_id=$1 AND status IN ('queued','collecting')",[runId])).rows[0].n;
     if(remaining){await new Promise(r=>setTimeout(r,1000));continue;}
@@ -205,14 +209,14 @@ async function serve(runId:string,port:number,chrome=false){
     if(cp.searchVersion!==2&&!cp.product){delete cp.search;delete cp.partSearches;delete cp.oemSearch;cp.searchVersion=2;}
     // Every search also lists products of other pending items; they are kept so those items can skip their search.
     const sourceSearch=async(path:string)=>{const result=parseSearch(await queue.get('www.trodo.com',path));await recordSearchProducts(pool,result.products);return result;};
-    const queries=sourcePartQueries(item.supplier_brand,item.supplier_code);
+    const queries=sourcePartQueries(item.supplier_brand,item.supplier_code,item.master_brand);
     // A product an earlier search already listed is opened directly. Its page must still pass the exact part check;
     // a stale or mismatching page falls back to the item's own search.
     if(!cp.search&&!cp.product){
-     const known=chooseExact(item.supplier_brand,item.supplier_code,await knownSearchProducts(pool,item.supplier_code));
+     const known=chooseExact(item.supplier_brand,item.supplier_code,await knownSearchProducts(pool,item.supplier_code),item.master_brand);
      if(known)try{
       const product=parseProduct(await queue.get('www.trodo.com','/rest/V1/catalog-product-api/product-url/'+encodeURIComponent(safeProductSlug(known))+'/IE'));
-      if(String(product.entity_id)===String(known.entity_id)&&matchesSupplierPart(item.supplier_brand,item.supplier_code,product.manufacturer,product.tecdoc_sku))
+      if(String(product.entity_id)===String(known.entity_id)&&matchesSupplierPart(item.supplier_brand,item.supplier_code,product.manufacturer,product.tecdoc_sku,item.master_brand))
        await checkpoint('view',{search:{products:[known]},product,discovered:true});
      }catch(error){if(error instanceof SourceBlocked||error instanceof WorkerStopped)throw error;}
     }
@@ -222,7 +226,7 @@ async function serve(runId:string,port:number,chrome=false){
     const partCandidates=()=>[...search.products,...fallbackSearches.flatMap(s=>parseSearch([s]).products)];
     const oemSearches=cp.oemSearch?z.array(z.object({query:z.string()}).passthrough()).parse(cp.oemSearch):[];
     const oemCandidates=()=>oemSearches.flatMap(s=>parseSearch([s]).products);
-    const exactMatch=()=>chooseExact(item.supplier_brand,item.supplier_code,[...partCandidates(),...oemCandidates()]);
+    const exactMatch=()=>chooseExact(item.supplier_brand,item.supplier_code,[...partCandidates(),...oemCandidates()],item.master_brand);
     // The OE-number page lists products carrying the supplier OEM; products also found by the part number come first.
     const ranked=()=>{const part=new Set(partCandidates().map(p=>String(p.entity_id)));return [...oemCandidates().filter(p=>part.has(String(p.entity_id))),...oemCandidates()];};
     let exact=exactMatch();
@@ -254,7 +258,7 @@ async function serve(runId:string,port:number,chrome=false){
     const slug=safeProductSlug(exact);
     if(!cp.product)await checkpoint('view',{product:parseProduct(await queue.get('www.trodo.com','/rest/V1/catalog-product-api/product-url/'+encodeURIComponent(slug)+'/IE'))});
     const product=parseProduct([{attributes:cp.product}]);
-    if(matchBasis.type==='exact_part'&&!matchesSupplierPart(item.supplier_brand,item.supplier_code,product.manufacturer,product.tecdoc_sku))throw Error('Product identity mismatch');
+    if(matchBasis.type==='exact_part'&&!matchesSupplierPart(item.supplier_brand,item.supplier_code,product.manufacturer,product.tecdoc_sku,item.master_brand))throw Error('Product identity mismatch');
     if(!cp.view)await checkpoint('vehicles',{view:parseView(await queue.get('www.trodo.com','/rest/V1/catalog-product-api/view-data/'+product.entity_id+'/IE'))});
     const view=parseView([{relationships:cp.view}]);
     if(matchBasis.type==='oem_reference'&&verifiedOemReference(matchBasis.referenceSource==='supplier_oem'?supplierOem:ownCode,view)!==matchBasis.reference)throw Error('OEM reference mismatch');

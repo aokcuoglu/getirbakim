@@ -141,8 +141,8 @@ CREATE TABLE IF NOT EXISTS enrichment_price_only_brands (
 );
 -- Every Trodo search lists ~10 products, often exact parts of other pending items. They are kept by part number so a
 -- later item opens its product page directly instead of spending its own rate-limited search (#376). The keys follow
--- partKey()/manufacturerBrandKey() in enrichment-contract.ts; the SQL functions only order batches, identity is always
--- re-checked in the worker.
+-- partKey()/manufacturerBrandKey()/supplierPartKeys() in enrichment-contract.ts; the SQL functions only order batches,
+-- identity is always re-checked in the worker.
 CREATE TABLE IF NOT EXISTS enrichment_search_products (
  part_key text NOT NULL, entity_id text NOT NULL, brand_key text NOT NULL,
  product jsonb NOT NULL CHECK(jsonb_typeof(product)='object'), seen_at timestamptz NOT NULL DEFAULT now(),
@@ -156,6 +156,15 @@ CREATE OR REPLACE FUNCTION enrichment_brand_key(value text) RETURNS text LANGUAG
   WHEN 'SCHAEFFLERINA' THEN 'INA' WHEN 'SCHAEFFLERLUK' THEN 'LUK' WHEN 'SCHAEFFLERFAG' THEN 'FAG' WHEN 'AVACLEVERCHOICE' THEN 'AVA'
   WHEN 'BORGWARNERBERU' THEN 'BERU' WHEN 'VDOCONTINENTAL' THEN 'VDO' WHEN 'AMSOSRAM' THEN 'OSRAM' WHEN 'REINZ' THEN 'VICTORREINZ' ELSE k END
  FROM (SELECT regexp_replace(upper(value),'[^A-Z0-9]','','g') AS k) s $$;
+-- Part keys of a supplier code and of every word suffix of it, as supplierPartKeys() (#1117): a brand prefix may span
+-- several words ("VICTOR REINZ 61-36960-00").
+CREATE OR REPLACE FUNCTION enrichment_supplier_part_keys(code text) RETURNS text[] LANGUAGE sql IMMUTABLE AS $$
+ SELECT COALESCE(array_agg(DISTINCT k) FILTER(WHERE k<>''),'{}'::text[])
+ FROM (SELECT enrichment_part_key(array_to_string(w[i:],' ')) AS k
+  FROM (SELECT regexp_split_to_array(btrim(code),'[[:space:]]+') AS w) s,generate_subscripts(w,1) i) t $$;
+-- Rows stored before an alias was added carry a stale brand key (REINZ, AVACLEVERCHOICE seen locally); every such key
+-- is rewritten to the current enrichment_brand_key, and touching only changed rows keeps re-runs write-free.
+UPDATE enrichment_search_products SET brand_key=enrichment_brand_key(brand_key) WHERE brand_key<>enrichment_brand_key(brand_key);
 
 -- parts2world.com (TecDoc, #382) has no part-number search: its article-info call needs the article id, the article link
 -- id and a vehicle type the link belongs to. The ids come from the archive of the old v1 parts2world catalog crawl

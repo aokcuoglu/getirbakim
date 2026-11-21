@@ -88,7 +88,7 @@ export function PurchaseForm({productId,name,available,maxQuantity=99,className,
           suggestions===null||suggestions.length ? "min-h-[490px]" : state.suggestionsPending ? "min-h-[490px] grid-cols-1" : "min-h-[300px] grid-cols-1")}>
         {/* Outside the suggestions column, so it stays when the column (or its skeleton) goes; sr-only takes no grid cell. */}
         <p role="status" aria-live="polite" className="sr-only">{status}</p>
-        <DialogClose render={<Button variant="secondary" size="icon" className={cn(storeButton({intent:"ghost",size:"icon"}),"absolute top-1 right-1 z-1 bg-[#e6e9ec] hover:bg-[#d9dfe4]")}/>} aria-label="Pencereyi kapat"><X className="size-5"/></DialogClose>
+        <DialogClose render={<Button variant="ghost" size="icon" className={cn(storeButton({intent:"ghost",size:"icon"}),"absolute top-1 right-1 z-1")}/>} aria-label="Pencereyi kapat"><X className="size-5"/></DialogClose>
         {(suggestions===null||suggestions.length>0) && <section aria-busy={suggestions===null} className="border-r border-[#e0e4e8] p-8 max-[760px]:border-t max-[760px]:border-r-0 max-[760px]:px-5 max-[760px]:py-6">
           <h2 className="mb-9 text-center text-2xl leading-8 font-semibold tracking-[-.5px] max-[760px]:mb-7 max-[760px]:text-left max-[760px]:text-xl">Bunları da inceleyebilirsin</h2>
           {suggestions===null && <>{[0,1,2].map(i=><div key={i} aria-hidden className="grid grid-cols-[60px_1fr_auto] items-start gap-4 border-b border-[#dfe3e8] pt-[18px] pb-6 last:border-b-0 last:pb-0">

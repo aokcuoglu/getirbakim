@@ -1,12 +1,7 @@
 import type {Pool} from 'pg';
-import {partKey,manufacturerBrandKey} from '../store/enrichment-contract';
+import {partKey,manufacturerBrandKey,supplierPartKeys} from '../store/enrichment-contract';
 import {productSchema,safeProductSlug,type SourceProduct} from './trodo-adapter';
-/** Part number keys a supplier code can match a source part by: the whole code, or the code after a brand prefix
- *  ("TRW GDB3368"), as in matchesSupplierPart. */
-export function supplierPartKeys(code:string){
- const rest=code.trim().split(/\s+/).slice(1).join(' ');
- return [...new Set([partKey(code),rest?partKey(rest):''])].filter(Boolean);
-}
+export {supplierPartKeys};
 /** Search result products worth keeping: an identifiable part with an openable product page. Only the fields the
  *  worker reads are stored. */
 export function searchProductRows(products:SourceProduct[]){

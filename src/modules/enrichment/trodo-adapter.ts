@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {enrichmentDataSchema,matchesSupplierPart,manufacturerBrandKey} from '../store/enrichment-contract';
+import {enrichmentDataSchema,matchesSupplierPart,manufacturerBrandKey,supplierCodeSuffixes} from '../store/enrichment-contract';
 import type {SourceQueue} from './source-queue';
 const categoryId=z.coerce.number().int().positive();
 export const productSchema=z.object({entity_id:z.union([z.string(),z.number()]),manufacturer:z.string().min(1),tecdoc_sku:z.string().min(1),url_key:z.string().nullish(),url_path:z.string().nullish(),media:z.object({src:z.string().nullish()}).passthrough().nullish(),category:z.array(z.object({category_id:categoryId,name:z.string().min(1)})).nullish(),category_ids:z.array(categoryId).nullish()}).passthrough();
@@ -9,14 +9,16 @@ const engineSchema=z.object({value:z.union([z.string(),z.number()]),label:labelS
 const relationshipsSchema=z.object({oe_numbers:z.record(z.string(),z.array(z.object({oem:z.union([z.string(),z.number()]),value:z.string()}))).nullable(),attributes:z.object({criteria:z.array(z.object({label:z.string(),value:z.union([z.string(),z.number()]).nullable()}))}),vehicle_ids:z.array(z.union([z.string(),z.number()])).nullable().transform(v=>v||[]),vehicle_list:z.union([z.array(z.never()).length(0).transform(()=>({list:{}})),z.object({list:z.record(z.string(),z.object({automaker_id:z.union([z.string(),z.number()]),automaker_label:z.object({name:z.string()}),model_list:z.array(z.object({value_id:z.union([z.string(),z.number()])})).default([])}))})])});
 export type SourceProduct=z.infer<typeof productSchema>;
 export type SourceView=z.infer<typeof relationshipsSchema>;
-export function sourcePartQuery(brand:string,code:string){
+export function sourcePartQuery(brand:string,code:string,masterBrand?:string|null){
  // Strip only prefixes accepted by the shared exact-match contract; a brand name may span several words ("VICTOR REINZ").
- const words=code.trim().split(/\s+/);
- for(let at=1;at<words.length;at++){const rest=words.slice(at).join(' ');if(matchesSupplierPart(brand,code,brand,rest))return rest;}
- return code;
+ // Codes carry either the label's own name ("ITHAL 03C…" under master ORIJINAL) or the master brand's ("BOSCH 1987…"
+ // under label BOSCH-AV), so both are tried and the shortest stripped part wins (#1117).
+ const suffixes=supplierCodeSuffixes(code).slice(1);
+ const stripped=[brand,masterBrand].flatMap(b=>{const rest=b?suffixes.find(r=>matchesSupplierPart(b,code,b,r)):undefined;return rest?[rest]:[];});
+ return stripped.sort((a,b)=>a.length-b.length)[0]??code;
 }
-export function sourcePartQueries(brand:string,code:string){
- const part=sourcePartQuery(brand,code).trim(),name=brand.trim();
+export function sourcePartQueries(brand:string,code:string,masterBrand?:string|null){
+ const part=sourcePartQuery(brand,code,masterBrand).trim(),name=brand.trim();
  // Searches only discover candidates, so an unregistered supplier prefix ("GLS T85010-00") may be dropped here;
  // identity is still decided by the exact-match contract or a verified original OEM reference.
  const [head,...tail]=part.split(/\s+/),rest=tail.join(' ');
@@ -106,8 +108,8 @@ export function normalizeData(view:SourceView,vehicle:Awaited<ReturnType<typeof 
  }
  return enrichmentDataSchema.parse({specifications:view.attributes.criteria.filter(a=>a.label&&a.value!==null&&String(a.value)).map(a=>[a.label,String(a.value)]),oemNumbers,crossReferences,vehicles:vehicle.vehicles,vehicleModels:vehicle.vehicleModels});
 }
-export function chooseExact(brand:string,code:string,products:SourceProduct[]){
- const found=products.filter(p=>matchesSupplierPart(brand,code,p.manufacturer,p.tecdoc_sku));
+export function chooseExact(brand:string,code:string,products:SourceProduct[],masterBrand?:string|null){
+ const found=products.filter(p=>matchesSupplierPart(brand,code,p.manufacturer,p.tecdoc_sku,masterBrand));
  // The same catalog item can appear in both part-code and OEM searches.
  const unique=[...new Map(found.map(p=>[String(p.entity_id),p])).values()];
  return unique.length===1?unique[0]:null;

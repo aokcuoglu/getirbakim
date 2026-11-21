@@ -6,7 +6,7 @@ import { decodeOfferId, encodeOfferId, matchesOem, matchesPartNo, partnerAvailab
 import { cancellationRequest, partnerOrderStatus, resolveOrderLimitKurus, lineAmounts, toPartnerOrderDto, type PartnerOrderRow } from "../src/modules/partner/order-dto";
 import { orderRequestSchema, quoteRequestSchema } from "../src/modules/partner/order-schema";
 import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partnerQuoteTtlMs, signQuote, verifyQuote, type QuotePayload } from "../src/modules/partner/quotes";
-import { resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
+import { resolvePartnerDiscount, resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
 import { createRateLimiter } from "../src/modules/partner/rate-limit";
 import { exactMatches, fitmentLevelOf, fitsFirst } from "../src/modules/partner/search-order";
 import { ttlCache } from "../src/lib/ttl-cache";
@@ -85,6 +85,19 @@ test("partner discount: unset, invalid and excessive rates", () => {
   assert.equal(resolvePartnerDiscountBps("-5"), 0);
   assert.equal(resolvePartnerDiscountBps("1500"), 1500);
   assert.equal(resolvePartnerDiscountBps("95000"), 9000);
+});
+
+test("partner discount (#1130): the panel value wins, 0 included; cleared falls back to the env rate, then none", () => {
+  assert.deepEqual(resolvePartnerDiscount(1000, 500), { discountBps: 1000, source: "panel" });
+  assert.deepEqual(resolvePartnerDiscount(0, 500), { discountBps: 0, source: "panel" });
+  assert.deepEqual(resolvePartnerDiscount(null, 500), { discountBps: 500, source: "env" });
+  assert.deepEqual(resolvePartnerDiscount(undefined, 0), { discountBps: 0, source: "none" });
+  // Out-of-range stored values are clamped like the env rate.
+  assert.deepEqual(resolvePartnerDiscount(12_000, 0), { discountBps: 9000, source: "panel" });
+  // The resolved rate prices the row and the cost floor still holds: list 130.00 TL, cost 100.00 TL.
+  const pricing = { nf: "100", exchange_rate: "1", markup_percent: "30", vat_percent: "20" };
+  assert.equal(resolvePartnerPrice(pricing, 15600, resolvePartnerDiscount(1000, 0).discountBps).b2bPriceKurus, 11700);
+  assert.deepEqual(resolvePartnerPrice(pricing, 15600, resolvePartnerDiscount(5000, 0).discountBps), { listPriceKurus: 13000, b2bPriceKurus: 10000, discountBps: 2308, vatRateBps: 2000, currency: "TRY" });
 });
 
 const row = (overrides: Partial<PartnerCatalogRow> = {}): PartnerCatalogRow => ({

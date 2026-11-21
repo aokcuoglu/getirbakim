@@ -22,7 +22,7 @@ export function ProductGallery({ images, alt }: { images: CatalogProductImage[];
     </DialogTrigger>
     <DialogContent showCloseButton={false} overlayClassName="bg-[#172331b3] supports-backdrop-filter:backdrop-blur-none" className="w-[min(900px,95vw)] max-w-none rounded-lg bg-white p-10 ring-0 sm:max-w-none max-[750px]:px-3 max-[750px]:pt-10 max-[750px]:pb-3 data-open:zoom-in-100">
       <DialogTitle className="sr-only">{label}</DialogTitle>
-      <DialogClose render={<Button variant="secondary" size="icon-lg" className={cn(storeButton({intent:"ghost",size:"icon"}),"absolute top-2 right-2 rounded-full bg-[#f7f8fa]")}/>} aria-label="Görseli kapat"><X className="size-6"/></DialogClose>
+      <DialogClose render={<Button variant="ghost" size="icon" className={cn(storeButton({intent:"ghost",size:"icon"}),"absolute top-2 right-2")}/>} aria-label="Görseli kapat"><X className="size-6"/></DialogClose>
       <Image className="block h-[min(700px,72vh)] w-full object-contain" src={image.src} alt={label} width={image.width} height={image.height} sizes="90vw" />
     </DialogContent>
   </Dialog>;
@@ -32,7 +32,7 @@ export function ProductGallery({ images, alt }: { images: CatalogProductImage[];
     <div className="flex gap-2 overflow-x-auto overscroll-x-contain p-1" role="group" aria-label="Ürün görselleri">
       {images.map((thumbnail, position) => <button key={thumbnail.src} type="button" aria-label={`${alt} — görsel ${position + 1}/${images.length}`} aria-pressed={position === index}
         onClick={() => setSelected(position)}
-        className="flex size-[72px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-[#e5e7eb] bg-white p-1.5 outline-none transition-colors hover:border-[#0077c7] focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:border-2 aria-pressed:border-[#0077c7] motion-reduce:transition-none max-[750px]:size-16">
+        className="flex size-[72px] shrink-0 cursor-pointer items-center justify-center rounded-lg border border-border bg-white p-1.5 outline-none transition-colors hover:border-primary focus-visible:ring-3 focus-visible:ring-ring/50 aria-pressed:border-2 aria-pressed:border-primary motion-reduce:transition-none max-[750px]:size-16">
         <Image className="block size-full object-contain" src={thumbnail.src} alt="" width={72} height={72} />
       </button>)}
     </div>
