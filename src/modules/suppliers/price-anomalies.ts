@@ -26,6 +26,13 @@ export const priceAnomalyThresholds = {
   CORROBORATION: 3,
   /** An underpriced row (#1050) must also be cheaper than this percentile of its brand's dominant-currency rows. */
   LOW_PERCENTILE: 0.01,
+  /**
+   * A cross-offer outlier's relabel currency must be one its brand really prices in: at least this many of the brand's
+   * rows… (#1050; IOE-VW's 5 USD rows among 1,142 are not, FEBI's 1,781 EUR rows among 12,946 are)
+   */
+  MIN_RELABEL_ROWS: 20,
+  /** …and at least this share of them. */
+  MIN_RELABEL_SHARE: 0.05,
 };
 export type PriceAnomalyThresholds = typeof priceAnomalyThresholds;
 
@@ -100,8 +107,10 @@ export type OfferCandidate = {
   /** The lowest and highest TRY cost other suppliers offer for the same master product. */
   otherMinTry: number;
   otherMaxTry: number;
-  /** The row's value read in each of the supplier's other currencies (TL). */
-  relabels: { currency: string; costTry: number }[];
+  /** The brand's priced rows in the supplier's sale scope (all currencies). */
+  brandRows: number;
+  /** The row's value read in each of the brand's other currencies (TL), with the brand's row count in that currency. */
+  relabels: { currency: string; costTry: number; rows: number }[];
 };
 export type OfferVerdict = {
   anomaly: boolean;
@@ -110,19 +119,25 @@ export type OfferVerdict = {
   reason: "within-ratio" | "not-relabel" | null;
 };
 
+/** The brand prices enough of its rows in the currency for a wrong label to be plausible. */
+const brandUses = (rows: number, brandRows: number, thresholds: PriceAnomalyThresholds) =>
+  rows >= thresholds.MIN_RELABEL_ROWS && rows >= brandRows * thresholds.MIN_RELABEL_SHARE;
+
 /**
  * Cross-offer outliers (#1050): the row is RATIO times above every other supplier's offer for the same product, or
- * RATIO times below all of them, and read in another of the supplier's currencies it lands within CORROBORATION of
- * them (Başbuğ's FEBI row at 28.64 TL where Dinamik sells the part for 1,684 TL; read as EUR it fits). An outlier no
- * relabel explains may be a wrong product link or a genuinely different part: it is left alone. No brand guard: the
- * other offers are the evidence.
+ * RATIO times below all of them, and read in another currency its brand really prices in (MIN_RELABEL_ROWS,
+ * MIN_RELABEL_SHARE) it lands within CORROBORATION of them (Başbuğ's FEBI row at 28.64 TL where Dinamik sells the part
+ * for 1,684 TL; FEBI has 1,781 EUR rows and read as EUR it fits). An outlier no such relabel explains may be a wrong
+ * product link, a genuinely different part or the other supplier's error (IOE-VW, all EUR, 21× a Dinamik TL offer):
+ * it is left alone.
  */
 export function offerOutlier(candidate: OfferCandidate, thresholds: PriceAnomalyThresholds = priceAnomalyThresholds): OfferVerdict {
-  const { costTry, otherMinTry, otherMaxTry, relabels } = candidate;
+  const { costTry, otherMinTry, otherMaxTry, brandRows, relabels } = candidate;
   const direction = costTry >= thresholds.RATIO * otherMaxTry ? "high" : costTry * thresholds.RATIO <= otherMinTry ? "low" : null;
   if (!direction || !(otherMinTry > 0)) return { anomaly: false, direction: null, relabelCurrency: null, reason: "within-ratio" };
   const centre = Math.sqrt(otherMinTry * otherMaxTry);
   const fitting = relabels
+    .filter(relabel => brandUses(relabel.rows, brandRows, thresholds))
     .filter(relabel => relabel.costTry * thresholds.CORROBORATION >= otherMinTry && relabel.costTry <= otherMaxTry * thresholds.CORROBORATION)
     .sort((a, b) => Math.abs(Math.log(a.costTry / centre)) - Math.abs(Math.log(b.costTry / centre)));
   if (!fitting.length) return { anomaly: false, direction, relabelCurrency: null, reason: "not-relabel" };
@@ -138,7 +153,7 @@ type CandidateRow = {
 type OfferRow = {
   id: string; code: string; brand: string; currency: string; brand_rows: number; currency_rows: number;
   nf: number; rate: number | null; other_min_nf: number; other_max_nf: number; other_offers: number;
-  relabels: { currency: string; rate: number }[] | null;
+  relabels: { currency: string; rate: number; rows: number }[] | null;
 };
 
 // Rows in the saleable scope (commerce_supplier_items) with a positive numeric cost; a brand is grouped per company
@@ -198,8 +213,8 @@ ORDER BY c.id`;
 
 // Cross-offer outliers (#1050): every saleable row linked to a master product (product_sources) that other suppliers
 // offer in TRY, aggregated set-based (one join, one GROUP BY); only rows RATIO times away from all those offers, or
-// rows without a rate, leave the scan. `relabels`: the company's row currencies with their rates (TRY = 1), once per
-// company. The decision is offerOutlier.
+// rows without a rate, leave the scan. `relabels`: the brand's row currencies with their rates (TRY = 1) and row counts,
+// once per brand. The decision is offerOutlier.
 const offerCandidatesSql = `${itemRowsCte}, offers AS (
   SELECT w.id,min(o.nf) AS min_nf,max(o.nf) AS max_nf,count(*) AS n FROM item_rows w
   JOIN product_sources ps ON ps.supplier_item_id=w.id
@@ -210,10 +225,10 @@ const offerCandidatesSql = `${itemRowsCte}, offers AS (
   WHERE o.nf>0
   GROUP BY w.id
 ), relabels AS (
-  SELECT c.company,jsonb_agg(jsonb_build_object('currency',c.currency,'rate',CASE WHEN c.currency='TRY' THEN 1 ELSE r.rate END::float8)
-    ORDER BY c.currency) FILTER (WHERE c.currency='TRY' OR r.rate IS NOT NULL) AS relabels
-  FROM (SELECT DISTINCT company,currency FROM currencies) c LEFT JOIN rates r ON r.company=c.company AND r.currency=c.currency
-  GROUP BY c.company
+  SELECT c.company,c.brand,jsonb_agg(jsonb_build_object('currency',c.currency,'rate',CASE WHEN c.currency='TRY' THEN 1 ELSE r.rate END::float8,
+    'rows',c.n) ORDER BY c.currency) FILTER (WHERE c.currency='TRY' OR r.rate IS NOT NULL) AS relabels
+  FROM currencies c LEFT JOIN rates r ON r.company=c.company AND r.currency=c.currency
+  GROUP BY c.company,c.brand
 ), priced AS (
   SELECT w.*,CASE WHEN w.currency='TRY' THEN 1 ELSE r.rate END AS rate,f.min_nf,f.max_nf,f.n
   FROM item_rows w JOIN offers f ON f.id=w.id LEFT JOIN rates r ON r.company=w.company AND r.currency=w.currency
@@ -224,7 +239,7 @@ SELECT p.id::text AS id,p.code,p.brand,p.currency,b.brand_rows::int AS brand_row
 FROM priced p
 JOIN currencies c ON c.company=p.company AND c.brand=p.brand AND c.currency=p.currency
 JOIN (SELECT company,brand,sum(n) AS brand_rows FROM currencies GROUP BY company,brand) b ON b.company=p.company AND b.brand=p.brand
-LEFT JOIN relabels l ON l.company=p.company
+LEFT JOIN relabels l ON l.company=p.company AND l.brand=p.brand
 WHERE p.rate IS NULL OR p.nf*p.rate>=$2*p.max_nf OR p.nf*p.rate*$2<=p.min_nf
 ORDER BY p.id`;
 
@@ -248,14 +263,15 @@ const ratioOf = (value: number, base: number) => value >= base ? Math.round(valu
 
 /**
  * The supplier's anomalies as of now, with their kind and evidence; read-only. A row both rules flag is stored once,
- * by precedence currency (high, then low) over offer-outlier. `ratesMissing`: a candidate row's currency (or its
- * brand's) has no rate in the latest import, so this run cannot judge it.
+ * by precedence currency (high, then low) over offer-outlier. `ratesMissing`: a currency candidate's currency (or its
+ * brand's) has no rate in the latest import, so this run cannot judge it. `unrated`: offer-linked rows skipped for want
+ * of a rate (they are unpriced in the catalog anyway).
  */
 export async function detectPriceAnomalies(connection: Pick<Pool, "query">, supplier: PriceAnomalySupplier, thresholds = priceAnomalyThresholds) {
   const candidates = (await connection.query<CandidateRow>(candidatesSql, [supplier, thresholds.MAX_CURRENCY_ROWS, thresholds.LOW_PERCENTILE])).rows;
   const offers = (await connection.query<OfferRow>(offerCandidatesSql, [supplier, thresholds.RATIO])).rows;
   const flagged = new Map<string, { id: string; kind: PriceAnomalyKind; evidence: PriceAnomalyEvidence }>();
-  let ratesMissing = false;
+  let ratesMissing = false, unrated = 0;
   for (const row of candidates) {
     // No rate for either currency: the catalog cannot price the row anyway, and there is no TL value to compare.
     if (row.rate === null || row.dominant_rate === null) { ratesMissing = true; continue; }
@@ -276,12 +292,13 @@ export async function detectPriceAnomalies(connection: Pick<Pool, "query">, supp
     } });
   }
   for (const row of offers) {
-    if (row.rate === null) { ratesMissing = true; continue; }
+    // A linked row without a rate is unpriced in the catalog anyway: skipped and counted, the run still judges the rest.
+    if (row.rate === null) { unrated++; continue; }
     if (flagged.has(row.id)) continue;
     const costTry = row.nf * row.rate;
     const relabels = (row.relabels ?? []).filter(relabel => relabel.currency !== row.currency)
-      .map(relabel => ({ currency: relabel.currency, costTry: row.nf * relabel.rate }));
-    const verdict = offerOutlier({ costTry, otherMinTry: row.other_min_nf, otherMaxTry: row.other_max_nf, relabels }, thresholds);
+      .map(relabel => ({ currency: relabel.currency, costTry: row.nf * relabel.rate, rows: relabel.rows }));
+    const verdict = offerOutlier({ costTry, otherMinTry: row.other_min_nf, otherMaxTry: row.other_max_nf, brandRows: row.brand_rows, relabels }, thresholds);
     if (!verdict.anomaly || !verdict.direction || !verdict.relabelCurrency) continue;
     const compared = verdict.direction === "high" ? row.other_max_nf : row.other_min_nf;
     flagged.set(row.id, { id: row.id, kind: "offer-outlier", evidence: {
@@ -292,7 +309,7 @@ export async function detectPriceAnomalies(connection: Pick<Pool, "query">, supp
       direction: verdict.direction, relabel_currency: verdict.relabelCurrency,
     } });
   }
-  return { flagged: [...flagged.values()], ratesMissing };
+  return { flagged: [...flagged.values()], ratesMissing, unrated };
 }
 
 /**
@@ -310,7 +327,7 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
       await client.query("ROLLBACK");
       return { skipped: true as const };
     }
-    const { flagged, ratesMissing } = await detectPriceAnomalies(client, supplier);
+    const { flagged, ratesMissing, unrated } = await detectPriceAnomalies(client, supplier);
     await client.query(`INSERT INTO supplier_price_anomalies(supplier_item_id,supplier,kind,evidence)
       SELECT x.id,$1,x.kind,x.evidence FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,kind text,evidence jsonb)
       ON CONFLICT (supplier_item_id) DO UPDATE SET kind=EXCLUDED.kind,evidence=EXCLUDED.evidence,last_seen_at=now()`,
@@ -323,7 +340,7 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
     const open = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM supplier_price_anomalies WHERE supplier=$1 AND status='open'",
       [supplier])).rows[0].n;
     await client.query("COMMIT");
-    return { skipped: false as const, flagged: flagged.length, open, removed, ratesMissing };
+    return { skipped: false as const, flagged: flagged.length, open, removed, ratesMissing, unrated };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;

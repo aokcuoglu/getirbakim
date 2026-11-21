@@ -80,37 +80,53 @@ test("underpriced boundaries: exactly a tenth of the median, the percentile, the
   assert.equal(currencyUnderpriced({ ...base, otherOfferMinTry: 300.01 }).anomaly, true);
 });
 
-test("cross-offer outliers: a relabel that fits the other offers is an anomaly, an unexplained outlier is not", () => {
-  // FEBI 01197: 28.64 TL where Dinamik sells it for 1,683.62 TL; read as EUR it costs 1,586.57 TL.
-  const febi: OfferCandidate = { costTry: 28.64, otherMinTry: 1683.62, otherMaxTry: 1683.62,
-    relabels: [{ currency: "EUR", costTry: 28.64 * 55.397 }, { currency: "USD", costTry: 28.64 * 50.4936 }] };
+// A currency the brand really prices in (MIN_RELABEL_ROWS, MIN_RELABEL_SHARE of a 1,000-row brand).
+const used = (currency: string, costTry: number) => ({ currency, costTry, rows: 500 });
+
+test("cross-offer outliers: a relabel into a currency the brand uses is an anomaly, anything else is not", () => {
+  // FEBI 01197: 28.64 TL where Dinamik sells it for 1,683.62 TL; FEBI has 1,781 EUR rows among 12,946, read as EUR the
+  // row costs 1,586.57 TL.
+  const febi: OfferCandidate = { costTry: 28.64, otherMinTry: 1683.62, otherMaxTry: 1683.62, brandRows: 12946,
+    relabels: [{ currency: "EUR", costTry: 28.64 * 55.397, rows: 1781 }] };
   assert.deepEqual(offerOutlier(febi), { anomaly: true, direction: "low", relabelCurrency: "EUR", reason: null });
-  // IOE-VW 03L129711E: 321.68 "EUR" = 17,820 TL where Dinamik sells it for 660.96 TL; read as TL it fits.
-  const vw: OfferCandidate = { costTry: 321.68 * 55.397, otherMinTry: 660.96, otherMaxTry: 660.96,
-    relabels: [{ currency: "TRY", costTry: 321.68 }, { currency: "USD", costTry: 321.68 * 50.4936 }] };
-  assert.deepEqual(offerOutlier(vw), { anomaly: true, direction: "high", relabelCurrency: "TRY", reason: null });
+  // IOE-VW 03L129711E: 321.68 EUR = 17,820 TL where Dinamik sells it for 660.96 TL. The brand is priced in EUR (1,137
+  // rows, 5 USD, no TL): the Başbuğ price is likely right, so it is not blamed.
+  const vw: OfferCandidate = { costTry: 321.68 * 55.397, otherMinTry: 660.96, otherMaxTry: 660.96, brandRows: 1142,
+    relabels: [{ currency: "USD", costTry: 321.68 * 50.4936, rows: 5 }] };
+  assert.deepEqual(offerOutlier(vw), { anomaly: false, direction: "high", relabelCurrency: null, reason: "not-relabel" });
+  // Had the brand priced in TL as well, reading the row as TL would fit the offer.
+  assert.deepEqual(offerOutlier({ ...vw, relabels: [used("TRY", 321.68)], brandRows: 1000 }), { anomaly: true, direction: "high", relabelCurrency: "TRY", reason: null });
+  // A single-currency brand has nothing to relabel into: a row 55× below the other offer is not flagged.
+  assert.equal(offerOutlier({ costTry: 100, otherMinTry: 5500, otherMaxTry: 5500, brandRows: 800, relabels: [] }).reason, "not-relabel");
   // OE-FD: a TL row 10× below the offer that no currency explains (a wrong link or a different part).
-  assert.deepEqual(offerOutlier({ costTry: 100, otherMinTry: 1000, otherMaxTry: 1000, relabels: [{ currency: "EUR", costTry: 5540 }, { currency: "USD", costTry: 5049 }] }),
+  assert.deepEqual(offerOutlier({ costTry: 100, otherMinTry: 1000, otherMaxTry: 1000, brandRows: 1000, relabels: [used("EUR", 5540), used("USD", 5049)] }),
     { anomaly: false, direction: "low", relabelCurrency: null, reason: "not-relabel" });
   assert.deepEqual(offerOutlier({ ...febi, costTry: 1683.62 / 9.99 }), { anomaly: false, direction: null, relabelCurrency: null, reason: "within-ratio" });
   assert.equal(offerOutlier({ ...vw, costTry: 660.96 * 9.99 }).reason, "within-ratio");
 });
 
-test("cross-offer boundaries: exactly 10×, exactly the 3× band, and the nearest relabel", () => {
-  const relabels = [{ currency: "EUR", costTry: 1000 }];
-  assert.equal(offerOutlier({ costTry: 1000, otherMinTry: 50, otherMaxTry: 100, relabels: [{ currency: "TRY", costTry: 100 }] }).direction, "high");
-  assert.equal(offerOutlier({ costTry: 999.99, otherMinTry: 50, otherMaxTry: 100, relabels: [{ currency: "TRY", costTry: 100 }] }).reason, "within-ratio");
-  assert.equal(offerOutlier({ costTry: 100, otherMinTry: 1000, otherMaxTry: 2000, relabels }).direction, "low");
-  assert.equal(offerOutlier({ costTry: 100.01, otherMinTry: 1000, otherMaxTry: 2000, relabels }).reason, "within-ratio");
+test("cross-offer boundaries: exactly 10×, exactly the 3× band, the brand's use of the currency, and the nearest relabel", () => {
+  const brandRows = 1000;
+  const relabels = [used("EUR", 1000)];
+  assert.equal(offerOutlier({ costTry: 1000, otherMinTry: 50, otherMaxTry: 100, brandRows, relabels: [used("TRY", 100)] }).direction, "high");
+  assert.equal(offerOutlier({ costTry: 999.99, otherMinTry: 50, otherMaxTry: 100, brandRows, relabels: [used("TRY", 100)] }).reason, "within-ratio");
+  assert.equal(offerOutlier({ costTry: 100, otherMinTry: 1000, otherMaxTry: 2000, brandRows, relabels }).direction, "low");
+  assert.equal(offerOutlier({ costTry: 100.01, otherMinTry: 1000, otherMaxTry: 2000, brandRows, relabels }).reason, "within-ratio");
   // A relabel must land within [min / 3, max × 3] of the other offers.
-  const low = { costTry: 10, otherMinTry: 300, otherMaxTry: 300 };
-  assert.equal(offerOutlier({ ...low, relabels: [{ currency: "EUR", costTry: 100 }] }).anomaly, true);
-  assert.equal(offerOutlier({ ...low, relabels: [{ currency: "EUR", costTry: 900 }] }).anomaly, true);
-  assert.equal(offerOutlier({ ...low, relabels: [{ currency: "EUR", costTry: 99.99 }] }).reason, "not-relabel");
-  assert.equal(offerOutlier({ ...low, relabels: [{ currency: "EUR", costTry: 900.01 }] }).reason, "not-relabel");
+  const low = { costTry: 10, otherMinTry: 300, otherMaxTry: 300, brandRows };
+  assert.equal(offerOutlier({ ...low, relabels: [used("EUR", 100)] }).anomaly, true);
+  assert.equal(offerOutlier({ ...low, relabels: [used("EUR", 900)] }).anomaly, true);
+  assert.equal(offerOutlier({ ...low, relabels: [used("EUR", 99.99)] }).reason, "not-relabel");
+  assert.equal(offerOutlier({ ...low, relabels: [used("EUR", 900.01)] }).reason, "not-relabel");
+  // The brand must use the currency: at least 20 rows and 5 % of the brand.
+  const { MIN_RELABEL_ROWS, MIN_RELABEL_SHARE } = priceAnomalyThresholds;
+  assert.deepEqual([MIN_RELABEL_ROWS, MIN_RELABEL_SHARE], [20, 0.05]);
+  assert.equal(offerOutlier({ ...low, brandRows: 400, relabels: [{ currency: "EUR", costTry: 100, rows: 20 }] }).anomaly, true);
+  assert.equal(offerOutlier({ ...low, brandRows: 401, relabels: [{ currency: "EUR", costTry: 100, rows: 20 }] }).reason, "not-relabel");
+  assert.equal(offerOutlier({ ...low, brandRows: 100, relabels: [{ currency: "EUR", costTry: 100, rows: 19 }] }).reason, "not-relabel");
   // Several fit: the one closest to the offers (in ratio) wins.
-  assert.equal(offerOutlier({ costTry: 10, otherMinTry: 1000, otherMaxTry: 1000,
-    relabels: [{ currency: "USD", costTry: 400 }, { currency: "EUR", costTry: 1100 }, { currency: "GBP", costTry: 2900 }] }).relabelCurrency, "EUR");
+  assert.equal(offerOutlier({ costTry: 10, otherMinTry: 1000, otherMaxTry: 1000, brandRows,
+    relabels: [used("USD", 400), used("EUR", 1100), used("GBP", 2900)] }).relabelCurrency, "EUR");
 });
 
 test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and corroboration", { skip: !process.env.DATABASE_URL && "DATABASE_URL not set" }, async () => {
@@ -147,7 +163,7 @@ test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and c
     const before = { eur: await price(kentEur), tl: await price(kentTl[0]), bosch: await price(boschTl), delphi: await price(delphiEur) };
     for (const value of Object.values(before)) assert.ok(value && value > 0);
 
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 0, ratesMissing: false });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 0, ratesMissing: false, unrated: 0 });
     assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "open" }]);
     const evidence = (await pool.query("SELECT evidence FROM supplier_price_anomalies")).rows[0].evidence;
     assert.deepEqual([evidence.currency, evidence.dominant_currency, evidence.brand_rows, evidence.currency_rows, evidence.cost_kurus, evidence.median_kurus],
@@ -158,7 +174,7 @@ test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and c
     // Dismissed: priced again, and a later refresh keeps the decision.
     await pool.query("UPDATE supplier_price_anomalies SET status='dismissed'");
     assert.equal(await price(kentEur), before.eur);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 0, removed: 0, ratesMissing: false });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 0, removed: 0, ratesMissing: false, unrated: 0 });
     assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "dismissed" }]);
     assert.equal(await price(kentEur), before.eur);
 
@@ -166,11 +182,11 @@ test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and c
     const [kentDinamik] = await rows("KENTPAR", "TRY", 30000, 1, "dinamik");
     const kentProduct = (await pool.query<{ id: string }>("INSERT INTO products(brand,part_number,brand_label,code) VALUES('KENTPAR','152T01901','KENTPAR','KENT 152 T019 01') RETURNING id::text")).rows[0].id;
     await pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$3),($2,$3)", [kentEur, kentDinamik, kentProduct]);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 0, removed: 0, ratesMissing: false });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 0, removed: 0, ratesMissing: false, unrated: 0 });
     assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "dismissed" }]);
     assert.equal(await price(kentEur), before.eur);
     await pool.query("DELETE FROM product_sources WHERE supplier_item_id=$1", [kentDinamik]);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 0, removed: 0, ratesMissing: false });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 0, removed: 0, ratesMissing: false, unrated: 0 });
     assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "dismissed" }]);
     assert.equal(await price(kentEur), before.eur);
 
@@ -178,7 +194,7 @@ test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and c
     await pool.query("UPDATE supplier_price_anomalies SET status='open'");
     const rates = (await pool.query("SELECT currencies_data FROM supplier_imports")).rows[0].currencies_data;
     await pool.query(`UPDATE supplier_imports SET currencies_data='{"dovizListesi":[]}'`);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 1, removed: 0, ratesMissing: true });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 1, removed: 0, ratesMissing: true, unrated: 1 });
     assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "open" }]);
     await pool.query("UPDATE supplier_imports SET currencies_data=$1", [rates]);
 
@@ -193,17 +209,17 @@ test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and c
     // The supplier corrects the currency: even a dismissed anomaly is deleted and the row priced from its TL cost.
     await pool.query("UPDATE supplier_price_anomalies SET status='dismissed'");
     await pool.query(`UPDATE supplier_items SET product_data=jsonb_set(product_data,'{dc}','"TL"') WHERE id=$1`, [kentEur]);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 0, removed: 1, ratesMissing: false });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 0, removed: 1, ratesMissing: false, unrated: 0 });
     assert.deepEqual(await anomalies(), []);
     assert.ok((await price(kentEur) ?? 0) > 0);
 
     // Without the corroborating Dinamik offer, the DELPHX row would be flagged.
     await pool.query("DELETE FROM product_sources WHERE supplier_item_id=$1", [dinamik]);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 0, ratesMissing: false });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 0, ratesMissing: false, unrated: 0 });
     assert.deepEqual(await anomalies(), [{ supplier_item_id: delphiEur, status: "open" }]);
     // An open anomaly the next run no longer detects (the offer is linked again) is deleted.
     await pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [dinamik, product]);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 0, removed: 1, ratesMissing: false });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 0, removed: 1, ratesMissing: false, unrated: 0 });
   } finally {
     await schema.drop();
   }
@@ -236,17 +252,33 @@ test("PostgreSQL: cross-offer outliers and underpriced rows (#1050)", { skip: !p
     await rows("LOWB", "EUR", 40, 60);
     const [lowTl] = await rows("LOWB", "TL", 50, 1);
     await link("P3", lowTl, ...await rows("LOWB", "TRY", 2750, 1, "dinamik"));
+    // A brand priced in TL and EUR with one EUR row 51× Dinamik's TL offer: read as TL it fits (high direction).
+    await rows("HIGHB", "TL", 100, 40);
+    await rows("HIGHB", "EUR", 2, 40);
+    const [highEur] = await rows("HIGHB", "EUR", 300, 1);
+    await link("P4", highEur, ...await rows("HIGHB", "TRY", 320, 1, "dinamik"));
+    // A TL-only brand has no other currency to relabel into: 55× below the offer, but not flagged.
+    const [soloTl] = await rows("SOLOB", "TL", 500, 30);
+    await link("P5", soloTl, ...await rows("SOLOB", "TRY", 27500, 1, "dinamik"));
+    // A linked row in a currency without a rate is skipped and counted; the run still judges (and deletes) the rest.
+    const [gbp] = await rows("GBPB", "GBP", 10, 1);
+    await link("P6", gbp, ...await rows("GBPB", "TRY", 5000, 1, "dinamik"));
 
     const price = async (id: string) => (await pool.query<{ price_kurus: number | null }>("SELECT price_kurus FROM commerce_catalog WHERE id=$1", [id])).rows[0].price_kurus;
     const anomalies = async () => (await pool.query<{ supplier_item_id: string; kind: string; status: string; direction: string }>(
       "SELECT supplier_item_id::text,kind,status,evidence->>'direction' AS direction FROM supplier_price_anomalies ORDER BY kind,supplier_item_id")).rows;
     assert.ok((await price(mixCheap) ?? 0) > 0);
 
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 2, open: 2, removed: 0, ratesMissing: false });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 3, open: 3, removed: 0, ratesMissing: false, unrated: 1 });
     assert.deepEqual(await anomalies(), [
       { supplier_item_id: lowTl, kind: "currency", status: "open", direction: "low" },
-      { supplier_item_id: mixCheap, kind: "offer-outlier", status: "open", direction: "low" },
+      ...[{ supplier_item_id: mixCheap, kind: "offer-outlier", status: "open", direction: "low" },
+        { supplier_item_id: highEur, kind: "offer-outlier", status: "open", direction: "high" }].sort((a, b) => a.supplier_item_id.localeCompare(b.supplier_item_id)),
     ]);
+    const high = (await pool.query("SELECT evidence FROM supplier_price_anomalies WHERE supplier_item_id=$1", [highEur])).rows[0].evidence;
+    assert.deepEqual([high.currency, high.relabel_currency, high.cost_kurus, high.other_offer_kurus], ["EUR", "TRY", 300 * 55 * 100, 32000]);
+    assert.equal(await price(highEur), null);
+    assert.ok((await price(soloTl) ?? 0) > 0);
     const evidence = (await pool.query("SELECT evidence FROM supplier_price_anomalies WHERE supplier_item_id=$1", [mixCheap])).rows[0].evidence;
     assert.deepEqual([evidence.currency, evidence.relabel_currency, evidence.dominant_currency, evidence.cost_kurus, evidence.median_kurus, evidence.other_offer_min_kurus, evidence.other_offers],
       ["TRY", "EUR", "EUR", 100000, 0, 5500000, 1]);
@@ -258,14 +290,14 @@ test("PostgreSQL: cross-offer outliers and underpriced rows (#1050)", { skip: !p
     // Dismissed: priced again, and the next refresh keeps the decision.
     await pool.query("UPDATE supplier_price_anomalies SET status='dismissed' WHERE supplier_item_id=$1", [mixCheap]);
     assert.ok((await price(mixCheap) ?? 0) > 0);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 2, open: 1, removed: 0, ratesMissing: false });
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 3, open: 2, removed: 0, ratesMissing: false, unrated: 1 });
     assert.equal((await anomalies()).find(row => row.supplier_item_id === mixCheap)?.status, "dismissed");
 
     // An open outlier whose product link goes away is no longer detected: deleted and priced again.
     await pool.query("UPDATE supplier_price_anomalies SET status='open' WHERE supplier_item_id=$1", [mixCheap]);
     await pool.query("DELETE FROM product_sources WHERE supplier_item_id=$1", [mixCheap]);
-    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 1, ratesMissing: false });
-    assert.deepEqual((await anomalies()).map(row => row.supplier_item_id), [lowTl]);
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 2, open: 2, removed: 1, ratesMissing: false, unrated: 1 });
+    assert.deepEqual((await anomalies()).map(row => row.supplier_item_id), [lowTl, highEur]);
     assert.ok((await price(mixCheap) ?? 0) > 0);
   } finally {
     await schema.drop();

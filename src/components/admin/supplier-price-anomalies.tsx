@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Info } from "lucide-react";
 import { setPriceAnomalyStatus } from "@/app/yonetim/tedarikciler/actions";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
@@ -13,7 +14,7 @@ const kindLabels: Record<PriceAnomalyKind, string> = { currency: "Para birimi", 
 const low = (evidence: PriceAnomalyEvidence) => evidence.direction === "low";
 /** How many times off the compared value the row is (evidence.ratio is below 1 when the row is too low). */
 const times = (evidence: PriceAnomalyEvidence) => formatNumber(Math.round(low(evidence) ? 1 / evidence.ratio : evidence.ratio));
-const ratio = (evidence: PriceAnomalyEvidence) => `${times(evidence)}×${low(evidence) ? " düşük" : ""}`;
+const ratio = (evidence: PriceAnomalyEvidence) => `${times(evidence)}× ${low(evidence) ? "düşük" : "yüksek"}`;
 const currencies = (kind: PriceAnomalyKind, evidence: PriceAnomalyEvidence) => kind === "offer-outlier"
   ? `${evidence.currency} · olası ${evidence.relabel_currency ?? evidence.dominant_currency}` : `${evidence.currency} · marka ${evidence.dominant_currency}`;
 /** Other suppliers' TRY offers for the same product: one price, or the lowest–highest range. */
@@ -22,6 +23,9 @@ const offers = (evidence: PriceAnomalyEvidence) => {
   const min = evidence.other_offer_min_kurus ?? evidence.other_offer_kurus;
   return min === evidence.other_offer_kurus ? money(min) : `${money(min)}–${money(evidence.other_offer_kurus)}`;
 };
+/** The other-offer column: an offer-outlier already shows the offer under "Karşılaştırma", so only the count. */
+const otherOffers = (kind: PriceAnomalyKind, evidence: PriceAnomalyEvidence) => kind === "currency" ? offers(evidence)
+  : evidence.other_offers ? `${formatNumber(evidence.other_offers)} teklif` : "—";
 /** The value the row is compared with: the brand median (currency) or the nearest other offer (offer-outlier). */
 const compared = (kind: PriceAnomalyKind, evidence: PriceAnomalyEvidence) => kind === "currency" ? money(evidence.median_kurus)
   : money((low(evidence) ? evidence.other_offer_min_kurus : null) ?? evidence.other_offer_kurus ?? 0);
@@ -31,7 +35,8 @@ export function priceAnomalySummary(kind: PriceAnomalyKind, evidence: PriceAnoma
   if (kind === "offer-outlier") {
     const plural = (evidence.other_offers ?? 1) > 1;
     return `Aynı ürünün diğer tedarikçi ${plural ? "teklifleri" : "teklifi"} ${offers(evidence)}; bu satır ${money(evidence.cost_kurus)} `
-      + `(${times(evidence)} kat ${low(evidence) ? "düşük" : "yüksek"}). Değer ${evidence.relabel_currency ?? evidence.dominant_currency} okununca tekliflerle uyuşuyor.`;
+      + `(${times(evidence)} kat ${low(evidence) ? "düşük" : "yüksek"}). Değer ${evidence.relabel_currency ?? evidence.dominant_currency} olarak okunursa `
+      + `diğer ${plural ? "tekliflerle" : "teklifle"} uyuşuyor.`;
   }
   const brand = `${evidence.brand} markasının ${formatNumber(evidence.brand_rows)} satırından ${formatNumber(evidence.currency_rows)} tanesi ${evidence.currency}, `
     + `diğerleri ${evidence.dominant_currency}.`;
@@ -44,7 +49,11 @@ export function priceAnomalySummary(kind: PriceAnomalyKind, evidence: PriceAnoma
 export function SupplierPriceAnomalies({ rows }: { rows: AdminPriceAnomaly[] }) {
   return <Card id="fiyat-anomalileri" role="region" aria-labelledby="price-anomalies">
     <CardHeader><CardTitle><h2 id="price-anomalies">Fiyat anomalileri</h2></CardTitle>
-      <CardDescription>Para birimi: satırın para birimi markanın geri kalanıyla uyuşmuyor ve çevrilmiş maliyet marka medyanından en az {formatNumber(priceAnomalyThresholds.RATIO)} kat yüksek ya da düşük. Teklif sapması: maliyet aynı ürünün diğer tedarikçi tekliflerinden en az {formatNumber(priceAnomalyThresholds.RATIO)} kat uzak ve değer başka bir para biriminde okununca tekliflerle uyuşuyor. Bu satırlar katalogda kalır ama fiyatlanmaz; veriyi tedarikçi düzeltir.</CardDescription></CardHeader>
+      <CardDescription className="flex flex-col gap-1">
+        <p>Para birimi: satırın para birimi markanın geri kalanıyla uyuşmuyor; çevrilmiş maliyet marka medyanından en az {formatNumber(priceAnomalyThresholds.RATIO)} kat yüksek ya da düşük.</p>
+        <p>Teklif sapması: maliyet aynı ürünün diğer tedarikçi tekliflerinden en az {formatNumber(priceAnomalyThresholds.RATIO)} kat uzak; değer markanın kullandığı başka bir para birimi olarak okunursa tekliflerle uyuşuyor.</p>
+        <p>Bu satırlar katalogda kalır ama fiyatlanmaz; veriyi tedarikçi düzeltir.</p>
+      </CardDescription></CardHeader>
     <CardContent>
       <Table controls={false}>
         <caption className="sr-only">Fiyat anomalileri</caption>
@@ -63,12 +72,12 @@ export function SupplierPriceAnomalies({ rows }: { rows: AdminPriceAnomaly[] }) 
               <div className="text-muted-foreground">{evidence.brand}</div>
               <div className="text-muted-foreground tabular-nums md:hidden">{kindLabels[kind]} · {currencies(kind, evidence)} · {money(evidence.cost_kurus)}</div>
             </TableCell>
-            <TableCell className="hidden md:table-cell"><StatusBadge tone="neutral">{kindLabels[kind]}</StatusBadge></TableCell>
+            <TableCell className="hidden md:table-cell"><StatusBadge tone="neutral" icon={Info}>{kindLabels[kind]}</StatusBadge></TableCell>
             <TableCell className="hidden md:table-cell">{currencies(kind, evidence)}</TableCell>
             <TableCell className="hidden text-right tabular-nums md:table-cell">{money(evidence.cost_kurus)}</TableCell>
             <TableCell className="hidden text-right tabular-nums md:table-cell">{compared(kind, evidence)}<div className="text-muted-foreground">{kind === "currency" ? "marka medyanı" : "diğer teklif"}</div></TableCell>
             <TableCell className="text-right tabular-nums">{ratio(evidence)}</TableCell>
-            <TableCell className="hidden text-right tabular-nums md:table-cell">{offers(evidence)}</TableCell>
+            <TableCell className="hidden text-right tabular-nums md:table-cell">{otherOffers(kind, evidence)}</TableCell>
             <TableCell>{open ? <StatusBadge tone="warning">Fiyatlanmıyor</StatusBadge> : <StatusBadge tone="neutral">Anomali değil</StatusBadge>}</TableCell>
             <TableCell>
               <form action={setPriceAnomalyStatus}>

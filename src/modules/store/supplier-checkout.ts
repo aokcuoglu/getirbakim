@@ -118,7 +118,7 @@ export type LiveCost = {id:string;nf:number;price:number|null};
  * cost the formula cannot price leaves the line unpriced (a change). The view's cost>0/exchange_rate>0/freshness
  * gates are not repeated: it is only called for lines cartFor found priced and sellable, and the refresh reports a
  * non-positive live cost as sold out. A line missing from the catalog by now counts as changed (no snapshot, so no
- * formula price), and so does a line with an open currency anomaly (#1030), which the view leaves unpriced.
+ * formula price), and so does a line with an open price anomaly (#1030, #1050), which the view leaves unpriced.
  * scripts/test-supplier-checkout.ts compares it with the view. Read-only, no locks.
  */
 export async function livePriceChanges(connection:Pick<PoolClient,"query">, lines:LiveCost[]) {

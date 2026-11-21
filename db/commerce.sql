@@ -306,7 +306,8 @@ $$;
 -- table is first created; later runs skip CREATE TABLE IF NOT EXISTS without locking it.
 -- kind (#1050): 'currency' covers both directions (evidence.direction: absent/'high' = converted cost far above the
 -- brand's median, 'low' = a rare-currency row far below it); 'offer-outlier' = a row 10× away from the same product's
--- other-supplier offers whose value fits them when read in another of the supplier's currencies.
+-- other-supplier offers whose value fits them when read in another currency its brand prices in. On an existing table
+-- the kind list is widened by scripts/setup-constraint-swaps.ts before the schema transaction; keep both lists equal.
 CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  supplier_item_id uuid PRIMARY KEY, supplier text NOT NULL,
  kind text NOT NULL DEFAULT 'currency' CHECK (kind IN ('currency','offer-outlier')),
@@ -314,16 +315,6 @@ CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  evidence jsonb NOT NULL, detected_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(),
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz
 );
--- Replaced only when the validated constraint's quoted values differ from this list: DROP + ADD locks the table
--- (ACCESS EXCLUSIVE, re-validating every row) until setup commits. The guard's ARRAY must match the CHECK exactly.
-DO $$ BEGIN
- IF ARRAY(SELECT r.m[1] FROM pg_constraint k, regexp_matches(pg_get_constraintdef(k.oid),'''([^'']*)''','g') WITH ORDINALITY r(m,i)
-   WHERE k.conrelid='supplier_price_anomalies'::regclass AND k.conname='supplier_price_anomalies_kind_check' AND k.convalidated ORDER BY r.i)
-  IS DISTINCT FROM ARRAY['currency','offer-outlier'] THEN
-  ALTER TABLE supplier_price_anomalies DROP CONSTRAINT IF EXISTS supplier_price_anomalies_kind_check;
-  ALTER TABLE supplier_price_anomalies ADD CONSTRAINT supplier_price_anomalies_kind_check CHECK (kind IN ('currency','offer-outlier'));
- END IF;
-END $$;
 DO $setup$ DECLARE def text := $view$
 WITH latest AS (
  SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
@@ -348,7 +339,7 @@ WITH latest AS (
  commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now()) AS sale_price,
  -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
  (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced,
- -- An open currency anomaly (#1030, supplier_price_anomalies above) keeps the row unpriced.
+ -- An open price anomaly (#1030, #1050, supplier_price_anomalies above) keeps the row unpriced.
  (pa.supplier_item_id IS NOT NULL) AS price_anomaly
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
