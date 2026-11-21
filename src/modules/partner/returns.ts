@@ -1,6 +1,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
+import type { ReturnReason } from "@/modules/store/returns";
 import { decodeOfferId } from "./dto";
 import { lockPartnerOrders } from "./limits";
 import { notFound, uuidPattern } from "./orders";
@@ -59,6 +60,16 @@ async function returnedQuantities(orderId: string, connection: Connection, excep
     accepted: new Map(accepted.rows.map(row => [row.product_id, row.quantity])),
     pending: new Map(pending.rows.map(row => [row.product_id, row.quantity])),
   };
+}
+
+export type PendingReturnLine = { request_id: string; product_id: string; quantity: number; reason: ReturnReason; note: string; requested_at: Date };
+
+/** Lines of the order's pending partner return requests (#1151), oldest request first. The caller authorises. */
+export async function pendingReturnLines(orderId: string, connection: Connection = db) {
+  return (await connection.query<PendingReturnLine>(
+    `SELECT r.id::text AS request_id,l.product_id::text,l.quantity,l.reason,r.note,r.requested_at
+     FROM partner_return_request_lines l JOIN partner_return_requests r ON r.id=l.request_id
+     WHERE l.order_id=$1 AND r.status='requested' ORDER BY r.requested_at,r.id,l.product_id`, [orderId])).rows;
 }
 
 /**

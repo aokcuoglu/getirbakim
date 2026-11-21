@@ -13,6 +13,7 @@ import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules
 import { restockDueCount } from "./restock";
 import { installmentSettings } from "@/modules/payments/installment-settings";
 import { procurementOpenSql, type AdminOrderLine } from "./order-procurement";
+import { pendingReturnLines } from "@/modules/partner/returns";
 import { dashboardOrdersSql, navOrderCountSql, orderFilters, orderReturnRequestsSql, orderTabCountsSql, type OrderFilter } from "./order-filters";
 import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 import type { PriceAnomalyEvidence, PriceAnomalyKind } from "@/modules/suppliers/price-anomalies";
@@ -207,6 +208,12 @@ type OrderReturn = { id: string; product_id: string; quantity: number; reason: s
 export async function orderReturns(orderId: string) {
   await requireAdmin();
   return (await db.query<OrderReturn>("SELECT id,product_id,quantity,reason,note,created_at FROM commerce_returns WHERE order_id=$1 ORDER BY created_at", [orderId])).rows;
+}
+
+/** Pending partner return requests' lines of the order (#1151), shown beside its manual return form. */
+export async function orderPendingReturns(orderId: string) {
+  await requireAdmin();
+  return pendingReturnLines(orderId);
 }
 
 /** Light-weight Başbuğ figures for the integrations overview; the full browser lives in modules/admin/basbug.ts. */
