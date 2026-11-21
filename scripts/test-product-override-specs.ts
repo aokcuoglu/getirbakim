@@ -53,17 +53,32 @@ const card = async (key: string) => (await enrichment.getCatalogProductDetails([
 /** The listed store row ids of an attribute filter (each filter once: listings are cached for the process). */
 const filtered = async (attributes: Record<string, string[]>) => (await catalog.browseProducts({ attributes: JSON.stringify(attributes), sort: "newest" })).items.map(row => row.id);
 const facet = (facets: { attributes: { key: string; options: { values: string[] }[] }[] }, key: string) => facets.attributes.find(row => row.key === key)?.options.flatMap(option => option.values).sort();
-/** The property facet rows of every supplier row read per product (the default) and through the hash join (#955). */
-async function facetBranchesAgree() {
-  const run = async (nestedScope?: number) => (await schema.pool.query<{ key: string; values: string[] }>(
-    catalog.attributeFacetsSql("SELECT id FROM supplier_items", "$1::text[]", nestedScope), [facetSpecificationKeys])).rows;
-  // The cross-reference fixture reaches the store's links, yet its specification is no facet option in either branch.
+/** The precomputed facet rows (storefront_facet_specs, #994) of the guarded fixtures, per row key. */
+async function facetRows() {
+  const { rows } = await schema.pool.query<{ id: string; key: string; value: string }>(
+    "SELECT supplier_item_id::text AS id,key,value FROM storefront_facet_specs ORDER BY 1,2,3");
+  const byKey = Object.fromEntries(Object.entries(ids).map(([name, id]) => [id, name]));
+  const out: Record<string, [string, string][]> = {};
+  for (const row of rows) (out[byKey[row.id] ?? row.id] ??= []).push([row.key, row.value]);
+  return out;
+}
+/** The facet table holds what the readers would show of the enrichments, guards applied (#994). */
+async function facetTableAgrees() {
+  // The cross-reference fixture reaches the store's links, yet its specification is no facet row.
   const linked = await schema.pool.query("SELECT 1 FROM product_enrichment_shared_links WHERE supplier_item_id=$1 AND donor_item_id=$1", [ids.crossRef]);
   assert.equal(linked.rowCount, 1);
-  const nested = await run(), hashed = await run(0);
-  assert.ok(nested.length > 0);
-  for (const rows of [nested, hashed]) assert.ok(!rows.some(row => row.values.includes("Cartridge")), "cross-reference spec");
-  assert.deepEqual(hashed, nested);
+  const rows = await facetRows();
+  assert.equal(rows.crossRef, undefined, "cross-reference spec");
+  // A payload of another code (stale) describes another part: it is no valid donor, so the row has no link and no
+  // facet rows. The identity guard of a link whose row changed is covered in "the facet rows follow the links".
+  assert.equal((await schema.pool.query("SELECT 1 FROM product_enrichment_shared_links WHERE supplier_item_id=$1", [ids.stale])).rowCount, 0);
+  assert.equal(rows.stale, undefined, "stale payload");
+  // Facet keys only: no "Thickness [mm]" or "EAN"; "Brand class" from an exact part.
+  assert.deepEqual(rows.febi, [["Brand class", "Premium"], ["Fitting Position", "Lower Left"], ["Fitting Position", "Lower Right"]]);
+  const all = await schema.pool.query<{ key: string; values: string[] }>(
+    catalog.attributeFacetsSql("SELECT id FROM supplier_items", "$1::text[]"), [facetSpecificationKeys]);
+  assert.ok(all.rows.length > 0);
+  assert.ok(!all.rows.some(row => row.values.includes("Cartridge")), "cross-reference spec in the facet");
 }
 
 before(async () => {
@@ -131,7 +146,7 @@ test("the admin list shows the automatic specifications of every source, guarded
   assert.equal(await card("bare"), undefined);
   // The facet before any decision (a code search: plain searches are cached per query).
   assert.deepEqual(facet(await catalog.catalogFacets({ q: "MAHLE 20020", searchBy: "code" }), "Fitting Position"), ["Upper Left"]);
-  await facetBranchesAgree();
+  await facetTableAgrees();
 });
 
 test("edit, hide and add reach every row of the product, its cards and the history", async () => {
@@ -173,7 +188,7 @@ test("catalog facets and the attribute filter read the admin's values", async ()
   assert.deepEqual(await filtered({ "Fitting Position": ["Rear Axle"] }), [ids.bare]);
   assert.deepEqual(await filtered({ "Fitting Position": ["Upper Left"] }), []);
   assert.deepEqual(await filtered({ "Filter type": ["Spin-on"] }), [ids.mahle]);
-  await facetBranchesAgree();
+  await facetTableAgrees();
 });
 
 test("enrichment imports, supplier syncs and matching refreshes leave the decisions alone", async () => {
@@ -198,6 +213,12 @@ test("supplier syncs, enrichment, fitment rebuilds and the storefront bundle nev
     "src/modules/enrichment/import.ts", "src/modules/store/fitment-sync.ts", "scripts/rebuild-product-fitments.ts"];
   assert.ok(supplierImports.length >= 4 && bundle.length >= 4);
   for (const file of files) assert.ok(!/product_override_spec/.test(await readFile(file, "utf8")), file);
+  // The precomputed facet rows (#994) are derived from the links: no bundle, export or import script writes them (the
+  // export/import header comments name the table among the derived ones).
+  for (const file of [...bundle, "scripts/import-storefront-bundle.ts", "scripts/export-storefront-bundle.ts", "scripts/import-storefront-inbound.ts"]) {
+    const code = (await readFile(file, "utf8")).split("\n").filter(line => !line.trimStart().startsWith("//")).join("\n");
+    assert.ok(!/storefront_facet_specs/.test(code), file);
+  }
 });
 
 test("refused: missing or merged product, identity keys, hiding a key the sources lack, no change, the row limit, stale rows", async () => {
@@ -272,4 +293,71 @@ test("facet options merge equivalent translations and keep every raw value in th
   const each = await Promise.all(options[0].values.map(value => catalog.browseProducts({ attributes: JSON.stringify({ "Fitting Position": [value] }), sort: "newest" })));
   assert.deepEqual(both.items.map(row => row.id).sort(), [ids.posA, ids.posB].sort());
   assert.equal(both.total, each.reduce((sum, page) => sum + page.total, 0));
+});
+
+test("the SQL facet keys mirror facetSpecificationKeys", async () => {
+  assert.deepEqual((await schema.pool.query<{ keys: string[] }>("SELECT storefront_facet_keys() AS keys")).rows[0].keys, [...facetSpecificationKeys]);
+});
+
+test("the facet rows follow the links (#994)", async () => {
+  await item("facet", { supplier: "dinamik", code: "BREMBO 13013", brand: "BREMBO", name: "BREMBO FREN DISKI" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  // Not a facet key, and a value over 200 characters: neither becomes a row.
+  await enrich("facet", "BREMBO", "13013", [["Fitting Position", "Front Axle"], ["Brand class", "Premium"], ["Thickness [mm]", "22"],
+    ["Filter type", "x".repeat(201)]]);
+  // Matched through the row's own supplier OEM: its criteria are facet rows, its brand class is not (#994).
+  await item("facetOem", { supplier: "dinamik", code: "BREMBO 14014", brand: "BREMBO", name: "BREMBO FREN DISKI ARKA" });
+  await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"oe":"1K0615601"}' WHERE id=$1`, [ids.facetOem]);
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await enrich("facetOem", "BREMBO", "14014", [["Fitting Position", "Rear Axle"], ["Brand class", "Premium"]]);
+  await schema.pool.query(`UPDATE product_enrichments SET match_basis='{"type":"oem_reference","supplierOem":"1K0615601"}' WHERE supplier_item_id=$1`, [ids.facetOem]);
+  await syncSharedLinks(schema.pool);
+  assert.deepEqual((await facetRows()).facet, [["Brand class", "Premium"], ["Fitting Position", "Front Axle"]]);
+  assert.equal((await schema.pool.query("SELECT 1 FROM product_enrichment_shared_links WHERE supplier_item_id=$1 AND donor_oem='1K0615601'", [ids.facetOem])).rowCount, 1);
+  assert.deepEqual((await facetRows()).facetOem, [["Fitting Position", "Rear Axle"]]);
+  // The identity guard runs when the rows are refreshed: a row whose code or brand changed loses them even while its
+  // link still carries the old ones (before the queue is drained); the drain then drops the link too.
+  const refreshItem = (key: string) => schema.pool.query("SELECT storefront_facet_specs_refresh($1::uuid[])", [[ids[key]]]);
+  const linkedAs = async (column: "supplier_code" | "supplier_brand", value: string) => (await schema.pool.query(
+    `SELECT 1 FROM product_enrichment_shared_links WHERE supplier_item_id=$1 AND ${column}=$2`, [ids.facetOem, value])).rowCount;
+  await schema.pool.query("UPDATE supplier_items SET code='BREMBO 14015' WHERE id=$1", [ids.facetOem]);
+  await refreshItem("facetOem");
+  assert.equal(await linkedAs("supplier_code", "BREMBO 14014"), 1);
+  assert.equal((await facetRows()).facetOem, undefined, "code changed");
+  await schema.pool.query("UPDATE supplier_items SET code='BREMBO 14014' WHERE id=$1", [ids.facetOem]);
+  await syncSharedLinks(schema.pool);
+  assert.deepEqual((await facetRows()).facetOem, [["Fitting Position", "Rear Axle"]]);
+  await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"uk":"BREMBO-X"}' WHERE id=$1`, [ids.facetOem]);
+  await refreshItem("facetOem");
+  assert.equal(await linkedAs("supplier_brand", "BREMBO"), 1);
+  assert.equal((await facetRows()).facetOem, undefined, "brand changed");
+  await syncSharedLinks(schema.pool);
+  assert.equal(await linkedAs("supplier_brand", "BREMBO"), 0);
+  assert.equal((await facetRows()).facetOem, undefined);
+  // New specifications reach the rows with the next link sync.
+  await schema.pool.query(`UPDATE product_enrichments SET payload=jsonb_set(payload,'{specifications}','[["Fitting Position","Rear Axle"],["Filter type","Disc"]]'),
+    imported_at=now() WHERE supplier_item_id=$1`, [ids.facet]);
+  await syncSharedLinks(schema.pool);
+  assert.deepEqual((await facetRows()).facet, [["Filter type", "Disc"], ["Fitting Position", "Rear Axle"]]);
+  // A second refresh of the same scope writes nothing; neither does a full one.
+  const refresh = async (scope: string[] | null) => (await schema.pool.query<{ n: number }>(
+    "SELECT storefront_facet_specs_refresh($1::uuid[]) AS n", [scope])).rows[0].n;
+  await refresh([ids.facet]);
+  assert.equal(await refresh([ids.facet]), 0);
+  await refresh(null);
+  assert.equal(await refresh(null), 0);
+  // A payload whose specifications are not a list gives no rows and no error.
+  await schema.pool.query(`UPDATE product_enrichments SET payload=jsonb_set(payload,'{specifications}','{"Fitting Position":"Front Axle"}'),
+    imported_at=now() WHERE supplier_item_id=$1`, [ids.facet]);
+  await syncSharedLinks(schema.pool);
+  assert.equal((await facetRows()).facet, undefined);
+  assert.equal(await refresh(null), 0);
+  // A deleted enrichment takes its links and their facet rows with it.
+  await schema.pool.query(`UPDATE product_enrichments SET payload=jsonb_set(payload,'{specifications}','[["Fitting Position","Front Axle"]]'),
+    imported_at=now() WHERE supplier_item_id=$1`, [ids.facet]);
+  await syncSharedLinks(schema.pool);
+  assert.deepEqual((await facetRows()).facet, [["Fitting Position", "Front Axle"]]);
+  await schema.pool.query("DELETE FROM product_enrichments WHERE supplier_item_id=$1", [ids.facet]);
+  await syncSharedLinks(schema.pool);
+  assert.equal((await facetRows()).facet, undefined);
 });

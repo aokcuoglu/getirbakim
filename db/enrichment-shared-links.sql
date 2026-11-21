@@ -93,6 +93,55 @@ BEGIN
  PERFORM set_config('enable_nestloop','on',true);
 END $$;
 
+-- The specification keys the catalog offers as filters. Mirrors facetSpecificationKeys in
+-- src/modules/store/catalog-filters.ts (scripts/test-product-override-specs.ts asserts they are equal).
+CREATE OR REPLACE FUNCTION storefront_facet_keys() RETURNS text[] LANGUAGE sql IMMUTABLE AS $$
+ SELECT ARRAY['Fitting Position','Brand class','Filter type','Lamp Type','Bulb Type','Fuel Type','Shock Absorber Type',
+  'Shock Absorber System','Wiper blade type','Oil Viscosity Classification SAE','Transmission Type','Mounting Type']
+$$;
+
+-- The facet-key specifications each linked offer shows (#994), so the catalog's property facet reads rows instead of
+-- unpacking every listed enrichment payload (~2.3 s of the unfiltered /katalog facet's 3.4 s). Only what the readers
+-- would show: the offer's own code and brand, no cross-reference match, a facet key, a value up to 200 characters, and
+-- "Brand class" only from an exact-part match. The admin's specifications (product_override_specs) are applied when
+-- read. Derived from the links like storefront_make_fits: never in the storefront bundle; links that leave take their
+-- rows with them (cascade).
+CREATE TABLE IF NOT EXISTS storefront_facet_specs (
+ supplier_item_id uuid NOT NULL REFERENCES product_enrichment_shared_links(supplier_item_id) ON DELETE CASCADE,
+ key text NOT NULL, value text NOT NULL,
+ PRIMARY KEY (supplier_item_id,key,value)
+);
+
+-- Recomputes the facet rows of the given offers (NULL: all) and writes only what changed. EXECUTE plans each call
+-- afresh: a scoped plan is never reused for the whole catalog.
+CREATE OR REPLACE FUNCTION storefront_facet_specs_refresh(item_ids uuid[] DEFAULT NULL) RETURNS integer
+LANGUAGE plpgsql AS $$
+DECLARE changed integer;
+BEGIN
+ EXECUTE $sql$CREATE TEMP TABLE facet_specs_computed ON COMMIT DROP AS
+  SELECT DISTINCT l.supplier_item_id,spec->>0 AS key,spec->>1 AS value
+  FROM product_enrichment_shared_links l
+  JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id
+  JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
+  CROSS JOIN LATERAL jsonb_array_elements(CASE jsonb_typeof(e.payload->'specifications') WHEN 'array' THEN e.payload->'specifications' ELSE '[]' END) spec
+  WHERE ($1::uuid[] IS NULL OR l.supplier_item_id=ANY($1))
+   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=l.donor_oem)
+   AND spec->>0=ANY(storefront_facet_keys()) AND length(spec->>1)<=200
+   AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')$sql$ USING item_ids;
+ WITH inserted AS (
+  INSERT INTO storefront_facet_specs(supplier_item_id,key,value) SELECT supplier_item_id,key,value FROM facet_specs_computed
+  ON CONFLICT DO NOTHING RETURNING 1
+ ), removed AS (
+  DELETE FROM storefront_facet_specs f WHERE (item_ids IS NULL OR f.supplier_item_id=ANY(item_ids))
+   AND NOT EXISTS (SELECT 1 FROM facet_specs_computed c WHERE c.supplier_item_id=f.supplier_item_id AND c.key=f.key AND c.value=f.value)
+  RETURNING 1
+ )
+ SELECT (SELECT count(*) FROM inserted)+(SELECT count(*) FROM removed) INTO changed;
+ DROP TABLE facet_specs_computed;
+ IF item_ids IS NULL THEN ANALYZE storefront_facet_specs; END IF;
+ RETURN changed;
+END $$;
+
 -- Recomputes the links of the given products and items (NULL: all) and writes only what changed. A product's scope
 -- is every offer linked to it, so links that left the result (merged products, broken identity) are removed.
 CREATE OR REPLACE FUNCTION product_enrichment_shared_refresh(product_ids uuid[] DEFAULT NULL, item_ids uuid[] DEFAULT NULL) RETURNS integer
@@ -130,6 +179,9 @@ BEGIN
  SELECT (SELECT count(*) FROM upserted)+(SELECT count(*) FROM removed) INTO changed;
  DROP TABLE enrichment_shared_computed;
  IF product_ids IS NULL THEN ANALYZE product_enrichment_shared_links; END IF;
+ -- The property facet rows of the same offers (#994). Not counted in getirbakim.storefront_fits_changed: that sum
+ -- moves the listing epoch for the fit tables; cached facets expire on their own (10 minutes).
+ PERFORM storefront_facet_specs_refresh(CASE WHEN product_ids IS NULL THEN NULL ELSE scope END);
  -- The make lists of the same offers (db/storefront-make-fits.sql, #455), now that their links are current. Schemas
  -- without the vehicle catalog (some tests) do not define it.
  IF to_regprocedure('storefront_make_fits_refresh(uuid[])') IS NOT NULL THEN
