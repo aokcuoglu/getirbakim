@@ -77,8 +77,8 @@ export function AuthModal({ ref, onClosed }: { ref: Ref<{ open: (mode: AuthMode)
             </li>)}</ul>
           </aside>
           <section className="relative min-w-0 px-8 pt-6 pb-8 max-[700px]:mx-auto max-[700px]:w-full max-[700px]:max-w-[452px] max-[700px]:px-5 max-[700px]:pt-7 max-[700px]:pb-10 max-[370px]:px-4">
-            <DialogClose aria-label="Kapat" className="absolute top-2.5 right-2.5 flex size-8 min-h-8 items-center justify-center rounded-md border-0 bg-[#e6e9ec] p-0 text-foreground hover:bg-[#dfe3e8] max-[700px]:top-5 max-[700px]:right-4"><X size={20} /></DialogClose>
-            <DialogTitle className="m-0 pr-7 text-[26px] leading-[34px] font-semibold max-[700px]:text-2xl max-[700px]:leading-8">{mode === "register" ? "Kayıt ol" : mode === "reset" ? "Şifreni yenile" : "Giriş yap"}</DialogTitle>
+            <DialogClose aria-label="Kapat" render={<Button variant="ghost" size="icon" className={cn(storeButton({ intent: "ghost", size: "icon" }), "absolute top-1 right-1 max-[700px]:top-3 max-[700px]:right-2")} />}><X size={20} /></DialogClose>
+            <DialogTitle className="m-0 pr-10 text-[26px] leading-[34px] font-semibold max-[700px]:text-2xl max-[700px]:leading-8">{mode === "register" ? "Kayıt ol" : mode === "reset" ? "Şifreni yenile" : "Giriş yap"}</DialogTitle>
             <div className="mt-10 max-[700px]:mt-8">
               {notice && <p className="mt-0 mb-4 rounded-md border border-[#c9dfef] bg-[#f0f6fb] p-3 text-[13px] leading-5" role="status">{notice}</p>}
               {mode === "login" ? <form action={login} key="login">
