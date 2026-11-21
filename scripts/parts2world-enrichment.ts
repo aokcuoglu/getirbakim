@@ -48,6 +48,7 @@ import {Parts2WorldClient,SourceBlocked} from '../src/modules/enrichment/parts2w
 import {parts2worldLockNames} from '../src/modules/enrichment/parts2world-locks';
 import {parseEgressProxy} from '../src/modules/suppliers/egress-proxy';
 import {requireEnrichmentSchema} from '../src/modules/enrichment/schema';
+import {supplierPartKeys} from '../src/modules/store/enrichment-contract';
 import {imageSize} from '../src/modules/enrichment/otoparcasan-adapter';
 import {importEnrichments} from '../src/modules/enrichment/import';
 import {recordAttempt,startSourceRun,type RunOutcome} from '../src/modules/enrichment/source-attempts';
@@ -155,12 +156,12 @@ async function indexOems(){
 }
 const oemKey=(value:string)=>value.toUpperCase().replace(/[^A-Z0-9]/g,'');
 
-/** Key pairs a supplier row can name: its label and master brand with the code as given and without a leading word
- *  (a supplier prefix such as "BCH 0986…"); matchesSupplierPart decides which of them really names the article. */
+/** Key pairs a supplier row can name: its label and master brand with the code as given and with every leading word
+ *  run dropped (a supplier prefix such as "BCH 0986…" or "VICTOR REINZ 61-…"); matchesSupplierPart decides which of
+ *  them really names the article. */
 function candidateKeys(row:Supplier){
- const codes=[row.code],rest=row.code.trim().split(/\s+/).slice(1);if(rest.length)codes.push(rest.join(' '));
  const keys=new Set<string>();
- for(const brand of [row.brand,row.masterBrand])if(brand)for(const code of codes)keys.add(`${manufacturerBrandKey(brand)}|${partKey(code)}`);
+ for(const brand of [row.brand,row.masterBrand])if(brand)for(const part of supplierPartKeys(row.code))keys.add(`${manufacturerBrandKey(brand)}|${part}`);
  return [...keys];
 }
 async function match(){

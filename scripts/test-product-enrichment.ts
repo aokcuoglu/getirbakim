@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { matchesSupplierPart, enrichmentImportSchema, matchesEnrichment, partCodeOems } from "../src/modules/store/enrichment-contract";
+import { matchesSupplierPart, enrichmentImportSchema, matchesEnrichment, partCodeOems, supplierCodeSuffixes, supplierPartKeys } from "../src/modules/store/enrichment-contract";
 import { readFileSync } from "node:fs";
 
 test("supplier prefix and manufacturer aliases can match the same part", () => {
@@ -21,6 +21,17 @@ test("supplier prefix and manufacturer aliases can match the same part", () => {
   assert.equal(matchesSupplierPart("VICTOR REINZ", "VICTOR REINZ 61-36960-00", "VICTOR REINZ", "61-36960-00"), true);
   assert.equal(matchesSupplierPart("VICTOR REINZ", "VICTOR REINZ 61-36960-00", "REINZ", "613696000"), true);
   assert.equal(matchesSupplierPart("KIT KTB", "KIT KTB 102203", "KIT KTB", "102203"), true);
+});
+test("supplier part keys cover every word suffix of the code, whole code first (#1117)", () => {
+  assert.deepEqual(supplierPartKeys("VICTOR REINZ 61-36960-00"), ["VICTORREINZ613696000", "REINZ613696000", "613696000"]);
+  assert.deepEqual(supplierPartKeys("TRW GDB3368"), ["TRWGDB3368", "GDB3368"]);
+  assert.deepEqual(supplierPartKeys("442-2035L-UQ"), ["4422035LUQ"]);
+  // An all-digit suffix loses its leading zeros like partKey.
+  assert.deepEqual(supplierPartKeys("FEBI 02562"), ["FEBI02562", "2562"]);
+  assert.ok(supplierPartKeys("BCH F 026 400 093").includes("F026400093"));
+  assert.deepEqual(supplierPartKeys("  TRW   GDB3368 "), ["TRWGDB3368", "GDB3368"]);
+  assert.deepEqual(supplierCodeSuffixes("  VICTOR  REINZ 61-36960-00 "), ["VICTOR REINZ 61-36960-00", "REINZ 61-36960-00", "61-36960-00"]);
+  assert.deepEqual(supplierPartKeys(""), []);
 });
 test("exact-part matching rejects a different part or manufacturer", () => {
   assert.equal(matchesSupplierPart("DEPO", "DPO 445-1134RMLDEM2", "DEPO", "445-1134LMLDEM2"), false);

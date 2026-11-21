@@ -2,13 +2,15 @@ import { readFile } from "node:fs/promises";
 import type { Pool, PoolClient } from "pg";
 
 /**
- * Checks that the enrichment relations exist without touching them: to_regclass reads the catalog only, so a worker
- * starting next to a long read never queues behind it (#921). The schema itself comes from `npm run db:setup`.
+ * Checks that the enrichment relations (and functions, by signature) exist without touching them: to_regclass and
+ * to_regprocedure read the catalog only, so a worker starting next to a long read never queues behind it (#921). The
+ * schema itself comes from `npm run db:setup`.
  */
-export async function requireEnrichmentSchema(pool: Pool | PoolClient, relations: string[]) {
+export async function requireEnrichmentSchema(pool: Pool | PoolClient, relations: string[], functions: string[] = []) {
   const { rows } = await pool.query<{ name: string }>(
-    "SELECT r.name FROM unnest($1::text[]) AS r(name) WHERE to_regclass(r.name) IS NULL ORDER BY r.name",
-    [relations],
+    `SELECT name FROM (SELECT r.name FROM unnest($1::text[]) AS r(name) WHERE to_regclass(r.name) IS NULL
+      UNION ALL SELECT f.name FROM unnest($2::text[]) AS f(name) WHERE to_regprocedure(f.name) IS NULL) missing ORDER BY name`,
+    [relations, functions],
   );
   if (rows.length) throw new Error(`Enrichment schema is missing ${rows.map((row) => row.name).join(", ")}: run npm run db:setup`);
 }
