@@ -17,6 +17,7 @@ import {recordAttempt} from '../src/modules/enrichment/source-attempts';
 import {createMatcherCache} from '../src/modules/enrichment/matcher-cache';
 import {loadFitmentMatcher} from '../src/modules/store/fitment-sync';
 import {enrichmentImportSchema} from '../src/modules/store/enrichment-contract';
+import {isPlaceholderImage} from '../src/modules/enrichment/placeholder-images';
 
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:3});
 // A dropped idle connection must not crash the run; the next query reconnects.
@@ -83,7 +84,8 @@ async function flush(){
 async function downloadImage(client:OtoparcasanClient,url:string|null,id:string){
  if(!url)return null;
  const bytes=await client.image(url),size=bytes&&imageSize(bytes);
- if(!bytes||!size)return null;
+ // A listed source placeholder (#1098) is no photo: the product is saved without one.
+ if(!bytes||!size||isPlaceholderImage(bytes))return null;
  const directory=resolve(checkpoint,'..','images');await mkdir(directory,{recursive:true});
  const file=resolve(directory,`${id}.bin`);await writeFile(file,bytes);
  return {file,source:url,...size};
