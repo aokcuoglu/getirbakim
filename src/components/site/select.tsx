@@ -22,7 +22,7 @@ export function Select({name,label,options,defaultValue="",value,className="",tr
   onChange?.(next);
  }}>
   <SelectTrigger aria-label={currentOption?`${label}: ${currentOption.label}`:label} className={cn(
-   "group/select relative flex min-h-[52px] data-[size=default]:h-auto w-full min-w-[120px] max-w-full items-center justify-start gap-0 rounded-lg border border-input bg-white py-[13px] pr-9 pl-3.5 text-left text-sm leading-5 font-normal whitespace-nowrap text-foreground *:data-[slot=select-value]:block hover:border-[#54626e] hover:bg-[#f8f9f9] focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand max-[600px]:text-[13px] [&>svg:last-child]:hidden",
+   "group/select relative flex min-h-[52px] data-[size=default]:h-auto w-full min-w-[120px] max-w-full items-center justify-start gap-0 rounded-lg border border-input bg-white py-[13px] pr-9 pl-3.5 text-left text-sm leading-5 font-normal whitespace-nowrap text-foreground *:data-[slot=select-value]:block hover:border-control-border hover:bg-muted focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand max-[600px]:text-[13px] [&>svg:last-child]:hidden",
    className,triggerClassName)}>
    <SelectValue className="block min-w-0 flex-1 truncate">{(selected:string)=>{
     const option=options.find(o=>o.value===selected);
@@ -37,7 +37,7 @@ export function Select({name,label,options,defaultValue="",value,className="",tr
   <SelectContent align={align} alignItemWithTrigger={false} sideOffset={4} className={cn(
    "max-h-[280px] w-(--anchor-width) min-w-40 rounded-xl border border-border bg-white py-2.5 text-foreground shadow-[0_6px_24px_rgba(33,43,54,.1)] ring-0",
    contentClassName)}>
-   {options.map(option=><SelectItem key={option.value} value={option.value} className="min-h-9 cursor-pointer justify-between gap-2.5 rounded-none px-[15px] py-2 text-sm font-normal text-foreground focus:bg-[#f8f9f9] focus:text-foreground focus:**:text-foreground data-selected:font-medium [&>span:first-child]:whitespace-normal max-[600px]:text-[13px] [&>span.absolute]:hidden">
+   {options.map(option=><SelectItem key={option.value} value={option.value} className="min-h-9 cursor-pointer justify-between gap-2.5 rounded-none px-[15px] py-2 text-sm font-normal text-foreground focus:bg-muted focus:text-foreground focus:**:text-foreground data-selected:font-medium [&>span:first-child]:whitespace-normal max-[600px]:text-[13px] [&>span.absolute]:hidden">
     {option.icon&&<span className="inline-flex h-5 shrink-0 items-center">{option.icon}</span>}{option.label}{option.value===current&&<SiteIcon name="check" size={14}/>}
    </SelectItem>)}
   </SelectContent>

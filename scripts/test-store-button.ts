@@ -235,17 +235,34 @@ test("raw <button> elements appear only in the header and the listed exceptions"
   }
 });
 
-test("no hex colour on a storefront button or close tag", () => {
+test("no hex colour on a storefront button, trigger or close tag", () => {
   const hex = /#[0-9a-f]{3,8}\b/i;
+  let scanned = 0;
+  const discovered = new Set<string>();
   for (const { path, source } of storefrontSources()) {
     if (path.endsWith("/auth/account-menu.tsx")) continue;
     const consts = allConsts(source);
-    for (const name of ["button", "Button", "DialogClose", "SheetClose"])
+    // Only plain `<XTrigger` / `<XClose` tags are discovered; dotted (`<Menu.Trigger`) or aliased tags are not seen.
+    const found = [...source.matchAll(/<(\w+(?:Trigger|Close))(?=[\s>])/g)].map((m) => m[1]);
+    for (const name of found) discovered.add(name);
+    const names = new Set(["button", "Button", "DialogClose", "SheetClose", ...found]);
+    for (const name of names)
       for (const tag of buttonTags(source, name)) {
+        scanned++;
         assert.doesNotMatch(tag, hex, `${path}: ${tag.slice(0, 160)}`);
         const classes = classExpression(tag);
         for (const [constName, init] of consts) if (new RegExp(`\\b${constName}\\b`).test(classes)) assert.doesNotMatch(init, hex, `${path}: const ${constName}`);
       }
     if (path.endsWith("/garage/garage-button.tsx")) assert.doesNotMatch(source.slice(source.indexOf("const variantClass"), source.indexOf("export function")), hex, `${path}: variantClass`);
   }
+  assert.ok(scanned >= 15, `scanned ${scanned} button, trigger and close tags`);
+  assert.ok(discovered.size >= 8, `discovered ${discovered.size} Trigger/Close names`);
+  for (const name of ["TabsTrigger", "SelectTrigger", "DialogTrigger"]) assert.ok(discovered.has(name), `${name} was not seen`);
+});
+
+test("the card specs toggle is a 14px label with a 44px target", () => {
+  const rule = css("catalog-card.css").split("\n").find((line) => line.includes(".product-card-specs-toggle {"));
+  assert.ok(rule, "rule present");
+  for (const name of ["min-h-11", "text-sm"]) assert.ok(rule.split(/\s+/).includes(name), name);
+  assert.doesNotMatch(rule, /text-xs|min-h-0|text-\[1[0-3]px\]/);
 });
