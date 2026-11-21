@@ -34,8 +34,8 @@ export default async function SharedImages({ searchParams }: { searchParams: Pro
       <p className="text-muted-foreground">Birden çok parça numarasında kullanılan otomatik (zenginleştirme) görselleri. Çoğu gerçek ürün ailesi fotoğrafıdır; yer tutucu veya filigranlı olanlarda ürüne girip gerçek fotoğraf yükleyin ya da otomatik görseli gizleyin. Yer tutucu listesi sürümle güncellenir; yeni bir yer tutucu gördüğünüzde görselin SHA-256 değerini iletin.</p>
     </div>
     {placeholders.inUse.images > 0 && <Alert variant="warning"><TriangleAlert aria-hidden="true"/>
-      <AlertTitle>{formatNumber(placeholders.inUse.images)} yer tutucu görsel hâlâ kullanılıyor</AlertTitle>
-      <AlertDescription>Bu görseller mağazada gizleniyor; zenginleştirme kaydı veya mağaza satırı temizlik ve senkrondan sonra düşer. Ayrıntı sayfanın altındaki yer tutucu listesinde.</AlertDescription></Alert>}
+      <AlertTitle>{formatNumber(placeholders.inUse.images)} yer tutucu görsel temizlik bekliyor</AlertTitle>
+      <AlertDescription>Bu görseller mağazada gizleniyor; zenginleştirme kaydı veya mağaza satırı temizlik ve senkronizasyondan sonra düşer. Ayrıntı için sayfanın altındaki yer tutucu listesine bakın.</AlertDescription></Alert>}
     <Card>
       <CardHeader>
         <Tabs value={tabHref(data.min)}><ScrollArea className="w-full pb-2">
@@ -66,9 +66,9 @@ export default async function SharedImages({ searchParams }: { searchParams: Pro
               : <span className="text-muted-foreground">—</span>}</TableCell>
             <TableCell className="tabular-nums">{formatNumber(image.parts)}</TableCell>
             <TableCell className="tabular-nums">{formatNumber(image.donors)}</TableCell>
-            <TableCell className="tabular-nums"><div className="flex items-center gap-2">
-              {image.store_rows === 0 ? <StatusBadge tone="neutral">Mağazada yok</StatusBadge> : formatNumber(image.store_rows)}
-              {image.listed && <StatusBadge tone="warning">Yer tutucu, mağazada gizli</StatusBadge>}</div></TableCell>
+            <TableCell className="tabular-nums"><div className="flex flex-wrap items-center gap-2">
+              {image.listed ? <>{image.store_rows > 0 && formatNumber(image.store_rows)}<StatusBadge tone="warning">Yer tutucu, mağazada gizli</StatusBadge></>
+                : image.store_rows === 0 ? <StatusBadge tone="neutral">Mağazada yok</StatusBadge> : formatNumber(image.store_rows)}</div></TableCell>
             <TableCell className="max-w-64 truncate" title={image.samples.join(", ")}>{image.samples.join(", ")}</TableCell>
             <TableCell><Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/yonetim/ortak-gorseller/${image.image_id}${listQuery.size ? `?${new URLSearchParams({ from: listQuery.toString() })}` : ""}`}/>}>Ürünleri gör</Button></TableCell>
           </TableRow>)}</TableBody></Table>
@@ -82,7 +82,7 @@ export default async function SharedImages({ searchParams }: { searchParams: Pro
     </Card>
     <Card>
       <CardHeader><CardTitle><h2>Yer tutucu listesi</h2></CardTitle>
-        <CardDescription>{formatNumber(placeholders.entries.length)} yer tutucu görsel mağazada gizlenir. Liste salt okunurdur; kod sabitinden gelir.</CardDescription></CardHeader>
+        <CardDescription>{formatNumber(placeholders.entries.length)} yer tutucu görsel mağazada gizlenir. Liste salt okunurdur; kod sabitinden gelir. Notlar kaynak dilindedir.</CardDescription></CardHeader>
       <CardContent>
         {placeholders.entries.length ? <Table><caption className="sr-only">Yer tutucu listesi</caption>
           <TableHeader><TableRow>
@@ -92,13 +92,14 @@ export default async function SharedImages({ searchParams }: { searchParams: Pro
           </TableRow></TableHeader>
           <TableBody>{placeholders.entries.map(entry => <TableRow key={entry.sha256}>
             <TableCell>{entry.source}</TableCell>
-            <TableCell className="max-w-80 truncate" lang="en" title={entry.note}>{entry.note}</TableCell>
-            <TableCell className="font-mono" title={entry.sha256} value={entry.sha256}>{entry.sha256.slice(0, 12)}</TableCell>
+            <TableCell className="max-w-80 whitespace-normal" lang="en">{entry.note}</TableCell>
+            <TableCell className="font-mono text-xs break-all" value={entry.sha256}>{entry.sha256}</TableCell>
             <TableCell className="tabular-nums">{formatNumber(entry.donors)}</TableCell>
             <TableCell className="tabular-nums">{formatNumber(entry.store_rows)}</TableCell>
-            <TableCell>{entry.state === "in_use" ? <StatusBadge tone="warning">Temizlik bekliyor</StatusBadge>
+            <TableCell>{entry.state === "cleanup_pending" ? <StatusBadge tone="warning">Temizlik bekliyor</StatusBadge>
+              : entry.state === "sync_pending" ? <StatusBadge tone="warning">Senkron bekliyor</StatusBadge>
               : entry.state === "clean" ? <StatusBadge tone="success">Temizlendi</StatusBadge>
-              : <StatusBadge tone="neutral">Bu veritabanında yok</StatusBadge>}</TableCell>
+              : <StatusBadge tone="neutral">Bu veritabanında kayıt yok</StatusBadge>}</TableCell>
             <TableCell>{entry.image_id && entry.donors > 0
               ? <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/yonetim/ortak-gorseller/${entry.image_id}`}/>}>Ürünleri gör</Button>
               : <span className="text-muted-foreground">—</span>}</TableCell>

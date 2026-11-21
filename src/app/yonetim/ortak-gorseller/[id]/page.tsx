@@ -39,7 +39,7 @@ export default async function SharedImage({ params, searchParams }: { params: Pr
           <div key={label} className="min-w-0"><dt className="text-muted-foreground">{label}</dt><dd className="truncate tabular-nums" title={value}>{value}</dd></div>)}
         <div className="min-w-0 sm:col-span-2"><dt className="text-muted-foreground">SHA-256</dt>
           <dd className="flex flex-wrap items-center gap-2"><span className="break-all font-mono">{header.sha256}</span>
-            {header.listed && <StatusBadge tone="warning">Yer tutucu listesinde, mağazada gizli</StatusBadge>}</dd></div>
+            {header.listed && <StatusBadge tone="warning">Yer tutucu, mağazada gizli</StatusBadge>}</dd></div>
         <div className="min-w-0 sm:col-span-2"><dt className="text-muted-foreground">Kaynak adresi</dt>
           <dd className="truncate"><a className="underline-offset-4 hover:underline" href={header.source_url} target="_blank" rel="noreferrer" title={header.source_url}>{header.source_url}<span className="sr-only"> (yeni sekmede açılır)</span></a></dd></div>
       </dl>

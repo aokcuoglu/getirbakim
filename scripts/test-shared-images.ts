@@ -127,11 +127,14 @@ test("images on the placeholder denylist are flagged in the list and the detail 
 
 test("the placeholder status tells in-use, cleaned and absent entries apart in list order", async () => {
   const absent = sha(randomUUID());
-  const entries = [sha("d"), absent, sha("a")].map((hash, index) => ({ sha256: hash, source: `src${index}`, note: `note ${index}` }));
+  await image("e", "https://www.trodo.com/e.webp");
+  await link("c1", "a1", "e");
+  const entries = [sha("d"), absent, sha("a"), sha("e")].map((hash, index) => ({ sha256: hash, source: `src${index}`, note: `note ${index}` }));
   const status = await shared.placeholderListStatus(schema.pool, companies, entries);
   assert.deepEqual(status.entries.map(entry => [entry.sha256, entry.state, entry.image_id, entry.donors, entry.store_rows]), [
-    [sha("d"), "clean", media.d, 0, 0], [absent, "absent", null, 0, 0], [sha("a"), "in_use", media.a, 4, 3],
+    [sha("d"), "clean", media.d, 0, 0], [absent, "absent", null, 0, 0], [sha("a"), "cleanup_pending", media.a, 4, 3],
+    [sha("e"), "sync_pending", media.e, 0, 1],
   ]);
-  assert.deepEqual(status.entries.map(entry => entry.source), ["src0", "src1", "src2"]);
-  assert.deepEqual(status.inUse, { images: 1, donors: 4, storeRows: 3 });
+  assert.deepEqual(status.entries.map(entry => entry.source), ["src0", "src1", "src2", "src3"]);
+  assert.deepEqual(status.inUse, { images: 2, donors: 4, storeRows: 4 });
 });

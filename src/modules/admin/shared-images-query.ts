@@ -107,7 +107,7 @@ export async function sharedImageDetail(
 }
 
 export type PlaceholderStatus = PlaceholderImage & {
-  image_id: string | null; donors: number; store_rows: number; state: "absent" | "clean" | "in_use";
+  image_id: string | null; donors: number; store_rows: number; state: "absent" | "clean" | "cleanup_pending" | "sync_pending";
 };
 
 /** Where each denylist entry stands in this database: absent, cleaned, or still referenced by enrichments / store rows. */
@@ -122,8 +122,8 @@ export async function placeholderListStatus(database: Database, companies: strin
     const row = found.get(entry.sha256);
     if (!row) return { ...entry, image_id: null, donors: 0, store_rows: 0, state: "absent" };
     return { ...entry, image_id: row.image_id, donors: row.donors, store_rows: row.store_rows,
-      state: row.donors > 0 || row.store_rows > 0 ? "in_use" : "clean" };
+      state: row.donors > 0 ? "cleanup_pending" : row.store_rows > 0 ? "sync_pending" : "clean" };
   });
-  const used = entries.filter(entry => entry.state === "in_use");
+  const used = entries.filter(entry => entry.state !== "absent" && entry.state !== "clean");
   return { entries, inUse: { images: used.length, donors: used.reduce((n, e) => n + e.donors, 0), storeRows: used.reduce((n, e) => n + e.store_rows, 0) } };
 }
