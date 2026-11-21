@@ -9,13 +9,13 @@
 // (docs/01-app/03-api-reference/05-config/01-next-config-js/output.md) `next start` still serves from .next.
 // A symlinked node_modules (worktrees) cannot be built by Turbopack (docs/harness/README.md): --webpack is used then.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, lstatSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lighthouseMetrics, markdownTable, median, parseBudget, samplePaths } from "./html-weight.mjs";
 
-const LIGHTHOUSE = "lighthouse@13.6.0", BUDGET = "/urun/=150,/katalog=350,/kategori/=350,/marka/=350,/yedek-parca/=350";
+const LIGHTHOUSE = "lighthouse@13.6.0", BUDGET = "/urun/=150,/katalog=350,/arac-markalari=350,/kategori/=350,/marka/=350,/yedek-parca/=350";
 const argv = process.argv.slice(2);
 const flag = (name) => (argv.includes(name) ? (argv.splice(argv.indexOf(name), 1), true) : false);
 const value = (name) => {
@@ -28,17 +28,26 @@ const port = Number(value("--port") ?? 3642), base = value("--base"), out = valu
 const runs = Number(value("--runs") ?? 5), lhRuns = Number(value("--lh-runs") ?? 3);
 if (!Number.isInteger(port) || port < 1 || !(runs >= 2) || !(lhRuns >= 1)) fail("Invalid --port / --runs / --lh-runs");
 if (product && !/^\/urun\/[^?#\s]+$/.test(product)) fail("--product must look like /urun/<slug>");
-if (argv.some((arg) => arg.startsWith("--") || /[?]q=/.test(arg))) fail(`Unknown option or search URL: ${argv.find((arg) => arg.startsWith("--") || /[?]q=/.test(arg))}`);
-const basePort = base ? Number(new URL(base).port || (base.startsWith("https") ? 443 : 80)) : port;
+const badArg = (arg) => arg.startsWith("--") || !arg.startsWith("/") || new URL(arg, "http://x").searchParams.has("q");
+if (argv.some(badArg)) fail(`Unknown option, non-path argument or search URL: ${argv.find(badArg)}`);
+let basePort = port;
+if (base) {
+  try {
+    const url = new URL(base);
+    basePort = Number(url.port || (url.protocol === "https:" ? 443 : 80));
+  } catch {
+    fail(`Malformed --base: ${base}`);
+  }
+}
 if (port === 3000 || basePort === 3000) fail("Port 3000 is the dev server: pick another port.");
 
 const sha = (() => { try { return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8" }).trim(); } catch { return "unknown"; } })();
-const env = { ...process.env, BUILD_VERSION: `measure-${sha}`, PORT: String(port), STOREFRONT_WARMUP: "0", ENRICHMENT_LINK_SYNC_INTERVAL_MS: "3600000" };
+const env = { ...process.env, BUILD_VERSION: `measure-${sha}`, PORT: String(port), STOREFRONT_WARMUP: "0", ENRICHMENT_LINK_SYNC_INTERVAL_MS: "0" };
 const next = ["node_modules/next/dist/bin/next"];
 const webpack = lstatSync("node_modules").isSymbolicLink();
 let server;
 const stop = () => { if (server?.pid) try { process.kill(-server.pid); } catch { /* already gone */ } server = undefined; };
-for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => (stop(), process.exit(130)));
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, () => (stop(), process.exit(130)));
 
 const listening = () => new Promise((resolve) => {
   const socket = net.connect({ port, host: "127.0.0.1" });
@@ -55,14 +64,22 @@ async function main() {
       const result = spawnSync("node", [...next, "build", ...(webpack ? ["--webpack"] : [])], { env, stdio: ["ignore", "inherit", "inherit"] });
       if (result.status !== 0) { console.error("next build failed"); return 1; }
     } else if (!existsSync(".next/BUILD_ID")) fail("No production build: run `npm run harness:measure -- --build` first.");
-    server = spawn("node", [...next, "start", "-p", String(port)], { env, detached: true, stdio: "ignore" });
+    const logDir = mkdtempSync(join(tmpdir(), "measure-start-")), logFile = join(logDir, "start.log"), log = openSync(logFile, "w");
+    server = spawn("node", [...next, "start", "-p", String(port)], { env, detached: true, stdio: ["ignore", log, log] });
+    closeSync(log);
+    let exited = false;
+    server.once("exit", () => { exited = true; });
     origin = `http://127.0.0.1:${port}`;
     let healthy = false;
-    for (let i = 0; i < 60 && !healthy; i++) {
+    for (let i = 0; i < 60 && !healthy && !exited; i++) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       healthy = await fetch(`${origin}/api/health`).then((response) => response.ok, () => false);
     }
-    if (!healthy) { console.error("Server did not become healthy within 60 s"); return 1; }
+    if (!healthy) {
+      console.error(`${exited ? "next start exited early" : "Server did not become healthy within 60 s"}:\n${readFileSync(logFile, "utf8").slice(-1500)}`);
+      return 1;
+    }
+    rmSync(logDir, { recursive: true, force: true });
   }
 
   let paths = argv;
@@ -73,7 +90,8 @@ async function main() {
   }
   paths = [...new Set(paths)];
 
-  const child = spawnSync("node", ["scripts/harness/measure-html.mjs", origin, ...paths, "--json", "--runs", String(runs), "--budget", BUDGET], { encoding: "utf8", maxBuffer: 1 << 28 });
+  const child = spawnSync("node", ["scripts/harness/measure-html.mjs", origin, ...paths, "--json", "--runs", String(runs), "--budget", BUDGET], { encoding: "utf8", maxBuffer: 1 << 28, timeout: 300_000 });
+  if (child.error) { console.error(`measure-html failed: ${child.error.message}`); return 1; }
   if (child.status === 2 || !child.stdout) { console.error(child.stderr); return 1; }
   const { rows, details } = JSON.parse(child.stdout);
   const notOk = rows.filter((row) => row.status !== 200).map((row) => `${row.path}: HTTP ${row.status}`);
@@ -87,7 +105,8 @@ async function main() {
       for (let i = 0; i < lhRuns; i++) {
         const file = join(dir, `run-${i}.json`);
         const args = ["--yes", LIGHTHOUSE, new URL(row.path, origin).href, "--only-categories=performance", "--form-factor=mobile", "--output=json", `--output-path=${file}`, "--quiet", "--chrome-flags=--headless=new"];
-        const result = spawnSync("npx", args, { env: process.env, encoding: "utf8" });
+        const result = spawnSync("npx", args, { env: process.env, encoding: "utf8", timeout: 120_000 });
+        if (result.signal) { console.error(`Lighthouse stopped (${result.signal}) for ${row.path}; vitals stay —.`); break; }
         const metrics = result.status === 0 && existsSync(file) ? lighthouseMetrics(JSON.parse(readFileSync(file, "utf8"))) : null;
         if (metrics) samples.push(metrics);
         else if (!lhWarned) { lhWarned = true; console.error(`Lighthouse failed for ${row.path} (set CHROME_PATH if Chrome is not found); vitals stay —.\n${(result.stderr ?? "").slice(-300)}`); }

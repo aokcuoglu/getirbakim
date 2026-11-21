@@ -45,7 +45,7 @@ const kb = (bytes) => (bytes / 1024).toFixed(1);
 
 async function fetchPage(url) {
   const started = performance.now();
-  const response = await fetch(url, { headers: { "accept-encoding": "identity", "user-agent": "Mozilla/5.0 measure-html" }, redirect: "follow" });
+  const response = await fetch(url, { headers: { "accept-encoding": "identity", "user-agent": "Mozilla/5.0 measure-html" }, redirect: "follow", signal: AbortSignal.timeout(30_000) });
   const reader = response.body.getReader();
   const chunks = [];
   let ttfb = 0;
@@ -72,7 +72,8 @@ for (const path of paths) {
   if (budget.length && page.status !== 200) exceeded.push(`${path}: HTTP ${page.status}`);
   else if (limit !== undefined && bytes / 1024 > limit) exceeded.push(`${path}: ${kb(bytes)} KB > ${limit} KB`);
   rows.push({ path: json || path.length <= 48 ? path : `${path.slice(0, 45)}…`, status: page.status, htmlKB: +kb(bytes), rscKB: +kb(rsc),
-    rscPct: Math.round((rsc / bytes) * 100), classKB: +kb(markup.classBytes), modKB: +kb(markup.moduleBytes), jsonLdKB: +kb(markup.jsonLdBytes), gzipKB: +kb(gzipSync(page.html).length), ttfbMs: Math.round(times[Math.floor((times.length - 1) / 2)]) });
+    rscPct: Math.round((rsc / bytes) * 100), classKB: +kb(markup.classBytes), modKB: +kb(markup.moduleBytes), gzipKB: +kb(gzipSync(page.html).length), ttfbMs: Math.round(times[Math.floor((times.length - 1) / 2)]),
+    ...(json && { jsonLdKB: +kb(markup.jsonLdBytes) }) });
   details.push([path, clientProps(flight)]);
 }
 if (json) {
