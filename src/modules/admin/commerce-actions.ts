@@ -3,6 +3,7 @@ import { requireAdmin } from '@/modules/auth/session';
 import { db } from '@/lib/db';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { after } from 'next/server';
 import { z } from 'zod';
 import { returnReasons } from '@/modules/store/returns';
 import { shipmentSchema,type ShipmentResult } from '@/modules/store/shipment';
@@ -196,8 +197,10 @@ export async function resendOrderEmail(form:FormData) {
  redirect(orderListReturn(input.data.back,outcome,orderNumber));
 }
 // The admin panel (lists, sidebar counts, dashboard) and the customer's own order pages; nothing else shows order state.
+/** Also sends what the step queued (shipped, cancelled or refunded email, #1036) after the reply. */
 function revalidateOrder(id:string) {
  revalidatePath('/yonetim','layout');revalidatePath(`/siparis/${id}`);revalidatePath('/siparisler');
+ after(()=>deliverOrderEmailsSafely({orderId:id}));
 }
 /** Shipped or delivered lines; partial returns may add up to the ordered quantity. */
 export async function recordReturn(form:FormData) {

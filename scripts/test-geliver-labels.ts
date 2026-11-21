@@ -87,6 +87,8 @@ test("a label ships the order with Yurtiçi; the tracking number comes later", a
   assert.equal(row.status, "shipped"); assert.ok(row.shipped_at);
   assert.equal(row.carrier, "yurtici"); assert.equal(row.carrier_name, null); assert.equal(row.tracking_no, null);
   assert.equal(row.tracking_url, `https://app.geliver.io/tracking/${remote.id}`);
+  // The shipped email (#1036) is queued with the shipment.
+  assert.deepEqual((await schema.pool.query("SELECT kind,status FROM commerce_order_emails WHERE order_id=$1", [order.id])).rows, [{ kind: "shipped", status: "pending" }]);
   const [label] = await labelRows(order.id);
   assert.equal(label.status, "purchased"); assert.equal(label.test, true); assert.equal(label.geliver_shipment_id, remote.id);
   assert.equal(label.barcode, "86200000001"); assert.equal(label.label_url, "https://labels.example.invalid/label.pdf");

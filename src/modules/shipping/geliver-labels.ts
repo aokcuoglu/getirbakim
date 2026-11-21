@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { siteUrl } from "@/lib/site";
 import { appendNote } from "@/modules/payments/checkout";
+import { queueOrderEmail } from "@/modules/store/order-email-queue";
 import { isHandledPayment } from "@/modules/store/payment-states";
 import {
   buildTransactionBody, localErrorCodes, eventClock, geliverErrorMessage, geliverOrderNumber, geliverTestBlocked, geliverTestBlockedMessage, parseTime, recipientBlockLabel,
@@ -114,6 +115,7 @@ async function shipAfterPurchase(client: PoolClient, order: LabelOrder | undefin
   const trackingNo = shipment.trackingNumber || null;
   await client.query("UPDATE commerce_orders SET status='shipped',shipped_at=now(),carrier='yurtici',carrier_name=NULL,tracking_no=$2,tracking_url=$3 WHERE id=$1",
     [order.id, trackingNo, resolveGeliverTrackingUrl({ test, shipmentId: shipment.id, trackingNumber: trackingNo, trackingUrl: shipment.trackingUrl })]);
+  await queueOrderEmail(client, order.id, "shipped");
   return { outcome: "purchased" };
 }
 
@@ -135,6 +137,7 @@ export async function shipWithPurchasedLabel(client: PoolClient, orderId: string
   if (!label?.geliver_shipment_id) return false;
   await client.query("UPDATE commerce_orders SET status='shipped',shipped_at=now(),carrier='yurtici',carrier_name=NULL,tracking_no=$2,tracking_url=$3 WHERE id=$1",
     [orderId, label.tracking_number, resolveGeliverTrackingUrl({ test: label.test, shipmentId: label.geliver_shipment_id, trackingNumber: label.tracking_number, trackingUrl: label.tracking_url })]);
+  await queueOrderEmail(client, orderId, "shipped");
   return true;
 }
 

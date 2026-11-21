@@ -3,15 +3,21 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { sendMail, type MailMessage, type MailResult } from "@/lib/mail";
-import { contactEmail, contactPhone, siteName, siteUrl } from "@/lib/site";
+import { siteName, siteUrl } from "@/lib/site";
 import { money } from "./money";
 import type { CommerceOrder } from "./orders";
 import { invoiceAddressText, invoiceSummary, invoiceTypes } from "./tr-address";
 import { ORDER_EMAIL_LEASE_MINUTES, orderEmailDue, type OrderEmailKind } from "./order-email-state";
+import { queueOrderEmail } from "./order-email-queue";
 import { orderLinkPath, orderLinkToken } from "./order-link";
+import { carrierLabel } from "./shipment";
+import {
+  colors, contactHtml, contactText, emailDocument, footerStart, heading, html, link, linkDate, orderLabel, p, time, title,
+} from "./order-email-layout";
 
 /**
- * Order confirmation email (#951). recordPaid queues one row per order in the payment transaction that settles it;
+ * Order emails: the confirmation (#951) and the shipped, cancelled and refunded status emails (#1036). Each is queued
+ * as one row per order and kind in the transaction that changes the order (recordPaid, shipping, cancel, refund);
  * deliverOrderEmails claims pending rows with a lease and sends them after the response (after()) or from the 5-minute
  * payment sweep. A row is sent at most once per claim. A failed send stays pending and is retried with a growing
  * backoff (RETRY_SQL) until the row is a day old; then it is given up as failed, so a provider outage of hours still
@@ -22,7 +28,8 @@ const LEASE_MINUTES = ORDER_EMAIL_LEASE_MINUTES;
 const STALE_HOURS = 24;
 // Minutes after the last claim before the next try: 10, 30, 90, 270, then every 8 hours (about 7 tries in a day).
 const RETRY_SQL = "LEAST(10*power(3,GREATEST(attempts-1,0)),480)::int";
-// Recorded when the order no longer wants the email (orderEmailDue), e.g. a cancel or refund before the send.
+// Recorded when the order no longer wants the email (orderEmailDue), e.g. a cancel or refund before the send. The text
+// predates the status emails; existing rows carry it, so it stays.
 const NO_LONGER_PENDING = "order no longer pending";
 
 export type ConfirmationOrder = Pick<CommerceOrder,
@@ -30,25 +37,17 @@ export type ConfirmationOrder = Pick<CommerceOrder,
   | "discount_percent" | "installment_count" | "installment_fee_kurus" | "invoice_type" | "invoice_company" | "invoice_tax_no" | "invoice_tax_office"
   | "invoice_province" | "invoice_district" | "invoice_address_line" | "invoice_postal_code">;
 export type ConfirmationItem = { name: string; code: string; quantity: number; unit_price_kurus: string };
-/** guestLink: a signed link (#1034) for a guest order, so the email opens it on any device; null keeps the plain links. */
+/** A signed link (#1034) for a guest order, so the email opens it on any device; null keeps the plain links. */
+export type GuestLink = { token: string; expiresAt: Date } | null;
 export type ConfirmationData = {
   order: ConfirmationOrder; items: ConfirmationItem[]; hasAgreement: boolean; baseUrl: string;
-  guestLink?: { token: string; expiresAt: Date } | null;
+  guestLink?: GuestLink;
 };
-
-const colors = { text: "#222831", muted: "#626b75", link: "#0077c7", divider: "#e5e7eb" };
-
-function escapeHtml(value: string) {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
-const html = (value: string) => escapeHtml(value).replace(/\r?\n/g, "<br>");
-const time = (value: Date) => new Date(value).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "long", timeStyle: "short" });
-const linkDate = (value: Date) => value.toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul", dateStyle: "long" });
-/** +902163870078 → +90 216 387 00 78 */
-const phoneLabel = (phone: string) => phone.replace(/^\+90(\d{3})(\d{3})(\d{2})(\d{2})$/, "+90 $1 $2 $3 $4");
+type EmailContent = Omit<MailMessage, "to" | "messageId">;
+const accountPageNote = "Sipariş sayfası, siparişi verdiğin hesapla ya da siparişi verdiğin tarayıcıdan açılır.";
 
 /** Subject, plain text and HTML of the confirmation; every customer-sourced value is escaped in the HTML. */
-export function buildOrderConfirmation({ order, items, hasAgreement, baseUrl, guestLink }: ConfirmationData): Omit<MailMessage, "to" | "messageId"> {
+export function buildOrderConfirmation({ order, items, hasAgreement, baseUrl, guestLink }: ConfirmationData): EmailContent {
   const base = baseUrl.replace(/\/$/, "");
   const orderUrl = `${base}/siparis/${order.id}`;
   const links = [
@@ -75,8 +74,7 @@ export function buildOrderConfirmation({ order, items, hasAgreement, baseUrl, gu
   const intro = "Siparişini aldık, teşekkür ederiz. Ödemen alındı; siparişin teyit bekliyor. Stok ve fiyat teyidinden sonra siparişini hazırlayıp kargoya vereceğiz. Teyit edilemezse ödemenin tamamı iade edilir.";
   const pageNote = guestLink
     ? `Bu bağlantılar ${linkDate(guestLink.expiresAt)} tarihine kadar her cihazda açılır. Siparişinin bilgilerini içerdiği için bu bağlantıları kimseyle paylaşma.`
-    : "Sipariş sayfası, siparişi verdiğin hesapla ya da siparişi verdiğin tarayıcıdan açılır.";
-  const contact = `Sorun olursa bize ${contactEmail} adresinden ya da ${phoneLabel(contactPhone)} numarasından ulaşabilirsin.`;
+    : accountPageNote;
 
   const text = [
     `Merhaba ${order.customer_name},`, "", intro, "",
@@ -88,17 +86,14 @@ export function buildOrderConfirmation({ order, items, hasAgreement, baseUrl, gu
     ...(invoice ? [`Fatura: ${invoiceTypes.corporate} · ${invoice}`] : []),
     ...(order.note ? ["", `Not: ${order.note}`] : []), "",
     ...links.map(link => `${link.label}: ${link.url}`), pageNote, "",
-    contact, "", siteName,
+    contactText, "", siteName,
   ].join("\n");
 
-  const p = (content: string, style = "") => `<p style="margin:0 0 12px;${style}">${content}</p>`;
-  const heading = (content: string) => `<h2 style="margin:24px 0 8px;font-size:16px;line-height:24px;font-weight:600;color:${colors.text};">${content}</h2>`;
   const row = (label: string, value: string, strong = false) => `<tr><td style="padding:4px 0;${strong ? "font-weight:600;font-size:16px;" : ""}">${label}</td><td align="right" style="padding:4px 0;white-space:nowrap;${strong ? "font-weight:600;font-size:16px;" : ""}">${value}</td></tr>`;
-  const link = (label: string, url: string) => `<a href="${escapeHtml(url)}" style="color:${colors.link};text-decoration:underline;">${label}</a>`;
   const itemRows = lines.map(line => `<tr><td style="padding:12px 0;border-bottom:1px solid ${colors.divider};vertical-align:top;"><strong style="font-weight:600;">${html(line.name)}</strong><br><span style="color:${colors.muted};font-size:13px;">${html(line.detail)}</span></td><td align="right" style="padding:12px 0 12px 16px;border-bottom:1px solid ${colors.divider};vertical-align:top;white-space:nowrap;font-weight:600;">${html(line.total)}</td></tr>`).join("");
   const body = [
-    `<p style="margin:0 0 4px;font-size:12px;letter-spacing:1px;color:${colors.muted};">SİPARİŞ #${html(order.number)}</p>`,
-    `<h1 style="margin:0 0 16px;font-size:22px;line-height:30px;font-weight:600;color:${colors.text};">Siparişini aldık</h1>`,
+    orderLabel(order.number),
+    title("Siparişini aldık"),
     p(`Merhaba ${html(order.customer_name)},`),
     p(html(intro)),
     p(`Sipariş tarihi: ${html(time(order.created_at))}`, `color:${colors.muted};font-size:13px;`),
@@ -111,28 +106,122 @@ export function buildOrderConfirmation({ order, items, hasAgreement, baseUrl, gu
     p(html(invoiceAddress)),
     ...(invoice ? [p(`Fatura: ${html(invoiceTypes.corporate)} · ${html(invoice)}`)] : []),
     ...(order.note ? [p(`Not: ${html(order.note)}`)] : []),
-    `<div style="margin:24px 0 0;padding-top:16px;border-top:1px solid ${colors.divider};">`,
+    footerStart,
     ...links.map(item => p(link(html(item.label), item.url))),
     p(html(pageNote), `color:${colors.muted};font-size:13px;`),
-    p(`Sorun olursa bize ${link(html(contactEmail), `mailto:${contactEmail}`)} adresinden ya da ${link(html(phoneLabel(contactPhone)), `tel:${contactPhone}`)} numarasından ulaşabilirsin.`, `color:${colors.muted};font-size:13px;`),
+    contactHtml(),
     "</div>",
   ].join("\n");
-  const document = `<!doctype html>
-<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${html(subject)}</title></head>
-<body style="margin:0;padding:0;background:#ffffff;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;"><tr><td align="center" style="padding:24px 16px;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;max-width:600px;"><tr><td style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:22px;color:${colors.text};">
-<p style="margin:0 0 24px;font-size:18px;font-weight:700;color:${colors.text};">${html(siteName)}</p>
-${body}
-</td></tr></table>
-</td></tr></table>
-</body></html>`;
-  return { subject, text, html: document };
+  return { subject, text, html: emailDocument(subject, body) };
+}
+
+/** The order columns the status emails (#1036) read. */
+export type StatusOrder = Pick<CommerceOrder, "id" | "number" | "customer_name" | "phone" | "address"> & {
+  carrier: string | null; carrier_name: string | null; tracking_no: string | null; tracking_url: string | null;
+  cancelled_by: string | null; payment_status: string;
+};
+export type StatusData = { order: StatusOrder; baseUrl: string; guestLink?: GuestLink };
+/**
+ * refundKurus: the refunded amount when it is reliable (refundAmountSql), else null. card: TAMI reversed at least one
+ * capture since the cancel, so the money goes back to the card; false for a refund recorded by hand.
+ */
+export type RefundData = StatusData & { refundKurus?: number | null; card?: boolean };
+
+/** One paragraph; `html` (already escaped) replaces the escaped text in the HTML part, e.g. for a link. */
+type Paragraph = { text: string; html?: string };
+type StatusSection = { heading: string; lines: string[] };
+
+/**
+ * The common shape of a status email: greeting, the order number, the body, an optional section (the delivery address),
+ * the order link (signed for a guest order, with how long it opens) and the contact line. Everything is escaped.
+ */
+function statusEmail({ order, baseUrl, guestLink }: StatusData, subject: string, heading1: string, paragraphs: Paragraph[], section?: StatusSection): EmailContent {
+  const base = baseUrl.replace(/\/$/, "");
+  const orderUrl = guestLink ? base + orderLinkPath(order.id, guestLink.token) : `${base}/siparis/${order.id}`;
+  const pageNote = guestLink
+    ? `Bu bağlantı ${linkDate(guestLink.expiresAt)} tarihine kadar her cihazda açılır. Siparişinin bilgilerini içerdiği için bu bağlantıyı kimseyle paylaşma.`
+    : accountPageNote;
+  const text = [
+    `Merhaba ${order.customer_name},`, "", ...paragraphs.map(item => item.text), "",
+    `Sipariş no: #${order.number}`, "",
+    ...(section ? [section.heading, ...section.lines, ""] : []),
+    `Siparişini görüntüle: ${orderUrl}`, pageNote, "",
+    contactText, "", siteName,
+  ].join("\n");
+  const body = [
+    orderLabel(order.number),
+    title(heading1),
+    p(`Merhaba ${html(order.customer_name)},`),
+    ...paragraphs.map(item => p(item.html ?? html(item.text))),
+    ...(section ? [heading(html(section.heading)), p(section.lines.map(html).join("<br>"))] : []),
+    footerStart,
+    p(link("Siparişini görüntüle", orderUrl)),
+    p(html(pageNote), `color:${colors.muted};font-size:13px;`),
+    contactHtml(),
+    "</div>",
+  ].join("\n");
+  return { subject, text, html: emailDocument(subject, body) };
+}
+
+/** Only an http(s) address becomes a link; anything else (never written by the app) falls back to the plain sentence. */
+function webUrl(value: string) {
+  try { return ["https:", "http:"].includes(new URL(value).protocol); } catch { return false; }
+}
+
+/** The order was handed to the carrier: carrier, tracking number and link when known, and the delivery address. */
+export function buildOrderShipped(data: StatusData): EmailContent {
+  const { order } = data;
+  const carrier = carrierLabel(order.carrier, order.carrier_name);
+  const paragraphs: Paragraph[] = [{ text: carrier ? `Siparişini ${carrier} ile kargoya verdik.` : "Siparişini kargoya verdik." }];
+  if (order.tracking_no) {
+    paragraphs.push({ text: `Takip numarası: ${order.tracking_no}`, html: `Takip numarası: <strong style="font-weight:600;">${html(order.tracking_no)}</strong>` });
+  }
+  if (order.tracking_url && webUrl(order.tracking_url)) {
+    paragraphs.push({ text: `Kargonu takip et: ${order.tracking_url}`, html: link("Kargonu takip et", order.tracking_url) });
+  } else if (order.tracking_no) {
+    paragraphs.push({ text: "Takip numaranla kargo firmasının sitesinden sorgulayabilirsin." });
+  } else {
+    // A Geliver label's tracking number may arrive later by webhook; the order page shows it then.
+    paragraphs.push({ text: "Takip numarası belli olduğunda sipariş sayfanda görünecek." });
+  }
+  return statusEmail(data, `Siparişin kargoya verildi — #${order.number}`, "Siparişin yola çıktı", paragraphs,
+    { heading: "Teslimat adresi", lines: [order.customer_name, order.phone, order.address] });
+}
+
+/** The order was cancelled; a paid one says that the whole payment comes back (or came back, once refunded). */
+export function buildOrderCancelled(data: StatusData): EmailContent {
+  const { order } = data;
+  const paragraphs: Paragraph[] = [{
+    // No reason is claimed: operations cancel for stock, price or other causes the email cannot know.
+    text: order.cancelled_by === "customer" ? "Talebin üzerine siparişini iptal ettik." : "Siparişini iptal etmek zorunda kaldık. Bunun için özür dileriz.",
+  }];
+  if (order.payment_status === "refund_required") {
+    paragraphs.push({ text: "Ödemenin tamamı iade edilecek; iade tamamlandığında sana ayrıca e-posta göndereceğiz." });
+  } else if (order.payment_status === "refunded") {
+    // Already refunded when sent (or resent): the refund email is out or on its way, so nothing is promised.
+    paragraphs.push({ text: "Ödemenin tamamı iade edildi." });
+  }
+  return statusEmail(data, `Siparişin iptal edildi — #${order.number}`, "Siparişin iptal edildi", paragraphs);
+}
+
+/** The payment was refunded; stands alone, without the cancel email. */
+export function buildOrderRefunded(data: RefundData): EmailContent {
+  const { order, refundKurus, card = false } = data;
+  const amount = refundKurus && refundKurus > 0 ? refundKurus : null;
+  // Without a reliable amount the first line does not claim the whole payment came back.
+  const paragraphs: Paragraph[] = [{
+    text: amount ? `#${order.number} numaralı siparişinin ödemesini iade ettik.` : `#${order.number} numaralı siparişin için ödeme iadesi yaptık.`,
+  }];
+  if (amount) paragraphs.push({ text: `İade tutarı: ${money(amount)}` });
+  paragraphs.push({ text: card
+    ? "İadenin kartına yansıması bankana bağlı olarak birkaç iş günü sürebilir."
+    : "İade, ödemeyi yaptığın yönteme göre birkaç iş günü içinde hesabına yansır." });
+  return statusEmail(data, `Ödemen iade edildi — #${order.number}`, "Ödemen iade edildi", paragraphs);
 }
 
 /** Queues the confirmation in the caller's transaction; a second call for the same order does nothing. */
 export async function queueOrderConfirmation(client: Pick<PoolClient, "query">, orderId: string) {
-  await client.query("INSERT INTO commerce_order_emails(order_id,kind) VALUES($1,'confirmation') ON CONFLICT DO NOTHING", [orderId]);
+  await queueOrderEmail(client, orderId, "confirmation");
 }
 
 type Send = (message: MailMessage) => Promise<MailResult>;
@@ -140,23 +229,47 @@ export type DeliverOptions = { orderId?: string; limit?: number; send?: Send };
 /** `failed` counts rows given up in this call: tried and still unsent after a day. */
 export type DeliverResult = { sent: number; skipped: number; failed: number };
 
-const confirmationColumns = "id,number,email,customer_name,phone,address,note,created_at,subtotal_kurus,shipping_kurus,total_kurus,discount_percent,installment_count,installment_fee_kurus,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office,invoice_province,invoice_district,invoice_address_line,invoice_postal_code";
+const orderColumns = "id,number,email,customer_name,phone,address,note,created_at,subtotal_kurus,shipping_kurus,total_kurus,discount_percent,installment_count,installment_fee_kurus,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office,invoice_province,invoice_district,invoice_address_line,invoice_postal_code,carrier,carrier_name,tracking_no,tracking_url,cancelled_by,status,payment_status,owner_kind";
+type MessageOrder = ConfirmationOrder & StatusOrder & { email: string; status: string; owner_kind: string };
 
-async function confirmationMessage(orderId: string, requeuedAt: Date | null) {
-  const [order, items, agreement] = await Promise.all([
-    db.query<ConfirmationOrder & { email: string; status: string; payment_status: string; owner_kind: string }>(`SELECT ${confirmationColumns},status,payment_status,owner_kind FROM commerce_orders WHERE id=$1`, [orderId]),
-    db.query<ConfirmationItem>("SELECT name,code,quantity,unit_price_kurus FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id", [orderId]),
-    db.query("SELECT 1 FROM commerce_order_agreements WHERE order_id=$1", [orderId]),
-  ]);
-  const row = order.rows[0];
+/**
+ * The refund email's amount: succeeded TAMI reversals completed since the order was cancelled (a duplicate capture
+ * reversed while the order was still paid is not part of this refund). Shown only when `complete`: every captured
+ * attempt of the order has a succeeded reversal, so no part was refunded by hand or is still open.
+ */
+const refundAmountSql = `SELECT (SELECT sum(r.amount_kurus)::text FROM commerce_payment_refunds r
+    WHERE r.order_id=o.id AND r.status='succeeded' AND o.cancelled_at IS NOT NULL AND r.completed_at>=o.cancelled_at) AS total,
+  NOT EXISTS(SELECT 1 FROM commerce_payments p WHERE p.order_id=o.id AND p.status='succeeded'
+    AND NOT EXISTS(SELECT 1 FROM commerce_payment_refunds r WHERE r.payment_id=p.id AND r.status='succeeded')) AS complete
+  FROM commerce_orders o WHERE o.id=$1`;
+
+/** Builds the email for `kind`, or null when the order no longer wants it (orderEmailDue). */
+async function orderMessage(orderId: string, kind: OrderEmailKind, requeuedAt: Date | null) {
+  const row = (await db.query<MessageOrder>(`SELECT ${orderColumns} FROM commerce_orders WHERE id=$1`, [orderId])).rows[0];
   if (!row) throw new Error("Order not found");
-  if (!orderEmailDue.confirmation(row)) return { number: row.number, message: null };
+  if (!orderEmailDue[kind](row)) return { number: row.number, message: null };
   // Signed at send time, so an admin's resend (#1035) carries a fresh 90-day link. Account orders keep the sign-in rule.
   const guestLink = row.owner_kind === "guest" ? orderLinkToken(orderId) : null;
-  const content = buildOrderConfirmation({ order: row, items: items.rows, hasAgreement: Boolean(agreement.rowCount), baseUrl: siteUrl, guestLink });
+  const status: StatusData = { order: row, baseUrl: siteUrl, guestLink };
+  let content: EmailContent;
+  if (kind === "confirmation") {
+    const [items, agreement] = await Promise.all([
+      db.query<ConfirmationItem>("SELECT name,code,quantity,unit_price_kurus FROM commerce_order_items WHERE order_id=$1 ORDER BY code,product_id", [orderId]),
+      db.query("SELECT 1 FROM commerce_order_agreements WHERE order_id=$1", [orderId]),
+    ]);
+    content = buildOrderConfirmation({ order: row, items: items.rows, hasAgreement: Boolean(agreement.rowCount), baseUrl: siteUrl, guestLink });
+  } else if (kind === "shipped") {
+    content = buildOrderShipped(status);
+  } else if (kind === "cancelled") {
+    content = buildOrderCancelled(status);
+  } else {
+    const refund = (await db.query<{ total: string | null; complete: boolean }>(refundAmountSql, [orderId])).rows[0];
+    const total = refund?.total ? Number(refund.total) : 0;
+    content = buildOrderRefunded({ ...status, refundKurus: total > 0 && refund.complete ? total : null, card: total > 0 });
+  }
   // Deterministic, so a retry after a lost reply is recognisable as the same message; an admin's resend is a new one.
   const resend = requeuedAt ? `-r${Math.floor(new Date(requeuedAt).getTime() / 1000)}` : "";
-  return { number: row.number, message: { ...content, to: row.email, messageId: `<order-${orderId}-confirmation${resend}@${new URL(siteUrl).hostname}>` } };
+  return { number: row.number, message: { ...content, to: row.email, messageId: `<order-${orderId}-${kind}${resend}@${new URL(siteUrl).hostname}>` } };
 }
 
 /**
@@ -178,17 +291,19 @@ export async function deliverOrderEmails({ orderId, limit = 10, send = message =
   for (const row of given) {
     if (row.status === "failed") { result.failed++; console.error("Order email given up", { order: row.number, attempts: row.attempts }); }
   }
-  const claimed = (await db.query<{ order_id: string; kind: string; attempts: number; requeued_at: Date | null }>(
-    `UPDATE commerce_order_emails SET claimed_at=now(),attempts=attempts+1 WHERE (order_id,kind) IN (
+  // Sent in queue order, so a cancel email goes out before the refund email that follows it (#1036).
+  const claimed = (await db.query<{ order_id: string; kind: OrderEmailKind; attempts: number; requeued_at: Date | null }>(
+    `WITH claimed AS (UPDATE commerce_order_emails SET claimed_at=now(),attempts=attempts+1 WHERE (order_id,kind) IN (
        SELECT order_id,kind FROM commerce_order_emails WHERE status='pending' AND ($1::uuid IS NULL OR order_id=$1)
         AND (claimed_at IS NULL OR claimed_at < now()-make_interval(mins=>${RETRY_SQL}))
        ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED)
-     RETURNING order_id::text,kind,attempts,requeued_at`, [only, limit],
+     RETURNING order_id::text,kind,attempts,requeued_at,created_at)
+     SELECT order_id,kind,attempts,requeued_at FROM claimed ORDER BY created_at,order_id,kind`, [only, limit],
   )).rows;
   for (const row of claimed) {
     let number: string | null = null;
     try {
-      const built = await confirmationMessage(row.order_id, row.requeued_at);
+      const built = await orderMessage(row.order_id, row.kind, row.requeued_at);
       number = built.number;
       if (!built.message) {
         await db.query("UPDATE commerce_order_emails SET status='skipped',last_error=$3 WHERE order_id=$1 AND kind=$2", [row.order_id, row.kind, NO_LONGER_PENDING]);
@@ -218,7 +333,12 @@ export async function deliverOrderEmails({ orderId, limit = 10, send = message =
 }
 
 // orderEmailDue in SQL, per kind (o = commerce_orders): a resend is refused for an order that no longer wants the email.
-const dueSql: Record<OrderEmailKind, string> = { confirmation: "o.status='pending' AND o.payment_status='paid'" };
+const dueSql: Record<OrderEmailKind, string> = {
+  confirmation: "o.status='pending' AND o.payment_status='paid'",
+  shipped: "o.status='shipped'",
+  cancelled: "o.status='cancelled'",
+  refunded: "o.payment_status='refunded'",
+};
 
 /**
  * An admin's resend (#1035): puts the row back in the queue with no attempts, no backoff and a fresh day. Refused (null)
