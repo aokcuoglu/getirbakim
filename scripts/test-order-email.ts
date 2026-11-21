@@ -8,7 +8,7 @@ import { Pool, type PoolClient } from "pg";
 import type { MailMessage, MailResult } from "../src/lib/mail";
 import type { ConfirmationData, StatusOrder } from "../src/modules/store/order-email";
 import { canResendOrderEmail, orderEmailDue, orderEmailErrorLabel, orderEmailKinds, orderEmailNotDueLabel } from "../src/modules/store/order-email-state";
-import { ORDER_LINK_COOKIE, ORDER_LINK_DAYS, orderLinkGrant, orderLinkPath, orderLinkSecret, orderLinkSecretEnv, orderLinkToken, signOrderLink, verifyOrderLink } from "../src/modules/store/order-link";
+import { ORDER_LINK_COOKIE, ORDER_LINK_DAYS, orderLinkGrant, orderLinkPath, orderLinkSecret, orderLinkSecretEnv, orderLinkStatus, orderLinkToken, signOrderLink, verifyOrderLink } from "../src/modules/store/order-link";
 
 // Order confirmation email (#951): content, mail settings, the .eml file transport and the outbox in a throwaway
 // schema (db/schema.sql + db/commerce.sql applied twice). No mail leaves the machine: sends are injected or written to a temp dir.
@@ -141,6 +141,57 @@ test("the erisim grant: clean target from the site URL, a path-scoped cookie onl
     assert.equal(result.cookie, null, `no cookie for ${JSON.stringify(denied)}`);
     assert.match(result.target, /^https:\/\/shop\.example\.invalid\/siparis\/[0-9a-f-]{36}$/);
   }
+});
+
+test("order link status tells an expired link from an invalid one only after the signature checks out", () => {
+  const exp = new Date(linkNow.getTime() + 3_600_000);
+  const token = signOrderLink(linkOrder, exp, linkSecret);
+  const [expText, sig] = token.split(".");
+  const flipped = sig.slice(0, -1) + (sig.endsWith("A") ? "B" : "A");
+  assert.equal(orderLinkStatus(linkOrder, token, linkSecret, linkNow), "valid");
+  assert.equal(orderLinkStatus(linkOrder, token, linkSecret, exp), "expired", "at exp");
+  assert.equal(orderLinkStatus(linkOrder, token, linkSecret, new Date(exp.getTime() + 86_400_000)), "expired");
+  assert.equal(orderLinkStatus(linkOrder, `${expText}.${flipped}`, linkSecret, new Date(exp.getTime() + 1000)), "invalid", "tampered signature, past exp");
+  assert.equal(orderLinkStatus(linkOrder, `${Number(expText) + 86_400}.${sig}`, linkSecret, linkNow), "invalid", "extended expiry");
+  assert.equal(orderLinkStatus("11111111-2222-4333-8444-555555555556", token, linkSecret, linkNow), "invalid");
+  assert.equal(orderLinkStatus(linkOrder, token, "t".repeat(32), linkNow), "invalid");
+  for (const bad of ["", undefined, sig, `${expText}.${sig.slice(1)}`, `${expText}.${sig}.x`]) assert.equal(orderLinkStatus(linkOrder, bad, linkSecret, linkNow), "invalid");
+});
+
+test("the erisim grant names the notice for an expired or invalid link without leaking the order or token", () => {
+  const exp = new Date(linkNow.getTime() + 3_600_000);
+  const token = signOrderLink(linkOrder, exp, linkSecret);
+  const base = { orderId: linkOrder, token, page: undefined, siteUrl: "https://shop.example.invalid", secret: linkSecret, now: linkNow, production: true } as const;
+  const notice = /^https:\/\/shop\.example\.invalid\/siparis\/baglanti\?durum=(suresi-doldu|gecersiz)$/;
+  const cases: Array<[Partial<Parameters<typeof orderLinkGrant>[0]>, string, string]> = [
+    [{}, "valid", "gecersiz"],
+    [{ now: exp }, "expired", "suresi-doldu"],
+    [{ token: undefined }, "invalid", "gecersiz"],
+    [{ secret: null }, "invalid", "gecersiz"],
+    [{ token: `${token}x` }, "invalid", "gecersiz"],
+    [{ orderId: "11111111-2222-4333-8444-555555555556" }, "invalid", "gecersiz"],
+  ];
+  for (const [override, status, durum] of cases) {
+    const grant = orderLinkGrant({ ...base, ...override });
+    assert.equal(grant.status, status, JSON.stringify(override));
+    assert.match(grant.notice, notice);
+    assert.ok(grant.notice.endsWith(`durum=${durum}`), grant.notice);
+    assert.ok(!grant.notice.includes(linkOrder) && !grant.notice.includes(token));
+  }
+});
+
+test("the erisim route checks the guest order before the cookie, never sets one otherwise, and the notice page reads no order", async () => {
+  const route = await readFile("src/app/(store)/siparis/[id]/erisim/route.ts", "utf8");
+  assert.ok(route.indexOf("guestOrderExists(") > -1 && route.indexOf("guestOrderExists(") < route.indexOf("cookies.set("), "guest check before cookies.set");
+  assert.match(route, /viewableOrder\(/);
+  assert.match(route, /"Cache-Control", "no-store"/);
+  assert.match(route, /"Referrer-Policy", "no-referrer"/);
+  const read = await readFile("src/modules/store/order-read.ts", "utf8");
+  const exists = read.slice(read.indexOf("export async function guestOrderExists"), read.indexOf("export async function currentOrderAgreement"));
+  assert.match(exists, /owner_kind='guest'/);
+  const page = await readFile("src/app/(store)/siparis/baglanti/page.tsx", "utf8");
+  assert.match(page, /privatePageRobots/);
+  assert.doesNotMatch(page, /@\/lib\/db|order-read/);
 });
 
 test("a signed link only reads guest orders and never reaches payment or order actions", async () => {

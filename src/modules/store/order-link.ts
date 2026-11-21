@@ -31,16 +31,38 @@ export function signOrderLink(orderId: string, expiresAt: Date, secret: string) 
   return `${exp}.${signature(orderId, exp, secret)}`;
 }
 
-/** True only for a token this server signed for this order that has not expired; a malformed token is simply false. */
-export function verifyOrderLink(orderId: string, token: string | null | undefined, secret: string, now = new Date()) {
-  if (!token || token.length > ORDER_LINK_TOKEN_MAX) return false;
+export type OrderLinkStatus = "valid" | "expired" | "invalid";
+
+/**
+ * "valid" for a token this server signed for this order that has not expired; "expired" only when the signature is
+ * genuine and the expiry has passed; everything else (malformed, tampered, other order or secret) is "invalid".
+ * The signature is compared first so an unsigned expiry never reveals anything.
+ */
+export function orderLinkStatus(orderId: string, token: string | null | undefined, secret: string, now = new Date()): OrderLinkStatus {
+  if (!token || token.length > ORDER_LINK_TOKEN_MAX) return "invalid";
   const match = tokenPattern.exec(token);
-  if (!match) return false;
+  if (!match) return "invalid";
   const [, exp, supplied] = match;
-  if (Number(exp) * 1000 <= now.getTime()) return false;
   const expected = Buffer.from(signature(orderId, exp, secret), "ascii");
   const given = Buffer.from(supplied, "ascii");
-  return given.length === expected.length && timingSafeEqual(given, expected);
+  if (given.length !== expected.length || !timingSafeEqual(given, expected)) return "invalid";
+  return Number(exp) * 1000 <= now.getTime() ? "expired" : "valid";
+}
+
+/** True only for a token this server signed for this order that has not expired; a malformed token is simply false. */
+export function verifyOrderLink(orderId: string, token: string | null | undefined, secret: string, now = new Date()) {
+  return orderLinkStatus(orderId, token, secret, now) === "valid";
+}
+
+/** Page that explains a link that did not open an order; carries no order id or token. */
+export const ORDER_LINK_NOTICE_PATH = "/siparis/baglanti";
+export const orderLinkNotices = { expired: "suresi-doldu", invalid: "gecersiz" } as const;
+
+/** Absolute notice address for a non-valid status, built from the site URL only. */
+export function orderLinkNoticeUrl(status: Exclude<OrderLinkStatus, "valid">, siteUrl: string) {
+  const url = new URL(ORDER_LINK_NOTICE_PATH, siteUrl);
+  url.searchParams.set("durum", orderLinkNotices[status]);
+  return url.toString();
 }
 
 /** A fresh token valid for ORDER_LINK_DAYS from `now`, or null when no secret is configured. */
@@ -59,6 +81,10 @@ export function orderLinkPath(orderId: string, token: string, page?: "sozlesme")
 }
 
 export type OrderLinkGrant = {
+  /** What the token amounts to; "invalid" when the feature is off or no token came. */
+  status: OrderLinkStatus;
+  /** Absolute address of the explanation page for this status (expired, else invalid). */
+  notice: string;
   /** Absolute clean address to redirect to; built from the site URL and the validated order id only (no open redirect). */
   target: string;
   /** The cookie to set, or null when the link is invalid, expired or the feature is off. */
@@ -71,7 +97,9 @@ export function orderLinkGrant({ orderId, token, page, siteUrl, secret, now = ne
 }): OrderLinkGrant {
   const path = `/siparis/${orderId}`;
   const target = new URL(page ? `${path}/${page}` : path, siteUrl).toString();
-  if (!secret || !token || !verifyOrderLink(orderId, token, secret, now)) return { target, cookie: null };
+  const status = secret && token ? orderLinkStatus(orderId, token, secret, now) : "invalid";
+  const notice = orderLinkNoticeUrl(status === "expired" ? "expired" : "invalid", siteUrl);
+  if (status !== "valid" || !token) return { status, notice, target, cookie: null };
   const maxAge = Number(token.split(".")[0]) - Math.floor(now.getTime() / 1000);
-  return { target, cookie: { name: ORDER_LINK_COOKIE, value: token, options: { httpOnly: true, secure: production, sameSite: "lax", path, maxAge } } };
+  return { status, notice, target, cookie: { name: ORDER_LINK_COOKIE, value: token, options: { httpOnly: true, secure: production, sameSite: "lax", path, maxAge } } };
 }
