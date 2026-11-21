@@ -7,6 +7,7 @@ import { manualCompany, setaCompany } from "@/modules/suppliers/storefront-sourc
 import { DINAMIK_COMPANY, DINAMIK_WAREHOUSE } from "@/modules/suppliers/dinamik-import";
 import { evaluateFeed, supplierFeedScopes, supplierSchedulerState, type FeedSupplier } from "@/modules/suppliers/data-status";
 import type { CommerceOrder } from "@/modules/store/orders";
+import type { ReturnReason } from "@/modules/store/returns";
 import { ORDER_EMAIL_LEASE_MINUTES, type AdminOrderEmail } from "@/modules/store/order-email-state";
 import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules";
 import { restockDueCount } from "./restock";
@@ -81,6 +82,11 @@ export type ProcurementFilter = keyof typeof procurementFilters;
 // The orders list's "Müşteri" column filter (#426, `sahip`): partner (API) orders or the store's own; tab counts stay unfiltered.
 const ownerFilters = { all: "true", partner: "o.owner_kind='partner'", store: "o.owner_kind<>'partner'" };
 export type OwnerFilter = keyof typeof ownerFilters;
+/** A partner's return request on the order (#1007); jsonb, so the times arrive as ISO strings. */
+export type AdminReturnRequest = {
+  id: string; status: "requested" | "approved" | "rejected"; note: string; requested_at: string; decided_at: string | null;
+  lines: { product_id: string; quantity: number; reason: ReturnReason }[];
+};
 type PartnerCancelRequest = { cancel_requested_at: Date | null; cancel_request_rejected_at: Date | null; partner_invoiced_at: Date | null; partner_invoice_ref: string | null; partner_invoiced_by_name: string | null };
 export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { sort?: string; dir?: string } = {}, rawProcurement?: string, rawOwner?: string) {
   await requireAdmin();
@@ -89,7 +95,7 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
   const filter: OrderFilter = pickKey(orderFilters, rawFilter, "all");
   const procurement: ProcurementFilter = pickKey(procurementFilters, rawProcurement, "all");
   const owner: OwnerFilter = pickKey(ownerFilters, rawOwner, "all");
-  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[]; lines: AdminOrderLine[]; geliver: AdminGeliverShipment | null; emails: AdminOrderEmail[] } & OrderAgreementSummary & PartnerCancelRequest>(
+  const [orders, counts] = await Promise.all([db.query<CommerceOrder & { payments: AdminPayment[]; refunds: AdminRefund[]; lines: AdminOrderLine[]; geliver: AdminGeliverShipment | null; emails: AdminOrderEmail[]; return_requests: AdminReturnRequest[] } & OrderAgreementSummary & PartnerCancelRequest>(
     `SELECT o.id,o.number,o.owner_kind,o.owner_id,o.customer_name,o.email,o.phone,o.address,o.note,o.total_kurus,o.subtotal_kurus,o.shipping_kurus,
      o.discount_percent,o.status,o.created_at,o.payment_status,o.payment_due_at,o.paid_at,o.payment_note,o.refund_reference,o.refunded_at,
      o.carrier,o.carrier_name,o.tracking_no,o.tracking_url,o.shipped_at,o.delivered_at,o.cancelled_by,o.cancelled_at,o.installment_count,o.installment_fee_kurus,
@@ -117,7 +123,12 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
      COALESCE((SELECT jsonb_agg(jsonb_build_object('kind',e.kind,'status',e.status,'attempts',e.attempts,'last_error',e.last_error,'sent_at',e.sent_at,
       'created_at',e.created_at,'claimed_at',e.claimed_at,'requeued_at',e.requeued_at,
       'in_flight',e.status='pending' AND e.claimed_at IS NOT NULL AND e.claimed_at > now()-make_interval(mins=>$2)) ORDER BY e.created_at,e.kind)
-      FROM commerce_order_emails e WHERE e.order_id=o.id),'[]') AS emails
+      FROM commerce_order_emails e WHERE e.order_id=o.id),'[]') AS emails,
+     -- Partner return requests (#1007), oldest first, with their lines.
+     COALESCE((SELECT jsonb_agg(jsonb_build_object('id',rr.id,'status',rr.status,'note',rr.note,'requested_at',rr.requested_at,'decided_at',rr.decided_at,
+      'lines',(SELECT jsonb_agg(jsonb_build_object('product_id',rl.product_id,'quantity',rl.quantity,'reason',rl.reason) ORDER BY rl.product_id)
+       FROM partner_return_request_lines rl WHERE rl.request_id=rr.id)) ORDER BY rr.requested_at,rr.id)
+      FROM partner_return_requests rr WHERE rr.order_id=o.id),'[]') AS return_requests
      FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} AND ${procurementFilters[procurement]} AND ${ownerFilters[owner]} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50, ORDER_EMAIL_LEASE_MINUTES],
   ), db.query<Record<OrderFilter, number>>(`SELECT ${Object.entries(orderFilters).map(([key, f]) => `count(*) FILTER (WHERE ${f.where})::int AS ${key}`).join(",")} FROM commerce_orders o`)]);
@@ -130,7 +141,7 @@ const pendingBrandsSql = "SELECT count(DISTINCT brand_id)::int FROM supplier_bra
 export async function adminNavCounts() {
   await requireAdmin();
   const [{ rows }, restock] = await Promise.all([db.query<{ orders: number; services: number; enrichment: number; brands: number }>(`SELECT
-    (SELECT count(*)::int FROM commerce_orders o WHERE ${orderFilters.action.where} OR ${orderFilters.refund.where} OR ${orderFilters.cancel_request.where}) AS orders,
+    (SELECT count(*)::int FROM commerce_orders o WHERE ${orderFilters.action.where} OR ${orderFilters.refund.where} OR ${orderFilters.cancel_request.where} OR ${orderFilters.return_request.where}) AS orders,
     (SELECT count(*)::int FROM accounts WHERE role='service' AND NOT approved) AS services,
     (SELECT count(*)::int FROM product_enrichment_jobs WHERE status IN ('review','blocked','failed')) AS enrichment,
     (${pendingBrandsSql}) AS brands`), restockDueCount()]);

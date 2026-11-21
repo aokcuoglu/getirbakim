@@ -8,6 +8,7 @@ import { returnReasons } from '@/modules/store/returns';
 import { shipmentSchema,type ShipmentResult } from '@/modules/store/shipment';
 import { transitionOrder,decidePartnerCancelRequest,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn,setLineProcurement } from './orders';
 import { procurementInput } from './order-procurement';
+import { decidePartnerReturnRequest } from '@/modules/partner/returns';
 import { orderListBack,orderListReturn,type OrderListOutcome } from './order-list-return';
 import { refundPayment,checkRefund,type RefundOutcome } from '@/modules/payments/refunds';
 import { INSTALLMENT_COUNTS } from '@/modules/payments/installment-plan';
@@ -70,6 +71,15 @@ export async function decideCancelRequest(form:FormData) {
  if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
  const ok=await decidePartnerCancelRequest(input.data.id,input.data.decision);
  revalidateOrder(input.data.id);
+ redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
+}
+/** A partner's return request on a shipped order (#1007): approve records the returns, reject releases the quantity. */
+export async function decideReturnRequest(form:FormData) {
+ const admin=await requireAdmin();
+ const input=z.object({id:z.uuid(),order:z.uuid(),decision:z.enum(['approve','reject']),back:orderListBack.optional()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect(orderListReturn(form.get('back'),'error'));
+ const ok=await decidePartnerReturnRequest(input.data.id,input.data.decision,admin.id);
+ revalidateOrder(input.data.order);
  redirect(orderListReturn(input.data.back,ok ? 'saved' : 'error'));
 }
 /**

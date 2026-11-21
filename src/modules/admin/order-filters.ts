@@ -6,12 +6,16 @@ import { handledPaymentSql } from "@/modules/store/payment-states";
 /** A partner's cancel request (#426) operations have not decided yet; the order may not ship meanwhile. */
 export const openCancelRequestSql = "(o.cancel_requested_at IS NOT NULL AND o.cancel_request_rejected_at IS NULL)";
 
+/** A partner's return request (#1007) operations have not decided yet; it holds its quantity until then. */
+export const openReturnRequestSql = "EXISTS (SELECT 1 FROM partner_return_requests rr WHERE rr.order_id=o.id AND rr.status='requested')";
+
 export const orderFilters = {
   all: { label: "Tümü", where: "true" },
   action: { label: "Teyit bekleyen", where: `o.status='pending' AND o.payment_status IN ${handledPaymentSql}` },
   // An order with an open partner cancel request cannot ship; it waits under cancel_request.
   shipping: { label: "Kargoya verilecek", where: `o.status='confirmed' AND NOT ${openCancelRequestSql}` },
   cancel_request: { label: "İptal talebi", where: `o.status='confirmed' AND ${openCancelRequestSql}` },
+  return_request: { label: "İade talebi", where: openReturnRequestSql },
   refund: { label: "İade bekleyen", where: "o.payment_status='refund_required'" },
   awaiting_payment: { label: "Ödeme bekleyen", where: "o.status='awaiting_payment'" },
   shipped: { label: "Kargoda", where: "o.status='shipped'" },
