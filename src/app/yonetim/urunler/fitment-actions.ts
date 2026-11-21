@@ -47,8 +47,9 @@ async function run(action: () => Promise<store.ProductFitmentResult>, success: s
     return { status: "error", message: "Araç uyumu kaydedilemedi. Yeniden deneyin." };
   }
   if (!result.ok) return { status: "error", message: failures[result.reason] };
-  // The make and model pages read storefront_make_fits / storefront_model_fits: the triggers queued the product and the background link sync
-  // (startEnrichmentLinkSync, every few seconds) rebuilds it. Not drained here: a queued full rebuild would run inside
+  // The make and model pages read storefront_make_fits / storefront_model_fits, and the make page also
+  // storefront_make_description_fits (a hidden description model, #956): the triggers queued the product and the
+  // background link sync (startEnrichmentLinkSync, every few seconds) rebuilds them. Not drained here: a queued full rebuild would run inside
   // this request.
   // The vehicle filter, the fit count and vehicle searches are cached per process: they reload (#585).
   await invalidateListings();

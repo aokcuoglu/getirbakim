@@ -251,18 +251,18 @@ const cachedFitted=staleCache<string[]>(10*60*1000,500,listings);
 const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
 /**
  * Products fitting one make (`param`: its vehicle_brands id, e.g. "$2::int"), as one id column: the engine-level fits
- * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the models read from supplier
- * descriptions (storefront_description_fits: product_model_fitments without the models the admin hid, #661) of the
- * make's series, a secondary offer counting as the product listing it, like modelFittedIds (#674). Matching a make's
- * fitments to the payloads per read took 20-57 s on RDS for the large makes. The make table is an index read; the description side is planned as a parallel sequential scan of
- * the description fits hashed against the make's series (VW: ~53k ids, ~0.1 s warm and ~0.5 s cold locally). Used as
- * `id=ANY(ARRAY(...))`, an InitPlan run once per query, so a make's ids never pass through Node (large id arrays fed the
- * heap OOMs). The listing's cost grows with the id count; its counts, facets and page ids (also the price orders, see
- * browseProducts) are cached for 10 minutes.
+ * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the makes of the models read from supplier
+ * descriptions (storefront_description_fits: product_model_fitments without the models the admin hid, #661), precomputed
+ * per fitted row in storefront_make_description_fits (#956), a secondary offer counting as the product listing it, like
+ * modelFittedIds (#674). Matching a make's fitments to the payloads per read took 20-57 s on RDS for the large makes;
+ * hashing every description fit against the make's series per read took ~60 ms warm (VW, locally). Both branches are
+ * now index reads (VW: ~60k ids, ~22 ms warm locally). Used as `id=ANY(ARRAY(...))`, an InitPlan run once per query, so
+ * a make's ids never pass through Node (large id arrays fed the heap OOMs). The listing's cost grows with the id count;
+ * its counts, facets and page ids (also the price orders, see browseProducts) are cached for 10 minutes.
  */
 export const makeFitsSql=(param:string)=>`SELECT supplier_item_id FROM storefront_make_fits WHERE brand_id=${param}
-  UNION SELECT COALESCE(o.primary_id,f.supplier_item_id) FROM vehicle_models m JOIN storefront_description_fits f ON f.model_id=m.id
-  LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id WHERE m.brand_id=${param}`;
+  UNION SELECT COALESCE(o.primary_id,f.supplier_item_id) FROM storefront_make_description_fits f
+  LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id WHERE f.brand_id=${param}`;
 /**
  * Every model fit as (model_id, id) rows, a pair possibly repeated: engine-level fits (storefront_model_fits, kept like
  * the make table) and models read from supplier descriptions (storefront_description_fits, model level only), a secondary
