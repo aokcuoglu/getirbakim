@@ -32,7 +32,7 @@ export default async function SharedImages({ searchParams }: { searchParams: Pro
   return <div className="flex flex-col gap-6">
     <div className="flex min-w-0 max-w-3xl flex-col gap-1">
       <h1 className="text-2xl font-semibold tracking-tight">Ortak görseller</h1>
-      <p className="text-muted-foreground">Birden çok parça numarasında kullanılan otomatik (zenginleştirme) görselleri. Çoğu gerçek ürün ailesi fotoğrafıdır. Yer tutucu, filigranlı veya yanlış bir görseli buradan engelleyebilirsiniz: engellenen görsel onu kullanan bütün ürünlerde mağazada gizlenir, engel kaldırılınca geri gelir. Tek bir üründe gerçek fotoğraf yüklemek veya otomatik görseli gizlemek için ürüne girin.</p>
+      <p className="text-muted-foreground">Birden çok parça numarasında kullanılan otomatik (zenginleştirme) görselleri. Çoğu gerçek ürün ailesi fotoğrafıdır. Yer tutucu, filigranlı veya yanlış bir görseli buradan engelleyebilirsiniz. Engellenen görsel onu kullanan bütün ürünlerde mağazada gizlenir; engel kaldırılınca geri gelir. Tek bir üründe gerçek fotoğraf yüklemek veya otomatik görseli gizlemek için ürüne girin.</p>
     </div>
     {placeholders.inUse.images > 0 && <Alert variant="warning"><TriangleAlert aria-hidden="true"/>
       <AlertTitle>{formatNumber(placeholders.inUse.images)} yer tutucu görsel temizlik bekliyor</AlertTitle>
@@ -69,12 +69,12 @@ export default async function SharedImages({ searchParams }: { searchParams: Pro
             <TableCell className="tabular-nums">{formatNumber(image.donors)}</TableCell>
             <TableCell className="tabular-nums"><div className="flex flex-wrap items-center gap-2">
               {image.listed ? <>{image.store_rows > 0 && formatNumber(image.store_rows)}<StatusBadge tone="warning">Yer tutucu, mağazada gizli</StatusBadge></>
-                : image.blocked ? <>{image.store_rows > 0 && formatNumber(image.store_rows)}<StatusBadge tone="error" icon={Ban}>Engellendi, mağazada gizli</StatusBadge></>
+                : image.blocked ? <>{image.store_rows > 0 && formatNumber(image.store_rows)}<StatusBadge tone="warning" icon={Ban}>Engellendi, mağazada gizli</StatusBadge></>
                 : image.store_rows === 0 ? <StatusBadge tone="neutral">Mağazada yok</StatusBadge> : formatNumber(image.store_rows)}</div></TableCell>
             <TableCell className="max-w-64 truncate" title={image.samples.join(", ")}>{image.samples.join(", ")}</TableCell>
             <TableCell><div className="flex flex-wrap gap-2">
               <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/yonetim/ortak-gorseller/${image.image_id}${listQuery.size ? `?${new URLSearchParams({ from: listQuery.toString() })}` : ""}`}/>}>Ürünleri gör</Button>
-              {!image.listed && <SharedImageBlockDialog imageId={image.image_id} blocked={image.blocked} label={`${image.host} görseli, ${formatNumber(image.parts)} parça`}/>}
+              {!image.listed && <SharedImageBlockDialog imageId={image.image_id} blocked={image.blocked} label={`${image.host} görseli, ${formatNumber(image.parts)} parça`} note={image.block_note} sourceUrl={image.source_url}/>}
             </div></TableCell>
           </TableRow>)}</TableBody></Table>
           : <Empty><EmptyHeader><EmptyMedia variant="icon"><Images/></EmptyMedia><EmptyTitle>Bu eşikte ortak görsel yok.</EmptyTitle>
@@ -91,11 +91,14 @@ export default async function SharedImages({ searchParams }: { searchParams: Pro
       <CardContent>
         {blocks.length ? <Table><caption className="sr-only">Engellenen görseller</caption>
           <TableHeader><TableRow>
-            <TableHead>Not</TableHead><TableHead>Engelleyen</TableHead><TableHead>Tarih</TableHead><TableHead>SHA-256</TableHead>
+            <TableHead>Not</TableHead><TableHead>Kaynak</TableHead><TableHead>Engelleyen</TableHead><TableHead>Tarih</TableHead><TableHead>SHA-256</TableHead>
             <TableHead>Zenginleştirme kaydı</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead>
           </TableRow></TableHeader>
           <TableBody>{blocks.map(block => <TableRow key={block.sha256}>
             <TableCell className="max-w-80 whitespace-normal">{block.note || <span className="text-muted-foreground">Not yok</span>}</TableCell>
+            <TableCell className="max-w-40 truncate" value={block.source_url ?? ""}>{block.source_url
+              ? <a className="underline-offset-4 hover:underline" href={block.source_url} target="_blank" rel="noreferrer" title={block.source_url}>{block.source_url.split("/")[2] || block.source_url}<span className="sr-only"> (kaynak adresi, yeni sekmede açılır)</span></a>
+              : <span className="text-muted-foreground">—</span>}</TableCell>
             <TableCell>{block.created_by ?? <span className="text-muted-foreground">Bilinmiyor</span>}</TableCell>
             <TableCell className="tabular-nums" value={block.created_at.toISOString()}>{formatDate(block.created_at)}</TableCell>
             <TableCell className="font-mono text-xs break-all" value={block.sha256}>{block.sha256}</TableCell>
@@ -103,9 +106,9 @@ export default async function SharedImages({ searchParams }: { searchParams: Pro
             <TableCell>{block.image_id
               ? <div className="flex flex-wrap gap-2">
                 {block.donors > 0 && <Button variant="outline" size="sm" nativeButton={false} render={<Link href={`/yonetim/ortak-gorseller/${block.image_id}`}/>}>Ürünleri gör</Button>}
-                <SharedImageBlockDialog imageId={block.image_id} blocked label={`SHA-256 ${block.sha256.slice(0, 12)}`}/>
+                <SharedImageBlockDialog imageId={block.image_id} blocked label={`SHA-256 ${block.sha256.slice(0, 12)}`} note={block.note} sourceUrl={block.source_url}/>
               </div>
-              : <span className="text-muted-foreground">Bu veritabanında kayıt yok</span>}</TableCell>
+              : <span className="text-muted-foreground">Görsel bu ortamda bulunmuyor</span>}</TableCell>
           </TableRow>)}</TableBody></Table>
           : <Empty><EmptyHeader><EmptyMedia variant="icon"><Ban/></EmptyMedia><EmptyTitle>Engellenen görsel yok.</EmptyTitle>
             <EmptyDescription>Yukarıdaki listede bir görseli &quot;Engelle&quot; ile mağazada gizleyebilirsiniz.</EmptyDescription></EmptyHeader></Empty>}

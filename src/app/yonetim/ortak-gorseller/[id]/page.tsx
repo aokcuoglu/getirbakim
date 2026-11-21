@@ -41,11 +41,11 @@ export default async function SharedImage({ params, searchParams }: { params: Pr
         <div className="min-w-0 sm:col-span-2"><dt className="text-muted-foreground">SHA-256</dt>
           <dd className="flex flex-wrap items-center gap-2"><span className="break-all font-mono">{header.sha256}</span>
             {header.listed && <StatusBadge tone="warning">Yer tutucu, mağazada gizli</StatusBadge>}
-            {header.blocked && <StatusBadge tone="error" icon={Ban}>Engellendi, mağazada gizli</StatusBadge>}</dd></div>
+            {header.blocked && <StatusBadge tone="warning" icon={Ban}>Engellendi, mağazada gizli</StatusBadge>}</dd></div>
         <div className="min-w-0 sm:col-span-2"><dt className="text-muted-foreground">Kaynak adresi</dt>
           <dd className="truncate"><a className="underline-offset-4 hover:underline" href={header.source_url} target="_blank" rel="noreferrer" title={header.source_url}>{header.source_url}<span className="sr-only"> (yeni sekmede açılır)</span></a></dd></div>
       </dl>
-      {!header.listed && <SharedImageBlockDialog imageId={header.image_id} blocked={header.blocked} label={`${header.host} görseli`}/>}
+      {!header.listed && <SharedImageBlockDialog imageId={header.image_id} blocked={header.blocked} label={`${header.host} görseli`} note={header.block_note} sourceUrl={header.source_url}/>}
     </CardContent></Card>
     <Card>
       <CardContent>

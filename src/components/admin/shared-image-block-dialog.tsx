@@ -16,11 +16,17 @@ import {
 /**
  * "Engelle" / "Engeli kaldır" of a shared automatic image (#1136): confirmed first, with an optional note when
  * blocking. A refused change keeps the dialog open with its message; a saved one closes it and the page refreshes.
+ * Unblocking shows the block's note and the image's source address: the store no longer serves a blocked image, so the
+ * source is how the admin looks at it again.
  */
-export function SharedImageBlockDialog({ imageId, blocked, label }: {
+export function SharedImageBlockDialog({ imageId, blocked, label, note, sourceUrl }: {
   imageId: string; blocked: boolean;
   /** Names the image in the trigger's accessible name (several triggers share a table). */
   label: string;
+  /** The block's note (unblock). */
+  note?: string | null;
+  /** The media's source address (unblock). */
+  sourceUrl?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const action = blocked ? "Engeli kaldır" : "Engelle";
@@ -29,13 +35,13 @@ export function SharedImageBlockDialog({ imageId, blocked, label }: {
     <AlertDialogTrigger render={<Button variant="outline" size="sm" aria-label={`${action}: ${label}`}/>}>{icon}{action}</AlertDialogTrigger>
     <AlertDialogContent>
       {/* Remounted on each open: the last result is not shown again. */}
-      {open && <BlockForm imageId={imageId} blocked={blocked} action={action} icon={icon} onSaved={() => setOpen(false)}/>}
+      {open && <BlockForm imageId={imageId} blocked={blocked} action={action} icon={icon} blockNote={note ?? null} sourceUrl={sourceUrl ?? null} onSaved={() => setOpen(false)}/>}
     </AlertDialogContent>
   </AlertDialog>;
 }
 
-function BlockForm({ imageId, blocked, action, icon, onSaved }: {
-  imageId: string; blocked: boolean; action: string; icon: ReactNode; onSaved: () => void;
+function BlockForm({ imageId, blocked, action, icon, blockNote, sourceUrl, onSaved }: {
+  imageId: string; blocked: boolean; action: string; icon: ReactNode; blockNote: string | null; sourceUrl: string | null; onSaved: () => void;
 }) {
   const id = useId();
   // Controlled: React 19 resets an action form after submit, so an error result would otherwise clear the note.
@@ -55,6 +61,11 @@ function BlockForm({ imageId, blocked, action, icon, onSaved }: {
         ? "Görsel, kullanan ürünlerde mağazada yeniden gösterilir. Yöneticinin gizlediği otomatik görseller gizli kalır."
         : "Bu görsel mağazada, ürün görsellerinde ve ürün akışında gizlenir. Yönetici yüklemeleri etkilenmez."}</AlertDialogDescription>
     </AlertDialogHeader>
+    {blocked && <dl className="grid min-w-0 gap-2">
+      <div className="min-w-0"><dt className="text-muted-foreground">Engel notu</dt><dd className="break-words">{blockNote || "Not yok"}</dd></div>
+      {sourceUrl && <div className="min-w-0"><dt className="text-muted-foreground">Kaynak adresi</dt>
+        <dd className="truncate"><a className="underline-offset-4 hover:underline" href={sourceUrl} target="_blank" rel="noreferrer" title={sourceUrl}>{sourceUrl}<span className="sr-only"> (yeni sekmede açılır)</span></a></dd></div>}
+    </dl>}
     {!blocked && <Field>
       <FieldLabel htmlFor={`${id}-note`}>Not (isteğe bağlı)</FieldLabel>
       <Input id={`${id}-note`} name="note" maxLength={200} autoComplete="off" value={note} onChange={event => setNote(event.currentTarget.value)}

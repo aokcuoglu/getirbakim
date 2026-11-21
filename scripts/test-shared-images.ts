@@ -201,7 +201,9 @@ describe("blocking a shared image", () => {
     assert.deepEqual([data.header.blocked, data.total], [true, 3]);
     assert.deepEqual(data.rows.map(item => item.supplier_item_id).sort(), blockKeys.map(key => ids[key]).sort());
     const [entry] = await blocks.listImageBlocks(schema.pool);
-    assert.deepEqual([entry.sha256, entry.image_id, entry.donors, entry.created_by], [sha("x"), media.x, 3, "Yönetici"]);
+    assert.deepEqual([entry.sha256, entry.image_id, entry.donors, entry.created_by, entry.source_url], [sha("x"), media.x, 3, "Yönetici", "https://www.trodo.com/x.webp"]);
+    assert.equal(row?.block_note, "");
+    assert.equal((await list({ min: "2" })).images.find(item => item.image_id === media.a)?.block_note, null);
   });
 
   test("listed, unknown and unreferenced images are refused; a second block keeps the first", async () => {
@@ -223,5 +225,25 @@ describe("blocking a shared image", () => {
     assert.deepEqual(await blocks.unblockSharedImage(schema.pool, media.x), { ok: true });
     await sync();
     assert.ok(await images.servableProductMedia(media.x, companies));
+  });
+
+  test("a stale block is lifted even when no enrichment uses the image any more", async () => {
+    await schema.pool.query("INSERT INTO product_image_blocks(sha256,note) VALUES($1,'eski')", [sha("d")]);
+    assert.deepEqual(await blocks.blockSharedImage(schema.pool, media.d, "", admin), { ok: false, reason: "not-found" });
+    assert.deepEqual(await blocks.unblockSharedImage(schema.pool, media.d), { ok: true });
+    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_image_blocks WHERE sha256=$1", [sha("d")])).rows[0].n, 0);
+    assert.deepEqual(await blocks.unblockSharedImage(schema.pool, randomUUID()), { ok: false, reason: "not-found" });
+  });
+
+  test("the link queue is drained inline only when it is small and holds no rebuild marker", async () => {
+    await sync();
+    assert.equal(await blocks.linkQueueDrainable(schema.pool), true);
+    await schema.pool.query("INSERT INTO product_enrichment_shared_queue(kind,id) SELECT 'i',gen_random_uuid() FROM generate_series(1,3)");
+    assert.equal(await blocks.linkQueueDrainable(schema.pool, 3), true);
+    assert.equal(await blocks.linkQueueDrainable(schema.pool, 2), false);
+    await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
+    await schema.pool.query("INSERT INTO product_enrichment_shared_queue(kind,id) VALUES ('p','00000000-0000-0000-0000-000000000000')");
+    assert.equal(await blocks.linkQueueDrainable(schema.pool), false);
+    await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
   });
 });

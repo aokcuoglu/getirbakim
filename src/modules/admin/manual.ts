@@ -15,7 +15,7 @@ import { z } from "zod";
 import type { SupplierChange } from "./supplier-changes";
 import { supplierItemPage, type SaleFields } from "./supplier-items";
 import { getProduct } from "@/modules/store/catalog";
-import { itemProductSql, shownImageSql } from "@/modules/store/product-image-sql";
+import { blockedMediaSql, itemProductSql, shownImageSql } from "@/modules/store/product-image-sql";
 import { adminProductPricing } from "@/modules/admin/product-pricing";
 
 export type ManualParams = { liste?: string; taslak?: string; q?: string; category?: string; stock?: string; quality?: string; presence?: string;
@@ -70,9 +70,9 @@ export async function adminManualData(params: ManualParams) {
     categoryNames: new Map(categories.map(category => [category.id, category.name])) };
 }
 
-// The image the store shows (#596): an admin upload, or the enrichment image unless the admin hid it.
+// The image the store shows (#596): an admin upload, or the enrichment image unless the admin hid or blocked it (#1136).
 const shownImage = (item: string) => shownImageSql(itemProductSql(`${item}.id`),
-  `EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=${item}.id AND e.image_id IS NOT NULL)`);
+  `EXISTS (SELECT 1 FROM product_enrichments e WHERE e.supplier_item_id=${item}.id AND e.image_id IS NOT NULL AND e.image_id NOT IN (${blockedMediaSql}))`);
 
 /** The product tab's filters (list, presence, search, category, stock, quality) as a WHERE clause on supplier_items. */
 function manualItemFilter(listGroup: string, params: ManualParams) {
