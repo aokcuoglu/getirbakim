@@ -10,7 +10,7 @@ export function CatalogCategoryChips({categories,makeSlug,modelSlug}:{categories
  return <nav aria-label="Alt kategoriler" className="mb-4 min-[768px]:hidden">
   <ul className="-mx-[15px] flex snap-x scroll-px-[15px] gap-2 overflow-x-auto py-1.5 pr-8 pl-[15px] [mask-image:linear-gradient(to_right,#000_calc(100%-32px),transparent)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
    {categories.map(category=><li key={category.id} className="shrink-0 snap-start">
-    <Link className="flex min-h-11 items-center rounded-full border border-border bg-white px-4 text-sm whitespace-nowrap text-foreground transition-colors hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+    <Link className="category-chip"
      href={listingPath({makeSlug,modelSlug,categorySlug:category.slug})}>{category.name}</Link>
    </li>)}
   </ul>
