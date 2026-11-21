@@ -2,6 +2,29 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.37.0 — 2026-11-21
+
+Release of `dev` since v0.36.0 (9 pull requests): partner order webhooks, admin blocking of wrong shared images, a notice page for expired guest order links, pending partner returns on the manual return form, price-anomaly re-checks after every Başbuğ price sync, faster make pages and catalog reads, and the last storefront controls on the shared button scale. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Partner order webhooks:** a trigger on `commerce_orders` records one `partner_webhook_events` row per partner-visible change (status, carrier and tracking, shipped/delivered, cancel and cancel request/rejection) in the same transaction; delivery runs after the 5-minute reconcile sweep, HMAC-SHA256 signed, retried for 72 h; "Webhook bildirimleri" on `/yonetim/partnerler`; partner contract v2.2 ([#1183](https://github.com/aokcuoglu/getirbakim/pull/1183), [#1002](https://github.com/aokcuoglu/getirbakim/issues/1002)). Until `PARTNER_WEBHOOKS_JSON` is set, events are recorded as `skipped`. `/api/partner/v1/*` routes and `partner_settings` are unchanged.
+- **Block or unblock a shared automatic image** from `/yonetim/ortak-gorseller` (`product_image_blocks`); the block is applied where the shared links are derived, so every storefront, partner, feed and media path hides it and a storefront sync cannot undo it ([#1182](https://github.com/aokcuoglu/getirbakim/pull/1182), [#1136](https://github.com/aokcuoglu/getirbakim/issues/1136)).
+- **Expired or invalid guest order link** now lands on `/siparis/baglanti` with next steps instead of a 404; signature is checked before expiry, so "expired" is only shown for a genuine link ([#1177](https://github.com/aokcuoglu/getirbakim/pull/1177), [#1148](https://github.com/aokcuoglu/getirbakim/issues/1148)).
+- **Pending partner return requests** on the admin's manual return form: listed per line, the form caps at ordered − accepted − pending, and each refusal has its own message ([#1171](https://github.com/aokcuoglu/getirbakim/pull/1171), [#1151](https://github.com/aokcuoglu/getirbakim/issues/1151)).
+
+### Fixed
+- **Price anomalies are re-checked after every Başbuğ price/stock sync** (scoped to the rows whose price changed in that tick), not only after the nightly full list; unjudged dismissed rows reopen on a 1.5× move or a currency change ([#1175](https://github.com/aokcuoglu/getirbakim/pull/1175), [#1153](https://github.com/aokcuoglu/getirbakim/issues/1153)).
+
+### Changed
+- **Make pages** read description fitments from the precomputed `storefront_make_description_fits` instead of scanning `product_model_fitments` (VW 52–63 → 20–29 ms locally); the listed set is unchanged ([#1184](https://github.com/aokcuoglu/getirbakim/pull/1184), [#956](https://github.com/aokcuoglu/getirbakim/issues/956)).
+- **Catalog by-id reads** (cart, checkout price check, partner offers, equivalents) use an index-backed latest import and one `id=ANY(…)` statement instead of a per-id LATERAL ([#1185](https://github.com/aokcuoglu/getirbakim/pull/1185), [#1158](https://github.com/aokcuoglu/getirbakim/issues/1158)).
+- **Storefront controls:** header category menu, phone category sheet and search dropdown controls on `storeButton` at 44px with token colours ([#1178](https://github.com/aokcuoglu/getirbakim/pull/1178), [#1173](https://github.com/aokcuoglu/getirbakim/issues/1173)); hex → tokens on storefront triggers and the Bakım Robotu kit builder, and a 14px / 44px card specs toggle ([#1179](https://github.com/aokcuoglu/getirbakim/pull/1179), [#1174](https://github.com/aokcuoglu/getirbakim/issues/1174)).
+
+### Deploy and operations
+- **`db:setup` runs first** (`release-aws`): new `db/partner.sql` (webhook events table and trigger; first run takes SHARE ROW EXCLUSIVE on `commerce_orders`, `partner_return_requests`, `accounts` until commit), `product_image_blocks` and the shared-links function (brief lock on `accounts`), `storefront_make_description_fits` with triggers and a one-time backfill (SHARE ROW EXCLUSIVE on `product_model_fitments` and `product_override_fitment_hides`), and the guarded `supplier_imports_latest_success_idx`.
+- **Partner webhooks:** add `PARTNER_WEBHOOKS_JSON` to the AWS app secret (infra `ADDED_APP_SECRET_KEYS` + `set-app-secret.sh`) once BakımX provides an https endpoint and a secret; send contract v2.2 to BakımX.
+- Shared image blocks are not carried between AWS and local; never run `clearPlaceholderImages` for panel blocks. Vehicle oil specs are unchanged.
+
 ## v0.36.0 — 2026-11-21
 
 Release of `dev` since v0.35.0 (21 pull requests): shipped, cancelled and refunded customer emails with a signed guest order link, partner returns and per-partner B2B discounts, new supplier price-anomaly rules with reopening of dismissed decisions, a shared-images admin list, a verified storefront sync upload, smaller logos and storefront performance work. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
