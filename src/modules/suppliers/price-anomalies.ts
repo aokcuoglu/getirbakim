@@ -329,13 +329,19 @@ export async function detectPriceAnomalies(connection: Pick<Pool, "query">, supp
 /**
  * The admin's decision (#1030, #1142): "Anomali değil" (dismissed) freezes the current value and currency as the
  * baseline later refreshes compare with; "Yeniden işaretle" (open) clears it. decided_by/decided_at record who and when.
+ * `expected`: the value and currency the admin saw; a decision on a stale page (a refresh changed the value or the
+ * status since) updates nothing. Returns whether the row was updated.
  */
-export async function setPriceAnomalyStatus(connection: Pick<Pool, "query">, id: string, status: "open" | "dismissed", accountId: string | null) {
-  await connection.query(`UPDATE supplier_price_anomalies SET status=$2,decided_by=$3,decided_at=now(),
+export async function setPriceAnomalyStatus(connection: Pick<Pool, "query">, id: string, status: "open" | "dismissed", accountId: string | null,
+  expected?: { nf: number; currency: string }) {
+  const updated = await connection.query(`UPDATE supplier_price_anomalies SET status=$2,decided_by=$3,decided_at=now(),
     evidence=CASE WHEN $2='dismissed'
       THEN (evidence - 'reopened_from') || jsonb_build_object('dismissed_nf',evidence->'nf','dismissed_currency',evidence->'currency')
       ELSE evidence - 'dismissed_nf' - 'dismissed_currency' - 'reopened_from' END
-    WHERE supplier_item_id=$1`, [id, status, accountId]);
+    WHERE supplier_item_id=$1 AND status<>$2
+    AND ($4::jsonb IS NULL OR evidence->'nf'=$4::jsonb) AND ($5::text IS NULL OR evidence->>'currency'=$5)`,
+  [id, status, accountId, expected ? JSON.stringify(expected.nf) : null, expected?.currency ?? null]);
+  return (updated.rowCount ?? 0) > 0;
 }
 
 /**

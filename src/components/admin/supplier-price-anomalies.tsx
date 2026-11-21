@@ -6,7 +6,7 @@ import { SubmitButton } from "@/components/admin/submit-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { AdminPriceAnomaly } from "@/modules/admin/data";
-import { formatDecimal, formatNumber } from "@/modules/admin/format";
+import { formatExact, formatNumber } from "@/modules/admin/format";
 import { money } from "@/modules/store/money";
 import { priceAnomalyThresholds, type PriceAnomalyEvidence, type PriceAnomalyKind } from "@/modules/suppliers/price-anomalies";
 
@@ -49,7 +49,7 @@ export function priceAnomalySummary(kind: PriceAnomalyKind, evidence: PriceAnoma
 export function priceAnomalyReopened(evidence: PriceAnomalyEvidence): string | null {
   const from = evidence.reopened_from;
   if (!from) return null;
-  return `Değer değişti: “Anomali değil” kararı ${formatDecimal(from.nf)} ${from.currency} içindi, şimdi ${formatDecimal(evidence.nf)} ${evidence.currency}.`;
+  return `Değer değişti: “Anomali değil” kararı ${formatExact(from.nf)} ${from.currency} içindi, şimdi ${formatExact(evidence.nf)} ${evidence.currency}.`;
 }
 
 /** The suppliers overview's list of price anomalies (currency and cross-offer), with the admin's "Anomali değil" decision per row. */
@@ -60,7 +60,7 @@ export function SupplierPriceAnomalies({ rows }: { rows: AdminPriceAnomaly[] }) 
         <p>Para birimi: satırın para birimi markanın geri kalanıyla uyuşmuyor; çevrilmiş maliyet marka medyanından en az {formatNumber(priceAnomalyThresholds.RATIO)} kat yüksek ya da düşük.</p>
         <p>Teklif sapması: maliyet aynı ürünün diğer tedarikçi tekliflerinden en az {formatNumber(priceAnomalyThresholds.RATIO)} kat uzak; değer markanın kullandığı başka bir para birimi olarak okunursa tekliflerle uyuşuyor.</p>
         <p>Bu satırlar katalogda kalır ama fiyatlanmaz; veriyi tedarikçi düzeltir.</p>
-        <p>“Anomali değil” kararı, tedarikçi değeri en az {formatNumber(priceAnomalyThresholds.REOPEN_FACTOR)} kat değişirse ya da para birimi değişirse yeniden değerlendirilir.</p>
+        <p>“Anomali değil” kararı, tedarikçi değeri karar verilen değerin {formatNumber(priceAnomalyThresholds.REOPEN_FACTOR)} katına çıkar ya da {formatNumber(priceAnomalyThresholds.REOPEN_FACTOR)} katı kadar düşerse veya para birimi değişirse yeniden açılır.</p>
       </CardDescription></CardHeader>
     <CardContent>
       <Table controls={false}>
@@ -93,6 +93,8 @@ export function SupplierPriceAnomalies({ rows }: { rows: AdminPriceAnomaly[] }) 
               <form action={setPriceAnomalyStatus}>
                 <input type="hidden" name="id" value={row.supplier_item_id}/>
                 <input type="hidden" name="status" value={open ? "dismissed" : "open"}/>
+                <input type="hidden" name="nf" value={evidence.nf}/>
+                <input type="hidden" name="currency" value={evidence.currency}/>
                 <SubmitButton variant="outline" size="sm" aria-label={`${row.code}: ${open ? "Anomali değil" : "Yeniden işaretle"}`}>{open ? "Anomali değil" : "Yeniden işaretle"}</SubmitButton>
               </form>
             </TableCell>

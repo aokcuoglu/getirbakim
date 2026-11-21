@@ -376,8 +376,13 @@ test("PostgreSQL: a dismissed anomaly reopens when the value moves materially (#
 
     await refresh({ flagged: 1, open: 1, reopened: 0 });
     assert.equal(await price(), null);
+    // A decision made on a stale page (another value, another currency) or repeated updates nothing.
+    assert.equal(await setPriceAnomalyStatus(pool, item, "dismissed", null, { nf: 299, currency: "TRY" }), false);
+    assert.equal(await setPriceAnomalyStatus(pool, item, "dismissed", null, { nf: 300, currency: "EUR" }), false);
+    assert.equal((await anomaly()).status, "open");
     // Dismissed: the value and currency are frozen as the baseline and the row is priced.
-    await setPriceAnomalyStatus(pool, item, "dismissed", null);
+    assert.equal(await setPriceAnomalyStatus(pool, item, "dismissed", null, { nf: 300, currency: "TRY" }), true);
+    assert.equal(await setPriceAnomalyStatus(pool, item, "dismissed", null, { nf: 300, currency: "TRY" }), false);
     let row = await anomaly();
     assert.deepEqual([row.status, row.evidence.dismissed_nf, row.evidence.dismissed_currency], ["dismissed", 300, "TRY"]);
     assert.ok((await price() ?? 0) > 0);
@@ -405,8 +410,10 @@ test("PostgreSQL: a dismissed anomaly reopens when the value moves materially (#
     await setNf(300);
     await refresh({ flagged: 1, open: 1, reopened: 1 });
     assert.deepEqual((await anomaly()).evidence.reopened_from, { nf: 200, currency: "TRY" });
-    // "Yeniden işaretle" clears the baseline keys.
-    await setPriceAnomalyStatus(pool, item, "open", null);
+    // Reopening an already open row is a no-op; "Yeniden işaretle" on a dismissed row clears the baseline keys.
+    assert.equal(await setPriceAnomalyStatus(pool, item, "open", null), false);
+    assert.equal(await setPriceAnomalyStatus(pool, item, "dismissed", null, { nf: 300, currency: "TRY" }), true);
+    assert.equal(await setPriceAnomalyStatus(pool, item, "open", null, { nf: 300, currency: "TRY" }), true);
     row = await anomaly();
     assert.deepEqual([row.evidence.dismissed_nf, row.evidence.dismissed_currency, row.evidence.reopened_from], [undefined, undefined, undefined]);
 
