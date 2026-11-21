@@ -3152,13 +3152,6 @@
             "children": [
               "Analiz çerezlerine izin verdiysen tamamlanan sipariş için sipariş numarası, ürünler ve tutarlar analiz hizmetine gönderilir; ad, e-posta, telefon, adres veya kart bilgisi gönderilmez. Ayrıntılar Çerez Politikası’ndadır."
             ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "[Hukuki onay bekliyor: Bu bölümün metni yayımlanmadan önce hukuki incelemeden geçecektir; taslaktır.]"
-            ]
           }
         ]
       },
@@ -3183,7 +3176,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Şirket bu bilgileri hesap sahibinin talebiyle adres defterinde tutar ve hesap sahibi bir siparişte kullandığında teslimat ve fatura için işler. [Hukuki onay bekliyor: Adres defterindeki üçüncü kişi verileri bakımından şirketin ve hesap sahibinin rolü (ayrı veri sorumlusu veya veri işleyen) ve bu kişilere yönelik aydınlatma.]"
+              "Şirket bu bilgileri hesap sahibinin talebiyle adres defterinde tutar ve hesap sahibi bir siparişte kullandığında teslimat ve fatura için işler. Bu kişilerin verileri bakımından hesap sahibi veri sorumlusu, Şirket ise hesap sahibi adına ve onun talimatıyla veri işleyendir. Bu kişileri KVKK madde 10 uyarınca aydınlatmak ve gerekiyorsa açık rızalarını almak hesap sahibinin yükümlülüğündedir."
             ]
           },
           {
@@ -3253,7 +3246,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Servis hesabının adres defterinde adres saklanması ve siparişlerde kullanılması: hesap sahibi bakımından hizmet ilişkisinin ifası için gerekli olduğu ölçüde KVKK madde 5/2(c). [Hukuki onay bekliyor: adresi kaydedilen üçüncü kişiler bakımından hukuki sebep.]"
+                  "Servis hesabının adres defterinde adres saklanması ve siparişlerde kullanılması: hesap sahibi bakımından hizmet ilişkisinin ifası için gerekli olduğu ölçüde KVKK madde 5/2(c). Adresi kaydedilen üçüncü kişiler bakımından: bu kişilere yapılacak teslimat ve faturalandırma için sözleşmenin kurulması veya ifasıyla doğrudan ilgili olması (KVKK madde 5/2(c)) ve fatura düzenlenmesine ilişkin kanuni yükümlülük (KVKK madde 5/2(ç))."
                 ]
               },
               {
@@ -3309,7 +3302,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "[Hukuki onay bekliyor: ödeme kuruluşu ve kargo/gönderi hizmeti alıcılarının rolü (veri işleyen veya ayrı veri sorumlusu), aktarımın KVKK madde 8 ve 9 bakımından dayanağı ve alıcıların yurt içinde mi yurt dışında mı bulunduğu.]"
+              "TAMI, Geliver ve Yurtiçi Kargo bu verileri kendi hizmetlerini sunmak için ayrı veri sorumlusu sıfatıyla işler. Aktarım KVKK madde 8 uyarınca sözleşmenin kurulması veya ifası (madde 5/2(c)) ile ödeme ve faturalandırmaya ilişkin kanuni yükümlülüklere (madde 5/2(ç)) dayanır. Bu alıcıların tümü Türkiye’de yerleşiktir; bu paylaşımlar yurt dışına aktarım niteliğinde değildir."
             ]
           },
           {
@@ -3335,35 +3328,21 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Sitenin Amazon Web Services (AWS) altyapısında, Almanya Frankfurt bölgesinde barındırılması planlanmaktadır."
+              "Site, 18 Kasım 2026’dan bu yana Amazon Web Services (AWS) altyapısında, Almanya Frankfurt bölgesinde barındırılmaktadır. Sipariş, ödeme, adres, fatura ve hesap verileri dahil sitede işlenen kişisel veriler bu sunucularda saklanır."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Almanya’daki sunucularda kişisel veri saklanması, KVKK bakımından yurt dışına aktarım niteliğindedir. Bu hizmet devreye alınmadan önce aktarılacak veriler, alıcı ve hizmetin kapsamı açıklanmalı; KVKK madde 9 uyarınca uygulanabilir işleme şartı ile yeterlilik kararı veya uygun güvence mekanizması sağlanmalıdır."
+              "Almanya’daki sunucularda kişisel veri saklanması KVKK bakımından yurt dışına aktarım niteliğindedir. Bu aktarım, KVKK madde 9/4 uyarınca uygun güvence olarak Kişisel Verileri Koruma Kurumunun yayımladığı standart sözleşmeye dayanılarak yapılır; standart sözleşme imzalandıktan sonra beş iş günü içinde Kuruma bildirilir. Aktarım, verinin işlenmesine dayanak olan şartlara (özellikle sözleşmenin kurulması veya ifası ve kanuni yükümlülük) dayanır."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Standart sözleşme uygun güvence olarak kullanılacaksa Kurumun yayımladığı, tarafların rollerine uygun sözleşme seçilmeli ve imzalar tamamlandıktan sonra beş iş günü içinde Kuruma bildirilmelidir. Sağlayıcının genel hizmet sözleşmesi, tek başına bu standart sözleşmenin yerine geçmez."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Bu metin, planlanan aktarımın hukuken tamamlandığını veya gerekli güvencelerin sağlandığını beyan etmez. Sitenin kullanılması ya da genel bir çerez tercihi, bu barındırma planına verilmiş açık rıza sayılmaz."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "[Hukuki onay bekliyor: sipariş, ödeme, adres ve fatura verilerinin barındırıldığı AWS Frankfurt için aktarım dayanağı (KVKK madde 9) ve barındırmanın başlangıç durumu.]"
+              "Sitenin kullanılması ya da genel bir çerez tercihi, bu aktarım için verilmiş açık rıza sayılmaz."
             ]
           }
         ]
@@ -3396,7 +3375,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Sipariş, fatura, ödeme, sözleşme kopyası ve kargo kayıtları için sunucuda henüz otomatik bir silme veya anonimleştirme işlemi çalışmamaktadır. [Hukuki onay bekliyor: saklama süresi]. Adres defteri kayıtları hesap sahibi tarafından silinebilir; hesap kaydı silindiğinde birlikte silinir."
+              "Sipariş, fatura, ödeme, sözleşme kopyası ve kargo kayıtları için sunucuda henüz otomatik bir silme veya anonimleştirme işlemi çalışmamaktadır. Bu kayıtlar, 213 sayılı Vergi Usul Kanunu madde 253 ve 6102 sayılı Türk Ticaret Kanunu madde 82 uyarınca ilgili takvim yılının sonundan itibaren 10 yıl saklanır; süre dolduğunda silinir veya anonim hâle getirilir. Adres defteri kayıtları hesap sahibi tarafından silinebilir; hesap kaydı silindiğinde birlikte silinir."
             ]
           }
         ]
@@ -3958,13 +3937,6 @@
             "children": [
               "Analiz çerezlerine izin verdiysen tamamlanan sipariş için sipariş numarası, ürünler ve tutarlar analiz hizmetine gönderilir; ad, e-posta, telefon, adres veya kart bilgisi gönderilmez. Ayrıntılar Çerez Politikası’ndadır."
             ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "[Hukuki onay bekliyor: Bu bölümün metni yayımlanmadan önce hukuki incelemeden geçecektir; taslaktır.]"
-            ]
           }
         ]
       },
@@ -3989,7 +3961,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Şirket bu bilgileri hesap sahibinin talebiyle adres defterinde tutar ve hesap sahibi bir siparişte kullandığında teslimat ve fatura için işler. [Hukuki onay bekliyor: Adres defterindeki üçüncü kişi verileri bakımından şirketin ve hesap sahibinin rolü (ayrı veri sorumlusu veya veri işleyen) ve bu kişilere yönelik aydınlatma.]"
+              "Şirket bu bilgileri hesap sahibinin talebiyle adres defterinde tutar ve hesap sahibi bir siparişte kullandığında teslimat ve fatura için işler. Bu kişilerin verileri bakımından hesap sahibi veri sorumlusu, Şirket ise hesap sahibi adına ve onun talimatıyla veri işleyendir. Bu kişileri KVKK madde 10 uyarınca aydınlatmak ve gerekiyorsa açık rızalarını almak hesap sahibinin yükümlülüğündedir."
             ]
           },
           {
@@ -4104,7 +4076,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Servis hesabının adres defterinde adres saklanması ve siparişlerde kullanılması: hesap sahibi bakımından hizmet ilişkisinin ifası için gerekli olduğu ölçüde KVKK madde 5/2(c). [Hukuki onay bekliyor: adresi kaydedilen üçüncü kişiler bakımından hukuki sebep.]"
+                  "Servis hesabının adres defterinde adres saklanması ve siparişlerde kullanılması: hesap sahibi bakımından hizmet ilişkisinin ifası için gerekli olduğu ölçüde KVKK madde 5/2(c). Adresi kaydedilen üçüncü kişiler bakımından: bu kişilere yapılacak teslimat ve faturalandırma için sözleşmenin kurulması veya ifasıyla doğrudan ilgili olması (KVKK madde 5/2(c)) ve fatura düzenlenmesine ilişkin kanuni yükümlülük (KVKK madde 5/2(ç))."
                 ]
               },
               {
@@ -4160,7 +4132,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "[Hukuki onay bekliyor: ödeme kuruluşu ve kargo/gönderi hizmeti alıcılarının rolü (veri işleyen veya ayrı veri sorumlusu), aktarımın KVKK madde 8 ve 9 bakımından dayanağı ve alıcıların yurt içinde mi yurt dışında mı bulunduğu.]"
+              "TAMI, Geliver ve Yurtiçi Kargo bu verileri kendi hizmetlerini sunmak için ayrı veri sorumlusu sıfatıyla işler. Aktarım KVKK madde 8 uyarınca sözleşmenin kurulması veya ifası (madde 5/2(c)) ile ödeme ve faturalandırmaya ilişkin kanuni yükümlülüklere (madde 5/2(ç)) dayanır. Bu alıcıların tümü Türkiye’de yerleşiktir; bu paylaşımlar yurt dışına aktarım niteliğinde değildir."
             ]
           },
           {
@@ -4186,35 +4158,21 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Sitenin Amazon Web Services (AWS) altyapısında, Almanya Frankfurt bölgesinde barındırılması planlanmaktadır."
+              "Site, 18 Kasım 2026’dan bu yana Amazon Web Services (AWS) altyapısında, Almanya Frankfurt bölgesinde barındırılmaktadır. Sipariş, ödeme, adres, fatura ve hesap verileri dahil sitede işlenen kişisel veriler bu sunucularda saklanır."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Almanya’daki sunucularda kişisel veri saklanması, KVKK bakımından yurt dışına aktarım niteliğindedir. Bu hizmet devreye alınmadan önce aktarılacak veriler, alıcı ve hizmetin kapsamı açıklanmalı; KVKK madde 9 uyarınca uygulanabilir işleme şartı ile yeterlilik kararı veya uygun güvence mekanizması sağlanmalıdır."
+              "Almanya’daki sunucularda kişisel veri saklanması KVKK bakımından yurt dışına aktarım niteliğindedir. Bu aktarım, KVKK madde 9/4 uyarınca uygun güvence olarak Kişisel Verileri Koruma Kurumunun yayımladığı standart sözleşmeye dayanılarak yapılır; standart sözleşme imzalandıktan sonra beş iş günü içinde Kuruma bildirilir. Aktarım, verinin işlenmesine dayanak olan şartlara (özellikle sözleşmenin kurulması veya ifası ve kanuni yükümlülük) dayanır."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Standart sözleşme uygun güvence olarak kullanılacaksa Kurumun yayımladığı, tarafların rollerine uygun sözleşme seçilmeli ve imzalar tamamlandıktan sonra beş iş günü içinde Kuruma bildirilmelidir. Sağlayıcının genel hizmet sözleşmesi, tek başına bu standart sözleşmenin yerine geçmez."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Bu metin, planlanan aktarımın hukuken tamamlandığını veya gerekli güvencelerin sağlandığını beyan etmez. Sitenin kullanılması ya da genel bir çerez tercihi, bu barındırma planına verilmiş açık rıza sayılmaz."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "[Hukuki onay bekliyor: sipariş, ödeme, adres ve fatura verilerinin barındırıldığı AWS Frankfurt için aktarım dayanağı (KVKK madde 9) ve barındırmanın başlangıç durumu.]"
+              "Sitenin kullanılması ya da genel bir çerez tercihi, bu aktarım için verilmiş açık rıza sayılmaz."
             ]
           }
         ]
@@ -4247,7 +4205,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Sipariş, fatura, ödeme, sözleşme kopyası ve kargo kayıtları için sunucuda henüz otomatik bir silme veya anonimleştirme işlemi çalışmamaktadır. [Hukuki onay bekliyor: saklama süresi]. Adres defteri kayıtları hesap sahibi tarafından silinebilir; hesap kaydı silindiğinde birlikte silinir."
+              "Sipariş, fatura, ödeme, sözleşme kopyası ve kargo kayıtları için sunucuda henüz otomatik bir silme veya anonimleştirme işlemi çalışmamaktadır. Bu kayıtlar, 213 sayılı Vergi Usul Kanunu madde 253 ve 6102 sayılı Türk Ticaret Kanunu madde 82 uyarınca ilgili takvim yılının sonundan itibaren 10 yıl saklanır; süre dolduğunda silinir veya anonim hâle getirilir. Adres defteri kayıtları hesap sahibi tarafından silinebilir; hesap kaydı silindiğinde birlikte silinir."
             ]
           }
         ]
@@ -4770,7 +4728,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "AWS Frankfurt barındırmasına geçildiğinde veya barındırma ya da güvenlik altyapısı ek kayıt kullanmaya başladığında ilgili sağlayıcı, amaç, süre ve yurt dışına aktarım koşulları bu politikada açıklanır. Ayrıntılar KVKK Aydınlatma Metninin yurt dışına aktarım bölümünde yer alır."
+              "Site AWS Frankfurt’ta barındırılmaktadır. Barındırma ya da güvenlik altyapısı ek kayıt kullanmaya başladığında ilgili sağlayıcı, amaç, süre ve yurt dışına aktarım koşulları bu politikada açıklanır. Ayrıntılar KVKK Aydınlatma Metninin yurt dışına aktarım bölümünde yer alır."
             ]
           },
           {
