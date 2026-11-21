@@ -74,7 +74,7 @@ export function buildOrderConfirmation({ order, items, hasAgreement, baseUrl, gu
   const subject = `Siparişini aldık — #${order.number}`;
   const intro = "Siparişini aldık, teşekkür ederiz. Ödemen alındı; siparişin teyit bekliyor. Stok ve fiyat teyidinden sonra siparişini hazırlayıp kargoya vereceğiz. Teyit edilemezse ödemenin tamamı iade edilir.";
   const pageNote = guestLink
-    ? `Bu bağlantılar ${linkDate(guestLink.expiresAt)} tarihine kadar her cihazda açılır. Siparişinin bilgilerini gösterdiği için kimseyle paylaşma.`
+    ? `Bu bağlantılar ${linkDate(guestLink.expiresAt)} tarihine kadar her cihazda açılır. Siparişinin bilgilerini içerdiği için bu bağlantıları kimseyle paylaşma.`
     : "Sipariş sayfası, siparişi verdiğin hesapla ya da siparişi verdiğin tarayıcıdan açılır.";
   const contact = `Sorun olursa bize ${contactEmail} adresinden ya da ${phoneLabel(contactPhone)} numarasından ulaşabilirsin.`;
 

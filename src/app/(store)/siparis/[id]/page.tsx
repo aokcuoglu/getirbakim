@@ -39,6 +39,8 @@ import { carrierLabel } from "@/modules/store/shipment";
 import { invoiceAddressText, invoiceSummary, invoiceTypes } from "@/modules/store/tr-address";
 import { catalogPath } from "@/modules/seo/paths";
 import {storeButton} from "@/components/store-button";
+import { contactEmail, contactPhone } from "@/lib/site";
+import { aboutContact } from "@/content/about";
 
 const eyebrow="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]";
 const noticeBox="rounded-md border-0 bg-[#eaf1f7] p-[15px] text-sm leading-5 text-[#50718e]";
@@ -47,6 +49,7 @@ const muted="text-sm leading-[22px] text-muted-foreground";
 const panel="rounded-2xl border border-border bg-white p-[25px] text-sm max-[600px]:p-5";
 const panelTitle="text-[23px] leading-[34px] font-semibold";
 const panelText="text-[13px] leading-[1.7]";
+const contactLink="font-medium underline underline-offset-2 wrap-anywhere";
 const panelMuted="text-[13px] leading-[1.7] text-muted-foreground";
 
 // Outcomes of the customer cancel action (#607); "tamam" needs none, the order's own notice says it.
@@ -105,6 +108,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     : order.payment_status==="on_account" ? `Cari hesap: ödeme alınmaz, tutar sonradan faturalanır. Sipariş durumu: ${orderStatus[order.status]}.`
     : order.payment_status==="paid"
     ? (order.status==="pending" ? "Ödemen alındı. Stok ve fiyat teyidi bitince siparişini hazırlayacağız. Teyit edilemezse ödemenin tamamı iade edilir." : `Ödemen alındı. Sipariş durumu: ${orderStatus[order.status]}.`)
+    : awaiting && linkView ? "Siparişin oluşturuldu, ödemeni bekliyoruz. Ödemeyi siparişi verdiğin tarayıcıdan tamamlayabilirsin."
     : awaiting ? (returned ? "Ödemeni henüz doğrulayamadık. İşlemi tamamladıysan birkaç dakika içinde güncellenir; tamamlamadıysan yeniden deneyebilirsin."
       : created ? "Siparişin oluşturuldu. Ödemeyi kartla tamamla; güvenli ödeme penceresi bu sayfanın üzerinde açılır." : "Siparişin oluşturuldu, ödemeni bekliyoruz.")
     : order.payment_status==="expired" ? "Ödeme süresi içinde tamamlanmadığı için sipariş iptal edildi. Kartından tahsilat yapılmadı."
@@ -134,7 +138,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     {error && <Alert className={cn(errorBox,"mb-3")}>{error}</Alert>}
     {admin && query.iade==="kaydedildi" && <Alert role="status" className={cn(noticeBox,"mb-3")}>İade kaydedildi.</Alert>}
     {admin && query.iade==="hata" && <Alert className={cn(errorBox,"mb-3")}>İade kaydedilemedi: sipariş sevk ya da teslim edilmemiş veya adet sipariş edilenden fazla.</Alert>}
-    {linkView && <Alert role="note" className={cn(noticeBox,"mb-3")}>Bu sayfayı e-postandaki bağlantıyla görüntülüyorsun. İptal ya da değişiklik için siparişi verdiğin tarayıcıyı kullan ya da bize ulaş.</Alert>}
+    {linkView && <Alert role="note" className={cn(noticeBox,"mb-3")}><p>Bu sayfayı e-postandaki bağlantıyla görüntülüyorsun. {awaiting ? "Ödeme, iptal ya da değişiklik" : "İptal ya da değişiklik"} için siparişi verdiğin tarayıcıyı kullan.</p><p>Bu tarayıcıya erişemiyorsan bize ulaş: <a href={`mailto:${contactEmail}`} className={contactLink}>{contactEmail}</a> · <a href={`tel:${contactPhone}`} className={cn(contactLink,"whitespace-nowrap")}>{aboutContact.phone}</a></p></Alert>}
     {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? errorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
     <Card className={cn(panel,"mb-6 gap-3 ring-0")}>
       <p role="status" className="m-0 text-[15px] leading-6">{order.payment_status==="on_account" && <Info className="mr-1.5 inline-block size-4 align-text-bottom" aria-hidden/>}{notice}</p>

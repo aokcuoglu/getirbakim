@@ -8,7 +8,7 @@ import { Pool, type PoolClient } from "pg";
 import type { MailMessage, MailResult } from "../src/lib/mail";
 import type { ConfirmationData } from "../src/modules/store/order-email";
 import { canResendOrderEmail, orderEmailDue, orderEmailErrorLabel } from "../src/modules/store/order-email-state";
-import { ORDER_LINK_DAYS, orderLinkPath, orderLinkSecret, orderLinkSecretEnv, orderLinkToken, signOrderLink, verifyOrderLink } from "../src/modules/store/order-link";
+import { ORDER_LINK_COOKIE, ORDER_LINK_DAYS, orderLinkGrant, orderLinkPath, orderLinkSecret, orderLinkSecretEnv, orderLinkToken, signOrderLink, verifyOrderLink } from "../src/modules/store/order-link";
 
 // Order confirmation email (#951): content, mail settings, the .eml file transport and the outbox in a throwaway
 // schema (db/schema.sql + db/commerce.sql applied twice). No mail leaves the machine: sends are injected or written to a temp dir.
@@ -122,6 +122,36 @@ test("order links need a secret of 32+ characters and last 90 days", () => {
   assert.equal(orderLinkPath(linkOrder, link.token, "sozlesme"), `/siparis/${linkOrder}/erisim?t=${link.token}&sayfa=sozlesme`);
 });
 
+test("the erisim grant: clean target from the site URL, a path-scoped cookie only for a valid link", () => {
+  const exp = new Date(linkNow.getTime() + 3_600_000);
+  const token = signOrderLink(linkOrder, exp, linkSecret);
+  const base = { orderId: linkOrder, token, page: undefined, siteUrl: "https://shop.example.invalid", secret: linkSecret, now: linkNow, production: true } as const;
+  const grant = orderLinkGrant(base);
+  assert.equal(grant.target, `https://shop.example.invalid/siparis/${linkOrder}`);
+  assert.deepEqual(grant.cookie, { name: ORDER_LINK_COOKIE, value: token,
+    options: { httpOnly: true, secure: true, sameSite: "lax", path: `/siparis/${linkOrder}`, maxAge: 3600 } });
+  assert.equal(orderLinkGrant({ ...base, production: false }).cookie?.options.secure, false);
+  assert.equal(orderLinkGrant({ ...base, page: "sozlesme" }).target, `https://shop.example.invalid/siparis/${linkOrder}/sozlesme`);
+  for (const denied of [{ token: undefined }, { token: `${token}x` }, { secret: null }, { secret: "t".repeat(32) }, { orderId: "11111111-2222-4333-8444-555555555556" }, { now: exp }]) {
+    const result = orderLinkGrant({ ...base, ...denied });
+    assert.equal(result.cookie, null, `no cookie for ${JSON.stringify(denied)}`);
+    assert.match(result.target, /^https:\/\/shop\.example\.invalid\/siparis\/[0-9a-f-]{36}$/);
+  }
+});
+
+test("a signed link only reads guest orders and never reaches payment or order actions", async () => {
+  const read = await readFile("src/modules/store/order-read.ts", "utf8");
+  const viewable = read.slice(read.indexOf("export async function viewableOrder"), read.indexOf("export async function currentOrderAgreement"));
+  assert.match(viewable, /FROM commerce_orders WHERE id=\$1 AND owner_kind='guest'/);
+  assert.match(viewable, /verifyOrderLink\(/);
+  const current = read.slice(read.indexOf("export async function currentOrder("), read.indexOf("export async function viewableOrder"));
+  assert.doesNotMatch(current, /ORDER_LINK_COOKIE|verifyOrderLink|cookies\(/, "currentOrder ignores the link cookie");
+  for (const file of ["src/app/(store)/siparis/[id]/actions.ts", "src/app/api/payments/tami/start/route.ts"]) {
+    const source = await readFile(file, "utf8");
+    assert.doesNotMatch(source, /viewableOrder|ORDER_LINK_COOKIE|gb_order_link|order-link/, `${file} must stay owner/admin only`);
+  }
+});
+
 test("a guest link replaces both order links and says until when it opens on any device", () => {
   const guestLink = { token: signOrderLink(linkOrder, new Date("2027-02-19T10:00:00Z"), linkSecret), expiresAt: new Date("2027-02-19T10:00:00Z") };
   const { text, html } = build({}, { guestLink });
@@ -130,7 +160,7 @@ test("a guest link replaces both order links and says until when it opens on any
   assert.ok(text.includes(`Sözleşme kopyan: ${access}&sayfa=sozlesme\n`));
   assert.ok(html.includes(`href="${access}"`));
   assert.ok(html.includes(`href="${access}&amp;sayfa=sozlesme"`));
-  const note = "Bu bağlantılar 19 Şubat 2027 tarihine kadar her cihazda açılır. Siparişinin bilgilerini gösterdiği için kimseyle paylaşma.";
+  const note = "Bu bağlantılar 19 Şubat 2027 tarihine kadar her cihazda açılır. Siparişinin bilgilerini içerdiği için bu bağlantıları kimseyle paylaşma.";
   assert.ok(text.includes(note)); assert.ok(html.includes(note));
   assert.doesNotMatch(text, new RegExp(`/siparis/${linkOrder}(?:/sozlesme)?\\s`), "no bare order link");
   assert.doesNotMatch(html, new RegExp(`/siparis/${linkOrder}(?:/sozlesme)?"`), "no bare order link");

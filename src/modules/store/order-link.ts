@@ -57,3 +57,21 @@ export function orderLinkPath(orderId: string, token: string, page?: "sozlesme")
   if (page) query.set("sayfa", page);
   return `/siparis/${orderId}/erisim?${query.toString()}`;
 }
+
+export type OrderLinkGrant = {
+  /** Absolute clean address to redirect to; built from the site URL and the validated order id only (no open redirect). */
+  target: string;
+  /** The cookie to set, or null when the link is invalid, expired or the feature is off. */
+  cookie: { name: string; value: string; options: { httpOnly: true; secure: boolean; sameSite: "lax"; path: string; maxAge: number } } | null;
+};
+
+/** What /siparis/<id>/erisim answers for `token`: always the clean target, a cookie only for a valid link. */
+export function orderLinkGrant({ orderId, token, page, siteUrl, secret, now = new Date(), production }: {
+  orderId: string; token: string | undefined; page: "sozlesme" | undefined; siteUrl: string; secret: string | null; now?: Date; production: boolean;
+}): OrderLinkGrant {
+  const path = `/siparis/${orderId}`;
+  const target = new URL(page ? `${path}/${page}` : path, siteUrl).toString();
+  if (!secret || !token || !verifyOrderLink(orderId, token, secret, now)) return { target, cookie: null };
+  const maxAge = Number(token.split(".")[0]) - Math.floor(now.getTime() / 1000);
+  return { target, cookie: { name: ORDER_LINK_COOKIE, value: token, options: { httpOnly: true, secure: production, sameSite: "lax", path, maxAge } } };
+}
