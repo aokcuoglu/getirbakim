@@ -67,6 +67,9 @@ export const partnerInvoiceInput = (now = new Date()) => z.object({
   expectedTotal,
 });
 
+/** Why a mark is corrected or undone; counted in code points like the table's CHECK (length(btrim(reason))>=5), not UTF-16 units. */
+const invoiceChangeReason = z.string().trim().refine(value => [...value].length >= 5, "Gerekçeyi yazın (en az 5 karakter).").max(500, "Gerekçe en fazla 500 karakter olabilir.");
+
 /**
  * Correcting or undoing a marked invoice (#1018): the invoice is named by its current number and day; a reason is
  * required for both, a correction also needs the new number and a past day.
@@ -76,8 +79,7 @@ export const partnerInvoiceChangeInput = (now = new Date()) => {
     partner: partnerCode,
     invoiceRef: z.string().trim().min(1).max(60),
     invoiceDate: z.string().trim().refine(validDay),
-    // Counted in code points like the table's CHECK (length(btrim(reason))>=5), not UTF-16 units.
-    reason: z.string().trim().refine(value => [...value].length >= 5, "Gerekçeyi yazın (en az 5 karakter).").max(500, "Gerekçe en fazla 500 karakter olabilir."),
+    reason: invoiceChangeReason,
     expectedCount,
     expectedTotal,
   };
@@ -86,6 +88,14 @@ export const partnerInvoiceChangeInput = (now = new Date()) => {
     z.object({ action: z.literal("correct"), ...marked, newInvoiceRef: invoiceRef, newInvoiceDate: pastDay(now) }),
   ]);
 };
+
+/** Undoing one order's invoiced mark (#1038): the order, the mark the dialog showed, and a reason. */
+export const partnerOrderInvoiceUndoInput = z.object({
+  order: z.uuid(),
+  invoiceRef: z.string().trim().min(1).max(60),
+  invoiceDate: z.string().trim().refine(validDay),
+  reason: invoiceChangeReason,
+});
 
 /** Usage of the limit: success below 80%, warning from 80% or with no limit (missing setup), destructive at 100%. */
 export function limitUsage(exposureKurus: number, limitKurus: number | null) {

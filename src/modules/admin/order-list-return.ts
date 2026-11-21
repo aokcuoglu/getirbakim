@@ -10,8 +10,8 @@ export const orderListBack = z.string().max(500)
 /** Back to the same tab, sort and page, with the action's outcome. Only list parameters are carried over. */
 export type OrderListOutcome = "saved" | "error" | "refunded" | "refund_failed" | "refund_void_failed" | "refund_unknown" | "refund_busy" | "refund_unavailable"
   | "label_created" | "label_unknown" | "label_failed" | "label_busy" | "label_orphan" | "label_held"
-  | "email_sent" | "email_skipped" | "email_pending" | "email_busy" | "return_stale";
-/** `orderNumber` (label_orphan, label_held, email_*) is carried as the outcome's value so the list can name the order; digits only. */
+  | "email_sent" | "email_skipped" | "email_pending" | "email_busy" | "return_stale" | "invoice_undone";
+/** `orderNumber` (label_orphan, label_held, email_*, invoice_undone) is carried as the outcome's value so the list can name the order; digits only. */
 export function orderListReturn(back: unknown, outcome: OrderListOutcome, orderNumber?: string) {
   const parsed = orderListBack.safeParse(back);
   const source = new URLSearchParams(parsed.success ? parsed.data.slice(listPath.length + 1) : "");

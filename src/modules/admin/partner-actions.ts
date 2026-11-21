@@ -4,8 +4,9 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/modules/auth/session";
 import { savePartnerDiscount } from "@/modules/partner/discounts";
 import { setPartnerIntakePaused } from "@/modules/partner/intake";
-import { changePartnerInvoice, invoicePartnerOrders, knownPartners, savePartnerOrderLimit } from "@/modules/partner/limits";
-import { partnerDiscountInput, partnerInvoiceChangeInput, partnerInvoiceInput, partnerIntakeInput, partnerLimitInput } from "./partner-input";
+import { changePartnerInvoice, invoicePartnerOrders, knownPartners, savePartnerOrderLimit, undoPartnerOrderInvoice } from "@/modules/partner/limits";
+import { orderListReturn } from "./order-list-return";
+import { partnerDiscountInput, partnerInvoiceChangeInput, partnerInvoiceInput, partnerIntakeInput, partnerLimitInput, partnerOrderInvoiceUndoInput } from "./partner-input";
 
 /** A partner's open-order limit (#426): a TL amount, or empty to fall back to PARTNER_ORDER_LIMIT_KURUS. */
 export async function savePartnerLimit(form: FormData) {
@@ -109,4 +110,26 @@ export async function changePartnerInvoiceMark(_previous: PartnerInvoiceChangeRe
   revalidatePath("/yonetim/siparisler");
   const done = outcome.status === "undone" ? "undone" : "corrected";
   return { status: "success", next: `/yonetim/partnerler?${done}=${outcome.count}&partner=${encodeURIComponent(change.partner)}` };
+}
+
+export type PartnerOrderInvoiceUndoResult = { status: "idle" | "success" | "error"; message?: string; errors?: Partial<Record<"reason", string[]>>; next?: string };
+
+/**
+ * Undoes one partner order's invoiced mark from /yonetim/siparisler (#1038) with a reason. Refused when the mark differs
+ * from what the dialog showed; the order counts against the partner's limit again, the invoice's other orders keep theirs.
+ */
+export async function undoPartnerOrderInvoiceMark(_previous: PartnerOrderInvoiceUndoResult, form: FormData): Promise<PartnerOrderInvoiceUndoResult> {
+  const admin = await requireAdmin();
+  const input = partnerOrderInvoiceUndoInput.safeParse(Object.fromEntries(form));
+  if (!input.success) {
+    const reason = input.error.flatten().fieldErrors.reason;
+    return reason ? { status: "error", errors: { reason } } : { status: "error", message: "Sipariş bulunamadı. Listeyi yenileyin." };
+  }
+  const { order, invoiceRef, invoiceDate, reason } = input.data;
+  const outcome = await undoPartnerOrderInvoice({ orderId: order, reason, adminId: admin.id, expected: { invoiceRef, invoiceDate } });
+  if (outcome.status === "nothing") return { status: "error", message: "Bu sipariş artık faturalandı olarak işaretli değil; başka biri geri almış olabilir. Listeyi yenileyin." };
+  if (outcome.status === "changed") return { status: "error", message: "Siparişin fatura bilgisi bu pencere açıldıktan sonra değişti; hiçbir şey değiştirilmedi. Listeyi yenileyip yeniden deneyin." };
+  revalidatePath("/yonetim/siparisler");
+  revalidatePath("/yonetim/partnerler");
+  return { status: "success", next: orderListReturn(form.get("back"), "invoice_undone", outcome.orderNumber) };
 }

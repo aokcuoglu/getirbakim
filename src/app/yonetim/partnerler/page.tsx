@@ -199,7 +199,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     <Card>
       <CardHeader>
         <CardTitle>Kesilen faturalar</CardTitle>
-        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre (son 100 fatura). Yanlış işaret gerekçeyle düzeltilir ya da geri alınır.</CardDescription>
+        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre (son 100 fatura). Yanlış işaret gerekçeyle düzeltilir ya da geri alınır. Tek bir siparişin işareti Siparişler sayfasından geri alınır.</CardDescription>
       </CardHeader>
       <CardContent>
         {invoices.length ? <Table controls={false}>
