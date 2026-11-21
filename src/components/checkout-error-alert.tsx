@@ -9,7 +9,7 @@ export const checkoutAlertClass = cn(storeErrorBox, "mb-4 break-words");
 
 // #788: the order named the lines the supplier refused live; they are listed by their names in the cart.
 const lineErrors: Record<string, { title: string; action: string; cart?: boolean }> = {
-  stock: { title: "Tedarikçide şu anda bulunmayan ürünler:", action: "Bu ürünleri sepetinden çıkarıp siparişi yeniden onayla.", cart: true },
+  stock: { title: "Şu anda sipariş edilemeyen ürünler:", action: "Sepette bu ürünlerin adedini güncelle veya ürünleri kaldır, ardından siparişi yeniden onayla.", cart: true },
   price: { title: "Tedarikçide fiyatı değişen ürünler:", action: "Güncel fiyat tedarikçi güncellemesi tamamlanınca sepetine yansıyacak; birkaç dakika sonra sayfayı yenileyip yeniden dene." },
 };
 

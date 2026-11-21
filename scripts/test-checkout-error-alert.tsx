@@ -13,7 +13,9 @@ test("only ids of the cart's lines are named, once each, by their cart names (#7
 
 test("refused lines are listed under a count-neutral title; names are text, never markup or patterns", () => {
   const stock = renderToStaticMarkup(<CheckoutErrorAlert error={{ code: "stock", names: cartLineNames(["a", "b"], lineNames) }} errors={errors}/>);
-  assert.match(stock, /Tedarikçide şu anda bulunmayan ürünler:/);
+  assert.match(stock, /Şu anda sipariş edilemeyen ürünler:/);
+  assert.match(stock, /adedini güncelle/);
+  assert.match(stock, /Sepete git/);
   assert.match(stock, /<li>Yağ filtresi \$&amp; &lt;b&gt;<\/li><li>Hava filtresi, büyük<\/li>/);
   assert.match(stock, /href="\/sepet"/);
   assert.match(stock, /break-words/);
