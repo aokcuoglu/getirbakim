@@ -295,7 +295,7 @@ CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
 $$;
--- Single-row currency anomalies (#1030): a supplier row whose currency disagrees with the rest of its brand and whose
+-- Single-row price anomalies (#1030, #1050): a supplier row whose currency disagrees with the rest of its brand and whose
 -- converted cost is far above the brand's median (Başbuğ once sent one KENTPAR row as EUR among 196 TRY rows: a 77k TL
 -- cost for a ~1.5k TL part). src/modules/suppliers/price-anomalies.ts detects them after a full list import; an open row
 -- keeps its offer unpriced in commerce_catalog below (the product stays listed, sold by another supplier or not at all)
@@ -304,9 +304,13 @@ $$;
 -- EXCLUSIVE) for the rest of the setup transaction and blocks order-time writes (basbug-item-refresh.ts); the refresh
 -- deletes rows whose item is gone. The accounts FK (decided_by) takes SHARE ROW EXCLUSIVE on accounts once, when the
 -- table is first created; later runs skip CREATE TABLE IF NOT EXISTS without locking it.
+-- kind (#1050): 'currency' covers both directions (evidence.direction: absent/'high' = converted cost far above the
+-- brand's median, 'low' = a rare-currency row far below it); 'offer-outlier' = a row 10× away from the same product's
+-- other-supplier offers whose value fits them when read in another currency its brand prices in. On an existing table
+-- the kind list is widened by scripts/setup-constraint-swaps.ts before the schema transaction; keep both lists equal.
 CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  supplier_item_id uuid PRIMARY KEY, supplier text NOT NULL,
- kind text NOT NULL DEFAULT 'currency' CHECK (kind IN ('currency')),
+ kind text NOT NULL DEFAULT 'currency' CHECK (kind IN ('currency','offer-outlier')),
  status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','dismissed')),
  evidence jsonb NOT NULL, detected_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(),
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz
@@ -335,7 +339,7 @@ WITH latest AS (
  commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now()) AS sale_price,
  -- Rows with an admin price are few; every other row takes the formula's branches below and pays for it once.
  (ov.price_kurus IS NOT NULL OR ov.sale_price_kurus IS NOT NULL) AS admin_priced,
- -- An open currency anomaly (#1030, supplier_price_anomalies above) keeps the row unpriced.
+ -- An open price anomaly (#1030, #1050, supplier_price_anomalies above) keeps the row unpriced.
  (pa.supplier_item_id IS NOT NULL) AS price_anomaly
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id

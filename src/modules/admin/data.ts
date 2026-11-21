@@ -14,7 +14,7 @@ import { installmentSettings } from "@/modules/payments/installment-settings";
 import { procurementOpenSql, type AdminOrderLine } from "./order-procurement";
 import { dashboardOrdersSql, orderFilters, type OrderFilter } from "./order-filters";
 import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
-import type { PriceAnomalyEvidence } from "@/modules/suppliers/price-anomalies";
+import type { PriceAnomalyEvidence, PriceAnomalyKind } from "@/modules/suppliers/price-anomalies";
 
 type ServiceAccount = {
   id: string; name: string; email: string; approved: boolean; discount_percent: number;
@@ -300,13 +300,13 @@ export const adminSupplierCatalogMetrics = cache(async () => {
 });
 
 export type AdminPriceAnomaly = {
-  supplier_item_id: string; supplier: string; code: string; status: "open" | "dismissed"; evidence: PriceAnomalyEvidence;
+  supplier_item_id: string; supplier: string; code: string; kind: PriceAnomalyKind; status: "open" | "dismissed"; evidence: PriceAnomalyEvidence;
   detected_at: Date; last_seen_at: Date; decided_at: Date | null;
 };
-/** Single-row currency anomalies (#1030): open ones (unpriced) first, newest first. */
+/** Single-row price anomalies (#1030, #1050): open ones (unpriced) first, newest first. */
 export async function adminPriceAnomalies() {
   await requireAdmin();
-  return (await db.query<AdminPriceAnomaly>(`SELECT a.supplier_item_id::text AS supplier_item_id,a.supplier,i.code,a.status,a.evidence,
+  return (await db.query<AdminPriceAnomaly>(`SELECT a.supplier_item_id::text AS supplier_item_id,a.supplier,i.code,a.kind,a.status,a.evidence,
       a.detected_at,a.last_seen_at,a.decided_at
     FROM supplier_price_anomalies a JOIN supplier_items i ON i.id=a.supplier_item_id
     ORDER BY a.status,a.detected_at DESC LIMIT 200`)).rows;
