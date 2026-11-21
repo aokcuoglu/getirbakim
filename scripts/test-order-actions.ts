@@ -476,3 +476,10 @@ test("the customer's order page never reads supplier, cost or procurement data",
   // The supplier / live-check lookup (#766) runs only for admins.
   assert.match(source, /isAdmin \?\s*db\.query[^\n]*supplier[^\n]*live_check[^\n]*:\s*null/);
 });
+
+test("the order page reads pending partner return requests only for admins (#1151)", async () => {
+  const page = await readFile("src/app/(store)/siparis/[id]/page.tsx", "utf8");
+  const calls = page.match(/orderPendingReturns\(/g) ?? [];
+  assert.equal(calls.length, 1);
+  assert.match(page, /=admin \? await Promise\.all\(\[orderReturns\(order\.id\),order\.owner_kind==="partner" \? orderPendingReturns\(order\.id\) : \[\]\]\) : \[\[\],\[\]\];/);
+});

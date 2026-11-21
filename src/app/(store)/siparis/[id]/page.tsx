@@ -80,14 +80,17 @@ function ReturnBlock({orderId,productId,ordered,shipment,returns,pending}:{order
   const accepted=returns.reduce((sum,r)=>sum+r.quantity,0);
   const held=pending.reduce((sum,r)=>sum+r.quantity,0);
   const room=returnRoom(ordered,accepted,held);
+  const hintId=`iade-kalan-${productId}`;
   return <>
     {returns.map(r=><p key={r.id} className={panelMuted}>İade: {r.quantity} adet · {returnReasonLabels[r.reason as ReturnReason] ?? r.reason}{r.note ? ` · ${r.note}` : ""} · {time(r.created_at)}</p>)}
-    {pending.map(r=><p key={r.request_id} className={cn(panelMuted,"flex items-start gap-1.5")}><Clock className="mt-0.5 size-4 shrink-0" aria-hidden/><span>Bekleyen partner iade talebi: {r.quantity} adet · {returnReasonLabels[r.reason]}{r.note ? ` · ${r.note}` : ""} · {time(r.requested_at)}</span></p>)}
-    {pending.length>0 && <Link href="/yonetim/siparisler?status=return_request" className="inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 font-medium text-primary hover:underline">Talebi incele<span aria-hidden>→</span></Link>}
+    {pending.length>0 && <div className="flex flex-col">
+      {pending.map(r=><p key={r.request_id} className={cn(panelMuted,"flex items-start gap-1.5")}><Clock className="mt-0.5 size-4 shrink-0" aria-hidden/><span><span className="font-medium text-foreground">Bekleyen partner iade talebi:</span> {r.quantity} adet · {returnReasonLabels[r.reason]}{r.note ? ` · ${r.note}` : ""} · {time(r.requested_at)}</span></p>)}
+      <Link href="/yonetim/siparisler?status=return_request" className="-mt-2 inline-flex min-h-11 items-center gap-1.5 self-start text-sm leading-5 font-medium text-primary hover:underline">Talebi yönetimde incele<span aria-hidden>→</span></Link>
+    </div>}
     {shipment && room>0 && <>
-      {room<ordered && <p className={cn(panelMuted,"mt-3")}>İade edilebilir: {room} adet (sipariş {ordered}, iade edilen {accepted}, talepte bekleyen {held})</p>}
+      {room<ordered && <p id={hintId} className={cn(panelMuted,"mt-3")}>İade edilebilir: {room} adet ({[`sipariş ${ordered}`,accepted>0 && `iade edilen ${accepted}`,held>0 && `talepte bekleyen ${held}`].filter(Boolean).join(", ")})</p>}
       <form action={recordReturn} className="mt-3 flex flex-wrap items-end gap-2.5"><input type="hidden" name="orderId" value={orderId}/><input type="hidden" name="productId" value={productId}/>
-        <Input className="h-11 w-[85px] bg-white" name="quantity" type="number" min={1} max={room} defaultValue={1} aria-label="İade adedi" required/>
+        <Input className="h-11 w-[85px] bg-white" name="quantity" type="number" min={1} max={room} defaultValue={1} aria-label="İade adedi" aria-describedby={room<ordered ? hintId : undefined} required/>
         <NativeSelect className="[&>select]:h-11 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
         <Input className="h-11 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className={storeButton({intent:"primary",size:"md"})}>İade kaydet</Button></form>
     </>}
@@ -156,7 +159,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   // "odendi" invites a cancel from the button below, so it shows only while that button does.
   const hiddenCancelMessage=(query.iptal==="kapali" && order.status==="cancelled") || (query.iptal==="odendi" && !pendingCancel && !awaitingCancel);
   const cancelMessage=query.iptal && !hiddenCancelMessage ? cancelMessages[query.iptal] ?? null : null;
-  const returnMessage=admin && query.iade ? returnMessages[query.iade] ?? null : null;
+  const returnMessage=admin && query.iade && Object.hasOwn(returnMessages,query.iade) ? returnMessages[query.iade] : null;
   const date=new Date(order.created_at);
   const metaDate=`${date.toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric",timeZone:"Europe/Istanbul"})}, ${date.toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Istanbul"})}`;
   const PaymentIcon=order.payment_status==="paid" ? CircleCheck : order.payment_status==="on_account" ? Info : order.payment_status==="awaiting" ? Clock : order.payment_status==="refunded" || order.payment_status==="refund_required" ? Undo2 : CircleAlert;
