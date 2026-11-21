@@ -36,7 +36,6 @@ for(const [file,from,to,reader] of byIdReads) test(`${file} ${from.replace(/^.* 
 // the view's `*` row, so it is named on the pool only, never on a transaction's client.
 const preparedReads:[string,string,string|undefined][]=[
   ["src/modules/store/cart.ts","export async function cartFor","export async function cartLineQuantity"],
-  ["src/modules/store/supplier-checkout.ts","export async function livePriceChanges",undefined],
   ["src/modules/store/catalog.ts","export async function getSetaEquivalents","/**"],
   ["src/modules/store/catalog.ts","export async function getDecidedEquivalents","export function servicePrice"],
   ["src/modules/store/catalog.ts","export async function getStorefrontProduct","/**"],
@@ -618,11 +617,16 @@ test("a named read on a pool survives a view gaining a column: the stale plan's 
     await root.query(`CREATE VIEW ${view} AS SELECT 1 AS a`);
     const sql=`SELECT * FROM ${view}`;
     assert.deepEqual((await preparedQuery(pool,sql,[])).rows,[{a:1}]);
+    // Named: the pool's only connection now holds the statement.
+    assert.equal((await pool.query<{count:number}>("SELECT count(*)::int AS count FROM pg_prepared_statements")).rows[0].count,1);
+    const stalePid=(await pool.query<{pid:number}>("SELECT pg_backend_pid() AS pid")).rows[0].pid;
     await raw.query({name:"prepared_test_raw",text:sql,values:[]});
     await root.query(`CREATE OR REPLACE VIEW ${view} AS SELECT 1 AS a,2 AS b`);
     // The failure this guards against: the same named statement on a connection that prepared it.
     await assert.rejects(raw.query({name:"prepared_test_raw",text:sql,values:[]}),(error:{code?:string})=>error.code==="0A000");
     assert.deepEqual((await preparedQuery(pool,sql,[])).rows,[{a:1,b:2}]);
+    // The client holding the stale plan was dropped, not returned to the pool.
+    assert.notEqual((await pool.query<{pid:number}>("SELECT pg_backend_pid() AS pid")).rows[0].pid,stalePid);
     // The replacement client prepares the new shape.
     assert.deepEqual((await preparedQuery(pool,sql,[])).rows,[{a:1,b:2}]);
   } finally {

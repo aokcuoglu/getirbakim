@@ -1,7 +1,7 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import type { CartOwner } from "./cart";
-import { db, preparedQuery } from "@/lib/db";
+import { db } from "@/lib/db";
 import { importSeta } from "@/modules/suppliers/seta-import";
 import { refreshDinamikItems } from "@/modules/suppliers/dinamik-import";
 import { refreshBasbugItems } from "@/modules/suppliers/basbug-item-refresh";
@@ -123,8 +123,7 @@ export type LiveCost = {id:string;nf:number;price:number|null};
  */
 export async function livePriceChanges(connection:Pick<PoolClient,"query">, lines:LiveCost[]) {
   if (!lines.length) return [];
-  // Named (preparedQuery, #1170): it returns id::text only, so it is safe inside a transaction too.
-  return (await preparedQuery<{id:string}>(connection,`WITH live AS (SELECT * FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,nf numeric,price integer)),
+  return (await connection.query<{id:string}>(`WITH live AS (SELECT * FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,nf numeric,price integer)),
     -- The lines' priced rows by id array, read once (catalogRowsByIdsSql, #1158).
     p AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT id FROM live)")}),
     line AS (

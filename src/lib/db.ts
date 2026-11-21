@@ -38,7 +38,7 @@ const statementNames = new Map<string, string>();
  * A read sent as a named prepared statement: each connection parses it once and, after five executions, Postgres keeps
  * its generic plan (plan_cache_mode=auto). The hot by-id reads of the commerce views spend 73-86% of their 2.2-4.7 ms
  * planning (#1170); named, a round trip takes 0.7-1.2 ms instead of 3.0-6.1 ms. Keep the list short: every connection
- * holds each plan (0.3-10 MB of backend memory per statement).
+ * holds each plan (measured 1.1-4.0 MB each; ~10.6 MB for six of them on one backend).
  * A cached plan must not change its result type: when `db:setup` adds a column to a view (a rolling deploy) a statement
  * returning `*` from it fails with 0A000 on every connection that prepared it. On a pool that client is dropped and
  * the read retried unnamed; inside a transaction the error would abort it, so there only statements listing their
@@ -49,13 +49,18 @@ export async function preparedQuery<T extends QueryResultRow>(connection: Pick<P
   if (!name) { name = `p_${createHash("sha1").update(text).digest("hex").slice(0, 24)}`; statementNames.set(text, name); }
   if (!(connection instanceof Pool)) return connection.query<T>({ name, text, values });
   const client = await connection.connect();
+  // As Pool.query does: a socket failure mid-query must reject this read, not also raise an uncaught 'error' event.
+  const onError = () => {};
+  client.on("error", onError);
   try {
     const result = await client.query<T>({ name, text, values });
+    client.removeListener("error", onError);
     client.release();
     return result;
   } catch (error) {
     // Dropped as Pool.query drops a client after an error; for 0A000 this also discards the stale plan, which would
     // otherwise fail on this connection for good.
+    client.removeListener("error", onError);
     client.release(true);
     if ((error as { code?: string }).code !== "0A000") throw error;
     return connection.query<T>(text, values);
