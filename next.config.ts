@@ -40,12 +40,41 @@ const nextConfig: NextConfig = {
   // On AWS nothing in front compresses pages: CloudFront's caching-disabled policy cannot, so 600-800 KB of HTML
   // went out raw (#453). The VPS edge nginx and Cloudflare leave an already compressed response as it is.
   compress: true,
-  // public/ files default to max-age=0, so the CDN revalidates every logo with the origin.
+  // Security headers go on every response. public/ files default to max-age=0, so the CDN would revalidate every
+  // logo with the origin: /media and /brand get a 1-day browser / 7-day CDN cache. Only the build's own
+  // ?dpl=<BUILD_VERSION> (appended by next/image through deploymentId) is immutable, and URLs without this build's
+  // dpl keep the short cache. Next does not route on dpl, so during a rolling deploy an old task may answer a new
+  // ?dpl= with old bytes; it never pins them for a year (it returns the short cache, as before). The no-referrer
+  // entries come last because config headers win over the same header set in route handlers (payment and
+  // order-access routes send no-referrer themselves).
   async headers() {
+    const security = [
+      { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "X-Frame-Options", value: "SAMEORIGIN" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+    ];
+    const noReferrer = [{ key: "Referrer-Policy", value: "no-referrer" }];
     const cache = [{ key: "Cache-Control", value: "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800" }];
+    const immutable = [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }];
+    // The Dockerfile default "development" is no build id.
+    const build = process.env.BUILD_VERSION !== "development" ? process.env.BUILD_VERSION : undefined;
+    // Next anchors a has value as ^...$ and reads it as a regex, so the build id is escaped.
+    const thisBuild = build
+      ? [{ type: "query" as const, key: "dpl", value: build.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") }]
+      : undefined;
     return [
+      { source: "/:path*", headers: security },
       { source: "/media/:path*", headers: cache },
       { source: "/brand/:path*", headers: cache },
+      ...(thisBuild
+        ? [
+            { source: "/media/:path*", has: thisBuild, headers: immutable },
+            { source: "/brand/:path*", has: thisBuild, headers: immutable },
+          ]
+        : []),
+      { source: "/api/payments/tami/:path*", headers: noReferrer },
+      { source: "/siparis/:id/erisim", headers: noReferrer },
     ];
   },
   async redirects() {
