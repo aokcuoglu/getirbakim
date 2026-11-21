@@ -40,7 +40,7 @@ test("every route carries exactly the four security headers", async () => {
 
 test("deploymentId is the build id the dpl match relies on", async () => {
   process.env.BUILD_VERSION = build;
-  const mod = (await import(`../next.config?v=deployment`)) as { default: { deploymentId?: string } };
+  const mod = (await import(`../next.config?v=${build}-deployment`)) as { default: { deploymentId?: string } };
   assert.equal(mod.default.deploymentId, build);
 });
 
