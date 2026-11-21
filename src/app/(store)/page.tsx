@@ -28,7 +28,7 @@ import {cn} from "@/lib/utils";
 import heroMobile from "@/assets/hero/Hero_image-mobile.webp";
 import hero1920 from "@/assets/hero/Hero_image-1920.webp";
 import hero3840 from "@/assets/hero/Hero_image-3840.webp";
-import {pageMetadata,siteDescription} from "@/lib/site";
+import {homeTitle,pageMetadata,siteDescription} from "@/lib/site";
 import {catalogPath,categoryPath,makePath,makesPath,searchPath} from "@/modules/seo/paths";
 
 const manufacturerOrder=["BOSCH","FEBI","LUK","SKF","GATES","SACHS","FAG","MANN","TRW","LEMFORDER","DENSO","CONTITECH","ELRING","MOOG","PIERBURG","CTR","VALEO","INA","BLUE PRINT","LESJOFORS","DELPHI","HELLA","MAHLE","NGK","DAYCO","NRF","DEPO","PURFLUX","HENGST","ATE","BERU","CHAMPION","FERODO","JURID","TEXTAR","CORTECO","BORGWARNER","GARRETT","NTN-SNR","AISIN","GKN","STABILUS","VERNET","UFI","SHELL","TOTAL","OSRAM","VDO"];
@@ -50,7 +50,7 @@ const centeredTitle="mb-8 text-center [&_h2]:mb-2";
 const titleLink="inline-flex items-center gap-2 text-sm leading-5 font-medium text-brand max-md:text-[13px] max-md:whitespace-nowrap";
 const h2="text-[28px] leading-[34px] font-semibold tracking-[-.5px] max-md:text-[22px] max-md:leading-7";
 
-export const metadata=pageMetadata({title:"Getirbakim | Aracın için doğru parça",absoluteTitle:true,description:siteDescription,path:"/"});
+export const metadata=pageMetadata({title:homeTitle,absoluteTitle:true,description:siteDescription,path:"/"});
 
 export default async function Home({searchParams}:{searchParams:Promise<SearchParams>}) {
   const {q}=normalizeSearchParams(await searchParams);
