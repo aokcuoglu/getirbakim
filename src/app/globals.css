@@ -59,6 +59,8 @@
   --color-success-subtle: var(--success-subtle);
   --color-warning-subtle: var(--warning-subtle);
   --color-info-subtle: var(--info-subtle);
+  --color-destructive-subtle: var(--destructive-subtle);
+  --color-destructive-strong: var(--destructive-strong);
   --color-brand: var(--brand);
   --color-brand-strong: var(--brand-strong);
   --color-border: var(--border);
@@ -110,6 +112,9 @@
   --success-subtle: #e3f1e8;
   --warning-subtle: #fdf3e1;
   --info-subtle: #eef7fd;
+  /* Error box: surface + text, 5.5:1 (#1180). */
+  --destructive-subtle: #fff0ec;
+  --destructive-strong: #a74130;
   --brand: #3378bd;
   --brand-strong: #0063b4;
   --border: #e6e9ec;

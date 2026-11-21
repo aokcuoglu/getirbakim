@@ -12,6 +12,7 @@ import { composeAddress } from "@/modules/store/tr-address";
 import { AddressNoticeScope } from "@/components/address-notice";
 import { AddressForm } from "@/components/address-form";
 import { Alert } from "@/components/ui/alert";
+import { storeErrorBox } from "@/components/store-alert-classes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -52,7 +53,7 @@ export default async function Addresses({ searchParams }: { searchParams: Promis
         <span className="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]">GETİRBAKİM HESABIM</span>
         <h1 className="mb-3 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">Adreslerim</h1>
         <p className="mb-6 text-base leading-6 text-muted-foreground">Teslimat ve fatura adreslerini kaydet; varsayılan adreslerin sipariş formunu doldurur.<span className="mt-1 block text-sm tabular-nums">Kayıtlı adres: {addresses.length}/{ADDRESS_LIMIT}</span></p>
-        {error && <Alert role="alert" className="mb-4 rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">{error}</Alert>}
+        {error && <Alert role="alert" className={cn(storeErrorBox, "mb-4")}>{error}</Alert>}
         {addresses.length ? <ul className="grid gap-4">{addresses.map(address => <li key={address.id}>
           <Card id={`adres-${address.id}`} className="scroll-mt-6 gap-2 rounded-2xl border border-border bg-white p-5 ring-0">
             <div className="flex flex-wrap items-center gap-2">
