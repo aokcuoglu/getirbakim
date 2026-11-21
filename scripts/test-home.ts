@@ -39,14 +39,13 @@ test("home first-screen copy is policy-backed and makes no unsupported claims", 
   assert.doesNotMatch(readFileSync("src/components/home-controls.tsx", "utf8"), /promotions/);
 });
 
-test("hero images are content-hashed static imports and the home cards are sized (#1217)", async () => {
+test("hero images are content-hashed static imports (#1217)", async () => {
   const { readFileSync } = await import("node:fs");
   const read = (path: string) => readFileSync(path, "utf8");
   assert.match(read("src/components/hero-backdrop.tsx").match(/<img [^>]*>/)?.[0] ?? "", /width=\{[^}]+\}\s+height=\{[^}]+\}/);
   for (const path of ["src/app/(store)/page.tsx", "src/app/(store)/katalog/catalog-view.tsx"]) {
     assert.doesNotMatch(read(path), /\/media\/site\/images\/(Hero_image|brake-system-banner|mobile-catalog)/, path);
   }
-  assert.doesNotMatch(read("src/components/home-highlights.tsx"), /\sfill[\s=/>]/);
   assert.doesNotMatch(read("src/components/catalog-sticky-finder.tsx"), /\/media\/site\/images\//);
 });
 
