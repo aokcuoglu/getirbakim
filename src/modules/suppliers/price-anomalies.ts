@@ -264,14 +264,15 @@ const ratioOf = (value: number, base: number) => value >= base ? Math.round(valu
 /**
  * The supplier's anomalies as of now, with their kind and evidence; read-only. A row both rules flag is stored once,
  * by precedence currency (high, then low) over offer-outlier. `ratesMissing`: a currency candidate's currency (or its
- * brand's) has no rate in the latest import, so this run cannot judge it. `unrated`: offer-linked rows skipped for want
- * of a rate (they are unpriced in the catalog anyway).
+ * brand's) has no rate in the latest import, so this run cannot judge it. `unrated`: ids of offer-linked rows skipped
+ * for want of a rate (they are unpriced in the catalog anyway).
  */
 export async function detectPriceAnomalies(connection: Pick<Pool, "query">, supplier: PriceAnomalySupplier, thresholds = priceAnomalyThresholds) {
   const candidates = (await connection.query<CandidateRow>(candidatesSql, [supplier, thresholds.MAX_CURRENCY_ROWS, thresholds.LOW_PERCENTILE])).rows;
   const offers = (await connection.query<OfferRow>(offerCandidatesSql, [supplier, thresholds.RATIO])).rows;
   const flagged = new Map<string, { id: string; kind: PriceAnomalyKind; evidence: PriceAnomalyEvidence }>();
-  let ratesMissing = false, unrated = 0;
+  let ratesMissing = false;
+  const unrated: string[] = [];
   for (const row of candidates) {
     // No rate for either currency: the catalog cannot price the row anyway, and there is no TL value to compare.
     if (row.rate === null || row.dominant_rate === null) { ratesMissing = true; continue; }
@@ -293,7 +294,7 @@ export async function detectPriceAnomalies(connection: Pick<Pool, "query">, supp
   }
   for (const row of offers) {
     // A linked row without a rate is unpriced in the catalog anyway: skipped and counted, the run still judges the rest.
-    if (row.rate === null) { unrated++; continue; }
+    if (row.rate === null) { unrated.push(row.id); continue; }
     if (flagged.has(row.id)) continue;
     const costTry = row.nf * row.rate;
     const relabels = (row.relabels ?? []).filter(relabel => relabel.currency !== row.currency)
@@ -317,7 +318,8 @@ export async function detectPriceAnomalies(connection: Pick<Pool, "query">, supp
  * (a dismissed row stays dismissed) with fresh evidence. An open row no longer detected is deleted, which prices it
  * again. A dismissed row is the admin's decision: it is deleted only when its item is gone or the supplier changed the
  * row's currency, not when a run merely misses it (a corroborating offer or the brand's row count came and went). A
- * run with a missing rate deletes nothing. Another refresh already running: `{ skipped: true }`.
+ * run with a missing rate for a currency candidate deletes nothing; otherwise a row the run could not judge (no rate for
+ * its own or its relabel currency, or skipped as unrated) is kept. Another refresh already running: `{ skipped: true }`.
  */
 export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySupplier) {
   const client = await pool.connect();
@@ -328,19 +330,34 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
       return { skipped: true as const };
     }
     const { flagged, ratesMissing, unrated } = await detectPriceAnomalies(client, supplier);
+    // Kept regardless of this run: detected again, or skipped for want of a rate.
+    const kept = [...flagged.map(row => row.id), ...unrated];
     await client.query(`INSERT INTO supplier_price_anomalies(supplier_item_id,supplier,kind,evidence)
       SELECT x.id,$1,x.kind,x.evidence FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,kind text,evidence jsonb)
       ON CONFLICT (supplier_item_id) DO UPDATE SET kind=EXCLUDED.kind,evidence=EXCLUDED.evidence,last_seen_at=now()`,
       [supplier, JSON.stringify(flagged)]);
-    const removed = ratesMissing ? 0 : (await client.query(`DELETE FROM supplier_price_anomalies a
+    // Never deletes a row the run could not judge: one whose own currency or relabel/dominant currency has no rate in
+    // its company's latest import (an offer-outlier's relabel currency drops out of the scan without one, #1050).
+    const removed = ratesMissing ? 0 : (await client.query(`WITH latest AS (
+        SELECT DISTINCT ON (company) company,currencies_data FROM supplier_imports
+        WHERE supplier=$1 AND status='succeeded' ORDER BY company,completed_at DESC,id DESC
+      ), rates AS (
+        SELECT company,r->>'dovizCinsi' AS currency FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r
+        WHERE r->>'satis' IS NOT NULL
+      )
+      DELETE FROM supplier_price_anomalies a
       WHERE a.supplier=$1 AND a.supplier_item_id<>ALL($2::uuid[]) AND (a.status='open' OR NOT EXISTS(
         SELECT 1 FROM supplier_items i WHERE i.id=a.supplier_item_id
-        AND CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 'TRY' ELSE i.product_data->>'dc' END=a.evidence->>'currency'))`,
-      [supplier, flagged.map(row => row.id)])).rowCount ?? 0;
+        AND CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 'TRY' ELSE i.product_data->>'dc' END=a.evidence->>'currency'))
+      AND NOT EXISTS(
+        SELECT 1 FROM supplier_items i CROSS JOIN LATERAL (VALUES (a.evidence->>'currency'),(a.evidence->>'dominant_currency')) c(currency)
+        WHERE i.id=a.supplier_item_id AND c.currency IS NOT NULL AND c.currency NOT IN ('TL','TRY')
+        AND NOT EXISTS(SELECT 1 FROM rates r WHERE r.company=i.company AND r.currency=c.currency))`,
+      [supplier, kept])).rowCount ?? 0;
     const open = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM supplier_price_anomalies WHERE supplier=$1 AND status='open'",
       [supplier])).rows[0].n;
     await client.query("COMMIT");
-    return { skipped: false as const, flagged: flagged.length, open, removed, ratesMissing, unrated };
+    return { skipped: false as const, flagged: flagged.length, open, removed, ratesMissing, unrated: unrated.length };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;

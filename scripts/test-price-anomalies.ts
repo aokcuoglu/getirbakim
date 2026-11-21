@@ -303,3 +303,48 @@ test("PostgreSQL: cross-offer outliers and underpriced rows (#1050)", { skip: !p
     await schema.drop();
   }
 });
+
+test("PostgreSQL: an anomaly the run cannot judge for want of a rate is kept (#1050)", { skip: !process.env.DATABASE_URL && "DATABASE_URL not set" }, async () => {
+  const schema = await isolatedSchema("price_unrated_test");
+  const { pool } = schema;
+  try {
+    const { refreshPriceAnomalies } = await import("../src/modules/suppliers/price-anomalies");
+    const rates = JSON.stringify({ dovizListesi: [{ dovizCinsi: "EUR", satis: "55" }] });
+    await pool.query(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
+      VALUES('basbug','BASBUG','G','MRK',now(),now(),'{}','{}','{}',$1,'succeeded')`, [rates]);
+    const rows = async (brand: string, currency: string, first: number, count: number, supplier = "basbug") => (await pool.query<{ id: string }>(
+      `INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,product_count,price_count,stock_count,first_seen_at,last_seen_at,changed_at)
+      SELECT $1,$6,'G',$7,$2||' '||$3||' '||($4::numeric+n),jsonb_build_object('uk',$2,'marka',$2,'ac','Test','dc',$3),jsonb_build_object('nf',$4::numeric+n),'{"stok":1}',1,1,1,now(),now(),now()
+      FROM generate_series(0,$5::int-1) n RETURNING id::text`,
+      [supplier, brand, currency, first, count, supplier === "basbug" ? "BASBUG" : "DINAMIK", supplier === "basbug" ? "MRK" : "ALL"])).rows.map(row => row.id);
+    const link = async (code: string, ...items: string[]) => {
+      const product = (await pool.query<{ id: string }>("INSERT INTO products(brand,part_number,brand_label,code) VALUES('X',$1,'X',$1) RETURNING id::text", [code])).rows[0].id;
+      for (const item of items) await pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$2)", [item, product]);
+    };
+    // No rare-currency candidate: both brands are priced in TL and EUR alike.
+    await rows("MIXB", "EUR", 20, 30);
+    const [tryRow] = await rows("MIXB", "TL", 1000, 30);
+    await link("P1", tryRow, ...await rows("MIXB", "TRY", 55000, 1, "dinamik"));
+    await rows("HIGHB", "TL", 100, 40);
+    await rows("HIGHB", "EUR", 2, 40);
+    const [eurRow] = await rows("HIGHB", "EUR", 300, 1);
+    await link("P2", eurRow, ...await rows("HIGHB", "TRY", 320, 1, "dinamik"));
+    const price = async (id: string) => (await pool.query<{ price_kurus: number | null }>("SELECT price_kurus FROM commerce_catalog WHERE id=$1", [id])).rows[0].price_kurus;
+
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 2, open: 2, removed: 0, ratesMissing: false, unrated: 0 });
+    // The latest import loses its EUR rate: the TL row's relabel (EUR) and the EUR row's own rate are gone. Neither row
+    // can be judged, so neither is deleted, and the TL row stays unpriced instead of selling at its wrong price.
+    await pool.query(`UPDATE supplier_imports SET currencies_data='{"dovizListesi":[]}'`);
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 0, open: 2, removed: 0, ratesMissing: false, unrated: 1 });
+    assert.equal(await price(tryRow), null);
+    assert.equal(await price(eurRow), null);
+    // The rate is back: both detected again; then the TL row's link goes and only it is deleted.
+    await pool.query("UPDATE supplier_imports SET currencies_data=$1", [rates]);
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 2, open: 2, removed: 0, ratesMissing: false, unrated: 0 });
+    await pool.query("DELETE FROM product_sources WHERE supplier_item_id=$1", [tryRow]);
+    assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 1, removed: 1, ratesMissing: false, unrated: 0 });
+    assert.ok((await price(tryRow) ?? 0) > 0);
+  } finally {
+    await schema.drop();
+  }
+});
