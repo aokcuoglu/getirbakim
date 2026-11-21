@@ -7,6 +7,8 @@ import { searchTooShort } from "@/modules/search/query";
 import type { SearchSuggestions } from "@/modules/store/search-suggestions";
 import { Select } from "@/components/site/select";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { storeButton } from "@/components/store-button";
 import { catalogPath, searchPath } from "@/modules/seo/paths";
 import { clearRecentSearches, readRecentSearches, saveRecentSearch, type RecentSearch } from "./recent-searches";
 
@@ -25,7 +27,7 @@ const variants = {
     select: "w-[164px] min-w-[164px] min-[851px]:max-[1100px]:w-[156px] min-[851px]:max-[1100px]:min-w-[156px] min-[600px]:max-[850.98px]:w-[84px] max-[600px]:w-[52px] max-[600px]:min-w-[52px]",
     trigger: "min-h-[38px] rounded-none bg-[#f8f9f9] py-[9px] pr-8 pl-3 min-[600px]:max-[850.98px]:min-w-0 min-[600px]:max-[850.98px]:pr-7 min-[600px]:max-[850.98px]:pl-2.5 max-[600px]:min-h-[42px] max-[600px]:pr-0 max-[600px]:pl-2",
     input: "h-[38px] px-2.5 py-[9px] max-[600px]:h-[42px] max-[600px]:placeholder:text-[13px] max-[370px]:px-2",
-    button: "h-[38px] w-10 basis-10 max-[600px]:h-[42px] max-[600px]:w-11 max-[600px]:basis-11 rounded-none bg-white text-foreground hover:bg-[#f7f8fa]",
+    button: "h-[38px] w-10 basis-10 max-[600px]:h-[42px] max-[600px]:w-11 max-[600px]:basis-11 rounded-none bg-white text-foreground hover:bg-muted",
   },
   hero: {
     form: "mx-auto mt-8 min-h-[68px] max-w-[800px] rounded-full border-[#d8dde3] p-2 shadow-[0_4px_16px_#212b360a]",
@@ -116,7 +118,7 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
       {expanded && <div className="absolute top-[calc(100%+6px)] right-0 left-0 z-50 overflow-hidden rounded-md border border-border bg-white text-left shadow-[0_8px_24px_#212b361f]"
         // Keep focus in the input while choosing with the mouse, so blur does not close the list first.
         onMouseDown={event => event.preventDefault()}>
-        {showRecent && <div className="flex items-center justify-between gap-3 border-b border-border px-3.5 text-xs text-muted-foreground"><span>Son aramalar</span><button type="button" aria-label="Son aramaları temizle" onClick={forgetRecent} className="min-h-11 border-0 bg-transparent px-1 text-xs font-medium text-primary hover:underline">Temizle</button></div>}
+        {showRecent && <div className="flex items-center justify-between gap-3 border-b border-border px-3.5 text-xs text-muted-foreground"><span>Son aramalar</span><Button type="button" variant="link" aria-label="Son aramaları temizle" onClick={forgetRecent} className={cn(storeButton({intent:"link",size:"md"}),"px-0")}>Temizle</Button></div>}
         {!showRecent && notice && <p className="m-0 border-b border-border px-3.5 py-2 text-xs text-muted-foreground">{notice}</p>}
         <ul id={listId} role="listbox" aria-label={showRecent ? "Son aramalar" : "Arama önerileri"} className="m-0 max-h-[min(420px,60vh)] list-none overflow-y-auto p-1">
           {options.map((option, index) => <li key={option.href} id={`${listId}-${index}`} role="option" aria-selected={index === activeIndex}
@@ -125,8 +127,8 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
             <span className="min-w-0 max-w-full truncate">{option.label}</span><small className="shrink-0 text-xs text-muted-foreground">{option.detail}</small>
           </li>)}
         </ul>
-        {!showRecent && <button type="button" onClick={() => { setOpen(false); form.current?.requestSubmit(); }}
-          className="block min-h-11 w-full border-0 border-t border-border bg-[#f8f9f9] px-3.5 py-2.5 text-left text-sm font-medium text-primary hover:bg-[#f1f3f5]">“{query.trim()}” için tüm sonuçlar</button>}
+        {!showRecent && <div className="border-t border-border p-1"><Button type="button" variant="secondary" onClick={() => { setOpen(false); form.current?.requestSubmit(); }}
+          className={cn(storeButton({intent:"secondary",size:"md"}),"w-full justify-start text-left whitespace-normal")}>“{query.trim()}” için tüm sonuçlar</Button></div>}
       </div>}
     </form>
   );
