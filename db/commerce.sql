@@ -915,6 +915,46 @@ DO $$ BEGIN
   CREATE INDEX partner_invoice_changes_partner_idx ON partner_invoice_changes(partner_code,changed_at DESC);
  END IF;
 END $$;
+-- Partner return requests (#1007): POST /api/partner/v1/orders/:id/returns on a shipped or delivered order. Operations
+-- decide them in /yonetim/siparisler; only an approval writes commerce_returns (one row per line, linked back here), so
+-- the store's return readers see accepted returns only. Pending requests hold their quantity: accepted + pending never
+-- exceeds the ordered quantity (src/modules/partner/returns.ts, recordOrderReturn). request_key = the Idempotency-Key.
+CREATE TABLE IF NOT EXISTS partner_return_requests(
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+ order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
+ partner_code text NOT NULL,
+ request_key uuid NOT NULL,
+ fingerprint text NOT NULL,
+ status text NOT NULL DEFAULT 'requested' CHECK(status IN ('requested','approved','rejected')),
+ note text NOT NULL DEFAULT '',
+ requested_at timestamptz NOT NULL DEFAULT now(),
+ decided_at timestamptz,
+ decided_by uuid REFERENCES accounts(id),
+ UNIQUE(partner_code,request_key),
+ CHECK((status='requested')=(decided_at IS NULL))
+);
+CREATE TABLE IF NOT EXISTS partner_return_request_lines(
+ request_id uuid NOT NULL REFERENCES partner_return_requests(id) ON DELETE CASCADE,
+ order_id uuid NOT NULL,
+ product_id uuid NOT NULL,
+ quantity integer NOT NULL CHECK(quantity BETWEEN 1 AND 99),
+ reason text NOT NULL CHECK(reason IN ('not_fit','wrong_item','damaged','defective','changed_mind','other')),
+ PRIMARY KEY(request_id,product_id),
+ FOREIGN KEY(order_id,product_id) REFERENCES commerce_order_items(order_id,product_id)
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_return_requests'::regclass AND c.relname='partner_return_requests_order_idx') THEN
+  CREATE INDEX partner_return_requests_order_idx ON partner_return_requests(order_id);
+ END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_return_request_lines'::regclass AND c.relname='partner_return_request_lines_line_idx') THEN
+  CREATE INDEX partner_return_request_lines_line_idx ON partner_return_request_lines(order_id,product_id);
+ END IF;
+ -- The partner request an accepted return came from. The FK takes SHARE ROW EXCLUSIVE on partner_return_requests once,
+ -- on the first deploy that adds the column (ACCESS EXCLUSIVE on commerce_returns, a small table, for that run only).
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_returns'::regclass AND attname='partner_return_request_id' AND NOT attisdropped) THEN
+  ALTER TABLE commerce_returns ADD COLUMN partner_return_request_id uuid REFERENCES partner_return_requests(id) ON DELETE SET NULL;
+ END IF;
+END $$;
 
 -- Order emails (#951): one row per order and kind, written in the payment transaction that settles the order
 -- (src/modules/payments/checkout.ts recordPaid); delivery (src/modules/store/order-email.ts) claims pending rows with a
