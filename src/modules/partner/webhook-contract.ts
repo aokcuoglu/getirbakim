@@ -10,6 +10,7 @@ import { z } from "zod";
 export const partnerWebhooksEnv = "PARTNER_WEBHOOKS_JSON";
 export const PARTNER_WEBHOOK_SPEC_VERSION = "1.0";
 export const PARTNER_ORDER_EVENT_TYPE = "partner.order.updated";
+export const PARTNER_RETURN_EVENT_TYPE = "partner.return.updated";
 export const minPartnerWebhookSecretLength = 32;
 /** An event claimed this recently is never given up: its attempt may still be running. */
 export const PARTNER_WEBHOOK_LEASE_MINUTES = 5;
@@ -84,6 +85,18 @@ export function buildPartnerOrderEvent({ eventId, occurredAt, partnerId, order }
     occurredAt: occurredAt.toISOString(),
     partnerId,
     order,
+  });
+}
+
+/** A return request's event: the same envelope with the Return object under `return` instead of `order`. */
+export function buildPartnerReturnEvent({ eventId, occurredAt, partnerId, return: request }: { eventId: string; occurredAt: Date; partnerId: string; return: unknown }) {
+  return JSON.stringify({
+    specVersion: PARTNER_WEBHOOK_SPEC_VERSION,
+    eventId,
+    eventType: PARTNER_RETURN_EVENT_TYPE,
+    occurredAt: occurredAt.toISOString(),
+    partnerId,
+    return: request,
   });
 }
 

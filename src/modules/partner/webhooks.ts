@@ -2,16 +2,20 @@ import "server-only";
 // Kept free of the session and next/* so the outbox can be driven from tests and after() alike (like order-email.ts).
 import { db } from "@/lib/db";
 import { readOrder } from "./orders";
+import { readPartnerReturn } from "./returns";
 import {
-  buildPartnerOrderEvent, parsePartnerWebhooks, partnerWebhooksEnv, PARTNER_WEBHOOK_FIRST_RETRY_MINUTES, PARTNER_WEBHOOK_GIVE_UP_HOURS,
-  PARTNER_WEBHOOK_LEASE_MINUTES, PARTNER_WEBHOOK_TIMEOUT_MS, signPartnerWebhook, webhookHeaders, type PartnerWebhookConfig,
+  buildPartnerOrderEvent, buildPartnerReturnEvent, parsePartnerWebhooks, partnerWebhooksEnv, PARTNER_WEBHOOK_FIRST_RETRY_MINUTES, PARTNER_WEBHOOK_GIVE_UP_HOURS,
+  PARTNER_RETURN_EVENT_TYPE, PARTNER_WEBHOOK_LEASE_MINUTES, PARTNER_WEBHOOK_TIMEOUT_MS, signPartnerWebhook, webhookHeaders, type PartnerWebhookConfig,
 } from "./webhook-contract";
 
 /**
- * Partner webhook delivery (#1002). db/partner.sql's trigger writes one pending row per partner-visible order change;
- * deliverPartnerWebhooks claims pending rows atomically (SKIP LOCKED plus the retry backoff; a sweep's batch is
- * capped so its sends end before the shortest backoff, so concurrent calls send a row once per claim) and POSTs the order as it is now (readOrder), signed with the
- * partner's secret. A non-2xx answer, a redirect, a timeout or a network error keeps the row pending for the next try;
+ * Partner webhook delivery (#1002). db/partner.sql's triggers write one pending row per partner-visible order change
+ * (partner.order.updated) and per decision on a partner return request (partner.return.updated); deliverPartnerWebhooks
+ * claims pending rows atomically (SKIP LOCKED plus the retry backoff; a sweep's batch is capped so its sends end before
+ * the shortest backoff, so concurrent calls send a row once per claim) and POSTs the order (readOrder) or the return
+ * request (readPartnerReturn) as it is now, signed with the partner's secret. The 5-minute sweep sends every pending row;
+ * an operations step on an order (revalidateOrder) and a carrier update (the Geliver webhook) also send that order's
+ * rows right after their answer, via after(). A non-2xx answer, a redirect, a timeout or a network error keeps the row pending for the next try;
  * after 72 hours it is given up as dead. A partner with no entry in PARTNER_WEBHOOKS_JSON gets its rows skipped; a broken
  * or disabled entry, or broken JSON, keeps them pending (logged every sweep) so a configuration mistake loses nothing
  * within the 72 hours.
@@ -45,7 +49,18 @@ const fetchSend: WebhookSend = async ({ url, headers, body }) => {
   return { status: response.status };
 };
 
-type ClaimedEvent = { id: string; partner_code: string; event_type: string; order_id: string; attempts: number; created_at: Date };
+type ClaimedEvent = { id: string; partner_code: string; event_type: string; order_id: string; return_request_id: string | null; attempts: number; created_at: Date };
+
+/** The signed body of one event as the partner's data is now, or null (with the reason) when its subject is gone. */
+async function eventBody(row: ClaimedEvent): Promise<{ body: string } | { missing: string }> {
+  const meta = { eventId: row.id, occurredAt: new Date(row.created_at), partnerId: row.partner_code };
+  if (row.event_type === PARTNER_RETURN_EVENT_TYPE) {
+    const request = row.return_request_id ? await readPartnerReturn(row.partner_code, row.return_request_id) : null;
+    return request ? { body: buildPartnerReturnEvent({ ...meta, return: request }) } : { missing: "return request not found" };
+  }
+  const found = await readOrder(row.partner_code, "id", row.order_id);
+  return found ? { body: buildPartnerOrderEvent({ ...meta, order: found.dto }) } : { missing: "order not found" };
+}
 
 /**
  * Sends pending partner webhooks: all of them (oldest first, up to `limit`) or only `orderId`'s. Events older than
@@ -86,7 +101,7 @@ export async function deliverPartnerWebhooks({
        SELECT id FROM partner_webhook_events WHERE status='pending' AND ($1::uuid IS NULL OR order_id=$1) AND NOT partner_code=ANY($3::text[])
         AND (claimed_at IS NULL OR claimed_at < now()-make_interval(mins=>${RETRY_SQL}))
        ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED)
-     RETURNING id::text,partner_code,event_type,order_id::text,attempts,created_at)
+     RETURNING id::text,partner_code,event_type,order_id::text,return_request_id::text,attempts,created_at)
      SELECT * FROM claimed ORDER BY created_at,id`, [only, batch, held],
   )).rows;
   for (const row of claimed) {
@@ -98,13 +113,13 @@ export async function deliverPartnerWebhooks({
     }
     let httpStatus: number | null = null;
     try {
-      const found = await readOrder(row.partner_code, "id", row.order_id);
-      if (!found) {
-        await db.query("UPDATE partner_webhook_events SET status='skipped',last_error='order not found' WHERE id=$1", [row.id]);
+      const built = await eventBody(row);
+      if ("missing" in built) {
+        await db.query("UPDATE partner_webhook_events SET status='skipped',last_error=$2 WHERE id=$1", [row.id, built.missing]);
         result.skipped++;
         continue;
       }
-      const body = buildPartnerOrderEvent({ eventId: row.id, occurredAt: new Date(row.created_at), partnerId: row.partner_code, order: found.dto });
+      const { body } = built;
       // Signed per attempt with the current time, so a retry is not refused by the partner's age check.
       const timestamp = String(Math.floor(Date.now() / 1000));
       const headers = webhookHeaders({ eventId: row.id, eventType: row.event_type, timestamp, signature: signPartnerWebhook(endpoint.secret, timestamp, body) });

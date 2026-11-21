@@ -149,6 +149,15 @@ export async function listPartnerReturns(partner: string, orderId: string) {
   return toDtos(rows, db);
 }
 
+/** One of the partner's return requests as the partner sees it (webhook delivery), or null when it is gone or another partner's. */
+export async function readPartnerReturn(partner: string, requestId: string) {
+  const { rows } = await db.query<PartnerReturnRow>(
+    `SELECT ${requestColumns} FROM partner_return_requests WHERE id=$1 AND partner_code=$2`, [requestId, partner]);
+  if (!rows.length) return null;
+  const [dto] = await toDtos(rows, db);
+  return dto;
+}
+
 /**
  * Operations' answer to a pending partner return request (callers check the admin session). `approve` writes one
  * commerce_returns row per line (the partner's note, who approved it, the request it came from); `reject` releases the

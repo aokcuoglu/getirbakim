@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import type { PartnerWebhookConfig } from "../src/modules/partner/webhook-contract";
 import type { WebhookRequest } from "../src/modules/partner/webhooks";
 
-// Partner webhook outbox (#1002) in an isolated copy of the schema: the trigger on commerce_orders, delivery, retries,
-// the 72-hour give-up and concurrent claims. Sends are injected; nothing leaves the process.
+// Partner webhook outbox (#1002) in an isolated copy of the schema: the triggers on commerce_orders and
+// partner_return_requests, delivery, retries, the 72-hour give-up and concurrent claims. Sends are injected; nothing
+// leaves the process.
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let webhooks: typeof import("../src/modules/partner/webhooks");
 let orders: typeof import("../src/modules/partner/orders");
+let returns: typeof import("../src/modules/partner/returns");
+let offerId: typeof import("../src/modules/partner/dto").encodeOfferId;
 let closeDb: () => Promise<void>;
 
 const secret = "test-webhook-secret-0123456789abcdef";
@@ -17,8 +21,9 @@ const config: PartnerWebhookConfig = { endpoints: new Map([["bakimx", { url: "ht
 
 before(async () => {
   schema = await isolatedSchema("partner_webhooks_test");
-  const [{ db }, webhookModule, ordersModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/partner/webhooks"), import("../src/modules/partner/orders")]);
-  webhooks = webhookModule; orders = ordersModule;
+  const [{ db }, webhookModule, ordersModule, returnsModule, dtoModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/partner/webhooks"),
+    import("../src/modules/partner/orders"), import("../src/modules/partner/returns"), import("../src/modules/partner/dto")]);
+  webhooks = webhookModule; orders = ordersModule; returns = returnsModule; offerId = dtoModule.encodeOfferId;
   closeDb = () => db.end();
 });
 after(async () => {
@@ -221,6 +226,86 @@ test("an event undelivered for 72 hours is given up; a partner without an endpoi
   assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: other, send, config }), { delivered: 0, skipped: 1, dead: 0, retried: 0 });
   assert.equal(sent.length, 0);
   assert.deepEqual((await events(other)).map(row => [row.status, row.last_error]), [["skipped", "no endpoint configured"]]);
+});
+
+/** A delivered partner order with a pending return request (through the partner API) for its one line. */
+async function returnRequest() {
+  const id = await partnerOrder();
+  await update(id, "status='shipped',shipped_at=now(),carrier='yurtici',tracking_no='777'");
+  await update(id, "status='delivered',delivered_at=now()");
+  const productId = (await schema.pool.query<{ product_id: string }>("SELECT product_id::text FROM commerce_order_items WHERE order_id=$1", [id])).rows[0].product_id;
+  const created = await returns.requestPartnerReturn("bakimx", id, randomUUID(), { lines: [{ selectedOfferId: offerId(productId), quantity: 1, reason: "defective" }], note: "Kutusu hasarlı" });
+  return { orderId: id, requestId: created.return.id };
+}
+const returnEvents = async (orderId: string) => (await schema.pool.query<{ id: string; return_request_id: string | null; order_status: string; status: string; last_error: string | null }>(
+  `SELECT id::text,return_request_id::text,order_status,status,last_error FROM partner_webhook_events
+   WHERE order_id=$1 AND event_type='partner.return.updated' ORDER BY created_at,id`, [orderId])).rows;
+
+test("a return request writes no event; its approval or rejection writes one partner.return.updated row", async () => {
+  for (const decision of ["approve", "reject"] as const) {
+    const { orderId, requestId } = await returnRequest();
+    assert.deepEqual(await returnEvents(orderId), [], "the partner's own POST answer carries the new request");
+    assert.equal(await returns.decidePartnerReturnRequest(requestId, decision, null), true);
+    assert.deepEqual((await returnEvents(orderId)).map(row => [row.return_request_id, row.order_status, row.status]), [[requestId, "delivered", "pending"]], decision);
+    // A second decision is refused and writes nothing more.
+    assert.equal(await returns.decidePartnerReturnRequest(requestId, decision, null), false);
+    assert.equal((await returnEvents(orderId)).length, 1);
+  }
+});
+
+test("a return event delivers the request as it is now, signed, with the return event type", async () => {
+  const { orderId, requestId } = await returnRequest();
+  await returns.decidePartnerReturnRequest(requestId, "approve", null);
+  const { sent, send } = recorder(204);
+  // Only this order's events: its two order events and the return event.
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId, send, config }), { delivered: 3, skipped: 0, dead: 0, retried: 0 });
+  const [event] = await returnEvents(orderId);
+  assert.equal(event.status, "delivered");
+  const request = sent.find(item => item.headers["X-GetirBakim-Event-Id"] === event.id);
+  assert.ok(request);
+  assert.equal(request.headers["X-GetirBakim-Event-Type"], "partner.return.updated");
+  const timestamp = request.headers["X-GetirBakim-Timestamp"];
+  assert.equal(request.headers["X-GetirBakim-Signature"], `v1=${createHmac("sha256", secret).update(`${timestamp}.${request.body}`).digest("hex")}`);
+  const body = JSON.parse(request.body);
+  assert.deepEqual(Object.keys(body), ["specVersion", "eventId", "eventType", "occurredAt", "partnerId", "return"]);
+  assert.deepEqual([body.specVersion, body.eventId, body.eventType, body.partnerId], ["1.0", event.id, "partner.return.updated", "bakimx"]);
+  assert.deepEqual(body.return, JSON.parse(JSON.stringify(await returns.readPartnerReturn("bakimx", requestId))));
+  assert.equal(body.return.status, "APPROVED");
+  assert.equal(body.return.contractVersion, "2.1");
+  for (const internal of ["BASBUG", `"nf"`, "basbug", "fingerprint", secret]) assert.ok(!request.body.includes(internal), internal);
+  assert.equal(sent.filter(item => item.headers["X-GetirBakim-Event-Type"] === "partner.order.updated").length, 2);
+});
+
+test("a return event whose request is gone is skipped; another partner cannot read the request", async () => {
+  const { orderId, requestId } = await returnRequest();
+  await returns.decidePartnerReturnRequest(requestId, "reject", null);
+  assert.equal(await returns.readPartnerReturn("other", requestId), null);
+  // The foreign key cascades a deleted request, so a vanished one is simulated on the event.
+  await schema.pool.query("UPDATE partner_webhook_events SET return_request_id=NULL WHERE order_id=$1 AND event_type='partner.return.updated'", [orderId]);
+  const { sent, send } = recorder(204);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId, send, config }), { delivered: 2, skipped: 1, dead: 0, retried: 0 });
+  assert.deepEqual((await returnEvents(orderId)).map(row => [row.status, row.last_error]), [["skipped", "return request not found"]]);
+  assert.ok(sent.every(item => item.headers["X-GetirBakim-Event-Type"] === "partner.order.updated"));
+});
+
+test("an order's delivery sends only that order's events", async () => {
+  const mine = await partnerOrder();
+  const other = await partnerOrder();
+  await update(mine, "status='confirmed'");
+  await update(other, "status='confirmed'");
+  const { sent, send } = recorder(204);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: mine, send, config }), { delivered: 1, skipped: 0, dead: 0, retried: 0 });
+  assert.deepEqual(sent.map(item => JSON.parse(item.body).order.id), [mine]);
+  assert.deepEqual((await events(other)).map(row => row.status), ["pending"]);
+});
+
+test("operations steps and carrier updates send the order's partner webhooks right after their answer", async () => {
+  const actions = await readFile("src/modules/admin/commerce-actions.ts", "utf8");
+  const revalidate = actions.slice(actions.indexOf("function revalidateOrder("), actions.indexOf("\n}", actions.indexOf("function revalidateOrder(")));
+  assert.match(revalidate, /after\(\(\)=>deliverPartnerWebhooksSafely\(\{orderId:id\}\)\)/);
+  const geliver = await readFile("src/app/api/shipping/geliver/webhook/route.ts", "utf8");
+  const applied = geliver.slice(geliver.indexOf('if (result.outcome === "applied")'), geliver.indexOf("return NextResponse.json"));
+  assert.match(applied, /after\(\(\) => deliverPartnerWebhooksSafely\(\{ orderId: result\.orderId \}\)\)/);
 });
 
 test("two concurrent deliveries send each event once", async () => {
