@@ -52,6 +52,8 @@ export async function cancelOrder(form: FormData) {
     result = "error";
   }
   if (result === "missing") redirect("/siparisler");
+  // A cancel of an accepted order queued its cancel email (#1036); it is sent after the reply.
+  if (result === "refund" || result === "cancelled") after(() => deliverOrderEmailsSafely({ orderId }));
   revalidatePath(`/siparis/${orderId}`);
   revalidatePath("/siparisler");
   revalidatePath("/yonetim", "layout");

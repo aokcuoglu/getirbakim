@@ -7,6 +7,7 @@ import { cancelLockedOrder } from "@/modules/store/order-cancel";
 import { isHandledPayment } from "@/modules/store/payment-states";
 import { resolveTrackingUrl, type Shipment } from "@/modules/store/shipment";
 import { purchasedLabel, shipWithPurchasedLabel } from "@/modules/shipping/geliver-labels";
+import { queueOrderEmail } from "@/modules/store/order-email-queue";
 import { openCancelRequestSql } from "./order-filters";
 import type { ProcurementStatus } from "./order-procurement";
 
@@ -73,6 +74,7 @@ export async function shipOrder(id: string, shipment: Shipment) {
     if (old.status !== "confirmed" || old.cancel_request_open) return false;
     await client.query("UPDATE commerce_orders SET status='shipped',shipped_at=now(),carrier=$2,carrier_name=$3,tracking_no=$4,tracking_url=$5 WHERE id=$1",
       [id, ...shipmentValues(shipment)]);
+    await queueOrderEmail(client, id, "shipped");
     return true;
   });
 }
@@ -86,11 +88,19 @@ export async function updateShipment(id: string, shipment: Shipment) {
 
 /**
  * Manual fallback to the TAMI API refund (#619): records a reference of a refund made elsewhere (TAMI portal, or a call
- * whose reply was lost). False unless a refund was pending; refund call rows are left as they are.
+ * whose reply was lost) and queues the refund email (#1036) with it. False unless a refund was pending; refund call
+ * rows are left as they are.
  */
 export async function recordOrderRefund(id: string, reference: string) {
-  const updated = await db.query("UPDATE commerce_orders SET payment_status='refunded',refund_reference=$2,refunded_at=now() WHERE id=$1 AND payment_status='refund_required'", [id, reference]);
-  return Boolean(updated.rowCount);
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const updated = await client.query("UPDATE commerce_orders SET payment_status='refunded',refund_reference=$2,refunded_at=now() WHERE id=$1 AND payment_status='refund_required'", [id, reference]);
+    if (updated.rowCount) await queueOrderEmail(client, id, "refunded");
+    await client.query("COMMIT");
+    return Boolean(updated.rowCount);
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
 }
 
 export type LineProcurementInput = { orderId: string; productId: string; status: ProcurementStatus; reference: string; adminId: string };

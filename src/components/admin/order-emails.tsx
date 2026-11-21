@@ -2,7 +2,7 @@ import { Send } from "lucide-react";
 import { resendOrderEmail } from "@/modules/admin/commerce-actions";
 import { formatDateTime } from "@/modules/admin/format";
 import {
-  canResendOrderEmail, orderEmailErrorLabel, orderEmailKindLabel, orderEmailStatusLook, type AdminOrderEmail,
+  canResendOrderEmail, orderEmailErrorLabel, orderEmailKindLabel, orderEmailNotDueLabel, orderEmailStatusLook, type AdminOrderEmail,
 } from "@/modules/store/order-email-state";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
@@ -17,7 +17,7 @@ function blockedReason(email: AdminOrderEmail, order: EmailOrder, mailReady: boo
   if (email.in_flight) return {
     text: email.last_error ? "Son deneme başarısız; sistem birkaç dakika içinde yeniden dener." : "Gönderim sürüyor.", className: "text-muted-foreground",
   };
-  if (!canResendOrderEmail(email, order)) return { text: "Sipariş artık teyit beklemiyor; bu e-posta yeniden gönderilmez.", className: "text-muted-foreground" };
+  if (!canResendOrderEmail(email, order)) return { text: orderEmailNotDueLabel[email.kind], className: "text-muted-foreground" };
   return null;
 }
 

@@ -964,9 +964,10 @@ END $$;
 -- (src/modules/payments/checkout.ts recordPaid); delivery (src/modules/store/order-email.ts) claims pending rows with a
 -- lease, so concurrent reconcilers send each email once. 'skipped' = no mail transport configured or too old to send.
 -- requeued_at: an admin's resend (#1035); staleness counts from it.
+-- kind: status emails (#1036); an existing table gets the list from scripts/setup-constraint-swaps.ts, which must match.
 CREATE TABLE IF NOT EXISTS commerce_order_emails (
  order_id uuid NOT NULL REFERENCES commerce_orders(id) ON DELETE CASCADE,
- kind text NOT NULL CHECK(kind IN ('confirmation')),
+ kind text NOT NULL CHECK(kind IN ('confirmation','shipped','cancelled','refunded')),
  status text NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','sent','skipped','failed')),
  attempts integer NOT NULL DEFAULT 0, claimed_at timestamptz, sent_at timestamptz,
  message_id text, last_error text, created_at timestamptz NOT NULL DEFAULT now(),

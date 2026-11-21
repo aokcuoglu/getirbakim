@@ -148,6 +148,23 @@ test("a widened CHECK list is swapped before the schema transaction once, then l
   assert.equal(await oid(), swapped);
 });
 
+test("the order email kinds are widened on an existing table the same way (#1036)", async () => {
+  const constraint = "SELECT oid,pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid='commerce_order_emails'::regclass AND conname='commerce_order_emails_kind_check'";
+  const read = async () => (await schema.pool.query<{ oid: number; def: string }>(constraint)).rows[0];
+  const current = await read();
+  assert.match(current.def, /'confirmation'.*'shipped'.*'cancelled'.*'refunded'/);
+  assert.deepEqual(await swapConstraints(schema.pool), []);
+  // The list a database set up before #1036 carries.
+  await schema.pool.query(`ALTER TABLE commerce_order_emails DROP CONSTRAINT commerce_order_emails_kind_check,
+    ADD CONSTRAINT commerce_order_emails_kind_check CHECK (kind IN ('confirmation'))`);
+  assert.deepEqual(await swapConstraints(schema.pool), ["commerce_order_emails_kind_check"]);
+  const swapped = await read();
+  assert.equal(swapped.def, current.def);
+  assert.deepEqual(await swapConstraints(schema.pool), []);
+  await rerun();
+  assert.equal((await read()).oid, swapped.oid);
+});
+
 test("columns in an older shape are still altered", async () => {
   const column = async () => (await schema.pool.query<{ notnull: boolean; hasdef: boolean }>(
     "SELECT attnotnull AS notnull,atthasdef AS hasdef FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='completed_at'")).rows[0];
