@@ -41,7 +41,7 @@ Kurucular `src/modules/seo/structured-data.ts` ve `src/lib/site.ts`; basım `src
 
 | Sayfa | schema.org türleri | Kaynak |
 | --- | --- | --- |
-| Tüm mağaza sayfaları (düzen) | `Organization` (+ `ContactPoint`, `PostalAddress`, `sameAs`), `WebSite` | `src/app/(store)/layout.tsx`, `siteJsonLd` |
+| Tüm mağaza sayfaları (düzen) | `Organization` (+ `ContactPoint`, `PostalAddress`, `sameAs`), `WebSite` (+ `SearchAction` → `/katalog?q=`) | `src/app/(store)/layout.tsx`, `siteJsonLd` |
 | Ürün | `Product` (`sku`, `mpn`, `brand`, `gtin*`, `image`, `isAccessoryOrSparePartFor` → `Vehicle`, en çok 20), `Offer` (+ `MerchantReturnPolicy`), `BreadcrumbList` | `urun/[id]/page.tsx`, `productJsonLd` |
 | Kategori, marka, model, model × kategori, üretici, katalog | `BreadcrumbList`; yalın ve boş olmayan listede `CollectionPage` + `ItemList` | `katalog/catalog-view.tsx` |
 | Araç markaları | `BreadcrumbList` | `arac-markalari/page.tsx` |

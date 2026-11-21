@@ -15,7 +15,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 
-export type MarkedInvoice = { partner: string; invoiceRef: string; invoiceDate: string; count: number; totalKurus: number };
+/** collectedKurus: the invoice's active payments (#1006); while above 0 the mark cannot be undone. */
+export type MarkedInvoice = { partner: string; invoiceRef: string; invoiceDate: string; count: number; totalKurus: number; collectedKurus: number };
 
 /**
  * Düzelt / geri al (#1018): a wrong invoiced mark gets a new invoice number and date, or is removed so its orders count
@@ -58,6 +59,7 @@ function ChangeForm({ invoice, today, onSaved }: { invoice: MarkedInvoice; today
   // noValidate: the browser no longer focuses the first invalid field, so do it once the server errors are shown.
   useEffect(() => { if (!pending && result.errors) formRef.current?.querySelector<HTMLElement>("[aria-invalid=\"true\"]")?.focus(); }, [pending, result]);
   const describe = (field: keyof typeof errors, hint = false) => [hint && `${id}-${field}-hint`, errors[field] && `${id}-${field}-error`].filter(Boolean).join(" ") || undefined;
+  const collected = invoice.collectedKurus > 0;
   const undo = action === "undo";
   const summary = <><span className="tabular-nums">{invoice.count}</span> sipariş · <span className="tabular-nums">{money(invoice.totalKurus)}</span></>;
 
@@ -82,11 +84,13 @@ function ChangeForm({ invoice, today, onSaved }: { invoice: MarkedInvoice; today
             </Field>
           </FieldLabel>
           <FieldLabel htmlFor={`${id}-undo`}>
-            <Field orientation="horizontal">
-              <RadioGroupItem value="undo" id={`${id}-undo`}/>
+            <Field orientation="horizontal" data-disabled={collected ? "true" : undefined}>
+              <RadioGroupItem value="undo" id={`${id}-undo`} disabled={collected}/>
               <FieldContent>
                 <FieldTitle>İşareti geri al</FieldTitle>
-                <FieldDescription>Siparişler faturalanmadıysa ya da yanlış siparişler işaretlendiyse.</FieldDescription>
+                <FieldDescription>{collected
+                  ? <>Bu faturaya <span className="tabular-nums">{money(invoice.collectedKurus)}</span> tahsilat girilmiş; işareti geri almak için önce tahsilatları iptal edin.</>
+                  : "Siparişler faturalanmadıysa ya da yanlış siparişler işaretlendiyse."}</FieldDescription>
               </FieldContent>
             </Field>
           </FieldLabel>
@@ -116,7 +120,7 @@ function ChangeForm({ invoice, today, onSaved }: { invoice: MarkedInvoice; today
     </FieldGroup></fieldset>
     {undo
       ? <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertDescription>{summary} yeniden partnerin alacağına ve limitine eklenir. Verilmiş siparişler etkilenmez; yeni siparişler limit dolarsa reddedilir.</AlertDescription></Alert>
-      : <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{summary} yeni fatura bilgisini alır; alacak değişmez.</AlertDescription></Alert>}
+      : <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{summary} yeni fatura bilgisini alır; alacak değişmez.{collected && " Girilen tahsilatlar da yeni fatura bilgisine taşınır."}</AlertDescription></Alert>}
     {result.message && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
     <DialogFooter>
       <Button type="submit" variant={undo ? "destructive" : "default"} disabled={pending}>

@@ -103,7 +103,7 @@ export function feedItem(source: FeedSource, base: string, now = new Date()): Fe
   return {
     id: source.id,
     title: productSeoTitle({ brand, name, partNumber: source.display_code, vehicles: [], hint, max: titleLimit }).slice(0, titleLimit),
-    description: productSeoDescription({ brand, name, partNumber: source.display_code, oem: source.oem, vehicles: [], text: source.description, hint, max: descriptionLimit })
+    description: productSeoDescription({ brand, name, partNumber: source.display_code, oem: source.oem, vehicles: [], text: source.description, hint, max: descriptionLimit, min: 0 })
       .slice(0, descriptionLimit),
     link: absoluteUrl(base, productPath(source)),
     imageLink: new URL(source.image.src, `${base}/`).toString(),

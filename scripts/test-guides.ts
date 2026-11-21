@@ -33,6 +33,7 @@ test("dates, answer, sources, categories and related paths are well formed", () 
 
 test("guides are found by category", () => {
   assert.ok(guideCategoryKeys.includes("filtre"));
-  assert.deepEqual(guidesForCategory("filtre").map(guide => guide.slug), ["yag-filtresi-ne-zaman-degisir"]);
-  assert.deepEqual(guidesForCategory("fren"), []);
+  assert.deepEqual(guidesForCategory("filtre").map(guide => guide.slug), ["yag-filtresi-ne-zaman-degisir", "hava-filtresi-ve-polen-filtresi-farki"]);
+  assert.deepEqual(guidesForCategory("fren").map(guide => guide.slug), ["fren-balatasi-ne-zaman-degisir-nasil-secilir"]);
+  assert.deepEqual(guidesForCategory("aksesuar"), []);
 });

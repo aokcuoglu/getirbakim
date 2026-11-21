@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import { contactPhone, defaultSocialImage, pageMetadata, sellerAddress, siteJsonLd, siteOpenGraph, siteVerification, socialProfiles } from "../src/lib/site";
+import { homeHero } from "../src/content/home";
+import { catalogPath } from "../src/modules/seo/paths";
+import { contactPhone, defaultSocialImage, homeTitle, pageMetadata, sellerAddress, siteDescription, siteJsonLd, siteOpenGraph, siteUrl, siteVerification, socialProfiles } from "../src/lib/site";
 
 test("pageMetadata keeps the canonical and og:url in step and falls back to the shared image", () => {
   const meta = pageMetadata({ title: "Başlık", description: "Açıklama", path: "/bilgi/yardim" });
@@ -30,8 +32,11 @@ test("site JSON-LD holds one Organization and one WebSite linked to each other",
   const sites = graph.filter(node => node["@type"] === "WebSite");
   assert.equal(organizations.length, 1);
   assert.equal(sites.length, 1);
-  const site = sites[0] as { inLanguage: string; publisher: { "@id": string } };
+  const site = sites[0] as { inLanguage: string; publisher: { "@id": string }; potentialAction: { "@type": string; target: { urlTemplate: string }; "query-input": string } };
   assert.equal(site.inLanguage, "tr-TR");
+  assert.equal(site.potentialAction["@type"], "SearchAction");
+  assert.equal(site.potentialAction.target.urlTemplate, `${siteUrl}${catalogPath}?q={search_term_string}`);
+  assert.equal(site.potentialAction["query-input"], "required name=search_term_string");
   assert.equal(site.publisher["@id"], organizations[0]["@id"]);
   assert.deepEqual((organizations[0] as { sameAs: string[] }).sameAs, Object.values(socialProfiles));
 });
@@ -66,4 +71,18 @@ test("pageMetadata leaves description and robots out when not given", () => {
   const meta = pageMetadata({ title: "T", path: "/x" });
   assert.equal("description" in meta, false);
   assert.equal("robots" in meta, false);
+});
+
+test("homepage title and description fit search snippet lengths", () => {
+  assert.ok(homeTitle.length >= 50 && homeTitle.length <= 60, `title length ${homeTitle.length}`);
+  assert.ok(homeTitle.endsWith("| Getirbakim"));
+  assert.match(homeTitle, /yedek parça/i);
+  assert.ok(homeTitle.includes("OEM") && homeHero.title.includes("OEM"));
+  assert.ok(siteDescription.length >= 120 && siteDescription.length <= 160, `description length ${siteDescription.length}`);
+  assert.doesNotMatch(siteDescription, /ücretsiz|bedava|uyumlu|garanti/i);
+});
+
+test("only the homepage takes its title from homeTitle; the root layout keeps the neutral default", () => {
+  assert.match(readFileSync("src/app/(store)/page.tsx", "utf8"), /title:\s*homeTitle/);
+  assert.doesNotMatch(readFileSync("src/app/layout.tsx", "utf8"), /homeTitle/);
 });

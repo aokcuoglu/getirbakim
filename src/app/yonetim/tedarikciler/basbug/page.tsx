@@ -100,7 +100,7 @@ export default async function BasbugAdmin({ searchParams }: { searchParams: Prom
         </Field></form>
       </SupplierSourceCard>
       <SupplierQualityCard quality={snapshot?.quality} completedAt={snapshot?.completed_at} scope={snapshot ? `${snapshot.list_group} / ${snapshot.warehouse}` : undefined}
-        filters={{ group: snapshot?.list_group }}>
+        filters={{ group: snapshot?.list_group }} priceAnomalies={{ open: data.openPriceAnomalies, group, filters: { group: group || undefined } }}>
         {snapshot && <p className="text-muted-foreground tabular-nums">{([["Fiyat satırı", snapshot.quality.priceRows], ["Stok satırı", snapshot.quality.stockRows], ["Eksik stok", snapshot.quality.missingStocks], ["Eşleşmeyen fiyat/stok", `${formatNumber(snapshot.quality.orphanPrices)}/${formatNumber(snapshot.quality.orphanStocks)}`]] as const).map(([label, value]) => `${label}: ${typeof value === "number" ? formatNumber(value) : value}`).join(" · ")}</p>}
       </SupplierQualityCard>
       <SupplierRunHistory runs={data.recentRuns} supplier="basbug" name="Başbuğ" emptyDescription="Periyodik çekim için sunucuda zamanlayıcı çalışmalı."/>
