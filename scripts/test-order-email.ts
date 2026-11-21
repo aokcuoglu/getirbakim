@@ -8,11 +8,13 @@ import { Pool, type PoolClient } from "pg";
 import type { MailMessage, MailResult } from "../src/lib/mail";
 import type { ConfirmationData } from "../src/modules/store/order-email";
 import { canResendOrderEmail, orderEmailDue, orderEmailErrorLabel } from "../src/modules/store/order-email-state";
+import { ORDER_LINK_COOKIE, ORDER_LINK_DAYS, orderLinkGrant, orderLinkPath, orderLinkSecret, orderLinkSecretEnv, orderLinkToken, signOrderLink, verifyOrderLink } from "../src/modules/store/order-link";
 
 // Order confirmation email (#951): content, mail settings, the .eml file transport and the outbox in a throwaway
 // schema (db/schema.sql + db/commerce.sql applied twice). No mail leaves the machine: sends are injected or written to a temp dir.
 const originalUrl = process.env.DATABASE_URL;
 const originalSite = process.env.SITE_URL;
+const originalLinkSecret = process.env[orderLinkSecretEnv];
 let root: Pool, control: PoolClient, namespace = "";
 let mail: typeof import("../src/lib/mail");
 let email: typeof import("../src/modules/store/order-email");
@@ -27,6 +29,7 @@ before(async () => {
   const url = new URL(originalUrl); url.searchParams.set("options", `-c search_path=${namespace}`);
   process.env.DATABASE_URL = url.toString();
   process.env.SITE_URL = "https://shop.example.invalid";
+  delete process.env[orderLinkSecretEnv];
   mail = await import("../src/lib/mail");
   email = await import("../src/modules/store/order-email");
   db = (await import("../src/lib/db")).db;
@@ -40,6 +43,7 @@ after(async () => {
   control?.release(); await root?.end();
   process.env.DATABASE_URL = originalUrl;
   if (originalSite === undefined) delete process.env.SITE_URL; else process.env.SITE_URL = originalSite;
+  if (originalLinkSecret === undefined) delete process.env[orderLinkSecretEnv]; else process.env[orderLinkSecretEnv] = originalLinkSecret;
 });
 
 const baseOrder: ConfirmationData["order"] = {
@@ -78,6 +82,92 @@ test("the confirmation lists the lines, totals, addresses and links", () => {
   assert.match(html, /<html lang="tr">/);
   assert.match(html, /href="https:\/\/shop\.example\.invalid\/siparis\/11111111-2222-4333-8444-555555555555\/sozlesme"/);
   assert.doesNotMatch(html, /<img/i, "no remote images");
+});
+
+const linkSecret = "s".repeat(32);
+const linkOrder = baseOrder.id;
+const linkNow = new Date("2026-11-21T10:00:00Z");
+
+test("signed order links verify only for their order, secret and lifetime", () => {
+  const token = signOrderLink(linkOrder, new Date(linkNow.getTime() + 3_600_000), linkSecret);
+  assert.match(token, /^\d+\.[A-Za-z0-9_-]{43}$/);
+  assert.equal(verifyOrderLink(linkOrder, token, linkSecret, linkNow), true);
+  assert.equal(verifyOrderLink("11111111-2222-4333-8444-555555555556", token, linkSecret, linkNow), false, "another order");
+  assert.equal(verifyOrderLink(linkOrder, token, "t".repeat(32), linkNow), false, "another secret");
+  const [exp, sig] = token.split(".");
+  const flipped = sig.slice(0, -1) + (sig.endsWith("A") ? "B" : "A");
+  assert.equal(verifyOrderLink(linkOrder, `${exp}.${flipped}`, linkSecret, linkNow), false, "tampered signature");
+  assert.equal(verifyOrderLink(linkOrder, `${Number(exp) + 86_400}.${sig}`, linkSecret, linkNow), false, "extended expiry");
+  assert.equal(verifyOrderLink(linkOrder, token, linkSecret, new Date(Number(exp) * 1000)), false, "expired at exp");
+  assert.equal(verifyOrderLink(linkOrder, token, linkSecret, new Date(linkNow.getTime() + 7_200_000)), false, "expired");
+  for (const bad of ["", sig, `${exp}${sig}`, `x${exp}.${sig}`, `-1.${sig}`, `${exp}.${sig}.x`, `${exp}.${sig}=`, `${exp}.${sig}`.padStart(81, "0"), `${exp}.${sig.slice(1)}`]) {
+    assert.equal(verifyOrderLink(linkOrder, bad, linkSecret, linkNow), false, `malformed: ${bad}`);
+  }
+  assert.equal(verifyOrderLink(linkOrder, undefined, linkSecret, linkNow), false);
+});
+
+test("order links need a secret of 32+ characters and last 90 days", () => {
+  assert.equal(orderLinkSecret({}), null);
+  assert.equal(orderLinkSecret({ [orderLinkSecretEnv]: "x".repeat(31) }), null);
+  assert.equal(orderLinkSecret({ [orderLinkSecretEnv]: `  ${"x".repeat(31)}  ` }), null, "trimmed before the length check");
+  assert.equal(orderLinkSecret({ [orderLinkSecretEnv]: ` ${linkSecret} ` }), linkSecret);
+  assert.equal(orderLinkToken(linkOrder, linkNow, {}), null);
+  const link = orderLinkToken(linkOrder, linkNow, { [orderLinkSecretEnv]: linkSecret });
+  assert.ok(link);
+  assert.equal(ORDER_LINK_DAYS, 90);
+  assert.equal(link.expiresAt.getTime(), linkNow.getTime() + 90 * 86_400_000);
+  assert.equal(verifyOrderLink(linkOrder, link.token, linkSecret, new Date(linkNow.getTime() + 89 * 86_400_000)), true);
+  assert.equal(verifyOrderLink(linkOrder, link.token, linkSecret, new Date(linkNow.getTime() + 90 * 86_400_000)), false);
+  assert.equal(orderLinkPath(linkOrder, link.token), `/siparis/${linkOrder}/erisim?t=${link.token}`);
+  assert.equal(orderLinkPath(linkOrder, link.token, "sozlesme"), `/siparis/${linkOrder}/erisim?t=${link.token}&sayfa=sozlesme`);
+});
+
+test("the erisim grant: clean target from the site URL, a path-scoped cookie only for a valid link", () => {
+  const exp = new Date(linkNow.getTime() + 3_600_000);
+  const token = signOrderLink(linkOrder, exp, linkSecret);
+  const base = { orderId: linkOrder, token, page: undefined, siteUrl: "https://shop.example.invalid", secret: linkSecret, now: linkNow, production: true } as const;
+  const grant = orderLinkGrant(base);
+  assert.equal(grant.target, `https://shop.example.invalid/siparis/${linkOrder}`);
+  assert.deepEqual(grant.cookie, { name: ORDER_LINK_COOKIE, value: token,
+    options: { httpOnly: true, secure: true, sameSite: "lax", path: `/siparis/${linkOrder}`, maxAge: 3600 } });
+  assert.equal(orderLinkGrant({ ...base, production: false }).cookie?.options.secure, false);
+  assert.equal(orderLinkGrant({ ...base, page: "sozlesme" }).target, `https://shop.example.invalid/siparis/${linkOrder}/sozlesme`);
+  for (const denied of [{ token: undefined }, { token: `${token}x` }, { secret: null }, { secret: "t".repeat(32) }, { orderId: "11111111-2222-4333-8444-555555555556" }, { now: exp }]) {
+    const result = orderLinkGrant({ ...base, ...denied });
+    assert.equal(result.cookie, null, `no cookie for ${JSON.stringify(denied)}`);
+    assert.match(result.target, /^https:\/\/shop\.example\.invalid\/siparis\/[0-9a-f-]{36}$/);
+  }
+});
+
+test("a signed link only reads guest orders and never reaches payment or order actions", async () => {
+  const read = await readFile("src/modules/store/order-read.ts", "utf8");
+  const viewable = read.slice(read.indexOf("export async function viewableOrder"), read.indexOf("export async function currentOrderAgreement"));
+  assert.match(viewable, /FROM commerce_orders WHERE id=\$1 AND owner_kind='guest'/);
+  assert.match(viewable, /verifyOrderLink\(/);
+  const current = read.slice(read.indexOf("export async function currentOrder("), read.indexOf("export async function viewableOrder"));
+  assert.doesNotMatch(current, /ORDER_LINK_COOKIE|verifyOrderLink|cookies\(/, "currentOrder ignores the link cookie");
+  for (const file of ["src/app/(store)/siparis/[id]/actions.ts", "src/app/api/payments/tami/start/route.ts"]) {
+    const source = await readFile(file, "utf8");
+    assert.doesNotMatch(source, /viewableOrder|ORDER_LINK_COOKIE|gb_order_link|order-link/, `${file} must stay owner/admin only`);
+  }
+});
+
+test("a guest link replaces both order links and says until when it opens on any device", () => {
+  const guestLink = { token: signOrderLink(linkOrder, new Date("2027-02-19T10:00:00Z"), linkSecret), expiresAt: new Date("2027-02-19T10:00:00Z") };
+  const { text, html } = build({}, { guestLink });
+  const access = `https://shop.example.invalid/siparis/${linkOrder}/erisim?t=${guestLink.token}`;
+  assert.ok(text.includes(`Siparişini görüntüle: ${access}\n`));
+  assert.ok(text.includes(`Sözleşme kopyan: ${access}&sayfa=sozlesme\n`));
+  assert.ok(html.includes(`href="${access}"`));
+  assert.ok(html.includes(`href="${access}&amp;sayfa=sozlesme"`));
+  const note = "Bu bağlantılar 19 Şubat 2027 tarihine kadar her cihazda açılır. Siparişinin bilgilerini içerdiği için bu bağlantıları kimseyle paylaşma.";
+  assert.ok(text.includes(note)); assert.ok(html.includes(note));
+  assert.doesNotMatch(text, new RegExp(`/siparis/${linkOrder}(?:/sozlesme)?\\s`), "no bare order link");
+  assert.doesNotMatch(html, new RegExp(`/siparis/${linkOrder}(?:/sozlesme)?"`), "no bare order link");
+  assert.doesNotMatch(text, /siparişi verdiğin tarayıcıdan/);
+  const plain = build();
+  assert.ok(plain.text.includes("Sipariş sayfası, siparişi verdiğin hesapla ya da siparişi verdiğin tarayıcıdan açılır."));
+  assert.doesNotMatch(plain.text, /erisim/);
 });
 
 test("shipping, discount, installments, a separate corporate invoice and the note are shown when present", () => {
@@ -188,11 +278,11 @@ test("the file transport writes a multipart .eml with an encoded Turkish subject
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
-async function paidOrder() {
+async function paidOrder(ownerKind: "guest" | "account" = "guest") {
   const id = (await db.query<{ id: string }>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,
     total_kurus,subtotal_kurus,discount_percent,status,payment_status,paid_at)
-    VALUES('guest',$1,$2,'Test Müşteri','musteri@example.invalid','5551234567','Test adres 1',20000,20000,0,'pending','paid',now()) RETURNING id::text`,
-  [randomBytes(16).toString("hex"), randomUUID()])).rows[0].id;
+    VALUES($3,$1,$2,'Test Müşteri','musteri@example.invalid','5551234567','Test adres 1',20000,20000,0,'pending','paid',now()) RETURNING id::text`,
+  [randomBytes(16).toString("hex"), randomUUID(), ownerKind])).rows[0].id;
   await db.query(`INSERT INTO commerce_order_items(order_id,product_id,code,name,supplier,quantity,unit_price_kurus,pricing_snapshot)
     VALUES($1,$2,'X-1','Parça','demo',2,10000,'{"source":"store"}')`, [id, randomUUID()]);
   await email.queueOrderConfirmation(db, id);
@@ -313,6 +403,28 @@ const recorder = () => {
   return { sent, send: async (message: MailMessage): Promise<MailResult> => { sent.push(message); return { status: "sent", messageId: message.messageId ?? "" }; } };
 };
 const resendId = (id: string) => new RegExp(`^<order-${id}-confirmation-r\\d+@shop\\.example\\.invalid>$`);
+
+test("a guest order's email carries a signed link when a secret is set; account orders and no secret keep the plain link", async () => {
+  const { sent, send } = recorder();
+  const guestPlain = await paidOrder();
+  await email.deliverOrderEmails({ orderId: guestPlain, send });
+  assert.ok(sent[0].text.includes(`Siparişini görüntüle: https://shop.example.invalid/siparis/${guestPlain}\n`), "no secret: plain link");
+  process.env[orderLinkSecretEnv] = linkSecret;
+  try {
+    const guest = await paidOrder(), account = await paidOrder("account");
+    await email.deliverOrderEmails({ orderId: guest, send });
+    await email.deliverOrderEmails({ orderId: account, send });
+    const token = new RegExp(`/siparis/${guest}/erisim\\?t=([0-9]+\\.[A-Za-z0-9_-]+)\n`).exec(sent[1].text)?.[1];
+    assert.ok(token, "guest email has the signed link");
+    assert.equal(verifyOrderLink(guest, token, linkSecret), true);
+    const days = (Number(token.split(".")[0]) * 1000 - Date.now()) / 86_400_000;
+    assert.ok(days > 89.9 && days <= 90, `expires in 90 days, got ${days}`);
+    assert.ok(sent[2].text.includes(`Siparişini görüntüle: https://shop.example.invalid/siparis/${account}\n`), "account order: plain link");
+    assert.doesNotMatch(sent[2].text, /erisim/);
+  } finally {
+    delete process.env[orderLinkSecretEnv];
+  }
+});
 
 test("a given-up email is requeued with a fresh day and sent with a resend Message-ID", async () => {
   const id = await paidOrder(), adminId = await admin();

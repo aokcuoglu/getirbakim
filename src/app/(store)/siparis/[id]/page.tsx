@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { privatePageRobots } from "@/modules/seo/crawlers";
-import { currentOrder, orderRefundedKurus } from "@/modules/store/order-read";
+import { orderRefundedKurus, viewableOrder } from "@/modules/store/order-read";
 import { deliverOrderEmailsSafely } from "@/modules/store/order-email";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -39,6 +39,8 @@ import { carrierLabel } from "@/modules/store/shipment";
 import { invoiceAddressText, invoiceSummary, invoiceTypes } from "@/modules/store/tr-address";
 import { catalogPath } from "@/modules/seo/paths";
 import {storeButton} from "@/components/store-button";
+import { contactEmail, contactPhone } from "@/lib/site";
+import { aboutContact } from "@/content/about";
 
 const eyebrow="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]";
 const noticeBox="rounded-md border-0 bg-[#eaf1f7] p-[15px] text-sm leading-5 text-[#50718e]";
@@ -47,6 +49,7 @@ const muted="text-sm leading-[22px] text-muted-foreground";
 const panel="rounded-2xl border border-border bg-white p-[25px] text-sm max-[600px]:p-5";
 const panelTitle="text-[23px] leading-[34px] font-semibold";
 const panelText="text-[13px] leading-[1.7]";
+const contactLink="font-medium underline underline-offset-2 wrap-anywhere";
 const panelMuted="text-[13px] leading-[1.7] text-muted-foreground";
 
 // Outcomes of the customer cancel action (#607); "tamam" needs none, the order's own notice says it.
@@ -67,12 +70,14 @@ function lineTotal(line:{unit_price_kurus:string;quantity:number;pricing_snapsho
 }
 export default async function Order({params,searchParams}:{params:Promise<{id:string}>;searchParams:Promise<SearchParams>}) {
   const [{id},query]=await Promise.all([params,searchParams.then(normalizeSearchParams)]);
-  let result=await currentOrder(id);
+  let result=await viewableOrder(id);
   if(!result) notFound();
-  if(result.order.payment_status==="awaiting" && query.odeme==="sonuc") {
+  // A signed email link only reads the order (#1034): payment checks, paying and cancelling stay with its own browser.
+  const linkView=result.access==="link";
+  if(!linkView && result.order.payment_status==="awaiting" && query.odeme==="sonuc") {
     // Back from TAMI: the callback has normally reconciled already; this bounded check covers a slow callback.
     // Other views never wait on TAMI while rendering; PaymentWatcher checks once after the page is shown (#711).
-    try { await reconcileOrderPayments(id,{minIntervalSeconds:5,deadlineMs:INTERACTIVE_RECONCILE_MS}); result=await currentOrder(id) ?? result; }
+    try { await reconcileOrderPayments(id,{minIntervalSeconds:5,deadlineMs:INTERACTIVE_RECONCILE_MS}); result=await viewableOrder(id) ?? result; }
     catch(error) { console.error("Order page payment reconciliation failed",{id,error:error instanceof Error ? error.message : error}); }
     // A payment settled here queued the confirmation email (#951); it is sent after the page.
     after(()=>deliverOrderEmailsSafely({orderId:id}));
@@ -103,6 +108,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     : order.payment_status==="on_account" ? `Cari hesap: ödeme alınmaz, tutar sonradan faturalanır. Sipariş durumu: ${orderStatus[order.status]}.`
     : order.payment_status==="paid"
     ? (order.status==="pending" ? "Ödemen alındı. Stok ve fiyat teyidi bitince siparişini hazırlayacağız. Teyit edilemezse ödemenin tamamı iade edilir." : `Ödemen alındı. Sipariş durumu: ${orderStatus[order.status]}.`)
+    : awaiting && linkView ? "Siparişin oluşturuldu, ödemeni bekliyoruz. Ödemeyi siparişi verdiğin tarayıcıdan tamamlayabilirsin."
     : awaiting ? (returned ? "Ödemeni henüz doğrulayamadık. İşlemi tamamladıysan birkaç dakika içinde güncellenir; tamamlamadıysan yeniden deneyebilirsin."
       : created ? "Siparişin oluşturuldu. Ödemeyi kartla tamamla; güvenli ödeme penceresi bu sayfanın üzerinde açılır." : "Siparişin oluşturuldu, ödemeni bekliyoruz.")
     : order.payment_status==="expired" ? "Ödeme süresi içinde tamamlanmadığı için sipariş iptal edildi. Kartından tahsilat yapılmadı."
@@ -113,7 +119,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
       ? `Sipariş iptal edildi; ${money(refundedKurus)} tutarındaki ödemen ${new Date(order.refunded_at).toLocaleDateString("tr-TR",{timeZone:"Europe/Istanbul"})} tarihinde iade edildi. Kartına yansıması bankana göre birkaç iş günü sürebilir.`
       : "Sipariş iptal edildi ve ödemen iade edildi. İadenin kartına yansıması bankana göre birkaç iş günü sürebilir.")
     : order.status==="pending" ? "Siparişin alındı. Fiyat, stok ve sevkiyat için seninle iletişime geçeceğiz. Henüz ödeme alınmadı." : `Sipariş durumu: ${orderStatus[order.status]}.`;
-  const payNow=awaiting && paymentsEnabled();
+  const payNow=!linkView && awaiting && paymentsEnabled();
   const error=query.odeme ? paymentErrors[query.odeme] ?? null : null;
   // An order already cancelled (expiry, operations) needs no "cannot cancel" message: its notice explains it.
   // "odendi" invites a cancel from the button below, so it shows only while that button does.
@@ -132,6 +138,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     {error && <Alert className={cn(errorBox,"mb-3")}>{error}</Alert>}
     {admin && query.iade==="kaydedildi" && <Alert role="status" className={cn(noticeBox,"mb-3")}>İade kaydedildi.</Alert>}
     {admin && query.iade==="hata" && <Alert className={cn(errorBox,"mb-3")}>İade kaydedilemedi: sipariş sevk ya da teslim edilmemiş veya adet sipariş edilenden fazla.</Alert>}
+    {linkView && <Alert role="note" className={cn(noticeBox,"mb-3")}><p>Bu sayfayı e-postandaki bağlantıyla görüntülüyorsun. {awaiting ? "Ödeme, iptal ya da değişiklik" : "İptal ya da değişiklik"} için siparişi verdiğin tarayıcıyı kullan.</p><p>Bu tarayıcıya erişemiyorsan bize ulaş: <a href={`mailto:${contactEmail}`} className={contactLink}>{contactEmail}</a> · <a href={`tel:${contactPhone}`} className={cn(contactLink,"whitespace-nowrap")}>{aboutContact.phone}</a></p></Alert>}
     {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? errorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
     <Card className={cn(panel,"mb-6 gap-3 ring-0")}>
       <p role="status" className="m-0 text-[15px] leading-6">{order.payment_status==="on_account" && <Info className="mr-1.5 inline-block size-4 align-text-bottom" aria-hidden/>}{notice}</p>
@@ -141,7 +148,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
       {trackUrl && <Button nativeButton={false} className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full")} render={<a href={order.tracking_url ?? undefined} target="_blank" rel="noopener noreferrer"/>}>Kargoyu takip et<span className="sr-only"> (yeni sekmede açılır)</span></Button>}
       {cancelAction && <div className="flex flex-wrap items-center gap-x-3 border-t border-border pt-3">{pendingCancel && <p className={cn(muted,"m-0")}>Teyitten önce siparişini iptal edebilirsin.</p>}{cancelAction}</div>}
     </Card>
-    {order.payment_status==="awaiting" && <PaymentWatcher orderId={order.id} state={`${order.status}:${order.payment_status}`}/>}
+    {!linkView && order.payment_status==="awaiting" && <PaymentWatcher orderId={order.id} state={`${order.status}:${order.payment_status}`}/>}
     <div className="mb-8 flex flex-col gap-6 min-[600px]:grid min-[600px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] min-[600px]:items-start">
       <div className="min-w-0 max-[600px]:contents"><Card className={cn(panel,"min-w-0 gap-0 ring-0 max-[600px]:order-2")}><h2 className={panelTitle}>Sipariş ürünleri</h2>{items.map(p=><div key={p.product_id} className="flex items-start justify-between gap-6 border-b border-border py-4 last:border-b-0 wrap-anywhere max-[600px]:flex-col max-[600px]:gap-2"><div className="min-w-0"><strong className="font-semibold">{p.name}</strong><p className={panelMuted}>{p.code} · {p.quantity} adet × {money(Number(p.unit_price_kurus))}</p>
         {admin && p.pricing_snapshot?.checkout_mode==="snapshot" && typeof p.pricing_snapshot.observed_at==="string" && <small className="text-sm leading-[22px] text-muted-foreground">Tedarikçi anlık görüntüsü: {time(new Date(p.pricing_snapshot.observed_at))}</small>}
