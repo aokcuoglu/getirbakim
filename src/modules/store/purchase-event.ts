@@ -5,7 +5,7 @@ import { catalogItem, purchase, vatIncludedKurus, type AnalyticsItem, type Purch
 import { PURCHASE_EVENT_WINDOW_DAYS } from "@/modules/analytics/purchase";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import type { CartOwner } from "./cart";
-import { catalogSql, listingIds } from "./catalog";
+import { catalogRowsByIdsSql, listingIds } from "./catalog";
 import { getCatalogProductDetails } from "./product-enrichment";
 import { catalogCardTitle } from "./product-override-display";
 
@@ -19,11 +19,12 @@ type CatalogLine = Line & {
   display_code: string | null; brand: string | null; display_brand: string | null;
 };
 
-const lineQuery = (catalog: boolean) => `SELECT i.product_id::text,i.name,i.quantity,i.unit_price_kurus::text,i.pricing_snapshot->>'vat_percent' AS vat_percent
+// With the catalog, the lines' priced rows are read once by id array (catalogRowsByIdsSql, #1158).
+const lineQuery = (catalog: boolean) => `${catalog ? `WITH p AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT product_id FROM commerce_order_items WHERE order_id=$2)")})
+ ` : ""}SELECT i.product_id::text,i.name,i.quantity,i.unit_price_kurus::text,i.pricing_snapshot->>'vat_percent' AS vat_percent
  ${catalog ? `,p.id::text AS catalog_id,p.name AS catalog_name,p.name_overridden,p.code,p.display_code,p.brand,p.display_brand` : ""}
  FROM commerce_order_items i
- ${catalog ? `-- LATERAL + OFFSET 0 keeps the view from being planned as one catalog-wide scan per line (#705).
- LEFT JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=i.product_id OFFSET 0) p ON true` : ""}
+ ${catalog ? "LEFT JOIN p ON p.id=i.product_id" : ""}
  WHERE i.order_id=$${catalog ? 2 : 1} ORDER BY i.code,i.product_id`;
 
 /** The order's lines named like the listing card; a catalog failure or a product gone from it falls back to the order line's name. */

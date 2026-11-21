@@ -7,7 +7,7 @@ import { refreshDinamikItems } from "@/modules/suppliers/dinamik-import";
 import { refreshBasbugItems } from "@/modules/suppliers/basbug-item-refresh";
 import { CHECKOUT_LOCK_TIMEOUT, fallbackReason, type FallbackReason } from "@/modules/suppliers/checkout-fallback";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
-import { catalogSql } from "./catalog";
+import { catalogRowsByIdsSql } from "./catalog";
 import { supplierCheckoutMode } from "./supplier-checkout-policy";
 import { refreshSuppliersConcurrently, type CheckoutSupplier } from "./supplier-checkout-refresh";
 
@@ -124,14 +124,15 @@ export type LiveCost = {id:string;nf:number;price:number|null};
 export async function livePriceChanges(connection:Pick<PoolClient,"query">, lines:LiveCost[]) {
   if (!lines.length) return [];
   return (await connection.query<{id:string}>(`WITH live AS (SELECT * FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,nf numeric,price integer)),
+    -- The lines' priced rows by id array, read once (catalogRowsByIdsSql, #1158).
+    p AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT id FROM live)")}),
     line AS (
       SELECT l.id,l.price,CASE WHEN pa.supplier_item_id IS NULL THEN commerce_final_price(
         commerce_regular_price(commerce_formula_price(l.nf,(p.pricing_snapshot->>'exchange_rate')::numeric,
           (p.pricing_snapshot->>'markup_percent')::numeric,(p.pricing_snapshot->>'vat_percent')::numeric),ov.price_kurus),
         commerce_campaign_price(ov.sale_price_kurus,ov.sale_from,ov.sale_until,now())) END AS live_price
       FROM live l
-      -- LATERAL + OFFSET 0 keeps the view from being planned as one catalog-wide scan per line (#705).
-      LEFT JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=l.id OFFSET 0) p ON true
+      LEFT JOIN p ON p.id=l.id
       LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=l.id
       LEFT JOIN supplier_price_anomalies pa ON pa.supplier_item_id=l.id AND pa.status='open')
     SELECT id::text FROM line WHERE price IS DISTINCT FROM live_price ORDER BY id`,

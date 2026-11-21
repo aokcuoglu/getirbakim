@@ -5,7 +5,7 @@ const tokenHash = (token:string) => createHash("sha256").update(token).digest("h
 import { db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import type { PoolClient } from "pg";
-import { catalogSql, type CatalogProduct } from "./catalog";
+import { catalogRowsByIdsSql, catalogSql, type CatalogProduct } from "./catalog";
 import type { GarageVehicle } from "./garage";
 export type CartOwner = { kind: "account" | "guest"; id: string };
 export type CartItem = CatalogProduct & { quantity: number; vehicle: GarageVehicle | null };
@@ -50,15 +50,16 @@ export async function lockCartOwner(client: PoolClient, owner: CartOwner) {
 export async function cartFor(owner: CartOwner | null, connection: Pick<PoolClient,'query'> = db): Promise<CartItem[]> {
  if (!owner) return [];
  // Keep removed/unpublished products visible so they can be removed, never silently ordered.
- return (await connection.query<CartItem>(`SELECT COALESCE(p.id,c.product_id) id,
+ // The cart's priced rows by id array, read once for all lines (catalogRowsByIdsSql, #1158).
+ return (await connection.query<CartItem>(`WITH p AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT product_id FROM commerce_cart_items WHERE owner_kind=$2 AND owner_id=$3)")})
+ SELECT COALESCE(p.id,c.product_id) id,
  COALESCE(p.name,'Ürün artık satışta değil') name,COALESCE(p.code,'') code,COALESCE(p.brand,'') brand,
  COALESCE(p.display_brand,'') display_brand,COALESCE(p.display_code,'') display_code,COALESCE(p.name_overridden,false) name_overridden,
  p.category,p.supplier,p.description,p.price_kurus,p.stock,p.source,p.oem,p.pricing_snapshot,
  COALESCE(p.available,false) available,COALESCE(p.max_quantity,0) max_quantity,
  COALESCE(p.stock_label,'Ürün artık satışta değil') stock_label,c.quantity,c.vehicle
  FROM commerce_cart_items c
- -- LATERAL + OFFSET 0 keeps the view from being planned as one catalog-wide scan per line (#705).
- LEFT JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=c.product_id OFFSET 0) p ON true
+ LEFT JOIN p ON p.id=c.product_id
  WHERE c.owner_kind=$2 AND c.owner_id=$3 ORDER BY p.code,c.product_id`,
  [storefrontCompanies(),owner.kind,owner.id])).rows;
 }

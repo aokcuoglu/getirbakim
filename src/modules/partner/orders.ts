@@ -1,11 +1,10 @@
 import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
-import { catalogSql, type CatalogProduct } from "@/modules/store/catalog";
+import { catalogRowsByIds, type CatalogProduct } from "@/modules/store/catalog";
 import { shippingFee, shippingRule, type ShippingRule } from "@/modules/store/orders";
 import { checkedLineSnapshot, checkoutItemsOf, livePriceChanges, lockCheckoutSources, refreshSupplierLines, type SupplierLineRefresh } from "@/modules/store/supplier-checkout";
 import { supplierCheckoutMode } from "@/modules/store/supplier-checkout-policy";
-import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { decodeOfferId, encodeOfferId } from "./dto";
 import { lineAmounts, partnerOrderLimitEnv, resolveOrderLimitKurus, toPartnerOrderDto, type PartnerOrderLineRow, type PartnerOrderRow } from "./order-dto";
 import { addressText, type OrderRequest, type QuoteRequest } from "./order-schema";
@@ -38,11 +37,9 @@ export function partnerOrderConfig(): PartnerOrderConfig {
   };
 }
 
-/** Catalog rows behind offer ids, priced like the storefront (LATERAL + OFFSET 0 per id, #705). */
+/** Catalog rows behind offer ids, priced like the storefront (one read by id array, #1158). */
 async function offerRows(ids: string[], connection: Connection = db) {
-  const { rows } = await connection.query<OfferRow>(`SELECT p.* FROM unnest($2::uuid[]) AS wanted(id)
-    JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=wanted.id OFFSET 0) p ON true`, [storefrontCompanies(), ids]);
-  return new Map(rows.map(row => [row.id, row]));
+  return new Map((await catalogRowsByIds(ids, connection)).map((row): [string, OfferRow] => [row.id, row]));
 }
 
 /** The B2B unit price (kuruş, VAT excluded) the partner pays for a sellable supplier row, null when it is not offered. */
