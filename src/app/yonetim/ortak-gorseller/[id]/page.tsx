@@ -32,7 +32,7 @@ export default async function SharedImage({ params, searchParams }: { params: Pr
     <Card size="sm"><CardContent className="flex flex-wrap items-start gap-4">
       <SharedImageThumb imageId={header.image_id} blocked={header.blocked} shown={header.store_rows > 0} size="lg"
         alt={header.blocked ? `Engellenen görsel önizlemesi, ${header.host}` : `Ortak görsel, ${header.host}`}/>
-      <dl className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
+      <dl className="grid min-w-0 flex-1 basis-56 gap-3 sm:grid-cols-2">
         {([["Kaynak", header.host], ["Üretici", header.manufacturers.join(", ") || "—"], ["Parça", formatNumber(header.parts)],
           ["Zenginleştirme kaydı", formatNumber(header.donors)], ["Mağaza satırı", formatNumber(header.store_rows)]] as const).map(([label, value]) =>
           <div key={label} className="min-w-0"><dt className="text-muted-foreground">{label}</dt><dd className="truncate tabular-nums" title={value}>{value}</dd></div>)}

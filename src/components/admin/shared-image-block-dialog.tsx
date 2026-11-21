@@ -64,7 +64,7 @@ function BlockForm({ imageId, blocked, action, icon, blockNote, sourceUrl, onSav
     </AlertDialogHeader>
     {blocked && <div className="flex min-w-0 flex-wrap items-start gap-4">
       <SharedImageThumb imageId={imageId} blocked shown={false} size="lg" alt="Engeli kaldırılacak görsel"/>
-      <dl className="grid min-w-0 flex-1 gap-2">
+      <dl className="grid min-w-0 flex-1 basis-56 gap-2">
         <div className="min-w-0"><dt className="text-muted-foreground">Engel notu</dt><dd className="break-words">{blockNote || "Not yok"}</dd></div>
         {sourceUrl && <div className="min-w-0"><dt className="text-muted-foreground">Kaynak adresi</dt>
           <dd className="truncate"><a className="underline-offset-4 hover:underline" href={sourceUrl} target="_blank" rel="noreferrer" title={sourceUrl}>{sourceUrl}<span className="sr-only"> (yeni sekmede açılır)</span></a></dd></div>}

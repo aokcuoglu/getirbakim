@@ -150,6 +150,7 @@ describe("blocking a shared image", () => {
   let admin: string;
   // The admin preview route (#1176) reads the session and the object storage, both mocked; the database is the schema.
   let account: { id: string } | null = null;
+  let storageFails = false;
   const get = (route: { GET: typeof adminRoute.GET }, id: string) => route.GET(new Request(`http://localhost/${id}`), { params: Promise.resolve({ id }) });
   const blockKeys = ["x1", "x2", "x3"];
   const linkImages = async () => (await schema.pool.query<{ supplier_item_id: string; image_id: string | null }>(
@@ -178,7 +179,10 @@ describe("blocking a shared image", () => {
     admin = (await schema.pool.query<{ id: string }>("SELECT id::text FROM accounts WHERE role='admin' LIMIT 1")).rows[0].id;
     mock.module("../src/modules/auth/session.ts", { namedExports: { adminApiAccount: async () => account } });
     mock.module("../src/lib/object-storage.ts", { namedExports: {
-      objectStorage: () => ({ send: async () => ({ Body: { transformToWebStream: () => new Blob(["x"]).stream() } }) }),
+      objectStorage: () => ({ send: async () => {
+        if (storageFails) throw Object.assign(new Error("down"), { name: "TestStorageDown" });
+        return { Body: { transformToWebStream: () => new Blob(["x"]).stream() } };
+      } }),
     } });
     [blocks, images, adminRoute, publicRoute] = await Promise.all([import("../src/modules/admin/shared-image-blocks"), import("../src/modules/store/product-images"),
       import("../src/app/api/admin/product-media/[id]/route"), import("../src/app/api/product-media/[id]/route")]);
@@ -240,13 +244,17 @@ describe("blocking a shared image", () => {
     assert.deepEqual([refused.status, refused.headers.get("Cache-Control"), refused.headers.get("X-Content-Type-Options")], [403, "private, no-store", "nosniff"]);
     account = { id: admin };
     try {
-      assert.equal((await get(adminRoute, media.a)).status, 404);
+      const missing = await get(adminRoute, media.a);
+      assert.deepEqual([missing.status, missing.headers.get("Cache-Control")], [404, "private, no-store"]);
       assert.equal((await get(adminRoute, "not-a-uuid")).status, 404);
       const shown = await get(adminRoute, media.x);
       assert.deepEqual([shown.status, shown.headers.get("Cache-Control"), shown.headers.get("Content-Type"), shown.headers.get("ETag")],
         [200, "private, no-store", "image/webp", null]);
       assert.equal(await shown.text(), "x");
-    } finally { account = null; }
+      storageFails = true;
+      const failed = await get(adminRoute, media.x);
+      assert.deepEqual([failed.status, failed.headers.get("Retry-After"), failed.headers.get("Cache-Control")], [503, "30", "private, no-store"]);
+    } finally { account = null; storageFails = false; }
   });
 
   test("the media route stops serving a blocked image unless an admin also uploaded it", async () => {
