@@ -308,7 +308,10 @@ END $$;
 -- and took ~12% longer.
 -- The function must stay inlinable, or every caller turns into a Function Scan without the index probe: LANGUAGE sql,
 -- STABLE, not STRICT, a single SELECT, no SET clause, no BEGIN ATOMIC body (scripts/test-unavailable-catalog.ts
--- checks the plans). Changing its return columns needs DROP VIEW supplier_latest_imports first.
+-- checks the plans). The body names supplier_imports unqualified, so it resolves through the caller's search_path
+-- (a SET search_path clause would stop the inlining). Its return columns cannot change in place: CREATE OR REPLACE
+-- cannot alter the OUT row type, and dropping the function drops supplier_latest_imports, commerce_catalog and the
+-- storefront views behind it (an ACCESS EXCLUSIVE rebuild of the chain); add a function under a new name instead.
 CREATE OR REPLACE FUNCTION supplier_latest_import(supplier text, company text)
 RETURNS TABLE(id uuid, currencies_data jsonb, completed_at timestamptz) LANGUAGE sql STABLE AS $$
  SELECT i.id,i.currencies_data,i.completed_at FROM supplier_imports i
