@@ -118,7 +118,7 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
       {expanded && <div className="absolute top-[calc(100%+6px)] right-0 left-0 z-50 overflow-hidden rounded-md border border-border bg-white text-left shadow-[0_8px_24px_#212b361f]"
         // Keep focus in the input while choosing with the mouse, so blur does not close the list first.
         onMouseDown={event => event.preventDefault()}>
-        {showRecent && <div className="flex items-center justify-between gap-3 border-b border-border px-3.5 text-xs text-muted-foreground"><span>Son aramalar</span><Button type="button" variant="link" aria-label="Son aramaları temizle" onClick={forgetRecent} className={cn(storeButton({intent:"link",size:"md"}),"px-0")}>Temizle</Button></div>}
+        {showRecent && <div className="flex items-center justify-between gap-3 border-b border-border px-3.5 py-1 text-xs text-muted-foreground"><span>Son aramalar</span><Button type="button" variant="link" aria-label="Son aramaları temizle" onClick={forgetRecent} className={cn(storeButton({intent:"link",size:"md"}),"px-0")}>Temizle</Button></div>}
         {!showRecent && notice && <p className="m-0 border-b border-border px-3.5 py-2 text-xs text-muted-foreground">{notice}</p>}
         <ul id={listId} role="listbox" aria-label={showRecent ? "Son aramalar" : "Arama önerileri"} className="m-0 max-h-[min(420px,60vh)] list-none overflow-y-auto p-1">
           {options.map((option, index) => <li key={option.href} id={`${listId}-${index}`} role="option" aria-selected={index === activeIndex}

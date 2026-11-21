@@ -58,8 +58,8 @@ export function CategorySheet({open,onOpenChange,trigger,tree,links,account,sele
      <span className="flex shrink-0 gap-2 text-[11px] text-white max-[600px]:text-[10px]">🇹🇷 Türkiye <span>TRY ₺</span></span>
     </div>
     <nav ref={list} className="min-h-0 flex-1 overflow-auto overscroll-contain" aria-label="Ürün kategorileri">
-     {path.length>0&&<div className="flex flex-wrap gap-2 px-4 pt-3 pb-1">{path.map(node=><Button key={node.id} type="button" variant="outline" onClick={()=>drill(node.id)} className={storeButton({intent:"outline",size:"md"})}>{node.name}</Button>)}</div>}
-     {currentLink&&<Link className={cn(sheetRow,"min-h-11 px-4 py-2 text-xs font-medium text-brand")} href={categoryHref(currentLink.slug)} onClick={onClose}>{currentLink.name}: tüm ürünler <ChevronRight size={14}/></Link>}
+     {path.length>0&&<div className="flex flex-wrap gap-2 px-4 pt-3 pb-1">{path.map(node=><Button key={node.id} type="button" variant="outline" onClick={()=>drill(node.id)} className={cn(storeButton({intent:"outline",size:"md"}),"max-w-full whitespace-normal text-left")}>{node.name}</Button>)}</div>}
+     {currentLink&&<Link className={cn(sheetRow,"min-h-11 px-4 py-2 text-sm font-medium text-brand")} href={categoryHref(currentLink.slug)} onClick={onClose}>{currentLink.name}: tüm ürünler <ChevronRight size={14}/></Link>}
      {tree.categories?(selected!==null&&!current?<TreeStatus error={false} missing retry={tree.retry} rows={0} rowClass=""/>:children.map(row)):<TreeStatus error={tree.error} retry={tree.retry} rows={10} rowClass="min-h-[45px] py-[7px]"/>}
      {selected===null&&<Link className={cn(sheetRow,"mt-3 min-h-[52px] border-t border-border px-3 py-2.5 text-sm font-medium")} href={catalogPath} onClick={onClose}><Menu size={18}/><span>Tüm ürünler</span><ChevronRight size={14}/></Link>}
     </nav>

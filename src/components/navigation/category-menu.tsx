@@ -20,7 +20,7 @@ const mobile=()=>!window.matchMedia('(min-width:769px)').matches;
 function MegaClose({onClick}:{onClick:()=>void}){
  return <Button type="button" variant="ghost" size="icon" aria-label="Kategorileri kapat" onClick={onClick} className={cn(storeButton({intent:"ghost",size:"icon"}),"absolute top-1 right-1")}><X size={18} aria-hidden="true"/></Button>;
 }
-const megaLink="flex min-h-11 items-center gap-1.5 px-4 pt-3 pb-0 text-xs font-medium text-brand hover:underline hover:underline-offset-3";
+const megaLink="flex min-h-11 items-center gap-1.5 px-4 pt-3 pb-0 text-sm font-medium text-brand hover:underline hover:underline-offset-3";
 /**
  * The header category navigation: desktop mega menu (from 769px) and the phone/tablet category sheet.
  * The page sends only the bar's `links`; the tree comes from /api/categories on the first hover, focus or click (#642).
@@ -91,7 +91,7 @@ export function CategoryMenu({links,account}:{links:CategoryLink[];account:React
    <div className="fixed inset-x-0 bottom-0 z-1 bg-foreground/50 max-[768px]:hidden" aria-hidden="true" style={{top:desktop.top}} onClick={close}/>
    <div id="desktop-category-panel" style={{top:desktop.top+1,maxHeight:`calc(100dvh - ${desktop.top}px - 16px)`}}
     className="fixed inset-x-[max(15px,calc((100vw-1320px)/2))] z-2 grid grid-cols-[minmax(240px,24%)_minmax(0,1fr)] overflow-hidden rounded-b-[4px] border border-t-0 border-border bg-white text-sm leading-5 font-normal whitespace-normal text-foreground shadow-[0_12px_24px_#0002] max-[850px]:grid-cols-[230px_minmax(0,1fr)] max-[768px]:hidden">
-    {!desktopRoot||!desktopCurrent?(tree.error||tree.categories?<div className="relative col-span-2">
+    {!desktopRoot||!desktopCurrent?(tree.error||tree.categories?<div className="relative col-span-2 pr-12">
      <MegaClose onClick={close}/>
      <TreeStatus error={tree.error} missing={Boolean(tree.categories)} retry={tree.retry} rows={0} rowClass=""/>
     </div>:<>
@@ -103,7 +103,7 @@ export function CategoryMenu({links,account}:{links:CategoryLink[];account:React
     </>):<>
     <nav className="min-h-0 overflow-y-auto overscroll-contain border-r border-border py-6" aria-label={desktopRoot.name+" kategorileri"}>
      {desktopRoot.id!==3&&<button type="button" aria-current={desktopCurrent.id===desktopRoot.id?"true":undefined} onClick={()=>selectDesktop(desktopRoot.id)} onFocus={()=>selectDesktop(desktopRoot.id)}
-      className={cn(reset,"flex min-h-11 w-full items-center justify-start gap-1.5 border-b border-border bg-white px-4 py-2 text-left text-xs text-brand hover:bg-muted [&>svg]:shrink-0")}><ArrowLeft size={14}/><span>{desktopRoot.name}</span></button>}
+      className={cn(reset,"flex min-h-11 w-full items-center justify-start gap-1.5 border-b border-border bg-white px-4 py-2 text-left text-sm text-brand hover:bg-muted [&>svg]:shrink-0")}><ArrowLeft size={14}/><span>{desktopRoot.name}</span></button>}
      {desktopBranches.map(category=>{
       const hasChildren=categories.some(c=>c.parentId===category.id);
       const cls=cn(reset,"flex min-h-11 w-full items-center justify-start gap-2.5 bg-white py-[5px] pr-4 pl-2 text-left font-semibold text-foreground hover:bg-muted focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand aria-[current=true]:bg-muted [&>svg:last-child]:ml-auto [&>svg:last-child]:shrink-0");
