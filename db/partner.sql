@@ -4,7 +4,8 @@
 -- rejected) one 'partner.return.updated' row, each in the same transaction, by the triggers below. Delivery
 -- (src/modules/partner/webhooks.ts) claims pending rows with a lease and POSTs the order or the return request as it is
 -- at send time, signed per partner (PARTNER_WEBHOOKS_JSON). 'skipped' = the partner has no endpoint (or the order or
--- request is gone); 'dead' = undelivered after 72 hours.
+-- request is gone); 'dead' = undelivered after 72 hours (an admin may requeue it: pending again, same id). Delivered,
+-- skipped and dead rows are deleted 90 days after their last change by the 5-minute sweep.
 -- Applied last in scripts/setup.ts: it reads commerce_orders, partner_return_requests and accounts.
 --
 -- Locks: the first deploy that creates the table takes, for that run only, SHARE ROW EXCLUSIVE on commerce_orders,
@@ -27,7 +28,7 @@ CREATE TABLE IF NOT EXISTS partner_webhook_events(
  last_http_status integer,
  last_error text,
  created_at timestamptz NOT NULL DEFAULT now(),
- -- An admin's requeue (follow-up of #1002); the 72-hour give-up counts from it.
+ -- An admin's requeue of a dead row (/yonetim/partnerler); the 72-hour give-up and the 90-day retention count from it.
  requeued_at timestamptz,
  requeued_by uuid REFERENCES accounts(id)
 );

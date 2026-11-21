@@ -53,6 +53,10 @@ export const partnerLimitInput = z.object({ partner: partnerCode, limit: limitTl
 /** Order intake switch (#1009): "1" pauses the partner's new quotes and orders, "0" resumes them. */
 export const partnerIntakeInput = z.object({ partner: partnerCode, paused: z.enum(["1", "0"]).transform(value => value === "1") });
 
+/** Requeuing one given-up partner webhook event (#1002), or all of one partner's. */
+export const partnerWebhookRequeueInput = z.object({ event: z.uuid() });
+export const partnerWebhookRequeueAllInput = z.object({ partner: partnerCode });
+
 /** The invoice number operations type, when marking and when correcting a mark. */
 const invoiceRef = z.string().trim().min(1, "Fatura numarasını girin.").max(60, "Fatura numarası en fazla 60 karakter olabilir.");
 const expectedCount = z.coerce.number().int().min(1);
