@@ -133,7 +133,7 @@ test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and c
   const schema = await isolatedSchema("price_anomalies_test");
   const { pool } = schema;
   try {
-    const { refreshPriceAnomalies } = await import("../src/modules/suppliers/price-anomalies");
+    const { refreshPriceAnomalies, openPriceAnomalyCount, openPriceAnomalyFilter } = await import("../src/modules/suppliers/price-anomalies");
     await pool.query(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
       VALUES('basbug','BASBUG','G','MRK',now(),now(),'{}','{}','{}',$1,'succeeded')`, [JSON.stringify({ dovizListesi: [{ dovizCinsi: "EUR", satis: "55" }] })]);
     // rows(brand, currency, first nf, count): nf runs first..first+count-1.
@@ -168,11 +168,22 @@ test("PostgreSQL: detection, unpriced catalog row, dismissal, auto-resolve and c
     const evidence = (await pool.query("SELECT evidence FROM supplier_price_anomalies")).rows[0].evidence;
     assert.deepEqual([evidence.currency, evidence.dominant_currency, evidence.brand_rows, evidence.currency_rows, evidence.cost_kurus, evidence.median_kurus],
       ["EUR", "TRY", 197, 1, Math.round(1390.71 * 55 * 100), 149750]);
+    // The card figure and the "?quality=price-anomaly" list read the same open rows (#1049).
+    const flagged = async () => (await pool.query<{ id: string }>(`SELECT id::text FROM supplier_items WHERE supplier='basbug' AND ${openPriceAnomalyFilter}`)).rows.map(row => row.id);
+    assert.equal(await openPriceAnomalyCount(pool), 1);
+    assert.equal(await openPriceAnomalyCount(pool, { company: "BASBUG", group: "G" }), 1);
+    assert.equal(await openPriceAnomalyCount(pool, { company: "BASBUG" }), 1);
+    assert.equal(await openPriceAnomalyCount(pool, { company: "BASBUG", group: "X" }), 0);
+    assert.equal(await openPriceAnomalyCount(pool, { company: "OTHER", group: "G" }), 0);
+    assert.deepEqual(await flagged(), [kentEur]);
     assert.equal(await price(kentEur), null);
     assert.deepEqual([await price(kentTl[0]), await price(boschTl), await price(delphiEur)], [before.tl, before.bosch, before.delphi]);
 
     // Dismissed: priced again, and a later refresh keeps the decision.
     await pool.query("UPDATE supplier_price_anomalies SET status='dismissed'");
+    assert.equal(await openPriceAnomalyCount(pool), 0);
+    assert.equal(await openPriceAnomalyCount(pool, { company: "BASBUG", group: "G" }), 0);
+    assert.deepEqual(await flagged(), []);
     assert.equal(await price(kentEur), before.eur);
     assert.deepEqual(await refreshPriceAnomalies(pool, "basbug"), { skipped: false, flagged: 1, open: 0, removed: 0, reopened: 0, ratesMissing: false, unrated: 0 });
     assert.deepEqual(await anomalies(), [{ supplier_item_id: kentEur, status: "dismissed" }]);

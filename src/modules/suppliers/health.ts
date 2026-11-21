@@ -58,3 +58,21 @@ export async function supplierHealth(pool: Pick<Pool, "query">, company?: string
     : Boolean(heartbeat?.alive) && heartbeat?.succeeded !== false && scopes.length>0 && issues.length===0;
   return { checked_at: new Date(), manual, healthy, heartbeat: heartbeat ?? null, scopes, issues };
 }
+
+/**
+ * Body and status of /api/health/suppliers. Only `health.healthy` decides the status: open price anomalies
+ * (null = count unavailable) are informational and never produce a 503 (#1049).
+ */
+export function supplierHealthBody(health: Awaited<ReturnType<typeof supplierHealth>>, openPriceAnomalies: number | null) {
+  const commerce = health.scopes.map(scope => scope.commerce_last_success_at?.getTime() ?? 0);
+  return {
+    status: health.healthy ? 200 : 503,
+    body: {
+      status: health.healthy ? "ok" : "degraded",
+      scheduler: health.manual ? "manual" : health.heartbeat?.alive ? "alive" : "stopped",
+      groups: health.scopes.length, issues: health.issues.length,
+      oldest_commerce_success: commerce.length && Math.min(...commerce) ? new Date(Math.min(...commerce)).toISOString() : null,
+      open_price_anomalies: openPriceAnomalies,
+    },
+  };
+}
