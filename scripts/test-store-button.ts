@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { storeButton, storeButtonIntents, storeButtonSizes } from "@/components/store-button";
+import { cn } from "@/lib/utils";
 
 // Storefront button scale and colour roles (#1091, DESIGN.md "Buttons and controls").
 const css = (file: string) => readFileSync(new URL(`../src/app/${file}`, import.meta.url), "utf8");
@@ -30,33 +31,62 @@ function contrast(a: string, b: string) {
   return (high + 0.05) / (low + 0.05);
 }
 
+/** The `@apply` list of the named storefront button class (`.store-btn-lg`, …) in storefront.css (#1134). */
+function rule(name: string) {
+  const list = storefront.match(new RegExp(`\\.${name} \\{ @apply ([^;]+);`))?.[1];
+  assert.ok(list, `.${name} rule`);
+  return list;
+}
+
+/** The named classes (not the utilities) a storeButton map value carries. */
+const named = (value: string) => value.split(/\s+/).filter(name => name.startsWith("store-btn"));
+
 /** Tailwind spacing steps (0.25rem each) set by an unprefixed min-h-N / size-N class. */
 function steps(classes: string, utility: "min-h" | "size") {
   const match = classes.split(/\s+/).find(name => name.startsWith(`${utility}-`));
   return match ? Number(match.slice(utility.length + 1)) : undefined;
 }
 
+test("every storeButton variant is a named class with a rule in storefront.css", () => {
+  for (const value of [...Object.values(storeButtonSizes), ...Object.values(storeButtonIntents)]) {
+    assert.equal(named(value).length, 1, value);
+    rule(named(value)[0]);
+  }
+  rule("store-btn");
+  assert.ok(storeButton({ intent: "outline", size: "lg" }).length < 120, "no utility list in the markup");
+});
+
 test("every storefront button size is at least 44px tall on touch widths", () => {
-  for (const [size, classes] of Object.entries(storeButtonSizes)) {
+  for (const [size, value] of Object.entries(storeButtonSizes)) {
+    const classes = rule(value);
     const height = steps(classes, "min-h") ?? steps(classes, "size");
     assert.ok(height !== undefined && height >= 11, `${size}: ${classes}`);
   }
-  assert.ok((steps(storeButtonSizes.icon, "size") ?? 0) >= 11, "icon buttons are 44×44");
+  assert.ok((steps(rule(storeButtonSizes.icon), "size") ?? 0) >= 11, "icon buttons are 44×44");
 });
 
 test("storefront button labels are never under 14px", () => {
   const small = /(^|\s|:)text-(xs|\[(1[0-3]|[0-9])px\])(\s|$)/;
-  for (const [name, classes] of Object.entries({ ...storeButtonSizes, ...storeButtonIntents })) assert.doesNotMatch(classes, small, name);
-  for (const intent of Object.keys(storeButtonIntents) as (keyof typeof storeButtonIntents)[])
-    for (const size of Object.keys(storeButtonSizes) as (keyof typeof storeButtonSizes)[])
-      assert.doesNotMatch(storeButton({ intent, size }), small, `${intent}/${size}`);
-  assert.match(storeButton({ intent: "primary", size: "lg" }), /(^|\s)text-base(\s|$)/);
-  assert.match(storeButton({ intent: "primary", size: "lg" }), /(^|\s)font-semibold(\s|$)/);
+  for (const value of [...Object.values(storeButtonSizes), ...Object.values(storeButtonIntents)]) assert.doesNotMatch(rule(named(value)[0]), small, value);
+  assert.doesNotMatch(rule("store-btn"), small, "store-btn");
+  assert.match(rule(storeButtonSizes.lg), /(^|\s)text-base(\s|$)/);
+  assert.match(rule(storeButtonIntents.primary.split(" ")[0]), /(^|\s)font-semibold(\s|$)/);
+  assert.ok(storeButton({ intent: "primary", size: "lg" }).split(" ").includes("store-btn-lg"));
 });
 
 test("every storefront button has a 2px primary focus outline", () => {
-  const classes = storeButton();
-  for (const name of ["focus-visible:outline-2", "focus-visible:outline-solid", "focus-visible:outline-ring"]) assert.ok(classes.split(" ").includes(name), name);
+  const classes = rule("store-btn").split(" ");
+  for (const name of ["focus-visible:outline-2", "focus-visible:outline-solid", "focus-visible:outline-ring"]) assert.ok(classes.includes(name), name);
+  assert.ok(storeButton().split(" ").includes("store-btn"));
+});
+
+test("cn drops the ui/button utilities the named button classes replace", () => {
+  const merged = cn("h-8 gap-1.5 px-2.5 rounded-lg text-sm font-medium outline-none border-transparent bg-primary text-primary-foreground focus-visible:ring-3 hover:bg-primary/80 disabled:opacity-50", storeButton({ intent: "outline", size: "md" }), "px-0 text-xs");
+  for (const name of ["h-8", "gap-1.5", "px-2.5", "rounded-lg", "font-medium", "outline-none", "border-transparent", "bg-primary", "text-primary-foreground", "focus-visible:ring-3", "hover:bg-primary/80", "text-sm"])
+    assert.ok(!merged.split(" ").includes(name), `${name} stays in: ${merged}`);
+  for (const name of ["store-btn", "store-btn-outline", "store-btn-md", "px-0", "text-xs"]) assert.ok(merged.split(" ").includes(name), name);
+  assert.ok(!cn("disabled:opacity-50", storeButton({ intent: "primary" })).split(" ").includes("disabled:opacity-50"), "primary disabled opacity");
+  assert.ok(cn(storeButton({ intent: "primary" }), "font-normal").split(" ").includes("font-normal"));
 });
 
 test("storefront colour tokens meet the contrast the roles promise", () => {
@@ -209,7 +239,7 @@ test("storeButton extras never override height, size, font size or the brand col
 test("dialog actions use storeButton; the destructive confirm is the danger tint", async () => {
   const dialog = await import("@/components/store-dialog-classes");
   assert.ok(!("storeDialogAction" in dialog));
-  assert.match(storeButtonIntents.danger, /(^|\s)bg-destructive\/10(\s|$)/);
+  assert.match(rule("store-btn-danger"), /(^|\s)bg-destructive\/10(\s|$)/);
 });
 
 /** Raw `<button>` elements allowed per file (path suffix → count): header components and the documented exceptions. */

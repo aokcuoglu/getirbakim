@@ -196,3 +196,23 @@
     scroll-padding-top: calc(var(--header-pin-h, 116px) + 8px);
   }
 }
+
+@layer components {
+  /* storeButton (#1091, #1134): the storefront button scale and colour roles as one base class plus an intent and a size
+     class, instead of the same 750-970 character utility list on every button. The classes live in the components layer so
+     a caller's layout utilities still win; storeButton() keeps only the hover background, the focus ring reset and the
+     primary's disabled opacity as utilities, which must beat ui/button's own hover, ring and opacity utilities, and cn()
+     drops the unmodified ui/button utilities these classes replace (src/lib/utils.ts). */
+  .store-btn { @apply h-auto gap-2 rounded-lg text-sm leading-5 font-medium focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring; }
+  .store-btn-primary { @apply border-primary bg-primary font-semibold text-primary-foreground hover:border-brand-strong hover:text-primary-foreground disabled:border-border disabled:bg-border disabled:text-muted-foreground; }
+  .store-btn-secondary { @apply border-transparent bg-accent text-accent-foreground hover:text-accent-foreground; }
+  .store-btn-outline { @apply border-control-border bg-white text-foreground hover:text-foreground; }
+  .store-btn-ghost { @apply border-transparent bg-transparent text-foreground hover:text-foreground; }
+  .store-btn-link { @apply border-transparent bg-transparent text-primary underline-offset-4 hover:underline; }
+  .store-btn-danger { @apply border-transparent bg-destructive/10 text-destructive hover:text-destructive; }
+  .store-btn-hero { @apply min-h-14 px-7 py-3.5 text-base leading-6; }
+  .store-btn-lg { @apply min-h-12 px-5 py-3 text-base leading-6; }
+  .store-btn-md { @apply min-h-11 px-4 py-2.5; }
+  .store-btn-compact { @apply min-h-11 px-3 py-2 md:min-h-10; }
+  .store-btn-icon { @apply size-11 min-h-11 p-0; }
+}

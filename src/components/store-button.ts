@@ -8,28 +8,34 @@ import { cn } from "@/lib/utils";
  * drops to 40px only from md up, for pointer toolbars. The `extras` after the call are layout only (width, flex, margin,
  * position, gap, px-0/px-2 on text links, text-left, whitespace-normal, justify-between, responsive hidden): never
  * height, size, font size or brand colours, which belong to the size and intent here.
+ *
+ * The styles are named classes in src/app/storefront.css (`.store-btn`, `.store-btn-<intent>`, `.store-btn-<size>`,
+ * #1134), so the HTML and the RSC payload carry class names instead of 750-970 characters of utilities per button. The
+ * classes sit in the components layer: the extras (utilities) win over them, and `cn` (src/lib/utils.ts) removes the
+ * ui/button utilities they replace. The three utilities left in the base and the hover background per intent beat
+ * ui/button's own `focus-visible:ring-3`, `hover:bg-primary/80` and `disabled:opacity-50`, which `cn` cannot remove.
  */
 export const storeButtonSizes = {
-  hero: "min-h-14 px-7 py-3.5 text-base leading-6",
-  lg: "min-h-12 px-5 py-3 text-base leading-6",
-  md: "min-h-11 px-4 py-2.5",
-  compact: "min-h-11 px-3 py-2 md:min-h-10",
-  icon: "size-11 min-h-11 p-0",
+  hero: "store-btn-hero",
+  lg: "store-btn-lg",
+  md: "store-btn-md",
+  compact: "store-btn-compact",
+  icon: "store-btn-icon",
 } as const;
 
 export const storeButtonIntents = {
-  primary: "border-primary bg-primary font-semibold text-primary-foreground hover:border-brand-strong hover:bg-brand-strong hover:text-primary-foreground disabled:border-border disabled:bg-border disabled:text-muted-foreground disabled:opacity-100",
-  secondary: "border-transparent bg-accent text-accent-foreground hover:bg-[color-mix(in_oklch,var(--accent),var(--accent-foreground)_8%)] hover:text-accent-foreground",
-  outline: "border-control-border bg-white text-foreground hover:bg-muted hover:text-foreground",
-  ghost: "border-transparent bg-transparent text-foreground hover:bg-muted hover:text-foreground",
-  link: "border-transparent bg-transparent text-primary underline-offset-4 hover:bg-transparent hover:underline",
-  danger: "border-transparent bg-destructive/10 text-destructive hover:bg-destructive/20 hover:text-destructive",
+  primary: "store-btn-primary hover:bg-brand-strong disabled:opacity-100",
+  secondary: "store-btn-secondary hover:bg-[color-mix(in_oklch,var(--accent),var(--accent-foreground)_8%)]",
+  outline: "store-btn-outline hover:bg-muted",
+  ghost: "store-btn-ghost hover:bg-muted",
+  link: "store-btn-link hover:bg-transparent",
+  danger: "store-btn-danger hover:bg-destructive/20",
 } as const;
 
-const variants = cva(
-  "h-auto gap-2 rounded-lg text-sm leading-5 font-medium focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring",
-  { variants: { intent: storeButtonIntents, size: storeButtonSizes }, defaultVariants: { intent: "primary", size: "md" } },
-);
+const variants = cva("store-btn focus-visible:ring-0", {
+  variants: { intent: storeButtonIntents, size: storeButtonSizes },
+  defaultVariants: { intent: "primary", size: "md" },
+});
 
 export type StoreButtonOptions = VariantProps<typeof variants>;
 
