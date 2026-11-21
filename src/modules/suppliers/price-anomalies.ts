@@ -9,7 +9,8 @@ import type { Pool } from "pg";
  * naive "other currency and 10× the median" rule flagged 2,817 rows, almost all brands genuinely priced in two
  * currencies (BSG, FEBI); these narrow it to one. #1050 adds the reverse direction (currencyUnderpriced) and rows far
  * from the same product's other-supplier offers whose value fits them in another currency (offerOutlier). #1142 reopens
- * a dismissed anomaly when the supplier's value moves REOPEN_FACTOR times from the one the admin dismissed.
+ * a dismissed anomaly when the supplier's value moves REOPEN_FACTOR times from the one the admin dismissed. #1153 re-checks
+ * the rows whose value a Başbuğ price/stock run changed (refreshPriceAnomaliesAfterImports), not only after full lists.
  */
 export const priceAnomalyThresholds = {
   /** A brand needs this many priced rows before its median means anything. */
@@ -192,7 +193,7 @@ const candidatesSql = `${itemRowsCte}, brands AS (
   SELECT w.*,b.dominant,b.brand_rows,c.n AS currency_rows
   FROM item_rows w JOIN brands b ON b.company=w.company AND b.brand=w.brand
   JOIN currencies c ON c.company=w.company AND c.brand=w.brand AND c.currency=w.currency
-  WHERE w.currency<>b.dominant AND c.n<=$2
+  WHERE w.currency<>b.dominant AND c.n<=$2 AND ($4::uuid[] IS NULL OR w.id=ANY($4))
 ), medians AS (
   SELECT d.company,d.brand,percentile_cont(0.5) WITHIN GROUP (ORDER BY d.nf) AS median_nf,
     percentile_cont($3::float8) WITHIN GROUP (ORDER BY d.nf) AS low_nf
@@ -230,7 +231,7 @@ const offerCandidatesSql = `${itemRowsCte}, offers AS (
   JOIN product_sources so ON so.product_id=ps.product_id AND so.supplier_item_id<>ps.supplier_item_id
   JOIN (SELECT i.id,CASE WHEN jsonb_typeof(i.price_data->'nf')='number' THEN (i.price_data->>'nf')::numeric END AS nf
     FROM supplier_items i WHERE i.supplier<>$1 AND i.presence='present' AND i.product_data->>'dc' IN ('TL','TRY')) o ON o.id=so.supplier_item_id
-  WHERE o.nf>0
+  WHERE o.nf>0 AND ($3::uuid[] IS NULL OR w.id=ANY($3))
   GROUP BY w.id
 ), relabels AS (
   SELECT c.company,c.brand,jsonb_agg(jsonb_build_object('currency',c.currency,'rate',CASE WHEN c.currency='TRY' THEN 1 ELSE r.rate END::float8,
@@ -278,11 +279,14 @@ const ratioOf = (value: number, base: number) => value >= base ? Math.round(valu
  * The supplier's anomalies as of now, with their kind and evidence; read-only. A row both rules flag is stored once,
  * by precedence currency (high, then low) over offer-outlier. `ratesMissing`: a currency candidate's currency (or its
  * brand's) has no rate in the latest import, so this run cannot judge it. `unrated`: ids of offer-linked rows skipped
- * for want of a rate (they are unpriced in the catalog anyway).
+ * for want of a rate (they are unpriced in the catalog anyway). `itemIds` (#1153): judge only these rows; brand
+ * medians, row counts and relabel currencies still come from the whole saleable scope.
  */
-export async function detectPriceAnomalies(connection: Pick<Pool, "query">, supplier: PriceAnomalySupplier, thresholds = priceAnomalyThresholds) {
-  const candidates = (await connection.query<CandidateRow>(candidatesSql, [supplier, thresholds.MAX_CURRENCY_ROWS, thresholds.LOW_PERCENTILE])).rows;
-  const offers = (await connection.query<OfferRow>(offerCandidatesSql, [supplier, thresholds.RATIO])).rows;
+export async function detectPriceAnomalies(connection: Pick<Pool, "query">, supplier: PriceAnomalySupplier, thresholds = priceAnomalyThresholds,
+  itemIds?: string[]) {
+  const candidates = (await connection.query<CandidateRow>(candidatesSql,
+    [supplier, thresholds.MAX_CURRENCY_ROWS, thresholds.LOW_PERCENTILE, itemIds ?? null])).rows;
+  const offers = (await connection.query<OfferRow>(offerCandidatesSql, [supplier, thresholds.RATIO, itemIds ?? null])).rows;
   const flagged = new Map<string, { id: string; kind: PriceAnomalyKind; evidence: PriceAnomalyEvidence }>();
   let ratesMissing = false;
   const unrated: string[] = [];
@@ -344,18 +348,37 @@ export async function setPriceAnomalyStatus(connection: Pick<Pool, "query">, id:
   return (updated.rowCount ?? 0) > 0;
 }
 
+// The latest successful import's rates per company, and whether an anomaly row `a` cannot be judged with them: its
+// own currency or its relabel/dominant currency has no rate (an offer-outlier's relabel currency drops out of the scan
+// without one, #1050). Shared by the DELETE guard and the unjudged reopen (#1153); $1 is the supplier.
+const judgedRatesCte = `WITH latest AS (
+  SELECT DISTINCT ON (company) company,currencies_data FROM supplier_imports
+  WHERE supplier=$1 AND status='succeeded' ORDER BY company,completed_at DESC,id DESC
+), rates AS (
+  SELECT company,r->>'dovizCinsi' AS currency FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r
+  WHERE r->>'satis' IS NOT NULL
+)`;
+const unjudgeableSql = `EXISTS(
+  SELECT 1 FROM supplier_items i CROSS JOIN LATERAL (VALUES (a.evidence->>'currency'),(a.evidence->>'dominant_currency')) c(currency)
+  WHERE i.id=a.supplier_item_id AND c.currency IS NOT NULL AND c.currency NOT IN ('TL','TRY')
+  AND NOT EXISTS(SELECT 1 FROM rates r WHERE r.company=i.company AND r.currency=c.currency))`;
+
 /**
  * Re-detects the supplier's anomalies and stores them (one transaction): new rows open, known rows keep their status
  * (a dismissed row stays dismissed) with fresh evidence. A dismissed row keeps its baseline (dismissed_nf,
  * dismissed_currency; a row dismissed before #1142 takes its previous nf as baseline on its first flagged run) and is
  * reopened (`reopened`) when the rule still flags it and its value moved REOPEN_FACTOR times either way from the
- * baseline or its currency changed; the reopened row carries `reopened_from` until it is decided again. An open row no longer detected is deleted, which prices it
- * again. A dismissed row is the admin's decision: it is deleted only when its item is gone or the supplier changed the
- * row's currency, not when a run merely misses it (a corroborating offer or the brand's row count came and went). A
- * run with a missing rate for a currency candidate deletes nothing; otherwise a row the run could not judge (no rate for
- * its own or its relabel currency, or skipped as unrated) is kept. Another refresh already running: `{ skipped: true }`.
+ * baseline or its currency changed; the reopened row carries `reopened_from` until it is decided again. A dismissed row
+ * the run cannot judge for want of a rate (see below) is compared with its baseline on the supplier's current value and
+ * currency and reopened the same way (#1153), so a material move does not stay priced until the rate returns. An open
+ * row no longer detected is deleted, which prices it again. A dismissed row is the admin's decision: it is deleted only
+ * when its item is gone or the supplier changed the row's currency, not when a run merely misses it (a corroborating
+ * offer or the brand's row count came and went). A run with a missing rate for a currency candidate deletes nothing;
+ * otherwise a row the run could not judge (no rate for its own or its relabel currency, or skipped as unrated) is kept.
+ * `itemIds` (#1153): judge, reopen and delete only these rows; others keep their state until a full refresh. Another
+ * refresh already running: `{ skipped: true }`.
  */
-export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySupplier) {
+export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySupplier, itemIds?: string[]) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -363,9 +386,10 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
       await client.query("ROLLBACK");
       return { skipped: true as const };
     }
-    const { flagged, ratesMissing, unrated } = await detectPriceAnomalies(client, supplier);
+    const { flagged, ratesMissing, unrated } = await detectPriceAnomalies(client, supplier, priceAnomalyThresholds, itemIds);
+    const flaggedIds = flagged.map(row => row.id);
     // Kept regardless of this run: detected again, or skipped for want of a rate.
-    const kept = [...flagged.map(row => row.id), ...unrated];
+    const kept = [...flaggedIds, ...unrated];
     // Fresh evidence keeps the decision's baseline (#1142): a dismissed row's dismissed_nf/currency (or, before #1142,
     // its previous nf/currency), an open reopened row's reopened_from.
     await client.query(`INSERT INTO supplier_price_anomalies AS a(supplier_item_id,supplier,kind,evidence)
@@ -380,7 +404,7 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
       [supplier, JSON.stringify(flagged)]);
     // A dismissed row the rule still flags reopens when its value moved materially or its currency changed (#1142).
     // decided_by/decided_at stay as the audit of the earlier decision.
-    const reopened = (await client.query(`UPDATE supplier_price_anomalies SET status='open',detected_at=now(),
+    const reopenedFlagged = (await client.query(`UPDATE supplier_price_anomalies SET status='open',detected_at=now(),
         evidence=(evidence - 'dismissed_nf' - 'dismissed_currency')
           || jsonb_build_object('reopened_from',jsonb_build_object('nf',evidence->'dismissed_nf','currency',evidence->'dismissed_currency'))
       WHERE supplier=$1 AND status='dismissed' AND supplier_item_id=ANY($2::uuid[])
@@ -388,35 +412,66 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
         OR (jsonb_typeof(evidence->'dismissed_nf')='number' AND (evidence->>'dismissed_nf')::numeric>0
           AND ((evidence->>'nf')::numeric>=(evidence->>'dismissed_nf')::numeric*$3::numeric
             OR (evidence->>'nf')::numeric*$3::numeric<=(evidence->>'dismissed_nf')::numeric)))`,
-      [supplier, flagged.map(row => row.id), priceAnomalyThresholds.REOPEN_FACTOR])).rowCount ?? 0;
-    // Never deletes a row the run could not judge: one whose own currency or relabel/dominant currency has no rate in
-    // its company's latest import (an offer-outlier's relabel currency drops out of the scan without one, #1050).
-    const removed = ratesMissing ? 0 : (await client.query(`WITH latest AS (
-        SELECT DISTINCT ON (company) company,currencies_data FROM supplier_imports
-        WHERE supplier=$1 AND status='succeeded' ORDER BY company,completed_at DESC,id DESC
-      ), rates AS (
-        SELECT company,r->>'dovizCinsi' AS currency FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r
-        WHERE r->>'satis' IS NOT NULL
-      )
+      [supplier, flaggedIds, priceAnomalyThresholds.REOPEN_FACTOR])).rowCount ?? 0;
+    // A dismissed row the run could not judge (#1153): the same comparison against the supplier's current value and
+    // currency (as itemRowsCte reads them), since its evidence is not refreshed. The baseline falls back to the last
+    // stored nf/currency for a row dismissed before #1142.
+    const reopenedUnjudged = (await client.query(`${judgedRatesCte}
+      UPDATE supplier_price_anomalies a SET status='open',detected_at=now(),
+        evidence=(a.evidence - 'dismissed_nf' - 'dismissed_currency') || jsonb_build_object('nf',cur.nf,'currency',cur.currency,
+          'reopened_from',jsonb_build_object('nf',COALESCE(a.evidence->'dismissed_nf',a.evidence->'nf'),
+            'currency',COALESCE(a.evidence->'dismissed_currency',a.evidence->'currency')))
+      FROM (SELECT i.id,
+          CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 'TRY' ELSE i.product_data->>'dc' END AS currency,
+          CASE WHEN jsonb_typeof(i.price_data->'nf')='number' THEN (i.price_data->>'nf')::numeric END AS nf
+        FROM supplier_items i WHERE i.supplier=$1) cur
+      WHERE cur.id=a.supplier_item_id AND a.supplier=$1 AND a.status='dismissed' AND a.supplier_item_id<>ALL($2::uuid[])
+      AND ($3::uuid[] IS NULL OR a.supplier_item_id=ANY($3)) AND ${unjudgeableSql}
+      AND (COALESCE(a.evidence->>'dismissed_currency',a.evidence->>'currency') IS DISTINCT FROM cur.currency
+        OR (jsonb_typeof(COALESCE(a.evidence->'dismissed_nf',a.evidence->'nf'))='number'
+          AND COALESCE(a.evidence->>'dismissed_nf',a.evidence->>'nf')::numeric>0
+          AND (cur.nf>=COALESCE(a.evidence->>'dismissed_nf',a.evidence->>'nf')::numeric*$4::numeric
+            OR cur.nf*$4::numeric<=COALESCE(a.evidence->>'dismissed_nf',a.evidence->>'nf')::numeric)))`,
+      [supplier, flaggedIds, itemIds ?? null, priceAnomalyThresholds.REOPEN_FACTOR])).rowCount ?? 0;
+    // Never deletes a row the run could not judge (judgedRatesCte).
+    const removed = ratesMissing ? 0 : (await client.query(`${judgedRatesCte}
       DELETE FROM supplier_price_anomalies a
-      WHERE a.supplier=$1 AND a.supplier_item_id<>ALL($2::uuid[]) AND (a.status='open' OR NOT EXISTS(
+      WHERE a.supplier=$1 AND a.supplier_item_id<>ALL($2::uuid[]) AND ($3::uuid[] IS NULL OR a.supplier_item_id=ANY($3))
+      AND (a.status='open' OR NOT EXISTS(
         SELECT 1 FROM supplier_items i WHERE i.id=a.supplier_item_id
         AND CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 'TRY' ELSE i.product_data->>'dc' END=a.evidence->>'currency'))
-      AND NOT EXISTS(
-        SELECT 1 FROM supplier_items i CROSS JOIN LATERAL (VALUES (a.evidence->>'currency'),(a.evidence->>'dominant_currency')) c(currency)
-        WHERE i.id=a.supplier_item_id AND c.currency IS NOT NULL AND c.currency NOT IN ('TL','TRY')
-        AND NOT EXISTS(SELECT 1 FROM rates r WHERE r.company=i.company AND r.currency=c.currency))`,
-      [supplier, kept])).rowCount ?? 0;
+      AND NOT ${unjudgeableSql}`,
+      [supplier, kept, itemIds ?? null])).rowCount ?? 0;
     const open = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM supplier_price_anomalies WHERE supplier=$1 AND status='open'",
       [supplier])).rows[0].n;
     await client.query("COMMIT");
-    return { skipped: false as const, flagged: flagged.length, open, removed, reopened, ratesMissing, unrated: unrated.length };
+    return { skipped: false as const, flagged: flagged.length, open, removed, reopened: reopenedFlagged + reopenedUnjudged, ratesMissing,
+      unrated: unrated.length };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
   } finally {
     client.release();
   }
+}
+
+/** Above this many changed rows a scoped re-check saves little over the whole scope: refresh everything instead. */
+const MAX_SCOPED_ROWS = 20_000;
+
+/**
+ * After Başbuğ price/stock runs (#1153): re-checks only the rows whose value (nf) these imports changed. A commerce run
+ * never changes a row's currency, so a run without nf changes needs no detection (`{ changed: 0 }`). The changes are
+ * the imports' supplier_item_changes rows (changed_at = the import's completed_at, supplier_item_changes_date_idx).
+ */
+export async function refreshPriceAnomaliesAfterImports(pool: Pool, supplier: PriceAnomalySupplier, importIds: string[]) {
+  if (!importIds.length) return { changed: 0 };
+  const ids = (await pool.query<{ id: string }>(`SELECT DISTINCT c.item_id::text AS id FROM supplier_imports r
+    JOIN supplier_item_changes c ON c.changed_at=r.completed_at AND c.import_id=r.id
+    WHERE r.id=ANY($1::uuid[]) AND r.supplier=$2 AND c.before_data->'price'->'nf' IS DISTINCT FROM c.after_data->'price'->'nf'`,
+  [importIds, supplier])).rows.map(row => row.id);
+  if (!ids.length) return { changed: 0 };
+  if (ids.length > MAX_SCOPED_ROWS) return { changed: ids.length, ...await refreshPriceAnomalies(pool, supplier) };
+  return { changed: ids.length, ...await refreshPriceAnomalies(pool, supplier, ids) };
 }
 
 /** After a manual Başbuğ list refresh in the panel (#1030): a failure is logged and keeps the previous list. */

@@ -5,7 +5,7 @@ import { nextDinamikBreaker } from "../src/modules/suppliers/dinamik-breaker";
 import { DinamikImportError, discoverDinamikBrands, dinamikBrandPattern, importDinamik } from "../src/modules/suppliers/dinamik-import";
 import { SetaImportError, importSeta, setaScope } from "../src/modules/suppliers/seta-import";
 import { supplierSyncAlerts } from "../src/modules/suppliers/health";
-import { refreshPriceAnomalies } from "../src/modules/suppliers/price-anomalies";
+import { refreshPriceAnomalies, refreshPriceAnomaliesAfterImports } from "../src/modules/suppliers/price-anomalies";
 import { refreshProductMatchesIfDue } from "../src/modules/suppliers/product-match-schedule";
 import { pruneSupplierHistory } from "../src/modules/suppliers/sync";
 
@@ -71,8 +71,10 @@ try {
     const unknown = args.group?.filter(group => !scopes.some(scope => scope.list_group === group));
     if (unknown?.length) { console.error({ unknownGroups: unknown }); process.exitCode = 1; }
     let catalogWordsChanged = false;
-    // A row's currency only changes with a full list (basbug-import.ts), so anomalies are re-detected after one (#1030).
+    // A row's currency only changes with a full list (basbug-import.ts), so a full list re-detects every anomaly (#1030);
+    // its value (nf) moves with every 30-minute price/stock run, so those re-check the rows they changed (#1153).
     let basbugFullSucceeded = false;
+    const basbugCommerceImports: string[] = [];
     const tickStarted = Date.now();
     const circuitOpen = new Set<string>();
     let dinamikFailures = 0;
@@ -121,6 +123,7 @@ try {
         const result = await importBasbug(pool, { group: scope.list_group, warehouse: "MRK", company: scope.company, mode });
         console.log({ group: scope.list_group, mode, seconds: Math.round((Date.now() - started) / 1000), products: result.uniqueProducts, stats: result.stats, peakRssMB: peakRssMB() });
         if (mode === "full") basbugFullSucceeded = true;
+        else basbugCommerceImports.push(result.id);
         // Only full imports carry product names; price/stock runs leave the search vocabulary as is.
         if (mode === "full" && result.stats.added + result.stats.changed + result.stats.restored > 0) catalogWordsChanged = true;
       } catch (error) {
@@ -145,9 +148,11 @@ try {
       } catch (error) { console.error({ searchVocabulary: "failed", code: (error as { code?: string }).code }); }
     }
     // Single-row currency anomalies (#1030): a failed refresh keeps the previous list and does not fail the scheduler.
-    if (basbugFullSucceeded) {
-      try { console.log({ priceAnomalies: await refreshPriceAnomalies(pool, "basbug") }); }
-      catch (error) { console.error({ priceAnomalies: "failed", code: (error as { code?: string }).code }); }
+    if (basbugFullSucceeded || basbugCommerceImports.length) {
+      try {
+        console.log({ priceAnomalies: basbugFullSucceeded ? await refreshPriceAnomalies(pool, "basbug")
+          : await refreshPriceAnomaliesAfterImports(pool, "basbug", basbugCommerceImports) });
+      } catch (error) { console.error({ priceAnomalies: "failed", code: (error as { code?: string }).code }); }
     }
     // New brand labels and products reach the master catalog only through this refresh (~1–2 min); scheduled ticks run
     // it after supplier changes at most every PRODUCT_MATCH_INTERVAL_HOURS. Forced runs (admin refresh) leave it to them.
