@@ -50,6 +50,9 @@ import {legacyCategoryIds} from "@/modules/store/category-tree";
 import {manufacturerTexts,manufacturerTrail} from "@/modules/store/manufacturers";
 import {scopeCategoryCounts} from "@/modules/store/listing-categories.server";
 import { storeButton } from "@/components/store-button";
+import brakeBannerMobile from "@/assets/hero/brake-system-banner-mobile.webp";
+import brakeBanner from "@/assets/hero/brake-system-banner.webp";
+import catalogBanner from "@/assets/hero/mobile-catalog.webp";
 import {catalogDescription} from "./catalog-descriptions";
 const benefits=[
  {icon:ShieldCheck,title:"Sipariş bilgilerin tek yerde",text:"Ürün, fiyat ve teslimat bilgilerini birlikte incele."},
@@ -184,8 +187,8 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  return (
   <div data-catalog-page="" className="bg-white text-sm leading-5 text-foreground">
    <section className="relative h-[280px] bg-[#212b36] pb-10 text-white min-[600px]:max-[768px]:h-auto max-[600px]:h-auto max-[600px]:min-h-0 max-[600px]:pb-4">
-    {isBrakeCategory?<HeroBackdrop mobile="/media/site/images/brake-system-banner-mobile.webp" desktop="/media/site/images/brake-system-banner.webp"/>
-     :<HeroBackdrop desktop="/media/site/images/mobile-catalog.webp" overlay={false}/>}
+    {isBrakeCategory?<HeroBackdrop mobile={brakeBannerMobile} desktop={brakeBanner}/>
+     :<HeroBackdrop desktop={catalogBanner} overlay={false}/>}
     <div className="relative flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/85 max-[600px]:hidden"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
     <div className="relative mx-auto w-full max-w-[1384px] px-8 max-[600px]:px-[15px]">
      {/* Manufacturer names and make / model headings ("Volkswagen Golf 7 (2012–2022) fren sistemi") can run to three
@@ -197,7 +200,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
     </div>
    </section>
    <JsonLd data={breadcrumbJsonLd(trail,siteUrl)}/><JsonLd data={collection}/><TrackItemList listId={category?.slug??params.make??(manufacturerSlug&&`marka-${manufacturerSlug}`)??"katalog"} listName={title} searchTerm={params.q} items={products.flatMap((product,index)=>product.price_kurus===null||product.unavailable?[]:[catalogItem({id:product.id,name:catalogCardTitle(product,details.get(product.id)?.partNumber),brand:product.display_brand,category:category?.name},servicePrice(product.price_kurus,account?.approved&&account.role==="service"?account.discount_percent:0),{index})])}/>
-   <CatalogStickyFinder brakes={Boolean(isBrakeCategory)}>{finder(true)}</CatalogStickyFinder>
+   <CatalogStickyFinder banner={isBrakeCategory?brakeBanner.src:undefined}>{finder(true)}</CatalogStickyFinder>
    {/* Phones (≤768px) put the products before the introduction and the popular makes, the DOM order staying (#878). */}
    <section className="mx-auto w-[calc(100%-30px)] max-w-[1320px] pb-[50px] max-[768px]:flex max-[768px]:flex-col">
     <Breadcrumb aria-label="Sayfa yolu" className="min-h-[45px] pt-2 pb-4">
