@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.35.0 — 2026-11-21
+
+Release of `dev` since v0.34.0 (3 pull requests): BakımX partner search ranks the parts fitting the work-order vehicle from every match, a per-partner order intake switch and order email state with resend in the admin. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Per-partner order intake switch** on `/yonetim/partnerler`: a paused partner's `POST /order-quotes` and `POST /orders` answer `503 ORDER_INTAKE_PAUSED`; reads, cancels and idempotent replays keep working; checked again under the partner's order lock ([#1113](https://github.com/aokcuoglu/getirbakim/pull/1113)).
+- **Order email state and resend** on `/yonetim/siparisler` ([#1116](https://github.com/aokcuoglu/getirbakim/pull/1116)).
+
+### Fixed
+- **Partner search vehicle fits from the whole match set:** guaranteed fits are taken from every search match (the storefront garage-lead intersection; a fit on a grouped secondary offer counts for its product) and listed first; production example `yağ filtresi` + Golf 1.6 TDI returned no fitting row before ([#1120](https://github.com/aokcuoglu/getirbakim/pull/1120), [#1119](https://github.com/aokcuoglu/getirbakim/issues/1119)).
+- Codes prefixed with a multi-word brand name (VICTOR REINZ) match ([#1118](https://github.com/aokcuoglu/getirbakim/pull/1118); shipped in v0.34.0, missing from its notes).
+
+### Deploy and operations
+- **`db:setup` runs first** (`release-aws`): `partner_settings.order_intake_paused_at/by` ([#1113](https://github.com/aokcuoglu/getirbakim/pull/1113)) and `commerce_order_emails.requeued_at/by` ([#1116](https://github.com/aokcuoglu/getirbakim/pull/1116)); nullable, no backfill; the FKs take SHARE ROW EXCLUSIVE on `accounts` once.
+- Resend needs the mail transport (SES production access is still pending). Vehicle oil specs are unchanged.
+
 ## v0.34.0 — 2026-11-20
 
 Release of `dev` since v0.33.0 (14 pull requests): GetirBakım search inside BakımX work orders (fitting parts first, correct limits, caching, per-partner rate limit), Dinamik price-only parts as indexable unavailable pages and an enrichment tier, a new home hero, a compact cookie bar, a storefront button scale and enrichment worker fixes. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
