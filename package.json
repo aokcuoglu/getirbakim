@@ -105,6 +105,7 @@
     "test:html-weight": "node --import tsx --test scripts/test-store-html-weight.tsx",
     "test:client-imports": "node --import tsx --test scripts/test-store-client-imports.ts",
     "test:lazy-module": "node --import tsx --test scripts/test-lazy-module.ts",
+    "test:listing-bump": "node --import tsx --test scripts/test-listing-bump.ts",
     "test:vehicle-model-listing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-model-listing.ts",
     "test:vehicle-model-groups": "node --import tsx --test scripts/test-vehicle-model-groups.ts",
     "test:garage": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-garage.ts",

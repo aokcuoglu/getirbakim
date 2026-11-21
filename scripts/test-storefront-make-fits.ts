@@ -24,13 +24,9 @@ const liveModel=liveFor('SELECT v.id FROM vehicle_types v WHERE v.model_id=$1');
 const liveDescription=`SELECT DISTINCT f.supplier_item_id::text AS id FROM storefront_description_fits f
  JOIN vehicle_models m ON m.id=f.model_id WHERE m.brand_id=$1`;
 
-test('storefront make and model lists follow payloads, fitments, the vehicle catalog and links',{skip:!process.env.DATABASE_URL},async()=>{
- const schema='make_fits_test_'+randomUUID().replaceAll('-','');
- const connection=new URL(process.env.DATABASE_URL!);connection.searchParams.set('options',`-c search_path=${schema}`);
- const admin=new Pool({connectionString:process.env.DATABASE_URL});
- const pool=new Pool({connectionString:connection.href});
- try {
-  await admin.query(`CREATE SCHEMA ${schema}`);
+// The tables the setup files expect from earlier files, then the files the fits read; storefront-make-fits.sql last
+// unless the caller applies it itself.
+const createSchema=async(pool:Pool,withFits=true)=>{
   await pool.query(`CREATE TABLE supplier_items(id uuid PRIMARY KEY,code text,product_data jsonb,supplier text,presence text DEFAULT 'present');
    CREATE TABLE products(id uuid PRIMARY KEY,brand text,part_number text,name text,merged_into uuid,updated_at timestamptz DEFAULT now());
    CREATE TABLE product_sources(supplier_item_id uuid PRIMARY KEY,product_id uuid,method text DEFAULT 'auto');
@@ -43,11 +39,34 @@ test('storefront make and model lists follow payloads, fitments, the vehicle cat
    CREATE TABLE product_override_changes(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,product_id uuid,field text,old_value text,new_value text,changed_by uuid,reason text);`);
   const matching=await readFile('db/product-matching.sql','utf8');
   await pool.query(matching.slice(0,matching.indexOf('-- Reviewed brand decisions;')));
-  for(const file of ['product-enrichment','enrichment-worker','product-fitments','product-override-fitments','enrichment-products','enrichment-shared-links','storefront-make-fits'])
+  for(const file of ['product-enrichment','enrichment-worker','product-fitments','product-override-fitments','enrichment-products','enrichment-shared-links'])
    await pool.query(await readFile(`db/${file}.sql`,'utf8'));
+  if(withFits) await pool.query(await readFile('db/storefront-make-fits.sql','utf8'));
+};
+
+test('storefront make and model lists follow payloads, fitments, the vehicle catalog and links',{skip:!process.env.DATABASE_URL},async()=>{
+ const schema='make_fits_test_'+randomUUID().replaceAll('-','');
+ const connection=new URL(process.env.DATABASE_URL!);connection.searchParams.set('options',`-c search_path=${schema}`);
+ const admin=new Pool({connectionString:process.env.DATABASE_URL});
+ const pool=new Pool({connectionString:connection.href});
+ try {
+  await admin.query(`CREATE SCHEMA ${schema}`);
+  await createSchema(pool);
   const brandIds=[1,2],modelIds=[10,11,20];
   const table=async(brand:number)=>(await pool.query('SELECT supplier_item_id::text AS id FROM storefront_make_fits WHERE brand_id=$1 ORDER BY 1',[brand])).rows.map(row=>row.id);
   const modelTable=async(model:number)=>(await pool.query('SELECT supplier_item_id::text AS id FROM storefront_model_fits WHERE model_id=$1 ORDER BY 1',[model])).rows.map(row=>row.id);
+  // What storefront_fits_sync() reports (#956): the fit rows one drain changed, summed in its transaction.
+  const reported=async()=>{
+   const client=await pool.connect();
+   try {
+    await client.query("BEGIN");
+    await client.query("SELECT set_config('getirbakim.storefront_fits_changed','0',true)");
+    await syncSharedLinks(client);
+    const n=Number((await client.query("SELECT current_setting('getirbakim.storefront_fits_changed') AS n")).rows[0].n);
+    await client.query("COMMIT");
+    return n;
+   } finally {client.release();}
+  };
   const descriptionTable=async(brand:number)=>(await pool.query('SELECT supplier_item_id::text AS id FROM storefront_make_description_fits WHERE brand_id=$1 ORDER BY 1',[brand])).rows.map(row=>row.id);
   const described:Record<number,string[]>={};
   const consistent=async()=>{
@@ -146,6 +165,7 @@ test('storefront make and model lists follow payloads, fitments, the vehicle cat
   // A model read from the target's description (#956) lists it on the BMW page through the description table only:
   // the make and model tables keep engine-level fits.
   await pool.query("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,20,'BMW 3')",[target]);
+  assert.equal(await reported(),1,'the drain reports the added description make');
   lists=await consistent();
   assert.deepEqual(described[2],[target]);
   assert.deepEqual([lists[2],lists[20]],[[],[]]);
@@ -163,6 +183,31 @@ test('storefront make and model lists follow payloads, fitments, the vehicle cat
   await pool.query('DELETE FROM product_override_fitments');
   await consistent();
   assert.deepEqual(described[2],[target]);
+  // Hidden rows applied in TS only (source_model) queue nothing; an empty drain reports no change.
+  await pool.query("INSERT INTO product_override_fitment_hides(product_id,kind,source_key,label) VALUES($1,'source_model','3','3')",[target]);
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared_queue')).rows[0].n,0);
+  assert.equal(await reported(),0);
+  await pool.query('DELETE FROM product_override_fitment_hides');
+  assert.equal((await pool.query('SELECT count(*)::int AS n FROM product_enrichment_shared_queue')).rows[0].n,0);
+  // The row moves to a product with a vehicle decision (#583): its description models go; moved back, they return.
+  const decided=randomUUID();
+  await pool.query("INSERT INTO products(id,brand,part_number) VALUES($1,'FEBI','181123D')",[decided]);
+  await pool.query("INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode) VALUES($1,100,'remove')",[decided]);
+  await pool.query('UPDATE product_sources SET product_id=$2 WHERE supplier_item_id=$1',[target,decided]);
+  await consistent();
+  assert.deepEqual(described[2],[]);
+  await pool.query('UPDATE product_sources SET product_id=$1 WHERE supplier_item_id=$1',[target]);
+  await consistent();
+  assert.deepEqual(described[2],[target]);
+  await pool.query('DELETE FROM product_override_fitments');
+  await consistent();
+  // The model moves to another make (catalog import): the description make follows.
+  await pool.query('UPDATE vehicle_models SET brand_id=1 WHERE id=20');
+  await consistent();
+  assert.deepEqual([described[1],described[2]],[[target],[]]);
+  await pool.query('UPDATE vehicle_models SET brand_id=2 WHERE id=20');
+  await consistent();
+  assert.deepEqual([described[1],described[2]],[[],[target]]);
   // The description sync deletes the row: the make goes with it.
   await pool.query('DELETE FROM product_model_fitments WHERE supplier_item_id=$1',[target]);
   await consistent();
@@ -176,5 +221,28 @@ test('storefront make and model lists follow payloads, fitments, the vehicle cat
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM storefront_make_fits')).rows[0].n,0);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM storefront_model_fits')).rows[0].n,0);
   assert.equal((await pool.query('SELECT count(*)::int AS n FROM storefront_make_description_fits')).rows[0].n,0);
+ } finally {await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}
+});
+
+test('setup fills an empty description make table once',{skip:!process.env.DATABASE_URL},async()=>{
+ const schema='make_fits_backfill_test_'+randomUUID().replaceAll('-','');
+ const connection=new URL(process.env.DATABASE_URL!);connection.searchParams.set('options',`-c search_path=${schema}`);
+ const admin=new Pool({connectionString:process.env.DATABASE_URL});
+ const pool=new Pool({connectionString:connection.href});
+ try {
+  await admin.query(`CREATE SCHEMA ${schema}`);
+  await createSchema(pool,false);
+  const item=randomUUID(),other=randomUUID();
+  await pool.query("INSERT INTO vehicle_brands VALUES(1,'VW'),(2,'BMW');INSERT INTO vehicle_models VALUES(10,1,'GOLF'),(20,2,'3')");
+  await pool.query(`INSERT INTO supplier_items(id,code,product_data,supplier) VALUES($1,'A 1','{"uk":"A"}','dinamik'),($2,'A 2','{"uk":"A"}','dinamik')`,[item,other]);
+  await pool.query("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,10,'GOLF')",[item]);
+  const sql=await readFile('db/storefront-make-fits.sql','utf8');
+  const rows=async()=>(await pool.query('SELECT brand_id,supplier_item_id::text AS id FROM storefront_make_description_fits ORDER BY 1,2')).rows;
+  await pool.query(sql);
+  assert.deepEqual(await rows(),[{brand_id:1,id:item}]);
+  // Later fitments reach the table through the queue: a second setup run does not compute the table again.
+  await pool.query("INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) VALUES($1,20,'3')",[other]);
+  await pool.query(sql);
+  assert.deepEqual(await rows(),[{brand_id:1,id:item}]);
  } finally {await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}
 });

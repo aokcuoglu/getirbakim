@@ -139,7 +139,22 @@ BEGIN
   )
   SELECT (SELECT count(*) FROM inserted)+(SELECT count(*) FROM removed)$sql$ INTO description_changed USING item_ids;
  IF item_ids IS NULL THEN ANALYZE storefront_make_fits; ANALYZE storefront_model_fits; ANALYZE storefront_make_description_fits; END IF;
+ -- Summed per transaction for storefront_fits_sync(): the callers in between (product_enrichment_shared_refresh) discard it.
+ PERFORM set_config('getirbakim.storefront_fits_changed',
+  (COALESCE(NULLIF(current_setting('getirbakim.storefront_fits_changed',true),''),'0')::bigint+changed+model_changed+description_changed)::text,true);
  RETURN changed+model_changed+description_changed;
+END $$;
+
+-- product_enrichment_shared_sync() and how many make, description make and model fit rows it changed. The app's
+-- background sync (src/modules/store/enrichment-links.server.ts) moves the listing epoch when they changed (#956):
+-- listings cache their fits per process, and an admin's edit bumps the epoch before this sync rebuilt the tables.
+CREATE OR REPLACE FUNCTION storefront_fits_sync(batch integer DEFAULT 20000) RETURNS TABLE(written integer, fits_changed bigint)
+LANGUAGE plpgsql AS $$
+BEGIN
+ PERFORM set_config('getirbakim.storefront_fits_changed','0',true);
+ written := product_enrichment_shared_sync(batch);
+ fits_changed := COALESCE(NULLIF(current_setting('getirbakim.storefront_fits_changed',true),''),'0')::bigint;
+ RETURN NEXT;
 END $$;
 
 -- A fitment belongs to its donor item: the refresh resolves the item to its product and every offer sharing it.
@@ -191,7 +206,20 @@ END $$;
 
 -- A description fitment (#956) belongs to its row, like an engine-level one; the sync (description-fitment-sync.ts) never
 -- moves a row to another model (an UPDATE changes years and text only), so inserts and deletes are enough. A model the
--- admin hides belongs to the product, like the decisions above. Created only when missing (#965).
+-- admin hides belongs to the product, like the decisions above; the other hidden rows (source_vehicle, source_model)
+-- apply in TS only and queue nothing. Created only when missing (#965).
+CREATE OR REPLACE FUNCTION product_override_fitment_hides_queue() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+ IF TG_OP IN ('INSERT','UPDATE') THEN
+  INSERT INTO product_enrichment_shared_queue(kind,id) SELECT DISTINCT 'p',product_id FROM new_rows
+   WHERE kind='description_model' ON CONFLICT DO NOTHING;
+ END IF;
+ IF TG_OP IN ('UPDATE','DELETE') THEN
+  INSERT INTO product_enrichment_shared_queue(kind,id) SELECT DISTINCT 'p',product_id FROM old_rows
+   WHERE kind='description_model' ON CONFLICT DO NOTHING;
+ END IF;
+ RETURN NULL;
+END $$;
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_model_fitments'::regclass AND tgname='enrichment_shared_model_fitments_insert') THEN
   CREATE TRIGGER enrichment_shared_model_fitments_insert AFTER INSERT ON product_model_fitments
@@ -203,15 +231,15 @@ DO $$ BEGIN
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_override_fitment_hides'::regclass AND tgname='product_override_fitment_hides_insert') THEN
   CREATE TRIGGER product_override_fitment_hides_insert AFTER INSERT ON product_override_fitment_hides
-   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
+   REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitment_hides_queue();
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_override_fitment_hides'::regclass AND tgname='product_override_fitment_hides_update') THEN
   CREATE TRIGGER product_override_fitment_hides_update AFTER UPDATE ON product_override_fitment_hides
-   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
+   REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitment_hides_queue();
  END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid='product_override_fitment_hides'::regclass AND tgname='product_override_fitment_hides_delete') THEN
   CREATE TRIGGER product_override_fitment_hides_delete AFTER DELETE ON product_override_fitment_hides
-   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitments_queue();
+   REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION product_override_fitment_hides_queue();
  END IF;
 END $$;
 
