@@ -53,7 +53,9 @@
   /* The disabled background is repeated so it still wins over this hover, as it did in the utility order. */
   .buy-button-product { @apply w-60 flex-none rounded-[5px] text-base disabled:bg-[#e6e9ec] disabled:text-[#7a8490] max-[750px]:w-auto max-[750px]:flex-1; }
 
-  /* SiteHeader: top band, main row and category nav. Route variants: see RouteFrame; the `in-data-*-scrolled:`
+  /* SiteHeader: top band, main row and category nav. The nav is 8px taller at the top (-top-2, pt-2, -mb-2 keep its flow height and
+     bottom edge) so the 44px ::before hit areas of the strip are not clipped by its overflow-x; no -mt-: it would collapse into the
+     fixed-row state and jump the page (#1181). Route variants: see RouteFrame; the `in-data-*-scrolled:`
      rules pin the main row while home and the catalog set body[data-home-scrolled] / body[data-catalog-scrolled] (600px and up).
      Phones (#1089): HeaderPin sets body[data-header-pin] once the header has left the viewport. The whole frame turns sticky
      (it never leaves the flow, so nothing shifts) and is moved by translate only: `parked` and `hidden` out of view, `shown`
@@ -75,6 +77,10 @@
   .site-logo { @apply w-[158px] max-[600px]:w-[148px] max-[370px]:w-[120px] group-data-[route=checkout]/route:w-[180px] group-data-[route=checkout]/route:max-[600px]:w-[148px] group-data-[route=checkout]/route:max-[370px]:w-[120px]; }
   .site-nav-robot { @apply ml-auto inline-flex min-h-5 items-center gap-1.5 text-brand hover:underline hover:underline-offset-3 max-[600px]:min-h-11; }
   .site-nav-help { @apply inline-flex min-h-5 items-center gap-1.5 text-[#923830] max-[1300px]:hidden; }
+  /* 44px hit area without changing the drawn size (#1181): a centred ::before at least 44x44. */
+  .tap-44, .site-nav-catalog, .site-nav-item, .site-nav-trigger, .site-nav-robot, .site-nav-help {
+    @apply relative before:absolute before:top-1/2 before:left-1/2 before:h-11 before:w-full before:min-w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-[''];
+  }
   /* CategoryMenu: the bar's links and the buttons that open the mega menu (the buttons add the reset). */
   .site-nav-all { @apply w-[101px] shrink-0 border-r border-input max-[1100px]:w-[60px]; }
   .site-nav-catalog { @apply flex h-7 min-h-7 w-[76px] items-center justify-center gap-2 rounded-none border-0 bg-white p-0 text-sm font-medium text-foreground hover:bg-muted hover:text-brand max-[1100px]:w-11 max-[600px]:h-11 max-[600px]:min-h-11; }
@@ -105,8 +111,8 @@
     @apply min-[600px]:in-data-catalog-scrolled:fixed min-[600px]:in-data-catalog-scrolled:inset-x-0 min-[600px]:in-data-catalog-scrolled:top-0 min-[600px]:in-data-catalog-scrolled:z-41 min-[600px]:in-data-catalog-scrolled:max-w-none! min-[600px]:in-data-catalog-scrolled:border-b min-[600px]:in-data-catalog-scrolled:border-border min-[600px]:in-data-catalog-scrolled:bg-white min-[600px]:in-data-catalog-scrolled:px-[max(15px,calc((100vw-1320px)/2),env(safe-area-inset-left),env(safe-area-inset-right))]! min-[600px]:in-data-catalog-scrolled:pt-[calc(24px+env(safe-area-inset-top))] min-[600px]:in-data-catalog-scrolled:h-[calc(88px+env(safe-area-inset-top))];
   }
   .site-header-nav {
-    @apply relative mx-auto flex h-[42px] min-h-[42px] w-full max-w-[1350px] items-center gap-7 px-[15px] pt-0 pb-[14px] text-sm font-medium whitespace-nowrap max-[1358px]:gap-6 max-[1280px]:gap-5 max-[1180px]:gap-4 max-[1180px]:text-[13px] scroll-px-[15px];
-    @apply max-[1100px]:gap-[18px] max-[1100px]:text-[13px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-[600px]:h-11 max-[600px]:min-h-11 max-[600px]:py-0 has-data-mega-open:z-50 group-data-[route=checkout]/route:hidden;
+    @apply relative -top-2 -mb-2 mx-auto flex h-[50px] min-h-[50px] w-full max-w-[1350px] items-center gap-7 px-[15px] pt-2 pb-[14px] text-sm font-medium whitespace-nowrap max-[1358px]:gap-6 max-[1280px]:gap-5 max-[1180px]:gap-4 max-[1180px]:text-[13px] scroll-px-[15px];
+    @apply max-[1100px]:gap-[18px] max-[1100px]:text-[13px] overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-[600px]:top-0 max-[600px]:mb-0 max-[600px]:h-11 max-[600px]:min-h-11 max-[600px]:py-0 has-data-mega-open:z-50 group-data-[route=checkout]/route:hidden;
     @apply min-[600px]:in-data-home-scrolled:invisible min-[600px]:in-data-catalog-scrolled:invisible max-[599.98px]:in-data-header-pin:invisible;
   }
   /* HeaderTools: account, garage and cart. */

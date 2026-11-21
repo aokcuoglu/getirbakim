@@ -5,6 +5,7 @@ import { compactCode as compact, manualKind, manualSearchTerms, pickSameProducts
 import { bulkAcceptableSql, isBulkReason, manualDeciderSql, manualKindFilterSql, manualKindSql, manualGroupsSql, offerManualSql, isPatternBulkReason, multiNumberCandidateSql, productCostTrySql, sharedCandidateSql } from "@/modules/admin/product-matching-sql";
 import { suffixHints, type SuffixHints } from "@/modules/admin/product-suffix-signals";
 import { requireAdmin } from "@/modules/auth/session";
+import { catalogRowsByIdsSql } from "@/modules/store/catalog";
 import { resolveBrandLogos, type BrandLogoSource, type ManufacturerLogo } from "@/modules/store/manufacturer-logos";
 import { dinamikCompany } from "@/modules/suppliers/storefront-sources";
 
@@ -317,6 +318,9 @@ async function matchCandidates(params: MatchingParams) {
 }
 
 /** Dinamik items the store lists on their own: not grouped under a Başbuğ product. */
+// Admin prices every company's row, and `$1` is not the companies array here: the raw view, read by id array (#1168).
+const allCatalogSql = "SELECT * FROM commerce_catalog";
+
 async function dinamikOnly(params: MatchingParams) {
   const q = compact(params.q).toLowerCase();
   const values: unknown[] = q ? [dinamikCompany, q] : [dinamikCompany];
@@ -332,11 +336,12 @@ async function dinamikOnly(params: MatchingParams) {
   try { await db.query("SELECT enrichment_product_states_sync()"); }
   catch (error) { console.error("enrichment_product_states_sync failed; Dinamik enriched flags may be stale", error); }
   // product_sources is keyed by the supplier row and the states by product: at most one row each.
-  const items = (await db.query<DinamikItem>(`SELECT i.id,ps.product_id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
+  const items = (await db.query<DinamikItem>(`WITH i AS MATERIALIZED (SELECT i.* FROM commerce_supplier_items i WHERE ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}),
+      c AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT id FROM i)", allCatalogSql)})
+    SELECT i.id,ps.product_id,i.code,i.product_data->>'marka' AS brand,supplier_item_name('dinamik',i.product_data) AS name,
       c.price_kurus,c.available,COALESCE(st.enriched,false) AS enriched
-    FROM (SELECT i.* FROM commerce_supplier_items i WHERE ${where} ORDER BY ${order} LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}) i
-    LEFT JOIN product_sources ps ON ps.supplier_item_id=i.id LEFT JOIN enrichment_product_states st ON st.product_id=ps.product_id
-    LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=i.id OFFSET 0) c ON true ORDER BY ${order}`, values)).rows;
+    FROM i LEFT JOIN product_sources ps ON ps.supplier_item_id=i.id LEFT JOIN enrichment_product_states st ON st.product_id=ps.product_id
+    LEFT JOIN c ON c.id=i.id ORDER BY ${order}`, values)).rows;
   return { dinamik: items, total, page, pages };
 }
 
@@ -349,8 +354,8 @@ async function setaReferences(params: MatchingParams) {
     ${q ? `AND (regexp_replace(upper(s.code),'[^A-Z0-9]','','g') LIKE '%'||$1||'%' OR EXISTS (SELECT 1 FROM product_seta_references r WHERE r.seta_item_id=s.id AND r.part_number LIKE $1||'%'))` : ""}`;
   const total = (await db.query<{ count: number }>(`SELECT count(*)::int FROM supplier_items s WHERE ${where}`, values)).rows[0].count;
   const { page, pages } = pageOf(params.page, total);
-  // Priced after the page is cut: commerce_catalog per row before LIMIT walks every listed row (~3 s). Sorting by price
-  // needs every price first, read in one batch for the listed ids.
+  // Priced after the page is cut: commerce_catalog per row before LIMIT walks every listed row (~3 s). Both branches read
+  // the page's (or, sorted by price, every listed) ids in one id-array batch, not a per-row LATERAL (#1168).
   const order = sortOrder(params, sorts.seta, "linked DESC,s.code");
   const linked = "(SELECT count(DISTINCT COALESCE(o.primary_id,r.item_id))::int FROM product_seta_references r LEFT JOIN product_offers o ON o.item_id=r.item_id WHERE r.seta_item_id=s.id) AS linked";
   const columns = "s.id::text,s.code,supplier_item_name('seta',s.product_data) AS name,c.price_kurus,c.available,s.linked";
@@ -359,8 +364,9 @@ async function setaReferences(params: MatchingParams) {
       SELECT s.id,s.code,s.product_data,${linked} FROM supplier_items s WHERE ${where}
     ), c AS MATERIALIZED (SELECT id,price_kurus,available FROM commerce_catalog WHERE id=ANY(ARRAY(SELECT id FROM listed)))
     SELECT ${columns} FROM listed s LEFT JOIN c ON c.id=s.id ORDER BY ${order} ${slice}`
-    : `SELECT ${columns} FROM (SELECT s.id,s.code,s.product_data,${linked} FROM supplier_items s WHERE ${where} ORDER BY ${order} ${slice}) s
-    LEFT JOIN LATERAL (SELECT price_kurus,available FROM commerce_catalog c WHERE c.id=s.id OFFSET 0) c ON true ORDER BY ${order}`, values)).rows;
+    : `WITH s AS MATERIALIZED (SELECT s.id,s.code,s.product_data,${linked} FROM supplier_items s WHERE ${where} ORDER BY ${order} ${slice}),
+      c AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT id FROM s)", allCatalogSql)})
+    SELECT ${columns} FROM s LEFT JOIN c ON c.id=s.id ORDER BY ${order}`, values)).rows;
   // Listings, not raw rows: a Dinamik offer grouped under a Başbuğ product shows as that product.
   const products = items.length ? (await db.query<SetaProduct & { seta_item_id: string }>(`SELECT * FROM (
       SELECT DISTINCT ON (r.seta_item_id,p.id) r.seta_item_id::text,p.id::text,p.supplier,p.code,supplier_item_name(p.supplier,p.product_data) AS name,

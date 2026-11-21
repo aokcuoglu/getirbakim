@@ -263,3 +263,24 @@ test("codes the supplier no longer knows stay gone when their zeroed stock canno
   assert.equal(result.refreshed, 0);
   assert.deepEqual(statements, ["BEGIN", "SET LOCAL", "SELECT id", "ROLLBACK"]);
 });
+
+test("a failing price-anomaly re-check is logged and never breaks the saved checkout result (#1172)", async () => {
+  const { refreshPriceAnomaliesAfterCheckout } = await import("../src/modules/suppliers/price-anomalies");
+  const down = () => Promise.reject(Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" }));
+  const logged: unknown[] = [];
+  const consoleError = console.error;
+  console.error = (...args: unknown[]) => { logged.push(...args); };
+  try {
+    assert.deepEqual(await refreshPriceAnomaliesAfterCheckout({ connect: down } as unknown as Pool, "basbug", [ids[0]]), { changed: 1, failed: true });
+    // The write commits (one repriced row), then the re-check's own connection fails.
+    let connections = 0;
+    const client = {
+      query: async (sql: string) => sql.trimStart().startsWith("WITH incoming") ? { rows: [{ id: ids[1], repriced: true }], rowCount: 1 } : { rows: [], rowCount: 0 },
+      release: () => undefined,
+    };
+    const result = await refreshBasbugItems(fakePool(() => connections++ ? down() : Promise.resolve(client)), ids, { fetchItem: async (_company, code) => Response.json(item(code)) });
+    assert.equal(connections, 2);
+    assert.deepEqual([result.refreshed, result.changed, result.repriced, result.gone, result.soldOut, result.failed], [ids.length, 1, [ids[1]], [], [], {}]);
+  } finally { console.error = consoleError; }
+  assert.deepEqual(logged, [{ priceAnomalies: "failed", source: "checkout", code: "ECONNREFUSED" }, { priceAnomalies: "failed", source: "checkout", code: "ECONNREFUSED" }]);
+});

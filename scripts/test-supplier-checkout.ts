@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
 
-// A per-row LATERAL repeats the view's rate step per row and a plain join builds the whole view (#705, #1135, #1158):
+// A per-row LATERAL repeats the view's rate step per row and a plain join builds the whole view (#705, #1135, #1158, #1168):
 // every by-id read of the catalog goes through catalogRowsByIdsSql / catalogRowsByIds.
 const slice=(source:string,from:string,to?:string)=>{
   const start=source.indexOf(from);
@@ -20,12 +20,16 @@ const byIdReads:[string,string,string|undefined,string][]=[
   ["src/modules/partner/orders.ts","async function offerRows","function unitPrice","catalogRowsByIds("],
   ["src/modules/store/catalog.ts","export async function getSetaEquivalents","/**","catalogRowsByIdsSql("],
   ["src/modules/store/catalog.ts","export async function getDecidedEquivalents","export function servicePrice","catalogRowsByIdsSql("],
+  ["src/modules/admin/product-matching.ts","async function dinamikOnly","/** SETA products","catalogRowsByIdsSql("],
+  ["src/modules/admin/product-matching.ts","async function setaReferences","// Listings, not raw rows","catalogRowsByIdsSql("],
+  ["src/modules/admin/restock.ts","const offerCte","export async function markRestockNotified","catalogRowsByIdsSql("],
 ];
-for(const [file,from,to,reader] of byIdReads) test(`${file} ${from.replace(/^.* /,"")} reads the catalog by id array (#1158)`, async()=> {
+for(const [file,from,to,reader] of byIdReads) test(`${file} ${from.replace(/^.* /,"")} reads the catalog by id array (#1158, #1168)`, async()=> {
   const part=slice(await readFile(file,"utf8"),from,to);
   assert.ok(part.includes(reader),reader);
   assert.doesNotMatch(part,/JOIN LATERAL \(SELECT \* FROM \(\$\{catalogSql\}\)/);
   assert.doesNotMatch(part,/LEFT JOIN \(\$\{catalogSql\}\)/);
+  assert.doesNotMatch(part,/JOIN LATERAL \([^)]*commerce_catalog/);
 });
 
 test("submitOrder waits CHECKOUT_LOCK_TIMEOUT for supplier rows, then goes on without the share lock (#790)", async()=> {
@@ -125,7 +129,14 @@ test("checkout checks cart codes live, falls back on supplier failure with a mar
     const itemRow=async()=>(await db.query("SELECT product_data,price_data,stock_data,last_seen_at,changed_at FROM supplier_items WHERE id=$1",[id])).rows[0];
     // #763: the live check asks MalzemeAra for the cart's own code only, without the list endpoints or the import lock.
     const listUrls=/FiyatGetir|StokGetir|MalzemeleriGetir|ListeGrubuGetir|DovizBilgisiGetir/;
-    urls.length=0;price=20;assert.equal((await submitOrder(owner,input)).error,"price");
+    // #1172: the repriced row is re-checked for price anomalies in the same request, against the real schema
+    // (product_sources included): no failure or skip is logged, and an ordinary price change leaves no anomaly.
+    const loggedError=console.error;const anomalyLogs:unknown[]=[];
+    console.error=(...args:unknown[])=>{if(args.some(arg=>typeof arg==="object"&&arg!==null&&"priceAnomalies" in arg)) anomalyLogs.push(args);else loggedError(...args);};
+    urls.length=0;price=20;
+    try { assert.equal((await submitOrder(owner,input)).error,"price"); } finally { console.error=loggedError; }
+    assert.deepEqual(anomalyLogs,[]);
+    assert.equal((await db.query("SELECT 1 FROM supplier_price_anomalies WHERE supplier_item_id=$1",[id])).rowCount,0);
     assert.ok(urls.some(url=>url.includes("/material/MalzemeAra")));assert.doesNotMatch(urls.join(" "),listUrls);
     assert.ok(urls.filter(url=>url.includes("/auth/Login")).length<=1);
     assert.equal((await itemRow()).price_data.nf,20);
