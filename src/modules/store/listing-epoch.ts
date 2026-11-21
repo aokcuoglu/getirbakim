@@ -8,8 +8,9 @@ import { db } from "@/lib/db";
  * counter at most once per `pollMs`, so another app container sees an edit within about a second; the process that
  * made the edit sees it at once. Database errors keep the last known value: they never empty the caches.
  * The known value only grows (Math.max), so a racing older read cannot undo a bump; if the counter is ever set back
- * (restoring a backup, recreating the table), restart the app tasks or their caches keep serving until the counter
- * passes the old value.
+ * (restoring a backup, recreating the table), restart the app tasks and TRUNCATE storefront_listing_cache (#957), or
+ * their caches keep serving until the counter passes the old value (rows stored under a higher epoch would be adopted
+ * for up to 24 hours).
  */
 const pollMs = 1000;
 let known = 0, readAt = 0;

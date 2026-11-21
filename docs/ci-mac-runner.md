@@ -56,6 +56,8 @@ gh variable delete CI_RUNS_ON -R aokcuoglu/getirbakim
 scripts/ci/mac-runner-setup.sh remove
 ```
 
+Depo public iken başlamış bir CI koşusunu private'a geçtikten sonra **yeniden koşturmak** (Re-run) Mac'te "Refuse a self-hosted runner on a public repository" adımında düşer: yeniden koşturma ilk olayın verisini kullanır, `github.event.repository.private` orada hâlâ `false`'tur. Yeni bir olay gerekir (dala push ya da PR'ı kapatıp açmak).
+
 Mac kapalıyken veya Docker Desktop durmuşken CI işleri kuyrukta bekler ya da Postgres adımında düşer; acil durumda değişkeni silmek işi yeniden GitHub-hosted'a taşır (dakika kotası el veriyorsa).
 
 ## AWS yayını (`release-aws.yml`)
