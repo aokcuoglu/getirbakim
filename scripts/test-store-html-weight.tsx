@@ -64,7 +64,7 @@ test("the components use the named classes", () => {
 const source = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
 
 test("every named shell class exists in storefront.css", () => {
-  for (const name of ["site-topbar-locale", "site-logo", "site-nav-robot", "site-nav-help", "site-nav-all", "site-nav-catalog", "site-nav-item", "site-nav-trigger",
+  for (const name of ["site-topbar-locale", "site-logo", "site-nav-robot", "site-nav-help", "site-nav-all", "site-nav-catalog", "site-nav-item", "site-nav-trigger", "tap-44",
     "sheet-account-row", "site-footer", "site-footer-grid", "site-footer-bar", "site-footer-bar-end", "footer-links", "footer-links-accent", "footer-group-title",
     "social-list", "social-link", "cookie-preferences", "store-not-found", "store-not-found-title", "store-not-found-text", "store-cta"]) {
     assert.ok(defined(name), `.${name} is missing from storefront.css`);

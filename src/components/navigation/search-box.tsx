@@ -21,7 +21,7 @@ type SearchBoxProps = {
 
 const variants = {
   // The header row: hidden on checkout; on phones its own full-width row, the mode selector an icon beside its chevron (#1089).
-  // The phone form is 44px tall with its border, so the selector and the submit button fill its 42px inside.
+  // The phone form is 44px tall with its border, so the selector and the submit button fill its 42px inside; the submit keeps its drawn size from 601px up with a 44px hit area (tap-44, #1181).
   header: {
     form: "h-10 min-h-10 min-w-[220px] flex-1 rounded-[3px] border-input -mr-2 max-[850.98px]:mr-0 max-[850.98px]:min-w-0 max-[600px]:order-3 max-[600px]:w-full max-[600px]:flex-[0_0_100%] max-[600px]:h-11 max-[600px]:min-h-11 group-data-[route=checkout]/route:hidden",
     select: "w-[164px] min-w-[164px] min-[851px]:max-[1100px]:w-[156px] min-[851px]:max-[1100px]:min-w-[156px] min-[600px]:max-[850.98px]:w-[84px] max-[600px]:w-[52px] max-[600px]:min-w-[52px]",
@@ -114,7 +114,7 @@ export function SearchBox({ variant = "header", defaultQuery = "", defaultMode =
         value={query} onChange={event => { setQuery(event.target.value); setOpen(true); setActiveIndex(-1); }}
         onFocus={() => { setRecent(readRecentSearches()); setOpen(true); }} onKeyDown={onKeyDown} minLength={2} maxLength={120}
         className={cn("w-0 min-w-0 flex-1 rounded-none border-0 bg-transparent text-sm leading-[22px] text-foreground outline-none placeholder:text-sm placeholder:text-muted-foreground focus:border-0 focus:shadow-none focus:outline-none focus-visible:outline-none", v.input)} />
-      <button type="submit" aria-label="Parça ara" className={cn("grid min-h-0 shrink-0 place-items-center border-0 p-0", v.button)}><Search size={20} aria-hidden="true" /></button>
+      <button type="submit" aria-label="Parça ara" className={cn("tap-44 grid min-h-0 shrink-0 place-items-center border-0 p-0", v.button)}><Search size={20} aria-hidden="true" /></button>
       {expanded && <div className="absolute top-[calc(100%+6px)] right-0 left-0 z-50 overflow-hidden rounded-md border border-border bg-white text-left shadow-[0_8px_24px_#212b361f]"
         // Keep focus in the input while choosing with the mouse, so blur does not close the list first.
         onMouseDown={event => event.preventDefault()}>
