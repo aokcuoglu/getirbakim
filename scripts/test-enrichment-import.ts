@@ -4,8 +4,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { storeProductImage } from "../src/modules/enrichment/import";
+import { attachProductImage } from "../src/modules/enrichment/image-fill";
+import { isPlaceholderImage, placeholderImages, placeholderImageSha256 } from "../src/modules/enrichment/placeholder-images";
 import { enrichmentDataSchema } from "../src/modules/store/enrichment-contract";
 import { parseView, collectVehicles, parseEngine } from "../src/modules/enrichment/trodo-adapter";
 import type { SourceQueue } from "../src/modules/enrichment/source-queue";
@@ -152,3 +154,29 @@ test("applicable engines whose model node is missing from vehicle_ids are collec
   const bounded = await collectVehicles(queue, view, 0);
   assert.deepEqual(bounded.coverage.unresolved, ["16620"]);
 });
+
+test("a listed placeholder is recognised by its bytes, anything else is not (#1098)", () => {
+  assert.equal(isPlaceholderImage(jpeg), false);
+  assert.equal(isPlaceholderImage(jpeg, new Set([sha256])), true);
+  assert.equal(isPlaceholderImage(Buffer.from("other"), new Set([sha256])), false);
+  assert.equal(isPlaceholderImage(jpeg, new Set()), false);
+});
+
+test("the placeholder list holds unique, sorted sha256 keys, each with a source and a note (#1098)", () => {
+  assert.ok(placeholderImages.length > 0);
+  for (const image of placeholderImages) {
+    assert.match(image.sha256, /^[a-f0-9]{64}$/);
+    assert.ok(image.source.trim(), image.sha256);
+    assert.ok(image.note.trim(), image.sha256);
+  }
+  const keys = placeholderImages.map(image => image.sha256);
+  assert.equal(placeholderImageSha256.size, keys.length, "no duplicates");
+  assert.deepEqual(keys, [...keys].sort(), "sorted by sha256");
+});
+
+test("image fill skips a listed placeholder without touching the database (#1098)", () => withImage(async file => {
+  const pool = { connect: async () => { throw new Error("must not connect"); } } as unknown as Pool;
+  const image = { supplierItemId: "00000000-0000-0000-0000-000000000001", file, source: "https://cdn.spareto.com/a.jpg", width: 10, height: 10 };
+  assert.equal(await attachProductImage(pool, image, new Set([sha256])), "skipped");
+  await assert.rejects(attachProductImage(pool, image, new Set()), /must not connect/);
+}));

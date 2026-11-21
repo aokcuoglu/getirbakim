@@ -17,6 +17,7 @@ import {productCategories} from '../src/modules/enrichment/source-categories';
 import {startChromeCollectors} from '../src/modules/enrichment/chrome-driver';
 import {recordSearchProducts,knownSearchProducts} from '../src/modules/enrichment/search-products';
 import {applySchemaFiles,requireEnrichmentSchema} from '../src/modules/enrichment/schema';
+import {isPlaceholderImage} from '../src/modules/enrichment/placeholder-images';
 const pool=new Pool({connectionString:process.env.DATABASE_URL,max:5});
 const command=process.argv[2];
 const LONG_VEHICLE_LIST=150;
@@ -276,7 +277,9 @@ async function serve(runId:string,port:number,chrome=false){
      if(!cp.image)await checkpoint('logo',{image:await queue.get('picdn.trodo.com',media,'image')});
      const image=z.object({dataUrl:z.string(),width:z.number().int().positive().max(10000),height:z.number().int().positive().max(10000)}).parse(cp.image);
      const encoded=/^data:image\/(?:jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(image.dataUrl);if(!encoded)throw Error('Invalid source image');
-     imageFile=resolve(directory,`image-${item.ordinal}.bin`);await writeFile(imageFile,Buffer.from(encoded[1],'base64'));imageSource='https://picdn.trodo.com'+media;data.imageWidth=image.width;data.imageHeight=image.height;
+     const bytes=Buffer.from(encoded[1],'base64');
+     // A listed source placeholder (#1098) is no photo: the product is saved without one.
+     if(!isPlaceholderImage(bytes)){imageFile=resolve(directory,`image-${item.ordinal}.bin`);await writeFile(imageFile,bytes);imageSource='https://picdn.trodo.com'+media;data.imageWidth=image.width;data.imageHeight=image.height;}
     }
     let brandLogo:{imageFile:string;imageSource:string}|undefined;
     const known=(await pool.query('SELECT 1 FROM manufacturer_logos WHERE brand_key=$1',[manufacturerBrandKey(item.supplier_brand)])).rowCount;
