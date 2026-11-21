@@ -22,10 +22,11 @@ import { OrderDeliveredDialog } from "@/components/admin/order-delivered-dialog"
 import { OrderRefundDialog } from "@/components/admin/order-refund-dialog";
 import { OrderLinesDialog } from "@/components/admin/order-lines-dialog";
 import { OrderReturnRequestDialog } from "@/components/admin/order-return-request-dialog";
+import { PartnerOrderInvoiceUndoDialog } from "@/components/admin/partner-order-invoice-undo-dialog";
 import { supplierNames } from "@/modules/admin/products";
 import { orderLineView } from "@/modules/admin/order-procurement";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
-import { formatDateTime, formatNumber } from "@/modules/admin/format";
+import { formatDateTime, formatDay, formatNumber } from "@/modules/admin/format";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -67,7 +68,7 @@ function LabelLink({ url, number }: { url: string; number: string }) {
     <FileText data-icon="inline-start" aria-hidden="true"/>Etiketi aç (PDF)<span className="sr-only"> #{number}, yeni sekmede açılır</span>
   </Button>;
 }
-// The resend outcome carries the order number (#1035); digits only, else the alert stays generic.
+// The resend (#1035) and invoice undo (#1038) outcomes carry the order number; digits only, else the alert stays generic.
 const emailOrder = (value: string) => /^\d+$/.test(value) ? `#${value} siparişinin` : "Siparişin";
 const tabOrder: OrderFilter[] = ["all", "action", "shipping", "cancel_request", "return_request", "refund", "awaiting_payment", "shipped", "delivered", "cancelled"];
 
@@ -97,7 +98,7 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Siparişler</h1>
-        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur. Müşteri, ödenmemiş ya da henüz onaylanmamış siparişini kendisi iptal edebilir; ödenmiş olanlar &quot;İade bekleyen&quot; sekmesine düşer. Tedarik sütunundan kalemlerin tedarikçisini, deposunu ve maliyetini görüp tedarik durumunu işaretle. Partner (API) siparişleri cari hesaba yazılır; partner onaylanmış bir siparişi iptal etmek isterse &quot;İptal talebi&quot; sekmesine düşer, onaylayana ya da reddedene kadar kargoya verilemez.</p>
+        <p className="text-muted-foreground">Ödemesi alınmış siparişlerde tedarikçi stokunu ve teslim süresini teyit ettikten sonra onayla. Stok yoksa iptal et; ödemeyi buradan TAMI ile iade et (TAMI&apos;ye ulaşılamazsa iadeyi portaldan yapıp referansı elle kaydet). Ödenmemiş siparişler süresi dolunca kendiliğinden iptal olur. Müşteri, ödenmemiş ya da henüz onaylanmamış siparişini kendisi iptal edebilir; ödenmiş olanlar &quot;İade bekleyen&quot; sekmesine düşer. Tedarik sütunundan kalemlerin tedarikçisini, deposunu ve maliyetini görüp tedarik durumunu işaretle. Partner (API) siparişleri cari hesaba yazılır; partner onaylanmış bir siparişi iptal etmek isterse &quot;İptal talebi&quot; sekmesine düşer, onaylayana ya da reddedene kadar kargoya verilemez. Teslim edilmiş bir partner siparişi yanlışlıkla faturalandı işaretlendiyse işaretini &quot;Teslimat ve ödeme&quot; bölümünden gerekçeyle geri alabilirsin.</p>
       </div>
     </div>
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Sipariş güncellendi.</AlertDescription></Alert>}
@@ -117,6 +118,9 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.email_skipped && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>{emailOrder(params.email_skipped)} e-postası gönderilmedi. Nedenini görmek için siparişin &quot;Teslimat ve ödeme&quot; bölümünü açın (E-posta satırı).</AlertDescription></Alert>}
     {params.email_pending && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{emailOrder(params.email_pending)} e-postası şu an gönderilemedi ya da sırada; sistem kendiliğinden yeniden dener. Son hata için siparişin &quot;Teslimat ve ödeme&quot; bölümünü açın (E-posta satırı).</AlertDescription></Alert>}
     {params.email_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{emailOrder(params.email_busy)} e-postası şu an gönderiliyor ya da artık gönderilemez; siparişin &quot;Teslimat ve ödeme&quot; bölümündeki E-posta satırına bakın.</AlertDescription></Alert>}
+    {(params.invoice_undone || params.invoice_emptied) && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>
+      {emailOrder(params.invoice_undone ?? params.invoice_emptied ?? "")} faturalandı işareti geri alındı; sipariş yeniden partnerin alacağına ve limitine sayılıyor{params.invoice_emptied ? "; faturada başka sipariş kalmadı." : "."}
+    </AlertDescription></Alert>}
     {params.return_stale && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>İade talebi artık karar beklemiyor ya da kalan adede sığmıyor. Listeyi yenileyin.</AlertDescription></Alert>}
     {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
 
@@ -157,9 +161,28 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                   <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
                     <OrderDeliveryDetails order={o}/>
                     {o.note && <div><dt className="text-muted-foreground">Not</dt><dd>{o.note}</dd></div>}
-                    {partner && o.status === "delivered" && <div><dt className="text-muted-foreground">Partner faturası</dt><dd className="break-all">{o.partner_invoice_ref && o.partner_invoiced_at
-                      ? `${o.partner_invoice_ref} · ${new Date(o.partner_invoiced_at).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })}${o.partner_invoiced_by_name ? ` · işaretleyen ${o.partner_invoiced_by_name}` : ""}`
-                      : "Faturalanmadı (limitte sayılıyor)"}</dd></div>}
+                    {partner && o.status === "delivered" && <div className="sm:col-span-2"><dt className="text-muted-foreground">Partner faturası</dt>
+                      {o.partner_invoice_ref && o.partner_invoice_day ? <dd className="flex flex-col items-start gap-2">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <StatusBadge tone="success">Faturalandı</StatusBadge>
+                          <span className="break-all">{[o.partner_invoice_ref, formatDay(o.partner_invoice_day), o.partner_invoiced_by_name && `işaretleyen ${o.partner_invoiced_by_name}`].filter(Boolean).join(" · ")}</span>
+                        </span>
+                        <PartnerOrderInvoiceUndoDialog orderId={o.id} number={o.number} partner={o.owner_id} invoiceRef={o.partner_invoice_ref} invoiceDate={o.partner_invoice_day}
+                          totalKurus={Number(o.total_kurus)} back={back}/>
+                      </dd> : <dd><StatusBadge tone="warning">Faturalanmadı · limitte sayılıyor</StatusBadge></dd>}
+                      {o.partner_invoice_changes.length > 0 && <dd className="flex flex-col gap-2 pt-2">
+                        <span className="text-muted-foreground">Fatura düzeltme geçmişi</span>
+                        <ul aria-label={`#${o.number} fatura düzeltme geçmişi`} className="flex flex-col gap-2">{o.partner_invoice_changes.map(c => <li key={`${c.changed_at}-${c.action}-${c.old_invoice_ref}`} className="flex flex-col items-start gap-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            {c.action === "undo" ? <StatusBadge tone="warning">Geri alındı</StatusBadge> : <StatusBadge tone="info">Düzeltildi</StatusBadge>}
+                            <span className="break-all">{c.old_invoice_ref} · {formatDay(c.old_date)} → {c.new_invoice_ref && c.new_date ? `${c.new_invoice_ref} · ${formatDay(c.new_date)}` : "işaret kaldırıldı"}</span>
+                          </span>
+                          <span className="text-muted-foreground">{time(c.changed_at)}{c.changed_by ? ` · ${c.changed_by}` : ""}</span>
+                          <span className="break-words">{c.reason}</span>
+                        </li>)}</ul>
+                        <span className="text-muted-foreground">Son 5 değişiklik; tümü Partnerler sayfasında.</span>
+                      </dd>}
+                    </div>}
                     {o.payments.length > 0 && <div><dt className="text-muted-foreground">TAMI</dt><dd className="break-all">{o.payments.map(p => `${p.provider_order_id} (${p.status}${p.bank_reference ? ` · banka ref. ${p.bank_reference}` : ""})`).join(", ")}</dd></div>}
                     {o.paid_at && <div><dt className="text-muted-foreground">Ödeme zamanı</dt><dd>{time(o.paid_at)}</dd></div>}
                     {o.refund_reference && <div><dt className="text-muted-foreground">İade referansı</dt><dd className="break-all">{o.refund_reference}</dd></div>}
