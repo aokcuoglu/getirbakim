@@ -5,14 +5,10 @@ import { HeaderTools } from "@/components/navigation/header-tools";
 import { CategoryMenu } from "@/components/navigation/category-menu";
 import { SheetAccount } from "@/components/navigation/sheet-account";
 import { SearchBox } from "@/components/navigation/search-box";
-import { Select } from "@/components/site/select";
 import { SiteIcon } from "@/components/site/site-icon";
 import { RouteFrame } from "@/components/layout/store-route";
-import { HeaderPin } from "@/components/layout/header-pin";
 import { getStoreCategories } from "@/modules/store/categories";
 import { headerCategoryLinks } from "@/modules/store/category-tree";
-
-const localeTrigger = "h-8 min-h-8 border-0 bg-transparent py-1.5 pr-[25px] pl-2 text-sm hover:border-0 hover:bg-transparent";
 
 /**
  * The one site header: every storefront route renders this; the administration workspace has its own shell.
@@ -23,31 +19,27 @@ const localeTrigger = "h-8 min-h-8 border-0 bg-transparent py-1.5 pr-[25px] pl-2
  */
 export async function SiteHeader() {
   const categories = await getStoreCategories();
-  return <RouteFrame className="site-chrome text-sm leading-5 font-normal text-foreground">
-    <HeaderPin/>
+  return <RouteFrame pin className="site-chrome">
     <div className="site-topbar">
       <div className="site-topbar-inner">
         <div className="site-topbar-links">
           <Link href="/bilgi/teslimat">Teslimat</Link><Link href="/bilgi/hakkimizda">Hakkımızda</Link><Link href="/bilgi/yardim">Yardım merkezi</Link><Link href="/rehber">Rehber</Link>
         </div>
-        <div className="flex h-full items-center">
-          <Select name="country" label="Ülke" defaultValue="TR" align="end" className="w-[112px] min-w-0" triggerClassName={localeTrigger} contentClassName="min-w-[130px]" options={[{ value: "TR", label: "🇹🇷 Türkiye" }]}/>
-          <Select name="currency" label="Para birimi" defaultValue="TRY" align="end" className="w-20 min-w-0" triggerClassName={localeTrigger} contentClassName="min-w-[130px]" options={[{ value: "TRY", label: "TRY ₺" }]}/>
-        </div>
+        <div className="site-topbar-locale"><span><span className="sr-only">Ülke: </span><span aria-hidden="true">🇹🇷</span> Türkiye</span><span><span className="sr-only">Para birimi: </span>TRY ₺</span></div>
       </div>
     </div>
     <header className="site-header">
       <div className="site-header-row">
         <Link href="/" className="inline-flex shrink-0 items-center">
-          <BrandLogo className="w-[158px] max-[600px]:w-[148px] max-[370px]:w-[120px] group-data-[route=checkout]/route:w-[180px] group-data-[route=checkout]/route:max-[600px]:w-[148px] group-data-[route=checkout]/route:max-[370px]:w-[120px]"/>
+          <BrandLogo className="site-logo"/>
         </Link>
         <SearchBox/>
         <HeaderTools/>
       </div>
       <nav aria-label="Kategoriler" className="site-header-nav">
         <CategoryMenu links={headerCategoryLinks(categories)} account={<SheetAccount/>}/>
-        <Link className="ml-auto inline-flex min-h-5 items-center gap-1.5 text-brand hover:underline hover:underline-offset-3 max-[600px]:min-h-11" href="/bakim-robotu" prefetch={false}><Wrench size={14} aria-hidden="true"/> Bakım Robotu</Link>
-        <Link className="inline-flex min-h-5 items-center gap-1.5 text-[#923830] max-[1300px]:hidden" href="/bilgi/yardim"><SiteIcon name="help" size={14}/> Yardım al</Link>
+        <Link className="site-nav-robot" href="/bakim-robotu" prefetch={false}><Wrench size={14} aria-hidden="true"/> Bakım Robotu</Link>
+        <Link className="site-nav-help" href="/bilgi/yardim"><SiteIcon name="help" size={14}/> Yardım al</Link>
       </nav>
     </header>
   </RouteFrame>;

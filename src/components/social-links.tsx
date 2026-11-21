@@ -8,8 +8,8 @@ const profiles=[
 
 /** The company's social profiles, shown as icon links in the footer. */
 export function SocialLinks({className}:{className?:string}) {
-  return <ul aria-label="Sosyal medya" className={cn("m-0 flex list-none items-center gap-2 p-0",className)}>
-    {profiles.map(p=><li key={p.name}><a href={p.href} target="_blank" rel="noopener noreferrer" aria-label={`getirbakim ${p.name} hesabı`} title={p.name} className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-brand">
+  return <ul aria-label="Sosyal medya" className={cn("social-list",className)}>
+    {profiles.map(p=><li key={p.name}><a href={p.href} target="_blank" rel="noopener noreferrer" aria-label={`getirbakim ${p.name} hesabı`} title={p.name} className="social-link">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d={p.path}/></svg>
     </a></li>)}
   </ul>;
