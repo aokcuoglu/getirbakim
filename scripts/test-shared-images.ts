@@ -112,3 +112,29 @@ test("an unknown, malformed or unreferenced image has no detail", async () => {
   assert.equal(await detail("not-a-uuid"), null);
   assert.equal(await detail(media.d), null);
 });
+
+const sha = (key: string) => createHash("sha256").update(key).digest("hex");
+
+test("images on the placeholder denylist are flagged in the list and the detail header", async () => {
+  const denylist = new Set([sha("a")]);
+  const flagged = (await shared.sharedImagesPage(schema.pool, { min: "2" }, companies, denylist)).images;
+  assert.deepEqual(flagged.map(row => [row.image_id, row.listed, row.sha256]), [[media.a, true, sha("a")], [media.b, false, sha("b")]]);
+  assert.ok((await list({ min: "2" })).images.every(row => !row.listed));
+  const header = (await shared.sharedImageDetail(schema.pool, media.a, {}, companies, denylist))!.header;
+  assert.deepEqual([header.listed, header.sha256], [true, sha("a")]);
+  assert.equal((await detail(media.a))!.header.listed, false);
+});
+
+test("the placeholder status tells in-use, cleaned and absent entries apart in list order", async () => {
+  const absent = sha(randomUUID());
+  await image("e", "https://www.trodo.com/e.webp");
+  await link("c1", "a1", "e");
+  const entries = [sha("d"), absent, sha("a"), sha("e")].map((hash, index) => ({ sha256: hash, source: `src${index}`, note: `note ${index}` }));
+  const status = await shared.placeholderListStatus(schema.pool, companies, entries);
+  assert.deepEqual(status.entries.map(entry => [entry.sha256, entry.state, entry.image_id, entry.donors, entry.store_rows]), [
+    [sha("d"), "clean", media.d, 0, 0], [absent, "absent", null, 0, 0], [sha("a"), "cleanup_pending", media.a, 4, 3],
+    [sha("e"), "sync_pending", media.e, 0, 1],
+  ]);
+  assert.deepEqual(status.entries.map(entry => entry.source), ["src0", "src1", "src2", "src3"]);
+  assert.deepEqual(status.inUse, { images: 2, donors: 4, storeRows: 4 });
+});

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { pickKey, sortOrder } from "@/lib/table-sort";
 import { automaticImageHiddenSql, uploadedImageSql } from "@/modules/store/product-image-sql";
 import { pageBounds, requestedPage } from "@/modules/admin/supplier-items";
+import { placeholderImages, placeholderImageSha256, type PlaceholderImage } from "@/modules/enrichment/placeholder-images";
 
 /** Shared automatic images (#1097): one enrichment image used by several part numbers, read-only. */
 export const sharedImagePageSize = 50;
@@ -17,7 +18,7 @@ export type DetailParams = { page?: string; sort?: string; dir?: string };
 
 export type SharedImage = {
   image_id: string; parts: number; donors: number; manufacturers: string[]; source_url: string; host: string;
-  store_rows: number; samples: string[]; total: number;
+  store_rows: number; samples: string[]; total: number; sha256: string; listed: boolean;
 };
 export type SharedImageHeader = Omit<SharedImage, "total" | "samples">;
 export type SharedImageRow = {
@@ -37,21 +38,23 @@ const aggregate = (where: string, having: string) => `
 const storeRowsSql = "SELECT count(*)::int FROM product_enrichment_shared_links l JOIN supplier_items s ON s.id=l.supplier_item_id WHERE l.image_id=sh.image_id AND s.presence='present' AND s.company=ANY($2::text[])";
 
 /** The list page; `database` is injectable for tests (the session check lives in listSharedImages). */
-export async function sharedImagesPage(database: Database, params: ListParams, companies: string[]) {
+export async function sharedImagesPage(
+  database: Database, params: ListParams, companies: string[], denylist: ReadonlySet<string> = placeholderImageSha256,
+) {
   const min = minPartsOptions[pickKey(minPartsOptions, params.min, "5")];
   const host = params.host ?? "";
   const order = sortOrder(params, listOrder, listFallback);
-  const listed = `listed AS (SELECT sh.*, m.source_url, split_part(m.source_url,'/',3) AS host
+  const listed = `listed AS (SELECT sh.*, m.source_url, split_part(m.source_url,'/',3) AS host, m.sha256, (m.sha256=ANY($6::text[])) AS listed
     FROM shared sh JOIN product_media_objects m ON m.id=sh.image_id WHERE ($3::text='' OR split_part(m.source_url,'/',3)=$3))`;
   const at = async (page: number) => (await database.query<SharedImage>(
     `WITH shared AS (${aggregate("", " HAVING count(DISTINCT e.manufacturer_part_number) >= $1")}), ${listed},
       paged AS (SELECT sh.*, count(*) OVER()::int AS total FROM listed sh ORDER BY ${order} LIMIT $4 OFFSET $5)
-     SELECT sh.image_id, sh.parts, sh.donors, sh.manufacturers, sh.source_url, sh.host, sh.total,
+     SELECT sh.image_id, sh.parts, sh.donors, sh.manufacturers, sh.source_url, sh.host, sh.total, sh.sha256, sh.listed,
        (${storeRowsSql}) AS store_rows,
        ARRAY(SELECT DISTINCT supplier_item_name(s.supplier, s.product_data) FROM product_enrichment_shared_links l JOIN supplier_items s ON s.id=l.supplier_item_id
          WHERE l.image_id=sh.image_id AND supplier_item_name(s.supplier, s.product_data) IS NOT NULL LIMIT 3) AS samples
      FROM paged sh ORDER BY ${order}`,
-    [min, companies, host, sharedImagePageSize, (page - 1) * sharedImagePageSize],
+    [min, companies, host, sharedImagePageSize, (page - 1) * sharedImagePageSize, [...denylist]],
   )).rows;
   const [hosts, wantedRows] = await Promise.all([
     database.query<{ host: string; count: number }>(
@@ -71,13 +74,15 @@ export async function sharedImagesPage(database: Database, params: ListParams, c
 }
 
 /** One image with the supplier rows that show it; null when the media is unknown or no enrichment uses it. */
-export async function sharedImageDetail(database: Database, id: string, params: DetailParams, companies: string[]) {
+export async function sharedImageDetail(
+  database: Database, id: string, params: DetailParams, companies: string[], denylist: ReadonlySet<string> = placeholderImageSha256,
+) {
   if (!z.uuid().safeParse(id).success) return null;
   const header = (await database.query<SharedImageHeader>(
     `WITH shared AS (${aggregate(" AND e.image_id=$1", "")})
      SELECT sh.image_id, sh.parts, sh.donors, sh.manufacturers, m.source_url, split_part(m.source_url,'/',3) AS host,
-       (${storeRowsSql}) AS store_rows
-     FROM shared sh JOIN product_media_objects m ON m.id=sh.image_id`, [id, companies])).rows[0];
+       (${storeRowsSql}) AS store_rows, m.sha256, (m.sha256=ANY($3::text[])) AS listed
+     FROM shared sh JOIN product_media_objects m ON m.id=sh.image_id`, [id, companies, [...denylist]])).rows[0];
   if (!header) return null;
   const order = sortOrder(params, detailOrder, detailFallback);
   const at = async (page: number) => (await database.query<SharedImageRow>(
@@ -99,4 +104,26 @@ export async function sharedImageDetail(database: Database, id: string, params: 
   }
   const total = rows[0]?.total ?? 0;
   return { header, rows, total, page, ...pageBounds(total, sharedImagePageSize) };
+}
+
+export type PlaceholderStatus = PlaceholderImage & {
+  image_id: string | null; donors: number; store_rows: number; state: "absent" | "clean" | "cleanup_pending" | "sync_pending";
+};
+
+/** Where each denylist entry stands in this database: absent, cleaned, or still referenced by enrichments / store rows. */
+export async function placeholderListStatus(database: Database, companies: string[], list: readonly PlaceholderImage[] = placeholderImages) {
+  const found = new Map((await database.query<{ sha256: string; image_id: string; donors: number; store_rows: number }>(
+    `SELECT sh.sha256, sh.image_id::text AS image_id,
+       (SELECT count(*)::int FROM product_enrichments e WHERE e.image_id=sh.image_id) AS donors,
+       (${storeRowsSql}) AS store_rows
+     FROM (SELECT id AS image_id, sha256 FROM product_media_objects WHERE sha256=ANY($1::text[])) sh`,
+    [list.map(entry => entry.sha256), companies])).rows.map(row => [row.sha256, row]));
+  const entries = list.map((entry): PlaceholderStatus => {
+    const row = found.get(entry.sha256);
+    if (!row) return { ...entry, image_id: null, donors: 0, store_rows: 0, state: "absent" };
+    return { ...entry, image_id: row.image_id, donors: row.donors, store_rows: row.store_rows,
+      state: row.donors > 0 ? "cleanup_pending" : row.store_rows > 0 ? "sync_pending" : "clean" };
+  });
+  const used = entries.filter(entry => entry.state !== "absent" && entry.state !== "clean");
+  return { entries, inUse: { images: used.length, donors: used.reduce((n, e) => n + e.donors, 0), storeRows: used.reduce((n, e) => n + e.store_rows, 0) } };
 }
