@@ -21,6 +21,18 @@ function useMobile() {
   return mobile;
 }
 
+/**
+ * Slides outside the first page stay in the HTML (links for SEO) but are not rendered
+ * (`content-visibility: hidden`), so their lazy images do not download. The first
+ * interaction with the carousel (pointer, touch, focus, key) arms it and the browser's
+ * native lazy loading takes over. Slides keep their size, so layout does not shift.
+ */
+function useArmed() {
+  const [armed, setArmed] = useState(false);
+  const arm = () => setArmed(true);
+  return {armed, handlers: {onPointerEnter: arm, onTouchStart: arm, onFocus: arm}};
+}
+
 const arrow = "z-[2] size-9 min-h-0 p-0 border-border bg-white/95 text-foreground hover:bg-white disabled:hidden [&_svg:not([class*='size-'])]:size-[18px]";
 
 /** Arrows + line-style page indicators; reads the surrounding shadcn Carousel. */
@@ -49,14 +61,24 @@ function Pager({label, grid}: {label: string; grid?: boolean}) {
   </>;
 }
 
+const deferred = "[content-visibility:hidden]";
+const deferredFrom: Record<number, string> = {
+  3: "min-[48.0625rem]:nth-[n+4]:[content-visibility:hidden]",
+  4: "min-[48.0625rem]:nth-[n+5]:[content-visibility:hidden]",
+  5: "min-[48.0625rem]:nth-[n+6]:[content-visibility:hidden]",
+  6: "min-[48.0625rem]:nth-[n+7]:[content-visibility:hidden]",
+};
+
 const productBasis: Record<number, string> = {3: "min-[48.0625rem]:basis-1/3", 4: "min-[48.0625rem]:basis-1/4", 5: "min-[48.0625rem]:basis-1/5", 6: "min-[48.0625rem]:basis-1/6"};
 
 export function HomeCarousel({children,label,columns=5}:{children:ReactNode;label:string;columns?:number}) {
   const slides = Children.toArray(children);
+  const {armed, handlers} = useArmed();
   if (!slides.length) return null;
   const basis = cn("basis-1/2", productBasis[columns] ?? "min-[48.0625rem]:basis-1/5");
-  return <Carousel opts={{align: "start", slidesToScroll: "auto", containScroll: "trimSnaps"}} aria-label={label} aria-roledescription="slider" className="min-w-0">
-    <CarouselContent className="items-stretch">{slides.map((slide, index) => <CarouselItem key={index} className={basis}>{slide}</CarouselItem>)}</CarouselContent>
+  const defer = armed ? "" : cn("max-[48.0625rem]:nth-[n+3]:[content-visibility:hidden]", deferredFrom[columns] ?? deferredFrom[5]);
+  return <Carousel opts={{align: "start", slidesToScroll: "auto", containScroll: "trimSnaps"}} aria-label={label} aria-roledescription="slider" className="min-w-0" {...handlers}>
+    <CarouselContent className="items-stretch">{slides.map((slide, index) => <CarouselItem key={index} className={cn(basis, defer)}>{slide}</CarouselItem>)}</CarouselContent>
     <Pager label={label}/>
   </Carousel>;
 }
@@ -66,8 +88,9 @@ export function HomeGridPager({children,label,kind}:{children:ReactNode;label:st
   const perPage=mobile?12:kind==="makes"?18:24;
   const pages=Array.from({length:Math.ceil(entries.length/perPage)},(_,page)=>entries.slice(page*perPage,(page+1)*perPage));
   const grid=kind==="makes"?"grid-cols-6 gap-4 max-md:grid-cols-3 max-md:gap-3":"grid-cols-8 gap-x-4 gap-y-[22px] max-md:grid-cols-4 max-md:gap-3";
-  return <Carousel key={perPage} aria-label={label} className="min-w-0">
-    <CarouselContent>{pages.map((items,page)=><CarouselItem key={page}><div className={cn("grid",grid)}>{items}</div></CarouselItem>)}</CarouselContent>
+  const {armed,handlers}=useArmed();
+  return <Carousel key={perPage} aria-label={label} className="min-w-0" {...handlers}>
+    <CarouselContent>{pages.map((items,page)=><CarouselItem key={page} className={cn(page>0&&!armed&&deferred)}><div className={cn("grid",grid)}>{items}</div></CarouselItem>)}</CarouselContent>
     <Pager label={label} grid/>
   </Carousel>;
 }
