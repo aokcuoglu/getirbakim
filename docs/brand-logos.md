@@ -24,7 +24,7 @@ Markalar tablosundaki "Logo" filtresi ("Logosu olmayanlar") logosu eksik markala
 
 ## Yeniden kodlama (#1029)
 
-`src/modules/store/logo-encode.ts` `fitLogo` ile logoyu kutuya sığdırır (büyütmez, kutuya zaten sığanı olduğu gibi bırakır; ikinci geçiş kayıplı sıkıştırma eklemez).
+`src/modules/store/logo-encode.ts` `fitLogo` ile logoyu kutuya sığdırır; yeniden kodlama dosyayı büyütecekse sığdırılmaz (büyütmez, kutuya zaten sığanı olduğu gibi bırakır; ikinci geçiş kayıplı sıkıştırma eklemez).
 
 - `npm run logos:reencode -- static`: `public/media/logos/**` ve `data/brand-logos.json` için kuru çalıştırma (varsayılan, yazmaz). `-- static --apply` dosyaları ve kayıt defterindeki width/height/sha256 değerlerini yazar.
 - `npm run logos:reencode -- db`: yerel `manufacturer_logos` satırları için kuru çalıştırma (önce veritabanı sunucusu/adı yazılır). `-- db --apply` tek işlemde, eski sha256 korumasıyla günceller; `imported_at` değişmez.

@@ -18,17 +18,15 @@ async function reencodeStatic(apply: boolean) {
     for (const [src, entries] of bySrc) {
       const input = await readFile(`public${src}`);
       const fit = await fitLogo(input, box, "webp");
-      // A logo already inside the box is kept as is (no second lossy pass); an oversized one is always resized.
-      const keep = !fit.changed;
-      const out = keep ? { bytes: input, width: entries[0].width, height: entries[0].height, sha256: entries[0].sha256 } : fit;
+      // fitLogo keeps a logo that already fits, or whose re-encode would not be smaller, as it is.
       before += input.length;
-      after += out.bytes.length;
-      if (keep) continue;
+      after += fit.bytes.length;
+      if (!fit.changed) continue;
       changedFiles++;
-      console.log(`${src} ${entries[0].width}x${entries[0].height} ${input.length} -> ${out.width}x${out.height} ${out.bytes.length}`);
+      console.log(`${src} ${entries[0].width}x${entries[0].height} ${input.length} -> ${fit.width}x${fit.height} ${fit.bytes.length}`);
       if (apply) {
-        await writeFile(`public${src}`, out.bytes);
-        for (const entry of entries) Object.assign(entry, { width: out.width, height: out.height, sha256: out.sha256 });
+        await writeFile(`public${src}`, fit.bytes);
+        for (const entry of entries) Object.assign(entry, { width: fit.width, height: fit.height, sha256: fit.sha256 });
       }
     }
     console.log(`${set}: ${changedFiles}/${bySrc.size} files change, ${before} -> ${after} bytes`);
@@ -44,15 +42,33 @@ export async function updateLogoRow(client: PoolClient, row: { brandKey: string;
   return result.rowCount ?? 0;
 }
 
-async function reencodeDb(apply: boolean) {
-  const url = new URL(process.env.DATABASE_URL ?? "");
-  console.log(`Database: ${url.hostname}${url.pathname}`);
+// scripts/aws/db-tunnel.sh
+const prodTunnelPort = "15432";
+
+/** Where DATABASE_URL points, without the password. `--apply` against a non-default port needs `--yes-remote`. */
+export function describeDatabase(connectionString: string | undefined) {
+  if (!connectionString) throw new Error("DATABASE_URL is not set");
+  const url = new URL(connectionString);
+  return { host: url.host, port: url.port || "5432", user: decodeURIComponent(url.username), name: url.pathname.slice(1) };
+}
+
+export function assertApplyAllowed(port: string, yesRemote: boolean) {
+  if (port === "5432" || yesRemote) return;
+  const why = port === prodTunnelPort ? "the prod tunnel port" : "a non-default port";
+  throw new Error(`Refusing --apply on port ${port} (${why}): pass --yes-remote only if this is really the intended database.`);
+}
+
+async function reencodeDb(apply: boolean, yesRemote: boolean) {
+  const target = describeDatabase(process.env.DATABASE_URL);
+  console.log(`Database: ${target.user}@${target.host}/${target.name}`);
+  if (apply) assertApplyAllowed(target.port, yesRemote);
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const client = await pool.connect();
+  let skipped = 0;
   try {
     const rows = (await client.query<{ brand_key: string; image_data: Buffer; sha256: string }>(
       "SELECT brand_key,image_data,sha256 FROM manufacturer_logos ORDER BY brand_key")).rows;
-    let before = 0, after = 0, changed = 0;
+    let before = 0, after = 0, changed = 0, updated = 0;
     if (apply) await client.query("BEGIN");
     try {
       for (const row of rows) {
@@ -62,26 +78,35 @@ async function reencodeDb(apply: boolean) {
         after += fit.bytes.length;
         changed++;
         console.log(`${row.brand_key} ${row.image_data.length} -> ${fit.width}x${fit.height} ${fit.bytes.length}`);
-        if (apply) await updateLogoRow(client, { brandKey: row.brand_key, oldSha256: row.sha256, bytes: fit.bytes, sha256: fit.sha256, width: fit.width, height: fit.height });
+        if (apply) {
+          const count = await updateLogoRow(client, { brandKey: row.brand_key, oldSha256: row.sha256, bytes: fit.bytes, sha256: fit.sha256, width: fit.width, height: fit.height });
+          if (count) updated++; else skipped++;
+        }
       }
       if (apply) await client.query("COMMIT");
     } catch (error) {
       if (apply) await client.query("ROLLBACK");
       throw error;
     }
-    console.log(`manufacturer_logos: ${changed}/${rows.length} rows change, ${before} -> ${after} bytes${apply ? " (applied)" : " (dry run)"}`);
+    console.log(`manufacturer_logos: ${changed}/${rows.length} rows change, ${before} -> ${after} bytes`
+      + (apply ? ` (applied: ${updated} updated, ${skipped} skipped (sha changed))` : " (dry run)"));
   } finally {
     client.release();
     await pool.end();
   }
+  if (skipped) process.exitCode = 1;
 }
+
+const knownFlags = new Set(["--apply", "--yes-remote"]);
 
 async function main() {
   const [mode, ...flags] = process.argv.slice(2);
+  const unknown = flags.filter((flag) => !knownFlags.has(flag));
+  if (unknown.length) throw new Error(`Unknown flag: ${unknown.join(", ")}`);
   const apply = flags.includes("--apply");
   if (mode === "static") await reencodeStatic(apply);
-  else if (mode === "db") await reencodeDb(apply);
-  else throw new Error("Usage: logos:reencode -- static|db [--apply]");
+  else if (mode === "db") await reencodeDb(apply, flags.includes("--yes-remote"));
+  else throw new Error("Usage: logos:reencode -- static|db [--apply] [--yes-remote]");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
