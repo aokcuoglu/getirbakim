@@ -77,3 +77,13 @@ export async function linkQueueDrainable(database: Pick<Pool, "query">, limit = 
      FROM (SELECT kind,id FROM product_enrichment_shared_queue LIMIT $1) q`, [limit + 1])).rows[0];
   return !row.rebuild && row.queued <= limit;
 }
+
+/**
+ * The stored object of a currently blocked media for the admin preview (#1176): only while its sha256 is in
+ * product_image_blocks, so it is no general bypass of servableProductMedia and stops answering once unblocked.
+ */
+export async function blockedProductMedia(database: Pick<Pool, "query">, id: string) {
+  return (await database.query<{ bucket: string; object_key: string; content_type: string; size_bytes: number }>(
+    `SELECT m.bucket,m.object_key,m.content_type,m.size_bytes FROM product_media_objects m
+     WHERE m.id=$1 AND EXISTS (SELECT 1 FROM product_image_blocks b WHERE b.sha256=m.sha256)`, [id])).rows[0];
+}
