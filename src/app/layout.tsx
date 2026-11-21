@@ -1,7 +1,7 @@
-import { defaultSocialImage, siteDescription, siteOpenGraph, siteUrl, siteVerification } from "@/lib/site";
+import { defaultSocialImage, homeTitle, siteDescription, siteOpenGraph, siteUrl, siteVerification } from "@/lib/site";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-export const metadata:Metadata={title:{default:"Getirbakim | Aracın için doğru parça",template:"%s | Getirbakim"},metadataBase:new URL(siteUrl),verification:siteVerification(),description:siteDescription,openGraph:{...siteOpenGraph,images:[defaultSocialImage]},twitter:{card:"summary_large_image"}};
+export const metadata:Metadata={title:{default:homeTitle,template:"%s | Getirbakim"},metadataBase:new URL(siteUrl),verification:siteVerification(),description:siteDescription,openGraph:{...siteOpenGraph,images:[defaultSocialImage]},twitter:{card:"summary_large_image"}};
 // viewport-fit=cover makes env(safe-area-inset-*) real on notched phones; the fixed bars already pad with it (#911).
 export const viewport:Viewport={width:"device-width",initialScale:1,viewportFit:"cover"};
 // Applies the saved workspace theme before first paint on full loads of /yonetim; AdminTheme covers client navigation.
