@@ -65,14 +65,14 @@ test('search products round-trip through the database and SQL keys order batches
   assert.deepEqual(await knownSearchProducts(pool,'NOPE 1'),[]);
   await recordSearchProducts(pool,reinz);
   assert.deepEqual((await knownSearchProducts(pool,'VICTOR REINZ 61-36960-00')).map(p=>p.entity_id),[21]);
-  for(const code of ['VICTOR REINZ 61-36960-00','TRW GDB3368','FEBI 02562','442-2035L-UQ','BCH F 026 400 093','  TRW   GDB3368 ','0 0','',' ']){
+  for(const code of ['VICTOR REINZ 61-36960-00','TRW GDB3368','FEBI 02562','442-2035L-UQ','BCH F 026 400 093','  TRW   GDB3368 ','0 0','',' ','LEMFÖRDER 12345 01','LÖBRO 304-123','HÜCO 13 0001']){
    const sql=(await pool.query('SELECT enrichment_supplier_part_keys($1) AS keys',[code])).rows[0].keys as string[];
    assert.deepEqual([...sql].sort(),[...supplierPartKeys(code)].sort(),code);
   }
   // createRun keeps the cheaper inline keys for codes of one or two words; they must be the same key set.
   const listedKeys=`SELECT CASE WHEN btrim(c) ~ '[^[:space:]][[:space:]]+[^[:space:]]+[[:space:]]' THEN enrichment_supplier_part_keys(c)
    ELSE ARRAY[enrichment_part_key(c),enrichment_part_key(substring(btrim(c) from '[[:space:]]+(.+)$'))] END AS inline,enrichment_supplier_part_keys(c) AS keys FROM (SELECT $1::text AS c) s`;
-  for(const code of ['GDB3368','TRW GDB3368','FEBI 02562',' FEBI   02562 ','00 0','0','A-B','VICTOR REINZ 61-36960-00','BCH F 026 400 093']){
+  for(const code of ['GDB3368','TRW GDB3368','FEBI 02562',' FEBI   02562 ','00 0','0','A-B','VICTOR REINZ 61-36960-00','BCH F 026 400 093','LEMFÖRDER 12345 01','LÖBRO 304-123','HÜCO 13 0001']){
    const {inline,keys}=(await pool.query(listedKeys,[code])).rows[0] as {inline:(string|null)[];keys:string[]};
    assert.deepEqual([...new Set(inline.filter((k):k is string=>Boolean(k)))].sort(),[...keys].sort(),code);
   }
@@ -82,9 +82,25 @@ test('search products round-trip through the database and SQL keys order batches
   await pool.query("UPDATE enrichment_search_products SET brand_key='REINZ' WHERE entity_id='21'");
   await pool.query(await readFile('db/enrichment-worker.sql','utf8'));
   assert.equal((await pool.query("SELECT brand_key FROM enrichment_search_products WHERE entity_id='21'")).rows[0].brand_key,'VICTORREINZ');
-  for(const value of ['GDB3368','0 986 494 123','00','ap 034/2','FEBI','Mann','HENGST FILTER','febi bilstein','REINZ','Victor Reinz']){
+  // Keys stored before the diacritic fold (#1139) are recomputed from the stored manufacturer, and a second re-run
+  // writes nothing.
+  await pool.query(`UPDATE enrichment_search_products SET brand_key='LEMFRDER',product=jsonb_set(product,'{manufacturer}','"LEMFÖRDER"') WHERE entity_id='11'`);
+  await pool.query(await readFile('db/enrichment-worker.sql','utf8'));
+  const folded=(await pool.query("SELECT brand_key,xmin::text AS xmin FROM enrichment_search_products WHERE entity_id='11'")).rows[0];
+  assert.equal(folded.brand_key,'LEMFORDER');
+  await pool.query(await readFile('db/enrichment-worker.sql','utf8'));
+  assert.equal((await pool.query("SELECT xmin::text AS xmin FROM enrichment_search_products WHERE entity_id='11'")).rows[0].xmin,folded.xmin);
+  for(const value of ['GDB3368','0 986 494 123','00','ap 034/2','FEBI','Mann','HENGST FILTER','febi bilstein','REINZ','Victor Reinz',
+   'LEMFÖRDER','lemförder','LÖBRO','HÜCO','LESJÖFORS','AKRON-MALÒ','EBERSPÄCHER','NÜRAL','LUBRİCO','KRAFTVOLL SENSÖR AV',
+   'İstanbul ısı','Şş Ğğ Çç Öö Üü İı','Citroën','Peugeot Société','Straße','Æ Ø Ł','ﬁlter','0０1²',
+   'Schaeffler INA','SCHAEFFLER LuK','Schaeffler FAG','AVA Clever Choice','BorgWarner (BERU)','VDO Continental','ams-OSRAM']){
    const sql=(await pool.query('SELECT enrichment_part_key($1) AS part,enrichment_brand_key($1) AS brand',[value])).rows[0];
    assert.deepEqual(sql,{part:partKey(value),brand:manufacturerBrandKey(value)},value);
   }
+  // Every Latin, general punctuation, letterlike and ligature code point folds like normalize() in the contract.
+  const probes=[[0x20,0x24f],[0x1e00,0x1eff],[0x2000,0x214f],[0xfb00,0xfb06]].flatMap(([from,to])=>
+   Array.from({length:to-from+1},(_,i)=>'a'+String.fromCodePoint(from+i)+'1'));
+  const swept=(await pool.query('SELECT enrichment_part_key(v) AS k FROM unnest($1::text[]) WITH ORDINALITY AS t(v,n) ORDER BY n',[probes])).rows.map(r=>r.k as string);
+  assert.deepEqual(swept,probes.map(partKey));
  }finally{await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}
 });
