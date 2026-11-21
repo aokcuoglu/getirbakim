@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { ArrowUpRight, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileText, Handshake, TriangleAlert } from "lucide-react";
-import { adminPartnerInvoices, adminPartners } from "@/modules/admin/partners";
+import { ArrowUpRight, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileText, Handshake, RotateCw, TriangleAlert, Webhook } from "lucide-react";
+import { adminPartnerInvoices, adminPartners, adminPartnerWebhooks } from "@/modules/admin/partners";
 import { savePartnerDiscountRate, savePartnerLimit, setPartnerIntake } from "@/modules/admin/partner-actions";
 import { istanbulToday, percentText } from "@/modules/admin/partner-input";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
@@ -34,7 +34,7 @@ const countParam = (value: string | undefined) => { const count = Number(value);
 export default async function Partners({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
-  const [partners, { invoices, changes }] = await Promise.all([adminPartners(), adminPartnerInvoices()]);
+  const [partners, { invoices, changes }, webhooks] = await Promise.all([adminPartners(), adminPartnerInvoices(), adminPartnerWebhooks()]);
   const today = istanbulToday();
   const invoiced = Number(params.invoiced);
   const corrected = countParam(params.corrected), undone = countParam(params.undone);
@@ -135,6 +135,66 @@ export default async function Partners({ searchParams }: { searchParams: Promise
         <p className="text-muted-foreground">B2B indirim boş bırakılırsa varsayılan indirim (PARTNER_B2B_DISCOUNT_BPS) geçerli olur; o da yoksa indirim uygulanmaz. %0 girilirse varsayılan yok sayılır, indirim uygulanmaz.</p>
       </CardContent>
     </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle>Webhook bildirimleri</CardTitle>
+        <CardDescription>Webhook, partnerin sistemine sipariş değiştiğinde otomatik gönderilen doğrulanabilir HTTP bildirimidir. Partner siparişinin durumu, kargo bilgisi, iptali ya da iptal talebi değişince gönderilir; teslim edilemeyen bildirim 72 saat boyunca yeniden denenir, sonra bırakılır.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {webhooks.parseError && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertTitle>Webhook ayarı okunamadı</AlertTitle><AlertDescription>PARTNER_WEBHOOKS_JSON geçerli bir JSON nesnesi değil. Bildirimler gönderilmiyor, 72 saat boyunca bekletiliyor; sistem yöneticisine bildirin.</AlertDescription></Alert>}
+        {webhooks.configured ? <Table controls={false}>
+          <TableHeader><TableRow>
+            <TableHead>Partner</TableHead><TableHead>Uç nokta</TableHead><TableHead className="text-right">Bekleyen</TableHead>
+            <TableHead className="text-right">Bırakılan</TableHead><TableHead className="text-right">Atlanan</TableHead><TableHead>Son teslim</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>{webhooks.partners.map(p => <TableRow key={p.code}>
+            <TableCell className="font-medium">{p.code}</TableCell>
+            <TableCell>{p.endpointState === "configured" ? <StatusBadge tone="info">Tanımlı · {p.endpointHost}</StatusBadge>
+              : p.endpointState === "disabled" ? <StatusBadge tone="warning">Kapalı · bildirimler bekletiliyor</StatusBadge>
+              : p.endpointState === "invalid" ? <StatusBadge tone="warning">Ayar geçersiz · bildirimler bekletiliyor</StatusBadge>
+              : p.endpointState === "unreadable" ? <StatusBadge tone="warning">Ayar okunamadı</StatusBadge>
+              : <StatusBadge tone="neutral">Tanımsız</StatusBadge>}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatNumber(p.pending)}</TableCell>
+            <TableCell className="text-right">{p.dead > 0 ? <StatusBadge tone="error">{formatNumber(p.dead)} bırakıldı</StatusBadge> : <span className="tabular-nums">0</span>}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatNumber(p.skipped)}</TableCell>
+            <TableCell className="tabular-nums">{p.lastDeliveredAt ? formatDateTime(p.lastDeliveredAt, { year: true }) : "—"}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table> : <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><Webhook/></EmptyMedia>
+            <EmptyTitle>Webhook uç noktası tanımlı değil</EmptyTitle>
+            <EmptyDescription>Uç noktalar PARTNER_WEBHOOKS_JSON ortam değişkeniyle tanımlanır. Tanımlamak için sistem yöneticisine bildirin.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>}
+        <p className="text-muted-foreground">Atlanan: partner için uç nokta tanımlı olmadığından gönderilmeyen bildirimler.</p>
+      </CardContent>
+    </Card>
+
+    {webhooks.problems.length > 0 && <Card>
+      <CardHeader>
+        <CardTitle>Sorunlu bildirimler</CardTitle>
+        <CardDescription>En az bir kez teslim edilemeyen bildirimler. Bırakıldı: partnerin uç noktası 72 saat boyunca başarılı yanıt vermedi; bildirim yeniden gönderilmez. Partner sipariş durumunu API&apos;den sorgulayabilir; uç noktayı partnerle birlikte kontrol edin.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Table controls={false}>
+          <TableHeader><TableRow>
+            <TableHead>Zaman</TableHead><TableHead>Partner</TableHead><TableHead>Sipariş</TableHead><TableHead>Durum</TableHead>
+            <TableHead className="text-right">Deneme</TableHead><TableHead>Son yanıt</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>{webhooks.problems.map(problem => <TableRow key={problem.id} className="align-top">
+            <TableCell value={problem.createdAt.toISOString()} className="tabular-nums">{formatDateTime(problem.createdAt, { year: true })}</TableCell>
+            <TableCell className="font-medium">{problem.partner}</TableCell>
+            <TableCell className="tabular-nums">#{problem.orderNumber}</TableCell>
+            <TableCell>{problem.status === "dead"
+              ? <StatusBadge tone="error">Bırakıldı</StatusBadge>
+              : <StatusBadge tone="warning" icon={RotateCw}>Yeniden denenecek</StatusBadge>}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatNumber(problem.attempts)}</TableCell>
+            <TableCell className="max-w-xs whitespace-normal">{problem.lastError ?? (problem.lastHttpStatus ? `HTTP ${problem.lastHttpStatus}` : "—")}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table>
+      </CardContent>
+    </Card>}
 
     <Card>
       <CardHeader>

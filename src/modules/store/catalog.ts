@@ -1,4 +1,5 @@
 import "server-only";
+import type { PoolClient } from "pg";
 import { boundedQuery, db } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
@@ -92,28 +93,35 @@ export function withBestOffer<T extends CatalogProduct>(item: T, group: CatalogP
   pricing_snapshot: best.pricing_snapshot, offer_id: best.id, offers: group.length };
 }
 /**
- * The rows of `sourceSql` (catalogSql, storefrontCatalogSql) with these ids, in the order given; an id without a row is
- * left out, an id with several rows keeps them all. Read as `id=ANY(...)`, the view reaches supplier_items by primary
- * key once for all ids and computes its "latest succeeded import per supplier" step (a scan and sort of
- * supplier_imports) once. A per-id `JOIN LATERAL (… WHERE priced.id=page.id OFFSET 0)` repeats that step per row,
- * ~5.8 ms each (#1135): 24 listing cards on storefront_catalog took 138-157 ms against 6.4 ms, 24 home cards on
- * commerce_catalog 139 ms against 6.0 ms (200 ids: ~0.9 s against ~12 ms, #1093). Never `IN (subquery)` or a plain
- * join against the view either: the planner then builds the whole view (seconds).
+ * The rows of `sourceSql` (catalogSql, storefrontCatalogSql; `$1` stays the companies array) whose id is in `idsSql`, an
+ * expression yielding a uuid[]. Read as `id=ANY(...)`, the view reaches supplier_items by primary key once for all ids
+ * and computes its "latest succeeded import per supplier" step once. A per-id `JOIN LATERAL (… WHERE priced.id=page.id
+ * OFFSET 0)` repeats that step per row, ~5.8 ms each (#1135): 24 listing cards on storefront_catalog took 138-157 ms
+ * against 6.4 ms, 24 home cards on commerce_catalog 139 ms against 6.0 ms (200 ids: ~0.9 s against ~12 ms, #1093);
+ * SETA equivalents 75.8 ms against 6.1 ms (#1158). Allowed shapes of `idsSql`: a bind array (`$2::uuid[]`), or
+ * `ARRAY(SELECT …)` with the whole read inside a MATERIALIZED CTE (`WITH p AS MATERIALIZED (${catalogRowsByIdsSql(…)})`),
+ * which plans as one InitPlan feeding the primary key scan. Never `IN (subquery)`, a plain join against the view or a
+ * per-row LATERAL: the planner then builds the whole view (seconds) or repeats it per row.
  */
-async function rowsByIds(sourceSql:string,ids:string[]){
+export const catalogRowsByIdsSql = (idsSql: string, sourceSql = catalogSql) => `SELECT * FROM (${sourceSql}) catalog WHERE catalog.id=ANY(${idsSql})`;
+/**
+ * The rows of `sourceSql` with these ids (catalogRowsByIdsSql), in the order given; an id without a row is left out, an id
+ * with several rows keeps them all. `connection` lets a transaction read the supplier rows it has just written.
+ */
+async function rowsByIds(sourceSql:string,ids:string[],connection:Pick<PoolClient,"query">=db){
  if(!ids.length)return [] as CatalogProduct[];
- const rows=(await db.query<CatalogProduct>(`SELECT * FROM (${sourceSql}) catalog WHERE catalog.id=ANY($2::uuid[])`,[company(),ids])).rows;
+ const rows=(await connection.query<CatalogProduct>(catalogRowsByIdsSql("$2::uuid[]",sourceSql),[company(),ids])).rows;
  const byId=new Map<string,CatalogProduct[]>();
  for(const row of rows)byId.set(row.id,[...byId.get(row.id)??[],row]);
  return ids.flatMap(id=>byId.get(id)??[]);
 }
 /** The saleable rows (catalogSql) of these ids, in the order given; an id that is not saleable now is left out (#1093). */
-export async function catalogRowsByIds(ids:string[]){
- return rowsByIds(catalogSql,ids);
+export async function catalogRowsByIds(ids:string[],connection:Pick<PoolClient,"query">=db){
+ return rowsByIds(catalogSql,ids,connection);
 }
 /** The store's rows (storefrontCatalogSql: saleable or `unavailable`) of these ids, in the order given (#1135). */
-export async function storefrontRowsByIds(ids:string[]){
- return rowsByIds(storefrontCatalogSql,ids);
+export async function storefrontRowsByIds(ids:string[],connection:Pick<PoolClient,"query">=db){
+ return rowsByIds(storefrontCatalogSql,ids,connection);
 }
 /** A row the store shows: saleable, or (`unavailable`) a product no supplier sells now. */
 export async function getStorefrontProduct(id: string): Promise<CatalogProduct | undefined> {
@@ -176,10 +184,14 @@ export async function getStoreProduct(id: string): Promise<{ product?: CatalogPr
 }
 /** SETA products stating one of this product's (or its grouped offers') OEM numbers or its own number. */
 export async function getSetaEquivalents(id: string) {
- return (await db.query<CatalogProduct & { via_brand: string; via_part: string }>(`SELECT * FROM (
-  SELECT DISTINCT ON (priced.id) priced.*,r.brand AS via_brand,r.part_number AS via_part FROM product_seta_references r
-  JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=r.seta_item_id OFFSET 0) priced ON true
-  WHERE r.item_id IN (SELECT $2::uuid UNION SELECT item_id FROM product_offers WHERE primary_id=$2::uuid)
+ // The references first, then their priced rows by id array (catalogRowsByIdsSql, #1158): no view read per reference.
+ return (await db.query<CatalogProduct & { via_brand: string; via_part: string }>(`WITH refs AS MATERIALIZED (
+   SELECT r.seta_item_id,r.brand,r.part_number FROM product_seta_references r
+   WHERE r.item_id IN (SELECT $2::uuid UNION SELECT item_id FROM product_offers WHERE primary_id=$2::uuid)),
+  priced AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT seta_item_id FROM refs)")})
+  SELECT * FROM (
+  SELECT DISTINCT ON (priced.id) priced.*,r.brand AS via_brand,r.part_number AS via_part FROM refs r
+  JOIN priced ON priced.id=r.seta_item_id
   ORDER BY priced.id) seta ORDER BY available DESC,price_kurus NULLS LAST,code LIMIT 24`, [company(), id])).rows;
 }
 /**
@@ -190,20 +202,28 @@ export async function getSetaEquivalents(id: string) {
  */
 export async function getDecidedEquivalents(id: string) {
  if (!z.uuid().safeParse(id).success) return [];
- // An admin's store brand and part number of the equivalent (#602) win, as on its own page.
- return (await db.query<{ id: string | null; name: string | null; name_overridden: boolean | null; display_brand: string | null; display_code: string | null; brand: string; code: string; available: boolean | null }>(`SELECT DISTINCT ON (q.id) listed.id::text,
+ // An admin's store brand and part number of the equivalent (#602) win, as on its own page. The equivalents, their
+ // candidate rows and those rows' prices are read once each (catalogRowsByIdsSql, #1158); the per-equivalent LATERAL
+ // only picks among them.
+ return (await db.query<{ id: string | null; name: string | null; name_overridden: boolean | null; display_brand: string | null; display_code: string | null; brand: string; code: string; available: boolean | null }>(`WITH eq AS MATERIALIZED (
+   SELECT q.id FROM product_sources s
+   JOIN product_equivalents e ON e.product_id=s.product_id AND e.kind IN ('manual','brand')
+   JOIN products q ON q.id=e.equivalent_id AND q.merged_into IS NULL
+   WHERE s.supplier_item_id=$2::uuid ORDER BY q.id LIMIT 48),
+  cand AS MATERIALIZED (
+   SELECT o.product_id,o.supplier_item_id FROM product_sources o JOIN eq ON eq.id=o.product_id
+   WHERE NOT EXISTS (SELECT 1 FROM product_offers po WHERE po.item_id=o.supplier_item_id AND po.primary_id<>po.item_id)),
+  priced AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT supplier_item_id FROM cand)")})
+  SELECT DISTINCT ON (q.id) listed.id::text,
    listed.name, listed.name_overridden, listed.display_brand, listed.display_code,
    COALESCE(qo.brand,b.name,q.brand_label) AS brand, COALESCE(qo.part_number,listed.code,q.code) AS code, listed.available
-  FROM product_sources s
-  JOIN product_equivalents e ON e.product_id=s.product_id AND e.kind IN ('manual','brand')
-  JOIN products q ON q.id=e.equivalent_id AND q.merged_into IS NULL LEFT JOIN brands b ON b.key=q.brand
+  FROM eq JOIN products q ON q.id=eq.id LEFT JOIN brands b ON b.key=q.brand
   LEFT JOIN product_overrides qo ON qo.product_id=q.id
-  LEFT JOIN LATERAL (SELECT priced.id, priced.code, priced.available, priced.name, priced.name_overridden, priced.display_brand, priced.display_code FROM product_sources o
-   JOIN LATERAL (SELECT * FROM (${catalogSql}) priced WHERE priced.id=o.supplier_item_id OFFSET 0) priced ON true
+  LEFT JOIN LATERAL (SELECT priced.id, priced.code, priced.available, priced.name, priced.name_overridden, priced.display_brand, priced.display_code
+   FROM cand o JOIN priced ON priced.id=o.supplier_item_id
    WHERE o.product_id=q.id
-    AND NOT EXISTS (SELECT 1 FROM product_offers po WHERE po.item_id=o.supplier_item_id AND po.primary_id<>po.item_id)
    ORDER BY o.supplier_item_id=q.id DESC, priced.available DESC, o.supplier_item_id LIMIT 1) listed ON true
-  WHERE s.supplier_item_id=$2::uuid ORDER BY q.id LIMIT 48`, [company(), id])).rows
+  ORDER BY q.id`, [company(), id])).rows
   .sort((a, b) => Number(Boolean(b.id)) - Number(Boolean(a.id)) || Number(Boolean(b.available)) - Number(Boolean(a.available)) || a.code.localeCompare(b.code))
   // The address of the listed row, from the row's own shown name, brand and part number: the page's canonical one.
   .map(({ id, name, name_overridden, display_brand, display_code, ...rest }) => ({ ...rest, id, href: id && name !== null && name_overridden !== null && display_brand !== null && display_code !== null ? productPath({ id, name, name_overridden, display_brand, display_code }) : id && productIdPath(id) }));
@@ -251,18 +271,18 @@ const cachedFitted=staleCache<string[]>(10*60*1000,500,listings);
 const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
 /**
  * Products fitting one make (`param`: its vehicle_brands id, e.g. "$2::int"), as one id column: the engine-level fits
- * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the models read from supplier
- * descriptions (storefront_description_fits: product_model_fitments without the models the admin hid, #661) of the
- * make's series, a secondary offer counting as the product listing it, like modelFittedIds (#674). Matching a make's
- * fitments to the payloads per read took 20-57 s on RDS for the large makes. The make table is an index read; the description side is planned as a parallel sequential scan of
- * the description fits hashed against the make's series (VW: ~53k ids, ~0.1 s warm and ~0.5 s cold locally). Used as
- * `id=ANY(ARRAY(...))`, an InitPlan run once per query, so a make's ids never pass through Node (large id arrays fed the
- * heap OOMs). The listing's cost grows with the id count; its counts, facets and page ids (also the price orders, see
- * browseProducts) are cached for 10 minutes.
+ * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the makes of the models read from supplier
+ * descriptions (storefront_description_fits: product_model_fitments without the models the admin hid, #661), precomputed
+ * per fitted row in storefront_make_description_fits (#956), a secondary offer counting as the product listing it, like
+ * modelFittedIds (#674). Matching a make's fitments to the payloads per read took 20-57 s on RDS for the large makes;
+ * hashing every description fit against the make's series per read took ~60 ms warm (VW, locally). Both branches are
+ * now index reads (VW: ~60k ids, ~22 ms warm locally). Used as `id=ANY(ARRAY(...))`, an InitPlan run once per query, so
+ * a make's ids never pass through Node (large id arrays fed the heap OOMs). The listing's cost grows with the id count;
+ * its counts, facets and page ids (also the price orders, see browseProducts) are cached for 10 minutes.
  */
 export const makeFitsSql=(param:string)=>`SELECT supplier_item_id FROM storefront_make_fits WHERE brand_id=${param}
-  UNION SELECT COALESCE(o.primary_id,f.supplier_item_id) FROM vehicle_models m JOIN storefront_description_fits f ON f.model_id=m.id
-  LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id WHERE m.brand_id=${param}`;
+  UNION SELECT COALESCE(o.primary_id,f.supplier_item_id) FROM storefront_make_description_fits f
+  LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id WHERE f.brand_id=${param}`;
 /**
  * Every model fit as (model_id, id) rows, a pair possibly repeated: engine-level fits (storefront_model_fits, kept like
  * the make table) and models read from supplier descriptions (storefront_description_fits, model level only), a secondary

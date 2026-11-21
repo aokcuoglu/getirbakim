@@ -383,3 +383,75 @@ describe("Dinamik price-list-only codes", () => {
     assert.equal((await schema.pool.query("SELECT 1 FROM storefront_price_only_items WHERE supplier_item_id=$1", [ids.qualifying])).rowCount, 0);
   });
 });
+
+// Reads of the view by id array (#1158): equivalents and the exchange rate step.
+describe("by-id catalog reads", () => {
+  test("SETA equivalents: one row per SETA item, saleable and cheapest first, through grouped offers' references too", async () => {
+    await item("eqOwn", { supplier: "basbug", code: "HEL 9001", brand: "HELLA", stock: 2 });
+    await item("eqOffer", { supplier: "dinamik", code: "HELLA 9001", brand: "HELLA", stock: 2 });
+    await item("setaCheap", { supplier: "dinamik", code: "SETA 1", brand: "SETA", stock: 2, cost: 20 });
+    await item("setaDear", { supplier: "dinamik", code: "SETA 2", brand: "SETA", stock: 2, cost: 40 });
+    await item("setaGone", { supplier: "dinamik", code: "SETA 3", brand: "SETA", stock: 0, cost: 5 });
+    await item("setaInactive", { supplier: "dinamik", code: "SETA 4", brand: "SETA", presence: "inactive", stock: 0 });
+    await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1)", [ids.eqOwn, ids.eqOffer]);
+    // setaDear is stated by both rows: listed once; setaGone (sold out) after the saleable ones; setaInactive is not saleable.
+    await schema.pool.query(`INSERT INTO product_seta_references(item_id,seta_item_id,brand,part_number) VALUES
+      ($1,$3,'HELLA','OWN-1'),($1,$4,'HELLA','OWN-2'),($2,$4,'HELLA','OFFER-2'),($2,$5,'HELLA','OFFER-3'),($2,$6,'HELLA','OFFER-4')`,
+    [ids.eqOwn, ids.eqOffer, ids.setaCheap, ids.setaDear, ids.setaGone, ids.setaInactive]);
+    const rows = await catalog.getSetaEquivalents(ids.eqOwn);
+    assert.deepEqual(rows.map(row => row.id), [ids.setaCheap, ids.setaDear, ids.setaGone]);
+    assert.deepEqual(rows.map(row => row.available), [true, true, false]);
+    assert.ok(rows[0].price_kurus! < rows[1].price_kurus!);
+    assert.equal(rows[0].via_part, "OWN-1");
+    assert.ok(["OWN-2", "OFFER-2"].includes(rows[1].via_part));
+    assert.equal(rows[2].via_part, "OFFER-3");
+    // A grouped offer's own page reads only its references.
+    assert.deepEqual((await catalog.getSetaEquivalents(ids.eqOffer)).map(row => row.id).sort(), [ids.setaDear, ids.setaGone].sort());
+  });
+
+  test("decided equivalents: the equivalent's own row first, never a secondary offer row, id null when none is on sale", async () => {
+    await item("decSource", { supplier: "basbug", code: "MEY 100", brand: "MEYLE", stock: 2 });
+    await item("decOwn", { supplier: "basbug", code: "LEM 200", brand: "LEMFORDER", stock: 0 });
+    await item("decOther", { supplier: "dinamik", code: "LEMFORDER 200", brand: "LEMFORDER", stock: 2 });
+    await item("decPrimary", { supplier: "basbug", code: "TRW 300", brand: "TRW", stock: 0 });
+    await item("decSecondary", { supplier: "dinamik", code: "TRW 300X", brand: "TRW", stock: 3 });
+    await item("decGone", { supplier: "basbug", code: "SWG 400", brand: "SWAG", presence: "inactive", stock: 0 });
+    const product = async (key: string, brand: string, part: string) => (await schema.pool.query(
+      "INSERT INTO products(id,brand,part_number,name,brand_label,code) VALUES($1,$2,$3,'PARCA',$2,$3)", [ids[key], brand, part]));
+    await product("decSource", "MEYLE", "100");
+    await product("decOwn", "LEMFORDER", "200");
+    await product("decPrimary", "TRW", "300");
+    await product("decGone", "SWAG", "400");
+    await schema.pool.query(`INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($2,$2),($3,$2),($4,$4),($5,$4),($6,$6)`,
+      [ids.decSource, ids.decOwn, ids.decOther, ids.decPrimary, ids.decSecondary, ids.decGone]);
+    await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1)", [ids.decPrimary, ids.decSecondary]);
+    await schema.pool.query(`INSERT INTO product_equivalents(product_id,equivalent_id,kind,brand,part_number) VALUES
+      ($1,$2,'brand','LEMFORDER','200'),($1,$3,'brand','TRW','300'),($1,$4,'brand','SWAG','400')`,
+    [ids.decSource, ids.decOwn, ids.decPrimary, ids.decGone]);
+    const rows = await catalog.getDecidedEquivalents(ids.decSource);
+    const byCode = new Map(rows.map(row => [row.code, row]));
+    // The equivalent's own row wins even while sold out; the secondary offer row is never listed.
+    assert.equal(byCode.get("LEM 200")?.id, ids.decOwn);
+    assert.equal(byCode.get("TRW 300")?.id, ids.decPrimary);
+    assert.equal(byCode.get("400")?.id, null);
+    assert.equal(byCode.get("400")?.href, null);
+    assert.equal(rows.length, 3);
+    assert.equal(rows.at(-1)?.id, null);
+  });
+
+  test("the rate step reads the newest succeeded import of the supplier and company; a TL row stays at 1", async () => {
+    await item("eurRow", { supplier: "basbug", code: "VAL 500", brand: "VALEO", stock: 2, cost: 10 });
+    await item("tlRow", { supplier: "basbug", code: "VAL 501", brand: "VALEO", stock: 2, cost: 10 });
+    await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"dc":"EUR"}'::jsonb WHERE id=$1`, [ids.eurRow]);
+    const rates = (satis: number) => JSON.stringify({ dovizListesi: [{ dovizCinsi: "EUR", satis }] });
+    await schema.pool.query(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
+      VALUES('basbug',$1,'G','MRK',now()-interval '3 hours',now()-interval '3 hours','{}','{}','{}',$2,'succeeded'),
+       ('basbug',$1,'G','MRK',now()-interval '2 hours',now()-interval '2 hours','{}','{}','{}',$3,'succeeded'),
+       ('basbug',$1,'G','MRK',now()-interval '1 hour',now()-interval '1 hour','{}','{}','{}',$4,'failed')`,
+    [basbug, rates(40), rates(45), rates(99)]);
+    const eur = await catalog.getProduct(ids.eurRow), tl = await catalog.getProduct(ids.tlRow);
+    assert.equal(Number(eur?.pricing_snapshot?.exchange_rate), 45);
+    assert.equal(Number(tl?.pricing_snapshot?.exchange_rate), 1);
+    assert.ok(eur?.price_kurus && tl?.price_kurus && eur.price_kurus > tl.price_kurus);
+  });
+});

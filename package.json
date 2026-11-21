@@ -1,6 +1,6 @@
 {
   "name": "getirbakim",
-  "version": "0.36.0",
+  "version": "0.37.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -44,6 +44,7 @@
     "test:basbug": "node --import tsx --test scripts/test-basbug.ts",
     "test:partner": "node --import tsx --test scripts/test-partner.ts",
     "test:partner-orders": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-partner-orders.ts",
+    "test:partner-webhooks": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-partner-webhooks.ts",
     "test:partner-discount": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-partner-discount.ts",
     "test:partner-search": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-partner-search.ts",
     "test:seta": "node --import tsx --test scripts/test-seta.ts",
@@ -105,6 +106,7 @@
     "test:html-weight": "node --import tsx --test scripts/test-store-html-weight.tsx",
     "test:client-imports": "node --import tsx --test scripts/test-store-client-imports.ts",
     "test:lazy-module": "node --import tsx --test scripts/test-lazy-module.ts",
+    "test:listing-bump": "node --import tsx --test scripts/test-listing-bump.ts",
     "test:vehicle-model-listing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-vehicle-model-listing.ts",
     "test:vehicle-model-groups": "node --import tsx --test scripts/test-vehicle-model-groups.ts",
     "test:garage": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-garage.ts",

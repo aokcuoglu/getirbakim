@@ -27,7 +27,17 @@ node --import tsx --test scripts/test-product-enrichment.ts
 
 ## Yer tutucu görseller
 
-Yer tutucu (ürün fotoğrafı olmayan) kaynak görseller `src/modules/enrichment/placeholder-images.ts` içindeki SHA-256 listesinde tutulur; yerel işçiler, temizlik ve AWS mağazası aynı sabiti kullanır. `/yonetim/ortak-gorseller` listenin durumunu salt okunur gösterir (kullanılıyor, temizlendi, bu veritabanında yok); panelden liste değiştirilmez. Akış: `npm run enrichment:placeholders -- candidates` → görsellere bakıp inceleme → sabite ekleme → `clean --apply` → `npm run storefront:sync`.
+Mağazada gösterilmemesi gereken otomatik (zenginleştirme) görseller iki katmanda tutulur:
+
+1. **Kod sabiti (yer tutucu listesi, #1098).** Yer tutucu (ürün fotoğrafı olmayan) kaynak görseller `src/modules/enrichment/placeholder-images.ts` içindeki SHA-256 listesinde tutulur; yerel işçiler, temizlik ve AWS mağazası aynı sabiti kullanır. Mağaza bu listeyi okuma anında uygular. `/yonetim/ortak-gorseller` listenin durumunu gösterir (kullanılıyor, temizlendi, bu veritabanında yok); bu liste panelden değiştirilmez. Akış: `npm run enrichment:placeholders -- candidates` → görsellere bakıp inceleme → sabite ekleme → `clean --apply` → `npm run storefront:sync`.
+2. **Panel engeli (`product_image_blocks`, #1136).** `/yonetim/ortak-gorseller` listesinde ve görsel ayrıntısında "Engelle" ile bir görsel, onu kullanan bütün ürünlerde gizlenir; "Engellenen görseller" kartından "Engeli kaldır" ile geri gelir. Tablo SHA-256 ile tutulur (medya kimlikleri makineler arasında farklıdır). Kod listesindeki bir görsel panelden engellenemez; zaten gizlidir.
+
+Panel engeli bağlantı türetilirken uygulanır: `product_enrichment_shared_refresh()` (`db/enrichment-shared-links.sql`), engelli bir görseli `product_enrichment_shared_links.image_id` alanına `NULL` olarak yazar. `product_enrichments.image_id` değişmez; bu yüzden engel kaldırılınca görsel geri gelir ve mağaza okumalarına ek maliyet binmez. Engelleme, görseli kullanan zenginleştirme kayıtlarını kuyruğa ekler ve bağlantıları hemen yeniden hesaplar (en çok paylaşılan görsel, 323 kayıt / 509 bağlantı, yerelde ~0,6 sn); kuyrukta tam yeniden kurma işareti veya 1000'den fazla kayıt varsa ya da senkron o an başka bir görevdeyse istek beklemez, 5 sn'lik döngü uygular. Engel, görseli artık hiçbir kayıt kullanmasa da kaldırılabilir. Ürün sayfası, listeler, ana sayfa rafları, `/api/product-media` ve ürün akışı `storefront_enrichments` üzerinden okuduğu için hepsi aynı kaynaktan etkilenir; yönetici yüklemeleri etkilenmez.
+
+- **`storefront:sync` engeli geri almaz:** paket zenginleştirmeleri taşır, bağlantıları AWS türetir; türetme engeli yeniden uygular.
+- **Yerel ortam engelden habersizdir:** engel AWS veritabanında durur, yerele taşınmaz (izleyen iş). Yerelde aynı görsel gösterilmeye devam eder.
+- **Panel engeli için `clearPlaceholderImages` / `enrichment:placeholders clean` ASLA çalıştırılmaz:** temizlik `product_enrichments.image_id` alanını siler; engel bu durumda geri alınamaz hale gelir (görsel ancak yeniden zenginleştirmeyle döner).
+- **Önbellek:** `/api/product-media/<id>` yanıtları `Cache-Control: public, max-age=86400` ile gönderilir; görselin doğrudan adresi tarayıcı veya CDN önbelleğinden 24 saate kadar sunulabilir. `/_next/image` için `minimumCacheTTL` 31 gündür (`next.config.ts`, görev başına disk önbelleği): önceden optimize edilmiş bir varyant, görev değiştirilene kadar doğrudan adresiyle erişilebilir kalır; sayfalar ona hemen başvurmayı bırakır. Sayfalar ve listeler eylemle yenilenir (`revalidatePath`, listeleme epoch'u). Ürün akışı (merchant feed) görseli bir sonraki üretiminde düşürür.
 
 ## Veriler
 
@@ -209,7 +219,7 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
 | --- | --- | --- |
 | `product_enrichments`, `product_source_categories`, `product_media_objects`, kategori ağacı, logolar, `vehicle_type_specs` / `vehicle_type_images` | Pakette | Zenginleştirmeler `imported_at > since`; ağaç, logolar ve REPXPERT verisi her seferinde tam |
 | `product_enrichment_jobs` (yalnız `complete`/`partial` ve zenginleştirme satırı olan) | Pakette, her seferinde tam, part-00'da | `product_enrichments`'ta durum yok; `enrichment_valid_data` (`db/enrichment-products.sql`) iş durumuna JOIN yapar. İşler gitmezse yeni zenginleştirme `product_enrichment_shared_links` → `storefront_enrichments`'a ulaşmaz. Yalnız değişen satır yazılır (`IS DISTINCT FROM`), aksi halde tetikleyiciler ~69k satırı her seferinde kuyruğa alır |
-| `product_enrichment_shared_links`, `storefront_make_fits`, `storefront_model_fits` | AWS'de türetilir | İçe aktarma sonunda kuyruk boşaltılır; model tablosu (#639) marka tablosuyla aynı yenilemede yazılır |
+| `product_enrichment_shared_links`, `storefront_make_fits`, `storefront_model_fits`, `storefront_make_description_fits` | AWS'de türetilir | İçe aktarma sonunda kuyruk boşaltılır; model tablosu (#639) ve açıklama modellerinin markaları (#956, `product_model_fitments` değişince kuyruğa girer) marka tablosuyla aynı yenilemede yazılır |
 | `enrichment_product_states` (+ kuyruk) | AWS'de türetilir | `scripts/enrichment-states.ts sync` |
 | `product_vehicle_fitments` | AWS'de türetilir | `scripts/rebuild-product-fitments.ts --items`: paketin yazdığı ürünler + eski `matcher_version`'lı satırlar (#561) |
 | `product_override_fitments` | Aktarılmaz | Yöneticinin araç uyumu kararları (#583) AWS panelinde yönetilir; `products.id` ortama özgüdür. Yeniden kurulum yalnız `product_vehicle_fitments`'ı yazar, kararlar kalır |

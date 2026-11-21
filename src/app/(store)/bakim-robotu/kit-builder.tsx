@@ -81,14 +81,14 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
           const selected = slot.candidates.find(candidate => candidate.id === choice?.productId) ?? null;
           const inBrand = slot.candidates.filter(candidate => candidate.brand === choice?.brand);
           return <section key={key} aria-labelledby={`slot-${key}`} className="rounded-xl border border-border bg-white p-5 max-[600px]:p-4">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h3 id={`slot-${key}`} className="flex items-center gap-3 text-lg leading-7 font-semibold"><span className="grid size-10 place-items-center rounded-lg bg-[#f2f5f8]"><PartArtImage kind={meta.art} className="size-7 object-contain"/></span>{meta.name}
-              {selected && <span className="inline-flex items-center gap-1 rounded-full bg-[#ebf5ed] px-2 py-0.5 text-xs leading-[18px] font-medium text-[#397247]"><Check size={13} aria-hidden="true"/>{selected.brand}</span>}</h3>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2"><h3 id={`slot-${key}`} className="flex items-center gap-3 text-lg leading-7 font-semibold"><span className="grid size-10 place-items-center rounded-lg bg-muted"><PartArtImage kind={meta.art} className="size-7 object-contain"/></span>{meta.name}
+              {selected && <span className="inline-flex items-center gap-1 rounded-full bg-success-subtle px-2 py-0.5 text-xs leading-[18px] font-medium text-foreground"><Check size={13} className="text-success" aria-hidden="true"/>{selected.brand}</span>}</h3>
               {key === "engineOil" && oilCapacityLabel && <span className="text-[13px] leading-5 text-muted-foreground">Önerilen miktar {oilCapacityLabel}{oilViscosities.length ? ` · SAE ${oilViscosities.join(" / ")}` : ""}</span>}</div>
-            {!slot.candidates.length ? <p className="rounded-lg bg-[#f7f8fa] px-3.5 py-3 text-[13px] leading-5 text-muted-foreground">{key === "engineOil"
+            {!slot.candidates.length ? <p className="rounded-lg bg-muted px-3.5 py-3 text-[13px] leading-5 text-muted-foreground">{key === "engineOil"
                 ? "Bu araç için yağ önerisi bulunamadı. Yağı katalogdan seçebilirsin."
                 : "Bu araca bağlı " + meta.name.toLocaleLowerCase("tr") + " bulunamadı. Katalogda OEM numarasıyla arayabilirsin."}</p>
               : <>
-              {key === "engineOil" && slot.oilMatch === "viscosity" && <p className="mb-3 flex items-start gap-2 rounded-lg border border-[#f1d08a] bg-[#fff9eb] px-3.5 py-2.5 text-[13px] leading-5"><CircleAlert size={18} className="mt-px shrink-0 fill-[#f0a020] text-white" aria-hidden="true"/>Bu yağlar aracının viskozitesine uyar; üretici onayını ürün sayfasından kontrol et.</p>}
+              {key === "engineOil" && slot.oilMatch === "viscosity" && <p className="mb-3 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning-subtle px-3.5 py-2.5 text-[13px] leading-5"><CircleAlert size={18} className="mt-px shrink-0 fill-warning text-white" aria-hidden="true"/>Bu yağlar aracının viskozitesine uyar; üretici onayını ürün sayfasından kontrol et.</p>}
               <div className="flex flex-wrap gap-2" role="group" aria-label={`${meta.name} markası`}>
                 {brandOrder(slot.candidates).map(brand => { const active = choice?.brand === brand, logo = slot.candidates.find(candidate => candidate.brand === brand)?.logo, cheapest = slot.candidates.find(candidate => candidate.brand === brand)!;
                   return <Button key={brand} type="button" variant="outline" aria-pressed={active} onClick={() => chooseBrand(slot, brand)} title={brand}
@@ -115,7 +115,7 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
           </section>; })}
       </div>
     </div>
-    <aside className="sticky top-6 rounded-xl border border-border bg-white p-5 shadow-[0_8px_30px_#212b3614] max-[1000px]:static max-[600px]:p-4" aria-label="Set özeti">
+    <aside className="sticky top-6 rounded-xl border border-border bg-white p-5 shadow-[0_8px_30px_rgb(33_43_54/0.08)] max-[1000px]:static max-[600px]:p-4" aria-label="Set özeti">
       <KitImage href={imageHref} title={title}/>
       <h2 className="mt-4 text-lg leading-7 font-semibold wrap-anywhere">{title}</h2>
       {kitKeys.length > 0 && <p className="mt-0.5 text-xs leading-[18px] tracking-[.6px] text-muted-foreground uppercase">{kitContentLine(kitKeys)}</p>}
@@ -127,9 +127,9 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
       <p className="mt-0.5 text-xs leading-[18px] text-muted-foreground">{pieces.length} parça · Kargo hariç · Parçalar sepete tek tek girer.</p>
       <Button type="button" onClick={submit} disabled={!pieces.length || pending} className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-4 w-full")}>
         {pending ? <Loader2 size={18} className="animate-spin" aria-hidden="true"/> : <ShoppingCart size={18} aria-hidden="true"/>}{pending ? "Ekleniyor…" : "Seti sepete ekle"}</Button>
-      {result && (result.error ? <p role="alert" className="mt-3 text-[13px] leading-5 text-[#ae3025]">{result.error}</p>
-        : <div role="status" className={cn("mt-3 rounded-lg px-3.5 py-3 text-[13px] leading-5", result.failed.length ? "border border-[#f1d08a] bg-[#fff9eb]" : "bg-[#ebf5ed] text-[#397247]")}>
-          <p className="m-0 flex items-start gap-2">{result.failed.length ? <CircleAlert size={18} className="mt-px shrink-0 fill-[#f0a020] text-white" aria-hidden="true"/> : <CircleCheck size={18} className="mt-px shrink-0" aria-hidden="true"/>}
+      {result && (result.error ? <p role="alert" className="mt-3 text-[13px] leading-5 text-destructive">{result.error}</p>
+        : <div role="status" className={cn("mt-3 rounded-lg px-3.5 py-3 text-[13px] leading-5", result.failed.length ? "border border-warning/30 bg-warning-subtle" : "bg-success-subtle")}>
+          <p className="m-0 flex items-start gap-2">{result.failed.length ? <CircleAlert size={18} className="mt-px shrink-0 fill-warning text-white" aria-hidden="true"/> : <CircleCheck size={18} className="mt-px shrink-0 text-success" aria-hidden="true"/>}
             <span>{result.added} parça sepetine eklendi.{result.failed.length ? ` Eklenemeyen: ${result.failed.join(", ")} (stok veya fiyat uygun değil).` : ""}</span></p>
           <Link href="/sepet" className="mt-2 inline-block font-semibold text-primary underline-offset-4 hover:underline">Sepete git</Link></div>)}
       {imageHref && <a href={imageHref} download className="mt-3 inline-flex items-center gap-1.5 text-[13px] leading-5 font-medium text-primary underline-offset-4 hover:underline"><Download size={15} aria-hidden="true"/>Set görselini indir</a>}

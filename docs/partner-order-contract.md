@@ -1,11 +1,13 @@
-# Partner order contract (v2.1)
+# Partner order contract (v2.2)
 
 Partner orders (#426) let a partner (BakımX) order parts found through
 `GET /api/partner/v1/products` for delivery to a workshop. Version 2.0 replaces
 the 1.0 pilot (single line, reservation TTL, `RESERVATION_EXPIRED`); it is not
 backwards compatible. Version 2.1 (#1007) adds return requests on shipped
 orders (`POST`/`GET /orders/:id/returns`, the Return object); Order objects are
-unchanged and keep `contractVersion: "2.0"`.
+unchanged and keep `contractVersion: "2.0"`. Version 2.2 (#1002) adds
+[webhooks](#webhooks): a signed `partner.order.updated` event when an order
+changes; Order (`"2.0"`) and Return (`"2.1"`) objects are unchanged.
 
 All endpoints live under `/api/partner/v1`, take `Authorization: Bearer <key>`
 (`PARTNER_API_KEYS`) and answer JSON with `Cache-Control: no-store`. A
@@ -296,6 +298,97 @@ nothing expires); `REJECTED` is not emitted, an order operations refuse is
 `CANCELLED` with `cancelledBy: "GETIRBAKIM"`. A partner's own cancellation
 (`DELETE`, or an approved cancel request) is `cancelledBy: "PARTNER"`.
 
+## Webhooks
+
+GetirBakım tells the partner's system when one of its orders changes, so it
+does not have to poll `GET /orders/:id`. Webhooks are optional: a partner
+without a configured endpoint gets none and keeps polling.
+
+**Event.** `partner.order.updated` fires when a partner-visible field of the
+order changes: its status (confirmed, shipped, delivered, cancelled), the
+shipment (carrier, tracking number or link, shipped/delivered time), the
+cancellation, or a cancel request and its rejection. Placing an order sends no
+event (the `POST /orders` answer carries it); invoicing and internal changes
+send none.
+
+**Body** (`Content-Type: application/json`):
+
+```json
+{
+  "specVersion": "1.0",
+  "eventId": "uuid",
+  "eventType": "partner.order.updated",
+  "occurredAt": "2026-11-21T09:30:00.000Z",
+  "partnerId": "bakimx",
+  "order": { "contractVersion": "2.0", "id": "uuid", "number": 1042, "status": "SHIPPED", "…": "the Order object" }
+}
+```
+
+`occurredAt` is when the change happened; `order` is the [Order](#order) object
+as it is **when the event is sent**, not as it was at `occurredAt`.
+
+**Headers.**
+
+| Header | Value |
+| --- | --- |
+| `User-Agent` | `GetirBakim-Webhooks/1` |
+| `X-GetirBakim-Event-Id` | Copy of `eventId`; unchanged across retries |
+| `X-GetirBakim-Event-Type` | Copy of `eventType` |
+| `X-GetirBakim-Timestamp` | Unix time in seconds of this attempt |
+| `X-GetirBakim-Signature` | `v1=` + hex HMAC-SHA256 of `<timestamp>.<raw body>` with the partner's webhook secret |
+
+`X-GetirBakim-Event-Id` and `X-GetirBakim-Event-Type` are unsigned convenience
+copies for logging; only the body is signed. Deduplicate and route on the
+body's `eventId` and `eventType` after verifying the signature.
+
+**Verification.** Read the raw body bytes before parsing JSON. Compute
+`HMAC-SHA256(secret, timestamp + "." + rawBody)` in hex, compare it to the
+value after `v1=` in constant time (e.g. `crypto.timingSafeEqual`), and refuse
+the request when they differ or the timestamp is more than 5 minutes away from
+your clock. Each attempt is signed afresh, so a retry carries a current
+timestamp.
+
+```js
+import { createHmac, timingSafeEqual } from "node:crypto";
+
+function verify(secret, timestamp, signature, rawBody) {
+  if (!/^\d+$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
+  if (!/^v1=[0-9a-f]{64}$/.test(signature)) return false;
+  const expected = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest();
+  const received = Buffer.from(signature.slice(3), "hex");
+  // Equal lengths are checked first: timingSafeEqual throws a RangeError on different lengths.
+  return received.length === expected.length && timingSafeEqual(received, expected);
+}
+```
+
+**Semantics.**
+
+- At least once: the same event can arrive more than once; deduplicate on
+  `eventId`.
+- State-carrying: `order` is the order at send time, so a late or repeated
+  event never moves your copy backwards if you apply the newest
+  `order` you have seen. Several changes in quick succession may each send the
+  same final state.
+- Order is not guaranteed: a retried event can arrive after a later one.
+- `GET /orders/:id` stays authoritative; read it when in doubt or after a gap.
+
+**Delivery.** Answer with any `2xx` within 10 seconds; the body is ignored.
+Anything else is a failure: another status, a timeout, a network error, or a
+redirect (`3xx` answers are not followed; configure the final URL). Failed
+events are retried by the sweep that runs every 5 minutes: the first retry on
+the next sweep (about 5 minutes later), then after about 15, 45 and 135 minutes,
+then every 6 hours, and given up 72 hours after the change. The first attempt
+also waits for the sweep, so expect a delay of up to about 5 minutes after the
+change.
+
+**Configuration.** Each partner's endpoint and secret are set by GetirBakım in
+`PARTNER_WEBHOOKS_JSON` (see [Configuration](#configuration)); the URL must be
+`https://` and carry no credentials. The secret is exchanged out of band;
+rotating it means a coordinated switch. A partner without an entry gets no
+webhooks (its events are recorded and skipped); while its entry is invalid or
+disabled, or the variable is unreadable, its events wait (and still give up
+after 72 hours).
+
 ## Errors
 
 `{ "error": { "code", "message", "details"? } }`
@@ -354,6 +447,9 @@ Idempotency-Key, `fingerprint` = SHA-256 of the order id and validated body,
 Only an approval writes `commerce_returns` rows (one per line, with
 `partner_return_request_id`); pending requests hold their quantity against
 returns operations record by hand as well.
+Webhook events are `partner_webhook_events` rows (`db/partner.sql`), written by
+an `AFTER UPDATE` trigger on `commerce_orders` for partner orders only; the
+answer's body, the endpoint and the secret are never stored.
 
 ## Configuration
 
@@ -363,3 +459,8 @@ returns operations record by hand as well.
   `/yonetim/partnerler` overrides it.
 - `PARTNER_B2B_DISCOUNT_BPS`: optional fallback discount in basis points for partners without a discount set in
   `/yonetim/partnerler` (see the products contract's Discount section).
+- `PARTNER_WEBHOOKS_JSON`: optional webhook endpoints per partner (#1002), JSON
+  `{"bakimx":{"url":"https://…","secret":"<at least 32 characters>","enabled":true}}`. An entry with a non-https URL
+  (in production), credentials in the URL, a shorter secret or `"enabled": false` holds that partner's events (logged
+  every sweep); the other partners still receive webhooks. Broken JSON holds every partner's events. Only a partner with
+  no entry has its events skipped.

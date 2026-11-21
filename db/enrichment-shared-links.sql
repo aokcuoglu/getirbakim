@@ -51,6 +51,18 @@ CREATE TABLE IF NOT EXISTS product_enrichment_shared_queue (
  PRIMARY KEY (kind,id)
 );
 
+-- Automatic images an admin blocked from /yonetim/ortak-gorseller (#1136). Keyed by sha256 because media ids differ
+-- between machines (the storefront bundle remaps media by sha256). The block is applied when links are derived
+-- (product_enrichment_shared_refresh below): product_enrichments.image_id stays, so unblocking restores the image, and a
+-- bundle import cannot undo it. storefront_enrichments.image_id can therefore be NULL where the donor enrichment has an
+-- image. The code denylist (src/modules/enrichment/placeholder-images.ts) is a separate, read-time layer.
+CREATE TABLE IF NOT EXISTS product_image_blocks (
+ sha256 text PRIMARY KEY CHECK (sha256 ~ '^[a-f0-9]{64}$'),
+ note text NOT NULL DEFAULT '',
+ created_by uuid REFERENCES accounts(id) ON DELETE SET NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- The view's rows for the given products and unlinked items; NULL computes everything. The filter sits inside the
 -- DISTINCT ON, which the view cannot do. The whole catalog runs with nested loops off (the planner expects one
 -- enrichment_valid_data row; hash joins finish in seconds), the same as enrichment_product_states_compute_all.
@@ -98,7 +110,10 @@ BEGIN
  WITH upserted AS (
   INSERT INTO product_enrichment_shared_links AS l
    (supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,donor_master_brand,image_id,imported_at)
-  SELECT supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,donor_master_brand,image_id,imported_at
+  -- A blocked image (product_image_blocks, #1136) is left out of the link; the donor enrichment keeps it.
+  SELECT supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,donor_master_brand,
+   CASE WHEN image_id IN (SELECT m.id FROM product_image_blocks b JOIN product_media_objects m ON m.sha256=b.sha256) THEN NULL ELSE image_id END,
+   imported_at
   FROM enrichment_shared_computed
   ON CONFLICT (supplier_item_id) DO UPDATE SET
    supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,donor_item_id=EXCLUDED.donor_item_id,

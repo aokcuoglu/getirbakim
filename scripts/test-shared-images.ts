@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { after, before, test } from "node:test";
+import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
+import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 
 // Shared automatic images (#1097) in an isolated copy of the schema: the list threshold, store-row counts, host
@@ -137,4 +138,112 @@ test("the placeholder status tells in-use, cleaned and absent entries apart in l
   ]);
   assert.deepEqual(status.entries.map(entry => entry.source), ["src0", "src1", "src2", "src3"]);
   assert.deepEqual(status.inUse, { images: 2, donors: 4, storeRows: 4 });
+});
+
+// Blocking a shared image (#1136). Real, valid enrichments on matched products, so the links come from the sync.
+// The sync rewrites the hand-made links above, so these tests run last.
+describe("blocking a shared image", () => {
+  let blocks: typeof import("../src/modules/admin/shared-image-blocks");
+  let images: typeof import("../src/modules/store/product-images");
+  let admin: string;
+  const blockKeys = ["x1", "x2", "x3"];
+  const linkImages = async () => (await schema.pool.query<{ supplier_item_id: string; image_id: string | null }>(
+    `SELECT supplier_item_id::text, image_id::text FROM product_enrichment_shared_links
+     WHERE donor_item_id IN (SELECT supplier_item_id FROM product_enrichments WHERE image_id=$1) ORDER BY supplier_item_id`, [media.x])).rows;
+  const sync = () => syncSharedLinks(schema.pool);
+
+  before(async () => {
+    await image("x", "https://www.trodo.com/x.webp");
+    for (const [index, key] of blockKeys.entries()) {
+      const code = `FEB 9100${index}0`;
+      ids[key] = (await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+        product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+        VALUES('basbug',$1,'G','MRK',$2,$3,'{"nf":100}','{"stok":2}',1,1,1,false,'present',now(),now(),now()) RETURNING id::text`,
+      [basbug, code, { uk: "FEBI", ac: `FEBI ENGEL ${index}`, ac2: "", dc: "TL" }])).rows[0].id;
+    }
+    await schema.pool.query("SELECT refresh_product_matches()");
+    for (const [index, key] of blockKeys.entries()) {
+      const code = `FEB 9100${index}0`;
+      await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,$2,'FEBI','complete')`, [ids[key], code]);
+      await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,
+        manufacturer_part_number,image_id,payload) VALUES($1,$2,'FEBI','https://www.trodo.com/x','test','FEBI BILSTEIN',$3,$4,$5)`,
+      [ids[key], code, `910${index}`, media.x, { specifications: [], oemNumbers: {}, crossReferences: {}, vehicles: [], imageWidth: 600, imageHeight: 400 }]);
+    }
+    await sync();
+    admin = (await schema.pool.query<{ id: string }>("SELECT id::text FROM accounts WHERE role='admin' LIMIT 1")).rows[0].id;
+    [blocks, images] = await Promise.all([import("../src/modules/admin/shared-image-blocks"), import("../src/modules/store/product-images")]);
+  });
+
+  test("a block empties the image on every link of its donors after a sync; unblocking restores it", async () => {
+    assert.deepEqual((await linkImages()).map(row => row.image_id), [media.x, media.x, media.x]);
+    assert.deepEqual(await blocks.blockSharedImage(schema.pool, media.x, "Filigranlı", admin), { ok: true });
+    await sync();
+    assert.deepEqual((await linkImages()).map(row => row.image_id), [null, null, null]);
+    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_enrichments WHERE image_id=$1", [media.x])).rows[0].n, 3);
+    assert.deepEqual(await blocks.unblockSharedImage(schema.pool, media.x), { ok: true });
+    await sync();
+    assert.deepEqual((await linkImages()).map(row => row.image_id), [media.x, media.x, media.x]);
+  });
+
+  test("a re-imported enrichment and a full rebuild keep a blocked image off the links", async () => {
+    assert.deepEqual(await blocks.blockSharedImage(schema.pool, media.x, "", admin), { ok: true });
+    await sync();
+    await schema.pool.query("UPDATE product_enrichments SET imported_at=now() WHERE image_id=$1", [media.x]);
+    await schema.pool.query("SELECT product_enrichment_shared_refresh(NULL,NULL)");
+    assert.deepEqual((await linkImages()).map(row => row.image_id), [null, null, null]);
+  });
+
+  test("the blocked flag shows in the list, the detail and the block list; detail rows stay listed", async () => {
+    const row = (await list({ min: "2" })).images.find(item => item.image_id === media.x);
+    assert.deepEqual([row?.blocked, row?.store_rows, row?.samples.length], [true, 0, 3]);
+    assert.ok((await list({ min: "2" })).images.filter(item => item.image_id !== media.x).every(item => !item.blocked));
+    const data = (await detail(media.x))!;
+    assert.deepEqual([data.header.blocked, data.total], [true, 3]);
+    assert.deepEqual(data.rows.map(item => item.supplier_item_id).sort(), blockKeys.map(key => ids[key]).sort());
+    const [entry] = await blocks.listImageBlocks(schema.pool);
+    assert.deepEqual([entry.sha256, entry.image_id, entry.donors, entry.created_by, entry.source_url], [sha("x"), media.x, 3, "Yönetici", "https://www.trodo.com/x.webp"]);
+    assert.equal(row?.block_note, "");
+    assert.equal((await list({ min: "2" })).images.find(item => item.image_id === media.a)?.block_note, null);
+  });
+
+  test("listed, unknown and unreferenced images are refused; a second block keeps the first", async () => {
+    assert.deepEqual(await blocks.blockSharedImage(schema.pool, media.a, "", admin, new Set([sha("a")])), { ok: false, reason: "listed" });
+    assert.deepEqual(await blocks.blockSharedImage(schema.pool, randomUUID(), "", admin), { ok: false, reason: "not-found" });
+    assert.deepEqual(await blocks.blockSharedImage(schema.pool, media.d, "", admin), { ok: false, reason: "not-found" });
+    assert.deepEqual(await blocks.blockSharedImage(schema.pool, media.x, "ikinci", admin), { ok: true });
+    const rows = (await schema.pool.query<{ note: string }>("SELECT note FROM product_image_blocks WHERE sha256=$1", [sha("x")])).rows;
+    assert.deepEqual(rows.map(row => row.note), [""]);
+    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_image_blocks WHERE sha256=$1", [sha("a")])).rows[0].n, 0);
+  });
+
+  test("the media route stops serving a blocked image unless an admin also uploaded it", async () => {
+    assert.equal(await images.servableProductMedia(media.x, companies), undefined);
+    const product = await productOf("x1");
+    await schema.pool.query(`INSERT INTO product_override_images(product_id,media_id,position,width,height,created_by) VALUES($1,$2,0,600,400,$3)`, [product, media.x, admin]);
+    assert.ok(await images.servableProductMedia(media.x, companies));
+    await schema.pool.query("DELETE FROM product_override_images WHERE media_id=$1", [media.x]);
+    assert.deepEqual(await blocks.unblockSharedImage(schema.pool, media.x), { ok: true });
+    await sync();
+    assert.ok(await images.servableProductMedia(media.x, companies));
+  });
+
+  test("a stale block is lifted even when no enrichment uses the image any more", async () => {
+    await schema.pool.query("INSERT INTO product_image_blocks(sha256,note) VALUES($1,'eski')", [sha("d")]);
+    assert.deepEqual(await blocks.blockSharedImage(schema.pool, media.d, "", admin), { ok: false, reason: "not-found" });
+    assert.deepEqual(await blocks.unblockSharedImage(schema.pool, media.d), { ok: true });
+    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_image_blocks WHERE sha256=$1", [sha("d")])).rows[0].n, 0);
+    assert.deepEqual(await blocks.unblockSharedImage(schema.pool, randomUUID()), { ok: false, reason: "not-found" });
+  });
+
+  test("the link queue is drained inline only when it is small and holds no rebuild marker", async () => {
+    await sync();
+    assert.equal(await blocks.linkQueueDrainable(schema.pool), true);
+    await schema.pool.query("INSERT INTO product_enrichment_shared_queue(kind,id) SELECT 'i',gen_random_uuid() FROM generate_series(1,3)");
+    assert.equal(await blocks.linkQueueDrainable(schema.pool, 3), true);
+    assert.equal(await blocks.linkQueueDrainable(schema.pool, 2), false);
+    await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
+    await schema.pool.query("INSERT INTO product_enrichment_shared_queue(kind,id) VALUES ('p','00000000-0000-0000-0000-000000000000')");
+    assert.equal(await blocks.linkQueueDrainable(schema.pool), false);
+    await schema.pool.query("DELETE FROM product_enrichment_shared_queue");
+  });
 });

@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { after } from 'next/server';
 import { z } from 'zod';
-import { returnReasons } from '@/modules/store/returns';
+import { returnReasons,type OrderReturnResult } from '@/modules/store/returns';
 import { shipmentSchema,type ShipmentResult } from '@/modules/store/shipment';
 import { transitionOrder,decidePartnerCancelRequest,recordOrderRefund,shipOrder,updateShipment,recordOrderReturn,setLineProcurement } from './orders';
 import { procurementInput } from './order-procurement';
@@ -202,12 +202,16 @@ function revalidateOrder(id:string) {
  revalidatePath('/yonetim','layout');revalidatePath(`/siparis/${id}`);revalidatePath('/siparisler');
  after(()=>deliverOrderEmailsSafely({orderId:id}));
 }
-/** Shipped or delivered lines; partial returns may add up to the ordered quantity. */
+const returnCodes:Record<OrderReturnResult,string>={recorded:'kaydedildi',unavailable:'kapali',exceeded:'adet',pending:'talep'};
+/** Shipped or delivered lines; partial returns plus pending partner requests may add up to the ordered quantity. */
 export async function recordReturn(form:FormData) {
  const admin=await requireAdmin();
  const input=z.object({orderId:z.uuid(),productId:z.uuid(),quantity:z.coerce.number().int().min(1).max(99),reason:z.enum(returnReasons),note:z.string().trim().max(500)}).safeParse(Object.fromEntries(form));
- if(!input.success) redirect('/yonetim/siparisler?error=1');
- const ok=await recordOrderReturn({...input.data,adminId:admin.id});
+ if(!input.success){
+  const orderId=z.uuid().safeParse(form.get('orderId'));
+  redirect(orderId.success ? `/siparis/${orderId.data}?iade=hata` : '/yonetim/siparisler?error=1');
+ }
+ const result=await recordOrderReturn({...input.data,adminId:admin.id});
  revalidatePath(`/siparis/${input.data.orderId}`);revalidatePath('/yonetim/siparisler');
- redirect(`/siparis/${input.data.orderId}?iade=${ok ? 'kaydedildi' : 'hata'}`);
+ redirect(`/siparis/${input.data.orderId}?iade=${returnCodes[result]}`);
 }
