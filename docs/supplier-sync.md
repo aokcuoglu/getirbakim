@@ -217,7 +217,7 @@ sudo systemctl enable --now getirbakim-production-sync.timer
 
 Acil durdurma: `supplier-configure --group=ALL --enabled=false --commerce-enabled=false` (veriler korunur, satış bayatlık kuralına göre kapanır). Servisi maskelemek yerine bunu tercih edin; maskelenmiş servis sağlık ucunda `stopped` görünür.
 
-**Dış izleme:** `GET /api/health/suppliers` zamanlayıcı durmuşsa ya da etkin bir grup bayat/başarısızsa **503** döner; gövdede yalnız toplu durum (`status`, `scheduler`, `groups`, `issues`, `oldest_commerce_success`) ve bilgi amaçlı `open_price_anomalies` (açık fiyat anomalisi sayısı; 503 üretmez, sayım okunamazsa `null`, #1049) vardır. Bir uptime izleyicisine (ör. 5 dakikada bir, 2 ardışık 503'te alarm) bağlanmalı; macOS bildirimi yalnız yerel kurulum içindir.
+**Dış izleme:** `GET /api/health/suppliers` zamanlayıcı durmuşsa ya da etkin bir grup bayat/başarısızsa **503** döner; gövdede yalnız toplu durum (`status`, `scheduler`, `groups`, `issues`, `oldest_commerce_success`) ve bilgi amaçlı `open_price_anomalies` (açık fiyat anomalisi sayısı; 503 üretmez, sayım okunamazsa ya da 2 sn içinde dönmezse `null`, #1049; tüm tedarikçilerin açık satırlarını sayar, bu yüzden Başbuğ kartındaki rakamdan büyük olabilir) vardır. Bir uptime izleyicisine (ör. 5 dakikada bir, 2 ardışık 503'te alarm) bağlanmalı; macOS bildirimi yalnız yerel kurulum içindir.
 
 ## Dinamik — 11 Ekim 2026
 

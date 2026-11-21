@@ -74,6 +74,8 @@ test("the quality card adds a price anomaly figure that links to the page's grou
   const quality = { uniqueProducts: 10, productRows: 10, missingPrices: 0, duplicateCodes: 0, conflictingCodes: 0 };
   const some = render(<SupplierQualityCard quality={quality} filters={{ group: "OTHER" }} priceAnomalies={{ open: 2, filters: { group: "FIAT" } }}/>);
   assert.match(some, /Fiyat anomalisi/);
+  assert.match(some, /Tüm gruplar · açık kayıt/);
+  assert.match(render(<SupplierQualityCard quality={quality} priceAnomalies={{ open: 1, group: "FIAT" }}/>), /FIAT grubu · açık kayıt/);
   assert.match(some, /href="\?group=FIAT&amp;quality=price-anomaly"/);
   const none = render(<SupplierQualityCard quality={quality} priceAnomalies={{ open: 0 }}/>);
   assert.match(none, /Fiyat anomalisi/);

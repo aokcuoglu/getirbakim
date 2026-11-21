@@ -26,7 +26,7 @@ export function SupplierQualityCard({ quality, scope, completedAt, filters = {},
   completedAt?: Date | null;
   filters?: Record<string, string | undefined>;
   links?: Metric[];
-  priceAnomalies?: { open: number; filters?: Record<string, string | undefined> };
+  priceAnomalies?: { open: number; /** Selected group, shown under the figure; empty = all groups. */ group?: string; filters?: Record<string, string | undefined> };
   /** Supplier-specific detail line under the figures. */
   children?: ReactNode;
 }) {
@@ -36,7 +36,7 @@ export function SupplierQualityCard({ quality, scope, completedAt, filters = {},
     { label: "Eksik fiyat", value: quality.missingPrices ?? 0, metric: "missing-price" as const, tone: "warning" as const },
     { label: "Tekrarlanan kod", value: quality.duplicateCodes ?? 0, metric: "duplicates" as const, tone: "warning" as const },
     { label: "Çelişkili kod", value: quality.conflictingCodes ?? 0, metric: "conflicts" as const, tone: "error" as const },
-    ...(priceAnomalies ? [{ label: "Fiyat anomalisi", value: priceAnomalies.open, metric: "price-anomaly" as const, tone: "warning" as const, own: priceAnomalies.filters, linked: true }] : []),
+    ...(priceAnomalies ? [{ label: "Fiyat anomalisi", value: priceAnomalies.open, metric: "price-anomaly" as const, tone: "warning" as const, own: priceAnomalies.filters, linked: true, hint: `${priceAnomalies.group ? `${priceAnomalies.group} grubu` : "Tüm gruplar"} · açık kayıt` }] : []),
   ] : [];
   return <Card>
     <CardHeader>
@@ -46,13 +46,14 @@ export function SupplierQualityCard({ quality, scope, completedAt, filters = {},
     <CardContent className="flex flex-col gap-4">
       {quality ? <>
         <div className={`grid gap-4 sm:grid-cols-2 ${metrics.length === 5 ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
-          {metrics.map(({ label, value, metric, tone, own, linked }) => <Card key={label} size="sm">
+          {metrics.map(({ label, value, metric, tone, own, linked, hint }) => <Card key={label} size="sm">
             <CardHeader>
               <CardDescription>{label}</CardDescription>
               <CardTitle><span className="text-2xl font-semibold tabular-nums">{formatNumber(value)}</span></CardTitle>
               <CardAction>{!tone ? quality.productRows !== undefined && <StatusBadge tone="info">{formatNumber(quality.productRows)} satır</StatusBadge>
                 : value ? <StatusBadge tone={tone}>İncele</StatusBadge> : <StatusBadge tone="success">Sorun yok</StatusBadge>}</CardAction>
             </CardHeader>
+            {hint && <CardContent><p className="text-muted-foreground">{hint}</p></CardContent>}
             {metric && value > 0 && (linked || links.includes(metric)) && <CardContent>
               <Button variant="link" nativeButton={false} render={<Link data-supplier-tab="products" href={href(metric, own)}/>}>Kayıtları incele<ArrowRight data-icon="inline-end" aria-hidden="true"/></Button>
             </CardContent>}

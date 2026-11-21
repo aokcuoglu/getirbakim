@@ -67,7 +67,7 @@ export function basbugPartTableProps(items: AdminSupplierItem[], warehouse: Basb
             const stock = basbugWarehouseStock(item.stock_data, depot);
             return [depot, stockCell(stock === null ? null : stock > 0, stock === null ? `${depot}: Stok verisi alınamadı veya bu depoya erişim yok` : `${depot}: ${basbugStockLabel(stock)}`)];
           })),
-          check: item.presence === "present" && item.price_anomaly ? { value: "Fiyat anomalisi", tone: "warning" } : checkCell(item, !item.price_data, repeated),
+          check: item.presence === "present" && !item.conflicting && item.price_anomaly ? { value: "Fiyat anomalisi", tone: "warning" } : checkCell(item, !item.price_data, repeated),
         },
       };
     }),
