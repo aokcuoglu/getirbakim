@@ -39,6 +39,11 @@ export async function diffDescriptionFitments(client: PoolClient): Promise<Descr
 /** Replaces product_model_fitments with `rows` in the caller's transaction, writing only what changed. */
 export async function writeDescriptionFitments(client: PoolClient, rows: DescriptionFitmentRow[]): Promise<DescriptionFitmentWriteResult> {
   await loadDescriptionFitmentsNext(client, rows);
+  return applyDescriptionFitmentsNext(client, rows.length);
+}
+
+/** writeDescriptionFitments for an already loaded description_fitments_next holding `count` rows. */
+export async function applyDescriptionFitmentsNext(client: PoolClient, count: number): Promise<DescriptionFitmentWriteResult> {
   // The UPDATE sees the rows as they were before the DELETE; the EXISTS keeps the two row sets disjoint (kept vs deleted).
   const { deleted } = (await client.query<{ deleted: number }>(`WITH d AS (
     DELETE FROM product_model_fitments f WHERE NOT EXISTS(SELECT 1 FROM description_fitments_next n
@@ -57,5 +62,5 @@ export async function writeDescriptionFitments(client: PoolClient, rows: Descrip
      WHERE (f.year_from,f.year_to,f.source_text) IS DISTINCT FROM (EXCLUDED.year_from,EXCLUDED.year_to,EXCLUDED.source_text)
     RETURNING (xmax=0) AS inserted)
     SELECT count(*) FILTER (WHERE inserted)::int AS inserted,count(*) FILTER (WHERE NOT inserted)::int AS updated FROM w`)).rows[0];
-  return { inserted: written.inserted, updated: written.updated, deleted, unchanged: rows.length - written.inserted - written.updated };
+  return { inserted: written.inserted, updated: written.updated, deleted, unchanged: count - written.inserted - written.updated };
 }

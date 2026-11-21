@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { deriveDescriptionFitments, type DeriveOptions } from "../src/modules/store/description-fitment-derive";
@@ -202,6 +203,38 @@ describe("description fitment derive", { skip: !process.env.DATABASE_URL }, () =
     assert.equal(await count(), 3);
   });
 
+  test("a derivation deleting over 10% of 1000+ stored rows is refused even when inserts keep the count level", async () => {
+    await schema.pool.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+      SELECT 'dinamik','DINAMIK','G','MRK','BULK '||g,'{"uk":"TST","kull1s":"VAG","ac":"SILECEK GOLF IV 98>04"}','{}','{}',1,1,1,false,'present',now(),now(),now()
+      FROM generate_series(1,1000) g`);
+    assert.deepEqual((await derive()).written, { inserted: 1000, updated: 0, deleted: 0, unchanged: 3 });
+    await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"ac":"FAR PASSAT 97>00"}'
+      WHERE code IN (SELECT 'BULK '||g FROM generate_series(1,150) g)`);
+    const before = await snapshot();
+    const expected = { inserted: 150, updated: 0, deleted: 150, unchanged: 853 };
+    const refused = await derive();
+    assert.equal(refused.status, "refused");
+    assert.match(refused.reason ?? "", /deletes 150 of the 1003/);
+    assert.deepEqual([refused.rows, refused.diff, refused.written], [1003, expected, null]);
+    assert.equal(await snapshot(), before, "a refused derive writes nothing");
+    const dry = await derive({ dryRun: true });
+    assert.deepEqual([dry.status, dry.diff], ["refused", expected], "a dry run shows the refused diff for review");
+
+    assert.deepEqual((await derive({ allowShrink: true })).written, expected);
+    assert.equal(await count(), 1003);
+  });
+
+  test("no present Dinamik item is refused before the matching pass", async () => {
+    await schema.pool.query("UPDATE supplier_items SET presence='inactive' WHERE supplier='dinamik'");
+    const before = await snapshot();
+    const refused = await derive({ allowShrink: true });
+    assert.equal(refused.status, "refused");
+    assert.match(refused.reason ?? "", /no present Dinamik item/);
+    assert.deepEqual([refused.items, refused.rows, refused.diff, refused.written], [0, 0, null, null]);
+    assert.equal(await snapshot(), before);
+  });
+
   test("an empty vehicle catalog is refused", async () => {
     await schema.pool.query("DELETE FROM vehicle_models");
     const refused = await derive();
@@ -209,4 +242,11 @@ describe("description fitment derive", { skip: !process.env.DATABASE_URL }, () =
     assert.match(refused.reason ?? "", /catalog is empty/);
     assert.equal(refused.written, null);
   });
+});
+
+test("the CLI rejects an unknown flag with its usage and exit code 64", () => {
+  const run = spawnSync(process.execPath, ["--import", "tsx", "scripts/description-fitments.ts", "derive", "--bogus"], { encoding: "utf8" });
+  assert.equal(run.status, 64);
+  assert.match(run.stderr, /^Usage: description-fitments\.ts derive/);
+  assert.equal(run.stdout, "");
 });

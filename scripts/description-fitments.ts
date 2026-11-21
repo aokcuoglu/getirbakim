@@ -6,8 +6,8 @@
 // The derivation lives in src/modules/store/description-fitment-derive.ts; neither imports a server-only module, so the
 // AWS operations task runs without --conditions=react-server (#562), from getirbakim-infra:
 //   ./scripts/run-task.sh production -- node --import tsx scripts/description-fitments.ts derive [--dry-run]
-// Exit codes: 0 ok, 1 error, 2 refused by a guard (empty vehicle catalog, no Dinamik items, or a derivation under 70% of
-// the stored rows when 1000+ are stored; --allow-shrink accepts the shrink), 3 another derive holds the lock, 64 usage.
+// Exit codes: 0 ok, 1 error, 2 refused by a guard (empty vehicle catalog, no Dinamik items, or with 1000+ stored rows a
+// derivation under 70% of them or deleting over 10% of them; --allow-shrink accepts it), 3 another derive holds the lock, 64 usage.
 import { Pool } from "pg";
 import { deriveDescriptionFitments } from "../src/modules/store/description-fitment-derive";
 
@@ -21,9 +21,9 @@ async function derive(pool: Pool) {
   const client = await pool.connect();
   try {
     const result = await deriveDescriptionFitments(client, { dryRun, allowShrink: flags.includes("--allow-shrink") });
-    const { status, reason, items, statuses, rows, existing, written, top } = result;
+    const { status, reason, items, statuses, rows, existing, diff, written, top } = result;
     console.log(JSON.stringify({ job: "description-fitments", status, ...(reason ? { reason } : {}), dryRun,
-      seconds: Math.round((Date.now() - started) / 100) / 10, items, statuses, rows, existing, written, top }));
+      seconds: Math.round((Date.now() - started) / 100) / 10, items, statuses, rows, existing, diff, written, top }));
     process.exitCode = exitCodes[status];
   } finally { client.release(); }
 }
