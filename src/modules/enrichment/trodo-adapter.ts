@@ -9,12 +9,16 @@ const engineSchema=z.object({value:z.union([z.string(),z.number()]),label:labelS
 const relationshipsSchema=z.object({oe_numbers:z.record(z.string(),z.array(z.object({oem:z.union([z.string(),z.number()]),value:z.string()}))).nullable(),attributes:z.object({criteria:z.array(z.object({label:z.string(),value:z.union([z.string(),z.number()]).nullable()}))}),vehicle_ids:z.array(z.union([z.string(),z.number()])).nullable().transform(v=>v||[]),vehicle_list:z.union([z.array(z.never()).length(0).transform(()=>({list:{}})),z.object({list:z.record(z.string(),z.object({automaker_id:z.union([z.string(),z.number()]),automaker_label:z.object({name:z.string()}),model_list:z.array(z.object({value_id:z.union([z.string(),z.number()])})).default([])}))})])});
 export type SourceProduct=z.infer<typeof productSchema>;
 export type SourceView=z.infer<typeof relationshipsSchema>;
-export function sourcePartQuery(brand:string,code:string){
+export function sourcePartQuery(brand:string,code:string,masterBrand?:string|null){
  // Strip only prefixes accepted by the shared exact-match contract; a brand name may span several words ("VICTOR REINZ").
- return supplierCodeSuffixes(code).slice(1).find(rest=>matchesSupplierPart(brand,code,brand,rest))??code;
+ // Codes carry either the label's own name ("ITHAL 03C…" under master ORIJINAL) or the master brand's ("BOSCH 1987…"
+ // under label BOSCH-AV), so both are tried and the shortest stripped part wins (#1117).
+ const suffixes=supplierCodeSuffixes(code).slice(1);
+ const stripped=[brand,masterBrand].flatMap(b=>{const rest=b?suffixes.find(r=>matchesSupplierPart(b,code,b,r)):undefined;return rest?[rest]:[];});
+ return stripped.sort((a,b)=>a.length-b.length)[0]??code;
 }
-export function sourcePartQueries(brand:string,code:string){
- const part=sourcePartQuery(brand,code).trim(),name=brand.trim();
+export function sourcePartQueries(brand:string,code:string,masterBrand?:string|null){
+ const part=sourcePartQuery(brand,code,masterBrand).trim(),name=brand.trim();
  // Searches only discover candidates, so an unregistered supplier prefix ("GLS T85010-00") may be dropped here;
  // identity is still decided by the exact-match contract or a verified original OEM reference.
  const [head,...tail]=part.split(/\s+/),rest=tail.join(' ');

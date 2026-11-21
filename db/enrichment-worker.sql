@@ -162,7 +162,8 @@ CREATE OR REPLACE FUNCTION enrichment_supplier_part_keys(code text) RETURNS text
  SELECT COALESCE(array_agg(DISTINCT k) FILTER(WHERE k<>''),'{}'::text[])
  FROM (SELECT enrichment_part_key(array_to_string(w[i:],' ')) AS k
   FROM (SELECT regexp_split_to_array(btrim(code),'[[:space:]]+') AS w) s,generate_subscripts(w,1) i) t $$;
--- Rows stored before the REINZ alias carry the old brand key; rewriting only changed rows keeps re-runs write-free.
+-- Rows stored before an alias was added carry a stale brand key (REINZ, AVACLEVERCHOICE seen locally); every such key
+-- is rewritten to the current enrichment_brand_key, and touching only changed rows keeps re-runs write-free.
 UPDATE enrichment_search_products SET brand_key=enrichment_brand_key(brand_key) WHERE brand_key<>enrichment_brand_key(brand_key);
 
 -- parts2world.com (TecDoc, #382) has no part-number search: its article-info call needs the article id, the article link
