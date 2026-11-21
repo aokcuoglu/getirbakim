@@ -310,3 +310,14 @@ test("the phone header keeps an explicit, compact search mode and a 44px cart (#
   const css = readFileSync("src/app/storefront.css", "utf8");
   assert.match(css.match(/\.header-cart \{[^}]*\}/)?.[0] ?? "", /size-11/);
 });
+
+test("header menu controls are 44px and token-coloured (#1173)", () => {
+  const menu = readFileSync("src/components/navigation/category-menu.tsx", "utf8");
+  assert.doesNotMatch(menu, /size-7|min-h-7|min-h-9|min-h-10\b/);
+  assert.match(menu, /storeButton\(\{\s*intent:\s*"ghost",\s*size:\s*"icon"\s*\}\)/);
+  for (const file of ["category-menu", "category-sheet", "category-parts"]) {
+    assert.doesNotMatch(readFileSync(`src/components/navigation/${file}.tsx`, "utf8"), /(bg|border)-\[#/, file);
+  }
+  const css = readFileSync("src/app/storefront.css", "utf8");
+  assert.doesNotMatch(css.match(/\.site-nav-catalog \{[^}]*\}/)?.[0] ?? "#", /#/);
+});
