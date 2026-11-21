@@ -59,7 +59,7 @@ function FilterGroup({label,options,selected,onToggle,searchable=true,isBlocked,
  {/* Phones: the first entries without an inner scroll (the panel scrolls); a searched or opened long list scrolls in its own box. */}
  <div className={cn("facet-options",search||showAll?"facet-options-open":"facet-options-folded")}>{visible.map(option=><label key={option.value} className="facet-option">
   <StoreCheckbox checked={selected.includes(option.value)} disabled={!selected.includes(option.value)&&(isBlocked?isBlocked(option.value):selected.length>=30)} onChange={()=>onToggle(option.value)}/><span>{option.label}</span></label>)}
-  {visible.length<matching.length&&<button type="button" className="mt-1 cursor-pointer border-0 bg-transparent p-0 text-[13px] font-medium text-brand-strong hover:underline max-[768px]:min-h-11" onClick={()=>setShowAll(true)}>Tümünü göster ({matching.length.toLocaleString("tr-TR")})</button>}</div>
+  {visible.length<matching.length&&<Button type="button" variant="link" className={cn(storeButton({intent:"link",size:"md"}),"mt-1 px-0")} onClick={()=>setShowAll(true)}>Tümünü göster ({matching.length.toLocaleString("tr-TR")})</Button>}</div>
  {hint&&<p className="px-[25px] pb-[15px] text-[13px] text-muted-foreground">{hint}</p>}
  {!options.length&&<p className="px-[25px] pb-[25px] text-[13px] text-muted-foreground">Bu kategoride kayıt bulunamadı.</p>}
  </CollapsibleContent>
@@ -178,7 +178,7 @@ export function CatalogResults({count,page,pages,pageSize,params,children,defaul
  {active}
  <div className="group/listing" data-view={view}><div className="flex flex-col gap-4 group-data-[view=grid]/listing:mx-[-2px] group-data-[view=grid]/listing:grid group-data-[view=grid]/listing:grid-cols-3 group-data-[view=grid]/listing:items-stretch group-data-[view=grid]/listing:gap-x-4 group-data-[view=grid]/listing:gap-y-6 max-[992px]:group-data-[view=grid]/listing:grid-cols-2 max-[600px]:group-data-[view=grid]/listing:mx-0 max-[600px]:group-data-[view=grid]/listing:gap-x-2 max-[600px]:group-data-[view=grid]/listing:gap-y-4">{children}</div></div>
  {pages>1 && <Pagination aria-label="Katalog sayfaları" className="mt-[25px]"><PaginationContent className="flex-wrap justify-center gap-4 text-sm">
-  {page>1 && <PaginationItem><Button className={storeButton({intent:"primary",size:"lg"})} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page-1)})}/>}>Önceki sayfa</Button></PaginationItem>}
+  {page>1 && <PaginationItem><Button variant="outline" className={storeButton({intent:"outline",size:"lg"})} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page-1)})}/>}>Önceki sayfa</Button></PaginationItem>}
   <PaginationItem><span>Sayfa {page} / {pages}</span></PaginationItem>
   {page<pages && <PaginationItem><Button className={storeButton({intent:"primary",size:"lg"})} nativeButton={false} render={<Link href={listingUrl(params,{page:String(page+1)})}/>}>Sonraki sayfa</Button></PaginationItem>}
  </PaginationContent></Pagination>}

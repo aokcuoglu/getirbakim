@@ -14,7 +14,7 @@ import { storeButton } from "@/components/store-button";
 
 type Choice = { brand: string; productId: string; quantity: number };
 const money = (kurus: number) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(kurus / 100);
-const chip = "inline-flex min-h-10 items-center gap-2 rounded-lg border px-3 py-1.5 text-[13px] leading-5 font-medium transition-colors";
+const pressed = "aria-pressed:border-primary aria-pressed:bg-accent aria-pressed:text-accent-foreground aria-pressed:ring-1 aria-pressed:ring-primary";
 const brandOrder = (candidates: KitCandidate[]) => [...new Set(candidates.map(candidate => candidate.brand))];
 
 /** Default of a slot: its cheapest product, in that product's brand. */
@@ -64,15 +64,15 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
         <p className="mb-4 text-[13px] leading-[18px] text-muted-foreground"><strong className="font-medium text-foreground">{vehicleName}</strong> için hazır paketlerden başla; yuvaları ekleyip çıkararak setini özelleştir.</p>
         <div className="flex flex-wrap gap-2.5" role="group" aria-label="Hazır paketler">
           {kitPackages.map(option => { const active = pack?.size === option.size; return <button key={option.size} type="button" aria-pressed={active} onClick={() => choosePackage(option.slots)}
-            className={cn("relative flex min-h-[72px] min-w-[220px] items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors max-[600px]:min-w-full", active ? "border-brand bg-[#eef7fd] ring-1 ring-brand" : "border-border bg-white hover:border-[#b8d9ee]")}>
-            <span className={cn("grid size-11 shrink-0 place-items-center rounded-lg text-[15px] leading-none font-bold transition-colors", active ? "bg-brand text-white" : "bg-[#eef1f4] text-[#54626e]")}>{kitCountLabel(option.size, true)}</span>
+            className={cn("relative flex min-h-[72px] min-w-[220px] items-center gap-3 rounded-xl border px-3.5 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring max-[600px]:min-w-full", active ? "border-primary bg-accent ring-1 ring-primary" : "border-border bg-white hover:border-primary")}>
+            <span className={cn("grid size-11 shrink-0 place-items-center rounded-lg text-[15px] leading-none font-bold transition-colors", active ? "bg-brand text-white" : "bg-muted text-muted-foreground")}>{kitCountLabel(option.size, true)}</span>
             <span className="min-w-0"><span className="block text-base leading-6 font-semibold">{kitCountLabel(option.size)} {kitKindLabel(option.slots)}</span><span className="block text-xs leading-[18px] text-muted-foreground">{option.description}</span></span>
             {active && <CircleCheck size={18} className="absolute top-2 right-2 fill-brand text-white" aria-hidden="true"/>}</button>; })}
         </div>
         <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Set yuvaları">
-          {kitSlots.map(slot => { const on = enabled.has(slot.key), count = byKey.get(slot.key)?.candidates.length ?? 0; return <button key={slot.key} type="button" aria-pressed={on} onClick={() => toggle(slot.key)} disabled={!count && !on}
-            className={cn(chip, on ? "border-brand bg-brand text-white hover:bg-brand-strong" : "border-border bg-white text-foreground hover:border-[#54626e] disabled:cursor-not-allowed disabled:opacity-60")}>
-            {on ? <Check size={15} aria-hidden="true"/> : count ? <Plus size={15} aria-hidden="true"/> : <Minus size={15} aria-hidden="true"/>}{slot.name}{!count && <span className="text-[11px] font-normal opacity-80">(ürün yok)</span>}</button>; })}
+          {kitSlots.map(slot => { const on = enabled.has(slot.key), count = byKey.get(slot.key)?.candidates.length ?? 0; return <Button key={slot.key} type="button" variant="outline" aria-pressed={on} onClick={() => toggle(slot.key)} disabled={!count && !on}
+            className={cn(storeButton({ intent: "outline", size: "md" }), "whitespace-normal", pressed)}>
+            {on ? <Check size={15} aria-hidden="true"/> : count ? <Plus size={15} aria-hidden="true"/> : <Minus size={15} aria-hidden="true"/>}{slot.name}{!count && <span className="font-normal">(ürün yok)</span>}</Button>; })}
         </div>
       </section>
       <h2 className="mb-3 flex items-center gap-2.5 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl"><span className="grid size-7 place-items-center rounded-full bg-brand text-sm font-semibold text-white">2</span>Markaları seç</h2>
@@ -91,10 +91,10 @@ export function KitBuilder({ slots, vehicleName, oilCapacityLabel, oilViscositie
               {key === "engineOil" && slot.oilMatch === "viscosity" && <p className="mb-3 flex items-start gap-2 rounded-lg border border-[#f1d08a] bg-[#fff9eb] px-3.5 py-2.5 text-[13px] leading-5"><CircleAlert size={18} className="mt-px shrink-0 fill-[#f0a020] text-white" aria-hidden="true"/>Bu yağlar aracının viskozitesine uyar; üretici onayını ürün sayfasından kontrol et.</p>}
               <div className="flex flex-wrap gap-2" role="group" aria-label={`${meta.name} markası`}>
                 {brandOrder(slot.candidates).map(brand => { const active = choice?.brand === brand, logo = slot.candidates.find(candidate => candidate.brand === brand)?.logo, cheapest = slot.candidates.find(candidate => candidate.brand === brand)!;
-                  return <button key={brand} type="button" aria-pressed={active} onClick={() => chooseBrand(slot, brand)} title={brand}
-                    className={cn(chip, "min-h-12", active ? "border-brand bg-[#eef7fd] ring-1 ring-brand" : "border-border bg-white hover:border-[#54626e]")}>
-                    {logo ? <Image src={logo.src} width={logo.width} height={logo.height} alt={brand} style={{ width: 72, height: 24, objectFit: "contain" }} unoptimized/> : <span>{brand}</span>}
-                    <span className="text-xs font-normal text-muted-foreground">{money(cheapest.priceKurus)}{inBrand.length > 1 && active ? "+" : ""}</span></button>; })}
+                  return <Button key={brand} type="button" variant="outline" aria-pressed={active} onClick={() => chooseBrand(slot, brand)} title={brand}
+                    className={cn(storeButton({ intent: "outline", size: "lg" }), "max-w-full whitespace-normal", pressed)}>
+                    {active && <Check size={15} aria-hidden="true"/>}{logo ? <Image src={logo.src} width={logo.width} height={logo.height} alt={brand} style={{ width: 72, height: 24, objectFit: "contain" }} unoptimized/> : <span>{brand}</span>}
+                    <span className="text-sm font-normal text-muted-foreground">{money(cheapest.priceKurus)}{inBrand.length > 1 && active ? "+" : ""}</span></Button>; })}
               </div>
               {selected && <div className="mt-4 grid grid-cols-[72px_minmax(0,1fr)] items-center gap-4 max-[600px]:grid-cols-[56px_minmax(0,1fr)]">
                 <Link href={selected.href} className="grid size-[72px] place-items-center rounded-lg border border-border bg-white max-[600px]:size-14" aria-label={`${selected.brand} ${selected.code} ürün sayfası`}>
