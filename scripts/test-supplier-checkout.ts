@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
 
-// A per-row LATERAL repeats the view's rate step per row and a plain join builds the whole view (#705, #1135, #1158):
+// A per-row LATERAL repeats the view's rate step per row and a plain join builds the whole view (#705, #1135, #1158, #1168):
 // every by-id read of the catalog goes through catalogRowsByIdsSql / catalogRowsByIds.
 const slice=(source:string,from:string,to?:string)=>{
   const start=source.indexOf(from);
@@ -20,8 +20,11 @@ const byIdReads:[string,string,string|undefined,string][]=[
   ["src/modules/partner/orders.ts","async function offerRows","function unitPrice","catalogRowsByIds("],
   ["src/modules/store/catalog.ts","export async function getSetaEquivalents","/**","catalogRowsByIdsSql("],
   ["src/modules/store/catalog.ts","export async function getDecidedEquivalents","export function servicePrice","catalogRowsByIdsSql("],
+  ["src/modules/admin/product-matching.ts","async function dinamikOnly","/** SETA products","catalogRowsByIdsSql("],
+  ["src/modules/admin/product-matching.ts","async function setaReferences","// Listings, not raw rows","catalogRowsByIdsSql("],
+  ["src/modules/admin/restock.ts","const offerCte","export async function markRestockNotified","catalogRowsByIdsSql("],
 ];
-for(const [file,from,to,reader] of byIdReads) test(`${file} ${from.replace(/^.* /,"")} reads the catalog by id array (#1158)`, async()=> {
+for(const [file,from,to,reader] of byIdReads) test(`${file} ${from.replace(/^.* /,"")} reads the catalog by id array (#1158, #1168)`, async()=> {
   const part=slice(await readFile(file,"utf8"),from,to);
   assert.ok(part.includes(reader),reader);
   assert.doesNotMatch(part,/JOIN LATERAL \(SELECT \* FROM \(\$\{catalogSql\}\)/);
