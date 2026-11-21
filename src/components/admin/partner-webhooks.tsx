@@ -25,6 +25,7 @@ export function PartnerWebhooks({ webhooks }: { webhooks: Awaited<ReturnType<typ
           <TableHeader><TableRow>
             <TableHead>Partner</TableHead><TableHead>Uç nokta</TableHead><TableHead className="text-right">Bekleyen</TableHead>
             <TableHead className="text-right">Bırakılan</TableHead><TableHead className="text-right">Atlanan</TableHead><TableHead>Son teslim</TableHead>
+            <TableHead><span className="sr-only">İşlem</span></TableHead>
           </TableRow></TableHeader>
           <TableBody>{webhooks.partners.map(p => <TableRow key={p.code} className="align-top">
             <TableCell className="font-medium">{p.code}</TableCell>
@@ -34,16 +35,15 @@ export function PartnerWebhooks({ webhooks }: { webhooks: Awaited<ReturnType<typ
               : p.endpointState === "unreadable" ? <StatusBadge tone="warning">Ayar okunamadı</StatusBadge>
               : <StatusBadge tone="neutral">Tanımsız</StatusBadge>}</TableCell>
             <TableCell className="text-right tabular-nums">{formatNumber(p.pending)}</TableCell>
-            <TableCell className="text-right">{p.dead > 0 ? <div className="flex flex-col items-end gap-2">
-              <StatusBadge tone="error">{formatNumber(p.dead)} bırakıldı</StatusBadge>
-              {p.endpointState === "configured" && <form action={requeuePartnerWebhookEvents}>
-                <input type="hidden" name="partner" value={p.code}/>
-                <SubmitButton variant="outline" size="sm" pendingLabel="Kuyruğa alınıyor…" aria-label={`${p.code}: bırakılan bildirimleri yeniden gönder`}
-                  icon={<RotateCw data-icon="inline-start" aria-hidden="true"/>}>Bırakılanları yeniden gönder</SubmitButton>
-              </form>}
-            </div> : <span className="tabular-nums">0</span>}</TableCell>
+            <TableCell className="text-right">{p.dead > 0 ? <StatusBadge tone="error">{formatNumber(p.dead)} bırakıldı</StatusBadge> : <span className="tabular-nums">0</span>}</TableCell>
             <TableCell className="text-right tabular-nums">{formatNumber(p.skipped)}</TableCell>
             <TableCell className="tabular-nums">{p.lastDeliveredAt ? formatDateTime(p.lastDeliveredAt, { year: true }) : "—"}</TableCell>
+            <TableCell>{p.dead > 0 && p.endpointState === "configured" && <div className="flex justify-end"><form action={requeuePartnerWebhookEvents}>
+              <input type="hidden" name="partner" value={p.code}/>
+              <SubmitButton variant="outline" size="sm" pendingLabel="Kuyruğa alınıyor…" icon={<RotateCw data-icon="inline-start" aria-hidden="true"/>}>
+                Bırakılanları yeniden gönder<span className="sr-only"> ({p.code})</span>
+              </SubmitButton>
+            </form></div>}</TableCell>
           </TableRow>)}</TableBody>
         </Table> : <Empty>
           <EmptyHeader>
@@ -62,7 +62,7 @@ export function PartnerWebhooks({ webhooks }: { webhooks: Awaited<ReturnType<typ
     {webhooks.problems.length > 0 && <Card>
       <CardHeader>
         <CardTitle>Sorunlu bildirimler</CardTitle>
-        <CardDescription>En az bir kez teslim edilemeyen bildirimler. Bırakıldı: partnerin uç noktası 72 saat boyunca başarılı yanıt vermedi; bildirim kendiliğinden yeniden gönderilmez; uç nokta düzeldikten sonra buradan yeniden gönderebilirsiniz. Partner sipariş durumunu API&apos;den sorgulayabilir; uç noktayı partnerle birlikte kontrol edin.</CardDescription>
+        <CardDescription>En az bir kez teslim edilemeyen bildirimler. Bırakıldı: partnerin uç noktası 72 saat boyunca başarılı yanıt vermedi. Bu bildirim kendiliğinden yeniden gönderilmez; uç nokta düzeldikten sonra buradan yeniden gönderebilirsiniz. Partner sipariş durumunu API&apos;den sorgulayabilir; uç noktayı partnerle birlikte kontrol edin.</CardDescription>
       </CardHeader>
       <CardContent>
         <Table controls={false}>
@@ -83,8 +83,9 @@ export function PartnerWebhooks({ webhooks }: { webhooks: Awaited<ReturnType<typ
             <TableCell className="max-w-48 whitespace-normal">{problem.status === "dead" && (configured.has(problem.partner)
               ? <div className="flex justify-end"><form action={requeuePartnerWebhookEvent}>
                 <input type="hidden" name="event" value={problem.id}/>
-                <SubmitButton variant="outline" size="sm" pendingLabel="Gönderiliyor…" aria-label={`#${problem.orderNumber} ${problem.partner} bildirimini yeniden gönder`}
-                  icon={<RotateCw data-icon="inline-start" aria-hidden="true"/>}>Yeniden gönder</SubmitButton>
+                <SubmitButton variant="outline" size="sm" pendingLabel="Gönderiliyor…" icon={<RotateCw data-icon="inline-start" aria-hidden="true"/>}>
+                  Yeniden gönder<span className="sr-only"> (#{problem.orderNumber} · {problem.partner})</span>
+                </SubmitButton>
               </form></div>
               : <span className="text-muted-foreground">Uç nokta tanımlı değil; yeniden gönderilemez.</span>)}</TableCell>
           </TableRow>)}</TableBody>

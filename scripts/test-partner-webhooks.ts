@@ -462,3 +462,25 @@ test("the 5-minute sweep prunes old partner webhook events after delivering the 
   const route = await readFile("src/app/api/payments/tami/reconcile/route.ts", "utf8");
   assert.match(route, /await deliverPartnerWebhooksSafely\(\{ limit: 20 \}\);\s*await prunePartnerWebhookEventsSafely\(\);/);
 });
+
+test("a requeued event queues from its requeue, so fresh events written before it are claimed first", async () => {
+  const original = console.error;
+  console.error = () => undefined;
+  try {
+    // Drain what earlier tests left claimable (failures wait for their backoff and are not claimed again).
+    const drain = recorder(204);
+    for (let result = await webhooks.deliverPartnerWebhooks({ send: drain.send, config, limit: 22 }); result.delivered + result.skipped + result.retried > 0;
+      result = await webhooks.deliverPartnerWebhooks({ send: drain.send, config, limit: 22 }));
+  } finally { console.error = original; }
+  const admin = await newAdmin();
+  const old = await deadEvent();
+  const fresh = await partnerOrder();
+  await update(fresh, "status='confirmed'");
+  const [freshEvent] = await events(fresh);
+  await webhooks.requeuePartnerWebhook(old.id, admin, ["bakimx"]);
+  const { sent, send } = recorder(204);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ send, config, limit: 1 }), { delivered: 1, skipped: 0, dead: 0, retried: 0 });
+  assert.deepEqual(sent.map(request => request.headers["X-GetirBakim-Event-Id"]), [freshEvent.id]);
+  await webhooks.deliverPartnerWebhooks({ send, config, limit: 1 });
+  assert.deepEqual(sent.map(request => request.headers["X-GetirBakim-Event-Id"]), [freshEvent.id, old.id]);
+});

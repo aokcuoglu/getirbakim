@@ -98,14 +98,15 @@ export async function deliverPartnerWebhooks({
       "SELECT partner_code,count(*)::int AS count FROM partner_webhook_events WHERE status='pending' AND partner_code=ANY($1::text[]) GROUP BY partner_code", [held])).rows;
     for (const row of waiting) console.error("Partner webhooks waiting: invalid PARTNER_WEBHOOKS_JSON entry", { partner: row.partner_code, reason: invalid.get(row.partner_code), events: row.count });
   }
-  // Sent in queue order; a partner still cannot rely on it (a retried event arrives after later ones).
+  // Sent in queue order (a requeued event queues from its requeue, so a bulk requeue does not hold back fresh events); a
+  // partner still cannot rely on it (a retried event arrives after later ones).
   const claimed = (await db.query<ClaimedEvent>(
     `WITH claimed AS (UPDATE partner_webhook_events SET claimed_at=now(),attempts=attempts+1 WHERE id IN (
        SELECT id FROM partner_webhook_events WHERE status='pending' AND ($1::uuid IS NULL OR order_id=$1) AND NOT partner_code=ANY($3::text[])
         AND (claimed_at IS NULL OR claimed_at < now()-make_interval(mins=>${RETRY_SQL}))
-       ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED)
-     RETURNING id::text,partner_code,event_type,order_id::text,return_request_id::text,attempts,created_at)
-     SELECT * FROM claimed ORDER BY created_at,id`, [only, batch, held],
+       ORDER BY COALESCE(requeued_at,created_at) LIMIT $2 FOR UPDATE SKIP LOCKED)
+     RETURNING id::text,partner_code,event_type,order_id::text,return_request_id::text,attempts,created_at,requeued_at)
+     SELECT id,partner_code,event_type,order_id,return_request_id,attempts,created_at FROM claimed ORDER BY COALESCE(requeued_at,created_at),id`, [only, batch, held],
   )).rows;
   for (const row of claimed) {
     const endpoint = endpoints.get(row.partner_code);

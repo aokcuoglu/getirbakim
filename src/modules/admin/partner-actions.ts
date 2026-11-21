@@ -74,8 +74,9 @@ export async function requeuePartnerWebhookEvent(form: FormData) {
   if (!hasWebhookEndpoint(event.partner)) redirect(webhookReturn("no_endpoint", event.partner));
   const requeued = await requeuePartnerWebhook(input.data.event, admin.id, [event.partner]);
   if (!requeued) redirect(webhookReturn("gone"));
-  // Sends the order's pending events now; this one is claimed at once (no claim, a fresh requeue).
-  await deliverPartnerWebhooksSafely({ orderId: requeued.orderId });
+  // Sends the order's pending events now (a few, so the form waits at most a few timeouts); this one is claimed at once
+  // (no claim, a fresh requeue). A sweep sending it at the same moment leaves it pending here: the page says "not yet".
+  await deliverPartnerWebhooksSafely({ orderId: requeued.orderId, limit: 5 });
   const sent = await readPartnerWebhookEvent(input.data.event);
   revalidatePath("/yonetim/partnerler");
   redirect(webhookReturn(sent?.status === "delivered" ? "delivered" : sent?.status === "pending" ? "pending" : "gone", requeued.partner));
