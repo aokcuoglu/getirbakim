@@ -5,6 +5,8 @@ import { partnerOrderLimitEnv, resolveOrderLimitKurus } from "@/modules/partner/
 import { lastDiscountChanges, panelDiscounts } from "@/modules/partner/discounts";
 import { pausedPartners } from "@/modules/partner/intake";
 import { partnerDiscountEnv, resolvePartnerDiscount, resolvePartnerDiscountBps } from "@/modules/partner/pricing";
+import { parsePartnerWebhooks, partnerWebhooksEnv } from "@/modules/partner/webhook-contract";
+import { partnerWebhookSummary, recentPartnerWebhookProblems } from "@/modules/partner/webhooks";
 import { knownPartners, noExposure, panelLimits, partnerExposures, partnerInvoiceChanges, partnerInvoices, resolvePartnerLimit, uninvoicedDays } from "@/modules/partner/limits";
 
 /** /yonetim/partnerler (#426): every partner with its limit, its exposure and what can be invoiced. */
@@ -32,4 +34,22 @@ export async function adminPartnerInvoices() {
   const { codes } = await knownPartners();
   const [invoices, changes] = await Promise.all([partnerInvoices(codes), partnerInvoiceChanges(codes)]);
   return { invoices, changes };
+}
+
+/**
+ * /yonetim/partnerler (#1002): per partner whether a webhook endpoint is configured (its host only, never the URL's path
+ * or the secret), what waits and what was given up, and the latest failing events.
+ */
+export async function adminPartnerWebhooks() {
+  await requireAdmin();
+  const { codes } = await knownPartners();
+  const endpoints = parsePartnerWebhooks(process.env[partnerWebhooksEnv]);
+  const [summary, problems] = await Promise.all([partnerWebhookSummary(codes), recentPartnerWebhookProblems(codes)]);
+  const partners = codes.map(code => {
+    const endpoint = endpoints.get(code);
+    const counts = summary.get(code);
+    return { code, endpointHost: endpoint ? new URL(endpoint.url).host : null, pending: counts?.pending ?? 0, dead: counts?.dead ?? 0,
+      lastDeliveredAt: counts?.lastDeliveredAt ?? null };
+  });
+  return { partners, problems, configured: partners.some(partner => partner.endpointHost) };
 }

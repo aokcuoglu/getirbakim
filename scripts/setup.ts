@@ -99,6 +99,8 @@ try {
    await apply("storefront-make-fits");
    await apply("newsletter");
    await apply("indexnow");
+   // Partner webhook outbox (#1002), last: its table and trigger read commerce_orders, partner_return_requests and accounts.
+   await apply("partner");
    // The matcher / state sync lock is (20261001,5) in public; other schemas derive their own key (#792). Both functions
    // still agree off public, so a surprise is reported rather than failing the deploy.
    const lockKey = (await client.query<{ key: number }>("SELECT schema_lock_key(5) AS key")).rows[0].key;

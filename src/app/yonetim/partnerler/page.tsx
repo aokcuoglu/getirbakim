@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { ArrowUpRight, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileText, Handshake, TriangleAlert } from "lucide-react";
-import { adminPartnerInvoices, adminPartners } from "@/modules/admin/partners";
+import { ArrowUpRight, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileText, Handshake, RotateCw, TriangleAlert, Webhook } from "lucide-react";
+import { adminPartnerInvoices, adminPartners, adminPartnerWebhooks } from "@/modules/admin/partners";
 import { savePartnerDiscountRate, savePartnerLimit, setPartnerIntake } from "@/modules/admin/partner-actions";
 import { istanbulToday, percentText } from "@/modules/admin/partner-input";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
@@ -34,7 +34,7 @@ const countParam = (value: string | undefined) => { const count = Number(value);
 export default async function Partners({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
-  const [partners, { invoices, changes }] = await Promise.all([adminPartners(), adminPartnerInvoices()]);
+  const [partners, { invoices, changes }, webhooks] = await Promise.all([adminPartners(), adminPartnerInvoices(), adminPartnerWebhooks()]);
   const today = istanbulToday();
   const invoiced = Number(params.invoiced);
   const corrected = countParam(params.corrected), undone = countParam(params.undone);
@@ -133,6 +133,54 @@ export default async function Partners({ searchParams }: { searchParams: Promise
         </Empty>}
         <p className="pt-4 text-muted-foreground">Panel limiti boş bırakılırsa varsayılan limit (PARTNER_ORDER_LIMIT_KURUS) geçerli olur; o da yoksa partner sipariş veremez.</p>
         <p className="text-muted-foreground">B2B indirim boş bırakılırsa varsayılan indirim (PARTNER_B2B_DISCOUNT_BPS) geçerli olur; o da yoksa indirim uygulanmaz. %0 girilirse varsayılan yok sayılır, indirim uygulanmaz.</p>
+      </CardContent>
+    </Card>
+
+    <Card>
+      <CardHeader>
+        <CardTitle>Webhook bildirimleri</CardTitle>
+        <CardDescription>Partner siparişinin durumu, kargosu ya da iptali değişince partnerin sistemine imzalı bildirim gönderilir. Teslim edilemeyen bildirim 72 saat boyunca yeniden denenir, sonra bırakılır.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-6">
+        {webhooks.configured ? <Table controls={false}>
+          <TableHeader><TableRow>
+            <TableHead>Partner</TableHead><TableHead>Uç nokta</TableHead><TableHead className="text-right">Sırada</TableHead>
+            <TableHead className="text-right">Teslim edilemedi</TableHead><TableHead>Son teslim</TableHead>
+          </TableRow></TableHeader>
+          <TableBody>{webhooks.partners.map(p => <TableRow key={p.code}>
+            <TableCell className="font-medium">{p.code}</TableCell>
+            <TableCell>{p.endpointHost ? <StatusBadge tone="success">Tanımlı · {p.endpointHost}</StatusBadge> : <StatusBadge tone="warning">Tanımsız</StatusBadge>}</TableCell>
+            <TableCell className="text-right tabular-nums">{formatNumber(p.pending)}</TableCell>
+            <TableCell className="text-right">{p.dead > 0 ? <StatusBadge tone="error">{formatNumber(p.dead)} bildirim</StatusBadge> : <span className="tabular-nums">0</span>}</TableCell>
+            <TableCell className="tabular-nums">{p.lastDeliveredAt ? formatDateTime(p.lastDeliveredAt, { year: true }) : "—"}</TableCell>
+          </TableRow>)}</TableBody>
+        </Table> : <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><Webhook/></EmptyMedia>
+            <EmptyTitle>Webhook uç noktası tanımlı değil</EmptyTitle>
+            <EmptyDescription>Uç noktalar PARTNER_WEBHOOKS_JSON ortam değişkeniyle tanımlanır.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>}
+        {webhooks.problems.length > 0 && <div className="flex flex-col gap-2">
+          <h2 className="font-medium">Sorunlu bildirimler</h2>
+          <p className="text-muted-foreground">En az bir kez teslim edilemeyen son 50 bildirim. Yanıt gövdesi saklanmaz; yalnızca HTTP durumu ya da hata özeti görünür.</p>
+          <Table controls={false}>
+            <TableHeader><TableRow>
+              <TableHead>Zaman</TableHead><TableHead>Partner</TableHead><TableHead>Sipariş</TableHead><TableHead>Durum</TableHead>
+              <TableHead className="text-right">Deneme</TableHead><TableHead>Son yanıt</TableHead>
+            </TableRow></TableHeader>
+            <TableBody>{webhooks.problems.map(problem => <TableRow key={problem.id} className="align-top">
+              <TableCell value={problem.createdAt.toISOString()} className="tabular-nums">{formatDateTime(problem.createdAt, { year: true })}</TableCell>
+              <TableCell className="font-medium">{problem.partner}</TableCell>
+              <TableCell><Button variant="link" nativeButton={false} render={<Link href="/yonetim/siparisler?sahip=partner"/>}>#{problem.orderNumber}<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button></TableCell>
+              <TableCell>{problem.status === "dead"
+                ? <StatusBadge tone="error">Bırakıldı</StatusBadge>
+                : <StatusBadge tone="info" icon={RotateCw}>Yeniden denenecek</StatusBadge>}</TableCell>
+              <TableCell className="text-right tabular-nums">{formatNumber(problem.attempts)}</TableCell>
+              <TableCell className="max-w-xs whitespace-normal">{problem.lastError ?? (problem.lastHttpStatus ? `HTTP ${problem.lastHttpStatus}` : "—")}</TableCell>
+            </TableRow>)}</TableBody>
+          </Table>
+        </div>}
       </CardContent>
     </Card>
 
