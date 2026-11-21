@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {enrichmentDataSchema,matchesSupplierPart,manufacturerBrandKey} from '../store/enrichment-contract';
+import {enrichmentDataSchema,matchesSupplierPart,manufacturerBrandKey,supplierCodeSuffixes} from '../store/enrichment-contract';
 import type {SourceQueue} from './source-queue';
 const categoryId=z.coerce.number().int().positive();
 export const productSchema=z.object({entity_id:z.union([z.string(),z.number()]),manufacturer:z.string().min(1),tecdoc_sku:z.string().min(1),url_key:z.string().nullish(),url_path:z.string().nullish(),media:z.object({src:z.string().nullish()}).passthrough().nullish(),category:z.array(z.object({category_id:categoryId,name:z.string().min(1)})).nullish(),category_ids:z.array(categoryId).nullish()}).passthrough();
@@ -11,9 +11,7 @@ export type SourceProduct=z.infer<typeof productSchema>;
 export type SourceView=z.infer<typeof relationshipsSchema>;
 export function sourcePartQuery(brand:string,code:string){
  // Strip only prefixes accepted by the shared exact-match contract; a brand name may span several words ("VICTOR REINZ").
- const words=code.trim().split(/\s+/);
- for(let at=1;at<words.length;at++){const rest=words.slice(at).join(' ');if(matchesSupplierPart(brand,code,brand,rest))return rest;}
- return code;
+ return supplierCodeSuffixes(code).slice(1).find(rest=>matchesSupplierPart(brand,code,brand,rest))??code;
 }
 export function sourcePartQueries(brand:string,code:string){
  const part=sourcePartQuery(brand,code).trim(),name=brand.trim();
@@ -106,8 +104,8 @@ export function normalizeData(view:SourceView,vehicle:Awaited<ReturnType<typeof 
  }
  return enrichmentDataSchema.parse({specifications:view.attributes.criteria.filter(a=>a.label&&a.value!==null&&String(a.value)).map(a=>[a.label,String(a.value)]),oemNumbers,crossReferences,vehicles:vehicle.vehicles,vehicleModels:vehicle.vehicleModels});
 }
-export function chooseExact(brand:string,code:string,products:SourceProduct[]){
- const found=products.filter(p=>matchesSupplierPart(brand,code,p.manufacturer,p.tecdoc_sku));
+export function chooseExact(brand:string,code:string,products:SourceProduct[],masterBrand?:string|null){
+ const found=products.filter(p=>matchesSupplierPart(brand,code,p.manufacturer,p.tecdoc_sku,masterBrand));
  // The same catalog item can appear in both part-code and OEM searches.
  const unique=[...new Map(found.map(p=>[String(p.entity_id),p])).values()];
  return unique.length===1?unique[0]:null;
