@@ -154,6 +154,7 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
    const vehicle=vehicles[i];
    // Only in-house stock is reserved; the line records what was taken so cancel/expiry return exactly that.
    const reserved=p.source==='store' ? p.quantity : 0;
+   // Defensive (#1188): not reachable normally, lockCheckoutSources holds the rows FOR UPDATE and max_quantity=LEAST(stock,99).
    if(reserved && !(await client.query('UPDATE store_products SET stock=stock-$2,updated_at=now() WHERE id=$1 AND stock>=$2',[p.id,reserved])).rowCount) {
     await client.query('ROLLBACK'); return {error:'stock',products:[p.id]};
    }

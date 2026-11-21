@@ -134,6 +134,8 @@ test("placing an order stores the consent and an immutable order-specific copy",
     // Lines the order cannot sell are listed by id (#1188).
     const line = (id: string, over: Record<string, unknown> = {}) => ({ id, available: true, price_kurus: 1000, quantity: 1, max_quantity: 5, ...over }) as never;
     assert.deepEqual(unsellableLines([line("ok"), line("nopr", { price_kurus: null }), line("off", { available: false }), line("cap", { quantity: 6 })], 0), ["nopr", "off", "cap"]);
+    assert.deepEqual(unsellableLines([line("cheap", { price_kurus: 1 })], 100), ["cheap"]);
+    assert.deepEqual(unsellableLines([line("cheap", { price_kurus: 1 })], 0), []);
     assert.deepEqual(unsellableLines([line("ok")], 0), []);
 
     const { cartFor, setCartQuantity } = await import("../src/modules/store/cart");
