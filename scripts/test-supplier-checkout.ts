@@ -29,6 +29,7 @@ for(const [file,from,to,reader] of byIdReads) test(`${file} ${from.replace(/^.* 
   assert.ok(part.includes(reader),reader);
   assert.doesNotMatch(part,/JOIN LATERAL \(SELECT \* FROM \(\$\{catalogSql\}\)/);
   assert.doesNotMatch(part,/LEFT JOIN \(\$\{catalogSql\}\)/);
+  assert.doesNotMatch(part,/JOIN LATERAL \([^)]*commerce_catalog/);
 });
 
 test("submitOrder waits CHECKOUT_LOCK_TIMEOUT for supplier rows, then goes on without the share lock (#790)", async()=> {
