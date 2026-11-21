@@ -149,6 +149,24 @@ function withoutStoreButton(text: string) {
   return result;
 }
 
+/** Every same-file `const name = …` initialiser (string literal, call, object or array), to follow className references. */
+function allConsts(source: string) {
+  const consts = new Map<string, string>();
+  for (const match of source.matchAll(/^\s*(?:export )?const (\w+)(?::[^=\n]+)?\s*=\s*/gm)) {
+    const start = match.index + match[0].length;
+    const first = source[start];
+    let end: number;
+    if (first === '"' || first === "'" || first === "`") end = source.indexOf(first, start + 1);
+    else {
+      const open = source.slice(start).search(/[({[]/);
+      const char = open < 0 ? "" : source[start + open];
+      end = open < 0 ? source.indexOf("\n", start) : closing(source, start + open, char, char === "(" ? ")" : char === "{" ? "}" : "]");
+    }
+    consts.set(match[1], source.slice(start, end + 1));
+  }
+  return consts;
+}
+
 /** Same-file `const name = cn(…)` / `storeButton(…)` initialisers (multi-line, `export const` included) that call storeButton. */
 function storeButtonConsts(source: string) {
   const consts = new Map<string, string>();
@@ -221,7 +239,7 @@ test("no hex colour on a storefront button or close tag", () => {
   const hex = /#[0-9a-f]{3,8}\b/i;
   for (const { path, source } of storefrontSources()) {
     if (path.includes("/components/navigation/") || path.endsWith("/auth/account-menu.tsx")) continue;
-    const consts = storeButtonConsts(source);
+    const consts = allConsts(source);
     for (const name of ["button", "Button", "DialogClose", "SheetClose"])
       for (const tag of buttonTags(source, name)) {
         assert.doesNotMatch(tag, hex, `${path}: ${tag.slice(0, 160)}`);

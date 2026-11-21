@@ -16,7 +16,7 @@ type Variant = "header" | "hero" | "catalog" | "home" | "product";
 
 const variantClass: Record<Variant, string> = {
   header: headerToolClass,
-  product: cn(storeButton({ intent: "link", size: "md" }), "block px-0 text-left whitespace-normal underline"),
+  product: cn(storeButton({ intent: "link", size: "md" }), "flex items-center px-0 text-left whitespace-normal underline"),
   catalog: "flex h-14 min-h-14 w-[320px] items-center justify-between gap-2.5 rounded-md border-2 border-white bg-white py-4 pr-[18px] pl-[15px] text-left text-base leading-6 font-normal text-muted-foreground hover:border-white hover:bg-white max-[850px]:text-sm min-[600px]:max-[850px]:w-60 min-w-0 max-[600px]:mt-3 max-[600px]:w-full [&>span]:truncate",
   home: cn("inline-flex max-w-full min-w-0 items-center justify-center border max-[600px]:w-full", storeButton({ intent: "secondary", size: "hero" }), "focus-visible:outline-white"),
   hero: "inline-flex min-h-16 max-w-full min-w-[260px] items-center gap-3 rounded-xl border border-border bg-muted px-4 py-2.5 text-left text-foreground shadow-none hover:border-primary hover:bg-accent",
