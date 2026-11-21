@@ -602,7 +602,7 @@ test("PostgreSQL: the order-time Başbuğ check re-checks the rows whose value i
   const sandbox = await mkdtemp(join(tmpdir(), "getirbakim-price-checkout-"));
   process.chdir(sandbox);
   try {
-    const { refreshPriceAnomalies, refreshPriceAnomaliesAfterCheckout, setPriceAnomalyStatus } = await import("../src/modules/suppliers/price-anomalies");
+    const { refreshPriceAnomalies, refreshPriceAnomaliesAfterCheckout, refreshPriceAnomaliesAfterImports, setPriceAnomalyStatus } = await import("../src/modules/suppliers/price-anomalies");
     const { refreshBasbugItems } = await import("../src/modules/suppliers/basbug-item-refresh");
     const rates = JSON.stringify({ dovizListesi: [{ dovizCinsi: "EUR", satis: "55" }] });
     await pool.query(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
@@ -650,6 +650,32 @@ test("PostgreSQL: the order-time Başbuğ check re-checks the rows whose value i
       await holder.query("SELECT pg_advisory_xact_lock(20261001,11)");
       assert.deepEqual(await refreshPriceAnomaliesAfterCheckout(pool, "basbug", [item], { lockTimeoutMs: 100 }), { changed: 1, skipped: true });
     } finally { await holder.query("ROLLBACK"); holder.release(); }
+
+    // A checkout move whose own re-check was skipped (lock held past its 2 s wait) is picked up by the next tick's scoped
+    // run, though that commerce run itself changed nothing.
+    assert.equal(await setPriceAnomalyStatus(pool, item, "dismissed", null, { nf: 200, currency: "TRY" }), true);
+    const blocker = await pool.connect();
+    try {
+      await blocker.query("BEGIN");
+      await blocker.query("SELECT pg_advisory_xact_lock(20261001,11)");
+      result = await refreshBasbugItems(pool, [item], { fetchItem: fetchFor(300) });
+    } finally { await blocker.query("ROLLBACK"); blocker.release(); }
+    assert.deepEqual(result.repriced, [item]);
+    assert.equal((await anomaly()).status, "dismissed");
+    assert.ok((await price() ?? 0) > 0);
+    const tick = (await pool.query<{ id: string }>(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,run_kind,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
+      VALUES('basbug','BASBUG','G','MRK','commerce',now(),now(),'{}','{}','{}',$1,'succeeded') RETURNING id::text`, [rates])).rows[0].id;
+    assert.deepEqual(await refreshPriceAnomaliesAfterImports(pool, "basbug", [tick]),
+      { changed: 1, skipped: false, flagged: 1, open: 1, removed: 0, reopened: 1, ratesMissing: false, unrated: 0 });
+    const reopened = await anomaly();
+    assert.deepEqual([reopened.status, reopened.evidence.reopened_from], ["open", { nf: 200, currency: "TRY" }]);
+    assert.equal(await price(), null);
+    // Changes from before the previous succeeded import started were already that tick's to re-check.
+    await pool.query("UPDATE supplier_item_changes SET changed_at=changed_at-interval '1 hour' WHERE item_id=$1", [item]);
+    await pool.query("UPDATE supplier_imports SET started_at=now()-interval '30 minutes',completed_at=now()-interval '30 minutes' WHERE id=$1", [tick]);
+    const next = (await pool.query<{ id: string }>(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,run_kind,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
+      VALUES('basbug','BASBUG','G','MRK','commerce',now(),now(),'{}','{}','{}',$1,'succeeded') RETURNING id::text`, [rates])).rows[0].id;
+    assert.deepEqual(await refreshPriceAnomaliesAfterImports(pool, "basbug", [next]), { changed: 0 });
   } finally {
     process.chdir(originalCwd);
     await rm(sandbox, { recursive: true, force: true });
