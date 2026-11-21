@@ -131,6 +131,30 @@
   .home-category-tile-name { @apply flex h-10 w-full items-center justify-center overflow-hidden text-sm leading-[18px] font-medium; }
 }
 
+@layer components {
+  /* Listing markup repeated per category, filter group or model family (#642). Each class is the exact utility list the
+     element carried before; the -related, -open and -folded classes follow their base class and override it. */
+  .facet-tree-link { @apply flex min-h-[30px] items-center justify-between py-[5px] pr-[35px] pl-[25px] text-sm leading-5 font-medium text-foreground transition-colors hover:text-brand aria-[current=page]:bg-[#f8f9f9] aria-[current=page]:text-foreground; }
+  .facet-trigger { @apply flex min-h-[50px] w-full cursor-pointer rounded-none border-0 bg-transparent text-foreground items-center justify-between px-[25px] py-[15px] max-[768px]:px-5 text-left text-base leading-5 outline-none focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:ring-inset; }
+  .facet-search { @apply relative mx-[25px] mb-[15px] block pt-[5px]; }
+  .facet-search-input { @apply h-10 w-full max-[768px]:h-11 rounded-md border border-input bg-white py-2 pr-2.5 pl-8 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50; }
+  .facet-options { @apply max-h-[300px] overflow-auto px-[25px] pt-[5px] pb-[25px] max-[768px]:px-5 max-[768px]:pb-4; }
+  .facet-options-open { @apply max-[768px]:max-h-80 max-[768px]:overscroll-contain; }
+  .facet-options-folded { @apply max-[768px]:max-h-none max-[768px]:overflow-visible; }
+
+  /* CategoryCards (default and "related" band) and the phone's CatalogCategoryChips. */
+  .category-card { @apply flex min-h-[176px] flex-col items-center justify-center gap-3 rounded-[4px] border border-[#e5e7eb] bg-white px-4 py-6 text-center text-sm text-foreground transition-colors hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring; }
+  .category-card-related { @apply rounded-md border-border max-[600px]:min-h-[190px]; }
+  .category-card-image { @apply grid h-[90px] w-full place-items-center; }
+  .category-chip { @apply flex min-h-11 items-center rounded-full border border-border bg-white px-4 text-sm whitespace-nowrap text-foreground transition-colors hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring; }
+
+  /* Catalog popular-make list items and a make page's model families (VehicleModelList). */
+  .make-list-item { @apply text-[13px] leading-[18px] not-last:after:ml-px not-last:after:content-[',']; }
+  .model-family { @apply mb-4 break-inside-avoid; }
+  .model-family-title { @apply mb-1 text-sm leading-5 font-semibold; }
+  .model-family-list { @apply text-[13px] leading-[18px]; }
+}
+
 /* iOS Safari zooms the page when a focused field is under 16px (#879). Unlayered so it beats size utilities; scoped like the storefront typography defaults, so /yonetim (.admin-app, portals included) keeps its sizes. */
 @media (max-width: 767.98px) {
   html:not(:has(.admin-app)) :is(input:not([type=checkbox], [type=radio], [type=range], [type=hidden], [type=file], [type=button], [type=submit], [type=reset], [type=color]), select, textarea) {
