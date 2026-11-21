@@ -1,8 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ImageOff, Images } from "lucide-react";
+import { Ban, ChevronLeft, ImageOff, Images } from "lucide-react";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
+import { SharedImageBlockDialog } from "@/components/admin/shared-image-block-dialog";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SupplierPagination } from "@/components/admin/supplier-pagination";
 import { Badge } from "@/components/ui/badge";
@@ -39,10 +40,12 @@ export default async function SharedImage({ params, searchParams }: { params: Pr
           <div key={label} className="min-w-0"><dt className="text-muted-foreground">{label}</dt><dd className="truncate tabular-nums" title={value}>{value}</dd></div>)}
         <div className="min-w-0 sm:col-span-2"><dt className="text-muted-foreground">SHA-256</dt>
           <dd className="flex flex-wrap items-center gap-2"><span className="break-all font-mono">{header.sha256}</span>
-            {header.listed && <StatusBadge tone="warning">Yer tutucu, mağazada gizli</StatusBadge>}</dd></div>
+            {header.listed && <StatusBadge tone="warning">Yer tutucu, mağazada gizli</StatusBadge>}
+            {header.blocked && <StatusBadge tone="warning" icon={Ban}>Engellendi, mağazada gizli</StatusBadge>}</dd></div>
         <div className="min-w-0 sm:col-span-2"><dt className="text-muted-foreground">Kaynak adresi</dt>
           <dd className="truncate"><a className="underline-offset-4 hover:underline" href={header.source_url} target="_blank" rel="noreferrer" title={header.source_url}>{header.source_url}<span className="sr-only"> (yeni sekmede açılır)</span></a></dd></div>
       </dl>
+      {!header.listed && <SharedImageBlockDialog imageId={header.image_id} blocked={header.blocked} label={`${header.host} görseli`} note={header.block_note} sourceUrl={header.source_url}/>}
     </CardContent></Card>
     <Card>
       <CardContent>
@@ -58,6 +61,7 @@ export default async function SharedImage({ params, searchParams }: { params: Pr
             <TableCell><Badge variant="secondary">{supplierNames[row.supplier] ?? row.supplier}</Badge></TableCell>
             <TableCell>{row.in_store ? <StatusBadge tone="success">Mağazada</StatusBadge> : <StatusBadge tone="neutral">Mağazada yok</StatusBadge>}</TableCell>
             <TableCell>{row.uploaded ? <StatusBadge tone="info">Yönetici yükledi</StatusBadge>
+              : header.blocked ? <StatusBadge tone="warning" icon={Ban}>Görsel engellendi</StatusBadge>
               : row.hidden ? <StatusBadge tone="warning">Otomatik görsel gizli</StatusBadge>
               : <StatusBadge tone="neutral">Ortak görsel gösteriliyor</StatusBadge>}</TableCell>
             <TableCell>{row.product_id
