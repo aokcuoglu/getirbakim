@@ -15,7 +15,7 @@ export type AdminOrderEmail = {
 };
 
 export const orderEmailKindLabel: Record<OrderEmailKind, string> = {
-  confirmation: "Sipariş onay e-postası", shipped: "Kargoya verildi e-postası", cancelled: "İptal e-postası", refunded: "İade e-postası",
+  confirmation: "Sipariş onay e-postası", shipped: "Kargoya verildi e-postası", cancelled: "Sipariş iptal e-postası", refunded: "Ödeme iadesi e-postası",
 };
 export const orderEmailStatusLook: Record<OrderEmailStatus, { tone: StatusTone; label: string }> = {
   sent: { tone: "success", label: "Gönderildi" },

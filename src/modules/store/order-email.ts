@@ -121,8 +121,11 @@ export type StatusOrder = Pick<CommerceOrder, "id" | "number" | "customer_name" 
   cancelled_by: string | null; payment_status: string;
 };
 export type StatusData = { order: StatusOrder; baseUrl: string; guestLink?: GuestLink };
-/** refundKurus: the sum of the order's succeeded TAMI reversals; null or 0 when the refund was recorded by hand. */
-export type RefundData = StatusData & { refundKurus?: number | null };
+/**
+ * refundKurus: the refunded amount when it is reliable (refundAmountSql), else null. card: TAMI reversed at least one
+ * capture since the cancel, so the money goes back to the card; false for a refund recorded by hand.
+ */
+export type RefundData = StatusData & { refundKurus?: number | null; card?: boolean };
 
 /** One paragraph; `html` (already escaped) replaces the escaped text in the HTML part, e.g. for a link. */
 type Paragraph = { text: string; html?: string };
@@ -160,13 +163,20 @@ function statusEmail({ order, baseUrl, guestLink }: StatusData, subject: string,
   return { subject, text, html: emailDocument(subject, body) };
 }
 
+/** Only an http(s) address becomes a link; anything else (never written by the app) falls back to the plain sentence. */
+function webUrl(value: string) {
+  try { return ["https:", "http:"].includes(new URL(value).protocol); } catch { return false; }
+}
+
 /** The order was handed to the carrier: carrier, tracking number and link when known, and the delivery address. */
 export function buildOrderShipped(data: StatusData): EmailContent {
   const { order } = data;
   const carrier = carrierLabel(order.carrier, order.carrier_name);
   const paragraphs: Paragraph[] = [{ text: carrier ? `Siparişini ${carrier} ile kargoya verdik.` : "Siparişini kargoya verdik." }];
-  if (order.tracking_no) paragraphs.push({ text: `Takip numarası: ${order.tracking_no}` });
-  if (order.tracking_url) {
+  if (order.tracking_no) {
+    paragraphs.push({ text: `Takip numarası: ${order.tracking_no}`, html: `Takip numarası: <strong style="font-weight:600;">${html(order.tracking_no)}</strong>` });
+  }
+  if (order.tracking_url && webUrl(order.tracking_url)) {
     paragraphs.push({ text: `Kargonu takip et: ${order.tracking_url}`, html: link("Kargonu takip et", order.tracking_url) });
   } else if (order.tracking_no) {
     paragraphs.push({ text: "Takip numaranla kargo firmasının sitesinden sorgulayabilirsin." });
@@ -178,24 +188,34 @@ export function buildOrderShipped(data: StatusData): EmailContent {
     { heading: "Teslimat adresi", lines: [order.customer_name, order.phone, order.address] });
 }
 
-/** The order was cancelled; a paid one says that the whole payment comes back and that a refund email follows. */
+/** The order was cancelled; a paid one says that the whole payment comes back (or came back, once refunded). */
 export function buildOrderCancelled(data: StatusData): EmailContent {
   const { order } = data;
   const paragraphs: Paragraph[] = [{
-    text: order.cancelled_by === "customer" ? "Talebin üzerine siparişini iptal ettik." : "Siparişini iptal etmek zorunda kaldık.",
+    // No reason is claimed: operations cancel for stock, price or other causes the email cannot know.
+    text: order.cancelled_by === "customer" ? "Talebin üzerine siparişini iptal ettik." : "Siparişini iptal etmek zorunda kaldık. Bunun için özür dileriz.",
   }];
-  if (order.payment_status === "refund_required" || order.payment_status === "refunded") {
+  if (order.payment_status === "refund_required") {
     paragraphs.push({ text: "Ödemenin tamamı iade edilecek; iade tamamlandığında sana ayrıca e-posta göndereceğiz." });
+  } else if (order.payment_status === "refunded") {
+    // Already refunded when sent (or resent): the refund email is out or on its way, so nothing is promised.
+    paragraphs.push({ text: "Ödemenin tamamı iade edildi." });
   }
   return statusEmail(data, `Siparişin iptal edildi — #${order.number}`, "Siparişin iptal edildi", paragraphs);
 }
 
 /** The payment was refunded; stands alone, without the cancel email. */
 export function buildOrderRefunded(data: RefundData): EmailContent {
-  const { order, refundKurus } = data;
-  const paragraphs: Paragraph[] = [{ text: `#${order.number} numaralı siparişinin ödemesini iade ettik.` }];
-  if (refundKurus && refundKurus > 0) paragraphs.push({ text: `İade tutarı: ${money(refundKurus)}` });
-  paragraphs.push({ text: "İadenin kartına yansıması bankana bağlı olarak birkaç iş günü sürebilir." });
+  const { order, refundKurus, card = false } = data;
+  const amount = refundKurus && refundKurus > 0 ? refundKurus : null;
+  // Without a reliable amount the first line does not claim the whole payment came back.
+  const paragraphs: Paragraph[] = [{
+    text: amount ? `#${order.number} numaralı siparişinin ödemesini iade ettik.` : `#${order.number} numaralı siparişin için ödeme iadesi yaptık.`,
+  }];
+  if (amount) paragraphs.push({ text: `İade tutarı: ${money(amount)}` });
+  paragraphs.push({ text: card
+    ? "İadenin kartına yansıması bankana bağlı olarak birkaç iş günü sürebilir."
+    : "İade, ödemeyi yaptığın yönteme göre birkaç iş günü içinde hesabına yansır." });
   return statusEmail(data, `Ödemen iade edildi — #${order.number}`, "Ödemen iade edildi", paragraphs);
 }
 
@@ -211,6 +231,17 @@ export type DeliverResult = { sent: number; skipped: number; failed: number };
 
 const orderColumns = "id,number,email,customer_name,phone,address,note,created_at,subtotal_kurus,shipping_kurus,total_kurus,discount_percent,installment_count,installment_fee_kurus,invoice_type,invoice_company,invoice_tax_no,invoice_tax_office,invoice_province,invoice_district,invoice_address_line,invoice_postal_code,carrier,carrier_name,tracking_no,tracking_url,cancelled_by,status,payment_status,owner_kind";
 type MessageOrder = ConfirmationOrder & StatusOrder & { email: string; status: string; owner_kind: string };
+
+/**
+ * The refund email's amount: succeeded TAMI reversals completed since the order was cancelled (a duplicate capture
+ * reversed while the order was still paid is not part of this refund). Shown only when `complete`: every captured
+ * attempt of the order has a succeeded reversal, so no part was refunded by hand or is still open.
+ */
+const refundAmountSql = `SELECT (SELECT sum(r.amount_kurus)::text FROM commerce_payment_refunds r
+    WHERE r.order_id=o.id AND r.status='succeeded' AND o.cancelled_at IS NOT NULL AND r.completed_at>=o.cancelled_at) AS total,
+  NOT EXISTS(SELECT 1 FROM commerce_payments p WHERE p.order_id=o.id AND p.status='succeeded'
+    AND NOT EXISTS(SELECT 1 FROM commerce_payment_refunds r WHERE r.payment_id=p.id AND r.status='succeeded')) AS complete
+  FROM commerce_orders o WHERE o.id=$1`;
 
 /** Builds the email for `kind`, or null when the order no longer wants it (orderEmailDue). */
 async function orderMessage(orderId: string, kind: OrderEmailKind, requeuedAt: Date | null) {
@@ -232,9 +263,9 @@ async function orderMessage(orderId: string, kind: OrderEmailKind, requeuedAt: D
   } else if (kind === "cancelled") {
     content = buildOrderCancelled(status);
   } else {
-    const refund = (await db.query<{ total: string | null }>(
-      "SELECT sum(amount_kurus)::text AS total FROM commerce_payment_refunds WHERE order_id=$1 AND status='succeeded'", [orderId])).rows[0];
-    content = buildOrderRefunded({ ...status, refundKurus: refund?.total ? Number(refund.total) : null });
+    const refund = (await db.query<{ total: string | null; complete: boolean }>(refundAmountSql, [orderId])).rows[0];
+    const total = refund?.total ? Number(refund.total) : 0;
+    content = buildOrderRefunded({ ...status, refundKurus: total > 0 && refund.complete ? total : null, card: total > 0 });
   }
   // Deterministic, so a retry after a lost reply is recognisable as the same message; an admin's resend is a new one.
   const resend = requeuedAt ? `-r${Math.floor(new Date(requeuedAt).getTime() / 1000)}` : "";

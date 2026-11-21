@@ -552,8 +552,8 @@ const statusOrder: StatusOrder = {
 const statusBase = "https://shop.example.invalid/";
 const shipped = (order: Partial<StatusOrder> = {}) => email.buildOrderShipped({ order: { ...statusOrder, ...order }, baseUrl: statusBase });
 const cancelled = (order: Partial<StatusOrder> = {}) => email.buildOrderCancelled({ order: { ...statusOrder, ...order }, baseUrl: statusBase });
-const refunded = (refundKurus: number | null, order: Partial<StatusOrder> = {}) =>
-  email.buildOrderRefunded({ order: { ...statusOrder, payment_status: "refunded", ...order }, baseUrl: statusBase, refundKurus });
+const refunded = (refundKurus: number | null, order: Partial<StatusOrder> = {}, card = true) =>
+  email.buildOrderRefunded({ order: { ...statusOrder, payment_status: "refunded", ...order }, baseUrl: statusBase, refundKurus, card });
 const has = (content: { text: string; html: string }, ...parts: string[]) => {
   for (const part of parts) assert.ok(content.text.includes(part), `text is missing: ${part}`);
 };
@@ -569,6 +569,14 @@ test("the shipped email names the carrier, the tracking number and link, and the
   assert.ok(content.html.includes("Siparişin yola çıktı"));
   assert.ok(content.html.includes(`href="https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=123456789012"`));
   assert.doesNotMatch(content.text, /kargo firmasının sitesinden|sozlesme|Mesafeli satış/);
+  assert.ok(content.html.includes(`Takip numarası: <strong style="font-weight:600;">123456789012</strong>`));
+  // Only an http(s) address becomes a link.
+  for (const url of ["javascript:alert(1)", "data:text/html,x", "not a url"]) {
+    const odd = shipped({ tracking_url: url });
+    assert.doesNotMatch(odd.text, /Kargonu takip et/, url);
+    assert.ok(!odd.html.includes(`href="${url}"`), url);
+    has(odd, "Takip numaranla kargo firmasının sitesinden sorgulayabilirsin.");
+  }
   assert.doesNotMatch(content.text, /<[a-z/][^>]*>/i, "text has no tags");
   // No query link for the carrier: the customer is told where to search.
   const ptt = shipped({ carrier: "ptt", tracking_url: null });
@@ -585,10 +593,11 @@ test("the shipped email names the carrier, the tracking number and link, and the
 test("the cancel email says who cancelled and, for a paid order, that the payment comes back", () => {
   const byAdmin = cancelled({ payment_status: "refund_required" });
   assert.equal(byAdmin.subject, "Siparişin iptal edildi — #1042");
-  has(byAdmin, "Siparişini iptal etmek zorunda kaldık.", "Ödemenin tamamı iade edilecek; iade tamamlandığında sana ayrıca e-posta göndereceğiz.");
+  has(byAdmin, "Siparişini iptal etmek zorunda kaldık. Bunun için özür dileriz.", "Ödemenin tamamı iade edilecek; iade tamamlandığında sana ayrıca e-posta göndereceğiz.");
+  // Already refunded when sent: past tense, no promise of another email.
   const byCustomer = cancelled({ cancelled_by: "customer", payment_status: "refunded" });
-  has(byCustomer, "Talebin üzerine siparişini iptal ettik.", "Ödemenin tamamı iade edilecek");
-  assert.doesNotMatch(byCustomer.text, /zorunda kaldık/);
+  has(byCustomer, "Talebin üzerine siparişini iptal ettik.", "Ödemenin tamamı iade edildi.");
+  assert.doesNotMatch(byCustomer.text, /zorunda kaldık|iade edilecek|ayrıca e-posta/);
   // A legacy offline order was never charged online: no payment sentence.
   const offline = cancelled({ payment_status: "none" });
   assert.doesNotMatch(offline.text, /iade/);
@@ -601,7 +610,16 @@ test("the refund email stands alone, with the amount when known", () => {
   has(content, "#1042 numaralı siparişinin ödemesini iade ettik.", "İade tutarı: ₺200,00",
     "İadenin kartına yansıması bankana bağlı olarak birkaç iş günü sürebilir.", "Sipariş no: #1042");
   assert.ok(content.html.includes("Ödemen iade edildi"));
-  for (const amount of [null, 0]) assert.doesNotMatch(refunded(amount).text, /İade tutarı/);
+  // No reliable amount: no amount line and no claim that the whole payment came back.
+  for (const amount of [null, 0]) {
+    const unknown = refunded(amount);
+    has(unknown, "#1042 numaralı siparişin için ödeme iadesi yaptık.", "kartına yansıması");
+    assert.doesNotMatch(unknown.text, /İade tutarı|ödemesini iade ettik/);
+  }
+  // Recorded by hand (no TAMI reversal): no card wording.
+  const manual = refunded(null, {}, false);
+  has(manual, "İade, ödemeyi yaptığın yönteme göre birkaç iş günü içinde hesabına yansır.");
+  assert.doesNotMatch(manual.text, /kartına/);
 });
 
 test("status emails escape customer text and carry the signed guest link with its dated note", () => {
@@ -758,4 +776,45 @@ test("every kind has a due rule, an admin label and a not-due reason", () => {
   assert.equal(orderEmailDue.cancelled({ status: "cancelled", payment_status: "refunded" }), true);
   assert.equal(orderEmailDue.refunded({ status: "cancelled", payment_status: "refunded" }), true);
   assert.equal(orderEmailDue.refunded({ status: "cancelled", payment_status: "refund_required" }), false);
+});
+
+async function capture(orderId: string) {
+  return (await db.query<{ id: string }>(`INSERT INTO commerce_payments(order_id,provider_order_id,amount_kurus,status,hosted_url,paid_at)
+    VALUES($1,$2,20000,'succeeded','https://example.invalid/pay',now()-interval '2 hours') RETURNING id::text`, [orderId, `GB2-${randomBytes(4).toString("hex")}`])).rows[0].id;
+}
+const reversal = (paymentId: string, orderId: string, completed: string) => db.query(`INSERT INTO commerce_payment_refunds(payment_id,order_id,kind,amount_kurus,status,correlation_id,completed_at)
+  VALUES($1,$2,'refund',20000,'succeeded',$3,now()+$4::interval)`, [paymentId, orderId, randomUUID(), completed]);
+
+test("the refund amount counts only this refund and only when every capture was reversed", async () => {
+  const { sent, send } = recorder();
+  const refundMail = async (id: string) => {
+    await adminOrders.recordOrderRefund(id, "TAMI-REF");
+    await email.deliverOrderEmails({ orderId: id, send });
+    return sent.find(message => message.messageId === `<order-${id}-refunded@shop.example.invalid>`)?.text ?? "";
+  };
+  // A duplicate capture reversed while the order was still paid, then the cancel's refund of the other capture.
+  const duplicate = await placedOrder({ status: "pending" });
+  const [extra, kept] = [await capture(duplicate), await capture(duplicate)];
+  await reversal(extra, duplicate, "-1 hour");
+  await adminOrders.transitionOrder(duplicate, "cancelled");
+  await reversal(kept, duplicate, "1 second");
+  const text = await refundMail(duplicate);
+  assert.ok(text.includes("İade tutarı: ₺200,00"), text);
+  assert.ok(text.includes("kartına yansıması"));
+  // One capture refunded elsewhere (no reversal row): the amount is not known, so it is left out.
+  const partial = await placedOrder({ status: "pending" });
+  const first = await capture(partial);
+  await capture(partial);
+  await adminOrders.transitionOrder(partial, "cancelled");
+  await reversal(first, partial, "1 second");
+  const partialText = await refundMail(partial);
+  assert.doesNotMatch(partialText, /İade tutarı/);
+  assert.ok(partialText.includes("numaralı siparişin için ödeme iadesi yaptık.") && partialText.includes("kartına yansıması"));
+  // Recorded by hand only: no amount, no card wording.
+  const manual = await placedOrder({ status: "pending" });
+  await capture(manual);
+  await adminOrders.transitionOrder(manual, "cancelled");
+  const manualText = await refundMail(manual);
+  assert.doesNotMatch(manualText, /İade tutarı|kartına/);
+  assert.ok(manualText.includes("İade, ödemeyi yaptığın yönteme göre birkaç iş günü içinde hesabına yansır."));
 });
