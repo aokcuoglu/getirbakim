@@ -856,7 +856,7 @@ END $$;
 -- Per-partner settings set in /yonetim/partnerler (#426). Partner identities still come from PARTNER_API_KEYS; a row here
 -- only overrides the PARTNER_ORDER_LIMIT_KURUS fallback. A partner with neither cannot order (503 ORDER_LIMIT_UNAVAILABLE).
 -- order_intake_paused_at (#1009) pauses the partner's new quotes and orders (503 ORDER_INTAKE_PAUSED) until it is cleared;
--- reads, cancels and replays of existing orders keep working. NULL = open.
+-- reads, cancels and replays of existing orders keep working. NULL = open. discount_bps (#1130) is the partner's B2B discount.
 CREATE TABLE IF NOT EXISTS partner_settings(
  partner_code text PRIMARY KEY,
  order_limit_kurus bigint CHECK(order_limit_kurus > 0),
@@ -870,6 +870,25 @@ DO $$ BEGIN
  -- Who paused it (audit). The FK takes SHARE ROW EXCLUSIVE on accounts once, on the first deploy that adds the column.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='order_intake_paused_by' AND NOT attisdropped) THEN
   ALTER TABLE partner_settings ADD COLUMN order_intake_paused_by uuid REFERENCES accounts(id);
+ END IF;
+ -- The partner's B2B discount in basis points (#1130), applied to its product prices, quotes and orders; never below
+ -- cost (src/modules/partner/pricing.ts). NULL = the PARTNER_B2B_DISCOUNT_BPS fallback, then no discount.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='discount_bps' AND NOT attisdropped) THEN
+  ALTER TABLE partner_settings ADD COLUMN discount_bps integer CHECK(discount_bps BETWEEN 0 AND 9000);
+ END IF;
+END $$;
+-- Every change of a partner's panel discount (#1130): old and new value (NULL = fallback), who and when.
+CREATE TABLE IF NOT EXISTS partner_discount_changes(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ partner_code text NOT NULL,
+ old_discount_bps integer,
+ new_discount_bps integer,
+ changed_by uuid REFERENCES accounts(id),
+ changed_at timestamptz NOT NULL DEFAULT now()
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_discount_changes'::regclass AND c.relname='partner_discount_changes_partner_idx') THEN
+  CREATE INDEX partner_discount_changes_partner_idx ON partner_discount_changes(partner_code,changed_at DESC);
  END IF;
 END $$;
 -- Corrections of a partner invoiced mark (#1018): one row per order, the rows of one change share change_id. 'undo'

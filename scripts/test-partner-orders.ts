@@ -29,6 +29,7 @@ let partnerCancel: typeof import("../src/modules/partner/order-cancel");
 let adminData: typeof import("../src/modules/admin/order-filters");
 let limits: typeof import("../src/modules/partner/limits");
 let intake: typeof import("../src/modules/partner/intake");
+let discounts: typeof import("../src/modules/partner/discounts");
 let checkout: typeof import("../src/modules/payments/checkout");
 let reimport: () => Promise<unknown>;
 let closeDb: () => Promise<void>;
@@ -105,6 +106,7 @@ before(async () => {
     import("../src/modules/partner/order-cancel"), import("../src/modules/admin/order-filters")]);
   limits = await import("../src/modules/partner/limits");
   intake = await import("../src/modules/partner/intake");
+  discounts = await import("../src/modules/partner/discounts");
   partnerOrders = ordersModule; quotes = quotesModule; dto = dtoModule; adminOrders = adminModule; checkout = checkoutModule;
   partnerCancel = cancelModule; adminData = dataModule;
   closeDb = () => db.end();
@@ -122,6 +124,7 @@ beforeEach(async () => {
   // Each test starts without open or uninvoiced partner orders and without panel limits, so the limit sees only its own.
   await schema.pool.query("UPDATE commerce_orders SET status='delivered',partner_invoiced_at=COALESCE(partner_invoiced_at,now()) WHERE owner_kind='partner'");
   await schema.pool.query("DELETE FROM partner_settings");
+  await schema.pool.query("DELETE FROM partner_discount_changes");
   // The store's shipping rule (VAT included): 50.00 TL, free from 400.00 TL of goods.
   await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode='live',shipping_fee_kurus=5000,free_shipping_threshold_kurus=40000");
 });
@@ -284,6 +287,63 @@ test("a /yonetim limit overrides the fallback; clearing it falls back; with neit
   // Another partner's panel limit is its own.
   await limits.savePartnerOrderLimit("other", 20_000, null);
   assert.deepEqual(await limits.partnerOrderLimit("bakimx", null), { limitKurus: null, source: "none" });
+});
+
+test("a /yonetim discount (#1130) prices quotes and orders at once, falls back when cleared and never goes below cost", async () => {
+  const unit = async (partner = "bakimx", cfg = config()) => (await quoteAndBody([{ code: "PART-A", quantity: 1 }], partner, cfg)).quote.lines[0].unitNetKurus;
+  const fallback = config({ discountBps: 500 });
+  // 130.00 TL before VAT; the deployment fallback (PARTNER_B2B_DISCOUNT_BPS) takes 5%.
+  assert.equal(await unit("bakimx", fallback), 12_350);
+  const before = await quoteAndBody([{ code: "PART-A", quantity: 1 }], "bakimx", fallback);
+  await discounts.savePartnerDiscount("bakimx", 1000, null);
+  assert.deepEqual(await discounts.partnerDiscount("bakimx", 500), { discountBps: 1000, source: "panel" });
+  assert.equal(await unit("bakimx", fallback), 11_700);
+  // A quote made before the change is refused at order time with the new price, nothing is written.
+  const count = await orderCount();
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), before.body, fallback), refusal("PRICE_CHANGED", details => {
+    assert.deepEqual(details?.lines, [{ selectedOfferId: offers["PART-A"], expectedUnitNetKurus: 12_350, unitNetKurus: 11_700 }]);
+  }));
+  assert.equal(await orderCount(), count);
+  const { order } = await partnerOrders.createPartnerOrder("bakimx", randomUUID(), (await quoteAndBody([{ code: "PART-A", quantity: 1 }], "bakimx", fallback)).body, fallback);
+  const snapshot = (await schema.pool.query("SELECT pricing_snapshot FROM commerce_order_items WHERE order_id=$1", [order.id])).rows[0].pricing_snapshot;
+  assert.deepEqual([snapshot.partner.unit_net_kurus, snapshot.partner.discount_bps], [11_700, 1000]);
+  // Another partner keeps the fallback.
+  assert.equal(await unit("other", fallback), 12_350);
+  // 0 on the panel overrides the fallback: no discount.
+  await discounts.savePartnerDiscount("bakimx", 0, null);
+  assert.equal(await unit("bakimx", fallback), 13_000);
+  // 50% would be 65.00 TL, below the 100.00 TL cost: floored at cost.
+  await discounts.savePartnerDiscount("bakimx", 5000, null);
+  assert.equal(await unit("bakimx", fallback), 10_000);
+  // Cleared: the fallback, then none.
+  await discounts.savePartnerDiscount("bakimx", null, null);
+  assert.equal(await unit("bakimx", fallback), 12_350);
+  assert.deepEqual(await discounts.partnerDiscount("bakimx", 0), { discountBps: 0, source: "none" });
+  assert.equal(await unit("bakimx", config()), 13_000);
+  // Every change is recorded with the old and new value; saving the same value again records nothing.
+  assert.deepEqual(await discounts.savePartnerDiscount("bakimx", null, null), { changed: false });
+  const history = (await schema.pool.query<{ old_discount_bps: number | null; new_discount_bps: number | null }>(
+    "SELECT old_discount_bps,new_discount_bps FROM partner_discount_changes WHERE partner_code='bakimx' ORDER BY id")).rows;
+  assert.deepEqual(history.map(row => [row.old_discount_bps, row.new_discount_bps]), [[null, 1000], [1000, 0], [0, 5000], [5000, null]]);
+  assert.deepEqual((await discounts.lastDiscountChanges(["bakimx", "other"])).get("bakimx")?.newBps, null);
+  assert.equal((await discounts.lastDiscountChanges(["other"])).size, 0);
+  // Clearing a partner without a row creates none.
+  await discounts.savePartnerDiscount("nobody", null, null);
+  assert.equal((await schema.pool.query("SELECT 1 FROM partner_settings WHERE partner_code='nobody'")).rowCount, 0);
+});
+
+test("the products endpoint's discount cache (#1130) serves a saved change at once in this process", async () => {
+  assert.deepEqual(await discounts.cachedPartnerDiscount("bakimx", 500), { discountBps: 500, source: "env" });
+  // A write behind the panel's back stays cached ...
+  await schema.pool.query("INSERT INTO partner_settings(partner_code,discount_bps) VALUES('bakimx',700)");
+  assert.deepEqual(await discounts.cachedPartnerDiscount("bakimx", 500), { discountBps: 500, source: "env" });
+  // ... a panel save drops it.
+  await discounts.savePartnerDiscount("bakimx", 1200, null);
+  assert.deepEqual(await discounts.cachedPartnerDiscount("bakimx", 500), { discountBps: 1200, source: "panel" });
+  await discounts.savePartnerDiscount("bakimx", null, null);
+  assert.deepEqual(await discounts.cachedPartnerDiscount("bakimx", 0), { discountBps: 0, source: "none" });
+  // The column refuses more than 90%.
+  await assert.rejects(schema.pool.query("UPDATE partner_settings SET discount_bps=9001 WHERE partner_code='bakimx'"), /check/i);
 });
 
 test("a paused partner (#1009) gets no quote and no new order; others, reads and replays keep working; resume reopens", async () => {
@@ -503,7 +563,16 @@ test("a correction (#1018) never merges two invoices and waits for the partner's
 });
 
 test("admin partner input: TL limits become kuruş, dates are past Istanbul days, usage tones follow the limit", async () => {
-  const { partnerLimitInput, partnerInvoiceInput, partnerInvoiceChangeInput, partnerIntakeInput, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
+  const { partnerLimitInput, partnerInvoiceInput, partnerInvoiceChangeInput, partnerIntakeInput, partnerDiscountInput, percentText, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
+  const discount = (value: string) => partnerDiscountInput.safeParse({ partner: "bakimx", discount: value });
+  assert.equal(discount("10").data?.discount, 1000);
+  assert.equal(discount(" 12,5 ").data?.discount, 1250);
+  assert.equal(discount("%7.25").data?.discount, 725);
+  assert.equal(discount("90").data?.discount, 9000);
+  assert.equal(discount("0").data?.discount, 0);
+  assert.equal(discount("").data?.discount, null);
+  for (const bad of ["90,01", "100", "-5", "abc", "1,234", "5.5.5"]) assert.equal(discount(bad).success, false, bad);
+  assert.deepEqual([percentText(1000), percentText(1250), percentText(725), percentText(0)], ["10", "12,5", "7,25", "0"]);
   assert.deepEqual(partnerIntakeInput.safeParse({ partner: " bakimx ", paused: "1" }).data, { partner: "bakimx", paused: true });
   assert.deepEqual(partnerIntakeInput.safeParse({ partner: "bakimx", paused: "0" }).data, { partner: "bakimx", paused: false });
   for (const bad of [{ partner: "bakimx", paused: "true" }, { partner: "bakimx", paused: "" }, { partner: "bakimx" }, { partner: " ", paused: "1" }, { paused: "1" }]) {

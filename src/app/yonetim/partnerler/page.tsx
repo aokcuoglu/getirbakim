@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { ArrowUpRight, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileText, Handshake, TriangleAlert } from "lucide-react";
 import { adminPartnerInvoices, adminPartners } from "@/modules/admin/partners";
-import { savePartnerLimit, setPartnerIntake } from "@/modules/admin/partner-actions";
-import { istanbulToday } from "@/modules/admin/partner-input";
+import { savePartnerDiscountRate, savePartnerLimit, setPartnerIntake } from "@/modules/admin/partner-actions";
+import { istanbulToday, percentText } from "@/modules/admin/partner-input";
 import { formatDateTime, formatNumber } from "@/modules/admin/format";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
@@ -20,6 +20,9 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 const sourceLabel = { panel: "Panelden", env: "Varsayılan (ortam değişkeni)", none: "Tanımsız" } as const;
+const discountSourceLabel = { panel: "Panelden", env: "Varsayılan (ortam değişkeni)", none: "İndirim yok" } as const;
+/** A panel discount for the change line; null = the fallback. */
+const discountText = (bps: number | null) => bps == null ? "varsayılan" : `%${percentText(bps)}`;
 /** Kuruş → the TL text the limit input shows ("4500" or "4500.50"). */
 const tl = (kurus: number) => kurus % 100 ? (kurus / 100).toFixed(2) : String(kurus / 100);
 /** `YYYY-MM-DD` → `DD.MM.YYYY`. */
@@ -38,12 +41,14 @@ export default async function Partners({ searchParams }: { searchParams: Promise
   // Query values are echoed only when they name a listed partner.
   const known = (value: string | undefined) => value && partners.some(p => p.code === value) ? value : null;
   const saved = known(params.saved), partner = known(params.partner), paused = known(params.paused), resumed = known(params.resumed);
+  const discountSaved = known(params.discount);
 
   return <div className="flex min-w-0 flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-tight">Partnerler ve cari limit</h1>
         <p className="text-muted-foreground">Partner (API) siparişleri cari hesaba yazılır. Alacak; iptal edilmemiş ve teslim edilmemiş siparişler ile teslim edilmiş ama faturalanmamış siparişlerin toplamıdır (kargo dahil). Yeni sipariş alacağı limitin üstüne çıkaracaksa reddedilir; limiti olmayan partner sipariş veremez. Teslim edilen siparişler &quot;Faturalandı&quot; işaretlenince limitten düşer; yanlış işaret gerekçeyle düzeltilebilir ya da geri alınabilir.</p>
+        <p className="text-muted-foreground">B2B indirim, partnerin KDV hariç liste fiyatından düşülür ve ürün fiyatlarına, tekliflere ve siparişlere hemen uygulanır; fiyat hiçbir zaman maliyetin altına inmez. Değişiklikten önce alınmış teklifle verilen sipariş &quot;fiyat değişti&quot; diye reddedilir, partner yeni teklif alır.</p>
         <p className="text-muted-foreground">Bir partnerin sipariş alımı geçici olarak durdurulabilir; durdurulan partner yeni teklif alamaz ve sipariş veremez.</p>
       </div>
       <Button variant="outline" nativeButton={false} render={<Link href="/yonetim/siparisler?sahip=partner"/>}>Partner siparişleri<ArrowUpRight data-icon="inline-end" aria-hidden="true"/></Button>
@@ -55,6 +60,8 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     {undone && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{partner ? `${partner}: ` : ""}{formatNumber(undone)} siparişin faturalandı işareti geri alındı; bu siparişler yeniden alacağa ve limite sayılıyor.</AlertDescription></Alert>}
     {paused && <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertDescription>{paused} için sipariş alımı durduruldu; yeni teklif ve sipariş istekleri reddedilir.</AlertDescription></Alert>}
     {resumed && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{resumed} için sipariş alımı yeniden açıldı.</AlertDescription></Alert>}
+    {discountSaved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{discountSaved} için B2B indirim kaydedildi; ürün fiyatları en geç 30 saniye içinde, yeni teklifler hemen bu oranla hesaplanır.</AlertDescription></Alert>}
+    {params.error === "discount" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{partner ? `${partner}: indirim kaydedilemedi` : "İndirim kaydedilemedi"}</AlertTitle><AlertDescription>İndirim %0 ile %90 arasında, en fazla iki ondalıklı bir oran olmalı. Boş bırakılırsa varsayılan indirim geçerli olur.</AlertDescription></Alert>}
     {params.error === "intake" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Sipariş alımı ayarı kaydedilemedi. Sayfayı yenileyip yeniden deneyin.</AlertDescription></Alert>}
     {params.error === "limit" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{partner ? `${partner}: limit kaydedilemedi` : "Limit kaydedilemedi"}</AlertTitle><AlertDescription>Limit 0 TL&apos;den büyük, en fazla iki ondalıklı bir tutar olmalı. Boş bırakılırsa varsayılan limit geçerli olur.</AlertDescription></Alert>}
 
@@ -68,7 +75,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
           <TableHeader><TableRow>
             <TableHead>Partner</TableHead><TableHead className="text-right">Limit</TableHead><TableHead className="text-right">Açık siparişler</TableHead>
             <TableHead className="text-right">Teslim edildi · faturalanmadı</TableHead><TableHead className="text-right">Toplam alacak</TableHead><TableHead>Kullanım</TableHead>
-            <TableHead>Panel limiti</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead>
+            <TableHead>Panel limiti</TableHead><TableHead>B2B indirim</TableHead><TableHead><span className="sr-only">İşlem</span></TableHead>
           </TableRow></TableHeader>
           <TableBody>{partners.map(p => {
             const form = `partner-limit-${p.code}`;
@@ -93,6 +100,20 @@ export default async function Partners({ searchParams }: { searchParams: Promise
                   placeholder={p.source === "env" && p.limitKurus != null ? tl(p.limitKurus) : "Boş"} defaultValue={p.panelKurus == null ? "" : tl(p.panelKurus)}/>
                 <InputGroupAddon align="inline-end"><InputGroupText>TL</InputGroupText></InputGroupAddon>
               </InputGroup></TableCell>
+              <TableCell className="whitespace-normal"><div className="flex flex-col gap-1">
+                <form action={savePartnerDiscountRate} className="flex items-center gap-2">
+                  <input type="hidden" name="partner" value={p.code}/>
+                  <InputGroup className="w-28">
+                    <InputGroupAddon><InputGroupText>%</InputGroupText></InputGroupAddon>
+                    <InputGroupInput className="text-right tabular-nums" name="discount" inputMode="decimal" aria-label={`${p.code} B2B indirim (yüzde)`}
+                      placeholder={p.discount.source === "env" ? percentText(p.discount.discountBps) : "Boş"} defaultValue={p.panelDiscountBps == null ? "" : percentText(p.panelDiscountBps)}/>
+                  </InputGroup>
+                  <SubmitButton variant="outline" aria-label={`${p.code}: İndirimi kaydet`}>Kaydet</SubmitButton>
+                </form>
+                <span className="tabular-nums">Geçerli: %{percentText(p.discount.discountBps)}</span>
+                <span className="text-muted-foreground">{discountSourceLabel[p.discount.source]}</span>
+                {p.discountChange && <span className="text-muted-foreground tabular-nums">Son değişiklik: {discountText(p.discountChange.oldBps)} → {discountText(p.discountChange.newBps)} · {formatDateTime(p.discountChange.changedAt, { year: true })} · {p.discountChange.changedBy ?? "—"}</span>}
+              </div></TableCell>
               <TableCell className="whitespace-normal"><div className="flex flex-col items-end gap-2">
                 <form id={form} action={savePartnerLimit}><input type="hidden" name="partner" value={p.code}/><SubmitButton variant="outline" aria-label={`${p.code}: Limiti kaydet`}>Kaydet</SubmitButton></form>
                 <PartnerInvoiceDialog partner={p.code} days={p.days} today={today}/>
@@ -111,6 +132,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
           </EmptyHeader>
         </Empty>}
         <p className="pt-4 text-muted-foreground">Panel limiti boş bırakılırsa varsayılan limit (PARTNER_ORDER_LIMIT_KURUS) geçerli olur; o da yoksa partner sipariş veremez.</p>
+        <p className="text-muted-foreground">B2B indirim boş bırakılırsa varsayılan indirim (PARTNER_B2B_DISCOUNT_BPS) geçerli olur; o da yoksa indirim uygulanmaz. %0 girilirse varsayılan yok sayılır, indirim uygulanmaz.</p>
       </CardContent>
     </Card>
 
