@@ -6,7 +6,7 @@ import { SubmitButton } from "@/components/admin/submit-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { AdminPriceAnomaly } from "@/modules/admin/data";
-import { formatNumber } from "@/modules/admin/format";
+import { formatExact, formatNumber } from "@/modules/admin/format";
 import { money } from "@/modules/store/money";
 import { priceAnomalyThresholds, type PriceAnomalyEvidence, type PriceAnomalyKind } from "@/modules/suppliers/price-anomalies";
 
@@ -45,6 +45,13 @@ export function priceAnomalySummary(kind: PriceAnomalyKind, evidence: PriceAnoma
     : `${brand} Çevrilmiş maliyet ${money(evidence.cost_kurus)}, marka medyanı ${money(evidence.median_kurus)} (${ratio(evidence)}).`;
 }
 
+/** Why a dismissed anomaly is open again (#1142): the dismissed value and the current one; `null` when not reopened. */
+export function priceAnomalyReopened(evidence: PriceAnomalyEvidence): string | null {
+  const from = evidence.reopened_from;
+  if (!from) return null;
+  return `Değer değişti: “Anomali değil” kararı ${formatExact(from.nf)} ${from.currency} içindi, şimdi ${formatExact(evidence.nf)} ${evidence.currency}.`;
+}
+
 /** The suppliers overview's list of price anomalies (currency and cross-offer), with the admin's "Anomali değil" decision per row. */
 export function SupplierPriceAnomalies({ rows }: { rows: AdminPriceAnomaly[] }) {
   return <Card id="fiyat-anomalileri" role="region" aria-labelledby="price-anomalies">
@@ -53,6 +60,7 @@ export function SupplierPriceAnomalies({ rows }: { rows: AdminPriceAnomaly[] }) 
         <p>Para birimi: satırın para birimi markanın geri kalanıyla uyuşmuyor; çevrilmiş maliyet marka medyanından en az {formatNumber(priceAnomalyThresholds.RATIO)} kat yüksek ya da düşük.</p>
         <p>Teklif sapması: maliyet aynı ürünün diğer tedarikçi tekliflerinden en az {formatNumber(priceAnomalyThresholds.RATIO)} kat uzak; değer markanın kullandığı başka bir para birimi olarak okunursa tekliflerle uyuşuyor.</p>
         <p>Bu satırlar katalogda kalır ama fiyatlanmaz; veriyi tedarikçi düzeltir.</p>
+        <p>“Anomali değil” kararı, tedarikçi değeri karar verilen değerin {formatNumber(priceAnomalyThresholds.REOPEN_FACTOR)} katına çıkar ya da 1/{formatNumber(priceAnomalyThresholds.REOPEN_FACTOR)}’ine düşerse veya para birimi değişirse yeniden açılır.</p>
       </CardDescription></CardHeader>
     <CardContent>
       <Table controls={false}>
@@ -66,6 +74,7 @@ export function SupplierPriceAnomalies({ rows }: { rows: AdminPriceAnomaly[] }) 
         <TableBody>{rows.map(row => {
           const { kind, evidence } = row;
           const open = row.status === "open";
+          const reopened = open ? priceAnomalyReopened(evidence) : null;
           return <TableRow key={row.supplier_item_id} className="align-top">
             <TableCell className="whitespace-normal md:whitespace-nowrap">
               <Link href={`/yonetim/tedarikciler/basbug/urun/${row.supplier_item_id}`} className="font-mono font-medium underline-offset-4 hover:underline">{row.code}</Link>
@@ -78,11 +87,14 @@ export function SupplierPriceAnomalies({ rows }: { rows: AdminPriceAnomaly[] }) 
             <TableCell className="hidden text-right tabular-nums md:table-cell">{compared(kind, evidence)}<div className="text-muted-foreground">{kind === "currency" ? "marka medyanı" : "diğer teklif"}</div></TableCell>
             <TableCell className="text-right tabular-nums">{ratio(evidence)}</TableCell>
             <TableCell className="hidden text-right tabular-nums md:table-cell">{otherOffers(kind, evidence)}</TableCell>
-            <TableCell>{open ? <StatusBadge tone="warning">Fiyatlanmıyor</StatusBadge> : <StatusBadge tone="neutral">Anomali değil</StatusBadge>}</TableCell>
+            <TableCell>{open ? <StatusBadge tone="warning">Fiyatlanmıyor</StatusBadge> : <StatusBadge tone="neutral">Anomali değil</StatusBadge>}
+              {reopened && <div className="text-muted-foreground whitespace-normal">{reopened}</div>}</TableCell>
             <TableCell>
               <form action={setPriceAnomalyStatus}>
                 <input type="hidden" name="id" value={row.supplier_item_id}/>
                 <input type="hidden" name="status" value={open ? "dismissed" : "open"}/>
+                <input type="hidden" name="nf" value={evidence.nf}/>
+                <input type="hidden" name="currency" value={evidence.currency}/>
                 <SubmitButton variant="outline" size="sm" aria-label={`${row.code}: ${open ? "Anomali değil" : "Yeniden işaretle"}`}>{open ? "Anomali değil" : "Yeniden işaretle"}</SubmitButton>
               </form>
             </TableCell>

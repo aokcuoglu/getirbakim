@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { requireAdmin } from "@/modules/auth/session";
 import { BasbugImportError, importBasbug, importOptions } from "@/modules/suppliers/basbug-import";
 import { DinamikImportError, dinamikImportOptions, importDinamik } from "@/modules/suppliers/dinamik-import";
-import { refreshBasbugPriceAnomalies } from "@/modules/suppliers/price-anomalies";
+import { refreshBasbugPriceAnomalies, setPriceAnomalyStatus as storePriceAnomalyStatus } from "@/modules/suppliers/price-anomalies";
 import { importSeta, SetaImportError } from "@/modules/suppliers/seta-import";
 
 export type SupplierRefreshResult = { ok: boolean; error?: string; products?: number };
@@ -39,13 +39,19 @@ export async function refreshSupplierScope(supplier: string, group: string): Pro
   }
 }
 
-const anomalyStatusSchema = z.object({ id: z.uuid(), status: z.enum(["open", "dismissed"]) });
-/** "Anomali değil" (dismissed: priced again, kept through later refreshes) or "Yeniden işaretle" (open: unpriced). */
+// nf/currency: the value the admin saw (optional); a stale page's decision updates nothing and the page reloads (#1142).
+const anomalyStatusSchema = z.object({ id: z.uuid(), status: z.enum(["open", "dismissed"]),
+  nf: z.coerce.number().positive().optional(), currency: z.string().min(1).max(8).optional() });
+/**
+ * "Anomali değil" (dismissed: priced again, kept through later refreshes until the supplier value moves materially,
+ * #1142) or "Yeniden işaretle" (open: unpriced).
+ */
 export async function setPriceAnomalyStatus(form: FormData) {
   const admin = await requireAdmin();
-  const input = anomalyStatusSchema.safeParse({ id: form.get("id"), status: form.get("status") });
+  const input = anomalyStatusSchema.safeParse({ id: form.get("id"), status: form.get("status"),
+    nf: form.get("nf") ?? undefined, currency: form.get("currency") ?? undefined });
   if (!input.success) return;
-  await db.query("UPDATE supplier_price_anomalies SET status=$2,decided_by=$3,decided_at=now() WHERE supplier_item_id=$1",
-    [input.data.id, input.data.status, admin.id]);
+  const { id, status, nf, currency } = input.data;
+  await storePriceAnomalyStatus(db, id, status, admin.id, nf !== undefined && currency !== undefined ? { nf, currency } : undefined);
   revalidatePath("/yonetim/tedarikciler");
 }

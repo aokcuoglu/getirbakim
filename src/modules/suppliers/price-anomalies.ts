@@ -8,7 +8,8 @@ import type { Pool } from "pg";
  * it or an admin marks it "Anomali değil". Thresholds were measured on Başbuğ's 319k priced rows (19 Nov 2026): the
  * naive "other currency and 10× the median" rule flagged 2,817 rows, almost all brands genuinely priced in two
  * currencies (BSG, FEBI); these narrow it to one. #1050 adds the reverse direction (currencyUnderpriced) and rows far
- * from the same product's other-supplier offers whose value fits them in another currency (offerOutlier).
+ * from the same product's other-supplier offers whose value fits them in another currency (offerOutlier). #1142 reopens
+ * a dismissed anomaly when the supplier's value moves REOPEN_FACTOR times from the one the admin dismissed.
  */
 export const priceAnomalyThresholds = {
   /** A brand needs this many priced rows before its median means anything. */
@@ -33,6 +34,13 @@ export const priceAnomalyThresholds = {
   MIN_RELABEL_ROWS: 20,
   /** …and at least this share of them. */
   MIN_RELABEL_SHARE: 0.05,
+  /**
+   * A dismissed anomaly reopens when the supplier value (nf, in the supplier's currency) is at least this many times
+   * the value the admin dismissed, or at most 1/REOPEN_FACTOR of it, while the rule still flags the row (#1142). In the
+   * supplier's own currency, so exchange-rate moves never reopen a decision. Measured on 118,662 Başbuğ single-step nf
+   * changes (12–21 Nov 2026): 0.45% moved 1.5× either way; the 1st and 99th percentiles were 0.750× and 1.320×.
+   */
+  REOPEN_FACTOR: 1.5,
 };
 export type PriceAnomalyThresholds = typeof priceAnomalyThresholds;
 
@@ -256,6 +264,11 @@ export type PriceAnomalyEvidence = {
   relabel_currency?: string;
   other_offer_min_kurus?: number | null;
   other_offers?: number;
+  /** #1142: the value and currency the admin dismissed (frozen; nf above is overwritten by every refresh). */
+  dismissed_nf?: number;
+  dismissed_currency?: string;
+  /** #1142: an open row reopened because the value moved from this dismissed one. */
+  reopened_from?: { nf: number; currency: string };
 };
 
 const kurus = (value: number) => Math.round(value * 100);
@@ -314,8 +327,29 @@ export async function detectPriceAnomalies(connection: Pick<Pool, "query">, supp
 }
 
 /**
+ * The admin's decision (#1030, #1142): "Anomali değil" (dismissed) freezes the current value and currency as the
+ * baseline later refreshes compare with; "Yeniden işaretle" (open) clears it. decided_by/decided_at record who and when.
+ * `expected`: the value and currency the admin saw; a decision on a stale page (a refresh changed the value or the
+ * status since) updates nothing. Returns whether the row was updated.
+ */
+export async function setPriceAnomalyStatus(connection: Pick<Pool, "query">, id: string, status: "open" | "dismissed", accountId: string | null,
+  expected?: { nf: number; currency: string }) {
+  const updated = await connection.query(`UPDATE supplier_price_anomalies SET status=$2,decided_by=$3,decided_at=now(),
+    evidence=CASE WHEN $2='dismissed'
+      THEN (evidence - 'reopened_from') || jsonb_build_object('dismissed_nf',evidence->'nf','dismissed_currency',evidence->'currency')
+      ELSE evidence - 'dismissed_nf' - 'dismissed_currency' - 'reopened_from' END
+    WHERE supplier_item_id=$1 AND status<>$2
+    AND ($4::jsonb IS NULL OR evidence->'nf'=$4::jsonb) AND ($5::text IS NULL OR evidence->>'currency'=$5)`,
+  [id, status, accountId, expected ? JSON.stringify(expected.nf) : null, expected?.currency ?? null]);
+  return (updated.rowCount ?? 0) > 0;
+}
+
+/**
  * Re-detects the supplier's anomalies and stores them (one transaction): new rows open, known rows keep their status
- * (a dismissed row stays dismissed) with fresh evidence. An open row no longer detected is deleted, which prices it
+ * (a dismissed row stays dismissed) with fresh evidence. A dismissed row keeps its baseline (dismissed_nf,
+ * dismissed_currency; a row dismissed before #1142 takes its previous nf as baseline on its first flagged run) and is
+ * reopened (`reopened`) when the rule still flags it and its value moved REOPEN_FACTOR times either way from the
+ * baseline or its currency changed; the reopened row carries `reopened_from` until it is decided again. An open row no longer detected is deleted, which prices it
  * again. A dismissed row is the admin's decision: it is deleted only when its item is gone or the supplier changed the
  * row's currency, not when a run merely misses it (a corroborating offer or the brand's row count came and went). A
  * run with a missing rate for a currency candidate deletes nothing; otherwise a row the run could not judge (no rate for
@@ -332,10 +366,29 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
     const { flagged, ratesMissing, unrated } = await detectPriceAnomalies(client, supplier);
     // Kept regardless of this run: detected again, or skipped for want of a rate.
     const kept = [...flagged.map(row => row.id), ...unrated];
-    await client.query(`INSERT INTO supplier_price_anomalies(supplier_item_id,supplier,kind,evidence)
+    // Fresh evidence keeps the decision's baseline (#1142): a dismissed row's dismissed_nf/currency (or, before #1142,
+    // its previous nf/currency), an open reopened row's reopened_from.
+    await client.query(`INSERT INTO supplier_price_anomalies AS a(supplier_item_id,supplier,kind,evidence)
       SELECT x.id,$1,x.kind,x.evidence FROM jsonb_to_recordset($2::jsonb) AS x(id uuid,kind text,evidence jsonb)
-      ON CONFLICT (supplier_item_id) DO UPDATE SET kind=EXCLUDED.kind,evidence=EXCLUDED.evidence,last_seen_at=now()`,
+      ON CONFLICT (supplier_item_id) DO UPDATE SET kind=EXCLUDED.kind,last_seen_at=now(),
+        evidence=EXCLUDED.evidence || CASE
+          WHEN a.status='dismissed' THEN jsonb_strip_nulls(jsonb_build_object(
+            'dismissed_nf',COALESCE(a.evidence->'dismissed_nf',a.evidence->'nf'),
+            'dismissed_currency',COALESCE(a.evidence->'dismissed_currency',a.evidence->'currency')))
+          WHEN a.evidence ? 'reopened_from' THEN jsonb_build_object('reopened_from',a.evidence->'reopened_from')
+          ELSE '{}'::jsonb END`,
       [supplier, JSON.stringify(flagged)]);
+    // A dismissed row the rule still flags reopens when its value moved materially or its currency changed (#1142).
+    // decided_by/decided_at stay as the audit of the earlier decision.
+    const reopened = (await client.query(`UPDATE supplier_price_anomalies SET status='open',detected_at=now(),
+        evidence=(evidence - 'dismissed_nf' - 'dismissed_currency')
+          || jsonb_build_object('reopened_from',jsonb_build_object('nf',evidence->'dismissed_nf','currency',evidence->'dismissed_currency'))
+      WHERE supplier=$1 AND status='dismissed' AND supplier_item_id=ANY($2::uuid[])
+      AND (evidence->>'dismissed_currency' IS DISTINCT FROM evidence->>'currency'
+        OR (jsonb_typeof(evidence->'dismissed_nf')='number' AND (evidence->>'dismissed_nf')::numeric>0
+          AND ((evidence->>'nf')::numeric>=(evidence->>'dismissed_nf')::numeric*$3::numeric
+            OR (evidence->>'nf')::numeric*$3::numeric<=(evidence->>'dismissed_nf')::numeric)))`,
+      [supplier, flagged.map(row => row.id), priceAnomalyThresholds.REOPEN_FACTOR])).rowCount ?? 0;
     // Never deletes a row the run could not judge: one whose own currency or relabel/dominant currency has no rate in
     // its company's latest import (an offer-outlier's relabel currency drops out of the scan without one, #1050).
     const removed = ratesMissing ? 0 : (await client.query(`WITH latest AS (
@@ -357,7 +410,7 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
     const open = (await client.query<{ n: number }>("SELECT count(*)::int AS n FROM supplier_price_anomalies WHERE supplier=$1 AND status='open'",
       [supplier])).rows[0].n;
     await client.query("COMMIT");
-    return { skipped: false as const, flagged: flagged.length, open, removed, ratesMissing, unrated: unrated.length };
+    return { skipped: false as const, flagged: flagged.length, open, removed, reopened, ratesMissing, unrated: unrated.length };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;
