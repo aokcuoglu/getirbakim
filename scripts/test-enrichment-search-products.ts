@@ -6,7 +6,7 @@ import {Pool} from 'pg';
 import {chooseExact,parseSearch,sourcePartQuery,sourcePartQueries} from '../src/modules/enrichment/trodo-adapter';
 import {requireEnrichmentSchema} from '../src/modules/enrichment/schema';
 import {supplierPartKeys,searchProductRows,recordSearchProducts,knownSearchProducts} from '../src/modules/enrichment/search-products';
-import {partKey,manufacturerBrandKey} from '../src/modules/store/enrichment-contract';
+import {partKey,manufacturerBrandKey,manufacturerBrandAliases} from '../src/modules/store/enrichment-contract';
 const reinz=parseSearch([{products:[{entity_id:21,manufacturer:'REINZ',tecdoc_sku:'61-36960-00',url_key:'gasket-reinz-61-36960-00'}]}]).products;
 const search=parseSearch([{products:[
  {entity_id:11,manufacturer:'TRW',tecdoc_sku:'GDB3368',url_key:'brake-pad-set-disc-brake-trw-gdb3368',category:[{category_id:268,name:'Brake pads'}],price:12.5},
@@ -93,12 +93,15 @@ test('search products round-trip through the database and SQL keys order batches
   for(const value of ['GDB3368','0 986 494 123','00','ap 034/2','FEBI','Mann','HENGST FILTER','febi bilstein','REINZ','Victor Reinz',
    'LEMFÖRDER','lemförder','LÖBRO','HÜCO','LESJÖFORS','AKRON-MALÒ','EBERSPÄCHER','NÜRAL','LUBRİCO','KRAFTVOLL SENSÖR AV',
    'İstanbul ısı','Şş Ğğ Çç Öö Üü İı','Citroën','Peugeot Société','Straße','Æ Ø Ł','ﬁlter','0０1²',
-   'Schaeffler INA','SCHAEFFLER LuK','Schaeffler FAG','AVA Clever Choice','BorgWarner (BERU)','VDO Continental','ams-OSRAM']){
+   'Schaeffler INA','SCHAEFFLER LuK','Schaeffler FAG','AVA Clever Choice','BorgWarner (BERU)','VDO Continental','ams-OSRAM',
+   '000','0','007','0A01','00 7-0',
+   // Every alias of the contract, so one added on a single side fails here.
+   ...Object.keys(manufacturerBrandAliases),...Object.keys(manufacturerBrandAliases).map(k=>k.toLowerCase())]){
    const sql=(await pool.query('SELECT enrichment_part_key($1) AS part,enrichment_brand_key($1) AS brand',[value])).rows[0];
    assert.deepEqual(sql,{part:partKey(value),brand:manufacturerBrandKey(value)},value);
   }
-  // Every Latin, general punctuation, letterlike and ligature code point folds like normalize() in the contract.
-  const probes=[[0x20,0x24f],[0x1e00,0x1eff],[0x2000,0x214f],[0xfb00,0xfb06]].flatMap(([from,to])=>
+  // Every BMP code point but the surrogates (and NUL, which text cannot hold) folds like normalize() in the contract.
+  const probes=[[0x1,0xd7ff],[0xe000,0xffff]].flatMap(([from,to])=>
    Array.from({length:to-from+1},(_,i)=>'a'+String.fromCodePoint(from+i)+'1'));
   const swept=(await pool.query('SELECT enrichment_part_key(v) AS k FROM unnest($1::text[]) WITH ORDINALITY AS t(v,n) ORDER BY n',[probes])).rows.map(r=>r.k as string);
   assert.deepEqual(swept,probes.map(partKey));

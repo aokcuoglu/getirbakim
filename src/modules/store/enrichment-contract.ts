@@ -45,13 +45,14 @@ export const enrichmentImportSchema = z.object({
 });
 
 const normalize = (value: string) => value.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Z0-9]/g, "");
-const aliases: Record<string, string> = { FEBI: "FEBIBILSTEIN", MANN: "MANNFILTER", HENGST: "HENGSTFILTER",
+/** Brand keys manufacturerBrandKey() maps to another; enrichment_brand_key() in db/enrichment-worker.sql repeats them. */
+export const manufacturerBrandAliases: Readonly<Record<string, string>> = { FEBI: "FEBIBILSTEIN", MANN: "MANNFILTER", HENGST: "HENGSTFILTER",
   // TecDoc data-supplier names (parts2world) of brands our suppliers list under their short name.
   SCHAEFFLERINA: "INA", SCHAEFFLERLUK: "LUK", SCHAEFFLERFAG: "FAG", AVACLEVERCHOICE: "AVA", BORGWARNERBERU: "BERU",
   VDOCONTINENTAL: "VDO", AMSOSRAM: "OSRAM",
   // Trodo prints Dana's gasket brand as "REINZ"; spareto and Dinamik say "VICTOR REINZ" (#1111).
   REINZ: "VICTORREINZ" };
-export const manufacturerBrandKey = (value: string) => aliases[normalize(value)] || normalize(value);
+export const manufacturerBrandKey = (value: string) => manufacturerBrandAliases[normalize(value)] || normalize(value);
 const brandKey = manufacturerBrandKey;
 const prefixes: Record<string, string[]> = {
   DEPO: ["DPO"], LUK: ["LUK"], FEBIBILSTEIN: ["FEBI"], BOSCH: ["BOS", "BCH"], LEMFORDER: ["LEM"], BSG: ["BSG"],
