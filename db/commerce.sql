@@ -316,10 +316,18 @@ CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz
 );
 DO $setup$ DECLARE def text := $view$
-WITH latest AS (
- SELECT DISTINCT ON (supplier,company) supplier,company,currencies_data,completed_at
- FROM supplier_imports WHERE status='succeeded'
- ORDER BY supplier,company,completed_at DESC,id DESC
+-- The latest succeeded import per supplier and company (#1158): the pairs, then each pair's newest import, both read
+-- through supplier_imports_latest_success_idx (db/schema.sql; an index-only scan, then one index probe per pair). A
+-- DISTINCT ON over every succeeded import scanned and sorted their heap rows on each read of the view (6-9 ms, most of a
+-- by-id read; now ~0.7 ms). Same order as that DISTINCT ON (completed_at DESC NULLS FIRST, id DESC). A recursive loose
+-- index scan for the pairs is faster still (~0.25 ms) but carries no column statistics: full scans of the view
+-- (storefront entries refresh, merchant feed) then planned merge joins and took ~12% longer.
+WITH pairs AS (
+ SELECT DISTINCT supplier,company FROM supplier_imports WHERE status='succeeded'
+), latest AS (
+ SELECT p.supplier,p.company,l.currencies_data,l.completed_at FROM pairs p CROSS JOIN LATERAL (SELECT currencies_data,completed_at
+  FROM supplier_imports i WHERE i.status='succeeded' AND i.supplier=p.supplier AND i.company=p.company
+  ORDER BY i.completed_at DESC,i.id DESC LIMIT 1) l
 ), rates AS (
  SELECT supplier,company,completed_at,r->>'dovizCinsi' AS currency,(r->>'satis')::numeric AS rate
  FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r

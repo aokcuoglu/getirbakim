@@ -292,6 +292,12 @@ DO $$ BEGIN
   CREATE INDEX supplier_imports_success_idx ON supplier_imports(supplier,company,list_group,warehouse,completed_at DESC,id DESC) WHERE status='succeeded';
  END IF;
 END $$;
+-- The latest succeeded import per supplier and company, read by commerce_catalog's rate step (db/commerce.sql, #1158).
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_imports'::regclass AND c.relname='supplier_imports_latest_success_idx') THEN
+  CREATE INDEX supplier_imports_latest_success_idx ON supplier_imports(supplier,company,completed_at DESC,id DESC) WHERE status='succeeded';
+ END IF;
+END $$;
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_imports'::regclass AND c.relname='supplier_imports_scope_runs_idx') THEN
   CREATE INDEX supplier_imports_scope_runs_idx ON supplier_imports(supplier,company,list_group,warehouse,started_at DESC,id DESC);
