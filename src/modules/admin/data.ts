@@ -46,7 +46,7 @@ export async function adminPricing() {
   await requireAdmin();
   const [settings, latest, installments] = await Promise.all([
     db.query<PricingSettings>("SELECT markup_percent,vat_percent,max_age_hours,shipping_fee_kurus,free_shipping_threshold_kurus FROM commerce_settings WHERE id=true"),
-    db.query<CurrencySnapshot>("SELECT currencies_data,completed_at FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1", [process.env.BASBUG_FIRMA_ADI || "BASBUG"]),
+    db.query<CurrencySnapshot>("SELECT currencies_data,completed_at FROM supplier_latest_import('basbug',$1)", [process.env.BASBUG_FIRMA_ADI || "BASBUG"]),
     installmentSettings(),
   ]);
   if (!settings.rows[0]) throw new Error("Satış ayarları bulunamadı.");

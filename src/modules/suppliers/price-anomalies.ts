@@ -168,10 +168,10 @@ type OfferRow = {
 };
 
 // Rows in the saleable scope (commerce_supplier_items) with a positive numeric cost; a brand is grouped per company
-// across list groups. Rates are the latest successful import's selling rates, as commerce_catalog's latest/rates.
+// across list groups. Rates are the latest successful import's selling rates (supplier_latest_imports, db/schema.sql),
+// as commerce_catalog's latest/rates.
 const itemRowsCte = `WITH latest AS (
-  SELECT DISTINCT ON (company) company,currencies_data FROM supplier_imports
-  WHERE supplier=$1 AND status='succeeded' ORDER BY company,completed_at DESC,id DESC
+  SELECT company,currencies_data FROM supplier_latest_imports WHERE supplier=$1
 ), rates AS (
   SELECT company,r->>'dovizCinsi' AS currency,(r->>'satis')::numeric AS rate
   FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r
@@ -364,8 +364,7 @@ const CHECKOUT_STATEMENT_TIMEOUT_MS = 3_000;
 // own currency or its relabel/dominant currency has no rate (an offer-outlier's relabel currency drops out of the scan
 // without one, #1050). Shared by the DELETE guard and the unjudged reopen (#1153); $1 is the supplier.
 const judgedRatesCte = `WITH latest AS (
-  SELECT DISTINCT ON (company) company,currencies_data FROM supplier_imports
-  WHERE supplier=$1 AND status='succeeded' ORDER BY company,completed_at DESC,id DESC
+  SELECT company,currencies_data FROM supplier_latest_imports WHERE supplier=$1
 ), rates AS (
   SELECT company,r->>'dovizCinsi' AS currency FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r
   WHERE r->>'satis' IS NOT NULL
