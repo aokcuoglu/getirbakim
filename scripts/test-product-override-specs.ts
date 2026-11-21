@@ -69,7 +69,9 @@ async function facetTableAgrees() {
   assert.equal(linked.rowCount, 1);
   const rows = await facetRows();
   assert.equal(rows.crossRef, undefined, "cross-reference spec");
-  // A payload of another code (stale) describes another part: no rows.
+  // A payload of another code (stale) describes another part: it is no valid donor, so the row has no link and no
+  // facet rows. The identity guard of a link whose row changed is covered in "the facet rows follow the links".
+  assert.equal((await schema.pool.query("SELECT 1 FROM product_enrichment_shared_links WHERE supplier_item_id=$1", [ids.stale])).rowCount, 0);
   assert.equal(rows.stale, undefined, "stale payload");
   // Facet keys only: no "Thickness [mm]" or "EAN"; "Brand class" from an exact part.
   assert.deepEqual(rows.febi, [["Brand class", "Premium"], ["Fitting Position", "Lower Left"], ["Fitting Position", "Lower Right"]]);
@@ -300,9 +302,38 @@ test("the SQL facet keys mirror facetSpecificationKeys", async () => {
 test("the facet rows follow the links (#994)", async () => {
   await item("facet", { supplier: "dinamik", code: "BREMBO 13013", brand: "BREMBO", name: "BREMBO FREN DISKI" });
   await schema.pool.query("SELECT refresh_product_matches()");
-  await enrich("facet", "BREMBO", "13013", [["Fitting Position", "Front Axle"], ["Brand class", "Premium"], ["Thickness [mm]", "22"]]);
+  // Not a facet key, and a value over 200 characters: neither becomes a row.
+  await enrich("facet", "BREMBO", "13013", [["Fitting Position", "Front Axle"], ["Brand class", "Premium"], ["Thickness [mm]", "22"],
+    ["Filter type", "x".repeat(201)]]);
+  // Matched through the row's own supplier OEM: its criteria are facet rows, its brand class is not (#994).
+  await item("facetOem", { supplier: "dinamik", code: "BREMBO 14014", brand: "BREMBO", name: "BREMBO FREN DISKI ARKA" });
+  await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"oe":"1K0615601"}' WHERE id=$1`, [ids.facetOem]);
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await enrich("facetOem", "BREMBO", "14014", [["Fitting Position", "Rear Axle"], ["Brand class", "Premium"]]);
+  await schema.pool.query(`UPDATE product_enrichments SET match_basis='{"type":"oem_reference","supplierOem":"1K0615601"}' WHERE supplier_item_id=$1`, [ids.facetOem]);
   await syncSharedLinks(schema.pool);
   assert.deepEqual((await facetRows()).facet, [["Brand class", "Premium"], ["Fitting Position", "Front Axle"]]);
+  assert.equal((await schema.pool.query("SELECT 1 FROM product_enrichment_shared_links WHERE supplier_item_id=$1 AND donor_oem='1K0615601'", [ids.facetOem])).rowCount, 1);
+  assert.deepEqual((await facetRows()).facetOem, [["Fitting Position", "Rear Axle"]]);
+  // The identity guard runs when the rows are refreshed: a row whose code or brand changed loses them even while its
+  // link still carries the old ones (before the queue is drained); the drain then drops the link too.
+  const refreshItem = (key: string) => schema.pool.query("SELECT storefront_facet_specs_refresh($1::uuid[])", [[ids[key]]]);
+  const linkedAs = async (column: "supplier_code" | "supplier_brand", value: string) => (await schema.pool.query(
+    `SELECT 1 FROM product_enrichment_shared_links WHERE supplier_item_id=$1 AND ${column}=$2`, [ids.facetOem, value])).rowCount;
+  await schema.pool.query("UPDATE supplier_items SET code='BREMBO 14015' WHERE id=$1", [ids.facetOem]);
+  await refreshItem("facetOem");
+  assert.equal(await linkedAs("supplier_code", "BREMBO 14014"), 1);
+  assert.equal((await facetRows()).facetOem, undefined, "code changed");
+  await schema.pool.query("UPDATE supplier_items SET code='BREMBO 14014' WHERE id=$1", [ids.facetOem]);
+  await syncSharedLinks(schema.pool);
+  assert.deepEqual((await facetRows()).facetOem, [["Fitting Position", "Rear Axle"]]);
+  await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"uk":"BREMBO-X"}' WHERE id=$1`, [ids.facetOem]);
+  await refreshItem("facetOem");
+  assert.equal(await linkedAs("supplier_brand", "BREMBO"), 1);
+  assert.equal((await facetRows()).facetOem, undefined, "brand changed");
+  await syncSharedLinks(schema.pool);
+  assert.equal(await linkedAs("supplier_brand", "BREMBO"), 0);
+  assert.equal((await facetRows()).facetOem, undefined);
   // New specifications reach the rows with the next link sync.
   await schema.pool.query(`UPDATE product_enrichments SET payload=jsonb_set(payload,'{specifications}','[["Fitting Position","Rear Axle"],["Filter type","Disc"]]'),
     imported_at=now() WHERE supplier_item_id=$1`, [ids.facet]);

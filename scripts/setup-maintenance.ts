@@ -30,8 +30,9 @@ export async function postSetupMaintenance(pool: Pool) {
         throw new Error(`ANALYZE ${table} waited 60 s for a lock (VACUUM, REINDEX or a concurrent index build on it?); run it once that finishes.`, { cause: error });
       }
     }
-    // Ordinary tables of this schema up to 1 MB or never analyzed: each takes milliseconds, the whole set well under a
-    // second. A lock wait skips the table; the next setup analyzes it.
+    // Ordinary tables of this schema up to 1 MB or never analyzed (a never-analyzed one can be large; ANALYZE samples
+    // it). Statistics are an optimisation: any failure (a lock wait, a table dropped meanwhile) skips the table with a
+    // warning, and the next setup analyzes it.
     const { rows: small } = await client.query<{ name: string }>(`SELECT c.oid::regclass::text AS name FROM pg_class c
       WHERE c.relnamespace=current_schema()::regnamespace AND c.relkind='r' AND c.relpersistence='p'
        AND (c.reltuples<0 OR pg_relation_size(c.oid)<=1048576) ORDER BY 1`);
@@ -41,9 +42,8 @@ export async function postSetupMaintenance(pool: Pool) {
       try {
         await client.query(`ANALYZE ${name}`);
       } catch (error) {
-        if (code(error) !== "55P03") throw error;
         skipped++;
-        console.warn(`ANALYZE ${name} waited 60 s for a lock; skipped.`);
+        console.warn(`ANALYZE ${name} failed (${code(error)}${code(error) === "55P03" ? ", waited 60 s for a lock" : ""}); skipped.`);
       }
     }
     console.log(`Analyzed ${small.length - skipped} small or never-analyzed tables in ${((Date.now() - started) / 1000).toFixed(1)} s${skipped ? ` (${skipped} skipped)` : ""}.`);
