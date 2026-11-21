@@ -72,6 +72,7 @@ jobs:
       - run: npm run test:ads-tags
       - run: npm run test:home
       - run: npm run test:client-imports
+      - run: npm run test:stylesheet-scope
       - run: npm run test:lazy-module
       - run: npm run test:checkout-address
       - run: npm run test:cart-checkout-ui
@@ -114,6 +115,8 @@ jobs:
         env:
           APP_ENV: staging
           SITE_URL: http://localhost:3103
+      # The workspace stylesheet stays off storefront routes and loads after the storefront sheet (#1027).
+      - run: npm run harness:css-chunks
       - name: Remove Postgres
         # Also after a failure or a cancel; the container is --rm, so stopping it removes it.
         if: always()

@@ -1,32 +1,15 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import path from "node:path";
 import test from "node:test";
+import { imports, resolve, sourceFiles } from "./test-helpers/import-graph";
 
 // Zod is ~90 kB of transfer; one "use client" file that reaches it ships it to every storefront page (#968).
 const adminRoots = ["src/components/admin", "src/app/yonetim"];
-const files: string[] = [];
-(function walk(dir: string) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full);
-    else if (/\.tsx?$/.test(entry.name)) files.push(full);
-  }
-})("src");
+const files = sourceFiles("src");
 
 const head = (text: string) => text.slice(0, 200);
 const isClient = (text: string) => /^\s*(?:\/\/.*\n\s*)*"use client"/.test(head(text));
 const isServerOnly = (text: string) => /^\s*(?:\/\/.*\n\s*)*"use server"/.test(head(text));
-
-function resolve(from: string, specifier: string) {
-  const base = specifier.startsWith("@/") ? path.join("src", specifier.slice(2)) : specifier.startsWith(".") ? path.join(path.dirname(from), specifier) : undefined;
-  if (!base) return undefined;
-  return [`${base}.ts`, `${base}.tsx`, path.join(base, "index.ts"), path.join(base, "index.tsx"), base].find(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
-}
-
-function imports(text: string) {
-  return [...text.matchAll(/^(?:import|export)\s+(?!type\b)[^;]*?from\s+"([^"]+)"/gm)].map(match => match[1]);
-}
 
 /** The static import chain from `file` to a module matching `match`, if any (`import()` is not followed). */
 function chainTo(file: string, match: (specifier: string) => boolean, seen = new Set<string>()): string[] | undefined {
