@@ -402,8 +402,8 @@ function verify(secret, timestamp, signature, rawBody) {
 **Delivery.** Answer with any `2xx` within 10 seconds; the body is ignored.
 Anything else is a failure: another status, a timeout, a network error, or a
 redirect (`3xx` answers are not followed; configure the final URL). Failed
-events are retried by the sweep that runs every 5 minutes: the first retry on
-the next sweep (about 5 minutes later), then after about 15, 45 and 135 minutes,
+events are retried by the sweep that runs every 5 minutes: the first retry
+about 5–10 minutes later (on a 5-minute sweep), then after about 15, 45 and 135 minutes,
 then every 6 hours, and given up 72 hours after the change. The first attempt
 is made right after a change made by operations or reported by the carrier;
 any other change (or a first attempt that could not run then) waits for the next
@@ -492,5 +492,5 @@ never stored.
 - `PARTNER_WEBHOOKS_JSON`: optional webhook endpoints per partner (#1002), JSON
   `{"bakimx":{"url":"https://…","secret":"<at least 32 characters>","enabled":true}}`. An entry with a non-https URL
   (in production), credentials in the URL, a shorter secret or `"enabled": false` holds that partner's events (logged
-  every sweep); the other partners still receive webhooks. Broken JSON holds every partner's events. Only a partner with
+  on each sweep); the other partners still receive webhooks. Broken JSON holds every partner's events. Only a partner with
   no entry has its events skipped.

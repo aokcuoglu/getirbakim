@@ -14,7 +14,7 @@ export const PARTNER_RETURN_EVENT_TYPE = "partner.return.updated";
 export const minPartnerWebhookSecretLength = 32;
 /** An event claimed this recently is never given up: its attempt may still be running. */
 export const PARTNER_WEBHOOK_LEASE_MINUTES = 5;
-/** The first retry waits this long, so it lands on the next 5-minute sweep; later ones wait 15, 45, 135 minutes, then 6 hours. */
+/** The first retry waits this long, so it lands about 5–10 minutes later (on a 5-minute sweep); later ones wait 15, 45, 135 minutes, then 6 hours. */
 export const PARTNER_WEBHOOK_FIRST_RETRY_MINUTES = 4;
 /** One delivery attempt waits this long for the partner's answer. */
 export const PARTNER_WEBHOOK_TIMEOUT_MS = 10_000;

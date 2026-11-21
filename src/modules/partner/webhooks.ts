@@ -17,7 +17,7 @@ import {
  * an operations step on an order (revalidateOrder) and a carrier update (the Geliver webhook) also send that order's
  * rows right after their answer, via after(). A non-2xx answer, a redirect, a timeout or a network error keeps the row pending for the next try;
  * after 72 hours it is given up as dead. A partner with no entry in PARTNER_WEBHOOKS_JSON gets its rows skipped; a broken
- * or disabled entry, or broken JSON, keeps them pending (logged every sweep) so a configuration mistake loses nothing
+ * or disabled entry, or broken JSON, keeps them pending (logged on each sweep, not on an order's instant delivery) so a configuration mistake loses nothing
  * within the 72 hours.
  */
 // Minutes after the last claim before the next try: 4 (the next 5-minute sweep), 15, 45, 135, then every 6 hours
@@ -85,12 +85,13 @@ export async function deliverPartnerWebhooks({
     console.error("Partner webhook given up", { event: row.id, partner: row.partner_code, attempts: row.attempts });
   }
   if (parseError) {
-    // Nothing is claimed: an attempt would count against the events while no partner can be reached.
-    console.error("Partner webhooks waiting: PARTNER_WEBHOOKS_JSON is not a JSON object");
+    // Nothing is claimed: an attempt would count against the events while no partner can be reached. Logged by the
+    // sweep only: an order's instant delivery (orderId) would repeat the same line after every admin step.
+    if (!only) console.error("Partner webhooks waiting: PARTNER_WEBHOOKS_JSON is not a JSON object");
     return result;
   }
   const held = [...invalid.keys()];
-  if (held.length) {
+  if (held.length && !only) {
     const waiting = (await db.query<{ partner_code: string; count: number }>(
       "SELECT partner_code,count(*)::int AS count FROM partner_webhook_events WHERE status='pending' AND partner_code=ANY($1::text[]) GROUP BY partner_code", [held])).rows;
     for (const row of waiting) console.error("Partner webhooks waiting: invalid PARTNER_WEBHOOKS_JSON entry", { partner: row.partner_code, reason: invalid.get(row.partner_code), events: row.count });

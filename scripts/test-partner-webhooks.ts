@@ -186,15 +186,20 @@ test("a broken or disabled entry and broken JSON keep events pending; only a par
   const errors: unknown[][] = [];
   const original = console.error;
   console.error = (...args: unknown[]) => { errors.push(args); };
+  const broken: PartnerWebhookConfig = { endpoints: new Map(), invalid: new Map(), parseError: true };
   try {
     for (const reason of ["disabled", "URL is not https"]) {
       const held: PartnerWebhookConfig = { endpoints: new Map(), invalid: new Map([["bakimx", reason]]), parseError: false };
+      // An order's instant delivery (after an admin step) holds the events silently; the sweep logs them.
       assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config: held }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
+      assert.deepEqual(errors, [], `instant path logs nothing (${reason})`);
+      assert.deepEqual(await webhooks.deliverPartnerWebhooks({ send, config: held }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
       assert.ok(errors.some(args => JSON.stringify(args).includes(reason) && JSON.stringify(args).includes("bakimx")), reason);
+      errors.length = 0;
     }
-    errors.length = 0;
-    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config: { endpoints: new Map(), invalid: new Map(), parseError: true } }),
-      { delivered: 0, skipped: 0, dead: 0, retried: 0 });
+    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config: broken }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
+    assert.deepEqual(errors, [], "instant path logs nothing (broken JSON)");
+    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ send, config: broken }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
     assert.equal(errors.length, 1);
     assert.ok(!JSON.stringify(errors).includes(secret));
   } finally { console.error = original; }
@@ -208,7 +213,7 @@ test("a broken or disabled entry and broken JSON keep events pending; only a par
   await schema.pool.query("UPDATE partner_webhook_events SET created_at=now()-interval '73 hours' WHERE order_id=$1", [late]);
   console.error = () => undefined;
   try {
-    assert.equal((await webhooks.deliverPartnerWebhooks({ orderId: late, send, config: { endpoints: new Map(), invalid: new Map(), parseError: true } })).dead, 1);
+    assert.equal((await webhooks.deliverPartnerWebhooks({ orderId: late, send, config: broken })).dead, 1);
   } finally { console.error = original; }
 });
 
