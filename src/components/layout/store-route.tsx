@@ -3,6 +3,7 @@
 import { useCallback, useSyncExternalStore, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { HeaderPin } from "./header-pin";
 
 /**
  * The storefront chrome has three route variants:
@@ -20,17 +21,14 @@ export function useStoreRoute(): StoreRoute {
 }
 
 /**
- * Wraps chrome that changes with the route. Descendants style themselves with
+ * Wraps chrome that changes with the route (`except`: renders nothing on that route; `pin`: mounts HeaderPin, #1089). Descendants style themselves with
  * `group-data-[route=home]/route:` / `group-data-[route=checkout]/route:` variants,
  * so server-rendered children need no route knowledge of their own.
  */
-export function RouteFrame({ children, className }: { children: ReactNode; className?: string }) {
-  return <div data-route={useStoreRoute()} className={cn("group/route", className)}>{children}</div>;
-}
-
-/** Picks the footer variant that is actually visible on the current route. */
-export function FooterVariants({ links, checkout }: { links: ReactNode; checkout: ReactNode }) {
-  return useStoreRoute() === "checkout" ? checkout : links;
+export function RouteFrame({ children, className, except, pin }: { children: ReactNode; className?: string; except?: StoreRoute; pin?: boolean }) {
+  const route = useStoreRoute();
+  if (route === except) return null;
+  return <div data-route={route} className={cn("group/route", className)}>{pin && <HeaderPin route={route} />}{children}</div>;
 }
 
 /** `matchMedia` as React state; false during server rendering. */

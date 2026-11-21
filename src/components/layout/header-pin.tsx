@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { useStoreRoute } from "./store-route";
+import type { StoreRoute } from "./store-route";
 import { nextHeaderPin, type PinTrack } from "./header-pin-state";
 
 const phoneQuery = "(max-width: 599.98px)";
@@ -13,8 +13,7 @@ const lockedOverflow = /hidden|clip/;
  * the `.site-chrome` rules in storefront.css; renders nothing. Off on checkout and from 600px up; while a dialog
  * locks the page scroller (overflow hidden on <html> or <body>, as Base UI does) the state does not change.
  */
-export function HeaderPin() {
-  const route = useStoreRoute();
+export function HeaderPin({ route }: { route: StoreRoute }) {
   useEffect(() => {
     if (route === "checkout") return;
     const chrome = document.querySelector<HTMLElement>(".site-chrome");

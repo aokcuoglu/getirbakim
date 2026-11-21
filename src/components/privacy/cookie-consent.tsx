@@ -67,7 +67,7 @@ function closeCookieSettings() {
 /** The footer's "Çerez tercihleri" link-styled button; the banner itself is <CookieBanner/>. */
 export function CookieConsent() {
   return <button type="button" data-cookie-preferences="" onPointerEnter={preloadSettings} onFocus={preloadSettings} onClick={event => openCookieSettings(event.currentTarget)}
-    className="inline min-h-6 cursor-pointer rounded-none border-0 bg-transparent p-0 text-[length:inherit] leading-[inherit] text-inherit font-normal underline underline-offset-3 hover:bg-transparent hover:text-primary">
+    className="cookie-preferences">
     Çerez tercihleri
   </button>;
 }
