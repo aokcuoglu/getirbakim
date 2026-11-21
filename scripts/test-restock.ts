@@ -91,6 +91,27 @@ test("an open request becomes 'Bildirilecek' when its product can be ordered aga
   await schema.pool.query("DELETE FROM product_sources WHERE supplier_item_id=$1", [sold]);
 });
 
+test("one batch prices every open request: shared offers, the cheaper candidate, no offers on the notified tab (#1168)", async () => {
+  await schema.pool.query("DELETE FROM restock_requests");
+  const request = (email: string, status: string, code: string, productId: string | null) => schema.pool.query(`INSERT INTO restock_requests(email,supplier,code,brand,name,consent_text,consent_version,status,product_id,notified_at)
+    VALUES($1,'basbug',$2,'B','N','c','v',$3,$4,CASE WHEN $3='notified' THEN now() END)`, [email, code, status, productId]);
+  const cheap = await item("MAN BATCH", "present", "G5");
+  await schema.pool.query("UPDATE supplier_items SET price_data='{\"nf\":50}' WHERE id=$1", [cheap]);
+  const dear = await item("MAN BATCH", "present", "G6");
+  await schema.pool.query("UPDATE supplier_items SET price_data='{\"nf\":500}' WHERE id=$1", [dear]);
+  await request("a@example.invalid", "pending", "MAN BATCH", null);
+  await request("b@example.invalid", "pending", "MAN BATCH", null);
+  await request("c@example.invalid", "notified", "MAN W719", null);
+  const pending = await admin.loadRestockRequests("pending");
+  assert.equal(pending.rows.length, 2);
+  for (const row of pending.rows) assert.equal(row.offer_id, cheap);
+  assert.equal(await admin.restockDueCount(), 2);
+  const notified = await admin.loadRestockRequests("notified");
+  assert.equal(notified.rows.length, 1);
+  assert.equal(notified.rows[0].offer_id, null);
+  assert.equal(notified.rows[0].offer_price_kurus, null);
+});
+
 test("retention: notified after 30 days, pending after 12 months, withdrawn at once", async () => {
   await schema.pool.query("DELETE FROM restock_requests");
   const insert = (status: string, requested: string, notified: string | null) => schema.pool.query(`INSERT INTO restock_requests(email,supplier,code,brand,name,consent_text,consent_version,status,requested_at,notified_at)
