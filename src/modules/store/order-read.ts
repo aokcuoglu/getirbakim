@@ -82,6 +82,12 @@ export async function viewableOrder(id:string) {
  return {...await orderDetail(order,false),mine:false,access:"link" as OrderAccess};
 }
 
+/** Whether `id` is a guest order; the signed-link route checks it before it sets a cookie. */
+export async function guestOrderExists(id:string) {
+ if(!z.uuid().safeParse(id).success) return false;
+ return (await db.query("SELECT 1 FROM commerce_orders WHERE id=$1 AND owner_kind='guest'",[id])).rowCount===1;
+}
+
 /** The order's stored pre-contract copy, under the same read rule as the order page (viewableOrder); null when none was recorded. */
 export async function currentOrderAgreement(id:string) {
  const result=await viewableOrder(id);
