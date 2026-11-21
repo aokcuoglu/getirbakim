@@ -248,7 +248,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
         {!vehicle && !others.length && !garage && <p className="text-xs text-muted-foreground" role="status">Kayıtlı araçlar yükleniyor…</p>}
         {garage && !garage.signedIn && <p className="mt-[18px] mb-0 text-xs leading-5 text-muted-foreground">Araçların bu tarayıcıda saklanır (en çok 5). B2B hesabınla giriş yaparsan hesabına kaydedilir ve her cihazda görünür.</p>}
       </TabsContent>
-      {error && <p className="mx-5 mt-0 mb-5 rounded-[5px] bg-[#fff0ec] p-3 text-[13px] leading-5 text-[#a74130]" role="alert">{error}</p>}
+      {error && <p className="mx-5 mt-0 mb-5 rounded-[5px] bg-destructive-subtle p-3 text-[13px] leading-5 text-destructive-strong" role="alert">{error}</p>}
     </div>
     <div className="shrink-0 border-t border-border bg-white p-5 pb-[max(20px,env(safe-area-inset-bottom))]">
       <Button nativeButton={false} render={<Link href={catalogPath} onClick={onClose} />}

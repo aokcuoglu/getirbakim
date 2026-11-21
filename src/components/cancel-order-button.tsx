@@ -38,7 +38,7 @@ export function CancelOrderButton({ orderId, number, expected, total, paid }: {
   return <Dialog disablePointerDismissal>
     <DialogTrigger render={<Button variant="ghost" className={cn(storeButton({ intent: "ghost", size: "md" }), "text-muted-foreground hover:text-destructive")}/>}>Siparişi iptal et</DialogTrigger>
     <DialogContent showCloseButton={false} role="alertdialog" initialFocus={keep} overlayClassName={storeDialogOverlay} className={storeDialogContent}>
-      <div className="mx-auto grid size-14 place-items-center rounded-full bg-[#fff0ec] text-[#a74130]"><CircleAlert className="size-7" aria-hidden/></div>
+      <div className="mx-auto grid size-14 place-items-center rounded-full bg-destructive-subtle text-destructive-strong"><CircleAlert className="size-7" aria-hidden/></div>
       <DialogTitle className="mt-4 mb-2 text-[22px] leading-7 font-semibold tracking-[-0.4px]">Siparişi iptal edelim mi?</DialogTitle>
       <DialogDescription className="m-0 text-sm leading-[22px] text-[#454f5b]">{body}</DialogDescription>
       <form action={cancelOrder} className="mt-6 grid gap-2.5">

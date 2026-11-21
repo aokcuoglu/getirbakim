@@ -150,6 +150,6 @@ function KitImage({ href, title }: { href: string | null; title: string }) {
       : <div className="grid size-full place-items-center text-[13px] text-muted-foreground">{href ? "Set görseli hazırlanıyor…" : "Setine parça ekle"}</div>}
     {href && href !== shown && <Image key={href} src={href} alt="" width={1200} height={1200} className="absolute inset-0 size-full object-contain opacity-0" unoptimized onLoad={() => { setLoaded(href); setFailed(false); }} onError={() => setFailed(true)}/>}
     {loading && !failed && <div className="absolute inset-0 grid place-items-center bg-white/60"><Loader2 size={28} className="animate-spin text-primary" aria-hidden="true"/><span className="sr-only">Set görseli güncelleniyor</span></div>}
-    {failed && <p className="absolute inset-x-0 bottom-0 m-0 bg-[#fff0ec] px-3 py-2 text-center text-xs text-[#a74130]">Görsel şu an oluşturulamadı; seçimin yine de geçerli.</p>}
+    {failed && <p className="absolute inset-x-0 bottom-0 m-0 bg-destructive-subtle px-3 py-2 text-center text-xs text-destructive-strong">Görsel şu an oluşturulamadı; seçimin yine de geçerli.</p>}
   </div>;
 }
