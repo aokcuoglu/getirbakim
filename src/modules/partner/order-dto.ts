@@ -58,7 +58,7 @@ export type PartnerOrderRow = {
 export type PartnerOrderLineRow = { product_id: string; code: string; name: string; quantity: number; unit_price_kurus: string; pricing_snapshot: Record<string, unknown> };
 export type PartnerLinePrice = { unit_net_kurus: number; vat_rate_bps: number; line_net_kurus: number; line_vat_kurus: number; line_gross_kurus: number };
 
-function linePrice(line: PartnerOrderLineRow): PartnerLinePrice {
+export function linePrice(line: PartnerOrderLineRow): PartnerLinePrice {
   const partner = line.pricing_snapshot.partner as Partial<PartnerLinePrice> | undefined;
   const numbers = [partner?.unit_net_kurus, partner?.vat_rate_bps, partner?.line_net_kurus, partner?.line_vat_kurus, partner?.line_gross_kurus];
   if (partner && numbers.every(value => typeof value === "number")) return partner as PartnerLinePrice;

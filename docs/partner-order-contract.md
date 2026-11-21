@@ -1,9 +1,11 @@
-# Partner order contract (v2.0)
+# Partner order contract (v2.1)
 
 Partner orders (#426) let a partner (BakımX) order parts found through
 `GET /api/partner/v1/products` for delivery to a workshop. Version 2.0 replaces
 the 1.0 pilot (single line, reservation TTL, `RESERVATION_EXPIRED`); it is not
-backwards compatible.
+backwards compatible. Version 2.1 (#1007) adds return requests on shipped
+orders (`POST`/`GET /orders/:id/returns`, the Return object); Order objects are
+unchanged and keep `contractVersion: "2.0"`.
 
 All endpoints live under `/api/partner/v1`, take `Authorization: Bearer <key>`
 (`PARTNER_API_KEYS`) and answer JSON with `Cache-Control: no-store`. A
@@ -48,6 +50,8 @@ order time like the prices, stored on the order and counted in the limit.
 4. Follow the order with `GET /orders/:id` or `GET /orders/by-key/:key`
    (no webhooks yet).
 5. To cancel, `DELETE /orders/:id` (see below).
+6. To return lines of a shipped or delivered order, `POST /orders/:id/returns`
+   and follow the decision with `GET /orders/:id/returns` (no webhooks).
 
 ## POST /order-quotes
 
@@ -172,8 +176,8 @@ Cancels one of the calling partner's orders, or asks operations to:
 | --- | --- | --- |
 | `REQUESTED` | `200 { "order", "cancellation": "CANCELLED" }` | Cancelled at once; `cancelledBy: "PARTNER"`. |
 | `CONFIRMED` | `202 { "order", "cancellation": "REQUESTED" }` | A cancel request is recorded (`cancellationRequest.status: "PENDING"`); the order is not shipped until operations decide it. |
-| `CONFIRMED`, request rejected | `409 CANCELLATION_REJECTED` | Final: the order ships; a return goes through operations. |
-| `SHIPPED`, `COMPLETED` | `409 ORDER_ALREADY_SHIPPED` | Returns are arranged with operations. |
+| `CONFIRMED`, request rejected | `409 CANCELLATION_REJECTED` | Final: the order ships; return it with `POST /orders/:id/returns` once shipped. |
+| `SHIPPED`, `COMPLETED` | `409 ORDER_ALREADY_SHIPPED` | Request a return with `POST /orders/:id/returns`. |
 | `CANCELLED` | `200 { "order", "cancellation": "CANCELLED" }` | Nothing changes. |
 
 `DELETE` is repeatable: a repeated call answers the same and keeps the first
@@ -182,6 +186,69 @@ request time. Another partner's order, or a malformed id, is
 decision with `GET /orders/:id`: approved, the order becomes `CANCELLED` with
 `cancelledBy: "PARTNER"`; rejected, `cancellationRequest.status` becomes
 `REJECTED` and the order continues to `SHIPPED`.
+
+## POST /orders/:id/returns
+
+Asks GetirBakım to take back lines of one of the calling partner's shipped or
+delivered orders. Operations approve or reject the request; nothing is
+refunded or credited by this call. Headers: `Idempotency-Key: <UUID>`
+(required, its own key space: not an order's key).
+
+```json
+{
+  "lines": [ { "selectedOfferId": "offer_…", "quantity": 1, "reason": "DEFECTIVE" } ],
+  "note": "optional, up to 1000 characters"
+}
+```
+
+- 1–20 lines, each offer once, quantity 1–99; `selectedOfferId` is a line of
+  the order. Strict: unknown fields are refused.
+- `reason`: `NOT_FIT`, `WRONG_ITEM`, `DAMAGED`, `DEFECTIVE`, `CHANGED_MIND` or
+  `OTHER`.
+- Per order line, accepted returns + pending requests + this request must not
+  exceed the ordered quantity; a rejected request frees its quantity.
+- Answer `201 { "return": <Return>, "replayed": false }`. The same key with the
+  same order and body answers `200 { "return": <the original>, "replayed": true }`;
+  the same key with another order or body is `409 IDEMPOTENCY_CONFLICT`.
+- Checked in this order: key, `Idempotency-Key`, body (`400`), replay of a
+  known key, the order (`404 ORDER_NOT_FOUND`), its status
+  (`409 ORDER_NOT_SHIPPED` unless `SHIPPED` or `COMPLETED`), the lines
+  (`409 RETURN_LINE_UNKNOWN`), the quantities (`409 RETURN_QUANTITY_EXCEEDED`).
+- A paused order intake does not block return requests.
+
+**Approved returns do not reduce the outstanding amount; credit notes settle
+them.** The order keeps counting against the limit as described under
+`POST /orders` until it is invoiced, and GetirBakım issues a credit note for an
+approved return outside this API. Shipping is not part of a return request.
+
+## GET /orders/:id/returns
+
+`200 { "returns": [<Return>] }`, oldest first (empty when none). Another
+partner's order, or a malformed id, is `404 ORDER_NOT_FOUND`.
+
+## Return
+
+```json
+{
+  "contractVersion": "2.1",
+  "id": "uuid", "orderId": "uuid", "idempotencyKey": "uuid",
+  "status": "REQUESTED",
+  "lines": [ { "selectedOfferId": "offer_…", "partNo": "LUK 510 0207 10", "name": "…", "quantity": 1, "reason": "DEFECTIVE",
+               "unitNetKurus": 13000, "vatRateBps": 2000, "lineNetKurus": 13000, "lineVatKurus": 2600, "lineGrossKurus": 15600 } ],
+  "totals": { "netKurus": 13000, "vatKurus": 2600, "grossKurus": 15600 },
+  "note": "",
+  "requestedAt": "2026-11-21T10:00:00.000Z",
+  "decidedAt": null
+}
+```
+
+`status`: `REQUESTED` (operations have not decided; `decidedAt: null`),
+`APPROVED` (the lines are recorded as returned) or `REJECTED` (final for this
+request; its quantity can be requested again). Amounts are the order line's
+unit price for the returned quantity, computed like order lines. They are
+indicative: line VAT is rounded again for the returned quantity, so partial
+returns of one line may differ by a kuruş from the order line's share; the
+credit note GetirBakım issues is authoritative.
 
 ## Order
 
@@ -244,9 +311,12 @@ nothing expires); `REJECTED` is not emitted, an order operations refuse is
 | 409 | `QUOTE_EXPIRED` | The quote is older than 15 minutes | `expiredAt` |
 | 409 | `QUOTE_CHANGED` | Token not signed by us, for another partner, or lines differ; checkout rules changed | |
 | 409 | `CREDIT_LIMIT_EXCEEDED` | Outstanding amount (open + delivered, uninvoiced orders) + this order exceed the limit | `limitKurus, openKurus` (outstanding amount), `orderKurus` |
-| 409 | `IDEMPOTENCY_CONFLICT` | Key reused with another body | |
+| 409 | `IDEMPOTENCY_CONFLICT` | Key reused with another body (returns: or another order) | |
 | 409 | `CANCELLATION_REJECTED` | `DELETE` on a confirmed order whose cancel request operations rejected | |
-| 409 | `ORDER_ALREADY_SHIPPED` | `DELETE` on a shipped or delivered order | |
+| 409 | `ORDER_ALREADY_SHIPPED` | `DELETE` on a shipped or delivered order; request a return instead | |
+| 409 | `ORDER_NOT_SHIPPED` | Return request on an order that is not shipped or delivered | `status` (`REQUESTED`, `CONFIRMED` or `CANCELLED`) |
+| 409 | `RETURN_LINE_UNKNOWN` | Return line whose offer is not a line of the order | `selectedOfferIds` |
+| 409 | `RETURN_QUANTITY_EXCEEDED` | Accepted + pending returns + requested exceed the ordered quantity | `lines: [{ selectedOfferId, orderedQuantity, returnedQuantity, pendingQuantity, requestedQuantity }]` |
 | 429 | `RATE_LIMITED` | Too many requests | |
 | 503 | `QUOTE_CONFIGURATION_UNAVAILABLE` | `PARTNER_QUOTE_SIGNING_SECRET` missing (< 32 chars) | |
 | 503 | `ORDER_LIMIT_UNAVAILABLE` | No limit for the partner (admin value or `PARTNER_ORDER_LIMIT_KURUS`) | |
@@ -256,7 +326,8 @@ nothing expires); `REJECTED` is not emitted, an order operations refuse is
 
 On every order-creation 409 except `IDEMPOTENCY_CONFLICT` the partner requests
 a new quote and orders with a new `Idempotency-Key`. The `DELETE` 409s are final
-for that order.
+for that order. After a return 409 other than `IDEMPOTENCY_CONFLICT`, correct the
+request and send it with a new `Idempotency-Key`.
 
 ## Storage
 
@@ -277,6 +348,12 @@ not rejected) the order cannot be shipped by hand or with a Geliver label.
 Operations handle it in `/yonetim/siparisler` like a paid order; the TAMI payment
 window and its expiry never touch it. Invoice columns stay empty (the partner
 is invoiced) and no consumer pre-contract documents are stored.
+A return request is a `partner_return_requests` row (`request_key` =
+Idempotency-Key, `fingerprint` = SHA-256 of the order id and validated body,
+`status` `requested`/`approved`/`rejected`) with `partner_return_request_lines`.
+Only an approval writes `commerce_returns` rows (one per line, with
+`partner_return_request_id`); pending requests hold their quantity against
+returns operations record by hand as well.
 
 ## Configuration
 
