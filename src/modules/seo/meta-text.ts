@@ -40,11 +40,11 @@ export function fitDescription(text: string, max = descriptionMax): string {
 }
 
 /**
- * A short listing title ("Volanlar") reads "Volanlar: modeller ve fiyatlar", which suits any category name, plural or
+ * A short listing title ("Volanlar") reads "Volanlar: ürünler ve fiyatlar", which suits any category name, plural or
  * not; a title of 17 characters or more stays as it is.
  */
 export function listingTitlePad(page: string): string {
-  return page.length < 17 ? `${page}: modeller ve fiyatlar` : page;
+  return page.length < 17 ? `${page}: ürünler ve fiyatlar` : page;
 }
 
 /**

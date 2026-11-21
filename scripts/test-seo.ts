@@ -231,7 +231,7 @@ test("a category without curated copy gets a description of 100–160 characters
 });
 
 test("a short listing title is padded, a longer one is not, and both land within 30–65 with the suffix (#1218)", () => {
-  assert.equal(listingTitlePad("Volanlar"), "Volanlar: modeller ve fiyatlar");
+  assert.equal(listingTitlePad("Volanlar"), "Volanlar: ürünler ve fiyatlar");
   assert.equal(listingTitlePad("Krank mili yatakları"), "Krank mili yatakları");
   for (let length = 3; length <= 52; length++) {
     const title = listingTitlePad("Ç".repeat(length)) + brandSuffix;
