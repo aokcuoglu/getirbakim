@@ -235,17 +235,21 @@ test("raw <button> elements appear only in the header and the listed exceptions"
   }
 });
 
-test("no hex colour on a storefront button or close tag", () => {
+test("no hex colour on a storefront button, trigger or close tag", () => {
   const hex = /#[0-9a-f]{3,8}\b/i;
+  let scanned = 0;
   for (const { path, source } of storefrontSources()) {
     if (path.includes("/components/navigation/") || path.endsWith("/auth/account-menu.tsx")) continue;
     const consts = allConsts(source);
-    for (const name of ["button", "Button", "DialogClose", "SheetClose"])
+    const names = new Set(["button", "Button", "DialogClose", "SheetClose", ...[...source.matchAll(/<(\w+(?:Trigger|Close))(?=[\s>])/g)].map((m) => m[1])]);
+    for (const name of names)
       for (const tag of buttonTags(source, name)) {
+        scanned++;
         assert.doesNotMatch(tag, hex, `${path}: ${tag.slice(0, 160)}`);
         const classes = classExpression(tag);
         for (const [constName, init] of consts) if (new RegExp(`\\b${constName}\\b`).test(classes)) assert.doesNotMatch(init, hex, `${path}: const ${constName}`);
       }
     if (path.endsWith("/garage/garage-button.tsx")) assert.doesNotMatch(source.slice(source.indexOf("const variantClass"), source.indexOf("export function")), hex, `${path}: variantClass`);
   }
+  assert.ok(scanned >= 15, `scanned ${scanned} button, trigger and close tags`);
 });

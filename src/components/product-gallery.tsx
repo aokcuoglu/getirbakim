@@ -16,7 +16,7 @@ export function ProductGallery({ images, alt }: { images: CatalogProductImage[];
   const image = images[index];
   const label = images.length > 1 ? `${alt} (${index + 1}/${images.length})` : alt;
   const main = <Dialog>
-    <DialogTrigger className="group/zoom relative flex rounded-none border-0 h-[540px] w-full cursor-zoom-in items-center justify-center bg-white px-6 py-[30px] text-[#53677d] outline-none focus-visible:ring-3 focus-visible:ring-ring/50 min-[1450px]:h-[600px] max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3" aria-label={`${label} görselini büyüt`}>
+    <DialogTrigger className="group/zoom relative flex rounded-none border-0 h-[540px] w-full cursor-zoom-in items-center justify-center bg-white px-6 py-[30px] text-muted-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50 min-[1450px]:h-[600px] max-[1000px]:h-[440px] max-[750px]:h-[340px] max-[750px]:p-3" aria-label={`${label} görselini büyüt`}>
       <Image key={image.src} className="block size-full object-contain" src={image.src} alt={label} width={image.width} height={image.height} sizes="(max-width: 750px) 95vw, 600px" preload={index === 0} />
       <span className="absolute right-5 bottom-4 opacity-0 transition-opacity group-hover/zoom:opacity-100 group-focus-visible/zoom:opacity-100 motion-reduce:transition-none"><ZoomIn size={19}/></span>
     </DialogTrigger>
