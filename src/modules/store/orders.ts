@@ -50,6 +50,10 @@ export function cartQuote(items: CartItem[],discount:number,shipping:ShippingRul
 export function cartTotal(items:CartItem[],discount:number) {
  return items.reduce((total,p)=>total+servicePrice(p.price_kurus ?? 0,discount)*p.quantity,0);
 }
+/** Ids of the lines an order cannot sell (#1188): no price, not available, above the per-line cap or a price below one kuruş. */
+export function unsellableLines(items:CartItem[],discount:number):string[] {
+ return items.filter(p=>!p.available || !p.price_kurus || p.quantity>p.max_quantity || servicePrice(p.price_kurus,discount)<1).map(p=>p.id);
+}
 /** Shipping is charged up front because payment is collected before operations confirm the order. */
 export function orderTotals(items:CartItem[],discount:number,shipping:ShippingRule) {
  const subtotal=cartTotal(items,discount);
@@ -110,9 +114,10 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
   const account=owner.kind==='account' ? (await client.query<{role:string;discount_percent:number}>('SELECT role,discount_percent FROM accounts WHERE id=$1',[owner.id])).rows[0] : null;
   const discount=account?.role==='service' ? account.discount_percent : 0;
   const items=await cartFor(owner,client);
-  if(!items.length || items.some(p=>!p.available || !p.price_kurus || p.quantity>p.max_quantity || servicePrice(p.price_kurus,discount)<1)) {
-   await client.query('ROLLBACK'); return {error:'stock'};
-  }
+  // (#1188) The refused lines are returned by id, so the page names them instead of showing the general stock text.
+  const refused=unsellableLines(items,discount);
+  if(!items.length) { await client.query('ROLLBACK'); return {error:'stock'}; }
+  if(refused.length) { await client.query('ROLLBACK'); return {error:'stock',products:refused}; }
   // (#788, #861) A live cost the locked rows kept from being saved refuses its line only if the sale price would change;
   // checked before the quote so the error names the lines. A fixed or campaign price, or a cost that rounds to the same
   // price, is sold on saved data and marked "busy" below. Compared with the price this order charges (cartFor's), so a
@@ -150,7 +155,7 @@ export async function submitOrder(owner:CartOwner,input:CheckoutInput,garage:Gar
    // Only in-house stock is reserved; the line records what was taken so cancel/expiry return exactly that.
    const reserved=p.source==='store' ? p.quantity : 0;
    if(reserved && !(await client.query('UPDATE store_products SET stock=stock-$2,updated_at=now() WHERE id=$1 AND stock>=$2',[p.id,reserved])).rowCount) {
-    await client.query('ROLLBACK'); return {error:'stock'};
+    await client.query('ROLLBACK'); return {error:'stock',products:[p.id]};
    }
    // A line the supplier could not confirm live was sold on its saved data (#763): operations confirm it with the supplier.
    // A live cost that could not be saved keeps the sale price (#861) and is recorded as live_check_nf for operations.

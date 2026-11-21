@@ -130,7 +130,12 @@ test("placing an order stores the consent and an immutable order-specific copy",
   const schema = await isolatedSchema("order_agreement_test");
   const { db } = await import("../src/lib/db");
   try {
-    const { submitOrder, cartQuote, shippingRule } = await import("../src/modules/store/orders");
+    const { submitOrder, cartQuote, shippingRule, unsellableLines } = await import("../src/modules/store/orders");
+    // Lines the order cannot sell are listed by id (#1188).
+    const line = (id: string, over: Record<string, unknown> = {}) => ({ id, available: true, price_kurus: 1000, quantity: 1, max_quantity: 5, ...over }) as never;
+    assert.deepEqual(unsellableLines([line("ok"), line("nopr", { price_kurus: null }), line("off", { available: false }), line("cap", { quantity: 6 })], 0), ["nopr", "off", "cap"]);
+    assert.deepEqual(unsellableLines([line("ok")], 0), []);
+
     const { cartFor, setCartQuantity } = await import("../src/modules/store/cart");
     await schema.pool.query("UPDATE commerce_settings SET shipping_fee_kurus=15000,free_shipping_threshold_kurus=150000");
     const product = (await schema.pool.query<{ id: string }>(`INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock)
@@ -253,6 +258,32 @@ test("placing an order stores the consent and an immutable order-specific copy",
     const reference = [await productFitmentLevel({ id: product, code: "AGR-1", brand: "TEST" }, vehicle), await productFitmentLevel({ id: second, code: "AGR-2", brand: "TEST" }, null)];
     assert.deepEqual(reference, ["unknown", "no_vehicle"]);
     assert.deepEqual(racedLines, [{ code: "AGR-1", vehicle, fitment_level: reference[0] }, { code: "AGR-2", vehicle: null, fitment_level: reference[1] }]);
+
+    // An order that fails on an unsellable line names it (#1188): the second product sells out after the up-front quote.
+    const refusedOwner = { kind: "guest" as const, id: randomBytes(32).toString("hex") };
+    await schema.pool.query("INSERT INTO guest_carts(token_hash) VALUES($1)", [refusedOwner.id]);
+    assert.equal(await setCartQuantity(refusedOwner, product, 1), true);
+    assert.equal(await setCartQuantity(refusedOwner, second, 1), true);
+    const refusedQuote = cartQuote(await cartFor(refusedOwner), 0, await shippingRule());
+    const orderCount = async () => Number((await schema.pool.query<{ n: string }>("SELECT count(*) AS n FROM commerce_orders")).rows[0].n);
+    const ordersBefore = await orderCount();
+    const secondStock = (await schema.pool.query<{ stock: number }>("SELECT stock FROM store_products WHERE id=$1", [second])).rows[0].stock;
+    let soldOut = false;
+    const refusedQuery = mock.method(db, "query", async (...args: unknown[]) => {
+      const result = await originalQuery(...args);
+      if (typeof args[0] === "string" && args[0].startsWith("SELECT product_id::text,vehicle FROM commerce_cart_items")) {
+        soldOut = true;
+        refusedQuery.mock.restore();
+        await schema.pool.query("UPDATE store_products SET stock=0 WHERE id=$1", [second]);
+      }
+      return result;
+    });
+    let refusedResult: Awaited<ReturnType<typeof submitOrder>>;
+    try { refusedResult = await submitOrder(refusedOwner, { ...form, requestKey: randomUUID(), quote: refusedQuote }); }
+    finally { refusedQuery.mock.restore(); await schema.pool.query("UPDATE store_products SET stock=$2 WHERE id=$1", [second, secondStock]); }
+    assert.equal(soldOut, true, "fitment preload query text changed — race hook did not fire");
+    assert.deepEqual([refusedResult.error, refusedResult.products], ["stock", [second]]);
+    assert.equal(await orderCount(), ordersBefore);
 
     // Re-running the schema keeps rows; deleting an order removes its record.
     await schema.pool.query(await readFile("db/commerce.sql", "utf8"));
