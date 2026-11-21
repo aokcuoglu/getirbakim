@@ -19,8 +19,9 @@ type Props = {
  * The photo behind a storefront hero (#736): a real <img> instead of a CSS background, so the browser finds it in the
  * HTML (preloaded per viewport, high priority) and a phone fetches a small crop instead of the 3840px banner.
  * The parent is `relative` with the ink background (shown until the photo loads); its content children need `relative` to sit above it.
- * Callers pass static imports (#1217): the URL carries a content hash, so a CDN can cache it immutably and a changed
- * file never serves stale bytes under the old URL. Preload hrefs and <source> srcSets are built from the same `src` strings.
+ * Callers pass static imports (#1217): the URL is content-hashed under /_next/static/media (plus the per-release ?dpl suffix
+ * in production), so a CDN can cache it immutably and a changed file never serves stale bytes under the old URL; browsers
+ * re-download it once per release. Preload hrefs and <source> srcSets are built from the same `src` strings.
  */
 export function HeroBackdrop({ desktop, mobile, desktop2x, overlay = true }: Props) {
   const srcSet = desktop2x ? `${desktop.src} 1920w, ${desktop2x.src} 3840w` : undefined;
