@@ -6,11 +6,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Pool } from "pg";
 
-test("cart lines look up the catalog per line, never one catalog-wide scan per line (#705)", async()=> {
-  const source=await readFile("src/modules/store/cart.ts","utf8");
-  const cartFor=source.slice(source.indexOf("export async function cartFor"),source.indexOf("export async function cartLineQuantity"));
-  assert.match(cartFor,/LEFT JOIN LATERAL \(SELECT \* FROM \(\$\{catalogSql\}\) priced WHERE priced\.id=c\.product_id OFFSET 0\) p ON true/);
-  assert.doesNotMatch(cartFor,/LEFT JOIN \(\$\{catalogSql\}\)/);
+// A per-row LATERAL repeats the view's rate step per row and a plain join builds the whole view (#705, #1135, #1158):
+// every by-id read of the catalog goes through catalogRowsByIdsSql / catalogRowsByIds.
+const slice=(source:string,from:string,to?:string)=>{
+  const start=source.indexOf(from);
+  assert.ok(start>=0,from);
+  return to?source.slice(start,source.indexOf(to,start)):source.slice(start);
+};
+const byIdReads:[string,string,string|undefined,string][]=[
+  ["src/modules/store/cart.ts","export async function cartFor","export async function cartLineQuantity","catalogRowsByIdsSql("],
+  ["src/modules/store/supplier-checkout.ts","export async function livePriceChanges",undefined,"catalogRowsByIdsSql("],
+  ["src/modules/store/purchase-event.ts","const lineQuery","async function purchaseItems","catalogRowsByIdsSql("],
+  ["src/modules/partner/orders.ts","async function offerRows","function unitPrice","catalogRowsByIds("],
+  ["src/modules/store/catalog.ts","export async function getSetaEquivalents","/**","catalogRowsByIdsSql("],
+  ["src/modules/store/catalog.ts","export async function getDecidedEquivalents","export function servicePrice","catalogRowsByIdsSql("],
+];
+for(const [file,from,to,reader] of byIdReads) test(`${file} ${from.replace(/^.* /,"")} reads the catalog by id array (#1158)`, async()=> {
+  const part=slice(await readFile(file,"utf8"),from,to);
+  assert.ok(part.includes(reader),reader);
+  assert.doesNotMatch(part,/JOIN LATERAL \(SELECT \* FROM \(\$\{catalogSql\}\)/);
+  assert.doesNotMatch(part,/LEFT JOIN \(\$\{catalogSql\}\)/);
 });
 
 test("submitOrder waits CHECKOUT_LOCK_TIMEOUT for supplier rows, then goes on without the share lock (#790)", async()=> {
