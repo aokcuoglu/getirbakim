@@ -15,7 +15,7 @@ import { CancelOrderButton } from "@/components/cancel-order-button";
 import { PAYMENT_NOTICE, paymentErrors } from "@/modules/payments/messages";
 import { installmentHint } from "@/modules/payments/installment-plan";
 import { currentAccount } from "@/modules/auth/session";
-import { orderReturns } from "@/modules/admin/data";
+import { orderPendingReturns, orderReturns } from "@/modules/admin/data";
 import { supplierNames } from "@/modules/admin/products";
 import { snapshotNotes } from "@/modules/admin/order-supplier-note";
 import { recordReturn } from "@/modules/admin/commerce-actions";
@@ -34,7 +34,7 @@ import { purchaseEventOpen } from "@/modules/analytics/purchase";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { cn } from "@/lib/utils";
-import { returnReasonLabels, returnReasons, type ReturnReason } from "@/modules/store/returns";
+import { returnReasonLabels, returnReasons, returnRoom, type ReturnReason } from "@/modules/store/returns";
 import { carrierLabel } from "@/modules/store/shipment";
 import { invoiceAddressText, invoiceSummary, invoiceTypes } from "@/modules/store/tr-address";
 import { catalogPath } from "@/modules/seo/paths";
@@ -60,9 +60,43 @@ const cancelMessages:Record<string,{text:string;error:boolean}>={
   hata:{text:"İptal işlemi tamamlanamadı. Yeniden dene.",error:true},
 };
 
+// Outcomes of the admin's manual return form (#1151).
+const returnMessages:Record<string,{text:string;error:boolean}>={
+  kaydedildi:{text:"İade kaydedildi.",error:false},
+  kapali:{text:"İade kaydedilemedi: sipariş kargoya verilmemiş ya da teslim edilmemiş, veya ürün bu siparişte yok.",error:true},
+  adet:{text:"İade kaydedilemedi: adet, bu satırda iade edilebilecek kalan adetten fazla.",error:true},
+  talep:{text:"İade kaydedilemedi: kalan adedi bekleyen bir partner iade talebi tutuyor. Önce talebi onayla ya da reddet.",error:true},
+  hata:{text:"İade kaydedilemedi: form bilgileri geçersiz. Adedi ve nedeni kontrol edip yeniden dene.",error:true},
+};
+
 const time=(value:Date)=>new Date(value).toLocaleString("tr-TR",{timeZone:"Europe/Istanbul"});
 
 export const metadata: Metadata = { robots: privatePageRobots };
+
+type ReturnRow={id:string;quantity:number;reason:string;note:string;created_at:Date};
+type PendingRow={request_id:string;quantity:number;reason:ReturnReason;note:string;requested_at:Date};
+/** An order line's accepted returns, pending partner return requests and the manual return form, capped at the room left (#1151). */
+function ReturnBlock({orderId,productId,ordered,shipment,returns,pending}:{orderId:string;productId:string;ordered:number;shipment:boolean;returns:ReturnRow[];pending:PendingRow[]}) {
+  const accepted=returns.reduce((sum,r)=>sum+r.quantity,0);
+  const held=pending.reduce((sum,r)=>sum+r.quantity,0);
+  const room=returnRoom(ordered,accepted,held);
+  const hintId=`iade-kalan-${productId}`;
+  return <>
+    {returns.map(r=><p key={r.id} className={panelMuted}>İade: {r.quantity} adet · {returnReasonLabels[r.reason as ReturnReason] ?? r.reason}{r.note ? ` · ${r.note}` : ""} · {time(r.created_at)}</p>)}
+    {pending.length>0 && <div className="flex flex-col">
+      {pending.map(r=><p key={r.request_id} className={cn(panelMuted,"flex items-start gap-1.5")}><Clock className="mt-0.5 size-4 shrink-0" aria-hidden/><span><span className="font-medium text-foreground">Bekleyen partner iade talebi:</span> {r.quantity} adet · {returnReasonLabels[r.reason]}{r.note ? ` · ${r.note}` : ""} · {time(r.requested_at)}</span></p>)}
+      <Link href="/yonetim/siparisler?status=return_request" className="-mt-2 inline-flex min-h-11 items-center gap-1.5 self-start text-sm leading-5 font-medium text-primary hover:underline">Talebi yönetimde incele<span aria-hidden>→</span></Link>
+    </div>}
+    {shipment && room>0 && <>
+      {room<ordered && <p id={hintId} className={cn(panelMuted,"mt-3")}>İade edilebilir: {room} adet ({[`sipariş ${ordered}`,accepted>0 && `iade edilen ${accepted}`,held>0 && `talepte bekleyen ${held}`].filter(Boolean).join(", ")})</p>}
+      <form action={recordReturn} className="mt-3 flex flex-wrap items-end gap-2.5"><input type="hidden" name="orderId" value={orderId}/><input type="hidden" name="productId" value={productId}/>
+        <Input className="h-11 w-[85px] bg-white" name="quantity" type="number" min={1} max={room} defaultValue={1} aria-label="İade adedi" aria-describedby={room<ordered ? hintId : undefined} required/>
+        <NativeSelect className="[&>select]:h-11 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
+        <Input className="h-11 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className={storeButton({intent:"primary",size:"md"})}>İade kaydet</Button></form>
+    </>}
+    {shipment && room===0 && <p className={cn(panelMuted,"mt-3")}>{held>0 ? "Kalan adet bekleyen partner talebinde; talep karara bağlanınca iade kaydedilebilir." : "Bu satırın tamamı iade edildi."}</p>}
+  </>;
+}
 /** A partner order line's VAT is computed per line (#426): its stored line total, not the rounded unit price × quantity. */
 function lineTotal(line:{unit_price_kurus:string;quantity:number;pricing_snapshot:Record<string,unknown>|null}) {
   const partner=line.pricing_snapshot?.partner as {line_gross_kurus?:unknown}|undefined;
@@ -85,7 +119,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const {order,items,agreement,mine}=result;
   const account=await currentAccount();
   const admin=Boolean(account?.approved && account.role==="admin");
-  const returns=admin ? await orderReturns(order.id) : [];
+  const [returns,pendingReturns]=admin ? await Promise.all([orderReturns(order.id),order.owner_kind==="partner" ? orderPendingReturns(order.id) : []]) : [[],[]];
   const refundedKurus=order.payment_status==="refunded" && order.refunded_at ? await orderRefundedKurus(order.id) ?? Number(order.total_kurus) : 0;
   // A cancelled paid order's full refund, once, after its purchase was measured (#750).
   const refundPending=mine && !admin && order.status==="cancelled" && ["refund_required","refunded"].includes(order.payment_status) && await refundEventPending(order.id);
@@ -125,6 +159,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   // "odendi" invites a cancel from the button below, so it shows only while that button does.
   const hiddenCancelMessage=(query.iptal==="kapali" && order.status==="cancelled") || (query.iptal==="odendi" && !pendingCancel && !awaitingCancel);
   const cancelMessage=query.iptal && !hiddenCancelMessage ? cancelMessages[query.iptal] ?? null : null;
+  const returnMessage=admin && query.iade && Object.hasOwn(returnMessages,query.iade) ? returnMessages[query.iade] : null;
   const date=new Date(order.created_at);
   const metaDate=`${date.toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric",timeZone:"Europe/Istanbul"})}, ${date.toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Istanbul"})}`;
   const PaymentIcon=order.payment_status==="paid" ? CircleCheck : order.payment_status==="on_account" ? Info : order.payment_status==="awaiting" ? Clock : order.payment_status==="refunded" || order.payment_status==="refund_required" ? Undo2 : CircleAlert;
@@ -136,8 +171,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     <p className={cn(muted,"mb-5")}><time dateTime={date.toISOString()}>{metaDate}</time>{order.discount_percent>0 && ` · %${order.discount_percent} servis indirimi`}</p>
     <OrderProgress order={order}/>{mine && !admin && order.payment_status==="paid" && purchaseEventOpen(order.paid_at,new Date()) && <TrackPurchase orderId={order.id}/>}{refundPending && <TrackRefund orderId={order.id}/>}
     {error && <Alert className={cn(errorBox,"mb-3")}>{error}</Alert>}
-    {admin && query.iade==="kaydedildi" && <Alert role="status" className={cn(noticeBox,"mb-3")}>İade kaydedildi.</Alert>}
-    {admin && query.iade==="hata" && <Alert className={cn(errorBox,"mb-3")}>İade kaydedilemedi: sipariş sevk ya da teslim edilmemiş veya adet sipariş edilenden fazla.</Alert>}
+    {returnMessage && <Alert role={returnMessage.error ? "alert" : "status"} className={cn(returnMessage.error ? errorBox : noticeBox,"mb-3")}>{returnMessage.text}</Alert>}
     {linkView && <Alert role="note" className={cn(noticeBox,"mb-3")}><p>Bu sayfayı e-postandaki bağlantıyla görüntülüyorsun. {awaiting ? "Ödeme, iptal ya da değişiklik" : "İptal ya da değişiklik"} için siparişi verdiğin tarayıcıyı kullan.</p><p>Bu tarayıcıya erişemiyorsan bize ulaş: <a href={`mailto:${contactEmail}`} className={contactLink}>{contactEmail}</a> · <a href={`tel:${contactPhone}`} className={cn(contactLink,"whitespace-nowrap")}>{aboutContact.phone}</a></p></Alert>}
     {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? errorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
     <Card className={cn(panel,"mb-6 gap-3 ring-0")}>
@@ -154,11 +188,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
         {admin && p.pricing_snapshot?.checkout_mode==="snapshot" && typeof p.pricing_snapshot.observed_at==="string" && <small className="text-sm leading-[22px] text-muted-foreground">Tedarikçi anlık görüntüsü: {time(new Date(p.pricing_snapshot.observed_at))}</small>}
         {(()=>{ const vehicle=parseGarageVehicle(p.vehicle); return vehicle && <p className={panelMuted}>Araç: {garageVehicleLabel(vehicle)}</p>; })()}
         {admin && p.fitment_level && <p className={panelMuted}>Uyumluluk (sipariş anında): {fitmentLevelLabels[p.fitment_level]}</p>}
-        {admin && returns.filter(r=>r.product_id===p.product_id).map(r=><p key={r.id} className={panelMuted}>İade: {r.quantity} adet · {returnReasonLabels[r.reason as ReturnReason] ?? r.reason}{r.note ? ` · ${r.note}` : ""} · {time(r.created_at)}</p>)}
-        {admin && shipment && <form action={recordReturn} className="mt-3 flex flex-wrap items-end gap-2.5"><input type="hidden" name="orderId" value={order.id}/><input type="hidden" name="productId" value={p.product_id}/>
-          <Input className="h-11 w-[85px] bg-white" name="quantity" type="number" min={1} max={p.quantity} defaultValue={1} aria-label="İade adedi" required/>
-          <NativeSelect className="[&>select]:h-11 [&>select]:bg-white" name="reason" aria-label="İade nedeni" defaultValue="not_fit">{returnReasons.map(reason=><NativeSelectOption key={reason} value={reason}>{returnReasonLabels[reason]}</NativeSelectOption>)}</NativeSelect>
-          <Input className="h-11 min-w-[140px] flex-1 bg-white" name="note" maxLength={500} placeholder="Not (isteğe bağlı)" aria-label="İade notu"/><Button type="submit" className={storeButton({intent:"primary",size:"md"})}>İade kaydet</Button></form>}
+        {admin && <ReturnBlock orderId={order.id} productId={p.product_id} ordered={p.quantity} shipment={shipment} returns={returns.filter(r=>r.product_id===p.product_id)} pending={pendingReturns.filter(r=>r.product_id===p.product_id)}/>}
       </div><strong className="shrink-0 font-semibold tabular-nums">{money(lineTotal(p))}</strong></div>)}
       {snapshotNoteTexts.map(text=><p key={text} className={cn(muted,"mt-3")}>{text}</p>)}
       </Card></div>
