@@ -36,6 +36,7 @@
     "test:setup-locks": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-setup-locks.ts",
     "test:setup-view-locks": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-setup-view-locks.ts",
     "test:match-lock": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-match-lock.ts",
+    "test:shared-images": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-shared-images.ts",
     "test:product-override-images": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-images.ts",
     "test:product-override-references": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-references.ts scripts/test-hidden-oem-links.ts scripts/test-hidden-oem-enrichment.ts",
     "test:product-override-specs": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-product-override-specs.ts",
