@@ -1,12 +1,16 @@
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+@import "tailwindcss" source(none);
+/* Storefront sources only (#1027). New folders are scanned by default; admin-only files are excluded. */
+@source "./";
+@source not "./yonetim";
+@source "../components";
+@source not "../components/admin";
+@source not "../components/ui/{alert-dialog,avatar,button-group,chart,dropdown-menu,item,kbd,progress,scroll-area,sidebar,spinner,switch,tooltip,aspect-ratio,command,drawer,hover-card,navigation-menu,sonner,toggle-group,toggle}.tsx";
+@source "../content";
+@import "./theme.css";
 /* Part of this stylesheet, not its own chunk: one more render-blocking request delayed the product image (#642). */
 @import "./storefront.css";
 /* Listing card rules live in the main stylesheet: a separate chunk was a second render-blocking request (#968). */
 @import "./catalog-card.css";
-
-@custom-variant dark (&:is(.dark *));
 
 /* Inter, self-hosted (weights used by the design: 400, 500, 600), subset to Latin + Latin Extended-A + punctuation/₺/€/arrows/⌘ (#736): pyftsubset Inter-<w>.woff2 --flavor=woff2 --unicodes=U+0020-007E,U+00A0-00FF,U+0100-017F,U+2010-2027,U+2030,U+2032-2033,U+2039-203A,U+20AC,U+20BA,U+2122,U+2190-2199,U+2212,U+2260,U+2264-2265,U+2318 --layout-features=kern,liga,calt,ccmp,locl,mark,mkmk,tnum,pnum,lnum,case,frac */
 @font-face { font-family: Inter; src: url("/media/site/fonts/Inter-Regular.subset.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
@@ -32,63 +36,8 @@
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
-/* shadcn/ui theme. :root carries the storefront palette (Getirbakim brand: blue #0077c7, ink #212b36, Inter);
-   the administration workspace (.admin-app) uses the IBM Carbon color language with a dark variant. */
-@theme inline {
-  --font-sans: Inter, "Inter Fallback", "Inter Fallback Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-heading: var(--font-sans);
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
-  --color-info: var(--info);
-  --color-success-subtle: var(--success-subtle);
-  --color-warning-subtle: var(--warning-subtle);
-  --color-info-subtle: var(--info-subtle);
-  --color-destructive-subtle: var(--destructive-subtle);
-  --color-destructive-strong: var(--destructive-strong);
-  --color-brand: var(--brand);
-  --color-brand-strong: var(--brand-strong);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-control-border: var(--control-border);
-  --color-ring: var(--ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
-}
-
+/* shadcn/ui theme values for the storefront (Getirbakim brand: blue #0077c7, ink #212b36, Inter). The theme keys
+   live in theme.css; the administration workspace (.admin-app) overrides them in admin.css. */
 :root {
   --radius: 0.5rem;
   --background: #ffffff;
@@ -135,89 +84,6 @@
   --sidebar-accent-foreground: #0063b4;
   --sidebar-border: #e6e9ec;
   --sidebar-ring: #0077c7;
-}
-
-/* Administration workspace: IBM Carbon color language (light = g10, dark = g100; see AGENTS.md) on the shadcn
-   token set. success/warning/info are text-strength colors; the -subtle tokens are their tag/notification surfaces. */
-:root:has(.admin-app) {
-  --radius: 0.25rem;
-  --background: #f4f4f4;
-  --foreground: #161616;
-  --card: #ffffff;
-  --card-foreground: #161616;
-  --popover: #ffffff;
-  --popover-foreground: #161616;
-  --primary: #0f62fe;
-  --primary-foreground: #ffffff;
-  --secondary: #e8e8e8;
-  --secondary-foreground: #161616;
-  --muted: #f4f4f4;
-  --muted-foreground: #525252;
-  --accent: #e8e8e8;
-  --accent-foreground: #161616;
-  --destructive: #da1e28;
-  --success: #198038;
-  --success-subtle: #defbe6;
-  --warning: #8e6a00;
-  --warning-subtle: #fcf4d6;
-  --info: #0043ce;
-  --info-subtle: #edf5ff;
-  --border: #e0e0e0;
-  --input: #c6c6c6;
-  --ring: #0f62fe;
-  --chart-1: #0f62fe;
-  --chart-2: #24a148;
-  --chart-3: #f1c21b;
-  --chart-4: #da1e28;
-  --chart-5: #8d8d8d;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #525252;
-  --sidebar-primary: #0f62fe;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e8e8e8;
-  --sidebar-accent-foreground: #161616;
-  --sidebar-border: #e0e0e0;
-  --sidebar-ring: #0f62fe;
-}
-
-:root.dark:has(.admin-app) {
-  --background: #161616;
-  --foreground: #f4f4f4;
-  --card: #262626;
-  --card-foreground: #f4f4f4;
-  --popover: #262626;
-  --popover-foreground: #f4f4f4;
-  --primary: #4589ff;
-  --primary-foreground: #161616;
-  --secondary: #393939;
-  --secondary-foreground: #f4f4f4;
-  --muted: #393939;
-  --muted-foreground: #c6c6c6;
-  --accent: #393939;
-  --accent-foreground: #f4f4f4;
-  --destructive: #ff8389;
-  --success: #42be65;
-  --success-subtle: #022d0d;
-  --warning: #f1c21b;
-  --warning-subtle: #302400;
-  --info: #78a9ff;
-  --info-subtle: #001d6c;
-  --border: #393939;
-  --input: #525252;
-  --ring: #4589ff;
-  --chart-1: #4589ff;
-  --chart-2: #42be65;
-  --chart-3: #f1c21b;
-  --chart-4: #fa4d56;
-  --chart-5: #8d8d8d;
-  --sidebar: #161616;
-  --sidebar-foreground: #c6c6c6;
-  --sidebar-primary: #4589ff;
-  --sidebar-primary-foreground: #161616;
-  --sidebar-accent: #393939;
-  --sidebar-accent-foreground: #f4f4f4;
-  --sidebar-border: #393939;
-  --sidebar-ring: #4589ff;
 }
 
 @layer base {

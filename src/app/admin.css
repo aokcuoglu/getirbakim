@@ -1,0 +1,90 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "./theme.css";
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+/* Full scan on purpose: Next keeps stylesheets after client navigation, so this sheet stays on storefront pages
+   and must be an ordered superset of the storefront utilities (#1027). */
+@source "../";
+
+/* Administration workspace: IBM Carbon color language (light = g10, dark = g100; see AGENTS.md) on the shadcn
+   token set. success/warning/info are text-strength colors; the -subtle tokens are their tag/notification surfaces. */
+:root:has(.admin-app) {
+  --radius: 0.25rem;
+  --background: #f4f4f4;
+  --foreground: #161616;
+  --card: #ffffff;
+  --card-foreground: #161616;
+  --popover: #ffffff;
+  --popover-foreground: #161616;
+  --primary: #0f62fe;
+  --primary-foreground: #ffffff;
+  --secondary: #e8e8e8;
+  --secondary-foreground: #161616;
+  --muted: #f4f4f4;
+  --muted-foreground: #525252;
+  --accent: #e8e8e8;
+  --accent-foreground: #161616;
+  --destructive: #da1e28;
+  --success: #198038;
+  --success-subtle: #defbe6;
+  --warning: #8e6a00;
+  --warning-subtle: #fcf4d6;
+  --info: #0043ce;
+  --info-subtle: #edf5ff;
+  --border: #e0e0e0;
+  --input: #c6c6c6;
+  --ring: #0f62fe;
+  --chart-1: #0f62fe;
+  --chart-2: #24a148;
+  --chart-3: #f1c21b;
+  --chart-4: #da1e28;
+  --chart-5: #8d8d8d;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #525252;
+  --sidebar-primary: #0f62fe;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e8e8e8;
+  --sidebar-accent-foreground: #161616;
+  --sidebar-border: #e0e0e0;
+  --sidebar-ring: #0f62fe;
+}
+
+:root.dark:has(.admin-app) {
+  --background: #161616;
+  --foreground: #f4f4f4;
+  --card: #262626;
+  --card-foreground: #f4f4f4;
+  --popover: #262626;
+  --popover-foreground: #f4f4f4;
+  --primary: #4589ff;
+  --primary-foreground: #161616;
+  --secondary: #393939;
+  --secondary-foreground: #f4f4f4;
+  --muted: #393939;
+  --muted-foreground: #c6c6c6;
+  --accent: #393939;
+  --accent-foreground: #f4f4f4;
+  --destructive: #ff8389;
+  --success: #42be65;
+  --success-subtle: #022d0d;
+  --warning: #f1c21b;
+  --warning-subtle: #302400;
+  --info: #78a9ff;
+  --info-subtle: #001d6c;
+  --border: #393939;
+  --input: #525252;
+  --ring: #4589ff;
+  --chart-1: #4589ff;
+  --chart-2: #42be65;
+  --chart-3: #f1c21b;
+  --chart-4: #fa4d56;
+  --chart-5: #8d8d8d;
+  --sidebar: #161616;
+  --sidebar-foreground: #c6c6c6;
+  --sidebar-primary: #4589ff;
+  --sidebar-primary-foreground: #161616;
+  --sidebar-accent: #393939;
+  --sidebar-accent-foreground: #f4f4f4;
+  --sidebar-border: #393939;
+  --sidebar-ring: #4589ff;
+}

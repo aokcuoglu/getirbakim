@@ -8,6 +8,7 @@ import { storeErrorBox } from "@/components/store-alert-classes";
 // Storefront button scale and colour roles (#1091, DESIGN.md "Buttons and controls").
 const css = (file: string) => readFileSync(new URL(`../src/app/${file}`, import.meta.url), "utf8");
 const globals = css("globals.css");
+const theme = css("theme.css");
 const storefront = css("storefront.css");
 
 /** The storefront :root block's custom properties (the first `:root {`; the admin overrides are `:root:has(...)`). */
@@ -70,11 +71,11 @@ test("storefront colour tokens meet the contrast the roles promise", () => {
   assert.ok(contrast(token("control-border"), "#ffffff") >= 3, "outline border on white ≥ 3:1");
   assert.ok(contrast(token("accent-foreground"), token("accent")) >= 4.5, "secondary text on its tint ≥ 4.5:1");
   assert.ok(contrast(token("primary-foreground"), token("primary")) >= 4.5, "primary label ≥ 4.5:1");
-  assert.match(globals, /--color-control-border:\s*var\(--control-border\)/);
+  assert.match(theme, /--color-control-border:\s*var\(--control-border\)/);
   assert.ok(contrast(token("destructive-strong"), token("destructive-subtle")) >= 4.5, "error text on its tint ≥ 4.5:1");
   assert.ok(contrast(token("destructive-strong"), "#ffffff") >= 4.5, "error text on white ≥ 4.5:1");
-  assert.match(globals, /--color-destructive-subtle:\s*var\(--destructive-subtle\)/);
-  assert.match(globals, /--color-destructive-strong:\s*var\(--destructive-strong\)/);
+  assert.match(theme, /--color-destructive-subtle:\s*var\(--destructive-subtle\)/);
+  assert.match(theme, /--color-destructive-strong:\s*var\(--destructive-strong\)/);
 });
 
 test("the purchase form's button keeps 14px text and the primary colour", () => {
