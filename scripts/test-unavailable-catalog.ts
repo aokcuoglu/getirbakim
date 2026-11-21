@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
@@ -453,5 +454,49 @@ describe("by-id catalog reads", () => {
     assert.equal(Number(eur?.pricing_snapshot?.exchange_rate), 45);
     assert.equal(Number(tl?.pricing_snapshot?.exchange_rate), 1);
     assert.ok(eur?.price_kurus && tl?.price_kurus && eur.price_kurus > tl.price_kurus);
+  });
+
+  test("latest succeeded import is one definition (#1169)", async () => {
+    const rates = (satis: number) => JSON.stringify({ dovizListesi: [{ dovizCinsi: "USD", satis }] });
+    const runs: [string, string, string, string, number][] = [
+      // id, supplier, company, status, hours ago: an older succeeded run, a newer failed one, and two succeeded runs
+      // sharing completed_at (the higher id wins).
+      ["00000000-0000-4000-8000-000000001169", "seta", "SETA-A", "succeeded", 5],
+      ["00000000-0000-4000-8000-000000002169", "seta", "SETA-A", "failed", 1],
+      ["00000000-0000-4000-8000-000000003169", "seta", "SETA-B", "succeeded", 4],
+      ["00000000-0000-4000-8000-000000004169", "seta", "SETA-B", "succeeded", 4],
+      ["00000000-0000-4000-8000-000000005169", "manual", "MANUAL", "succeeded", 6],
+      ["00000000-0000-4000-8000-000000006169", "manual", "MANUAL", "succeeded", 2],
+    ];
+    for (const [index, [id, supplier, company, status, hours]] of runs.entries())
+      await schema.pool.query(`INSERT INTO supplier_imports(id,supplier,company,list_group,warehouse,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
+        VALUES($1,$2,$3,'G','ALL',now()-make_interval(hours=>$4),now()-make_interval(hours=>$4),'{}','{}','{}',$5,$6)`, [id, supplier, company, hours, rates(index + 1), status]);
+    const old = (await schema.pool.query(`SELECT DISTINCT ON (supplier,company) supplier,company,id::text,currencies_data,completed_at
+      FROM supplier_imports WHERE status='succeeded' ORDER BY supplier,company,completed_at DESC,id DESC`)).rows;
+    const view = (await schema.pool.query("SELECT supplier,company,id::text,currencies_data,completed_at FROM supplier_latest_imports ORDER BY supplier,company")).rows;
+    assert.deepEqual(view, old);
+    const latest = new Map(view.map(row => [`${row.supplier}/${row.company}`, row.id]));
+    assert.equal(latest.get("seta/SETA-A"), runs[0][0]);
+    assert.equal(latest.get("seta/SETA-B"), runs[3][0]);
+    assert.equal(latest.get("manual/MANUAL"), runs[5][0]);
+    for (const row of view) {
+      const one = (await schema.pool.query("SELECT id::text,currencies_data,completed_at FROM supplier_latest_import($1,$2)", [row.supplier, row.company])).rows;
+      assert.deepEqual(one, [{ id: row.id, currencies_data: row.currencies_data, completed_at: row.completed_at }]);
+    }
+    assert.deepEqual((await schema.pool.query("SELECT * FROM supplier_latest_import('seta','NONE')")).rows, []);
+    // The function stays inlinable (db/schema.sql): neither read plans a Function Scan.
+    const plan = async (sql: string) => (await schema.pool.query<{ "QUERY PLAN": string }>(`EXPLAIN ${sql}`)).rows.map(row => row["QUERY PLAN"]).join("\n");
+    assert.doesNotMatch(await plan("SELECT * FROM supplier_latest_imports WHERE supplier='seta'"), /Function Scan/);
+    assert.doesNotMatch(await plan(`SELECT latest.currencies_data FROM supplier_items i
+      LEFT JOIN LATERAL supplier_latest_import(i.supplier,i.company) latest ON true WHERE i.supplier='basbug'`), /Function Scan/);
+    // The refactored sites no longer carry their own copy of the step.
+    const copy = /FROM supplier_imports[\s\S]{0,200}status='succeeded'[\s\S]{0,80}ORDER BY[^`]*completed_at DESC,\s*(?:\w+\.)?id DESC/;
+    const data = await readFile("src/modules/admin/data.ts", "utf8");
+    const adminPricing = data.slice(data.indexOf("export async function adminPricing"), data.indexOf("export", data.indexOf("export async function adminPricing") + 1));
+    assert.ok(adminPricing.includes("supplier_latest_import("));
+    for (const [file, text] of [["src/modules/admin/data.ts#adminPricing", adminPricing],
+      ...await Promise.all(["db/commerce.sql", "src/modules/suppliers/price-anomalies.ts", "src/modules/admin/product-matching-sql.ts",
+        "src/modules/admin/product-pricing-store.ts"].map(async file => [file, await readFile(file, "utf8")]))])
+      assert.doesNotMatch(text, copy, file);
   });
 });

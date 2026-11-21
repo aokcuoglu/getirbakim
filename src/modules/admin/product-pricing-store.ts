@@ -2,15 +2,14 @@ import "server-only";
 import type { Pool } from "pg";
 import type { ProductPricing, ProductPricingRates } from "./product-pricing-schema";
 
-/** Uses the same latest successful import and currency rate as commerce_catalog. */
+/** Uses the same latest successful import (supplier_latest_import, db/schema.sql) and currency rate as commerce_catalog. */
 export async function loadProductPricing(database: Pick<Pool, "query">, id: string): Promise<ProductPricing> {
   const { rows } = await database.query<ProductPricing>(`SELECT p.markup_percent::float8 AS markup,p.vat_percent::float8 AS vat,
     s.markup_percent::float8 AS "generalMarkup",s.vat_percent::float8 AS "generalVat",i.product_data->>'dc' AS currency,
     CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 1::float8 ELSE (rate.value->>'satis')::float8 END AS "exchangeRate"
     FROM commerce_settings s LEFT JOIN supplier_items i ON i.id=$1
     LEFT JOIN commerce_product_pricing p ON p.supplier_item_id=i.id
-    LEFT JOIN LATERAL (SELECT currencies_data FROM supplier_imports
-      WHERE supplier=i.supplier AND company=i.company AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1) latest ON true
+    LEFT JOIN LATERAL supplier_latest_import(i.supplier,i.company) latest ON true
     LEFT JOIN LATERAL jsonb_array_elements(latest.currencies_data->'dovizListesi') rate(value)
       ON rate.value->>'dovizCinsi'=i.product_data->>'dc' WHERE s.id=true`, [id]);
   if (!rows[0]) throw new Error("Satış ayarları bulunamadı.");

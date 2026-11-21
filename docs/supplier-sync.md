@@ -14,7 +14,7 @@ Ardından gerçek FIAT API çekimiyle 18.920 ürünün tamamının değişmediğ
 | --- | --- | --- |
 | `supplier_items` | Her tedarikçi/firma/grup/depo/kod için güncel kaynak durum, sabit UUID, ilk/son görülme, son değişim, listede bulunma ve kalite | Yeni gerçek kapsam/kod geldikçe büyür; her çekimde çoğalmaz |
 | `supplier_item_changes` | Yeni ürün, içerik değişimi, kayıp, pasif ve geri dönüş; önceki/sonraki değerler | Yalnız değişiklikte eklenir; 90 gün |
-| `supplier_imports` | Çalıştırma durumu, zamanlar, servis gözlem zamanları, kurlar, kalite, sayaçlar, hata / inceleme notu | Çalıştırma başına bir küçük özet; 365 gün, referans verilen ve kapsamın son başarılı çalıştırması korunur |
+| `supplier_imports` | Çalıştırma durumu, zamanlar, servis gözlem zamanları, kurlar, kalite, sayaçlar, hata / inceleme notu | Çalıştırma başına bir küçük özet; 365 gün, referans verilen ve kapsamın son başarılı çalıştırması korunur. Tedarikçi ve firma başına son başarılı aktarım (kurlar) `supplier_latest_import(supplier, company)` fonksiyonu ve `supplier_latest_imports` görünümüyle okunur (#1169) |
 | `supplier_sync_scopes` | Etkin gruplar, periyot, gece saati, güncellik eşiği, sonraki deneme, başarısızlık sayısı | Kapsam başına bir kayıt |
 | `supplier_import_items` | Önceki uygulamadan kalan ham tam listeler | Yeni çekimler buraya yazmaz; 7 gün sonra temizlenir |
 
