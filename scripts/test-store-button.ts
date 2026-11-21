@@ -214,9 +214,9 @@ test("dialog actions use storeButton; the destructive confirm is the danger tint
 
 /** Raw `<button>` elements allowed per file (path suffix → count): header components and the documented exceptions. */
 const rawButtons: Record<string, number> = {
-  "navigation/category-menu.tsx": 7, // header: mega-menu triggers
-  "navigation/category-sheet.tsx": 3, // header: mobile category sheet
-  "navigation/search-box.tsx": 3, // header: search box controls
+  "navigation/category-menu.tsx": 4, // header: mega-menu triggers
+  "navigation/category-sheet.tsx": 2, // header: mobile category sheet
+  "navigation/search-box.tsx": 1, // header: search box controls
   "navigation/header-tools.tsx": 1, // header: tool trigger
   "auth/account-menu.tsx": 1, // header: account menu trigger
   "garage/garage-button.tsx": 1, // garage trigger: header/hero/home/catalog/product variants share one element
@@ -238,7 +238,7 @@ test("raw <button> elements appear only in the header and the listed exceptions"
 test("no hex colour on a storefront button or close tag", () => {
   const hex = /#[0-9a-f]{3,8}\b/i;
   for (const { path, source } of storefrontSources()) {
-    if (path.includes("/components/navigation/") || path.endsWith("/auth/account-menu.tsx")) continue;
+    if (path.endsWith("/auth/account-menu.tsx")) continue;
     const consts = allConsts(source);
     for (const name of ["button", "Button", "DialogClose", "SheetClose"])
       for (const tag of buttonTags(source, name)) {
