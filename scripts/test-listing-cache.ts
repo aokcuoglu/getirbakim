@@ -277,6 +277,13 @@ test("plain listings persist their count and page ids; searches and brand filter
   assert.equal((await schema.pool.query("SELECT 1 FROM storefront_listing_cache WHERE namespace='facets'")).rowCount, 1);
 });
 
+test("boundedQuery raises work_mem for its read only and refuses a malformed value", async () => {
+  const { boundedQuery, db } = await import("../src/lib/db");
+  assert.deepEqual((await boundedQuery<{ work_mem: string }>("SELECT current_setting('work_mem') AS work_mem", [], 5_000, { workMem: "64MB" })).rows, [{ work_mem: "64MB" }]);
+  assert.notEqual((await db.query<{ work_mem: string }>("SELECT current_setting('work_mem') AS work_mem")).rows[0].work_mem, "64MB");
+  await assert.rejects(boundedQuery("SELECT 1", [], 5_000, { workMem: "64MB'; SELECT 1; --" }), /Invalid work_mem/);
+});
+
 // Last: a missing table turns the persisted level off for five minutes in this process.
 test("a missing cache table reads as a miss and does not throw", async () => {
   await schema.pool.query("DROP TABLE storefront_listing_cache");

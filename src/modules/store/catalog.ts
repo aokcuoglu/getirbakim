@@ -780,10 +780,11 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // A price order prices every listed row before it sorts (VW make page: ~50k rows, ~3 s per page). Its first
  // cachedPages pages are ordered once and kept like the page ids above; the cards are still read live, so a card shows
  // the current price and stock, while its position follows the prices of up to 10 minutes ago (supplier syncs, and admin
- // price edits, which do not move the listing epoch). Deeper pages keep the live query.
+ // price edits, which do not move the listing epoch). Deeper pages keep the live query. The priced rows are sorted before
+ // the limit (VW: ~57 MB): at the default 4 MB work_mem that sort spilled to disk (external merge), 64 MB keeps it in memory.
  if(!search&&pricedSort&&page<=cachedPages){
-  const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>{const {values,where}=await filter();return (await db.query<{id:string}>(
-   `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values)).rows.map(row=>row.id);},
+  const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>{const {values,where}=await filter();return (await boundedQuery<{id:string}>(
+   `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
    {persist:persistable(query)});
   const items=await storefrontRowsByIds(ordered.slice((page-1)*pageSize,(page-1)*pageSize+take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
