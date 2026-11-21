@@ -60,7 +60,7 @@ export function SupplierPriceAnomalies({ rows }: { rows: AdminPriceAnomaly[] }) 
         <p>Para birimi: satırın para birimi markanın geri kalanıyla uyuşmuyor; çevrilmiş maliyet marka medyanından en az {formatNumber(priceAnomalyThresholds.RATIO)} kat yüksek ya da düşük.</p>
         <p>Teklif sapması: maliyet aynı ürünün diğer tedarikçi tekliflerinden en az {formatNumber(priceAnomalyThresholds.RATIO)} kat uzak; değer markanın kullandığı başka bir para birimi olarak okunursa tekliflerle uyuşuyor.</p>
         <p>Bu satırlar katalogda kalır ama fiyatlanmaz; veriyi tedarikçi düzeltir.</p>
-        <p>“Anomali değil” kararı, tedarikçi değeri karar verilen değerin {formatNumber(priceAnomalyThresholds.REOPEN_FACTOR)} katına çıkar ya da 1/{formatNumber(priceAnomalyThresholds.REOPEN_FACTOR)}'ine düşerse veya para birimi değişirse yeniden açılır.</p>
+        <p>“Anomali değil” kararı, tedarikçi değeri karar verilen değerin {formatNumber(priceAnomalyThresholds.REOPEN_FACTOR)} katına çıkar ya da 1/{formatNumber(priceAnomalyThresholds.REOPEN_FACTOR)}’ine düşerse veya para birimi değişirse yeniden açılır.</p>
       </CardDescription></CardHeader>
     <CardContent>
       <Table controls={false}>
