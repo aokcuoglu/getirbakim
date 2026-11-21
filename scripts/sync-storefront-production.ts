@@ -8,7 +8,7 @@ import {
   reportKey, type SyncState, tombstoneWarnings,
 } from "./storefront-sync-state";
 import { TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
-import { type RemoteObject, uploadParts } from "./storefront-upload";
+import { parsePartListing, parseRootListing, uploadParts } from "./storefront-upload";
 
 // Carries locally collected storefront data (Trodo enrichments, categories, logos) to production:
 // incremental export → split into parts → transfer → dry-run every part → import every part → rebuild fitments.
@@ -95,12 +95,8 @@ function awsTarget() {
       partsDir, parts, log: console.log,
       io: {
         syncPart: part => run("aws", ["s3", "sync", "--delete", "--only-show-errors", `${partsDir}/${part}/`, `s3://${bucket}/${prefix}/${part}/`, "--profile", profile, "--region", region], env),
-        listPart: part => ((list(["--prefix", `${prefix}/${part}/`], "Contents[].[Key,Size]") ?? []) as [string, number][])
-          .map(([key, size]): RemoteObject => ({ key: key.slice(`${prefix}/${part}/`.length), size })),
-        listRoot: () => {
-          const listing = list(["--prefix", `${prefix}/`, "--delimiter", "/"], "{keys: Contents[].Key, prefixes: CommonPrefixes[].Prefix}") as { keys: string[] | null; prefixes: string[] | null } | null;
-          return { keys: (listing?.keys ?? []).map(key => key.slice(prefix.length + 1)), prefixes: (listing?.prefixes ?? []).map(entry => entry.slice(prefix.length + 1)) };
-        },
+        listPart: part => parsePartListing(list(["--prefix", `${prefix}/${part}/`], "Contents[].[Key,Size]"), `${prefix}/${part}/`),
+        listRoot: () => parseRootListing(list(["--prefix", `${prefix}/`, "--delimiter", "/"], "{keys: Contents[].Key, prefixes: CommonPrefixes[].Prefix}"), prefix),
         removePrefix: path => run("aws", ["s3", "rm", "--recursive", "--only-show-errors", `s3://${bucket}/${prefix}/${path}`, "--profile", profile, "--region", region], env),
       },
     });
@@ -151,7 +147,8 @@ if (writesState) {
   await mkdir(SYNC_DIR, { recursive: true });
   acquireLock(LOCK_PATH, { pid: process.pid, target });
   // A sleeping Mac stalls the upload for hours (#1129): hold an idle-sleep assertion for this process's lifetime.
-  if (!baseline && process.platform === "darwin") spawn("/usr/bin/caffeinate", ["-i", "-w", String(process.pid)], { stdio: "ignore" }).unref();
+  if (!baseline && process.platform === "darwin") spawn("/usr/bin/caffeinate", ["-i", "-w", String(process.pid)], { stdio: "ignore" })
+    .on("error", error => console.warn(`WARNING: caffeinate could not start, the Mac may sleep during the upload: ${error.message}`)).unref();
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.once(signal, () => {
       releaseLock(LOCK_PATH);

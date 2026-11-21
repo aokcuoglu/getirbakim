@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { isClockSkewError, sendWithSkewRetry } from "./storefront-media-read";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
-import { checkPartUpload, expectedPartObjects, strayEntries, uploadFailure, uploadParts, type UploadIo } from "./storefront-upload";
+import { checkPartUpload, expectedPartObjects, parsePartListing, parseRootListing, strayEntries, uploadFailure, uploadParts, type UploadIo } from "./storefront-upload";
 import {
   acquireLock, buildInboundReport, checkInboundReport, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
   sinceFrom, STATE_PATH, summarizeParts, tombstoneWarnings,
@@ -185,6 +185,29 @@ test("stray entries are stale parts and root-level objects", () => {
   const parts = ["part-00", "part-01", "part-02", "part-03"];
   assert.deepEqual(strayEntries(parts, ["part-00/", "part-01/", "part-02/", "part-03/"], []), []);
   assert.deepEqual(strayEntries(parts, ["part-00/", "part-07/"], ["manifest.json"]), ["part-07/", "manifest.json"]);
+});
+
+test("S3 listings parse to relative keys; empty results and the folder marker are handled", () => {
+  assert.deepEqual(parsePartListing(null, "storefront/current/part-01/"), []);
+  assert.deepEqual(parsePartListing([["storefront/current/part-01/manifest.json", 5], ["storefront/current/part-01/media/a.jpg", 60]], "storefront/current/part-01/"),
+    [{ key: "manifest.json", size: 5 }, { key: "media/a.jpg", size: 60 }]);
+  assert.deepEqual(parseRootListing(null, "storefront/current"), { keys: [], prefixes: [] });
+  assert.deepEqual(parseRootListing({ keys: null, prefixes: null }, "storefront/current"), { keys: [], prefixes: [] });
+  assert.deepEqual(parseRootListing({ keys: ["storefront/current/", "storefront/current/x.json"], prefixes: ["storefront/current/part-00/"] }, "storefront/current"),
+    { keys: ["x.json"], prefixes: ["part-00/"] });
+});
+
+test("an upload that leaves an extra part or root object behind fails the final check", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    for (const extra of ["part-09/manifest.json", "leftover.json"]) {
+      const bucket = fakeBucket(partsDir);
+      const sync = bucket.io.syncPart;
+      bucket.io.syncPart = async part => { await sync(part); if (part === "part-02") bucket.objects.set(extra, 1); };
+      await assert.rejects(uploadParts({ partsDir, parts: PARTS, io: bucket.io, log: () => {} }), new RegExp(`after the upload: ${extra.startsWith("part") ? "part-09/" : "leftover\\.json"}`));
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 test("a complete upload returns per-part stats", async () => {

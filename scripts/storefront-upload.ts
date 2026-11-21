@@ -50,6 +50,20 @@ export function checkPartUpload(expected: RemoteObject[], listed: RemoteObject[]
   return { missing, sizeMismatch, unexpected: listed.map(object => object.key).filter(key => !wanted.has(key)) };
 }
 
+/** `Contents[].[Key,Size]` output (null when the prefix is empty) → objects relative to `base` (`<prefix>/<part>/`). */
+export function parsePartListing(raw: [string, number][] | null, base: string): RemoteObject[] {
+  return (raw ?? []).map(([key, size]) => ({ key: key.slice(base.length), size }));
+}
+
+/** `{keys, prefixes}` output (null fields when empty) → entries relative to `prefix`; the zero-byte folder marker (the prefix itself) is dropped. */
+export function parseRootListing(raw: { keys: string[] | null; prefixes: string[] | null } | null, prefix: string): RootListing {
+  const base = `${prefix}/`;
+  return {
+    keys: (raw?.keys ?? []).filter(key => key !== base).map(key => key.slice(base.length)),
+    prefixes: (raw?.prefixes ?? []).map(entry => entry.slice(base.length)),
+  };
+}
+
 const isClean = (check: PartCheck) => !check.missing.length && !check.sizeMismatch.length && !check.unexpected.length;
 
 /** Anything directly under the run prefix that is not one of this run's `part-NN/` directories. */
@@ -70,9 +84,8 @@ export async function uploadParts({ partsDir, parts, io, log, now = Date.now }: 
   partsDir: string; parts: string[]; io: UploadIo; log: (line: string) => void; now?: () => number;
 }): Promise<PartStats[]> {
   const before = await io.listRoot();
-  const stale = strayEntries(parts, before.prefixes, []);
-  for (const prefix of stale) await io.removePrefix(prefix);
   if (before.keys.length) throw new Error(`Unexpected objects directly under the run prefix: ${before.keys.slice(0, SHOWN_KEYS).join(", ")}; the import was not started; the watermark stays`);
+  for (const prefix of strayEntries(parts, before.prefixes, [])) await io.removePrefix(prefix);
 
   const stats: PartStats[] = [];
   for (const part of parts) {
@@ -80,6 +93,8 @@ export async function uploadParts({ partsDir, parts, io, log, now = Date.now }: 
     const started = now();
     let attempts = 0;
     let check: PartCheck;
+    // Only a silent drop (sync exits 0 but the listing is short) is retried; a non-zero `s3 sync` exit throws and fails
+    // the run, which is safe. Verification is key + size only: a stale object of the same size passes (#1137 fixes that).
     do {
       attempts += 1;
       await io.syncPart(part);
