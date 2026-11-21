@@ -27,6 +27,9 @@ const uninvoicedSql = "o.status='delivered' AND o.partner_invoiced_at IS NULL";
 /** The Istanbul calendar day an order was delivered (orders delivered before delivered_at existed fall back to creation). */
 const deliveredDaySql = "(COALESCE(o.delivered_at,o.created_at) AT TIME ZONE 'Europe/Istanbul')::date";
 
+/** An audit timestamp column as its Istanbul calendar day, `YYYY-MM-DD`. */
+const changeDaySql = (column: string) => `to_char((${column} AT TIME ZONE 'Europe/Istanbul')::date,'YYYY-MM-DD')`;
+
 /** The Istanbul calendar day an order was marked invoiced (marking stores that day's Istanbul midnight). */
 const invoicedDaySql = "(o.partner_invoiced_at AT TIME ZONE 'Europe/Istanbul')::date";
 
@@ -160,11 +163,10 @@ export type PartnerInvoiceChange = {
 
 /** The last corrections and undos, one row per change (its orders share change_id), newest first. */
 export async function partnerInvoiceChanges(partners: string[], connection: Connection = db): Promise<PartnerInvoiceChange[]> {
-  const day = (column: string) => `to_char((${column} AT TIME ZONE 'Europe/Istanbul')::date,'YYYY-MM-DD')`;
   const { rows } = await connection.query<{ change_id: string; partner: string; action: "undo" | "correct"; old_ref: string; old_date: string; new_ref: string | null;
     new_date: string | null; reason: string; changed_by: string | null; changed_at: Date; count: number }>(
-    `SELECT c.change_id::text,c.partner_code AS partner,c.action,c.old_invoice_ref AS old_ref,${day("c.old_invoiced_at")} AS old_date,
-      c.new_invoice_ref AS new_ref,${day("c.new_invoiced_at")} AS new_date,c.reason,COALESCE(NULLIF(a.name,''),a.email) AS changed_by,c.changed_at,count(*)::int AS count
+    `SELECT c.change_id::text,c.partner_code AS partner,c.action,c.old_invoice_ref AS old_ref,${changeDaySql("c.old_invoiced_at")} AS old_date,
+      c.new_invoice_ref AS new_ref,${changeDaySql("c.new_invoiced_at")} AS new_date,c.reason,COALESCE(NULLIF(a.name,''),a.email) AS changed_by,c.changed_at,count(*)::int AS count
      FROM partner_invoice_changes c LEFT JOIN accounts a ON a.id=c.changed_by WHERE c.partner_code=ANY($1::text[])
      GROUP BY 1,2,3,4,5,6,7,8,9,10 ORDER BY c.changed_at DESC,1 LIMIT 50`, [partners]);
   return rows.map(row => ({ changeId: row.change_id, partner: row.partner, action: row.action, oldRef: row.old_ref, oldDate: row.old_date, newRef: row.new_ref,
@@ -226,8 +228,6 @@ export type OrderInvoiceChange = {
   action: "undo" | "correct"; old_invoice_ref: string; old_date: string; new_invoice_ref: string | null; new_date: string | null;
   reason: string; changed_by: string | null; changed_at: string;
 };
-
-const changeDaySql = (column: string) => `to_char((${column} AT TIME ZONE 'Europe/Istanbul')::date,'YYYY-MM-DD')`;
 
 /** The last 5 invoice-mark changes of order `o` (OrderInvoiceChange[]), newest first; served by partner_invoice_changes_order_idx. */
 export const orderInvoiceChangesSql = `COALESCE((SELECT jsonb_agg(to_jsonb(x)-'id' ORDER BY x.changed_at DESC,x.id DESC) FROM (

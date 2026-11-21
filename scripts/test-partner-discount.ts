@@ -84,7 +84,7 @@ const invoiceState = async (id: string) => (await schema.pool.query<{ ref: strin
 const undoForm = (order: string, reason: string) => form({ order, invoiceRef: "GBA-1038", invoiceDate: "2026-11-15", reason, back: "/yonetim/siparisler?status=delivered&sahip=partner&page=2" });
 
 test("the per-order invoice undo (#1038) needs an admin and a reason, then returns to the order list with the order number", async () => {
-  const order = await invoicedOrder();
+  const order = await invoicedOrder(), last = await invoicedOrder();
   await assert.rejects(actions.undoPartnerOrderInvoiceMark({ status: "idle" }, undoForm(order.id, "Yanlış faturaya girdi")), /NEXT_REDIRECT \/giris/);
   assert.deepEqual(await invoiceState(order.id), { ref: "GBA-1038", audits: 0 });
   signedIn = admin;
@@ -98,6 +98,10 @@ test("the per-order invoice undo (#1038) needs an admin and a reason, then retur
   const next = new URLSearchParams(done.next?.split("?")[1]);
   assert.deepEqual([next.get("invoice_undone"), next.get("status"), next.get("sahip"), next.get("page")], [order.number, "delivered", "partner", "2"]);
   assert.deepEqual(await invoiceState(order.id), { ref: null, audits: 1 });
+  // The invoice's last order says so: invoice_emptied instead of invoice_undone.
+  const emptied = await actions.undoPartnerOrderInvoiceMark({ status: "idle" }, undoForm(last.id, "Yanlış faturaya girdi"));
+  const lastNext = new URLSearchParams(emptied.next?.split("?")[1]);
+  assert.deepEqual([lastNext.get("invoice_emptied"), lastNext.get("invoice_undone")], [last.number, null]);
   const again = await actions.undoPartnerOrderInvoiceMark({ status: "idle" }, undoForm(order.id, "Yanlış faturaya girdi"));
   assert.deepEqual([again.status, again.next], ["error", undefined]);
   assert.match(again.message ?? "", /artık faturalandı olarak işaretli değil/);

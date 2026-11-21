@@ -26,7 +26,7 @@ import { PartnerOrderInvoiceUndoDialog } from "@/components/admin/partner-order-
 import { supplierNames } from "@/modules/admin/products";
 import { orderLineView } from "@/modules/admin/order-procurement";
 import { OrderStatusBadge, PaymentStatusBadge } from "@/components/admin/order-badges";
-import { formatDateTime, formatNumber } from "@/modules/admin/format";
+import { formatDateTime, formatDay, formatNumber } from "@/modules/admin/format";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -68,9 +68,7 @@ function LabelLink({ url, number }: { url: string; number: string }) {
     <FileText data-icon="inline-start" aria-hidden="true"/>Etiketi aç (PDF)<span className="sr-only"> #{number}, yeni sekmede açılır</span>
   </Button>;
 }
-/** `YYYY-MM-DD` → `DD.MM.YYYY` (partner invoice days are Istanbul calendar days). */
-const invoiceDay = (value: string) => value.split("-").reverse().join(".");
-// The resend outcome carries the order number (#1035); digits only, else the alert stays generic.
+// The resend (#1035) and invoice undo (#1038) outcomes carry the order number; digits only, else the alert stays generic.
 const emailOrder = (value: string) => /^\d+$/.test(value) ? `#${value} siparişinin` : "Siparişin";
 const tabOrder: OrderFilter[] = ["all", "action", "shipping", "cancel_request", "return_request", "refund", "awaiting_payment", "shipped", "delivered", "cancelled"];
 
@@ -120,7 +118,9 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
     {params.email_skipped && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertDescription>{emailOrder(params.email_skipped)} e-postası gönderilmedi. Nedenini görmek için siparişin &quot;Teslimat ve ödeme&quot; bölümünü açın (E-posta satırı).</AlertDescription></Alert>}
     {params.email_pending && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{emailOrder(params.email_pending)} e-postası şu an gönderilemedi ya da sırada; sistem kendiliğinden yeniden dener. Son hata için siparişin &quot;Teslimat ve ödeme&quot; bölümünü açın (E-posta satırı).</AlertDescription></Alert>}
     {params.email_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>{emailOrder(params.email_busy)} e-postası şu an gönderiliyor ya da artık gönderilemez; siparişin &quot;Teslimat ve ödeme&quot; bölümündeki E-posta satırına bakın.</AlertDescription></Alert>}
-    {params.invoice_undone && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{/^\d+$/.test(params.invoice_undone) ? `#${params.invoice_undone} siparişinin` : "Siparişin"} faturalandı işareti geri alındı; sipariş yeniden partnerin alacağına ve limitine sayılıyor.</AlertDescription></Alert>}
+    {(params.invoice_undone || params.invoice_emptied) && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>
+      {emailOrder(params.invoice_undone ?? params.invoice_emptied ?? "")} faturalandı işareti geri alındı; sipariş yeniden partnerin alacağına ve limitine sayılıyor{params.invoice_emptied ? "; faturada başka sipariş kalmadı." : "."}
+    </AlertDescription></Alert>}
     {params.return_stale && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>İade talebi artık karar beklemiyor ya da kalan adede sığmıyor. Listeyi yenileyin.</AlertDescription></Alert>}
     {params.refund_busy && <Alert variant="info" role="status"><Info aria-hidden="true"/><AlertDescription>Bu ödeme için başka bir TAMI isteği sürüyor veya sonucu bekleniyor. Listeyi yenileyip sonucu kontrol edin.</AlertDescription></Alert>}
 
@@ -165,17 +165,17 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                       {o.partner_invoice_ref && o.partner_invoice_day ? <dd className="flex flex-col items-start gap-2">
                         <span className="flex flex-wrap items-center gap-2">
                           <StatusBadge tone="success">Faturalandı</StatusBadge>
-                          <span className="break-all">{[o.partner_invoice_ref, invoiceDay(o.partner_invoice_day), o.partner_invoiced_by_name && `işaretleyen ${o.partner_invoiced_by_name}`].filter(Boolean).join(" · ")}</span>
+                          <span className="break-all">{[o.partner_invoice_ref, formatDay(o.partner_invoice_day), o.partner_invoiced_by_name && `işaretleyen ${o.partner_invoiced_by_name}`].filter(Boolean).join(" · ")}</span>
                         </span>
                         <PartnerOrderInvoiceUndoDialog orderId={o.id} number={o.number} partner={o.owner_id} invoiceRef={o.partner_invoice_ref} invoiceDate={o.partner_invoice_day}
                           totalKurus={Number(o.total_kurus)} back={back}/>
                       </dd> : <dd><StatusBadge tone="warning">Faturalanmadı · limitte sayılıyor</StatusBadge></dd>}
                       {o.partner_invoice_changes.length > 0 && <dd className="flex flex-col gap-2 pt-2">
                         <span className="text-muted-foreground">Fatura düzeltme geçmişi</span>
-                        <ul className="flex flex-col gap-2">{o.partner_invoice_changes.map(c => <li key={`${c.changed_at}-${c.action}-${c.old_invoice_ref}`} className="flex flex-col items-start gap-1">
+                        <ul aria-label={`#${o.number} fatura düzeltme geçmişi`} className="flex flex-col gap-2">{o.partner_invoice_changes.map(c => <li key={`${c.changed_at}-${c.action}-${c.old_invoice_ref}`} className="flex flex-col items-start gap-1">
                           <span className="flex flex-wrap items-center gap-2">
                             {c.action === "undo" ? <StatusBadge tone="warning">Geri alındı</StatusBadge> : <StatusBadge tone="info">Düzeltildi</StatusBadge>}
-                            <span className="break-all">{c.old_invoice_ref} · {invoiceDay(c.old_date)} → {c.new_invoice_ref && c.new_date ? `${c.new_invoice_ref} · ${invoiceDay(c.new_date)}` : "işaret kaldırıldı"}</span>
+                            <span className="break-all">{c.old_invoice_ref} · {formatDay(c.old_date)} → {c.new_invoice_ref && c.new_date ? `${c.new_invoice_ref} · ${formatDay(c.new_date)}` : "işaret kaldırıldı"}</span>
                           </span>
                           <span className="text-muted-foreground">{time(c.changed_at)}{c.changed_by ? ` · ${c.changed_by}` : ""}</span>
                           <span className="break-words">{c.reason}</span>

@@ -4,6 +4,7 @@ import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, TriangleAlert, Undo2 } from "lucide-react";
 import { undoPartnerOrderInvoiceMark, type PartnerOrderInvoiceUndoResult } from "@/modules/admin/partner-actions";
+import { formatDay } from "@/modules/admin/format";
 import { money } from "@/modules/store/money";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -14,9 +15,6 @@ import { Textarea } from "@/components/ui/textarea";
 
 type Props = { orderId: string; number: string; partner: string; invoiceRef: string; invoiceDate: string; totalKurus: number; back: string };
 
-/** `YYYY-MM-DD` → `DD.MM.YYYY`. */
-const day = (value: string) => value.split("-").reverse().join(".");
-
 /**
  * "Fatura işaretini geri al" (#1038): removes one partner order from its invoice with a reason, so it counts against the
  * partner's limit again; the invoice's other orders keep their mark. The server refuses a mark that changed since shown.
@@ -24,13 +22,13 @@ const day = (value: string) => value.split("-").reverse().join(".");
 export function PartnerOrderInvoiceUndoDialog(props: Props) {
   const [open, setOpen] = useState(false);
   return <Dialog open={open} onOpenChange={setOpen}>
-    <DialogTrigger render={<Button variant="outline" size="sm" aria-label={`#${props.number}: fatura işaretini geri al`}/>}>
+    <DialogTrigger render={<Button variant="outline" size="sm" aria-label={`Fatura işaretini geri al, #${props.number}`}/>}>
       <Undo2 data-icon="inline-start" aria-hidden="true"/>Fatura işaretini geri al
     </DialogTrigger>
     <DialogContent className="sm:max-w-lg">
       <DialogHeader>
         <DialogTitle>#{props.number} siparişinin fatura işaretini geri al</DialogTitle>
-        <DialogDescription>{props.partner} · {props.invoiceRef} · {day(props.invoiceDate)} faturasından yalnız bu sipariş çıkarılır. Değişiklik gerekçesiyle kayıt altına alınır.</DialogDescription>
+        <DialogDescription>{props.partner} partnerinin {props.invoiceRef} ({formatDay(props.invoiceDate)}) faturasından yalnız bu sipariş çıkarılır.</DialogDescription>
       </DialogHeader>
       {/* Remounted on each open: the reason starts empty and the last result is not shown again. */}
       {open && <UndoForm {...props} onSaved={() => setOpen(false)}/>}
@@ -59,6 +57,9 @@ function UndoForm({ orderId, number, invoiceRef, invoiceDate, totalKurus, back, 
     <input type="hidden" name="invoiceRef" value={invoiceRef}/>
     <input type="hidden" name="invoiceDate" value={invoiceDate}/>
     <input type="hidden" name="back" value={back}/>
+    <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertDescription>
+      #{number} (<span className="tabular-nums">{money(totalKurus)}</span>) {invoiceRef} faturasından çıkarılır; tutar yeniden partnerin alacağına ve limitine eklenir. Faturadaki diğer siparişler ve verilmiş siparişler etkilenmez. Limit dolarsa yeni siparişler reddedilir.
+    </AlertDescription></Alert>
     <fieldset disabled={pending} className="min-w-0"><FieldGroup>
       <Field data-invalid={Boolean(errors.reason)}>
         <FieldLabel htmlFor={`${id}-reason`}>Gerekçe</FieldLabel>
@@ -68,9 +69,6 @@ function UndoForm({ orderId, number, invoiceRef, invoiceDate, totalKurus, back, 
         {errors.reason && <FieldError id={`${id}-reason-error`}>{errors.reason[0]}</FieldError>}
       </Field>
     </FieldGroup></fieldset>
-    <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertDescription>
-      #{number} (<span className="tabular-nums">{money(totalKurus)}</span>) {invoiceRef} faturasından çıkarılır ve yeniden partnerin alacağına ve limitine eklenir. Faturadaki diğer siparişler etkilenmez; verilmiş siparişler etkilenmez, yeni siparişler limit dolarsa reddedilir.
-    </AlertDescription></Alert>
     {result.message && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
     <DialogFooter>
       <Button type="submit" variant="destructive" disabled={pending}>

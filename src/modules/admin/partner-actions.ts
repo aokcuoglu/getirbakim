@@ -131,5 +131,6 @@ export async function undoPartnerOrderInvoiceMark(_previous: PartnerOrderInvoice
   if (outcome.status === "changed") return { status: "error", message: "Siparişin fatura bilgisi bu pencere açıldıktan sonra değişti; hiçbir şey değiştirilmedi. Listeyi yenileyip yeniden deneyin." };
   revalidatePath("/yonetim/siparisler");
   revalidatePath("/yonetim/partnerler");
-  return { status: "success", next: orderListReturn(form.get("back"), "invoice_undone", outcome.orderNumber) };
+  // invoice_emptied: the order was the invoice's last one, so the invoice is gone from /yonetim/partnerler.
+  return { status: "success", next: orderListReturn(form.get("back"), outcome.remaining ? "invoice_undone" : "invoice_emptied", outcome.orderNumber) };
 }
