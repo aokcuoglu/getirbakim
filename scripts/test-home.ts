@@ -179,7 +179,10 @@ test("HomeCarousel renders <img> only in the first slides until armed; every lin
   assert.equal((html.match(/<img /g) ?? []).length, 5);
   for (let index = 0; index < 8; index++) assert.ok(html.includes(`href="/urun/p-${index}"`));
   assert.equal((html.match(/<span class="home-card-img rounded-md bg-muted"><\/span>/g) ?? []).length, 3);
-  assert.equal((html.match(/class="home-card-image"[^>]*aria-hidden="true"[^>]*tabindex="-1"|tabindex="-1"[^>]*aria-hidden="true"/g) ?? []).length, 3);
+  assert.equal((html.match(/<div class="home-card-image"><span class="home-card-img rounded-md bg-muted"><\/span><\/div>/g) ?? []).length, 3);
+  assert.equal((html.match(/<a class="home-card-image"/g) ?? []).length, 5);
+  assert.doesNotMatch(html, /<a [^>]*>(<span[^>]*><\/span>)?<\/a>/);
+  assert.doesNotMatch(html, /aria-hidden="true"/);
 });
 
 test("HomeGridPager renders tile logos on page 0 only; every tile link stays (#1289)", async () => {
