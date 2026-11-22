@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {cardFitBadge,defaultListingView,listingCardModel,stockLabelParts} from "../src/modules/store/listing-card";
+import {cardFitBadge,defaultListingView,homeCardModel,listingCardModel,stockLabelParts} from "../src/modules/store/listing-card";
 import {unconfirmedStockLabel} from "../src/modules/seo/structured-data";
 import {money} from "../src/modules/store/money";
 import {campaignEndText} from "../src/modules/store/best-offer";
@@ -96,4 +96,31 @@ test("the model is plain data for the client card", () => {
   assert.equal(model.brandClass,"Premium");
   assert.equal(model.fit,"listed");
   assert.ok(model.href.startsWith("/urun/"));
+});
+
+test("a home card shows a consumer's price under its category", () => {
+  const model=homeCardModel({product:product(),category:{name:"Filtreler",slug:"filtre"},image:{src:"/media/p.webp",width:180,height:180}});
+  assert.equal(model.amount,money(100_000));
+  assert.equal(model.categoryName,"Filtreler");
+  assert.equal(model.categoryHref,"/kategori/filtre");
+  assert.equal(model.image,"/media/p.webp");
+  assert.equal(model.note,undefined);
+  assert.equal(model.regular,undefined);
+  assert.ok(model.href.startsWith("/urun/") && model.title.includes("BOSCH"));
+  assert.deepEqual(homeCardModel({product:product()}).categoryName,"Yedek parçalar");
+});
+
+test("a home card discounts a service account's price and the campaign's regular price", () => {
+  const model=homeCardModel({product:product({pricing_snapshot:{price_kind:"sale",list_price_kurus:150_000}}),discountPercent:10});
+  assert.equal(model.amount,money(90_000));
+  assert.equal(model.regular,money(135_000));
+  assert.deepEqual(structuredClone(model),model);
+});
+
+test("an unavailable home card links to the notify form instead of a price", () => {
+  const model=homeCardModel({product:product({unavailable:true,available:false,stock_label:"Şu an tedarik edilemiyor",pricing_snapshot:{price_kind:"sale",list_price_kurus:150_000}})});
+  assert.deepEqual(model.note,{text:"Şu an tedarik edilemiyor · Gelince haber ver",href:model.href+"#haber-ver"});
+  assert.equal(model.amount,undefined);
+  assert.equal(model.regular,undefined);
+  assert.deepEqual(homeCardModel({product:product({price_kurus:null})}).note,{text:"Fiyat bilgisi güncelleniyor"});
 });

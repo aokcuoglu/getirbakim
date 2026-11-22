@@ -1,16 +1,7 @@
 "use client";
 import Image from "next/image";
 import Link from "next/link";
-
-/** A home page card as finished strings: no price formatting or name dictionary on the client. */
-export type HomeProductCardModel = {
-  href: string; title: string; image?: string; categoryHref: string; categoryName: string;
-  /** Instead of a price: why there is none, linked to the product page's form when it can be requested. */
-  note?: { text: string; href?: string };
-  amount?: string;
-  /** A running campaign's regular price, struck through. */
-  regular?: string;
-};
+import type {HomeProductCardModel} from "@/modules/store/listing-card";
 
 // A client view (#1212): the card's markup goes out once as HTML instead of twice (HTML and the RSC payload).
 export function HomeProductCardView({model: m}: {model: HomeProductCardModel}) {

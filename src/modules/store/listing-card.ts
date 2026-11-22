@@ -6,8 +6,10 @@ import type {ManufacturerLogo} from "./manufacturer-logos";
 import {money,servicePrice} from "./money";
 import {displaySpecifications,translateSpecificationValue,type CardSpecification} from "./specification-translations";
 import {campaignEndText,listPrice,saleUntil} from "./best-offer";
-import {catalogCardTitle} from "./product-override-display";
+import {cardPartNumber,catalogCardTitle} from "./product-override-display";
+import {shownProductName} from "./product-name";
 import {productPath} from "@/modules/seo/product-path";
+import {catalogPath,categoryPath} from "@/modules/seo/paths";
 
 /** A stock label "Stokta · Siparişten sonra teyit edilir" splits into the status and its note at the first " · ". */
 export function stockLabelParts(label:string):{status:string;note?:string}{
@@ -91,5 +93,36 @@ export function listingCardModel({product:p,details,image,logo,discountPercent,a
   ...(campaignEnd&&{campaignEnd:campaignEndText(campaignEnd)}),
   unavailable:Boolean(p.unavailable),available:p.available,stock:stockLabelParts(p.stock_label),maxQuantity:p.max_quantity,
   demo:p.supplier==="demo",
+ };
+}
+
+/** A home page card as finished strings (#1212): no price formatting or name dictionary on the client. */
+export type HomeProductCardModel={
+ href:string;title:string;image?:string;categoryHref:string;categoryName:string;
+ /** Instead of a price: why there is none, linked to the product page's form when it can be requested. */
+ note?:{text:string;href?:string};
+ amount?:string;
+ /** A running campaign's regular price, struck through. */
+ regular?:string;
+};
+
+/** A home page card; `discountPercent` is an approved service account's discount (0 for everyone else). */
+export function homeCardModel({product,image,partNumber,category,discountPercent=0}:{
+ product:CatalogProduct;image?:CatalogProductImage;partNumber?:string;category?:{name:string;slug:string};discountPercent?:number;
+}):HomeProductCardModel{
+ // The store brand and part number (#602): an admin's, else the supplier's.
+ const title=shownProductName(product)+" "+product.display_brand+" "+cardPartNumber(product,partNumber??product.code);
+ const href=productPath(product);
+ // A running campaign (#580): the regular price struck through on its own line, discounted like the price. The card's
+ // heights are minimums, so the extra line grows it (and its carousel row) instead of overflowing; the end date stays
+ // on the product page and the catalog card.
+ const regular=product.unavailable||product.price_kurus===null?null:listPrice(product);
+ return {
+  href,title,...(image&&{image:image.src}),
+  categoryHref:category?categoryPath(category.slug):catalogPath,categoryName:category?.name??"Yedek parçalar",
+  ...(product.unavailable?{note:{text:product.stock_label+" · Gelince haber ver",href:href+"#haber-ver"}}
+   :product.price_kurus===null?{note:{text:"Fiyat bilgisi güncelleniyor"}}
+   :{amount:money(servicePrice(product.price_kurus,discountPercent))}),
+  ...(regular!==null&&{regular:money(servicePrice(regular,discountPercent))}),
  };
 }

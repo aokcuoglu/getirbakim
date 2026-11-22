@@ -12,7 +12,8 @@ export function VehicleModelListView({ makeSlug, sections }: { makeSlug: string;
   return sections.map(section => <section key={section.id} className="mb-8 max-[768px]:mb-6" aria-labelledby={section.id}>
     <h2 id={section.id} className="mb-[15px] text-xl leading-7 font-medium tracking-[-.4px]">{section.title}</h2>
     <div className="columns-4 gap-8 max-[992px]:columns-3 max-[768px]:columns-2 max-[420px]:columns-1">
-      {section.families.map(([title, models]) => <div key={title} className="model-family">
+      {/* A family's first unit slug is unique within the make (readable titles may coincide). */}
+      {section.families.map(([title, models]) => <div key={models[0]?.[0] ?? title} className="model-family">
         <h3 className="model-family-title">{title}</h3>
         <ul className="model-family-list">{models.map(([slug, label, years]) => <li key={slug}><Link prefetch={false} className="model-link" href={modelPath(makeSlug, slug)}>
           {label}{years && <span>{years}</span>}
