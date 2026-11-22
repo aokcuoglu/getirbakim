@@ -261,10 +261,9 @@ test("the proxy puts a fresh nonce on documents and hands it to the renderer", (
   assert.equal(proxy(proxyRequest("/yonetim/urunler?page=2")).headers.get(`x-middleware-request-${RETURN_TO_HEADER}`), "/yonetim/urunler?page=2");
 });
 
-test("API routes, RSC payloads and server actions get no nonce", () => {
+test("API routes and server actions get no nonce", () => {
   for (const response of [
     proxy(proxyRequest("/api/vehicles")),
-    proxy(proxyRequest("/urun/x", { rsc: "1" })),
     proxy(proxyRequest("/urun/x", { "next-action": "00", "content-type": "text/plain;charset=UTF-8" }, "POST")),
   ]) {
     assert.equal(reportOnly(response), null);
@@ -284,11 +283,13 @@ test("CSP_REPORT_ONLY=off turns the header off", () => {
   }
 });
 
-test("the proxy matcher runs on documents, not on API routes, assets, feeds or prefetches", () => {
+// Next strips the rsc and prefetch headers before the proxy runs, so only the matcher can leave those requests out.
+test("the proxy matcher runs on documents, not on API routes, assets, feeds, RSC requests or prefetches", () => {
   for (const url of ["/", "/urun/x", "/yonetim", "/kategori/fren"]) assert.equal(unstable_doesMiddlewareMatch({ config, url }), true, url);
   for (const url of ["/api/categories", "/api/csp-report", "/feeds/google.xml.gz", "/_next/static/x.js", "/_next/image", "/favicon.ico", "/robots.txt", "/media/a.webp"]) {
     assert.equal(unstable_doesMiddlewareMatch({ config, url }), false, url);
   }
+  assert.equal(unstable_doesMiddlewareMatch({ config, url: "/", headers: { rsc: "1" } }), false);
   assert.equal(unstable_doesMiddlewareMatch({ config, url: "/", headers: { "next-router-prefetch": "1" } }), false);
   assert.equal(unstable_doesMiddlewareMatch({ config, url: "/", headers: { purpose: "prefetch" } }), false);
 });

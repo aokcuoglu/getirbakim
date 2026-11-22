@@ -14,11 +14,12 @@ import { legacyRedirect } from "@/modules/seo/legacy-redirects";
 // never carry a session cookie: a shared cache would keep the Set-Cookie with the body and hand one visitor's session to
 // the next (#642). The matcher skips them; the check here keeps it that way if the matcher changes.
 const publicCachedPath = /^\/(?:api\/(?:categories|category-media|product-media|product-fitments)|feeds)(?:\/|$)/;
-// The Report-Only CSP (#1291, src/lib/csp.ts) goes on document requests only: RSC payloads, server actions and API
-// routes render no HTML, so they need no nonce. CSP_REPORT_ONLY=off turns it off with a restart, no new build.
+// The Report-Only CSP (#1291, src/lib/csp.ts) goes on document requests only: server actions and API routes render no
+// HTML, so they need no nonce. RSC requests are left out by the matcher: Next strips the rsc header (and _rsc) before
+// the proxy sees the request. A signed-in RSC request still runs the proxy for the cookie and gets the (ignored)
+// header. CSP_REPORT_ONLY=off turns it off with a restart, no new build.
 function cspNonceWanted(request: NextRequest) {
- return cspReportOnlyEnabled() && !request.nextUrl.pathname.startsWith("/api/")
-  && !request.headers.has("rsc") && !request.headers.has("next-action");
+ return cspReportOnlyEnabled() && !request.nextUrl.pathname.startsWith("/api/") && !request.headers.has("next-action");
 }
 export function proxy(request: NextRequest) {
  if (publicCachedPath.test(request.nextUrl.pathname)) return NextResponse.next();
@@ -60,10 +61,10 @@ export const config = {
   { source: "/katalog", has: [{ type: "query", key: "category" }] }, "/automakers", "/car-parts/:path*",
   // /katalog?brand=<label> moves to its manufacturer page /marka/<slug> (#660).
   { source: "/katalog", has: [{ type: "query", key: "brand" }] },
-  // Every document without a session gets the Report-Only CSP nonce (#1291); prefetches and assets skip the proxy.
+  // Every document without a session gets the Report-Only CSP nonce (#1291); RSC requests, prefetches and assets skip the proxy.
   {
    source: "/((?!api/|_next/static|_next/image|feeds/|sitemaps/|stats/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)",
-   missing: [{ type: "header", key: "next-router-prefetch" }, { type: "header", key: "purpose", value: "prefetch" }],
+   missing: [{ type: "header", key: "rsc" }, { type: "header", key: "next-router-prefetch" }, { type: "header", key: "purpose", value: "prefetch" }],
   },
   { source: "/((?!_next/static|_next/image|api/(?:categories|category-media|product-media|product-fitments)(?:/|$)|feeds/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
  ],
