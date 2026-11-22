@@ -1,6 +1,6 @@
 "use client";
 import { startTransition, useEffect, useLayoutEffect, useRef, useSyncExternalStore } from "react";
-import Link from "next/link";
+import { IntentLink } from "@/components/intent-link";
 import { useRouter } from "next/navigation";
 import { SiteIcon } from "@/components/site/site-icon";
 import { cartCount } from "@/modules/store/cart-count";
@@ -9,10 +9,10 @@ import { cartCount } from "@/modules/store/cart-count";
 export function CartBadge({ count, renderedAt, className }: { count: number; renderedAt: number; className?: string }) {
   useLayoutEffect(() => cartCount.seed(count, renderedAt), [count, renderedAt]);
   const shown = useSyncExternalStore(cartCount.subscribe, () => cartCount.get() ?? count, () => count);
-  return <Link href="/sepet" className={className} aria-label={`Sepetim, ${shown} ürün`}>
+  return <IntentLink href="/sepet" className={className} aria-label={`Sepetim, ${shown} ürün`}>
     <SiteIcon name="cart" size={32} />
     {shown > 0 && <b className="absolute top-1 right-0.5 h-4 min-w-4 rounded-full bg-[#d7452f] px-[3px] text-center text-[10px] leading-4 font-bold text-white">{shown}</b>}
-  </Link>;
+  </IntentLink>;
 }
 
 /**
