@@ -44,10 +44,11 @@ const optimizedImages = new Set([
   "src/app/(store)/page.tsx :: child.imagePath",
   "src/app/(store)/sepet/page.tsx :: image.src",
   "src/app/(store)/bakim-robotu/kit-builder.tsx :: selected.image.src",
-  "src/components/catalog-product.tsx :: image.src",
+  // m.image is CatalogProductImage.src, set by listingCardModel / homeCardModel (#1212).
+  "src/components/catalog-product-card.tsx :: m.image",
   "src/components/category-cards.tsx :: category.imagePath",
   "src/components/home-controls.tsx :: category.imagePath",
-  "src/components/home-product-card.tsx :: image.src",
+  "src/components/home-product-card-view.tsx :: m.image",
   "src/components/navigation/category-menu.tsx :: category.imagePath",
   "src/components/navigation/category-parts.tsx :: category.imagePath",
   "src/components/product-gallery.tsx :: image.src",
