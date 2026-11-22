@@ -21,14 +21,18 @@ const serviceLink="mt-5 flex w-fit items-center gap-1.5 text-sm leading-5 text-p
 
 export const metadata: Metadata = { robots: privatePageRobots };
 export default async function Login({searchParams}:{searchParams:Promise<SearchParams>}) {
- const {error,next,sifre}=normalizeSearchParams(await searchParams);
+ const {error,next,sifre,dogrulama}=normalizeSearchParams(await searchParams);
  const returnTo=safeReturnTo(next);
+ const resendHref=returnTo?`/e-posta-dogrula?${new URLSearchParams({next:returnTo})}`:"/e-posta-dogrula";
  return <section className="mx-auto mt-[30px] mb-5 min-h-[55vh] max-w-[440px] px-6 pt-7 pb-14 max-[600px]:pt-6 max-[600px]:pb-10">
   <p className="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]">GETİRBAKİM / HESABIM</p>
   <h1 className="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">Giriş yap.</h1>
   <p className="text-base leading-6 text-muted-foreground">Hesabınla siparişlerini, adreslerini ve garajını yönet. Onaylı servis hesapları B2B fiyatlarını görür.</p>
   {sifre === "yenilendi" && !error && <Alert className={cn(storeSuccessBox, "my-4")} role="status">Şifren yenilendi. Yeni şifrenle giriş yap.</Alert>}
-  {error && <Alert className={cn(storeErrorBox, "my-4")}>{error === "limit" ? "Çok fazla giriş denemesi. 15 dakika sonra tekrar dene." : "Giriş bilgileri geçersiz veya hesap henüz onaylanmamış."}</Alert>}
+  {dogrulama === "tamam" && !error && <Alert className={cn(storeSuccessBox, "my-4")} role="status">E-posta adresin doğrulandı. Şifrenle giriş yap.</Alert>}
+  {error === "dogrulama"
+   ? <Alert className={cn(storeErrorBox, "my-4")}>E-posta adresin henüz doğrulanmadı. Gelen kutundaki bağlantıyla hesabını doğrula. <Link className="font-medium underline" href={resendHref}>Doğrulama e-postasını yeniden gönder</Link></Alert>
+   : error && <Alert className={cn(storeErrorBox, "my-4")}>{error === "limit" ? "Çok fazla giriş denemesi. 15 dakika sonra tekrar dene." : "Giriş bilgileri geçersiz veya hesap henüz onaylanmamış."}</Alert>}
   <form action={login} className="grid gap-5">
    {returnTo && <input type="hidden" name="next" value={returnTo}/>}
    <Field className={field}><FieldLabel htmlFor="login-email" className={label}>E-posta</FieldLabel><Input id="login-email" className={input} type="email" name="email" autoComplete="username" maxLength={200} required/></Field>

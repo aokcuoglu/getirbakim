@@ -79,6 +79,9 @@ const nextConfig: NextConfig = {
       // The password reset link and form (#1257): the token must never leave in a Referer.
       { source: "/sifre-yenile", headers: noReferrer },
       { source: "/sifre-yenile/:path*", headers: noReferrer },
+      // The e-mail verification link and form (#1258), likewise.
+      { source: "/e-posta-dogrula", headers: noReferrer },
+      { source: "/e-posta-dogrula/:path*", headers: noReferrer },
     ];
   },
   async redirects() {

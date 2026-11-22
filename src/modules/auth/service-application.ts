@@ -29,8 +29,9 @@ export async function applyForService(form: FormData) {
     VALUES ($1,$2,$3,'service',false,0,$4,$5,$6,now()) ON CONFLICT (email) DO NOTHING RETURNING id`,
     [name,email,await hash(password,12),contactName,phone,city]);
   if (!created.rowCount) {
-    // An individual customer applies from the account instead (#1259). Saying so reveals no more than customer signup
-    // already does for any taken address (#1254); service and admin addresses still get the neutral answer below.
+    // An individual customer applies from the account instead (#1259). This tells that the address has a customer
+    // account, which customer signup no longer does (#1258: it answers the same for every address); accepted so the
+    // customer finds the upgrade path. Service and admin addresses still get the neutral answer below.
     const existing = await db.query<{ role: string }>("SELECT role FROM accounts WHERE email=$1", [email]);
     if (existing.rows[0]?.role === "customer") redirect("/servisler/basvuru?error=account");
   }

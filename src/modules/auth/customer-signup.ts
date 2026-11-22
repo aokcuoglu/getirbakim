@@ -1,37 +1,25 @@
 "use server";
-import { createHash } from "node:crypto";
 import { hash } from "bcryptjs";
-import { cookies, headers } from "next/headers";
-import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { after } from "next/server";
 import { db } from "@/lib/db";
 import { clientEvidence } from "@/lib/client-address";
-import { mergeGuestCart } from "@/modules/store/cart";
-import { adoptGuestGarage } from "@/modules/store/garage";
+import { attemptKey, withinBudgets } from "./attempt-budget";
+import { sendEmailVerification, setVerificationOrigin } from "./email-verification";
 import { membershipConsentText } from "./membership-consent";
 import { legalPageVersion, membershipTermsSlug, privacyNoticeSlug } from "./membership-terms";
-import { startSession, tokenHash } from "./session";
-import { SESSION_COOKIE } from "./session-cookie";
 import { customerSignupSchema } from "./schemas";
 import { safeReturnTo } from "./return-to";
 import type { SignupState } from "./signup-state";
 
-const hashKey = (kind: string, value: string) => `signup:${kind}:${createHash("sha256").update(value).digest("hex")}`;
 // Per hour: every signup together, one address, one client address.
 const limits = { global: 200, email: 3, ip: 10 };
-// One attempt on a key's hourly window (shared with the service application's table; the "signup:" prefix keeps them apart).
-async function spend(key: string) {
-  const { rows } = await db.query<{ attempts: number }>(`INSERT INTO service_application_attempts AS a (key,attempts) VALUES ($1,1)
-    ON CONFLICT (key) DO UPDATE SET
-    attempts=CASE WHEN a.window_start<now()-interval '1 hour' THEN 1 ELSE a.attempts+1 END,
-    window_start=CASE WHEN a.window_start<now()-interval '1 hour' THEN now() ELSE a.window_start END
-    RETURNING attempts`, [key]);
-  return rows[0].attempts;
-}
 
 /**
- * Self-service signup for an individual customer: an approved account with the customer role and no discount, logged
- * in right away. Role, approval and discount are fixed here, never read from the form. An address that already has an
- * account (any role, approved or not) is neither logged in nor overwritten.
+ * Self-service signup for an individual customer (#1254): an approved account with the customer role and no discount,
+ * which opens only when its address is verified by the mailed link (#1258). Role, approval and discount are fixed here,
+ * never read from the form. The answer is the same for a new address, a replaced unverified signup and an address that
+ * already has an account (which gets an "account exists" mail instead and is never changed).
  */
 export async function registerCustomer(prev: SignupState, form: FormData): Promise<SignupState> {
   const text = (key: string, max: number) => { const value = form.get(key); return typeof value === "string" ? value.slice(0, max) : ""; };
@@ -44,27 +32,38 @@ export async function registerCustomer(prev: SignupState, form: FormData): Promi
   const evidence = clientEvidence(await headers()), { ip } = evidence;
   // Narrowest budget first: a request refused by its client address or its email never spends the shared one, so a
   // single client cannot lock everyone else out.
-  const budgets: [string, number][] = [...(ip ? [[hashKey("ip", ip), limits.ip] as [string, number]] : []), [hashKey("email", email), limits.email], ["signup:global", limits.global]];
-  for (const [key, limit] of budgets) {
-    if (await spend(key) > limit) return refuse("Çok fazla deneme yapıldı. Bir saat sonra tekrar dene.");
-  }
+  const budgets: [string, number][] = [...(ip ? [[attemptKey("signup", "ip", ip), limits.ip] as [string, number]] : []),
+    [attemptKey("signup", "email", email), limits.email], ["signup:global", limits.global]];
+  if (!await withinBudgets(budgets)) return refuse("Çok fazla deneme yapıldı. Bir saat sonra tekrar dene.");
   // Hashed before the insert either way, so a taken address answers no faster than a new one.
   const passwordHash = await hash(password, 12);
-  // One statement: the account and its terms acceptance (#1256) are created together or not at all.
-  const { rows } = await db.query<{ id: string }>(`WITH created AS (
-      INSERT INTO accounts (name,email,password_hash,role,approved,discount_percent,applied_at)
-      VALUES ($1,$2,$3,'customer',true,0,now()) ON CONFLICT (email) DO NOTHING RETURNING id
-    ), accepted AS (
-      INSERT INTO account_term_acceptances (account_id,document,terms_version,privacy_notice_version,consent_text,ip,forwarded_for,user_agent)
-      SELECT id,$4,$5,$6,$7,$8,$9,$10 FROM created
-    ) SELECT id FROM created`, [name, email, passwordHash, membershipTermsSlug, legalPageVersion(membershipTermsSlug),
-    legalPageVersion(privacyNoticeSlug), membershipConsentText, evidence.ip, evidence.forwardedFor, evidence.userAgent]);
-  const account = rows[0];
-  if (!account) return refuse("Bu e-posta adresiyle kayıt oluşturulamadı. Zaten hesabın varsa giriş yap.");
-  const old = (await cookies()).get(SESSION_COOKIE)?.value;
-  if (old) await db.query("DELETE FROM sessions WHERE token_hash=$1", [tokenHash(old)]);
-  await mergeGuestCart(account.id);
-  await adoptGuestGarage(account.id);
-  await startSession(account.id);
-  redirect(safeReturnTo(form.get("next")) ?? "/");
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    // A signup that was never verified holds nothing yet: a new signup with its address replaces it (with its terms
+    // acceptance and link), so a typo'd or abandoned attempt cannot block the address.
+    await client.query("DELETE FROM accounts WHERE email=$1 AND role='customer' AND email_verified_at IS NULL", [email]);
+    // One statement: the account and its terms acceptance (#1256) are created together or not at all. An address that
+    // already has an account is left alone.
+    await client.query(`WITH created AS (
+        INSERT INTO accounts (name,email,password_hash,role,approved,discount_percent,applied_at,email_verified_at)
+        VALUES ($1,$2,$3,'customer',true,0,now(),NULL) ON CONFLICT (email) DO NOTHING RETURNING id
+      ), accepted AS (
+        INSERT INTO account_term_acceptances (account_id,document,terms_version,privacy_notice_version,consent_text,ip,forwarded_for,user_agent)
+        SELECT id,$4,$5,$6,$7,$8,$9,$10 FROM created
+      ) SELECT id FROM created`, [name, email, passwordHash, membershipTermsSlug, legalPageVersion(membershipTermsSlug),
+      legalPageVersion(privacyNoticeSlug), membershipConsentText, evidence.ip, evidence.forwardedFor, evidence.userAgent]);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+  // Set for every signup, so the answer's cookies do not tell a new address from a taken one.
+  const originHash = await setVerificationOrigin();
+  // After the response: the mail's timing does not tell them apart either. Errors are logged without their message.
+  after(() => sendEmailVerification(email, { returnTo: safeReturnTo(form.get("next")), originHash, notifyExisting: true })
+    .catch(() => console.error("Signup mail failed")));
+  return { status: "sent", message: "", attempt: prev.attempt + 1, values: { name, email, terms: false } };
 }

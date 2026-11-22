@@ -15,9 +15,11 @@ export async function login(form: FormData) {
  const {email,password}=parsed.data; const normalized=email.toLowerCase();
  const attempts=await db.query("INSERT INTO login_attempts (email) VALUES ($1) ON CONFLICT (email) DO UPDATE SET attempts=CASE WHEN login_attempts.window_start<now()-interval '15 minutes' THEN 1 ELSE login_attempts.attempts+1 END, window_start=CASE WHEN login_attempts.window_start<now()-interval '15 minutes' THEN now() ELSE login_attempts.window_start END RETURNING attempts",[normalized]);
  if (attempts.rows[0].attempts>5) redirect(loginPath(next,"limit"));
- const {rows}=await db.query("SELECT id,password_hash,approved FROM accounts WHERE email=$1",[normalized]);
+ const {rows}=await db.query<{id:string;password_hash:string;approved:boolean;email_verified_at:Date|null}>("SELECT id,password_hash,approved,email_verified_at FROM accounts WHERE email=$1",[normalized]);
  const valid=await compare(password, rows[0]?.password_hash ?? await hash("nonexistent-account-placeholder",12));
  if (!valid || !rows[0]?.approved) redirect(loginPath(next,"1"));
+ // Only the right password learns that the address waits for verification (#1258).
+ if (rows[0].email_verified_at===null) redirect(loginPath(next,"dogrulama"));
  await db.query("DELETE FROM login_attempts WHERE email=$1",[normalized]);
  const old=(await cookies()).get(SESSION_COOKIE)?.value;
  if(old) await db.query("DELETE FROM sessions WHERE token_hash=$1",[tokenHash(old)]);

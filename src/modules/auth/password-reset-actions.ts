@@ -3,7 +3,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { clientEvidence } from "@/lib/client-address";
-import { attemptKey, spendAttempt } from "./attempt-budget";
+import { attemptKey, withinBudgets } from "./attempt-budget";
 import { completePasswordReset, RESET_COOKIE, resetCookieOptions, sendPasswordReset } from "./password-reset";
 import type { ResetState } from "./reset-state";
 import { resetPasswordSchema, resetRequestSchema } from "./schemas";
@@ -12,12 +12,6 @@ import { SESSION_COOKIE, SESSION_SEEN_COOKIE } from "./session-cookie";
 const limitError = "Çok fazla deneme yapıldı. Bir saat sonra tekrar dene.";
 // Per hour: one client address, one email, every request together; the new-password form per client address.
 const limits = { ip: 10, email: 5, global: 200, confirmIp: 20 };
-
-/** Spends the budgets narrowest first and stops at the first refusal, so one client cannot use up the shared one. */
-async function withinBudgets(budgets: [string, number][]) {
-  for (const [key, limit] of budgets) if (await spendAttempt(key) > limit) return false;
-  return true;
-}
 
 /**
  * Asks for a reset link (#1257). The answer is the same whether or not the address has a resettable account, and the

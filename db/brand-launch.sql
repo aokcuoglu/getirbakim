@@ -13,6 +13,13 @@ DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='accounts'::regclass AND attname='applied_at' AND NOT attisdropped) THEN
   ALTER TABLE accounts ADD COLUMN applied_at timestamptz;
  END IF;
+ -- E-mail verification (#1258): NULL = a self-service signup whose address is not verified yet; such an account cannot
+ -- log in and goes after 7 days (scripts/prune-attempt-rows.ts). The default keeps every other insert path (admin,
+ -- service application, seeds) verified; a future self-service insert must write NULL explicitly. now() is stable, so
+ -- existing rows get the setup time without a table rewrite.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='accounts'::regclass AND attname='email_verified_at' AND NOT attisdropped) THEN
+  ALTER TABLE accounts ADD COLUMN email_verified_at timestamptz DEFAULT now();
+ END IF;
 END $$;
 CREATE TABLE IF NOT EXISTS service_application_attempts (
  key text PRIMARY KEY, attempts integer NOT NULL, window_start timestamptz NOT NULL DEFAULT now()

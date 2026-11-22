@@ -12,14 +12,17 @@ const tokenShape = /^[A-Za-z0-9_-]+$/;
 const hashOf = (token: string) => createHash("sha256").update(token).digest("hex");
 const usable = (token: string) => token.length > 0 && token.length <= ACCOUNT_TOKEN_MAX && tokenShape.test(token);
 
+/** Where an e-mail verification leads (#1258): the safe return path and the sha256 of the signup browser's nonce. */
+export type AccountTokenExtra = { returnTo?: string | null; originHash?: string | null };
+
 /** Issues a new token valid for `ttlMinutes`; it replaces the account's earlier tokens of this purpose. Returns the raw token. */
-export async function issueAccountToken(client: Queryable, accountId: string, purpose: AccountTokenPurpose, ttlMinutes: number) {
+export async function issueAccountToken(client: Queryable, accountId: string, purpose: AccountTokenPurpose, ttlMinutes: number, extra: AccountTokenExtra = {}) {
   const token = randomBytes(32).toString("base64url");
   // One statement: the earlier tokens go with the insert. Two concurrent requests under READ COMMITTED can still both
-  // insert, leaving two live tokens; harmless, since completePasswordReset deletes all of the account's reset tokens.
+  // insert, leaving two live tokens; harmless, since completing either deletes all of the account's tokens.
   await client.query(`WITH replaced AS (DELETE FROM account_tokens WHERE account_id=$2 AND purpose=$3)
-    INSERT INTO account_tokens (token_hash,account_id,purpose,expires_at) VALUES ($1,$2,$3,now()+make_interval(mins=>$4::int))`,
-    [hashOf(token), accountId, purpose, ttlMinutes]);
+    INSERT INTO account_tokens (token_hash,account_id,purpose,expires_at,return_to,origin_hash) VALUES ($1,$2,$3,now()+make_interval(mins=>$4::int),$5,$6)`,
+    [hashOf(token), accountId, purpose, ttlMinutes, extra.returnTo ?? null, extra.originHash ?? null]);
   return token;
 }
 
@@ -37,10 +40,16 @@ export async function findAccountToken(client: Queryable, token: string, purpose
   return rows[0] ? { accountId: rows[0].account_id, expiresAt: rows[0].expires_at } : null;
 }
 
+/** Uses the token up: its account and stored extras if it was unexpired, otherwise null. A token works only once. */
+export async function consumeAccountTokenDetails(client: Queryable, token: string, purpose: AccountTokenPurpose) {
+  if (!usable(token)) return null;
+  const { rows } = await client.query<{ account_id: string; return_to: string | null; origin_hash: string | null }>(
+    "DELETE FROM account_tokens WHERE token_hash=$1 AND purpose=$2 AND expires_at>now() RETURNING account_id,return_to,origin_hash", [hashOf(token), purpose]);
+  const row = rows[0];
+  return row ? { accountId: row.account_id, returnTo: row.return_to, originHash: row.origin_hash } : null;
+}
+
 /** Uses the token up: its account id if it was unexpired, otherwise null. A token works only once. */
 export async function consumeAccountToken(client: Queryable, token: string, purpose: AccountTokenPurpose) {
-  if (!usable(token)) return null;
-  const { rows } = await client.query<{ account_id: string }>(
-    "DELETE FROM account_tokens WHERE token_hash=$1 AND purpose=$2 AND expires_at>now() RETURNING account_id", [hashOf(token), purpose]);
-  return rows[0]?.account_id ?? null;
+  return (await consumeAccountTokenDetails(client, token, purpose))?.accountId ?? null;
 }

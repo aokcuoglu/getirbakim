@@ -17,3 +17,9 @@ export async function spendAttempt(key: string) {
     RETURNING attempts`, [key]);
   return rows[0].attempts;
 }
+
+/** Spends the budgets narrowest first and stops at the first refusal, so one client cannot use up the shared one. */
+export async function withinBudgets(budgets: [string, number][]) {
+  for (const [key, limit] of budgets) if (await spendAttempt(key) > limit) return false;
+  return true;
+}

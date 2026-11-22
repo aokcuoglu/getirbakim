@@ -50,9 +50,9 @@ export async function passwordResetTarget(token: string) {
 }
 
 /**
- * Sets the new password with a usable token and uses the token up. Every session of the account ends, its other reset
- * tokens go and its failed logins are forgiven. False for an unknown, expired or used token, or an account that is no
- * longer approved or resettable.
+ * Sets the new password with a usable token and uses the token up. Every session of the account ends, its other link
+ * tokens go and its failed logins are forgiven. The mailed link proves the address, so an unverified signup (#1258)
+ * becomes verified. False for an unknown, expired or used token, or an account that is no longer approved or resettable.
  */
 export async function completePasswordReset(token: string, password: string) {
   // An unknown token answers before the slow hash.
@@ -63,11 +63,11 @@ export async function completePasswordReset(token: string, password: string) {
     await client.query("BEGIN");
     const accountId = await consumeAccountToken(client, token, "password_reset");
     const updated = accountId ? await client.query<{ email: string }>(
-      "UPDATE accounts SET password_hash=$2 WHERE id=$1 AND approved AND role = ANY($3) RETURNING email", [accountId, passwordHash, RESETTABLE_ROLES]) : null;
+      "UPDATE accounts SET password_hash=$2,email_verified_at=COALESCE(email_verified_at,now()) WHERE id=$1 AND approved AND role = ANY($3) RETURNING email", [accountId, passwordHash, RESETTABLE_ROLES]) : null;
     const email = updated?.rows[0]?.email;
     if (!accountId || !email) { await client.query("ROLLBACK"); return false; }
     await client.query("DELETE FROM sessions WHERE account_id=$1", [accountId]);
-    await client.query("DELETE FROM account_tokens WHERE account_id=$1 AND purpose='password_reset'", [accountId]);
+    await client.query("DELETE FROM account_tokens WHERE account_id=$1", [accountId]);
     await client.query("DELETE FROM login_attempts WHERE email=$1", [email]);
     await client.query("COMMIT");
     return true;
