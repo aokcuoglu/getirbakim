@@ -6,7 +6,7 @@ import { z } from "zod";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createServiceSchema } from "@/modules/auth/schemas";
-import { approveServiceAccount } from "./service-accounts";
+import { approveServiceAccount, rejectServiceUpgrade } from "./service-accounts";
 export async function createService(form: FormData) {
  await requireAdmin();
  const input=createServiceSchema.safeParse(Object.fromEntries(form));
@@ -25,4 +25,14 @@ export async function approveService(form: FormData) {
  const approved=await approveServiceAccount(input.data.id,input.data.discount);
  if(approved) revalidatePath("/yonetim","layout");
  redirect(approved ? "/yonetim?approved=1" : "/yonetim?error=validation");
+}
+
+/** Rejects an individual customer's service-account request (#1259); the account stays a customer. */
+export async function rejectServiceApplication(form: FormData) {
+ await requireAdmin();
+ const input=z.object({id:z.uuid()}).safeParse(Object.fromEntries(form));
+ if(!input.success) redirect("/yonetim?error=validation");
+ const rejected=await rejectServiceUpgrade(input.data.id);
+ if(rejected) revalidatePath("/yonetim","layout");
+ redirect(rejected ? "/yonetim?rejected=1" : "/yonetim?error=validation");
 }

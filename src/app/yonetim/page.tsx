@@ -1,11 +1,11 @@
 import Link from "next/link";
-import { AlertTriangle, Building2, ChevronRight, CircleAlert, CircleCheck, CircleX, Layers3, PackageCheck, ReceiptText, RotateCcw, Tags, TrendingDown, TrendingUp, Truck, Wallet } from "lucide-react";
+import { AlertTriangle, Building2, ChevronRight, CircleAlert, CircleCheck, CircleX, Layers3, PackageCheck, ReceiptText, RotateCcw, Tags, TrendingDown, TrendingUp, Truck, UserRound, Wallet } from "lucide-react";
 import { adminDashboard, adminOverview, adminSupplierFeedStatus } from "@/modules/admin/data";
 import { summarizeFeedTones } from "@/modules/admin/feed-summary";
 import { feedIssueCount, feedNavTone, feedStateLabels } from "@/modules/suppliers/data-status";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
-import { approveService } from "@/modules/admin/actions";
+import { approveService, rejectServiceApplication } from "@/modules/admin/actions";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { money } from "@/modules/store/catalog";
 import { formatAgo, formatDateTime, formatNumber } from "@/modules/admin/format";
@@ -33,7 +33,7 @@ type Tone = keyof typeof navTones;
 
 export default async function Admin({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
-  const { approved, error } = normalizeSearchParams(await searchParams);
+  const { approved, rejected, error } = normalizeSearchParams(await searchParams);
   const [{ accounts }, data, feeds] = await Promise.all([adminOverview(), adminDashboard(), adminSupplierFeedStatus().catch(() => null)]);
   // Supplier tones follow the supplier overview: data freshness and open feed problems, not the scheduler heartbeat.
   const dinamikTone: Tone = feeds ? feedNavTone(feeds.dinamik) : "danger";
@@ -74,7 +74,8 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
       <LiveRefresh seconds={30} defaultOn={false}/>
     </div>
     {approved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis başvurusu onaylandı.</AlertDescription></Alert>}
-    {error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Başvuru onaylanamadı. İndirim %0–50 olmalı; başvuru daha önce onaylanmış olabilir.</AlertDescription></Alert>}
+    {rejected && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis başvurusu reddedildi. Hesap bireysel müşteri olarak kalır.</AlertDescription></Alert>}
+    {error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>Başvuru işlenemedi. İndirim %0–50 olmalı; başvuru daha önce onaylanmış veya reddedilmiş olabilir.</AlertDescription></Alert>}
 
     <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Özet">
       <Card>
@@ -224,18 +225,24 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
     {pending.length > 0 && <Card>
       <CardHeader>
         <CardTitle><h2>Onay bekleyen servis başvuruları</h2></CardTitle>
-        <CardDescription>Onay, servise fiyat ve sepet erişimini hemen açar.</CardDescription>
+        <CardDescription>Onay, servise fiyat ve sepet erişimini hemen açar. Mevcut müşteri onaylanınca aynı hesap servis hesabına dönüşür.</CardDescription>
         <CardAction><Button variant="outline" nativeButton={false} render={<Link href="/yonetim/servisler"/>}>Tüm servisler</Button></CardAction>
       </CardHeader>
       <CardContent>
         <ItemGroup>{pending.map((a, index) => <div key={a.id}>
           {index > 0 && <ItemSeparator/>}
           <Item>
-            <ItemContent><ItemTitle>{a.name}</ItemTitle><ItemDescription>{a.email}{a.contact_name && ` · ${a.contact_name} · ${a.phone} · ${a.city}`}</ItemDescription></ItemContent>
-            <ItemActions><form action={approveService} className="flex flex-wrap items-end gap-2"><input type="hidden" name="id" value={a.id}/>
-              <Field className="w-36"><FieldLabel htmlFor={`discount-${a.id}`}>Özel indirim (%)</FieldLabel><Input id={`discount-${a.id}`} name="discount" type="number" min={0} max={50} defaultValue={0} required/></Field>
-              <SubmitButton>Başvuruyu onayla</SubmitButton>
-            </form></ItemActions>
+            <ItemContent>
+              <ItemTitle>{a.name}{a.upgrade && <Badge variant="info"><UserRound data-icon="inline-start" aria-hidden="true"/>Mevcut müşteri</Badge>}</ItemTitle>
+              <ItemDescription>{a.email}{a.contact_name && ` · ${a.contact_name} · ${a.phone} · ${a.city}`}{a.upgrade && ` · Müşteri hesabı: ${a.account_name}`}</ItemDescription>
+            </ItemContent>
+            <ItemActions className="flex-wrap items-end">
+              <form action={approveService} className="flex flex-wrap items-end gap-2"><input type="hidden" name="id" value={a.id}/>
+                <Field className="w-36"><FieldLabel htmlFor={`discount-${a.id}`}>Özel indirim (%)</FieldLabel><Input id={`discount-${a.id}`} name="discount" type="number" min={0} max={50} defaultValue={0} required/></Field>
+                <SubmitButton>Başvuruyu onayla</SubmitButton>
+              </form>
+              {a.upgrade && <form action={rejectServiceApplication}><input type="hidden" name="id" value={a.id}/><SubmitButton variant="outline">Başvuruyu reddet</SubmitButton></form>}
+            </ItemActions>
           </Item>
         </div>)}</ItemGroup>
       </CardContent>

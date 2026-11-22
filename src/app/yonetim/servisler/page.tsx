@@ -4,11 +4,13 @@ import { requireAdmin } from '@/modules/auth/session';
 import { formatDate, formatNumber } from "@/modules/admin/format";
 import { saveService } from '@/modules/admin/commerce-actions';
 import { createService } from '@/modules/admin/actions';
-import { Building2, CircleAlert, CircleCheck, UserRound, UsersRound } from "lucide-react";
+import Link from "next/link";
+import { Building2, CircleAlert, CircleCheck, Info, UserRound, UsersRound } from "lucide-react";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -30,6 +32,8 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
     {params.created && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis hesabı oluşturuldu.</AlertDescription></Alert>}
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis hesabı kaydedildi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{params.error === "duplicate" ? "Bu e-posta zaten kayıtlı." : "Bilgileri kontrol et. İndirim %0–50 olmalı; şifre en az 12 karakter ve en fazla 72 UTF-8 bayt olmalı."}</AlertDescription></Alert>}
+    {customers.upgrades > 0 && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>{formatNumber(customers.upgrades)} bireysel müşteri servis hesabına başvurdu. Onay ve ret işlemleri panel ana sayfasında.</AlertDescription>
+      <AlertAction><Button variant="outline" size="sm" nativeButton={false} render={<Link href="/yonetim"/>}>Başvuruları görüntüle</Button></AlertAction></Alert>}
     <Card>
       <CardHeader>
         <CardTitle>Mevcut servisler</CardTitle>
@@ -63,11 +67,12 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
         <CardDescription>Toplam {formatNumber(customers.total)} hesap · son 50 kayıt</CardDescription>
       </CardHeader>
       <CardContent>
-        {customers.accounts.length ? <Table><TableHeader><TableRow><TableHead>Ad</TableHead><TableHead>E-posta</TableHead><TableHead>Kayıt tarihi</TableHead></TableRow></TableHeader><TableBody>
+        {customers.accounts.length ? <Table><TableHeader><TableRow><TableHead>Ad</TableHead><TableHead>E-posta</TableHead><TableHead>Kayıt tarihi</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader><TableBody>
           {customers.accounts.map(c=><TableRow key={c.id}>
             <TableCell className="font-medium">{c.name}</TableCell>
             <TableCell className="max-w-xs truncate text-muted-foreground" title={c.email}>{c.email}</TableCell>
             <TableCell className="tabular-nums" value={c.applied_at?.toISOString() ?? ""}>{formatDate(c.applied_at)}</TableCell>
+            <TableCell>{c.upgrade_pending ? <StatusBadge tone="warning">Servis başvurusu bekliyor</StatusBadge> : <span className="text-muted-foreground">—</span>}</TableCell>
           </TableRow>)}
         </TableBody></Table> : <Empty>
           <EmptyHeader>
