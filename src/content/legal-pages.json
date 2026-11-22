@@ -4769,7 +4769,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "gb_session: Bireysel üye veya servis hesabı oturumunu sürdürür. Giriş yapıldığında veya üyelik oluşturulduğunda kullanılır; geçerlilik süresi 30 dakikadır."
+                  "gb_session: Bireysel üye veya servis hesabı oturumunu sürdürür. Giriş yapıldığında veya e-posta adresi doğrulandığında kullanılır; geçerlilik süresi 30 dakikadır."
                 ]
               },
               {
@@ -4777,6 +4777,27 @@
                 "attrs": {},
                 "children": [
                   "gb_session_at: Oturum çerezinin en son ne zaman yenilendiğini tutar; oturumun gereksiz yere yeniden yazılmasını önler. Zorunludur; giriş yapıldığında kullanılır ve oturum çereziyle aynı süre geçerlidir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_reset: Şifre yenileme bağlantısını açtığında, yeni şifre belirlenene kadar bağlantıyı tanır. Yalnızca şifre yenileme sayfasında kullanılır; geçerlilik süresi en fazla 60 dakikadır."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_verify: E-posta doğrulama bağlantısını açtığında, doğrulama tamamlanana kadar bağlantıyı tanır. Yalnızca e-posta doğrulama sayfasında kullanılır; geçerlilik süresi en fazla 24 saattir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_verify_origin: Kayıt olduğun veya doğrulama e-postası istediğin tarayıcıyı tanır; doğrulama bu tarayıcıda yapılırsa oturumu açar. Geçerlilik süresi 24 saattir."
                 ]
               },
               {
