@@ -9,6 +9,7 @@ import { storeButton } from "@/components/store-button";
 import { storeErrorBox } from "@/components/store-alert-classes";
 import { cn } from "@/lib/utils";
 import { registerCustomer } from "@/modules/auth/customer-signup";
+import { membershipConsentText } from "@/modules/auth/membership-consent";
 import { safeReturnTo } from "@/modules/auth/return-to";
 import { initialSignupState } from "@/modules/auth/signup-state";
 import { AuthField } from "./auth-field";
@@ -56,7 +57,7 @@ export function RegisterForm({ next, onNavigate }: { next?: string; onNavigate: 
     <div className="mt-4 flex items-start gap-2.5 text-sm leading-5">
       <Checkbox id={termsId} name="terms" value="on" defaultChecked={state.values?.terms} aria-required="true" aria-invalid={termsError || undefined}
         onCheckedChange={checked => { if (checked) setTermsError(false); }} className={checkoutCheckbox} />
-      <label htmlFor={termsId}>Üyelik ve Kullanım Koşulları&apos;nı okudum, kabul ediyorum.</label>
+      <label htmlFor={termsId}>{membershipConsentText}</label>
     </div>
     <p className="mt-2 mb-0 text-[13px] leading-5 text-muted-foreground"><Link className={legalLink} href="/uyelik-ve-kullanim-kosullari" onClick={onNavigate}>Üyelik ve Kullanım Koşulları</Link> · Kişisel verilerin <Link className={legalLink} href="/kvkk-aydinlatma-metni" onClick={onNavigate}>KVKK Aydınlatma Metni</Link> kapsamında işlenir.</p>
     {error && <p id={errorId} className={cn(storeErrorBox, "mt-4 mb-0")} role="alert">{error}</p>}

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { after, before, beforeEach, mock, test } from "node:test";
+import { legalDocument, type LegalNode } from "../src/content/legal";
+import { membershipConsentText } from "../src/modules/auth/membership-consent";
+import { legalPageVersion, membershipTermsSlug, privacyNoticeSlug } from "../src/modules/auth/membership-terms";
 import { customerSignupSchema } from "../src/modules/auth/schemas";
 import { initialSignupState } from "../src/modules/auth/signup-state";
 import { isolatedSchema } from "./isolated-schema";
@@ -47,6 +50,30 @@ test("the signup schema refuses a short, mismatched or oversized password, missi
   assert.deepEqual(mismatch.error?.issues.map(issue => issue.path), [["confirmPassword"]]);
 });
 
+test("a legal page version is its date and a hash of its copy, and changes when the copy is edited", () => {
+  const page = legalDocument(membershipTermsSlug)!;
+  const version = legalPageVersion(membershipTermsSlug);
+  assert.match(version, /^\d{4}-\d{2}-\d{2}\.[0-9a-f]{12}$/);
+  assert.ok(version.startsWith(`${page.updatedAt}.`));
+  const edited = { ...page, sections: [{ title: page.sections[0].title, blocks: [...page.sections[0].blocks, "Ek cümle."] }, ...page.sections.slice(1)] };
+  assert.notEqual(legalPageVersion(membershipTermsSlug, edited), version);
+  assert.throws(() => legalPageVersion("olmayan-sayfa"), /Legal page missing/);
+});
+
+test("the KVKK notice and the privacy policy describe individual membership in the same words", () => {
+  const notice = legalDocument(privacyNoticeSlug)!, policy = legalDocument("gizlilik-politikasi")!;
+  const shared = notice.sections.filter(section => policy.sections.some(other => other.title === section.title));
+  assert.ok(shared.length >= 5);
+  for (const section of shared) assert.deepEqual(policy.sections.find(other => other.title === section.title), section, section.title);
+  const text = (node: LegalNode): string => typeof node === "string" ? node : node.children.map(text).join("");
+  for (const page of [notice, policy]) {
+    assert.ok(page.sections.some(section => section.title === "Bireysel Üyelik"), page.title);
+    const copy = page.sections.flatMap(section => section.blocks.map(text)).join("\n");
+    assert.equal(copy.includes("yetkili yönetici tarafından servis hesabı oluşturulurken sisteme girilir"), false, page.title);
+  }
+  assert.ok(legalDocument(membershipTermsSlug)!.updatedAt >= "2026-11-22");
+});
+
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let signup: typeof import("../src/modules/auth/customer-signup");
 let closeDb: () => Promise<void>;
@@ -59,6 +86,10 @@ const redirected = async (action: Promise<unknown>) => {
 };
 const account = async (email: string) => (await schema.pool.query<{ id: string; name: string; role: string; approved: boolean; discount_percent: number; password_hash: string; applied_at: Date | null }>(
   "SELECT id,name,role,approved,discount_percent,password_hash,applied_at FROM accounts WHERE email=$1", [email])).rows[0];
+type Acceptance = { document: string; terms_version: string; privacy_notice_version: string; consent_text: string; ip: string | null; forwarded_for: string | null; user_agent: string | null; accepted_at: Date };
+const acceptancesOf = async (id: string) => (await schema.pool.query<Acceptance>(
+  "SELECT document,terms_version,privacy_notice_version,consent_text,ip,forwarded_for,user_agent,accepted_at FROM account_term_acceptances WHERE account_id=$1", [id])).rows;
+const acceptanceCount = async () => Number((await schema.pool.query<{ count: string }>("SELECT count(*) FROM account_term_acceptances")).rows[0].count);
 const sessionsOf = async (id: string) => Number((await schema.pool.query<{ count: string }>("SELECT count(*) FROM sessions WHERE account_id=$1", [id])).rows[0].count);
 
 before(async () => {
@@ -88,6 +119,23 @@ test("a signup creates an approved customer without discount, logs it in and ret
   assert.ok(token);
   const session = await schema.pool.query("SELECT 1 FROM sessions WHERE token_hash=$1 AND account_id=$2", [createHash("sha256").update(token).digest("hex"), created.id]);
   assert.equal(session.rowCount, 1);
+});
+
+test("a signup records one immutable acceptance of the membership terms with the request's evidence (#1256)", async () => {
+  requestHeaders = new Headers({ "cloudfront-viewer-address": "198.51.100.10:443", "x-forwarded-for": "203.0.113.5", "user-agent": "Test Browser/1.0" });
+  await redirected(signup.registerCustomer(initialSignupState, signupForm("terms@example.invalid")));
+  const created = await account("terms@example.invalid");
+  const rows = await acceptancesOf(created.id);
+  assert.equal(rows.length, 1);
+  const [{ accepted_at, ...row }] = rows;
+  assert.deepEqual(row, {
+    document: "uyelik-ve-kullanim-kosullari", terms_version: legalPageVersion(membershipTermsSlug), privacy_notice_version: legalPageVersion(privacyNoticeSlug),
+    consent_text: membershipConsentText, ip: "198.51.100.10", forwarded_for: "203.0.113.5", user_agent: "Test Browser/1.0",
+  });
+  assert.ok(accepted_at instanceof Date && Math.abs(accepted_at.getTime() - Date.now()) < 60_000);
+  await assert.rejects(schema.pool.query("UPDATE account_term_acceptances SET consent_text='değişti' WHERE account_id=$1", [created.id]), /immutable/);
+  await schema.pool.query("DELETE FROM accounts WHERE id=$1", [created.id]);
+  assert.equal((await acceptancesOf(created.id)).length, 0);
 });
 
 test("an unsafe or missing next sends the new customer home", async () => {
@@ -122,10 +170,12 @@ test("an address that already has an account is refused without login or overwri
     assert.deepEqual(await account(email), previous, email);
     assert.equal(await sessionsOf(previous.id), 0, email);
     assert.equal(cookieStore.has("gb_session"), false, email);
+    assert.equal((await acceptancesOf(previous.id)).length, 0, email);
   }
 });
 
 test("invalid input, including a filled honeypot, returns the field error and creates nothing", async () => {
+  const acceptedBefore = await acceptanceCount();
   const cases: Record<string, string>[] = [{ website: "https://spam.invalid" }, { confirmPassword: "farklı-bir-şifre-1" }, { terms: "" }, { newPassword: "kisa", confirmPassword: "kisa" }];
   for (const overrides of cases) {
     const state = await signup.registerCustomer(initialSignupState, signupForm("invalid@example.invalid", overrides));
@@ -133,6 +183,7 @@ test("invalid input, including a filled honeypot, returns the field error and cr
   }
   assert.equal(await account("invalid@example.invalid"), undefined);
   assert.equal((await schema.pool.query("SELECT 1 FROM service_application_attempts")).rowCount, 0);
+  assert.equal(await acceptanceCount(), acceptedBefore);
 });
 
 test("the fourth attempt for one address within the hour is refused", async () => {
