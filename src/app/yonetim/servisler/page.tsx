@@ -1,13 +1,14 @@
-import { adminServiceAccounts } from "@/modules/admin/data";
+import { adminCustomerAccounts, adminServiceAccounts } from "@/modules/admin/data";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from '@/modules/auth/session';
-import { formatNumber } from "@/modules/admin/format";
+import { formatDate, formatNumber } from "@/modules/admin/format";
 import { saveService } from '@/modules/admin/commerce-actions';
 import { createService } from '@/modules/admin/actions';
-import { Building2, CircleAlert, CircleCheck } from "lucide-react";
+import { Building2, CircleAlert, CircleCheck, UserRound, UsersRound } from "lucide-react";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -18,7 +19,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 export default async function Services({searchParams}:{searchParams:Promise<SearchParams>}) {
   await requireAdmin();const params=normalizeSearchParams(await searchParams);
-  const accounts=await adminServiceAccounts();
+  const [accounts,customers]=await Promise.all([adminServiceAccounts(),adminCustomerAccounts()]);
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
@@ -52,6 +53,28 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
             <EmptyMedia variant="icon"><Building2/></EmptyMedia>
             <EmptyTitle>Henüz servis hesabı yok</EmptyTitle>
             <EmptyDescription>Aşağıdan ilk servis hesabını oluşturabilirsin.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>}
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle>Bireysel müşteriler</CardTitle>
+        <CardDescription>Toplam {formatNumber(customers.total)} hesap · son 50 kayıt</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {customers.accounts.length ? <Table><TableHeader><TableRow><TableHead>Ad</TableHead><TableHead>E-posta</TableHead><TableHead>Kayıt tarihi</TableHead><TableHead>Hesap türü</TableHead></TableRow></TableHeader><TableBody>
+          {customers.accounts.map(c=><TableRow key={c.id}>
+            <TableCell className="font-medium">{c.name}</TableCell>
+            <TableCell className="text-muted-foreground">{c.email}</TableCell>
+            <TableCell className="tabular-nums">{formatDate(c.applied_at)}</TableCell>
+            <TableCell><Badge variant="outline"><UserRound data-icon="inline-start"/>Bireysel</Badge></TableCell>
+          </TableRow>)}
+        </TableBody></Table> : <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><UsersRound/></EmptyMedia>
+            <EmptyTitle>Henüz bireysel müşteri yok</EmptyTitle>
+            <EmptyDescription>Mağazadan kayıt olan müşteriler burada listelenir.</EmptyDescription>
           </EmptyHeader>
         </Empty>}
       </CardContent>
