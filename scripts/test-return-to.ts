@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { returnTarget } from "../src/components/auth/return-target";
 import { loginPath, safeReturnTo } from "../src/modules/auth/return-to";
 
 test("accepts same-origin paths with query", () => {
@@ -18,4 +19,12 @@ test("builds login paths that keep the return target", () => {
   assert.equal(loginPath("//evil.com", "limit"), "/giris?error=limit");
   assert.equal(loginPath(null), "/giris");
   assert.equal(loginPath("/"), "/giris");
+});
+
+test("auth forms return to the explicit next, the login page's next, or the current page", () => {
+  assert.equal(returnTarget("/sepet", "/urunler", "?a=1"), "/sepet");
+  assert.equal(returnTarget(undefined, "/urunler/x", "?a=1"), "/urunler/x?a=1");
+  assert.equal(returnTarget(undefined, "/giris", "?next=%2Fsepet"), "/sepet");
+  assert.equal(returnTarget(undefined, "/giris", "?next=%2F%2Fevil.com"), "/");
+  assert.equal(returnTarget(undefined, "/giris", ""), "/");
 });
