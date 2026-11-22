@@ -193,8 +193,8 @@ const nonce = "MDEyMzQ1Njc4OWFiY2RlZg==";
 const themeHash = createHash("sha256").update(adminThemeScript, "utf8").digest("base64");
 const tags = {
   script: "https://www.googletagmanager.com https://connect.facebook.net",
-  connect: "https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://*.g.doubleclick.net https://*.google.com https://www.google.com.tr https://pagead2.googlesyndication.com https://www.googleadservices.com https://www.facebook.com https://connect.facebook.net",
-  img: "https://*.google-analytics.com https://*.googletagmanager.com https://*.g.doubleclick.net https://*.google.com https://www.google.com.tr https://pagead2.googlesyndication.com https://www.googleadservices.com https://www.facebook.com",
+  connect: "https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://*.g.doubleclick.net https://*.google.com https://google.com https://www.google.com.tr https://pagead2.googlesyndication.com https://www.googleadservices.com https://www.facebook.com https://connect.facebook.net",
+  img: "https://*.google-analytics.com https://*.googletagmanager.com https://*.g.doubleclick.net https://*.google.com https://google.com https://www.google.com.tr https://pagead2.googlesyndication.com https://www.googleadservices.com https://www.facebook.com",
   frame: "https://td.doubleclick.net https://bid.g.doubleclick.net https://www.googletagmanager.com https://www.facebook.com",
 };
 const tail = `img-src 'self' data: blob: ${tags.img}; frame-src 'self' ${tags.frame}; form-action 'self' https://portal.tami.com.tr https://sandbox-portal.tami.com.tr; report-uri /api/csp-report; report-to csp`;
@@ -286,7 +286,7 @@ test("CSP_REPORT_ONLY=off turns the header off", () => {
 // Next strips the rsc and prefetch headers before the proxy runs, so only the matcher can leave those requests out.
 test("the proxy matcher runs on documents, not on API routes, assets, feeds, RSC requests or prefetches", () => {
   for (const url of ["/", "/urun/x", "/yonetim", "/kategori/fren"]) assert.equal(unstable_doesMiddlewareMatch({ config, url }), true, url);
-  for (const url of ["/api/categories", "/api/csp-report", "/feeds/google.xml.gz", "/_next/static/x.js", "/_next/image", "/favicon.ico", "/robots.txt", "/media/a.webp"]) {
+  for (const url of ["/api/categories", "/api/csp-report", "/feeds/google.xml.gz", "/manifest.webmanifest", "/_next/static/x.js", "/_next/image", "/favicon.ico", "/robots.txt", "/media/a.webp"]) {
     assert.equal(unstable_doesMiddlewareMatch({ config, url }), false, url);
   }
   assert.equal(unstable_doesMiddlewareMatch({ config, url: "/", headers: { rsc: "1" } }), false);
@@ -356,6 +356,16 @@ test("extension injections are classified and keep the scheme only", () => {
   assert.equal(source?.kind, "extension");
   const [data] = parseCspReports("application/csp-report", legacyReport({ "document-uri": "https://getirbakim.com/katalog", "effective-directive": "img-src", "blocked-uri": "data:image/png;base64,AAAA" }));
   assert.deepEqual([data?.blocked, data?.page, data?.kind], ["data", "/katalog", "page"]);
+});
+
+test("an oversize hostname or path cannot stretch the log line", () => {
+  const host = `${"a".repeat(60)}.${"b".repeat(60)}.${"c".repeat(60)}.${"d".repeat(60)}.${"e".repeat(60)}.example`;
+  const path = Array.from({ length: 40 }, (_, i) => `seg${i}`).join("/");
+  const [report] = parseCspReports("application/csp-report", legacyReport({ "document-uri": "https://getirbakim.com/", "effective-directive": "script-src-elem",
+    "blocked-uri": `https://${host}/x.js`, "source-file": `https://getirbakim.com/${path}` }));
+  assert.equal(report?.blocked, "unknown");
+  assert.ok((report?.source ?? "").length <= 300);
+  assert.ok(cspReportLine(report!).length < 500, String(cspReportLine(report!).length));
 });
 
 test("garbage, oversize and unknown bodies yield no report", () => {

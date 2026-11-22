@@ -21,7 +21,7 @@ export const ADMIN_THEME_SCRIPT_HASH = createHash("sha256").update(adminThemeScr
 const tagScripts = ["https://www.googletagmanager.com", "https://connect.facebook.net"];
 const googleBeacons = [
   "https://*.google-analytics.com", "https://*.analytics.google.com", "https://*.googletagmanager.com", "https://*.g.doubleclick.net",
-  "https://*.google.com", "https://www.google.com.tr", "https://pagead2.googlesyndication.com", "https://www.googleadservices.com",
+  "https://*.google.com", "https://google.com", "https://www.google.com.tr", "https://pagead2.googlesyndication.com", "https://www.googleadservices.com",
 ];
 const tagConnect = [...googleBeacons, "https://www.facebook.com", "https://connect.facebook.net"];
 const tagImages = [...googleBeacons.filter((host) => host !== "https://*.analytics.google.com"), "https://www.facebook.com"];

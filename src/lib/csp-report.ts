@@ -6,6 +6,8 @@
 export const CSP_REPORT_MAX_BYTES = 16 * 1024;
 const MAX_REPORTS = 10;
 const MAX_PATH = 200;
+// A whole blocked/source location (origin + path); a hostname may legally be 253 characters, a forged one longer.
+const MAX_LOCATION = 300;
 
 export type CspReport = {
   directive: string;
@@ -52,7 +54,8 @@ function location(value: unknown): { text: string; extension: boolean } | null {
   if (extensionSchemes.has(url.protocol)) return { text: url.protocol, extension: true };
   if (url.protocol === "data:" || url.protocol === "blob:") return { text: url.protocol.slice(0, -1), extension: false };
   if (url.protocol !== "http:" && url.protocol !== "https:") return { text: url.protocol, extension: false };
-  return { text: `${url.origin}${maskPath(url.pathname)}`, extension: false };
+  if (url.hostname.length > 253) return { text: "unknown", extension: false };
+  return { text: `${url.origin}${maskPath(url.pathname)}`.slice(0, MAX_LOCATION), extension: false };
 }
 
 function directiveOf(value: unknown): string | null {

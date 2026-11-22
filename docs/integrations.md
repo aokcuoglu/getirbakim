@@ -46,4 +46,4 @@ Uygulanan (enforced) CSP 1. aşamadır ve `next.config.ts` `headers()` içindedi
   filter @message like /^csp-report / | parse @message "csp-report *" as j | stats count() by j
   ```
 
-- 3. aşamaya (politikayı uygulamaya) geçiş ölçütleri: 7 gün boyunca birinci taraf `kind:"page"` satırı sıfır; TAMI sandbox ödemesi (açılır pencere + dönüş) temiz; etiket adres listesi sabit.
+- 3. aşamaya (politikayı uygulamaya) geçiş ölçütleri: 7 gün boyunca birinci taraf `kind:"page"` satırı sıfır; TAMI sandbox ödemesi (açılır pencere + dönüş) temiz; etiket adres listesi sabit. Uygulamaya geçerken: proxy, istemcinin gönderdiği `content-security-policy` / `content-security-policy-report-only` istek başlıklarını her zaman ezmeli ya da silmeli, `purpose: prefetch` atlaması yeniden değerlendirilmeli; proxy atlandığında Next nonce'u istemcinin gönderdiği başlıktan alır.
