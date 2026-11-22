@@ -76,6 +76,9 @@ const nextConfig: NextConfig = {
         : []),
       { source: "/api/payments/tami/:path*", headers: noReferrer },
       { source: "/siparis/:id/erisim", headers: noReferrer },
+      // The password reset link and form (#1257): the token must never leave in a Referer.
+      { source: "/sifre-yenile", headers: noReferrer },
+      { source: "/sifre-yenile/:path*", headers: noReferrer },
     ];
   },
   async redirects() {

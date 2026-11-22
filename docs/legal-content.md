@@ -24,6 +24,8 @@ Bireysel müşteri kaydının (#1254) açılmasıyla Üyelik ve Kullanım Koşul
 
 Kayıt sırasında koşulların kabulü `account_term_acceptances` tablosuna sonradan değiştirilemeyen bir satır olarak yazılır: belge (`uyelik-ve-kullanim-kosullari`), kabul edilen koşul metninin sürümü, o anki KVKK Aydınlatma Metninin sürümü (her ikisi `<updatedAt>.<sayfa içeriğinin özeti>`), onay metni, kabul zamanı, IP adresi, `X-Forwarded-For` başlığı ve tarayıcı bilgisi. `terms_version` içindeki tarih ve özet, kabul edilen metni `src/content/legal-pages.json` dosyasının git geçmişindeki ilgili sürümüyle eşleştirir; o sürümdeki sayfa içeriğinin özeti satırdaki özetle aynıdır. Satır hesapla aynı ifadede oluşturulur; hesap kaydı silindiğinde onunla birlikte silinir. Aydınlatma metninin sunulması açık rıza olarak kaydedilmez.
 
+Şifre yenileme (#1257) ile Üyelik ve Kullanım Koşulları e-postayla yenileme bağlantısını anlatır; KVKK Aydınlatma Metni ve Gizlilik Politikası yenileme bağlantısının ve talep sınırlarının özetini, Gizlilik Politikasının "Veri Güvenliği" bölümü bağlantının 60 dakika ve tek kullanımlık olduğunu söyler. İki sayfanın aktarım paragrafı işlem e-postalarının (sipariş bildirimleri, şifre yenileme) Amazon SES üzerinden gönderildiğini ve AWS'nin ad, e-posta adresi ve e-posta içeriğini veri işleyen olarak işlediğini açıklar; production gönderimi `MAIL_TRANSPORT=ses` ile yapılır ([sipariş e-postaları](commerce.md)). Gönderim sağlayıcısı değişirse bu cümle de değişmelidir.
+
 ## Hukuki dayanakların kontrolü
 
 Tüketici süreleri için Ticaret Bakanlığının 17 Ağustos 2026 tarihli güncel açıklaması esas alındı. Bakanlığın aşağıdaki yönetmelik PDF'si eski geçiş hükümleri de içerdiğinden, 2026 süreleri için tek başına kullanılmadı.

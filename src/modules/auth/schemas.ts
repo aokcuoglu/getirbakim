@@ -30,3 +30,8 @@ export const customerSignupSchema = z.object({
   terms: z.literal("on"),
   website: z.string().max(0),
 }).refine(value => value.password === value.confirmPassword, { path: ["confirmPassword"], message: "Şifreler aynı olmalı." });
+export const resetRequestSchema = z.object({ email: emailSchema });
+export const resetPasswordSchema = z.object({
+  password: newPasswordSchema,
+  confirmPassword: z.string(),
+}).refine(value => value.password === value.confirmPassword, { path: ["confirmPassword"], message: "Şifreler aynı olmalı." });
