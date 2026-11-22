@@ -139,6 +139,19 @@ before(async () => {
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
 
+test("a make × category description states the product count and follows the noindex gate (#1224)", () => inRequest(async () => {
+  const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
+  const fren = (await load.findListing({ category: "fren", make: "vw", search: {} }))!;
+  assert.equal(fren.plainTotal, 9);
+  const below = listingMetadata(fren);
+  assert.ok(String(below.description).includes("9 ürün"), String(below.description));
+  assert.ok(String(below.description).includes("araçlar için"));
+  assert.equal((below.robots as { index?: boolean }).index, false);
+  const enough = listingMetadata({ ...fren, plainTotal: 10 });
+  assert.ok(String(enough.description).includes("10 ürün"));
+  assert.equal(enough.robots, undefined);
+}));
+
 test("a search result's title says the query within 65 characters and stays noindex,follow (#1218)", async () => {
   const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
   for (const q of ["fren", "bosch fren diski ön sol havalandırmalı golf 7 passat b8 tiguan 2.0 tdi"]) {
@@ -379,6 +392,29 @@ test("the model sitemaps list exactly the indexable model and model × category 
   assert.equal(listingIndexable(root.query, root.plainTotal ?? 0), false);
   assert.deepEqual((await sitemap.loadModelPaths()).sort(), models.sort());
   assert.deepEqual((await sitemap.loadModelCategoryPaths()).sort(), modelCategories);
+}));
+
+test("the make × category sitemap lists exactly the indexable make × category pages (#1224)", () => inRequest(async () => {
+  const slugs = (await schema.pool.query<{ slug: string }>("SELECT slug FROM source_category_labels WHERE source='trodo' AND locale='tr'")).rows.map(row => row.slug);
+  const pages = async (minimum?: number) => {
+    const { text, values, units } = await sitemap.makeCategoryPathsQuery(minimum);
+    const { rows } = await schema.pool.query<{ unit: number; slug: string }>(text, values);
+    return rows.map(row => listingPath({ makeSlug: units[row.unit], categorySlug: row.slug })).filter(path => path.endsWith("/vw")).sort();
+  };
+  const expected: string[] = [], indexable: string[] = [];
+  for (const category of slugs) {
+    const listing = await load.findListing({ category, make: "vw", search: {} });
+    if (!listing || category === "yedek-parca") continue;
+    expected.push(listingPath({ makeSlug: "vw", categorySlug: category }));
+    if (listingIndexable(listing.query, listing.plainTotal ?? 0)) indexable.push(listingPath({ makeSlug: "vw", categorySlug: category }));
+  }
+  assert.ok(expected.length > 0);
+  assert.deepEqual(await pages(1), expected.sort());
+  assert.deepEqual(await pages(), indexable.sort());
+  assert.ok(!(await pages(1)).includes("/kategori/yedek-parca/vw"));
+  // vw × fren has 9 products: the boundary sits between 9 and 10.
+  assert.ok((await pages(9)).includes("/kategori/fren/vw"));
+  assert.ok(!(await pages(10)).includes("/kategori/fren/vw"));
 }));
 
 test("loadAllVehicleModelGroups returns the same units as the per-make read (#778)", async () => {

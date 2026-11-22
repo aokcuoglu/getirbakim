@@ -71,10 +71,10 @@ Kurucular `src/modules/seo/structured-data.ts` ve `src/lib/site.ts`; basım `src
 | --- | --- |
 | `pages.xml` | Sabit mağaza ve hukuki sayfalar (`lastmod`: hukuki metin tarihi) |
 | `categories.xml`, `makes.xml`, `manufacturers.xml` | Kategori, araç markası, dizine açık üretici sayfaları |
-| `models.xml`, `model-categories.xml` | Dizine açık model ve model × kategori sayfaları (#673) |
+| `models.xml`, `model-categories.xml`, `make-categories.xml` | Dizine açık model, model × kategori ve marka × kategori sayfaları (#673, #1224) |
 | `products-00.xml` … `products-63.xml` | Dizine açık ürünler, kimliğin ilk baytına göre 64 parça, `lastmod` ile; parça başına üst sınır 45.000 adres |
 
-Önbellek: yanıt `Cache-Control: public, max-age=3600` (`xmlHeaders`). Veri önbelleği 6 saatte bayatlar, 12 saatte düşer. Sunucunun başlangıçta ve her 3 saatte bir kendisi ısıttığı dosyalar yalnız `models.xml`, `model-categories.xml` ve `manufacturers.xml`'dir (`warmedSitemapFiles`, `src/modules/seo/sitemap-warmup.ts`, #778); ürün parçaları, `categories.xml` ve `makes.xml` ısıtılmaz, tazeliği tarayıcı isteklerine bağlıdır (en çok ~12 saat bayat + 1 saat CDN; soğuk ilk istek sorguyu bekler). Salt fiyat/stok değişimi IndexNow'a gitmez; fiyat tazeliğini `lastmod` taşır. IndexNow ayrıntıları: [indexnow.md](indexnow.md).
+Önbellek: yanıt `Cache-Control: public, max-age=3600` (`xmlHeaders`). Veri önbelleği 6 saatte bayatlar, 12 saatte düşer. Sunucunun başlangıçta ve her 3 saatte bir kendisi ısıttığı dosyalar yalnız `models.xml`, `model-categories.xml`, `make-categories.xml` ve `manufacturers.xml`'dir (`warmedSitemapFiles`, `src/modules/seo/sitemap-warmup.ts`, #778); ürün parçaları, `categories.xml` ve `makes.xml` ısıtılmaz, tazeliği tarayıcı isteklerine bağlıdır (en çok ~12 saat bayat + 1 saat CDN; soğuk ilk istek sorguyu bekler). Salt fiyat/stok değişimi IndexNow'a gitmez; fiyat tazeliğini `lastmod` taşır. IndexNow ayrıntıları: [indexnow.md](indexnow.md).
 
 ### 1.5 Ortam değişkenleri
 

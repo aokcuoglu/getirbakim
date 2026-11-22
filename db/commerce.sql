@@ -1043,6 +1043,34 @@ DO $$ BEGIN
   CREATE INDEX partner_invoice_payments_invoice_idx ON partner_invoice_payments(partner_code,invoice_ref,invoice_day);
  END IF;
 END $$;
+-- Partner period close (#1200), from /yonetim/partnerler. period = the first day of an Istanbul calendar month; a row in
+-- partner_period_closes means that month is closed for the partner: marking, correcting or undoing invoices dated in it
+-- (Istanbul invoice day) and recording or voiding payments paid in it (paid_on) are refused (src/modules/partner/periods.ts,
+-- under the partner's order lock). Reopening deletes the row. Every close and reopen leaves an append-only
+-- partner_period_events row; a reopen needs a reason (5–500 characters), a close may carry a note.
+-- The first deploy that creates the tables takes, for that run only, SHARE ROW EXCLUSIVE on accounts (the foreign keys).
+CREATE TABLE IF NOT EXISTS partner_period_closes(
+ partner_code text NOT NULL,
+ period date NOT NULL CHECK(extract(day FROM period)=1),
+ closed_at timestamptz NOT NULL DEFAULT now(),
+ closed_by uuid REFERENCES accounts(id),
+ PRIMARY KEY(partner_code,period)
+);
+CREATE TABLE IF NOT EXISTS partner_period_events(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ partner_code text NOT NULL,
+ period date NOT NULL CHECK(extract(day FROM period)=1),
+ action text NOT NULL CHECK(action IN ('close','reopen')),
+ reason text NOT NULL DEFAULT '' CHECK(length(reason)<=500),
+ actor uuid REFERENCES accounts(id),
+ created_at timestamptz NOT NULL DEFAULT now(),
+ CHECK(action<>'reopen' OR length(btrim(reason))>=5)
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_period_events'::regclass AND c.relname='partner_period_events_partner_idx') THEN
+  CREATE INDEX partner_period_events_partner_idx ON partner_period_events(partner_code,created_at DESC);
+ END IF;
+END $$;
 
 -- Order emails (#951): one row per order and kind, written in the payment transaction that settles the order
 -- (src/modules/payments/checkout.ts recordPaid); delivery (src/modules/store/order-email.ts) claims pending rows with a

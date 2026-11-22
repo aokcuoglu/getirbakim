@@ -1,6 +1,6 @@
 import "server-only";
 import { requireAdmin } from "@/modules/auth/session";
-import { invoiceCollection, istanbulToday, limitUsage } from "./partner-input";
+import { invoiceCollection, istanbulToday, limitUsage, partnerStatementInput, periodLabel, recentPeriods } from "./partner-input";
 import { orphanPaymentCount, partnerInvoiceLedger, paymentTerms, recentInvoicePayments } from "@/modules/partner/collections";
 import { partnerOrderLimitEnv, resolveOrderLimitKurus } from "@/modules/partner/order-dto";
 import { lastDiscountChanges, panelDiscounts } from "@/modules/partner/discounts";
@@ -8,6 +8,7 @@ import { pausedPartners } from "@/modules/partner/intake";
 import { partnerDiscountEnv, resolvePartnerDiscount, resolvePartnerDiscountBps } from "@/modules/partner/pricing";
 import { parsePartnerWebhooks, partnerWebhooksEnv } from "@/modules/partner/webhook-contract";
 import { partnerWebhookSummary, recentPartnerWebhookProblems } from "@/modules/partner/webhooks";
+import { closedPeriods, partnerStatement, periodEvents } from "@/modules/partner/periods";
 import { knownPartners, noExposure, panelLimits, partnerExposures, partnerInvoiceChanges, resolvePartnerLimit, uninvoicedDays } from "@/modules/partner/limits";
 
 /** /yonetim/partnerler (#426): every partner with its limit, its exposure and what can be invoiced. */
@@ -36,10 +37,17 @@ export async function adminPartners() {
 export async function adminPartnerInvoices() {
   await requireAdmin();
   const { codes } = await knownPartners();
-  const [ledger, changes, payments, orphanCount, terms] = await Promise.all([partnerInvoiceLedger(codes), partnerInvoiceChanges(codes),
-    recentInvoicePayments(codes), orphanPaymentCount(codes), paymentTerms(codes)]);
+  const [ledger, changes, recent, orphanCount, terms, closed] = await Promise.all([partnerInvoiceLedger(codes), partnerInvoiceChanges(codes),
+    recentInvoicePayments(codes), orphanPaymentCount(codes), paymentTerms(codes), closedPeriods(codes)]);
   const today = istanbulToday();
-  const invoices = ledger.map(invoice => ({ ...invoice, ...invoiceCollection({ ...invoice, termDays: terms.get(invoice.partner) ?? null, today }) }));
+  // A closed month (#1200) freezes invoices dated in it and payments paid in it: the page hides their change and void.
+  // Closes are contiguous, so a month at or before the partner's latest closed month is frozen (period-guard.ts).
+  const latestClosed = new Map<string, string>();
+  for (const row of closed) if (row.period > (latestClosed.get(row.partner) ?? "")) latestClosed.set(row.partner, row.period);
+  const isClosed = (partner: string, day: string) => day.slice(0, 7) <= (latestClosed.get(partner) ?? "");
+  const invoices = ledger.map(invoice => ({ ...invoice, ...invoiceCollection({ ...invoice, termDays: terms.get(invoice.partner) ?? null, today }),
+    periodClosed: isClosed(invoice.partner, invoice.invoiceDate) }));
+  const payments = recent.map(payment => ({ ...payment, paidPeriodClosed: isClosed(payment.partner, payment.paidOn) }));
   const collections = codes.map(code => {
     const own = invoices.filter(invoice => invoice.partner === code);
     const overdue = own.filter(invoice => invoice.state === "overdue");
@@ -67,4 +75,40 @@ export async function adminPartnerWebhooks() {
       skipped: counts?.skipped ?? 0, lastDeliveredAt: counts?.lastDeliveredAt ?? null };
   });
   return { partners, problems, parseError, configured: parseError || endpoints.size > 0 || invalid.size > 0 };
+}
+
+/**
+ * /yonetim/partnerler period close card (#1200): per partner the current month and the two before it plus every other
+ * closed month, each closed (when, by whom) or open; the last closes and reopens; the last 24 months for the statement.
+ */
+export async function adminPartnerPeriods() {
+  await requireAdmin();
+  const { codes } = await knownPartners();
+  const [closed, events] = await Promise.all([closedPeriods(codes), periodEvents(codes)]);
+  const periods = recentPeriods(new Date(), 24);
+  const rows = codes.flatMap(partner => {
+    const own = new Map(closed.filter(row => row.partner === partner).map(row => [row.period, row]));
+    const months = [...new Set([...periods.slice(0, 3), ...own.keys()])].sort().reverse();
+    return months.map(period => {
+      const close = own.get(period);
+      return { partner, period, closed: close ? { at: close.closedAt, by: close.closedBy } : null };
+    });
+  });
+  return { rows, events, periods };
+}
+
+/**
+ * A partner's monthly statement (#1200) for the CSV route (`?partner=&donem=YYYY-MM`), each invoice with its collection
+ * status as of the month's end (today while the month runs); null for an invalid query or an unknown partner.
+ */
+export async function adminPartnerStatement(query: Record<string, string>) {
+  await requireAdmin();
+  const input = partnerStatementInput().safeParse(query);
+  if (!input.success) return null;
+  const { codes } = await knownPartners();
+  if (!codes.includes(input.data.partner)) return null;
+  const today = istanbulToday();
+  const statement = await partnerStatement(input.data.partner, input.data.donem, today);
+  const invoices = statement.invoices.map(invoice => ({ ...invoice, ...invoiceCollection({ ...invoice, termDays: statement.termDays, today: statement.asOf }) }));
+  return { ...statement, invoices, periodLabel: periodLabel(statement.period), issuedOn: today };
 }
