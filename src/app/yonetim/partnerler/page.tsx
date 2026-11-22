@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { ArrowUpRight, Banknote, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileText, Handshake, Info, TriangleAlert } from "lucide-react";
-import { adminPartnerInvoices, adminPartners, adminPartnerWebhooks } from "@/modules/admin/partners";
+import { ArrowUpRight, Banknote, CircleAlert, CircleCheck, CirclePause, CirclePlay, FileText, Handshake, Info, Lock, TriangleAlert } from "lucide-react";
+import { adminPartnerInvoices, adminPartnerPeriods, adminPartners, adminPartnerWebhooks } from "@/modules/admin/partners";
 import { savePartnerDiscountRate, savePartnerLimit, savePartnerPaymentTerm, setPartnerIntake } from "@/modules/admin/partner-actions";
-import { istanbulToday, paymentMethodLabel, percentText } from "@/modules/admin/partner-input";
+import { istanbulToday, paymentMethodLabel, percentText, periodLabel } from "@/modules/admin/partner-input";
 import { formatDateTime, formatDay, formatNumber } from "@/modules/admin/format";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
@@ -12,6 +12,7 @@ import { PartnerInvoiceChangeDialog } from "@/components/admin/partner-invoice-c
 import { PartnerInvoiceDialog } from "@/components/admin/partner-invoice-dialog";
 import { PartnerPaymentDialog } from "@/components/admin/partner-payment-dialog";
 import { PartnerPaymentVoidDialog } from "@/components/admin/partner-payment-void-dialog";
+import { PartnerPeriods } from "@/components/admin/partner-periods";
 import { PartnerWebhooks } from "@/components/admin/partner-webhooks";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
@@ -35,7 +36,8 @@ const countParam = (value: string | undefined) => { const count = Number(value);
 export default async function Partners({ searchParams }: { searchParams: Promise<SearchParams> }) {
   await requireAdmin();
   const params = normalizeSearchParams(await searchParams);
-  const [partners, { invoices, changes, payments, orphanCount, collections }, webhooks] = await Promise.all([adminPartners(), adminPartnerInvoices(), adminPartnerWebhooks()]);
+  const [partners, { invoices, changes, payments, orphanCount, collections }, webhooks, periods] = await Promise.all([adminPartners(), adminPartnerInvoices(),
+    adminPartnerWebhooks(), adminPartnerPeriods()]);
   const today = istanbulToday();
   const invoiced = Number(params.invoiced);
   const corrected = countParam(params.corrected), undone = countParam(params.undone);
@@ -44,6 +46,9 @@ export default async function Partners({ searchParams }: { searchParams: Promise
   const saved = known(params.saved), partner = known(params.partner), paused = known(params.paused), resumed = known(params.resumed);
   const discountSaved = known(params.discount), termSaved = known(params.term), collected = known(params.collected), voided = known(params.voided);
   const requeuedCount = countParam(params.count);
+  // A period (#1200) is echoed only as a valid `YYYY-MM`.
+  const donem = params.donem && /^\d{4}-(0[1-9]|1[0-2])$/.test(params.donem) ? params.donem : null;
+  const periodClosed = donem ? known(params.period_closed) : null, periodReopened = donem ? known(params.period_reopened) : null;
 
   return <div className="flex min-w-0 flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
@@ -71,6 +76,8 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     {params.error === "discount" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{partner ? `${partner}: indirim kaydedilemedi` : "İndirim kaydedilemedi"}</AlertTitle><AlertDescription>İndirim %0 ile %90 arasında, en fazla iki ondalıklı bir oran olmalı. Boş bırakılırsa varsayılan indirim geçerli olur.</AlertDescription></Alert>}
     {termSaved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{termSaved} için vade kaydedildi; faturaların vade tarihleri buna göre hesaplanır.</AlertDescription></Alert>}
     {collected && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{collected} için tahsilat kaydedildi.</AlertDescription></Alert>}
+    {periodClosed && donem && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{periodClosed} için {periodLabel(donem)} dönemi kapatıldı; bu aya tarihli faturalar ve bu ay ödenen tahsilatlar artık değiştirilemez.</AlertDescription></Alert>}
+    {periodReopened && donem && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{periodReopened} için {periodLabel(donem)} dönemi yeniden açıldı.</AlertDescription></Alert>}
     {voided && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>{voided} için tahsilat iptal edildi; faturanın kalan tutarı yeniden açıldı.</AlertDescription></Alert>}
     {params.error === "term" && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertTitle>{partner ? `${partner}: vade kaydedilemedi` : "Vade kaydedilemedi"}</AlertTitle><AlertDescription>Vade 0 ile 365 arasında tam gün olmalı. Boş bırakılırsa vade tanımsız olur ve faturalar vadesi geçmiş sayılmaz.</AlertDescription></Alert>}
     {orphanCount > 0 && <Alert variant="warning" role="alert"><TriangleAlert aria-hidden="true"/><AlertTitle>Faturası bulunamayan tahsilat var</AlertTitle><AlertDescription>{formatNumber(orphanCount)} tahsilatın fatura numarası ve tarihi hiçbir işaretli siparişle eşleşmiyor; bu tahsilatlar hiçbir faturaya sayılmıyor. Tahsilatlar listesinden kontrol edip gerekiyorsa iptal edin.</AlertDescription></Alert>}
@@ -184,12 +191,14 @@ export default async function Partners({ searchParams }: { searchParams: Promise
       </CardContent>
     </Card>
 
+    <PartnerPeriods periods={periods}/>
+
     <PartnerWebhooks webhooks={webhooks}/>
 
     <Card>
       <CardHeader>
         <CardTitle>Kesilen faturalar</CardTitle>
-        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre: kalan tutarı olan tüm faturalar ve tamamı ödenmiş son 100 fatura. Partnerin ödemeleri &quot;Tahsilat gir&quot; ile girilir; kısmi ödeme girilebilir, kalan tutardan fazlası girilemez. Vade tarihi = fatura tarihi + partnerin vadesi. Tahsilat ve vade yalnız takip içindir, cari limiti değiştirmez. Yanlış işaret gerekçeyle düzeltilir ya da geri alınır; tahsilatı olan faturanın işareti, tahsilatlar iptal edilmeden geri alınamaz. Tek bir siparişin işareti Siparişler sayfasından geri alınır.</CardDescription>
+        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre: kalan tutarı olan tüm faturalar ve tamamı ödenmiş son 100 fatura. Partnerin ödemeleri &quot;Tahsilat gir&quot; ile girilir; kısmi ödeme girilebilir, kalan tutardan fazlası girilemez. Vade tarihi = fatura tarihi + partnerin vadesi. Tahsilat ve vade yalnız takip içindir, cari limiti değiştirmez. Yanlış işaret gerekçeyle düzeltilir ya da geri alınır; tahsilatı olan faturanın işareti, tahsilatlar iptal edilmeden geri alınamaz. Tek bir siparişin işareti Siparişler sayfasından geri alınır. Kapalı aya tarihli fatura değiştirilemez.</CardDescription>
       </CardHeader>
       <CardContent>
         {invoices.length ? <Table controls={false}>
@@ -207,7 +216,10 @@ export default async function Partners({ searchParams }: { searchParams: Promise
               </div>
               : invoice.state === "partial" ? <StatusBadge tone="warning">Kısmi ödendi</StatusBadge>
               : <StatusBadge tone="neutral">{invoice.dueDate ? "Açık" : "Açık · vade tanımsız"}</StatusBadge>}</TableCell>
-            <TableCell className="tabular-nums">{formatDay(invoice.invoiceDate)}</TableCell>
+            <TableCell value={formatDay(invoice.invoiceDate)} className="whitespace-normal"><div className="flex flex-col items-start gap-1">
+              <span className="tabular-nums">{formatDay(invoice.invoiceDate)}</span>
+              {invoice.periodClosed && <StatusBadge tone="neutral" icon={Lock}>Dönem kapalı</StatusBadge>}
+            </div></TableCell>
             <TableCell className="tabular-nums">{invoice.dueDate ? formatDay(invoice.dueDate) : <span className="text-muted-foreground">Tanımsız</span>}</TableCell>
             <TableCell className="text-right"><div className="tabular-nums">{money(invoice.totalKurus)}</div>
               <div className="text-muted-foreground tabular-nums">{formatNumber(invoice.count)} sipariş</div></TableCell>
@@ -215,7 +227,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
               {invoice.collectedKurus > 0 && <div className="text-muted-foreground tabular-nums">Tahsil edilen {money(invoice.collectedKurus)}</div>}</TableCell>
             <TableCell><div className="flex flex-wrap justify-end gap-2">
               {invoice.state !== "paid" && <PartnerPaymentDialog invoice={invoice} today={today}/>}
-              <PartnerInvoiceChangeDialog invoice={invoice} today={today}/>
+              {!invoice.periodClosed && <PartnerInvoiceChangeDialog invoice={invoice} today={today}/>}
             </div></TableCell>
           </TableRow>)}</TableBody>
         </Table> : <Empty>
@@ -243,7 +255,10 @@ export default async function Partners({ searchParams }: { searchParams: Promise
             <TableCell className="whitespace-normal tabular-nums">{formatDateTime(payment.recordedAt, { year: true })}<span className="block text-muted-foreground">{payment.recordedBy ?? "—"}</span></TableCell>
             <TableCell className="font-medium">{payment.partner}</TableCell>
             <TableCell className="whitespace-normal tabular-nums">{payment.invoiceRef}<span className="block text-muted-foreground">{formatDay(payment.invoiceDate)}</span></TableCell>
-            <TableCell className="tabular-nums">{formatDay(payment.paidOn)}</TableCell>
+            <TableCell value={formatDay(payment.paidOn)} className="whitespace-normal"><div className="flex flex-col items-start gap-1">
+              <span className="tabular-nums">{formatDay(payment.paidOn)}</span>
+              {payment.paidPeriodClosed && <StatusBadge tone="neutral" icon={Lock}>Dönem kapalı</StatusBadge>}
+            </div></TableCell>
             <TableCell>{paymentMethodLabel(payment.method)}</TableCell>
             <TableCell className="text-right tabular-nums">{money(payment.amountKurus)}</TableCell>
             <TableCell className="max-w-xs whitespace-normal">{payment.note || "—"}</TableCell>
@@ -254,7 +269,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
                 <span>{payment.voidReason}</span>
               </div>
               : <StatusBadge tone="neutral" icon={CircleCheck}>Geçerli</StatusBadge>}</TableCell>
-            <TableCell><div className="flex justify-end">{!payment.voidedAt && <PartnerPaymentVoidDialog paymentId={payment.id} partner={payment.partner}
+            <TableCell><div className="flex justify-end">{!payment.voidedAt && !payment.paidPeriodClosed && <PartnerPaymentVoidDialog paymentId={payment.id} partner={payment.partner}
               invoiceRef={payment.invoiceRef} amountKurus={payment.amountKurus} paidOn={payment.paidOn}/>}</div></TableCell>
           </TableRow>)}</TableBody>
         </Table> : <Empty>

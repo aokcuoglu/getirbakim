@@ -51,6 +51,7 @@
     "test:partner-webhooks": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-partner-webhooks.ts",
     "test:partner-discount": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-partner-discount.ts",
     "test:partner-collections": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-partner-collections.ts",
+    "test:partner-periods": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-partner-periods.ts",
     "test:partner-search": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-partner-search.ts",
     "test:seta": "node --import tsx --test scripts/test-seta.ts",
     "test:supplier-items": "node --conditions=react-server --import tsx --test scripts/test-supplier-items.ts",
