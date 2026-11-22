@@ -3,19 +3,15 @@ import "server-only";
 type Entry<T> = { value: Promise<T>; loadedAt: number; refreshing: boolean; epoch?: number; weight: number };
 type Instance = { size: () => number; weight: () => number };
 // Next bundles instrumentation.ts (which logs the stats) apart from the route handlers (which create the caches), so a
-// module-level set would be empty where it is read. Weak references: a dev re-evaluation of a module must not pin the
-// caches of its previous copy.
-const globalInstances = globalThis as typeof globalThis & { __staleCacheInstances?: Set<WeakRef<Instance>> };
-const instances = (globalInstances.__staleCacheInstances ??= new Set<WeakRef<Instance>>());
+// module-level set would be empty where it is read. Instances are registered only in production, where every
+// staleCache() call is module-level (a bounded number), so a dev re-evaluation pins nothing. Not WeakRefs: the SWC
+// minifier inlines the instance object into the WeakRef and the registry empties after one GC.
+const globalInstances = globalThis as typeof globalThis & { __staleCacheInstances?: Set<Instance> };
+const instances = (globalInstances.__staleCacheInstances ??= new Set<Instance>());
 /** Entries and summed weight over every stale cache of this process, for the memory log line (#1262). */
 export function staleCacheStats() {
   let entries = 0, weight = 0;
-  for (const ref of instances) {
-    const instance = ref.deref();
-    if (!instance) { instances.delete(ref); continue; }
-    entries += instance.size();
-    weight += instance.weight();
-  }
+  for (const instance of instances) { entries += instance.size(); weight += instance.weight(); }
   return { entries, weight };
 }
 /** A value read from a store, or loaded now (`ageMs` undefined: its age is counted from the load). */
@@ -60,8 +56,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
   const { epoch, store, maxStaleMs = ttlMs, weigh, maxWeight } = options;
   const entries = new Map<string, Entry<T>>();
   let totalWeight = 0;
-  const instance: Instance = { size: () => entries.size, weight: () => totalWeight };
-  instances.add(new WeakRef(instance));
+  if (process.env.NODE_ENV === "production") instances.add({ size: () => entries.size, weight: () => totalWeight });
   const drop = (key: string) => {
     const entry = entries.get(key);
     if (!entry) return;
@@ -151,7 +146,6 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     return entry.value;
   };
   return (key: string, load: () => Promise<T>, { persist = true }: { persist?: boolean } = {}): Promise<T> => {
-    void instance; // keeps the instance (and its weak registration) alive as long as the cache is used
     const shared = persist && Boolean(store);
     return epoch ? epoch().then(current => read(key, load, current, shared)) : read(key, load, undefined, shared);
   };

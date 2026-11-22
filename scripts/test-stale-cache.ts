@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { staleCache, staleCacheStats } from "../src/lib/stale-cache";
 
+// Caches register for staleCacheStats only in production; staleCache() reads NODE_ENV when a cache is created.
+(process.env as Record<string, string>).NODE_ENV = "production";
+
 const ids = (count: number) => Array.from({ length: count }, (_, index) => String(index));
 const weighed = { weigh: (value: string[]) => value.length };
 const before = () => staleCacheStats();
