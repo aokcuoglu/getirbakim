@@ -8,7 +8,7 @@ import { pausedPartners } from "@/modules/partner/intake";
 import { partnerDiscountEnv, resolvePartnerDiscount, resolvePartnerDiscountBps } from "@/modules/partner/pricing";
 import { parsePartnerWebhooks, partnerWebhooksEnv } from "@/modules/partner/webhook-contract";
 import { partnerWebhookSummary, recentPartnerWebhookProblems } from "@/modules/partner/webhooks";
-import { closedPeriods, partnerStatement, periodEvents } from "@/modules/partner/periods";
+import { closedPeriods, dayInClosedPeriod, partnerStatement, periodEvents } from "@/modules/partner/periods";
 import { knownPartners, noExposure, panelLimits, partnerExposures, partnerInvoiceChanges, resolvePartnerLimit, uninvoicedDays } from "@/modules/partner/limits";
 
 /** /yonetim/partnerler (#426): every partner with its limit, its exposure and what can be invoiced. */
@@ -44,7 +44,7 @@ export async function adminPartnerInvoices() {
   // Closes are contiguous, so a month at or before the partner's latest closed month is frozen (period-guard.ts).
   const latestClosed = new Map<string, string>();
   for (const row of closed) if (row.period > (latestClosed.get(row.partner) ?? "")) latestClosed.set(row.partner, row.period);
-  const isClosed = (partner: string, day: string) => day.slice(0, 7) <= (latestClosed.get(partner) ?? "");
+  const isClosed = (partner: string, day: string) => dayInClosedPeriod(latestClosed, partner, day);
   const invoices = ledger.map(invoice => ({ ...invoice, ...invoiceCollection({ ...invoice, termDays: terms.get(invoice.partner) ?? null, today }),
     periodClosed: isClosed(invoice.partner, invoice.invoiceDate) }));
   const payments = recent.map(payment => ({ ...payment, paidPeriodClosed: isClosed(payment.partner, payment.paidOn) }));

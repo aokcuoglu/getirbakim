@@ -98,6 +98,19 @@ export async function closedPeriods(partners: string[], connection: Connection =
   return rows.map(row => ({ partner: row.partner, period: row.period, closedAt: row.closed_at, closedBy: row.closed_by }));
 }
 
+/** Each partner's latest closed month (`YYYY-MM`); partners with no close are absent. One query on the small closes table. */
+export async function latestClosedPeriods(partners: string[], connection: Connection = db): Promise<Map<string, string>> {
+  if (!partners.length) return new Map();
+  const { rows } = await connection.query<{ partner: string; period: string }>(
+    `SELECT partner_code AS partner,to_char(max(period),'YYYY-MM') AS period FROM partner_period_closes WHERE partner_code=ANY($1::text[]) GROUP BY partner_code`, [partners]);
+  return new Map(rows.map(row => [row.partner, row.period]));
+}
+
+/** Closes are contiguous, so a day in or before the partner's latest closed month is frozen (period-guard.ts). */
+export function dayInClosedPeriod(latest: Map<string, string>, partner: string, day: string): boolean {
+  return day.slice(0, 7) <= (latest.get(partner) ?? "");
+}
+
 export type PeriodEvent = { id: string; partner: string; period: string; action: "close" | "reopen"; reason: string; actor: string | null; createdAt: Date };
 
 /** The last 50 closes and reopens, newest first. */
