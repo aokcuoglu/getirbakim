@@ -9,7 +9,7 @@ import {
 /** Rejecting a customer's service-account request (#1259) is confirmed first; the account stays a customer. */
 export function ServiceRejectDialog({ accountId, name }: { accountId: string; name: string }) {
   return <AlertDialog>
-    <AlertDialogTrigger render={<Button variant="outline" aria-label={`${name} başvurusunu reddet`}/>}>Başvuruyu reddet</AlertDialogTrigger>
+    <AlertDialogTrigger render={<Button variant="outline" aria-label={`Başvuruyu reddet: ${name}`}/>}>Başvuruyu reddet</AlertDialogTrigger>
     <AlertDialogContent>
       <AlertDialogHeader>
         <AlertDialogTitle>Başvuru reddedilsin mi?</AlertDialogTitle>
