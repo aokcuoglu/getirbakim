@@ -99,7 +99,8 @@ test("a ?v= logo gets this build's dpl from next/image and is therefore immutabl
   assert.equal(effective(await load(build), "/media/logos/vehicles/bmw.webp", query)["Cache-Control"], immutable);
 });
 
-const bareUrlAllowlist = new Set(["src/app/manifest.ts", "src/lib/site.ts", "src/app/api/bakim-seti/gorsel/route.tsx"]);
+// Files whose bare /media or /brand URLs must stay stable (manifest, social images and JSON-LD) or are not our assets.
+const bareUrlAllowlist = new Set(["src/app/manifest.ts", "src/lib/site.ts", "src/app/api/bakim-seti/gorsel/route.tsx", "src/modules/enrichment/trodo-adapter.ts"]);
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -109,14 +110,37 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-test("storefront assets are hashed imports, not bare /media or /brand URLs", () => {
+/** Offending lines: a CSS root-relative url(), or a /media or /brand string literal not handed to next/image (which adds dpl). */
+function bareAssetUrls(file: string, code: string): string[] {
+  const found: string[] = [];
+  const lines = (file.endsWith(".css") ? code.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")) : code).split("\n");
+  lines.forEach((line, index) => {
+    if (file.endsWith(".css")) {
+      if (/url\(\s*["']?\/(?!\/)/.test(line)) found.push(`${file}:${index + 1}`);
+      return;
+    }
+    if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;
+    if (/["'`]\/(media|brand)\//.test(line) && !/<Image(\s|$)|getImageProps\(/.test(line)) found.push(`${file}:${index + 1}`);
+  });
+  return found;
+}
+
+test("storefront assets are hashed imports or next/image, not bare /media or /brand URLs", () => {
   const found: string[] = [];
   for (const file of sourceFiles(join(process.cwd(), "src"))) {
     const rel = relative(process.cwd(), file);
-    if (bareUrlAllowlist.has(rel)) continue;
-    const code = readFileSync(file, "utf8");
-    if (/url\(\s*["']?\//.test(code)) found.push(`${rel}: root-relative url()`);
-    if (/<img[^>]*\ssrc=(?:"\/(?:media|brand)\/|\{`\/(?:media|brand)\/)/.test(code)) found.push(`${rel}: <img> with a bare asset URL`);
+    if (!bareUrlAllowlist.has(rel)) found.push(...bareAssetUrls(rel, readFileSync(file, "utf8")));
   }
   assert.deepEqual(found, []);
+});
+
+test("the source guard catches the ways a bare asset URL can slip in", () => {
+  for (const sample of ['<img src={"/media/a.png"} />', "<img src='/media/a.png' />", 'const s = "/brand/" + name;', '<img srcSet="/media/a.png 1x" />', '<link rel="preload" href="/media/a.png" />', '<video poster="/media/a.png" />', "const u = `/media/${x}`;"]) {
+    assert.equal(bareAssetUrls("x.tsx", sample).length, 1, sample);
+  }
+  assert.equal(bareAssetUrls("x.css", ".a { background: url(/media/a.png); }").length, 1);
+  assert.equal(bareAssetUrls("x.css", ".a { background: url('/brand/a.png'); }").length, 1);
+  assert.equal(bareAssetUrls("x.css", "/* url(/media/a.png) */ .a { background: url(\"../x.png\"); }").length, 0);
+  assert.equal(bareAssetUrls("x.tsx", '<Image src="/media/a.png" alt="" />').length, 0);
+  assert.equal(bareAssetUrls("x.tsx", "// see /media/a.png: \"/media/a.png\"").length, 0);
 });

@@ -13,9 +13,9 @@
 @import "./catalog-card.css";
 
 /* Inter, self-hosted (weights used by the design: 400, 500, 600), subset to Latin + Latin Extended-A + punctuation/₺/€/arrows/⌘ (#736): pyftsubset Inter-<w>.woff2 --flavor=woff2 --unicodes=U+0020-007E,U+00A0-00FF,U+0100-017F,U+2010-2027,U+2030,U+2032-2033,U+2039-203A,U+20AC,U+20BA,U+2122,U+2190-2199,U+2212,U+2260,U+2264-2265,U+2318 --layout-features=kern,liga,calt,ccmp,locl,mark,mkmk,tnum,pnum,lnum,case,frac */
-@font-face { font-family: Inter; src: url("../assets/fonts/Inter-Regular.subset.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
-@font-face { font-family: Inter; src: url("../assets/fonts/Inter-Medium.subset.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
-@font-face { font-family: Inter; src: url("../assets/fonts/Inter-SemiBold.subset.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
+@font-face { font-family: Inter; src: url("../../public/media/site/fonts/Inter-Regular.subset.woff2") format("woff2"); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: Inter; src: url("../../public/media/site/fonts/Inter-Medium.subset.woff2") format("woff2"); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: Inter; src: url("../../public/media/site/fonts/Inter-SemiBold.subset.woff2") format("woff2"); font-weight: 600; font-style: normal; font-display: swap; }
 /* Metric-matched local fallback: keeps line breaks stable while Inter loads (font-display: swap), #738. */
 @font-face { font-family: "Inter Fallback"; src: local("Arial"); font-weight: 400; size-adjust: 106.2%; ascent-override: 91.2%; descent-override: 22.7%; line-gap-override: 0%; }
 @font-face { font-family: "Inter Fallback"; src: local("Arial"); font-weight: 500; size-adjust: 107.5%; ascent-override: 90.1%; descent-override: 22.4%; line-gap-override: 0%; }

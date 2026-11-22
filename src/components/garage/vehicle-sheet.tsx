@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useId, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import Link from "next/link";
-import heroCar from "@/assets/site/hero-car.jpg";
+import heroCar from "../../../public/hero-car.jpg";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { ArrowLeft, CarFront, Check, ChevronRight, Search, Trash2, X } from "lucide-react";
 import { VehicleHeroImage } from "./vehicle-image";

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import footerBg from "@/assets/site/home-footer-bg.webp";
+import footerBg from "../../public/media/site/images/home-footer-bg.webp";
 import {useActionState} from "react";
 import {Button} from "@/components/ui/button";
 import {Checkbox} from "@/components/ui/checkbox";

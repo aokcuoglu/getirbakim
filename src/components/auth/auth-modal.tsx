@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import registerBg from "@/assets/site/register-img-v2.webp";
+import registerBg from "../../../public/media/site/images/register-img-v2.webp";
 import { useImperativeHandle, useRef, useState, type Ref, type FormEvent } from "react";
 import { useFormStatus } from "react-dom";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
