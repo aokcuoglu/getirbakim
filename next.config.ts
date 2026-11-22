@@ -53,6 +53,8 @@ const nextConfig: NextConfig = {
   // form-action across redirects. upgrade-insecure-requests is https-only: dev, QA and CI serve http (CI builds with
   // SITE_URL http://localhost:3103). headers() is baked at build time, so SITE_URL must be set at build (the Dockerfile
   // sets ENV SITE_URL before npm run build). SITE_URL is read directly: src/lib/site.ts defaults to https.
+  // Content-Security-Policy-Report-Only (phase 2, #1291) is set per request by src/proxy.ts and popupReturn with a fresh
+  // nonce (src/lib/csp.ts). Never add that key here: a config header replaces the proxy's value and its nonce.
   async headers() {
     const csp = [
       "object-src 'none'",

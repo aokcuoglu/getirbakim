@@ -3,7 +3,7 @@ import { clampPartnerLimit, partnerMinQueryLength, searchPartnerProducts } from 
 import { cachedPartnerDiscount } from "@/modules/partner/discounts";
 import { partnerError, partnerGuard, partnerNoStore } from "@/modules/partner/guard";
 import { partnerDiscountEnv, resolvePartnerDiscountBps } from "@/modules/partner/pricing";
-import { createRateLimiter } from "@/modules/partner/rate-limit";
+import { createRateLimiter } from "@/lib/rate-limit";
 
 const maxVehicleTypeId = 2_147_483_647;
 // 600 a minute per partner; 120 failed key checks a minute per address (see partnerGuard).
