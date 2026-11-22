@@ -366,6 +366,9 @@ test("the make × category sitemap lists exactly the indexable make × category 
   assert.deepEqual(await pages(1), expected.sort());
   assert.deepEqual(await pages(), indexable.sort());
   assert.ok(!(await pages(1)).includes("/kategori/yedek-parca/vw"));
+  // vw × fren has 9 products: the boundary sits between 9 and 10.
+  assert.ok((await pages(9)).includes("/kategori/fren/vw"));
+  assert.ok(!(await pages(10)).includes("/kategori/fren/vw"));
 }));
 
 test("loadAllVehicleModelGroups returns the same units as the per-make read (#778)", async () => {
