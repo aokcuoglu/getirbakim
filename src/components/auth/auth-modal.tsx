@@ -5,50 +5,29 @@ import registerBg from "../../../public/media/site/images/register-img-v2.webp";
 import { useImperativeHandle, useRef, useState, type Ref, type FormEvent } from "react";
 import { useFormStatus } from "react-dom";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
-import { BadgePercent, Clock3, Route, X } from "lucide-react";
+import { Clock3, PackageCheck, Route, X } from "lucide-react";
 import { Dialog, DialogClose, DialogOverlay, DialogPortal, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { login } from "@/modules/auth/actions";
 import { storeButton } from "@/components/store-button";
 import { cn } from "@/lib/utils";
+import { AuthField } from "./auth-field";
+import { RegisterForm } from "./register-form";
 
 export type AuthMode = "login" | "register" | "reset";
 
 const benefits = [
   { icon: Clock3, title: "Daha hızlı alışveriş", description: "Hesabınla sepetine kolayca ulaş, alışverişine kaldığın yerden devam et." },
   { icon: Route, title: "Aracın hep elinin altında", description: "Araç bilgilerini garajına kaydet, sonraki ziyaretlerinde kolayca ulaş." },
-  { icon: BadgePercent, title: "Sana özel fiyatlar", description: "Onaylı servis hesabınla profesyonellere özel B2B fiyatlarını görüntüle." },
+  { icon: PackageCheck, title: "Siparişlerin tek yerde", description: "Siparişlerini ve teslimat adreslerini hesabından takip et." },
 ];
-
-
-function AuthField({ name, label, type = "text", autoComplete }: {
-  name: string; label: string; type?: string; autoComplete: string;
-}) {
-  return <label className="relative block min-w-0">
-    <input name={name} type={type} placeholder=" " autoComplete={autoComplete} required
-      minLength={name === "newPassword" ? 8 : undefined}
-      maxLength={type === "password" ? 72 : 200}
-      className="peer block h-12 min-h-12 w-full rounded-lg border border-input bg-white px-[11px] pt-[17px] pb-[5px] text-sm leading-5 text-foreground transition-colors outline-none focus:border-brand focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#377db7] placeholder:text-transparent"
-      onInput={event => {
-        if (name === "confirmPassword" || name === "newPassword") {
-          const form = event.currentTarget.form;
-          const password = form?.elements.namedItem("newPassword") as HTMLInputElement | null;
-          const confirmation = form?.elements.namedItem("confirmPassword") as HTMLInputElement | null;
-          confirmation?.setCustomValidity(confirmation.value && confirmation.value !== password?.value ? "Şifreler eşleşmiyor." : "");
-        }
-      }} />
-    <span className="pointer-events-none absolute top-3.5 left-3 max-w-[calc(100%-24px)] text-sm leading-5 whitespace-nowrap text-muted-foreground transition-all duration-150 peer-focus:top-1 peer-focus:text-[10px] peer-focus:leading-[14px] peer-[:not(:placeholder-shown)]:top-1 peer-[:not(:placeholder-shown)]:text-[10px] peer-[:not(:placeholder-shown)]:leading-[14px] motion-reduce:transition-none">
-      {label} <em className="text-[#d72b2b] not-italic">*</em>
-    </span>
-  </label>;
-}
 
 function LoginSubmit() {
   const { pending } = useFormStatus();
   return <Button className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-6 w-full")} type="submit" disabled={pending}>{pending ? "Giriş yapılıyor…" : "Giriş yap"}</Button>;
 }
 
-export function AuthModal({ ref, onClosed }: { ref: Ref<{ open: (mode: AuthMode) => void }>; onClosed: () => void }) {
+export function AuthModal({ ref, onClosed, next }: { ref: Ref<{ open: (mode: AuthMode) => void }>; onClosed: () => void; next?: string }) {
   const [open, setOpen] = useState(false);
   // Kept after closing so the panel does not empty out during the closing animation.
   const [mode, setMode] = useState<AuthMode>("login");
@@ -61,7 +40,7 @@ export function AuthModal({ ref, onClosed }: { ref: Ref<{ open: (mode: AuthMode)
   function switchMode(nextMode: AuthMode) { setNotice(""); setMode(nextMode); }
   function previewSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setNotice(mode === "register" ? "Servis hesapları başvuruyla açılır. Servisler sayfasından başvurabilir veya hey@getirbakim.com adresine yazabilirsin." : "Şifreni yenilemek için kayıtlı e-posta adresinden hey@getirbakim.com adresine yazabilirsin.");
+    setNotice("Şifreni yenilemek için kayıtlı e-posta adresinden hey@getirbakim.com adresine yazabilirsin.");
   }
 
   return <Dialog open={open} onOpenChange={next => { if (!next) close(); }} onOpenChangeComplete={next => { if (!next) { setNotice(""); onClosed(); } }}>
@@ -86,15 +65,12 @@ export function AuthModal({ ref, onClosed }: { ref: Ref<{ open: (mode: AuthMode)
                 <div className="grid gap-3"><AuthField name="email" label="E-posta adresi" type="email" autoComplete="username" /><AuthField name="password" label="Şifre" type="password" autoComplete="current-password" /></div>
                 <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "mt-1 px-0")} onClick={() => switchMode("reset")}>Şifreni mi unuttun?</Button>
                 <LoginSubmit />
-              </form> : mode === "register" ? <div>
-                <p className="mt-0 mb-3.5">Servis bilgilerinle başvur; onaydan sonra B2B fiyatlarına ulaş.</p>
-                <Button nativeButton={false} className={storeButton({ intent: "primary", size: "lg" })} render={<Link href="/servisler/basvuru" onClick={close} />}>Servis hesabına başvur</Button>
-              </div> : <form key="reset" onSubmit={previewSubmit}>
+              </form> : mode === "register" ? <RegisterForm key="register" next={next} onNavigate={close} /> : <form key="reset" onSubmit={previewSubmit}>
                 <p className="mt-0 mb-6 text-sm leading-[22px] text-muted-foreground">Hesabına kayıtlı e-posta adresini gir.</p>
                 <AuthField name="email" label="E-posta adresi" type="email" autoComplete="email" />
                 <Button className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-6 w-full")} type="submit">Şifremi yenile</Button>
               </form>}
-              <p className="mt-0 mb-6 text-sm leading-[22px] text-muted-foreground"><Link className="font-medium text-brand hover:text-brand-strong hover:underline" href="/kvkk-aydinlatma-metni" onClick={close}>KVKK Aydınlatma Metni</Link></p>
+              {mode !== "register" && <p className="mt-0 mb-6 text-sm leading-[22px] text-muted-foreground"><Link className="font-medium text-brand hover:text-brand-strong hover:underline" href="/kvkk-aydinlatma-metni" onClick={close}>KVKK Aydınlatma Metni</Link></p>}
               <p className="mt-4 mb-0 flex flex-wrap items-center justify-center gap-x-1 text-center text-sm leading-[22px]">{mode === "register" ? <>Zaten hesabın var mı? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("login")}>Giriş yap</Button></> : mode === "reset" ? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("login")}>Giriş ekranına dön</Button> : <>Henüz hesabın yok mu? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("register")}>Kayıt ol</Button></>}</p>
             </div>
           </section>

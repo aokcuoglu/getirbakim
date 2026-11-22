@@ -24,7 +24,7 @@ const groups = [
     links: [
       { href: "/bilgi/hakkimizda", title: "Hakkımızda" },
       legalLink("iletisim"),
-      { href: "/giris", title: "B2B servis girişi" },
+      { href: "/giris", title: "Giriş yap / Kayıt ol" },
     ],
   },
   {
