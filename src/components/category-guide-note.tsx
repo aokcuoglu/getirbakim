@@ -12,7 +12,7 @@ export function CategoryGuideNote({ note, guides }: { note: Note; guides: Guide[
         {guides.length > 0 && <h3 className="mt-5 mb-3 text-base leading-6 font-semibold">İlgili rehber yazıları</h3>}
         <ul className={guides.length > 0 ? "flex flex-wrap gap-2" : "mt-5 flex flex-wrap gap-2"}>
           {guides.map(guide => <li key={guide.slug}><Link prefetch={false} href={guidePath(guide.slug)} className="inline-flex min-h-11 items-center rounded-lg border border-border px-4 py-2 text-left text-sm hover:border-primary hover:text-primary">{guide.title}</Link></li>)}
-          <li><Link href={guidesPath} className="inline-flex min-h-11 items-center gap-1 font-semibold text-primary hover:underline">Tüm rehber yazıları<ChevronRight size={16} aria-hidden="true" /></Link></li>
+          <li><Link prefetch={false} href={guidesPath} className="inline-flex min-h-11 items-center gap-1 font-semibold text-primary hover:underline">Tüm rehber yazıları<ChevronRight size={16} aria-hidden="true" /></Link></li>
         </ul>
       </div>
     </section>
