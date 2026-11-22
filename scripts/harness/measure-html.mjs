@@ -3,7 +3,7 @@
 // (`self.__next_f.push` scripts), its gzip size, the median time to first byte and, read from the payload, the bytes of
 // props each client component receives (summed over its instances, nested elements excluded). Not part of CI: point it
 // at a production build (`npm run build && npx next start -p <port>`), not `next dev`.
-// Columns classKB (class attributes) and modKB (module rows of the payload) show what the markup, not the props, weighs.
+// Column textPct is the visible text share of the HTML. Columns classKB (class attributes) and modKB (module rows of the payload) show what the markup, not the props, weighs.
 // --budget "/urun/=160,/=410": the longest matching path prefix gives the HTML limit in KB ("/" matches only the home
 // page); the exit code is 1 when a page exceeds it or is not 200 (2 for an invalid budget).
 // --json prints one `{ rows, details }` document (numeric KB, jsonLdKB; details = client props per path) instead of the
@@ -72,7 +72,7 @@ for (const path of paths) {
   if (budget.length && page.status !== 200) exceeded.push(`${path}: HTTP ${page.status}`);
   else if (limit !== undefined && bytes / 1024 > limit) exceeded.push(`${path}: ${kb(bytes)} KB > ${limit} KB`);
   rows.push({ path: json || path.length <= 48 ? path : `${path.slice(0, 45)}…`, status: page.status, htmlKB: +kb(bytes), rscKB: +kb(rsc),
-    rscPct: Math.round((rsc / bytes) * 100), classKB: +kb(markup.classBytes), modKB: +kb(markup.moduleBytes), gzipKB: +kb(gzipSync(page.html).length), ttfbMs: Math.round(times[Math.floor((times.length - 1) / 2)]),
+    rscPct: Math.round((rsc / bytes) * 100), textPct: markup.textPct, classKB: +kb(markup.classBytes), modKB: +kb(markup.moduleBytes), gzipKB: +kb(gzipSync(page.html).length), ttfbMs: Math.round(times[Math.floor((times.length - 1) / 2)]),
     ...(json && { jsonLdKB: +kb(markup.jsonLdBytes) }) });
   details.push([path, clientProps(flight)]);
 }

@@ -35,6 +35,13 @@ test("markupStats counts class attributes, module rows and JSON-LD", () => {
   assert.equal(stats.jsonLdBytes, jsonLd.length);
 });
 
+test("markupStats reports the visible text share without scripts and tags", () => {
+  const html = "<html><body><p class=\"c\">Merhaba   dünya</p><style>p{}</style><script>var a=1</script></body></html>";
+  const stats = markupStats(html, "");
+  assert.equal(stats.textKB, Buffer.byteLength("Merhaba dünya") / 1024);
+  assert.equal(stats.textPct, Math.round((Buffer.byteLength("Merhaba dünya") / Buffer.byteLength(html)) * 1000) / 10);
+});
+
 test("budgetFor lets the longest matching prefix decide; / matches only the home page", () => {
   const budget = parseBudget("/urun/=160, /=410,/urun/special=200");
   assert.deepEqual(budget, [["/urun/", 160], ["/", 410], ["/urun/special", 200]]);
@@ -92,11 +99,11 @@ test("median handles odd, even and empty input", () => {
 });
 
 test("markdownTable prints em dashes for missing vitals and ok / +N for the budget", () => {
-  const row = (path, htmlKB, extra = {}) => ({ path, htmlKB, rscKB: 100, rscPct: 50, gzipKB: 40, ttfbMs: 30, ...extra });
+  const row = (path, htmlKB, extra = {}) => ({ path, htmlKB, rscKB: 100, rscPct: 50, textPct: 12.34, gzipKB: 40, ttfbMs: 30, ...extra });
   const table = markdownTable([row("/katalog", 335.6), row("/kategori/filtre", 384.5, { lcpMs: 2300, cls: 0.1, tbtMs: 80, requests: 99 }), row("/", 368.3)], parseBudget("/katalog=350,/kategori/=350"));
   const lines = table.split("\n");
-  assert.equal(lines[0], "| Route | HTML KB | RSC KB (%) | gzip KB | TTFB ms | LCP s | CLS | TBT ms | Req | Target KB | Status |");
-  assert.equal(lines[2], "| /katalog | 335.6 | 100.0 (50) | 40.0 | 30 | — | — | — | — | ≤350 | ok |");
-  assert.equal(lines[3], "| /kategori/filtre | 384.5 | 100.0 (50) | 40.0 | 30 | 2.30 | 0.100 | 80 | 99 | ≤350 | +35 |");
-  assert.equal(lines[4], "| / | 368.3 | 100.0 (50) | 40.0 | 30 | — | — | — | — | — | — |");
+  assert.equal(lines[0], "| Route | HTML KB | RSC KB (%) | Text % | gzip KB | TTFB ms | LCP s | CLS | TBT ms | Req | Target KB | Status |");
+  assert.equal(lines[2], "| /katalog | 335.6 | 100.0 (50) | 12.3 | 40.0 | 30 | — | — | — | — | ≤350 | ok |");
+  assert.equal(lines[3], "| /kategori/filtre | 384.5 | 100.0 (50) | 12.3 | 40.0 | 30 | 2.30 | 0.100 | 80 | 99 | ≤350 | +35 |");
+  assert.equal(lines[4], "| / | 368.3 | 100.0 (50) | 12.3 | 40.0 | 30 | — | — | — | — | — | — |");
 });

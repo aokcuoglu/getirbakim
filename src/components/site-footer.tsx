@@ -5,7 +5,6 @@ import {getStoreCategories} from "@/modules/store/categories";
 import { CookieConsent } from "@/components/privacy/cookie-consent";
 import {ResponsiveFooterGroup} from "./responsive-footer-group";
 import {RouteFrame} from "@/components/layout/store-route";
-import {contactEmail} from "@/lib/site";
 import {cn} from "@/lib/utils";
 import {SocialLinks} from "@/components/social-links";
 import {currentAppVersion} from "@/lib/app-version";
@@ -72,7 +71,7 @@ export async function SiteFooter() {
  const information=[...new Map(groups.flatMap(group=>group.links).map(link=>[link.href,link])).values()];
  return <RouteFrame except="checkout"><footer className="site-footer">
   <div className="site-footer-grid">
-   <ResponsiveFooterGroup title="Yardıma mı ihtiyacın var?" accent><Link href="/iletisim">İletişime geç <span aria-hidden="true">›</span></Link><a href={`mailto:${contactEmail}`}>{contactEmail}</a></ResponsiveFooterGroup>
+   <ResponsiveFooterGroup title="Yardıma mı ihtiyacın var?" accent><Link href="/iletisim">İletişime geç <span aria-hidden="true">›</span></Link></ResponsiveFooterGroup>
    <ResponsiveFooterGroup title="Faydalı bilgiler">{information.map(link=><Link key={link.href} href={link.href}>{link.title}</Link>)}</ResponsiveFooterGroup>
    <ResponsiveFooterGroup title="Kategoriler">{catalogCategories.map(category=><Link key={category.id} href={categoryPath(category.slug)}>{category.name}</Link>)}</ResponsiveFooterGroup>
   </div>
