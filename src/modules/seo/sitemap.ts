@@ -1,5 +1,6 @@
 import { legalDocument, legalLinks } from "@/content/legal";
 import { guidePath, guides, guidesPath } from "@/content/guides";
+import { listingIndexable } from "./indexing";
 import { catalogPath, makesPath } from "./paths";
 
 // The sitemap is an index (/sitemap.xml) of fixed files (/sitemaps/<file>, #634). Products are split by the first
@@ -28,10 +29,10 @@ export function productChunkRange(index: number) {
 const productFile = (index: number) => `products-${String(index).padStart(2, "0")}.xml`;
 
 export function sitemapFiles() {
-  return ["pages.xml", "categories.xml", "makes.xml", "manufacturers.xml", "models.xml", "model-categories.xml", ...Array.from({ length: productChunks }, (_, index) => productFile(index))];
+  return ["pages.xml", "categories.xml", "makes.xml", "manufacturers.xml", "models.xml", "model-categories.xml", "make-categories.xml", ...Array.from({ length: productChunks }, (_, index) => productFile(index))];
 }
 
-export type SitemapFile = { kind: "pages" | "categories" | "makes" | "manufacturers" | "models" | "modelCategories" } | { kind: "products"; index: number };
+export type SitemapFile = { kind: "pages" | "categories" | "makes" | "manufacturers" | "models" | "modelCategories" | "makeCategories" } | { kind: "products"; index: number };
 
 export function parseSitemapFile(file: string): SitemapFile | null {
   if (file === "pages.xml") return { kind: "pages" };
@@ -41,6 +42,7 @@ export function parseSitemapFile(file: string): SitemapFile | null {
   // Vehicle model pages and model × category pages with enough products to be indexed (#673).
   if (file === "models.xml") return { kind: "models" };
   if (file === "model-categories.xml") return { kind: "modelCategories" };
+  if (file === "make-categories.xml") return { kind: "makeCategories" };
   const match = /^products-(\d{2})\.xml$/.exec(file);
   const index = match ? Number(match[1]) : -1;
   return index >= 0 && index < productChunks ? { kind: "products", index } : null;
@@ -82,3 +84,6 @@ export const staticPaths: { path: string; lastModified?: string }[] = [
 ];
 
 export const xmlHeaders = { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" };
+
+/** Category slugs that belong in categories.xml: the root "Yedek parçalar" is noindex and stays out (#1222). */
+export const sitemapCategorySlugs = (slugs: string[]) => slugs.filter(slug => listingIndexable({ category: slug }, 0));

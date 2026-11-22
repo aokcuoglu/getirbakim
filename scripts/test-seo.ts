@@ -8,9 +8,9 @@ import { isGatedListing, listingIndexable, minIndexableListingProducts } from ".
 import { categoryNameInText } from "../src/modules/store/category-tree";
 import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, withModelYears } from "../src/modules/store/vehicle-model-groups";
 import { legalLinks } from "../src/content/legal";
-import { sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
+import { sitemapCategorySlugs, sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
 import { startSitemapWarmup, warmIntervalMs, warmSitemaps } from "../src/modules/seo/sitemap-warmup";
-import { brandedTitle, brandSuffix, catalogMetaDescription, categoryDescription, descriptionMax, descriptionMin, fitDescription, listingTitlePad, searchResultsTitle, titleMax, titleMin } from "../src/modules/seo/meta-text";
+import { brandedTitle, brandSuffix, catalogMetaDescription, categoryDescription, descriptionMax, descriptionMin, fitDescription, listingTitlePad, searchResultsTitle, titleMax, titleMin, vehicleCategoryHeading, vehicleCategoryTexts } from "../src/modules/seo/meta-text";
 import { legalMetaDescriptions, legalMetaTitles } from "../src/content/legal-meta";
 import { legalDocument, legalTitle } from "../src/content/legal";
 import { catalogDescription } from "../src/app/(store)/katalog/catalog-descriptions";
@@ -87,7 +87,11 @@ test("model × category and make × category listings share the model pages' pro
   for (const query of [{ category: "yedek-parca", make: "volkswagen", model: "golf-7" }, { category: "yedek-parca", make: "volkswagen" }]) {
     assert.equal(listingIndexable(query, 5000), false);
   }
-  assert.equal(listingIndexable({ category: "yedek-parca" }, 5000), true);
+  // Alone it competes with /katalog while listing about 7% of the products (#1222): never indexed either.
+  assert.equal(listingIndexable({ category: "yedek-parca" }, 5000), false);
+  assert.equal(listingIndexable({}, 0), true);
+  assert.equal(listingIndexable({ category: "fren" }, 0), true);
+  assert.deepEqual(sitemapCategorySlugs(["yedek-parca", "fren", "balata-101"]), ["fren", "balata-101"]);
   for (const query of [{}, { make: "volkswagen" }, { category: "fren" }]) assert.equal(isGatedListing(query), false);
 });
 
@@ -132,7 +136,8 @@ test("llms.txt links are absolute, cover the legal pages and categories, and avo
   assert.ok(targets.length > 10);
   for (const target of targets) assert.ok(target.startsWith(`${site}/`), target);
   for (const { slug } of legalLinks) assert.ok(text.includes(`${site}/${slug})`), slug);
-  for (const slug of ["yedek-parca", "fren", "filtre", "yag", "silecek", "aksesuar"]) assert.ok(text.includes(`/kategori/${slug})`), slug);
+  for (const slug of ["fren", "filtre", "yag", "silecek", "aksesuar"]) assert.ok(text.includes(`/kategori/${slug})`), slug);
+  assert.ok(!text.includes("/kategori/yedek-parca"));
   assert.ok(text.includes(`${site}/rehber)`));
   for (const guide of guides) assert.ok(text.includes(`${site}/rehber/${guide.slug})`), guide.slug);
   for (const target of targets) {
@@ -157,6 +162,23 @@ test("the sitemap warm-up runs before the cached data goes stale or is evicted (
   assert.equal(warmIntervalMs("999999999999"), sitemapMaxWarmIntervalMs);
 });
 
+test("make × category texts (#1224)", () => {
+  const make = vehicleCategoryTexts("BMW", "volanlar", 1234, "make");
+  assert.equal(make.description, "BMW araçlar için volanlar kategorisinde 1.234 ürün: üreticiye ve OEM numarasına göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu kontrol et.");
+  assert.equal(vehicleCategoryHeading("BMW", "volanlar", "make"), "BMW araçlar için volanlar seçeneklerini keşfet");
+  assert.ok(make.intro.startsWith("BMW araçlar için volanlar kategorisinde listelenen 1.234 ürün. Liste marka düzeyindedir"));
+  assert.ok(!make.description.includes("volanlar incele"));
+  const vehicle = "Volkswagen Golf 7 (2012–2022)", parts = "fren diskleri";
+  assert.equal(vehicleCategoryTexts(vehicle, parts, 12, "model").description, fitDescription(`${vehicle} için ${parts} kategorisinde 12 ürün: üreticiye ve OEM numarasına göre incele.`));
+  assert.equal(vehicleCategoryHeading("Golf 7", parts, "model"), "Golf 7 için fren diskleri seçeneklerini keşfet");
+  assert.equal(vehicleCategoryTexts(vehicle, parts, 12, "model").intro, `${vehicle} için ${parts} kategorisinde listelenen 12 ürün. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`);
+  assert.ok(make.intro.includes("bu markanın modellerinden biri yer alıyor."));
+  for (let name = 3; name <= 20; name++) for (let part = 5; part <= 45; part++) for (const total of [10, 1234, 123456]) {
+    const { description } = vehicleCategoryTexts("M".repeat(name), "p".repeat(part), total, "make");
+    assert.ok(description.length >= descriptionMin && description.length <= descriptionMax, `${name}/${part}/${total}: ${description.length}`);
+  }
+});
+
 test("warmSitemaps requests the slow files one after the other and never throws (#778)", async () => {
   const calls: string[] = [];
   let active = 0, overlapped = false;
@@ -169,8 +191,8 @@ test("warmSitemaps requests the slow files one after the other and never throws 
     return new Response("<urlset/>", { status: url.endsWith("manufacturers.xml") ? 500 : 200 });
   }) as unknown as typeof fetch;
   const results = await warmSitemaps("http://127.0.0.1:3000", { fetch: fake });
-  assert.deepEqual(calls, ["models.xml", "model-categories.xml", "manufacturers.xml"].map(file => `http://127.0.0.1:3000/sitemaps/${file}`));
-  assert.deepEqual(results.map(({ file, ok }) => [file, ok]), [["models.xml", true], ["model-categories.xml", false], ["manufacturers.xml", false]]);
+  assert.deepEqual(calls, ["models.xml", "model-categories.xml", "make-categories.xml", "manufacturers.xml"].map(file => `http://127.0.0.1:3000/sitemaps/${file}`));
+  assert.deepEqual(results.map(({ file, ok }) => [file, ok]), [["models.xml", true], ["model-categories.xml", false], ["make-categories.xml", true], ["manufacturers.xml", false]]);
   assert.equal(overlapped, false);
 });
 

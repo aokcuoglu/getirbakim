@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { parsePartnerKeys, partnerKeysEnv } from "./auth";
+import { closedPeriod } from "./period-guard";
 
 /**
  * Partner credit (#426). A partner orders on account up to its open-order limit; what counts against it (its exposure)
@@ -14,6 +15,8 @@ import { parsePartnerKeys, partnerKeysEnv } from "./auth";
  * or undone for a single order from /yonetim/siparisler (#1038); an undone order counts against the limit again.
  * Recorded payments follow a corrected invoice; an undo is refused when it would leave the invoice's active payments
  * above its remaining total (activeCollectedKurus).
+ * A closed period (#1200, periods.ts) freezes its invoices: marking with an invoice day in a closed month, correcting or
+ * undoing an invoice (or one of its orders) whose day is in one, and correcting into one are refused (`closed`).
  */
 type Connection = Pick<PoolClient, "query">;
 
@@ -116,7 +119,8 @@ export type InvoiceRequest = {
   /** What the dialog showed: anything else (an order delivered or invoiced meanwhile) is refused, nothing is marked. */
   expected: { count: number; totalKurus: number };
 };
-export type InvoiceOutcome = { status: "invoiced"; count: number; totalKurus: number } | { status: "changed" } | { status: "nothing" };
+export type InvoiceOutcome = { status: "invoiced"; count: number; totalKurus: number } | { status: "changed" } | { status: "nothing" }
+  | { status: "closed"; period: string };
 
 /**
  * Marks the partner's delivered, uninvoiced orders delivered on or before `deliveredUntil` (Istanbul day) as invoiced
@@ -129,6 +133,8 @@ export async function invoicePartnerOrders(request: InvoiceRequest): Promise<Inv
   try {
     await client.query("BEGIN");
     await lockPartnerOrders(client, request.partner);
+    const closed = await closedPeriod(client, request.partner, [request.invoiceDate]);
+    if (closed) { await client.query("ROLLBACK"); return { status: "closed", period: closed }; }
     const { rows } = await client.query<{ id: string; total_kurus: string }>(
       `SELECT o.id::text,o.total_kurus::text FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND ${uninvoicedSql}
        AND ${deliveredDaySql}<=$2::date ORDER BY o.id FOR UPDATE`, [request.partner, request.deliveredUntil]);
@@ -192,7 +198,9 @@ export type InvoiceChangeRequest = {
   expected: { count: number; totalKurus: number };
 } & ({ action: "undo" } | { action: "correct"; newInvoiceRef: string; newInvoiceDate: string });
 export type InvoiceChangeOutcome = { status: "undone" | "corrected"; count: number; totalKurus: number } | { status: "changed" } | { status: "nothing" } | { status: "same" }
-  | { status: "merge" } | { status: "collected" };
+  | { status: "merge" } | { status: "collected" }
+  /** A closed period (#1200): `current` = the invoice's own day, `new` = the correction's new day. */
+  | { status: "closed"; period: string; side: "current" | "new" };
 
 /**
  * Corrects (new number/date, the marking admin is kept) or undoes one marked invoice of a partner, with an audit row
@@ -204,6 +212,12 @@ export async function changePartnerInvoice(request: InvoiceChangeRequest): Promi
   try {
     await client.query("BEGIN");
     await lockPartnerOrders(client, request.partner);
+    const closedCurrent = await closedPeriod(client, request.partner, [request.invoiceDate]);
+    if (closedCurrent) { await client.query("ROLLBACK"); return { status: "closed", period: closedCurrent, side: "current" }; }
+    if (request.action === "correct") {
+      const closedNew = await closedPeriod(client, request.partner, [request.newInvoiceDate]);
+      if (closedNew) { await client.query("ROLLBACK"); return { status: "closed", period: closedNew, side: "new" }; }
+    }
     const { rows } = await client.query<{ id: string; total_kurus: string }>(
       `SELECT o.id::text,o.total_kurus::text FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND o.partner_invoice_ref=$2
        AND o.partner_invoiced_at IS NOT NULL AND ${invoicedDaySql}=$3::date ORDER BY o.id FOR UPDATE`, [request.partner, request.invoiceRef, request.invoiceDate]);
@@ -266,7 +280,7 @@ export type OrderInvoiceUndoRequest = {
 };
 export type OrderInvoiceUndoOutcome =
   | { status: "undone"; partner: string; orderNumber: string; totalKurus: number; remaining: number }
-  | { status: "nothing" } | { status: "changed" } | { status: "collected" };
+  | { status: "nothing" } | { status: "changed" } | { status: "collected" } | { status: "closed"; period: string };
 
 /**
  * Undoes one partner order's invoiced mark (#1038) with a reason and its own audit row; the invoice's other orders keep
@@ -290,6 +304,8 @@ export async function undoPartnerOrderInvoice(request: OrderInvoiceUndoRequest):
     const order = rows[0];
     if (!order?.invoice_date || !order.invoice_ref) { await client.query("ROLLBACK"); return { status: "nothing" }; }
     if (order.invoice_ref !== request.expected.invoiceRef || order.invoice_date !== request.expected.invoiceDate) { await client.query("ROLLBACK"); return { status: "changed" }; }
+    const closed = await closedPeriod(client, partner, [order.invoice_date]);
+    if (closed) { await client.query("ROLLBACK"); return { status: "closed", period: closed }; }
     const rest = await client.query<{ kurus: string }>(`SELECT COALESCE(sum(o.total_kurus),0)::text AS kurus FROM commerce_orders o WHERE o.owner_kind='partner'
       AND o.owner_id=$1 AND o.partner_invoice_ref=$2 AND o.partner_invoiced_at IS NOT NULL AND ${invoicedDaySql}=$3::date AND o.id<>$4`,
     [partner, order.invoice_ref, order.invoice_date, request.orderId]);

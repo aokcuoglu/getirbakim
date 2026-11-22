@@ -315,6 +315,8 @@ CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  evidence jsonb NOT NULL, detected_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(),
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz
 );
+-- Its source_fresh, available and stock_label expressions are copied into commerce_item_availability below (#1242), the
+-- listing's availability filter; keep both equal (scripts/test-unavailable-catalog.ts compares the two views).
 DO $setup$ DECLARE def text := $view$
 -- The latest succeeded import per supplier and company: supplier_latest_imports (db/schema.sql, #1158, #1169).
 WITH latest AS (
@@ -414,6 +416,46 @@ $view$; cur regclass := (SELECT c.oid FROM pg_class c
   -- Views that read this one first (#1046, db/schema.sql); a new view has none.
   IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
   EXECUTE 'CREATE OR REPLACE VIEW commerce_catalog AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
+-- Availability only (#1242): the listing's "Stokta" / "Stokta yok" filter reads which rows can be sold now. A supplier
+-- row's available and stock_label depend only on the settings, its sync scope, last_seen_at and stock_data, so this view
+-- skips the pricing joins (pricing, overrides' prices, brands, rates, anomalies) commerce_catalog pays for on every row.
+-- The source_fresh, available and stock_label expressions are copies of commerce_catalog's above and must stay equal:
+-- scripts/test-unavailable-catalog.ts ("the availability view equals commerce_catalog's columns") compares both views.
+DO $setup$ DECLARE def text := $view$
+SELECT id,'store'::text AS source,''::text AS company,stock>0 AS available,
+ CASE WHEN stock>0 THEN 'Stokta mevcut: '||stock||' adet' ELSE 'Stokta yok' END AS stock_label
+FROM store_products
+UNION ALL
+SELECT id,'supplier',company,
+ (basbug_checkout_mode='snapshot' OR source_fresh) AND
+ (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0),
+ CASE WHEN basbug_checkout_mode='snapshot' AND (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0) THEN 'Stokta · Siparişten sonra teyit edilir'
+ WHEN NOT source_fresh AND basbug_checkout_mode='live' THEN 'Stok bilgisi güncelleniyor'
+ WHEN stock_data IS NULL THEN 'Stok bilgisi bulunamadı'
+ WHEN (stock_data->>'stok')::numeric>0 THEN 'Tedarikçide mevcut'
+ WHEN (stock_data->>'sFarkliDepo')::numeric>0 THEN 'Diğer depoda mevcut'
+ WHEN (stock_data->>'sYol')::numeric>0 THEN 'Tedarikçiye sevkiyat bekleniyor'
+ ELSE 'Stokta yok' END
+FROM (
+ SELECT i.id,i.company,i.stock_data,s.basbug_checkout_mode,
+ (i.supplier='manual' OR (i.last_seen_at>now()-make_interval(hours=>s.max_age_hours)
+ AND (NOT COALESCE(sc.commerce_enabled,false) OR i.last_seen_at>now()-sc.commerce_stale_minutes*interval '1 minute')
+ AND (sc.last_success_at IS NULL OR sc.last_success_at>now()-COALESCE(sc.stale_minutes,2160)*interval '1 minute'))) AS source_fresh
+ FROM commerce_supplier_items i CROSS JOIN commerce_settings s
+ LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
+ LEFT JOIN supplier_sync_scopes sc ON sc.supplier=i.supplier AND sc.company=i.company AND sc.list_group=i.list_group AND sc.warehouse=i.warehouse
+ WHERE ov.hidden IS NOT TRUE
+) supplier_rows;
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='commerce_item_availability' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
+  EXECUTE 'CREATE OR REPLACE VIEW commerce_item_availability AS '||def;
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
 END $setup$;
@@ -999,6 +1041,34 @@ CREATE TABLE IF NOT EXISTS partner_invoice_payments(
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_invoice_payments'::regclass AND c.relname='partner_invoice_payments_invoice_idx') THEN
   CREATE INDEX partner_invoice_payments_invoice_idx ON partner_invoice_payments(partner_code,invoice_ref,invoice_day);
+ END IF;
+END $$;
+-- Partner period close (#1200), from /yonetim/partnerler. period = the first day of an Istanbul calendar month; a row in
+-- partner_period_closes means that month is closed for the partner: marking, correcting or undoing invoices dated in it
+-- (Istanbul invoice day) and recording or voiding payments paid in it (paid_on) are refused (src/modules/partner/periods.ts,
+-- under the partner's order lock). Reopening deletes the row. Every close and reopen leaves an append-only
+-- partner_period_events row; a reopen needs a reason (5–500 characters), a close may carry a note.
+-- The first deploy that creates the tables takes, for that run only, SHARE ROW EXCLUSIVE on accounts (the foreign keys).
+CREATE TABLE IF NOT EXISTS partner_period_closes(
+ partner_code text NOT NULL,
+ period date NOT NULL CHECK(extract(day FROM period)=1),
+ closed_at timestamptz NOT NULL DEFAULT now(),
+ closed_by uuid REFERENCES accounts(id),
+ PRIMARY KEY(partner_code,period)
+);
+CREATE TABLE IF NOT EXISTS partner_period_events(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ partner_code text NOT NULL,
+ period date NOT NULL CHECK(extract(day FROM period)=1),
+ action text NOT NULL CHECK(action IN ('close','reopen')),
+ reason text NOT NULL DEFAULT '' CHECK(length(reason)<=500),
+ actor uuid REFERENCES accounts(id),
+ created_at timestamptz NOT NULL DEFAULT now(),
+ CHECK(action<>'reopen' OR length(btrim(reason))>=5)
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_period_events'::regclass AND c.relname='partner_period_events_partner_idx') THEN
+  CREATE INDEX partner_period_events_partner_idx ON partner_period_events(partner_code,created_at DESC);
  END IF;
 END $$;
 

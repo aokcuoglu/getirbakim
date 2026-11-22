@@ -81,13 +81,14 @@ describe("sitemap helpers", () => {
 
   test("file names round-trip; unknown names are rejected", () => {
     const files = sitemapFiles();
-    assert.equal(files.length, 6 + productChunks);
-    assert.deepEqual(files.slice(0, 7), ["pages.xml", "categories.xml", "makes.xml", "manufacturers.xml", "models.xml", "model-categories.xml", "products-00.xml"]);
+    assert.equal(files.length, 7 + productChunks);
+    assert.deepEqual(files.slice(0, 8), ["pages.xml", "categories.xml", "makes.xml", "manufacturers.xml", "models.xml", "model-categories.xml", "make-categories.xml", "products-00.xml"]);
     assert.equal(files.at(-1), "products-63.xml");
     assert.deepEqual(parseSitemapFile("products-07.xml"), { kind: "products", index: 7 });
     assert.deepEqual(parseSitemapFile("manufacturers.xml"), { kind: "manufacturers" });
     assert.deepEqual(parseSitemapFile("models.xml"), { kind: "models" });
     assert.deepEqual(parseSitemapFile("model-categories.xml"), { kind: "modelCategories" });
+    assert.deepEqual(parseSitemapFile("make-categories.xml"), { kind: "makeCategories" });
     assert.deepEqual(files.map(file => parseSitemapFile(file)).filter(Boolean).length, files.length);
     for (const bad of ["products-64.xml", "products-7.xml", "x.xml", "pages", "products-00.xml.gz", "model_categories.xml", "models"]) assert.equal(parseSitemapFile(bad), null, bad);
   });

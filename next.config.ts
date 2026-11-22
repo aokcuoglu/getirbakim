@@ -41,7 +41,8 @@ const nextConfig: NextConfig = {
   // went out raw (#453). The VPS edge nginx and Cloudflare leave an already compressed response as it is.
   compress: true,
   // Security headers go on every response. public/ files default to max-age=0, so the CDN would revalidate every
-  // logo with the origin: /media and /brand get a 1-day browser / 7-day CDN cache. Only the build's own
+  // logo with the origin: /media and /brand get a 1-day browser / 1-hour CDN cache (s-maxage + swr must stay below
+  // max-age because CloudFront forwards Age, so the browser copy never outlives the 1-day budget). Only the build's own
   // ?dpl=<BUILD_VERSION> (appended by next/image through deploymentId) is immutable, and URLs without this build's
   // dpl keep the short cache. Next does not route on dpl, so during a rolling deploy an old task may answer a new
   // ?dpl= with old bytes; it never pins them for a year (it returns the short cache, as before). The no-referrer
@@ -55,7 +56,7 @@ const nextConfig: NextConfig = {
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
     ];
     const noReferrer = [{ key: "Referrer-Policy", value: "no-referrer" }];
-    const cache = [{ key: "Cache-Control", value: "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800" }];
+    const cache = [{ key: "Cache-Control", value: "public, max-age=86400, s-maxage=3600, stale-while-revalidate=600" }];
     const immutable = [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }];
     // The Dockerfile default "development" is no build id.
     const build = process.env.BUILD_VERSION !== "development" ? process.env.BUILD_VERSION : undefined;

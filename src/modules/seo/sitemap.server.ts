@@ -5,7 +5,7 @@ import { legacyCategoryIds } from "@/modules/store/category-tree";
 import { vehicleBrandSlug } from "@/modules/store/vehicle-catalog";
 import { minimumContentSql, productIndexPolicy } from "./indexing";
 import { productPath, type ProductAddress } from "./product-path";
-import { productChunkRange, sitemapUrlLimit, withAncestors } from "./sitemap";
+import { productChunkRange, sitemapCategorySlugs, sitemapUrlLimit, withAncestors } from "./sitemap";
 import { displayBrandSql, masterBrandJoinSql } from "@/modules/store/display-brand-sql";
 
 const isoUtc = (column: string) => `to_char(${column} AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
@@ -123,14 +123,14 @@ const legacySql = `SELECT slug FROM unnest($1::text[]) slug
 WHERE EXISTS (SELECT 1 FROM commerce_supplier_items s WHERE s.company=ANY($2::text[])
  AND s.product_data->>'category'<>'' AND s.product_data->>'category'=slug)`;
 
-/** Slugs of the categories holding products and of their ancestors. */
+/** Slugs of the indexable categories holding products and of their ancestors (the noindex root is left out, #1222). */
 export async function loadCategorySlugs(): Promise<string[]> {
   const [nodes, legacy] = await Promise.all([
     boundedQuery<{ id: number; path: number[]; slug: string; direct: boolean }>(categorySql, []),
     boundedQuery<{ slug: string }>(legacySql, [Object.keys(legacyCategoryIds), storefrontCompanies()]),
   ]);
   const direct = [...nodes.rows.filter(node => node.direct).map(node => node.id), ...legacy.rows.map(row => legacyCategoryIds[row.slug])];
-  return withAncestors(nodes.rows, direct).map(node => node.slug);
+  return sitemapCategorySlugs(withAncestors(nodes.rows, direct).map(node => node.slug));
 }
 
 /**

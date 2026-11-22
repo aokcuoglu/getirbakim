@@ -52,6 +52,9 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
 };
 // Prices and availability are calculated by the shared commerce view.
 export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=ANY($1::text[])";
+// Only id, available and stock_label of the same rows, without the pricing joins (db/commerce.sql, #1242): the listing's
+// availability filter.
+export const availabilitySql = "SELECT * FROM commerce_item_availability WHERE source='store' OR company=ANY($1::text[])";
 // The store's listing, search and product page also show products nobody supplies now (`unavailable`, #475); cart,
 // checkout, partner API and maintenance kits keep reading the saleable catalogSql.
 export const storefrontCatalogSql = "SELECT * FROM storefront_catalog WHERE source='store' OR company=ANY($1::text[])";
@@ -234,8 +237,7 @@ export async function getDecidedEquivalents(id: string) {
   // The address of the listed row, from the row's own shown name, brand and part number: the page's canonical one.
   .map(({ id, name, name_overridden, display_brand, display_code, ...rest }) => ({ ...rest, id, href: id && name !== null && name_overridden !== null && display_brand !== null && display_code !== null ? productPath({ id, name, name_overridden, display_brand, display_code }) : id && productIdPath(id) }));
 }
-export function servicePrice(price: number, discount: number) { return Math.round(price * (100-discount) / 100); }
-export { money } from "./money";
+export { money, servicePrice } from "./money";
 
 export const categories = [
  {slug:"yedek-parca",name:"Yedek parçalar",art:"parts"},
@@ -336,14 +338,20 @@ export const categoryMovedAwaySql=(itemId:string,ids:string)=>`NOT EXISTS (SELEC
  * Products in a category: a legacy category on the item, or a trusted enrichment category. Resolved
  * to ids first, like makes; as an OR inside the catalog WHERE it defeated the indexes and every
  * listing query (count, page, brands, facets) scanned all supplier items: 6-8 s each in production.
+ * The trusted-enrichment links of the categories are materialised before supplier_items is touched (#1240): joined in
+ * one step, the planner estimated 1 row for the enrichment × supplier_items join (176k in fact) and nested a loop that
+ * probed product_source_categories 26.5M times, so the root category (/kategori/yedek-parca, 402 category ids) took
+ * 55.7 s and hit the 30 s limit; materialised first it reads in ~0.5 s. Same rows: same columns and conditions.
  */
 export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedCategoryIds(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
- (await boundedQuery<{id:string}>(`SELECT id::text FROM (SELECT id FROM store_products WHERE category=ANY($1::text[])
+ (await boundedQuery<{id:string}>(`WITH linked AS MATERIALIZED (SELECT DISTINCT e.supplier_item_id,e.supplier_code,e.supplier_brand
+   FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
+   WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])
+    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem))
+  SELECT id::text FROM (SELECT id FROM store_products WHERE category=ANY($1::text[])
   UNION SELECT id FROM supplier_items WHERE product_data->>'category'<>'' AND product_data->>'category'=ANY($1::text[])
-  UNION SELECT e.supplier_item_id FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
-   JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
-   WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])) automatic
+  UNION SELECT k.supplier_item_id FROM linked k
+   JOIN supplier_items s ON s.id=k.supplier_item_id AND s.code=k.supplier_code AND s.product_data->>'uk'=k.supplier_brand) automatic
   -- An admin's category (#575) replaces the automatic ones: the product leaves other categories and joins its own.
   WHERE ${categoryMovedAwaySql("automatic.id","$2")}
   UNION SELECT ps.supplier_item_id::text FROM product_overrides o JOIN product_sources ps ON ps.product_id=o.product_id
@@ -601,10 +609,11 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))`);
  }
  // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
+ // Both read the lean availability view, not commerce_catalog's priced rows a second time (#1242).
  if(query.availability==='supplied')clauses.push('NOT catalog.unavailable');
  else if(query.availability)clauses.push(query.availability==='in_stock'
-  ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${catalogSql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
-  :`catalog.id IN (SELECT id FROM (${catalogSql}) available_catalog WHERE NOT available AND stock_label='Stokta yok')`);
+  ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
+  :`catalog.id IN (SELECT id FROM (${availabilitySql}) available_catalog WHERE NOT available AND stock_label='Stokta yok')`);
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
  return {values,where,from,search};

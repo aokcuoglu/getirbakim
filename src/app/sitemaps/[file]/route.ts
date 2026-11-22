@@ -1,7 +1,7 @@
 import { siteUrl } from "@/lib/site";
 import { absoluteUrl, categoryPath, makePath, manufacturerPath } from "@/modules/seo/paths";
 import { parseSitemapFile, renderUrlset, sitemapEnabled, staticPaths, xmlHeaders, type SitemapEntry, type SitemapFile } from "@/modules/seo/sitemap";
-import { cachedCategorySlugs, cachedMakeSlugs, cachedManufacturerSlugs, cachedModelCategoryPaths, cachedModelPaths, cachedProductChunk } from "@/modules/seo/sitemap-cache";
+import { cachedCategorySlugs, cachedMakeCategoryPaths, cachedMakeSlugs, cachedManufacturerSlugs, cachedModelCategoryPaths, cachedModelPaths, cachedProductChunk } from "@/modules/seo/sitemap-cache";
 
 // One file of the sitemap index (#634): store pages, categories, vehicle makes, manufacturers (#660), vehicle models and
 // their categories (#673) or a 1/64 share of the products.
@@ -15,6 +15,7 @@ async function entries(file: SitemapFile): Promise<SitemapEntry[]> {
     case "manufacturers": return (await cachedManufacturerSlugs()).map(slug => ({ url: absoluteUrl(siteUrl, manufacturerPath(slug)) }));
     case "models": return (await cachedModelPaths()).map(path => ({ url: absoluteUrl(siteUrl, path) }));
     case "modelCategories": return (await cachedModelCategoryPaths()).map(path => ({ url: absoluteUrl(siteUrl, path) }));
+    case "makeCategories": return (await cachedMakeCategoryPaths()).map(path => ({ url: absoluteUrl(siteUrl, path) }));
     case "products": return (await cachedProductChunk(file.index)).map(row => ({ url: absoluteUrl(siteUrl, row.path), lastModified: row.lastmod }));
   }
 }

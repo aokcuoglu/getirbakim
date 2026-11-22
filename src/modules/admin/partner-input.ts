@@ -160,6 +160,45 @@ export const partnerTermInput = z.object({
   }),
 });
 
+/** A calendar month, `YYYY-MM` (#1200 period close and statements). */
+const monthPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
+/** A month up to the current Istanbul month; a future month is neither closed nor stated. */
+const periodMonth = (now: Date) => z.string().trim().regex(monthPattern, "Geçerli bir dönem seçin.")
+  .refine(value => value <= istanbulToday(now).slice(0, 7), "Gelecek ay kapatılamaz.");
+
+/** Closing a partner's month (#1200): the month and an optional note for the period history. */
+export const partnerPeriodCloseInput = (now = new Date()) => z.object({
+  partner: partnerCode,
+  period: periodMonth(now),
+  note: z.string().trim().max(500, "Not en fazla 500 karakter olabilir."),
+});
+
+/** Reopening a closed month (#1200): a reason is required, counted like an invoice change's. */
+export const partnerPeriodReopenInput = z.object({
+  partner: partnerCode,
+  period: z.string().trim().regex(monthPattern),
+  reason: invoiceChangeReason,
+});
+
+/** The monthly statement CSV's query (#1200): `?partner=&donem=YYYY-MM`. */
+export const partnerStatementInput = (now = new Date()) => z.object({ partner: partnerCode, donem: periodMonth(now) });
+
+/** `2026-10` → "Ekim 2026". */
+export const periodLabel = (period: string) =>
+  new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(`${period}-01T00:00:00Z`));
+
+/** The last `count` months up to the current Istanbul month, newest first, `YYYY-MM`. */
+export function recentPeriods(now: Date, count: number) {
+  const [year, month] = istanbulToday(now).split("-").map(Number);
+  return Array.from({ length: count }, (_, back) => new Date(Date.UTC(year, month - 1 - back, 1)).toISOString().slice(0, 7));
+}
+
+/** The last day of a month, `YYYY-MM-DD`. */
+export function periodEnd(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+}
+
 export type CollectionState = "paid" | "partial" | "open" | "overdue";
 
 /** `YYYY-MM-DD` + days, in UTC so no clock change shifts the day. */
