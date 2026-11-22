@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { CatalogCategoryChips } from "../src/components/catalog-category-chips";
 import { CategoryCards } from "../src/components/category-cards";
 import { SocialLinks } from "../src/components/social-links";
+import { VehicleModelListView } from "../src/components/vehicle-model-list-view";
 import type { StoreCategory } from "../src/modules/store/category-tree";
 
 // #642: the listing markup repeated per category carries named classes, not utility lists. A card or chip that grows
@@ -46,7 +47,7 @@ test("every named listing class exists in storefront.css", () => {
 });
 
 test("the changed components keep no long utility list in a class literal", () => {
-  for (const file of ["category-cards", "vehicle-model-list"]) {
+  for (const file of ["category-cards", "vehicle-model-list", "vehicle-model-list-view"]) {
     const source = readFileSync(new URL(`../src/components/${file}.tsx`, import.meta.url), "utf8");
     for (const match of source.matchAll(/className="([^"]*)"/g)) assert.ok(match[1].length <= 120, `${file}: ${match[1].slice(0, 60)}…`);
   }
@@ -84,4 +85,32 @@ test("the shell stays free of the heavy per-page parts", () => {
   assert.match(source("../src/components/site-footer.tsx"), /export async function CheckoutFooter/);
   assert.ok(source("../src/components/site-footer.tsx").includes('<RouteFrame except="checkout">'), "SiteFooter must keep except=\"checkout\" (double footer otherwise)");
   assert.ok(source("../src/app/(store)/siparis-olustur/layout.tsx").includes("<CheckoutFooter"), "siparis-olustur/layout.tsx must render CheckoutFooter");
+});
+
+// #1212: repeated lists and cards are client views fed finished props, so their markup goes out once (HTML) instead of
+// twice (HTML and the RSC payload). The server components only build the props.
+test("VehicleModelListView renders the families and links to the model pages", () => {
+  const html = renderToStaticMarkup(<VehicleModelListView makeSlug="volkswagen" sections={[{ id: "vehicle-models", title: "Volkswagen modelleri", families: [
+    ["Golf", [["golf-8", "Golf VIII", "2019–günümüz"], ["golf-7", "Golf VII", "2012–2020"]]],
+    ["Passat", [["passat-b8", "Passat B8", ""]]],
+    ["Polo", [["polo-6", "Polo VI", "2017–günümüz"]]],
+  ] }]} />);
+  assert.equal(html.split('class="model-family"').length - 1, 3);
+  assert.equal(html.split('class="model-link"').length - 1, 4);
+  assert.deepEqual([...html.matchAll(/href="([^"]*)"/g)].map((match) => match[1]),
+    ["/yedek-parca/volkswagen/golf-8", "/yedek-parca/volkswagen/golf-7", "/yedek-parca/volkswagen/passat-b8", "/yedek-parca/volkswagen/polo-6"]);
+  assert.ok(html.includes('<h2 id="vehicle-models"') && html.includes('<h3 class="model-family-title">Golf</h3>'));
+  // No years, no empty span.
+  assert.ok(html.includes(">Passat B8</a>"));
+});
+
+test("the listing views are client components and their server adapters render no markup of their own", () => {
+  for (const file of ["vehicle-model-list-view", "catalog-product-card", "home-product-card-view"]) {
+    assert.ok(source(`../src/components/${file}.tsx`).startsWith('"use client";'), `${file}.tsx must start with "use client"`);
+  }
+  for (const file of ["catalog-product", "home-product-card", "vehicle-model-list"]) {
+    const text = source(`../src/components/${file}.tsx`);
+    assert.ok(!text.includes("<article") && !text.includes("<section"), `${file}.tsx renders markup on the server`);
+    assert.ok(!text.startsWith('"use client"'), `${file}.tsx must stay a server component`);
+  }
 });
