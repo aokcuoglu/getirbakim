@@ -1,4 +1,5 @@
 import { isIndexableListing, type CatalogQuery } from "@/modules/store/catalog-query";
+import { isRootCategoryListing } from "@/modules/seo/indexing";
 import { Fragment } from "react";
 import Link from "next/link";
 import { minSearchLength } from "@/modules/search/query";
@@ -180,8 +181,8 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  // Only the plain listings are indexed (the pages' robots rule): a search, filter, sort or page 2 is not a collection.
  // A model page says what its list is: model-level fits, which the garage vehicle narrows to an engine type.
  const intro=params.q?undefined:manufacturerCopy?manufacturerCopy.intro:modelVehicle&&parts?`${modelVehicle} için ${parts} kategorisinde listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} ürün. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:modelVehicle?`${modelVehicle} için listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:catalogDescription(category?.slug??"yedek-parca")??category?.name+" kategorisindeki ürünleri üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
- const guideNote=products.length>0?categoryGuideNote(params,{vehicle:Boolean(make||model),manufacturer:Boolean(manufacturer)}):undefined;
- const collection=isIndexableListing(params)&&products.length>0
+  const guideNote=products.length>0?categoryGuideNote(params,{vehicle:Boolean(make||model),manufacturer:Boolean(manufacturer)}):undefined;
+  const collection=isIndexableListing(params)&&!isRootCategoryListing(params)&&products.length>0
   ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,modelSlug,categorySlug:category?.slug,manufacturerSlug}),items:products.map(product=>({path:productPath(product),name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
  // The OEM box repeats only a code search; a name search belongs to the header's box.
  const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.searchBy==="code"?params.q:undefined} vehicle={shown}/>;

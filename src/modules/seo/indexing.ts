@@ -129,18 +129,20 @@ export const minIndexableListingProducts = 10;
 export const isGatedListing = (query: Pick<CatalogQuery, "make" | "model" | "category">) => Boolean(query.model || (query.make && query.category));
 
 /**
- * The root category "Yedek parçalar" (legacy slug "yedek-parca", id 3) holds nearly every product: narrowed to a make or
- * model it repeats the make or model page. Such a page answers 200 for existing links but is `noindex,follow` and stays
- * out of the sitemap (#673).
+ * The root category "Yedek parçalar" (legacy slug "yedek-parca", id 3) is never indexed, alone or narrowed. Alone it
+ * competes with /katalog under near-identical copy while listing only about 7% of the products (#1222); narrowed to a
+ * make or model it repeats the make or model page (#673). It answers 200 with a self canonical, `noindex,follow`, and
+ * stays out of the sitemap and llms.txt.
  */
 export const rootCategorySlug = "yedek-parca";
 export const rootCategoryId = legacyCategoryIds[rootCategorySlug];
+export const isRootCategoryListing = (query: Pick<CatalogQuery, "category">) => query.category === rootCategorySlug;
 
 /**
  * A plain listing (isIndexableListing) that, when gated, lists at least `minIndexableListingProducts` without its
- * filters; the root category of a make or model is never indexed.
+ * filters; the root category is never indexed.
  */
 export function listingIndexable(query: CatalogQuery, total: number): boolean {
-  if (query.make && query.category === rootCategorySlug) return false;
+  if (isRootCategoryListing(query)) return false;
   return isIndexableListing(query) && (!isGatedListing(query) || total >= minIndexableListingProducts);
 }

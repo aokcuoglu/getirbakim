@@ -150,6 +150,16 @@ test("a search result's title says the query within 65 characters and stays noin
   }
 });
 
+test("the root category stays noindex,follow with a self canonical; the plain catalog is indexable (#1222)", async () => {
+  const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
+  const root = listingMetadata({ query: { category: "yedek-parca" }, category: { id: 3, parentId: null, name: "Yedek parçalar", slug: "yedek-parca", path: [3], position: 0 } });
+  assert.deepEqual(root.robots, { index: false, follow: true });
+  assert.equal(root.alternates?.canonical, "/kategori/yedek-parca");
+  const plain = listingMetadata({ query: {} });
+  assert.equal(plain.robots, undefined);
+  assert.equal(plain.alternates?.canonical, "/katalog");
+});
+
 test("the make page lists its engine-level fits and the models read from descriptions, each product once (#674)", async () => {
   // g1 is in both sources; g4s's description lists its primary g4; the hidden item stays out. g2, g3, g12 and p1 are
   // only in the model table, which the make page does not read (the make table holds a make's engine-level fits).

@@ -12,7 +12,7 @@ Tek kaynak `src/modules/seo/paths.ts`. Ayrıntılı adres tablosu ve ölçümler
 | --- | --- | --- |
 | Ana sayfa, katalog, araç markaları, bakım robotu, servisler, bilgi ve hukuki sayfalar | `/`, `/katalog`, `/arac-markalari`, `/bakim-robotu`, `/servisler`, `/bilgi/<slug>`, `/<hukuki-slug>` | Dizine açık; `staticPaths` ile site haritasında (`src/modules/seo/sitemap.ts`) |
 | Rehber | `/rehber`, `/rehber/<slug>` | Dizine açık; `staticPaths` ile site haritasında (`lastModified` = yazının `updated` tarihi); `dynamicParams = false`, bilinmeyen slug `404` |
-| Kategori | `/kategori/<kategori>` | Yalın liste dizine açık (`isIndexableListing`: arama, süzgeç, sıralama, 2. sayfa yok) |
+| Kategori | `/kategori/<kategori>` | Yalın liste dizine açık (`isIndexableListing`: arama, süzgeç, sıralama, 2. sayfa yok). Kök "Yedek parçalar" (`/kategori/yedek-parca`) `noindex,follow` ve site haritası/llms.txt dışı; "yedek parça" sorgusu için dizine açık sayfa `/katalog` (#1222) |
 | Araç markası | `/yedek-parca/<marka>` | Yalın liste kuralı |
 | Araç modeli | `/yedek-parca/<marka>/<model>` | Yalın liste + en az 10 ürün (`minIndexableListingProducts`, `src/modules/seo/indexing.ts`); ürünsüz `404`, 10'dan azı `noindex,follow` |
 | Kategori × marka, kategori × marka × model | `/kategori/<kategori>/<marka>[/<model>]` | Aynı eşik; kök "Yedek parçalar" kategorisi × marka/model her zaman `noindex,follow` ve site haritası dışı (`listingIndexable`) |
