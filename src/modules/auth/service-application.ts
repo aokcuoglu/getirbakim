@@ -47,9 +47,10 @@ export async function applyForServiceUpgrade(form: FormData) {
   if (!parsed.success) redirect("/servisler/basvuru?error=validation");
   if (await overBudget({ [`upgrade:${account.id}`]: 3 })) redirect("/servisler/basvuru?error=limit");
   const { name, contactName, phone, city } = parsed.data;
-  // The role is checked again in the statement; an open request keeps its first values until an admin decides.
+  // The role is checked again under the account's row lock, so a submit racing an approval waits for it and then finds a
+  // service account. An open request keeps its first values until an admin decides.
   await db.query(`INSERT INTO service_upgrade_requests (account_id,service_name,contact_name,phone,city)
-    SELECT id,$2,$3,$4,$5 FROM accounts WHERE id=$1 AND role='customer' AND approved ON CONFLICT (account_id) DO NOTHING`,
+    SELECT id,$2,$3,$4,$5 FROM accounts WHERE id=$1 AND role='customer' AND approved FOR UPDATE ON CONFLICT (account_id) DO NOTHING`,
     [account.id, name, contactName, phone, city]);
   // The dashboard list and the sidebar's waiting-approval count live under the /yonetim layout.
   revalidatePath("/yonetim", "layout");

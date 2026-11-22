@@ -8,7 +8,7 @@ import Link from "next/link";
 import { Building2, CircleAlert, CircleCheck, Info, UserRound, UsersRound } from "lucide-react";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
-import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,7 +33,7 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis hesabı kaydedildi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{params.error === "duplicate" ? "Bu e-posta zaten kayıtlı." : "Bilgileri kontrol et. İndirim %0–50 olmalı; şifre en az 12 karakter ve en fazla 72 UTF-8 bayt olmalı."}</AlertDescription></Alert>}
     {customers.upgrades > 0 && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>{formatNumber(customers.upgrades)} bireysel müşteri servis hesabına başvurdu. Onay ve ret işlemleri panel ana sayfasında.</AlertDescription>
-      <AlertAction><Button variant="outline" size="sm" nativeButton={false} render={<Link href="/yonetim"/>}>Başvuruları görüntüle</Button></AlertAction></Alert>}
+      <div className="col-start-2 mt-2"><Button variant="outline" size="sm" nativeButton={false} render={<Link href="/yonetim"/>}>Başvuruları görüntüle</Button></div></Alert>}
     <Card>
       <CardHeader>
         <CardTitle>Mevcut servisler</CardTitle>

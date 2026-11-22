@@ -5,7 +5,8 @@ import { summarizeFeedTones } from "@/modules/admin/feed-summary";
 import { feedIssueCount, feedNavTone, feedStateLabels } from "@/modules/suppliers/data-status";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from "@/modules/auth/session";
-import { approveService, rejectServiceApplication } from "@/modules/admin/actions";
+import { approveService } from "@/modules/admin/actions";
+import { ServiceRejectDialog } from "@/components/admin/service-reject-dialog";
 import { supplierStatuses } from "@/modules/suppliers/clients";
 import { money } from "@/modules/store/catalog";
 import { formatAgo, formatDateTime, formatNumber } from "@/modules/admin/format";
@@ -233,7 +234,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
           {index > 0 && <ItemSeparator/>}
           <Item>
             <ItemContent>
-              <ItemTitle>{a.name}{a.upgrade && <Badge variant="info"><UserRound data-icon="inline-start" aria-hidden="true"/>Mevcut müşteri</Badge>}</ItemTitle>
+              <ItemTitle className="flex-wrap">{a.name}{a.upgrade && <Badge variant="info"><UserRound data-icon="inline-start" aria-hidden="true"/>Mevcut müşteri</Badge>}</ItemTitle>
               <ItemDescription>{a.email}{a.contact_name && ` · ${a.contact_name} · ${a.phone} · ${a.city}`}{a.upgrade && ` · Müşteri hesabı: ${a.account_name}`}</ItemDescription>
             </ItemContent>
             <ItemActions className="flex-wrap items-end">
@@ -241,7 +242,7 @@ export default async function Admin({ searchParams }: { searchParams: Promise<Se
                 <Field className="w-36"><FieldLabel htmlFor={`discount-${a.id}`}>Özel indirim (%)</FieldLabel><Input id={`discount-${a.id}`} name="discount" type="number" min={0} max={50} defaultValue={0} required/></Field>
                 <SubmitButton>Başvuruyu onayla</SubmitButton>
               </form>
-              {a.upgrade && <form action={rejectServiceApplication}><input type="hidden" name="id" value={a.id}/><SubmitButton variant="outline">Başvuruyu reddet</SubmitButton></form>}
+              {a.upgrade && <ServiceRejectDialog accountId={a.id} name={a.name}/>}
             </ItemActions>
           </Item>
         </div>)}</ItemGroup>

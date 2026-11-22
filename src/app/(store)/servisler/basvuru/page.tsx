@@ -39,7 +39,7 @@ function ApplicationFields({ contactName, children }: { contactName?: string; ch
 }
 
 /** Signed-in content: the upgrade form or its status for a customer (#1259), a short note for a service or an admin. */
-async function SignedIn({ account, error }: { account: Account; error?: string }) {
+async function SignedIn({ account, sent, error }: { account: Account; sent?: string; error?: string }) {
   if (account.role === "admin") return <>
     <p className="mb-6 text-base leading-6 text-muted-foreground">Yönetici hesabıyla servis başvurusu yapılamaz.</p>
     <Button nativeButton={false} className={primaryButton} render={<Link href="/yonetim"/>}>Yönetim paneli</Button>
@@ -49,7 +49,7 @@ async function SignedIn({ account, error }: { account: Account; error?: string }
     <Button nativeButton={false} className={primaryButton} render={<Link href="/katalog"/>}>Kataloğa git</Button>
   </>;
   if (await serviceUpgradePending(account.id)) return <>
-    <Alert role="status" className={statusBox}>Servis başvurun değerlendiriliyor. Onaylandığında bu hesap servis hesabına dönüşür ve B2B fiyatların açılır; o zamana kadar alışverişe aynı hesapla devam edebilirsin.</Alert>
+    <Alert role="status" className={statusBox}>{sent === "1" && "Başvurun alındı. "}Servis başvurun değerlendiriliyor. Onaylandığında bu hesap servis hesabına dönüşür ve B2B fiyatların açılır; o zamana kadar alışverişe aynı hesapla devam edebilirsin.</Alert>
     <p className="my-4">{contactLine}</p>
     <Button nativeButton={false} className={primaryButton} render={<Link href="/katalog"/>}>Alışverişe devam et</Button>
   </>;
@@ -68,7 +68,7 @@ export default async function Application({ searchParams }: { searchParams: Prom
   return <section className="mx-auto min-h-[55vh] w-full max-w-[680px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10">
     <Link href="/servisler" className="mb-[25px] block w-fit text-xs leading-5 text-muted-foreground hover:text-primary">← Servisler için Getirbakim</Link>
     <h1 className="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">Servis hesabına başvur.</h1>
-    {account ? <SignedIn account={account} error={error}/> : sent === "1" ? <>
+    {account ? <SignedIn account={account} sent={sent} error={error}/> : sent === "1" ? <>
       <Alert role="status" className={statusBox}>Başvurun alındı. Yeni başvurular servis bilgileri kontrol edildikten sonra değerlendirilir.</Alert>
       <p className="my-4">Başvurun onaylandıktan sonra belirlediğin şifreyle giriş yapabilirsin. {contactLine}</p>
       <Button nativeButton={false} className={primaryButton} render={<Link href="/giris"/>}>Servis girişine git</Button>

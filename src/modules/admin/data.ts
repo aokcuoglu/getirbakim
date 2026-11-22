@@ -41,7 +41,7 @@ export async function adminOverview() {
       FROM accounts WHERE role='service' AND NOT approved
     UNION ALL
     SELECT a.id,r.service_name,a.email,false,a.discount_percent,r.contact_name,r.phone,r.city,true,a.name
-      FROM service_upgrade_requests r JOIN accounts a ON a.id=r.account_id AND a.role='customer'
+      FROM service_upgrade_requests r JOIN accounts a ON a.id=r.account_id AND a.role='customer' AND a.approved
     ORDER BY name`);
   return { accounts: accounts.rows };
 }
@@ -56,10 +56,10 @@ export type CustomerAccount = { id: string; name: string; email: string; applied
 export async function adminCustomerAccounts() {
   await requireAdmin();
   const [rows, totals] = await Promise.all([
-    db.query<CustomerAccount>(`SELECT a.id,a.name,a.email,a.applied_at,EXISTS (SELECT 1 FROM service_upgrade_requests r WHERE r.account_id=a.id) AS upgrade_pending
+    db.query<CustomerAccount>(`SELECT a.id,a.name,a.email,a.applied_at,(a.approved AND EXISTS (SELECT 1 FROM service_upgrade_requests r WHERE r.account_id=a.id)) AS upgrade_pending
       FROM accounts a WHERE a.role='customer' ORDER BY a.applied_at DESC NULLS LAST,a.id LIMIT 50`),
     db.query<{ count: number; upgrades: number }>(`SELECT (SELECT count(*)::int FROM accounts WHERE role='customer') AS count,
-      (SELECT count(*)::int FROM service_upgrade_requests r JOIN accounts a ON a.id=r.account_id AND a.role='customer') AS upgrades`),
+      (SELECT count(*)::int FROM service_upgrade_requests r JOIN accounts a ON a.id=r.account_id AND a.role='customer' AND a.approved) AS upgrades`),
   ]);
   return { accounts: rows.rows, total: totals.rows[0].count, upgrades: totals.rows[0].upgrades };
 }
@@ -168,7 +168,7 @@ export async function adminNavCounts() {
   const [{ rows }, restock] = await Promise.all([db.query<{ orders: number; services: number; enrichment: number; brands: number }>(`SELECT
     (${navOrderCountSql}) AS orders,
     ((SELECT count(*)::int FROM accounts WHERE role='service' AND NOT approved)
-      +(SELECT count(*)::int FROM service_upgrade_requests r JOIN accounts a ON a.id=r.account_id AND a.role='customer')) AS services,
+      +(SELECT count(*)::int FROM service_upgrade_requests r JOIN accounts a ON a.id=r.account_id AND a.role='customer' AND a.approved)) AS services,
     (SELECT count(*)::int FROM product_enrichment_jobs WHERE status IN ('review','blocked','failed')) AS enrichment,
     (${pendingBrandsSql}) AS brands`), restockDueCount()]);
   return { ...rows[0], restock };

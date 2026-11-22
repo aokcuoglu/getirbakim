@@ -202,3 +202,31 @@ test("the admin lists, counts and flags open requests next to waiting service ac
   assert.equal(customers.accounts.find(c => c.id === id)?.upgrade_pending, true);
   assert.equal(customers.accounts.filter(c => c.upgrade_pending).length, 1);
 });
+
+test("a deactivated customer's request is neither listed nor approvable", async () => {
+  const id = await create("deactivated@example.invalid", "customer");
+  await signIn(id);
+  await upgrade();
+  await schema.pool.query("UPDATE accounts SET approved=false WHERE id=$1", [id]);
+  assert.equal(await services.approveServiceAccount(id, 10), false);
+  const unchanged = await account("deactivated@example.invalid");
+  assert.deepEqual([unchanged.role, unchanged.approved, unchanged.discount_percent], ["customer", false, 0]);
+  await signIn(await create("admin-deactivated@example.invalid", "admin"));
+  assert.equal((await adminData.adminOverview()).accounts.some(a => a.id === id), false);
+  assert.equal((await adminData.adminCustomerAccounts()).accounts.find(c => c.id === id)?.upgrade_pending, false);
+});
+
+test("a submit racing a role change waits for it and stores no request for the service account", async () => {
+  const id = await create("race@example.invalid", "customer");
+  await signIn(id);
+  const client = await schema.pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("UPDATE accounts SET role='service' WHERE id=$1", [id]);
+    const submit = upgrade();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    await client.query("COMMIT");
+    assert.equal(await submit, "/servisler/basvuru?sent=1");
+  } finally { client.release(); }
+  assert.equal(await request(id), undefined);
+});
