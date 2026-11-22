@@ -179,25 +179,23 @@ test("HomeCarousel renders <img> only in the first slides until armed; every lin
   assert.equal((html.match(/<img /g) ?? []).length, 5);
   for (let index = 0; index < 8; index++) assert.ok(html.includes(`href="/urun/p-${index}"`));
   assert.equal((html.match(/<span class="home-card-img rounded-md bg-muted"><\/span>/g) ?? []).length, 3);
-  assert.equal((html.match(/class="home-card-image"[^>]*aria-hidden="true"[^>]*tabindex="-1"|tabindex="-1"[^>]*aria-hidden="true"/g) ?? []).length, 8);
+  assert.equal((html.match(/<div class="home-card-image"><span class="home-card-img rounded-md bg-muted"><\/span><\/div>/g) ?? []).length, 3);
+  assert.equal((html.match(/<a class="home-card-image"/g) ?? []).length, 5);
+  assert.doesNotMatch(html, /<a [^>]*>(<span[^>]*><\/span>)?<\/a>/);
+  assert.doesNotMatch(html, /aria-hidden="true"/);
 });
 
-test("the home card image link is always named, hidden and out of the tab order (#1313)", async () => {
+test("a home card without an image renders no empty image link (#1313)", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { HomeProductCardView } = await import("@/components/home-product-card-view");
-  const { SlideImages } = await import("@/components/home-slide-images");
   const model = { href: "/urun/p-1", title: "Ürün 1", categoryHref: "/katalog", categoryName: "Parça", amount: "1,00 ₺" };
-  const withImage = createElement(HomeProductCardView, { model: { ...model, image: "/img/1.jpg" } });
-  const armed = renderToStaticMarkup(withImage);
-  const deferred = renderToStaticMarkup(createElement(SlideImages.Provider, { value: false }, withImage));
   const noImage = renderToStaticMarkup(createElement(HomeProductCardView, { model }));
-  assert.ok(armed.includes("<img "));
-  assert.ok(deferred.includes("<span ") && !deferred.includes("<img "));
-  for (const html of [armed, deferred, noImage]) {
-    const tag = html.match(/<a [^>]*class="home-card-image"[^>]*>/)?.[0] ?? "";
-    assert.ok(tag.includes('aria-label="Ürün 1"') && tag.includes('aria-hidden="true"') && tag.includes('tabindex="-1"'), tag);
-  }
+  assert.doesNotMatch(noImage, /<a [^>]*class="home-card-image"/);
+  assert.match(noImage, /<div class="home-card-image"><\/div>/);
+  assert.doesNotMatch(noImage, /<a [^>]*>(<span[^>]*><\/span>)?<\/a>/);
+  const withImage = renderToStaticMarkup(createElement(HomeProductCardView, { model: { ...model, image: "/img/1.jpg" } }));
+  assert.match(withImage, /<a class="home-card-image" href="\/urun\/p-1"><img [^>]*alt="Ürün 1"/);
 });
 
 test("HomeGridPager renders tile logos on page 0 only; every tile link stays (#1289)", async () => {
