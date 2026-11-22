@@ -13,6 +13,7 @@ import { storeButton } from "@/components/store-button";
 import { cn } from "@/lib/utils";
 import { AuthField } from "./auth-field";
 import { RegisterForm } from "./register-form";
+import { currentReturnTarget } from "./return-target";
 
 export type AuthMode = "login" | "register" | "reset";
 
@@ -32,9 +33,10 @@ export function AuthModal({ ref, onClosed, next }: { ref: Ref<{ open: (mode: Aut
   // Kept after closing so the panel does not empty out during the closing animation.
   const [mode, setMode] = useState<AuthMode>("login");
   const [notice, setNotice] = useState("");
+  const [loginReturnTo, setLoginReturnTo] = useState("/");
   const popup = useRef<HTMLDivElement>(null);
 
-  useImperativeHandle(ref, () => ({ open(nextMode) { setNotice(""); setMode(nextMode); setOpen(true); } }), []);
+  useImperativeHandle(ref, () => ({ open(nextMode) { setLoginReturnTo(currentReturnTarget(next)); setNotice(""); setMode(nextMode); setOpen(true); } }), [next]);
 
   function close() { setOpen(false); }
   function switchMode(nextMode: AuthMode) { setNotice(""); setMode(nextMode); }
@@ -62,6 +64,7 @@ export function AuthModal({ ref, onClosed, next }: { ref: Ref<{ open: (mode: Aut
             <div className="mt-10 max-[700px]:mt-8">
               {notice && <p className="mt-0 mb-4 rounded-md border border-[#c9dfef] bg-[#f0f6fb] p-3 text-[13px] leading-5" role="status">{notice}</p>}
               {mode === "login" ? <form action={login} key="login">
+                <input type="hidden" name="next" value={loginReturnTo} />
                 <div className="grid gap-3"><AuthField name="email" label="E-posta adresi" type="email" autoComplete="username" /><AuthField name="password" label="Şifre" type="password" autoComplete="current-password" /></div>
                 <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "mt-1 px-0")} onClick={() => switchMode("reset")}>Şifreni mi unuttun?</Button>
                 <LoginSubmit />

@@ -10,20 +10,12 @@ import { storeErrorBox } from "@/components/store-alert-classes";
 import { cn } from "@/lib/utils";
 import { registerCustomer } from "@/modules/auth/customer-signup";
 import { membershipConsentText } from "@/modules/auth/membership-consent";
-import { safeReturnTo } from "@/modules/auth/return-to";
 import { initialSignupState } from "@/modules/auth/signup-state";
 import { AuthField } from "./auth-field";
+import { currentReturnTarget } from "./return-target";
 
 const legalLink = "font-medium text-brand hover:text-brand-strong hover:underline";
 const termsMissing = "Devam etmek için Üyelik ve Kullanım Koşulları'nı kabul et.";
-
-// Where a new account goes: the page the dialog was opened on, except the login page, which passes its own `next` on.
-function currentReturnTo() {
-  if (typeof window === "undefined") return "/";
-  const { pathname, search } = window.location;
-  if (pathname === "/giris") return safeReturnTo(new URLSearchParams(search).get("next")) ?? "/";
-  return pathname + search;
-}
 
 /**
  * Individual customer signup inside the auth dialog (#1254): logs the new account in and returns to `next`, or to the
@@ -32,7 +24,7 @@ function currentReturnTo() {
 export function RegisterForm({ next, onNavigate }: { next?: string; onNavigate: () => void }) {
   const [state, action, pending] = useActionState(registerCustomer, initialSignupState);
   // Rendered only inside the opened dialog, never on the server, so the current address is at hand.
-  const [returnTo] = useState(() => next ?? currentReturnTo());
+  const [returnTo] = useState(() => currentReturnTarget(next));
   const [termsError, setTermsError] = useState(false);
   const id = useId(), termsId = `${id}-terms`, errorId = `${id}-error`;
   const error = termsError ? termsMissing : state.status === "error" ? state.message : "";

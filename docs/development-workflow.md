@@ -90,3 +90,9 @@ Karar tarihi: 14 Kasım 2026 (11 Ekim 2026 Contabo kararının yerine geçer).
 - Mevcut canlı servisler, zamanlayıcılar, yedekler ve veriler bu karar nedeniyle durdurulmaz veya silinmez.
 
 Operasyon dosyaları tarihsel bilgi olarak [geçiş rehberinde](deployment-migration.md) korunur; buradaki güncel yayın politikası önceliklidir.
+
+## Bellek günlüğü ve ölçümü (#1262)
+
+- Üretimde sunucu başlarken bir `Memory limits: heapLimit=… total=… constrained=…` satırı, sonra her `MEMORY_LOG_INTERVAL_MS` (varsayılan 300000 = 5 dk; `0` kapatır) bir `Memory: rss=… heapUsed=… heapTotal=… external=… arrayBuffers=… caches=<giriş>/<ağırlık>` satırı yazar (`src/lib/memory-log.ts`). OOM ile öldürülen bir görev böylece iz bırakır: `rss − heapTotal − external` büyüyorsa sorun V8 yığını değil, yerel bellek/parçalanmadır; `heapUsed` yığın sınırına (`heapLimit`) yaklaşıyorsa yığındır.
+- `staleCache` değerleri (`catalog.ts`'teki kimlik dizileri) `weigh`/`maxWeight` ile toplam kimlik sayısına göre de sınırlıdır; yerel `MemoryStore` (CACHE_URL yok) 1000 girişle sınırlıdır.
+- `npm run harness:memory -- <taban-url> (--pid <pid> | --container <ad>) [--log <sunucu-günlüğü>] [--rounds 6] [--limit 300] [--concurrency 4] [--images 4] [--urls <dosya>]`: üretim derlemesini turlar halinde gezer (sitemap, yoksa marka→model→model×kategori→ürün bağlantıları ve sayfa başına birkaç `/_next/image`), her turdan sonra RSS ile sunucunun son `Memory:` satırını basar. `/katalog?q=` gezilmez. Sunucuyu `MEMORY_LOG_INTERVAL_MS=15000` ile başlatın.
