@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { clientEvidence } from "@/lib/client-address";
 import { mergeGuestCart } from "@/modules/store/cart";
 import { adoptGuestGarage } from "@/modules/store/garage";
+import { accountEmailClosedMessage, accountEmailEnabled } from "./account-email-switch";
 import { attemptKey, withinBudgets } from "./attempt-budget";
 import { completeEmailVerification, originHashOf, sendEmailVerification, setVerificationOrigin, VERIFY_COOKIE, VERIFY_ORIGIN_COOKIE, verifyCookieOptions } from "./email-verification";
 import type { ResetState } from "./reset-state";
@@ -26,6 +27,8 @@ const limits = { ip: 10, email: 3, global: 200, confirmIp: 20 };
  * one with the reset token issued in the same transaction.
  */
 export async function verifyEmail(prev: ResetState): Promise<ResetState> {
+  // Closed (#1303): the token is left as it is and the address stays unverified.
+  if (!accountEmailEnabled()) redirect("/giris");
   const { ip } = clientEvidence(await headers());
   if (ip && !await withinBudgets([[attemptKey("verify", "confirm:ip", ip), limits.confirmIp]])) return { status: "error", message: limitError, attempt: prev.attempt + 1 };
   const jar = await cookies();
@@ -51,6 +54,8 @@ export async function verifyEmail(prev: ResetState): Promise<ResetState> {
  * and the mail goes out after the response, so neither the text nor the timing tells them apart.
  */
 export async function resendVerification(prev: ResetState, form: FormData): Promise<ResetState> {
+  // Without account e-mail (#1303) no link could be sent: refused before any budget, cookie or mail.
+  if (!accountEmailEnabled()) return { status: "error", message: accountEmailClosedMessage, attempt: prev.attempt + 1 };
   const typed = form.get("email");
   const refuse = (message: string): ResetState => ({ status: "error", message, attempt: prev.attempt + 1, email: typeof typed === "string" ? typed.slice(0, 200) : "" });
   const parsed = resetRequestSchema.safeParse({ email: typed });

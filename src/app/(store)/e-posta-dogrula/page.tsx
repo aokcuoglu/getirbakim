@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { notFound } from "next/navigation";
+import { accountEmailEnabled } from "@/modules/auth/account-email-switch";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { privatePageRobots } from "@/modules/seo/crawlers";
 import { emailVerificationTarget, originHashOf, VERIFY_COOKIE, VERIFY_ORIGIN_COOKIE } from "@/modules/auth/email-verification";
@@ -18,6 +20,7 @@ export const metadata: Metadata = { title: "E-postanı doğrula", robots: privat
  * confirm; otherwise it offers a new link, and explains when the link was unusable.
  */
 export default async function EmailVerification({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  if (!accountEmailEnabled()) notFound();
   const { durum, next } = normalizeSearchParams(await searchParams);
   const jar = await cookies();
   const token = jar.get(VERIFY_COOKIE)?.value, nonce = jar.get(VERIFY_ORIGIN_COOKIE)?.value;
