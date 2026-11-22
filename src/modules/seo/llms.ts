@@ -4,7 +4,6 @@ import { guidePath, guides, guidesPath } from "@/content/guides";
 import { absoluteUrl, categoryPath, catalogPath, makesPath } from "./paths";
 
 const categories = [
-  ["Yedek parçalar", "yedek-parca"],
   ["Fren sistemi", "fren"],
   ["Filtreler", "filtre"],
   ["Yağlar ve sıvılar", "yag"],
