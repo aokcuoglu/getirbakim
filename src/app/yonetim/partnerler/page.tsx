@@ -198,7 +198,7 @@ export default async function Partners({ searchParams }: { searchParams: Promise
     <Card>
       <CardHeader>
         <CardTitle>Kesilen faturalar</CardTitle>
-        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre: kalan tutarı olan tüm faturalar ve tamamı ödenmiş son 100 fatura. Partnerin ödemeleri &quot;Tahsilat gir&quot; ile girilir; kısmi ödeme girilebilir, kalan tutardan fazlası girilemez. Vade tarihi = fatura tarihi + partnerin vadesi. Tahsilat ve vade yalnız takip içindir, cari limiti değiştirmez. Yanlış işaret gerekçeyle düzeltilir ya da geri alınır; tahsilatı olan faturanın işareti, tahsilatlar iptal edilmeden geri alınamaz. Tek bir siparişin işareti Siparişler sayfasından geri alınır. Dönemi kapatılmış aya tarihli faturalar düzeltilemez ve geri alınamaz; önce dönem gerekçeyle yeniden açılır.</CardDescription>
+        <CardDescription>Faturalandı işaretlenen siparişler fatura numarası ve tarihine göre: kalan tutarı olan tüm faturalar ve tamamı ödenmiş son 100 fatura. Partnerin ödemeleri &quot;Tahsilat gir&quot; ile girilir; kısmi ödeme girilebilir, kalan tutardan fazlası girilemez. Vade tarihi = fatura tarihi + partnerin vadesi. Tahsilat ve vade yalnız takip içindir, cari limiti değiştirmez. Yanlış işaret gerekçeyle düzeltilir ya da geri alınır; tahsilatı olan faturanın işareti, tahsilatlar iptal edilmeden geri alınamaz. Tek bir siparişin işareti Siparişler sayfasından geri alınır. Kapalı aya tarihli fatura değiştirilemez.</CardDescription>
       </CardHeader>
       <CardContent>
         {invoices.length ? <Table controls={false}>

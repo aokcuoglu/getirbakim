@@ -36,7 +36,8 @@ const form = (values: Record<string, string>) => {
 const newRef = () => `F-${randomUUID().slice(0, 8)}`;
 const closedMonth = "2026-10";
 const closedDay = "2026-10-15";
-const openDay = "2026-09-15";
+/** A day in the month after the closed one, which stays open (closes are contiguous, so earlier months with movements close first). */
+const openDay = "2026-11-05";
 
 /** A delivered partner order, invoiced under `ref` on `invoiceDay` (Istanbul) unless ref is null. */
 async function order(totalKurus: number, ref: string | null, invoiceDay = closedDay, partner = "bakimx") {
@@ -130,7 +131,7 @@ test("while a month is closed every invoice and payment change in it is refused 
   const first = await order(400, single), second = await order(600, single);
   await order(800, old, openDay);
   const advance = await payment(old, openDay, 300, "2026-10-20");
-  const earlier = await payment(old, openDay, 100, "2026-09-20");
+  const earlier = await payment(old, openDay, 100, "2026-11-06");
   await order(250, null);
   await close();
   const before = await snapshot();
@@ -151,7 +152,7 @@ test("while a month is closed every invoice and payment change in it is refused 
   assert.deepEqual(await collections.voidInvoicePayment({ paymentId: advance, reason: "Yanlış girildi", adminId: admin }), { status: "closed", period: closedMonth, partner: "bakimx" });
   assert.deepEqual(await snapshot(), before);
 
-  // A November payment against the closed month's invoice is recorded; a September payment against an open invoice is voided.
+  // A November payment against the closed month's invoice is recorded; another November payment is voided.
   assert.equal((await pay(ref, closedDay, 500, "2026-11-01", { totalKurus: 1000, collectedKurus: 0 })).status, "recorded");
   assert.deepEqual(await collections.voidInvoicePayment({ paymentId: earlier, reason: "Yanlış girildi", adminId: admin }), { status: "voided", partner: "bakimx" });
 
@@ -173,6 +174,39 @@ test("another partner's same month stays open", async () => {
   assert.equal((await pay(ref, closedDay, 100, "2026-10-20", { totalKurus: 1000, collectedKurus: 0 }, "other")).status, "recorded");
   assert.equal((await limits.changePartnerInvoice({ partner: "other", invoiceRef: ref, invoiceDate: closedDay, action: "correct", newInvoiceRef: newRef(),
     newInvoiceDate: "2026-10-16", reason: "Numara yanlış yazıldı", adminId: admin, expected: { count: 1, totalKurus: 1000 } })).status, "corrected");
+});
+
+test("closes are contiguous: an earlier open month with movements blocks a close, a later closed month blocks a reopen", async () => {
+  // August has an invoice, September nothing, a voided payment dated July counts as a movement too.
+  await order(500, newRef(), "2026-08-10");
+  await payment(newRef(), "2026-07-01", 100, "2026-07-03", "bakimx", true);
+  assert.deepEqual(await close(), { status: "gap", period: "2026-07" });
+  assert.deepEqual(await close("2026-08"), { status: "gap", period: "2026-07" });
+  assert.equal(await count("partner_period_closes"), 0);
+  assert.equal(await count("partner_period_events"), 0);
+  assert.deepEqual(await close("2026-07"), { status: "closed" });
+  assert.deepEqual(await close(), { status: "gap", period: "2026-08" });
+  assert.deepEqual(await close("2026-08"), { status: "closed" });
+  // September has no movement: it does not block October.
+  assert.deepEqual(await close(), { status: "closed" });
+  // Another partner's movements never block.
+  await order(500, newRef(), "2026-06-10", "other");
+  assert.deepEqual(await close("2026-09"), { status: "closed" });
+
+  assert.deepEqual(await reopen("2026-08"), { status: "later", period: closedMonth });
+  assert.deepEqual(await reopen("2026-07"), { status: "later", period: closedMonth });
+  assert.equal(await count("partner_period_closes"), 4);
+  assert.deepEqual(await reopen(closedMonth), { status: "reopened" });
+  assert.deepEqual(await reopen("2026-08"), { status: "later", period: "2026-09" });
+  assert.deepEqual(await reopen("2026-09"), { status: "reopened" });
+  assert.deepEqual(await reopen("2026-08"), { status: "reopened" });
+  assert.equal(await count("partner_period_events"), 7);
+
+  signedIn = admin;
+  assert.deepEqual(await actions.closePartnerPeriod({ status: "idle" }, form({ partner: "bakimx", period: closedMonth, note: "" })),
+    { status: "error", message: "Önce Ağustos 2026 dönemini kapatın; bu partnerin o ayda hareketi var." });
+  assert.deepEqual(await actions.reopenPartnerPeriod({ status: "idle" }, form({ partner: "bakimx", period: "2026-06", reason: "Fatura düzeltmesi" })),
+    { status: "error", message: "Önce Temmuz 2026 dönemini yeniden açın; sonraki kapalı dönemler önce açılmalı." });
 });
 
 test("closing a period waits for the partner's order lock", async () => {
@@ -208,6 +242,8 @@ test("the statement: opening and closing balances as of the period's end, voided
   // Paid after the period's end: not in October's statement, not reducing the October invoice's collected amount.
   await payment(oct, "2026-10-01", 500, "2026-11-02");
   await payment(nov, "2026-11-01", 700, "2026-10-31");
+  assert.deepEqual(await close(), { status: "gap", period: "2026-09" });
+  assert.deepEqual(await close("2026-09"), { status: "closed" });
   await close();
 
   const statement = await periods.partnerStatement("bakimx", closedMonth, "2026-11-22");
@@ -258,6 +294,20 @@ test("the statement CSV: BOM, ';' and CRLF, headers, comma decimals, quoted and 
   assert.ok(lines.includes("10.10.2026;=\"00123\";01.10.2026;Çek;234,50;Geçerli;;\"Çek; no 5\""));
   assert.ok(lines.includes("11.10.2026;=\"00123\";01.10.2026;Diğer;1,00;İptal edildi;Yanlış girildi;'=HYPERLINK(1)"));
   assert.ok(lines.includes("Toplam (geçerli);;;;234,50;;;"));
+});
+
+test("the statement CSV formula-guards invoice numbers that are not numeric codes", () => {
+  const invoice = (invoiceRef: string) => ({ invoiceRef, invoiceDate: "2026-10-01", count: 1, totalKurus: 100, collectedKurus: 0, state: "open" as const, dueDate: null, balanceKurus: 100 });
+  const csv = statementCsv.buildPartnerStatementCsv({
+    partner: "bakimx", period: closedMonth, periodLabel: "Ekim 2026", asOf: "2026-10-31", issuedOn: "2026-11-22", termDays: null, close: null,
+    openingKurus: 0, closingKurus: 200, invoices: [invoice("=HYPERLINK(1)"), invoice("-2026/14")],
+    payments: [{ id: "1", invoiceRef: "+A;1", invoiceDate: "2026-10-01", amountKurus: 100, paidOn: "2026-10-10", method: "bank_transfer", note: "", voidedAt: null, voidReason: null }],
+  });
+  const lines = csv.slice(1).split("\r\n");
+  assert.ok(lines.includes("'=HYPERLINK(1);01.10.2026;1;1,00;0,00;1,00;;Açık"));
+  assert.ok(lines.includes("'-2026/14;01.10.2026;1;1,00;0,00;1,00;;Açık"));
+  assert.ok(lines.includes("10.10.2026;\"'+A;1\";01.10.2026;Havale/EFT;1,00;Geçerli;;"));
+  assert.ok(lines.includes("Dönem durumu;Açık"));
 });
 
 test("inputs: the month shape, no future month, the reopen reason and the period helpers", () => {

@@ -281,6 +281,7 @@ export async function closePartnerPeriod(_previous: PartnerPeriodResult, form: F
   const { partner, period, note } = input.data;
   const outcome = await closePeriod({ partner, period, note, adminId: admin.id });
   if (outcome.status === "future") return { status: "error", errors: { period: ["Gelecek ay kapatılamaz."] } };
+  if (outcome.status === "gap") return { status: "error", message: `Önce ${periodLabel(outcome.period)} dönemini kapatın; bu partnerin o ayda hareketi var.` };
   revalidatePath("/yonetim/partnerler");
   revalidatePath("/yonetim/siparisler");
   // "already": someone closed it meanwhile; the month is closed either way.
@@ -299,6 +300,7 @@ export async function reopenPartnerPeriod(_previous: PartnerPeriodResult, form: 
   if (!codes.includes(input.data.partner)) return { status: "error", message: "Partner bulunamadı. Sayfayı yenileyin." };
   const { partner, period, reason } = input.data;
   const outcome = await reopenPeriod({ partner, period, reason, adminId: admin.id });
+  if (outcome.status === "later") return { status: "error", message: `Önce ${periodLabel(outcome.period)} dönemini yeniden açın; sonraki kapalı dönemler önce açılmalı.` };
   revalidatePath("/yonetim/partnerler");
   if (outcome.status === "nothing") return { status: "error", message: "Bu dönem zaten açık. Sayfayı yenileyin." };
   revalidatePath("/yonetim/siparisler");

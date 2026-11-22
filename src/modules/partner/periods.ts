@@ -11,6 +11,8 @@ import type { PaymentMethod } from "./payment-methods";
  * corrected or undone (limits.ts) and payments paid in it (paid_on) are not recorded or voided (collections.ts); the
  * guards (period-guard.ts) and closing/reopening run under the partner's order lock, so a close waits for a running
  * change and the change sees either state. A reopen needs a reason; every close and reopen leaves an event row.
+ * Closes are contiguous: a month is closed only when every earlier month with movements (an invoice dated in it or a
+ * payment paid in it, voided ones too) is closed, and reopened only when no later month is closed.
  * The statement reads one month as of its end: opening/closing balance = invoice totals dated before the month's
  * start/end − active payments paid before it (voided ones never count; a negative balance is an advance).
  */
@@ -20,9 +22,12 @@ type Connection = Pick<PoolClient, "query">;
 const periodDay = (period: string) => `${period}-01`;
 
 export type PeriodCloseRequest = { partner: string; period: string; note: string; adminId: string | null };
-export type PeriodCloseOutcome = { status: "closed" | "already" | "future" };
+export type PeriodCloseOutcome = { status: "closed" | "already" | "future" } | { status: "gap"; period: string };
 
-/** Closes a month for a partner; idempotent (an already closed month leaves no second event). A future month is refused. */
+/**
+ * Closes a month for a partner; idempotent (an already closed month leaves no second event). A future month is refused,
+ * and so is a month with an earlier, still open month that has movements (`gap`, the earliest such month).
+ */
 export async function closePeriod(request: PeriodCloseRequest): Promise<PeriodCloseOutcome> {
   const client = await db.connect();
   try {
@@ -30,6 +35,12 @@ export async function closePeriod(request: PeriodCloseRequest): Promise<PeriodCl
     await lockPartnerOrders(client, request.partner);
     const { rows } = await client.query<{ future: boolean }>("SELECT $1::text>to_char(now() AT TIME ZONE 'Europe/Istanbul','YYYY-MM') AS future", [request.period]);
     if (rows[0]?.future) { await client.query("ROLLBACK"); return { status: "future" }; }
+    const gap = await client.query<{ period: string }>(`SELECT to_char(m,'YYYY-MM') AS period FROM (
+       SELECT date_trunc('month',${invoicedDaySql})::date AS m FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND o.partner_invoiced_at IS NOT NULL
+       UNION SELECT date_trunc('month',paid_on)::date FROM partner_invoice_payments WHERE partner_code=$1) moved
+      WHERE m<$2::date AND NOT EXISTS (SELECT 1 FROM partner_period_closes c WHERE c.partner_code=$1 AND c.period=moved.m) ORDER BY m LIMIT 1`,
+    [request.partner, periodDay(request.period)]);
+    if (gap.rows[0]) { await client.query("ROLLBACK"); return { status: "gap", period: gap.rows[0].period }; }
     const inserted = await client.query(`INSERT INTO partner_period_closes(partner_code,period,closed_by) VALUES($1,$2::date,$3)
       ON CONFLICT(partner_code,period) DO NOTHING`, [request.partner, periodDay(request.period), request.adminId]);
     if (inserted.rowCount) {
@@ -47,14 +58,20 @@ export async function closePeriod(request: PeriodCloseRequest): Promise<PeriodCl
 }
 
 export type PeriodReopenRequest = { partner: string; period: string; reason: string; adminId: string | null };
-export type PeriodReopenOutcome = { status: "reopened" | "nothing" };
+export type PeriodReopenOutcome = { status: "reopened" | "nothing" } | { status: "later"; period: string };
 
-/** Reopens a closed month with a reason; an open month finds nothing and leaves no event. */
+/**
+ * Reopens a closed month with a reason; an open month finds nothing and leaves no event. Refused while a later month is
+ * closed (`later`, the latest such month): closes are undone from the newest back.
+ */
 export async function reopenPeriod(request: PeriodReopenRequest): Promise<PeriodReopenOutcome> {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
     await lockPartnerOrders(client, request.partner);
+    const later = await client.query<{ period: string }>(`SELECT to_char(period,'YYYY-MM') AS period FROM partner_period_closes
+      WHERE partner_code=$1 AND period>$2::date ORDER BY period DESC LIMIT 1`, [request.partner, periodDay(request.period)]);
+    if (later.rows[0]) { await client.query("ROLLBACK"); return { status: "later", period: later.rows[0].period }; }
     const deleted = await client.query("DELETE FROM partner_period_closes WHERE partner_code=$1 AND period=$2::date RETURNING 1",
       [request.partner, periodDay(request.period)]);
     if (deleted.rowCount) {

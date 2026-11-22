@@ -62,7 +62,8 @@ function CloseForm({ partner, period, current, onSaved }: FormProps & { current:
     <input type="hidden" name="partner" value={partner}/>
     <input type="hidden" name="period" value={period}/>
     <Alert variant="warning" role="status"><TriangleAlert aria-hidden="true"/><AlertDescription>
-      <p>Kapatılan aya tarihli faturalandı işareti, fatura düzeltme/geri alma ve ödeme tarihi bu ayda olan tahsilat girişi/iptali reddedilir. Sonraki aylara tarihli tahsilatlar girilebilir.</p>
+      <p>Bu aya tarihli faturalar işaretlenemez, düzeltilemez ya da geri alınamaz. Ödeme tarihi bu ayda olan tahsilatlar girilemez ya da iptal edilemez. Sonraki aylara tarihli tahsilatlar girilebilir.</p>
+      <p>Dönemler sırayla kapatılır: hareketi olan önceki aylar önce kapatılmalı.</p>
       {current && <p>Bu ay henüz bitmedi; kapatırsanız bugün tarihli fatura ve tahsilat girilemez.</p>}
     </AlertDescription></Alert>
     <fieldset disabled={pending} className="min-w-0"><FieldGroup>
@@ -121,9 +122,10 @@ function ReopenForm({ partner, period, onSaved }: FormProps) {
         {errors.reason && <FieldError id={`${id}-reason-error`}>{errors.reason[0]}</FieldError>}
       </Field>
     </FieldGroup></fieldset>
+    {errors.period && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{errors.period[0]}</AlertDescription></Alert>}
     {result.message && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{result.message}</AlertDescription></Alert>}
     <DialogFooter>
-      <Button type="submit" variant="destructive" disabled={pending}>
+      <Button type="submit" disabled={pending}>
         {pending ? <Spinner data-icon="inline-start" aria-hidden="true"/> : <LockOpen data-icon="inline-start" aria-hidden="true"/>}
         {pending ? "Kaydediliyor…" : "Dönemi yeniden aç"}
       </Button>
