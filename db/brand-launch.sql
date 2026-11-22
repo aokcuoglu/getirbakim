@@ -38,3 +38,11 @@ DO $$ BEGIN
   CREATE TRIGGER account_term_acceptance_immutable BEFORE UPDATE ON account_term_acceptances FOR EACH ROW EXECUTE FUNCTION account_term_acceptance_immutable();
  END IF;
 END $$;
+-- Individual customers applying for a service account (#1259). One open request per account; the row is removed when
+-- an admin approves (the same account becomes a service account) or rejects it (it stays a customer). On the first
+-- deploy the foreign key takes SHARE ROW EXCLUSIVE on accounts once; later runs find the table and take no lock.
+CREATE TABLE IF NOT EXISTS service_upgrade_requests (
+ account_id uuid PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+ service_name text NOT NULL, contact_name text NOT NULL, phone text NOT NULL, city text NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
