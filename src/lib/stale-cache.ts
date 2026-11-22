@@ -1,7 +1,11 @@
 import "server-only";
 
 type Entry<T> = { value: Promise<T>; loadedAt: number; refreshing: boolean; epoch?: number; weight: number };
-const instances = new Set<{ size: () => number; weight: () => number }>();
+type Instance = { size: () => number; weight: () => number };
+// Next bundles instrumentation.ts (which logs the stats) apart from the route handlers (which create the caches), so a
+// module-level set would be empty where it is read.
+const globalInstances = globalThis as typeof globalThis & { __staleCacheInstances?: Set<Instance> };
+const instances = (globalInstances.__staleCacheInstances ??= new Set<Instance>());
 /** Entries and summed weight over every stale cache of this process, for the memory log line (#1262). */
 export function staleCacheStats() {
   let entries = 0, weight = 0;
