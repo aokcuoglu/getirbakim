@@ -1,8 +1,9 @@
-// Usage: node scripts/harness/measure-css.mjs [file.css ...] [--next]
+// Usage: node scripts/harness/measure-css.mjs [file.css ...] [--next] [--breakdown]
 // Stylesheet weight probe (#1027), no dependencies beyond the project's own PostCSS + Tailwind: compiles each sheet the
 // way the build does (minified) and prints its raw and gzip -9 size. Defaults to the storefront sheet
 // (src/app/globals.css) and the workspace sheet (src/app/admin.css). --next also lists the CSS chunks of the last
 // `npm run build` (.next/static/chunks/*.css) and marks the one carrying the /yonetim sidebar utilities.
+// --breakdown prints bytes per top-level block (@layer theme/base/components/utilities, @property, other) of each sheet.
 // Not part of CI; scripts/test-stylesheet-scope.ts uses `compileCss` for its output checks.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -25,10 +26,31 @@ export { adminSentinel };
 
 const kb = (bytes) => (bytes / 1024).toFixed(1);
 
+/** Raw bytes per top-level block of a minified sheet, keyed by `@layer <name>`, `@property` or `other`. */
+export function breakdown(css) {
+  const sizes = new Map();
+  let depth = 0;
+  let start = 0;
+  for (let index = 0; index < css.length; index++) {
+    const char = css[index];
+    if (char === "{") depth++;
+    else if (char === "}" || char === ";") {
+      if (char === "}") depth--;
+      if (depth > 0 || (char === ";" && depth !== 0)) continue;
+      const block = css.slice(start, index + 1);
+      start = index + 1;
+      const head = block.trimStart().match(/^@(layer\s+[\w-]+(?=\s*\{)|property)/)?.[1]?.replace(/\s+/, " ") ?? "other";
+      sizes.set(head, (sizes.get(head) ?? 0) + Buffer.byteLength(block));
+    }
+  }
+  return sizes;
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const next = argv.includes("--next");
-  const files = argv.filter((arg) => arg !== "--next");
+  const showBreakdown = argv.includes("--breakdown");
+  const files = argv.filter((arg) => !arg.startsWith("--"));
   const rows = [];
   for (const file of files.length ? files : ["src/app/globals.css", "src/app/admin.css"]) {
     if (!existsSync(file)) {
@@ -37,6 +59,7 @@ async function main() {
     }
     const css = await compileCss(file);
     rows.push([file, kb(Buffer.byteLength(css)), kb(gzipSize(css)), css.includes(adminSentinel) ? "admin" : ""]);
+    if (showBreakdown) for (const [name, bytes] of breakdown(css)) rows.push([`  ${name}`, kb(bytes), "", ""]);
   }
   if (next) {
     const dir = ".next/static/chunks";

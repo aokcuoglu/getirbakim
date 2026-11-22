@@ -93,7 +93,8 @@ test("compiled sheets: storefront stays scoped, the workspace sheet is a superse
   assert.ok(!/#0f62fe/i.test(store), "globals.css carries the IBM Carbon tokens");
   assert.match(store, /\.product-card\b/);
   assert.match(store, /\.tap-44\b/);
-  assert.ok(Buffer.byteLength(store) <= 270 * 1024, `globals.css is ${(Buffer.byteLength(store) / 1024).toFixed(1)} KB (budget 270 KB)`);
+  assert.ok(Buffer.byteLength(store) <= 248 * 1024, `globals.css is ${(Buffer.byteLength(store) / 1024).toFixed(1)} KB (budget 248 KB)`);
+  assert.doesNotMatch(store, /\.dark\b/, "add the new dark: class to @source not inline in globals.css (the storefront never sets .dark)");
 
   assert.ok(admin.includes(adminSentinel), "admin.css carries the sidebar utilities");
   assert.match(admin, /:root:has\(\.admin-app\)\{/);
@@ -103,4 +104,14 @@ test("compiled sheets: storefront stays scoped, the workspace sheet is a superse
   const adminClasses = classSelectors(admin);
   const missing = [...classSelectors(layer(store, "utilities"))].filter(name => !adminClasses.has(name));
   assert.deepEqual(missing, [], "admin.css must contain every storefront utility (it stays loaded after client navigation)");
+});
+
+test("every dark: class left out of the storefront sheet is still emitted for the workspace", async () => {
+  const list = globals.match(/@source not inline\("([^"]+)"\);/)?.[1];
+  assert.ok(list, "globals.css lists the workspace-only dark: classes in one @source not inline line");
+  const admin = classSelectors(await compileCss("src/app/admin.css"));
+  const names = list.split(" ").filter(Boolean);
+  assert.ok(names.every(name => name.startsWith("dark:")), "only dark: classes belong in that list");
+  const missing = names.filter(name => !admin.has(`.${name.replace(/[^A-Za-z0-9_-]/g, "\\$&")}`));
+  assert.deepEqual(missing, [], "admin.css must still emit these (remove stale entries from @source not inline)");
 });
