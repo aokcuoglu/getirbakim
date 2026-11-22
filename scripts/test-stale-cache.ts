@@ -94,3 +94,45 @@ test("staleCacheStats sums over instances", async () => {
   assert.equal(stats.entries - start.entries, 2);
   assert.equal(stats.weight - start.weight, 7);
 });
+
+const pause = (ms: number) => new Promise(done => setTimeout(done, ms));
+
+test("a refresh that finishes before a slow first load leaves the total at the final weight", async () => {
+  const start = before();
+  const cache = staleCache<string[]>(5, 100, { ...weighed, maxWeight: 1000 });
+  const first = cache("k", async () => { await pause(40); return ids(10); });
+  await pause(10);
+  await cache("k", async () => ids(7));
+  await first;
+  await pause(10);
+  const stats = staleCacheStats();
+  assert.equal(stats.entries - start.entries, 1);
+  assert.equal(stats.weight - start.weight, 10, "the total equals the entry's final weight, not the sum of both loads");
+});
+
+test("a pending entry is not evicted by the weight bound", async () => {
+  const cache = staleCache<string[]>(60_000, 100, { ...weighed, maxWeight: 5 });
+  let release = () => {};
+  let slowLoads = 0;
+  const slow = () => { slowLoads++; return new Promise<string[]>(done => { release = () => done(ids(1)); }); };
+  const pending = cache("slow", slow);
+  await cache("a", async () => ids(4));
+  await cache("b", async () => ids(4));
+  void cache("slow", slow);
+  assert.equal(slowLoads, 1, "the pending key is still shared, not loaded again");
+  release();
+  await pending;
+});
+
+test("a restored entry after a failed epoch reload respects the bound", async () => {
+  const start = before();
+  let epoch = 1;
+  const cache = staleCache<string[]>(60_000, 100, { ...weighed, maxWeight: 10, epoch: async () => epoch });
+  await cache("a", async () => ids(6));
+  await cache("b", async () => ids(4));
+  epoch = 2;
+  const original = console.error;
+  console.error = () => {};
+  try { await cache("a", async () => { throw new Error("boom"); }); } finally { console.error = original; }
+  assert.ok(staleCacheStats().weight - start.weight <= 10);
+});

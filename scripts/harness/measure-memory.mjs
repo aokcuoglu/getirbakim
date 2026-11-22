@@ -18,10 +18,14 @@ const pid = flag("--pid");
 const container = flag("--container");
 const logFile = flag("--log");
 const urlsFile = flag("--urls");
-const rounds = Math.max(1, Number(flag("--rounds", 6)));
-const limit = Math.max(1, Number(flag("--limit", 300)));
-const concurrency = Math.max(1, Number(flag("--concurrency", 4)));
-const images = Math.max(0, Number(flag("--images", 4)));
+const count = (name, fallback, min) => {
+  const value = Number(flag(name, fallback));
+  return Number.isFinite(value) ? Math.max(min, Math.floor(value)) : fallback;
+};
+const rounds = count("--rounds", 6, 1);
+const limit = count("--limit", 300, 1);
+const concurrency = count("--concurrency", 4, 1);
+const images = count("--images", 4, 0);
 const [base] = argv;
 if (!base || (!pid && !container)) {
   console.error("Usage: node scripts/harness/measure-memory.mjs <base-url> (--pid <pid> | --container <name>) [--log <server-log>] [--rounds N] [--limit N] [--concurrency N] [--images N] [--urls <file>]");

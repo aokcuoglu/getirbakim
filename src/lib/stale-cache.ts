@@ -3,13 +3,19 @@ import "server-only";
 type Entry<T> = { value: Promise<T>; loadedAt: number; refreshing: boolean; epoch?: number; weight: number };
 type Instance = { size: () => number; weight: () => number };
 // Next bundles instrumentation.ts (which logs the stats) apart from the route handlers (which create the caches), so a
-// module-level set would be empty where it is read.
-const globalInstances = globalThis as typeof globalThis & { __staleCacheInstances?: Set<Instance> };
-const instances = (globalInstances.__staleCacheInstances ??= new Set<Instance>());
+// module-level set would be empty where it is read. Weak references: a dev re-evaluation of a module must not pin the
+// caches of its previous copy.
+const globalInstances = globalThis as typeof globalThis & { __staleCacheInstances?: Set<WeakRef<Instance>> };
+const instances = (globalInstances.__staleCacheInstances ??= new Set<WeakRef<Instance>>());
 /** Entries and summed weight over every stale cache of this process, for the memory log line (#1262). */
 export function staleCacheStats() {
   let entries = 0, weight = 0;
-  for (const instance of instances) { entries += instance.size(); weight += instance.weight(); }
+  for (const ref of instances) {
+    const instance = ref.deref();
+    if (!instance) { instances.delete(ref); continue; }
+    entries += instance.size();
+    weight += instance.weight();
+  }
   return { entries, weight };
 }
 /** A value read from a store, or loaded now (`ageMs` undefined: its age is counted from the load). */
@@ -29,7 +35,10 @@ type Options<T> = {
   maxStaleMs?: number;
   /** Size of a loaded value (e.g. its id count). With `maxWeight`, the oldest entries go once the total exceeds it (#1262). */
   weigh?: (value: T) => number;
-  /** Total weight kept; the entry just loaded always stays, even when it alone exceeds this. */
+  /**
+   * Total weight kept. The entry just loaded always stays, so a single value heavier than this evicts every other
+   * entry and is itself evicted by the next load of another key. Entries still loading are never evicted.
+   */
   maxWeight?: number;
 };
 
@@ -51,7 +60,8 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
   const { epoch, store, maxStaleMs = ttlMs, weigh, maxWeight } = options;
   const entries = new Map<string, Entry<T>>();
   let totalWeight = 0;
-  instances.add({ size: () => entries.size, weight: () => totalWeight });
+  const instance: Instance = { size: () => entries.size, weight: () => totalWeight };
+  instances.add(new WeakRef(instance));
   const drop = (key: string) => {
     const entry = entries.get(key);
     if (!entry) return;
@@ -64,7 +74,8 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     if (maxWeight === undefined) return;
     for (const key of entries.keys()) {
       if (totalWeight <= maxWeight || entries.size <= 1) return;
-      if (key !== keep) drop(key);
+      // A pending entry (weight 0) frees nothing, and dropping it would make its next reader load the value again.
+      if (key !== keep && entries.get(key)!.weight > 0) drop(key);
     }
   };
   // Reads the store first when `persist`; a stored value is adopted when its epoch is current and it is at most `maxAgeMs` old.
@@ -104,8 +115,10 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
         if (loaded.ageMs > ttlMs && entries.get(key) === fresh) refresh(key, fresh, load, epoch ?? 0, persist);
       }
       if (entries.get(key) === fresh) {
-        fresh.weight = measure(loaded.value);
-        totalWeight += fresh.weight;
+        // A refresh of this pending entry may have set a weight already: count only the difference.
+        const weight = measure(loaded.value);
+        totalWeight += weight - fresh.weight;
+        fresh.weight = weight;
         trim(key);
       }
       return loaded.value;
@@ -115,7 +128,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
       // A failed reload after an epoch change serves the old value; the old entry's epoch makes the next request try again.
       fresh.value = fresh.value.catch(error => {
         console.error("Stale cache reload failed; serving the previous value", error);
-        if (entries.get(key) === fresh) { drop(key); entries.set(key, previous); totalWeight += previous.weight; }
+        if (entries.get(key) === fresh) { drop(key); entries.set(key, previous); totalWeight += previous.weight; trim(key); }
         return previous.value;
       });
     } else {
@@ -138,6 +151,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     return entry.value;
   };
   return (key: string, load: () => Promise<T>, { persist = true }: { persist?: boolean } = {}): Promise<T> => {
+    void instance; // keeps the instance (and its weak registration) alive as long as the cache is used
     const shared = persist && Boolean(store);
     return epoch ? epoch().then(current => read(key, load, current, shared)) : read(key, load, undefined, shared);
   };
