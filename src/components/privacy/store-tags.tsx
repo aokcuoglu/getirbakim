@@ -20,6 +20,6 @@ export async function StoreTags({ children }: { children: React.ReactNode }) {
   const plausible = account?.role === "admin" ? null : plausibleConfig();
   return <>
     {plausible && <script async id="plausible-analytics" src={PLAUSIBLE_SCRIPT_PATH} data-domain={plausible.domain} data-api={PLAUSIBLE_EVENT_PATH} />}
-    <TagManager ga4={ga4} ads={ads} metaPixel={metaPixel} customerType={customerType} consent={consent}>{children}</TagManager>
+    <TagManager ga4={ga4} ads={ads} metaPixel={metaPixel} anonymousStats={plausible !== null} customerType={customerType} consent={consent}>{children}</TagManager>
   </>;
 }

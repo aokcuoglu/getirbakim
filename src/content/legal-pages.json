@@ -3373,7 +3373,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Çerez kullanmayan anonim ziyaret istatistikleri: meşru menfaat (KVKK madde 5/2(f)); IP adresi saklanmaz, ayrıntılar Çerez Politikası’ndadır."
+                  "Çerez kullanmayan anonim ziyaret istatistikleri: meşru menfaat (KVKK madde 5/2(f)); istatistik kayıtlarında IP adresi tutulmaz, ayrıntılar Çerez Politikası’ndadır."
                 ]
               }
             ]
@@ -4274,7 +4274,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Çerez kullanmayan anonim ziyaret istatistikleri: meşru menfaat (KVKK madde 5/2(f)); IP adresi saklanmaz, ayrıntılar Çerez Politikası’ndadır."
+                  "Çerez kullanmayan anonim ziyaret istatistikleri: meşru menfaat (KVKK madde 5/2(f)); istatistik kayıtlarında IP adresi tutulmaz, ayrıntılar Çerez Politikası’ndadır."
                 ]
               }
             ]
@@ -4853,7 +4853,14 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Çerezsiz ziyaret istatistikleri: Sitenin işleyişini ve trafiğini anlamak için, kendi sunucularımızda (AWS Frankfurt) çalışan Plausible Community Edition yazılımıyla anonim ve toplu ziyaret istatistikleri tutulur. Bu ölçüm tarayıcınıza çerez yazmaz, yerel depolama kullanmaz ve sizi başka sitelerde izlemez. Ziyaret edilen sayfa, yönlendiren adres, tarayıcı, işletim sistemi, cihaz türü ve yaklaşık konum (ülke/şehir) kaydedilir. IP adresiniz saklanmaz; yalnızca aynı gün içindeki ziyaretleri tekilleştirmek için her gün yenilenen bir anahtarla geri döndürülemez bir özete dönüştürülür ve ertesi gün eşleştirilemez. Veriler üçüncü taraflarla paylaşılmaz, reklam veya profilleme için kullanılmaz. Bu işleme, KVKK madde 5/2(f) kapsamında ve Kurumun Çerez Uygulamaları Hakkında Rehberi’nde açıklanan birinci taraf analitik ölçütü çerçevesinde açık rıza gerektirmeden yürütülür; çerez tercihlerinizden bağımsızdır."
+              "Çerezsiz ziyaret istatistikleri: Sitenin işleyişini ve trafiğini anlamak için, kendi sunucularımızda (AWS Frankfurt) çalışan Plausible Community Edition yazılımıyla anonim ve toplu ziyaret istatistikleri tutulur. Bu ölçüm tarayıcınıza çerez yazmaz, yerel depolama kullanmaz ve sizi başka sitelerde izlemez. Ziyaret edilen sayfa, yönlendiren adres, tarayıcı, işletim sistemi, cihaz türü ve yaklaşık konum (ülke/şehir) kaydedilir. İstatistik kayıtlarında IP adresi tutulmaz; yalnızca aynı gün içindeki ziyaretleri tekilleştirmek için her gün yenilenen bir anahtarla geri döndürülemez bir özete dönüştürülür ve ertesi gün eşleştirilemez. Veriler üçüncü taraflarla paylaşılmaz, reklam veya profilleme için kullanılmaz. Bu işleme, KVKK madde 5/2(f) kapsamında ve Kurumun Çerez Uygulamaları Hakkında Rehberi’nde açıklanan birinci taraf analitik ölçütü çerçevesinde açık rıza gerektirmeden yürütülür; çerez tercihlerinizden bağımsızdır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Sitenin güvenliği ve yasal yükümlülükler için altyapı sağlayıcımızın sunucularında erişim kayıtları (IP adresi, tarih-saat, istenen adres, tarayıcı bilgisi) tutulur ve en fazla iki yıl saklanır; bu kayıtlar istatistik veya pazarlama amacıyla kullanılmaz."
             ]
           },
           {

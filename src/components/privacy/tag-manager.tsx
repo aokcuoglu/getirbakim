@@ -7,8 +7,8 @@ import { consentSnapshot, parseConsent, subscribeConsent } from "@/lib/cookie-co
 import type { AdsConfig } from "@/modules/analytics/config";
 import { TAG_READY_EVENT, bootTags, stopTags, track } from "@/modules/analytics/track";
 
-type Services = { analytics: boolean; marketing: boolean; marketingNames: string[] };
-const ServicesContext = createContext<Services>({ analytics: false, marketing: false, marketingNames: [] });
+type Services = { analytics: boolean; marketing: boolean; marketingNames: string[]; anonymousStats: boolean };
+const ServicesContext = createContext<Services>({ analytics: false, marketing: false, marketingNames: [], anonymousStats: false });
 
 /** Which consent categories have a real service behind them; the banner words its options from this. */
 export const useConsentServices = () => useContext(ServicesContext);
@@ -77,8 +77,8 @@ function PageViewTracker() {
   return null;
 }
 
-export function TagManager({ ga4, ads, metaPixel, customerType, consent: serverConsent, children }: {
-  ga4: string | null; ads: AdsConfig | null; metaPixel: string | null; customerType: string; consent: string | null;
+export function TagManager({ ga4, ads, metaPixel, anonymousStats, customerType, consent: serverConsent, children }: {
+  ga4: string | null; ads: AdsConfig | null; metaPixel: string | null; anonymousStats: boolean; customerType: string; consent: string | null;
   children: React.ReactNode;
 }) {
   const raw = useSyncExternalStore(subscribeConsent, consentSnapshot, serverSnapshot);
@@ -86,7 +86,7 @@ export function TagManager({ ga4, ads, metaPixel, customerType, consent: serverC
   const analyticsOn = Boolean(ga4 && consent?.analytics);
   const marketingOn = Boolean(consent?.marketing && (ads || metaPixel));
   const marketingNames = [...(ads ? ["Google Ads"] : []), ...(metaPixel ? ["Meta"] : [])];
-  const services = { analytics: ga4 !== null, marketing: marketingNames.length > 0, marketingNames };
+  const services = { analytics: ga4 !== null, marketing: marketingNames.length > 0, marketingNames, anonymousStats };
   return <ServicesContext value={services}><ServerConsentContext value={serverConsent}>
     {(analyticsOn || marketingOn) && <TagBoot ga4={ga4} ads={ads} metaPixel={metaPixel} customerType={customerType}
       analytics={analyticsOn} marketing={marketingOn} />}
