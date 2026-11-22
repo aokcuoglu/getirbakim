@@ -122,6 +122,7 @@ export function productIndexable(product: { supplier: string; source: "store" | 
  * At 10, 74% of the model pages stay indexable (283 have no product: 404) while the one- and two-product
  * model × category and make × category pages (#673) stay out. The same threshold gates all three (isGatedListing); a
  * gated listing without any product is a 404. The plain make and category pages keep the plain-listing rule.
+ * The indexable pages of all three kinds are listed in models.xml, model-categories.xml and make-categories.xml (#1224).
  */
 export const minIndexableListingProducts = 10;
 

@@ -5,7 +5,7 @@ import { sitemapMaxWarmIntervalMs, sitemapWarmIntervalMs } from "./sitemap";
 // after that waits for the whole query. The server asks for the files itself at start and every few hours; the stale
 // read of such a request starts the refresh, so crawlers get a cached copy. Plain fetch against the server's own
 // address: the route fills Next's data cache, whose keys are internal.
-export const warmedSitemapFiles = ["models.xml", "model-categories.xml", "manufacturers.xml"] as const;
+export const warmedSitemapFiles = ["models.xml", "model-categories.xml", "make-categories.xml", "manufacturers.xml"] as const;
 
 export type SitemapWarmResult = { file: string; ok: boolean; ms: number };
 

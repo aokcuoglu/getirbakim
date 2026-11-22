@@ -10,7 +10,7 @@ import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, with
 import { legalLinks } from "../src/content/legal";
 import { sitemapCategorySlugs, sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
 import { startSitemapWarmup, warmIntervalMs, warmSitemaps } from "../src/modules/seo/sitemap-warmup";
-import { brandedTitle, brandSuffix, catalogMetaDescription, categoryDescription, descriptionMax, descriptionMin, fitDescription, listingTitlePad, searchResultsTitle, titleMax, titleMin } from "../src/modules/seo/meta-text";
+import { brandedTitle, brandSuffix, catalogMetaDescription, categoryDescription, descriptionMax, descriptionMin, fitDescription, listingTitlePad, searchResultsTitle, titleMax, titleMin, vehicleCategoryHeading, vehicleCategoryTexts } from "../src/modules/seo/meta-text";
 import { legalMetaDescriptions, legalMetaTitles } from "../src/content/legal-meta";
 import { legalDocument, legalTitle } from "../src/content/legal";
 import { catalogDescription } from "../src/app/(store)/katalog/catalog-descriptions";
@@ -162,6 +162,23 @@ test("the sitemap warm-up runs before the cached data goes stale or is evicted (
   assert.equal(warmIntervalMs("999999999999"), sitemapMaxWarmIntervalMs);
 });
 
+test("make × category texts (#1224)", () => {
+  const make = vehicleCategoryTexts("BMW", "volanlar", 1234, "make");
+  assert.equal(make.description, "BMW araçlar için volanlar kategorisinde 1.234 ürün: üreticiye ve OEM numarasına göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu kontrol et.");
+  assert.equal(vehicleCategoryHeading("BMW", "volanlar", "make"), "BMW araçlar için volanlar seçeneklerini keşfet");
+  assert.ok(make.intro.startsWith("BMW araçlar için volanlar kategorisinde listelenen 1.234 ürün. Liste marka düzeyindedir"));
+  assert.ok(!make.description.includes("volanlar incele"));
+  const vehicle = "Volkswagen Golf 7 (2012–2022)", parts = "fren diskleri";
+  assert.equal(vehicleCategoryTexts(vehicle, parts, 12, "model").description, fitDescription(`${vehicle} için ${parts} kategorisinde 12 ürün: üreticiye ve OEM numarasına göre incele.`));
+  assert.equal(vehicleCategoryHeading("Golf 7", parts, "model"), "Golf 7 için fren diskleri seçeneklerini keşfet");
+  assert.equal(vehicleCategoryTexts(vehicle, parts, 12, "model").intro, `${vehicle} için ${parts} kategorisinde listelenen 12 ürün. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`);
+  assert.ok(make.intro.includes("bu markanın modellerinden biri yer alıyor."));
+  for (let name = 3; name <= 20; name++) for (let part = 5; part <= 45; part++) for (const total of [10, 1234, 123456]) {
+    const { description } = vehicleCategoryTexts("M".repeat(name), "p".repeat(part), total, "make");
+    assert.ok(description.length >= descriptionMin && description.length <= descriptionMax, `${name}/${part}/${total}: ${description.length}`);
+  }
+});
+
 test("warmSitemaps requests the slow files one after the other and never throws (#778)", async () => {
   const calls: string[] = [];
   let active = 0, overlapped = false;
@@ -174,8 +191,8 @@ test("warmSitemaps requests the slow files one after the other and never throws 
     return new Response("<urlset/>", { status: url.endsWith("manufacturers.xml") ? 500 : 200 });
   }) as unknown as typeof fetch;
   const results = await warmSitemaps("http://127.0.0.1:3000", { fetch: fake });
-  assert.deepEqual(calls, ["models.xml", "model-categories.xml", "manufacturers.xml"].map(file => `http://127.0.0.1:3000/sitemaps/${file}`));
-  assert.deepEqual(results.map(({ file, ok }) => [file, ok]), [["models.xml", true], ["model-categories.xml", false], ["manufacturers.xml", false]]);
+  assert.deepEqual(calls, ["models.xml", "model-categories.xml", "make-categories.xml", "manufacturers.xml"].map(file => `http://127.0.0.1:3000/sitemaps/${file}`));
+  assert.deepEqual(results.map(({ file, ok }) => [file, ok]), [["models.xml", true], ["model-categories.xml", false], ["make-categories.xml", true], ["manufacturers.xml", false]]);
   assert.equal(overlapped, false);
 });
 
