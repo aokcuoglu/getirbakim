@@ -424,10 +424,11 @@ kaydın eşlenen payı %92,7 → %96,4 (öğrenilmiş 34.225 → 34.406, kürat�
 87 → 2, marka ön ekleri sayesinde). parts2world tipli kayıtlarda %91,5 → %96,4 (1.437 tipli kaydın 70'i küratörlü),
 saklanan makale adlarında %90,2 → %95,9 (1.091 makalenin 62'si; `fetch-types` sürerken).
 
-**#1299 genişletmesi (22 Kasım 2026, yerel, `backfill-types --dry-run`):** 100 kayıt eklendi (58 takma ad, 42 elle;
-liste 193 kayıt). spareto: eşlenen 53.435 → 53.829, küratörlü 1.626 → 1.991, eşleşmeyen tip 784 → 737, değişecek
-kayıt 365. parts2world: eşlenen 91.236 → 94.529, küratörlü 4.125 → 7.263, eşleşmeyen tip 584 → 507, değişecek kayıt
-3.135.
+**#1299 genişletmesi (22 Kasım 2026, yerel, `backfill-types --dry-run`):** 102 kayıt eklendi (57 takma ad, 45 elle;
+liste 195 kayıt). spareto: eşlenen 53.435 → 53.866, küratörlü 1.626 → 1.997, eşleşmeyen tip 784 → 736, değişecek
+kayıt 370. parts2world: eşlenen 91.236 → 94.675, küratörlü 4.125 → 7.297, eşleşmeyen tip 584 → 505, değişecek kayıt
+3.162. `water-recirculation-pump-parking-heater` Trodo'nun `water-pump-parking-heater` (Park ısıtıcıları) tipine
+bağlanmadı: 54 ürünün hepsi motorun ilave su pompası, bu yüzden Su pompaları.
 
 **Operasyon:** canlıda komut yok (liste koddadır). Yerelde birleştirmeden sonra, son sürüme kadar bekletmeli:
 `check-aliases` → `backfill-types --source spareto --hold` ve `backfill-types --source parts2world --hold`; yayın
