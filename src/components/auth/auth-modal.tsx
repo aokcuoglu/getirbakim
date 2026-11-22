@@ -29,17 +29,21 @@ function LoginSubmit() {
   return <Button className={cn(storeButton({ intent: "primary", size: "lg" }), "mt-6 w-full")} type="submit" disabled={pending}>{pending ? "Giriş yapılıyor…" : "Giriş yap"}</Button>;
 }
 
-export function AuthModal({ ref, onClosed, next }: { ref: Ref<{ open: (mode: AuthMode) => void }>; onClosed: () => void; next?: string }) {
+/**
+ * Signup and password reset need account e-mail (#1303): with `accountEmail` false the dialog only logs in and offers
+ * neither, so no form posts to an action that would refuse it.
+ */
+export function AuthModal({ ref, onClosed, next, accountEmail }: { ref: Ref<{ open: (mode: AuthMode) => void }>; onClosed: () => void; next?: string; accountEmail: boolean }) {
   const [open, setOpen] = useState(false);
   // Kept after closing so the panel does not empty out during the closing animation.
   const [mode, setMode] = useState<AuthMode>("login");
   const [loginReturnTo, setLoginReturnTo] = useState("/");
   const popup = useRef<HTMLDivElement>(null);
 
-  useImperativeHandle(ref, () => ({ open(nextMode) { setLoginReturnTo(currentReturnTarget(next)); setMode(nextMode); setOpen(true); } }), [next]);
+  useImperativeHandle(ref, () => ({ open(nextMode) { setLoginReturnTo(currentReturnTarget(next)); setMode(accountEmail ? nextMode : "login"); setOpen(true); } }), [next, accountEmail]);
 
   function close() { setOpen(false); }
-  function switchMode(nextMode: AuthMode) { setMode(nextMode); }
+  function switchMode(nextMode: AuthMode) { setMode(accountEmail ? nextMode : "login"); }
 
   return <Dialog open={open} onOpenChange={next => { if (!next) close(); }} onOpenChangeComplete={next => { if (!next) onClosed(); }}>
     <DialogPortal>
@@ -61,11 +65,11 @@ export function AuthModal({ ref, onClosed, next }: { ref: Ref<{ open: (mode: Aut
               {mode === "login" ? <form action={login} key="login">
                 <input type="hidden" name="next" value={loginReturnTo} />
                 <div className="grid gap-3"><AuthField name="email" label="E-posta adresi" type="email" autoComplete="username" /><AuthField name="password" label="Şifre" type="password" autoComplete="current-password" /></div>
-                <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "mt-1 px-0")} onClick={() => switchMode("reset")}>Şifreni mi unuttun?</Button>
+                {accountEmail && <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "mt-1 px-0")} onClick={() => switchMode("reset")}>Şifreni mi unuttun?</Button>}
                 <LoginSubmit />
               </form> : mode === "register" ? <RegisterForm key="register" next={next} onNavigate={close} /> : <ResetRequestForm key="reset" />}
               {mode !== "register" && <p className="mt-0 mb-6 text-sm leading-[22px] text-muted-foreground"><Link className="font-medium text-brand hover:text-brand-strong hover:underline" href="/kvkk-aydinlatma-metni" onClick={close}>KVKK Aydınlatma Metni</Link></p>}
-              <p className="mt-4 mb-0 flex flex-wrap items-center justify-center gap-x-1 text-center text-sm leading-[22px]">{mode === "register" ? <>Zaten hesabın var mı? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("login")}>Giriş yap</Button></> : mode === "reset" ? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("login")}>Giriş ekranına dön</Button> : <>Henüz hesabın yok mu? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("register")}>Kayıt ol</Button></>}</p>
+              {accountEmail && <p className="mt-4 mb-0 flex flex-wrap items-center justify-center gap-x-1 text-center text-sm leading-[22px]">{mode === "register" ? <>Zaten hesabın var mı? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("login")}>Giriş yap</Button></> : mode === "reset" ? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("login")}>Giriş ekranına dön</Button> : <>Henüz hesabın yok mu? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={() => switchMode("register")}>Kayıt ol</Button></>}</p>}
             </div>
           </section>
         </div>

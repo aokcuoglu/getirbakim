@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { after } from "next/server";
 import { clientEvidence } from "@/lib/client-address";
+import { accountEmailClosedMessage, accountEmailEnabled } from "./account-email-switch";
 import { attemptKey, withinBudgets } from "./attempt-budget";
 import { completePasswordReset, RESET_COOKIE, resetCookieOptions, sendPasswordReset } from "./password-reset";
 import type { ResetState } from "./reset-state";
@@ -18,6 +19,8 @@ const limits = { ip: 10, email: 5, global: 200, confirmIp: 20 };
  * mail goes out after the response, so neither the text nor the timing tells them apart.
  */
 export async function requestPasswordReset(prev: ResetState, form: FormData): Promise<ResetState> {
+  // Without account e-mail (#1303) no link could be sent: refused before any budget or mail.
+  if (!accountEmailEnabled()) return { status: "error", message: accountEmailClosedMessage, attempt: prev.attempt + 1 };
   const typed = form.get("email");
   // The typed address comes back after a refusal so the form keeps it.
   const refuse = (message: string): ResetState => ({ status: "error", message, attempt: prev.attempt + 1, email: typeof typed === "string" ? typed.slice(0, 200) : "" });
@@ -36,6 +39,8 @@ export async function requestPasswordReset(prev: ResetState, form: FormData): Pr
 
 /** Sets the new password with the token the link left in RESET_COOKIE, then ends every session and sends to /giris. */
 export async function resetPassword(prev: ResetState, form: FormData): Promise<ResetState> {
+  // Closed (#1303): the token is left as it is and the password unchanged.
+  if (!accountEmailEnabled()) redirect("/giris");
   const refuse = (message: string): ResetState => ({ status: "error", message, attempt: prev.attempt + 1 });
   // The form names its password "newPassword" so the browser's confirmation check can find it (auth-field.tsx).
   const parsed = resetPasswordSchema.safeParse({ password: form.get("newPassword"), confirmPassword: form.get("confirmPassword") });

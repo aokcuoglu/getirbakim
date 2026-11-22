@@ -9,6 +9,7 @@ import {cn} from "@/lib/utils";
 import {SocialLinks} from "@/components/social-links";
 import {currentAppVersion} from "@/lib/app-version";
 import { catalogPath, categoryPath } from "@/modules/seo/paths";
+import { accountEmailEnabled } from "@/modules/auth/account-email-switch";
 
 type FooterLink = { href: string; title: string };
 
@@ -17,44 +18,47 @@ function legalLink(slug: (typeof legalLinks)[number]["slug"]): FooterLink {
   return { href: `/${link.slug}`, title: link.title };
 }
 
-const groups = [
-  {
-    title: "Kurumsal",
-    links: [
-      { href: "/bilgi/hakkimizda", title: "Hakkımızda" },
-      legalLink("iletisim"),
-      { href: "/giris", title: "Giriş yap / Kayıt ol" },
-    ],
-  },
-  {
-    title: "Alışveriş ve Destek",
-    links: [
-      { href: catalogPath, title: "Tüm ürünler" },
-      { href: "/garaj", title: "Garajım" },
-      { href: "/sepet", title: "Sepetim" },
-      { href: "/bilgi/yardim", title: "Yardım merkezi" },
-      { href: "/bilgi/uyumluluk", title: "Parça uyumluluğu" },
-      { href: "/rehber", title: "Rehber" },
-      legalLink("teslimat-ve-iade"),
-    ],
-  },
-  {
-    title: "Sözleşmeler",
-    links: [
-      legalLink("mesafeli-satis-sozlesmesi"),
-      legalLink("on-bilgilendirme-formu"),
-      legalLink("uyelik-ve-kullanim-kosullari"),
-    ],
-  },
-  {
-    title: "Gizlilik",
-    links: [
-      legalLink("gizlilik-politikasi"),
-      legalLink("kvkk-aydinlatma-metni"),
-      legalLink("cerez-politikasi"),
-    ],
-  },
-];
+/** The footer link groups; signup is only named while account e-mail is on (#1303). */
+function footerGroups(accountEmail: boolean) {
+  return [
+    {
+      title: "Kurumsal",
+      links: [
+        { href: "/bilgi/hakkimizda", title: "Hakkımızda" },
+        legalLink("iletisim"),
+        { href: "/giris", title: accountEmail ? "Giriş yap / Kayıt ol" : "Giriş yap" },
+      ],
+    },
+    {
+      title: "Alışveriş ve Destek",
+      links: [
+        { href: catalogPath, title: "Tüm ürünler" },
+        { href: "/garaj", title: "Garajım" },
+        { href: "/sepet", title: "Sepetim" },
+        { href: "/bilgi/yardim", title: "Yardım merkezi" },
+        { href: "/bilgi/uyumluluk", title: "Parça uyumluluğu" },
+        { href: "/rehber", title: "Rehber" },
+        legalLink("teslimat-ve-iade"),
+      ],
+    },
+    {
+      title: "Sözleşmeler",
+      links: [
+        legalLink("mesafeli-satis-sozlesmesi"),
+        legalLink("on-bilgilendirme-formu"),
+        legalLink("uyelik-ve-kullanim-kosullari"),
+      ],
+    },
+    {
+      title: "Gizlilik",
+      links: [
+        legalLink("gizlilik-politikasi"),
+        legalLink("kvkk-aydinlatma-metni"),
+        legalLink("cerez-politikasi"),
+      ],
+    },
+  ];
+}
 
 const shell="mx-auto w-full max-w-[1280px] px-8 max-[600px]:px-5";
 
@@ -68,6 +72,7 @@ export async function SiteFooter() {
  const allCategories=await getStoreCategories();
  const categories=allCategories.filter(c=>c.parentId===null);
  const catalogCategories=[...categories,...allCategories.filter(c=>["Fren balataları","Fren kaliperleri","Motor yağları","Amortisörler","Fren diskleri","Debriyaj setleri","Marş motorları","Triger setleri","Yağ filtreleri","Silecekler"].includes(c.name))];
+ const groups=footerGroups(accountEmailEnabled());
  const information=[...new Map(groups.flatMap(group=>group.links).map(link=>[link.href,link])).values()];
  return <RouteFrame except="checkout"><footer className="site-footer">
   <div className="site-footer-grid">
@@ -86,6 +91,7 @@ export async function SiteFooter() {
 /** The checkout page's footer: the full brand/link grid, mounted by siparis-olustur/layout.tsx only. */
 export async function CheckoutFooter() {
  const categories=(await getStoreCategories()).filter(c=>c.parentId===null);
+ const groups=footerGroups(accountEmailEnabled());
  return <footer className="bg-[#f7f8fa] pt-10 text-sm leading-5 text-foreground">
   <div className={cn(shell,"grid grid-cols-[1.2fr_repeat(4,minmax(0,1fr))] gap-7 pb-9 min-[851px]:max-[1100px]:grid-cols-4 max-[850px]:grid-cols-2 max-[850px]:gap-8 max-[600px]:gap-x-6 max-[600px]:gap-y-7")}>
    <div className="min-w-0 min-[851px]:max-[1100px]:col-span-full max-[600px]:col-span-full">

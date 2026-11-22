@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
+import { accountEmailEnabled } from "@/modules/auth/account-email-switch";
 import { currentAccount } from "@/modules/auth/session";
 import { currentVehicle } from "@/modules/store/garage";
 import { shownVehicle } from "@/modules/store/vehicle-label";
@@ -14,7 +15,7 @@ const cartClass = "header-cart";
 
 async function HeaderAccount() {
   const account = await currentAccount();
-  return <AccountMenu account={account ? { name: account.name, role: account.role } : null} />;
+  return <AccountMenu account={account ? { name: account.name, role: account.role } : null} accountEmail={accountEmailEnabled()} />;
 }
 
 async function HeaderGarage() {

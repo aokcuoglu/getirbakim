@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { after } from "next/server";
 import { db } from "@/lib/db";
 import { clientEvidence } from "@/lib/client-address";
+import { accountEmailEnabled } from "./account-email-switch";
 import { attemptKey, withinBudgets } from "./attempt-budget";
 import { sendEmailVerification, setVerificationOrigin } from "./email-verification";
 import { membershipConsentText } from "./membership-consent";
@@ -22,6 +23,8 @@ const limits = { global: 200, email: 3, ip: 10 };
  * already has an account (which gets an "account exists" mail instead and is never changed).
  */
 export async function registerCustomer(prev: SignupState, form: FormData): Promise<SignupState> {
+  // Without account e-mail (#1303) no signup could ever be verified: refused before any budget, hash or row.
+  if (!accountEmailEnabled()) return { status: "error", message: "Yeni üyelik kaydı şu anda kapalı.", attempt: prev.attempt + 1 };
   const text = (key: string, max: number) => { const value = form.get(key); return typeof value === "string" ? value.slice(0, max) : ""; };
   const refuse = (message: string): SignupState => ({ status: "error", message, attempt: prev.attempt + 1,
     values: { name: text("name", 150), email: text("email", 200), terms: form.get("terms") === "on" } });
