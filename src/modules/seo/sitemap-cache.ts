@@ -15,7 +15,7 @@ import { loadMakeCategoryPaths, loadModelCategoryPaths, loadModelPaths } from ".
 const options = { revalidate: sitemapRevalidateSeconds, tags: ["sitemap"] };
 
 export const cachedProductChunk = unstable_cache(loadProductChunk, ["sitemap-products-v2"], options);
-export const cachedCategorySlugs = unstable_cache(loadCategorySlugs, ["sitemap-categories"], options);
+export const cachedCategorySlugs = unstable_cache(loadCategorySlugs, ["sitemap-categories-v2"], options);
 export const cachedMakeSlugs = unstable_cache(loadMakeSlugs, ["sitemap-makes"], options);
 export const cachedManufacturerSlugs = unstable_cache(loadManufacturerSlugs, ["sitemap-manufacturers"], options);
 export const cachedModelPaths = unstable_cache(loadModelPaths, ["sitemap-models"], options);

@@ -53,7 +53,7 @@ Liste sayfalarının adresleri Türkçe ve yol tabanlıdır (#638); tek kaynak `
 | Tüm ürünler ve arama | `/katalog`, `/katalog?q=…` | Arama ve süzgeçli adresler `noindex,follow` |
 | Araç markaları | `/arac-markalari` | |
 | Araç markası | `/yedek-parca/<marka>` | |
-| Kategori | `/kategori/<kategori>` | |
+| Kategori | `/kategori/<kategori>` | Kök "Yedek parçalar" (`/kategori/yedek-parca`) `noindex,follow` ve site haritası dışı; "yedek parça" sorgusu için dizine açık sayfa `/katalog` (#1222) |
 | Kategori × araç markası | `/kategori/<kategori>/<marka>` | #673: ürünsüz `404`, 10 üründen azı `noindex,follow` (model sayfasıyla aynı eşik); dizine açık olanlar `/sitemaps/make-categories.xml`'de, kök "Yedek parçalar" × marka hariç (#1224) |
 | Ürün | `/urun/<marka>-<ad>-<parça-no>-<id>` | #640; tek kaynak `src/modules/seo/product-path.ts` (`productPath`). Slug ASCII'dir ve yalnız okunur; ürünü sondaki 36 karakterlik kimlik bulur (`product-id.ts`). Slug boş kalırsa adres `/urun/<id>` |
 | Araç modeli | `/yedek-parca/<marka>/<model>` | #639: model ailesi + nesil (`golf-7`, `passat-b8`, `tipo-356`, `3-e90`); ürünsüz model `404`, 10 üründen azı `noindex,follow` (`minIndexableListingProducts`); dizine açık olanlar site haritasında `/sitemaps/models.xml` (#673); sitemap verisi 6 saat sonra bayatlar (bayat okuma eski veriyi döner, yenilemeyi arka planda başlatır) ve 12 saatte düşer; sunucu başlangıçta (0-60 sn rastgele gecikmeyle) ve her 3 saatte bir dosyaları kendisi ısıtır (#778, `sitemap-warmup.ts`; veri en çok ~9 saat eski olur, aralık TTL − revalidate = 6 saatin altında kalmalı), süre ölçümü yerelde `npm run seo:sitemap-timings`, AWS operations görevinde `node --conditions=react-server --import tsx scripts/sitemap-model-timings.ts --explain` (`.env.local` yok) |

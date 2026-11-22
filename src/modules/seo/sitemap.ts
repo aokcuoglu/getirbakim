@@ -1,5 +1,6 @@
 import { legalDocument, legalLinks } from "@/content/legal";
 import { guidePath, guides, guidesPath } from "@/content/guides";
+import { listingIndexable } from "./indexing";
 import { catalogPath, makesPath } from "./paths";
 
 // The sitemap is an index (/sitemap.xml) of fixed files (/sitemaps/<file>, #634). Products are split by the first
@@ -83,3 +84,6 @@ export const staticPaths: { path: string; lastModified?: string }[] = [
 ];
 
 export const xmlHeaders = { "Content-Type": "application/xml; charset=utf-8", "Cache-Control": "public, max-age=3600" };
+
+/** Category slugs that belong in categories.xml: the root "Yedek parçalar" is noindex and stays out (#1222). */
+export const sitemapCategorySlugs = (slugs: string[]) => slugs.filter(slug => listingIndexable({ category: slug }, 0));

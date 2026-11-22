@@ -8,7 +8,7 @@ import { isGatedListing, listingIndexable, minIndexableListingProducts } from ".
 import { categoryNameInText } from "../src/modules/store/category-tree";
 import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, withModelYears } from "../src/modules/store/vehicle-model-groups";
 import { legalLinks } from "../src/content/legal";
-import { sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
+import { sitemapCategorySlugs, sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
 import { startSitemapWarmup, warmIntervalMs, warmSitemaps } from "../src/modules/seo/sitemap-warmup";
 import { brandedTitle, brandSuffix, catalogMetaDescription, categoryDescription, descriptionMax, descriptionMin, fitDescription, listingTitlePad, searchResultsTitle, titleMax, titleMin, vehicleCategoryHeading, vehicleCategoryTexts } from "../src/modules/seo/meta-text";
 import { legalMetaDescriptions, legalMetaTitles } from "../src/content/legal-meta";
@@ -87,7 +87,11 @@ test("model × category and make × category listings share the model pages' pro
   for (const query of [{ category: "yedek-parca", make: "volkswagen", model: "golf-7" }, { category: "yedek-parca", make: "volkswagen" }]) {
     assert.equal(listingIndexable(query, 5000), false);
   }
-  assert.equal(listingIndexable({ category: "yedek-parca" }, 5000), true);
+  // Alone it competes with /katalog while listing about 7% of the products (#1222): never indexed either.
+  assert.equal(listingIndexable({ category: "yedek-parca" }, 5000), false);
+  assert.equal(listingIndexable({}, 0), true);
+  assert.equal(listingIndexable({ category: "fren" }, 0), true);
+  assert.deepEqual(sitemapCategorySlugs(["yedek-parca", "fren", "balata-101"]), ["fren", "balata-101"]);
   for (const query of [{}, { make: "volkswagen" }, { category: "fren" }]) assert.equal(isGatedListing(query), false);
 });
 
@@ -132,7 +136,8 @@ test("llms.txt links are absolute, cover the legal pages and categories, and avo
   assert.ok(targets.length > 10);
   for (const target of targets) assert.ok(target.startsWith(`${site}/`), target);
   for (const { slug } of legalLinks) assert.ok(text.includes(`${site}/${slug})`), slug);
-  for (const slug of ["yedek-parca", "fren", "filtre", "yag", "silecek", "aksesuar"]) assert.ok(text.includes(`/kategori/${slug})`), slug);
+  for (const slug of ["fren", "filtre", "yag", "silecek", "aksesuar"]) assert.ok(text.includes(`/kategori/${slug})`), slug);
+  assert.ok(!text.includes("/kategori/yedek-parca"));
   assert.ok(text.includes(`${site}/rehber)`));
   for (const guide of guides) assert.ok(text.includes(`${site}/rehber/${guide.slug})`), guide.slug);
   for (const target of targets) {

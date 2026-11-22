@@ -1,4 +1,5 @@
 import { isIndexableListing, type CatalogQuery } from "@/modules/store/catalog-query";
+import { isRootCategoryListing } from "@/modules/seo/indexing";
 import { Fragment } from "react";
 import Link from "next/link";
 import { minSearchLength } from "@/modules/search/query";
@@ -55,6 +56,8 @@ import brakeBannerMobile from "@/assets/hero/brake-system-banner-mobile.webp";
 import brakeBanner from "@/assets/hero/brake-system-banner.webp";
 import catalogBanner from "@/assets/hero/mobile-catalog.webp";
 import {catalogDescription} from "./catalog-descriptions";
+import {categoryGuideNote} from "@/content/category-guides";
+import {CategoryGuideNote} from "@/components/category-guide-note";
 const benefits=[
  {icon:ShieldCheck,title:"Sipariş bilgilerin tek yerde",text:"Ürün, fiyat ve teslimat bilgilerini birlikte incele."},
  {icon:Truck,title:"Teslimat ve iade bilgileri",text:"Sipariş öncesi teslimat ve iade koşullarını öğren."},
@@ -179,7 +182,8 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  // Only the plain listings are indexed (the pages' robots rule): a search, filter, sort or page 2 is not a collection.
  // A model page says what its list is: model-level fits, which the garage vehicle narrows to an engine type.
  const intro=params.q?undefined:manufacturerCopy?manufacturerCopy.intro:modelVehicle&&parts?vehicleCategoryTexts(modelVehicle,parts,plainTotal??result.total,"model").intro:modelVehicle?`${modelVehicle} için listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&category&&parts&&!model?vehicleCategoryTexts(makeName!,parts,plainTotal??result.total,"make").intro:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:catalogDescription(category?.slug??"yedek-parca")??category?.name+" kategorisindeki ürünleri üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
- const collection=isIndexableListing(params)&&products.length>0
+  const guideNote=products.length>0?categoryGuideNote(params,{vehicle:Boolean(make||model),manufacturer:Boolean(manufacturer)}):undefined;
+  const collection=isIndexableListing(params)&&!isRootCategoryListing(params)&&products.length>0
   ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,modelSlug,categorySlug:category?.slug,manufacturerSlug}),items:products.map(product=>({path:productPath(product),name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
  // The OEM box repeats only a code search; a name search belongs to the header's box.
  const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.searchBy==="code"?params.q:undefined} vehicle={shown}/>;
@@ -229,6 +233,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
      </div>
     </div>
    </section>
+   {guideNote&&<CategoryGuideNote note={guideNote.note} guides={guideNote.guides}/>}
    <section className="py-10"><div className="mx-auto grid max-w-[1350px] grid-cols-3 gap-8 px-[15px] max-[768px]:grid-cols-1 max-[768px]:gap-6">
     {benefits.map(({icon:Icon,title,text})=><div key={title} className="flex items-center gap-4"><Icon size={36} strokeWidth={1.4} className="shrink-0 text-muted-foreground"/><span><strong className="text-base leading-6 font-medium">{title}</strong><p className="mt-2 text-[13px] leading-[18px]">{text}</p></span></div>)}
    </div></section>
