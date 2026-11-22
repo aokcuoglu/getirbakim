@@ -38,6 +38,8 @@ test("a model page sits under its make; a model without the make is ignored", ()
   assert.equal(listingUrl(query), "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D");
   assert.equal(listingUrl(query, { page: "3", sort: "price-asc" }), "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D&page=3&sort=price-asc");
   assert.equal(listingUrl(query, { model: undefined, brands: undefined }), "/yedek-parca/volkswagen");
+  assert.equal(listingUrl({ category: "filtre", page: "3" }, { page: "1" }), "/kategori/filtre");
+  assert.equal(listingUrl({ category: "filtre" }, { page: "2" }), "/kategori/filtre?page=2");
 });
 
 test("listingUrl keeps filters in the query, never the make or the category, and drops the page", () => {

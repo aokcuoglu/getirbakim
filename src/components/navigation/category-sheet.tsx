@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import mobileCatalog from "@/assets/hero/mobile-catalog.webp";
 import {useRef,type ReactNode,type RefObject} from "react";
 import {Dialog as SheetPrimitive} from "@base-ui/react/dialog";
 import {Menu,ChevronRight,ArrowLeft,X,Info,Mail,Package} from "lucide-react";
@@ -51,7 +52,7 @@ export function CategorySheet({open,onOpenChange,trigger,tree,links,account,sele
    <SheetOverlay className="bg-foreground/50 supports-backdrop-filter:backdrop-blur-none"/>
    <SheetPrimitive.Popup id="category-sheet" finalFocus={trigger}
     className="fixed inset-y-0 left-0 z-50 flex h-dvh max-h-dvh w-[360px] max-w-[100vw] flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] overflow-hidden bg-white text-sm leading-5 whitespace-normal text-foreground shadow-[0_6px_24px_rgba(33,43,54,.1)] outline-none transition-transform duration-200 ease-out data-ending-style:-translate-x-full data-starting-style:-translate-x-full motion-reduce:transition-none">
-    <div className="relative flex h-[105px] shrink-0 flex-row items-center gap-3 bg-foreground bg-[url('/media/site/images/mobile-catalog.webp')] bg-cover bg-center px-4 pt-16 pb-4 text-white">
+    <div style={{backgroundImage:`url(${mobileCatalog.src})`}} className="relative flex h-[105px] shrink-0 flex-row items-center gap-3 bg-foreground bg-cover bg-center px-4 pt-16 pb-4 text-white">
      {selected!==null&&tree.categories&&<button className={cn(sheetIconButton,"left-4")} type="button" aria-label="Üst kategoriye dön" onClick={()=>drill(current?.parentId===3?null:current?.parentId??null)}><ArrowLeft size={20}/></button>}
      <SheetClose className={cn(sheetIconButton,"right-4")} aria-label="Kategorileri kapat"><X size={18}/></SheetClose>
      <SheetTitle ref={heading} tabIndex={-1} className="m-0 line-clamp-2 min-w-0 flex-1 text-lg leading-6 font-semibold text-white outline-none max-[600px]:text-base">{currentLink?.name??"Kategoriler"}</SheetTitle>

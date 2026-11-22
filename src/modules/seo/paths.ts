@@ -45,10 +45,12 @@ type ListingQuery = { make?: string; model?: string; category?: string; manufact
 
 /**
  * A listing's address with its filters: the make, model, category and manufacturer go into the path, every other value
- * into the query string. A page number is dropped unless `updates` sets one, so a changed filter starts on page 1.
+ * into the query string. A page number is dropped unless `updates` sets one, so a changed filter starts on page 1; page "1"
+ * is dropped too, as page 1 is the canonical address without a page parameter.
  */
 export function listingUrl(query: ListingQuery, updates: ListingQuery = {}) {
   const { make, model, category, manufacturer, ...rest } = { ...query, page: undefined, ...updates };
+  if (rest.page === "1") delete rest.page;
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(rest)) if (value) search.set(key, value);
   const path = listingPath({ makeSlug: make, modelSlug: model, categorySlug: category, manufacturerSlug: manufacturer });
