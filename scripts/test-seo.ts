@@ -247,7 +247,7 @@ test("every curated category copy fits the meta description range (#1223)", () =
   }
 });
 
-// The categories with the most storefront products (#1223): their copy is the meta description and the visible intro.
+// Top-level groups plus the largest leaf categories by storefront product count (#1223): their copy is the meta description and the visible intro.
 const added: [number, string][] = [
   [4, "Motor parçaları"], [663, "Süspansiyon"], [296, "Motor soğutma sistemi"], [323, "Elektrik sistemi"],
   [814, "Şanzıman ve debriyaj"], [676, "Direksiyon sistemi"], [895, "Aydınlatma"], [414, "Isıtma ve havalandırma"],
@@ -259,7 +259,7 @@ const added: [number, string][] = [
   [135, "Motor takozları"], [824, "Debriyaj setleri"], [957, "Motor yağları"],
 ];
 
-test("the most visited categories have curated copy that is used verbatim (#1223)", () => {
+test("the largest categories have curated copy that is used verbatim (#1223)", () => {
   assert.equal(added.length, 30);
   for (const [id, name] of added) {
     const slug = categorySlug(id, name);
