@@ -35,16 +35,15 @@ const resendMessage = "Bu adres doğrulama bekliyorsa yeni bir doğrulama bağla
 const limitError = "Çok fazla deneme yapıldı. Bir saat sonra tekrar dene.";
 const sha = (value: string) => createHash("sha256").update(value).digest("hex");
 
-test("the verification e-mail escapes the name and carries the link in both parts", () => {
+test("the verification e-mail greets without a name and carries the link in both parts", () => {
   const url = "https://getirbakim.example/e-posta-dogrula/baglanti?t=abc_DEF-123";
-  const mail = buildEmailVerificationEmail({ name: "<b>Ayşe</b> & Co", url, hours: 24 });
+  const mail = buildEmailVerificationEmail({ url, hours: 24 });
   assert.equal(mail.subject, "E-posta adresini doğrula");
-  assert.ok(mail.text.includes("Merhaba <b>Ayşe</b> & Co,"));
+  assert.ok(mail.text.startsWith("Merhaba,\n"));
   assert.ok(mail.text.includes(url));
   assert.ok(mail.text.includes("Bağlantı 24 saat geçerlidir ve yalnızca bir kez kullanılabilir."));
   assert.ok(mail.text.includes("Bu hesabı sen oluşturmadıysan bağlantıyı açma; doğrulanmayan kayıt 7 gün içinde silinir."));
-  assert.ok(mail.html.includes("Merhaba &lt;b&gt;Ayşe&lt;/b&gt; &amp; Co,"));
-  assert.ok(!mail.html.includes("<b>Ayşe"));
+  assert.ok(mail.html.includes("Merhaba,"));
   assert.ok(mail.html.includes(`href="${url}"`));
   assert.ok(mail.html.includes("E-postamı doğrula"));
 });
@@ -253,6 +252,7 @@ test("verifying in the signup browser verifies, moves the guest cart, logs in an
   assert.equal(await redirected(actions.verifyEmail(initialResetState)), "/sepet");
   const verified = await account("verify@example.invalid");
   assert.ok(verified.email_verified_at instanceof Date);
+  assert.equal(await compare(password, verified.password_hash), true);
   assert.equal(await sessionsOf(created.id), 1);
   assert.ok(cookieStore.get("gb_session"));
   assert.equal(cookieStore.has("gb_verify"), false);
@@ -273,19 +273,43 @@ test("an unsafe stored path sends the verified customer home", async (t) => {
   assert.equal(await sessionsOf(created.id), 1);
 });
 
-test("verifying in another browser verifies without logging in and sends to /giris", async (t) => {
+test("verifying in another browser verifies, discards the signup password and asks for a new one", async (t) => {
   const { account: created, token } = await signUp(t, "other@example.invalid", { next: "/hesap" });
+  // A session the signup password could have opened elsewhere ends too.
+  await schema.pool.query("INSERT INTO sessions (token_hash,account_id,expires_at) VALUES ($1,$2,now()+interval '1 day')", [sha("eski"), created.id]);
   cookieStore.clear();
   cookieStore.set("gb_verify", token);
   cookieStore.set("gb_verify_origin", "baska-tarayicinin-nonce-degeri");
-  assert.equal(await redirected(actions.verifyEmail(initialResetState)), "/giris?dogrulama=tamam&next=%2Fhesap");
-  assert.ok((await account("other@example.invalid")).email_verified_at instanceof Date);
+  assert.equal(await redirected(actions.verifyEmail(initialResetState)), "/sifre-yenile?dogrulama=tamam");
+  const verified = await account("other@example.invalid");
+  assert.ok(verified.email_verified_at instanceof Date);
+  assert.match(verified.password_hash, /^\$2[aby]\$12\$/);
+  assert.equal(await compare(password, verified.password_hash), false);
   assert.equal(await sessionsOf(created.id), 0);
   assert.equal(cookieStore.has("gb_session"), false);
+  assert.equal(cookieStore.has("gb_verify"), false);
+  const resetToken = cookieStore.get("gb_reset");
+  assert.ok(resetToken);
+  assert.deepEqual((await tokenRows(created.id)).map(row => [row.purpose, row.token_hash]), [["password_reset", sha(resetToken)]]);
+  assert.ok(await reset.passwordResetTarget(resetToken));
+  assert.equal(await redirected(auth.login(form({ email: "other@example.invalid", password }))), "/giris?error=1");
+  // The reset token sets the new password and opens the account.
+  assert.equal(await reset.completePasswordReset(resetToken, "yeni-ve-uzun-şifre-42"), true);
+  assert.equal(await redirected(auth.login(form({ email: "other@example.invalid", password: "yeni-ve-uzun-şifre-42" }))), "/");
+  // A browser without any nonce counts as another browser.
   const second = await signUp(t, "other2@example.invalid");
   cookieStore.clear();
   cookieStore.set("gb_verify", second.token);
-  assert.equal(await redirected(actions.verifyEmail(initialResetState)), "/giris?dogrulama=tamam");
+  assert.equal(await redirected(actions.verifyEmail(initialResetState)), "/sifre-yenile?dogrulama=tamam");
+  assert.ok(cookieStore.has("gb_reset"));
+});
+
+test("the verification target tells whether this is the signup browser", async (t) => {
+  const { token } = await signUp(t, "target@example.invalid");
+  const nonce = cookieStore.get("gb_verify_origin")!;
+  assert.equal((await verification.emailVerificationTarget(token, sha(nonce)))?.sameBrowser, true);
+  assert.equal((await verification.emailVerificationTarget(token, sha("başka")))?.sameBrowser, false);
+  assert.equal((await verification.emailVerificationTarget(token))?.sameBrowser, false);
 });
 
 test("an expired, wrong-purpose, malformed or missing token verifies nothing", async () => {
@@ -293,7 +317,7 @@ test("an expired, wrong-purpose, malformed or missing token verifies nothing", a
   const expired = await tokens.issueAccountToken(schema.pool, id, "email_verification", 60);
   await schema.pool.query("UPDATE account_tokens SET expires_at=now()-interval '1 minute' WHERE token_hash=$1", [sha(expired)]);
   const resetToken = await tokens.issueAccountToken(schema.pool, id, "password_reset", 60);
-  for (const token of [expired, resetToken, "", "a".repeat(65), "x'; DROP TABLE accounts;--"]) assert.equal(await verification.completeEmailVerification(token), null, token);
+  for (const token of [expired, resetToken, "", "a".repeat(65), "x'; DROP TABLE accounts;--"]) assert.equal(await verification.completeEmailVerification(token, null), null, token);
   cookieStore.set("gb_verify", resetToken);
   assert.equal(await redirected(actions.verifyEmail(initialResetState)), "/e-posta-dogrula?durum=gecersiz");
   assert.equal(await redirected(actions.verifyEmail(initialResetState)), "/e-posta-dogrula?durum=gecersiz");
@@ -301,18 +325,19 @@ test("an expired, wrong-purpose, malformed or missing token verifies nothing", a
   // A token of an account that is no longer an unverified customer is refused and kept.
   const live = await tokens.issueAccountToken(schema.pool, id, "email_verification", 60);
   await schema.pool.query("UPDATE accounts SET approved=false WHERE id=$1", [id]);
-  assert.equal(await verification.completeEmailVerification(live), null);
+  assert.equal(await verification.completeEmailVerification(live, null), null);
   assert.equal((await tokenRows(id)).filter(row => row.purpose === "email_verification").length, 1);
 });
 
 test("login tells only the right password that the address waits for verification", async (t) => {
   const { account: created, token } = await signUp(t, "login@example.invalid");
+  const origin = sha(cookieStore.get("gb_verify_origin")!);
   cookieStore.clear();
   const attempt = (pw: string) => redirected(auth.login(form({ email: "Login@Example.invalid", password: pw, next: "/hesap" })));
   assert.equal(await attempt("yanlış-şifre-12345"), "/giris?error=1&next=%2Fhesap");
   assert.equal(await attempt(password), "/giris?error=dogrulama&next=%2Fhesap");
   assert.equal(await sessionsOf(created.id), 0);
-  assert.equal(await verification.completeEmailVerification(token) !== null, true);
+  assert.equal((await verification.completeEmailVerification(token, origin))?.signedIn, true);
   assert.equal(await attempt(password), "/hesap");
   assert.equal(await sessionsOf(created.id), 1);
 });

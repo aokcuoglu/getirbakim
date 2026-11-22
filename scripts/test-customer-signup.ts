@@ -50,6 +50,13 @@ test("the signup schema refuses a short, mismatched or oversized password, missi
     ["password over 72 bytes", { ...valid, password: "ş".repeat(40), confirmPassword: "ş".repeat(40) }],
     ["short name", { ...valid, name: " A " }],
     ["bad email", { ...valid, email: "not-an-email" }],
+    // A name from an unverified form must not carry a link, an address or a line break (#1258).
+    ["name with a link", { ...valid, name: "Kazan https://spam.invalid" }],
+    ["name with www.", { ...valid, name: "Bak WWW.spam.invalid" }],
+    ["name with an address", { ...valid, name: "yaz bana@spam.invalid" }],
+    ["name with a line break", { ...valid, name: "Ayşe\nYılmaz" }],
+    ["name with a control character", { ...valid, name: "Ayşe\u0007 Yılmaz" }],
+    ["name with a line separator", { ...valid, name: "Ayşe\u2028Yılmaz" }],
   ];
   for (const [name, input] of refused) assert.equal(customerSignupSchema.safeParse(input).success, false, name);
   const mismatch = customerSignupSchema.safeParse({ ...valid, confirmPassword: "başka-bir-şifre-123" });

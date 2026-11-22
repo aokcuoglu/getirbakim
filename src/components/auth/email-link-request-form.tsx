@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useId, useRef, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { storeButton } from "@/components/store-button";
@@ -35,6 +35,9 @@ export function EmailLinkRequestForm({ action: requestLink, intro, submitLabel, 
   const sent = state.status === "sent" && state.attempt !== dismissed;
   const error = state.status === "error" ? state.message : "";
   const requested = state.status === "sent" || dismissed >= 0;
+  const status = useRef<HTMLParagraphElement>(null);
+  // The submit button is gone with the form: move focus to the answer so keyboard and screen-reader users land on it.
+  useEffect(() => { if (sent) status.current?.focus(); }, [sent, state.attempt]);
 
   function tryAnother() {
     // Render the form now and focus its address field in the same task: the clicked button is gone by then, and a
@@ -47,7 +50,7 @@ export function EmailLinkRequestForm({ action: requestLink, intro, submitLabel, 
   // Keyed on the attempt: React resets the form after an action, so it remounts with the echoed address.
   return <div>
     {/* Always in the DOM, so screen readers announce the answer when it appears. */}
-    <div role="status">{sent && <p className={cn(storeSuccessBox, "mt-0 mb-4")}>{state.message}</p>}</div>
+    <div role="status">{sent && <p ref={status} tabIndex={-1} className={cn(storeSuccessBox, "mt-0 mb-4 outline-none")}>{state.message}</p>}</div>
     {sent
       ? <Button type="button" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")} onClick={tryAnother}>Farklı bir adres dene</Button>
       : <form key={state.attempt} ref={form} action={action} aria-busy={pending} aria-describedby={error ? errorId : undefined}>

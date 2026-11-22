@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { mailConfig, sendMail, type MailMessage, type MailResult } from "@/lib/mail";
 import { siteUrl } from "@/lib/site";
 import { buildPasswordResetEmail } from "./account-email";
-import { consumeAccountToken, findAccountToken, issueAccountToken, revokeAccountToken } from "./account-tokens";
+import { consumeAccountToken, findAccountToken, issueAccountToken, lockTokenAccount, revokeAccountToken } from "./account-tokens";
 
 // Password reset by e-mail (#1257). The link (/sifre-yenile/baglanti?t=…) moves the token into RESET_COOKIE, scoped to
 // /sifre-yenile, and the form there sets the new password. Admin accounts are left out: they recover through the
@@ -61,7 +61,8 @@ export async function completePasswordReset(token: string, password: string) {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const accountId = await consumeAccountToken(client, token, "password_reset");
+    // The account row first, then its tokens: the same lock order as e-mail verification and account deletion.
+    const accountId = await lockTokenAccount(client, token, "password_reset") && await consumeAccountToken(client, token, "password_reset");
     const updated = accountId ? await client.query<{ email: string }>(
       "UPDATE accounts SET password_hash=$2,email_verified_at=COALESCE(email_verified_at,now()) WHERE id=$1 AND approved AND role = ANY($3) RETURNING email", [accountId, passwordHash, RESETTABLE_ROLES]) : null;
     const email = updated?.rows[0]?.email;

@@ -25,14 +25,29 @@ export async function applyForService(form: FormData) {
   const key = createHash("sha256").update(email).digest("hex");
   // Both a global burst budget and an email budget are persisted across workers.
   if (await overBudget({ global: 100, [key]: 3 })) redirect("/servisler/basvuru?error=limit");
-  const created = await db.query(`INSERT INTO accounts (name,email,password_hash,role,approved,discount_percent,contact_name,phone,city,applied_at)
-    VALUES ($1,$2,$3,'service',false,0,$4,$5,$6,now()) ON CONFLICT (email) DO NOTHING RETURNING id`,
-    [name,email,await hash(password,12),contactName,phone,city]);
-  if (!created.rowCount) {
-    // An individual customer applies from the account instead (#1259). This tells that the address has a customer
-    // account, which customer signup no longer does (#1258: it answers the same for every address); accepted so the
-    // customer finds the upgrade path. Service and admin addresses still get the neutral answer below.
-    const existing = await db.query<{ role: string }>("SELECT role FROM accounts WHERE email=$1", [email]);
+  const passwordHash = await hash(password, 12);
+  const client = await db.connect();
+  let created = false;
+  try {
+    await client.query("BEGIN");
+    // An unverified customer signup holds nothing yet (#1258); it must not keep the address from a service application.
+    await client.query("DELETE FROM accounts WHERE email=$1 AND role='customer' AND email_verified_at IS NULL", [email]);
+    const inserted = await client.query(`INSERT INTO accounts (name,email,password_hash,role,approved,discount_percent,contact_name,phone,city,applied_at)
+      VALUES ($1,$2,$3,'service',false,0,$4,$5,$6,now()) ON CONFLICT (email) DO NOTHING RETURNING id`,
+      [name, email, passwordHash, contactName, phone, city]);
+    created = Boolean(inserted.rowCount);
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
+  if (!created) {
+    // An individual customer applies from the account instead (#1259). This tells that the address has a verified
+    // customer account, which customer signup no longer does (#1258: it answers the same for every address); accepted
+    // so the customer finds the upgrade path. Service and admin addresses still get the neutral answer below.
+    const existing = await db.query<{ role: string }>("SELECT role FROM accounts WHERE email=$1 AND email_verified_at IS NOT NULL", [email]);
     if (existing.rows[0]?.role === "customer") redirect("/servisler/basvuru?error=account");
   }
   // Never log in pending accounts, and do not say whether a service or admin account already uses the address.

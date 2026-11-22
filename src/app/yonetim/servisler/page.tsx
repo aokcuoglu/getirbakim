@@ -64,7 +64,7 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
     <Card>
       <CardHeader>
         <CardTitle className="flex flex-wrap items-center gap-2">Bireysel müşteriler <Badge variant="outline"><UserRound data-icon="inline-start"/>Bireysel</Badge></CardTitle>
-        <CardDescription>Toplam {formatNumber(customers.total)} hesap · son 50 kayıt</CardDescription>
+        <CardDescription>Toplam {formatNumber(customers.total)} hesap{customers.unverified > 0 && ` (${formatNumber(customers.unverified)} doğrulanmamış)`} · son 50 kayıt</CardDescription>
       </CardHeader>
       <CardContent>
         {customers.accounts.length ? <Table><TableHeader><TableRow><TableHead>Ad</TableHead><TableHead>E-posta</TableHead><TableHead>Kayıt tarihi</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader><TableBody>
@@ -72,7 +72,7 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
             <TableCell className="font-medium">{c.name}</TableCell>
             <TableCell className="max-w-xs truncate text-muted-foreground" title={c.email}>{c.email}</TableCell>
             <TableCell className="tabular-nums" value={c.applied_at?.toISOString() ?? ""}>{formatDate(c.applied_at)}</TableCell>
-            <TableCell>{c.upgrade_pending ? <StatusBadge tone="warning">Servis başvurusu bekliyor</StatusBadge> : <span className="text-muted-foreground">—</span>}</TableCell>
+            <TableCell>{!c.verified ? <StatusBadge tone="warning">Doğrulanmadı</StatusBadge> : c.upgrade_pending ? <StatusBadge tone="warning">Servis başvurusu bekliyor</StatusBadge> : <span className="text-muted-foreground">—</span>}</TableCell>
           </TableRow>)}
         </TableBody></Table> : <Empty>
           <EmptyHeader>

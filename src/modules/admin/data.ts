@@ -51,17 +51,21 @@ export async function adminServiceAccounts() {
   return (await db.query<ServiceAccount>(`SELECT ${serviceColumns} FROM accounts WHERE role='service' ORDER BY name`)).rows;
 }
 
-export type CustomerAccount = { id: string; name: string; email: string; applied_at: Date | null; upgrade_pending: boolean };
-/** Self-registered individual customers (#1254): the latest 50, the total and the open service-account requests (#1259). */
+export type CustomerAccount = { id: string; name: string; email: string; applied_at: Date | null; upgrade_pending: boolean; verified: boolean };
+/**
+ * Self-registered individual customers (#1254): the latest 50, the total (of which unverified, #1258) and the open
+ * service-account requests (#1259).
+ */
 export async function adminCustomerAccounts() {
   await requireAdmin();
   const [rows, totals] = await Promise.all([
-    db.query<CustomerAccount>(`SELECT a.id,a.name,a.email,a.applied_at,(a.approved AND EXISTS (SELECT 1 FROM service_upgrade_requests r WHERE r.account_id=a.id)) AS upgrade_pending
+    db.query<CustomerAccount>(`SELECT a.id,a.name,a.email,a.applied_at,a.email_verified_at IS NOT NULL AS verified,(a.approved AND EXISTS (SELECT 1 FROM service_upgrade_requests r WHERE r.account_id=a.id)) AS upgrade_pending
       FROM accounts a WHERE a.role='customer' ORDER BY a.applied_at DESC NULLS LAST,a.id LIMIT 50`),
-    db.query<{ count: number; upgrades: number }>(`SELECT (SELECT count(*)::int FROM accounts WHERE role='customer') AS count,
+    db.query<{ count: number; unverified: number; upgrades: number }>(`SELECT (SELECT count(*)::int FROM accounts WHERE role='customer') AS count,
+      (SELECT count(*)::int FROM accounts WHERE role='customer' AND email_verified_at IS NULL) AS unverified,
       (SELECT count(*)::int FROM service_upgrade_requests r JOIN accounts a ON a.id=r.account_id AND a.role='customer' AND a.approved) AS upgrades`),
   ]);
-  return { accounts: rows.rows, total: totals.rows[0].count, upgrades: totals.rows[0].upgrades };
+  return { accounts: rows.rows, total: totals.rows[0].count, unverified: totals.rows[0].unverified, upgrades: totals.rows[0].upgrades };
 }
 
 export async function adminPricing() {

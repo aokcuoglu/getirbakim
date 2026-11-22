@@ -186,6 +186,15 @@ test("the guest form answers neutrally for a service address and creates a waiti
   assert.deepEqual([created.role, created.approved, created.discount_percent, created.name], ["service", false, 0, details.name]);
 });
 
+test("the guest form replaces an unverified customer signup and applies, answering neutrally (#1258)", async () => {
+  const squatter = (await schema.pool.query<{ id: string }>(
+    "INSERT INTO accounts(name,email,password_hash,role,approved,email_verified_at) VALUES('Başkası','squat@example.invalid','eski-hash','customer',true,NULL) RETURNING id")).rows[0].id;
+  assert.equal(await guest("Squat@Example.invalid"), "/servisler/basvuru?sent=1");
+  const created = await account("squat@example.invalid");
+  assert.notEqual(created.id, squatter);
+  assert.deepEqual([created.role, created.approved, created.name], ["service", false, details.name]);
+});
+
 test("the admin lists, counts and flags open requests next to waiting service accounts", async () => {
   await schema.pool.query("DELETE FROM service_upgrade_requests");
   await schema.pool.query("UPDATE accounts SET approved=true WHERE role='service'");
@@ -201,6 +210,14 @@ test("the admin lists, counts and flags open requests next to waiting service ac
   assert.equal(customers.upgrades, 1);
   assert.equal(customers.accounts.find(c => c.id === id)?.upgrade_pending, true);
   assert.equal(customers.accounts.filter(c => c.upgrade_pending).length, 1);
+  // Unverified signups (#1258) are counted, flagged and called out.
+  const unverified = (await schema.pool.query<{ id: string }>(
+    "INSERT INTO accounts(name,email,password_hash,role,approved,applied_at,email_verified_at) VALUES('Bekleyen','unverified-list@example.invalid','x','customer',true,now(),NULL) RETURNING id")).rows[0].id;
+  const after = await adminData.adminCustomerAccounts();
+  assert.equal(after.total, customers.total + 1);
+  assert.equal(after.unverified, customers.unverified + 1);
+  assert.equal(after.accounts.find(c => c.id === unverified)?.verified, false);
+  assert.equal(after.accounts.find(c => c.id === id)?.verified, true);
 });
 
 test("a deactivated customer's request is neither listed nor approvable", async () => {

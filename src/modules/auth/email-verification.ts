@@ -1,20 +1,23 @@
 import "server-only";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { hash } from "bcryptjs";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { mailConfig, sendMail, type MailMessage, type MailResult } from "@/lib/mail";
 import { siteUrl } from "@/lib/site";
 import { buildAccountExistsEmail, buildEmailVerificationEmail } from "./account-email";
-import { consumeAccountTokenDetails, findAccountToken, issueAccountToken, revokeAccountToken } from "./account-tokens";
-import { RESETTABLE_ROLES } from "./password-reset";
+import { consumeAccountTokenDetails, findAccountToken, issueAccountToken, lockTokenAccount, revokeAccountToken } from "./account-tokens";
+import { RESET_TTL_MINUTES, RESETTABLE_ROLES } from "./password-reset";
+import { VERIFY_TTL_MINUTES } from "./verification-policy";
+
+export { UNVERIFIED_KEEP_DAYS, VERIFY_TTL_MINUTES } from "./verification-policy";
 
 // E-mail verification before a self-service customer account opens (#1258). A signup creates the account unverified
 // (accounts.email_verified_at NULL) and mails a link (/e-posta-dogrula/baglanti?t=…); the link moves the token into
 // VERIFY_COOKIE, scoped to /e-posta-dogrula, and the form there verifies. Only the browser that signed up (its nonce in
-// VERIFY_ORIGIN_COOKIE matches the token's origin_hash) is logged in right away; any other browser is sent to /giris.
-export const VERIFY_TTL_MINUTES = 24 * 60;
-/** An unverified signup is deleted this many days after it was made (scripts/prune-attempt-rows.ts). */
-export const UNVERIFIED_KEEP_DAYS = 7;
+// VERIFY_ORIGIN_COOKIE matches the token's origin_hash) is logged in right away. In any other browser the signup
+// password is discarded and a new one must be set (/sifre-yenile): whoever chose it at signup may not own the address,
+// so it opens the account only together with the browser it was chosen in.
 export const VERIFY_COOKIE = "gb_verify";
 export const VERIFY_ORIGIN_COOKIE = "gb_verify_origin";
 export const verifyCookieOptions = (maxAge: number) =>
@@ -51,7 +54,7 @@ export async function sendEmailVerification(email: string, { returnTo = null, or
   const token = unverified ? await issueAccountToken(db, account.id, "email_verification", VERIFY_TTL_MINUTES, { returnTo, originHash }) : null;
   const url = token ? `${baseUrl}/e-posta-dogrula/baglanti?t=${token}` : `${baseUrl}/giris`;
   const message = token
-    ? buildEmailVerificationEmail({ name: account.name, url, hours: VERIFY_TTL_MINUTES / 60 })
+    ? buildEmailVerificationEmail({ url, hours: VERIFY_TTL_MINUTES / 60 })
     : buildAccountExistsEmail({ name: account.name, loginUrl: url, resetUrl: `${baseUrl}/sifre-yenile` });
   const kind = token ? "E-mail verification" : "Account exists";
   let result: MailResult;
@@ -70,26 +73,53 @@ export async function sendEmailVerification(email: string, { returnTo = null, or
   return result.status;
 }
 
-/** The verification link's expiry while it is still usable, or null. Does not use the token up. */
-export async function emailVerificationTarget(token: string) {
-  const found = await findAccountToken(db, token, "email_verification");
-  return found ? { expiresAt: found.expiresAt } : null;
-}
+const sameOrigin = (a: string | null, b: string | null) =>
+  Boolean(a && b && a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b)));
 
 /**
- * Uses the token up and marks the address verified. Null for an unknown, expired or used token, or an account that is
- * no longer an approved, unverified customer; otherwise the account and where the signup wanted to go.
+ * The verification link's expiry while it is still usable, and whether this browser (`originHash`, its signup nonce's
+ * hash) is the one that signed up; null for an unusable link. Does not use the token up.
  */
-export async function completeEmailVerification(token: string) {
+export async function emailVerificationTarget(token: string, originHash: string | null = null) {
+  const found = await findAccountToken(db, token, "email_verification");
+  return found ? { expiresAt: found.expiresAt, sameBrowser: sameOrigin(found.originHash, originHash) } : null;
+}
+
+export type EmailVerificationResult =
+  | { signedIn: true; accountId: string; returnTo: string | null }
+  | { signedIn: false; accountId: string; resetToken: string };
+
+/**
+ * Uses the token up and marks the address verified. `originHash` is the hash of this browser's signup nonce: when it
+ * matches the token's, the caller logs the account in. Otherwise, in the same transaction, the signup password is
+ * replaced by an unusable hash, the account's sessions end and a password reset token is issued for the caller to hand
+ * to /sifre-yenile. Null for an unknown, expired or used token, or an account that is no longer an approved, unverified
+ * customer.
+ */
+export async function completeEmailVerification(token: string, originHash: string | null): Promise<EmailVerificationResult | null> {
+  const found = await findAccountToken(db, token, "email_verification");
+  if (!found) return null;
+  const signedIn = sameOrigin(found.originHash, originHash);
+  // Slow, so before the transaction; nobody knows the random password it hashes.
+  const unusableHash = signedIn ? null : await hash(randomBytes(32).toString("base64url"), 12);
   const client = await db.connect();
   try {
     await client.query("BEGIN");
-    const details = await consumeAccountTokenDetails(client, token, "email_verification");
+    // The account row first, then its tokens: the same lock order as password reset and account deletion.
+    const locked = await lockTokenAccount(client, token, "email_verification");
+    const details = locked ? await consumeAccountTokenDetails(client, token, "email_verification") : null;
     const updated = details ? await client.query(
       "UPDATE accounts SET email_verified_at=now() WHERE id=$1 AND role='customer' AND approved AND email_verified_at IS NULL RETURNING id", [details.accountId]) : null;
-    if (!details || !updated?.rowCount) { await client.query("ROLLBACK"); return null; }
+    if (!details || !updated?.rowCount || sameOrigin(details.originHash, originHash) !== signedIn) { await client.query("ROLLBACK"); return null; }
+    if (signedIn) {
+      await client.query("COMMIT");
+      return { signedIn, accountId: details.accountId, returnTo: details.returnTo };
+    }
+    await client.query("UPDATE accounts SET password_hash=$2 WHERE id=$1", [details.accountId, unusableHash]);
+    await client.query("DELETE FROM sessions WHERE account_id=$1", [details.accountId]);
+    const resetToken = await issueAccountToken(client, details.accountId, "password_reset", RESET_TTL_MINUTES);
     await client.query("COMMIT");
-    return details;
+    return { signedIn, accountId: details.accountId, resetToken };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     throw error;

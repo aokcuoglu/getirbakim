@@ -1,4 +1,5 @@
 import { colors, contactHtml, contactText, emailDocument, footerStart, html, link, p, title } from "@/modules/store/order-email-layout";
+import { unverifiedKeepPeriod } from "./verification-policy";
 
 // Account e-mails (#1257, #1258). Pure: the caller sends them.
 
@@ -23,15 +24,15 @@ export function buildPasswordResetEmail({ name, url, minutes }: { name: string; 
 }
 
 /**
- * The e-mail verification e-mail (#1258); `url` carries the single-use token. The 7 days match UNVERIFIED_KEEP_DAYS in
- * email-verification.ts.
+ * The e-mail verification e-mail (#1258); `url` carries the single-use token. It greets without the name: the name comes
+ * from an unverified signup form, so anyone could make it say something to any address.
  */
-export function buildEmailVerificationEmail({ name, url, hours }: { name: string; url: string; hours: number }) {
+export function buildEmailVerificationEmail({ url, hours }: { url: string; hours: number }) {
   const subject = "E-posta adresini doğrula";
-  const greeting = `Merhaba ${name},`;
+  const greeting = "Merhaba,";
   const intro = "Getirbakim hesabını açmak için e-posta adresini doğrula. Aşağıdaki bağlantıyı aç:";
   const validity = `Bağlantı ${hours} saat geçerlidir ve yalnızca bir kez kullanılabilir.`;
-  const ignore = "Bu hesabı sen oluşturmadıysan bağlantıyı açma; doğrulanmayan kayıt 7 gün içinde silinir.";
+  const ignore = `Bu hesabı sen oluşturmadıysan bağlantıyı açma; doğrulanmayan kayıt ${unverifiedKeepPeriod} içinde silinir.`;
   const text = [greeting, "", intro, url, "", validity, "", ignore, "", contactText].join("\n");
   const body = [
     title(subject),

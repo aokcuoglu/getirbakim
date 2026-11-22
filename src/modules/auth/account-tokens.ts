@@ -32,12 +32,23 @@ export async function revokeAccountToken(client: Queryable, token: string, purpo
   await client.query("DELETE FROM account_tokens WHERE token_hash=$1 AND purpose=$2", [hashOf(token), purpose]);
 }
 
-/** The unexpired token's account and expiry, without using it up; null for an unknown, expired or malformed token. */
+/** The unexpired token's account, expiry and signup origin, without using it up; null for an unknown, expired or malformed token. */
 export async function findAccountToken(client: Queryable, token: string, purpose: AccountTokenPurpose) {
   if (!usable(token)) return null;
-  const { rows } = await client.query<{ account_id: string; expires_at: Date }>(
-    "SELECT account_id,expires_at FROM account_tokens WHERE token_hash=$1 AND purpose=$2 AND expires_at>now()", [hashOf(token), purpose]);
-  return rows[0] ? { accountId: rows[0].account_id, expiresAt: rows[0].expires_at } : null;
+  const { rows } = await client.query<{ account_id: string; expires_at: Date; origin_hash: string | null }>(
+    "SELECT account_id,expires_at,origin_hash FROM account_tokens WHERE token_hash=$1 AND purpose=$2 AND expires_at>now()", [hashOf(token), purpose]);
+  return rows[0] ? { accountId: rows[0].account_id, expiresAt: rows[0].expires_at, originHash: rows[0].origin_hash } : null;
+}
+
+/**
+ * Locks the account of an unexpired token (FOR UPDATE) inside the caller's transaction and returns its id. Completing a
+ * link takes this first, so every path locks the account row before its tokens, as deleting an account does.
+ */
+export async function lockTokenAccount(client: Queryable, token: string, purpose: AccountTokenPurpose) {
+  if (!usable(token)) return null;
+  const { rows } = await client.query<{ id: string }>(`SELECT a.id FROM account_tokens t JOIN accounts a ON a.id=t.account_id
+    WHERE t.token_hash=$1 AND t.purpose=$2 AND t.expires_at>now() FOR UPDATE OF a`, [hashOf(token), purpose]);
+  return rows[0]?.id ?? null;
 }
 
 /** Uses the token up: its account and stored extras if it was unexpired, otherwise null. A token works only once. */
