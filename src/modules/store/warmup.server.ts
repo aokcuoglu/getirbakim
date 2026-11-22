@@ -5,8 +5,10 @@ import { catalogPath, makePath, makesPath } from "@/modules/seo/paths";
 /**
  * Requests the most visited storefront pages once when a server starts (#448). Make lists, category ids,
  * counts and the home picks live in per-process caches (staleCache); without this the first visitors of a
- * new container computed them: 4-5 s for a catalog or make page, up to 20 s for Volkswagen. A visitor who
- * arrives during the warm-up shares the pending cache entry instead of starting the same query again.
+ * new container computed them: 4-5 s for a catalog or make page, up to 20 s for Volkswagen. The plain listings'
+ * counts, page ids and facets now come from the shared storefront_listing_cache table when another process stored them
+ * (#957), so the warm-up mostly loads what that level does not keep. A visitor who arrives during the warm-up shares the
+ * pending cache entry instead of starting the same query again.
  * The health check does not wait for it: the load balancer would mark a slow-starting task unhealthy.
  */
 export async function warmStorefront(origin: string, options: { concurrency?: number; timeoutMs?: number } = {}) {

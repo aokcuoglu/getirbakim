@@ -287,3 +287,17 @@ $view$; cur regclass := (SELECT c.oid FROM pg_class c
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
 END $setup$;
+
+-- Storefront listing cache, persisted level (#957): listing counts, page ids and facets of the plain listings (no search,
+-- brand, property, availability or vehicle filter) that the per-process stale-while-revalidate caches computed, so a new
+-- or restarted app container reads them instead of scanning the catalog again (src/modules/store/listing-cache-store.ts).
+-- Each row keeps the storefront_listing_epoch value it was loaded under: rows of an older epoch are not served and never
+-- replace a newer row. UNLOGGED: a crash empties it and the caches load again. The app prunes rows older than two days.
+CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_cache (
+ namespace text NOT NULL,
+ key_hash text NOT NULL,
+ epoch bigint NOT NULL,
+ computed_at timestamptz NOT NULL DEFAULT now(),
+ value jsonb NOT NULL,
+ PRIMARY KEY (namespace,key_hash)
+);

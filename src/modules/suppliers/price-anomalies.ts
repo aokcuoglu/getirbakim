@@ -11,6 +11,8 @@ import type { Pool } from "pg";
  * from the same product's other-supplier offers whose value fits them in another currency (offerOutlier). #1142 reopens
  * a dismissed anomaly when the supplier's value moves REOPEN_FACTOR times from the one the admin dismissed. #1153 re-checks
  * the rows whose value a Başbuğ price/stock run changed (refreshPriceAnomaliesAfterImports), not only after full lists.
+ * #1172 re-checks the rows whose value the order-time MalzemeAra refresh wrote (refreshPriceAnomaliesAfterCheckout),
+ * before the same order opens its transaction.
  */
 export const priceAnomalyThresholds = {
   /** A brand needs this many priced rows before its median means anything. */
@@ -44,6 +46,23 @@ export const priceAnomalyThresholds = {
   REOPEN_FACTOR: 1.5,
 };
 export type PriceAnomalyThresholds = typeof priceAnomalyThresholds;
+
+/** WHERE fragment on `supplier_items`: rows with an open price anomaly (#1049). */
+export const openPriceAnomalyFilter = "supplier_items.id IN (SELECT a.supplier_item_id FROM supplier_price_anomalies a WHERE a.status='open')";
+
+/**
+ * Open anomalies (#1049). Without a scope: all of them. With one: Başbuğ rows the admin list shows by default (company,
+ * MRK depot, present in the list, optional group), so the card figure equals the filtered list total.
+ */
+export async function openPriceAnomalyCount(pool: Pick<Pool, "query">, scope?: { company: string; group?: string }) {
+  const result = scope
+    ? await pool.query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM supplier_price_anomalies a JOIN supplier_items i ON i.id=a.supplier_item_id
+       WHERE a.status='open' AND i.supplier='basbug' AND i.company=$1 AND i.warehouse='MRK' AND i.presence='present' AND ($2='' OR i.list_group=$2)`,
+      [scope.company, scope.group ?? ""])
+    : await pool.query<{ count: number }>("SELECT count(*)::int AS count FROM supplier_price_anomalies WHERE status='open'");
+  return result.rows[0].count;
+}
 
 /**
  * Only Başbuğ sends a currency per row; Dinamik and manual lists store a fixed TRY (dinamik-import.ts,
@@ -166,10 +185,10 @@ type OfferRow = {
 };
 
 // Rows in the saleable scope (commerce_supplier_items) with a positive numeric cost; a brand is grouped per company
-// across list groups. Rates are the latest successful import's selling rates, as commerce_catalog's latest/rates.
+// across list groups. Rates are the latest successful import's selling rates (supplier_latest_imports, db/schema.sql),
+// as commerce_catalog's latest/rates.
 const itemRowsCte = `WITH latest AS (
-  SELECT DISTINCT ON (company) company,currencies_data FROM supplier_imports
-  WHERE supplier=$1 AND status='succeeded' ORDER BY company,completed_at DESC,id DESC
+  SELECT company,currencies_data FROM supplier_latest_imports WHERE supplier=$1
 ), rates AS (
   SELECT company,r->>'dovizCinsi' AS currency,(r->>'satis')::numeric AS rate
   FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r
@@ -350,13 +369,19 @@ export async function setPriceAnomalyStatus(connection: Pick<Pool, "query">, id:
 
 /** How long a refresh waits for another one holding the lock (#1153). */
 const LOCK_TIMEOUT_MS = 5_000;
+/**
+ * How long the order-time re-check waits for the lock and then for each statement (#1172): it runs inside a customer's
+ * order request, so it gives up sooner and the order continues; the next scheduler tick's scoped run re-checks the row
+ * (refreshPriceAnomaliesAfterImports reads the checkout's changes too). A scoped detection takes ~0.45 s.
+ */
+const CHECKOUT_LOCK_TIMEOUT_MS = 2_000;
+const CHECKOUT_STATEMENT_TIMEOUT_MS = 3_000;
 
 // The latest successful import's rates per company, and whether an anomaly row `a` cannot be judged with them: its
 // own currency or its relabel/dominant currency has no rate (an offer-outlier's relabel currency drops out of the scan
 // without one, #1050). Shared by the DELETE guard and the unjudged reopen (#1153); $1 is the supplier.
 const judgedRatesCte = `WITH latest AS (
-  SELECT DISTINCT ON (company) company,currencies_data FROM supplier_imports
-  WHERE supplier=$1 AND status='succeeded' ORDER BY company,completed_at DESC,id DESC
+  SELECT company,currencies_data FROM supplier_latest_imports WHERE supplier=$1
 ), rates AS (
   SELECT company,r->>'dovizCinsi' AS currency FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r
   WHERE r->>'satis' IS NOT NULL
@@ -380,10 +405,12 @@ const unjudgeableSql = `EXISTS(
  * otherwise a row the run could not judge (no rate for its own or its relabel currency, or skipped as unrated) is kept.
  * `itemIds` (#1153): judge, reopen and delete only these rows; others keep their state until a full refresh. Another
  * refresh running: waits up to `lockTimeoutMs` for it (a refresh takes under 2 s, and skipping would drop a scoped
- * run's rows or a panel's full refresh), then `{ skipped: true }`.
+ * run's rows or a panel's full refresh), then `{ skipped: true }`. The order-time re-check (#1172) scopes it to the rows
+ * the order's MalzemeAra refresh repriced and waits less (refreshPriceAnomaliesAfterCheckout). `statementTimeoutMs`
+ * bounds each statement after the lock is taken (unset: the server default); a timeout rolls back and throws.
  */
 export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySupplier, itemIds?: string[],
-  { lockTimeoutMs = LOCK_TIMEOUT_MS }: { lockTimeoutMs?: number } = {}) {
+  { lockTimeoutMs = LOCK_TIMEOUT_MS, statementTimeoutMs }: { lockTimeoutMs?: number; statementTimeoutMs?: number } = {}) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -395,6 +422,7 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
       return { skipped: true as const };
     }
     await client.query("SET LOCAL lock_timeout TO DEFAULT");
+    if (statementTimeoutMs !== undefined) await client.query("SELECT set_config('statement_timeout',$1,true)", [`${statementTimeoutMs}ms`]);
     const { flagged, ratesMissing, unrated } = await detectPriceAnomalies(client, supplier, priceAnomalyThresholds, itemIds);
     const flaggedIds = flagged.map(row => row.id);
     // Kept regardless of this run: detected again, or skipped for want of a rate.
@@ -468,20 +496,54 @@ export async function refreshPriceAnomalies(pool: Pool, supplier: PriceAnomalySu
 /** Above this many changed rows a scoped re-check saves little over the whole scope: refresh everything instead. */
 const MAX_SCOPED_ROWS = 20_000;
 
+/** Without an earlier succeeded import, checkout changes this far back are re-checked (a tick is 30 minutes). */
+const CHECKOUT_FALLBACK_WINDOW = "40 minutes";
+
 /**
  * After Başbuğ price/stock runs (#1153): re-checks only the rows whose value (nf) these imports changed. A commerce run
  * never changes a row's currency, so a run without nf changes needs no detection (`{ changed: 0 }`). The changes are
  * the imports' supplier_item_changes rows (changed_at = the import's completed_at, supplier_item_changes_date_idx).
+ * Also the order-time MalzemeAra writes (import_id NULL, source checkout, #1172) since the previous succeeded import of
+ * the supplier started (CHECKOUT_FALLBACK_WINDOW without one, at most a day): their own re-check may have been skipped
+ * or failed, and the next commerce run sees no nf change for them. Re-checking a row twice is harmless.
  */
 export async function refreshPriceAnomaliesAfterImports(pool: Pool, supplier: PriceAnomalySupplier, importIds: string[],
   { maxScopedRows = MAX_SCOPED_ROWS, lockTimeoutMs }: { maxScopedRows?: number; lockTimeoutMs?: number } = {}) {
   if (!importIds.length) return { changed: 0 };
-  const ids = (await pool.query<{ id: string }>(`SELECT DISTINCT c.item_id::text AS id FROM supplier_imports r
+  const ids = (await pool.query<{ id: string }>(`SELECT c.item_id::text AS id FROM supplier_imports r
     JOIN supplier_item_changes c ON c.changed_at=r.completed_at AND c.import_id=r.id
-    WHERE r.id=ANY($1::uuid[]) AND r.supplier=$2 AND c.before_data->'price'->'nf' IS DISTINCT FROM c.after_data->'price'->'nf'`,
-  [importIds, supplier])).rows.map(row => row.id);
+    WHERE r.id=ANY($1::uuid[]) AND r.supplier=$2 AND c.before_data->'price'->'nf' IS DISTINCT FROM c.after_data->'price'->'nf'
+    UNION
+    SELECT c.item_id::text FROM supplier_item_changes c JOIN supplier_items i ON i.id=c.item_id AND i.supplier=$2
+    WHERE c.changed_at>=GREATEST(now()-interval '1 day',COALESCE(
+        (SELECT max(p.started_at) FROM supplier_imports p WHERE p.supplier=$2 AND p.status='succeeded' AND p.id<>ALL($1::uuid[])
+          AND p.started_at<(SELECT min(n.started_at) FROM supplier_imports n WHERE n.id=ANY($1::uuid[]))),
+        now()-$3::interval))
+    AND c.import_id IS NULL AND c.after_data->>'source'='checkout'
+    AND c.before_data->'price'->'nf' IS DISTINCT FROM c.after_data->'price'->'nf'`,
+  [importIds, supplier, CHECKOUT_FALLBACK_WINDOW])).rows.map(row => row.id);
   if (!ids.length) return { changed: 0 };
   return { changed: ids.length, ...await refreshPriceAnomalies(pool, supplier, ids.length > maxScopedRows ? undefined : ids, { lockTimeoutMs }) };
+}
+
+/**
+ * After the order-time MalzemeAra refresh wrote a different nf (#1172): re-checks only those rows, after the refresh
+ * committed and before the order opens its transaction, so a reopened anomaly unprices the row (commerce_catalog) and
+ * the same order refuses the line. Never throws: a skipped run (lock held longer than `lockTimeoutMs`) or a failure
+ * (including a statement over CHECKOUT_STATEMENT_TIMEOUT_MS) is logged and the order continues; the next scheduler
+ * tick's scoped run re-checks the row from its supplier_item_changes record (refreshPriceAnomaliesAfterImports).
+ */
+export async function refreshPriceAnomaliesAfterCheckout(pool: Pool, supplier: PriceAnomalySupplier, itemIds: string[],
+  { lockTimeoutMs = CHECKOUT_LOCK_TIMEOUT_MS }: { lockTimeoutMs?: number } = {}) {
+  if (!itemIds.length) return { changed: 0 };
+  try {
+    const result = await refreshPriceAnomalies(pool, supplier, itemIds, { lockTimeoutMs, statementTimeoutMs: CHECKOUT_STATEMENT_TIMEOUT_MS });
+    if (result.skipped) console.error({ priceAnomalies: "skipped", source: "checkout", rows: itemIds.length });
+    return { changed: itemIds.length, ...result };
+  } catch (error) {
+    console.error({ priceAnomalies: "failed", source: "checkout", code: (error as { code?: string }).code });
+    return { changed: itemIds.length, failed: true as const };
+  }
 }
 
 /** After a manual Başbuğ list refresh in the panel (#1030): a failure is logged and keeps the previous list. */

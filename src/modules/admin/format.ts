@@ -7,6 +7,9 @@ const decimal = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 });
 const exact = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 6 });
 const yearOf = (value: Date) => new Intl.DateTimeFormat("tr-TR", { timeZone: zone, year: "numeric" }).format(value);
 
+/** A calendar day `YYYY-MM-DD` (already an Istanbul day) as `DD.MM.YYYY`. */
+export const formatDay = (value: string) => value.split("-").reverse().join(".");
+
 /** Count or amount, Turkish grouping, at most two decimals; a missing value reads 0. */
 export function formatNumber(value: number | null | undefined) {
   const number = value ?? 0;

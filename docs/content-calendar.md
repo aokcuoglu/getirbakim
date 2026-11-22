@@ -41,6 +41,13 @@ Meta: Gerçek ustanın parçayı karşılaştırdığı kısa video. İlk cümle
 | --- | --- | --- | --- |
 | OEM numarası nedir, nasıl bulunur? | `/rehber/oem-numarasi-nedir-nasil-bulunur` | Yedek parçalar | Yayında (ilk dilim) |
 | Yağ filtresi ne zaman değişir? | `/rehber/yag-filtresi-ne-zaman-degisir` | Filtreler, Yağlar ve sıvılar | Yayında (ilk dilim) |
-| Kalan 6–8 yazı | — | — | Planlanacak |
+| Fren balatası ne zaman değişir, nasıl seçilir? | `/rehber/fren-balatasi-ne-zaman-degisir-nasil-secilir` | Fren sistemi | İkinci dilim (2026-11-21) |
+| Hava filtresi ile polen filtresi arasındaki fark nedir? | `/rehber/hava-filtresi-ve-polen-filtresi-farki` | Filtreler | İkinci dilim (2026-11-21) |
+| Motor yağı nasıl seçilir? | `/rehber/motor-yagi-nasil-secilir` | Yağlar ve sıvılar | İkinci dilim (2026-11-21) |
+| Akü ne zaman değişir, hangi akü uyar? | `/rehber/aku-ne-zaman-degisir-hangi-aku-uyar` | Yedek parçalar | İkinci dilim (2026-11-21) |
+| Triger seti ne zaman değişir? | `/rehber/triger-seti-ne-zaman-degisir` | Yedek parçalar | İkinci dilim (2026-11-21) |
+| Silecek süpürgesi ölçüsü nasıl bulunur? | `/rehber/silecek-supurgesi-olcusu-nasil-bulunur` | Silecekler | İkinci dilim (2026-11-21) |
+| Antifriz rengi önemli mi? | `/rehber/antifriz-rengi-onemli-mi` | Yağlar ve sıvılar | İkinci dilim (2026-11-21) |
+| Muadil parça mı, orijinal parça mı? | `/rehber/muadil-parca-mi-orijinal-parca-mi` | Yedek parçalar | İkinci dilim (2026-11-21) |
 
 Yeni yazı ekleme adımları: [seo-geo.md](seo-geo.md#121-yeni-rehber-yazısı-ekleme-646).

@@ -1,5 +1,6 @@
 import { revalidatePath } from "next/cache";
-import { NextResponse, type NextRequest } from "next/server";
+import { after, NextResponse, type NextRequest } from "next/server";
+import { deliverPartnerWebhooksSafely } from "@/modules/partner/webhooks";
 import { authenticateGeliverWebhook, handleAuthenticatedWebhook } from "@/modules/shipping/geliver-labels";
 
 // Geliver TRACK_UPDATED webhook (#960); registered with `npm run geliver:webhook -- register` (docs/commerce.md).
@@ -17,6 +18,8 @@ export async function POST(request: NextRequest) {
     const result = await handleAuthenticatedWebhook(via, rawBody);
     if (result.outcome === "applied") {
       revalidatePath("/yonetim", "layout"); revalidatePath(`/siparis/${result.orderId}`); revalidatePath("/siparisler");
+      // A partner order's shipment change reaches the partner now instead of on the next 5-minute sweep (#1002).
+      after(() => deliverPartnerWebhooksSafely({ orderId: result.orderId }));
     }
     return NextResponse.json(result.outcome === "ignored" ? { ok: true, outcome: result.outcome, reason: result.reason } : { ok: true, outcome: result.outcome }, { headers: noStore });
   } catch (error) {

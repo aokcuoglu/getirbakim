@@ -10,9 +10,10 @@ import { AboutContent, FaqContent, Paragraphs } from "@/components/info-pages";
 import { aboutDescription, aboutTitle } from "@/content/about";
 import { catalogPath } from "@/modules/seo/paths";
 import { storeButton } from "@/components/store-button";
-const pages:Record<string,{title:string;seoTitle:string;description:string;paragraphs:string[]}>={
- hakkimizda:{title:aboutTitle,seoTitle:"Hakkımızda",description:aboutDescription,paragraphs:[]},
- uyumluluk:{title:"Doğru parçayı nasıl bulursun?",seoTitle:"Parça uyumluluğu rehberi",description:"Aracına uyan parçayı OEM kodu, motor kodu, üretim yılı ve Garajım ile nasıl doğrulayacağını adım adım öğren.",paragraphs:["Ürün veya OEM kodunu biliyorsan arama alanına yaz. Katalogda ürün adı ve markasıyla da arama yapabilirsin.","Aynı modelin farklı motor, üretim yılı ve donanım seçeneklerinde farklı parçalar kullanılır. OEM kodu, motor kodu ve araç özelliklerini karşılaştırmadan uyumluluğu varsayma.","Garajım alanına aracını eklediğinde katalog o araca göre filtrelenir. Siparişten önce ürün sayfasındaki OEM numaralarını ve uyumlu araç listesini kontrol et; emin olamadığında bize danışabilirsin."]},
+// seoTitle names the page in the breadcrumb; metaTitle, when set, is the longer <title> (#1218).
+const pages:Record<string,{title:string;seoTitle:string;metaTitle?:string;description:string;paragraphs:string[]}>={
+ hakkimizda:{title:aboutTitle,seoTitle:"Hakkımızda",metaTitle:"Hakkımızda: yedek parça mağazası",description:aboutDescription,paragraphs:[]},
+ uyumluluk:{title:"Doğru parçayı nasıl bulursun?",seoTitle:"Parça uyumluluğu rehberi",metaTitle:"Doğru parçayı bulma ve uyumluluk rehberi",description:"Aracına uyan parçayı OEM kodu, motor kodu, üretim yılı ve Garajım ile nasıl doğrulayacağını adım adım öğren.",paragraphs:["Ürün veya OEM kodunu biliyorsan arama alanına yaz. Katalogda ürün adı ve markasıyla da arama yapabilirsin.","Aynı modelin farklı motor, üretim yılı ve donanım seçeneklerinde farklı parçalar kullanılır. OEM kodu, motor kodu ve araç özelliklerini karşılaştırmadan uyumluluğu varsayma.","Garajım alanına aracını eklediğinde katalog o araca göre filtrelenir. Siparişten önce ürün sayfasındaki OEM numaralarını ve uyumlu araç listesini kontrol et; emin olamadığında bize danışabilirsin."]},
  yardim:{title:"Sıkça sorulan sorular",seoTitle:"Sıkça sorulan sorular ve yardım",description:"Sipariş, ödeme, kargo, iade, parça uyumluluğu, fatura ve servis hesabı hakkında kısa yanıtlar; 09.00–17.30 arası telefon ve e-posta desteği.",paragraphs:[]}
 };
 export async function generateMetadata({params}:{params:Promise<{slug:string}>}) {
@@ -21,7 +22,7 @@ export async function generateMetadata({params}:{params:Promise<{slug:string}>})
  if(legalDocument(legalSlug)) return legalMetadata(legalSlug);
  const page=Object.hasOwn(pages,slug) ? pages[slug] : undefined;
  if(!page) return {title:"Bilgi",robots:{index:false}};
- return pageMetadata({title:page.seoTitle,description:page.description,path:`/bilgi/${slug}`});
+ return pageMetadata({title:page.metaTitle??page.seoTitle,description:page.description,path:`/bilgi/${slug}`});
 }
 export default async function Info({params}:{params:Promise<{slug:string}>}) {
  const {slug}=await params;

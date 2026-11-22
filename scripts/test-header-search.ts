@@ -321,3 +321,16 @@ test("header menu controls are 44px and token-coloured (#1173)", () => {
   const css = readFileSync("src/app/storefront.css", "utf8");
   assert.doesNotMatch(css.match(/\.site-nav-catalog \{[^}]*\}/)?.[0] ?? "#", /#/);
 });
+
+test("header strip and search submit carry a 44px hit area (#1181)", () => {
+  const css = readFileSync("src/app/storefront.css", "utf8");
+  const grouped = css.match(/\.tap-44,[^{]*\{[^}]*\}/)?.[0] ?? "";
+  for (const name of [".site-nav-catalog", ".site-nav-item", ".site-nav-trigger"]) assert.ok(grouped.includes(name), name);
+  for (const token of ["before:h-11", "before:min-w-11", "before:absolute"]) assert.ok(grouped.includes(token), token);
+  const nav = css.match(/\.site-header-nav \{[^}]*\}/)?.[0] ?? "";
+  for (const token of ["-top-2", "-mb-2", "h-[50px]", "max-[600px]:top-0", "max-[600px]:mb-0"]) assert.ok(nav.includes(token), token);
+  assert.doesNotMatch(nav, /-mt-/);
+  assert.match(css.match(/\.site-nav-catalog \{[^}]*\}/)?.[0] ?? "", /\bh-7\b/);
+  assert.match(css.match(/\.site-nav-item \{[^}]*\}/)?.[0] ?? "", /\bmin-h-5\b/);
+  assert.match(readFileSync("src/components/navigation/search-box.tsx", "utf8"), /type="submit"[^>]*tap-44/);
+});

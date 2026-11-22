@@ -266,6 +266,13 @@ test("a setup re-run leaves the vocabulary alone; maintenance rebuilds it", asyn
     const { rows: [{ stats }] } = await schema.pool.query<{ stats: number }>(
       "SELECT count(*)::int AS stats FROM pg_stats WHERE schemaname=$1 AND tablename='supplier_items'", [schema.name]);
     assert.ok(stats > 0);
+    // Small and never-analyzed tables get statistics too (#994): autovacuum skips a table under 50 changed rows.
+    const { rows: [settings] } = await schema.pool.query<{ reltuples: number }>(
+      "SELECT reltuples FROM pg_class WHERE oid=to_regclass($1)", [`${schema.name}.commerce_settings`]);
+    assert.equal(settings.reltuples, 1);
+    const { rows: unanalyzed } = await schema.pool.query<{ name: string }>(`SELECT relname AS name FROM pg_class
+      WHERE relnamespace=to_regnamespace($1) AND relkind='r' AND relpersistence='p' AND reltuples<0 ORDER BY 1`, [schema.name]);
+    assert.deepEqual(unanalyzed, []);
   } finally {
     console.log = log;
     await schema.pool.query("DELETE FROM supplier_items WHERE id=$1", [id]);

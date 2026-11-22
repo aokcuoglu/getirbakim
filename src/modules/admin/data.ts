@@ -14,6 +14,7 @@ import { restockDueCount } from "./restock";
 import { installmentSettings } from "@/modules/payments/installment-settings";
 import { procurementOpenSql, type AdminOrderLine } from "./order-procurement";
 import { pendingReturnLines } from "@/modules/partner/returns";
+import { orderInvoiceChangesSql, type OrderInvoiceChange } from "@/modules/partner/limits";
 import { dashboardOrdersSql, navOrderCountSql, orderFilters, orderReturnRequestsSql, orderTabCountsSql, type OrderFilter } from "./order-filters";
 import { supplierRunHistoryLimit } from "@/modules/suppliers/run-status";
 import type { PriceAnomalyEvidence, PriceAnomalyKind } from "@/modules/suppliers/price-anomalies";
@@ -46,7 +47,7 @@ export async function adminPricing() {
   await requireAdmin();
   const [settings, latest, installments] = await Promise.all([
     db.query<PricingSettings>("SELECT markup_percent,vat_percent,max_age_hours,shipping_fee_kurus,free_shipping_threshold_kurus FROM commerce_settings WHERE id=true"),
-    db.query<CurrencySnapshot>("SELECT currencies_data,completed_at FROM supplier_imports WHERE supplier='basbug' AND company=$1 AND status='succeeded' ORDER BY completed_at DESC,id DESC LIMIT 1", [process.env.BASBUG_FIRMA_ADI || "BASBUG"]),
+    db.query<CurrencySnapshot>("SELECT currencies_data,completed_at FROM supplier_latest_import('basbug',$1)", [process.env.BASBUG_FIRMA_ADI || "BASBUG"]),
     installmentSettings(),
   ]);
   if (!settings.rows[0]) throw new Error("Satış ayarları bulunamadı.");
@@ -88,7 +89,7 @@ export type AdminReturnRequest = {
   id: string; status: "requested" | "approved" | "rejected"; note: string; requested_at: string; decided_at: string | null;
   lines: { product_id: string; quantity: number; reason: ReturnReason }[];
 };
-type PartnerCancelRequest = { cancel_requested_at: Date | null; cancel_request_rejected_at: Date | null; partner_invoiced_at: Date | null; partner_invoice_ref: string | null; partner_invoiced_by_name: string | null };
+type PartnerCancelRequest = { cancel_requested_at: Date | null; cancel_request_rejected_at: Date | null; partner_invoiced_at: Date | null; partner_invoice_ref: string | null; partner_invoiced_by_name: string | null; partner_invoice_day: string | null; partner_invoice_changes: OrderInvoiceChange[] };
 export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { sort?: string; dir?: string } = {}, rawProcurement?: string, rawOwner?: string) {
   await requireAdmin();
   const requested = Number(rawPage);
@@ -103,6 +104,8 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
      o.delivery_province,o.delivery_district,o.delivery_address_line,o.delivery_postal_code,o.invoice_type,o.invoice_company,o.invoice_tax_no,o.invoice_tax_office,
      o.invoice_province,o.invoice_district,o.invoice_address_line,o.invoice_postal_code,o.cancel_requested_at,o.cancel_request_rejected_at,o.partner_invoiced_at,o.partner_invoice_ref,
      (SELECT COALESCE(NULLIF(ia.name,''),ia.email) FROM accounts ia WHERE ia.id=o.partner_invoiced_by) AS partner_invoiced_by_name,
+     to_char((o.partner_invoiced_at AT TIME ZONE 'Europe/Istanbul')::date,'YYYY-MM-DD') AS partner_invoice_day,
+     CASE WHEN o.owner_kind='partner' AND o.status='delivered' THEN ${orderInvoiceChangesSql} ELSE '[]'::jsonb END AS partner_invoice_changes,
      a.accepted_at AS agreement_at,a.ip AS agreement_ip,a.user_agent AS agreement_user_agent,a.legal_version AS agreement_version,
      COALESCE((SELECT jsonb_agg(jsonb_build_object('id',p.id,'provider_order_id',p.provider_order_id,'status',p.status,'amount_kurus',p.amount_kurus,
       'bank_reference',p.bank_reference,'paid_at',p.paid_at,'installment_count',p.installment_count) ORDER BY p.created_at) FROM commerce_payments p WHERE p.order_id=o.id),'[]') AS payments,

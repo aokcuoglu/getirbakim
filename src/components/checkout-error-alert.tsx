@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { Alert } from "@/components/ui/alert";
+import { storeErrorBox } from "@/components/store-alert-classes";
+import { cn } from "@/lib/utils";
 import { checkoutFieldErrors } from "@/modules/store/checkout-field-errors";
 
 /** The checkout page's error look, shared by the page (no-JS redirect) and the form (JS submit). */
-export const checkoutAlertClass = "mb-4 rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 break-words text-[#a74130]";
+export const checkoutAlertClass = cn(storeErrorBox, "mb-4 break-words");
 
 // #788: the order named the lines the supplier refused live; they are listed by their names in the cart.
 const lineErrors: Record<string, { title: string; action: string; cart?: boolean }> = {
-  stock: { title: "Tedarikçide şu anda bulunmayan ürünler:", action: "Bu ürünleri sepetinden çıkarıp siparişi yeniden onayla.", cart: true },
+  stock: { title: "Şu anda sipariş edilemeyen ürünler:", action: "Sepette bu ürünlerin adedini güncelle veya ürünleri kaldır, ardından siparişi yeniden onayla.", cart: true },
   price: { title: "Tedarikçide fiyatı değişen ürünler:", action: "Güncel fiyat tedarikçi güncellemesi tamamlanınca sepetine yansıyacak; birkaç dakika sonra sayfayı yenileyip yeniden dene." },
 };
 

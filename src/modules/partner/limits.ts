@@ -7,11 +7,13 @@ import { parsePartnerKeys, partnerKeysEnv } from "./auth";
 /**
  * Partner credit (#426). A partner orders on account up to its open-order limit; what counts against it (its exposure)
  * is every order that is neither cancelled nor delivered, plus delivered orders operations have not invoiced yet
- * (gross totals, shipping included). Marking a delivered order invoiced in /yonetim/partnerler releases it; collection
- * is not tracked here. The limit is the partner's /yonetim value (partner_settings), else the PARTNER_ORDER_LIMIT_KURUS
+ * (gross totals, shipping included). Marking a delivered order invoiced in /yonetim/partnerler releases it; collections
+ * against an invoice (#1006, collections.ts) never change the exposure. The limit is the partner's /yonetim value (partner_settings), else the PARTNER_ORDER_LIMIT_KURUS
  * fallback; with neither the partner cannot order (fail closed). Order creation and the admin page read the same SQL.
- * A wrong mark is corrected (invoice number/date) or undone per invoice with a reason (#1018, partner_invoice_changes);
- * an undone order counts against the limit again.
+ * A wrong mark is corrected (invoice number/date) or undone per invoice with a reason (#1018, partner_invoice_changes),
+ * or undone for a single order from /yonetim/siparisler (#1038); an undone order counts against the limit again.
+ * Recorded payments follow a corrected invoice; an undo is refused when it would leave the invoice's active payments
+ * above its remaining total (activeCollectedKurus).
  */
 type Connection = Pick<PoolClient, "query">;
 
@@ -27,8 +29,11 @@ const uninvoicedSql = "o.status='delivered' AND o.partner_invoiced_at IS NULL";
 /** The Istanbul calendar day an order was delivered (orders delivered before delivered_at existed fall back to creation). */
 const deliveredDaySql = "(COALESCE(o.delivered_at,o.created_at) AT TIME ZONE 'Europe/Istanbul')::date";
 
+/** An audit timestamp column as its Istanbul calendar day, `YYYY-MM-DD`. */
+const changeDaySql = (column: string) => `to_char((${column} AT TIME ZONE 'Europe/Istanbul')::date,'YYYY-MM-DD')`;
+
 /** The Istanbul calendar day an order was marked invoiced (marking stores that day's Istanbul midnight). */
-const invoicedDaySql = "(o.partner_invoiced_at AT TIME ZONE 'Europe/Istanbul')::date";
+export const invoicedDaySql = "(o.partner_invoiced_at AT TIME ZONE 'Europe/Istanbul')::date";
 
 /**
  * One order decision at a time per partner: order creation (the limit and Idempotency-Key check) and undoing an invoiced
@@ -36,6 +41,13 @@ const invoicedDaySql = "(o.partner_invoiced_at AT TIME ZONE 'Europe/Istanbul')::
  */
 export async function lockPartnerOrders(client: Connection, partner: string) {
   await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", [`partner_order:${partner}`]);
+}
+
+/** The active (not voided) payments recorded against one invoice (#1006), in kuruş. */
+export async function activeCollectedKurus(client: Connection, partner: string, invoiceRef: string, invoiceDay: string) {
+  const { rows } = await client.query<{ kurus: string }>(`SELECT COALESCE(sum(amount_kurus),0)::text AS kurus FROM partner_invoice_payments
+    WHERE partner_code=$1 AND invoice_ref=$2 AND invoice_day=$3::date AND voided_at IS NULL`, [partner, invoiceRef, invoiceDay]);
+  return Number(rows[0]?.kurus ?? 0);
 }
 
 /** Exposure per partner for `$1::text[]` partner codes; partners without counted orders have no row. */
@@ -109,12 +121,14 @@ export type InvoiceOutcome = { status: "invoiced"; count: number; totalKurus: nu
 /**
  * Marks the partner's delivered, uninvoiced orders delivered on or before `deliveredUntil` (Istanbul day) as invoiced
  * with one invoice number and date. Idempotent: invoiced orders are never touched again, so a repeated submit finds
- * nothing to mark. Other partners' and store orders are out of reach.
+ * nothing to mark. Other partners' and store orders are out of reach. Runs under the partner's order lock (taken before
+ * the row locks, like everywhere else) so a correction or undo of the same invoice runs wholly before or after it.
  */
 export async function invoicePartnerOrders(request: InvoiceRequest): Promise<InvoiceOutcome> {
   const client = await db.connect();
   try {
     await client.query("BEGIN");
+    await lockPartnerOrders(client, request.partner);
     const { rows } = await client.query<{ id: string; total_kurus: string }>(
       `SELECT o.id::text,o.total_kurus::text FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND ${uninvoicedSql}
        AND ${deliveredDaySql}<=$2::date ORDER BY o.id FOR UPDATE`, [request.partner, request.deliveredUntil]);
@@ -160,11 +174,10 @@ export type PartnerInvoiceChange = {
 
 /** The last corrections and undos, one row per change (its orders share change_id), newest first. */
 export async function partnerInvoiceChanges(partners: string[], connection: Connection = db): Promise<PartnerInvoiceChange[]> {
-  const day = (column: string) => `to_char((${column} AT TIME ZONE 'Europe/Istanbul')::date,'YYYY-MM-DD')`;
   const { rows } = await connection.query<{ change_id: string; partner: string; action: "undo" | "correct"; old_ref: string; old_date: string; new_ref: string | null;
     new_date: string | null; reason: string; changed_by: string | null; changed_at: Date; count: number }>(
-    `SELECT c.change_id::text,c.partner_code AS partner,c.action,c.old_invoice_ref AS old_ref,${day("c.old_invoiced_at")} AS old_date,
-      c.new_invoice_ref AS new_ref,${day("c.new_invoiced_at")} AS new_date,c.reason,COALESCE(NULLIF(a.name,''),a.email) AS changed_by,c.changed_at,count(*)::int AS count
+    `SELECT c.change_id::text,c.partner_code AS partner,c.action,c.old_invoice_ref AS old_ref,${changeDaySql("c.old_invoiced_at")} AS old_date,
+      c.new_invoice_ref AS new_ref,${changeDaySql("c.new_invoiced_at")} AS new_date,c.reason,COALESCE(NULLIF(a.name,''),a.email) AS changed_by,c.changed_at,count(*)::int AS count
      FROM partner_invoice_changes c LEFT JOIN accounts a ON a.id=c.changed_by WHERE c.partner_code=ANY($1::text[])
      GROUP BY 1,2,3,4,5,6,7,8,9,10 ORDER BY c.changed_at DESC,1 LIMIT 50`, [partners]);
   return rows.map(row => ({ changeId: row.change_id, partner: row.partner, action: row.action, oldRef: row.old_ref, oldDate: row.old_date, newRef: row.new_ref,
@@ -178,7 +191,8 @@ export type InvoiceChangeRequest = {
   /** What the dialog showed: anything else (the invoice changed meanwhile) is refused, nothing is written. */
   expected: { count: number; totalKurus: number };
 } & ({ action: "undo" } | { action: "correct"; newInvoiceRef: string; newInvoiceDate: string });
-export type InvoiceChangeOutcome = { status: "undone" | "corrected"; count: number; totalKurus: number } | { status: "changed" } | { status: "nothing" } | { status: "same" } | { status: "merge" };
+export type InvoiceChangeOutcome = { status: "undone" | "corrected"; count: number; totalKurus: number } | { status: "changed" } | { status: "nothing" } | { status: "same" }
+  | { status: "merge" } | { status: "collected" };
 
 /**
  * Corrects (new number/date, the marking admin is kept) or undoes one marked invoice of a partner, with an audit row
@@ -198,21 +212,98 @@ export async function changePartnerInvoice(request: InvoiceChangeRequest): Promi
     if (rows.length !== request.expected.count || totalKurus !== request.expected.totalKurus) { await client.query("ROLLBACK"); return { status: "changed" }; }
     const correct = request.action === "correct" ? request : null;
     if (correct && correct.newInvoiceRef === request.invoiceRef && correct.newInvoiceDate === request.invoiceDate) { await client.query("ROLLBACK"); return { status: "same" }; }
-    // Another invoice of the partner with the new number and day would silently absorb these orders.
-    if (correct && (await client.query(`SELECT 1 FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND o.partner_invoice_ref=$2
-      AND o.partner_invoiced_at IS NOT NULL AND ${invoicedDaySql}=$3::date LIMIT 1`, [request.partner, correct.newInvoiceRef, correct.newInvoiceDate])).rowCount) {
+    // Another invoice of the partner with the new number and day would silently absorb these orders; active payments
+    // already under that key (entered outside this flow) would be absorbed the same way (#1006).
+    if (correct && ((await client.query(`SELECT 1 FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1 AND o.partner_invoice_ref=$2
+      AND o.partner_invoiced_at IS NOT NULL AND ${invoicedDaySql}=$3::date LIMIT 1`, [request.partner, correct.newInvoiceRef, correct.newInvoiceDate])).rowCount
+      || await activeCollectedKurus(client, request.partner, correct.newInvoiceRef, correct.newInvoiceDate) > 0)) {
       await client.query("ROLLBACK"); return { status: "merge" };
+    }
+    // An undo would leave the invoice's payments without an invoice: the payments are voided first (#1006).
+    if (!correct && await activeCollectedKurus(client, request.partner, request.invoiceRef, request.invoiceDate) > 0) {
+      await client.query("ROLLBACK"); return { status: "collected" };
     }
     const ids = rows.map(row => row.id);
     const newAt = "($3::date)::timestamp AT TIME ZONE 'Europe/Istanbul'";
     await client.query(`INSERT INTO partner_invoice_changes(change_id,order_id,partner_code,action,old_invoice_ref,old_invoiced_at,old_invoiced_by,new_invoice_ref,new_invoiced_at,reason,changed_by)
       SELECT $4::uuid,o.id,o.owner_id,$5,o.partner_invoice_ref,o.partner_invoiced_at,o.partner_invoiced_by,$2,${newAt},$6,$7 FROM commerce_orders o WHERE o.id=ANY($1::uuid[])`,
     [ids, correct?.newInvoiceRef ?? null, correct?.newInvoiceDate ?? null, randomUUID(), request.action, request.reason, request.adminId]);
-    if (correct) await client.query(`UPDATE commerce_orders SET partner_invoice_ref=$2,partner_invoiced_at=${newAt} WHERE id=ANY($1::uuid[])`,
-      [ids, correct.newInvoiceRef, correct.newInvoiceDate]);
-    else await client.query("UPDATE commerce_orders SET partner_invoiced_at=NULL,partner_invoice_ref=NULL,partner_invoiced_by=NULL WHERE id=ANY($1::uuid[])", [ids]);
+    if (correct) {
+      await client.query(`UPDATE commerce_orders SET partner_invoice_ref=$2,partner_invoiced_at=${newAt} WHERE id=ANY($1::uuid[])`,
+        [ids, correct.newInvoiceRef, correct.newInvoiceDate]);
+      // The payments (voided ones too, for their history) follow the invoice to its new number and day (#1006).
+      await client.query(`UPDATE partner_invoice_payments SET invoice_ref=$4,invoice_day=$5::date
+        WHERE partner_code=$1 AND invoice_ref=$2 AND invoice_day=$3::date`, [request.partner, request.invoiceRef, request.invoiceDate, correct.newInvoiceRef, correct.newInvoiceDate]);
+    } else await client.query("UPDATE commerce_orders SET partner_invoiced_at=NULL,partner_invoice_ref=NULL,partner_invoiced_by=NULL WHERE id=ANY($1::uuid[])", [ids]);
     await client.query("COMMIT");
     return { status: correct ? "corrected" : "undone", count: rows.length, totalKurus };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+/** One audit row of an order's invoiced mark (#1038); jsonb, so the time arrives as an ISO string. */
+export type OrderInvoiceChange = {
+  action: "undo" | "correct"; old_invoice_ref: string; old_date: string; new_invoice_ref: string | null; new_date: string | null;
+  reason: string; changed_by: string | null; changed_at: string;
+};
+
+/** The last 5 invoice-mark changes of order `o` (OrderInvoiceChange[]), newest first; served by partner_invoice_changes_order_idx. */
+export const orderInvoiceChangesSql = `COALESCE((SELECT jsonb_agg(to_jsonb(x)-'id' ORDER BY x.changed_at DESC,x.id DESC) FROM (
+  SELECT c.id,c.action,c.old_invoice_ref,${changeDaySql("c.old_invoiced_at")} AS old_date,c.new_invoice_ref,${changeDaySql("c.new_invoiced_at")} AS new_date,
+   c.reason,COALESCE(NULLIF(a.name,''),a.email) AS changed_by,c.changed_at
+  FROM partner_invoice_changes c LEFT JOIN accounts a ON a.id=c.changed_by WHERE c.order_id=o.id ORDER BY c.changed_at DESC,c.id DESC LIMIT 5) x),'[]'::jsonb)`;
+
+export type OrderInvoiceUndoRequest = {
+  orderId: string; reason: string;
+  /** The admin who undoes it (partner_invoice_changes.changed_by); null only in tests without an account. */
+  adminId: string | null;
+  /** The mark the dialog showed: a different number or day (corrected or re-marked meanwhile) is refused, nothing is written. */
+  expected: { invoiceRef: string; invoiceDate: string };
+};
+export type OrderInvoiceUndoOutcome =
+  | { status: "undone"; partner: string; orderNumber: string; totalKurus: number; remaining: number }
+  | { status: "nothing" } | { status: "changed" } | { status: "collected" };
+
+/**
+ * Undoes one partner order's invoiced mark (#1038) with a reason and its own audit row; the invoice's other orders keep
+ * theirs, so the invoice shrinks (and disappears with its last order; its number then lives on only in the audit).
+ * The order counts against the limit again; orders already placed stay, only new ones may be refused. Runs under the
+ * partner's order lock (taken before the row lock, like order creation) so an order being placed sees either state.
+ * Refused (`collected`) when the invoice's active payments would exceed what is left of it (#1006): always for the last
+ * order of an invoice with payments.
+ */
+export async function undoPartnerOrderInvoice(request: OrderInvoiceUndoRequest): Promise<OrderInvoiceUndoOutcome> {
+  const owner = await db.query<{ owner_id: string }>("SELECT owner_id FROM commerce_orders WHERE id=$1 AND owner_kind='partner'", [request.orderId]);
+  const partner = owner.rows[0]?.owner_id;
+  if (!partner) return { status: "nothing" };
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    await lockPartnerOrders(client, partner);
+    const { rows } = await client.query<{ number: string; total_kurus: string; invoice_ref: string | null; invoice_date: string | null }>(
+      `SELECT o.number::text,o.total_kurus::text,o.partner_invoice_ref AS invoice_ref,to_char(${invoicedDaySql},'YYYY-MM-DD') AS invoice_date
+       FROM commerce_orders o WHERE o.id=$1 AND o.owner_kind='partner' AND o.owner_id=$2 FOR UPDATE`, [request.orderId, partner]);
+    const order = rows[0];
+    if (!order?.invoice_date || !order.invoice_ref) { await client.query("ROLLBACK"); return { status: "nothing" }; }
+    if (order.invoice_ref !== request.expected.invoiceRef || order.invoice_date !== request.expected.invoiceDate) { await client.query("ROLLBACK"); return { status: "changed" }; }
+    const rest = await client.query<{ kurus: string }>(`SELECT COALESCE(sum(o.total_kurus),0)::text AS kurus FROM commerce_orders o WHERE o.owner_kind='partner'
+      AND o.owner_id=$1 AND o.partner_invoice_ref=$2 AND o.partner_invoiced_at IS NOT NULL AND ${invoicedDaySql}=$3::date AND o.id<>$4`,
+    [partner, order.invoice_ref, order.invoice_date, request.orderId]);
+    if (await activeCollectedKurus(client, partner, order.invoice_ref, order.invoice_date) > Number(rest.rows[0]?.kurus ?? 0)) {
+      await client.query("ROLLBACK"); return { status: "collected" };
+    }
+    await client.query(`INSERT INTO partner_invoice_changes(change_id,order_id,partner_code,action,old_invoice_ref,old_invoiced_at,old_invoiced_by,reason,changed_by)
+      SELECT $2::uuid,o.id,o.owner_id,'undo',o.partner_invoice_ref,o.partner_invoiced_at,o.partner_invoiced_by,$3,$4 FROM commerce_orders o WHERE o.id=$1`,
+    [request.orderId, randomUUID(), request.reason, request.adminId]);
+    await client.query("UPDATE commerce_orders SET partner_invoiced_at=NULL,partner_invoice_ref=NULL,partner_invoiced_by=NULL WHERE id=$1", [request.orderId]);
+    const remaining = await client.query<{ count: number }>(`SELECT count(*)::int AS count FROM commerce_orders o WHERE o.owner_kind='partner' AND o.owner_id=$1
+      AND o.partner_invoice_ref=$2 AND o.partner_invoiced_at IS NOT NULL AND ${invoicedDaySql}=$3::date`, [partner, order.invoice_ref, order.invoice_date]);
+    await client.query("COMMIT");
+    return { status: "undone", partner, orderNumber: order.number, totalKurus: Number(order.total_kurus), remaining: remaining.rows[0]?.count ?? 0 };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

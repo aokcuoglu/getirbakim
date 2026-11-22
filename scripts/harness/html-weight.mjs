@@ -22,9 +22,10 @@ export function clientProps(flight) {
     const colon = row.indexOf(":"), id = row.slice(0, colon), body = row.slice(colon + 1);
     if (body.startsWith("I[")) {
       try {
-        const [, chunks, name] = JSON.parse(body.slice(1));
-        const file = String(Array.isArray(chunks) ? chunks.at(-1) ?? "" : chunks).split("/").pop();
-        modules.set(id, `${name || "default"} (${file.slice(0, 32)})`);
+        const [moduleId, chunks, name] = JSON.parse(body.slice(1));
+        const file = String(Array.isArray(chunks) ? chunks.at(-1) ?? "" : chunks).split("?")[0].split("/").pop();
+        // Export name + chunk file + module id: modules that share an empty (default) export name stay apart.
+        modules.set(id, `${name || "default"} (${file.slice(0, 32)}#${moduleId})`);
       } catch {
         // Not a module row.
       }
@@ -108,4 +109,37 @@ export function budgetFor(budget, path) {
     if (matches && (!best || prefix.length > best[0].length)) best = entry;
   }
   return best?.[1];
+}
+
+// First product link and first fitment-product card link (`…#uyumlu-araclar`) of a list page, fragment stripped.
+export function samplePaths(html) {
+  const product = html.match(/href="(\/urun\/[^"#?]+)/)?.[1];
+  const fitmentProduct = html.match(/href="(\/urun\/[^"#?]+)#uyumlu-araclar"/)?.[1];
+  return { product, fitmentProduct };
+}
+
+// Lighthouse report -> the three lab vitals; null when an audit is missing or the run failed.
+export function lighthouseMetrics(lhr) {
+  if (!lhr || lhr.runtimeError) return null;
+  const read = (id) => lhr.audits?.[id]?.numericValue;
+  const lcpMs = read("largest-contentful-paint"), cls = read("cumulative-layout-shift"), tbtMs = read("total-blocking-time");
+  return [lcpMs, cls, tbtMs].every((value) => typeof value === "number") ? { lcpMs, cls, tbtMs } : null;
+}
+
+export function median(numbers) {
+  if (!numbers.length) return undefined;
+  const sorted = [...numbers].sort((a, b) => a - b), mid = Math.floor((sorted.length - 1) / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid] + sorted[mid + 1]) / 2;
+}
+
+// Rows: measure-html `--json` rows, optionally with `lcpMs`/`cls`/`tbtMs`; missing vitals print as an em dash.
+export function markdownTable(rows, budget = []) {
+  const lines = ["| Route | HTML KB | RSC KB (%) | gzip KB | TTFB ms | LCP s | CLS | TBT ms | Target KB | Status |", "|---|---|---|---|---|---|---|---|---|---|"];
+  for (const row of rows) {
+    const limit = budgetFor(budget, row.path), over = limit === undefined ? undefined : Math.round(row.htmlKB - limit);
+    const status = limit === undefined ? "—" : over > 0 ? `+${over}` : "ok";
+    const vital = (value, format) => (typeof value === "number" ? format(value) : "—");
+    lines.push(`| ${row.path} | ${row.htmlKB.toFixed(1)} | ${row.rscKB.toFixed(1)} (${row.rscPct}) | ${row.gzipKB.toFixed(1)} | ${row.ttfbMs} | ${vital(row.lcpMs, (v) => (v / 1000).toFixed(2))} | ${vital(row.cls, (v) => v.toFixed(3))} | ${vital(row.tbtMs, (v) => String(Math.round(v)))} | ${limit === undefined ? "—" : `≤${limit}`} | ${status} |`);
+  }
+  return lines.join("\n");
 }

@@ -15,7 +15,7 @@ export default function Guides() {
     <JsonLd data={breadcrumbJsonLd(guideTrail(), siteUrl)}/>
     <JsonLd data={collectionJsonLd({ name: "Rehber", description, path: guidesPath, items: guides.map(guide => ({ path: guidePath(guide.slug), name: guide.title })) }, siteUrl)}/>
     <Link className="mb-[25px] block w-fit text-xs leading-5 text-muted-foreground hover:text-primary" href="/">← Ana sayfa</Link>
-    <h1 className="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] max-[600px]:text-[27px] max-[600px]:leading-[35px]">Rehber</h1>
+    <h1 className="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] max-[600px]:text-[27px] max-[600px]:leading-[35px]">Yedek parça ve bakım rehberi</h1>
     <p className="mb-8 text-[15px] leading-[1.9] text-muted-foreground">Doğru parçayı seçmek ve aracının bakımını planlamak için kısa, doğrudan yanıtlar. Her yazı kaynaklarını ve güncelleme tarihini gösterir.</p>
     <ul className="grid list-none gap-4">{guides.map(guide => <li key={guide.slug}>
       <Link href={guidePath(guide.slug)} className="block rounded-xl border border-border p-5 hover:border-primary focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none max-[600px]:p-4">

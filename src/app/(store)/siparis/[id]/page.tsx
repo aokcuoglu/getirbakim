@@ -22,6 +22,7 @@ import { recordReturn } from "@/modules/admin/commerce-actions";
 import { garageVehicleLabel, parseGarageVehicle } from "@/modules/store/garage";
 import { fitmentLevelLabels } from "@/modules/store/fitment-level";
 import { Alert } from "@/components/ui/alert";
+import { storeErrorBox } from "@/components/store-alert-classes";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -44,7 +45,6 @@ import { aboutContact } from "@/content/about";
 
 const eyebrow="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]";
 const noticeBox="rounded-md border-0 bg-[#eaf1f7] p-[15px] text-sm leading-5 text-[#50718e]";
-const errorBox="rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]";
 const muted="text-sm leading-[22px] text-muted-foreground";
 const panel="rounded-2xl border border-border bg-white p-[25px] text-sm max-[600px]:p-5";
 const panelTitle="text-[23px] leading-[34px] font-semibold";
@@ -170,10 +170,10 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   return <section className="mx-auto min-h-[55vh] w-full max-w-[1280px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10"><p className={eyebrow}>SİPARİŞ #{order.number}</p><h1 className="mb-2 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">{orderStatus[order.status]}</h1>
     <p className={cn(muted,"mb-5")}><time dateTime={date.toISOString()}>{metaDate}</time>{order.discount_percent>0 && ` · %${order.discount_percent} servis indirimi`}</p>
     <OrderProgress order={order}/>{mine && !admin && order.payment_status==="paid" && purchaseEventOpen(order.paid_at,new Date()) && <TrackPurchase orderId={order.id}/>}{refundPending && <TrackRefund orderId={order.id}/>}
-    {error && <Alert className={cn(errorBox,"mb-3")}>{error}</Alert>}
-    {returnMessage && <Alert role={returnMessage.error ? "alert" : "status"} className={cn(returnMessage.error ? errorBox : noticeBox,"mb-3")}>{returnMessage.text}</Alert>}
+    {error && <Alert className={cn(storeErrorBox,"mb-3")}>{error}</Alert>}
+    {returnMessage && <Alert role={returnMessage.error ? "alert" : "status"} className={cn(returnMessage.error ? storeErrorBox : noticeBox,"mb-3")}>{returnMessage.text}</Alert>}
     {linkView && <Alert role="note" className={cn(noticeBox,"mb-3")}><p>Bu sayfayı e-postandaki bağlantıyla görüntülüyorsun. {awaiting ? "Ödeme, iptal ya da değişiklik" : "İptal ya da değişiklik"} için siparişi verdiğin tarayıcıyı kullan.</p><p>Bu tarayıcıya erişemiyorsan bize ulaş: <a href={`mailto:${contactEmail}`} className={contactLink}>{contactEmail}</a> · <a href={`tel:${contactPhone}`} className={cn(contactLink,"whitespace-nowrap")}>{aboutContact.phone}</a></p></Alert>}
-    {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? errorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
+    {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? storeErrorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
     <Card className={cn(panel,"mb-6 gap-3 ring-0")}>
       <p role="status" className="m-0 text-[15px] leading-6">{order.payment_status==="on_account" && <Info className="mr-1.5 inline-block size-4 align-text-bottom" aria-hidden/>}{notice}</p>
       {payNow && order.installment_count>1 && <Alert role="note" className={noticeBox}>Siparişin {order.installment_count} taksitli (vade farkı dahil) toplamla oluşturuldu. {installmentHint(order.installment_count)}.</Alert>}

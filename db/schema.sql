@@ -292,12 +292,46 @@ DO $$ BEGIN
   CREATE INDEX supplier_imports_success_idx ON supplier_imports(supplier,company,list_group,warehouse,completed_at DESC,id DESC) WHERE status='succeeded';
  END IF;
 END $$;
--- The latest succeeded import per supplier and company, read by commerce_catalog's rate step (db/commerce.sql, #1158).
+-- The latest succeeded import per supplier and company, read through supplier_latest_import below (#1158, #1169).
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_imports'::regclass AND c.relname='supplier_imports_latest_success_idx') THEN
   CREATE INDEX supplier_imports_latest_success_idx ON supplier_imports(supplier,company,completed_at DESC,id DESC) WHERE status='succeeded';
  END IF;
 END $$;
+-- The latest succeeded import of one supplier and company, and of every pair (#1158, #1169): the one definition
+-- commerce_catalog's rate step (db/commerce.sql), price-anomaly detection, the admin pricing reads and the product
+-- matching rates use. The pairs come from an index-only scan of supplier_imports_latest_success_idx and each pair's
+-- newest import from one probe of it. A DISTINCT ON over every succeeded import scanned and sorted their heap rows on
+-- each read (6-9 ms, most of a by-id commerce_catalog read; now ~0.7 ms). Same order as that DISTINCT ON (completed_at
+-- DESC NULLS FIRST, id DESC). A recursive loose index scan for the pairs is faster still (~0.25 ms) but carries no
+-- column statistics: full scans of commerce_catalog (storefront entries refresh, merchant feed) then planned merge joins
+-- and took ~12% longer.
+-- The function must stay inlinable, or every caller turns into a Function Scan without the index probe: LANGUAGE sql,
+-- STABLE, not STRICT, a single SELECT, no SET clause, no BEGIN ATOMIC body (scripts/test-unavailable-catalog.ts
+-- checks the plans). The body names supplier_imports unqualified, so it resolves through the caller's search_path
+-- (a SET search_path clause would stop the inlining). Its return columns cannot change in place: CREATE OR REPLACE
+-- cannot alter the OUT row type, and dropping the function drops supplier_latest_imports, commerce_catalog and the
+-- storefront views behind it (an ACCESS EXCLUSIVE rebuild of the chain); add a function under a new name instead.
+CREATE OR REPLACE FUNCTION supplier_latest_import(supplier text, company text)
+RETURNS TABLE(id uuid, currencies_data jsonb, completed_at timestamptz) LANGUAGE sql STABLE AS $$
+ SELECT i.id,i.currencies_data,i.completed_at FROM supplier_imports i
+ WHERE i.status='succeeded' AND i.supplier=$1 AND i.company=$2 ORDER BY i.completed_at DESC,i.id DESC LIMIT 1
+$$;
+-- Replaced only when its definition changed, like commerce_supplier_items (#954, #1046, db/commerce.sql).
+DO $setup$ DECLARE def text := $view$
+SELECT p.supplier,p.company,l.id,l.currencies_data,l.completed_at
+FROM (SELECT DISTINCT supplier,company FROM supplier_imports WHERE status='succeeded') p
+CROSS JOIN LATERAL supplier_latest_import(p.supplier,p.company) l;
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='supplier_latest_imports' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
+  EXECUTE 'CREATE OR REPLACE VIEW supplier_latest_imports AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='supplier_imports'::regclass AND c.relname='supplier_imports_scope_runs_idx') THEN
   CREATE INDEX supplier_imports_scope_runs_idx ON supplier_imports(supplier,company,list_group,warehouse,started_at DESC,id DESC);

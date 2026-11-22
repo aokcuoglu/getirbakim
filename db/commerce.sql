@@ -316,18 +316,9 @@ CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz
 );
 DO $setup$ DECLARE def text := $view$
--- The latest succeeded import per supplier and company (#1158): the pairs, then each pair's newest import, both read
--- through supplier_imports_latest_success_idx (db/schema.sql; an index-only scan, then one index probe per pair). A
--- DISTINCT ON over every succeeded import scanned and sorted their heap rows on each read of the view (6-9 ms, most of a
--- by-id read; now ~0.7 ms). Same order as that DISTINCT ON (completed_at DESC NULLS FIRST, id DESC). A recursive loose
--- index scan for the pairs is faster still (~0.25 ms) but carries no column statistics: full scans of the view
--- (storefront entries refresh, merchant feed) then planned merge joins and took ~12% longer.
-WITH pairs AS (
- SELECT DISTINCT supplier,company FROM supplier_imports WHERE status='succeeded'
-), latest AS (
- SELECT p.supplier,p.company,l.currencies_data,l.completed_at FROM pairs p CROSS JOIN LATERAL (SELECT currencies_data,completed_at
-  FROM supplier_imports i WHERE i.status='succeeded' AND i.supplier=p.supplier AND i.company=p.company
-  ORDER BY i.completed_at DESC,i.id DESC LIMIT 1) l
+-- The latest succeeded import per supplier and company: supplier_latest_imports (db/schema.sql, #1158, #1169).
+WITH latest AS (
+ SELECT supplier,company,currencies_data,completed_at FROM supplier_latest_imports
 ), rates AS (
  SELECT supplier,company,completed_at,r->>'dovizCinsi' AS currency,(r->>'satis')::numeric AS rate
  FROM latest CROSS JOIN LATERAL jsonb_array_elements(currencies_data->'dovizListesi') r
@@ -853,7 +844,8 @@ DO $$ DECLARE c text; BEGIN
   ALTER TABLE commerce_orders ADD COLUMN cancel_request_rejected_at timestamptz;
  END IF;
  -- Partner invoicing (#426): operations mark a delivered partner order invoiced (invoice number + date); from then on it
- -- no longer counts against the partner's open-order limit (src/modules/partner/limits.ts). Collection is not tracked.
+ -- no longer counts against the partner's open-order limit (src/modules/partner/limits.ts). Collections against the
+ -- invoice (#1006) are recorded in partner_invoice_payments and never change the limit.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_orders'::regclass AND attname='partner_invoiced_at' AND NOT attisdropped) THEN
   ALTER TABLE commerce_orders ADD COLUMN partner_invoiced_at timestamptz;
  END IF;
@@ -888,6 +880,12 @@ DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='discount_bps' AND NOT attisdropped) THEN
   ALTER TABLE partner_settings ADD COLUMN discount_bps integer CHECK(discount_bps BETWEEN 0 AND 9000);
  END IF;
+ -- The partner's payment term in days (#1006): an invoice is due on its invoice day + this term. NULL = no term, so the
+ -- partner's invoices are never overdue. Informational only; it does not change the open-order limit. The first deploy
+ -- that adds it takes ACCESS EXCLUSIVE on partner_settings (a few rows) once; later runs take no lock.
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='partner_settings'::regclass AND attname='payment_term_days' AND NOT attisdropped) THEN
+  ALTER TABLE partner_settings ADD COLUMN payment_term_days integer CHECK(payment_term_days BETWEEN 0 AND 365);
+ END IF;
 END $$;
 -- Every change of a partner's panel discount (#1130): old and new value (NULL = fallback), who and when.
 CREATE TABLE IF NOT EXISTS partner_discount_changes(
@@ -905,7 +903,8 @@ DO $$ BEGIN
 END $$;
 -- Corrections of a partner invoiced mark (#1018): one row per order, the rows of one change share change_id. 'undo'
 -- clears the mark (the order counts against the partner's limit again), 'correct' rewrites the invoice number/date;
--- the old values and the reason stay here for audit.
+-- the old values and the reason stay here for audit. An undo may also cover a single order (#1038, /yonetim/siparisler);
+-- its row then has its own change_id. The order index serves that row's history (last changes per order).
 CREATE TABLE IF NOT EXISTS partner_invoice_changes(
  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
  change_id uuid NOT NULL,
@@ -921,6 +920,11 @@ CREATE TABLE IF NOT EXISTS partner_invoice_changes(
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_invoice_changes'::regclass AND c.relname='partner_invoice_changes_partner_idx') THEN
   CREATE INDEX partner_invoice_changes_partner_idx ON partner_invoice_changes(partner_code,changed_at DESC);
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_invoice_changes'::regclass AND c.relname='partner_invoice_changes_order_idx') THEN
+  CREATE INDEX partner_invoice_changes_order_idx ON partner_invoice_changes(order_id,changed_at DESC);
  END IF;
 END $$;
 -- Partner return requests (#1007): POST /api/partner/v1/orders/:id/returns on a shipped or delivered order. Operations
@@ -965,6 +969,36 @@ DO $$ BEGIN
  -- and on partner_return_requests, and ACCESS EXCLUSIVE on commerce_returns (a small table) for ADD COLUMN.
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_returns'::regclass AND attname='partner_return_request_id' AND NOT attisdropped) THEN
   ALTER TABLE commerce_returns ADD COLUMN partner_return_request_id uuid REFERENCES partner_return_requests(id) ON DELETE SET NULL;
+ END IF;
+END $$;
+-- Collections against partner invoices (#1006), entered in /yonetim/partnerler. An invoice has no table of its own: it is
+-- the partner's marked orders sharing an invoice number and Istanbul invoice day (src/modules/partner/limits.ts), so a
+-- payment names it by (partner_code, invoice_ref, invoice_day) without a foreign key. Correcting an invoice's number or
+-- day carries its payments along; undoing a mark is refused while the invoice has active payments. Invariant, kept under
+-- the partner's order lock (src/modules/partner/collections.ts): the active (not voided) payments of an invoice never
+-- exceed its total. A wrong payment is voided with a reason, never edited or deleted. 'offset' settles the part covered
+-- by a return credit note issued outside the system. Payments never change the partner's open-order limit.
+-- The first deploy that creates the table takes, for that run only, SHARE ROW EXCLUSIVE on accounts (the foreign keys).
+CREATE TABLE IF NOT EXISTS partner_invoice_payments(
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+ partner_code text NOT NULL,
+ invoice_ref text NOT NULL,
+ invoice_day date NOT NULL,
+ amount_kurus bigint NOT NULL CHECK(amount_kurus>0),
+ paid_on date NOT NULL,
+ method text NOT NULL CHECK(method IN ('bank_transfer','check','offset','other')),
+ note text NOT NULL DEFAULT '' CHECK(length(note)<=500),
+ recorded_by uuid REFERENCES accounts(id),
+ recorded_at timestamptz NOT NULL DEFAULT now(),
+ voided_at timestamptz,
+ voided_by uuid REFERENCES accounts(id),
+ void_reason text,
+ CHECK((voided_at IS NULL)=(void_reason IS NULL)),
+ CHECK(void_reason IS NULL OR length(btrim(void_reason))>=5)
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid WHERE i.indrelid='partner_invoice_payments'::regclass AND c.relname='partner_invoice_payments_invoice_idx') THEN
+  CREATE INDEX partner_invoice_payments_invoice_idx ON partner_invoice_payments(partner_code,invoice_ref,invoice_day);
  END IF;
 END $$;
 

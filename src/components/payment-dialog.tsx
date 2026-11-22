@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CheckCircle2, ExternalLink, LockKeyhole, X } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
+import { storeErrorBox } from "@/components/store-alert-classes";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
@@ -105,7 +106,7 @@ export function PaymentDialog({ orderId, popup, total, installments = 1, onDismi
         <DialogTitle id="payment-dialog-title" className="mt-4 mb-1 text-[22px] leading-7 font-semibold tracking-[-0.4px]">{title}</DialogTitle>
         <p className="mb-4 text-xl font-semibold text-primary">{total}</p>
         {!paid && installments > 1 && <p className="-mt-2 mb-4 text-sm leading-[22px] font-medium text-[#454f5b]">{installmentHint(installments)}.</p>}
-        {error ? <Alert role="status" className="rounded-md border-0 bg-[#fff0ec] p-3.5 text-sm leading-5 text-[#a74130]">{text}</Alert>
+        {error ? <Alert role="status" className={storeErrorBox}>{text}</Alert>
           : <p className="m-0 text-sm leading-[22px] text-[#454f5b]" role="status">{text}</p>}
         {phase === "open" && <>
           <span className="mt-5 block h-[3px] animate-[payment-progress_1.4s_linear_infinite] rounded-[3px] bg-[linear-gradient(90deg,#e5f2fa_0,#007bc4_50%,#e5f2fa_100%)] bg-size-[200%_100%] motion-reduce:animate-none motion-reduce:bg-primary" aria-hidden/>

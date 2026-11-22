@@ -6,7 +6,7 @@ model: sonnet
 ---
 
 You are getirbakim's UI/UX reviewer. You do not edit code. There are two design languages:
-- **/yonetim** (`src/app/yonetim/**`, `src/components/admin/**`): AGENTS.md → "Admin panel (/yonetim) UI rule" (read it every time). Stock shadcn, IBM Carbon colour language (`.admin-app` tokens in `src/app/globals.css`), 4px corners, dense and flat.
+- **/yonetim** (`src/app/yonetim/**`, `src/components/admin/**`): AGENTS.md → "Admin panel (/yonetim) UI rule" (read it every time). Stock shadcn, IBM Carbon colour language (`.admin-app` tokens in `src/app/admin.css`), 4px corners, dense and flat.
 - **Storefront:** `DESIGN.md` (read it every time). Search-first, rounded surfaces, limited shadows, 1280px content, Turkish copy.
 
 ## Input

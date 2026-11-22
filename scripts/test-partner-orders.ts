@@ -565,6 +565,85 @@ test("a correction (#1018) never merges two invoices and waits for the partner's
   assert.equal((await orderRow(one.id)).partner_invoice_ref, first);
 });
 
+test("undoing one order's invoiced mark (#1038) shrinks its invoice, counts the order again and waits for the partner's lock", async () => {
+  const one = await placeOrder("PART-A"), two = await placeOrder("PART-B");
+  await deliverAt(one.id, "2026-11-10T10:00:00Z"); await deliverAt(two.id, "2026-11-10T11:00:00Z");
+  const each = one.totals.grossKurus, marker = await opsAccount(), fixer = await opsAccount();
+  const invoiceRef = `ONE-${randomUUID()}`.slice(0, 40), reason = "Bu sipariş faturaya girmedi";
+  await limits.invoicePartnerOrders({ partner: "bakimx", deliveredUntil: "2026-11-10", invoiceRef, invoiceDate: "2026-11-15", adminId: marker, expected: { count: 2, totalKurus: 2 * each } });
+  // A 2-order limit takes another order while both are invoiced.
+  const limit = config({ limitKurus: 2 * each });
+  await partnerOrders.createPartnerOrder("bakimx", randomUUID(), (await quoteAndBody([{ code: "PART-A", quantity: 1 }])).body, limit);
+  const undo = { orderId: one.id, reason, adminId: fixer, expected: { invoiceRef, invoiceDate: "2026-11-15" } };
+  // The mark the dialog showed must still hold: another number or day writes nothing.
+  assert.deepEqual(await limits.undoPartnerOrderInvoice({ ...undo, expected: { invoiceRef: "OTHER", invoiceDate: "2026-11-15" } }), { status: "changed" });
+  assert.deepEqual(await limits.undoPartnerOrderInvoice({ ...undo, expected: { invoiceRef, invoiceDate: "2026-11-14" } }), { status: "changed" });
+  assert.equal((await changeRows([one.id, two.id])).length, 0);
+  assert.equal((await orderRow(one.id)).partner_invoice_ref, invoiceRef);
+  const number = String((await orderRow(one.id)).number);
+  assert.deepEqual(await limits.undoPartnerOrderInvoice(undo), { status: "undone", partner: "bakimx", orderNumber: number, totalKurus: each, remaining: 1 });
+  const undone = await orderRow(one.id), kept = await orderRow(two.id);
+  assert.deepEqual([undone.partner_invoiced_at, undone.partner_invoice_ref, undone.partner_invoiced_by], [null, null, null]);
+  assert.deepEqual([kept.partner_invoice_ref, kept.partner_invoiced_by], [invoiceRef, marker]);
+  assert.deepEqual((await limits.partnerInvoices(["bakimx"])).filter(invoice => invoice.invoiceRef === invoiceRef).map(invoice => [invoice.count, invoice.totalKurus]), [[1, each]]);
+  assert.deepEqual(await limits.partnerExposure("bakimx"), { openKurus: each, openCount: 1, uninvoicedKurus: each, uninvoicedCount: 1, exposureKurus: 2 * each });
+  const [audit, ...extra] = await changeRows([one.id, two.id]);
+  assert.equal(extra.length, 0);
+  assert.deepEqual([audit.action, audit.order_id, audit.partner_code, audit.old_invoice_ref, audit.old_invoiced_by, audit.new_invoice_ref, audit.new_invoiced_at, audit.reason, audit.changed_by],
+    ["undo", one.id, "bakimx", invoiceRef, marker, null, null, reason, fixer]);
+  assert.equal((await schema.pool.query("SELECT ($1::timestamptz AT TIME ZONE 'Europe/Istanbul')::text AS at", [audit.old_invoiced_at])).rows[0].at, "2026-11-15 00:00:00");
+  // A repeat, a store order or an unknown id finds nothing and writes nothing.
+  assert.deepEqual(await limits.undoPartnerOrderInvoice(undo), { status: "nothing" });
+  const store = (await schema.pool.query<{ id: string }>(`INSERT INTO commerce_orders(owner_kind,owner_id,request_key,customer_name,email,phone,address,total_kurus,subtotal_kurus,discount_percent,status,payment_status)
+    VALUES('account',$1,$2,'Müşteri','m@example.invalid','5551234567','Adres',1000,1000,0,'pending','paid') RETURNING id::text`, [randomUUID(), randomUUID()])).rows[0];
+  assert.deepEqual(await limits.undoPartnerOrderInvoice({ ...undo, orderId: store.id }), { status: "nothing" });
+  assert.deepEqual(await limits.undoPartnerOrderInvoice({ ...undo, orderId: randomUUID() }), { status: "nothing" });
+  assert.equal((await changeRows([one.id, two.id, store.id])).length, 1);
+  // The placed order stays; the next one exceeds the limit now that the undone order counts again.
+  await assert.rejects(partnerOrders.createPartnerOrder("bakimx", randomUUID(), (await quoteAndBody([{ code: "PART-B", quantity: 1 }])).body, limit), refusal("CREDIT_LIMIT_EXCEEDED"));
+  // Removing the last order waits for an order being placed, then the invoice is gone; its number stays only in the audit.
+  const holder = await schema.pool.connect();
+  try {
+    await holder.query("BEGIN");
+    await limits.lockPartnerOrders(holder, "bakimx");
+    let settled = false;
+    const pending = limits.undoPartnerOrderInvoice({ ...undo, orderId: two.id }).finally(() => { settled = true; });
+    await new Promise(resolve => setTimeout(resolve, 300));
+    assert.equal(settled, false, "the undo ran while the partner's order lock was held");
+    await holder.query("COMMIT");
+    assert.deepEqual(await pending, { status: "undone", partner: "bakimx", orderNumber: String(kept.number), totalKurus: each, remaining: 0 });
+  } finally {
+    await holder.query("ROLLBACK").catch(() => undefined);
+    holder.release();
+  }
+  assert.equal((await limits.partnerInvoices(["bakimx"])).some(invoice => invoice.invoiceRef === invoiceRef), false);
+  const both = await changeRows([one.id, two.id]);
+  assert.equal(both.length, 2);
+  assert.equal(new Set(both.map(row => row.change_id)).size, 2);
+  const history = (await limits.partnerInvoiceChanges(["bakimx"])).filter(change => change.oldRef === invoiceRef);
+  assert.deepEqual(history.map(change => [change.action, change.count]), [["undo", 1], ["undo", 1]]);
+});
+
+test("an order's invoice history (#1038) shows its last 5 changes, newest first", async () => {
+  const one = await placeOrder("PART-A");
+  await deliverAt(one.id, "2026-11-10T10:00:00Z");
+  const admin = await opsAccount();
+  for (let index = 1; index <= 6; index++) {
+    await schema.pool.query(`INSERT INTO partner_invoice_changes(change_id,order_id,partner_code,action,old_invoice_ref,old_invoiced_at,new_invoice_ref,new_invoiced_at,reason,changed_by,changed_at)
+      VALUES(gen_random_uuid(),$1,'bakimx',$2,$3,'2026-11-14T21:00:00Z',$4,$5,'Geçmiş denemesi',$6,'2026-11-16T10:00:00Z'::timestamptz+make_interval(mins=>$7))`,
+    [one.id, index % 2 ? "correct" : "undo", `H${index}`, index % 2 ? `H${index + 1}` : null, index % 2 ? "2026-11-15T21:00:00Z" : null, admin, index]);
+  }
+  const { rows } = await schema.pool.query<{ changes: import("../src/modules/partner/limits").OrderInvoiceChange[] }>(
+    `SELECT ${limits.orderInvoiceChangesSql} AS changes FROM commerce_orders o WHERE o.id=$1`, [one.id]);
+  const changes = rows[0].changes;
+  assert.deepEqual(changes.map(change => change.old_invoice_ref), ["H6", "H5", "H4", "H3", "H2"]);
+  assert.deepEqual({ ...changes[0], changed_at: undefined }, { action: "undo", old_invoice_ref: "H6", old_date: "2026-11-15", new_invoice_ref: null, new_date: null,
+    reason: "Geçmiş denemesi", changed_by: "Operasyon", changed_at: undefined });
+  assert.deepEqual([changes[1].action, changes[1].new_invoice_ref, changes[1].new_date], ["correct", "H6", "2026-11-16"]);
+  const [other] = (await schema.pool.query(`SELECT ${limits.orderInvoiceChangesSql} AS changes FROM commerce_orders o WHERE o.id=$1`, [(await placeOrder("PART-B")).id])).rows;
+  assert.deepEqual(other.changes, []);
+});
+
 test("admin partner input: TL limits become kuruş, dates are past Istanbul days, usage tones follow the limit", async () => {
   const { partnerLimitInput, partnerInvoiceInput, partnerInvoiceChangeInput, partnerIntakeInput, partnerDiscountInput, percentText, istanbulToday, limitUsage } = await import("../src/modules/admin/partner-input");
   const discount = (value: string) => partnerDiscountInput.safeParse({ partner: "bakimx", discount: value });

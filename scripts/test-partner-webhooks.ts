@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import type { PartnerWebhookConfig } from "../src/modules/partner/webhook-contract";
 import type { WebhookRequest } from "../src/modules/partner/webhooks";
 
-// Partner webhook outbox (#1002) in an isolated copy of the schema: the trigger on commerce_orders, delivery, retries,
-// the 72-hour give-up and concurrent claims. Sends are injected; nothing leaves the process.
+// Partner webhook outbox (#1002) in an isolated copy of the schema: the triggers on commerce_orders and
+// partner_return_requests, delivery, retries, the 72-hour give-up and concurrent claims. Sends are injected; nothing
+// leaves the process.
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let webhooks: typeof import("../src/modules/partner/webhooks");
 let orders: typeof import("../src/modules/partner/orders");
+let returns: typeof import("../src/modules/partner/returns");
+let offerId: typeof import("../src/modules/partner/dto").encodeOfferId;
 let closeDb: () => Promise<void>;
 
 const secret = "test-webhook-secret-0123456789abcdef";
@@ -17,8 +21,9 @@ const config: PartnerWebhookConfig = { endpoints: new Map([["bakimx", { url: "ht
 
 before(async () => {
   schema = await isolatedSchema("partner_webhooks_test");
-  const [{ db }, webhookModule, ordersModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/partner/webhooks"), import("../src/modules/partner/orders")]);
-  webhooks = webhookModule; orders = ordersModule;
+  const [{ db }, webhookModule, ordersModule, returnsModule, dtoModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/partner/webhooks"),
+    import("../src/modules/partner/orders"), import("../src/modules/partner/returns"), import("../src/modules/partner/dto")]);
+  webhooks = webhookModule; orders = ordersModule; returns = returnsModule; offerId = dtoModule.encodeOfferId;
   closeDb = () => db.end();
 });
 after(async () => {
@@ -181,15 +186,20 @@ test("a broken or disabled entry and broken JSON keep events pending; only a par
   const errors: unknown[][] = [];
   const original = console.error;
   console.error = (...args: unknown[]) => { errors.push(args); };
+  const broken: PartnerWebhookConfig = { endpoints: new Map(), invalid: new Map(), parseError: true };
   try {
     for (const reason of ["disabled", "URL is not https"]) {
       const held: PartnerWebhookConfig = { endpoints: new Map(), invalid: new Map([["bakimx", reason]]), parseError: false };
+      // An order's instant delivery (after an admin step) holds the events silently; the sweep logs them.
       assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config: held }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
+      assert.deepEqual(errors, [], `instant path logs nothing (${reason})`);
+      assert.deepEqual(await webhooks.deliverPartnerWebhooks({ send, config: held }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
       assert.ok(errors.some(args => JSON.stringify(args).includes(reason) && JSON.stringify(args).includes("bakimx")), reason);
+      errors.length = 0;
     }
-    errors.length = 0;
-    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config: { endpoints: new Map(), invalid: new Map(), parseError: true } }),
-      { delivered: 0, skipped: 0, dead: 0, retried: 0 });
+    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: id, send, config: broken }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
+    assert.deepEqual(errors, [], "instant path logs nothing (broken JSON)");
+    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ send, config: broken }), { delivered: 0, skipped: 0, dead: 0, retried: 0 });
     assert.equal(errors.length, 1);
     assert.ok(!JSON.stringify(errors).includes(secret));
   } finally { console.error = original; }
@@ -203,7 +213,7 @@ test("a broken or disabled entry and broken JSON keep events pending; only a par
   await schema.pool.query("UPDATE partner_webhook_events SET created_at=now()-interval '73 hours' WHERE order_id=$1", [late]);
   console.error = () => undefined;
   try {
-    assert.equal((await webhooks.deliverPartnerWebhooks({ orderId: late, send, config: { endpoints: new Map(), invalid: new Map(), parseError: true } })).dead, 1);
+    assert.equal((await webhooks.deliverPartnerWebhooks({ orderId: late, send, config: broken })).dead, 1);
   } finally { console.error = original; }
 });
 
@@ -221,6 +231,86 @@ test("an event undelivered for 72 hours is given up; a partner without an endpoi
   assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: other, send, config }), { delivered: 0, skipped: 1, dead: 0, retried: 0 });
   assert.equal(sent.length, 0);
   assert.deepEqual((await events(other)).map(row => [row.status, row.last_error]), [["skipped", "no endpoint configured"]]);
+});
+
+/** A delivered partner order with a pending return request (through the partner API) for its one line. */
+async function returnRequest() {
+  const id = await partnerOrder();
+  await update(id, "status='shipped',shipped_at=now(),carrier='yurtici',tracking_no='777'");
+  await update(id, "status='delivered',delivered_at=now()");
+  const productId = (await schema.pool.query<{ product_id: string }>("SELECT product_id::text FROM commerce_order_items WHERE order_id=$1", [id])).rows[0].product_id;
+  const created = await returns.requestPartnerReturn("bakimx", id, randomUUID(), { lines: [{ selectedOfferId: offerId(productId), quantity: 1, reason: "defective" }], note: "Kutusu hasarlı" });
+  return { orderId: id, requestId: created.return.id };
+}
+const returnEvents = async (orderId: string) => (await schema.pool.query<{ id: string; return_request_id: string | null; order_status: string; status: string; last_error: string | null }>(
+  `SELECT id::text,return_request_id::text,order_status,status,last_error FROM partner_webhook_events
+   WHERE order_id=$1 AND event_type='partner.return.updated' ORDER BY created_at,id`, [orderId])).rows;
+
+test("a return request writes no event; its approval or rejection writes one partner.return.updated row", async () => {
+  for (const decision of ["approve", "reject"] as const) {
+    const { orderId, requestId } = await returnRequest();
+    assert.deepEqual(await returnEvents(orderId), [], "the partner's own POST answer carries the new request");
+    assert.equal(await returns.decidePartnerReturnRequest(requestId, decision, null), true);
+    assert.deepEqual((await returnEvents(orderId)).map(row => [row.return_request_id, row.order_status, row.status]), [[requestId, "delivered", "pending"]], decision);
+    // A second decision is refused and writes nothing more.
+    assert.equal(await returns.decidePartnerReturnRequest(requestId, decision, null), false);
+    assert.equal((await returnEvents(orderId)).length, 1);
+  }
+});
+
+test("a return event delivers the request as it is now, signed, with the return event type", async () => {
+  const { orderId, requestId } = await returnRequest();
+  await returns.decidePartnerReturnRequest(requestId, "approve", null);
+  const { sent, send } = recorder(204);
+  // Only this order's events: its two order events and the return event.
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId, send, config }), { delivered: 3, skipped: 0, dead: 0, retried: 0 });
+  const [event] = await returnEvents(orderId);
+  assert.equal(event.status, "delivered");
+  const request = sent.find(item => item.headers["X-GetirBakim-Event-Id"] === event.id);
+  assert.ok(request);
+  assert.equal(request.headers["X-GetirBakim-Event-Type"], "partner.return.updated");
+  const timestamp = request.headers["X-GetirBakim-Timestamp"];
+  assert.equal(request.headers["X-GetirBakim-Signature"], `v1=${createHmac("sha256", secret).update(`${timestamp}.${request.body}`).digest("hex")}`);
+  const body = JSON.parse(request.body);
+  assert.deepEqual(Object.keys(body), ["specVersion", "eventId", "eventType", "occurredAt", "partnerId", "return"]);
+  assert.deepEqual([body.specVersion, body.eventId, body.eventType, body.partnerId], ["1.0", event.id, "partner.return.updated", "bakimx"]);
+  assert.deepEqual(body.return, JSON.parse(JSON.stringify(await returns.readPartnerReturn("bakimx", requestId))));
+  assert.equal(body.return.status, "APPROVED");
+  assert.equal(body.return.contractVersion, "2.1");
+  for (const internal of ["BASBUG", `"nf"`, "basbug", "fingerprint", secret]) assert.ok(!request.body.includes(internal), internal);
+  assert.equal(sent.filter(item => item.headers["X-GetirBakim-Event-Type"] === "partner.order.updated").length, 2);
+});
+
+test("a return event whose request is gone is skipped; another partner cannot read the request", async () => {
+  const { orderId, requestId } = await returnRequest();
+  await returns.decidePartnerReturnRequest(requestId, "reject", null);
+  assert.equal(await returns.readPartnerReturn("other", requestId), null);
+  // The foreign key cascades a deleted request, so a vanished one is simulated on the event.
+  await schema.pool.query("UPDATE partner_webhook_events SET return_request_id=NULL WHERE order_id=$1 AND event_type='partner.return.updated'", [orderId]);
+  const { sent, send } = recorder(204);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId, send, config }), { delivered: 2, skipped: 1, dead: 0, retried: 0 });
+  assert.deepEqual((await returnEvents(orderId)).map(row => [row.status, row.last_error]), [["skipped", "return request not found"]]);
+  assert.ok(sent.every(item => item.headers["X-GetirBakim-Event-Type"] === "partner.order.updated"));
+});
+
+test("an order's delivery sends only that order's events", async () => {
+  const mine = await partnerOrder();
+  const other = await partnerOrder();
+  await update(mine, "status='confirmed'");
+  await update(other, "status='confirmed'");
+  const { sent, send } = recorder(204);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId: mine, send, config }), { delivered: 1, skipped: 0, dead: 0, retried: 0 });
+  assert.deepEqual(sent.map(item => JSON.parse(item.body).order.id), [mine]);
+  assert.deepEqual((await events(other)).map(row => row.status), ["pending"]);
+});
+
+test("operations steps and carrier updates send the order's partner webhooks right after their answer", async () => {
+  const actions = await readFile("src/modules/admin/commerce-actions.ts", "utf8");
+  const revalidate = actions.slice(actions.indexOf("function revalidateOrder("), actions.indexOf("\n}", actions.indexOf("function revalidateOrder(")));
+  assert.match(revalidate, /after\(\(\)=>deliverPartnerWebhooksSafely\(\{orderId:id\}\)\)/);
+  const geliver = await readFile("src/app/api/shipping/geliver/webhook/route.ts", "utf8");
+  const applied = geliver.slice(geliver.indexOf('if (result.outcome === "applied")'), geliver.indexOf("return NextResponse.json"));
+  assert.match(applied, /after\(\(\) => deliverPartnerWebhooksSafely\(\{ orderId: result\.orderId \}\)\)/);
 });
 
 test("two concurrent deliveries send each event once", async () => {
@@ -248,4 +338,149 @@ test("the admin summary counts waiting and given-up events per partner and lists
   assert.ok(problems.some(problem => problem.status === "dead"));
   assert.ok(problems.some(problem => problem.status === "pending" && problem.lastHttpStatus === 503));
   assert.ok(problems.every(problem => /^\d+$/.test(problem.orderNumber)));
+});
+
+// Requeue and retention (#1002 slice 2b). These run after the summary test above: the bulk requeue and the pruning touch
+// rows of every earlier test.
+const newAdmin = async () => (await schema.pool.query<{ id: string }>(`INSERT INTO accounts(name,email,password_hash,role,approved)
+  VALUES('Admin',$1,'x','admin',true) RETURNING id::text`, [`${randomUUID()}@example.invalid`])).rows[0].id;
+/** A partner order with one event given up after 15 attempts, 73 hours after it was written. */
+async function deadEvent(partner = "bakimx") {
+  const orderId = await partnerOrder(partner);
+  await update(orderId, "status='confirmed'");
+  const id = (await schema.pool.query<{ id: string }>(`UPDATE partner_webhook_events SET status='dead',attempts=15,last_http_status=500,
+    last_error='gave up after 15 attempts: HTTP 500',created_at=now()-interval '73 hours',claimed_at=now()-interval '3 hours'
+    WHERE order_id=$1 RETURNING id::text`, [orderId])).rows[0].id;
+  return { orderId, id };
+}
+const row = async (id: string) => (await schema.pool.query<{ status: string; attempts: number; claimed_at: Date | null; last_error: string | null; last_http_status: number | null;
+  requeued_at: Date | null; requeued_by: string | null; created_at: Date }>(
+  "SELECT status,attempts,claimed_at,last_error,last_http_status,requeued_at,requeued_by::text,created_at FROM partner_webhook_events WHERE id=$1", [id])).rows[0];
+
+test("a requeued dead event is pending again with no attempts and goes out with the same eventId and a fresh signature", async () => {
+  const admin = await newAdmin();
+  const { orderId, id } = await deadEvent();
+  const written = (await row(id)).created_at;
+  assert.deepEqual(await webhooks.requeuePartnerWebhook(id, admin, ["bakimx"]), { orderId, partner: "bakimx" });
+  const requeued = await row(id);
+  assert.deepEqual([requeued.status, requeued.attempts, requeued.claimed_at, requeued.last_error, requeued.last_http_status, requeued.requeued_by],
+    ["pending", 0, null, null, null, admin]);
+  assert.ok(requeued.requeued_at instanceof Date);
+  assert.equal(requeued.created_at.getTime(), written.getTime(), "created_at (occurredAt) is kept");
+  assert.equal(await webhooks.requeuePartnerWebhook(id, admin, ["bakimx"]), null, "a second requeue finds no dead row");
+
+  // Written 73 hours ago, but the 72 hours count from the requeue: delivered, not given up.
+  const started = Math.floor(Date.now() / 1000);
+  const { sent, send } = recorder(204);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId, send, config }), { delivered: 1, skipped: 0, dead: 0, retried: 0 });
+  assert.equal(sent.length, 1);
+  const [request] = sent;
+  const body = JSON.parse(request.body);
+  assert.deepEqual([request.headers["X-GetirBakim-Event-Id"], body.eventId, body.occurredAt], [id, id, written.toISOString()]);
+  const timestamp = request.headers["X-GetirBakim-Timestamp"];
+  assert.ok(Number(timestamp) >= started);
+  assert.equal(request.headers["X-GetirBakim-Signature"], `v1=${createHmac("sha256", secret).update(`${timestamp}.${request.body}`).digest("hex")}`);
+  assert.deepEqual([(await row(id)).status, (await row(id)).attempts], ["delivered", 1]);
+});
+
+test("a requeued event is given up again 72 hours after the requeue", async () => {
+  const admin = await newAdmin();
+  const { orderId, id } = await deadEvent();
+  await webhooks.requeuePartnerWebhook(id, admin, ["bakimx"]);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId, send: recorder(500).send, config }), { delivered: 0, skipped: 0, dead: 0, retried: 1 });
+  assert.equal((await row(id)).status, "pending");
+  await schema.pool.query("UPDATE partner_webhook_events SET requeued_at=now()-interval '73 hours',claimed_at=now()-interval '3 hours' WHERE id=$1", [id]);
+  const { sent, send } = recorder(204);
+  const original = console.error;
+  console.error = () => undefined;
+  try {
+    assert.deepEqual(await webhooks.deliverPartnerWebhooks({ orderId, send, config }), { delivered: 0, skipped: 0, dead: 1, retried: 0 });
+  } finally { console.error = original; }
+  assert.equal(sent.length, 0);
+  assert.deepEqual([(await row(id)).status, (await row(id)).last_error], ["dead", "gave up after 1 attempts: HTTP 500"]);
+});
+
+test("a requeue refuses pending, delivered and skipped events, an unknown id and another partner's event", async () => {
+  const admin = await newAdmin();
+  const statuses = new Map<string, string>();
+  for (const status of ["pending", "delivered", "skipped"]) {
+    const { id } = await deadEvent();
+    await schema.pool.query("UPDATE partner_webhook_events SET status=$2 WHERE id=$1", [id, status]);
+    statuses.set(id, status);
+    assert.equal(await webhooks.requeuePartnerWebhook(id, admin, ["bakimx"]), null, status);
+  }
+  for (const [id, status] of statuses) assert.deepEqual([(await row(id)).status, (await row(id)).requeued_by], [status, null]);
+  assert.equal(await webhooks.requeuePartnerWebhook(randomUUID(), admin, ["bakimx"]), null);
+  const { id } = await deadEvent();
+  assert.equal(await webhooks.requeuePartnerWebhook(id, admin, ["other"]), null);
+  assert.equal(await webhooks.requeuePartnerWebhook(id, admin, []), null);
+  assert.deepEqual([(await row(id)).status, (await row(id)).requeued_by], ["dead", null]);
+});
+
+test("requeuing all of a partner's given-up events touches only that partner's dead rows", async () => {
+  const admin = await newAdmin();
+  const mine = [await deadEvent(), await deadEvent()];
+  const other = await deadEvent("other");
+  const pendingOrder = await partnerOrder();
+  await update(pendingOrder, "status='confirmed'");
+  const deadBefore = (await schema.pool.query<{ count: number }>("SELECT count(*)::int AS count FROM partner_webhook_events WHERE partner_code='bakimx' AND status='dead'")).rows[0].count;
+  assert.ok(deadBefore >= 2);
+  assert.equal(await webhooks.requeuePartnerWebhooks("bakimx", admin), deadBefore);
+  for (const { id } of mine) assert.deepEqual([(await row(id)).status, (await row(id)).requeued_by], ["pending", admin]);
+  assert.deepEqual([(await row(other.id)).status, (await row(other.id)).requeued_by], ["dead", null]);
+  assert.deepEqual((await events(pendingOrder)).map(event => [event.status, event.attempts]), [["pending", 0]]);
+  assert.equal((await schema.pool.query<{ count: number }>("SELECT count(*)::int AS count FROM partner_webhook_events WHERE partner_code='bakimx' AND status='dead'")).rows[0].count, 0);
+  assert.equal(await webhooks.requeuePartnerWebhooks("bakimx", admin), 0);
+});
+
+test("pruning deletes delivered, skipped and dead events 90 days after their last change and keeps pending ones", async () => {
+  const aged = async (set: string) => {
+    const orderId = await partnerOrder();
+    await update(orderId, "status='confirmed'");
+    const id = (await schema.pool.query<{ id: string }>(`UPDATE partner_webhook_events SET ${set} WHERE order_id=$1 RETURNING id::text`, [orderId])).rows[0].id;
+    return id;
+  };
+  const gone = [
+    await aged("status='delivered',created_at=now()-interval '95 days',delivered_at=now()-interval '91 days'"),
+    await aged("status='skipped',created_at=now()-interval '91 days'"),
+    await aged("status='dead',created_at=now()-interval '91 days'"),
+    await aged("status='dead',created_at=now()-interval '120 days',requeued_at=now()-interval '91 days'"),
+  ];
+  const kept = [
+    await aged("created_at=now()-interval '91 days',claimed_at=now()"),
+    await aged("status='delivered',created_at=now()-interval '100 days',requeued_at=now()-interval '10 days',delivered_at=now()-interval '9 days'"),
+    await aged("status='dead',created_at=now()-interval '100 days',requeued_at=now()-interval '10 days'"),
+    await aged("status='delivered',created_at=now()-interval '91 days',delivered_at=now()-interval '89 days'"),
+  ];
+  assert.equal(await webhooks.prunePartnerWebhookEvents(), gone.length);
+  for (const id of gone) assert.equal(await row(id), undefined);
+  for (const id of kept) assert.ok(await row(id));
+  assert.equal(await webhooks.prunePartnerWebhookEventsSafely(), 0);
+});
+
+test("the 5-minute sweep prunes old partner webhook events after delivering the pending ones", async () => {
+  const route = await readFile("src/app/api/payments/tami/reconcile/route.ts", "utf8");
+  assert.match(route, /await deliverPartnerWebhooksSafely\(\{ limit: 20 \}\);\s*await prunePartnerWebhookEventsSafely\(\);/);
+});
+
+test("a requeued event queues from its requeue, so fresh events written before it are claimed first", async () => {
+  const original = console.error;
+  console.error = () => undefined;
+  try {
+    // Drain what earlier tests left claimable (failures wait for their backoff and are not claimed again).
+    const drain = recorder(204);
+    for (let result = await webhooks.deliverPartnerWebhooks({ send: drain.send, config, limit: 22 }); result.delivered + result.skipped + result.retried > 0;
+      result = await webhooks.deliverPartnerWebhooks({ send: drain.send, config, limit: 22 }));
+  } finally { console.error = original; }
+  const admin = await newAdmin();
+  const old = await deadEvent();
+  const fresh = await partnerOrder();
+  await update(fresh, "status='confirmed'");
+  const [freshEvent] = await events(fresh);
+  await webhooks.requeuePartnerWebhook(old.id, admin, ["bakimx"]);
+  const { sent, send } = recorder(204);
+  assert.deepEqual(await webhooks.deliverPartnerWebhooks({ send, config, limit: 1 }), { delivered: 1, skipped: 0, dead: 0, retried: 0 });
+  assert.deepEqual(sent.map(request => request.headers["X-GetirBakim-Event-Id"]), [freshEvent.id]);
+  await webhooks.deliverPartnerWebhooks({ send, config, limit: 1 });
+  assert.deepEqual(sent.map(request => request.headers["X-GetirBakim-Event-Id"]), [freshEvent.id, old.id]);
 });
