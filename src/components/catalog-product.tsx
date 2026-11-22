@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import {Gauge,BellRing} from "lucide-react";
-import {PartArtImage} from "@/components/part-art";
+import {PartArtImage} from "@/components/part-art-image";
 import {categories,money,servicePrice,type CatalogProduct as CatalogEntry} from "@/modules/store/catalog";
 import type {Account} from "@/modules/auth/session";
 import type {CatalogProductImage} from "@/modules/store/product-enrichment";
