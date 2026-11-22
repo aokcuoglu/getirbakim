@@ -13,6 +13,7 @@ import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules
 import { restockDueCount } from "./restock";
 import { installmentSettings } from "@/modules/payments/installment-settings";
 import { procurementOpenSql, type AdminOrderLine } from "./order-procurement";
+import { dayInClosedPeriod, latestClosedPeriods } from "@/modules/partner/periods";
 import { pendingReturnLines } from "@/modules/partner/returns";
 import { orderInvoiceChangesSql, type OrderInvoiceChange } from "@/modules/partner/limits";
 import { dashboardOrdersSql, navOrderCountSql, orderFilters, orderReturnRequestsSql, orderTabCountsSql, type OrderFilter } from "./order-filters";
@@ -132,7 +133,11 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
      FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} AND ${procurementFilters[procurement]} AND ${ownerFilters[owner]} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50, ORDER_EMAIL_LEASE_MINUTES],
   ), db.query<Record<OrderFilter, number>>(orderTabCountsSql)]);
-  return { orders: orders.rows, page, filter, procurement, owner, counts: counts.rows[0] };
+  // #1265: an invoice dated in a closed partner month cannot be undone; the page shows "Dönem kapalı" instead of the control.
+  const invoiced = orders.rows.filter(o => o.owner_kind === "partner" && o.partner_invoice_day);
+  const latestClosed = await latestClosedPeriods([...new Set(invoiced.map(o => o.owner_id))]);
+  const rows = orders.rows.map(o => ({ ...o, partner_invoice_period_closed: o.owner_kind === "partner" && !!o.partner_invoice_day && dayInClosedPeriod(latestClosed, o.owner_id, o.partner_invoice_day) }));
+  return { orders: rows, page, filter, procurement, owner, counts: counts.rows[0] };
 }
 
 /** Badge counts for the workspace navigation; kept to cheap aggregate queries. */

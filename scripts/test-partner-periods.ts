@@ -14,6 +14,7 @@ let periods: typeof import("../src/modules/partner/periods");
 let statementCsv: typeof import("../src/modules/partner/statement-csv");
 let actions: typeof import("../src/modules/admin/partner-actions");
 let adminPartners: typeof import("../src/modules/admin/partners");
+let adminData: typeof import("../src/modules/admin/data");
 let input: typeof import("../src/modules/admin/partner-input");
 let closeDb: () => Promise<void>;
 let admin = "";
@@ -73,12 +74,12 @@ before(async () => {
   process.env.PARTNER_API_KEYS = `bakimx:${"k".repeat(24)}`;
   admin = (await schema.pool.query<{ id: string }>(`INSERT INTO accounts(name,email,password_hash,role,approved)
     VALUES('Dönem Admin','periods@example.invalid','x','admin',true) RETURNING id::text`)).rows[0].id;
-  const [{ db }, limitsModule, collectionsModule, periodsModule, csvModule, actionsModule, partnersModule, inputModule] = await Promise.all([import("../src/lib/db"),
+  const [{ db }, limitsModule, collectionsModule, periodsModule, csvModule, actionsModule, partnersModule, inputModule, dataModule] = await Promise.all([import("../src/lib/db"),
     import("../src/modules/partner/limits"), import("../src/modules/partner/collections"), import("../src/modules/partner/periods"),
     import("../src/modules/partner/statement-csv"), import("../src/modules/admin/partner-actions"), import("../src/modules/admin/partners"),
-    import("../src/modules/admin/partner-input")]);
+    import("../src/modules/admin/partner-input"), import("../src/modules/admin/data")]);
   limits = limitsModule; collections = collectionsModule; periods = periodsModule; statementCsv = csvModule; actions = actionsModule;
-  adminPartners = partnersModule; input = inputModule;
+  adminPartners = partnersModule; input = inputModule; adminData = dataModule;
   closeDb = () => db.end();
 });
 beforeEach(async () => {
@@ -199,6 +200,20 @@ test("another partner's same month stays open", async () => {
   assert.equal((await pay(ref, closedDay, 100, "2026-10-20", { totalKurus: 1000, collectedKurus: 0 }, "other")).status, "recorded");
   assert.equal((await limits.changePartnerInvoice({ partner: "other", invoiceRef: ref, invoiceDate: closedDay, action: "correct", newInvoiceRef: newRef(),
     newInvoiceDate: "2026-10-16", reason: "Numara yanlış yazıldı", adminId: admin, expected: { count: 1, totalKurus: 1000 } })).status, "corrected");
+});
+
+test("the orders page flags invoiced partner orders in a frozen month (#1265): closed Oct freezes Sep and Oct, not Nov, not another partner", async () => {
+  signedIn = admin;
+  // September has no movement yet, so October closes; the rows are written directly afterwards (no guard).
+  assert.deepEqual(await close(closedMonth, "bakimx"), { status: "closed" });
+  const sep = await order(100, newRef(), "2026-09-20"), oct = await order(200, newRef(), closedDay), nov = await order(300, newRef(), openDay);
+  const other = await order(400, newRef(), closedDay, "other"), unmarked = await order(500, null);
+  const flags = async () => new Map((await adminData.adminOrders(undefined, undefined, {}, undefined, "partner")).orders.map(o => [o.id, o.partner_invoice_period_closed]));
+  const after = await flags();
+  assert.deepEqual([sep, oct, nov, other, unmarked].map(id => after.get(id)), [true, true, false, false, false]);
+  const latest = await periods.latestClosedPeriods(["bakimx", "other"]);
+  assert.deepEqual([...latest], [["bakimx", closedMonth]]);
+  assert.equal((await periods.latestClosedPeriods([])).size, 0);
 });
 
 test("closes are contiguous: an earlier open month with movements blocks a close, a later closed month blocks a reopen", async () => {
