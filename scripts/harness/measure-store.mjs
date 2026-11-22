@@ -112,6 +112,8 @@ async function main() {
         else if (!lhWarned) { lhWarned = true; console.error(`Lighthouse failed for ${row.path} (set CHROME_PATH if Chrome is not found); vitals stay —.\n${(result.stderr ?? "").slice(-300)}`); }
       }
       if (samples.length) Object.assign(row, { lcpMs: median(samples.map((s) => s.lcpMs)), cls: median(samples.map((s) => s.cls)), tbtMs: median(samples.map((s) => s.tbtMs)) });
+      const counts = samples.map((s) => s.requests).filter((n) => typeof n === "number");
+      if (counts.length) row.requests = median(counts);
     }
     rmSync(dir, { recursive: true, force: true });
   }

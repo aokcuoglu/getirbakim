@@ -78,6 +78,8 @@ test("lighthouseMetrics reads the three audits and returns null on a missing aud
   const audit = (numericValue) => ({ numericValue });
   const lhr = { audits: { "largest-contentful-paint": audit(2500), "cumulative-layout-shift": audit(0.05), "total-blocking-time": audit(120) } };
   assert.deepEqual(lighthouseMetrics(lhr), { lcpMs: 2500, cls: 0.05, tbtMs: 120 });
+  const withRequests = { audits: { ...lhr.audits, "network-requests": { details: { items: [{}, {}, {}] } } } };
+  assert.deepEqual(lighthouseMetrics(withRequests), { lcpMs: 2500, cls: 0.05, tbtMs: 120, requests: 3 });
   assert.equal(lighthouseMetrics({ audits: { "largest-contentful-paint": audit(1) } }), null);
   assert.equal(lighthouseMetrics({ ...lhr, runtimeError: { code: "NO_FCP" } }), null);
   assert.equal(lighthouseMetrics(undefined), null);
@@ -91,10 +93,10 @@ test("median handles odd, even and empty input", () => {
 
 test("markdownTable prints em dashes for missing vitals and ok / +N for the budget", () => {
   const row = (path, htmlKB, extra = {}) => ({ path, htmlKB, rscKB: 100, rscPct: 50, gzipKB: 40, ttfbMs: 30, ...extra });
-  const table = markdownTable([row("/katalog", 335.6), row("/kategori/filtre", 384.5, { lcpMs: 2300, cls: 0.1, tbtMs: 80 }), row("/", 368.3)], parseBudget("/katalog=350,/kategori/=350"));
+  const table = markdownTable([row("/katalog", 335.6), row("/kategori/filtre", 384.5, { lcpMs: 2300, cls: 0.1, tbtMs: 80, requests: 99 }), row("/", 368.3)], parseBudget("/katalog=350,/kategori/=350"));
   const lines = table.split("\n");
-  assert.equal(lines[0], "| Route | HTML KB | RSC KB (%) | gzip KB | TTFB ms | LCP s | CLS | TBT ms | Target KB | Status |");
-  assert.equal(lines[2], "| /katalog | 335.6 | 100.0 (50) | 40.0 | 30 | — | — | — | ≤350 | ok |");
-  assert.equal(lines[3], "| /kategori/filtre | 384.5 | 100.0 (50) | 40.0 | 30 | 2.30 | 0.100 | 80 | ≤350 | +35 |");
-  assert.equal(lines[4], "| / | 368.3 | 100.0 (50) | 40.0 | 30 | — | — | — | — | — |");
+  assert.equal(lines[0], "| Route | HTML KB | RSC KB (%) | gzip KB | TTFB ms | LCP s | CLS | TBT ms | Req | Target KB | Status |");
+  assert.equal(lines[2], "| /katalog | 335.6 | 100.0 (50) | 40.0 | 30 | — | — | — | — | ≤350 | ok |");
+  assert.equal(lines[3], "| /kategori/filtre | 384.5 | 100.0 (50) | 40.0 | 30 | 2.30 | 0.100 | 80 | 99 | ≤350 | +35 |");
+  assert.equal(lines[4], "| / | 368.3 | 100.0 (50) | 40.0 | 30 | — | — | — | — | — | — |");
 });

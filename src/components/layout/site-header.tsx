@@ -23,14 +23,14 @@ export async function SiteHeader() {
     <div className="site-topbar">
       <div className="site-topbar-inner">
         <div className="site-topbar-links">
-          <Link href="/bilgi/teslimat">Teslimat</Link><Link href="/bilgi/hakkimizda">Hakkımızda</Link><Link href="/bilgi/yardim">Yardım merkezi</Link><Link href="/rehber">Rehber</Link>
+          <Link href="/bilgi/teslimat" prefetch={false}>Teslimat</Link><Link href="/bilgi/hakkimizda" prefetch={false}>Hakkımızda</Link><Link href="/bilgi/yardim" prefetch={false}>Yardım merkezi</Link><Link href="/rehber" prefetch={false}>Rehber</Link>
         </div>
         <div className="site-topbar-locale"><span><span className="sr-only">Ülke: </span><span aria-hidden="true">🇹🇷</span> Türkiye</span><span><span className="sr-only">Para birimi: </span>TRY ₺</span></div>
       </div>
     </div>
     <header className="site-header">
       <div className="site-header-row">
-        <Link href="/" className="inline-flex shrink-0 items-center">
+        <Link href="/" prefetch={false} className="inline-flex shrink-0 items-center">
           <BrandLogo className="site-logo"/>
         </Link>
         <SearchBox/>
@@ -39,7 +39,7 @@ export async function SiteHeader() {
       <nav aria-label="Kategoriler" className="site-header-nav">
         <CategoryMenu links={headerCategoryLinks(categories)} account={<SheetAccount/>}/>
         <Link className="site-nav-robot" href="/bakim-robotu" prefetch={false}><Wrench size={14} aria-hidden="true"/> Bakım Robotu</Link>
-        <Link className="site-nav-help" href="/bilgi/yardim"><SiteIcon name="help" size={14}/> Yardım al</Link>
+        <Link className="site-nav-help" href="/bilgi/yardim" prefetch={false}><SiteIcon name="help" size={14}/> Yardım al</Link>
       </nav>
     </header>
   </RouteFrame>;
