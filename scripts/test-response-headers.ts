@@ -14,11 +14,21 @@ const id = "0b8f6a52-6c0e-4f7c-9d52-0a4d9b7e1c11";
 
 type Rule = { source: string; has?: { type: "query"; key: string; value?: string }[]; headers: { key: string; value: string }[] };
 
-async function load(buildVersion: string | undefined): Promise<Rule[]> {
+async function load(buildVersion: string | undefined, siteUrl?: string): Promise<Rule[]> {
   if (buildVersion === undefined) delete process.env.BUILD_VERSION;
   else process.env.BUILD_VERSION = buildVersion;
-  const mod = (await import(`../next.config?v=${buildVersion ?? "none"}`)) as { default: { headers: () => Promise<Rule[]> } };
-  return mod.default.headers();
+  const previousSiteUrl = process.env.SITE_URL;
+  if (siteUrl === undefined) delete process.env.SITE_URL;
+  else process.env.SITE_URL = siteUrl;
+  try {
+    const mod = (await import(`../next.config?v=${buildVersion ?? "none"}&site=${encodeURIComponent(siteUrl ?? "unset")}`)) as {
+      default: { headers: () => Promise<Rule[]> };
+    };
+    return await mod.default.headers();
+  } finally {
+    if (previousSiteUrl === undefined) delete process.env.SITE_URL;
+    else process.env.SITE_URL = previousSiteUrl;
+  }
 }
 
 function effective(rules: Rule[], path: string, query: Record<string, string> = {}): Record<string, string> {
@@ -31,13 +41,36 @@ function effective(rules: Rule[], path: string, query: Record<string, string> = 
   return out;
 }
 
-const securityKeys = ["Referrer-Policy", "Strict-Transport-Security", "X-Content-Type-Options", "X-Frame-Options"];
+const securityKeys = ["Content-Security-Policy", "Referrer-Policy", "Strict-Transport-Security", "X-Content-Type-Options", "X-Frame-Options"];
 
-test("every route carries exactly the four security headers", async () => {
+test("every route carries exactly the five security headers", async () => {
   const rules = await load(build);
   for (const path of ["/", "/katalog", "/yonetim/siparisler", "/api/health", "/media/site/images/x.jpg"]) {
     assert.deepEqual(Object.keys(effective(rules, path)).filter((k) => k !== "Cache-Control").sort(), securityKeys, path);
   }
+});
+
+const cspPaths = ["/", "/yonetim/siparisler", "/api/payments/tami/start", "/api/payments/tami/callback", "/media/site/images/x.jpg"];
+const phase1 = "object-src 'none'; base-uri 'self'; frame-ancestors 'self'";
+
+test("the CSP is the phase-1 policy", async () => {
+  const rules = await load(build, "https://getirbakim.com");
+  for (const path of cspPaths) {
+    assert.equal(effective(rules, path)["Content-Security-Policy"], `${phase1}; upgrade-insecure-requests`, path);
+  }
+});
+
+test("an http or unset SITE_URL does not upgrade requests", async () => {
+  for (const siteUrl of ["http://localhost:3103", undefined]) {
+    const rules = await load(build, siteUrl);
+    for (const path of cspPaths) assert.equal(effective(rules, path)["Content-Security-Policy"], phase1, `${siteUrl} ${path}`);
+  }
+});
+
+test("phase 1 restricts no fetch or form directive", async () => {
+  const csp = effective(await load(build, "https://getirbakim.com"), "/")["Content-Security-Policy"];
+  assert.doesNotMatch(csp, /(^|;\s)(default-src|script-src(-elem|-attr)?|style-src(-elem|-attr)?|img-src|connect-src|font-src|frame-src|form-action)\s/);
+  assert.match(csp, /frame-ancestors/);
 });
 
 test("deploymentId is the build id the dpl match relies on", async () => {
