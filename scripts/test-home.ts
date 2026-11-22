@@ -4,7 +4,8 @@ import { createRequire } from "node:module";
 import { createElement as stubElement } from "react";
 
 // next/image does not load under tsx (its default import is a module object): swap it for a plain <img> before any
-// component imports it, so the slide-image guards below can render the images.
+// component imports it, so the slide-image guards below can render the images. Components must therefore stay
+// dynamically imported inside the tests of this file: a static import would load the real next/image first.
 const nodeRequire = createRequire(import.meta.url);
 const imageId = realpathSync(nodeRequire.resolve("next/image"));
 const StubImage = ({ src, alt, className }: { src: string; alt: string; className?: string }) => stubElement("img", { src, alt, className });
@@ -177,7 +178,8 @@ test("HomeCarousel renders <img> only in the first slides until armed; every lin
   const html = renderToStaticMarkup(createElement(HomeCarousel, { label: "Ürünler", columns: 5, children: cards }));
   assert.equal((html.match(/<img /g) ?? []).length, 5);
   for (let index = 0; index < 8; index++) assert.ok(html.includes(`href="/urun/p-${index}"`));
-  assert.equal((html.match(/class="home-card-img" aria-hidden="true"/g) ?? []).length, 3);
+  assert.equal((html.match(/<span class="home-card-img rounded-md bg-muted"><\/span>/g) ?? []).length, 3);
+  assert.equal((html.match(/class="home-card-image"[^>]*aria-hidden="true"[^>]*tabindex="-1"|tabindex="-1"[^>]*aria-hidden="true"/g) ?? []).length, 3);
 });
 
 test("HomeGridPager renders tile logos on page 0 only; every tile link stays (#1289)", async () => {
@@ -194,7 +196,7 @@ test("HomeGridPager renders tile logos on page 0 only; every tile link stays (#1
 
 test("the e-mail address is not in the footer markup or the Organization JSON-LD (#1289)", async () => {
   const { readFileSync } = await import("node:fs");
-  assert.doesNotMatch(readFileSync("src/components/site-footer.tsx", "utf8"), /mailto:/);
+  assert.doesNotMatch(readFileSync("src/components/site-footer.tsx", "utf8"), /mailto:|contactEmail/);
   const { siteJsonLd } = await import("@/lib/site");
   assert.doesNotMatch(JSON.stringify(siteJsonLd), /"email"/);
 });
