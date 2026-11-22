@@ -47,6 +47,7 @@ test("hero images are content-hashed static imports (#1217)", async () => {
     assert.doesNotMatch(read(path), /\/media\/site\/images\/(Hero_image|brake-system-banner|mobile-catalog)/, path);
   }
   assert.doesNotMatch(read("src/components/catalog-sticky-finder.tsx"), /\/media\/site\/images\//);
+  assert.doesNotMatch(read("src/components/navigation/category-sheet.tsx"), /\/media\/site\/images\//);
 });
 
 test("HeroBackdrop preloads exactly the URLs its <source> and <img> use (#1217)", async () => {

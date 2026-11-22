@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import { test } from "node:test";
 import { getPathMatch } from "next/dist/shared/lib/router/utils/path-match";
 import { matchHas } from "next/dist/shared/lib/router/utils/prepare-destination";
@@ -6,7 +8,7 @@ import { matchHas } from "next/dist/shared/lib/router/utils/prepare-destination"
 // The response headers of next.config.ts (#1216): security headers everywhere, public asset caching, no-referrer.
 
 const build = "abc123def456";
-const short = "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800";
+const short = "public, max-age=86400, s-maxage=3600, stale-while-revalidate=600";
 const immutable = "public, max-age=31536000, immutable";
 const id = "0b8f6a52-6c0e-4f7c-9d52-0a4d9b7e1c11";
 
@@ -79,4 +81,42 @@ test("pages get no Cache-Control from the config", async () => {
   const rules = await load(build);
   assert.equal(effective(rules, "/")["Cache-Control"], undefined);
   assert.equal(effective(rules, "/katalog")["Cache-Control"], undefined);
+});
+
+test("the short cache stays within a day even after CloudFront forwards Age", () => {
+  const directive = (name: string) => Number(new RegExp(`${name}=(\\d+)`).exec(short)?.[1]);
+  assert.ok(directive("s-maxage") + directive("stale-while-revalidate") < directive("max-age"));
+  assert.ok(directive("max-age") <= 86400);
+});
+
+test("a ?v= logo gets this build's dpl from next/image and is therefore immutable", async () => {
+  process.env.NEXT_DEPLOYMENT_ID = build;
+  const { getImageProps } = await import("next/image");
+  const { props } = getImageProps({ src: "/media/logos/vehicles/bmw.webp?v=0123456789ab", width: 84, height: 84, alt: "", unoptimized: true });
+  assert.ok(props.src.includes("v=0123456789ab"));
+  assert.ok(props.src.includes(`dpl=${build}`), props.src);
+  const query = Object.fromEntries(new URL(props.src, "http://x").searchParams);
+  assert.equal(effective(await load(build), "/media/logos/vehicles/bmw.webp", query)["Cache-Control"], immutable);
+});
+
+const bareUrlAllowlist = new Set(["src/app/manifest.ts", "src/lib/site.ts", "src/app/api/bakim-seti/gorsel/route.tsx"]);
+
+function sourceFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return sourceFiles(path);
+    return /\.(css|tsx?)$/.test(entry.name) ? [path] : [];
+  });
+}
+
+test("storefront assets are hashed imports, not bare /media or /brand URLs", () => {
+  const found: string[] = [];
+  for (const file of sourceFiles(join(process.cwd(), "src"))) {
+    const rel = relative(process.cwd(), file);
+    if (bareUrlAllowlist.has(rel)) continue;
+    const code = readFileSync(file, "utf8");
+    if (/url\(\s*["']?\//.test(code)) found.push(`${rel}: root-relative url()`);
+    if (/<img[^>]*\ssrc=(?:"\/(?:media|brand)\/|\{`\/(?:media|brand)\/)/.test(code)) found.push(`${rel}: <img> with a bare asset URL`);
+  }
+  assert.deepEqual(found, []);
 });

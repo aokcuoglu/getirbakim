@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import footerBg from "@/assets/site/home-footer-bg.webp";
 import {useActionState} from "react";
 import {Button} from "@/components/ui/button";
 import {Checkbox} from "@/components/ui/checkbox";
@@ -15,7 +16,7 @@ const initialState:NewsletterState={status:"idle",message:""};
 
 export function NewsletterSignup() {
   const [state,action,pending]=useActionState(subscribeNewsletter,initialState);
-  return <section className="min-h-[346px] bg-[linear-gradient(#212b36b3,#212b36b3),url('/media/site/images/home-footer-bg.webp')] bg-cover bg-center bg-no-repeat pt-[65px] pb-20 text-white max-md:min-h-0 max-md:pt-12 max-md:pb-14" aria-labelledby="home-newsletter-title"><div className="mx-auto w-full max-w-[1350px] px-[15px]">
+  return <section style={{backgroundImage:`linear-gradient(#212b36b3,#212b36b3),url(${footerBg.src})`}} className="min-h-[346px] bg-cover bg-center bg-no-repeat pt-[65px] pb-20 text-white max-md:min-h-0 max-md:pt-12 max-md:pb-14" aria-labelledby="home-newsletter-title"><div className="mx-auto w-full max-w-[1350px] px-[15px]">
     <h2 id="home-newsletter-title" className="mb-3.5 text-center text-xl leading-[26px] font-semibold tracking-[-.3px]">Kampanyalardan haberdar ol</h2>
     <form action={action} aria-label="Bülten aboneliği" aria-busy={pending} className="relative mx-auto flex max-w-[400px] flex-col">
       <Input type="email" name="email" placeholder="E-posta" aria-label="Bülten için e-posta adresin" autoComplete="email" maxLength={254} required disabled={pending} className="h-11 min-h-0 rounded-lg border-control-border bg-white px-3 py-2.5 text-base leading-6 text-foreground md:text-base disabled:bg-white focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-white"/>
