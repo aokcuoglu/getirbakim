@@ -4783,7 +4783,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "gb_reset: Şifre yenileme bağlantısını açtığında, yeni şifre belirlenene kadar bağlantıyı tanır. Yalnızca şifre yenileme sayfasında kullanılır; geçerlilik süresi en fazla 60 dakikadır."
+                  "gb_reset: Şifre yenileme bağlantısını açtığında ya da e-posta adresini kayıt olduğun tarayıcıdan başka bir tarayıcıda doğruladığında, yeni şifre belirlenene kadar bu talebi tanır. Yalnızca şifre yenileme sayfasında kullanılır; geçerlilik süresi en fazla 60 dakikadır."
                 ]
               },
               {
