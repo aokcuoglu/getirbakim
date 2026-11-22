@@ -41,13 +41,14 @@ export async function findAccountToken(client: Queryable, token: string, purpose
 }
 
 /**
- * Locks the account of an unexpired token (FOR UPDATE) inside the caller's transaction and returns its id. Completing a
- * link takes this first, so every path locks the account row before its tokens, as deleting an account does.
+ * Locks the account of an unexpired token (FOR NO KEY UPDATE) inside the caller's transaction and returns its id.
+ * Completing a link takes this first, so every path locks the account row before its tokens, as deleting an account
+ * does. NO KEY: it still blocks an account DELETE but not the FOR KEY SHARE of a concurrent token insert (FK check).
  */
 export async function lockTokenAccount(client: Queryable, token: string, purpose: AccountTokenPurpose) {
   if (!usable(token)) return null;
   const { rows } = await client.query<{ id: string }>(`SELECT a.id FROM account_tokens t JOIN accounts a ON a.id=t.account_id
-    WHERE t.token_hash=$1 AND t.purpose=$2 AND t.expires_at>now() FOR UPDATE OF a`, [hashOf(token), purpose]);
+    WHERE t.token_hash=$1 AND t.purpose=$2 AND t.expires_at>now() FOR NO KEY UPDATE OF a`, [hashOf(token), purpose]);
   return rows[0]?.id ?? null;
 }
 
