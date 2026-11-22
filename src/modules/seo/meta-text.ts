@@ -61,6 +61,28 @@ export function categoryDescription(name: string): string {
 }
 
 /**
+ * The texts of a make or model × category listing (#1224). `vehicle` is the make label or the model name with its
+ * years; the heading is built from it as given, so a model page passes the name without years for its own heading.
+ * A make list is wider than a model's: its products are tied to one of the make's engine types or named in a supplier
+ * description, so the copy says so and the description is fitted to 160 characters.
+ */
+export function vehicleCategoryTexts(vehicle: string, parts: string, total: number, level: "make" | "model") {
+  const count = total.toLocaleString("tr-TR"), heading = `${vehicle} için ${parts} seçeneklerini keşfet`;
+  if (level === "model") return {
+    heading,
+    description: fitDescription(`${vehicle} için ${parts} kategorisinde ${count} ürün: üreticiye ve OEM numarasına göre incele.`),
+    intro: `${vehicle} için ${parts} kategorisinde listelenen ${count} ürün. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`,
+  };
+  const first = `${vehicle} araçlar için ${parts} kategorisinde ${count} ürün: üreticiye ve OEM numarasına göre incele.`;
+  const candidates = [`${first} Siparişten önce ürün sayfasındaki araç uyumluluğunu kontrol et.`, `${first} Siparişten önce araç uyumluluğunu kontrol et.`];
+  return {
+    heading,
+    description: candidates.find(text => text.length <= descriptionMax) ?? fitDescription(first),
+    intro: `${vehicle} araçlar için ${parts} kategorisinde listelenen ${count} ürün. Liste marka düzeyindedir: ürünler bu markanın bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu markanın bir modeli geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`,
+  };
+}
+
+/**
  * A search query within `room` characters, counted by code point so an emoji or a combining mark is never split; a
  * longer one is cut at a word boundary with "…".
  */

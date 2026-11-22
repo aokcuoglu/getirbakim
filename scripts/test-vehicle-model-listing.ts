@@ -139,6 +139,19 @@ before(async () => {
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
 
+test("a make × category description states the product count and follows the noindex gate (#1224)", () => inRequest(async () => {
+  const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
+  const fren = (await load.findListing({ category: "fren", make: "vw", search: {} }))!;
+  assert.equal(fren.plainTotal, 9);
+  const below = listingMetadata(fren);
+  assert.ok(String(below.description).includes("9 ürün"), String(below.description));
+  assert.ok(String(below.description).includes("araçlar için"));
+  assert.equal((below.robots as { index?: boolean }).index, false);
+  const enough = listingMetadata({ ...fren, plainTotal: 10 });
+  assert.ok(String(enough.description).includes("10 ürün"));
+  assert.equal(enough.robots, undefined);
+}));
+
 test("a search result's title says the query within 65 characters and stays noindex,follow (#1218)", async () => {
   const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
   for (const q of ["fren", "bosch fren diski ön sol havalandırmalı golf 7 passat b8 tiguan 2.0 tdi"]) {
