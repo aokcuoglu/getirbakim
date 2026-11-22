@@ -348,6 +348,26 @@ test("the model sitemaps list exactly the indexable model and model × category 
   assert.deepEqual((await sitemap.loadModelCategoryPaths()).sort(), modelCategories);
 }));
 
+test("the make × category sitemap lists exactly the indexable make × category pages (#1224)", () => inRequest(async () => {
+  const slugs = (await schema.pool.query<{ slug: string }>("SELECT slug FROM source_category_labels WHERE source='trodo' AND locale='tr'")).rows.map(row => row.slug);
+  const pages = async (minimum?: number) => {
+    const { text, values, units } = await sitemap.makeCategoryPathsQuery(minimum);
+    const { rows } = await schema.pool.query<{ unit: number; slug: string }>(text, values);
+    return rows.map(row => listingPath({ makeSlug: units[row.unit], categorySlug: row.slug })).filter(path => path.endsWith("/vw")).sort();
+  };
+  const expected: string[] = [], indexable: string[] = [];
+  for (const category of slugs) {
+    const listing = await load.findListing({ category, make: "vw", search: {} });
+    if (!listing || category === "yedek-parca") continue;
+    expected.push(listingPath({ makeSlug: "vw", categorySlug: category }));
+    if (listingIndexable(listing.query, listing.plainTotal ?? 0)) indexable.push(listingPath({ makeSlug: "vw", categorySlug: category }));
+  }
+  assert.ok(expected.length > 0);
+  assert.deepEqual(await pages(1), expected.sort());
+  assert.deepEqual(await pages(), indexable.sort());
+  assert.ok(!(await pages(1)).includes("/kategori/yedek-parca/vw"));
+}));
+
 test("loadAllVehicleModelGroups returns the same units as the per-make read (#778)", async () => {
   const all = await groups.loadAllVehicleModelGroups();
   const brands = (await schema.pool.query<{ id: string }>("SELECT id::text FROM vehicle_brands ORDER BY id")).rows.map(row => row.id);

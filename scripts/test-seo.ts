@@ -183,8 +183,8 @@ test("warmSitemaps requests the slow files one after the other and never throws 
     return new Response("<urlset/>", { status: url.endsWith("manufacturers.xml") ? 500 : 200 });
   }) as unknown as typeof fetch;
   const results = await warmSitemaps("http://127.0.0.1:3000", { fetch: fake });
-  assert.deepEqual(calls, ["models.xml", "model-categories.xml", "manufacturers.xml"].map(file => `http://127.0.0.1:3000/sitemaps/${file}`));
-  assert.deepEqual(results.map(({ file, ok }) => [file, ok]), [["models.xml", true], ["model-categories.xml", false], ["manufacturers.xml", false]]);
+  assert.deepEqual(calls, ["models.xml", "model-categories.xml", "make-categories.xml", "manufacturers.xml"].map(file => `http://127.0.0.1:3000/sitemaps/${file}`));
+  assert.deepEqual(results.map(({ file, ok }) => [file, ok]), [["models.xml", true], ["model-categories.xml", false], ["make-categories.xml", true], ["manufacturers.xml", false]]);
   assert.equal(overlapped, false);
 });
 
