@@ -8,7 +8,7 @@ import { orderRequestSchema, quoteRequestSchema } from "../src/modules/partner/o
 import { partnerReturnStatus, returnRequestSchema, toPartnerReturnDto, type PartnerReturnRow } from "../src/modules/partner/return-dto";
 import { assertQuoteMatches, fingerprintOrderRequest, PartnerOrderError, partnerQuoteTtlMs, signQuote, verifyQuote, type QuotePayload } from "../src/modules/partner/quotes";
 import { resolvePartnerDiscount, resolvePartnerDiscountBps, resolvePartnerPrice } from "../src/modules/partner/pricing";
-import { createRateLimiter } from "../src/modules/partner/rate-limit";
+import { createRateLimiter } from "../src/lib/rate-limit";
 import { exactMatches, fitmentLevelOf, fitsFirst } from "../src/modules/partner/search-order";
 import { buildPartnerOrderEvent, buildPartnerReturnEvent, parsePartnerWebhooks, signPartnerWebhook, webhookHeaders } from "../src/modules/partner/webhook-contract";
 import { ttlCache } from "../src/lib/ttl-cache";

@@ -29,3 +29,21 @@ FIAT grubunda 18.921 ürün satırı, 19.106 fiyat satırı, MRK deposunda 18.92
 ## Güvenli başlangıç sınırı
 
 Sunucu katalog istemci giriş noktası henüz hata verir. Yönetim, Başbuğ için canlı erişimin doğrulandığını ve fiyat/stok anlamlarının beklediğini gösterir. İç normalize ürün şeması tedarikçi yanıt şeması değildir. Sırlar, tokenlar ve ham yanıtlar tarayıcıya aktarılmamalıdır. Kataloğa veri aktarımı fiyat/vergi/stok anlamları doğrulandıktan sonra eklenmelidir.
+
+## Üçüncü taraf etiketler ve CSP (#1287, #1291)
+
+Uygulanan (enforced) CSP 1. aşamadır ve `next.config.ts` `headers()` içindedir: `object-src 'none'; base-uri 'self'; frame-ancestors 'self'` (+ https'te `upgrade-insecure-requests`). 2. aşama, nonce tabanlı `script-src`'yi **yalnız ölçer**: `Content-Security-Policy-Report-Only` başlığı istek başına `src/proxy.ts` (sayfalar) ve `src/modules/payments/popup-return.ts` (TAMI dönüş sayfası) tarafından eklenir; politika kaynağı `src/lib/csp.ts`'dir.
+
+- Politika: `script-src 'self' 'nonce-…' 'strict-dynamic' 'sha256-…'` (kök layout'taki yönetim teması betiği `src/lib/admin-theme-script.ts`, hash ondan hesaplanır) + Google Tag Manager / Meta Pixel; `connect-src`, `img-src`, `frame-src` GA4/Google Ads/Meta adresleri; `form-action 'self'` + TAMI portal adresleri; `report-uri /api/csp-report; report-to csp` ve `Reporting-Endpoints: csp="/api/csp-report"`. `style-src`/`default-src` yoktur (satır içi stiller serbest kalır).
+- Report-Only anahtarı `next.config.ts` `headers()` içine **asla** eklenmez: yapılandırma başlığı istek başına üretilen nonce'lu değeri ezer.
+- **Yeni bir üçüncü taraf etiket** (betik, beacon, piksel, iframe) eklenirken adresleri `src/lib/csp.ts`'ye eklenir; eklenmezse ihlal raporu olarak görünür (3. aşamada engellenir).
+- Statik (`○`/`●`) bir sayfa nonce taşımaz; sayfalar dinamik kalmalıdır (`/_not-found` için `src/app/not-found.tsx` `await connection()` çağırır).
+- Kapatma anahtarı: `CSP_REPORT_ONLY=off` (yeniden başlatma yeter, yeni build gerekmez); 1. aşama etkilenmez.
+- `/api/csp-report` her zaman 204 döner; yalnız `application/csp-report` ve `application/reports+json`, en çok 16 KB, adres başına 30/dk, toplam 120/dk, aynı ihlal 10 dakikada bir kez. Raporlar veritabanına yazılmaz; temizlenmiş tek satır loglanır (sayfa yalnız ilk iki yol parçası, belirteç/kimlik içeren parçalar `*`; referrer, örnek kod, politika, UA ve IP tutulmaz). `kind: "extension"` tarayıcı eklentisi kaynaklıdır.
+- CloudWatch Logs Insights sorgusu:
+
+  ```
+  filter @message like /^csp-report / | parse @message "csp-report *" as j | stats count() by j
+  ```
+
+- 3. aşamaya (politikayı uygulamaya) geçiş ölçütleri: 7 gün boyunca birinci taraf `kind:"page"` satırı sıfır; TAMI sandbox ödemesi (açılır pencere + dönüş) temiz; etiket adres listesi sabit.

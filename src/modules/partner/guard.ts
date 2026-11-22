@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { clientEvidence } from "@/lib/client-address";
 import { partnerKeysEnv, resolvePartner, type PartnerIdentity } from "./auth";
 import { PartnerOrderError } from "./quotes";
-import { createRateLimiter } from "./rate-limit";
+import { createRateLimiter } from "@/lib/rate-limit";
 
 export const partnerNoStore = { "Cache-Control": "no-store" };
 
