@@ -275,8 +275,10 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
 // epoch and these reload (#585).
 const listings={epoch:listingEpoch};
 // Fitments change when enrichments are imported or an admin decides; vehicle-type lists are shared per process.
-const cachedFitted=staleCache<string[]>(10*60*1000,500,listings);
-const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
+// Each value is an id array that can hold hundreds of thousands of uuids, so the caches are also bounded by total id
+// count (#1262), not only by entries.
+const cachedFitted=staleCache<string[]>(10*60*1000,500,{...listings,weigh:ids=>ids.length,maxWeight:400_000});
+const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,{...listings,weigh:ids=>ids.length,maxWeight:600_000});
 /**
  * Products fitting one make (`param`: its vehicle_brands id, e.g. "$2::int"), as one id column: the engine-level fits
  * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the makes of the models read from supplier
@@ -722,7 +724,7 @@ export const rankedSearchIds=(raw:string,mode:SearchMode)=>cachedRankedSearches(
  * search hit is the product's listing row (a secondary offer counts as the primary it is grouped under). Cached per type
  * in its own LRU (reloaded with the listing epoch), apart from the storefront's fit sets.
  */
-const cachedFittedListings=staleCache<string[]>(10*60*1000,300,listings);
+const cachedFittedListings=staleCache<string[]>(10*60*1000,300,{...listings,weigh:ids=>ids.length,maxWeight:300_000});
 const typeFittedListingIds=(typeId:number)=>cachedFittedListings(String(typeId),async()=>{
  const fitted=await typeFittedIds(typeId);
  if(!fitted.length)return [];

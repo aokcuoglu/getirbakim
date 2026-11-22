@@ -1,6 +1,13 @@
 import "server-only";
 
-type Entry<T> = { value: Promise<T>; loadedAt: number; refreshing: boolean; epoch?: number };
+type Entry<T> = { value: Promise<T>; loadedAt: number; refreshing: boolean; epoch?: number; weight: number };
+const instances = new Set<{ size: () => number; weight: () => number }>();
+/** Entries and summed weight over every stale cache of this process, for the memory log line (#1262). */
+export function staleCacheStats() {
+  let entries = 0, weight = 0;
+  for (const instance of instances) { entries += instance.size(); weight += instance.weight(); }
+  return { entries, weight };
+}
 /** A value read from a store, or loaded now (`ageMs` undefined: its age is counted from the load). */
 type Loaded<T> = { value: T; ageMs?: number };
 /** A second cache level shared by every process (src/modules/store/listing-cache-store.ts). Values must survive JSON. */
@@ -16,6 +23,10 @@ type Options<T> = {
   store?: StaleCacheStore<T>;
   /** The oldest stored value a memory miss may adopt (default: ttlMs); older ones are loaded again. */
   maxStaleMs?: number;
+  /** Size of a loaded value (e.g. its id count). With `maxWeight`, the oldest entries go once the total exceeds it (#1262). */
+  weigh?: (value: T) => number;
+  /** Total weight kept; the entry just loaded always stays, even when it alone exceeds this. */
+  maxWeight?: number;
 };
 
 /**
@@ -33,8 +44,25 @@ type Options<T> = {
  * that must stay in memory only (too many variants to be worth sharing).
  */
 export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<T> = {}) {
-  const { epoch, store, maxStaleMs = ttlMs } = options;
+  const { epoch, store, maxStaleMs = ttlMs, weigh, maxWeight } = options;
   const entries = new Map<string, Entry<T>>();
+  let totalWeight = 0;
+  instances.add({ size: () => entries.size, weight: () => totalWeight });
+  const drop = (key: string) => {
+    const entry = entries.get(key);
+    if (!entry) return;
+    totalWeight -= entry.weight;
+    entries.delete(key);
+  };
+  const measure = (value: T) => weigh ? weigh(value) : 0;
+  // Called after a load: the oldest entries go while the total is over the bound; `keep` (the loaded one) stays.
+  const trim = (keep: string) => {
+    if (maxWeight === undefined) return;
+    for (const key of entries.keys()) {
+      if (totalWeight <= maxWeight || entries.size <= 1) return;
+      if (key !== keep) drop(key);
+    }
+  };
   // Reads the store first when `persist`; a stored value is adopted when its epoch is current and it is at most `maxAgeMs` old.
   const obtain = async (key: string, load: () => Promise<T>, at: number, persist: boolean, maxAgeMs: number): Promise<Loaded<T>> => {
     if (persist && store) {
@@ -48,7 +76,17 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
   const refresh = (key: string, entry: Entry<T>, load: () => Promise<T>, at: number, persist: boolean) => {
     entry.refreshing = true;
     obtain(key, load, at, persist, ttlMs)
-      .then(loaded => { entry.value = Promise.resolve(loaded.value); entry.loadedAt = Date.now() - (loaded.ageMs ?? 0); })
+      .then(loaded => {
+        entry.value = Promise.resolve(loaded.value);
+        entry.loadedAt = Date.now() - (loaded.ageMs ?? 0);
+        // An entry evicted while it refreshed is no longer counted.
+        if (entries.get(key) === entry) {
+          const weight = measure(loaded.value);
+          totalWeight += weight - entry.weight;
+          entry.weight = weight;
+          trim(key);
+        }
+      })
       .catch(error => console.error("Stale cache refresh failed; serving the previous value", error))
       .finally(() => { entry.refreshing = false; });
   };
@@ -61,23 +99,28 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
         // An adopted value past the TTL is served now and refreshed once in the background.
         if (loaded.ageMs > ttlMs && entries.get(key) === fresh) refresh(key, fresh, load, epoch ?? 0, persist);
       }
+      if (entries.get(key) === fresh) {
+        fresh.weight = measure(loaded.value);
+        totalWeight += fresh.weight;
+        trim(key);
+      }
       return loaded.value;
     });
-    const fresh: Entry<T> = { value, loadedAt, refreshing: false, epoch };
+    const fresh: Entry<T> = { value, loadedAt, refreshing: false, epoch, weight: 0 };
     if (previous) {
       // A failed reload after an epoch change serves the old value; the old entry's epoch makes the next request try again.
       fresh.value = fresh.value.catch(error => {
         console.error("Stale cache reload failed; serving the previous value", error);
-        if (entries.get(key) === fresh) entries.set(key, previous);
+        if (entries.get(key) === fresh) { drop(key); entries.set(key, previous); totalWeight += previous.weight; }
         return previous.value;
       });
     } else {
       // A failed first load is not cached: the next request tries again.
-      fresh.value.catch(() => { if (entries.get(key) === fresh) entries.delete(key); });
+      fresh.value.catch(() => { if (entries.get(key) === fresh) drop(key); });
     }
-    entries.delete(key);
+    drop(key);
     entries.set(key, fresh);
-    if (entries.size > maxEntries) entries.delete(entries.keys().next().value!);
+    if (entries.size > maxEntries) drop(entries.keys().next().value!);
     return fresh.value;
   };
   const read = (key: string, load: () => Promise<T>, epoch: number | undefined, persist: boolean): Promise<T> => {

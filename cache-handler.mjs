@@ -129,6 +129,8 @@ class ValkeyStore {
   }
 }
 
+// Entries hold whole pages and RSC payloads; without a bound the map only grows with the crawled URL space (#1262).
+const MEMORY_MAX_ENTRIES = 1000;
 class MemoryStore {
   entries = new Map();
   tags = new Map();
@@ -137,10 +139,14 @@ class MemoryStore {
     if (!entry) return null;
     if (Date.now() > entry.expiresAt) { this.entries.delete(key); return null; }
     if (entry.tags.some(tag => (this.tags.get(tag) ?? 0) > entry.lastModified)) return null;
+    // Map order doubles as recency.
+    this.entries.delete(key); this.entries.set(key, entry);
     return entry;
   }
   async set(key, entry, ttl) {
+    this.entries.delete(key);
     this.entries.set(key, { ...entry, expiresAt: Date.now() + ttl * 1000 });
+    while (this.entries.size > MEMORY_MAX_ENTRIES) this.entries.delete(this.entries.keys().next().value);
   }
   async revalidate(tags, now) {
     for (const tag of tags) this.tags.set(tag, now);
