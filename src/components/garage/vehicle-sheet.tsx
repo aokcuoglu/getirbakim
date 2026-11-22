@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useId, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import Link from "next/link";
+import heroCar from "../../../public/hero-car.jpg";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 import { ArrowLeft, CarFront, Check, ChevronRight, Search, Trash2, X } from "lucide-react";
 import { VehicleHeroImage } from "./vehicle-image";
@@ -157,7 +158,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
   const stepHeading = "m-0 text-base leading-6 font-semibold outline-none";
 
   return <Tabs value={tab} onValueChange={value => { setTab(value as Tab); setError(""); }} className="flex min-h-0 flex-1 flex-col gap-0">
-    <div className="relative shrink-0 bg-[linear-gradient(90deg,rgba(20,25,33,.8),rgba(20,25,33,.4)),url('/hero-car.jpg')] bg-cover bg-[center_55%] px-5 text-white pt-[max(20px,env(safe-area-inset-top))]">
+    <div style={{backgroundImage:`linear-gradient(90deg,rgba(20,25,33,.8),rgba(20,25,33,.4)),url(${heroCar.src})`}} className="relative shrink-0 bg-cover bg-[center_55%] px-5 text-white pt-[max(20px,env(safe-area-inset-top))]">
       <SheetTitle id={`${id}-title`} className="mt-0 mr-12 mb-5 text-xl leading-7 font-semibold text-white">Araç seçimi</SheetTitle>
       <SheetClose aria-label="Araç seçimini kapat" disabled={pending} className="absolute top-[max(8px,env(safe-area-inset-top))] right-2 grid size-11 min-h-11 place-items-center rounded-[4px] border-0 bg-white/15 p-0 text-white hover:bg-white/25 disabled:bg-white/15 disabled:text-white"><X size={18} /></SheetClose>
       <TabsList aria-label="Araç seçimi sekmeleri" className="h-auto! gap-6 rounded-none bg-transparent p-0">

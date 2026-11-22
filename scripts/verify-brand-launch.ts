@@ -16,7 +16,7 @@ function fields(html:string,match:(form:string)=>boolean) {
 async function page(path:string,cookie='') {const result=await fetch(base+path,{headers:{cookie},redirect:'manual'});assert.equal(result.status,200,path);return result.text();}
 async function post(path:string,values:URLSearchParams,cookie='',origin=base) {const body=new FormData();for(const [k,v] of values)body.set(k,v);return fetch(base+path,{method:'POST',headers:{origin,cookie},body,redirect:'manual'});}
 try {
- const home=await page('/');assert.ok(home.includes('birlikte bakalım'));assert.ok(home.includes('logo-light.svg'));assert.ok(!home.includes('getirbakım'));
+ const home=await page('/');assert.ok(home.includes('birlikte bakalım'));assert.ok(/logo-light\.[\w-]+\.svg/.test(home));assert.ok(!home.includes('getirbakım'));
  const services=await page('/servisler');assert.ok(services.includes('moto-kurye'));assert.ok(services.includes('/servisler/basvuru'));
  const application=fields(await page('/servisler/basvuru'),form=>form.includes('name="contactName"'));
  for(const [key,value] of Object.entries({name:'Brand verification service',contactName:'Test contact',city:'İstanbul',phone:'05550000000',email,password,terms:'on',website:'',role:'admin',approved:'true',discount:'50'}))application.set(key,value);
