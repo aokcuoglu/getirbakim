@@ -3059,14 +3059,14 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Üyelik kaydı onayı: Üyelik ve Kullanım Koşulları’nın kabul edilen sürümü, kabul zamanı, IP adresi, tarayıcı bilgisi ve onay metni ile kayıt anında geçerli olan KVKK Aydınlatma Metninin sürümü."
+                  "Üyelik kaydı onayı: Üyelik ve Kullanım Koşulları’nın kabul edilen sürümü, kabul zamanı, IP adresi ve isteğin iletim (proxy) başlığı, tarayıcı bilgisi ve onay metni ile kayıt anında geçerli olan KVKK Aydınlatma Metninin sürümü."
                 ]
               },
               {
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Kayıt ve başvuru denemelerinin sınırlandırılması için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri ile saatlik deneme sayısı; bu kayıtlar en geç bir gün içinde silinir."
+                  "Kayıt ve başvuru denemelerinin sınırlandırılması için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri ile saatlik deneme sayısı; bu kayıtlar yalnızca bir saatlik sınırlama için kullanılır ve süresi dolanlar düzenli olarak silinir."
                 ]
               },
               {
@@ -3164,14 +3164,14 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kayıt sırasında Üyelik ve Kullanım Koşulları’nı onay kutusuyla kabul edersin. Kabulün ispatı için kabul ettiğin metnin sürümü, kabul zamanı, IP adresin, tarayıcı bilgin ve onay metni sonradan değiştirilemeyen bir kayıt olarak saklanır. KVKK Aydınlatma Metni kayıt formunda bilgilendirme amacıyla sunulur ve o andaki sürümü aynı kayda eklenir; metnin sunulması veya okunması açık rıza verildiği anlamına gelmez."
+              "Kayıt sırasında Üyelik ve Kullanım Koşulları’nı onay kutusuyla kabul edersin. Kabulün ispatı için kabul ettiğin metnin sürümü, kabul zamanı, IP adresin ve isteğin iletim (proxy) başlığı, tarayıcı bilgin ve onay metni sonradan değiştirilemeyen bir kayıt olarak saklanır. KVKK Aydınlatma Metni kayıt formunda bilgilendirme amacıyla sunulur ve o andaki sürümü aynı kayda eklenir; metnin sunulması veya okunması açık rıza verildiği anlamına gelmez."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kötüye kullanımı ve toplu kayıt denemelerini önlemek için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri saatlik deneme sayısıyla birlikte tutulur ve en geç bir gün içinde silinir; bu sayaçlarda adresin kendisi yer almaz."
+              "Kötüye kullanımı ve toplu kayıt denemelerini önlemek için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri saatlik deneme sayısıyla birlikte tutulur; bu sayaçlar yalnızca bir saatlik sınırlama için kullanılır, süresi dolanlar düzenli olarak silinir ve bu sayaçlarda adresin kendisi yer almaz."
             ]
           },
           {
@@ -3908,14 +3908,14 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Üyelik kaydı onayı: Üyelik ve Kullanım Koşulları’nın kabul edilen sürümü, kabul zamanı, IP adresi, tarayıcı bilgisi ve onay metni ile kayıt anında geçerli olan KVKK Aydınlatma Metninin sürümü."
+                  "Üyelik kaydı onayı: Üyelik ve Kullanım Koşulları’nın kabul edilen sürümü, kabul zamanı, IP adresi ve isteğin iletim (proxy) başlığı, tarayıcı bilgisi ve onay metni ile kayıt anında geçerli olan KVKK Aydınlatma Metninin sürümü."
                 ]
               },
               {
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Kayıt ve başvuru denemelerinin sınırlandırılması için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri ile saatlik deneme sayısı; bu kayıtlar en geç bir gün içinde silinir."
+                  "Kayıt ve başvuru denemelerinin sınırlandırılması için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri ile saatlik deneme sayısı; bu kayıtlar yalnızca bir saatlik sınırlama için kullanılır ve süresi dolanlar düzenli olarak silinir."
                 ]
               },
               {
@@ -4013,14 +4013,14 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kayıt sırasında Üyelik ve Kullanım Koşulları’nı onay kutusuyla kabul edersin. Kabulün ispatı için kabul ettiğin metnin sürümü, kabul zamanı, IP adresin, tarayıcı bilgin ve onay metni sonradan değiştirilemeyen bir kayıt olarak saklanır. KVKK Aydınlatma Metni kayıt formunda bilgilendirme amacıyla sunulur ve o andaki sürümü aynı kayda eklenir; metnin sunulması veya okunması açık rıza verildiği anlamına gelmez."
+              "Kayıt sırasında Üyelik ve Kullanım Koşulları’nı onay kutusuyla kabul edersin. Kabulün ispatı için kabul ettiğin metnin sürümü, kabul zamanı, IP adresin ve isteğin iletim (proxy) başlığı, tarayıcı bilgin ve onay metni sonradan değiştirilemeyen bir kayıt olarak saklanır. KVKK Aydınlatma Metni kayıt formunda bilgilendirme amacıyla sunulur ve o andaki sürümü aynı kayda eklenir; metnin sunulması veya okunması açık rıza verildiği anlamına gelmez."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kötüye kullanımı ve toplu kayıt denemelerini önlemek için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri saatlik deneme sayısıyla birlikte tutulur ve en geç bir gün içinde silinir; bu sayaçlarda adresin kendisi yer almaz."
+              "Kötüye kullanımı ve toplu kayıt denemelerini önlemek için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri saatlik deneme sayısıyla birlikte tutulur; bu sayaçlar yalnızca bir saatlik sınırlama için kullanılır, süresi dolanlar düzenli olarak silinir ve bu sayaçlarda adresin kendisi yer almaz."
             ]
           },
           {
