@@ -172,6 +172,9 @@ Bireysel kayıt (`registerCustomer`, `src/modules/auth/customer-signup.ts`) hesa
 - **Temizlik:** gecelik `db:prune-attempts` (`src/modules/auth/prune-attempts.ts`) 7 günden eski (`applied_at`) doğrulanmamış ve hesap siparişi olmayan bireysel kayıtları siler; koşul onayı ve tokenlar `ON DELETE CASCADE` ile gider (`unverified accounts N` logu). AWS'teki zamanlama getirbakim-infra PR #18'dedir.
 - **Loglar:** yalnız hesap kimliği (`E-mail verification mail sent|skipped for account <id>`, `Account exists mail …`); adres ve ad yazılmaz. Yerelde (production dışı) gönderim ayarı yoksa ya da `MAIL_TRANSPORT=file` ise bağlantı da loglanır: `E-mail verification link (dev only): …`. Gönderim hatası yalnız o tokenı siler ve hesap kimliği + sağlayıcı koduyla loglanır.
 - **SES:** sandbox'tan çıkmadan production'da kayıt açılmamalıdır; yalnız doğrulanmış alıcılar e-posta alır ve diğer herkesin hesabı açılamaz.
+- **Bilinen sınırlar (kabul edildi):**
+  - *İki adımlı adres yoklama:* biri X adresiyle ve P şifresiyle kayıt olup ardından P ile giriş deneyebilir; `error=dogrulama` X'in doğrulanmış hesabı olmadığını, `error=1` olduğunu söyler. Her deneme sahibine bir e-posta gönderir ve kayıt/giriş sınırlarına takılır; servis başvurusu formunun `error=account` yanıtı müşteri adreslerini zaten ele verdiği için kabul edildi.
+  - *Yeniden gönderim rahatsızlığı:* doğrulama bekleyen bir adres için herkes yeni bağlantı isteyebilir (adres başına saatte 3). Her istek sahibin gelen kutusundaki bağlantının ve kaynak nonce'unun yerini alır; sahibin kayıt yaptığı tarayıcı artık otomatik giriş yapmaz, doğrulamadan sonra yeni şifre belirler. Hesap ele geçirilemez; kabul edildi.
 - Test: `npm run test:email-verification` (kayıt: `npm run test:customer-signup`).
 
 ## Araç uyumluluğu ölçümü
