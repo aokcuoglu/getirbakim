@@ -5,6 +5,11 @@ export function safeReturnTo(value: unknown): string | null {
  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\") || /[\u0000-\u001f]/.test(value)) return null;
  return value;
 }
+/** /e-posta-dogrula, carrying a safe return path other than "/" (#1258). Never the address itself. */
+export const verificationResendPath = (next?: string | null) => {
+ const returnTo = safeReturnTo(next);
+ return returnTo && returnTo !== "/" ? `/e-posta-dogrula?${new URLSearchParams({ next: returnTo })}` : "/e-posta-dogrula";
+};
 export const loginPath = (next?: string | null, error?: string) => {
  const params = new URLSearchParams();
  if (error) params.set("error", error);

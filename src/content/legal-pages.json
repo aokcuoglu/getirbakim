@@ -2518,7 +2518,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bireysel üyelik, kayıt formunda ad ve soyad, e-posta adresi ve en az 12 karakterlik bir şifre girilerek ve bu koşullar kabul edilerek oluşturulur. Hesap kayıt anında açılır; ayrıca yönetici onayı gerekmez. Bir e-posta adresiyle yalnızca bir hesap açılabilir. Bireysel hesap; siparişlerin ve kayıtlı adreslerin görüntülenmesini, sepetin ve garajdaki araçların hesapla birlikte korunmasını sağlar. Bireysel hesapta katalog fiyatları geçerlidir; servis hesaplarına özgü fiyatlandırma uygulanmaz."
+              "Bireysel üyelik, kayıt formunda ad ve soyad, e-posta adresi ve en az 12 karakterlik bir şifre girilerek ve bu koşullar kabul edilerek oluşturulur. Kayıttan sonra e-posta adresine tek kullanımlık ve 24 saat geçerli bir doğrulama bağlantısı gönderilir; hesap, e-posta adresi bu bağlantıyla doğrulandığında açılır, ayrıca yönetici onayı gerekmez. E-posta adresi 7 gün içinde doğrulanmayan kayıt silinir. Bir e-posta adresiyle yalnızca bir hesap açılabilir. Bireysel hesap; siparişlerin ve kayıtlı adreslerin görüntülenmesini, sepetin ve garajdaki araçların hesapla birlikte korunmasını sağlar. Bireysel hesapta katalog fiyatları geçerlidir; servis hesaplarına özgü fiyatlandırma uygulanmaz."
             ]
           },
           {
@@ -3052,7 +3052,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Güvenli giriş ve şifre yenileme için şifre özeti, oturum belirteçlerinin ve tek kullanımlık şifre yenileme bağlantılarının özeti, başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri ile şifre yenileme taleplerini sınırlamak için e-posta ve IP adresinin özeti."
+                  "Güvenli giriş, e-posta doğrulama ve şifre yenileme için şifre özeti, e-posta adresinin doğrulandığı zaman, oturum belirteçlerinin ve tek kullanımlık doğrulama ve şifre yenileme bağlantılarının özeti, başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri ile kayıt, doğrulama ve şifre yenileme taleplerini sınırlamak için e-posta ve IP adresinin özeti."
                 ]
               },
               {
@@ -3157,7 +3157,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Üyelik isteğe bağlıdır; siparişi üye olmadan da verebilirsin. Kayıt formunda ad ve soyadını, e-posta adresini ve şifreni girersin. Şifren açık metin olarak değil, geri döndürülemez bir özet olarak saklanır. Hesabın kayıt anında açılır; kayıt zamanı hesabınla birlikte tutulur."
+              "Üyelik isteğe bağlıdır; siparişi üye olmadan da verebilirsin. Kayıt formunda ad ve soyadını, e-posta adresini ve şifreni girersin. Şifren açık metin olarak değil, geri döndürülemez bir özet olarak saklanır. Kayıttan sonra e-posta adresine tek kullanımlık ve 24 saat geçerli bir doğrulama bağlantısı göndeririz; hesabın, e-posta adresini bu bağlantıyla doğruladığında açılır. Kayıt ve doğrulama zamanı hesabınla birlikte tutulur. E-posta adresini 7 gün içinde doğrulamazsan kayıt formunda verdiğin bilgiler ve üyelik onay kaydın silinir."
             ]
           },
           {
@@ -3178,7 +3178,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Üye olduğunda ziyaretçi sepetin ve garajındaki araçlar hesabına taşınır; hesabınla verdiğin siparişler ve kaydettiğin adresler hesabına bağlanır. Üyelik bülten aboneliği veya pazarlama izni değildir; üyelik bilgilerin pazarlama amacıyla kullanılmaz."
+              "Hesabın açıldığında ve hesabına giriş yaptığında ziyaretçi sepetin ve garajındaki araçlar hesabına taşınır; hesabınla verdiğin siparişler ve kaydettiğin adresler hesabına bağlanır. Üyelik bülten aboneliği veya pazarlama izni değildir; üyelik bilgilerin pazarlama amacıyla kullanılmaz."
             ]
           },
           {
@@ -3387,7 +3387,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ve şifre yenileme bağlantısı gibi işlem e-postaları, sitenin barındırıldığı Amazon Web Services’in e-posta gönderim hizmeti (Amazon SES) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla AWS tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ile e-posta doğrulama ve şifre yenileme bağlantıları gibi işlem e-postaları, sitenin barındırıldığı Amazon Web Services’in e-posta gönderim hizmeti (Amazon SES) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla AWS tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -3460,7 +3460,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap kayıtları ve üyelik onay kaydı, üyelik sürdüğü sürece saklanır. Hesap kapatma talebi sonuçlandırıldığında hesap kaydı silinir; oturumlar, kayıtlı adresler, garaj kayıtları ve üyelik onay kaydı onunla birlikte silinir. Kapatılan hesapla verilmiş siparişlerin kayıtları aşağıda belirtilen sürelerle saklanmaya devam eder. Talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
+              "Hesap kayıtları ve üyelik onay kaydı, üyelik sürdüğü sürece saklanır. E-posta adresi 7 gün içinde doğrulanmayan kayıtlar, üyelik onay kaydıyla birlikte silinir. Hesap kapatma talebi sonuçlandırıldığında hesap kaydı silinir; oturumlar, kayıtlı adresler, garaj kayıtları ve üyelik onay kaydı onunla birlikte silinir. Kapatılan hesapla verilmiş siparişlerin kayıtları aşağıda belirtilen sürelerle saklanmaya devam eder. Talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
             ]
           },
           {
@@ -3479,7 +3479,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap parolaları açık metin olarak değil, şifre özeti olarak saklanır. Oturum, ziyaretçi sepeti ve şifre yenileme belirteçleri sunucuda özetlenerek tutulur; şifre yenileme bağlantısı 60 dakika geçerlidir, bir kez kullanılır ve süresi dolan kayıtlar silinir; yönetim işlevlerine erişim hesap yetkileriyle sınırlandırılır."
+              "Hesap parolaları açık metin olarak değil, şifre özeti olarak saklanır. Oturum, ziyaretçi sepeti, e-posta doğrulama ve şifre yenileme belirteçleri sunucuda özetlenerek tutulur; doğrulama bağlantısı 24 saat, şifre yenileme bağlantısı 60 dakika geçerlidir, her biri bir kez kullanılır ve süresi dolan kayıtlar silinir; yönetim işlevlerine erişim hesap yetkileriyle sınırlandırılır."
             ]
           },
           {
@@ -3901,7 +3901,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Güvenli giriş ve şifre yenileme için şifre özeti, oturum belirteçlerinin ve tek kullanımlık şifre yenileme bağlantılarının özeti, başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri ile şifre yenileme taleplerini sınırlamak için e-posta ve IP adresinin özeti."
+                  "Güvenli giriş, e-posta doğrulama ve şifre yenileme için şifre özeti, e-posta adresinin doğrulandığı zaman, oturum belirteçlerinin ve tek kullanımlık doğrulama ve şifre yenileme bağlantılarının özeti, başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri ile kayıt, doğrulama ve şifre yenileme taleplerini sınırlamak için e-posta ve IP adresinin özeti."
                 ]
               },
               {
@@ -4006,7 +4006,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Üyelik isteğe bağlıdır; siparişi üye olmadan da verebilirsin. Kayıt formunda ad ve soyadını, e-posta adresini ve şifreni girersin. Şifren açık metin olarak değil, geri döndürülemez bir özet olarak saklanır. Hesabın kayıt anında açılır; kayıt zamanı hesabınla birlikte tutulur."
+              "Üyelik isteğe bağlıdır; siparişi üye olmadan da verebilirsin. Kayıt formunda ad ve soyadını, e-posta adresini ve şifreni girersin. Şifren açık metin olarak değil, geri döndürülemez bir özet olarak saklanır. Kayıttan sonra e-posta adresine tek kullanımlık ve 24 saat geçerli bir doğrulama bağlantısı göndeririz; hesabın, e-posta adresini bu bağlantıyla doğruladığında açılır. Kayıt ve doğrulama zamanı hesabınla birlikte tutulur. E-posta adresini 7 gün içinde doğrulamazsan kayıt formunda verdiğin bilgiler ve üyelik onay kaydın silinir."
             ]
           },
           {
@@ -4027,7 +4027,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Üye olduğunda ziyaretçi sepetin ve garajındaki araçlar hesabına taşınır; hesabınla verdiğin siparişler ve kaydettiğin adresler hesabına bağlanır. Üyelik bülten aboneliği veya pazarlama izni değildir; üyelik bilgilerin pazarlama amacıyla kullanılmaz."
+              "Hesabın açıldığında ve hesabına giriş yaptığında ziyaretçi sepetin ve garajındaki araçlar hesabına taşınır; hesabınla verdiğin siparişler ve kaydettiğin adresler hesabına bağlanır. Üyelik bülten aboneliği veya pazarlama izni değildir; üyelik bilgilerin pazarlama amacıyla kullanılmaz."
             ]
           },
           {
@@ -4281,7 +4281,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ve şifre yenileme bağlantısı gibi işlem e-postaları, sitenin barındırıldığı Amazon Web Services’in e-posta gönderim hizmeti (Amazon SES) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla AWS tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ile e-posta doğrulama ve şifre yenileme bağlantıları gibi işlem e-postaları, sitenin barındırıldığı Amazon Web Services’in e-posta gönderim hizmeti (Amazon SES) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla AWS tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -4354,7 +4354,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap kayıtları ve üyelik onay kaydı, üyelik sürdüğü sürece saklanır. Hesap kapatma talebi sonuçlandırıldığında hesap kaydı silinir; oturumlar, kayıtlı adresler, garaj kayıtları ve üyelik onay kaydı onunla birlikte silinir. Kapatılan hesapla verilmiş siparişlerin kayıtları aşağıda belirtilen sürelerle saklanmaya devam eder. Talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
+              "Hesap kayıtları ve üyelik onay kaydı, üyelik sürdüğü sürece saklanır. E-posta adresi 7 gün içinde doğrulanmayan kayıtlar, üyelik onay kaydıyla birlikte silinir. Hesap kapatma talebi sonuçlandırıldığında hesap kaydı silinir; oturumlar, kayıtlı adresler, garaj kayıtları ve üyelik onay kaydı onunla birlikte silinir. Kapatılan hesapla verilmiş siparişlerin kayıtları aşağıda belirtilen sürelerle saklanmaya devam eder. Talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
             ]
           },
           {
@@ -4769,7 +4769,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "gb_session: Bireysel üye veya servis hesabı oturumunu sürdürür. Giriş yapıldığında veya üyelik oluşturulduğunda kullanılır; geçerlilik süresi 30 dakikadır."
+                  "gb_session: Bireysel üye veya servis hesabı oturumunu sürdürür. Giriş yapıldığında veya e-posta adresi doğrulandığında kullanılır; geçerlilik süresi 30 dakikadır."
                 ]
               },
               {
@@ -4777,6 +4777,27 @@
                 "attrs": {},
                 "children": [
                   "gb_session_at: Oturum çerezinin en son ne zaman yenilendiğini tutar; oturumun gereksiz yere yeniden yazılmasını önler. Zorunludur; giriş yapıldığında kullanılır ve oturum çereziyle aynı süre geçerlidir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_reset: Şifre yenileme bağlantısını açtığında ya da e-posta adresini kayıt olduğun tarayıcıdan başka bir tarayıcıda doğruladığında, yeni şifre belirlenene kadar bu talebi tanır. Yalnızca şifre yenileme sayfasında kullanılır; geçerlilik süresi en fazla 60 dakikadır."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_verify: E-posta doğrulama bağlantısını açtığında, doğrulama tamamlanana kadar bağlantıyı tanır. Yalnızca e-posta doğrulama sayfasında kullanılır; geçerlilik süresi en fazla 24 saattir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_verify_origin: Kayıt olduğun veya doğrulama e-postası istediğin tarayıcıyı tanır; doğrulama bu tarayıcıda yapılırsa oturumu açar. Geçerlilik süresi 24 saattir."
                 ]
               },
               {

@@ -122,6 +122,7 @@
     "test:customer-signup": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-customer-signup.ts",
     "test:service-application": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-service-application.ts",
     "test:password-reset": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-password-reset.ts",
+    "test:email-verification": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-email-verification.ts",
     "test:prune-attempt-rows": "node --env-file-if-exists=.env.local --import tsx --test scripts/test-prune-attempt-rows.ts",
     "db:prune-attempts": "node --env-file=.env.local --import tsx scripts/prune-attempt-rows.ts",
     "test:vehicle-label": "node --conditions=react-server --import tsx --test scripts/test-vehicle-label.ts",

@@ -3,7 +3,7 @@ import { privatePageRobots } from "@/modules/seo/crawlers";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import Link from "next/link";
 import { login } from "@/modules/auth/actions";
-import { safeReturnTo } from "@/modules/auth/return-to";
+import { safeReturnTo, verificationResendPath } from "@/modules/auth/return-to";
 import { Alert } from "@/components/ui/alert";
 import { storeErrorBox, storeSuccessBox } from "@/components/store-alert-classes";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,9 @@ export default async function Login({searchParams}:{searchParams:Promise<SearchP
   <h1 className="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">Giriş yap.</h1>
   <p className="text-base leading-6 text-muted-foreground">Hesabınla siparişlerini, adreslerini ve garajını yönet. Onaylı servis hesapları B2B fiyatlarını görür.</p>
   {sifre === "yenilendi" && !error && <Alert className={cn(storeSuccessBox, "my-4")} role="status">Şifren yenilendi. Yeni şifrenle giriş yap.</Alert>}
-  {error && <Alert className={cn(storeErrorBox, "my-4")}>{error === "limit" ? "Çok fazla giriş denemesi. 15 dakika sonra tekrar dene." : "Giriş bilgileri geçersiz veya hesap henüz onaylanmamış."}</Alert>}
+  {error === "dogrulama"
+   ? <Alert className={cn(storeErrorBox, "my-4")}><p className="m-0">E-posta adresin henüz doğrulanmadı. Gelen kutundaki bağlantıyla hesabını doğrula.</p><Link className="mt-2 block w-fit py-2 font-medium underline" href={verificationResendPath(returnTo)}>Doğrulama e-postasını yeniden gönder</Link></Alert>
+   : error && <Alert className={cn(storeErrorBox, "my-4")}>{error === "limit" ? "Çok fazla giriş denemesi. 15 dakika sonra tekrar dene." : "Giriş bilgileri geçersiz veya hesap henüz onaylanmamış."}</Alert>}
   <form action={login} className="grid gap-5">
    {returnTo && <input type="hidden" name="next" value={returnTo}/>}
    <Field className={field}><FieldLabel htmlFor="login-email" className={label}>E-posta</FieldLabel><Input id="login-email" className={input} type="email" name="email" autoComplete="username" maxLength={200} required/></Field>
