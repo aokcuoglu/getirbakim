@@ -171,17 +171,19 @@ test("a make × category listing is the intersection of both (#674)", async () =
 
 test("a category with its descendants lists each trusted enrichment link once and keeps the admin's move (#1240)", async () => {
   // c1's donor sits in two of the ids; c2's link points at an old code; c3 matched neither its part nor its OEM;
-  // c4 is a trusted link an admin moved to Aydınlatma. Unfitted, and removed afterwards, so the other tests keep their counts.
-  const keys = ["c1", "c2", "c3", "c4"];
+  // c4 is a trusted link an admin moved to Aydınlatma; c5's link names another brand than the item's. Unfitted, and
+  // removed afterwards, so the other tests keep their counts.
+  const keys = ["c1", "c2", "c3", "c4", "c5"];
   for (const key of keys) await item(key);
   const items = keys.map(key => ids[key]);
   try {
-    for (const [key, code, basis, oem] of [["c1", "TB c1", { type: "exact_part" }, ""], ["c2", "TB c2-old", { type: "exact_part" }, ""],
-      ["c3", "TB c3", { type: "oem_reference", supplierOem: "111" }, "222"], ["c4", "TB c4", { type: "exact_part" }, ""]] as const) {
+    for (const [key, code, basis, oem, brand] of [["c1", "TB c1", { type: "exact_part" }, "", "TESTBRAND"], ["c2", "TB c2-old", { type: "exact_part" }, "", "TESTBRAND"],
+      ["c3", "TB c3", { type: "oem_reference", supplierOem: "111" }, "222", "TESTBRAND"], ["c4", "TB c4", { type: "exact_part" }, "", "TESTBRAND"],
+      ["c5", "TB c5", { type: "exact_part" }, "", "OTHERBRAND"]] as const) {
       await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload,match_basis)
         VALUES($1,$2,'TESTBRAND','https://example.test/p','test','TESTBRAND',$2,'{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}',$3)`, [ids[key], code, basis]);
       await schema.pool.query(`INSERT INTO product_enrichment_shared_links(supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,imported_at)
-        VALUES($1,$2,'TESTBRAND',$1,$3,'complete',now())`, [ids[key], code, oem]);
+        VALUES($1,$2,$4,$1,$3,'complete',now())`, [ids[key], code, oem, brand]);
       await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',269)", [ids[key]]);
     }
     await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',252)", [ids.c1]);
@@ -191,7 +193,7 @@ test("a category with its descendants lists each trusted enrichment link once an
     // Yedek parçalar with its descendants, as the root category page asks.
     const listed = await catalog.categoryProductIds([], [3, 252, 269, 241]);
     assert.equal(listed.filter(id => id === ids.c1).length, 1);
-    for (const key of ["c2", "c3", "c4"]) assert.ok(!listed.includes(ids[key]), key);
+    for (const key of ["c2", "c3", "c4", "c5"]) assert.ok(!listed.includes(ids[key]), key);
     // The fixtures' trusted links (g3, g10) and the admin's Fren product (g11) stay in.
     for (const key of ["g3", "g10", "g11"]) assert.ok(listed.includes(ids[key]), key);
     assert.equal(new Set(listed).size, listed.length);
