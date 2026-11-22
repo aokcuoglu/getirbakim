@@ -586,6 +586,38 @@ describe("availability filter (#1242)", () => {
     assert.ok(!(await listed("out_of_stock")).includes(ids.grpOffer));
   });
 
+  // The planner read the view's "Stokta yok" set (expressions over jsonb) as ~155 rows for ~530k, and deep pages walked
+  // the sorted listing through a nested loop over all of it (page 49: 48 s, #1286). The filter reads the same rows through
+  // commerce_out_of_stock_ids, whose declared size only holds while the function is not inlined.
+  test("out of stock lists the view's 'Stokta yok' rows through a sized, non-inlined function (#1286)", async () => {
+    const companies = storefrontCompanies();
+    const viewIds = async () => (await schema.pool.query<{ id: string }>(`SELECT id::text FROM commerce_item_availability
+      WHERE (source='store' OR company=ANY($1::text[])) AND NOT available AND stock_label='Stokta yok' ORDER BY 1`, [companies])).rows.map(row => row.id);
+    const functionIds = async () => (await schema.pool.query<{ id: string }>(
+      "SELECT id::text FROM commerce_out_of_stock_ids($1::text[]) id ORDER BY 1", [companies])).rows.map(row => row.id);
+    const mode = (await schema.pool.query<{ mode: string }>("SELECT basbug_checkout_mode AS mode FROM commerce_settings")).rows[0].mode;
+    try {
+      for (const checkout of ["live", "snapshot"]) {
+        await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [checkout]);
+        const expected = await viewIds();
+        assert.ok(expected.includes(ids.avZero) && expected.includes(ids.avStoreEmpty), checkout);
+        assert.deepEqual(await functionIds(), expected, checkout);
+      }
+    } finally {
+      await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [mode]);
+    }
+    const plan = (await schema.pool.query<{ "QUERY PLAN": string }>("EXPLAIN SELECT id FROM commerce_out_of_stock_ids($1::text[]) id", [companies]))
+      .rows.map(row => row["QUERY PLAN"]).join("\n");
+    assert.match(plan, /Function Scan on commerce_out_of_stock_ids .*rows=500000/);
+    const { rows: [fn] } = await schema.pool.query<{ language: string; parallel: string }>(`SELECT l.lanname AS language,p.proparallel AS parallel
+      FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.proname='commerce_out_of_stock_ids' AND p.pronamespace=current_schema()::regnamespace`);
+    assert.deepEqual(fn, { language: "plpgsql", parallel: "r" });
+    const listed = (await catalog.browseProducts({ brand: "AVTEST", availability: "out_of_stock" })).items.map(row => row.id).sort();
+    const shown = new Set((await schema.pool.query<{ id: string }>("SELECT id::text FROM storefront_catalog_entries WHERE display_brand='AVTEST'")).rows.map(row => row.id));
+    assert.deepEqual(listed, (await viewIds()).filter(id => shown.has(id)));
+    assert.ok(listed.includes(ids.avZero));
+  });
+
   test("the availability clause does not scan commerce_catalog again", async () => {
     const source = await readFile("src/modules/store/catalog.ts", "utf8");
     const start = source.indexOf("if(query.availability==='supplied')"), end = source.indexOf("const where", start);
@@ -593,6 +625,9 @@ describe("availability filter (#1242)", () => {
     const clause = source.slice(start, end);
     assert.match(clause, /in_stock/);
     assert.match(clause, /out_of_stock|NOT available/);
+    // Out of stock goes through the sized function, never the view's expressions directly (#1286).
+    assert.match(clause, /catalog\.id IN \(SELECT id FROM commerce_out_of_stock_ids\(\$1::text\[\]\) id\)/);
+    assert.doesNotMatch(clause, /stock_label='Stokta yok'/);
     assert.match(clause, /availabilitySql/);
     assert.doesNotMatch(clause, /catalogSql|commerce_catalog/);
     assert.match(source, /export const availabilitySql = "SELECT \* FROM commerce_item_availability /);

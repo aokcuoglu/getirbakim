@@ -459,6 +459,19 @@ $view$; cur regclass := (SELECT c.oid FROM pg_class c
  END IF;
  DROP VIEW pg_temp.setup_view_probe;
 END $setup$;
+-- The listing's "Stokta yok" filter (#1286): the ids of the rows above that cannot be sold and have no stock anywhere.
+-- The planner cannot size this set from the view (available and stock_label are expressions over stock_data jsonb): it
+-- read ~155 rows for ~530k, so a listing's ORDER BY ... LIMIT walked the sorted catalog through a nested loop over the
+-- whole set (/katalog page 49: 48 s locally, a 504 in production). A plpgsql function is never inlined, so its ROWS
+-- stands and the set is hashed once (~1 s). ROWS is the order of the real count, not a bound. PARALLEL RESTRICTED keeps
+-- the caller's plan parallel (the default UNSAFE serialises it) and reads the set once, in the leader (SAFE read it in
+-- every worker: 1.5 s instead of 1.0 s).
+CREATE OR REPLACE FUNCTION commerce_out_of_stock_ids(companies text[]) RETURNS SETOF uuid
+LANGUAGE plpgsql STABLE PARALLEL RESTRICTED ROWS 500000 AS $$
+BEGIN
+ RETURN QUERY SELECT a.id FROM commerce_item_availability a
+  WHERE (a.source='store' OR a.company=ANY(companies)) AND NOT a.available AND a.stock_label='Stokta yok';
+END $$;
 -- Prepaid checkout: card payment is collected on TAMI's hosted page before operations confirm the order.
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='commerce_settings'::regclass AND attname='shipping_fee_kurus' AND NOT attisdropped) THEN
