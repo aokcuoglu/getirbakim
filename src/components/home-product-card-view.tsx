@@ -4,11 +4,12 @@ import Link from "next/link";
 import {useSlideImages} from "@/components/home-slide-images";
 import type {HomeProductCardModel} from "@/modules/store/listing-card";
 
+// Only a rendered image is a link (named by its alt); a deferred or missing image is a plain box, never an empty link (#1312, #1313).
 // A client view (#1212): the card's markup goes out once as HTML instead of twice (HTML and the RSC payload).
 export function HomeProductCardView({model: m}: {model: HomeProductCardModel}) {
   const images = useSlideImages();
   return <article className="home-card">
-    {images?<Link className="home-card-image" href={m.href}>{m.image&&<Image src={m.image} width={180} height={180} alt={m.title} className="home-card-img"/>}</Link>:<div className="home-card-image">{m.image&&<span className="home-card-img rounded-md bg-muted"/>}</div>}
+    {images&&m.image?<Link className="home-card-image" href={m.href}><Image src={m.image} width={180} height={180} alt={m.title} className="home-card-img"/></Link>:<div className="home-card-image">{m.image&&<span className="home-card-img rounded-md bg-muted"/>}</div>}
     <div className="home-card-text">
       <Link className="home-card-category" href={m.categoryHref}>{m.categoryName}</Link>
       <Link className="home-card-title" href={m.href}>{m.title}</Link>

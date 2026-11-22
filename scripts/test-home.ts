@@ -185,6 +185,19 @@ test("HomeCarousel renders <img> only in the first slides until armed; every lin
   assert.doesNotMatch(html, /aria-hidden="true"/);
 });
 
+test("a home card without an image renders no empty image link (#1313)", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { HomeProductCardView } = await import("@/components/home-product-card-view");
+  const model = { href: "/urun/p-1", title: "Ürün 1", categoryHref: "/katalog", categoryName: "Parça", amount: "1,00 ₺" };
+  const noImage = renderToStaticMarkup(createElement(HomeProductCardView, { model }));
+  assert.doesNotMatch(noImage, /<a [^>]*class="home-card-image"/);
+  assert.match(noImage, /<div class="home-card-image"><\/div>/);
+  assert.doesNotMatch(noImage, /<a [^>]*>(<span[^>]*><\/span>)?<\/a>/);
+  const withImage = renderToStaticMarkup(createElement(HomeProductCardView, { model: { ...model, image: "/img/1.jpg" } }));
+  assert.match(withImage, /<a class="home-card-image" href="\/urun\/p-1"><img [^>]*alt="Ürün 1"/);
+});
+
 test("HomeGridPager renders tile logos on page 0 only; every tile link stays (#1289)", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
