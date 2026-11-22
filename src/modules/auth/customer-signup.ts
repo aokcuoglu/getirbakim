@@ -7,6 +7,8 @@ import { db } from "@/lib/db";
 import { clientEvidence } from "@/lib/client-address";
 import { mergeGuestCart } from "@/modules/store/cart";
 import { adoptGuestGarage } from "@/modules/store/garage";
+import { membershipConsentText } from "./membership-consent";
+import { legalPageVersion, membershipTermsSlug, privacyNoticeSlug } from "./membership-terms";
 import { startSession, tokenHash } from "./session";
 import { SESSION_COOKIE } from "./session-cookie";
 import { customerSignupSchema } from "./schemas";
@@ -39,7 +41,7 @@ export async function registerCustomer(prev: SignupState, form: FormData): Promi
   const parsed = customerSignupSchema.safeParse({ ...Object.fromEntries(form), password: form.get("newPassword") });
   if (!parsed.success) return refuse("Bilgileri kontrol et: şifre en az 12 karakter olmalı, iki şifre aynı olmalı ve koşulları kabul etmelisin.");
   const { name, email, password } = parsed.data;
-  const { ip } = clientEvidence(await headers());
+  const evidence = clientEvidence(await headers()), { ip } = evidence;
   // Narrowest budget first: a request refused by its client address or its email never spends the shared one, so a
   // single client cannot lock everyone else out.
   const budgets: [string, number][] = [...(ip ? [[hashKey("ip", ip), limits.ip] as [string, number]] : []), [hashKey("email", email), limits.email], ["signup:global", limits.global]];
@@ -48,8 +50,15 @@ export async function registerCustomer(prev: SignupState, form: FormData): Promi
   }
   // Hashed before the insert either way, so a taken address answers no faster than a new one.
   const passwordHash = await hash(password, 12);
-  const { rows } = await db.query<{ id: string }>(`INSERT INTO accounts (name,email,password_hash,role,approved,discount_percent,applied_at)
-    VALUES ($1,$2,$3,'customer',true,0,now()) ON CONFLICT (email) DO NOTHING RETURNING id`, [name, email, passwordHash]);
+  // One statement: the account and its terms acceptance (#1256) are created together or not at all.
+  const { rows } = await db.query<{ id: string }>(`WITH created AS (
+      INSERT INTO accounts (name,email,password_hash,role,approved,discount_percent,applied_at)
+      VALUES ($1,$2,$3,'customer',true,0,now()) ON CONFLICT (email) DO NOTHING RETURNING id
+    ), accepted AS (
+      INSERT INTO account_term_acceptances (account_id,document,terms_version,privacy_notice_version,consent_text,ip,forwarded_for,user_agent)
+      SELECT id,$4,$5,$6,$7,$8,$9,$10 FROM created
+    ) SELECT id FROM created`, [name, email, passwordHash, membershipTermsSlug, legalPageVersion(membershipTermsSlug),
+    legalPageVersion(privacyNoticeSlug), membershipConsentText, evidence.ip, evidence.forwardedFor, evidence.userAgent]);
   const account = rows[0];
   if (!account) return refuse("Bu e-posta adresiyle kayıt oluşturulamadı. Zaten hesabın varsa giriş yap.");
   const old = (await cookies()).get(SESSION_COOKIE)?.value;
