@@ -237,8 +237,7 @@ export async function getDecidedEquivalents(id: string) {
   // The address of the listed row, from the row's own shown name, brand and part number: the page's canonical one.
   .map(({ id, name, name_overridden, display_brand, display_code, ...rest }) => ({ ...rest, id, href: id && name !== null && name_overridden !== null && display_brand !== null && display_code !== null ? productPath({ id, name, name_overridden, display_brand, display_code }) : id && productIdPath(id) }));
 }
-export function servicePrice(price: number, discount: number) { return Math.round(price * (100-discount) / 100); }
-export { money } from "./money";
+export { money, servicePrice } from "./money";
 
 export const categories = [
  {slug:"yedek-parca",name:"Yedek parçalar",art:"parts"},

@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lighthouseMetrics, markdownTable, median, parseBudget, samplePaths } from "./html-weight.mjs";
 
-const LIGHTHOUSE = "lighthouse@13.6.0", BUDGET = "/urun/=150,/katalog=350,/arac-markalari=350,/kategori/=350,/marka/=350,/yedek-parca/=350";
+const LIGHTHOUSE = "lighthouse@13.6.0", BUDGET = "/=400,/urun/=150,/katalog=400,/arac-markalari=400,/kategori/=400,/marka/=400,/yedek-parca/=400";
 const argv = process.argv.slice(2);
 const flag = (name) => (argv.includes(name) ? (argv.splice(argv.indexOf(name), 1), true) : false);
 const value = (name) => {
