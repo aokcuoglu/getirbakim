@@ -530,6 +530,10 @@ describe("availability filter (#1242)", () => {
     await observation("avStaleScope", { supplier: "dinamik", stock: { stok: 3 }, group: "AV-STALE" });
     await schema.pool.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,stale_minutes,last_success_at)
       VALUES('dinamik',$1,'AV-STALE','ALL',60,now()-interval '1 day')`, [dinamik]);
+    // A commerce-enabled scope whose short commerce window the row's last observation is past.
+    await observation("avCommerceStale", { supplier: "dinamik", stock: { stok: 3 }, seenHoursAgo: 2, group: "AV-COMMERCE" });
+    await schema.pool.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,commerce_enabled,commerce_interval_minutes,commerce_stale_minutes,last_success_at)
+      VALUES('dinamik',$1,'AV-COMMERCE','ALL',true,15,30,now())`, [dinamik]);
     await observation("avHidden", { supplier: "dinamik", stock: { stok: 2 } });
     await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.avHidden]);
     const store = await schema.pool.query<{ id: string }>(`INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock)
@@ -553,10 +557,12 @@ describe("availability filter (#1242)", () => {
         // The fixture reaches every branch of the label.
         const expected: Record<string, string> = checkout === "live"
           ? { avStock: "Tedarikçide mevcut", avZero: "Stokta yok", avOtherDepot: "Diğer depoda mevcut", avRoad: "Tedarikçiye sevkiyat bekleniyor",
-            avManual: "Stok bilgisi bulunamadı", avSeta: "Stok bilgisi bulunamadı", avStale: "Stok bilgisi güncelleniyor", avStaleScope: "Stok bilgisi güncelleniyor" }
+            avManual: "Stok bilgisi bulunamadı", avSeta: "Stok bilgisi bulunamadı", avStale: "Stok bilgisi güncelleniyor", avStaleScope: "Stok bilgisi güncelleniyor",
+            avCommerceStale: "Stok bilgisi güncelleniyor" }
           : { avStock: "Stokta · Siparişten sonra teyit edilir", avZero: "Stokta yok", avOtherDepot: "Stokta · Siparişten sonra teyit edilir",
             avRoad: "Tedarikçiye sevkiyat bekleniyor", avManual: "Stok bilgisi bulunamadı", avSeta: "Stok bilgisi bulunamadı",
-            avStale: "Stokta · Siparişten sonra teyit edilir", avStaleScope: "Stokta · Siparişten sonra teyit edilir" };
+            avStale: "Stokta · Siparişten sonra teyit edilir", avStaleScope: "Stokta · Siparişten sonra teyit edilir",
+            avCommerceStale: "Stokta · Siparişten sonra teyit edilir" };
         for (const [key, label] of Object.entries(expected)) assert.equal(labels.get(ids[key]), label, `${checkout} ${key}`);
       }
     } finally {
@@ -582,7 +588,11 @@ describe("availability filter (#1242)", () => {
 
   test("the availability clause does not scan commerce_catalog again", async () => {
     const source = await readFile("src/modules/store/catalog.ts", "utf8");
-    const clause = source.slice(source.indexOf("if(query.availability==='supplied')"), source.indexOf("const where", source.indexOf("if(query.availability==='supplied')")));
+    const start = source.indexOf("if(query.availability==='supplied')"), end = source.indexOf("const where", start);
+    assert.ok(start >= 0 && end > start, "availability clause anchors not found in catalog.ts");
+    const clause = source.slice(start, end);
+    assert.match(clause, /in_stock/);
+    assert.match(clause, /out_of_stock|NOT available/);
     assert.match(clause, /availabilitySql/);
     assert.doesNotMatch(clause, /catalogSql|commerce_catalog/);
     assert.match(source, /export const availabilitySql = "SELECT \* FROM commerce_item_availability /);
