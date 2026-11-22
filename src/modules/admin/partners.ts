@@ -41,8 +41,10 @@ export async function adminPartnerInvoices() {
     recentInvoicePayments(codes), orphanPaymentCount(codes), paymentTerms(codes), closedPeriods(codes)]);
   const today = istanbulToday();
   // A closed month (#1200) freezes invoices dated in it and payments paid in it: the page hides their change and void.
-  const closedKeys = new Set(closed.map(row => `${row.partner}|${row.period}`));
-  const isClosed = (partner: string, day: string) => closedKeys.has(`${partner}|${day.slice(0, 7)}`);
+  // Closes are contiguous, so a month at or before the partner's latest closed month is frozen (period-guard.ts).
+  const latestClosed = new Map<string, string>();
+  for (const row of closed) if (row.period > (latestClosed.get(row.partner) ?? "")) latestClosed.set(row.partner, row.period);
+  const isClosed = (partner: string, day: string) => day.slice(0, 7) <= (latestClosed.get(partner) ?? "");
   const invoices = ledger.map(invoice => ({ ...invoice, ...invoiceCollection({ ...invoice, termDays: terms.get(invoice.partner) ?? null, today }),
     periodClosed: isClosed(invoice.partner, invoice.invoiceDate) }));
   const payments = recent.map(payment => ({ ...payment, paidPeriodClosed: isClosed(payment.partner, payment.paidOn) }));

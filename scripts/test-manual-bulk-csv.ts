@@ -116,6 +116,13 @@ test("Excel-sensitive cells: a lone zero before the dot is a decimal; formula-li
   assert.deepEqual(diffManualBulk(parsed.rows, current), { changes: [], unchanged: 3, issues: [] });
 });
 
+test("a code starting with - is exported as is, so the list reads back unchanged", () => {
+  const current = [item({ code: "-123" })];
+  const csv = buildManualBulkCsv([{ brand: "MOTUL", code: "-123", list: 1000, discount: 0, markup: null, stock: 3 }]);
+  assert.ok(csv.includes("\r\nMOTUL;-123;1000;0;;3\r\n"));
+  assert.deepEqual(diffManualBulk(parseManualBulkCsv(utf8(csv)).rows, current), { changes: [], unchanged: 1, issues: [] });
+});
+
 test("an exact code with a zero-padded twin in the list is applied with a warning", () => {
   const result = diffManualBulk(parse(["MOTUL;0123;;;;9"]).rows, [item({ code: "0123" }), item({ id: "b", code: "123" })]);
   assert.equal(result.changes[0].code, "0123");

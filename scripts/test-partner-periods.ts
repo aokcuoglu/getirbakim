@@ -167,6 +167,31 @@ test("while a month is closed every invoice and payment change in it is refused 
     expected: { count: 1, totalKurus: 800 }, action: "correct", newInvoiceRef: old, newInvoiceDate: "2026-10-01" })).status, "corrected");
 });
 
+test("an earlier month that was never closed is frozen once a later month is closed", async () => {
+  const sept = newRef();
+  // September has no movement, so October closes without it.
+  assert.deepEqual(await close(), { status: "closed" });
+  await order(250, null);
+  const closed = { status: "closed", period: closedMonth };
+  assert.deepEqual(await limits.invoicePartnerOrders({ partner: "bakimx", deliveredUntil: "2026-09-10", invoiceRef: sept, invoiceDate: "2026-09-20", adminId: admin,
+    expected: { count: 1, totalKurus: 250 } }), closed);
+  const late = newRef();
+  await order(900, late, "2026-11-03");
+  // The refused mark wrote nothing (the 250 order is still uninvoiced); the next refusals write nothing either.
+  const afterOrder = await snapshot();
+  assert.equal((await schema.pool.query("SELECT count(*)::int AS count FROM commerce_orders WHERE partner_invoiced_at IS NULL")).rows[0].count, 1);
+  assert.deepEqual(await pay(late, "2026-11-03", 100, "2026-09-25", { totalKurus: 900, collectedKurus: 0 }), closed);
+  assert.deepEqual(await limits.changePartnerInvoice({ partner: "bakimx", invoiceRef: late, invoiceDate: "2026-11-03", action: "correct", newInvoiceRef: late,
+    newInvoiceDate: "2026-09-03", reason: "Tarih yanlış yazıldı", adminId: admin, expected: { count: 1, totalKurus: 900 } }), { ...closed, side: "new" });
+  assert.deepEqual(await snapshot(), afterOrder);
+  // November stays open.
+  assert.equal((await pay(late, "2026-11-03", 100, "2026-11-04", { totalKurus: 900, collectedKurus: 0 })).status, "recorded");
+  signedIn = admin;
+  const view = await adminPartners.adminPartnerInvoices();
+  assert.deepEqual(view.invoices.map(invoice => [invoice.invoiceRef, invoice.periodClosed]), [[late, false]]);
+  assert.deepEqual(view.payments.map(row => row.paidPeriodClosed), [false]);
+});
+
 test("another partner's same month stays open", async () => {
   const ref = newRef();
   await order(1000, ref, closedDay, "other");

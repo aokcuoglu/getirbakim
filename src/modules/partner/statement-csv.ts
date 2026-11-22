@@ -1,4 +1,4 @@
-import { csvCode, csvFile, csvSafe } from "@/lib/csv";
+import { csvFile, csvRef, csvSafe } from "@/lib/csv";
 import { formatDateTime, formatDay } from "@/modules/admin/format";
 import type { CollectionState } from "@/modules/admin/partner-input";
 import { paymentMethodLabels } from "./payment-methods";
@@ -34,14 +34,14 @@ export function buildPartnerStatementCsv(statement: StatementCsvInput) {
     "",
     "Faturalar",
     row(["Fatura No", "Fatura Tarihi", "Sipariş Adedi", "Tutar (TL)", "Tahsil Edilen (TL)", "Kalan (TL)", "Vade Tarihi", "Durum"]),
-    ...statement.invoices.map(invoice => row([csvCode(invoice.invoiceRef), formatDay(invoice.invoiceDate), String(invoice.count), amount(invoice.totalKurus),
+    ...statement.invoices.map(invoice => row([csvRef(invoice.invoiceRef), formatDay(invoice.invoiceDate), String(invoice.count), amount(invoice.totalKurus),
       amount(invoice.collectedKurus), amount(invoice.balanceKurus), invoice.dueDate ? formatDay(invoice.dueDate) : "", stateLabels[invoice.state]])),
     row(["Toplam", "", String(sum(statement.invoices.map(invoice => invoice.count))), amount(sum(statement.invoices.map(invoice => invoice.totalKurus))),
       amount(sum(statement.invoices.map(invoice => invoice.collectedKurus))), amount(sum(statement.invoices.map(invoice => invoice.balanceKurus))), "", ""]),
     "",
     "Tahsilatlar",
     row(["Ödeme Tarihi", "Fatura No", "Fatura Tarihi", "Yöntem", "Tutar (TL)", "Durum", "İptal Gerekçesi", "Not"]),
-    ...statement.payments.map(payment => row([formatDay(payment.paidOn), csvCode(payment.invoiceRef), formatDay(payment.invoiceDate), paymentMethodLabels[payment.method],
+    ...statement.payments.map(payment => row([formatDay(payment.paidOn), csvRef(payment.invoiceRef), formatDay(payment.invoiceDate), paymentMethodLabels[payment.method],
       amount(payment.amountKurus), payment.voidedAt ? "İptal edildi" : "Geçerli", csvSafe(payment.voidReason ?? ""), csvSafe(payment.note)])),
     row(["Toplam (geçerli)", "", "", "", amount(sum(active.map(payment => payment.amountKurus))), "", "", ""]),
     "",
