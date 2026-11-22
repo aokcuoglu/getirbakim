@@ -2,6 +2,27 @@
 
 All notable changes to this project are documented here. Versions follow [SemVer](https://semver.org/); see `docs/development-workflow.md`.
 
+## v0.39.0 — 2026-11-22
+
+Release of `dev` since v0.38.0 (6 pull requests): guide notes under top-level category listings, lighter listing and home HTML, faster in-stock filters and root category resolution, a noindex root category, and fresher hashed storefront assets. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
+
+### Added
+- **Category guide notes:** the six top-level categories show a short "… seçerken nelere bakılır?" note with links to their guide articles on the plain first page only; page 2's "Önceki sayfa" now links to the canonical first page ([#1246](https://github.com/aokcuoglu/getirbakim/pull/1246), [#646](https://github.com/aokcuoglu/getirbakim/issues/646)).
+
+### Fixed
+- **Root category timeout:** `/kategori/yedek-parca` no longer hits the 30 s statement timeout; the category × enrichment links are materialised before joining `supplier_items` (55.7 s → 0.56 s locally, same result set) ([#1251](https://github.com/aokcuoglu/getirbakim/pull/1251), [#1240](https://github.com/aokcuoglu/getirbakim/issues/1240)).
+- **Root category SEO:** `/kategori/yedek-parca` is `noindex,follow` with a self canonical, dropped from `categories.xml` and `llms.txt`, and has no `CollectionPage` JSON-LD ([#1243](https://github.com/aokcuoglu/getirbakim/pull/1243), [#1222](https://github.com/aokcuoglu/getirbakim/issues/1222)).
+
+### Changed
+- **Lighter listing and home HTML:** product cards, the vehicle model list and home product cards render through small client views fed by precomputed strings, so their markup is no longer sent twice; listings and home now stay within a 400 KB raw HTML budget (e.g. `/yedek-parca/volkswagen` 415 → 318 KB, `/kategori/filtre` 387 → 323 KB, home 385 → 345 KB on a local production build) ([#1247](https://github.com/aokcuoglu/getirbakim/pull/1247), [#1212](https://github.com/aokcuoglu/getirbakim/issues/1212), [#1214](https://github.com/aokcuoglu/getirbakim/issues/1214)).
+- **In-stock filter:** `availability=` listings read the new lean `commerce_item_availability` view instead of the full `commerce_catalog` pricing subquery (cold prod listings were 9–14 s) ([#1252](https://github.com/aokcuoglu/getirbakim/pull/1252), [#1242](https://github.com/aokcuoglu/getirbakim/issues/1242)).
+- **Storefront asset caching:** fonts, icons, backgrounds, the brand logo and part-art placeholders are served as content-hashed `/_next/static/media` files; the bare `/media` and `/brand` fallback is `max-age=86400, s-maxage=3600, stale-while-revalidate=600`, so it never arrives stale ([#1244](https://github.com/aokcuoglu/getirbakim/pull/1244), [#1227](https://github.com/aokcuoglu/getirbakim/issues/1227)).
+
+### Deploy and operations
+- **`db:setup` runs first** (`release-aws`): creates the `commerce_item_availability` view (additive, no lock on existing relations). Re-runs take no lock.
+- **Partner webhooks:** `PARTNER_WEBHOOKS_JSON` is now on the AWS app secret (infra #13) and this release starts delivering. Release BakımX first (its v2.3 receiver, bakimx#767); otherwise the first deliveries get 400 and, after 72 h, can be re-sent from `/yonetim/partnerler`.
+- **After release:** repeat the cold `availability=in_stock` TTFB check from #1242; EXPLAIN (ANALYZE) the root category id resolution over the read-only prod tunnel (#1240); optionally request removal or re-crawl of `/kategori/yedek-parca` in Search Console; re-run `npm run harness:measure -- --base https://getirbakim.com` for live sizes. No CloudFront invalidation needed. Vehicle oil specs are unchanged.
+
 ## v0.38.0 — 2026-11-22
 
 Release of `dev` since v0.37.0 (26 pull requests): partner collections against invoices, per-order invoice undo, partner return webhooks with requeue and retention, open price anomalies in health and the Başbuğ list, eight guide articles, blocked shared image previews, SEO titles and descriptions within length limits, security headers, a faster homepage hero, a persistent listing cache and catalog read speed-ups. Not deployed by this release; AWS production is released separately through `release-aws.yml`.
