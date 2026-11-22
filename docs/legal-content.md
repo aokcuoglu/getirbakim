@@ -15,9 +15,15 @@ KVKK hakları tamamlandı; amaç ve hukuki sebepler mevcut hesap/sepet/garaj iş
 - Bu proje henüz yayımlanmadı; yerel ortamda çalışıyor.
 - AWS Almanya/Frankfurt bölgesine yayımlama planlanıyor; aktarım başlamadı.
 - Mevcut durumda kişisel veri paylaşılan e-posta, ödeme veya kargo sağlayıcısı bulunmuyor.
-- Kodda sipariş/ödeme, açık üyelik, sosyal giriş ve pazarlama gönderimi etkin değil; Google Analytics 4 yalnızca analiz çerezi rızasıyla ve `GA4_MEASUREMENT_ID` doluyken yüklenir (#644); Google Ads ve Meta Pixel yalnızca reklam çerezi rızasıyla ve `GOOGLE_ADS_ID` / `META_PIXEL_ID` doluyken yüklenir (#676).
+- Bireysel müşteri kaydı mağazada açıktır (#1254). Kodda sosyal giriş ve pazarlama gönderimi etkin değil; Google Analytics 4 yalnızca analiz çerezi rızasıyla ve `GA4_MEASUREMENT_ID` doluyken yüklenir (#644); Google Ads ve Meta Pixel yalnızca reklam çerezi rızasıyla ve `GOOGLE_ADS_ID` / `META_PIXEL_ID` doluyken yüklenir (#676).
 
 Metinler uygulanmış bir AWS aktarım mekanizması veya tamamlanmış saklama/imha takvimi varmış gibi taahhüt içermez. Şirket, bu fiilî bilgilerin değişmesiyle metinleri güncellemelidir.
+
+## Bireysel üyelik (#1256)
+
+Bireysel müşteri kaydının (#1254) açılmasıyla Üyelik ve Kullanım Koşulları, KVKK Aydınlatma Metni, Gizlilik Politikası ve Çerez Politikası 22 Kasım 2026 tarihinde güncellendi. KVKK Aydınlatma Metni ile Gizlilik Politikasında aynı başlığı taşıyan bölümler birlikte düzenlenir ve aynı kalır (`npm run test:customer-signup` denetler); iki sayfaya da "Bireysel Üyelik" bölümü eklendi ve adres defteri bölümü bireysel üyeleri de kapsayacak şekilde genişletildi.
+
+Kayıt sırasında koşulların kabulü `account_term_acceptances` tablosuna sonradan değiştirilemeyen bir satır olarak yazılır: belge (`uyelik-ve-kullanim-kosullari`), kabul edilen koşul metninin sürümü, o anki KVKK Aydınlatma Metninin sürümü (her ikisi `<updatedAt>.<sayfa içeriğinin özeti>`), onay metni, kabul zamanı, IP adresi, `X-Forwarded-For` başlığı ve tarayıcı bilgisi. Satır hesapla aynı ifadede oluşturulur; hesap kaydı silindiğinde onunla birlikte silinir. Aydınlatma metninin sunulması açık rıza olarak kaydedilmez.
 
 ## Hukuki dayanakların kontrolü
 

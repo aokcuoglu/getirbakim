@@ -13,7 +13,7 @@ export const legalMetaDescriptions: Record<string, string> = {
   "teslimat-ve-iade": "Teslimat süreleri ve kargo, cayma bildirimi, ürünün geri gönderilmesi, geri ödeme süreci ve ayıplı mal hakları.",
   "mesafeli-satis-sozlesmesi": "Getirbakim siparişlerinde tüketiciyle kurulan mesafeli satış sözleşmesinin genel hükümleri, cayma hakkı ve tarafların hakları.",
   "on-bilgilendirme-formu": "Getirbakim’de sipariş öncesinde sunulan ön bilgilendirme: satıcı bilgileri, ürün ve ödeme koşulları, teslimat ve tüketici hakları.",
-  "uyelik-ve-kullanim-kosullari": "Getirbakim site kullanımı, üyelik ve servis hesapları, içerik hakları ve tarafların sorumluluklarına ilişkin koşullar.",
+  "uyelik-ve-kullanim-kosullari": "Getirbakim site kullanımı, bireysel üyelik ve servis hesapları, içerik hakları ve tarafların sorumluluklarına ilişkin koşullar.",
   "gizlilik-politikasi": "Getirbakim site hizmetlerinde kişisel verilerin nasıl kullanıldığı, nasıl korunduğu ve ilgili kişilerin başvuru hakları.",
   "cerez-politikasi": "Getirbakim’de kullanılan çerez ve yerel depolama kayıtları, kullanım amaçları, saklama süreleri ve tercihlerin yönetimi.",
 };
