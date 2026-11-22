@@ -120,12 +120,13 @@ test("HomeProductCardView keeps the home card markup", () => {
   const priced = renderToStaticMarkup(<HomeProductCardView model={{ href: "/urun/a-1", title: "Yağ Filtresi BOSCH 123", categoryHref: "/kategori/filtre",
     categoryName: "Filtreler", amount: "900,00 ₺", regular: "1.350,00 ₺" }} />);
   assert.ok(priced.startsWith('<article class="home-card">'));
-  for (const name of ["home-card-image", "home-card-text", "home-card-category", "home-card-title", "home-card-price", "home-card-amount", "home-card-regular", "home-card-tax"]) {
+  for (const name of ["home-card-image", "home-card-text", "home-card-category", "home-card-title", "home-card-price", "home-card-amount", "home-card-regular"]) {
     assert.ok(classesOf(priced).has(name), name);
   }
-  for (const text of ['href="/kategori/filtre">Filtreler</a>', 'href="/urun/a-1">Yağ Filtresi BOSCH 123</a>', "900,00 ₺", "Önceki fiyat: </span>1.350,00 ₺", "KDV dahil · Kargo hariç"]) {
+  for (const text of ['href="/kategori/filtre">Filtreler</a>', 'href="/urun/a-1">Yağ Filtresi BOSCH 123</a>', "900,00 ₺", "Önceki fiyat: </span>1.350,00 ₺"]) {
     assert.ok(priced.includes(text), text);
   }
+  assert.ok(!priced.includes("KDV") && !classesOf(priced).has("home-card-tax"), "the tax note is once per section, not per card");
   const unavailable = renderToStaticMarkup(<HomeProductCardView model={{ href: "/urun/a-1", title: "T", categoryHref: "/katalog", categoryName: "Yedek parçalar",
     note: { text: "Şu an tedarik edilemiyor · Gelince haber ver", href: "/urun/a-1#haber-ver" } }} />);
   assert.ok(unavailable.includes('<a class="home-card-note home-card-note-link" href="/urun/a-1#haber-ver">Şu an tedarik edilemiyor · Gelince haber ver</a>'));

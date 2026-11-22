@@ -7,6 +7,7 @@ import {Package} from "lucide-react";
 import {Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, useCarousel} from "@/components/ui/carousel";
 import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs";
 import {armOnApproach} from "@/components/home-arming";
+import {SlideImages} from "@/components/home-slide-images";
 import {cn} from "@/lib/utils";
 import {categoryPath} from "@/modules/seo/paths";
 
@@ -70,10 +71,10 @@ const deferred = "[content-visibility:hidden]";
 // `columns` N shows N slides from md up, so defer from slide n+(N+1); below md 2 are visible, defer from n+3.
 // `not-min-` is the exact complement of the `min-` basis breakpoint, so the ranges never overlap.
 const deferredFrom: Record<number, string> = {
-  3: "min-[48.0625rem]:nth-[n+4]:[content-visibility:hidden]",
-  4: "min-[48.0625rem]:nth-[n+5]:[content-visibility:hidden]",
-  5: "min-[48.0625rem]:nth-[n+6]:[content-visibility:hidden]",
-  6: "min-[48.0625rem]:nth-[n+7]:[content-visibility:hidden]",
+  3: "min-[48.0625rem]:*:nth-[n+4]:[content-visibility:hidden]",
+  4: "min-[48.0625rem]:*:nth-[n+5]:[content-visibility:hidden]",
+  5: "min-[48.0625rem]:*:nth-[n+6]:[content-visibility:hidden]",
+  6: "min-[48.0625rem]:*:nth-[n+7]:[content-visibility:hidden]",
 };
 
 const productBasis: Record<number, string> = {3: "min-[48.0625rem]:basis-1/3", 4: "min-[48.0625rem]:basis-1/4", 5: "min-[48.0625rem]:basis-1/5", 6: "min-[48.0625rem]:basis-1/6"};
@@ -83,9 +84,9 @@ export function HomeCarousel({children,label,columns=5}:{children:ReactNode;labe
   const {armed, ref, handlers} = useArmed();
   if (!slides.length) return null;
   const basis = cn("basis-1/2", productBasis[columns] ?? "min-[48.0625rem]:basis-1/5");
-  const defer = armed ? "" : cn("not-min-[48.0625rem]:nth-[n+3]:[content-visibility:hidden]", deferredFrom[columns] ?? deferredFrom[5]);
+  const defer = armed ? "" : cn("not-min-[48.0625rem]:*:nth-[n+3]:[content-visibility:hidden]", deferredFrom[columns] ?? deferredFrom[5]);
   return <Carousel opts={{align: "start", slidesToScroll: "auto", containScroll: "trimSnaps"}} aria-label={label} aria-roledescription="slider" className="min-w-0" ref={ref} {...handlers}>
-    <CarouselContent className="items-stretch">{slides.map((slide, index) => <CarouselItem key={index} className={cn(basis, defer)}>{slide}</CarouselItem>)}</CarouselContent>
+    <CarouselContent className={cn("items-stretch", defer)}>{slides.map((slide, index) => <CarouselItem key={index} className={basis}><SlideImages.Provider value={armed || index < columns}>{slide}</SlideImages.Provider></CarouselItem>)}</CarouselContent>
     <Pager label={label}/>
   </Carousel>;
 }
@@ -97,7 +98,7 @@ export function HomeGridPager({children,label,kind}:{children:ReactNode;label:st
   const grid=kind==="makes"?"grid-cols-6 gap-4 max-md:grid-cols-3 max-md:gap-3":"grid-cols-8 gap-x-4 gap-y-[22px] max-md:grid-cols-4 max-md:gap-3";
   const {armed,ref,handlers}=useArmed();
   return <Carousel key={perPage} aria-label={label} className="min-w-0" ref={ref} {...handlers}>
-    <CarouselContent>{pages.map((items,page)=><CarouselItem key={page} className={cn(page>0&&!armed&&deferred)}><div className={cn("grid",grid)}>{items}</div></CarouselItem>)}</CarouselContent>
+    <CarouselContent>{pages.map((items,page)=><CarouselItem key={page} className={cn(page>0&&!armed&&deferred)}><SlideImages.Provider value={armed||page===0}><div className={cn("grid",grid)}>{items}</div></SlideImages.Provider></CarouselItem>)}</CarouselContent>
     <Pager label={label} grid/>
   </Carousel>;
 }

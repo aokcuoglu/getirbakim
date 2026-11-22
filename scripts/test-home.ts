@@ -1,5 +1,17 @@
 import assert from "node:assert/strict";
+import { realpathSync } from "node:fs";
+import { createRequire } from "node:module";
+import { createElement as stubElement } from "react";
+
+// next/image does not load under tsx (its default import is a module object): swap it for a plain <img> before any
+// component imports it, so the slide-image guards below can render the images.
+const nodeRequire = createRequire(import.meta.url);
+const imageId = realpathSync(nodeRequire.resolve("next/image"));
+const StubImage = ({ src, alt, className }: { src: string; alt: string; className?: string }) => stubElement("img", { src, alt, className });
+nodeRequire.cache[imageId] = { id: imageId, filename: imageId, loaded: true, exports: Object.assign(StubImage, { __esModule: true, default: StubImage }) } as unknown as NodeJS.Module;
+
 import test from "node:test";
+import { homeCollectionSize, homeRailSize, spreadByBrand } from "@/modules/store/home-rail";
 import { popularVehicleMakes, splitPopularBrands, turkeyPopularMakes } from "@/modules/store/vehicle-catalog";
 
 test("splitPopularBrands orders popular makes by Türkiye rank and keeps the rest as received", () => {
@@ -121,7 +133,9 @@ test("HomeCarousel keeps every slide in the HTML with the deferral classes; Home
   const slides = Array.from({ length: 7 }, (_, index) => createElement("a", { key: index, href: `/s${index}` }, `slide ${index}`));
   const carousel = renderToStaticMarkup(createElement(HomeCarousel, { label: "Ürünler", columns: 5, children: slides }));
   for (let index = 0; index < 7; index++) assert.ok(carousel.includes(`href="/s${index}"`));
-  assert.match(carousel, /nth-\[n\+6\]:\[content-visibility:hidden\]/);
+  assert.match(carousel, /min-\[48\.0625rem\]:\*:nth-\[n\+6\]:\[content-visibility:hidden\]/);
+  const item = carousel.match(/<div[^>]*data-slot="carousel-item"[^>]*>/)?.[0] ?? "";
+  assert.doesNotMatch(item, /content-visibility/);
   const entries = Array.from({ length: 20 }, (_, index) => createElement("span", { key: index }, `m${index}`));
   const pager = renderToStaticMarkup(createElement(HomeGridPager, { label: "Markalar", kind: "makes", children: entries }));
   const items = pager.match(/<div[^>]*data-slot="carousel-item"[^>]*>/g) ?? [];
@@ -142,4 +156,45 @@ test("home request-budget source guards (#1226)", async () => {
   assert.match(readFileSync("src/components/home-highlights.tsx", "utf8"), /prefetch=\{false\}/);
   const { HomeTrustLine } = await import("@/components/home-highlights");
   assert.equal((renderToStaticMarkup(createElement(HomeTrustLine)).match(/<a /g) ?? []).length, 3);
+});
+
+test("spreadByBrand moves the first N of each brand up front, keeps order and never drops items", () => {
+  const items = ["DEPO", "DEPO", "DEPO", "BOSCH", "DEPO", "FEBI", "BOSCH", "BOSCH"].map((display_brand, id) => ({ display_brand, id }));
+  const spread = spreadByBrand(items, 2);
+  assert.deepEqual(spread.map(item => item.id), [0, 1, 3, 5, 6, 2, 4, 7]);
+  assert.equal(spread.length, items.length);
+  assert.deepEqual(spreadByBrand(items.filter(item => item.display_brand === "DEPO"), 2).map(item => item.id), [0, 1, 2, 4]);
+  assert.deepEqual(spreadByBrand([], 2), []);
+  assert.ok(homeRailSize > 0 && homeCollectionSize > 0);
+});
+
+test("HomeCarousel renders <img> only in the first slides until armed; every link stays (#1289)", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { HomeCarousel } = await import("@/components/home-controls");
+  const { HomeProductCardView } = await import("@/components/home-product-card-view");
+  const cards = Array.from({ length: 8 }, (_, index) => createElement(HomeProductCardView, { key: index, model: { href: `/urun/p-${index}`, title: `Ürün ${index}`, image: `/img/${index}.jpg`, categoryHref: "/katalog", categoryName: "Parça", amount: "1,00 ₺" } }));
+  const html = renderToStaticMarkup(createElement(HomeCarousel, { label: "Ürünler", columns: 5, children: cards }));
+  assert.equal((html.match(/<img /g) ?? []).length, 5);
+  for (let index = 0; index < 8; index++) assert.ok(html.includes(`href="/urun/p-${index}"`));
+  assert.equal((html.match(/class="home-card-img" aria-hidden="true"/g) ?? []).length, 3);
+});
+
+test("HomeGridPager renders tile logos on page 0 only; every tile link stays (#1289)", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { HomeGridPager } = await import("@/components/home-controls");
+  const { HomeMakeTile } = await import("@/components/home-tiles");
+  const tiles = Array.from({ length: 20 }, (_, index) => createElement(HomeMakeTile, { key: index, href: `/yedek-parca/m${index}`, label: `M${index}`, logo: [`/logo/${index}.svg`, 40, 40] }));
+  const html = renderToStaticMarkup(createElement(HomeGridPager, { label: "Markalar", kind: "makes", children: tiles }));
+  assert.equal((html.match(/<img /g) ?? []).length, 18);
+  for (let index = 0; index < 20; index++) assert.ok(html.includes(`href="/yedek-parca/m${index}"`));
+  assert.ok(html.includes('aria-label="M19"') && html.includes("make-tile-name"));
+});
+
+test("the e-mail address is not in the footer markup or the Organization JSON-LD (#1289)", async () => {
+  const { readFileSync } = await import("node:fs");
+  assert.doesNotMatch(readFileSync("src/components/site-footer.tsx", "utf8"), /mailto:/);
+  const { siteJsonLd } = await import("@/lib/site");
+  assert.doesNotMatch(JSON.stringify(siteJsonLd), /"email"/);
 });
