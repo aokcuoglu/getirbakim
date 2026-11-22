@@ -36,7 +36,7 @@ export const categoryGuideNotes: Record<string, CategoryGuideNote> = {
 /** The note and its guides for a plain first page of a top-level category; vehicle and manufacturer scopes get none. */
 export function categoryGuideNote(query: CatalogQuery, scope: { vehicle?: boolean; manufacturer?: boolean } = {}): { note: CategoryGuideNote; guides: Guide[] } | undefined {
   const { category } = query;
-  if (!category || !(category in categoryGuideNotes)) return undefined;
+  if (!category || !Object.hasOwn(categoryGuideNotes, category)) return undefined;
   if (query.make || query.model || query.manufacturer || scope.vehicle || scope.manufacturer || !isIndexableListing(query)) return undefined;
   return { note: categoryGuideNotes[category], guides: guidesForCategory(category) };
 }
