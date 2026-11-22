@@ -609,9 +609,10 @@ describe("availability filter (#1242)", () => {
     const plan = (await schema.pool.query<{ "QUERY PLAN": string }>("EXPLAIN SELECT id FROM commerce_out_of_stock_ids($1::text[]) id", [companies]))
       .rows.map(row => row["QUERY PLAN"]).join("\n");
     assert.match(plan, /Function Scan on commerce_out_of_stock_ids .*rows=500000/);
-    const { rows: [fn] } = await schema.pool.query<{ language: string; parallel: string }>(`SELECT l.lanname AS language,p.proparallel AS parallel
+    // STABLE keeps the set on the calling statement's snapshot (a VOLATILE body could diverge from the outer scan).
+    const { rows: [fn] } = await schema.pool.query<{ language: string; parallel: string; volatility: string }>(`SELECT l.lanname AS language,p.proparallel AS parallel,p.provolatile AS volatility
       FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang WHERE p.proname='commerce_out_of_stock_ids' AND p.pronamespace=current_schema()::regnamespace`);
-    assert.deepEqual(fn, { language: "plpgsql", parallel: "r" });
+    assert.deepEqual(fn, { language: "plpgsql", parallel: "r", volatility: "s" });
     const listed = (await catalog.browseProducts({ brand: "AVTEST", availability: "out_of_stock" })).items.map(row => row.id).sort();
     const shown = new Set((await schema.pool.query<{ id: string }>("SELECT id::text FROM storefront_catalog_entries WHERE display_brand='AVTEST'")).rows.map(row => row.id));
     assert.deepEqual(listed, (await viewIds()).filter(id => shown.has(id)));
