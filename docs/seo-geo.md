@@ -102,6 +102,8 @@ Kurucular `src/modules/seo/structured-data.ts` ve `src/lib/site.ts`; basım `src
 3. Kuralları `npm run test:guides` denetler; site haritası ve `llms.txt` listeden otomatik beslenir. İçeriği değiştirince `updated` tarihini güncelle.
 4. Şirket olgusu (kuruluş yılı, personel, fatura türü, kargo firması, ücret) yalnızca depodaki kaynaklardan yazılır; yazar adı yerine Getirbakim ekibi gösterilir, `reviewedBy` onaylı bir gözden geçiren olana kadar boş kalır.
 
+**Kategori sayfası notu.** Altı üst kategorinin liste altındaki ikinci metni `src/content/category-guides.ts` içindeki `categoryGuideNotes` kaydında durur. Yalnızca üst kategorinin süzgeçsiz, ilk sayfasında (araç ve üretici kapsamı dışında) listenin altında görünür. Metin `catalogDescription` (liste üstü giriş ve meta açıklama) ile aynı olmamalı, aralık veya sayı içermemelidir; `npm run test:guides` denetler. Yeni rehberin `categories` anahtarı o kategoriyi içeriyorsa sayfadaki "İlgili rehber yazıları" listesine kendiliğinden girer.
+
 ## 2. Yayın günü kontrol listesi
 
 Sıra: önce hesaplar ve doğrulama değerleri hazırlanır (DNS'ten önce yapılabilir), DNS geçişinden sonra doğrulama ve gönderim yapılır. DNS geçişinin kendisi: [aws-cutover.md](aws-cutover.md).
