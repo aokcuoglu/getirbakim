@@ -1,11 +1,12 @@
 "use client";
 
 /** The auth dialog's floating-label input. A "newPassword" field and its "confirmPassword" check each other. */
-export function AuthField({ name, label, type = "text", autoComplete }: {
-  name: string; label: string; type?: string; autoComplete: string;
+export function AuthField({ name, label, type = "text", autoComplete, defaultValue }: {
+  name: string; label: string; type?: string; autoComplete: string; defaultValue?: string;
 }) {
   return <label className="relative block min-w-0">
-    <input name={name} type={type} placeholder=" " autoComplete={autoComplete} required
+    <input name={name} type={type} placeholder=" " autoComplete={autoComplete} defaultValue={defaultValue} required
+      {...(type === "email" ? { autoCapitalize: "none", spellCheck: false } : {})}
       minLength={name === "newPassword" ? 12 : undefined}
       maxLength={type === "password" ? 72 : 200}
       className="peer block h-12 min-h-12 w-full rounded-lg border border-input bg-white px-[11px] pt-[17px] pb-[5px] text-sm leading-5 text-foreground transition-colors outline-none focus:border-brand focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#377db7] placeholder:text-transparent"

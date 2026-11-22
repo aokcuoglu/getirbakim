@@ -18,7 +18,10 @@ mock.module("next/headers", { namedExports: { cookies: async () => jar, headers:
 mock.module("next/navigation", { namedExports: { redirect: (to: string) => { throw new Error(`NEXT_REDIRECT ${to}`); } } });
 
 const valid = { name: "  Ayşe Yılmaz ", email: "Ayse@Example.invalid", password: "dogru-at-pil-zımba", confirmPassword: "dogru-at-pil-zımba", terms: "on", website: "" };
-const fieldError = "Alanları kontrol et. Şifre en az 12 karakter olmalı ve iki şifre aynı olmalı; üyelik koşullarını kabul et.";
+const fieldError = "Bilgileri kontrol et: şifre en az 12 karakter olmalı, iki şifre aynı olmalı ve koşulları kabul etmelisin.";
+// What a refusal of signupForm(email) answers on the first attempt: the message, the typed name, email and consent, never a password.
+const refused = (message: string, email: string, values: Partial<{ name: string; terms: boolean }> = {}) =>
+  ({ status: "error", message, attempt: 1, values: { name: "Ayşe Yılmaz", email, terms: true, ...values } });
 const duplicateError = "Bu e-posta adresiyle kayıt oluşturulamadı. Zaten hesabın varsa giriş yap.";
 const limitError = "Çok fazla deneme yapıldı. Bir saat sonra tekrar dene.";
 
@@ -115,7 +118,7 @@ test("an address that already has an account is refused without login or overwri
     await schema.pool.query("INSERT INTO accounts(name,email,password_hash,role,approved,discount_percent) VALUES('Önceki',$1,'eski-hash',$2,$3,$4)", [email, role, approved, role === "service" ? 15 : 0]);
     const previous = await account(email);
     const state = await signup.registerCustomer(initialSignupState, signupForm(email.toUpperCase(), { name: "Yeni Ad" }));
-    assert.deepEqual(state, { status: "error", message: duplicateError }, email);
+    assert.deepEqual(state, refused(duplicateError, email.toUpperCase(), { name: "Yeni Ad" }), email);
     assert.deepEqual(await account(email), previous, email);
     assert.equal(await sessionsOf(previous.id), 0, email);
     assert.equal(cookieStore.has("gb_session"), false, email);
@@ -126,7 +129,7 @@ test("invalid input, including a filled honeypot, returns the field error and cr
   const cases: Record<string, string>[] = [{ website: "https://spam.invalid" }, { confirmPassword: "farklı-bir-şifre-1" }, { terms: "" }, { newPassword: "kisa", confirmPassword: "kisa" }];
   for (const overrides of cases) {
     const state = await signup.registerCustomer(initialSignupState, signupForm("invalid@example.invalid", overrides));
-    assert.deepEqual(state, { status: "error", message: fieldError }, JSON.stringify(overrides));
+    assert.deepEqual(state, refused(fieldError, "invalid@example.invalid", { terms: overrides.terms !== "" }), JSON.stringify(overrides));
   }
   assert.equal(await account("invalid@example.invalid"), undefined);
   assert.equal((await schema.pool.query("SELECT 1 FROM service_application_attempts")).rowCount, 0);
@@ -136,8 +139,8 @@ test("the fourth attempt for one address within the hour is refused", async () =
   await redirected(signup.registerCustomer(initialSignupState, signupForm("limit@example.invalid")));
   cookieStore.clear();
   for (let attempt = 2; attempt <= 3; attempt++)
-    assert.deepEqual(await signup.registerCustomer(initialSignupState, signupForm("limit@example.invalid")), { status: "error", message: duplicateError });
-  assert.deepEqual(await signup.registerCustomer(initialSignupState, signupForm("Limit@Example.invalid")), { status: "error", message: limitError });
+    assert.deepEqual(await signup.registerCustomer(initialSignupState, signupForm("limit@example.invalid")), refused(duplicateError, "limit@example.invalid"));
+  assert.deepEqual(await signup.registerCustomer(initialSignupState, signupForm("Limit@Example.invalid")), refused(limitError, "Limit@Example.invalid"));
   const keys = (await schema.pool.query<{ key: string }>("SELECT key FROM service_application_attempts ORDER BY key")).rows.map(row => row.key);
   assert.deepEqual(keys, ["signup:email:" + createHash("sha256").update("limit@example.invalid").digest("hex"), "signup:global"]);
 });
@@ -148,6 +151,18 @@ test("one client address gets ten signups an hour", async () => {
     cookieStore.clear();
     await redirected(signup.registerCustomer(initialSignupState, signupForm(`ip-${attempt}@example.invalid`)));
   }
-  assert.deepEqual(await signup.registerCustomer(initialSignupState, signupForm("ip-11@example.invalid")), { status: "error", message: limitError });
+  for (let attempt = 11; attempt <= 15; attempt++)
+    assert.deepEqual(await signup.registerCustomer(initialSignupState, signupForm(`ip-${attempt}@example.invalid`)), refused(limitError, `ip-${attempt}@example.invalid`));
   assert.equal(await account("ip-11@example.invalid"), undefined);
+  // Refused by its client address, a request spends neither the shared budget nor its email's.
+  const spent = async (key: string) => (await schema.pool.query<{ attempts: number }>("SELECT attempts FROM service_application_attempts WHERE key=$1", [key])).rows[0]?.attempts;
+  assert.equal(await spent("signup:global"), 10);
+  assert.equal(await spent("signup:email:" + createHash("sha256").update("ip-11@example.invalid").digest("hex")), undefined);
+});
+
+test("a refusal echoes the attempt count, so the form remounts with the typed values", async () => {
+  const first = await signup.registerCustomer(initialSignupState, signupForm("echo@example.invalid", { confirmPassword: "farklı-bir-şifre-1" }));
+  const second = await signup.registerCustomer(first, signupForm("echo@example.invalid", { confirmPassword: "farklı-bir-şifre-1" }));
+  assert.equal(second.attempt, 2);
+  assert.equal(JSON.stringify(second).includes(valid.password), false);
 });

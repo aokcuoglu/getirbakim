@@ -23,7 +23,7 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Servis hesapları ve indirimler</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Servis ve müşteri hesapları</h1>
         <p className="text-muted-foreground">Her onaylı servis için satış fiyatına uygulanacak indirim oranını belirle. Değişiklik katalog ve sepete hemen yansır; geçmiş sipariş fiyatları korunur.</p>
       </div>
     </div>
@@ -59,16 +59,15 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
     </Card>
     <Card>
       <CardHeader>
-        <CardTitle>Bireysel müşteriler</CardTitle>
+        <CardTitle className="flex flex-wrap items-center gap-2">Bireysel müşteriler <Badge variant="outline"><UserRound data-icon="inline-start"/>Bireysel</Badge></CardTitle>
         <CardDescription>Toplam {formatNumber(customers.total)} hesap · son 50 kayıt</CardDescription>
       </CardHeader>
       <CardContent>
-        {customers.accounts.length ? <Table><TableHeader><TableRow><TableHead>Ad</TableHead><TableHead>E-posta</TableHead><TableHead>Kayıt tarihi</TableHead><TableHead>Hesap türü</TableHead></TableRow></TableHeader><TableBody>
+        {customers.accounts.length ? <Table><TableHeader><TableRow><TableHead>Ad</TableHead><TableHead>E-posta</TableHead><TableHead>Kayıt tarihi</TableHead></TableRow></TableHeader><TableBody>
           {customers.accounts.map(c=><TableRow key={c.id}>
             <TableCell className="font-medium">{c.name}</TableCell>
-            <TableCell className="text-muted-foreground">{c.email}</TableCell>
-            <TableCell className="tabular-nums">{formatDate(c.applied_at)}</TableCell>
-            <TableCell><Badge variant="outline"><UserRound data-icon="inline-start"/>Bireysel</Badge></TableCell>
+            <TableCell className="max-w-xs truncate text-muted-foreground" title={c.email}>{c.email}</TableCell>
+            <TableCell className="tabular-nums" value={c.applied_at?.toISOString() ?? ""}>{formatDate(c.applied_at)}</TableCell>
           </TableRow>)}
         </TableBody></Table> : <Empty>
           <EmptyHeader>
