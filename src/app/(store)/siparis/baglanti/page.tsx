@@ -55,7 +55,7 @@ export default async function OrderLinkNotice({ searchParams }: { searchParams: 
           <p>Siparişi verdiğin telefon ya da bilgisayardaki tarayıcıda sipariş sayfan genellikle bağlantı olmadan da açılır; açılmazsa yeni bağlantı iste.</p>
         </div>
         <div>
-          <h3 className="font-semibold">Servis hesabınla sipariş verdiysen</h3>
+          <h3 className="font-semibold">Hesabınla sipariş verdiysen</h3>
           <p>Giriş yaparak siparişlerini görebilirsin. <Link href={loginPath("/siparisler")} className={contactLink}>Giriş yap</Link></p>
         </div>
       </div>

@@ -1,13 +1,16 @@
-import { adminServiceAccounts } from "@/modules/admin/data";
+import { adminCustomerAccounts, adminServiceAccounts } from "@/modules/admin/data";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { requireAdmin } from '@/modules/auth/session';
-import { formatNumber } from "@/modules/admin/format";
+import { formatDate, formatNumber } from "@/modules/admin/format";
 import { saveService } from '@/modules/admin/commerce-actions';
 import { createService } from '@/modules/admin/actions';
-import { Building2, CircleAlert, CircleCheck } from "lucide-react";
+import Link from "next/link";
+import { Building2, CircleAlert, CircleCheck, Info, UserRound, UsersRound } from "lucide-react";
 import { StatusBadge } from "@/components/admin/status-badge";
 import { SubmitButton } from "@/components/admin/submit-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -18,17 +21,19 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 export default async function Services({searchParams}:{searchParams:Promise<SearchParams>}) {
   await requireAdmin();const params=normalizeSearchParams(await searchParams);
-  const accounts=await adminServiceAccounts();
+  const [accounts,customers]=await Promise.all([adminServiceAccounts(),adminCustomerAccounts()]);
   return <div className="flex flex-col gap-6">
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="flex min-w-0 max-w-3xl flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Servis hesapları ve indirimler</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Servis ve müşteri hesapları</h1>
         <p className="text-muted-foreground">Her onaylı servis için satış fiyatına uygulanacak indirim oranını belirle. Değişiklik katalog ve sepete hemen yansır; geçmiş sipariş fiyatları korunur.</p>
       </div>
     </div>
     {params.created && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis hesabı oluşturuldu.</AlertDescription></Alert>}
     {params.saved && <Alert variant="success" role="status"><CircleCheck aria-hidden="true"/><AlertDescription>Servis hesabı kaydedildi.</AlertDescription></Alert>}
     {params.error && <Alert variant="destructive" role="alert"><CircleAlert aria-hidden="true"/><AlertDescription>{params.error === "duplicate" ? "Bu e-posta zaten kayıtlı." : "Bilgileri kontrol et. İndirim %0–50 olmalı; şifre en az 12 karakter ve en fazla 72 UTF-8 bayt olmalı."}</AlertDescription></Alert>}
+    {customers.upgrades > 0 && <Alert variant="info"><Info aria-hidden="true"/><AlertDescription>{formatNumber(customers.upgrades)} bireysel müşteri servis hesabına başvurdu. Onay ve ret işlemleri panel ana sayfasında.</AlertDescription>
+      <div className="col-start-2 mt-2"><Button variant="outline" size="sm" nativeButton={false} render={<Link href="/yonetim"/>}>Başvuruları görüntüle</Button></div></Alert>}
     <Card>
       <CardHeader>
         <CardTitle>Mevcut servisler</CardTitle>
@@ -52,6 +57,28 @@ export default async function Services({searchParams}:{searchParams:Promise<Sear
             <EmptyMedia variant="icon"><Building2/></EmptyMedia>
             <EmptyTitle>Henüz servis hesabı yok</EmptyTitle>
             <EmptyDescription>Aşağıdan ilk servis hesabını oluşturabilirsin.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>}
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex flex-wrap items-center gap-2">Bireysel müşteriler <Badge variant="outline"><UserRound data-icon="inline-start"/>Bireysel</Badge></CardTitle>
+        <CardDescription>Toplam {formatNumber(customers.total)} hesap{customers.unverified > 0 && ` (${formatNumber(customers.unverified)} doğrulanmamış)`} · son 50 kayıt</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {customers.accounts.length ? <Table><TableHeader><TableRow><TableHead>Ad</TableHead><TableHead>E-posta</TableHead><TableHead>Kayıt tarihi</TableHead><TableHead>Durum</TableHead></TableRow></TableHeader><TableBody>
+          {customers.accounts.map(c=><TableRow key={c.id}>
+            <TableCell className="font-medium">{c.name}</TableCell>
+            <TableCell className="max-w-xs truncate text-muted-foreground" title={c.email}>{c.email}</TableCell>
+            <TableCell className="tabular-nums" value={c.applied_at?.toISOString() ?? ""}>{formatDate(c.applied_at)}</TableCell>
+            <TableCell>{!c.verified ? <StatusBadge tone="warning">Doğrulanmadı</StatusBadge> : c.upgrade_pending ? <StatusBadge tone="warning">Servis başvurusu bekliyor</StatusBadge> : <span className="text-muted-foreground">—</span>}</TableCell>
+          </TableRow>)}
+        </TableBody></Table> : <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><UsersRound/></EmptyMedia>
+            <EmptyTitle>Henüz bireysel müşteri yok</EmptyTitle>
+            <EmptyDescription>Mağazadan kayıt olan müşteriler burada listelenir.</EmptyDescription>
           </EmptyHeader>
         </Empty>}
       </CardContent>

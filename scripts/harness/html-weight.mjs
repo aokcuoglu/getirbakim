@@ -85,7 +85,10 @@ export function markupStats(html, flight = flightOf(html).flight) {
   }
   let jsonLdBytes = 0;
   for (const match of html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)) jsonLdBytes += bytes(match[1]);
-  return { classBytes, moduleBytes, jsonLdBytes };
+  // Visible text share: the HTML without scripts, styles and tags, whitespace collapsed (what Lighthouse-style text/HTML measures).
+  const text = html.replace(/<(script|style)[\s\S]*?<\/\1>/g, "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const textBytes = bytes(text), totalBytes = bytes(html);
+  return { classBytes, moduleBytes, jsonLdBytes, textKB: textBytes / 1024, textPct: totalBytes ? Math.round((textBytes / totalBytes) * 1000) / 10 : 0 };
 }
 
 // `--budget "/urun/=160,/=410"` -> [[prefix, KB]]; the longest matching prefix decides a path's limit. Throws on an
@@ -123,7 +126,10 @@ export function lighthouseMetrics(lhr) {
   if (!lhr || lhr.runtimeError) return null;
   const read = (id) => lhr.audits?.[id]?.numericValue;
   const lcpMs = read("largest-contentful-paint"), cls = read("cumulative-layout-shift"), tbtMs = read("total-blocking-time");
-  return [lcpMs, cls, tbtMs].every((value) => typeof value === "number") ? { lcpMs, cls, tbtMs } : null;
+  if (![lcpMs, cls, tbtMs].every((value) => typeof value === "number")) return null;
+  // network-requests is a hidden performance audit; if a Lighthouse version drops it the vitals still count.
+  const items = lhr.audits?.["network-requests"]?.details?.items;
+  return Array.isArray(items) ? { lcpMs, cls, tbtMs, requests: items.length } : { lcpMs, cls, tbtMs };
 }
 
 export function median(numbers) {
@@ -132,14 +138,14 @@ export function median(numbers) {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid] + sorted[mid + 1]) / 2;
 }
 
-// Rows: measure-html `--json` rows, optionally with `lcpMs`/`cls`/`tbtMs`; missing vitals print as an em dash.
+// Rows: measure-html `--json` rows, optionally with `lcpMs`/`cls`/`tbtMs`/`requests`; missing vitals print as an em dash.
 export function markdownTable(rows, budget = []) {
-  const lines = ["| Route | HTML KB | RSC KB (%) | gzip KB | TTFB ms | LCP s | CLS | TBT ms | Target KB | Status |", "|---|---|---|---|---|---|---|---|---|---|"];
+  const lines = ["| Route | HTML KB | RSC KB (%) | Text % | gzip KB | TTFB ms | LCP s | CLS | TBT ms | Req | Target KB | Status |", "|---|---|---|---|---|---|---|---|---|---|---|---|"];
   for (const row of rows) {
     const limit = budgetFor(budget, row.path), over = limit === undefined ? undefined : Math.round(row.htmlKB - limit);
     const status = limit === undefined ? "—" : over > 0 ? `+${over}` : "ok";
     const vital = (value, format) => (typeof value === "number" ? format(value) : "—");
-    lines.push(`| ${row.path} | ${row.htmlKB.toFixed(1)} | ${row.rscKB.toFixed(1)} (${row.rscPct}) | ${row.gzipKB.toFixed(1)} | ${row.ttfbMs} | ${vital(row.lcpMs, (v) => (v / 1000).toFixed(2))} | ${vital(row.cls, (v) => v.toFixed(3))} | ${vital(row.tbtMs, (v) => String(Math.round(v)))} | ${limit === undefined ? "—" : `≤${limit}`} | ${status} |`);
+    lines.push(`| ${row.path} | ${row.htmlKB.toFixed(1)} | ${row.rscKB.toFixed(1)} (${row.rscPct}) | ${typeof row.textPct === "number" ? row.textPct.toFixed(1) : "—"} | ${row.gzipKB.toFixed(1)} | ${row.ttfbMs} | ${vital(row.lcpMs, (v) => (v / 1000).toFixed(2))} | ${vital(row.cls, (v) => v.toFixed(3))} | ${vital(row.tbtMs, (v) => String(Math.round(v)))} | ${vital(row.requests, (v) => String(Math.round(v)))} | ${limit === undefined ? "—" : `≤${limit}`} | ${status} |`);
   }
   return lines.join("\n");
 }

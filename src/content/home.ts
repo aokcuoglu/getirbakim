@@ -13,6 +13,6 @@ export const homeTrust: { icon: HomeTrustIcon; title: string; text: string; href
 ];
 
 export const homeFeatured: { image: string; category: number; label: string; title: string; description: string }[] = [
-  { image: "w40_brake_discs_web.jpg", category: 269, label: "FREN DİSKLERİ", title: "Her duruşta güven", description: "Fren disklerini ölçü ve montaj konumuna göre karşılaştır." },
+  { image: "home-brake-discs.webp", category: 269, label: "FREN DİSKLERİ", title: "Her duruşta güven", description: "Fren disklerini ölçü ve montaj konumuna göre karşılaştır." },
   { image: "home-wiper-blades.webp", category: 607, label: "SİLECEKLER", title: "Her koşulda net görüş", description: "Silecekleri uzunluk ve bağlantı tipine göre incele." },
 ];

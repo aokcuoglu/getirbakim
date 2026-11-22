@@ -25,6 +25,7 @@ test("approved service accounts start in the list, everyone else in the grid", (
   assert.equal(defaultListingView({role:"service",approved:true}),"list");
   assert.equal(defaultListingView({role:"service",approved:false}),"grid");
   assert.equal(defaultListingView({role:"admin",approved:true}),"grid");
+  assert.equal(defaultListingView({role:"customer",approved:true}),"grid");
 });
 
 // #1212: the client card gets finished strings; prices, discount and campaign texts are decided here on the server.

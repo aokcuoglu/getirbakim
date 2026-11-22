@@ -31,7 +31,7 @@ export default async function Garage({searchParams}:{searchParams:Promise<Search
     <h1 className="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">Aracını tanıyalım.</h1>
     <p className="text-base leading-6 text-muted-foreground">Marka, model ve yıl bilgilerini kaydet.<br/>Aracın, sonraki ziyaretinde de garajında olsun.</p>
     <CarFront className="my-5 h-[150px] w-[190px] text-[#8ea9bf] max-[600px]:hidden" strokeWidth={1} aria-hidden/>
-    <p className="max-w-[440px] text-[11px] leading-[22px] text-muted-foreground">{saved.signedIn ? "Araçların hesabına kaydedilir ve her cihazda görünür." : "Araçların bu tarayıcıda 30 gün saklanır (en çok 5). B2B hesabınla giriş yaparsan hesabına kaydedilir."} Katalogda “Yalnızca aracıma uyanları göster” ile araç tipine bağlı ürünleri süzebilirsin; bağlantısı olmayan ürünlerde OEM numarasını kontrol et.</p>
+    <p className="max-w-[440px] text-[11px] leading-[22px] text-muted-foreground">{saved.signedIn ? "Araçların hesabına kaydedilir ve her cihazda görünür." : "Araçların bu tarayıcıda 30 gün saklanır (en çok 5). Giriş yaparsan hesabına kaydedilir."} Katalogda “Yalnızca aracıma uyanları göster” ile araç tipine bağlı ürünleri süzebilirsin; bağlantısı olmayan ürünlerde OEM numarasını kontrol et.</p>
    </div>
    <Card className="gap-0 rounded-2xl border border-border bg-white p-[25px] ring-0 max-[600px]:p-5">
     {params.saved && <Alert role="status" className="mb-4 flex items-center gap-2 rounded-md border-0 bg-[#ebf5ed] p-[13px] text-sm leading-5 text-[#397247]"><Check className="size-[18px] shrink-0" aria-hidden/> Araç bilgilerin kaydedildi.</Alert>}

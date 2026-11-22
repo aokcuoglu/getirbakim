@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lighthouseMetrics, markdownTable, median, parseBudget, samplePaths } from "./html-weight.mjs";
 
-const LIGHTHOUSE = "lighthouse@13.6.0", BUDGET = "/=400,/urun/=150,/katalog=400,/arac-markalari=400,/kategori/=400,/marka/=400,/yedek-parca/=400";
+const LIGHTHOUSE = "lighthouse@13.6.0", BUDGET = "/=290,/urun/=150,/katalog=400,/arac-markalari=400,/kategori/=400,/marka/=400,/yedek-parca/=400";
 const argv = process.argv.slice(2);
 const flag = (name) => (argv.includes(name) ? (argv.splice(argv.indexOf(name), 1), true) : false);
 const value = (name) => {
@@ -112,6 +112,8 @@ async function main() {
         else if (!lhWarned) { lhWarned = true; console.error(`Lighthouse failed for ${row.path} (set CHROME_PATH if Chrome is not found); vitals stay —.\n${(result.stderr ?? "").slice(-300)}`); }
       }
       if (samples.length) Object.assign(row, { lcpMs: median(samples.map((s) => s.lcpMs)), cls: median(samples.map((s) => s.cls)), tbtMs: median(samples.map((s) => s.tbtMs)) });
+      const counts = samples.map((s) => s.requests).filter((n) => typeof n === "number");
+      if (counts.length) row.requests = median(counts);
     }
     rmSync(dir, { recursive: true, force: true });
   }

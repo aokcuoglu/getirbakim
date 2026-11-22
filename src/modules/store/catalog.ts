@@ -275,8 +275,10 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
 // epoch and these reload (#585).
 const listings={epoch:listingEpoch};
 // Fitments change when enrichments are imported or an admin decides; vehicle-type lists are shared per process.
-const cachedFitted=staleCache<string[]>(10*60*1000,500,listings);
-const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
+// Each value is an id array that can hold hundreds of thousands of uuids, so the caches are also bounded by total id
+// count (#1262), not only by entries.
+const cachedFitted=staleCache<string[]>(10*60*1000,500,{...listings,weigh:ids=>ids.length,maxWeight:400_000});
+const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,{...listings,weigh:ids=>ids.length,maxWeight:600_000});
 /**
  * Products fitting one make (`param`: its vehicle_brands id, e.g. "$2::int"), as one id column: the engine-level fits
  * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the makes of the models read from supplier
@@ -609,11 +611,12 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))`);
  }
  // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
- // Both read the lean availability view, not commerce_catalog's priced rows a second time (#1242).
+ // Both read the lean availability view, not commerce_catalog's priced rows a second time (#1242). Out of stock reads it
+ // through commerce_out_of_stock_ids (db/commerce.sql), whose declared size keeps deep pages off a nested loop (#1286).
  if(query.availability==='supplied')clauses.push('NOT catalog.unavailable');
  else if(query.availability)clauses.push(query.availability==='in_stock'
   ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
-  :`catalog.id IN (SELECT id FROM (${availabilitySql}) available_catalog WHERE NOT available AND stock_label='Stokta yok')`);
+  :`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id)`);
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
  return {values,where,from,search};
@@ -722,7 +725,7 @@ export const rankedSearchIds=(raw:string,mode:SearchMode)=>cachedRankedSearches(
  * search hit is the product's listing row (a secondary offer counts as the primary it is grouped under). Cached per type
  * in its own LRU (reloaded with the listing epoch), apart from the storefront's fit sets.
  */
-const cachedFittedListings=staleCache<string[]>(10*60*1000,300,listings);
+const cachedFittedListings=staleCache<string[]>(10*60*1000,300,{...listings,weigh:ids=>ids.length,maxWeight:300_000});
 const typeFittedListingIds=(typeId:number)=>cachedFittedListings(String(typeId),async()=>{
  const fitted=await typeFittedIds(typeId);
  if(!fitted.length)return [];

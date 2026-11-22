@@ -5,7 +5,7 @@ import { aiCrawlers, privatePaths, robotsPolicy } from "../src/modules/seo/crawl
 import { llmsTxt } from "../src/modules/seo/llms";
 import { guides } from "../src/content/guides";
 import { isGatedListing, listingIndexable, minIndexableListingProducts } from "../src/modules/seo/indexing";
-import { categoryNameInText } from "../src/modules/store/category-tree";
+import { categoryNameInText, categorySlug } from "../src/modules/store/category-tree";
 import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, withModelYears } from "../src/modules/store/vehicle-model-groups";
 import { legalLinks } from "../src/content/legal";
 import { sitemapCategorySlugs, sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
@@ -13,7 +13,7 @@ import { startSitemapWarmup, warmIntervalMs, warmSitemaps } from "../src/modules
 import { brandedTitle, brandSuffix, catalogMetaDescription, categoryDescription, descriptionMax, descriptionMin, fitDescription, listingTitlePad, searchResultsTitle, titleMax, titleMin, vehicleCategoryHeading, vehicleCategoryTexts } from "../src/modules/seo/meta-text";
 import { legalMetaDescriptions, legalMetaTitles } from "../src/content/legal-meta";
 import { legalDocument, legalTitle } from "../src/content/legal";
-import { catalogDescription } from "../src/app/(store)/katalog/catalog-descriptions";
+import { catalogDescription, curatedCategorySlugs } from "../src/app/(store)/katalog/catalog-descriptions";
 
 type Group = { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
 const list = (value: string | string[] | undefined) => (value === undefined ? [] : Array.isArray(value) ? value : [value]);
@@ -52,7 +52,7 @@ test("production has a general group and an AI crawler group with identical bodi
 
 test("robots rules open the public store and close private and unbounded URLs", () => {
   const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/yedek-parca/volkswagen/golf-7?page=2", "/kategori/fren/volkswagen/golf-7", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/api/brand-logos/12?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt", "/marka/bosch", "/marka/bosch?page=2", "/rehber", "/rehber/oem-numarasi-nedir-nasil-bulunur"];
-  const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/hesap", "/hesap/adresler", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/yedek-parca/volkswagen/golf-7?sort=price-asc", "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D", "/kategori/fren/volkswagen/golf-7?sort=price-asc", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code", "/marka/bosch?sort=price-asc", "/marka/bosch?q=x"];
+  const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/hesap", "/hesap/adresler", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/sifre-yenile", "/sifre-yenile/baglanti?t=x", "/e-posta-dogrula", "/e-posta-dogrula/baglanti?t=x", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/yedek-parca/volkswagen/golf-7?sort=price-asc", "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D", "/kategori/fren/volkswagen/golf-7?sort=price-asc", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code", "/marka/bosch?sort=price-asc", "/marka/bosch?q=x"];
   for (const group of groups) {
     for (const url of open) assert.equal(allowed(group, url), true, `${url} should be allowed`);
     for (const url of closed) assert.equal(allowed(group, url), false, `${url} should be blocked`);
@@ -238,6 +238,47 @@ test("curated category copy fits 160 characters without a mid-word cut (#1218)",
   // Whole sentences stay when they make 100 characters; "12.345" is no sentence end.
   const sentences = `${"Birinci cümle 12.345 ürünle uzun bir açıklama yapar ve yüz karakteri geçecek kadar devam eder burada"}. İkinci cümle ${"uzun ".repeat(20)}biter.`;
   assert.equal(fitDescription(sentences), `${sentences.split(". ")[0]}.`);
+});
+
+test("every curated category copy fits the meta description range (#1223)", () => {
+  for (const slug of curatedCategorySlugs) {
+    const fitted = fitDescription(curated(slug));
+    assert.ok(fitted.length >= descriptionMin && fitted.length <= descriptionMax, `${slug}: ${fitted.length}`);
+  }
+});
+
+// Top-level groups plus the largest leaf categories by storefront product count (#1223): their copy is the meta description and the visible intro.
+const added: [number, string][] = [
+  [4, "Motor parçaları"], [663, "Süspansiyon"], [296, "Motor soğutma sistemi"], [323, "Elektrik sistemi"],
+  [814, "Şanzıman ve debriyaj"], [676, "Direksiyon sistemi"], [895, "Aydınlatma"], [414, "Isıtma ve havalandırma"],
+  [443, "Kaporta ve iç donanım"], [740, "Yakıt sistemi"], [198, "Egzoz sistemi"], [606, "Silecek ve cam yıkama sistemi"],
+  [268, "Fren balataları"], [713, "Salıncaklar"], [243, "Hava filtreleri"], [366, "Sensörler"], [677, "Rot başları"],
+  [10051, "Motor conta ve keçeleri"], [168, "Motor kayışları ve zincirleri"], [719, "Viraj askı rotları"],
+  [721, "Süspansiyon burçları"], [246, "Polen filtreleri"], [10036, "Gergiler, kasnaklar ve sönümleyiciler"],
+  [244, "Yakıt filtreleri"], [299, "Su pompaları"], [242, "Yağ filtreleri"], [665, "Amortisörler"],
+  [135, "Motor takozları"], [824, "Debriyaj setleri"], [957, "Motor yağları"],
+];
+
+test("the largest categories have curated copy that is used verbatim (#1223)", () => {
+  assert.equal(added.length, 30);
+  for (const [id, name] of added) {
+    const slug = categorySlug(id, name);
+    const text = catalogDescription(slug);
+    assert.ok(text, `${slug} has no curated copy`);
+    assert.ok(text.length >= descriptionMin && text.length <= descriptionMax, `${slug}: ${text.length}`);
+    assert.ok(text.endsWith("."), slug);
+    assert.equal(fitDescription(text), text);
+  }
+  assert.equal(curatedCategorySlugs.length, 37);
+});
+
+test("curated category copy makes no commercial claims and is unique (#1223)", () => {
+  const texts = curatedCategorySlugs.map(curated);
+  for (const text of texts) {
+    assert.doesNotMatch(text, /garanti|ücretsiz|bedava|(?<!\p{L})uyumlu(?:dur)?(?!\p{L})|stokta|indirim|kampanya|en ucuz|₺|(?<!\p{L})TL(?!\p{L})|\d/iu);
+    assert.doesNotMatch(text, /kategorisindeki ürünleri/);
+  }
+  assert.equal(new Set(texts).size, texts.length);
 });
 
 test("/katalog has its own description, apart from the root category's (#1218)", () => {

@@ -67,6 +67,8 @@ try {
    await apply("garage");
    // Saved address book of approved accounts (#950).
    await apply("account-addresses");
+   // Single-use account e-mail links: password reset (#1257), e-mail verification (#1258).
+   await apply("account-tokens");
    await apply("product-enrichment");
    await apply("manual-supplier");
    await apply("manufacturer-logos");

@@ -78,3 +78,13 @@ test("Valkey store is shared between handler instances", { skip: !process.env.TE
   await second.revalidateTag("_N_T_/katalog");
   assert.equal(await first.get("/katalog"), null, "a revalidation on one task reaches the other");
 });
+
+test("the in-process store keeps at most 1000 entries and a read refreshes recency", async () => {
+  const { handler } = await load({ CACHE_URL: undefined }, "memory-cap");
+  for (let index = 0; index < 1000; index++) await handler.set(`/p${index}`, page("t"), {});
+  assert.ok(await handler.get("/p0"), "the oldest entry is still there before the cap is exceeded");
+  await handler.set("/extra", page("t"), {});
+  assert.ok(await handler.get("/p0"), "a read entry is kept");
+  assert.equal(await handler.get("/p1"), null, "the least recently used entry is evicted");
+  assert.ok(await handler.get("/extra"));
+});

@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { listingPaths } from "./paths";
 
 /** Account, cart, order and admin surfaces plus the API: never useful to a crawler. */
-export const privatePaths = ["/yonetim", "/api/", "/sepet", "/giris", "/garaj", "/hesap", "/siparis/", "/siparisler", "/siparis-olustur", "/servisler/basvuru"];
+export const privatePaths = ["/yonetim", "/api/", "/sepet", "/giris", "/garaj", "/hesap", "/siparis/", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/sifre-yenile", "/e-posta-dogrula"];
 
 /** Public, unauthenticated media routes: the store's images live under /api, so they need an explicit Allow. */
 export const publicMediaPaths = ["/api/product-media/", "/api/category-media/", "/api/vehicle-media/", "/api/manufacturer-logos/", "/api/brand-logos/"];

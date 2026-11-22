@@ -3,6 +3,11 @@ export async function register() {
   // The storefront reads enrichment links from a table that writers mark stale; the server keeps it current (#446).
   const { startEnrichmentLinkSync } = await import("@/modules/store/enrichment-links.server");
   startEnrichmentLinkSync(Number(process.env.ENRICHMENT_LINK_SYNC_INTERVAL_MS || 5_000));
+  // A trail for container memory kills (#1262): RSS vs heap vs external every MEMORY_LOG_INTERVAL_MS (0 turns it off).
+  if (process.env.NODE_ENV === "production") {
+    const { startMemoryLog } = await import("@/lib/memory-log");
+    startMemoryLog({ intervalMs: Number(process.env.MEMORY_LOG_INTERVAL_MS ?? 300_000) });
+  }
   // Fill the per-process catalog caches before visitors do (#448). Production servers only; not awaited.
   if (process.env.NODE_ENV === "production" && process.env.STOREFRONT_WARMUP !== "0") {
     const { warmStorefront } = await import("@/modules/store/warmup.server");

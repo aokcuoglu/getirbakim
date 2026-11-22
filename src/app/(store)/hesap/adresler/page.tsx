@@ -34,7 +34,7 @@ function DefaultForm({ address, kind, text }: { address: AccountAddress; kind: "
     <Button type="submit" variant="link" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")}>{text}</Button></form>;
 }
 
-/** Saved delivery and invoice addresses of an approved B2B service or admin account (#950). */
+/** Saved delivery and invoice addresses of an approved account: customer, B2B service or admin (#950, #1254). */
 export default async function Addresses({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const account = await currentAccount();
   if (!account?.approved) redirect(loginPath("/hesap/adresler"));

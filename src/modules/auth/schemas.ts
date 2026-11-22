@@ -20,3 +20,22 @@ export const serviceApplicationSchema = z.object({
   terms: z.literal("on"),
   website: z.string().max(0),
 });
+// A signed-in customer's request to become a service account (#1259): the account keeps its email and password.
+export const serviceUpgradeSchema = serviceApplicationSchema.omit({ email: true, password: true, website: true });
+// A signup name comes from an unverified form and later appears in the panel and the account's mails: no control
+// characters or line breaks, and nothing that reads as a link or an address, so it cannot carry spam (#1258).
+const signupName = z.string().trim().min(2).max(150)
+  .refine(value => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value) && !/:\/\/|www\.|@/i.test(value));
+export const customerSignupSchema = z.object({
+  name: signupName,
+  email: emailSchema,
+  password: newPasswordSchema,
+  confirmPassword: z.string(),
+  terms: z.literal("on"),
+  website: z.string().max(0),
+}).refine(value => value.password === value.confirmPassword, { path: ["confirmPassword"], message: "Şifreler aynı olmalı." });
+export const resetRequestSchema = z.object({ email: emailSchema });
+export const resetPasswordSchema = z.object({
+  password: newPasswordSchema,
+  confirmPassword: z.string(),
+}).refine(value => value.password === value.confirmPassword, { path: ["confirmPassword"], message: "Şifreler aynı olmalı." });

@@ -48,12 +48,24 @@ const nextConfig: NextConfig = {
   // ?dpl= with old bytes; it never pins them for a year (it returns the short cache, as before). The no-referrer
   // entries come last because config headers win over the same header set in route handlers (payment and
   // order-access routes send no-referrer themselves).
+  // Content-Security-Policy phase 1 restricts no fetch directive (default/script/style/img/connect/font/frame-src).
+  // form-action is absent because /api/payments/tami/start answers 303 to TAMI's hosted page and Chrome enforces
+  // form-action across redirects. upgrade-insecure-requests is https-only: dev, QA and CI serve http (CI builds with
+  // SITE_URL http://localhost:3103). headers() is baked at build time, so SITE_URL must be set at build (the Dockerfile
+  // sets ENV SITE_URL before npm run build). SITE_URL is read directly: src/lib/site.ts defaults to https.
   async headers() {
+    const csp = [
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'self'",
+      ...(process.env.SITE_URL?.startsWith("https://") ? ["upgrade-insecure-requests"] : []),
+    ].join("; ");
     const security = [
       { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "X-Frame-Options", value: "SAMEORIGIN" },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      { key: "Content-Security-Policy", value: csp },
     ];
     const noReferrer = [{ key: "Referrer-Policy", value: "no-referrer" }];
     const cache = [{ key: "Cache-Control", value: "public, max-age=86400, s-maxage=3600, stale-while-revalidate=600" }];
@@ -76,6 +88,12 @@ const nextConfig: NextConfig = {
         : []),
       { source: "/api/payments/tami/:path*", headers: noReferrer },
       { source: "/siparis/:id/erisim", headers: noReferrer },
+      // The password reset link and form (#1257): the token must never leave in a Referer.
+      { source: "/sifre-yenile", headers: noReferrer },
+      { source: "/sifre-yenile/:path*", headers: noReferrer },
+      // The e-mail verification link and form (#1258), likewise.
+      { source: "/e-posta-dogrula", headers: noReferrer },
+      { source: "/e-posta-dogrula/:path*", headers: noReferrer },
     ];
   },
   async redirects() {
