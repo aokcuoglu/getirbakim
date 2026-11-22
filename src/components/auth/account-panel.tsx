@@ -67,6 +67,7 @@ export function AccountPanel({ account, defaultOpen, initialPhoneOffset, restore
             <Button nativeButton={false} variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 flex w-full first:mt-0")} render={<Link href="/siparisler" onClick={() => setOpen(false)} />}>Siparişlerim</Button>
             <Button nativeButton={false} variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 flex w-full first:mt-0")} render={<Link href="/hesap/adresler" onClick={() => setOpen(false)} />}>Adreslerim</Button>
             <form action={logout} className="mt-3"><Button type="submit" variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "flex w-full")}>Çıkış yap</Button></form>
+            {account.role === "customer" && <p className="mt-4 mb-0 text-center text-sm leading-[22px] text-muted-foreground">Servis misin? <Link className="font-medium text-brand hover:text-brand-strong hover:underline" href="/servisler/basvuru" onClick={() => setOpen(false)}>Servis hesabına başvur</Link></p>}
           </> : <>
             <Button type="button" className={cn(storeButton({ intent: "primary", size: "md" }), "mt-3 flex w-full first:mt-0")} onClick={() => openModal("login")}>Giriş yap</Button>
             <Button type="button" variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 flex w-full first:mt-0")} onClick={() => openModal("register")}>Kayıt ol</Button>

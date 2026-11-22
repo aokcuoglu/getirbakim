@@ -20,6 +20,8 @@ export const serviceApplicationSchema = z.object({
   terms: z.literal("on"),
   website: z.string().max(0),
 });
+// A signed-in customer's request to become a service account (#1259): the account keeps its email and password.
+export const serviceUpgradeSchema = serviceApplicationSchema.omit({ email: true, password: true, website: true });
 export const customerSignupSchema = z.object({
   name: z.string().trim().min(2).max(150),
   email: emailSchema,
