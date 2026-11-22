@@ -8,7 +8,7 @@ import type {HomeProductCardModel} from "@/modules/store/listing-card";
 export function HomeProductCardView({model: m}: {model: HomeProductCardModel}) {
   const images = useSlideImages();
   return <article className="home-card">
-    <Link className="home-card-image" href={m.href} {...(m.image&&!images&&{tabIndex:-1,"aria-hidden":true})}>{m.image&&(images?<Image src={m.image} width={180} height={180} alt={m.title} className="home-card-img"/>:<span className="home-card-img rounded-md bg-muted"/>)}</Link>
+    {images?<Link className="home-card-image" href={m.href}>{m.image&&<Image src={m.image} width={180} height={180} alt={m.title} className="home-card-img"/>}</Link>:<div className="home-card-image">{m.image&&<span className="home-card-img rounded-md bg-muted"/>}</div>}
     <div className="home-card-text">
       <Link className="home-card-category" href={m.categoryHref}>{m.categoryName}</Link>
       <Link className="home-card-title" href={m.href}>{m.title}</Link>
