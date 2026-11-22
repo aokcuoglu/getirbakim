@@ -164,7 +164,7 @@ Bireysel kayıt, e-posta doğrulama ve şifre yenileme e-posta olmadan çalışa
 **Production'da açma:**
 
 1. Amazon SES hesabının sandbox'tan çıkmış olması (production access) ve `MAIL_TRANSPORT`/`MAIL_FROM` ayarlı olması (yukarıdaki sipariş e-postası ayarı).
-2. getirbakim-infra'da production uygulama ortamına `ACCOUNT_EMAIL=on` eklenir.
+2. getirbakim-infra'da `ACCOUNT_EMAIL` anahtarı uygulamaya geçirilen ortam listesine (`lib/stacks/data-stack.ts`; düz değişken ya da `ADDED_APP_SECRET_KEYS` + `scripts/set-app-secret.sh`) eklenir ve değeri `on` yapılır. Liste dışındaki anahtar göreve hiç ulaşmaz, anahtar kapalı kalır.
 3. `release-aws` ile yayınlanır (yalnız ayrı, açık yayın onayıyla).
 4. Doğrulama: `/giris`'te "Hesabın yok mu? Kayıt ol" görünür; gerçek bir adresle kayıt + doğrulama e-postası ve şifre yenileme e-postası uçtan uca denenir.
 
