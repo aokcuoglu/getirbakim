@@ -200,3 +200,19 @@ test("the e-mail address is not in the footer markup or the Organization JSON-LD
   const { siteJsonLd } = await import("@/lib/site");
   assert.doesNotMatch(JSON.stringify(siteJsonLd), /"email"/);
 });
+
+test("IntentLink renders a plain anchor and the four eager-prefetch call sites use it (#1283)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { IntentLink } = await import("@/components/intent-link");
+  const html = renderToStaticMarkup(createElement(IntentLink, { href: "/sepet", className: "cart-x", "aria-label": "Sepetim" }, "Sepet"));
+  assert.equal(html, '<a class="cart-x" aria-label="Sepetim" href="/sepet">Sepet</a>');
+  for (const [file, href] of [["home-highlights.tsx", "categoryPath"], ["maintenance-robot-banner.tsx", "/bakim-robotu"], ["navigation/cart-badge.tsx", "/sepet"], ["navigation/header-tools.tsx", "/sepet"]]) {
+    const source = readFileSync(`src/components/${file}`, "utf8");
+    assert.match(source, /<IntentLink /, file);
+    assert.ok(source.includes(href), file);
+    assert.doesNotMatch(source, /<Link[^>]*href=\{?"?\/?(sepet|bakim-robotu)/, file);
+  }
+  assert.doesNotMatch(readFileSync("src/components/home-highlights.tsx", "utf8").split("HomeFeaturedCards")[1], /<Link /);
+});
