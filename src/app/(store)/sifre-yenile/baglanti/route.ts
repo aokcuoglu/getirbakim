@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { siteUrl } from "@/lib/site";
+import { accountEmailEnabled } from "@/modules/auth/account-email-switch";
 import { ACCOUNT_TOKEN_MAX } from "@/modules/auth/account-tokens";
 import { passwordResetTarget, RESET_COOKIE, resetCookieOptions } from "@/modules/auth/password-reset";
 
@@ -19,6 +20,8 @@ function see(location: string) {
 }
 
 export async function GET(request: NextRequest) {
+  // Closed (#1303): no token lookup and no cookie; the link stays as it was.
+  if (!accountEmailEnabled()) return see(`${siteUrl}/giris`);
   const parsed = token.safeParse(request.nextUrl.searchParams.get("t"));
   const target = parsed.success ? await passwordResetTarget(parsed.data) : null;
   if (!parsed.success || !target) {

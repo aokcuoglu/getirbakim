@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { notFound } from "next/navigation";
+import { accountEmailEnabled } from "@/modules/auth/account-email-switch";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { privatePageRobots } from "@/modules/seo/crawlers";
 import { passwordResetTarget, RESET_COOKIE } from "@/modules/auth/password-reset";
@@ -19,6 +21,7 @@ export const metadata: Metadata = { title: "Şifreni yenile", robots: privatePag
  * e-mail verification in another browser than the signup's (#1258), which requires a new password.
  */
 export default async function PasswordReset({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  if (!accountEmailEnabled()) notFound();
   const { durum, dogrulama } = normalizeSearchParams(await searchParams);
   const token = (await cookies()).get(RESET_COOKIE)?.value;
   const target = token ? await passwordResetTarget(token) : null;

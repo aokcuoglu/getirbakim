@@ -143,6 +143,35 @@ Müşteri `/siparis/[id]` sayfasındaki "Sözleşmeler" kartından `/siparis/[id
 
 Ödeme sipariş anında TAMI ortak ödeme sayfasında kartla alınır; sipariş ödeme doğrulanınca “Teyit bekliyor” olur. Kargo sabit ücret + ücretsiz kargo eşiğiyle toplamda tahsil edilir. Taksit açıksa müşteri tek çekim ya da taksitli ödemeyi seçer; vade farkı toplama eklenir ve siparişte ayrı saklanır ([Ödeme seçenekleri ve vade farkı](payments.md#ödeme-seçenekleri-ve-vade-farkı-886)). Ayrıntılar: [Online ödeme (TAMI)](payments.md). Tedarikçiye otomatik satın alma bağlı değildir.
 
+### Hesap e-postaları anahtarı (#1303)
+
+Bireysel kayıt, e-posta doğrulama ve şifre yenileme e-posta olmadan çalışamaz (doğrulanmayan hesap açılmaz, yenileme bağlantısı ulaşmaz). `ACCOUNT_EMAIL` ortam değişkeni bu akışları birlikte açar/kapatır; `accountEmailEnabled()` (`src/modules/auth/account-email-switch.ts`) istek anında okur (`NEXT_PUBLIC_` değildir, yeniden build gerekmez; değişiklik görev yeniden başlayınca geçerli olur).
+
+| Ortam | `ACCOUNT_EMAIL` | E-posta gönderimi (`mailConfig()`) | Sonuç |
+| --- | --- | --- | --- |
+| production | boş / tanımsız | herhangi | kapalı |
+| production | `on` (büyük/küçük harf ve boşluk önemsiz) | `none` (ayarsız, eksik, `file`) | kapalı |
+| production | `on` | `smtp` / `ses` | açık |
+| production dışı | boş / `on` / başka değer | herhangi | açık |
+| production dışı | `off` | herhangi | kapalı |
+
+**Kapalıyken:**
+
+- Sunucu tarafı (her action'ın ilk adımı; bütçe, hash, sorgu, çerez ve `after()` yok): `registerCustomer` "Yeni üyelik kaydı şu anda kapalı." döner; `requestPasswordReset` ve `resendVerification` "Bu işlem şu anda kullanılamıyor. Destek için bizimle iletişime geç." döner; `resetPassword` ve `verifyEmail` tokena dokunmadan `/giris`'e yönlendirir (şifre değişmez, adres doğrulanmaz). `/sifre-yenile/baglanti` ve `/e-posta-dogrula/baglanti` token aramadan ve çerez yazmadan 303 ile `/giris`'e gider. `/sifre-yenile` ve `/e-posta-dogrula` sayfaları 404 döner.
+- Arayüz: giriş penceresi yalnız girişi gösterir ("Şifreni mi unuttun?" ve "Kayıt ol" yok); "Hesabım" panelinde ziyaretçi için "Kayıt ol" düğmesi yok; `/giris`'te şifre yenileme bağlantısı ve "Hesabın yok mu? Kayıt ol" yok, `error=dogrulama` genel "Giriş bilgileri geçersiz veya hesap henüz onaylanmamış." hatasını gösterir (yeniden gönderim bağlantısı yok); alt bilgideki bağlantı "Giriş yap" olur.
+- Değişmeyenler: giriş/çıkış, servis başvurusu (`/servisler/basvuru`, `applyForService`, `applyForServiceUpgrade`), gecelik `db:prune-attempts`.
+
+**Production'da açma:**
+
+1. Amazon SES hesabının sandbox'tan çıkmış olması (production access) ve `MAIL_TRANSPORT`/`MAIL_FROM` ayarlı olması (yukarıdaki sipariş e-postası ayarı).
+2. getirbakim-infra'da production uygulama ortamına `ACCOUNT_EMAIL=on` eklenir.
+3. `release-aws` ile yayınlanır (yalnız ayrı, açık yayın onayıyla).
+4. Doğrulama: `/giris`'te "Hesabın yok mu? Kayıt ol" görünür; gerçek bir adresle kayıt + doğrulama e-postası ve şifre yenileme e-postası uçtan uca denenir.
+
+**Yeniden kapatma:** gönderilmiş ama kullanılmamış doğrulama ve yenileme bağlantıları kapalıyken `/giris`'e düşer; doğrulanmamış kayıtlar 7 gün sonra `db:prune-attempts` ile silinir, şifre yenileme bağlantısı da süresi dolunca geçersizdir. Anahtar yeniden açıldığında kullanıcı yeni bağlantı istemelidir.
+
+Test: `npm run test:customer-signup` (kural tablosu ve kapalı kayıt), `npm run test:password-reset`, `npm run test:email-verification`.
+
 ### Hesap e-postaları: şifre yenileme (#1257)
 
 Giriş penceresindeki "Şifreni mi unuttun?" ve `/giris` altındaki bağlantı (`/sifre-yenile`) e-posta adresini sorar (`requestPasswordReset`, `src/modules/auth/password-reset-actions.ts`). Yanıt hesap olsun olmasın aynıdır ("Bu adrese kayıtlı bir hesap varsa…"); e-posta yanıttan sonra `after()` ile gider, böylece ne metin ne süre hesabın varlığını ele verir.
@@ -151,7 +180,7 @@ Giriş penceresindeki "Şifreni mi unuttun?" ve `/giris` altındaki bağlantı (
 - **Bağlantı:** `account_tokens` (`db/account-tokens.sql`; `purpose` `password_reset`, ayrıca `email_verification` #1258) yalnız tokenın sha256'sını saklar; token 32 rastgele bayt (base64url), 60 dakika geçerli, hesap başına tektir (yeni talep eskisini siler). E-postadaki `/sifre-yenile/baglanti?t=…` Route Handler'ı tokenı tüketmeden doğrular, `gb_reset` çerezine (httpOnly, `sameSite=lax`, yolu `/sifre-yenile`, süresi kalan süre) yazar ve 303 ile temiz `/sifre-yenile` adresine gider (`no-store`, `no-referrer`; e-posta tarayıcılarının bağlantıyı açması tokenı harcamaz). Geçersiz/süresi dolmuş bağlantı `/sifre-yenile?durum=gecersiz` olur. Yeni şifre formu (en az 12 karakter, en çok 72 UTF-8 bayt, iki kez) tokenı tek transaction'da tüketir, bcrypt (12) ile şifreyi yazar, hesabın bütün oturumlarını, kalan bağlantı tokenlarını (doğrulama dahil) ve `login_attempts` satırını siler; e-postadaki bağlantı adresi kanıtladığı için doğrulanmamış bireysel kayıt da doğrulanmış olur (`email_verified_at`, #1258); ardından çerezler silinir ve `/giris?sifre=yenilendi` "Şifren yenilendi" der. Otomatik giriş yapılmaz. Süresi bir günden fazla geçmiş tokenlar gecelik `db:prune-attempts` ile silinir.
 - **Sınırlar (saatlik, `service_application_attempts`, anahtarlar sha256):** talep için istemci adresi başına 10, e-posta başına 5, toplam 200 (dardan genişe; reddedilen talep geniş bütçeyi harcamaz); yeni şifre formu için istemci adresi başına 20. Aşımda "Çok fazla deneme yapıldı. Bir saat sonra tekrar dene."
 - **Loglar:** yalnız hesap kimliği (`Password reset mail sent|skipped for account <id>`); adres ve ad yazılmaz. Yerelde (production dışı) gönderim ayarı yoksa ya da `MAIL_TRANSPORT=file` ise bağlantı da loglanır: `Password reset link (dev only): …`.
-- **SES:** sandbox'ta yalnız doğrulanmış alıcılara e-posta gider; production'da hesap sandbox'tan çıkmış olmalı (yukarıdaki sipariş e-postası ayarı). Gönderim hatası yalnız o tokenı siler ve `Password reset mail failed` yalnız hesap kimliği ve sağlayıcının hata koduyla loglanır (hata metni alıcı adresini taşıyabilir); kullanıcı yeni bağlantı ister.
+- **SES / açma:** production'da akış yalnız [Hesap e-postaları anahtarı (#1303)](#hesap-e-postaları-anahtarı-1303) açıkken çalışır. Gönderim hatası yalnız o tokenı siler ve `Password reset mail failed` yalnız hesap kimliği ve sağlayıcının hata koduyla loglanır (hata metni alıcı adresini taşıyabilir); kullanıcı yeni bağlantı ister.
 - **Yönetici şifresi:** self-servis yoktur. Hash'i yerelde üret (`node -e "require('bcryptjs').hash(require('fs').readFileSync(0,'utf8').trim(),12).then(console.log)"`, şifreyi stdin'den ver ki kabuk geçmişine düşmesin), yazma yetkili tünelle (`bash scripts/aws/db-tunnel.sh <profil> --write --psql`, [aws-db-tunnel.md](aws-db-tunnel.md)) `UPDATE accounts SET password_hash='<hash>' WHERE email='<adres>' AND role='admin' RETURNING id;` ve `DELETE FROM sessions WHERE account_id='<id>';` koş.
 - Test: `npm run test:password-reset`.
 
@@ -171,7 +200,7 @@ Bireysel kayıt (`registerCustomer`, `src/modules/auth/customer-signup.ts`) hesa
 - **Panel:** `/yonetim/servisler` bireysel müşteri listesinde doğrulanmamış hesaplar "Doğrulanmadı" uyarı rozetiyle görünür; toplam sayı onları da içerir, açıklama "(N doğrulanmamış)" der.
 - **Temizlik:** gecelik `db:prune-attempts` (`src/modules/auth/prune-attempts.ts`) 7 günden eski (`applied_at`) doğrulanmamış ve hesap siparişi olmayan bireysel kayıtları siler; koşul onayı ve tokenlar `ON DELETE CASCADE` ile gider (`unverified accounts N` logu). AWS'teki zamanlama getirbakim-infra PR #18'dedir.
 - **Loglar:** yalnız hesap kimliği (`E-mail verification mail sent|skipped for account <id>`, `Account exists mail …`); adres ve ad yazılmaz. Yerelde (production dışı) gönderim ayarı yoksa ya da `MAIL_TRANSPORT=file` ise bağlantı da loglanır: `E-mail verification link (dev only): …`. Gönderim hatası yalnız o tokenı siler ve hesap kimliği + sağlayıcı koduyla loglanır.
-- **SES:** sandbox'tan çıkmadan production'da kayıt açılmamalıdır; yalnız doğrulanmış alıcılar e-posta alır ve diğer herkesin hesabı açılamaz.
+- **SES / açma:** production'da kayıt yalnız [Hesap e-postaları anahtarı (#1303)](#hesap-e-postaları-anahtarı-1303) açıkken çalışır (SES production access şart).
 - **Bilinen sınırlar (kabul edildi):**
   - *İki adımlı adres yoklama:* biri X adresiyle ve P şifresiyle kayıt olup ardından P ile giriş deneyebilir; `error=dogrulama` X'in doğrulanmış hesabı olmadığını, `error=1` olduğunu söyler. Her deneme sahibine bir e-posta gönderir ve kayıt/giriş sınırlarına takılır; servis başvurusu formunun `error=account` yanıtı müşteri adreslerini zaten ele verdiği için kabul edildi.
   - *Yeniden gönderim rahatsızlığı:* doğrulama bekleyen bir adres için herkes yeni bağlantı isteyebilir (adres başına saatte 3). Her istek sahibin gelen kutusundaki bağlantının ve kaynak nonce'unun yerini alır; sahibin kayıt yaptığı tarayıcı artık otomatik giriş yapmaz, doğrulamadan sonra yeni şifre belirler. Hesap ele geçirilemez; kabul edildi.
