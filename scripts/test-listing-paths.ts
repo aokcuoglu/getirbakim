@@ -182,6 +182,17 @@ test("the proxy answers an old address with a 301 on the request's own host", ()
   assert.equal(proxy(new NextRequest(new URL("/katalog?q=x", "https://shop.example.invalid"))).status, 200);
 });
 
+// A shared cache would keep a Set-Cookie with the body (#642); the /stats tracker routes are public and never slide a session (#1290).
+test("the stats routes are outside the proxy's session sliding", () => {
+  for (const path of ["/stats/js/script.js", "/stats/api/event"]) {
+    const request = new NextRequest(new URL(path, "https://shop.example.invalid"), { headers: { cookie: "gb_session=abc" } });
+    assert.equal(proxy(request).headers.get("set-cookie"), null, path);
+  }
+  const last = config.matcher.at(-1);
+  const source = typeof last === "string" ? last : last?.source ?? "";
+  assert.match(source, /stats\//);
+});
+
 test("every listing path has its route and the old routes are gone", () => {
   const store = join(process.cwd(), "src/app/(store)");
   assert.deepEqual([...listingPaths], ["/katalog", "/yedek-parca/", "/kategori/", "/marka/"]);

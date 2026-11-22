@@ -20,7 +20,7 @@ const optionTexts = {
   analytics: {
     title: "Analiz çerezleri",
     text: "Ziyaret ve alışveriş adımlarını ölçmek için Google Analytics kullanılır. Yalnızca izin verirsen yüklenir.",
-    idle: "Site kullanımını anlamaya yardımcı olur. Şu anda analiz hizmeti kullanılmıyor.",
+    idle: "Site kullanımını anlamaya yardımcı olur. Şu anda çerez kullanan bir analiz hizmeti yok.",
   },
   marketing: {
     title: "Reklam ve kişiselleştirme çerezleri",
@@ -135,7 +135,7 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
       <h2 id="cookie-title" className="mt-0 mb-[7px] text-base leading-6 font-semibold tracking-normal">Bu web sitesi çerez kullanır</h2>
       <p className="mt-0 mb-3 text-xs leading-[21px] max-[600px]:leading-5">
         Sitemizin çalışması, sepetinizin ve araç tercihlerinizin hatırlanması için gerekli çerezleri kullanıyoruz.
-        Analiz ve reklam çerezleri yalnızca izin vermeniz hâlinde etkinleşir; tercihinizi sayfanın altındaki “Çerez tercihleri” bağlantısından değiştirebilirsiniz.
+        Analiz ve reklam çerezleri yalnızca izin vermeniz hâlinde etkinleşir; tercihinizi sayfanın altındaki “Çerez tercihleri” bağlantısından değiştirebilirsiniz. Çerez kullanmayan anonim ziyaret istatistikleri bu tercihlerden bağımsızdır.
         Ayrıntılar için <Link href="/bilgi/cerez-politikasi" prefetch={false} className="text-primary underline underline-offset-2">Çerez politikamızı</Link> inceleyin.
       </p>
       {fields && <fields.CookieSettings options={options} checked={checked} setters={setters} />}

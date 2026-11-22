@@ -3,11 +3,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { CONSENT_MAX_AGE, consentBannerOpen, consentSignals, parseConsent, serializeConsent } from "../src/lib/cookie-consent";
-import { analyticsConfig } from "../src/modules/analytics/config";
+import { analyticsConfig, plausibleConfig } from "../src/modules/analytics/config";
 import {
   addPaymentInfo, addToCart, beginCheckout, catalogItem, cleanPageLocation, kurusToValue, purchase, removeFromCart, search, selectItem,
   vatIncludedKurus, viewCart, viewItem, viewItemList,
 } from "../src/modules/analytics/events";
+import { forwardedEvent, resetScriptCache, scriptCache } from "../src/modules/analytics/plausible";
 import { PURCHASE_EVENT_WINDOW_DAYS, purchaseClaimAllowed, purchaseEventOpen } from "../src/modules/analytics/purchase";
 
 const now = Date.UTC(2026, 10, 15);
@@ -138,6 +139,64 @@ test("the admin area never loads the tag and no id is baked in at build", () => 
     assert.doesNotMatch(readFileSync(file, "utf8"), /modules\/analytics|privacy\/tag-manager|privacy\/store-tags/, file);
   }
   for (const file of sources("src")) assert.doesNotMatch(readFileSync(file, "utf8"), /NEXT_PUBLIC_GA/, file);
+});
+
+test("plausible stays out of the consent-gated tag code and is never baked in at build (#1290)", () => {
+  for (const file of ["src/components/privacy/tag-manager.tsx", "src/modules/analytics/track.ts"]) {
+    assert.doesNotMatch(readFileSync(file, "utf8"), /plausible/i, file);
+  }
+  for (const file of sources("src")) assert.doesNotMatch(readFileSync(file, "utf8"), /NEXT_PUBLIC_PLAUSIBLE/, file);
+});
+
+test("plausibleConfig: needs an http(s) URL, strips the path, defaults the domain (#1290)", () => {
+  for (const url of [undefined, "", "  ", "not a url", "ftp://plausible.internal", "javascript:alert(1)"]) assert.equal(plausibleConfig({ PLAUSIBLE_URL: url }), null, String(url));
+  assert.deepEqual(plausibleConfig({ PLAUSIBLE_URL: "http://plausible.internal:8000/" }), { url: "http://plausible.internal:8000", domain: "getirbakim.com" });
+  assert.deepEqual(plausibleConfig({ PLAUSIBLE_URL: "https://p.example.com", PLAUSIBLE_DOMAIN: " shop.example.com " }), { url: "https://p.example.com", domain: "shop.example.com" });
+  assert.equal(plausibleConfig({ PLAUSIBLE_URL: "https://p.example.com", PLAUSIBLE_DOMAIN: "Bad Domain!" }), null);
+});
+
+const eventBody = (u: string, extra: Record<string, unknown> = {}) => JSON.stringify({ n: "pageview", u, d: "evil.example", ...extra });
+
+test("forwardedEvent: forces the domain, cleans the address, forwards one resolved IP (#1290)", () => {
+  const headers = new Headers({ "user-agent": "Mozilla/5.0 Test", "x-forwarded-for": "203.0.113.9, 198.51.100.7", "cloudfront-viewer-address": "192.0.2.44:51234" });
+  const sent = forwardedEvent(eventBody("https://getirbakim.com/giris?next=%2Fyonetim&x=1", { r: "https://getirbakim.com/a?next=%2Fyonetim" }), headers, "getirbakim.com");
+  assert.ok(sent);
+  const body = JSON.parse(sent.body);
+  assert.equal(body.d, "getirbakim.com");
+  assert.equal(body.u, "https://getirbakim.com/giris?x=1");
+  assert.equal(body.r, "https://getirbakim.com/a");
+  assert.deepEqual(sent.headers, { "Content-Type": "application/json", "User-Agent": "Mozilla/5.0 Test", "X-Forwarded-For": "192.0.2.44" });
+  const external = forwardedEvent(eventBody("https://getirbakim.com/", { r: "https://www.google.com/search?q=x" }), new Headers(), "getirbakim.com");
+  assert.equal(JSON.parse(external!.body).r, "https://www.google.com/search?q=x");
+  assert.deepEqual(external!.headers, { "Content-Type": "application/json" });
+});
+
+test("forwardedEvent: X-Forwarded-For uses the last hop, never the client-supplied first (#1290)", () => {
+  const sent = forwardedEvent(eventBody("https://getirbakim.com/"), new Headers({ "x-forwarded-for": "203.0.113.9, 198.51.100.7" }), "getirbakim.com");
+  assert.equal(sent!.headers["X-Forwarded-For"], "198.51.100.7");
+});
+
+test("forwardedEvent: drops admin, token links and malformed or oversize bodies (#1290)", () => {
+  const headers = new Headers();
+  for (const path of ["/yonetim", "/yonetim/urunler/1", "/sifre-yenile/baglanti", "/e-posta-dogrula/baglanti", "/siparis/abc/erisim"]) {
+    assert.equal(forwardedEvent(eventBody(`https://getirbakim.com${path}?t=secret`), headers, "getirbakim.com"), null, path);
+  }
+  assert.equal(forwardedEvent(eventBody("https://getirbakim.com/siparis/abc?t=secret&odeme=sonuc"), headers, "getirbakim.com")!.body.includes("secret"), false);
+  assert.equal(forwardedEvent("not json", headers, "getirbakim.com"), null);
+  assert.equal(forwardedEvent(JSON.stringify({ n: 1, u: "https://getirbakim.com/" }), headers, "getirbakim.com"), null);
+  assert.equal(forwardedEvent(JSON.stringify(["x"]), headers, "getirbakim.com"), null);
+  assert.equal(forwardedEvent(eventBody("https://getirbakim.com/", { pad: "x".repeat(5000) }), headers, "getirbakim.com"), null);
+});
+
+test("scriptCache: one hour TTL, last good copy on error, null without one (#1290)", async () => {
+  resetScriptCache();
+  const failing = async () => { throw new Error("down"); };
+  assert.equal(await scriptCache(failing, 0), null);
+  assert.equal(await scriptCache(async () => "v1", 0), "v1");
+  assert.equal(await scriptCache(async () => "v2", 59 * 60_000), "v1");
+  assert.equal(await scriptCache(async () => "v2", 61 * 60_000), "v2");
+  assert.equal(await scriptCache(failing, 3 * 60 * 60_000), "v2");
+  resetScriptCache();
 });
 
 // A minimal browser: a cookie jar, an event target and the globals the modules read.

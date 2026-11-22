@@ -3368,6 +3368,13 @@
                 "children": [
                   "Analitik veya pazarlama gibi açık rıza gerektiren işlemler: faaliyete özgü bilgilendirme ve özgür iradeyle verilen açık rıza bulunması hâlinde KVKK madde 5/1. Analiz için Google Analytics 4 yalnızca çerez tercihlerinde izin vermeniz hâlinde kullanılır; ayrıntılar Çerez Politikası’ndadır."
                 ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Çerez kullanmayan anonim ziyaret istatistikleri: meşru menfaat (KVKK madde 5/2(f)); IP adresi saklanmaz, ayrıntılar Çerez Politikası’ndadır."
+                ]
               }
             ]
           },
@@ -4262,6 +4269,13 @@
                 "children": [
                   "Analitik veya pazarlama gibi açık rıza gerektiren işlemler: faaliyete özgü bilgilendirme ve özgür iradeyle verilen açık rıza bulunması hâlinde KVKK madde 5/1. Analiz için Google Analytics 4 yalnızca çerez tercihlerinde izin vermeniz hâlinde kullanılır; ayrıntılar Çerez Politikası’ndadır."
                 ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Çerez kullanmayan anonim ziyaret istatistikleri: meşru menfaat (KVKK madde 5/2(f)); IP adresi saklanmaz, ayrıntılar Çerez Politikası’ndadır."
+                ]
               }
             ]
           },
@@ -4839,6 +4853,13 @@
             "tag": "p",
             "attrs": {},
             "children": [
+              "Çerezsiz ziyaret istatistikleri: Sitenin işleyişini ve trafiğini anlamak için, kendi sunucularımızda (AWS Frankfurt) çalışan Plausible Community Edition yazılımıyla anonim ve toplu ziyaret istatistikleri tutulur. Bu ölçüm tarayıcınıza çerez yazmaz, yerel depolama kullanmaz ve sizi başka sitelerde izlemez. Ziyaret edilen sayfa, yönlendiren adres, tarayıcı, işletim sistemi, cihaz türü ve yaklaşık konum (ülke/şehir) kaydedilir. IP adresiniz saklanmaz; yalnızca aynı gün içindeki ziyaretleri tekilleştirmek için her gün yenilenen bir anahtarla geri döndürülemez bir özete dönüştürülür ve ertesi gün eşleştirilemez. Veriler üçüncü taraflarla paylaşılmaz, reklam veya profilleme için kullanılmaz. Bu işleme, KVKK madde 5/2(f) kapsamında ve Kurumun Çerez Uygulamaları Hakkında Rehberi’nde açıklanan birinci taraf analitik ölçütü çerçevesinde açık rıza gerektirmeden yürütülür; çerez tercihlerinizden bağımsızdır."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
               "Analiz çerezleri: “Analiz çerezleri”ne izin vermeniz hâlinde Google Analytics 4 (Google Ireland Limited / Google LLC) yüklenir ve _ga ile _ga_<kimlik> çerezlerini (2 yıla kadar) yazar. Ziyaret edilen sayfalar, yapılan aramalar, görüntülenen, sepete eklenen ve sepetten çıkarılan ürünler, ödeme adımları, tamamlanan siparişlerde sipariş numarası, satın alınan ürünler ve adetleri, sipariş tutarı, KDV ve kargo ücreti, iptal edilen siparişlerde iade tutarı, yaklaşık konum, cihaz ve tarayıcı bilgileri işlenir; ad, e-posta, telefon, adres veya ödeme kartı bilgisi gönderilmez. İzin verilmediğinde bu hizmet yüklenmez ve Google’a istek gönderilmez."
             ]
           },
@@ -4860,7 +4881,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Yeni bir analiz veya reklam hizmeti eklendiğinde sağlayıcı, veri türü, amaç, süre ve varsa yurt dışı aktarım koşulları bu politikada açıklanır, politika güncellenir ve tercihiniz yeniden sorulur; başka bir hukuki dayanak yoksa faaliyete özgü açık rızanız alınır. Açık rıza verilmemesi, temel site hizmetlerinden yararlanmayı engellemez."
+              "Açık rıza gerektiren yeni bir analiz veya reklam hizmeti eklendiğinde sağlayıcı, veri türü, amaç, süre ve varsa yurt dışı aktarım koşulları bu politikada açıklanır, politika güncellenir ve tercihiniz yeniden sorulur; başka bir hukuki dayanak yoksa faaliyete özgü açık rızanız alınır. Açık rıza verilmemesi, temel site hizmetlerinden yararlanmayı engellemez."
             ]
           }
         ]
@@ -4905,6 +4926,13 @@
             "tag": "p",
             "attrs": {},
             "children": [
+              "Çerezsiz ziyaret istatistikleri üçüncü bir tarafa aktarılmaz; sitenin barındırıldığı altyapıda tutulur."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
               "Site AWS Frankfurt’ta barındırılmaktadır. Barındırma ya da güvenlik altyapısı ek kayıt kullanmaya başladığında ilgili sağlayıcı, amaç, süre ve yurt dışına aktarım koşulları bu politikada açıklanır. Ayrıntılar KVKK Aydınlatma Metninin yurt dışına aktarım bölümünde yer alır."
             ]
           },
@@ -4924,7 +4952,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu politika güncelleme tarihiyle yayımlanır. Yeni bir çerez veya entegrasyon, daha önce verdiğiniz bir kategori tercihine dayanılarak etkinleştirilmez; bu politika güncellenir ve tercihiniz yeniden sorulur."
+              "Bu politika güncelleme tarihiyle yayımlanır. Açık rıza gerektiren yeni bir çerez veya entegrasyon, daha önce verdiğiniz bir kategori tercihine dayanılarak etkinleştirilmez; bu politika güncellenir ve tercihiniz yeniden sorulur."
             ]
           },
           {
