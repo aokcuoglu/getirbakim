@@ -24,15 +24,18 @@ async function withinBudgets(budgets: [string, number][]) {
  * mail goes out after the response, so neither the text nor the timing tells them apart.
  */
 export async function requestPasswordReset(prev: ResetState, form: FormData): Promise<ResetState> {
-  const refuse = (message: string): ResetState => ({ status: "error", message, attempt: prev.attempt + 1 });
-  const parsed = resetRequestSchema.safeParse({ email: form.get("email") });
+  const typed = form.get("email");
+  // The typed address comes back after a refusal so the form keeps it.
+  const refuse = (message: string): ResetState => ({ status: "error", message, attempt: prev.attempt + 1, email: typeof typed === "string" ? typed.slice(0, 200) : "" });
+  const parsed = resetRequestSchema.safeParse({ email: typed });
   if (!parsed.success) return refuse("Geçerli bir e-posta adresi gir.");
   const { email } = parsed.data;
   const { ip } = clientEvidence(await headers());
   const budgets: [string, number][] = [...(ip ? [[attemptKey("reset", "ip", ip), limits.ip] as [string, number]] : []),
     [attemptKey("reset", "email", email), limits.email], ["reset:global", limits.global]];
   if (!await withinBudgets(budgets)) return refuse(limitError);
-  after(() => sendPasswordReset(email).catch((error: Error) => console.error("Password reset mail failed", error.message)));
+  // Errors are logged without their message, which may carry the address.
+  after(() => sendPasswordReset(email).catch(() => console.error("Password reset request failed")));
   return { status: "sent", attempt: prev.attempt + 1,
     message: "Bu adrese kayıtlı bir hesap varsa şifre yenileme bağlantısını gönderdik. Bağlantı 60 dakika geçerlidir; gelen kutunu ve spam klasörünü kontrol et." };
 }
@@ -42,7 +45,8 @@ export async function resetPassword(prev: ResetState, form: FormData): Promise<R
   const refuse = (message: string): ResetState => ({ status: "error", message, attempt: prev.attempt + 1 });
   // The form names its password "newPassword" so the browser's confirmation check can find it (auth-field.tsx).
   const parsed = resetPasswordSchema.safeParse({ password: form.get("newPassword"), confirmPassword: form.get("confirmPassword") });
-  if (!parsed.success) return refuse("Şifre en az 12 karakter olmalı ve iki şifre aynı olmalı.");
+  // The schema's own Turkish messages (12 characters, 72 bytes, mismatch) say exactly what is wrong; zod's defaults are English.
+  if (!parsed.success) return refuse(parsed.error.issues.find(issue => issue.code === "custom")?.message ?? "Şifre en az 12 karakter olmalı ve iki şifre aynı olmalı.");
   const { ip } = clientEvidence(await headers());
   if (ip && !await withinBudgets([[attemptKey("reset", "confirm:ip", ip), limits.confirmIp]])) return refuse(limitError);
   const jar = await cookies();

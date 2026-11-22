@@ -15,10 +15,17 @@ const usable = (token: string) => token.length > 0 && token.length <= ACCOUNT_TO
 /** Issues a new token valid for `ttlMinutes`; it replaces the account's earlier tokens of this purpose. Returns the raw token. */
 export async function issueAccountToken(client: Queryable, accountId: string, purpose: AccountTokenPurpose, ttlMinutes: number) {
   const token = randomBytes(32).toString("base64url");
-  await client.query("DELETE FROM account_tokens WHERE account_id=$1 AND purpose=$2", [accountId, purpose]);
-  await client.query("INSERT INTO account_tokens (token_hash,account_id,purpose,expires_at) VALUES ($1,$2,$3,now()+make_interval(mins=>$4::int))",
+  // One statement: the replacement and the new row commit together, never an account without a token or with two.
+  await client.query(`WITH replaced AS (DELETE FROM account_tokens WHERE account_id=$2 AND purpose=$3)
+    INSERT INTO account_tokens (token_hash,account_id,purpose,expires_at) VALUES ($1,$2,$3,now()+make_interval(mins=>$4::int))`,
     [hashOf(token), accountId, purpose, ttlMinutes]);
   return token;
+}
+
+/** Withdraws this one token (expired or not), e.g. after its e-mail could not be sent. */
+export async function revokeAccountToken(client: Queryable, token: string, purpose: AccountTokenPurpose) {
+  if (!usable(token)) return;
+  await client.query("DELETE FROM account_tokens WHERE token_hash=$1 AND purpose=$2", [hashOf(token), purpose]);
 }
 
 /** The unexpired token's account and expiry, without using it up; null for an unknown, expired or malformed token. */

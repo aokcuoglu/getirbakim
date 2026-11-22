@@ -2532,7 +2532,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Şifre yenileme talepleri hey@getirbakim.com adresine hesapta kayıtlı e-posta adresinden iletilir."
+              "Şifreni unutursan giriş ekranındaki “Şifreni mi unuttun?” bağlantısıyla hesabına kayıtlı e-posta adresine tek kullanımlık ve 60 dakika geçerli bir şifre yenileme bağlantısı gönderilir. Bağlantıya ulaşamıyorsan hey@getirbakim.com adresine hesabında kayıtlı e-posta adresinden yazabilirsin."
             ]
           },
           {
@@ -3052,7 +3052,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Güvenli giriş için şifre özeti, oturum belirteçlerinin özeti ve başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri."
+                  "Güvenli giriş ve şifre yenileme için şifre özeti, oturum belirteçlerinin ve tek kullanımlık şifre yenileme bağlantılarının özeti, başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri ile şifre yenileme taleplerini sınırlamak için e-posta ve IP adresinin özeti."
                 ]
               },
               {
@@ -3387,7 +3387,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ve şifre yenileme bağlantısı gibi işlem e-postaları, sitenin barındırıldığı Amazon Web Services’in e-posta gönderim hizmeti (Amazon SES) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla AWS tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -3479,7 +3479,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap parolaları açık metin olarak değil, şifre özeti olarak saklanır. Oturum ve ziyaretçi sepeti belirteçleri sunucuda özetlenerek tutulur; yönetim işlevlerine erişim hesap yetkileriyle sınırlandırılır."
+              "Hesap parolaları açık metin olarak değil, şifre özeti olarak saklanır. Oturum, ziyaretçi sepeti ve şifre yenileme belirteçleri sunucuda özetlenerek tutulur; şifre yenileme bağlantısı 60 dakika geçerlidir, bir kez kullanılır ve süresi dolan kayıtlar silinir; yönetim işlevlerine erişim hesap yetkileriyle sınırlandırılır."
             ]
           },
           {
@@ -3901,7 +3901,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Güvenli giriş için şifre özeti, oturum belirteçlerinin özeti ve başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri."
+                  "Güvenli giriş ve şifre yenileme için şifre özeti, oturum belirteçlerinin ve tek kullanımlık şifre yenileme bağlantılarının özeti, başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri ile şifre yenileme taleplerini sınırlamak için e-posta ve IP adresinin özeti."
                 ]
               },
               {
@@ -4281,7 +4281,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ve şifre yenileme bağlantısı gibi işlem e-postaları, sitenin barındırıldığı Amazon Web Services’in e-posta gönderim hizmeti (Amazon SES) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla AWS tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {

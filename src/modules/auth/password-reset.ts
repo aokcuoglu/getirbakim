@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { mailConfig, sendMail, type MailMessage, type MailResult } from "@/lib/mail";
 import { siteUrl } from "@/lib/site";
 import { buildPasswordResetEmail } from "./account-email";
-import { consumeAccountToken, findAccountToken, issueAccountToken } from "./account-tokens";
+import { consumeAccountToken, findAccountToken, issueAccountToken, revokeAccountToken } from "./account-tokens";
 
 // Password reset by e-mail (#1257). The link (/sifre-yenile/baglanti?t=…) moves the token into RESET_COOKIE, scoped to
 // /sifre-yenile, and the form there sets the new password. Admin accounts are left out: they recover through the
@@ -19,7 +19,7 @@ type Send = (message: MailMessage) => Promise<MailResult>;
 
 /**
  * Mails a reset link to an approved customer or service account with this (lowercased) address. "none" when there is
- * no such account; the caller answers the same either way. A failed send leaves no usable token behind and throws.
+ * no such account; the caller answers the same either way. A failed send withdraws the token and answers "failed".
  */
 export async function sendPasswordReset(email: string, { send = sendMail, baseUrl = siteUrl }: { send?: Send; baseUrl?: string } = {}) {
   const { rows } = await db.query<{ id: string; name: string }>("SELECT id,name FROM accounts WHERE email=$1 AND approved AND role = ANY($2)", [email, RESETTABLE_ROLES]);
@@ -31,8 +31,11 @@ export async function sendPasswordReset(email: string, { send = sendMail, baseUr
   try {
     result = await send({ to: email, ...buildPasswordResetEmail({ name: account.name, url, minutes: RESET_TTL_MINUTES }) });
   } catch (error) {
-    await db.query("DELETE FROM account_tokens WHERE account_id=$1 AND purpose='password_reset'", [account.id]);
-    throw error;
+    await revokeAccountToken(db, token, "password_reset");
+    // Never the address or name: a provider's message may carry them, so only its code is logged.
+    const code = error instanceof Error && "code" in error ? String(error.code) : null;
+    console.error("Password reset mail failed", { account: account.id, code });
+    return "failed" as const;
   }
   console.info(`Password reset mail ${result.status} for account ${account.id}`);
   // Local checks without a mail provider: the link is in the server log. Never in production.

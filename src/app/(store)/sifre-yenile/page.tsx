@@ -6,9 +6,6 @@ import { privatePageRobots } from "@/modules/seo/crawlers";
 import { passwordResetTarget, RESET_COOKIE } from "@/modules/auth/password-reset";
 import { NewPasswordForm } from "@/components/auth/new-password-form";
 import { ResetRequestForm } from "@/components/auth/reset-request-form";
-import { Alert } from "@/components/ui/alert";
-import { storeErrorBox } from "@/components/store-alert-classes";
-import { cn } from "@/lib/utils";
 
 const backLink = "mt-6 flex w-fit items-center gap-1.5 text-sm leading-5 text-primary hover:underline";
 
@@ -28,7 +25,7 @@ export default async function PasswordReset({ searchParams }: { searchParams: Pr
     <h1 className="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">{target ? "Yeni şifreni belirle." : "Şifreni yenile."}</h1>
     {target
       ? <><p className="mb-6 text-base leading-6 text-muted-foreground">Yeni şifreni iki kez yaz. Şifren yenilenince tüm cihazlardaki oturumların kapanır.</p><NewPasswordForm /></>
-      : <>{invalid && <Alert className={cn(storeErrorBox, "mb-6")}>Bu bağlantı geçersiz ya da süresi dolmuş. Yeni bir bağlantı iste.</Alert>}<ResetRequestForm /></>}
+      : <ResetRequestForm invalidLink={invalid} />}
     <Link className={backLink} href="/giris">← Giriş ekranına dön</Link>
   </section>;
 }

@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { after, before, beforeEach, mock, test } from "node:test";
 import { compare } from "bcryptjs";
+// The real request/response classes for the link route; the mock below keeps them and replaces only `after`.
+import { NextRequest, NextResponse } from "next/server";
 import type { MailMessage } from "../src/lib/mail";
+import { siteUrl } from "../src/lib/site";
 import { buildPasswordResetEmail } from "../src/modules/auth/account-email";
 import { initialResetState } from "../src/modules/auth/reset-state";
 import { resetPasswordSchema, resetRequestSchema } from "../src/modules/auth/schemas";
@@ -21,7 +24,7 @@ let requestHeaders = new Headers();
 const afterCallbacks: (() => Promise<unknown>)[] = [];
 mock.module("next/headers", { namedExports: { cookies: async () => jar, headers: async () => requestHeaders } });
 mock.module("next/navigation", { namedExports: { redirect: (to: string) => { throw new Error(`NEXT_REDIRECT ${to}`); } } });
-mock.module("next/server", { namedExports: { after: (callback: () => Promise<unknown>) => { afterCallbacks.push(callback); } } });
+mock.module("next/server", { namedExports: { NextRequest, NextResponse, after: (callback: () => Promise<unknown>) => { afterCallbacks.push(callback); } } });
 // No mail provider: sendMail skips, so the action's background send only issues the token.
 delete process.env.MAIL_TRANSPORT;
 
@@ -60,6 +63,7 @@ let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let reset: typeof import("../src/modules/auth/password-reset");
 let actions: typeof import("../src/modules/auth/password-reset-actions");
 let tokens: typeof import("../src/modules/auth/account-tokens");
+let linkRoute: typeof import("../src/app/(store)/sifre-yenile/baglanti/route");
 let closeDb: () => Promise<void>;
 const form = (fields: Record<string, string>) => { const data = new FormData(); for (const [key, value] of Object.entries(fields)) data.set(key, value); return data; };
 const redirected = async (action: Promise<unknown>) => {
@@ -80,9 +84,9 @@ const tokenOf = (message: MailMessage) => new URL(/https?:\/\/\S+/.exec(message.
 
 before(async () => {
   schema = await isolatedSchema("password_reset_test");
-  const [{ db }, service, action, helpers] = await Promise.all([import("../src/lib/db"), import("../src/modules/auth/password-reset"),
-    import("../src/modules/auth/password-reset-actions"), import("../src/modules/auth/account-tokens")]);
-  reset = service; actions = action; tokens = helpers; closeDb = () => db.end();
+  const [{ db }, service, action, helpers, route] = await Promise.all([import("../src/lib/db"), import("../src/modules/auth/password-reset"),
+    import("../src/modules/auth/password-reset-actions"), import("../src/modules/auth/account-tokens"), import("../src/app/(store)/sifre-yenile/baglanti/route")]);
+  reset = service; actions = action; tokens = helpers; linkRoute = route; closeDb = () => db.end();
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
 beforeEach(async () => {
@@ -116,7 +120,7 @@ test("an unknown address, a pending service and an admin get no token and no mai
   assert.deepEqual([...await tokenRows(pending), ...await tokenRows(admin)], []);
 });
 
-test("a second request replaces the first link, and a failed send leaves no token", async () => {
+test("a second request replaces the first link, and a failed send withdraws only its token and logs no address", async (t) => {
   const id = await createAccount("twice@example.invalid");
   const mail = outbox();
   await reset.sendPasswordReset("twice@example.invalid", { send: mail.send });
@@ -125,8 +129,12 @@ test("a second request replaces the first link, and a failed send leaves no toke
   assert.equal(await reset.passwordResetTarget(first), null);
   assert.ok(await reset.passwordResetTarget(second));
   assert.deepEqual((await tokenRows(id)).map(row => row.token_hash), [sha(second)]);
-  await assert.rejects(reset.sendPasswordReset("twice@example.invalid", { send: async () => { throw new Error("SMTP down"); } }), /SMTP down/);
-  assert.deepEqual(await tokenRows(id), []);
+  const verification = await tokens.issueAccountToken(schema.pool, id, "email_verification", 60);
+  const logged = t.mock.method(console, "error", () => undefined);
+  const failure = Object.assign(new Error("554 Message rejected: twice@example.invalid"), { code: "EMESSAGE" });
+  assert.equal(await reset.sendPasswordReset("twice@example.invalid", { send: async () => { throw failure; } }), "failed");
+  assert.deepEqual((await tokenRows(id)).map(row => row.token_hash), [sha(verification)]);
+  assert.deepEqual(logged.mock.calls.map(call => call.arguments), [["Password reset mail failed", { account: id, code: "EMESSAGE" }]]);
 });
 
 test("a reset request answers the same for a known and an unknown address and mails after the response", async () => {
@@ -139,12 +147,12 @@ test("a reset request answers the same for a known and an unknown address and ma
   assert.deepEqual(await tokenRows(id), []);
   await Promise.all(afterCallbacks.map(callback => callback()));
   assert.equal((await tokenRows(id)).length, 1);
-  assert.deepEqual(await actions.requestPasswordReset(initialResetState, form({ email: "not-an-email" })), { status: "error", message: "Geçerli bir e-posta adresi gir.", attempt: 1 });
+  assert.deepEqual(await actions.requestPasswordReset(initialResetState, form({ email: "not-an-email" })), { status: "error", message: "Geçerli bir e-posta adresi gir.", attempt: 1, email: "not-an-email" });
 });
 
 test("the sixth request for one address is refused without spending the shared budget", async () => {
   for (let attempt = 1; attempt <= 5; attempt++) assert.equal((await actions.requestPasswordReset(initialResetState, form({ email: "busy@example.invalid" }))).status, "sent");
-  assert.deepEqual(await actions.requestPasswordReset(initialResetState, form({ email: "busy@example.invalid" })), { status: "error", message: limitError, attempt: 1 });
+  assert.deepEqual(await actions.requestPasswordReset(initialResetState, form({ email: "busy@example.invalid" })), { status: "error", message: limitError, attempt: 1, email: "busy@example.invalid" });
   assert.equal(afterCallbacks.length, 5);
   assert.equal(await spent("reset:global"), 5);
 });
@@ -202,7 +210,9 @@ test("the new-password action redirects to /giris and clears the reset and sessi
   cookieStore.set("gb_session", "eski-oturum");
   cookieStore.set("gb_session_at", "1");
   assert.deepEqual(await actions.resetPassword(initialResetState, form({ newPassword: password, confirmPassword: `${password}x` })),
-    { status: "error", message: "Şifre en az 12 karakter olmalı ve iki şifre aynı olmalı.", attempt: 1 });
+    { status: "error", message: "Şifreler aynı olmalı.", attempt: 1 });
+  assert.equal((await actions.resetPassword(initialResetState, form({ newPassword: "kisa-sifre1", confirmPassword: "kisa-sifre1" }))).message, "Şifre en az 12 karakter olmalı.");
+  assert.equal((await actions.resetPassword(initialResetState, form({ newPassword: "ş".repeat(40), confirmPassword: "ş".repeat(40) }))).message, "Şifre en fazla 72 UTF-8 bayt olabilir.");
   assert.equal(cookieStore.get("gb_reset"), token);
   assert.equal(await redirected(actions.resetPassword(initialResetState, form({ newPassword: password, confirmPassword: password }))), "/giris?sifre=yenilendi");
   assert.deepEqual([...cookieStore.keys()], []);
@@ -215,4 +225,41 @@ test("the new-password action with a used or missing link sends back to /sifre-y
   assert.equal(await redirected(actions.resetPassword(initialResetState, form({ newPassword: password, confirmPassword: password }))), "/sifre-yenile?durum=gecersiz");
   assert.equal(cookieStore.has("gb_reset"), false);
   assert.equal(await redirected(actions.resetPassword(initialResetState, form({ newPassword: password, confirmPassword: password }))), "/sifre-yenile?durum=gecersiz");
+});
+
+const openLink = (query: string) => linkRoute.GET(new NextRequest(`https://evil.example/sifre-yenile/baglanti${query}`));
+const assertSeeOther = (response: Response, location: string) => {
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get("location"), location);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(response.headers.get("referrer-policy"), "no-referrer");
+};
+
+test("the e-mail link moves a usable token into a /sifre-yenile cookie without using it up", async () => {
+  const id = await createAccount("link@example.invalid");
+  const token = await tokens.issueAccountToken(schema.pool, id, "password_reset", 60);
+  const response = await openLink(`?t=${token}`);
+  assertSeeOther(response, `${siteUrl}/sifre-yenile`);
+  const cookie = response.headers.get("set-cookie") ?? "";
+  assert.ok(cookie.startsWith(`gb_reset=${token};`), cookie);
+  assert.match(cookie, /Path=\/sifre-yenile(;|$)/);
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /SameSite=lax/i);
+  const maxAge = Number(/Max-Age=(\d+)/.exec(cookie)?.[1]);
+  assert.ok(maxAge > 3500 && maxAge <= 3600, String(maxAge));
+  assert.deepEqual((await tokenRows(id)).map(row => row.token_hash), [sha(token)]);
+});
+
+test("an unusable e-mail link lands on ?durum=gecersiz and clears the reset cookie", async () => {
+  const id = await createAccount("badlink@example.invalid");
+  const expired = await tokens.issueAccountToken(schema.pool, id, "password_reset", 60);
+  await schema.pool.query("UPDATE account_tokens SET expires_at=now()-interval '1 minute' WHERE token_hash=$1", [sha(expired)]);
+  for (const query of ["", "?t=", `?t=${expired}`, `?t=${"a".repeat(65)}`, "?t=uydurma-token"]) {
+    const response = await openLink(query);
+    assertSeeOther(response, `${siteUrl}/sifre-yenile?durum=gecersiz`);
+    const cookie = response.headers.get("set-cookie") ?? "";
+    assert.match(cookie, /^gb_reset=;/, query);
+    assert.match(cookie, /Path=\/sifre-yenile(;|$)/);
+    assert.match(cookie, /Max-Age=0/);
+  }
 });
