@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useId, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { storeButton } from "@/components/store-button";
 import { storeErrorBox, storeSuccessBox } from "@/components/store-alert-classes";
@@ -26,9 +27,11 @@ export function ResetRequestForm({ invalidLink = false }: { invalidLink?: boolea
   const requested = state.status === "sent" || dismissed >= 0;
 
   function tryAnother() {
-    setDismissed(state.attempt);
-    // The form is back after this render; focus its address field.
-    requestAnimationFrame(() => form.current?.querySelector<HTMLInputElement>("input[name=email]")?.focus());
+    // Render the form now and focus its address field in the same task: the clicked button is gone by then, and a
+    // later focus (a frame after) loses to the auth dialog's focus manager, which moves focus lost to the body back
+    // into the popup.
+    flushSync(() => setDismissed(state.attempt));
+    form.current?.querySelector<HTMLInputElement>("input[name=email]")?.focus();
   }
 
   // Keyed on the attempt: React resets the form after an action, so it remounts with the echoed address.

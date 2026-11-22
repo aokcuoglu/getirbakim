@@ -15,7 +15,8 @@ const usable = (token: string) => token.length > 0 && token.length <= ACCOUNT_TO
 /** Issues a new token valid for `ttlMinutes`; it replaces the account's earlier tokens of this purpose. Returns the raw token. */
 export async function issueAccountToken(client: Queryable, accountId: string, purpose: AccountTokenPurpose, ttlMinutes: number) {
   const token = randomBytes(32).toString("base64url");
-  // One statement: the replacement and the new row commit together, never an account without a token or with two.
+  // One statement: the earlier tokens go with the insert. Two concurrent requests under READ COMMITTED can still both
+  // insert, leaving two live tokens; harmless, since completePasswordReset deletes all of the account's reset tokens.
   await client.query(`WITH replaced AS (DELETE FROM account_tokens WHERE account_id=$2 AND purpose=$3)
     INSERT INTO account_tokens (token_hash,account_id,purpose,expires_at) VALUES ($1,$2,$3,now()+make_interval(mins=>$4::int))`,
     [hashOf(token), accountId, purpose, ttlMinutes]);
