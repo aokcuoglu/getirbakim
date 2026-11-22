@@ -314,7 +314,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
         {paymentOptions.length > 1 && <PaymentOptions options={paymentOptions}/>}
         <dl className="mt-[18px] mb-1.5">{specificationRows.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
         <a className="mb-5 inline-block font-medium text-[#0065c3] hover:underline" href="#product-specifications">Tüm özellikleri göster</a>
-        {!isB2B && <div className="flex flex-wrap items-center gap-3.5 border-t border-[#e0e5eb] pt-5 pb-1"><LoginButton>B2B hesabınla özel fiyatlarını gör →</LoginButton></div>}
+        {!account && <div className="flex flex-wrap items-center gap-3.5 border-t border-[#e0e5eb] pt-5 pb-1"><LoginButton>B2B hesabınla özel fiyatlarını gör →</LoginButton></div>}
       </div>
     </div>
     <div className="mt-8 mb-10 grid grid-cols-2 gap-[15px] max-[750px]:my-7 max-[750px]:grid-cols-1 max-[750px]:gap-2.5">

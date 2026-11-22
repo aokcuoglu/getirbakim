@@ -111,6 +111,7 @@ test("purchase claim: GA4 id, consent and role gate the flag; the window is 7 da
   const base = { ga4: "G-ABC123XYZ", marketing: false, role: undefined, consent: consent(true), now };
   assert.equal(purchaseClaimAllowed(base), true);
   assert.equal(purchaseClaimAllowed({ ...base, role: "service" }), true);
+  assert.equal(purchaseClaimAllowed({ ...base, role: "customer" }), true);
   assert.equal(purchaseClaimAllowed({ ...base, consent: null }), false);
   assert.equal(purchaseClaimAllowed({ ...base, consent: consent(false) }), false);
   assert.equal(purchaseClaimAllowed({ ...base, consent: "garbage" }), false);

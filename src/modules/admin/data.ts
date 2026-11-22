@@ -44,6 +44,17 @@ export async function adminServiceAccounts() {
   return (await db.query<ServiceAccount>(`SELECT ${serviceColumns} FROM accounts WHERE role='service' ORDER BY name`)).rows;
 }
 
+export type CustomerAccount = { id: string; name: string; email: string; applied_at: Date | null };
+/** Self-registered individual customers (#1254): the latest 50 and the total. */
+export async function adminCustomerAccounts() {
+  await requireAdmin();
+  const [rows, total] = await Promise.all([
+    db.query<CustomerAccount>("SELECT id,name,email,applied_at FROM accounts WHERE role='customer' ORDER BY applied_at DESC NULLS LAST,id LIMIT 50"),
+    db.query<{ count: number }>("SELECT count(*)::int AS count FROM accounts WHERE role='customer'"),
+  ]);
+  return { accounts: rows.rows, total: total.rows[0].count };
+}
+
 export async function adminPricing() {
   await requireAdmin();
   const [settings, latest, installments] = await Promise.all([

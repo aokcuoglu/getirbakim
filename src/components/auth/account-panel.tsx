@@ -13,7 +13,7 @@ import { logout } from "@/modules/auth/actions";
 import { storeButton } from "@/components/store-button";
 
 const benefits = [
-  { icon: ShieldCheck, title: "Güvenli hesap erişimi", text: "Servis hesabınla sana özel fiyatları görüntüle." },
+  { icon: ShieldCheck, title: "Güvenli hesap erişimi", text: "Siparişlerini ve adreslerini hesabından yönet." },
   { icon: CarFront, title: "Aracın her zaman elinin altında", text: "Araç bilgilerini garajına ekleyerek kolayca ulaş." },
   { icon: Search, title: "Kolay parça arama", text: "Ürün, marka veya OEM koduyla doğru parçayı ara." },
 ];
@@ -62,8 +62,9 @@ export function AccountPanel({ account, defaultOpen, initialPhoneOffset, restore
           )}>
           {account ? <>
             <h3 className="mt-0 mb-2.5 text-lg leading-[26px] font-semibold">{account.name}</h3>
-            <p className="mt-0 mb-5 text-sm leading-5 text-muted-foreground">Onaylı profesyonel hesabınla devam et.</p>
+            <p className="mt-0 mb-5 text-sm leading-5 text-muted-foreground">{account.role === "service" ? "Onaylı profesyonel hesabınla devam et." : "Hesabınla alışverişe devam et."}</p>
             <Button nativeButton={false} className={cn(storeButton({ intent: "primary", size: "md" }), "mt-3 flex w-full first:mt-0")} render={<Link href={account.role === "admin" ? "/yonetim" : "/garaj"} onClick={() => setOpen(false)} />}>{account.role === "admin" ? "Yönetim paneli" : "Garajım"}</Button>
+            <Button nativeButton={false} variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 flex w-full first:mt-0")} render={<Link href="/siparisler" onClick={() => setOpen(false)} />}>Siparişlerim</Button>
             <Button nativeButton={false} variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "mt-3 flex w-full first:mt-0")} render={<Link href="/hesap/adresler" onClick={() => setOpen(false)} />}>Adreslerim</Button>
             <form action={logout} className="mt-3"><Button type="submit" variant="outline" className={cn(storeButton({ intent: "outline", size: "md" }), "flex w-full")}>Çıkış yap</Button></form>
           </> : <>

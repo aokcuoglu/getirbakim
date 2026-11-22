@@ -165,6 +165,23 @@ test("the order email kinds are widened on an existing table the same way (#1036
   assert.equal((await read()).oid, swapped.oid);
 });
 
+test("the account roles are widened on an existing table the same way (#1254)", async () => {
+  const constraint = "SELECT oid,pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid='accounts'::regclass AND conname='accounts_role_check'";
+  const read = async () => (await schema.pool.query<{ oid: number; def: string }>(constraint)).rows[0];
+  const current = await read();
+  assert.match(current.def, /'admin'.*'service'.*'customer'/);
+  assert.deepEqual(await swapConstraints(schema.pool), []);
+  // The list a database set up before #1254 carries.
+  await schema.pool.query(`ALTER TABLE accounts DROP CONSTRAINT accounts_role_check,
+    ADD CONSTRAINT accounts_role_check CHECK (role IN ('admin','service'))`);
+  assert.deepEqual(await swapConstraints(schema.pool), ["accounts_role_check"]);
+  const swapped = await read();
+  assert.equal(swapped.def, current.def);
+  assert.deepEqual(await swapConstraints(schema.pool), []);
+  await rerun();
+  assert.equal((await read()).oid, swapped.oid);
+});
+
 test("columns in an older shape are still altered", async () => {
   const column = async () => (await schema.pool.query<{ notnull: boolean; hasdef: boolean }>(
     "SELECT attnotnull AS notnull,atthasdef AS hasdef FROM pg_attribute WHERE attrelid='supplier_imports'::regclass AND attname='completed_at'")).rows[0];

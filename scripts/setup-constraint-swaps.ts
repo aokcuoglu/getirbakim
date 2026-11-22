@@ -13,6 +13,8 @@ export const constraintSwaps = [
   { table: "supplier_price_anomalies", name: "supplier_price_anomalies_kind_check", column: "kind", values: ["currency", "offer-outlier"] },
   // db/commerce.sql, commerce_order_emails.kind (#1036).
   { table: "commerce_order_emails", name: "commerce_order_emails_kind_check", column: "kind", values: ["confirmation", "shipped", "cancelled", "refunded"] },
+  // db/schema.sql, accounts.role (#1254)
+  { table: "accounts", name: "accounts_role_check", column: "role", values: ["admin", "service", "customer"] },
 ] as const;
 
 // The validated constraint's quoted values, in order; empty when the table or the constraint is missing.

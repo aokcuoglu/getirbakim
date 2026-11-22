@@ -247,7 +247,7 @@ function VehicleSheetBody({ id, vehicle, onClose, initialTab, busyRef }: { id: s
             <Button type="button" variant="ghost" size="icon" disabled={pending} className={cn(storeButton({ intent: "ghost", size: "icon" }), "text-muted-foreground hover:text-destructive")} aria-label={`${entry.makeLabel} ${entry.modelLabel} aracını garajdan kaldır`} onClick={() => forget(entry.key)}><Trash2 size={15} /></Button>
           </li>)}</ul></div>}
         {!vehicle && !others.length && !garage && <p className="text-xs text-muted-foreground" role="status">Kayıtlı araçlar yükleniyor…</p>}
-        {garage && !garage.signedIn && <p className="mt-[18px] mb-0 text-xs leading-5 text-muted-foreground">Araçların bu tarayıcıda saklanır (en çok 5). B2B hesabınla giriş yaparsan hesabına kaydedilir ve her cihazda görünür.</p>}
+        {garage && !garage.signedIn && <p className="mt-[18px] mb-0 text-xs leading-5 text-muted-foreground">Araçların bu tarayıcıda saklanır (en çok 5). Giriş yaparsan hesabına kaydedilir ve her cihazda görünür.</p>}
       </TabsContent>
       {error && <p className="mx-5 mt-0 mb-5 rounded-[5px] bg-destructive-subtle p-3 text-[13px] leading-5 text-destructive-strong" role="alert">{error}</p>}
     </div>
