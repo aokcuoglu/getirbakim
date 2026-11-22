@@ -208,6 +208,9 @@ test("IntentLink renders a plain anchor and the four eager-prefetch call sites u
   const { IntentLink } = await import("@/components/intent-link");
   const html = renderToStaticMarkup(createElement(IntentLink, { href: "/sepet", className: "cart-x", "aria-label": "Sepetim" }, "Sepet"));
   assert.equal(html, '<a class="cart-x" aria-label="Sepetim" href="/sepet">Sepet</a>');
+  const intentSource = readFileSync("src/components/intent-link.tsx", "utf8");
+  assert.ok(intentSource.includes("prefetch={armed ? null : false}"));
+  for (const handler of ["onPointerEnter", "onTouchStart", "onFocus"]) assert.match(intentSource, new RegExp(`${handler}=\\{event => \\{ setArmed\\(true\\)`), handler);
   for (const [file, href] of [["home-highlights.tsx", "categoryPath"], ["maintenance-robot-banner.tsx", "/bakim-robotu"], ["navigation/cart-badge.tsx", "/sepet"], ["navigation/header-tools.tsx", "/sepet"]]) {
     const source = readFileSync(`src/components/${file}`, "utf8");
     assert.match(source, /<IntentLink /, file);
