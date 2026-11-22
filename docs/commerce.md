@@ -161,7 +161,7 @@ Kural `src/modules/store/fitment-level.ts` içindedir; ürün sayfası aynı kur
 
 ## Kurulum ve doğrulama
 
-`npm run db:commerce:migrate` mevcut DB'ye tabloları ve `commerce_catalog` görünümünü ekler. `npm run db:setup` yeni kurulumda da çalıştırır. Eski sepetler tek seferlik taşınır; geçiş yeniden çalıştırılabilir.
+`npm run db:commerce:migrate` mevcut DB'ye tabloları ve `commerce_catalog` görünümünü ekler. Listelemenin "Stokta" / "Stokta yok" filtresi `commerce_catalog`'u fiyat birleştirmeleriyle ikinci kez taramaz; yalnız `available` ve `stock_label` taşıyan `commerce_item_availability` görünümünü okur (#1242). Bu iki sütunun ifadeleri `commerce_catalog`'dakilerle aynı kalmalıdır; `npm run test:unavailable` iki görünümü karşılaştırır. `npm run db:setup` yeni kurulumda da çalıştırır. Eski sepetler tek seferlik taşınır; geçiş yeniden çalıştırılabilir.
 
 - `npm run verify:commerce`: fiyat formülü, stok sinyali, sepet, eşzamanlı sipariş/idempotency, fiyat değişimi ve stok ayırma.
 - `npm run verify:commerce:http`: çalışan sunucuda gerçek Server Action formları, B2B fiyatı, sipariş yetkisi, yönetim ekranları, servis indirimi ve iptalde stok iadesi.
