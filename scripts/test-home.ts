@@ -67,3 +67,79 @@ test("HeroBackdrop preloads exactly the URLs its <source> and <img> use (#1217)"
   assert.equal(attr(links[1], "imageSrcSet"), attr(sources[1], "srcSet"));
   assert.equal(attr(links[1], "href"), attr(html.match(/<img [^>]*>/)?.[0] ?? "", "src"));
 });
+
+type Callback = (entries: { isIntersecting: boolean }[]) => void;
+
+function fakeObserver() {
+  const state = { options: undefined as IntersectionObserverInit | undefined, observed: 0, disconnected: 0, callback: undefined as Callback | undefined };
+  class Fake {
+    constructor(callback: Callback, options?: IntersectionObserverInit) { state.callback = callback; state.options = options; }
+    observe() { state.observed++; }
+    disconnect() { state.disconnected++; }
+  }
+  return { state, Observer: Fake as unknown as typeof IntersectionObserver };
+}
+
+test("armOnApproach arms once when the node nears the viewport and then disconnects", async () => {
+  const { armOnApproach } = await import("@/components/home-arming");
+  const { state, Observer } = fakeObserver();
+  let armed = 0;
+  armOnApproach({} as Element, () => { armed++; }, Observer);
+  assert.deepEqual(state.options, { rootMargin: "200px 0px" });
+  assert.equal(state.observed, 1);
+  state.callback?.([{ isIntersecting: false }]);
+  assert.equal(armed, 0);
+  assert.equal(state.disconnected, 0);
+  state.callback?.([{ isIntersecting: true }]);
+  assert.equal(armed, 1);
+  assert.equal(state.disconnected, 1);
+});
+
+test("armOnApproach cleanup disconnects the observer", async () => {
+  const { armOnApproach } = await import("@/components/home-arming");
+  const { state, Observer } = fakeObserver();
+  armOnApproach({} as Element, () => undefined, Observer)();
+  assert.equal(state.disconnected, 1);
+});
+
+test("armOnApproach without IntersectionObserver arms asynchronously and can be cancelled", async () => {
+  const { armOnApproach } = await import("@/components/home-arming");
+  let armed = 0;
+  armOnApproach({} as Element, () => { armed++; }, undefined);
+  assert.equal(armed, 0);
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(armed, 1);
+  armOnApproach({} as Element, () => { armed++; }, undefined)();
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(armed, 1);
+});
+
+test("HomeCarousel keeps every slide in the HTML with the deferral classes; HomeGridPager defers pages after the first", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { HomeCarousel, HomeGridPager } = await import("@/components/home-controls");
+  const slides = Array.from({ length: 7 }, (_, index) => createElement("a", { key: index, href: `/s${index}` }, `slide ${index}`));
+  const carousel = renderToStaticMarkup(createElement(HomeCarousel, { label: "Ürünler", columns: 5, children: slides }));
+  for (let index = 0; index < 7; index++) assert.ok(carousel.includes(`href="/s${index}"`));
+  assert.match(carousel, /nth-\[n\+6\]:\[content-visibility:hidden\]/);
+  const entries = Array.from({ length: 20 }, (_, index) => createElement("span", { key: index }, `m${index}`));
+  const pager = renderToStaticMarkup(createElement(HomeGridPager, { label: "Markalar", kind: "makes", children: entries }));
+  const items = pager.match(/<div[^>]*data-slot="carousel-item"[^>]*>/g) ?? [];
+  assert.equal(items.length, 2);
+  assert.doesNotMatch(items[0], /content-visibility/);
+  assert.match(items[1], /content-visibility:hidden/);
+});
+
+test("home request-budget source guards (#1226)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const controls = readFileSync("src/components/home-controls.tsx", "utf8");
+  assert.doesNotMatch(controls, /requestIdleCallback|addEventListener\("load"/);
+  const newsletter = readFileSync("src/components/newsletter-signup.tsx", "utf8");
+  assert.doesNotMatch(newsletter, /backgroundImage|style=/);
+  assert.match(newsletter, /loading="lazy"/);
+  assert.match(readFileSync("src/components/home-highlights.tsx", "utf8"), /prefetch=\{false\}/);
+  const { HomeTrustLine } = await import("@/components/home-highlights");
+  assert.equal((renderToStaticMarkup(createElement(HomeTrustLine)).match(/<a /g) ?? []).length, 3);
+});

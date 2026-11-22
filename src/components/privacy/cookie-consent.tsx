@@ -119,7 +119,7 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
       <div className="mx-auto flex max-w-[1404px] flex-col gap-2 px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom))] min-[601px]:flex-row min-[601px]:items-center min-[601px]:justify-between min-[601px]:gap-6 min-[601px]:px-[38px] min-[601px]:py-2.5 min-[601px]:pb-[calc(10px+env(safe-area-inset-bottom))]">
         <p className="m-0 text-sm leading-5">
           Çerez kullanıyoruz.{" "}
-          <Link href="/bilgi/cerez-politikasi" className="-my-2 inline-block py-2 text-primary underline underline-offset-2">Ayrıntılar</Link>
+          <Link href="/bilgi/cerez-politikasi" prefetch={false} className="-my-2 inline-block py-2 text-primary underline underline-offset-2">Ayrıntılar</Link>
         </p>
         <div className="flex items-center gap-2">
           <Button type="button" className={choice} onClick={() => choose(false, false)}>Reddet</Button>
@@ -136,7 +136,7 @@ function BannerPanel({ settings, consent }: { settings: boolean; consent: Consen
       <p className="mt-0 mb-3 text-xs leading-[21px] max-[600px]:leading-5">
         Sitemizin çalışması, sepetinizin ve araç tercihlerinizin hatırlanması için gerekli çerezleri kullanıyoruz.
         Analiz ve reklam çerezleri yalnızca izin vermeniz hâlinde etkinleşir; tercihinizi sayfanın altındaki “Çerez tercihleri” bağlantısından değiştirebilirsiniz.
-        Ayrıntılar için <Link href="/bilgi/cerez-politikasi" className="text-primary underline underline-offset-2">Çerez politikamızı</Link> inceleyin.
+        Ayrıntılar için <Link href="/bilgi/cerez-politikasi" prefetch={false} className="text-primary underline underline-offset-2">Çerez politikamızı</Link> inceleyin.
       </p>
       {fields && <fields.CookieSettings options={options} checked={checked} setters={setters} />}
       <div className="flex flex-wrap gap-2">

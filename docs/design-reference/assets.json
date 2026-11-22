@@ -531,13 +531,13 @@
   },
   {
     "key": "5016450e908e1d80",
-    "name": "w40_brake_discs_web.jpg",
+    "name": "home-brake-discs.webp",
     "kind": "image",
     "sourceUrl": "https://www.trodo.com/media/site/sliders/images/w/4/w40_brake_discs_web.jpg",
-    "localPath": "/media/site/images/w40_brake_discs_web.jpg",
+    "localPath": "/media/site/images/home-brake-discs.webp",
     "contentType": "image/webp",
-    "sha256": "7d01bf01e58b2f0a7a3cf43e44634600df32488163d83d641dae5d7ab077b7cf",
-    "bytes": 29452
+    "sha256": "dbd6c9a32e34658f76d52630dcd718aa92f0a8ac00dec8c486d84acb0441a0aa",
+    "bytes": 20014
   },
   {
     "key": "82e951bb04e3901c",
