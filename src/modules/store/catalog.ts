@@ -52,6 +52,9 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
 };
 // Prices and availability are calculated by the shared commerce view.
 export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=ANY($1::text[])";
+// Only id, available and stock_label of the same rows, without the pricing joins (db/commerce.sql, #1242): the listing's
+// availability filter.
+export const availabilitySql = "SELECT * FROM commerce_item_availability WHERE source='store' OR company=ANY($1::text[])";
 // The store's listing, search and product page also show products nobody supplies now (`unavailable`, #475); cart,
 // checkout, partner API and maintenance kits keep reading the saleable catalogSql.
 export const storefrontCatalogSql = "SELECT * FROM storefront_catalog WHERE source='store' OR company=ANY($1::text[])";
@@ -601,10 +604,11 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))`);
  }
  // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
+ // Both read the lean availability view, not commerce_catalog's priced rows a second time (#1242).
  if(query.availability==='supplied')clauses.push('NOT catalog.unavailable');
  else if(query.availability)clauses.push(query.availability==='in_stock'
-  ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${catalogSql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
-  :`catalog.id IN (SELECT id FROM (${catalogSql}) available_catalog WHERE NOT available AND stock_label='Stokta yok')`);
+  ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
+  :`catalog.id IN (SELECT id FROM (${availabilitySql}) available_catalog WHERE NOT available AND stock_label='Stokta yok')`);
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
  return {values,where,from,search};

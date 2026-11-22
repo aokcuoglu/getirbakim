@@ -500,3 +500,91 @@ describe("by-id catalog reads", () => {
       assert.doesNotMatch(text, copy, file);
   });
 });
+
+// The listing's availability filter reads commerce_item_availability (#1242), a copy of commerce_catalog's
+// available/stock_label expressions without the pricing joins.
+describe("availability filter (#1242)", () => {
+  async function observation(key: string, { supplier, stock, seenHoursAgo = 1, group = "AV" }:
+    { supplier: "basbug" | "dinamik" | "seta" | "manual"; stock: Record<string, number> | null; seenHoursAgo?: number; group?: string }) {
+    const company = { basbug, dinamik, seta: "SETA", manual: "MANUEL" }[supplier];
+    const { rows } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+      VALUES($1,$2,$3,$4,$5,$6,'{"nf":100}',$7,1,1,1,false,'present',now()-interval '10 days',now()-make_interval(hours=>$8),now()-make_interval(hours=>$8))
+      RETURNING id::text`, [supplier, company, group, supplier === "basbug" ? "MRK" : "ALL", `AV ${key}`,
+      { uk: "AVTEST", ac: `${key} PARCA`, dc: "TL" }, stock, seenHoursAgo]);
+    ids[key] = rows[0].id;
+  }
+  const columns = "id::text,available,stock_label";
+  const difference = async (from: string, minus: string) => (await schema.pool.query(
+    `SELECT ${columns} FROM ${from} EXCEPT ALL SELECT ${columns} FROM ${minus}`)).rows;
+
+  before(async () => {
+    await observation("avStock", { supplier: "basbug", stock: { stok: 3 } });
+    await observation("avZero", { supplier: "basbug", stock: { stok: 0 } });
+    await observation("avOtherDepot", { supplier: "basbug", stock: { stok: 0, sFarkliDepo: 2 } });
+    await observation("avRoad", { supplier: "dinamik", stock: { stok: 0, sYol: 5 } });
+    await observation("avManual", { supplier: "manual", stock: null, seenHoursAgo: 500 });
+    await observation("avSeta", { supplier: "seta", stock: null });
+    // Older than commerce_settings.max_age_hours, and a scope whose last success is stale.
+    await observation("avStale", { supplier: "basbug", stock: { stok: 3 }, seenHoursAgo: 100 });
+    await observation("avStaleScope", { supplier: "dinamik", stock: { stok: 3 }, group: "AV-STALE" });
+    await schema.pool.query(`INSERT INTO supplier_sync_scopes(supplier,company,list_group,warehouse,stale_minutes,last_success_at)
+      VALUES('dinamik',$1,'AV-STALE','ALL',60,now()-interval '1 day')`, [dinamik]);
+    await observation("avHidden", { supplier: "dinamik", stock: { stok: 2 } });
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.avHidden]);
+    const store = await schema.pool.query<{ id: string }>(`INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock)
+      VALUES('demo','AV-STORE-1','Depo ürünü','AVTEST',10000,2),('demo','AV-STORE-0','Depo ürünü','AVTEST',10000,0) RETURNING id::text`);
+    [ids.avStore, ids.avStoreEmpty] = store.rows.map(row => row.id);
+  });
+
+  test("the availability view equals commerce_catalog's columns in both checkout modes", async () => {
+    const mode = (await schema.pool.query<{ mode: string }>("SELECT basbug_checkout_mode AS mode FROM commerce_settings")).rows[0].mode;
+    try {
+      for (const checkout of ["live", "snapshot"]) {
+        await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [checkout]);
+        assert.deepEqual(await difference("commerce_catalog", "commerce_item_availability"), [], checkout);
+        assert.deepEqual(await difference("commerce_item_availability", "commerce_catalog"), [], checkout);
+        const labels = new Map((await schema.pool.query<{ id: string; stock_label: string }>(
+          "SELECT id::text,stock_label FROM commerce_item_availability WHERE id=ANY($1::uuid[])",
+          [Object.values(ids)])).rows.map(row => [row.id, row.stock_label]));
+        assert.equal(labels.has(ids.avHidden), false, checkout);
+        assert.equal(labels.get(ids.avStore), "Stokta mevcut: 2 adet");
+        assert.equal(labels.get(ids.avStoreEmpty), "Stokta yok");
+        // The fixture reaches every branch of the label.
+        const expected: Record<string, string> = checkout === "live"
+          ? { avStock: "Tedarikçide mevcut", avZero: "Stokta yok", avOtherDepot: "Diğer depoda mevcut", avRoad: "Tedarikçiye sevkiyat bekleniyor",
+            avManual: "Stok bilgisi bulunamadı", avSeta: "Stok bilgisi bulunamadı", avStale: "Stok bilgisi güncelleniyor", avStaleScope: "Stok bilgisi güncelleniyor" }
+          : { avStock: "Stokta · Siparişten sonra teyit edilir", avZero: "Stokta yok", avOtherDepot: "Stokta · Siparişten sonra teyit edilir",
+            avRoad: "Tedarikçiye sevkiyat bekleniyor", avManual: "Stok bilgisi bulunamadı", avSeta: "Stok bilgisi bulunamadı",
+            avStale: "Stokta · Siparişten sonra teyit edilir", avStaleScope: "Stokta · Siparişten sonra teyit edilir" };
+        for (const [key, label] of Object.entries(expected)) assert.equal(labels.get(ids[key]), label, `${checkout} ${key}`);
+      }
+    } finally {
+      await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [mode]);
+    }
+  });
+
+  test("'Stokta' lists a group whose primary is sold out by its stocked offer; the offer is never its own card", async () => {
+    const { invalidateListings } = await import("../src/modules/store/listing-epoch");
+    await item("grpPrimary", { supplier: "basbug", code: "GRP 7777", brand: "GRUPTEST", stock: 0 });
+    await item("grpOffer", { supplier: "dinamik", code: "GRUPTEST 7777", brand: "GRUPTEST", stock: 4 });
+    await schema.pool.query("INSERT INTO products(id,brand,part_number,name,brand_label,code) VALUES($1,'GRUPTEST','7777','PARCA','GRUPTEST','GRP 7777')", [ids.grpPrimary]);
+    await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($2,$1)", [ids.grpPrimary, ids.grpOffer]);
+    await schema.pool.query("SELECT refresh_product_matches()");
+    const primary = (await schema.pool.query<{ primary_id: string }>("SELECT primary_id::text FROM product_offers WHERE item_id=$1", [ids.grpOffer])).rows[0]?.primary_id;
+    assert.equal(primary, ids.grpPrimary);
+    await invalidateListings();
+    const listed = async (availability: "in_stock" | "out_of_stock") =>
+      (await catalog.browseProducts({ brand: "GRUPTEST", availability })).items.map(row => row.id);
+    assert.deepEqual(await listed("in_stock"), [ids.grpPrimary]);
+    assert.ok(!(await listed("out_of_stock")).includes(ids.grpOffer));
+  });
+
+  test("the availability clause does not scan commerce_catalog again", async () => {
+    const source = await readFile("src/modules/store/catalog.ts", "utf8");
+    const clause = source.slice(source.indexOf("if(query.availability==='supplied')"), source.indexOf("const where", source.indexOf("if(query.availability==='supplied')")));
+    assert.match(clause, /availabilitySql/);
+    assert.doesNotMatch(clause, /catalogSql|commerce_catalog/);
+    assert.match(source, /export const availabilitySql = "SELECT \* FROM commerce_item_availability /);
+  });
+});
