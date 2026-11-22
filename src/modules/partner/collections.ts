@@ -2,6 +2,7 @@ import "server-only";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
 import { activeCollectedKurus, invoicedDaySql, lockPartnerOrders } from "./limits";
+import { closedPeriod } from "./period-guard";
 import type { PaymentMethod } from "./payment-methods";
 
 /**
@@ -10,7 +11,8 @@ import type { PaymentMethod } from "./payment-methods";
  * per invoice are allowed, over-payment is not: the active payments never exceed the invoice's total. A wrong payment is
  * voided with a reason, never edited or deleted. Recording and voiding run under the partner's order lock, like the
  * invoice corrections and undos that change an invoice's total. Payments never change the open-order limit and are not
- * part of the partner API.
+ * part of the partner API. A closed period (#1200, periods.ts) is governed by the payment day (paid_on) only: recording a
+ * payment paid in a closed month, or voiding one, is refused; the invoice's own month does not matter.
  */
 type Connection = Pick<PoolClient, "query">;
 
@@ -31,7 +33,7 @@ export type PaymentRequest = {
 };
 export type PaymentOutcome =
   | { status: "recorded"; id: string; balanceKurus: number }
-  | { status: "nothing" } | { status: "changed" } | { status: "overpaid"; balanceKurus: number };
+  | { status: "nothing" } | { status: "changed" } | { status: "overpaid"; balanceKurus: number } | { status: "closed"; period: string };
 
 /** Records one payment against an invoice; refused when the invoice is gone, changed since shown, or would be over-paid. */
 export async function recordInvoicePayment(request: PaymentRequest): Promise<PaymentOutcome> {
@@ -39,6 +41,8 @@ export async function recordInvoicePayment(request: PaymentRequest): Promise<Pay
   try {
     await client.query("BEGIN");
     await lockPartnerOrders(client, request.partner);
+    const closed = await closedPeriod(client, request.partner, [request.paidOn]);
+    if (closed) { await client.query("ROLLBACK"); return { status: "closed", period: closed }; }
     const totalKurus = await invoiceTotalKurus(client, request.partner, request.invoiceRef, request.invoiceDate);
     if (totalKurus == null) { await client.query("ROLLBACK"); return { status: "nothing" }; }
     const collectedKurus = await activeCollectedKurus(client, request.partner, request.invoiceRef, request.invoiceDate);
@@ -59,9 +63,12 @@ export async function recordInvoicePayment(request: PaymentRequest): Promise<Pay
 }
 
 export type PaymentVoidRequest = { paymentId: string; reason: string; adminId: string | null };
-export type PaymentVoidOutcome = { status: "voided"; partner: string } | { status: "nothing" };
+export type PaymentVoidOutcome = { status: "voided"; partner: string } | { status: "nothing" } | { status: "closed"; period: string; partner: string };
 
-/** Voids an active payment with a reason; the invoice's balance opens again. A voided or unknown payment finds nothing. */
+/**
+ * Voids an active payment with a reason; the invoice's balance opens again. A voided or unknown payment finds nothing; one
+ * paid in a closed month (#1200) is refused.
+ */
 export async function voidInvoicePayment(request: PaymentVoidRequest): Promise<PaymentVoidOutcome> {
   const owner = await db.query<{ partner_code: string }>("SELECT partner_code FROM partner_invoice_payments WHERE id=$1", [request.paymentId]);
   const partner = owner.rows[0]?.partner_code;
@@ -70,10 +77,15 @@ export async function voidInvoicePayment(request: PaymentVoidRequest): Promise<P
   try {
     await client.query("BEGIN");
     await lockPartnerOrders(client, partner);
-    const { rowCount } = await client.query("UPDATE partner_invoice_payments SET voided_at=now(),voided_by=$2,void_reason=$3 WHERE id=$1 AND voided_at IS NULL",
+    const { rows } = await client.query<{ paid_on: string }>(`SELECT to_char(paid_on,'YYYY-MM-DD') AS paid_on FROM partner_invoice_payments
+      WHERE id=$1 AND voided_at IS NULL FOR UPDATE`, [request.paymentId]);
+    if (!rows[0]) { await client.query("ROLLBACK"); return { status: "nothing" }; }
+    const closed = await closedPeriod(client, partner, [rows[0].paid_on]);
+    if (closed) { await client.query("ROLLBACK"); return { status: "closed", period: closed, partner }; }
+    await client.query("UPDATE partner_invoice_payments SET voided_at=now(),voided_by=$2,void_reason=$3 WHERE id=$1 AND voided_at IS NULL",
       [request.paymentId, request.adminId, request.reason]);
     await client.query("COMMIT");
-    return rowCount ? { status: "voided", partner } : { status: "nothing" };
+    return { status: "voided", partner };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;

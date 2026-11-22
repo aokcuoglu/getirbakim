@@ -7,12 +7,17 @@ import { savePartnerDiscount } from "@/modules/partner/discounts";
 import { setPartnerIntakePaused } from "@/modules/partner/intake";
 import { changePartnerInvoice, invoicePartnerOrders, knownPartners, savePartnerOrderLimit, undoPartnerOrderInvoice } from "@/modules/partner/limits";
 import { recordInvoicePayment, savePartnerPaymentTerm as storePaymentTerm, voidInvoicePayment } from "@/modules/partner/collections";
+import { closePeriod, reopenPeriod } from "@/modules/partner/periods";
 import { parsePartnerWebhooks, partnerWebhooksEnv } from "@/modules/partner/webhook-contract";
 import { deliverPartnerWebhooksSafely, readPartnerWebhookEvent, requeuePartnerWebhook, requeuePartnerWebhooks } from "@/modules/partner/webhooks";
 import { money } from "@/modules/store/money";
 import { orderListReturn } from "./order-list-return";
 import { partnerDiscountInput, partnerInvoiceChangeInput, partnerInvoiceInput, partnerIntakeInput, partnerLimitInput, partnerOrderInvoiceUndoInput, partnerPaymentInput,
-  partnerPaymentVoidInput, partnerTermInput, partnerWebhookRequeueAllInput, partnerWebhookRequeueInput } from "./partner-input";
+  partnerPaymentVoidInput, partnerPeriodCloseInput, partnerPeriodReopenInput, partnerTermInput, partnerWebhookRequeueAllInput, partnerWebhookRequeueInput,
+  periodLabel } from "./partner-input";
+
+/** A change refused because its month is closed for the partner (#1200). */
+const closedMessage = (period: string) => `${periodLabel(period)} dönemi bu partner için kapatılmış. İşlem için önce dönemi gerekçeyle yeniden açın.`;
 
 /** A partner's open-order limit (#426): a TL amount, or empty to fall back to PARTNER_ORDER_LIMIT_KURUS. */
 export async function savePartnerLimit(form: FormData) {
@@ -121,6 +126,7 @@ export async function markPartnerInvoiced(_previous: PartnerInvoiceResult, form:
   revalidatePath("/yonetim/partnerler");
   if (outcome.status === "nothing") return { status: "error", message: "Bu tarihe kadar teslim edilmiş, faturalanmamış sipariş kalmadı. Sayfayı yenileyin." };
   if (outcome.status === "changed") return { status: "error", message: "Siparişler bu pencere açıldıktan sonra değişti; hiçbir sipariş işaretlenmedi. Sayfayı yenileyip yeniden deneyin." };
+  if (outcome.status === "closed") return { status: "error", errors: { invoiceDate: [closedMessage(outcome.period)] } };
   revalidatePath("/yonetim/siparisler");
   return { status: "success", next: `/yonetim/partnerler?invoiced=${outcome.count}&partner=${encodeURIComponent(partner)}` };
 }
@@ -157,6 +163,9 @@ export async function changePartnerInvoiceMark(_previous: PartnerInvoiceChangeRe
   if (outcome.status === "same") return { status: "error", message: "Yeni fatura bilgisi eskisiyle aynı." };
   if (outcome.status === "merge") return { status: "error", errors: { newInvoiceRef: ["Bu partnerin aynı numara ve tarihli başka bir faturası var; iki fatura birleşirdi. Farklı bir numara ya da tarih girin."] } };
   if (outcome.status === "collected") return { status: "error", message: collectedMessage };
+  if (outcome.status === "closed") {
+    return outcome.side === "new" ? { status: "error", errors: { newInvoiceDate: [closedMessage(outcome.period)] } } : { status: "error", message: closedMessage(outcome.period) };
+  }
   revalidatePath("/yonetim/siparisler");
   const done = outcome.status === "undone" ? "undone" : "corrected";
   return { status: "success", next: `/yonetim/partnerler?${done}=${outcome.count}&partner=${encodeURIComponent(change.partner)}` };
@@ -180,6 +189,7 @@ export async function undoPartnerOrderInvoiceMark(_previous: PartnerOrderInvoice
   if (outcome.status === "nothing") return { status: "error", message: "Bu sipariş artık faturalandı olarak işaretli değil; başka biri geri almış olabilir. Listeyi yenileyin." };
   if (outcome.status === "changed") return { status: "error", message: "Siparişin fatura bilgisi bu pencere açıldıktan sonra değişti; hiçbir şey değiştirilmedi. Listeyi yenileyip yeniden deneyin." };
   if (outcome.status === "collected") return { status: "error", message: collectedMessage };
+  if (outcome.status === "closed") return { status: "error", message: closedMessage(outcome.period) };
   revalidatePath("/yonetim/siparisler");
   revalidatePath("/yonetim/partnerler");
   // invoice_emptied: the order was the invoice's last one, so the invoice is gone from /yonetim/partnerler.
@@ -227,6 +237,7 @@ export async function recordPartnerPayment(_previous: PartnerPaymentResult, form
   revalidatePath("/yonetim/partnerler");
   if (outcome.status === "nothing") return { status: "error", message: "Bu fatura artık işaretli değil; düzeltilmiş ya da geri alınmış olabilir. Sayfayı yenileyin." };
   if (outcome.status === "changed") return { status: "error", message: "Faturanın tutarı ya da tahsilatı bu pencere açıldıktan sonra değişti; tahsilat kaydedilmedi. Sayfayı yenileyip yeniden deneyin." };
+  if (outcome.status === "closed") return { status: "error", errors: { paidOn: [closedMessage(outcome.period)] } };
   if (outcome.status === "overpaid") return { status: "error", errors: { amount: [`Tutar faturanın kalanını (${money(outcome.balanceKurus)}) aşamaz.`] } };
   return { status: "success", next: `/yonetim/partnerler?collected=${encodeURIComponent(partner)}` };
 }
@@ -244,5 +255,52 @@ export async function voidPartnerPayment(_previous: PartnerPaymentVoidResult, fo
   const outcome = await voidInvoicePayment({ paymentId: input.data.payment, reason: input.data.reason, adminId: admin.id });
   revalidatePath("/yonetim/partnerler");
   if (outcome.status === "nothing") return { status: "error", message: "Bu tahsilat zaten iptal edilmiş ya da bulunamadı. Sayfayı yenileyin." };
+  if (outcome.status === "closed") return { status: "error", message: closedMessage(outcome.period) };
   return { status: "success", next: `/yonetim/partnerler?voided=${encodeURIComponent(outcome.partner)}` };
+}
+
+export type PartnerPeriodResult = { status: "idle" | "success" | "error"; message?: string; errors?: Partial<Record<"period" | "note" | "reason", string[]>>; next?: string };
+
+const periodReturn = (outcome: "period_closed" | "period_reopened", partner: string, period: string) =>
+  `/yonetim/partnerler?${outcome}=${encodeURIComponent(partner)}&donem=${period}`;
+
+/**
+ * "Dönemi kapat" (#1200): closes a partner's month (up to the current one) with an optional note. Afterwards invoices
+ * dated in it and payments paid in it can no longer be marked, corrected, undone, recorded or voided until it is reopened.
+ */
+export async function closePartnerPeriod(_previous: PartnerPeriodResult, form: FormData): Promise<PartnerPeriodResult> {
+  const admin = await requireAdmin();
+  const input = partnerPeriodCloseInput().safeParse(Object.fromEntries(form));
+  if (!input.success) {
+    const errors: Partial<Record<string, string[]>> = input.error.flatten().fieldErrors;
+    const shown = { period: errors.period, note: errors.note };
+    return Object.values(shown).some(Boolean) ? { status: "error", errors: shown } : { status: "error", message: "Partner bulunamadı. Sayfayı yenileyin." };
+  }
+  const { codes } = await knownPartners();
+  if (!codes.includes(input.data.partner)) return { status: "error", message: "Partner bulunamadı. Sayfayı yenileyin." };
+  const { partner, period, note } = input.data;
+  const outcome = await closePeriod({ partner, period, note, adminId: admin.id });
+  if (outcome.status === "future") return { status: "error", errors: { period: ["Gelecek ay kapatılamaz."] } };
+  revalidatePath("/yonetim/partnerler");
+  revalidatePath("/yonetim/siparisler");
+  // "already": someone closed it meanwhile; the month is closed either way.
+  return { status: "success", next: periodReturn("period_closed", partner, period) };
+}
+
+/** "Dönemi yeniden aç" (#1200): reopens a closed month with a reason (5–500 characters), recorded in the period history. */
+export async function reopenPartnerPeriod(_previous: PartnerPeriodResult, form: FormData): Promise<PartnerPeriodResult> {
+  const admin = await requireAdmin();
+  const input = partnerPeriodReopenInput.safeParse(Object.fromEntries(form));
+  if (!input.success) {
+    const reason = input.error.flatten().fieldErrors.reason;
+    return reason ? { status: "error", errors: { reason } } : { status: "error", message: "Dönem bulunamadı. Sayfayı yenileyin." };
+  }
+  const { codes } = await knownPartners();
+  if (!codes.includes(input.data.partner)) return { status: "error", message: "Partner bulunamadı. Sayfayı yenileyin." };
+  const { partner, period, reason } = input.data;
+  const outcome = await reopenPeriod({ partner, period, reason, adminId: admin.id });
+  revalidatePath("/yonetim/partnerler");
+  if (outcome.status === "nothing") return { status: "error", message: "Bu dönem zaten açık. Sayfayı yenileyin." };
+  revalidatePath("/yonetim/siparisler");
+  return { status: "success", next: periodReturn("period_reopened", partner, period) };
 }
