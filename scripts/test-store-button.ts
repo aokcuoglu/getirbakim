@@ -230,7 +230,7 @@ const rawButtons: Record<string, number> = {
   "components/catalog-card-controls.tsx": 1, // card specs toggle
   "components/product-gallery.tsx": 1, // thumbnail: an image selector
   "privacy/cookie-consent.tsx": 1, // footer cookie link
-  "components/product-fitment.tsx": 3, // product page text buttons: .fitment-text-button copies storeButton link/md (#1211)
+  "components/product-fitment.tsx": 4, // product page text buttons: .fitment-text-button copies storeButton link/md (#1211); a held-back panel's "Tekrar dene" (#1324)
   "components/product-references.tsx": 1, // product page "Tüm … markayı göster": .fitment-text-button (#1211)
 };
 

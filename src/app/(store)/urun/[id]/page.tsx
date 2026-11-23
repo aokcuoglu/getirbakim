@@ -231,7 +231,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const fitmentSummary = fallbacks.vehicleModels.length ? fallbacks.vehicleModels
     : vehicles.length ? [...new Set(vehicles.map(row => row.model))] : descriptionModels.map(row => `${row.brand} ${row.model}`);
   // The list prints its first model groups, the garage vehicle's first; the rest loads from /api/product-fitments/[id]
-  // under the version of the garage-independent list (#966).
+  // under the version of the garage-independent list (#966), as do the printed groups' engine rows past 24 (#1324).
   const fitmentGarage = garageVehicle && vehicle ? { ...garageVehicle, makeLabel: fitmentLabels({ model: vehicle.make }, makeNames).makeLabel } : null;
   const fitmentList = productPageFitment({ vehicles, makeNames, modelFits, modelPaths }, fitmentGarage, product.id);
   // The OEM and equivalent numbers (#1211): a long list prints its first rows, the linked and vehicle-maker ones first;
