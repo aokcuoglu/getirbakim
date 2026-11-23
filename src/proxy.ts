@@ -10,10 +10,11 @@ import { legacyRedirect } from "@/modules/seo/legacy-redirects";
 // The cookie outlives the database expiry that currentAccount() extends; a dead token kept alive here stays rejected there.
 // Old listing addresses (/automakers, /car-parts/<make>, /katalog?category=) move with one 301 (#638). Next needs an
 // absolute URL here and sends it on relative (same host), so a CDN or load balancer in front keeps its own host.
-// Publicly cached GETs (category tree, category and product images, a product's fitment list #966, the product feed)
-// never carry a session cookie: a shared cache would keep the Set-Cookie with the body and hand one visitor's session to
-// the next (#642). The matcher skips them; the check here keeps it that way if the matcher changes.
-const publicCachedPath = /^\/(?:api\/(?:categories|category-media|product-media|product-fitments)|feeds)(?:\/|$)/;
+// Publicly cached GETs (category tree, category and product images, a product's fitment list #966 and reference list
+// #1211, the product feed) never carry a session cookie: a shared cache would keep the Set-Cookie with the body and hand
+// one visitor's session to the next (#642). The matcher skips them; the check here keeps it that way if the matcher
+// changes.
+const publicCachedPath = /^\/(?:api\/(?:categories|category-media|product-media|product-fitments|product-references)|feeds)(?:\/|$)/;
 // The Report-Only CSP (#1291, src/lib/csp.ts) goes on document requests only: server actions and API routes render no
 // HTML, so they need no nonce. RSC requests are left out by the matcher: Next strips the rsc header (and _rsc) before
 // the proxy sees the request. A signed-in RSC request still runs the proxy for the cookie and gets the (ignored)
@@ -66,6 +67,6 @@ export const config = {
    source: "/((?!api/|_next/static|_next/image|feeds/|sitemaps/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|webmanifest|woff2?)$).*)",
    missing: [{ type: "header", key: "rsc" }, { type: "header", key: "next-router-prefetch" }, { type: "header", key: "purpose", value: "prefetch" }],
   },
-  { source: "/((?!_next/static|_next/image|api/(?:categories|category-media|product-media|product-fitments)(?:/|$)|feeds/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
+  { source: "/((?!_next/static|_next/image|api/(?:categories|category-media|product-media|product-fitments|product-references)(?:/|$)|feeds/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
  ],
 };

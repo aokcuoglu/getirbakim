@@ -4,7 +4,7 @@ import { defaultSocialImage, siteOpenGraph, siteUrl } from "@/lib/site";
 import Link from "next/link";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, CarFront, Headphones } from "lucide-react";
-import { getDecidedEquivalents, getSetaEquivalents, getStorefrontProduct, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
+import { getStorefrontProduct, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
 import { currentAccount } from "@/modules/auth/session";
 import { accountEmailEnabled } from "@/modules/auth/account-email-switch";
 import { PurchaseForm } from "@/components/purchase-form";
@@ -43,8 +43,10 @@ import { notListedInput, vehicleNotListed } from "@/modules/store/fitment-notice
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { describeYears, getDescriptionFitments } from "@/modules/store/description-fitment.server";
 import { ProductFitment } from "@/components/product-fitment";
-import { productPageFitment } from "@/modules/store/product-fitment-sources";
-import { getReferenceLinks } from "@/modules/store/reference-links";
+import { fitmentVersion, productPageFitment } from "@/modules/store/product-fitment-sources";
+import { ProductReferences } from "@/components/product-references";
+import { productReferenceRows } from "@/modules/store/product-reference-data.server";
+import { initialReferenceView } from "@/modules/store/product-reference-view";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
 import { JsonLd } from "@/components/json-ld";
@@ -232,35 +234,10 @@ export default async function Detail({ params, searchParams }: { params: Promise
   // under the version of the garage-independent list (#966).
   const fitmentGarage = garageVehicle && vehicle ? { ...garageVehicle, makeLabel: fitmentLabels({ model: vehicle.make }, makeNames).makeLabel } : null;
   const fitmentList = productPageFitment({ vehicles, makeNames, modelFits, modelPaths }, fitmentGarage, product.id);
-  const referenceNumbers: Record<string, string[]> = {};
-  for (const [brand, codes] of [...Object.entries(refs.crossReferences), ...Object.entries(refs.oemNumbers)]) {
-    referenceNumbers[brand] = [...new Set([...(referenceNumbers[brand] || []), ...codes])];
-  }
-  const references = Object.entries(referenceNumbers).sort(([a], [b]) => a.localeCompare(b));
-  const referenceHref = await getReferenceLinks(product.id, [
-    ...Object.entries(refs.crossReferences).map(([brand, codes]) => ({ brand, codes, kind: "cross" as const })),
-    ...Object.entries(refs.oemNumbers).map(([brand, codes]) => ({ brand, codes, kind: "oem" as const })),
-  ]);
-  const [seta, decided] = await Promise.all([product.supplier === "seta" ? [] : getSetaEquivalents(product.id), getDecidedEquivalents(product.id)]);
-  const referenceRows: [string, { code: string; href?: string | null }[]][] = references.map(([brand, codes]) => [brand, codes.map(code => ({ code, href: referenceHref(brand, code) }))]);
-  // Equivalents listed in the store link to their pages, first in their brand's row; a code printed by the
-  // enrichment's references as well is shown once.
-  const linkEquivalents = (brand: string, items: { href: string | null; code: string }[]) => {
-    // Dinamik codes carry the brand's first word ("WAGENBURG 15036003"), printed in the row's label already.
-    const prefix = `${brand.split(" ")[0]} `;
-    const linked = items.map(item => ({ code: brand !== "SETA" && item.code.startsWith(prefix) ? item.code.slice(prefix.length) : item.code, href: item.href }));
-    const existing = referenceRows.findIndex(([name]) => name.toLocaleUpperCase("tr-TR") === brand.toLocaleUpperCase("tr-TR"));
-    if (existing >= 0) {
-      const [name, codes] = referenceRows[existing];
-      referenceRows[existing] = [name, [...linked, ...codes.filter(({ code }) => !linked.some(item => item.code === code))]];
-    } else referenceRows.push([brand, linked]);
-  };
-  // SETA equivalents under the part number the store shows for them (#602).
-  if (seta.length > 0) linkEquivalents("SETA", seta.map(item => ({ href: productPath(item), code: item.display_code })));
-  const decidedBrands = new Map<string, typeof decided>();
-  for (const item of decided.filter(item => !seta.some(row => row.id === item.id))) decidedBrands.set(item.brand, [...(decidedBrands.get(item.brand) || []), item]);
-  for (const [brand, items] of decidedBrands) linkEquivalents(brand, items);
-  referenceRows.sort(([a], [b]) => a.localeCompare(b));
+  // The OEM and equivalent numbers (#1211): a long list prints its first rows, the linked and vehicle-maker ones first;
+  // the rest loads from /api/product-references/[id] under the whole list's version.
+  const { rows, oemBrands } = await productReferenceRows(product, refs);
+  const referenceView = initialReferenceView(rows, oemBrands, `/api/product-references/${product.id}?v=${fitmentVersion(rows)}`);
   const crumbLink = "transition-colors hover:text-[#2d78c7] max-[750px]:inline-flex max-[750px]:min-h-11 max-[750px]:items-center";
   const crumbSeparator = <BreadcrumbSeparator className="max-[750px]:shrink-0 [&>svg]:size-[13px]"><ChevronRight/></BreadcrumbSeparator>;
   const sectionTitle = "mb-7 text-[26px] leading-[34px] font-semibold tracking-[-.6px] max-[750px]:mb-5 max-[750px]:text-[23px] max-[750px]:leading-[30px]";
@@ -307,8 +284,8 @@ export default async function Detail({ params, searchParams }: { params: Promise
         {fitment === "likely" && (descriptionModels.length
           ? <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel} modeli ürün açıklamasında geçiyor; motor tipi doğrulanmadı, siparişten önce OEM kodunu kontrol et.</p>
           : <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel} modeli listede; motor tipini <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> tablosundan doğrula.</p>)}
-        {vehicle && fitment === "unknown" && !notListed && <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Bu ürünün aracınla uyumu doğrulanamadı; siparişten önce {product.oem || referenceRows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</p>}
-        {notListed && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/><span>Seçili aracınla uyumlu görünmüyor: garajındaki {shown!.makeLabel} {shown!.modelLabel}, bu ürünün <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> listesinde görünmüyor. Siparişten önce {product.oem || referenceRows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</span></p>}
+        {vehicle && fitment === "unknown" && !notListed && <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Bu ürünün aracınla uyumu doğrulanamadı; siparişten önce {product.oem || rows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</p>}
+        {notListed && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/><span>Seçili aracınla uyumlu görünmüyor: garajındaki {shown!.makeLabel} {shown!.modelLabel}, bu ürünün <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> listesinde görünmüyor. Siparişten önce {product.oem || rows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</span></p>}
         {fitment === "mismatch" && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
         {!product.unavailable && <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><PackageCheck size={17}/>{product.stock_label}</p>}
         <Link className="flex items-center gap-4 border-y border-[#dbe0e6] py-[18px]" href="/bilgi/teslimat"><Truck size={32} className="shrink-0"/><span><strong className="flex items-center gap-1.5 text-base font-medium">Teslimat bilgileri <Info size={14} className="text-[#2e78c7]"/></strong><small className="mt-1 block text-[13px] text-[#53677d]">{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18} className="ml-auto shrink-0 text-[#53677d]"/></Link>
@@ -336,13 +313,13 @@ export default async function Detail({ params, searchParams }: { params: Promise
         return href ? <Link key={row.modelId} prefetch={false} href={href} className="inline-flex items-center gap-1.5 rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3 text-[#0065c3] transition-colors hover:border-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3]"><span>{label}</span><ChevronRight size={15} aria-hidden="true" className="shrink-0"/></Link>
           : <span key={row.modelId} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{label}</span>;
       })}</div><p className="mt-3 text-[#53677d]">Bu liste tedarikçinin ürün açıklamasından çıkarıldı; motor tipi doğrulanmadı. Siparişten önce OEM numarasıyla kontrol et.</p></section>}
-      {referenceRows.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 className={sectionTitle}>{brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]" tabIndex={0} aria-label="OEM ve muadil numaraları">{referenceRows.map(([brand, codes]) => <div key={brand} className="reference-row"><dt className="text-[#53677d]">{brand}</dt><dd className="reference-codes">{codes.map(({ code, href }) => href ? <Link key={code} className="text-[#0065c3] hover:underline focus-visible:underline" href={href}>{code}</Link> : <span key={code}>{code}</span>)}</dd></div>)}</dl></section>}
+      {rows.length > 0 && <ProductReferences view={referenceView} title={`${brand} ${displayPartNumber} OEM ve muadil numaraları`}/>}
       <section className="mt-[42px] flex scroll-mt-[110px] gap-5 border-t border-[#dce2e9] pt-9" id="urun-yardim"><Headphones size={30} className="shrink-0"/><div><h2 className={cn(sectionTitle, "mb-3 max-[750px]:mb-3")}>Bu ürün hakkında soruların mı var?</h2><p className="text-[#53677d]">{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link className="inline-flex items-center gap-1.5 font-medium text-[#0065c3] hover:underline" href="/bilgi/yardim">Yardım merkezine git <ChevronRight size={15}/></Link></div></section>
     </div>
     <nav className="sticky top-[110px] overflow-hidden rounded-[11px] border border-[#dce2e9] bg-white py-2 max-[750px]:static max-[750px]:order-first max-[750px]:flex max-[750px]:w-full max-[750px]:flex-nowrap max-[750px]:overflow-x-auto max-[750px]:[scrollbar-width:none] max-[750px]:[&::-webkit-scrollbar]:hidden max-[750px]:mask-r-from-[calc(100%-24px)] max-[750px]:rounded-md max-[750px]:p-1.5" aria-label="Ürün bilgileri">{[
       ["#product-specifications", "Ürün detayları", true],
       ["#uyumlu-araclar", "Uyumlu araçlar", hasFitment],
-      ["#oem-numaralari", "OEM ve muadil numaraları", referenceRows.length > 0],
+      ["#oem-numaralari", "OEM ve muadil numaraları", rows.length > 0],
       ["#urun-yardim", "Bu ürün hakkında sorular", true],
     ].filter(([, , shown]) => shown).map(([href, label]) => <a key={String(href)} href={String(href)} className="block px-5 py-2 text-sm leading-[18px] font-medium hover:bg-[#f7f8fa] max-[750px]:inline-flex max-[750px]:min-h-11 max-[750px]:shrink-0 max-[750px]:items-center max-[750px]:whitespace-nowrap max-[750px]:rounded-[5px] max-[750px]:px-3 max-[750px]:text-[13px]">{label}</a>)}</nav>
   </div></div></div>;
