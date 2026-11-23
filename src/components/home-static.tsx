@@ -11,7 +11,7 @@ import {catalogPath, categoryPath} from "@/modules/seo/paths";
 export type HomeStaticProps =
   | {part: "about"}
   | {part: "help"}
-  | {part: "title"; title: string; href?: string; link?: string; note?: boolean; centered?: boolean; className?: string}
+  | {part: "title"; title: string; link?: [href: string, text: string]; note?: boolean; centered?: boolean; className?: string}
   | {part: "nav"; name: string; links: [name: string, slug: string][]}
   | {part: "category"; parent: string; name: string; slug: string; image?: string | null};
 
@@ -50,9 +50,9 @@ function Help() {
   return <section className="border-t border-[#dfe3e8] py-12 max-md:py-6"><div className={cn(shell,"grid grid-cols-2 gap-8 lg:grid-cols-4 max-md:grid-cols-1 max-md:gap-2 [&>a]:py-4 [&_strong]:mb-2 [&_strong]:block [&_strong]:text-base [&_strong]:leading-6 [&_strong]:font-medium [&_span]:flex [&_span]:items-center [&_span]:gap-2 [&_span]:text-[13px] [&_span]:leading-[18px] [&_span]:text-[#54626e]")}><Link href="/bilgi/uyumluluk"><strong>Parça uyumluluğunu kontrol et</strong><span>OEM ve araç bilgileriyle seçimini doğrula <ChevronRight size={14}/></span></Link><Link href="/teslimat-ve-iade"><strong>Teslimat ve iade koşulları</strong><span>Sipariş öncesi alışveriş bilgilerini incele <ChevronRight size={14}/></span></Link><Link href="/rehber"><strong>Rehber</strong><span>Kısa yanıtlarla parça seçimini öğren <ChevronRight size={14}/></span></Link><Link href="/iletisim"><strong>Yardıma mı ihtiyacın var?</strong><span>Soruların için bize ulaş <ChevronRight size={14}/></span></Link></div></section>;
 }
 
-/** A section heading: `note` adds the tax note (sections with prices), `href` the "all" link, `centered` the centred layout. */
-function Title({title,href,link,note,centered,className}:Omit<Extract<HomeStaticProps,{part:"title"}>,"part">) {
-  const more=href&&<Link href={href} className={note?cn(titleLink,titleLinkTop):titleLink}>{`${link} `}<ChevronRight size={14}/></Link>;
+/** A section heading: `note` adds the tax note (sections with prices), `link` the "all" link, `centered` the centred layout. */
+function Title({title,link,note,centered,className}:Omit<Extract<HomeStaticProps,{part:"title"}>,"part">) {
+  const more=link&&<Link href={link[0]} className={note?cn(titleLink,titleLinkTop):titleLink}>{`${link[1]} `}<ChevronRight size={14}/></Link>;
   if(centered)return <div className={cn(centeredTitle,className)}><h2 className={h2}>{title}</h2>{more}</div>;
   return <div className={cn(note?noteTitle:sectionTitle,className)}><div className="min-w-0"><h2 className={h2}>{title}</h2>{note&&taxNote}</div>{more}</div>;
 }

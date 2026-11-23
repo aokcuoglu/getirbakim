@@ -120,9 +120,9 @@ function TabTiles({items}:{items:HomeTabCategory[]}) {
   </div>;
 }
 
-/** Placeholder tiles, as tall as the real ones, while the category tree loads. */
+/** Placeholder tiles, as tall as the real ones, while the category tree loads; not a target, so no tile hover. */
 function TabTilesLoading() {
-  return <div role="status" aria-busy="true" className={tileGrid}>
+  return <div role="status" aria-busy="true" className={cn(tileGrid,"pointer-events-none")}>
     <span className="sr-only">Kategoriler yükleniyor…</span>
     {Array.from({length:12},(_,index)=><div key={index} aria-hidden="true" className="home-category-tile"><Skeleton className="h-[90px] w-[135px] max-w-full"/><Skeleton className="mt-4 h-4 w-24"/></div>)}
   </div>;
@@ -138,7 +138,8 @@ export function HomeCategoryTabs({roots,initial}:{roots:{id:number;name:string}[
   const [selected,setSelected]=useState(roots[0]?.id);
   const tree=useCategoryTree();
   const items=selected===roots[0]?.id?initial:tree.categories?childCategories(tree.categories,selected):null;
-  const panel=items?<TabTiles items={items}/>:tree.error?<TreeStatus error retry={tree.retry} rows={0} rowClass=""/>:<TabTilesLoading/>;
+  // A failed load: the message lines up with the tiles (TreeStatus pads 16px) and keeps two tile rows of height.
+  const panel=items?<TabTiles items={items}/>:tree.error?<div className="-ml-4 min-h-[376px] max-md:min-h-[332px]"><TreeStatus error retry={tree.retry} rows={0} rowClass=""/></div>:<TabTilesLoading/>;
   return <section className="mt-[100px] max-md:mt-[76px]" aria-label="Ürün kategorileri">
     <Tabs value={selected} onValueChange={value=>{setSelected(value as number);tree.load();}} className="gap-0">
       <TabsPrimitive.List activateOnFocus aria-label="Ana kategoriler" className="home-tabs" onPointerEnter={tree.load} onTouchStart={tree.load} onFocus={tree.load}>

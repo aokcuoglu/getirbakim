@@ -119,6 +119,8 @@ test("the listing views are client components and their server adapters render n
 // #1295: the home category tabs are Base UI's Tabs.List / Tabs.Tab with named classes, not the TabsTrigger class list.
 test("the home tab classes exist in storefront.css", () => {
   for (const name of ["home-tabs", "home-tab"]) assert.ok(defined(name), `.${name} is missing from storefront.css`);
+  // The list's overflow-x clips everything outside a tab, so the focus outline must be drawn inside it.
+  assert.match(css, /\.home-tab \{[^}]*focus-visible:-outline-offset-2/, ".home-tab focus outline must be inset");
   assert.ok(source("../src/components/home-controls.tsx").includes('className="home-tab"'), "home-controls.tsx: home-tab");
 });
 

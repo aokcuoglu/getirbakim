@@ -292,7 +292,7 @@ test("HomeStatic keeps the home SEO text, links and tax note in the HTML (#1295)
   const card = renderToStaticMarkup(createElement(HomeStatic, { part: "category", parent: "Aksesuar", name: "Paspas", slug: "paspas-1", image: null }));
   assert.match(card, /^<a [^>]*href="\/kategori\/paspas-1"/);
   assert.ok(card.includes("Paspas") && card.includes("Aksesuar"));
-  const title = renderToStaticMarkup(createElement(HomeStatic, { part: "title", title: "Ürünleri keşfet", note: true, href: "/katalog", link: "Tüm ürünler" }));
+  const title = renderToStaticMarkup(createElement(HomeStatic, { part: "title", title: "Ürünleri keşfet", note: true, link: ["/katalog", "Tüm ürünler"] }));
   assert.equal(title.split("Fiyatlar KDV dahil · Kargo hariç").length - 1, 1);
   assert.match(title, /<h2 [^>]*>Ürünleri keşfet<\/h2>/);
   assert.match(title, /href="\/katalog">Tüm ürünler <svg/);
