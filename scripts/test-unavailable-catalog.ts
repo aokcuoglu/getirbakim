@@ -660,6 +660,25 @@ describe("availability filter (#1242)", () => {
       (await catalog.browseProducts({ brand: "GRUPTEST", availability })).items.map(row => row.id);
     assert.deepEqual(await listed("in_stock"), [ids.grpPrimary]);
     assert.ok(!(await listed("out_of_stock")).includes(ids.grpOffer));
+    // The primary's own row says "Stokta yok", but the card is sold through its offer (#1342).
+    assert.ok(!(await listed("out_of_stock")).includes(ids.grpPrimary));
+  });
+
+  // A card is in at most one of "Stokta" and "Stokta yok"; unknown-stock and unsupplied cards are in neither (#1342).
+  test("availability filters partition the listing (#1342)", async () => {
+    const { invalidateListings } = await import("../src/modules/store/listing-epoch");
+    await invalidateListings();
+    for (const brand of ["AVTEST", "GRUPTEST"]) {
+      const listing = (availability?: "in_stock" | "out_of_stock") => catalog.browseProducts({ brand, availability });
+      const [all, inStock, outOfStock] = await Promise.all([listing(), listing("in_stock"), listing("out_of_stock")]);
+      assert.ok(all.total > 0 && all.total === all.items.length, brand);
+      const listedIds = (rows: CatalogProduct[]) => rows.map(row => row.id).sort();
+      const outIds = new Set(listedIds(outOfStock.items));
+      assert.deepEqual(listedIds(inStock.items).filter(id => outIds.has(id)), [], brand);
+      const unknown = all.items.filter(row => !row.available && row.stock_label !== "Stokta yok").length;
+      assert.equal(inStock.total + outOfStock.total + unknown, all.total, brand);
+      assert.deepEqual(listedIds(outOfStock.items), listedIds(all.items.filter(row => !row.available && row.stock_label === "Stokta yok")), brand);
+    }
   });
 
   // The planner read the view's "Stokta yok" set (expressions over jsonb) as ~155 rows for ~530k, and deep pages walked
@@ -702,11 +721,13 @@ describe("availability filter (#1242)", () => {
     const clause = source.slice(start, end);
     assert.match(clause, /in_stock/);
     assert.match(clause, /out_of_stock|NOT available/);
-    // Out of stock goes through the sized function, never the view's expressions directly (#1286).
-    assert.match(clause, /catalog\.id IN \(SELECT id FROM commerce_out_of_stock_ids\(\$1::text\[\]\) id\)/);
+    // Out of stock goes through the sized function, never the view's expressions directly (#1286), and drops the cards in
+    // stock through a grouped offer inside the function's subquery (#1342).
+    assert.match(clause, /catalog\.id IN \(SELECT id FROM commerce_out_of_stock_ids\(\$1::text\[\]\) id WHERE id NOT IN \(/);
     assert.doesNotMatch(clause, /stock_label='Stokta yok'/);
-    assert.match(clause, /availabilitySql/);
+    assert.match(clause, /inStockIdsSql/);
     assert.doesNotMatch(clause, /catalogSql|commerce_catalog/);
+    assert.match(source, /const inStockIdsSql=`SELECT COALESCE\(o\.primary_id,a\.id\) FROM \(\$\{availabilitySql\}\) a /);
     assert.match(source, /export const availabilitySql = "SELECT \* FROM commerce_item_availability /);
   });
 });

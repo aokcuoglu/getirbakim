@@ -55,6 +55,8 @@ export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' O
 // Only id, available and stock_label of the same rows, without the pricing joins (db/commerce.sql, #1242): the listing's
 // availability filter.
 export const availabilitySql = "SELECT * FROM commerce_item_availability WHERE source='store' OR company=ANY($1::text[])";
+/** The cards that can be sold now: a row, or the primary of a group one of whose offers is available. */
+const inStockIdsSql=`SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available`;
 // The store's listing, search and product page also show products nobody supplies now (`unavailable`, #475); cart,
 // checkout, partner API and maintenance kits keep reading the saleable catalogSql.
 export const storefrontCatalogSql = "SELECT * FROM storefront_catalog WHERE source='store' OR company=ANY($1::text[])";
@@ -626,12 +628,17 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))::uuid[])`);
  }
  // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
+ // Out of stock: the card's own row says "Stokta yok" and none of its grouped offers can be sold, so a card is never in
+ // both filters, and unknown-stock or unsupplied cards are in neither (#1342; locally 25,018 cards were in both).
  // Both read the lean availability view, not commerce_catalog's priced rows a second time (#1242). Out of stock reads it
  // through commerce_out_of_stock_ids (db/commerce.sql), whose declared size keeps deep pages off a nested loop (#1286).
+ // The in-stock exclusion sits inside that subquery, a hashed SubPlan on the Function Scan the catalog hash-joins (page 49:
+ // ~0.85 s -> ~1.1 s); NOT IN at the top level filters the catalog scan itself and serialises it (~1.6 s).
+ // Pushed as clauses, not idSet: availability stays out of pricedScope's id-set count (#1335).
  if(query.availability==='supplied')clauses.push('NOT catalog.unavailable');
  else if(query.availability)clauses.push(query.availability==='in_stock'
-  ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
-  :`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id)`);
+  ?`catalog.id IN (${inStockIdsSql})`
+  :`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id WHERE id NOT IN (${inStockIdsSql}))`);
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
  return {values,where,from,search,idSets};

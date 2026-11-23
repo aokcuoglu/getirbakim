@@ -55,8 +55,6 @@ try {
     // Supplied (#475): everything except the products no supplier sells now.
     const expectedStock=base.items.filter(p=>availability==="supplied"?!p.unavailable:availability==="in_stock"?p.available:!p.available&&p.stock_label==="Stokta yok");
     assert.deepEqual(stock.items.map(p=>p.id).sort(),expectedStock.map(p=>p.id).sort(),"Unknown stock is neither in stock nor out of stock");
-    // Known failure until #1342: a card whose own row has no stock but whose grouped offer has (card available=true)
-    // also lands in out_of_stock, because that filter reads each row alone while in_stock groups offers.
   }
   assert.equal((await browseProducts({category,attributes:JSON.stringify({[Object.keys(attributes)[0]]:["NONEXISTENT"]})})).total,0);
   console.log(`Catalog facets verified in ${category}: ${base.total} products, manufacturer OR, attribute AND, contextual facets and known-stock filters.`);
