@@ -59,7 +59,8 @@ export async function loadModelPaths(): Promise<string[]> {
  * fits of its offers, and its own when it groups no offer). `$6`/`$7` pair each model or brand id with its unit. The root
  * category ($9) is left out: on a model or make it repeats that page.
  * (unit, product) and (product, ancestor) are deduplicated before the join, so the count needs no DISTINCT and no sort
- * over the 7.6M joined rows (#1320). ~6.5 s locally; the floor is `listed` plus the fit reads.
+ * over the 7.6M joined rows (#1320). ~5–6.5 s locally; the floor is `listed` plus the fit reads. At 16 MB work_mem the
+ * hash dedup still writes ~340 MB of temp (hash batches + the `pairs` spool), down from the 432 MB external sort.
  */
 const scopeCategoriesSql = (key: "model_id" | "brand_id", engineFits: string, descriptionFits: string) => `WITH units AS MATERIALIZED (SELECT * FROM unnest($6::int[],$7::int[]) u(${key},unit)),
  cats AS MATERIALIZED (${itemCategoriesSql({ legacySlugs: "$2", legacyIds: "$3", oilIds: "$4", oilCategory: "$5" })}),
