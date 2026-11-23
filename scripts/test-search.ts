@@ -6,6 +6,8 @@ import { binder, storedRank, supplierItemMatch } from "../src/modules/search/sql
 import { searchVehicleCatalog } from "../src/modules/store/vehicle-catalog.server";
 import { browseProducts, suggestProducts } from "../src/modules/store/catalog";
 
+// Runs against the shared database: keep the listing caches out of its persisted level (#957).
+process.env.LISTING_CACHE_PERSIST = "0";
 after(async () => { await db.end(); });
 
 test("query normalisation matches the SQL side", async () => {

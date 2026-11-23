@@ -1,4 +1,5 @@
 import { isIndexableListing, type CatalogQuery } from "@/modules/store/catalog-query";
+import { isRootCategoryListing } from "@/modules/seo/indexing";
 import { Fragment } from "react";
 import Link from "next/link";
 import { minSearchLength } from "@/modules/search/query";
@@ -41,6 +42,7 @@ import {engineOilCategoryId,oilFilterParam,parseOilFilters,type OilFilter} from 
 import {JsonLd} from "@/components/json-ld";
 import {breadcrumbJsonLd,catalogTrail,collectionJsonLd} from "@/modules/seo/structured-data";
 import {listingPath,listingUrl,makePath} from "@/modules/seo/paths";
+import {vehicleCategoryHeading,vehicleCategoryTexts} from "@/modules/seo/meta-text";
 import {productPath} from "@/modules/seo/product-path";
 import {catalogCardTitle} from "@/modules/store/product-override-display";
 import {siteUrl} from "@/lib/site";
@@ -50,15 +52,12 @@ import {legacyCategoryIds} from "@/modules/store/category-tree";
 import {manufacturerTexts,manufacturerTrail} from "@/modules/store/manufacturers";
 import {scopeCategoryCounts} from "@/modules/store/listing-categories.server";
 import { storeButton } from "@/components/store-button";
-const descriptions:Record<string,string>={
- "fren-diskleri-269":"Ön ve arka fren disklerini BOSCH, FEBI ve diğer üreticilerden seçeneklerle incele. Dolu veya havalandırmalı diskleri, ölçülerini ve montaj konumlarını karşılaştırarak aracına uygun parçayı bul. Bazı araçlarda sağ ve sol tarafta farklı diskler kullanılır; seçim yaparken OEM numarasını ve araç uyumluluğunu kontrol et. Aynı aks üzerindeki diskleri birlikte değiştir ve balataların durumunu da kontrol et.",
- "yedek-parca":"Aracının bakım ve onarımı için yedek parçaları tek yerde keşfet. Motor, fren, filtre ve diğer parça gruplarında ürünleri üreticiye göre incele; doğru parçayı bulmak için ürün kodu veya OEM numarasıyla ara. Sipariş vermeden önce parçanın araç modeli, motor tipi ve üretim yılıyla uyumluluğunu kontrol et.",
- fren:"Fren diskleri, balatalar ve fren sistemi parçalarını keşfet. Aracına uygun parçayı seçerken OEM kodunu, montaj konumunu ve araç özelliklerini kontrol et. Fren diskleri ve balataların aynı aks üzerindeki değişiminde üreticinin bakım önerilerini dikkate al.",
- filtre:"Yağ, hava, yakıt ve polen filtrelerini incele. Aracının motoruna ve modeline uygun filtreyi üretici veya ürün koduyla bul; bakım öncesinde OEM numarası ve araç bilgileriyle uyumluluğunu doğrula.",
- yag:"Motor yağları ve bakım sıvılarını incele. Aracın için doğru ürünü seçerken viskozite, üretici onayı ve kullanım kılavuzundaki özellikleri kontrol et.",
- silecek:"Silecek ve cam temizleme ürünlerini keşfet. Aracına uygun uzunluk ve bağlantı tipini kontrol ederek doğru ürünü seç.",
- aksesuar:"Araç bakımı için aksesuar ve ekipmanları incele. İhtiyacına uygun ürünleri marka ve ürün koduyla kolayca bul."
-};
+import brakeBannerMobile from "@/assets/hero/brake-system-banner-mobile.webp";
+import brakeBanner from "@/assets/hero/brake-system-banner.webp";
+import catalogBanner from "@/assets/hero/mobile-catalog.webp";
+import {catalogDescription} from "./catalog-descriptions";
+import {categoryGuideNote} from "@/content/category-guides";
+import {CategoryGuideNote} from "@/components/category-guide-note";
 const benefits=[
  {icon:ShieldCheck,title:"Sipariş bilgilerin tek yerde",text:"Ürün, fiyat ve teslimat bilgilerini birlikte incele."},
  {icon:Truck,title:"Teslimat ve iade bilgileri",text:"Sipariş öncesi teslimat ve iade koşullarını öğren."},
@@ -83,7 +82,6 @@ function CatalogFinder({compact,home,query,vehicle}:{compact:boolean;home:string
   <div className={cn("contents [&>button]:h-14 [&>button]:min-h-14 [&>button]:w-[320px] max-[850px]:[&>button]:w-[280px] max-[850px]:[&>button]:text-sm min-[600px]:max-[850px]:[&>button]:w-60 [&>button]:min-w-0 max-[600px]:[&>button]:w-full",compact?"[&>button]:h-12 [&>button]:min-h-12 [&>button]:text-sm":"min-[600px]:max-[768px]:[&>button]:mt-3 min-[600px]:max-[768px]:[&>button]:w-full!")}><GarageButton vehicle={vehicle} variant="catalog"/></div>
  </div>;
 }
-export const catalogDescription=(slug:string)=>descriptions[slug];
 // Shared by /katalog, /kategori/{category}[/{make}[/{model}]] and /yedek-parca/{make}[/{model}]; `make` is the brand
 // resolved from params.make, `model` the model page unit resolved from params.model (#639) and `plainTotal` a gated
 // listing's unfiltered count (model, model × category and make × category pages; #673).
@@ -183,8 +181,9 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const trail=manufacturer?manufacturerTrail(manufacturer):catalogTrail({make:make&&{name:makeName!,slug:params.make!},model:model&&{name:modelLabels!.model,slug:params.model!},categories:category?categoryPath(categories,category.id):[]});
  // Only the plain listings are indexed (the pages' robots rule): a search, filter, sort or page 2 is not a collection.
  // A model page says what its list is: model-level fits, which the garage vehicle narrows to an engine type.
- const intro=params.q?undefined:manufacturerCopy?manufacturerCopy.intro:modelVehicle&&parts?`${modelVehicle} için ${parts} kategorisinde listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} ürün. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:modelVehicle?`${modelVehicle} için listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:descriptions[category?.slug??"yedek-parca"]??category?.name+" ürünlerini üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
- const collection=isIndexableListing(params)&&products.length>0
+ const intro=params.q?undefined:manufacturerCopy?manufacturerCopy.intro:modelVehicle&&parts?vehicleCategoryTexts(modelVehicle,parts,plainTotal??result.total,"model").intro:modelVehicle?`${modelVehicle} için listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&category&&parts&&!model?vehicleCategoryTexts(makeName!,parts,plainTotal??result.total,"make").intro:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:catalogDescription(category?.slug??"yedek-parca")??category?.name+" kategorisindeki ürünleri üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
+  const guideNote=products.length>0?categoryGuideNote(params,{vehicle:Boolean(make||model),manufacturer:Boolean(manufacturer)}):undefined;
+  const collection=isIndexableListing(params)&&!isRootCategoryListing(params)&&products.length>0
   ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,modelSlug,categorySlug:category?.slug,manufacturerSlug}),items:products.map(product=>({path:productPath(product),name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
  // The OEM box repeats only a code search; a name search belongs to the header's box.
  const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.searchBy==="code"?params.q:undefined} vehicle={shown}/>;
@@ -193,8 +192,8 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  return (
   <div data-catalog-page="" className="bg-white text-sm leading-5 text-foreground">
    <section className="relative h-[280px] bg-[#212b36] pb-10 text-white min-[600px]:max-[768px]:h-auto max-[600px]:h-auto max-[600px]:min-h-0 max-[600px]:pb-4">
-    {isBrakeCategory?<HeroBackdrop mobile="/media/site/images/brake-system-banner-mobile.webp" desktop="/media/site/images/brake-system-banner.webp"/>
-     :<HeroBackdrop desktop="/media/site/images/mobile-catalog.webp" overlay={false}/>}
+    {isBrakeCategory?<HeroBackdrop mobile={brakeBannerMobile} desktop={brakeBanner}/>
+     :<HeroBackdrop desktop={catalogBanner} overlay={false}/>}
     <div className="relative flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/85 max-[600px]:hidden"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
     <div className="relative mx-auto w-full max-w-[1384px] px-8 max-[600px]:px-[15px]">
      {/* Manufacturer names and make / model headings ("Volkswagen Golf 7 (2012–2022) fren sistemi") can run to three
@@ -206,7 +205,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
     </div>
    </section>
    <JsonLd data={breadcrumbJsonLd(trail,siteUrl)}/><JsonLd data={collection}/><TrackItemList listId={category?.slug??params.make??(manufacturerSlug&&`marka-${manufacturerSlug}`)??"katalog"} listName={title} searchTerm={params.q} items={products.flatMap((product,index)=>product.price_kurus===null||product.unavailable?[]:[catalogItem({id:product.id,name:catalogCardTitle(product,details.get(product.id)?.partNumber),brand:product.display_brand,category:category?.name},servicePrice(product.price_kurus,account?.approved&&account.role==="service"?account.discount_percent:0),{index})])}/>
-   <CatalogStickyFinder brakes={Boolean(isBrakeCategory)}>{finder(true)}</CatalogStickyFinder>
+   <CatalogStickyFinder banner={isBrakeCategory?brakeBanner.src:undefined}>{finder(true)}</CatalogStickyFinder>
    {/* Phones (≤768px) put the products before the introduction and the popular makes, the DOM order staying (#878). */}
    <section className="mx-auto w-[calc(100%-30px)] max-w-[1320px] pb-[50px] max-[768px]:flex max-[768px]:flex-col">
     <Breadcrumb aria-label="Sayfa yolu" className="min-h-[45px] pt-2 pb-4">
@@ -217,7 +216,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
     {/* On phones the products show before the introduction, the DOM order staying: a keyboard or screen reader user skips to them.
      Not `sr-only`: globals.css's .sr-only clips with clip: rect(0,0,0,0), which `not-sr-only` does not undo. */}
     <a href="#urunler" className="absolute size-px overflow-hidden whitespace-nowrap [clip-path:inset(50%)] focus:static focus:mb-4 focus:inline-block focus:size-auto focus:self-start focus:overflow-visible focus:rounded-md focus:border focus:border-border focus:bg-white focus:px-4 focus:py-3 focus:font-medium focus:text-primary focus:[clip-path:none] focus-visible:outline-2 focus-visible:outline-ring">Ürünlere geç</a>
-    {!params.q&&<div className="mb-4 pb-[26px] max-[768px]:order-2 max-[768px]:pb-4"><h2 className="mb-3 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl max-[768px]:leading-[26px]">{manufacturerCopy?manufacturerCopy.heading:modelName&&parts?`${modelName} için ${parts} seçeneklerini keşfet`:modelName?`${modelName} için yedek parçaları keşfet`:make&&!category?`${makeName} araçlar için yedek parçaları keşfet`:category?.id===269?"Aracın için ön ve arka fren disklerini keşfet":category?category.name+" ürünlerini keşfet":"Aracına uygun yedek parçayı bul"}</h2><p className="text-[13px] leading-[18px]">{intro}</p>{model&&modelName&&!category&&<VehicleModelSummary name={modelName} model={model} vehicle={shown}/>}</div>}
+    {!params.q&&<div className="mb-4 pb-[26px] max-[768px]:order-2 max-[768px]:pb-4"><h2 className="mb-3 text-[23px] leading-[29px] font-semibold tracking-[-.5px] max-[768px]:text-xl max-[768px]:leading-[26px]">{manufacturerCopy?manufacturerCopy.heading:modelName&&parts?vehicleCategoryHeading(modelName,parts,"model"):makeName&&parts&&!model?vehicleCategoryHeading(makeName,parts,"make"):modelName?`${modelName} için yedek parçaları keşfet`:make&&!category?`${makeName} araçlar için yedek parçaları keşfet`:category?.id===269?"Aracın için ön ve arka fren disklerini keşfet":category?category.name+" ürünlerini keşfet":"Aracına uygun yedek parçayı bul"}</h2><p className="text-[13px] leading-[18px]">{intro}</p>{model&&modelName&&!category&&<VehicleModelSummary name={modelName} model={model} vehicle={shown}/>}</div>}
     {make&&!model&&!category&&!params.q&&!filtered&&<VehicleModelList brandId={make.id} makeName={makeName!} makeSlug={params.make!}/>}
     {!params.q&&!make&&<section className="mb-8 max-[768px]:order-2 max-[768px]:mb-6" aria-label="Popüler araç markaları"><h2 className="mb-[15px] text-xl leading-7 font-medium tracking-[-.4px]">Popüler araç markaları</h2><ul className="flex flex-wrap gap-x-[3px]">{popularMakes.map(make=><li key={make.id} className="make-list-item"><Link prefetch={false} className="hover:underline" href={makePath(vehicleBrandSlug(make.name))}>{vehicleMakeLabel(make.name)}</Link></li>)}</ul></section>}
     <div id="urunler" tabIndex={-1} className="grid scroll-mt-4 grid-cols-[304px_minmax(0,1fr)] items-start gap-8 outline-none max-[768px]:order-1 max-[768px]:mb-8 max-[768px]:grid-cols-1 max-[768px]:gap-5">
@@ -234,6 +233,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
      </div>
     </div>
    </section>
+   {guideNote&&<CategoryGuideNote note={guideNote.note} guides={guideNote.guides}/>}
    <section className="py-10"><div className="mx-auto grid max-w-[1350px] grid-cols-3 gap-8 px-[15px] max-[768px]:grid-cols-1 max-[768px]:gap-6">
     {benefits.map(({icon:Icon,title,text})=><div key={title} className="flex items-center gap-4"><Icon size={36} strokeWidth={1.4} className="shrink-0 text-muted-foreground"/><span><strong className="text-base leading-6 font-medium">{title}</strong><p className="mt-2 text-[13px] leading-[18px]">{text}</p></span></div>)}
    </div></section>

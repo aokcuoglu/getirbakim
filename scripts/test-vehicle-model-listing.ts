@@ -139,6 +139,40 @@ before(async () => {
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
 
+test("a make × category description states the product count and follows the noindex gate (#1224)", () => inRequest(async () => {
+  const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
+  const fren = (await load.findListing({ category: "fren", make: "vw", search: {} }))!;
+  assert.equal(fren.plainTotal, 9);
+  const below = listingMetadata(fren);
+  assert.ok(String(below.description).includes("9 ürün"), String(below.description));
+  assert.ok(String(below.description).includes("araçlar için"));
+  assert.equal((below.robots as { index?: boolean }).index, false);
+  const enough = listingMetadata({ ...fren, plainTotal: 10 });
+  assert.ok(String(enough.description).includes("10 ürün"));
+  assert.equal(enough.robots, undefined);
+}));
+
+test("a search result's title says the query within 65 characters and stays noindex,follow (#1218)", async () => {
+  const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
+  for (const q of ["fren", "bosch fren diski ön sol havalandırmalı golf 7 passat b8 tiguan 2.0 tdi"]) {
+    const meta = listingMetadata({ query: { q } });
+    const title = typeof meta.title === "string" ? meta.title : (meta.title as { absolute: string }).absolute;
+    assert.ok(title.startsWith("“") && title.endsWith("” için arama sonuçları"), title);
+    assert.ok(title.length + (typeof meta.title === "string" ? " | Getirbakim".length : 0) <= 65, title);
+    assert.deepEqual(meta.robots, { index: false, follow: true });
+  }
+});
+
+test("the root category stays noindex,follow with a self canonical; the plain catalog is indexable (#1222)", async () => {
+  const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
+  const root = listingMetadata({ query: { category: "yedek-parca" }, category: { id: 3, parentId: null, name: "Yedek parçalar", slug: "yedek-parca", path: [3], position: 0 } });
+  assert.deepEqual(root.robots, { index: false, follow: true });
+  assert.equal(root.alternates?.canonical, "/kategori/yedek-parca");
+  const plain = listingMetadata({ query: {} });
+  assert.equal(plain.robots, undefined);
+  assert.equal(plain.alternates?.canonical, "/katalog");
+});
+
 test("the make page lists its engine-level fits and the models read from descriptions, each product once (#674)", async () => {
   // g1 is in both sources; g4s's description lists its primary g4; the hidden item stays out. g2, g3, g12 and p1 are
   // only in the model table, which the make page does not read (the make table holds a make's engine-level fits).
@@ -156,6 +190,42 @@ test("a make × category listing is the intersection of both (#674)", async () =
   // With the category fixtures (#673): the engine-level g1, the description-fitted g5-g9 and p2, and g11 by an admin's
   // category; g2/g3 (engine-level model fits outside the make table) and p1 (no make fit) stay out.
   assert.deepEqual(rows.map(row => row.id), ["g1", "g5", "g6", "g7", "g8", "g9", "g11", "p2"].map(key => ids[key]).sort());
+});
+
+test("a category with its descendants lists each trusted enrichment link once and keeps the admin's move (#1240)", async () => {
+  // c1's donor sits in two of the ids; c2's link points at an old code; c3 matched neither its part nor its OEM;
+  // c4 is a trusted link an admin moved to Aydınlatma; c5's link names another brand than the item's. Unfitted, and
+  // removed afterwards, so the other tests keep their counts.
+  const keys = ["c1", "c2", "c3", "c4", "c5"];
+  for (const key of keys) await item(key);
+  const items = keys.map(key => ids[key]);
+  try {
+    for (const [key, code, basis, oem, brand] of [["c1", "TB c1", { type: "exact_part" }, "", "TESTBRAND"], ["c2", "TB c2-old", { type: "exact_part" }, "", "TESTBRAND"],
+      ["c3", "TB c3", { type: "oem_reference", supplierOem: "111" }, "222", "TESTBRAND"], ["c4", "TB c4", { type: "exact_part" }, "", "TESTBRAND"],
+      ["c5", "TB c5", { type: "exact_part" }, "", "OTHERBRAND"]] as const) {
+      await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload,match_basis)
+        VALUES($1,$2,'TESTBRAND','https://example.test/p','test','TESTBRAND',$2,'{"specifications":[],"oemNumbers":{},"crossReferences":{},"vehicles":[]}',$3)`, [ids[key], code, basis]);
+      await schema.pool.query(`INSERT INTO product_enrichment_shared_links(supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,imported_at)
+        VALUES($1,$2,$4,$1,$3,'complete',now())`, [ids[key], code, oem, brand]);
+      await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',269)", [ids[key]]);
+    }
+    await schema.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'trodo',252)", [ids.c1]);
+    await schema.pool.query(`WITH product AS (INSERT INTO products(brand,part_number,name,brand_label,code) VALUES('TESTBRAND','C4','c4 PARCA','TESTBRAND','TB c4') RETURNING id),
+      source AS (INSERT INTO product_sources(supplier_item_id,product_id,method) SELECT $1,id,'manual' FROM product)
+      INSERT INTO product_overrides(product_id,category_id) SELECT id,200 FROM product`, [ids.c4]);
+    // Yedek parçalar with its descendants, as the root category page asks.
+    const listed = await catalog.categoryProductIds([], [3, 252, 269, 241]);
+    assert.equal(listed.filter(id => id === ids.c1).length, 1);
+    for (const key of ["c2", "c3", "c4", "c5"]) assert.ok(!listed.includes(ids[key]), key);
+    // The fixtures' trusted links (g3, g10) and the admin's Fren product (g11) stay in.
+    for (const key of ["g3", "g10", "g11"]) assert.ok(listed.includes(ids[key]), key);
+    assert.equal(new Set(listed).size, listed.length);
+  } finally {
+    await schema.pool.query("DELETE FROM products WHERE id IN (SELECT product_id FROM product_sources WHERE supplier_item_id=ANY($1::uuid[]))", [items]);
+    await schema.pool.query("DELETE FROM product_source_categories WHERE supplier_item_id=ANY($1::uuid[])", [items]);
+    await schema.pool.query("DELETE FROM supplier_items WHERE id=ANY($1::uuid[])", [items]);
+    for (const key of keys) delete ids[key];
+  }
 });
 
 test("a model page skips the make filter and lists the union of engine-level and description fits", async () => {
@@ -322,6 +392,29 @@ test("the model sitemaps list exactly the indexable model and model × category 
   assert.equal(listingIndexable(root.query, root.plainTotal ?? 0), false);
   assert.deepEqual((await sitemap.loadModelPaths()).sort(), models.sort());
   assert.deepEqual((await sitemap.loadModelCategoryPaths()).sort(), modelCategories);
+}));
+
+test("the make × category sitemap lists exactly the indexable make × category pages (#1224)", () => inRequest(async () => {
+  const slugs = (await schema.pool.query<{ slug: string }>("SELECT slug FROM source_category_labels WHERE source='trodo' AND locale='tr'")).rows.map(row => row.slug);
+  const pages = async (minimum?: number) => {
+    const { text, values, units } = await sitemap.makeCategoryPathsQuery(minimum);
+    const { rows } = await schema.pool.query<{ unit: number; slug: string }>(text, values);
+    return rows.map(row => listingPath({ makeSlug: units[row.unit], categorySlug: row.slug })).filter(path => path.endsWith("/vw")).sort();
+  };
+  const expected: string[] = [], indexable: string[] = [];
+  for (const category of slugs) {
+    const listing = await load.findListing({ category, make: "vw", search: {} });
+    if (!listing || category === "yedek-parca") continue;
+    expected.push(listingPath({ makeSlug: "vw", categorySlug: category }));
+    if (listingIndexable(listing.query, listing.plainTotal ?? 0)) indexable.push(listingPath({ makeSlug: "vw", categorySlug: category }));
+  }
+  assert.ok(expected.length > 0);
+  assert.deepEqual(await pages(1), expected.sort());
+  assert.deepEqual(await pages(), indexable.sort());
+  assert.ok(!(await pages(1)).includes("/kategori/yedek-parca/vw"));
+  // vw × fren has 9 products: the boundary sits between 9 and 10.
+  assert.ok((await pages(9)).includes("/kategori/fren/vw"));
+  assert.ok(!(await pages(10)).includes("/kategori/fren/vw"));
 }));
 
 test("loadAllVehicleModelGroups returns the same units as the per-make read (#778)", async () => {

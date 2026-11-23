@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, FileText, Inbox, Info, RefreshCw, TriangleAlert } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleAlert, CircleCheck, FileText, Inbox, Info, Lock, RefreshCw, TriangleAlert } from "lucide-react";
 import { adminOrders, fitmentReturnReport, orderFilters, type AdminGeliverShipment, type OrderFilter } from "@/modules/admin/data";
 import { fitmentLevelLabels, type FitmentLevel } from "@/modules/store/fitment-level";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
@@ -167,8 +167,9 @@ export default async function Orders({ searchParams }: { searchParams: Promise<S
                           <StatusBadge tone="success">Faturalandı</StatusBadge>
                           <span className="break-all">{[o.partner_invoice_ref, formatDay(o.partner_invoice_day), o.partner_invoiced_by_name && `işaretleyen ${o.partner_invoiced_by_name}`].filter(Boolean).join(" · ")}</span>
                         </span>
-                        <PartnerOrderInvoiceUndoDialog orderId={o.id} number={o.number} partner={o.owner_id} invoiceRef={o.partner_invoice_ref} invoiceDate={o.partner_invoice_day}
-                          totalKurus={Number(o.total_kurus)} back={back}/>
+                        {o.partner_invoice_period_closed ? <StatusBadge tone="neutral" icon={Lock}>Dönem kapalı</StatusBadge>
+                          : <PartnerOrderInvoiceUndoDialog orderId={o.id} number={o.number} partner={o.owner_id} invoiceRef={o.partner_invoice_ref} invoiceDate={o.partner_invoice_day}
+                            totalKurus={Number(o.total_kurus)} back={back}/>}
                       </dd> : <dd><StatusBadge tone="warning">Faturalanmadı · limitte sayılıyor</StatusBadge></dd>}
                       {o.partner_invoice_changes.length > 0 && <dd className="flex flex-col gap-2 pt-2">
                         <span className="text-muted-foreground">Fatura düzeltme geçmişi</span>

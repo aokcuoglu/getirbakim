@@ -410,11 +410,35 @@ eşlenmeden kalır. Bilinçli olarak eklenmeyenler (tip adı altında karışık
 - `bulb-fog-light`: 14 üründen en az 6'sı H4 far ampulü.
 - `mounting-stabilizer-coupling-rod`: 18 üründen ~11'i stabilizatör burcu, yalnız 4'ü gerçek z-rot.
 - `trim-protection-strip-wing`: 6 üründen 4'ü FAST basamak/tampon parçası.
+- `goods-to-assign`: spareto'nun "atanacak ürün" yer tutucusu, parça tipi değil.
+- #1299'da bakılıp eklenmeyenler:
+  - Karışık ürünler: `cylinder-head` (silindir kapağı, kapak contası ve üst takım conta), `repair-kit-manual-transmission`
+    (çoğu şanzıman rulmanı, bir kısmı vites mekanizması), `spring-seat` (amortisör takozu, yay tablası, get lastiği),
+    `repair-kit-control-arm` (salıncak, denge kolu, tamir takımı), `link-set-wheel-suspension`, `tie-bar-bush`
+    (viraj demiri ve salıncak burcu, braket), `mounting-transfer-case` (motor/şanzıman takozu, diferansiyel burcu),
+    `engine-cover` (motor üst kapağı ve alt muhafaza), `trim-protective-strip-bumper` (tampon bandı, panel köşesi,
+    çamurluk bakaliti), `gear-lever-gaiter` (körük ve topuz), `cap-radiator` (radyatör ve yedek su deposu kapağı),
+    `gasket-housing-cover-crankcase` (yan kapak ve yağ pompası contası), `bearing-wheel-bearing-housing` (adı
+    rulman yuvası, ürünler salıncak/torsiyon burcu), `solenoid-valve` ve `solenoid-valve-shift-cylinder` (şanzıman,
+    dorse, motor freni valfleri), `multifunctional-relay`, `relay-main-current` (röleler; tek bir kategori yok).
+  - Trodo'da uygun kategori yok: `control-unit-glow-time` (kızdırma rölesi), `switch-unit-ignition-system` (ateşleme
+    modülü), `lift-point-pad-jack` (kriko takozu), `low-temperature-cooler-charge-air-cooler` (turbo devresi su
+    radyatörü), `valve-spring`, `panelling-mudguard` (çamurluk davlumbazı; `mudguard` paçalık),
+    `oil-jet-piston-underside-cooling` (piston yağlama memesi), `air-dryer-cartridge-compressed-air-system` (ağır
+    vasıta hava kurutucu; Klima kurutucuları değil).
+  - Konumu belli olmayan ampuller (`bulb-cornering-light`, `bulb-interior-light`, `bulb-boot-interior-light`,
+    `bulb-auxiliary-stop-light`): Trodo'da yalnız far, sis ve sinyal ampulü kategorileri var.
 
 **Ölçüm (17 Kasım 2026, yerel, yalnız okuma):** başlangıç listesi 93 kayıt (33 takma ad, 60 elle). spareto 36.908
 kaydın eşlenen payı %92,7 → %96,4 (öğrenilmiş 34.225 → 34.406, küratörlü 1.188; eşleşmeyen 2.596 → 1.312; tipsiz
 87 → 2, marka ön ekleri sayesinde). parts2world tipli kayıtlarda %91,5 → %96,4 (1.437 tipli kaydın 70'i küratörlü),
 saklanan makale adlarında %90,2 → %95,9 (1.091 makalenin 62'si; `fetch-types` sürerken).
+
+**#1299 genişletmesi (22 Kasım 2026, yerel, `backfill-types --dry-run`):** 102 kayıt eklendi (57 takma ad, 45 elle;
+liste 195 kayıt). spareto: eşlenen 53.435 → 53.866, küratörlü 1.626 → 1.997, eşleşmeyen tip 784 → 736, değişecek
+kayıt 370. parts2world: eşlenen 91.236 → 94.675, küratörlü 4.125 → 7.297, eşleşmeyen tip 584 → 505, değişecek kayıt
+3.162. `water-recirculation-pump-parking-heater` Trodo'nun `water-pump-parking-heater` (Park ısıtıcıları) tipine
+bağlanmadı: 54 ürünün hepsi motorun ilave su pompası, bu yüzden Su pompaları.
 
 **Operasyon:** canlıda komut yok (liste koddadır). Yerelde birleştirmeden sonra, son sürüme kadar bekletmeli:
 `check-aliases` → `backfill-types --source spareto --hold` ve `backfill-types --source parts2world --hold`; yayın

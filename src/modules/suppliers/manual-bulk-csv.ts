@@ -1,5 +1,6 @@
 import { fold, type ManualIssue } from "./manual-template";
 import { manualCost } from "./manual-cost";
+import { csvCode, csvFile, csvSafe } from "@/lib/csv";
 
 // Bulk price/stock CSV of one manual list (#832): the admin downloads the list, edits list price, discount, markup and
 // stock in Excel and uploads it back. Kept free of server imports like manual-template.ts; the database side is
@@ -261,18 +262,11 @@ const csvNumber = (value: number | null) => {
   const text = String(value).includes("e") ? value.toFixed(10).replace(/\.?0+$/, "") : String(value);
   return text.replace(".", ",");
 };
-const csvText = (value: string) => /[;"\r\n]/.test(value) ? `"${value.replace(/"/g, "\"\"")}"` : value;
-// Excel would read 00123 as 123, long numeric codes as 1,23E+12, 1E5 as 100000 and 1-2 or 3.4.2020 as dates: such
-// codes are written as a text formula.
-const csvCode = (code: string) => /^0\d+$|^\d{12,}$|^\d+[eE]\d+$|^\d{1,4}[-/.]\d{1,2}([-/.]\d{1,4})?$/.test(code) ? `="${code}"` : csvText(code);
-// A brand starting with = + - @ would be a formula in Excel.
-const csvBrand = (brand: string) => csvText(/^[=+\-@]/.test(brand) ? `'${brand}` : brand);
-
 /** The list as Excel (Turkish) opens it: UTF-8 BOM, ";" delimiter, "," decimals, CRLF; `combined` leads with the Liste column (#844). */
 export function buildManualBulkCsv(items: ManualBulkExportRow[], combined = false) {
   const lead = (cell: string) => combined ? [cell] : [];
   const lines = [[...lead(manualBulkListHeader), ...manualBulkColumns.map(column => column.header)].join(";"), ...items.map(item =>
-    [...lead(csvBrand(item.listName ?? "")), csvBrand(item.brand), csvCode(item.code), csvNumber(item.list), csvNumber(item.list === null ? null : item.discount),
+    [...lead(csvSafe(item.listName ?? "")), csvSafe(item.brand), csvCode(item.code), csvNumber(item.list), csvNumber(item.list === null ? null : item.discount),
       csvNumber(item.markup), csvNumber(item.stock)].join(";"))];
-  return `﻿${lines.join("\r\n")}\r\n`;
+  return csvFile(lines);
 }

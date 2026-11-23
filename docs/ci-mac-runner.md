@@ -17,7 +17,7 @@ Değer JSON'dur (`runs-on: ${{ fromJSON(vars.CI_RUNS_ON || '"ubuntu-24.04"') }}`
 - `gh` sahibin hesabıyla oturum açmış (`gh auth status`); runner kayıt token'ı depo yöneticisi ister.
 - `docker` ve `git` betiğin çalıştırıldığı kabuğun `PATH`'inde (servis bu `PATH`'i saklar).
 
-CI'nın Postgres'i yerel veritabanına (5432), tünellere (54323, 15432) ve `localhost:3000` dev sunucusuna dokunmaz: konteyner `getirbakim-ci-pg-<run_id>-<attempt>` adıyla, Docker'ın seçtiği boş bir `127.0.0.1` portunda açılır ve iş bitince (hata ya da iptal dahil) silinir. İş yarıda öldürülürse kalan konteynerler `docker ps -a --filter label=getirbakim-ci` ile bulunup `docker rm -f` ile silinir.
+CI'nın Postgres'i yerel veritabanına (5432), tünellere (54323, 15432) ve `localhost:3000` dev sunucusuna dokunmaz: konteyner `getirbakim-ci-pg-<run_id>-<attempt>` adıyla, Docker'ın seçtiği boş bir `127.0.0.1` portunda açılır ve iş bitince (hata ya da iptal dahil) silinir. Konteyner runner adıyla da etiketlenir (`getirbakim-ci.runner=<runner adı>`); bir iş başlarken yalnız **kendi runner'ının** yarıda kalmış konteynerlerini siler, diğer runner'ın o an kullandığı veritabanına dokunmaz. Elle temizlik: `docker ps -a --filter label=getirbakim-ci` ile bulunup `docker rm -f` ile silinir (yalnız iki runner da boştayken).
 
 ## Kurulum
 
@@ -34,7 +34,18 @@ Betik şunları yapar:
 3. Runner'ı `self-hosted,macOS,ARM64,getirbakim` etiketleriyle, kendi `_work` dizininde kaydeder.
 4. launchd servisi olarak kurar ve başlatır (`./svc.sh install && ./svc.sh start`). Bu bir kullanıcı ajanıdır (LaunchAgent): Mac açılınca değil, runner kullanıcısı oturum açınca başlar.
 
-`RUNNER_DIR` ve `RUNNER_NAME` ortam değişkenleriyle dizin ve ad değiştirilebilir. Runner sürümünü yükseltmek için betikteki `RUNNER_VERSION` / `RUNNER_SHA256` değerleri [actions/runner sürüm notlarından](https://github.com/actions/runner/releases) güncellenir; runner kendini de otomatik günceller.
+`RUNNER_DIR` ve `RUNNER_NAME` ortam değişkenleriyle dizin ve ad değiştirilebilir.
+
+### İkinci runner (paralel PR'lar)
+
+Bir runner aynı anda tek iş alır; paralel PR'lar kuyrukta bekler. Mac aynı anda iki işi kaldırır (#1235). İkinci örnek ayrı dizin ve adla aynı betikle kaydedilir; etiketler aynıdır, GitHub boştaki örneğe verir:
+
+```bash
+RUNNER_DIR="$HOME/actions-runner-getirbakim-2" RUNNER_NAME="$(scutil --get LocalHostName)-getirbakim-2" scripts/ci/mac-runner-setup.sh
+# kaldırmak için aynı değişkenlerle: ... scripts/ci/mac-runner-setup.sh remove
+```
+
+İkinci örneği yalnız tüm kuyruk, Postgres konteynerini runner adıyla etiketleyen `ci.yml` ile koşarken kaydet: eski `ci.yml` her işin başında bütün CI konteynerlerini siliyordu. Runner sürümünü yükseltmek için betikteki `RUNNER_VERSION` / `RUNNER_SHA256` değerleri [actions/runner sürüm notlarından](https://github.com/actions/runner/releases) güncellenir; runner kendini de otomatik günceller.
 
 ### Ayrı macOS kullanıcısı (önerilen sertleştirme)
 
@@ -55,6 +66,8 @@ gh variable set CI_RUNS_ON -R aokcuoglu/getirbakim --body '["self-hosted","macOS
 gh variable delete CI_RUNS_ON -R aokcuoglu/getirbakim
 scripts/ci/mac-runner-setup.sh remove
 ```
+
+Depo public iken başlamış bir CI koşusunu private'a geçtikten sonra **yeniden koşturmak** (Re-run) Mac'te "Refuse a self-hosted runner on a public repository" adımında düşer: yeniden koşturma ilk olayın verisini kullanır, `github.event.repository.private` orada hâlâ `false`'tur. Yeni bir olay gerekir (dala push ya da PR'ı kapatıp açmak).
 
 Mac kapalıyken veya Docker Desktop durmuşken CI işleri kuyrukta bekler ya da Postgres adımında düşer; acil durumda değişkeni silmek işi yeniden GitHub-hosted'a taşır (dakika kotası el veriyorsa).
 

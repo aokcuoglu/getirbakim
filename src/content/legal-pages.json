@@ -2468,8 +2468,8 @@
     "title": "Üyelik ve Kullanım Koşulları",
     "sourceUrl": "https://getirbakim.com/uyelik-ve-kullanim-kosullari",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-10-19",
-    "description": "Site kullanımı, servis hesapları, içerik hakları ve tarafların sorumluluklarına ilişkin koşullar.",
+    "updatedAt": "2026-11-22",
+    "description": "Site kullanımı, bireysel üyelik, servis hesapları, içerik hakları ve tarafların sorumluluklarına ilişkin koşullar.",
     "sections": [
       {
         "title": "Kapsam ve Kabul",
@@ -2478,7 +2478,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Getirbakim, araç sahipleri ve profesyonel servisler için yedek parça ve bakım ürünlerinin incelenebildiği bir internet sitesidir. Bu koşullar site kullanımına ilişkindir; siparişe özgü satış sözleşmesinin yerine geçmez."
+              "Getirbakim, araç sahipleri ve profesyonel servisler için yedek parça ve bakım ürünlerinin incelenebildiği ve satın alınabildiği bir internet sitesidir. Bu koşullar site kullanımına ve üyeliğe ilişkindir; siparişe özgü satış sözleşmesinin yerine geçmez."
             ]
           },
           {
@@ -2486,6 +2486,13 @@
             "attrs": {},
             "children": [
               "Siteyi ziyaret etmek, kişisel verilerin tüm amaçlarla işlenmesine, pazarlama iletilerine veya gelecekteki sözleşme değişikliklerine sınırsız onay vermek anlamına gelmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Bireysel üyelik oluşturulurken bu koşullar kayıt formundaki onay kutusuyla kabul edilir; onay kutusu başlangıçta işaretli değildir ve işaretlenmeden hesap açılmaz. Kabul edilen metnin sürümü ve kabul zamanı kaydedilir. Bu kabul, kişisel verilerin işlenmesine veya pazarlama iletilerine verilmiş bir açık rıza değildir; kişisel verilere ilişkin bilgilendirme KVKK Aydınlatma Metninde yer alır."
             ]
           },
           {
@@ -2504,14 +2511,35 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bireysel müşteriler üyelik gerekmeden alışveriş yapabilir. Servis hesapları, başvuru üzerine Getirbakim yönetiminin onayıyla oluşturulur. Şifre yenileme talepleri hey@getirbakim.com adresine hesapta kayıtlı e-posta adresinden iletilir."
+              "Bireysel müşteriler üyelik gerekmeden alışveriş yapabilir. Üyelik isteğe bağlıdır ve ücretsizdir."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kullanıcı, kendi yetkisi kapsamında doğru ve güncel bilgi verir; giriş bilgilerini korur ve yetkisiz erişim şüphesini bildirir. Bu yükümlülükler, şirketin bilgi güvenliği ve kişisel veri koruma sorumluluğunu ortadan kaldırmaz."
+              "Bireysel üyelik, kayıt formunda ad ve soyad, e-posta adresi ve en az 12 karakterlik bir şifre girilerek ve bu koşullar kabul edilerek oluşturulur. Kayıttan sonra e-posta adresine tek kullanımlık ve 24 saat geçerli bir doğrulama bağlantısı gönderilir; hesap, e-posta adresi bu bağlantıyla doğrulandığında açılır, ayrıca yönetici onayı gerekmez. E-posta adresi 7 gün içinde doğrulanmayan kayıt silinir. Bir e-posta adresiyle yalnızca bir hesap açılabilir. Bireysel hesap; siparişlerin ve kayıtlı adreslerin görüntülenmesini, sepetin ve garajdaki araçların hesapla birlikte korunmasını sağlar. Bireysel hesapta katalog fiyatları geçerlidir; servis hesaplarına özgü fiyatlandırma uygulanmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Servis hesapları, ticari veya mesleki amaçla alışveriş yapan servisler içindir ve bireysel üyelikten ayrıdır. Servis hesapları, başvuru üzerine Getirbakim yönetiminin onayıyla oluşturulur; onaylanan hesaba servise özgü fiyatlandırma tanımlanabilir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Şifreni unutursan giriş ekranındaki “Şifreni mi unuttun?” bağlantısıyla hesabına kayıtlı e-posta adresine tek kullanımlık ve 60 dakika geçerli bir şifre yenileme bağlantısı gönderilir. Bağlantıya ulaşamıyorsan hey@getirbakim.com adresine hesabında kayıtlı e-posta adresinden yazabilirsin."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kullanıcı, kendi yetkisi kapsamında doğru ve güncel bilgi verir; yalnızca kendisine ait veya kullanmaya yetkili olduğu bir e-posta adresiyle hesap açar; giriş bilgilerini korur ve yetkisiz erişim şüphesini bildirir. Bu yükümlülükler, şirketin bilgi güvenliği ve kişisel veri koruma sorumluluğunu ortadan kaldırmaz."
             ]
           }
         ]
@@ -2594,7 +2622,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap kapatma talepleri ",
+              "Üye, hesabının kapatılmasını dilediği zaman, gerekçe göstermeden ve ücret ödemeden isteyebilir. Hesap kapatma talepleri, hesapta kayıtlı e-posta adresinden ",
               {
                 "tag": "a",
                 "attrs": {
@@ -2604,7 +2632,7 @@
                   "info@ergulenerji.com"
                 ]
               },
-              " adresine iletilebilir. Hesabın kapatılması, hukuken saklanması gereken kayıtların derhâl silinmesi anlamına gelmez; kişisel veri başvuruları ayrı değerlendirilir."
+              " adresine iletilebilir. Hesap kaydı silindiğinde oturumlar, kayıtlı adresler, garajdaki araçlar ve üyelik onay kaydı birlikte silinir. Hesabın kapatılması, verilmiş siparişlerden doğan hakları ortadan kaldırmaz ve hukuken saklanması gereken kayıtların derhâl silinmesi anlamına gelmez; kişisel veri başvuruları ayrı değerlendirilir."
             ]
           }
         ]
@@ -2878,7 +2906,7 @@
     "title": "Gizlilik Politikası",
     "sourceUrl": "https://getirbakim.com/gizlilik-politikasi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-11-19",
+    "updatedAt": "2026-11-22",
     "description": "Mevcut site hizmetlerinde kişisel verilerin kullanılması, güvenliği ve başvuru hakları.",
     "sections": [
       {
@@ -2949,7 +2977,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu politika site ziyaretçileri, servis hesabı kullanıcıları ve şirketle iletişime geçen kişiler için hazırlanmıştır. Veri işleme faaliyetlerinin ayrıntıları KVKK Aydınlatma Metninde açıklanır."
+              "Bu politika site ziyaretçileri, bireysel üyeler, servis hesabı kullanıcıları ve şirketle iletişime geçen kişiler için hazırlanmıştır. Veri işleme faaliyetlerinin ayrıntıları KVKK Aydınlatma Metninde açıklanır."
             ]
           },
           {
@@ -3017,14 +3045,28 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Servis hesabı için ad veya servis unvanı, e-posta adresi, hesap rolü, onay ve fiyatlandırma bilgileri; hesaba bağlı işlemler."
+                  "Bireysel üyelik için ad ve soyad, e-posta adresi, hesap türü ve kayıt zamanı; servis hesabı için ayrıca servis unvanı, yetkili kişinin adı, telefon, şehir, onay ve fiyatlandırma bilgileri; hesaba bağlı işlemler."
                 ]
               },
               {
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Güvenli giriş için şifre özeti, oturum belirteçlerinin özeti ve başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri."
+                  "Güvenli giriş, e-posta doğrulama ve şifre yenileme için şifre özeti, e-posta adresinin doğrulandığı zaman, oturum belirteçlerinin ve tek kullanımlık doğrulama ve şifre yenileme bağlantılarının özeti, başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri ile kayıt, doğrulama ve şifre yenileme taleplerini sınırlamak için e-posta ve IP adresinin özeti."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Üyelik kaydı onayı: Üyelik ve Kullanım Koşulları’nın kabul edilen sürümü, kabul zamanı, IP adresi ve isteğin iletim (proxy) başlığı, tarayıcı bilgisi ve onay metni ile kayıt anında geçerli olan KVKK Aydınlatma Metninin sürümü."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kayıt ve başvuru denemelerinin sınırlandırılması için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri ile saatlik deneme sayısı; bu kayıtlar yalnızca bir saatlik sınırlama için kullanılır ve süresi dolanlar düzenli olarak silinir."
                 ]
               },
               {
@@ -3094,7 +3136,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Servis hesaplarının adres defteri: kaydedilen adreslerdeki alıcı adı, telefon ve adres bilgileri."
+                  "Hesapların adres defteri: kaydedilen adreslerdeki alıcı adı, telefon ve adres bilgileri."
                 ]
               }
             ]
@@ -3103,7 +3145,57 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Siparişe, ödemeye, teslimata ve faturaya ilişkin ayrıntılar aşağıdaki “Sipariş, Ödeme, Teslimat ve Fatura Verileri” ve “Adres Defteri (Servis Hesapları)” bölümlerindedir. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
+              "Üyeliğe ilişkin ayrıntılar aşağıdaki “Bireysel Üyelik” bölümünde; siparişe, ödemeye, teslimata ve faturaya ilişkin ayrıntılar “Sipariş, Ödeme, Teslimat ve Fatura Verileri” ve “Adres Defteri” bölümlerindedir. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Bireysel Üyelik",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Üyelik isteğe bağlıdır; siparişi üye olmadan da verebilirsin. Kayıt formunda ad ve soyadını, e-posta adresini ve şifreni girersin. Şifren açık metin olarak değil, geri döndürülemez bir özet olarak saklanır. Kayıttan sonra e-posta adresine tek kullanımlık ve 24 saat geçerli bir doğrulama bağlantısı göndeririz; hesabın, e-posta adresini bu bağlantıyla doğruladığında açılır. Kayıt ve doğrulama zamanı hesabınla birlikte tutulur. E-posta adresini 7 gün içinde doğrulamazsan kayıt formunda verdiğin bilgiler ve üyelik onay kaydın silinir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kayıt sırasında Üyelik ve Kullanım Koşulları’nı onay kutusuyla kabul edersin. Kabulün ispatı için kabul ettiğin metnin sürümü, kabul zamanı, IP adresin ve isteğin iletim (proxy) başlığı, tarayıcı bilgin ve onay metni sonradan değiştirilemeyen bir kayıt olarak saklanır. KVKK Aydınlatma Metni kayıt formunda bilgilendirme amacıyla sunulur ve o andaki sürümü aynı kayda eklenir; metnin sunulması veya okunması açık rıza verildiği anlamına gelmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kötüye kullanımı ve toplu kayıt denemelerini önlemek için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri saatlik deneme sayısıyla birlikte tutulur; bu sayaçlar yalnızca bir saatlik sınırlama için kullanılır, süresi dolanlar düzenli olarak silinir ve bu sayaçlarda adresin kendisi yer almaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesabın açıldığında ve hesabına giriş yaptığında ziyaretçi sepetin ve garajındaki araçlar hesabına taşınır; hesabınla verdiğin siparişler ve kaydettiğin adresler hesabına bağlanır. Üyelik bülten aboneliği veya pazarlama izni değildir; üyelik bilgilerin pazarlama amacıyla kullanılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesabını kapatmak için hesabında kayıtlı e-posta adresinden ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " adresine yazabilirsin. Hesap kaydın silindiğinde oturumların, kayıtlı adreslerin, garajındaki araçların ve üyelik onay kaydın birlikte silinir; verdiğin siparişlere ilişkin kayıtlar “Saklama ve Silme” bölümündeki süreler boyunca saklanır."
             ]
           }
         ]
@@ -3156,20 +3248,20 @@
         ]
       },
       {
-        "title": "Adres Defteri (Servis Hesapları)",
+        "title": "Adres Defteri",
         "blocks": [
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Onaylı servis hesapları, sonraki siparişlerde kullanmak üzere en fazla 10 teslimat veya fatura adresi kaydedebilir. Her kayıtta adres etiketi, alıcı adı, telefon, il, ilçe, açık adres, varsa posta kodu ve varsayılan teslimat veya fatura işareti bulunur."
+              "Bireysel üyeler ve onaylı servis hesapları, sonraki siparişlerde kullanmak üzere en fazla 10 teslimat veya fatura adresi kaydedebilir. Her kayıtta adres etiketi, alıcı adı, telefon, il, ilçe, açık adres, varsa posta kodu ve varsayılan teslimat veya fatura işareti bulunur."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu adresler çoğunlukla servisin kendi müşterilerine ait olabilir; yani adres defterinde hesap sahibi dışındaki kişilerin ad, telefon ve adres bilgileri yer alabilir. Bu kişilerin bilgilerini adres defterine kaydeden hesap sahibi, onları kişisel verilerinin işleneceği konusunda bilgilendirmekten ve bu kaydı yapmak için gerekli hukuki sebebe dayanmaktan kendisi sorumludur."
+              "Servis hesaplarında bu adresler çoğunlukla servisin kendi müşterilerine ait olabilir; bireysel hesaplarda da başka bir alıcının adresi kaydedilebilir. Yani adres defterinde hesap sahibi dışındaki kişilerin ad, telefon ve adres bilgileri yer alabilir. Bu kişilerin bilgilerini adres defterine kaydeden hesap sahibi, onları kişisel verilerinin işleneceği konusunda bilgilendirmekten ve bu kaydı yapmak için gerekli hukuki sebebe dayanmaktan kendisi sorumludur."
             ]
           },
           {
@@ -3195,7 +3287,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap bilgileri yetkili yönetici tarafından servis hesabı oluşturulurken sisteme girilir. Giriş bilgileri giriş formu üzerinden, sepet bilgileri sepet işlemleriyle, araç tercihi garaj formuyla ve çerez tercihi tercih ekranıyla elektronik ortamda elde edilir. Sipariş, teslimat ve fatura bilgileri sipariş formundan, adres defteri bilgileri hesap sayfasındaki adres formundan; ödeme sonucu ve gönderi durumu ise ödeme kuruluşundan ve kargo hizmetinden elektronik ortamda elde edilir."
+              "Bireysel üyelik bilgileri kayıt formundan, servis hesabı bilgileri servis başvuru formundan veya yetkili yönetici tarafından hesap oluşturulurken elde edilir. Üyelik kaydı onayına ilişkin IP adresi ve tarayıcı bilgisi, form gönderilirken istekten otomatik olarak elde edilir. Giriş bilgileri giriş formu üzerinden, sepet bilgileri sepet işlemleriyle, araç tercihi garaj formuyla ve çerez tercihi tercih ekranıyla elektronik ortamda elde edilir. Sipariş, teslimat ve fatura bilgileri sipariş formundan, adres defteri bilgileri hesap sayfasındaki adres formundan; ödeme sonucu ve gönderi durumu ise ödeme kuruluşundan ve kargo hizmetinden elektronik ortamda elde edilir."
             ]
           },
           {
@@ -3218,7 +3310,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Hesap erişimi, sepetin sürdürülmesi ve açıkça talep edilen araç tercihinin hatırlanması: ilgili hizmet ilişkisinin kurulması veya yerine getirilmesi için gerekli olduğu ölçüde KVKK madde 5/2(c)."
+                  "Üyeliğin oluşturulması ve yürütülmesi, hesap erişimi, sepetin sürdürülmesi ve açıkça talep edilen araç tercihinin hatırlanması: üyelik sözleşmesinin veya ilgili hizmet ilişkisinin kurulması veya yerine getirilmesi için gerekli olduğu ölçüde KVKK madde 5/2(c)."
                 ]
               },
               {
@@ -3239,21 +3331,21 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Sipariş onayının ispatı ve bir uyuşmazlıkta hakkın tesisi, kullanılması veya korunması: KVKK madde 5/2(e)."
+                  "Sipariş onayının ve üyelik koşullarının kabulünün ispatı ile bir uyuşmazlıkta hakkın tesisi, kullanılması veya korunması: KVKK madde 5/2(e)."
                 ]
               },
               {
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Servis hesabının adres defterinde adres saklanması ve siparişlerde kullanılması: hesap sahibi bakımından hizmet ilişkisinin ifası için gerekli olduğu ölçüde KVKK madde 5/2(c). Adresi kaydedilen üçüncü kişiler bakımından: bu kişilere yapılacak teslimat ve faturalandırma için sözleşmenin kurulması veya ifasıyla doğrudan ilgili olması (KVKK madde 5/2(c)) ve fatura düzenlenmesine ilişkin kanuni yükümlülük (KVKK madde 5/2(ç))."
+                  "Hesabın adres defterinde adres saklanması ve siparişlerde kullanılması: hesap sahibi bakımından hizmet ilişkisinin ifası için gerekli olduğu ölçüde KVKK madde 5/2(c). Adresi kaydedilen üçüncü kişiler bakımından: bu kişilere yapılacak teslimat ve faturalandırma için sözleşmenin kurulması veya ifasıyla doğrudan ilgili olması (KVKK madde 5/2(c)) ve fatura düzenlenmesine ilişkin kanuni yükümlülük (KVKK madde 5/2(ç))."
                 ]
               },
               {
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Giriş denemelerinin sınırlandırılması, yetkisiz erişimin önlenmesi ve güvenli oturum: temel hak ve özgürlüklerinize zarar vermemek kaydıyla bilgi güvenliğine ilişkin meşru menfaat için zorunlu olduğu ölçüde KVKK madde 5/2(f)."
+                  "Giriş, kayıt ve başvuru denemelerinin sınırlandırılması, yetkisiz erişimin önlenmesi ve güvenli oturum: temel hak ve özgürlüklerinize zarar vermemek kaydıyla bilgi güvenliğine ilişkin meşru menfaat için zorunlu olduğu ölçüde KVKK madde 5/2(f)."
                 ]
               },
               {
@@ -3295,7 +3387,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ile e-posta doğrulama ve şifre yenileme bağlantıları gibi işlem e-postaları, sitenin barındırıldığı Amazon Web Services’in e-posta gönderim hizmeti (Amazon SES) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla AWS tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -3368,7 +3460,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap kayıtlarının süresi hizmet ilişkisinin devamına, talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
+              "Hesap kayıtları ve üyelik onay kaydı, üyelik sürdüğü sürece saklanır. E-posta adresi 7 gün içinde doğrulanmayan kayıtlar, üyelik onay kaydıyla birlikte silinir. Hesap kapatma talebi sonuçlandırıldığında hesap kaydı silinir; oturumlar, kayıtlı adresler, garaj kayıtları ve üyelik onay kaydı onunla birlikte silinir. Kapatılan hesapla verilmiş siparişlerin kayıtları aşağıda belirtilen sürelerle saklanmaya devam eder. Talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
             ]
           },
           {
@@ -3387,7 +3479,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap parolaları açık metin olarak değil, şifre özeti olarak saklanır. Oturum ve ziyaretçi sepeti belirteçleri sunucuda özetlenerek tutulur; yönetim işlevlerine erişim hesap yetkileriyle sınırlandırılır."
+              "Hesap parolaları açık metin olarak değil, şifre özeti olarak saklanır. Oturum, ziyaretçi sepeti, e-posta doğrulama ve şifre yenileme belirteçleri sunucuda özetlenerek tutulur; doğrulama bağlantısı 24 saat, şifre yenileme bağlantısı 60 dakika geçerlidir, her biri bir kez kullanılır ve süresi dolan kayıtlar silinir; yönetim işlevlerine erişim hesap yetkileriyle sınırlandırılır."
             ]
           },
           {
@@ -3727,7 +3819,7 @@
     "title": "KVKK Aydınlatma Metni",
     "sourceUrl": "https://getirbakim.com/kvkk-aydinlatma-metni",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-11-19",
+    "updatedAt": "2026-11-22",
     "description": "Mevcut site hizmetlerinde işlenen kişisel veriler, işleme amaçları ve hukuki sebepler ile ilgili kişi hakları.",
     "sections": [
       {
@@ -3802,14 +3894,28 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Servis hesabı için ad veya servis unvanı, e-posta adresi, hesap rolü, onay ve fiyatlandırma bilgileri; hesaba bağlı işlemler."
+                  "Bireysel üyelik için ad ve soyad, e-posta adresi, hesap türü ve kayıt zamanı; servis hesabı için ayrıca servis unvanı, yetkili kişinin adı, telefon, şehir, onay ve fiyatlandırma bilgileri; hesaba bağlı işlemler."
                 ]
               },
               {
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Güvenli giriş için şifre özeti, oturum belirteçlerinin özeti ve başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri."
+                  "Güvenli giriş, e-posta doğrulama ve şifre yenileme için şifre özeti, e-posta adresinin doğrulandığı zaman, oturum belirteçlerinin ve tek kullanımlık doğrulama ve şifre yenileme bağlantılarının özeti, başarısız giriş denemelerine ilişkin e-posta ve zaman bilgileri ile kayıt, doğrulama ve şifre yenileme taleplerini sınırlamak için e-posta ve IP adresinin özeti."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Üyelik kaydı onayı: Üyelik ve Kullanım Koşulları’nın kabul edilen sürümü, kabul zamanı, IP adresi ve isteğin iletim (proxy) başlığı, tarayıcı bilgisi ve onay metni ile kayıt anında geçerli olan KVKK Aydınlatma Metninin sürümü."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "Kayıt ve başvuru denemelerinin sınırlandırılması için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri ile saatlik deneme sayısı; bu kayıtlar yalnızca bir saatlik sınırlama için kullanılır ve süresi dolanlar düzenli olarak silinir."
                 ]
               },
               {
@@ -3879,7 +3985,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Servis hesaplarının adres defteri: kaydedilen adreslerdeki alıcı adı, telefon ve adres bilgileri."
+                  "Hesapların adres defteri: kaydedilen adreslerdeki alıcı adı, telefon ve adres bilgileri."
                 ]
               }
             ]
@@ -3888,7 +3994,57 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Siparişe, ödemeye, teslimata ve faturaya ilişkin ayrıntılar aşağıdaki “Sipariş, Ödeme, Teslimat ve Fatura Verileri” ve “Adres Defteri (Servis Hesapları)” bölümlerindedir. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
+              "Üyeliğe ilişkin ayrıntılar aşağıdaki “Bireysel Üyelik” bölümünde; siparişe, ödemeye, teslimata ve faturaya ilişkin ayrıntılar “Sipariş, Ödeme, Teslimat ve Fatura Verileri” ve “Adres Defteri” bölümlerindedir. Yeni bir veri işleme faaliyeti başladığında, bu faaliyete ilişkin aydınlatma veri elde edilmeden önce ayrıca yapılmalıdır."
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Bireysel Üyelik",
+        "blocks": [
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Üyelik isteğe bağlıdır; siparişi üye olmadan da verebilirsin. Kayıt formunda ad ve soyadını, e-posta adresini ve şifreni girersin. Şifren açık metin olarak değil, geri döndürülemez bir özet olarak saklanır. Kayıttan sonra e-posta adresine tek kullanımlık ve 24 saat geçerli bir doğrulama bağlantısı göndeririz; hesabın, e-posta adresini bu bağlantıyla doğruladığında açılır. Kayıt ve doğrulama zamanı hesabınla birlikte tutulur. E-posta adresini 7 gün içinde doğrulamazsan kayıt formunda verdiğin bilgiler ve üyelik onay kaydın silinir."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kayıt sırasında Üyelik ve Kullanım Koşulları’nı onay kutusuyla kabul edersin. Kabulün ispatı için kabul ettiğin metnin sürümü, kabul zamanı, IP adresin ve isteğin iletim (proxy) başlığı, tarayıcı bilgin ve onay metni sonradan değiştirilemeyen bir kayıt olarak saklanır. KVKK Aydınlatma Metni kayıt formunda bilgilendirme amacıyla sunulur ve o andaki sürümü aynı kayda eklenir; metnin sunulması veya okunması açık rıza verildiği anlamına gelmez."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Kötüye kullanımı ve toplu kayıt denemelerini önlemek için e-posta ve IP adresinin yalnızca geri döndürülemez özetleri saatlik deneme sayısıyla birlikte tutulur; bu sayaçlar yalnızca bir saatlik sınırlama için kullanılır, süresi dolanlar düzenli olarak silinir ve bu sayaçlarda adresin kendisi yer almaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesabın açıldığında ve hesabına giriş yaptığında ziyaretçi sepetin ve garajındaki araçlar hesabına taşınır; hesabınla verdiğin siparişler ve kaydettiğin adresler hesabına bağlanır. Üyelik bülten aboneliği veya pazarlama izni değildir; üyelik bilgilerin pazarlama amacıyla kullanılmaz."
+            ]
+          },
+          {
+            "tag": "p",
+            "attrs": {},
+            "children": [
+              "Hesabını kapatmak için hesabında kayıtlı e-posta adresinden ",
+              {
+                "tag": "a",
+                "attrs": {
+                  "href": "mailto:info@ergulenerji.com"
+                },
+                "children": [
+                  "info@ergulenerji.com"
+                ]
+              },
+              " adresine yazabilirsin. Hesap kaydın silindiğinde oturumların, kayıtlı adreslerin, garajındaki araçların ve üyelik onay kaydın birlikte silinir; verdiğin siparişlere ilişkin kayıtlar “Saklama ve Silme” bölümündeki süreler boyunca saklanır."
             ]
           }
         ]
@@ -3941,20 +4097,20 @@
         ]
       },
       {
-        "title": "Adres Defteri (Servis Hesapları)",
+        "title": "Adres Defteri",
         "blocks": [
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Onaylı servis hesapları, sonraki siparişlerde kullanmak üzere en fazla 10 teslimat veya fatura adresi kaydedebilir. Her kayıtta adres etiketi, alıcı adı, telefon, il, ilçe, açık adres, varsa posta kodu ve varsayılan teslimat veya fatura işareti bulunur."
+              "Bireysel üyeler ve onaylı servis hesapları, sonraki siparişlerde kullanmak üzere en fazla 10 teslimat veya fatura adresi kaydedebilir. Her kayıtta adres etiketi, alıcı adı, telefon, il, ilçe, açık adres, varsa posta kodu ve varsayılan teslimat veya fatura işareti bulunur."
             ]
           },
           {
             "tag": "p",
             "attrs": {},
             "children": [
-              "Bu adresler çoğunlukla servisin kendi müşterilerine ait olabilir; yani adres defterinde hesap sahibi dışındaki kişilerin ad, telefon ve adres bilgileri yer alabilir. Bu kişilerin bilgilerini adres defterine kaydeden hesap sahibi, onları kişisel verilerinin işleneceği konusunda bilgilendirmekten ve bu kaydı yapmak için gerekli hukuki sebebe dayanmaktan kendisi sorumludur."
+              "Servis hesaplarında bu adresler çoğunlukla servisin kendi müşterilerine ait olabilir; bireysel hesaplarda da başka bir alıcının adresi kaydedilebilir. Yani adres defterinde hesap sahibi dışındaki kişilerin ad, telefon ve adres bilgileri yer alabilir. Bu kişilerin bilgilerini adres defterine kaydeden hesap sahibi, onları kişisel verilerinin işleneceği konusunda bilgilendirmekten ve bu kaydı yapmak için gerekli hukuki sebebe dayanmaktan kendisi sorumludur."
             ]
           },
           {
@@ -4025,7 +4181,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap bilgileri yetkili yönetici tarafından servis hesabı oluşturulurken sisteme girilir. Giriş bilgileri giriş formu üzerinden, sepet bilgileri sepet işlemleriyle, araç tercihi garaj formuyla ve çerez tercihi tercih ekranıyla elektronik ortamda elde edilir. Sipariş, teslimat ve fatura bilgileri sipariş formundan, adres defteri bilgileri hesap sayfasındaki adres formundan; ödeme sonucu ve gönderi durumu ise ödeme kuruluşundan ve kargo hizmetinden elektronik ortamda elde edilir."
+              "Bireysel üyelik bilgileri kayıt formundan, servis hesabı bilgileri servis başvuru formundan veya yetkili yönetici tarafından hesap oluşturulurken elde edilir. Üyelik kaydı onayına ilişkin IP adresi ve tarayıcı bilgisi, form gönderilirken istekten otomatik olarak elde edilir. Giriş bilgileri giriş formu üzerinden, sepet bilgileri sepet işlemleriyle, araç tercihi garaj formuyla ve çerez tercihi tercih ekranıyla elektronik ortamda elde edilir. Sipariş, teslimat ve fatura bilgileri sipariş formundan, adres defteri bilgileri hesap sayfasındaki adres formundan; ödeme sonucu ve gönderi durumu ise ödeme kuruluşundan ve kargo hizmetinden elektronik ortamda elde edilir."
             ]
           },
           {
@@ -4048,7 +4204,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Hesap erişimi, sepetin sürdürülmesi ve açıkça talep edilen araç tercihinin hatırlanması: ilgili hizmet ilişkisinin kurulması veya yerine getirilmesi için gerekli olduğu ölçüde KVKK madde 5/2(c)."
+                  "Üyeliğin oluşturulması ve yürütülmesi, hesap erişimi, sepetin sürdürülmesi ve açıkça talep edilen araç tercihinin hatırlanması: üyelik sözleşmesinin veya ilgili hizmet ilişkisinin kurulması veya yerine getirilmesi için gerekli olduğu ölçüde KVKK madde 5/2(c)."
                 ]
               },
               {
@@ -4069,21 +4225,21 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Sipariş onayının ispatı ve bir uyuşmazlıkta hakkın tesisi, kullanılması veya korunması: KVKK madde 5/2(e)."
+                  "Sipariş onayının ve üyelik koşullarının kabulünün ispatı ile bir uyuşmazlıkta hakkın tesisi, kullanılması veya korunması: KVKK madde 5/2(e)."
                 ]
               },
               {
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Servis hesabının adres defterinde adres saklanması ve siparişlerde kullanılması: hesap sahibi bakımından hizmet ilişkisinin ifası için gerekli olduğu ölçüde KVKK madde 5/2(c). Adresi kaydedilen üçüncü kişiler bakımından: bu kişilere yapılacak teslimat ve faturalandırma için sözleşmenin kurulması veya ifasıyla doğrudan ilgili olması (KVKK madde 5/2(c)) ve fatura düzenlenmesine ilişkin kanuni yükümlülük (KVKK madde 5/2(ç))."
+                  "Hesabın adres defterinde adres saklanması ve siparişlerde kullanılması: hesap sahibi bakımından hizmet ilişkisinin ifası için gerekli olduğu ölçüde KVKK madde 5/2(c). Adresi kaydedilen üçüncü kişiler bakımından: bu kişilere yapılacak teslimat ve faturalandırma için sözleşmenin kurulması veya ifasıyla doğrudan ilgili olması (KVKK madde 5/2(c)) ve fatura düzenlenmesine ilişkin kanuni yükümlülük (KVKK madde 5/2(ç))."
                 ]
               },
               {
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "Giriş denemelerinin sınırlandırılması, yetkisiz erişimin önlenmesi ve güvenli oturum: temel hak ve özgürlüklerinize zarar vermemek kaydıyla bilgi güvenliğine ilişkin meşru menfaat için zorunlu olduğu ölçüde KVKK madde 5/2(f)."
+                  "Giriş, kayıt ve başvuru denemelerinin sınırlandırılması, yetkisiz erişimin önlenmesi ve güvenli oturum: temel hak ve özgürlüklerinize zarar vermemek kaydıyla bilgi güvenliğine ilişkin meşru menfaat için zorunlu olduğu ölçüde KVKK madde 5/2(f)."
                 ]
               },
               {
@@ -4125,7 +4281,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ile e-posta doğrulama ve şifre yenileme bağlantıları gibi işlem e-postaları, sitenin barındırıldığı Amazon Web Services’in e-posta gönderim hizmeti (Amazon SES) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla AWS tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -4198,7 +4354,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Hesap kayıtlarının süresi hizmet ilişkisinin devamına, talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
+              "Hesap kayıtları ve üyelik onay kaydı, üyelik sürdüğü sürece saklanır. E-posta adresi 7 gün içinde doğrulanmayan kayıtlar, üyelik onay kaydıyla birlikte silinir. Hesap kapatma talebi sonuçlandırıldığında hesap kaydı silinir; oturumlar, kayıtlı adresler, garaj kayıtları ve üyelik onay kaydı onunla birlikte silinir. Kapatılan hesapla verilmiş siparişlerin kayıtları aşağıda belirtilen sürelerle saklanmaya devam eder. Talep ve uyuşmazlık kayıtlarının süresi ilgili hukuki ihtiyaca göre belirlenir. Saklama amacı kalmayan kayıtlara süresiz saklama uygulanamaz. Çerez ve tercih süreleri dışındaki sunucu kayıtlarının saklama ve imha süreleri, şirketin veri envanterine göre belirlenir."
             ]
           },
           {
@@ -4526,7 +4682,7 @@
     "title": "Çerez Politikası",
     "sourceUrl": "https://getirbakim.com/cerez-politikasi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-11-18",
+    "updatedAt": "2026-11-22",
     "description": "Sitede kullanılan çerez ve yerel depolama kayıtları, amaçları, süreleri ve tercihlerin yönetimi.",
     "sections": [
       {
@@ -4613,7 +4769,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "gb_session: Servis hesabı oturumunu sürdürür. Giriş yapıldığında kullanılır; geçerlilik süresi 30 dakikadır."
+                  "gb_session: Bireysel üye veya servis hesabı oturumunu sürdürür. Giriş yapıldığında veya e-posta adresi doğrulandığında kullanılır; geçerlilik süresi 30 dakikadır."
                 ]
               },
               {
@@ -4621,6 +4777,27 @@
                 "attrs": {},
                 "children": [
                   "gb_session_at: Oturum çerezinin en son ne zaman yenilendiğini tutar; oturumun gereksiz yere yeniden yazılmasını önler. Zorunludur; giriş yapıldığında kullanılır ve oturum çereziyle aynı süre geçerlidir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_reset: Şifre yenileme bağlantısını açtığında ya da e-posta adresini kayıt olduğun tarayıcıdan başka bir tarayıcıda doğruladığında, yeni şifre belirlenene kadar bu talebi tanır. Yalnızca şifre yenileme sayfasında kullanılır; geçerlilik süresi en fazla 60 dakikadır."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_verify: E-posta doğrulama bağlantısını açtığında, doğrulama tamamlanana kadar bağlantıyı tanır. Yalnızca e-posta doğrulama sayfasında kullanılır; geçerlilik süresi en fazla 24 saattir."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_verify_origin: Kayıt olduğun veya doğrulama e-postası istediğin tarayıcıyı tanır; doğrulama bu tarayıcıda yapılırsa oturumu açar. Geçerlilik süresi 24 saattir."
                 ]
               },
               {

@@ -2,6 +2,7 @@
 # Registers (or removes) the owner's Mac as the self-hosted GitHub Actions runner for CI (#1047).
 #   scripts/ci/mac-runner-setup.sh           install: download, register, start as a launchd service
 #   scripts/ci/mac-runner-setup.sh remove    stop, uninstall the service and unregister the runner
+# A second instance on the same Mac (parallel jobs): RUNNER_DIR=~/actions-runner-getirbakim-2 RUNNER_NAME=<name>-2 ...
 # Only for a PRIVATE repository: on a public one a fork pull request can point runs-on at this Mac.
 # The runner lives in its own directory (RUNNER_DIR, default ~/actions-runner-getirbakim) and never touches the
 # dev server on :3000 or the local database; CI starts its own Postgres container on a free port.

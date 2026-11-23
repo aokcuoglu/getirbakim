@@ -20,6 +20,8 @@ export const PARTNER_WEBHOOK_FIRST_RETRY_MINUTES = 4;
 export const PARTNER_WEBHOOK_TIMEOUT_MS = 10_000;
 /** An event still undelivered this long after it was written (or requeued) is given up as dead. */
 export const PARTNER_WEBHOOK_GIVE_UP_HOURS = 72;
+/** Delivered, skipped and given-up events are deleted this many days after their last change (delivery, requeue or write). */
+export const PARTNER_WEBHOOK_RETENTION_DAYS = 90;
 
 export type PartnerWebhookEndpoint = { url: string; secret: string };
 

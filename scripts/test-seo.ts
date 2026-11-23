@@ -5,11 +5,15 @@ import { aiCrawlers, privatePaths, robotsPolicy } from "../src/modules/seo/crawl
 import { llmsTxt } from "../src/modules/seo/llms";
 import { guides } from "../src/content/guides";
 import { isGatedListing, listingIndexable, minIndexableListingProducts } from "../src/modules/seo/indexing";
-import { categoryNameInText } from "../src/modules/store/category-tree";
+import { categoryNameInText, categorySlug } from "../src/modules/store/category-tree";
 import { modelListingTitle, vehicleModelCategoryLabels, vehicleModelLabels, withModelYears } from "../src/modules/store/vehicle-model-groups";
 import { legalLinks } from "../src/content/legal";
-import { sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
+import { sitemapCategorySlugs, sitemapMaxWarmIntervalMs, sitemapRevalidateSeconds, sitemapTtlSeconds, sitemapWarmIntervalMs } from "../src/modules/seo/sitemap";
 import { startSitemapWarmup, warmIntervalMs, warmSitemaps } from "../src/modules/seo/sitemap-warmup";
+import { brandedTitle, brandSuffix, catalogMetaDescription, categoryDescription, descriptionMax, descriptionMin, fitDescription, listingTitlePad, searchResultsTitle, titleMax, titleMin, vehicleCategoryHeading, vehicleCategoryTexts } from "../src/modules/seo/meta-text";
+import { legalMetaDescriptions, legalMetaTitles } from "../src/content/legal-meta";
+import { legalDocument, legalTitle } from "../src/content/legal";
+import { catalogDescription, curatedCategorySlugs } from "../src/app/(store)/katalog/catalog-descriptions";
 
 type Group = { userAgent?: string | string[]; allow?: string | string[]; disallow?: string | string[] };
 const list = (value: string | string[] | undefined) => (value === undefined ? [] : Array.isArray(value) ? value : [value]);
@@ -48,7 +52,7 @@ test("production has a general group and an AI crawler group with identical bodi
 
 test("robots rules open the public store and close private and unbounded URLs", () => {
   const open = ["/", "/katalog", "/kategori/fren", "/kategori/fren?page=2", "/katalog?brand=BOSCH", "/kategori/fren/bmw", "/yedek-parca/bmw", "/yedek-parca/volkswagen/golf-7", "/yedek-parca/volkswagen/golf-7?page=2", "/kategori/fren/volkswagen/golf-7", "/arac-markalari", "/urun/x", "/api/product-media/1", "/api/manufacturer-logos/bosch?v=abc", "/api/brand-logos/12?v=abc", "/_next/image?url=%2Fa.png&w=640&q=75", "/servisler", "/llms.txt", "/marka/bosch", "/marka/bosch?page=2", "/rehber", "/rehber/oem-numarasi-nedir-nasil-bulunur"];
-  const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/hesap", "/hesap/adresler", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/yedek-parca/volkswagen/golf-7?sort=price-asc", "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D", "/kategori/fren/volkswagen/golf-7?sort=price-asc", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code", "/marka/bosch?sort=price-asc", "/marka/bosch?q=x"];
+  const closed = ["/yonetim/urunler", "/api/search/suggest", "/api/bakim-seti/gorsel?urun=1", "/sepet", "/giris?next=%2F", "/garaj", "/hesap", "/hesap/adresler", "/siparis/abc", "/siparis/abc/sozlesme", "/siparisler", "/siparis-olustur", "/servisler/basvuru", "/sifre-yenile", "/sifre-yenile/baglanti?t=x", "/e-posta-dogrula", "/e-posta-dogrula/baglanti?t=x", "/katalog?q=fren", "/kategori/fren?sort=price-asc", "/kategori/fren?brands=%5B%22BOSCH%22%5D&page=2", "/yedek-parca/bmw?fits=vehicle", "/yedek-parca/volkswagen/golf-7?sort=price-asc", "/yedek-parca/volkswagen/golf-7?brands=%5B%22BOSCH%22%5D", "/kategori/fren/volkswagen/golf-7?sort=price-asc", "/kategori/fren/bmw?q=disk", "/katalog?q=0986&searchBy=code", "/marka/bosch?sort=price-asc", "/marka/bosch?q=x"];
   for (const group of groups) {
     for (const url of open) assert.equal(allowed(group, url), true, `${url} should be allowed`);
     for (const url of closed) assert.equal(allowed(group, url), false, `${url} should be blocked`);
@@ -83,7 +87,11 @@ test("model × category and make × category listings share the model pages' pro
   for (const query of [{ category: "yedek-parca", make: "volkswagen", model: "golf-7" }, { category: "yedek-parca", make: "volkswagen" }]) {
     assert.equal(listingIndexable(query, 5000), false);
   }
-  assert.equal(listingIndexable({ category: "yedek-parca" }, 5000), true);
+  // Alone it competes with /katalog while listing about 7% of the products (#1222): never indexed either.
+  assert.equal(listingIndexable({ category: "yedek-parca" }, 5000), false);
+  assert.equal(listingIndexable({}, 0), true);
+  assert.equal(listingIndexable({ category: "fren" }, 0), true);
+  assert.deepEqual(sitemapCategorySlugs(["yedek-parca", "fren", "balata-101"]), ["fren", "balata-101"]);
   for (const query of [{}, { make: "volkswagen" }, { category: "fren" }]) assert.equal(isGatedListing(query), false);
 });
 
@@ -128,7 +136,8 @@ test("llms.txt links are absolute, cover the legal pages and categories, and avo
   assert.ok(targets.length > 10);
   for (const target of targets) assert.ok(target.startsWith(`${site}/`), target);
   for (const { slug } of legalLinks) assert.ok(text.includes(`${site}/${slug})`), slug);
-  for (const slug of ["yedek-parca", "fren", "filtre", "yag", "silecek", "aksesuar"]) assert.ok(text.includes(`/kategori/${slug})`), slug);
+  for (const slug of ["fren", "filtre", "yag", "silecek", "aksesuar"]) assert.ok(text.includes(`/kategori/${slug})`), slug);
+  assert.ok(!text.includes("/kategori/yedek-parca"));
   assert.ok(text.includes(`${site}/rehber)`));
   for (const guide of guides) assert.ok(text.includes(`${site}/rehber/${guide.slug})`), guide.slug);
   for (const target of targets) {
@@ -153,6 +162,23 @@ test("the sitemap warm-up runs before the cached data goes stale or is evicted (
   assert.equal(warmIntervalMs("999999999999"), sitemapMaxWarmIntervalMs);
 });
 
+test("make × category texts (#1224)", () => {
+  const make = vehicleCategoryTexts("BMW", "volanlar", 1234, "make");
+  assert.equal(make.description, "BMW araçlar için volanlar kategorisinde 1.234 ürün: üreticiye ve OEM numarasına göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu kontrol et.");
+  assert.equal(vehicleCategoryHeading("BMW", "volanlar", "make"), "BMW araçlar için volanlar seçeneklerini keşfet");
+  assert.ok(make.intro.startsWith("BMW araçlar için volanlar kategorisinde listelenen 1.234 ürün. Liste marka düzeyindedir"));
+  assert.ok(!make.description.includes("volanlar incele"));
+  const vehicle = "Volkswagen Golf 7 (2012–2022)", parts = "fren diskleri";
+  assert.equal(vehicleCategoryTexts(vehicle, parts, 12, "model").description, fitDescription(`${vehicle} için ${parts} kategorisinde 12 ürün: üreticiye ve OEM numarasına göre incele.`));
+  assert.equal(vehicleCategoryHeading("Golf 7", parts, "model"), "Golf 7 için fren diskleri seçeneklerini keşfet");
+  assert.equal(vehicleCategoryTexts(vehicle, parts, 12, "model").intro, `${vehicle} için ${parts} kategorisinde listelenen 12 ürün. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`);
+  assert.ok(make.intro.includes("bu markanın modellerinden biri yer alıyor."));
+  for (let name = 3; name <= 20; name++) for (let part = 5; part <= 45; part++) for (const total of [10, 1234, 123456]) {
+    const { description } = vehicleCategoryTexts("M".repeat(name), "p".repeat(part), total, "make");
+    assert.ok(description.length >= descriptionMin && description.length <= descriptionMax, `${name}/${part}/${total}: ${description.length}`);
+  }
+});
+
 test("warmSitemaps requests the slow files one after the other and never throws (#778)", async () => {
   const calls: string[] = [];
   let active = 0, overlapped = false;
@@ -165,8 +191,8 @@ test("warmSitemaps requests the slow files one after the other and never throws 
     return new Response("<urlset/>", { status: url.endsWith("manufacturers.xml") ? 500 : 200 });
   }) as unknown as typeof fetch;
   const results = await warmSitemaps("http://127.0.0.1:3000", { fetch: fake });
-  assert.deepEqual(calls, ["models.xml", "model-categories.xml", "manufacturers.xml"].map(file => `http://127.0.0.1:3000/sitemaps/${file}`));
-  assert.deepEqual(results.map(({ file, ok }) => [file, ok]), [["models.xml", true], ["model-categories.xml", false], ["manufacturers.xml", false]]);
+  assert.deepEqual(calls, ["models.xml", "model-categories.xml", "make-categories.xml", "manufacturers.xml"].map(file => `http://127.0.0.1:3000/sitemaps/${file}`));
+  assert.deepEqual(results.map(({ file, ok }) => [file, ok]), [["models.xml", true], ["model-categories.xml", false], ["make-categories.xml", true], ["manufacturers.xml", false]]);
   assert.equal(overlapped, false);
 });
 
@@ -184,4 +210,138 @@ test("startSitemapWarmup ticks on its interval, skips a running round and stops 
   assert.equal(overlapped, false);
   await new Promise(resolve => setTimeout(resolve, 80));
   assert.equal(ticks, stopped);
+});
+
+test("a page title keeps the brand suffix up to 65 characters, else stands alone and is cut at a word (#1218)", () => {
+  const page = (length: number) => "a".repeat(length);
+  assert.equal(brandSuffix.length, 13);
+  assert.deepEqual(brandedTitle(page(52)), { title: page(52) });
+  assert.deepEqual(brandedTitle(page(53)), { title: page(53), absoluteTitle: true });
+  const long = brandedTitle("Ford Tourneo Connect / Grand Tourneo Connect V761 gergiler, kasnaklar ve sönümleyiciler");
+  assert.equal(long.absoluteTitle, true);
+  assert.ok(long.title.length <= titleMax && long.title.endsWith("…") && !/[,\s]…$/.test(long.title), long.title);
+});
+
+const curated = (slug: string) => catalogDescription(slug) ?? "";
+
+test("curated category copy fits 160 characters without a mid-word cut (#1218)", () => {
+  for (const slug of ["filtre", "fren-diskleri-269", "yedek-parca"]) {
+    const text = curated(slug);
+    assert.ok(text.length > descriptionMax, slug);
+    const fitted = fitDescription(text);
+    assert.ok(fitted.length >= descriptionMin && fitted.length <= descriptionMax, `${slug}: ${fitted.length}`);
+    const body = fitted.replace(/…$/, "");
+    assert.ok(text.startsWith(body) && /[\s,.;:]/.test(text[body.length] ?? " "), `${slug}: ${fitted}`);
+    assert.ok(!/[\s,.:;/-]…$/.test(fitted), fitted);
+  }
+  assert.equal(fitDescription("Kısa metin."), "Kısa metin.");
+  // Whole sentences stay when they make 100 characters; "12.345" is no sentence end.
+  const sentences = `${"Birinci cümle 12.345 ürünle uzun bir açıklama yapar ve yüz karakteri geçecek kadar devam eder burada"}. İkinci cümle ${"uzun ".repeat(20)}biter.`;
+  assert.equal(fitDescription(sentences), `${sentences.split(". ")[0]}.`);
+});
+
+test("every curated category copy fits the meta description range (#1223)", () => {
+  for (const slug of curatedCategorySlugs) {
+    const fitted = fitDescription(curated(slug));
+    assert.ok(fitted.length >= descriptionMin && fitted.length <= descriptionMax, `${slug}: ${fitted.length}`);
+  }
+});
+
+// Top-level groups plus the largest leaf categories by storefront product count (#1223): their copy is the meta description and the visible intro.
+const added: [number, string][] = [
+  [4, "Motor parçaları"], [663, "Süspansiyon"], [296, "Motor soğutma sistemi"], [323, "Elektrik sistemi"],
+  [814, "Şanzıman ve debriyaj"], [676, "Direksiyon sistemi"], [895, "Aydınlatma"], [414, "Isıtma ve havalandırma"],
+  [443, "Kaporta ve iç donanım"], [740, "Yakıt sistemi"], [198, "Egzoz sistemi"], [606, "Silecek ve cam yıkama sistemi"],
+  [268, "Fren balataları"], [713, "Salıncaklar"], [243, "Hava filtreleri"], [366, "Sensörler"], [677, "Rot başları"],
+  [10051, "Motor conta ve keçeleri"], [168, "Motor kayışları ve zincirleri"], [719, "Viraj askı rotları"],
+  [721, "Süspansiyon burçları"], [246, "Polen filtreleri"], [10036, "Gergiler, kasnaklar ve sönümleyiciler"],
+  [244, "Yakıt filtreleri"], [299, "Su pompaları"], [242, "Yağ filtreleri"], [665, "Amortisörler"],
+  [135, "Motor takozları"], [824, "Debriyaj setleri"], [957, "Motor yağları"],
+];
+
+test("the largest categories have curated copy that is used verbatim (#1223)", () => {
+  assert.equal(added.length, 30);
+  for (const [id, name] of added) {
+    const slug = categorySlug(id, name);
+    const text = catalogDescription(slug);
+    assert.ok(text, `${slug} has no curated copy`);
+    assert.ok(text.length >= descriptionMin && text.length <= descriptionMax, `${slug}: ${text.length}`);
+    assert.ok(text.endsWith("."), slug);
+    assert.equal(fitDescription(text), text);
+  }
+  assert.equal(curatedCategorySlugs.length, 37);
+});
+
+test("curated category copy makes no commercial claims and is unique (#1223)", () => {
+  const texts = curatedCategorySlugs.map(curated);
+  for (const text of texts) {
+    assert.doesNotMatch(text, /garanti|ücretsiz|bedava|(?<!\p{L})uyumlu(?:dur)?(?!\p{L})|stokta|indirim|kampanya|en ucuz|₺|(?<!\p{L})TL(?!\p{L})|\d/iu);
+    assert.doesNotMatch(text, /kategorisindeki ürünleri/);
+  }
+  assert.equal(new Set(texts).size, texts.length);
+});
+
+test("/katalog has its own description, apart from the root category's (#1218)", () => {
+  assert.notEqual(catalogMetaDescription, fitDescription(curated("yedek-parca")));
+  assert.ok(catalogMetaDescription.length >= descriptionMin && catalogMetaDescription.length <= descriptionMax);
+});
+
+test("a category without curated copy gets a description of 100–160 characters (#1218)", () => {
+  for (let length = 3; length <= 60; length++) {
+    const description = categoryDescription("Ç".repeat(length));
+    assert.ok(description.length >= descriptionMin && description.length <= descriptionMax, `${length}: ${description.length}`);
+  }
+});
+
+test("a short listing title is padded, a longer one is not, and both land within 30–65 with the suffix (#1218)", () => {
+  assert.equal(listingTitlePad("Volanlar"), "Volanlar: ürünler ve fiyatlar");
+  assert.equal(listingTitlePad("Krank mili yatakları"), "Krank mili yatakları");
+  for (let length = 3; length <= 52; length++) {
+    const title = listingTitlePad("Ç".repeat(length)) + brandSuffix;
+    assert.ok(title.length >= titleMin && title.length <= titleMax, `${length}: ${title.length}`);
+  }
+});
+
+test("category descriptions read right for real category names (#1218)", () => {
+  assert.equal(categoryDescription("Volanlar"),
+    "Volanlar kategorisindeki ürünleri üreticiye göre incele. Ürün kodu veya OEM numarasıyla ara, siparişten önce araç uyumluluğunu kontrol et.");
+  for (const name of ["Volanlar", "Fren balataları", "Krank mili yatakları"]) {
+    const description = categoryDescription(name);
+    assert.ok(description.startsWith(`${name} kategorisindeki ürünleri `), description);
+    assert.ok(description.length >= descriptionMin && description.length <= descriptionMax, `${name}: ${description.length}`);
+  }
+});
+
+test("legal pages have meta titles of 30–65 characters with the suffix and descriptions of 100–160 (#1218)", () => {
+  for (const { slug } of legalLinks) {
+    const title = (legalMetaTitles[slug] ?? legalTitle(slug) ?? "") + brandSuffix;
+    assert.ok(title.length >= titleMin && title.length <= titleMax, `${slug}: ${title}`);
+    const description = legalMetaDescriptions[slug] ?? legalDocument(slug)?.description ?? "";
+    assert.ok(description.length >= descriptionMin && description.length <= descriptionMax, `${slug}: ${description.length}`);
+  }
+});
+
+test("a long search query is cut by code point at a word boundary (#1218)", () => {
+  assert.equal(searchResultsTitle("fren diski"), "“fren diski” için arama sonuçları");
+  const title = searchResultsTitle("bosch fren diski ön sol havalandırmalı 🚗🚗 golf 7 passat b8");
+  assert.equal(title, "“bosch fren diski ön sol havalandırmalı…” için arama sonuçları");
+  assert.ok(!title.includes("\uFFFD"));
+  assert.ok(brandedTitle(title).title.length <= titleMax);
+});
+
+test("a clipped model × category title has no separator before the ellipsis (#1218)", () => {
+  const ford = { name: "TOURNEO CONNECT / GRAND TOURNEO CONNECT V761", dateFrom: "2013-10", dateTo: null };
+  const title = vehicleModelCategoryLabels("FORD", ford, "gergiler, kasnaklar ve sönümleyiciler").title;
+  assert.ok(title.length <= 60, title);
+  assert.ok(!title.includes(",…"), title);
+});
+
+test("robots.txt closes the private paths and keeps the static pages open (#1218)", () => {
+  for (const group of groups) {
+    const disallow = list(group.disallow);
+    for (const path of privatePaths) assert.ok(disallow.includes(path), path);
+    for (const url of ["/bilgi/hakkimizda", "/bilgi/uyumluluk", "/iletisim", "/teslimat-ve-iade", "/cerez-politikasi", "/rehber", "/servisler", "/bakim-robotu", "/arac-markalari", "/marka/bosch"]) {
+      assert.equal(allowed(group, url), true, url);
+    }
+  }
 });

@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import { loginPath, RETURN_TO_HEADER } from "./return-to";
 import { SESSION_COOKIE, SESSION_IDLE_SECONDS, SESSION_SEEN_COOKIE, sessionCookieOptions } from "./session-cookie";
-export type Account = { id: string; name: string; email: string; role: "admin" | "service"; approved: boolean; discount_percent: number };
+export type Account = { id: string; name: string; email: string; role: "admin" | "service" | "customer"; approved: boolean; discount_percent: number };
 export const tokenHash = (token: string) => createHash("sha256").update(token).digest("hex");
 export const currentAccount = cache(async (): Promise<Account | null> => {
  const token = (await cookies()).get(SESSION_COOKIE)?.value;
@@ -16,6 +16,7 @@ export const currentAccount = cache(async (): Promise<Account | null> => {
   SELECT a.id,a.name,a.email,a.role,a.approved,a.discount_percent FROM accounts a JOIN sessions s ON s.account_id=a.id WHERE s.token_hash=$1 AND s.expires_at>now()`, [tokenHash(token), SESSION_IDLE_SECONDS]);
  return rows[0] ?? null;
 });
+// Any approved account, whatever its role (customer included); admin pages must use requireAdmin.
 export async function requireService() {
  const account = await currentAccount();
  if (!account?.approved) redirect(loginPath((await headers()).get(RETURN_TO_HEADER)));

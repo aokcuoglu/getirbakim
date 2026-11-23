@@ -40,12 +40,62 @@ const nextConfig: NextConfig = {
   // On AWS nothing in front compresses pages: CloudFront's caching-disabled policy cannot, so 600-800 KB of HTML
   // went out raw (#453). The VPS edge nginx and Cloudflare leave an already compressed response as it is.
   compress: true,
-  // public/ files default to max-age=0, so the CDN revalidates every logo with the origin.
+  // Security headers go on every response. public/ files default to max-age=0, so the CDN would revalidate every
+  // logo with the origin: /media and /brand get a 1-day browser / 1-hour CDN cache (s-maxage + swr must stay below
+  // max-age because CloudFront forwards Age, so the browser copy never outlives the 1-day budget). Only the build's own
+  // ?dpl=<BUILD_VERSION> (appended by next/image through deploymentId) is immutable, and URLs without this build's
+  // dpl keep the short cache. Next does not route on dpl, so during a rolling deploy an old task may answer a new
+  // ?dpl= with old bytes; it never pins them for a year (it returns the short cache, as before). The no-referrer
+  // entries come last because config headers win over the same header set in route handlers (payment and
+  // order-access routes send no-referrer themselves).
+  // Content-Security-Policy phase 1 restricts no fetch directive (default/script/style/img/connect/font/frame-src).
+  // form-action is absent because /api/payments/tami/start answers 303 to TAMI's hosted page and Chrome enforces
+  // form-action across redirects. upgrade-insecure-requests is https-only: dev, QA and CI serve http (CI builds with
+  // SITE_URL http://localhost:3103). headers() is baked at build time, so SITE_URL must be set at build (the Dockerfile
+  // sets ENV SITE_URL before npm run build). SITE_URL is read directly: src/lib/site.ts defaults to https.
+  // Content-Security-Policy-Report-Only (phase 2, #1291) is set per request by src/proxy.ts and popupReturn with a fresh
+  // nonce (src/lib/csp.ts). Never add that key here: a config header replaces the proxy's value and its nonce.
   async headers() {
-    const cache = [{ key: "Cache-Control", value: "public, max-age=86400, s-maxage=604800, stale-while-revalidate=604800" }];
+    const csp = [
+      "object-src 'none'",
+      "base-uri 'self'",
+      "frame-ancestors 'self'",
+      ...(process.env.SITE_URL?.startsWith("https://") ? ["upgrade-insecure-requests"] : []),
+    ].join("; ");
+    const security = [
+      { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+      { key: "X-Frame-Options", value: "SAMEORIGIN" },
+      { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+      { key: "Content-Security-Policy", value: csp },
+    ];
+    const noReferrer = [{ key: "Referrer-Policy", value: "no-referrer" }];
+    const cache = [{ key: "Cache-Control", value: "public, max-age=86400, s-maxage=3600, stale-while-revalidate=600" }];
+    const immutable = [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }];
+    // The Dockerfile default "development" is no build id.
+    const build = process.env.BUILD_VERSION !== "development" ? process.env.BUILD_VERSION : undefined;
+    // Next anchors a has value as ^...$ and reads it as a regex, so the build id is escaped.
+    const thisBuild = build
+      ? [{ type: "query" as const, key: "dpl", value: build.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") }]
+      : undefined;
     return [
+      { source: "/:path*", headers: security },
       { source: "/media/:path*", headers: cache },
       { source: "/brand/:path*", headers: cache },
+      ...(thisBuild
+        ? [
+            { source: "/media/:path*", has: thisBuild, headers: immutable },
+            { source: "/brand/:path*", has: thisBuild, headers: immutable },
+          ]
+        : []),
+      { source: "/api/payments/tami/:path*", headers: noReferrer },
+      { source: "/siparis/:id/erisim", headers: noReferrer },
+      // The password reset link and form (#1257): the token must never leave in a Referer.
+      { source: "/sifre-yenile", headers: noReferrer },
+      { source: "/sifre-yenile/:path*", headers: noReferrer },
+      // The e-mail verification link and form (#1258), likewise.
+      { source: "/e-posta-dogrula", headers: noReferrer },
+      { source: "/e-posta-dogrula/:path*", headers: noReferrer },
     ];
   },
   async redirects() {

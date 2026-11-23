@@ -5,7 +5,7 @@ import { readOrder } from "./orders";
 import { readPartnerReturn } from "./returns";
 import {
   buildPartnerOrderEvent, buildPartnerReturnEvent, parsePartnerWebhooks, partnerWebhooksEnv, PARTNER_WEBHOOK_FIRST_RETRY_MINUTES, PARTNER_WEBHOOK_GIVE_UP_HOURS,
-  PARTNER_RETURN_EVENT_TYPE, PARTNER_WEBHOOK_LEASE_MINUTES, PARTNER_WEBHOOK_TIMEOUT_MS, signPartnerWebhook, webhookHeaders, type PartnerWebhookConfig,
+  PARTNER_RETURN_EVENT_TYPE, PARTNER_WEBHOOK_LEASE_MINUTES, PARTNER_WEBHOOK_RETENTION_DAYS, PARTNER_WEBHOOK_TIMEOUT_MS, signPartnerWebhook, webhookHeaders, type PartnerWebhookConfig,
 } from "./webhook-contract";
 
 /**
@@ -18,7 +18,9 @@ import {
  * rows right after their answer, via after(). A non-2xx answer, a redirect, a timeout or a network error keeps the row pending for the next try;
  * after 72 hours it is given up as dead. A partner with no entry in PARTNER_WEBHOOKS_JSON gets its rows skipped; a broken
  * or disabled entry, or broken JSON, keeps them pending (logged on each sweep, not on an order's instant delivery) so a configuration mistake loses nothing
- * within the 72 hours.
+ * within the 72 hours. An admin can requeue a dead row (/yonetim/partnerler): it gets a fresh 72 hours from the requeue
+ * and keeps its id (the partner's eventId dedupe) and created_at (occurredAt). The sweep deletes delivered, skipped and
+ * dead rows 90 days after their last change.
  */
 // Minutes after the last claim before the next try: 4 (the next 5-minute sweep), 15, 45, 135, then every 6 hours
 // (about 15 tries in 72 hours).
@@ -96,14 +98,15 @@ export async function deliverPartnerWebhooks({
       "SELECT partner_code,count(*)::int AS count FROM partner_webhook_events WHERE status='pending' AND partner_code=ANY($1::text[]) GROUP BY partner_code", [held])).rows;
     for (const row of waiting) console.error("Partner webhooks waiting: invalid PARTNER_WEBHOOKS_JSON entry", { partner: row.partner_code, reason: invalid.get(row.partner_code), events: row.count });
   }
-  // Sent in queue order; a partner still cannot rely on it (a retried event arrives after later ones).
+  // Sent in queue order (a requeued event queues from its requeue, so a bulk requeue does not hold back fresh events); a
+  // partner still cannot rely on it (a retried event arrives after later ones).
   const claimed = (await db.query<ClaimedEvent>(
     `WITH claimed AS (UPDATE partner_webhook_events SET claimed_at=now(),attempts=attempts+1 WHERE id IN (
        SELECT id FROM partner_webhook_events WHERE status='pending' AND ($1::uuid IS NULL OR order_id=$1) AND NOT partner_code=ANY($3::text[])
         AND (claimed_at IS NULL OR claimed_at < now()-make_interval(mins=>${RETRY_SQL}))
-       ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED)
-     RETURNING id::text,partner_code,event_type,order_id::text,return_request_id::text,attempts,created_at)
-     SELECT * FROM claimed ORDER BY created_at,id`, [only, batch, held],
+       ORDER BY COALESCE(requeued_at,created_at) LIMIT $2 FOR UPDATE SKIP LOCKED)
+     RETURNING id::text,partner_code,event_type,order_id::text,return_request_id::text,attempts,created_at,requeued_at)
+     SELECT id,partner_code,event_type,order_id,return_request_id,attempts,created_at FROM claimed ORDER BY COALESCE(requeued_at,created_at),id`, [only, batch, held],
   )).rows;
   for (const row of claimed) {
     const endpoint = endpoints.get(row.partner_code);
@@ -154,6 +157,50 @@ export async function deliverPartnerWebhooksSafely(options: DeliverWebhooksOptio
   }
 }
 
+/** A requeue resets the row to a never-tried pending event; the 72-hour give-up counts from requeued_at. */
+const REQUEUE_SET = "status='pending',attempts=0,claimed_at=NULL,last_error=NULL,last_http_status=NULL,requeued_at=now(),requeued_by=$2";
+
+/** One event's partner and status, or null when it is gone. */
+export async function readPartnerWebhookEvent(eventId: string) {
+  const { rows } = await db.query<{ orderId: string; partner: string; status: string }>(
+    `SELECT order_id::text AS "orderId",partner_code AS partner,status FROM partner_webhook_events WHERE id=$1`, [eventId]);
+  return rows[0] ?? null;
+}
+
+/**
+ * An admin's requeue of one given-up event (#1002) of one of `partners`. Returns its order and partner, or null when the
+ * event is gone, not dead (already requeued, delivered or skipped) or belongs to another partner.
+ */
+export async function requeuePartnerWebhook(eventId: string, adminId: string, partners: string[]): Promise<{ orderId: string; partner: string } | null> {
+  const { rows } = await db.query<{ orderId: string; partner: string }>(
+    `UPDATE partner_webhook_events SET ${REQUEUE_SET} WHERE id=$1 AND status='dead' AND partner_code=ANY($3::text[])
+     RETURNING order_id::text AS "orderId",partner_code AS partner`, [eventId, adminId, partners]);
+  return rows[0] ?? null;
+}
+
+/** Requeues every given-up event of one partner; returns how many. */
+export async function requeuePartnerWebhooks(partner: string, adminId: string): Promise<number> {
+  const result = await db.query(`UPDATE partner_webhook_events SET ${REQUEUE_SET} WHERE partner_code=$1 AND status='dead'`, [partner, adminId]);
+  return result.rowCount ?? 0;
+}
+
+/** Deletes delivered, skipped and dead events whose last change is older than the retention; pending rows are kept. */
+export async function prunePartnerWebhookEvents(): Promise<number> {
+  const result = await db.query(
+    `DELETE FROM partner_webhook_events WHERE status<>'pending' AND COALESCE(delivered_at,requeued_at,created_at) < now()-make_interval(days=>$1)`,
+    [PARTNER_WEBHOOK_RETENTION_DAYS]);
+  return result.rowCount ?? 0;
+}
+
+/** prunePartnerWebhookEvents for after(): logs instead of throwing. */
+export async function prunePartnerWebhookEventsSafely() {
+  try { return await prunePartnerWebhookEvents(); }
+  catch (error) {
+    console.error("Partner webhook pruning failed", { error: error instanceof Error ? error.message : error });
+    return null;
+  }
+}
+
 export type PartnerWebhookSummary = { pending: number; dead: number; skipped: number; lastDeliveredAt: Date | null };
 
 /** Per partner: events waiting, given up and skipped (no endpoint), and the last successful delivery. */
@@ -167,14 +214,14 @@ export async function partnerWebhookSummary(partners: string[]) {
 
 export type PartnerWebhookProblem = {
   id: string; partner: string; orderId: string; orderNumber: string; status: "pending" | "dead"; attempts: number;
-  lastHttpStatus: number | null; lastError: string | null; createdAt: Date;
+  lastHttpStatus: number | null; lastError: string | null; createdAt: Date; requeuedAt: Date | null;
 };
 
 /** The latest events that failed at least once and are still retried, or were given up; newest first. */
 export async function recentPartnerWebhookProblems(partners: string[], limit = 50): Promise<PartnerWebhookProblem[]> {
   const { rows } = await db.query<PartnerWebhookProblem>(
     `SELECT e.id::text,e.partner_code AS partner,e.order_id::text AS "orderId",o.number::text AS "orderNumber",e.status,e.attempts,
-      e.last_http_status AS "lastHttpStatus",e.last_error AS "lastError",e.created_at AS "createdAt"
+      e.last_http_status AS "lastHttpStatus",e.last_error AS "lastError",e.created_at AS "createdAt",e.requeued_at AS "requeuedAt"
      FROM partner_webhook_events e JOIN commerce_orders o ON o.id=e.order_id
      WHERE e.partner_code=ANY($1::text[]) AND (e.status='dead' OR (e.status='pending' AND e.last_error IS NOT NULL))
      ORDER BY e.created_at DESC,e.id LIMIT $2`, [partners, limit]);

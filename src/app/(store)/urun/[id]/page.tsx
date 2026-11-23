@@ -6,6 +6,7 @@ import { notFound, permanentRedirect, redirect } from "next/navigation";
 import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, CarFront, Headphones } from "lucide-react";
 import { getDecidedEquivalents, getSetaEquivalents, getStorefrontProduct, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
 import { currentAccount } from "@/modules/auth/session";
+import { accountEmailEnabled } from "@/modules/auth/account-email-switch";
 import { PurchaseForm } from "@/components/purchase-form";
 import { RestockRequestForm } from "@/components/restock-request-form";
 import { PartArt } from "@/components/part-art";
@@ -13,6 +14,7 @@ import { LoginButton } from "@/components/auth/login-button";
 import { getProductEnrichment } from "@/modules/store/product-enrichment";
 import { shownProductName, titleWithoutIdentity } from "@/modules/store/product-name";
 import { productSeoDescription, productSeoTitle } from "@/modules/seo/product-meta";
+import { brandedTitle } from "@/modules/seo/meta-text";
 import { getItemOverride } from "@/modules/store/product-overrides";
 import { getItemReferences } from "@/modules/store/product-references";
 import { applyReferenceOverrides, gtinProperty } from "@/modules/store/product-reference-display";
@@ -118,13 +120,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const vehicles = await vehicleModels(enrichment, product.id, fitmentOverrides);
   const hint = `${product.name} ${product.description}`;
   const meta = productMeta(override, {
-    title: productSeoTitle({ brand: product.display_brand, name, partNumber: product.display_code, vehicles: vehicles.confirmed, hint }),
+    title: productSeoTitle({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles: vehicles.confirmed, hint }),
     description: productSeoDescription({ brand: product.display_brand, name, partNumber: product.display_code, oem: product.oem, vehicles: vehicles.all, text: productSeoText(override, description), hint }),
   });
   const images = galleryImages(uploads.images,
     enrichment?.imagePath ? { src: enrichment.imagePath, width: enrichment.imageWidth, height: enrichment.imageHeight } : null, uploads.hideAutomatic);
+  // A title (an admin's too) that would pass 65 characters with the site suffix stands alone (#1218).
   return {
-    title: meta.title,
+    title: brandedTitle(meta.title).absoluteTitle ? { absolute: meta.title } : meta.title,
     description: meta.description,
     alternates: { canonical: path },
     openGraph: { ...siteOpenGraph, title: meta.title, description: meta.description, url: path,
@@ -312,7 +315,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
         {paymentOptions.length > 1 && <PaymentOptions options={paymentOptions}/>}
         <dl className="mt-[18px] mb-1.5">{specificationRows.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
         <a className="mb-5 inline-block font-medium text-[#0065c3] hover:underline" href="#product-specifications">Tüm özellikleri göster</a>
-        {!isB2B && <div className="flex flex-wrap items-center gap-3.5 border-t border-[#e0e5eb] pt-5 pb-1"><LoginButton>B2B hesabınla özel fiyatlarını gör →</LoginButton></div>}
+        {!account && <div className="flex flex-wrap items-center gap-3.5 border-t border-[#e0e5eb] pt-5 pb-1"><LoginButton accountEmail={accountEmailEnabled()}>B2B hesabınla özel fiyatlarını gör →</LoginButton></div>}
       </div>
     </div>
     <div className="mt-8 mb-10 grid grid-cols-2 gap-[15px] max-[750px]:my-7 max-[750px]:grid-cols-1 max-[750px]:gap-2.5">

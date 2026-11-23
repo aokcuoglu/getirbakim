@@ -98,6 +98,8 @@
   .social-list { @apply m-0 flex list-none items-center gap-2 p-0; }
   .social-link { @apply flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-brand; }
   .cookie-preferences { @apply inline min-h-6 cursor-pointer rounded-none border-0 bg-transparent p-0 text-[length:inherit] leading-[inherit] text-inherit font-normal underline underline-offset-3 hover:bg-transparent hover:text-primary; }
+  /* Landscape notch (#911): viewport-fit=cover lets the page run under the side safe areas; the static chrome and main content pad by them (0 elsewhere). Fixed bars pad themselves. */
+  .site-topbar, .site-header, #main-content, .site-footer { @apply pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)]; }
   .site-header {
     @apply relative border-b border-border bg-white min-[600px]:in-data-home-scrolled:h-[131px] min-[600px]:in-data-catalog-scrolled:h-[131px];
     @apply max-[599.98px]:in-data-header-pin:pointer-events-none max-[599.98px]:in-data-header-pin:border-transparent max-[599.98px]:in-data-header-pin:bg-transparent;
@@ -151,12 +153,11 @@
   .home-card-text { @apply min-h-[84.5px] max-md:min-h-[78px]; }
   .home-card-category { @apply mb-[5px] block truncate text-[13px] leading-[19.5px] text-muted-foreground; }
   .home-card-title { @apply line-clamp-3 text-sm leading-5 font-medium text-foreground hover:text-primary max-md:text-[13px] max-md:leading-[18px]; }
-  .home-card-price { @apply mt-2 min-h-[42px]; }
+  .home-card-price { @apply mt-2 min-h-[21px]; }
   .home-card-note { @apply text-[13px] leading-5 text-muted-foreground; }
   .home-card-note-link { @apply hover:text-primary; }
   .home-card-amount { @apply block text-base leading-[21px] font-medium; }
   .home-card-regular { @apply block text-[13px] leading-[18px] text-muted-foreground; }
-  .home-card-tax { @apply block text-[13px] leading-[21px] text-muted-foreground; }
   .home-make-tile { @apply flex h-[88px] min-w-0 flex-col items-center justify-center gap-2 rounded-md border border-border bg-white p-2.5 text-center text-xs leading-4 font-medium text-foreground hover:border-brand hover:text-primary; }
   .home-brand-tile { @apply flex h-[70px] min-w-0 items-center justify-center bg-white px-[7px] text-center text-sm leading-[18px] font-medium text-foreground hover:bg-[#f8f9f9] hover:text-primary max-md:px-2 max-md:text-[13px]; }
   .home-brand-logo { @apply h-[50px] w-[120px] max-w-full object-contain; }

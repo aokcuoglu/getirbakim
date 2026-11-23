@@ -1,6 +1,6 @@
 import "server-only";
 import type { PoolClient } from "pg";
-import { boundedQuery, db } from "@/lib/db";
+import { boundedQuery, db, preparedQuery } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
@@ -9,6 +9,7 @@ import { ttlCache } from "@/lib/ttl-cache";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { listingEpoch } from "./listing-epoch";
+import { listingCacheStore } from "./listing-cache-store";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
@@ -51,6 +52,9 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
 };
 // Prices and availability are calculated by the shared commerce view.
 export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=ANY($1::text[])";
+// Only id, available and stock_label of the same rows, without the pricing joins (db/commerce.sql, #1242): the listing's
+// availability filter.
+export const availabilitySql = "SELECT * FROM commerce_item_availability WHERE source='store' OR company=ANY($1::text[])";
 // The store's listing, search and product page also show products nobody supplies now (`unavailable`, #475); cart,
 // checkout, partner API and maintenance kits keep reading the saleable catalogSql.
 export const storefrontCatalogSql = "SELECT * FROM storefront_catalog WHERE source='store' OR company=ANY($1::text[])";
@@ -102,6 +106,9 @@ export function withBestOffer<T extends CatalogProduct>(item: T, group: CatalogP
  * `ARRAY(SELECT …)` with the whole read inside a MATERIALIZED CTE (`WITH p AS MATERIALIZED (${catalogRowsByIdsSql(…)})`),
  * which plans as one InitPlan feeding the primary key scan. Never `IN (subquery)`, a plain join against the view or a
  * per-row LATERAL: the planner then builds the whole view (seconds) or repeats it per row.
+ * The hot reads go out as named prepared statements (preparedQuery, #1170): planning was most of their time. Name a
+ * statement on any connection only when its outer select lists its columns; one returning `*` (the view's row) only on
+ * the pool, where a cached plan broken by a view gaining a column is retried, never inside a transaction it would abort.
  */
 export const catalogRowsByIdsSql = (idsSql: string, sourceSql = catalogSql) => `SELECT * FROM (${sourceSql}) catalog WHERE catalog.id=ANY(${idsSql})`;
 /**
@@ -110,7 +117,9 @@ export const catalogRowsByIdsSql = (idsSql: string, sourceSql = catalogSql) => `
  */
 async function rowsByIds(sourceSql:string,ids:string[],connection:Pick<PoolClient,"query">=db){
  if(!ids.length)return [] as CatalogProduct[];
- const rows=(await connection.query<CatalogProduct>(catalogRowsByIdsSql("$2::uuid[]",sourceSql),[company(),ids])).rows;
+ const sql=catalogRowsByIdsSql("$2::uuid[]",sourceSql);
+ // `*` result: named only on the pool (catalogRowsByIdsSql); a transaction's client keeps it unnamed.
+ const rows=(connection===db?await preparedQuery<CatalogProduct>(db,sql,[company(),ids]):await connection.query<CatalogProduct>(sql,[company(),ids])).rows;
  const byId=new Map<string,CatalogProduct[]>();
  for(const row of rows)byId.set(row.id,[...byId.get(row.id)??[],row]);
  return ids.flatMap(id=>byId.get(id)??[]);
@@ -126,7 +135,7 @@ export async function storefrontRowsByIds(ids:string[],connection:Pick<PoolClien
 /** A row the store shows: saleable, or (`unavailable`) a product no supplier sells now. */
 export async function getStorefrontProduct(id: string): Promise<CatalogProduct | undefined> {
  if (!z.uuid().safeParse(id).success) return undefined;
- return (await db.query<CatalogProduct>(`SELECT * FROM (${storefrontCatalogSql}) catalog WHERE id=$2`,[company(),id])).rows[0];
+ return (await preparedQuery<CatalogProduct>(db,`SELECT * FROM (${storefrontCatalogSql}) catalog WHERE id=$2`,[company(),id])).rows[0];
 }
 /**
  * Where the store shows a row it does not list itself (an old link): the same supplier code sold from another scope
@@ -185,7 +194,7 @@ export async function getStoreProduct(id: string): Promise<{ product?: CatalogPr
 /** SETA products stating one of this product's (or its grouped offers') OEM numbers or its own number. */
 export async function getSetaEquivalents(id: string) {
  // The references first, then their priced rows by id array (catalogRowsByIdsSql, #1158): no view read per reference.
- return (await db.query<CatalogProduct & { via_brand: string; via_part: string }>(`WITH refs AS MATERIALIZED (
+ return (await preparedQuery<CatalogProduct & { via_brand: string; via_part: string }>(db,`WITH refs AS MATERIALIZED (
    SELECT r.seta_item_id,r.brand,r.part_number FROM product_seta_references r
    WHERE r.item_id IN (SELECT $2::uuid UNION SELECT item_id FROM product_offers WHERE primary_id=$2::uuid)),
   priced AS MATERIALIZED (${catalogRowsByIdsSql("ARRAY(SELECT seta_item_id FROM refs)")})
@@ -205,7 +214,7 @@ export async function getDecidedEquivalents(id: string) {
  // An admin's store brand and part number of the equivalent (#602) win, as on its own page. The equivalents, their
  // candidate rows and those rows' prices are read once each (catalogRowsByIdsSql, #1158); the per-equivalent LATERAL
  // only picks among them.
- return (await db.query<{ id: string | null; name: string | null; name_overridden: boolean | null; display_brand: string | null; display_code: string | null; brand: string; code: string; available: boolean | null }>(`WITH eq AS MATERIALIZED (
+ return (await preparedQuery<{ id: string | null; name: string | null; name_overridden: boolean | null; display_brand: string | null; display_code: string | null; brand: string; code: string; available: boolean | null }>(db,`WITH eq AS MATERIALIZED (
    SELECT q.id FROM product_sources s
    JOIN product_equivalents e ON e.product_id=s.product_id AND e.kind IN ('manual','brand')
    JOIN products q ON q.id=e.equivalent_id AND q.merged_into IS NULL
@@ -228,8 +237,7 @@ export async function getDecidedEquivalents(id: string) {
   // The address of the listed row, from the row's own shown name, brand and part number: the page's canonical one.
   .map(({ id, name, name_overridden, display_brand, display_code, ...rest }) => ({ ...rest, id, href: id && name !== null && name_overridden !== null && display_brand !== null && display_code !== null ? productPath({ id, name, name_overridden, display_brand, display_code }) : id && productIdPath(id) }));
 }
-export function servicePrice(price: number, discount: number) { return Math.round(price * (100-discount) / 100); }
-export { money } from "./money";
+export { money, servicePrice } from "./money";
 
 export const categories = [
  {slug:"yedek-parca",name:"Yedek parçalar",art:"parts"},
@@ -267,8 +275,10 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
 // epoch and these reload (#585).
 const listings={epoch:listingEpoch};
 // Fitments change when enrichments are imported or an admin decides; vehicle-type lists are shared per process.
-const cachedFitted=staleCache<string[]>(10*60*1000,500,listings);
-const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,listings);
+// Each value is an id array that can hold hundreds of thousands of uuids, so the caches are also bounded by total id
+// count (#1262), not only by entries.
+const cachedFitted=staleCache<string[]>(10*60*1000,500,{...listings,weigh:ids=>ids.length,maxWeight:400_000});
+const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,{...listings,weigh:ids=>ids.length,maxWeight:600_000});
 /**
  * Products fitting one make (`param`: its vehicle_brands id, e.g. "$2::int"), as one id column: the engine-level fits
  * precomputed in storefront_make_fits (db/storefront-make-fits.sql, #455) and the makes of the models read from supplier
@@ -330,14 +340,20 @@ export const categoryMovedAwaySql=(itemId:string,ids:string)=>`NOT EXISTS (SELEC
  * Products in a category: a legacy category on the item, or a trusted enrichment category. Resolved
  * to ids first, like makes; as an OR inside the catalog WHERE it defeated the indexes and every
  * listing query (count, page, brands, facets) scanned all supplier items: 6-8 s each in production.
+ * The trusted-enrichment links of the categories are materialised before supplier_items is touched (#1240): joined in
+ * one step, the planner estimated 1 row for the enrichment × supplier_items join (176k in fact) and nested a loop that
+ * probed product_source_categories 26.5M times, so the root category (/kategori/yedek-parca, 402 category ids) took
+ * 55.7 s and hit the 30 s limit; materialised first it reads in ~0.5 s. Same rows: same columns and conditions.
  */
 export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedCategoryIds(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
- (await boundedQuery<{id:string}>(`SELECT id::text FROM (SELECT id FROM store_products WHERE category=ANY($1::text[])
+ (await boundedQuery<{id:string}>(`WITH linked AS MATERIALIZED (SELECT DISTINCT e.supplier_item_id,e.supplier_code,e.supplier_brand
+   FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
+   WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])
+    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem))
+  SELECT id::text FROM (SELECT id FROM store_products WHERE category=ANY($1::text[])
   UNION SELECT id FROM supplier_items WHERE product_data->>'category'<>'' AND product_data->>'category'=ANY($1::text[])
-  UNION SELECT e.supplier_item_id FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
-   JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
-   WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])) automatic
+  UNION SELECT k.supplier_item_id FROM linked k
+   JOIN supplier_items s ON s.id=k.supplier_item_id AND s.code=k.supplier_code AND s.product_data->>'uk'=k.supplier_brand) automatic
   -- An admin's category (#575) replaces the automatic ones: the product leaves other categories and joins its own.
   WHERE ${categoryMovedAwaySql("automatic.id","$2")}
   UNION SELECT ps.supplier_item_id::text FROM product_overrides o JOIN product_sources ps ON ps.product_id=o.product_id
@@ -595,10 +611,12 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))`);
  }
  // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
+ // Both read the lean availability view, not commerce_catalog's priced rows a second time (#1242). Out of stock reads it
+ // through commerce_out_of_stock_ids (db/commerce.sql), whose declared size keeps deep pages off a nested loop (#1286).
  if(query.availability==='supplied')clauses.push('NOT catalog.unavailable');
  else if(query.availability)clauses.push(query.availability==='in_stock'
-  ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${catalogSql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
-  :`catalog.id IN (SELECT id FROM (${catalogSql}) available_catalog WHERE NOT available AND stock_label='Stokta yok')`);
+  ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
+  :`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id)`);
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
  return {values,where,from,search};
@@ -607,15 +625,30 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
 // (~0.5-1.5 s each on the VPS). Those change only with supplier syncs, so they are served from a
 // 10-minute stale-while-revalidate cache; prices and stock are still read live for the listed ids. Admin edits
 // (name, category, hidden, brand, part number, references, merge/split) bump the listing epoch instead (#585).
-const aggregateTtl=10*60*1000;
-const cachedCounts=staleCache<number>(aggregateTtl,500,listings),cachedPageIds=staleCache<string[]>(aggregateTtl,500,listings);
+// The plain listings' counts, page ids and facets (persistable below) are also kept in storefront_listing_cache (#957), so a
+// new or restarted container serves them at once: up to 24 hours old there, the first visitor sees the stored value while
+// one refresh runs. Listings narrowed by brand, property, availability or a vehicle have too many variants to share.
+// The stored keys must stay bounded until the 2-day prune: a crawler walking model x category pages (~5.8k models x ~590
+// categories) would add hundreds of thousands of rows, so model listings stay in memory, and a make's listing keeps its
+// first page only (deeper pages of the plain, category and manufacturer listings are stored up to page 20; a price order is one key).
+const aggregateTtl=10*60*1000,persistedFor={maxStaleMs:24*60*60*1000};
+const cachedCounts=staleCache<number>(aggregateTtl,500,{...listings,...persistedFor,store:listingCacheStore<number>("count",1)});
+const cachedPageIds=staleCache<string[]>(aggregateTtl,500,{...listings,...persistedFor,store:listingCacheStore<string[]>("page-ids",1)});
 // A garage vehicle's fit and oil filters key their entries per vehicle type (#884): kept apart, so every page view with a
 // vehicle (its "Aracına uyanlar" lead) does not push the plain listings, 0.5-1.5 s each to recompute, out of the LRU above.
 const cachedVehicleCounts=staleCache<number>(aggregateTtl,500,listings),cachedVehiclePageIds=staleCache<string[]>(aggregateTtl,500,listings);
 const vehicleScoped=(query:CatalogQuery)=>Boolean(query.fits||query.oil);
 const countCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehicleCounts:cachedCounts;
 const pageIdCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehiclePageIds:cachedPageIds;
-const cachedFacets=staleCache<{brands:string[];attributes:CatalogFacet[]}>(aggregateTtl,500,listings),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
+type Facets={brands:string[];attributes:CatalogFacet[]};
+const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...listings,...persistedFor,store:listingCacheStore<Facets>("facets",1)}),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
+const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
+const persistablePage=(query:CatalogQuery,page:number)=>persistable(query)&&page<=(query.make?1:cachedPages);
+/** The listing filter built at most once, on the first call: a cached listing never builds it (its id sets take queries too). */
+function lazyFilter(query:CatalogQuery,context:CatalogContext){
+ let filter:ReturnType<typeof catalogFilter>|undefined;
+ return ()=>filter??=catalogFilter(query,context);
+}
 /** Cache key of everything that narrows the listing except search, which goes uncached. */
 function filterKey(query:CatalogQuery,context:CatalogContext){
  return JSON.stringify([query.category,query.make,query.model,query.manufacturer,query.brand,query.brands,query.attributes,query.availability,query.fits,query.oil,query.fits||query.oil?context.vehicleTypeId:null]);
@@ -692,7 +725,7 @@ export const rankedSearchIds=(raw:string,mode:SearchMode)=>cachedRankedSearches(
  * search hit is the product's listing row (a secondary offer counts as the primary it is grouped under). Cached per type
  * in its own LRU (reloaded with the listing epoch), apart from the storefront's fit sets.
  */
-const cachedFittedListings=staleCache<string[]>(10*60*1000,300,listings);
+const cachedFittedListings=staleCache<string[]>(10*60*1000,300,{...listings,weigh:ids=>ids.length,maxWeight:300_000});
 const typeFittedListingIds=(typeId:number)=>cachedFittedListings(String(typeId),async()=>{
  const fitted=await typeFittedIds(typeId);
  if(!fitted.length)return [];
@@ -730,10 +763,11 @@ export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalo
  * pages' metadata and their 404 and index rules read it before the page renders.
  */
 export function listingTotal(query:CatalogQuery,context:CatalogContext={}){
+ const scope={...query,q:undefined};
  return countCache(query)(filterKey(query,context),async()=>{
-  const {values,from}=await catalogFilter({...query,q:undefined},context);
+  const {values,from}=await catalogFilter(scope,context);
   return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
- });
+ },{persist:persistable(scope)});
 }
 /** `limit`: read only the first `limit` cards of the page (vehicleLead); counts, pages and cached page ids stay the page's. */
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={},{limit=catalogPageSize}:{limit?:number}={}){
@@ -747,35 +781,41 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const items=await storefrontRowsByIds(ids);
   return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
  }
- const {values,where,from,search}=await catalogFilter(query,context);
- const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
- const total = search ? await count() : await countCache(query)(filterKey(query,context),count);
+ // Without a search the filter is built only when a cache misses; a search always needs it (its matches).
+ const filter=lazyFilter(query,context),search=query.q?.trim()?(await filter()).search:undefined;
+ const count=async()=>{const {values,from}=await filter();return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);};
+ const total = search ? await count() : await countCache(query)(filterKey(query,context),count,{persist:persistable(query)});
  const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize)), take = Math.min(pageSize,Math.max(1,Number.isFinite(limit)?Math.trunc(limit):pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
  // Products nobody supplies now come after every saleable one, in every order (#475).
  const order=query.sort === "price-asc" ? "unavailable,price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "unavailable,price_kurus DESC NULLS LAST,id" : "unavailable,updated_at DESC,id";
  const pricedSort = query.sort === "price-asc" || query.sort === "price-desc";
- // A search lists the best matches first unless the shopper picked another order.
- const pageValues=[...values],bind=binder(pageValues);
- const rank=search&&(query.sort??"relevance")==="relevance"?catalogRank("catalog",search.parsed,bind):"0";
- const offset=bind((page-1)*pageSize);
  if(!search&&!pricedSort){
-  const ids=await pageIdCache(query)(`${filterKey(query,context)}|${page}`,async()=>(await db.query<{id:string}>(
-   `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id));
+  const ids=await pageIdCache(query)(`${filterKey(query,context)}|${page}`,async()=>{const {values,from}=await filter();return (await db.query<{id:string}>(
+   `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id);},
+   {persist:persistablePage(query,page)});
   const items=await storefrontRowsByIds(ids.slice(0,take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
  // A price order prices every listed row before it sorts (VW make page: ~50k rows, ~3 s per page). Its first
  // cachedPages pages are ordered once and kept like the page ids above; the cards are still read live, so a card shows
  // the current price and stock, while its position follows the prices of up to 10 minutes ago (supplier syncs, and admin
- // price edits, which do not move the listing epoch). Deeper pages keep the live query.
+ // price edits, which do not move the listing epoch). Deeper pages keep the live query. The priced rows are sorted before
+ // the limit (VW: ~57 MB): it spilled to disk (external merge) at both the local default (4 MB) and the production RDS
+ // setting (16 MB); 64 MB for this read keeps it in memory.
  if(!search&&pricedSort&&page<=cachedPages){
-  const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>(await db.query<{id:string}>(
-   `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values)).rows.map(row=>row.id));
+  const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>{const {values,where}=await filter();return (await boundedQuery<{id:string}>(
+   `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
+   {persist:persistable(query)});
   const items=await storefrontRowsByIds(ordered.slice((page-1)*pageSize,(page-1)*pageSize+take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
+ // A search lists the best matches first unless the shopper picked another order.
+ const {values,where,from}=await filter();
+ const pageValues=[...values],bind=binder(pageValues);
+ const rank=search&&(query.sort??"relevance")==="relevance"?catalogRank("catalog",search.parsed,bind):"0";
+ const offset=bind((page-1)*pageSize);
  // The page's ids first, then its cards by id array (storefrontRowsByIds, #1135).
  const items = pricedSort
   ? (await db.query<CatalogProduct>(`SELECT * FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`, pageValues)).rows
@@ -831,9 +871,9 @@ export async function catalogBrands() {
  */
 export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
  const scope:CatalogQuery={...query,fits:'vehicle',page:undefined},context={vehicleTypeId};
- const {values,from,search}=await catalogFilter(scope,context);
- const count=async()=>Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
- return search ? count() : countCache(scope)(filterKey(scope,context),count);
+ const filter=lazyFilter(scope,context),search=scope.q?.trim()?(await filter()).search:undefined;
+ const count=async()=>{const {values,from}=await filter();return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);};
+ return search ? count() : countCache(scope)(filterKey(scope,context),count,{persist:persistable(scope)});
 }
 /**
  * The first `limit` products of the listing linked to the garage vehicle's type, and how many there are (#884): the
@@ -857,9 +897,9 @@ export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}
   const plain=await plainSearch(query.q!,query.searchBy==="code"?"code":"all");
   return {brands:plain.brands,attributes:plain.attributes};
  }
- const {values,from,search}=await catalogFilter(scope,context);
- const load=()=>facetsFor(values,from);
- return search ? load() : cachedFacets(filterKey(scope,context),load);
+ const filter=lazyFilter(scope,context),search=scope.q?.trim()?(await filter()).search:undefined;
+ const load=async()=>{const {values,from}=await filter();return facetsFor(values,from);};
+ return search ? load() : cachedFacets(filterKey(scope,context),load,{persist:persistable(scope)});
 }
 async function facetsFor(values:unknown[],from:string){
  // Independent reads: the brand list and the property facet run side by side (#994).

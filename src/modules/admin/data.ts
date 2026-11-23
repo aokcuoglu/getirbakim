@@ -13,6 +13,7 @@ import type { RefundStatus, ReversalKind } from "@/modules/payments/refund-rules
 import { restockDueCount } from "./restock";
 import { installmentSettings } from "@/modules/payments/installment-settings";
 import { procurementOpenSql, type AdminOrderLine } from "./order-procurement";
+import { dayInClosedPeriod, latestClosedPeriods } from "@/modules/partner/periods";
 import { pendingReturnLines } from "@/modules/partner/returns";
 import { orderInvoiceChangesSql, type OrderInvoiceChange } from "@/modules/partner/limits";
 import { dashboardOrdersSql, navOrderCountSql, orderFilters, orderReturnRequestsSql, orderTabCountsSql, type OrderFilter } from "./order-filters";
@@ -31,16 +32,40 @@ type CurrencySnapshot = {
 
 const serviceColumns = "id,name,email,approved,discount_percent,contact_name,phone,city";
 
+/** A waiting application: a new service account, or an individual customer's upgrade request (#1259). */
+export type PendingServiceApplication = ServiceAccount & { upgrade: boolean; account_name: string | null };
 /** Service applications waiting for approval (the dashboard list). */
 export async function adminOverview() {
   await requireAdmin();
-  const accounts = await db.query<ServiceAccount>(`SELECT ${serviceColumns} FROM accounts WHERE role='service' AND NOT approved ORDER BY name`);
+  const accounts = await db.query<PendingServiceApplication>(`SELECT ${serviceColumns},false AS upgrade,NULL::text AS account_name
+      FROM accounts WHERE role='service' AND NOT approved
+    UNION ALL
+    SELECT a.id,r.service_name,a.email,false,a.discount_percent,r.contact_name,r.phone,r.city,true,a.name
+      FROM service_upgrade_requests r JOIN accounts a ON a.id=r.account_id AND a.role='customer' AND a.approved
+    ORDER BY name`);
   return { accounts: accounts.rows };
 }
 
 export async function adminServiceAccounts() {
   await requireAdmin();
   return (await db.query<ServiceAccount>(`SELECT ${serviceColumns} FROM accounts WHERE role='service' ORDER BY name`)).rows;
+}
+
+export type CustomerAccount = { id: string; name: string; email: string; applied_at: Date | null; upgrade_pending: boolean; verified: boolean };
+/**
+ * Self-registered individual customers (#1254): the latest 50, the total (of which unverified, #1258) and the open
+ * service-account requests (#1259).
+ */
+export async function adminCustomerAccounts() {
+  await requireAdmin();
+  const [rows, totals] = await Promise.all([
+    db.query<CustomerAccount>(`SELECT a.id,a.name,a.email,a.applied_at,a.email_verified_at IS NOT NULL AS verified,(a.approved AND EXISTS (SELECT 1 FROM service_upgrade_requests r WHERE r.account_id=a.id)) AS upgrade_pending
+      FROM accounts a WHERE a.role='customer' ORDER BY a.applied_at DESC NULLS LAST,a.id LIMIT 50`),
+    db.query<{ count: number; unverified: number; upgrades: number }>(`SELECT (SELECT count(*)::int FROM accounts WHERE role='customer') AS count,
+      (SELECT count(*)::int FROM accounts WHERE role='customer' AND email_verified_at IS NULL) AS unverified,
+      (SELECT count(*)::int FROM service_upgrade_requests r JOIN accounts a ON a.id=r.account_id AND a.role='customer' AND a.approved) AS upgrades`),
+  ]);
+  return { accounts: rows.rows, total: totals.rows[0].count, unverified: totals.rows[0].unverified, upgrades: totals.rows[0].upgrades };
 }
 
 export async function adminPricing() {
@@ -132,7 +157,11 @@ export async function adminOrders(rawPage?: string, rawFilter?: string, sort: { 
      FROM commerce_orders o LEFT JOIN commerce_order_agreements a ON a.order_id=o.id WHERE ${orderFilters[filter].where} AND ${procurementFilters[procurement]} AND ${ownerFilters[owner]} ORDER BY ${sortOrder(sort, orderSorts, "o.created_at DESC,o.id DESC")} LIMIT 51 OFFSET $1`,
     [(page - 1) * 50, ORDER_EMAIL_LEASE_MINUTES],
   ), db.query<Record<OrderFilter, number>>(orderTabCountsSql)]);
-  return { orders: orders.rows, page, filter, procurement, owner, counts: counts.rows[0] };
+  // #1265: an invoice dated in a closed partner month cannot be undone; the page shows "Dönem kapalı" instead of the control.
+  const invoiced = orders.rows.filter(o => o.owner_kind === "partner" && o.partner_invoice_day);
+  const latestClosed = await latestClosedPeriods([...new Set(invoiced.map(o => o.owner_id))]);
+  const rows = orders.rows.map(o => ({ ...o, partner_invoice_period_closed: o.owner_kind === "partner" && !!o.partner_invoice_day && dayInClosedPeriod(latestClosed, o.owner_id, o.partner_invoice_day) }));
+  return { orders: rows, page, filter, procurement, owner, counts: counts.rows[0] };
 }
 
 /** Badge counts for the workspace navigation; kept to cheap aggregate queries. */
@@ -142,7 +171,8 @@ export async function adminNavCounts() {
   await requireAdmin();
   const [{ rows }, restock] = await Promise.all([db.query<{ orders: number; services: number; enrichment: number; brands: number }>(`SELECT
     (${navOrderCountSql}) AS orders,
-    (SELECT count(*)::int FROM accounts WHERE role='service' AND NOT approved) AS services,
+    ((SELECT count(*)::int FROM accounts WHERE role='service' AND NOT approved)
+      +(SELECT count(*)::int FROM service_upgrade_requests r JOIN accounts a ON a.id=r.account_id AND a.role='customer' AND a.approved)) AS services,
     (SELECT count(*)::int FROM product_enrichment_jobs WHERE status IN ('review','blocked','failed')) AS enrichment,
     (${pendingBrandsSql}) AS brands`), restockDueCount()]);
   return { ...rows[0], restock };

@@ -1,9 +1,9 @@
 import { db } from "../src/lib/db";
-import { loadModelCategoryPaths, loadModelPaths, modelCategoryPathsQuery, modelPathsQuery } from "../src/modules/seo/sitemap-models.server";
+import { loadMakeCategoryPaths, loadModelCategoryPaths, loadModelPaths, makeCategoryPathsQuery, modelCategoryPathsQuery, modelPathsQuery } from "../src/modules/seo/sitemap-models.server";
 
-// npm run seo:sitemap-timings [--explain] (#778). Read-only. Without arguments: wall time and row counts of the two
-// slow sitemap loaders (models.xml, model-categories.xml) as one JSON line. --explain: EXPLAIN (ANALYZE, BUFFERS) of
-// both queries, each in a read-only transaction, for the RDS numbers.
+// npm run seo:sitemap-timings [--explain] (#778). Read-only. Without arguments: wall time and row counts of the
+// slow sitemap loaders (models.xml, model-categories.xml, make-categories.xml) as one JSON line. --explain: EXPLAIN (ANALYZE, BUFFERS) of
+// all queries, each in a read-only transaction, for the RDS numbers.
 const args = process.argv.slice(2);
 const unknown = args.filter(arg => arg !== "--explain");
 if (unknown.length > 0) throw new Error(`Unknown arguments: ${unknown.join(" ")} (expected --explain)`);
@@ -31,8 +31,9 @@ try {
   if (args.includes("--explain")) {
     await explain("models.xml", await modelPathsQuery());
     await explain("model-categories.xml", await modelCategoryPathsQuery());
+    await explain("make-categories.xml", await makeCategoryPathsQuery());
   } else {
-    console.log(JSON.stringify({ models: await timed(loadModelPaths), modelCategories: await timed(loadModelCategoryPaths) }));
+    console.log(JSON.stringify({ models: await timed(loadModelPaths), modelCategories: await timed(loadModelCategoryPaths), makeCategories: await timed(loadMakeCategoryPaths) }));
   }
 } finally {
   await db.end();

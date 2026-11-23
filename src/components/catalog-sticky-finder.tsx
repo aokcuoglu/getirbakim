@@ -3,7 +3,7 @@
 import {useEffect,useState,type ReactNode} from "react";
 import {cn} from "@/lib/utils";
 
-export function CatalogStickyFinder({children,brakes}:{children:ReactNode;brakes:boolean}){
+export function CatalogStickyFinder({children,banner}:{children:ReactNode;banner?:string}){
  const [visible,setVisible]=useState(false);
  useEffect(()=>{
   const update=()=>{
@@ -18,5 +18,5 @@ export function CatalogStickyFinder({children,brakes}:{children:ReactNode;brakes
  },[]);
  // Sits under the compact header (88px) that the site header shows while body[data-catalog-scrolled] is set.
  return <div className={cn("fixed inset-x-0 top-[calc(88px+env(safe-area-inset-top))] z-40 h-20 bg-[#212b36] max-[600px]:hidden! [&[hidden]]:hidden",
-  brakes&&"bg-[linear-gradient(#212b36cc,#212b36cc),url('/media/site/images/brake-system-banner.webp')] bg-cover bg-center")} hidden={!visible}>{children}</div>;
+  banner&&"bg-cover bg-center")} style={banner?{backgroundImage:`linear-gradient(#212b36cc,#212b36cc),url(${banner})`}:undefined} hidden={!visible}>{children}</div>;
 }

@@ -12,12 +12,21 @@ KVKK hakları tamamlandı; amaç ve hukuki sebepler mevcut hesap/sepet/garaj iş
 
 ## Kullanıcının doğruladığı fiilî durum
 
-- Bu proje henüz yayımlanmadı; yerel ortamda çalışıyor.
-- AWS Almanya/Frankfurt bölgesine yayımlama planlanıyor; aktarım başlamadı.
-- Mevcut durumda kişisel veri paylaşılan e-posta, ödeme veya kargo sağlayıcısı bulunmuyor.
-- Kodda sipariş/ödeme, açık üyelik, sosyal giriş ve pazarlama gönderimi etkin değil; Google Analytics 4 yalnızca analiz çerezi rızasıyla ve `GA4_MEASUREMENT_ID` doluyken yüklenir (#644); Google Ads ve Meta Pixel yalnızca reklam çerezi rızasıyla ve `GOOGLE_ADS_ID` / `META_PIXEL_ID` doluyken yüklenir (#676).
+- Site getirbakim.com adresinde yayındadır; 18 Kasım 2026'dan bu yana AWS Almanya/Frankfurt bölgesinde (eu-central-1) barındırılır ([AWS geçişi](aws-cutover.md); KVKK Aydınlatma Metni "Yurt Dışına Aktarım" bölümü).
+- Ödemeler TAMI ortak ödeme sayfasında alınır ([ödeme](payments.md)); kargo etiketleri Geliver aracılığıyla Yurtiçi Kargo'dan alınır ([entegrasyonlar](integrations.md)).
+- Bireysel müşteri kaydı mağazada açıktır (#1254); hesap e-posta adresi doğrulanınca açılır (#1258). Kodda sosyal giriş ve pazarlama gönderimi etkin değil; Google Analytics 4 yalnızca analiz çerezi rızasıyla ve `GA4_MEASUREMENT_ID` doluyken yüklenir (#644); Google Ads ve Meta Pixel yalnızca reklam çerezi rızasıyla ve `GOOGLE_ADS_ID` / `META_PIXEL_ID` doluyken yüklenir (#676).
 
 Metinler uygulanmış bir AWS aktarım mekanizması veya tamamlanmış saklama/imha takvimi varmış gibi taahhüt içermez. Şirket, bu fiilî bilgilerin değişmesiyle metinleri güncellemelidir.
+
+## Bireysel üyelik (#1256)
+
+Bireysel müşteri kaydının (#1254) açılmasıyla Üyelik ve Kullanım Koşulları, KVKK Aydınlatma Metni, Gizlilik Politikası ve Çerez Politikası 22 Kasım 2026 tarihinde güncellendi. KVKK Aydınlatma Metni ile Gizlilik Politikasında aynı başlığı taşıyan bölümler birlikte düzenlenir ve aynı kalır (`npm run test:customer-signup` denetler); iki sayfaya da "Bireysel Üyelik" bölümü eklendi ve adres defteri bölümü bireysel üyeleri de kapsayacak şekilde genişletildi.
+
+Kayıt sırasında koşulların kabulü `account_term_acceptances` tablosuna sonradan değiştirilemeyen bir satır olarak yazılır: belge (`uyelik-ve-kullanim-kosullari`), kabul edilen koşul metninin sürümü, o anki KVKK Aydınlatma Metninin sürümü (her ikisi `<updatedAt>.<sayfa içeriğinin özeti>`), onay metni, kabul zamanı, IP adresi, `X-Forwarded-For` başlığı ve tarayıcı bilgisi. `terms_version` içindeki tarih ve özet, kabul edilen metni `src/content/legal-pages.json` dosyasının git geçmişindeki ilgili sürümüyle eşleştirir; o sürümdeki sayfa içeriğinin özeti satırdaki özetle aynıdır. Satır hesapla aynı ifadede oluşturulur; hesap kaydı silindiğinde onunla birlikte silinir. Aydınlatma metninin sunulması açık rıza olarak kaydedilmez.
+
+Şifre yenileme (#1257) ile Üyelik ve Kullanım Koşulları e-postayla yenileme bağlantısını anlatır; KVKK Aydınlatma Metni ve Gizlilik Politikası yenileme bağlantısının ve talep sınırlarının özetini, Gizlilik Politikasının "Veri Güvenliği" bölümü bağlantının 60 dakika ve tek kullanımlık olduğunu söyler. İki sayfanın aktarım paragrafı işlem e-postalarının (sipariş bildirimleri, şifre yenileme) Amazon SES üzerinden gönderildiğini ve AWS'nin ad, e-posta adresi ve e-posta içeriğini veri işleyen olarak işlediğini açıklar; production gönderimi `MAIL_TRANSPORT=ses` ile yapılır ([sipariş e-postaları](commerce.md)). Gönderim sağlayıcısı değişirse bu cümle de değişmelidir.
+
+E-posta doğrulama (#1258) ile Üyelik ve Kullanım Koşulları hesabın, e-posta adresi 24 saat geçerli tek kullanımlık bağlantıyla doğrulandığında açıldığını ve 7 gün içinde doğrulanmayan kaydın silindiğini söyler. KVKK Aydınlatma Metni ve Gizlilik Politikasının "Bireysel Üyelik" bölümü aynı akışı, doğrulama zamanının tutulduğunu ve doğrulanmayan kaydın (form bilgileri ve üyelik onay kaydı) 7 günde silindiğini; veri listesi doğrulama zamanını ve doğrulama bağlantısının özetini; saklama bölümü 7 günlük silmeyi; aktarım paragrafı doğrulama e-postalarını; Gizlilik Politikasının "Veri Güvenliği" bölümü doğrulama bağlantısının 24 saat ve tek kullanımlık olduğunu açıklar. Süreler `src/modules/auth/email-verification.ts` (`VERIFY_TTL_MINUTES`, `UNVERIFIED_KEEP_DAYS`) ile birlikte değişmelidir.
 
 ## Hukuki dayanakların kontrolü
 

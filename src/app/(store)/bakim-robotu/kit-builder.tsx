@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Check, CircleAlert, CircleCheck, Download, Loader2, Minus, Plus, ShoppingCart } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { PartArtImage } from "@/components/part-art";
+import { PartArtImage } from "@/components/part-art-image";
 import { cn } from "@/lib/utils";
 import { kitContentLine, kitCountLabel, kitImageHref, kitKindLabel, kitName, kitPackages, kitSlot, kitSlots, matchingPackage, orderSlotKeys, type KitSlotKey } from "@/modules/store/maintenance-kit";
 import type { KitCandidate, KitSlotOptions } from "@/modules/store/maintenance-kit.server";

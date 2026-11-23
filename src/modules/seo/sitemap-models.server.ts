@@ -9,7 +9,7 @@ import { loadAllVehicleModelGroups } from "@/modules/store/vehicle-model-groups.
 import { minIndexableListingProducts, rootCategoryId } from "./indexing";
 import { listingPath, modelPath } from "./paths";
 
-// The model and model × category sitemap files (#673): the pages listingIndexable opens, i.e. a plain listing with at
+// The model, model × category and make × category sitemap files (#673, #1224): the pages listingIndexable opens, i.e. a plain listing with at
 // least minIndexableListingProducts products. scripts/test-vehicle-model-listing.ts keeps them equal to the pages' rule.
 
 type Unit = { makeSlug: string; modelSlug: string };
@@ -86,4 +86,41 @@ export async function loadModelCategoryPaths(): Promise<string[]> {
   const { text, values, units } = await modelCategoryPathsQuery();
   const { rows } = await boundedQuery<{ unit: number; slug: string }>(text, values, 120_000);
   return rows.map(row => listingPath({ makeSlug: units[row.unit].makeSlug, modelSlug: units[row.unit].modelSlug, categorySlug: row.slug }));
+}
+
+/**
+ * Make × category pairs with enough listed products, subcategories included (#1224). The same shape as
+ * modelCategoriesSql, with the make-level fits: the inverse of makeFitsSql (engine-level fits, the description fits of
+ * a product's offers, and its own when it groups no offer). `$6`/`$7` pair each brand id with its unit; the root
+ * category ($9) is left out because on a make it repeats the make page.
+ */
+const makeCategoriesSql = `WITH units AS MATERIALIZED (SELECT * FROM unnest($6::int[],$7::int[]) u(brand_id,unit)),
+ cats AS MATERIALIZED (${itemCategoriesSql({ legacySlugs: "$2", legacyIds: "$3", oilIds: "$4", oilCategory: "$5" })}),
+ ids AS MATERIALIZED (SELECT DISTINCT id FROM cats),
+ listed AS MATERIALIZED (SELECT ids.id FROM ids JOIN LATERAL (SELECT e.id,e.unavailable FROM storefront_catalog_entries e
+   WHERE e.id=ids.id AND (e.source='store' OR e.company=ANY($1::text[])) OFFSET 0) catalog ON true WHERE ${listedOnly}),
+ fits AS MATERIALIZED (SELECT f.brand_id,f.supplier_item_id AS id FROM listed JOIN storefront_make_fits f ON f.supplier_item_id=listed.id
+  UNION ALL SELECT f.brand_id,listed.id FROM listed JOIN product_offers o ON o.primary_id=listed.id JOIN storefront_make_description_fits f ON f.supplier_item_id=o.item_id
+  UNION ALL SELECT f.brand_id,listed.id FROM listed JOIN storefront_make_description_fits f ON f.supplier_item_id=listed.id
+   WHERE NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=listed.id))
+ SELECT units.unit,label.slug FROM fits JOIN units USING (brand_id) JOIN cats ON cats.id=fits.id
+ ${categoryAncestorsSql("cats.category_id")}
+ JOIN source_category_labels label ON label.source='trodo' AND label.category_id=ancestor.category_id AND label.locale='tr'
+ WHERE ancestor.category_id<>$9
+ GROUP BY units.unit,ancestor.category_id,label.slug HAVING count(DISTINCT fits.id)>=$8 ORDER BY 1,ancestor.category_id`;
+
+/** The make × category query with its parameters and the make slug of each `unit` (see modelPathsQuery). */
+export async function makeCategoryPathsQuery(minimum = minIndexableListingProducts) {
+  const makes = new Map<string, string>();
+  for (const brand of await getVehicleBrands()) if (!makes.has(vehicleBrandSlug(brand.name))) makes.set(vehicleBrandSlug(brand.name), brand.id);
+  const slugs = [...makes.keys()], brandIds = [...makes.values()].map(Number), unitIds = slugs.map((_, index) => index);
+  return { text: makeCategoriesSql,
+    values: [storefrontCompanies(), ...await categoryParams(), brandIds, unitIds, minimum, rootCategoryId], units: slugs };
+}
+
+/** Addresses of the make × category pages that are indexed (/kategori/<category>/<make>). */
+export async function loadMakeCategoryPaths(): Promise<string[]> {
+  const { text, values, units } = await makeCategoryPathsQuery();
+  const { rows } = await boundedQuery<{ unit: number; slug: string }>(text, values, 120_000);
+  return rows.map(row => listingPath({ makeSlug: units[row.unit], categorySlug: row.slug }));
 }

@@ -44,7 +44,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS accounts (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), name text NOT NULL,
  email text UNIQUE NOT NULL, password_hash text NOT NULL,
- role text NOT NULL CHECK (role IN ('admin','service')),
+ role text NOT NULL CHECK (role IN ('admin','service','customer')),
  approved boolean NOT NULL DEFAULT false,
  discount_percent integer NOT NULL DEFAULT 0 CHECK (discount_percent BETWEEN 0 AND 50)
 );

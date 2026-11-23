@@ -407,7 +407,8 @@ about 5–10 minutes later (on a 5-minute sweep), then after about 15, 45 and 13
 then every 6 hours, and given up 72 hours after the change. The first attempt
 is made right after a change made by operations or reported by the carrier;
 any other change (or a first attempt that could not run then) waits for the next
-sweep, so expect a delay of up to about 5 minutes.
+sweep, so expect a delay of up to about 5 minutes. An event given up may be sent again
+later by operations, with the same `eventId`.
 
 **Configuration.** Each partner's endpoint and secret are set by GetirBakım in
 `PARTNER_WEBHOOKS_JSON` (see [Configuration](#configuration)); the URL must be
