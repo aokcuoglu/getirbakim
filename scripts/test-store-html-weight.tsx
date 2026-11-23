@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { ArrowRight, CarFront, ChevronRight, CircleAlert, CircleCheck, ClipboardCheck, CreditCard, Headphones, Info, Package, PackageCheck, RotateCcw, Search, ShieldCheck, Truck, UserRound, Wrench, X } from "lucide-react";
 import { CatalogCategoryChips } from "../src/components/catalog-category-chips";
 import { CategoryCards } from "../src/components/category-cards";
 import { SocialLinks } from "../src/components/social-links";
 import { VehicleModelListView } from "../src/components/vehicle-model-list-view";
 import { HomeProductCardView } from "../src/components/home-product-card-view";
+import { StoreIcon } from "../src/components/site/store-icon";
 import type { StoreCategory } from "../src/modules/store/category-tree";
 
 // #642: the listing markup repeated per category carries named classes, not utility lists. A card or chip that grows
@@ -142,4 +144,24 @@ test("HomeProductCardView keeps the home card markup", () => {
   const noPrice = renderToStaticMarkup(<HomeProductCardView model={{ href: "/urun/a-1", title: "T", categoryHref: "/katalog", categoryName: "Yedek parçalar",
     note: { text: "Fiyat bilgisi güncelleniyor" } }} />);
   assert.ok(noPrice.includes('<span class="home-card-note">Fiyat bilgisi güncelleniyor</span>'));
+});
+
+// #1213: the wrapper only moves the client boundary; the server HTML must stay lucide's own.
+test("StoreIcon renders lucide's own markup", () => {
+  const direct = {
+    "arrow-right": ArrowRight, "car-front": CarFront, "chevron-right": ChevronRight, "circle-alert": CircleAlert, "circle-check": CircleCheck,
+    "clipboard-check": ClipboardCheck, "credit-card": CreditCard, headphones: Headphones, info: Info, package: Package, "package-check": PackageCheck,
+    "rotate-ccw": RotateCcw, search: Search, "shield-check": ShieldCheck, truck: Truck, "user-round": UserRound, wrench: Wrench, x: X,
+  };
+  for (const [name, Icon] of Object.entries(direct) as [keyof typeof direct, typeof Search][]) {
+    assert.equal(renderToStaticMarkup(<StoreIcon name={name} size={22} className="shrink-0 text-primary" />), renderToStaticMarkup(<Icon size={22} className="shrink-0 text-primary" />), name);
+  }
+  assert.equal(renderToStaticMarkup(<StoreIcon name="truck" size={25} strokeWidth={1.25} className="shrink-0" />), renderToStaticMarkup(<Truck size={25} strokeWidth={1.25} className="shrink-0" />));
+  assert.equal(renderToStaticMarkup(<StoreIcon name="circle-alert" size={22} className="fill-[#f0a020] text-white" />), renderToStaticMarkup(<CircleAlert size={22} className="fill-[#f0a020] text-white" />));
+  assert.ok(renderToStaticMarkup(<StoreIcon name="x" />).includes('aria-hidden="true"'), "decorative by default");
+  const source = readFileSync(new URL("../src/components/site/store-icon.tsx", import.meta.url), "utf8");
+  assert.ok(source.startsWith('"use client"'));
+  const mapped = source.match(/const icons = \{([\s\S]*?)\} as const/)?.[1].split("\n").filter((line) => /^\s+\S+: \w+,$/.test(line)).length;
+  assert.equal(mapped, Object.keys(direct).length, "every icon in store-icon.tsx is covered by the markup comparison");
+  assert.equal(source.match(/^export\s/gm)?.length, 1, "one client export: each extra one is another module row in the flight");
 });

@@ -5,7 +5,7 @@ import { minSearchLength } from "@/modules/search/query";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb,BreadcrumbItem,BreadcrumbLink,BreadcrumbList,BreadcrumbPage,BreadcrumbSeparator } from "@/components/ui/breadcrumb";
-import { Search,ChevronRight,ShieldCheck,Truck,CarFront,CircleCheck,Info } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { after } from "next/server";
 import { headers } from "next/headers";
 import { recordSearch } from "@/modules/search/analytics";
@@ -58,9 +58,9 @@ import {catalogDescription} from "./catalog-descriptions";
 import {categoryGuideNote} from "@/content/category-guides";
 import {CategoryGuideNote} from "@/components/category-guide-note";
 const benefits=[
- {icon:ShieldCheck,title:"Sipariş bilgilerin tek yerde",text:"Ürün, fiyat ve teslimat bilgilerini birlikte incele."},
- {icon:Truck,title:"Teslimat ve iade bilgileri",text:"Sipariş öncesi teslimat ve iade koşullarını öğren."},
- {icon:CarFront,title:"Parça uyumluluğunu kontrol et",text:"OEM numarasını ve araç bilgilerini karşılaştır."},
+ {icon:"shield-check" as const,title:"Sipariş bilgilerin tek yerde",text:"Ürün, fiyat ve teslimat bilgilerini birlikte incele."},
+ {icon:"truck" as const,title:"Teslimat ve iade bilgileri",text:"Sipariş öncesi teslimat ve iade koşullarını öğren."},
+ {icon:"car-front" as const,title:"Parça uyumluluğunu kontrol et",text:"OEM numarasını ve araç bilgilerini karşılaştır."},
 ];
 // OEM code search plus the garage picker; `compact` is the smaller copy inside the sticky finder. On a phone the hero shows
 // only the garage picker: the header's search has the OEM / code mode (#878). From 600 to 767px the hero's copy stacks: the
@@ -74,7 +74,7 @@ function CatalogFinder({compact,home,query,vehicle}:{compact:boolean;home:string
      className={cn("h-[54px] w-full min-w-0 border-0 bg-white px-2.5 py-3.5 text-sm text-ellipsis text-[#54626e] outline-none placeholder:text-ellipsis placeholder:text-[#637381]",compact&&"h-[46px]")}/>
    </label>
    <input type="hidden" name="searchBy" value="code"/>
-   <Button type="submit" aria-label="OEM ile ara" className={cn(storeButton({intent:"primary",size:compact?"lg":"hero"}),"px-0",compact?"w-12":"w-14")}><Search className="size-5" aria-hidden="true"/></Button>
+   <Button type="submit" aria-label="OEM ile ara" className={cn(storeButton({intent:"primary",size:compact?"lg":"hero"}),"px-0",compact?"w-12":"w-14")}><StoreIcon name="search" className="size-5"/></Button>
   </form>
   <span className={cn("relative mx-[25px] w-4 py-[18px] text-center text-xs font-medium whitespace-nowrap text-white/75 uppercase before:absolute before:top-0 before:left-1/2 before:h-[17px] before:w-px before:bg-[#e6e9ec33] after:absolute after:bottom-0 after:left-1/2 after:h-[17px] after:w-px after:bg-[#e6e9ec33] max-[850px]:mx-4 max-[600px]:hidden",!compact&&"min-[600px]:max-[768px]:hidden")}>veya</span>
   {/* GarageButton belongs to the site chrome; only its size in this slot is set here. */}
@@ -140,7 +140,7 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const fitsHref=(fits:"vehicle"|undefined)=>listingHref({fits});
  const shown=shownVehicle(vehicle),vehicleName=shown&&vehicleText(shown);
  // The fit filter itself shows as a removable chip ("Aracına uyanlar"); this box only offers it, on pages without the lead.
- const fitFilter=vehicleTypeId&&!params.fits&&!leadProducts.length&&fitCount>0&&fitCount<result.total&&<div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground" role="status"><CircleCheck size={18} aria-hidden="true"/>
+ const fitFilter=vehicleTypeId&&!params.fits&&!leadProducts.length&&fitCount>0&&fitCount<result.total&&<div className="mb-4 flex flex-wrap items-center gap-2.5 rounded-[5px] border border-[#cfe8d9] bg-[#f3faf6] px-3.5 py-2.5 text-[13px] leading-[18px] text-[#1e5e3e] [&>p]:m-0 [&>p]:min-w-[220px] [&>p]:flex-1 [&>p]:text-foreground" role="status"><StoreIcon name="circle-check" size={18}/>
   <p>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı {fitCount.toLocaleString("tr-TR")} ürün var.</p>
   <Link className="font-semibold whitespace-nowrap text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Yalnızca aracıma uyanları göster</Link></div>;
  const card=(product:(typeof cards)[number])=><CatalogProduct key={product.id} product={product} details={details.get(product.id)} image={images.get(product.id)} logo={logos.get(product.display_brand)} account={account} fitsVehicle={fitting.has(product.id)} vehicleChecked={Boolean(vehicleTypeId)}/>;
@@ -150,11 +150,11 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const leadTotal=fitCount.toLocaleString("tr-TR"),moreFits=fitCount>leadProducts.length;
  const lead=leadProducts.length>0&&<>
   <section aria-labelledby="aracina-uyanlar" className="mb-8 max-[768px]:mb-6">
-   <h2 id="aracina-uyanlar" className="mb-3 flex items-start gap-2 text-lg leading-6 font-semibold max-[600px]:text-base max-[600px]:leading-[22px]"><CarFront size={20} className="mt-0.5 shrink-0 text-foreground" aria-hidden="true"/><span><strong>{vehicleName}</strong> aracına uyanlar · {leadTotal} ürün</span></h2>
+   <h2 id="aracina-uyanlar" className="mb-3 flex items-start gap-2 text-lg leading-6 font-semibold max-[600px]:text-base max-[600px]:leading-[22px]"><StoreIcon name="car-front" size={20} className="mt-0.5 shrink-0 text-foreground"/><span><strong>{vehicleName}</strong> aracına uyanlar · {leadTotal} ürün</span></h2>
    <div className="group/listing relative max-[768px]:after:pointer-events-none max-[768px]:after:absolute max-[768px]:after:inset-y-0 max-[768px]:after:right-0 max-[768px]:after:w-4 max-[768px]:after:bg-linear-to-l max-[768px]:after:from-white" data-view="grid">
     <div role="region" aria-label={`${vehicleName} aracına uyan ürünler`} className={cn("flex snap-x snap-mandatory gap-2 overflow-x-auto pb-1 max-[768px]:*:w-[46vw] max-[768px]:*:min-w-40 max-[768px]:*:shrink-0 max-[768px]:*:snap-start min-[769px]:mx-[-2px] min-[769px]:grid min-[769px]:grid-cols-2 min-[769px]:gap-x-4 min-[769px]:gap-y-6 min-[769px]:overflow-visible min-[769px]:pb-0 min-[993px]:grid-cols-3",moreFits&&"min-[993px]:[&>:nth-child(n+4)]:hidden")}>{leadProducts.map(card)}</div>
    </div>
-   {moreFits&&<Link className="mt-3 inline-flex min-h-11 items-center gap-1 font-semibold text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Uyan {leadTotal} ürünün tümünü göster<ChevronRight size={16} aria-hidden="true"/></Link>}
+   {moreFits&&<Link className="mt-3 inline-flex min-h-11 items-center gap-1 font-semibold text-primary hover:underline" href={fitsHref("vehicle")} scroll={false}>Uyan {leadTotal} ürünün tümünü göster<StoreIcon name="chevron-right" size={16}/></Link>}
   </section>
   <h2 className="mb-4 text-lg leading-6 font-semibold max-[600px]:text-base max-[600px]:leading-[22px]">Tüm sonuçlar</h2>
  </>;
@@ -166,8 +166,8 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  const oilListing=oilFilters.size>0||Boolean(category&&(category.path.includes(engineOilCategoryId)||category.id===legacyCategoryIds.yag))||/motor\s*ya[gğ]|\b\d{1,2}w-?\d{2}\b/i.test(params.q??"");
  const fitNoteClass="mb-4 flex items-start gap-2.5 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground";
  const fitNote=vehicle&&!result.searchTooShort&&(vehicleTypeId
-  ?!(params.fits||fitCount>0)&&products.length>0&&!result.vehicleScope&&<p className={fitNoteClass} role="status"><Info size={18} className="mt-px shrink-0 text-primary" aria-hidden="true"/><span>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı ürün bulunamadı. Ürünlerin uyumunu ürün sayfasında veya OEM numarasıyla kontrol et.</span></p>
-  :<p className={fitNoteClass} role="status"><Info size={18} className="mt-px shrink-0 text-primary" aria-hidden="true"/><span>Garajındaki <strong>{vehicleName}</strong> için uyum kontrolü yapılamıyor; aracını marka ve modelden seçersen uyan ürünleri gösterebiliriz.</span></p>);
+  ?!(params.fits||fitCount>0)&&products.length>0&&!result.vehicleScope&&<p className={fitNoteClass} role="status"><StoreIcon name="info" size={18} className="mt-px shrink-0 text-primary"/><span>Bu listede garajındaki <strong>{vehicleName}</strong> aracına bağlı ürün bulunamadı. Ürünlerin uyumunu ürün sayfasında veya OEM numarasıyla kontrol et.</span></p>
+  :<p className={fitNoteClass} role="status"><StoreIcon name="info" size={18} className="mt-px shrink-0 text-primary"/><span>Garajındaki <strong>{vehicleName}</strong> için uyum kontrolü yapılamıyor; aracını marka ve modelden seçersen uyan ürünleri gösterebiliriz.</span></p>);
  const oilBanner=oilSpec&&oilListing&&vehicleName&&<VehicleOilBanner spec={oilSpec} vehicleName={vehicleName} active={oilFilters} total={result.total}
   href={(filters:OilFilter[])=>listingHref({oil:oilFilterParam(new Set(filters))})}/>;
  const correction=result.correctedQuery&&<p className="mb-4 rounded-[5px] border border-border bg-[#f8fafc] px-3.5 py-2.5 text-[13px] leading-[18px] text-foreground" role="status">“{params.q}” için sonuç bulunamadı, <strong>“{result.correctedQuery}”</strong> için sonuçlar gösteriliyor.</p>;
@@ -187,13 +187,13 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
  // The OEM box repeats only a code search; a name search belongs to the header's box.
  const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.searchBy==="code"?params.q:undefined} vehicle={shown}/>;
  const crumbLink="min-h-0 transition-colors hover:text-primary hover:underline underline-offset-4";
- const crumbSeparator=<BreadcrumbSeparator className="[&>svg]:size-2.5"><ChevronRight/></BreadcrumbSeparator>;
+ const crumbSeparator=<BreadcrumbSeparator className="[&>svg]:size-2.5"><StoreIcon name="chevron-right"/></BreadcrumbSeparator>;
  return (
   <div data-catalog-page="" className="bg-white text-sm leading-5 text-foreground">
    <section className="relative h-[280px] bg-[#212b36] pb-10 text-white min-[600px]:max-[768px]:h-auto max-[600px]:h-auto max-[600px]:min-h-0 max-[600px]:pb-4">
     {isBrakeCategory?<HeroBackdrop mobile={brakeBannerMobile} desktop={brakeBanner}/>
      :<HeroBackdrop desktop={catalogBanner} overlay={false}/>}
-    <div className="relative flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/85 max-[600px]:hidden"><Search size={18} aria-hidden="true"/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
+    <div className="relative flex h-[52px] items-center justify-center gap-2 bg-[#212b3633] text-sm text-white/85 max-[600px]:hidden"><StoreIcon name="search" size={18}/><span>Ürün kodu ve OEM numarasıyla parça arama</span></div>
     <div className="relative mx-auto w-full max-w-[1384px] px-8 max-[600px]:px-[15px]">
      {/* Manufacturer names and make / model headings ("Volkswagen Golf 7 (2012–2022) fren sistemi") can run to three
       lines on a phone: they grow from the same minimum height instead of overflowing the fixed one. On a phone the
@@ -227,14 +227,14 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
       filters={<CatalogFilterSheet brands={facetData.brands} facets={facetData.attributes} chipFacets={chipFacets} params={params} count={result.total} vehicleName={vehicleName||undefined}/>}
       active={<CatalogActiveFilters items={chips} clearHref={listingHref(clearAllFilters)}/>} lead={lead||undefined}>
       {products.length ? products.map(card) :
-       <div className="col-span-full min-h-[300px] rounded-md border border-border px-6 py-16 text-center"><Search size={38} className="mx-auto mb-5 text-muted-foreground"/><h2 className="mb-3 text-[22px] leading-[30px] font-semibold">{params.fits ? "Bu listede aracına bağlı ürün bulunamadı." : params.oil ? "Aracının yağ önerisine uyan ürün bulunamadı." : filtered ? "Aramana uygun ürün bulunamadı." : "Bu kategoride şu an ürün bulunmuyor."}</h2><p className="mb-6 text-sm leading-[22px] text-muted-foreground">{params.fits ? "Tüm ürünlerde OEM numarasıyla arayabilir veya araç filtresini kaldırabilirsin." : params.oil ? "Yağ filtrelerinden birini kaldırarak benzer özellikteki yağları görebilirsin." : filtered ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Diğer kategorileri inceleyebilir veya aradığın parça için bize ulaşabilirsin."}</p><Button className={storeButton({intent:"primary",size:"lg"})} nativeButton={false} render={<Link href={allProducts}/>}>Tüm ürünlere göz at</Button></div>}
+       <div className="col-span-full min-h-[300px] rounded-md border border-border px-6 py-16 text-center"><StoreIcon name="search" size={38} className="mx-auto mb-5 text-muted-foreground"/><h2 className="mb-3 text-[22px] leading-[30px] font-semibold">{params.fits ? "Bu listede aracına bağlı ürün bulunamadı." : params.oil ? "Aracının yağ önerisine uyan ürün bulunamadı." : filtered ? "Aramana uygun ürün bulunamadı." : "Bu kategoride şu an ürün bulunmuyor."}</h2><p className="mb-6 text-sm leading-[22px] text-muted-foreground">{params.fits ? "Tüm ürünlerde OEM numarasıyla arayabilir veya araç filtresini kaldırabilirsin." : params.oil ? "Yağ filtrelerinden birini kaldırarak benzer özellikteki yağları görebilirsin." : filtered ? "Farklı bir ürün kodu deneyebilir veya filtreleri temizleyebilirsin." : "Diğer kategorileri inceleyebilir veya aradığın parça için bize ulaşabilirsin."}</p><Button className={storeButton({intent:"primary",size:"lg"})} nativeButton={false} render={<Link href={allProducts}/>}>Tüm ürünlere göz at</Button></div>}
      </CatalogResults>
      </div>
     </div>
    </section>
    {guideNote&&<CategoryGuideNote note={guideNote.note} guides={guideNote.guides}/>}
    <section className="py-10"><div className="mx-auto grid max-w-[1350px] grid-cols-3 gap-8 px-[15px] max-[768px]:grid-cols-1 max-[768px]:gap-6">
-    {benefits.map(({icon:Icon,title,text})=><div key={title} className="flex items-center gap-4"><Icon size={36} strokeWidth={1.4} className="shrink-0 text-muted-foreground"/><span><strong className="text-base leading-6 font-medium">{title}</strong><p className="mt-2 text-[13px] leading-[18px]">{text}</p></span></div>)}
+    {benefits.map(({icon,title,text})=><div key={title} className="flex items-center gap-4"><StoreIcon name={icon} size={36} strokeWidth={1.4} className="shrink-0 text-muted-foreground"/><span><strong className="text-base leading-6 font-medium">{title}</strong><p className="mt-2 text-[13px] leading-[18px]">{text}</p></span></div>)}
    </div></section>
    {related.length>0&&<section className="bg-[#f8f9f9] py-12"><div className="mx-auto max-w-[1350px] px-[15px]"><h2 className="mb-8 text-center text-[28px] leading-9 font-semibold">İlgili kategoriler</h2><CategoryCards variant="related" categories={related} makeSlug={params.make} modelSlug={modelSlug}/></div></section>}
   </div>

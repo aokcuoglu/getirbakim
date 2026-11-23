@@ -1,4 +1,4 @@
-import { CreditCard } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { INSTALLMENT_CARDS_NOTE, type InstallmentOption } from "@/modules/payments/installment-plan";
 import { money } from "@/modules/store/money";
@@ -12,7 +12,7 @@ export function PaymentOptions({ options }: { options: InstallmentOption[] }) {
   return <Accordion id="odeme-secenekleri" className="border-b border-[#dbe0e6]">
     <AccordionItem value="odeme-secenekleri">
       <AccordionTrigger className="items-center gap-4 rounded-none py-[18px] hover:no-underline">
-        <CreditCard size={32} className="shrink-0" aria-hidden/>
+        <StoreIcon name="credit-card" size={32} className="shrink-0"/>
         <span className="min-w-0"><strong className="block text-base font-medium">Ödeme seçenekleri</strong>
           <small className="mt-1 block text-[13px] font-normal text-[#53677d]">Tek çekim veya {longest.count} taksite kadar · aylık {money(longest.monthlyKurus)}</small></span>
       </AccordionTrigger>

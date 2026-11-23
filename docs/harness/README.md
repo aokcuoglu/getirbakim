@@ -96,6 +96,19 @@ Uzun uyumlu araç ve OEM listeli ürün sayfaları `/urun/=150` bütçesinin ço
 
 Son sütun `26155a6c2` (`dev`) üzerine yeniden tabanlanmış dalda ölçüldü; BOSCH 0258986507 ve BLUEPRINT ADM54282 iki geçişli OEM dolumundan sonra yeniden ölçüldü, diğerleri bir önceki ölçümden (aynı seçki, fark ≤ 0,2 KB). Canlıda SWAG önce 221,3 KB (yerel Turbopack ~3,5 KB ağır). Bütçe üç ağır örnekte (BLUEPRINT ADM54282 +5,5, FEBI 102793 +4,8, MAG 300704004900 +5,5 KB) hâlâ aşılıyor; kalan ağırlık basılan 6 grubun motor satırlarıdır (ağır örneklerde 94–101 satır, dizi olarak prop'ta ~8–9 KB; kapalı panel DOM'da olmadığı halde). Kaldıraçların katkısı: grup sınırı 8 → 6 ağır örneklerde 1,5–7,7 KB, dizi satırlar 6 grupta 6–7,6 KB (nesneye göre ~%45 küçük; `/api/product-fitments` yanıtı da küçüldü, BLUEPRINT ADM54282: 34 grup / 429 satır 32,1 KB). Araç üreticisinin OEM satırı, basılan her satır ilk 6 numarasını aldıktan sonra toplamdan kalan payı alır (uzun OEM satırları ardındaki bağlantılı muadilleri dışarıda bırakamaz); ağır örneklerde ilk geçiş 72 numarayı doldurduğundan OEM satırları orada 6 numarada kalır ve bayt değişmez. Tek geçişli denemede OEM satırları bütün basılınca ağır örneklerde marka sayısı düşüyordu (BOSCH 0258986507 13 → 5). OEM satır sınırını 24 → 16 indirmek yalnız 0–1,2 KB kazandırdığı için (ağır örneklerde 72 numara sınırı önce doluyor) uygulanmadı: orta boy sayfalarda SEO metni olan marka satırlarını düşürüyordu.
 
+## Sunucu bileşenlerinde lucide ikonları (#1213)
+
+lucide'in `Icon` modülü bir istemci sınırıdır: sunucu bileşeninde çizilen her ikon flight'a ilk kullanımda tanımını (1,6–3,1 KB), her tekrarda ise uzun tekrar-önleme yolu ile `"ref":"$undefined","className":"$undefined"` ekler (~200–270 B). `src/components/site/store-icon.tsx` ad anahtarlı bir istemci sarmalayıcısıdır (`<StoreIcon name="truck" size={22} />`): flight kullanım başına ~90 B taşır, DOM aynı kalır. Sunucu dosyaları `StoreIcon` kullanır, istemci bileşenleri lucide'i doğrudan alır; yalnızca serileştirilebilir prop geçirilir. `scripts/test-store-client-imports.ts` kalan sayfalar için daralan bir izin listesi tutar.
+
+| Sayfa | Önce HTML / RSC / gzip KB | Sonra |
+|---|---|---|
+| `/` | 228,1 / 91,7 / 40,9 | 226,3 / 89,8 / 40,4 |
+| `/katalog` | 308,2 / 124,0 / 46,9 | 305,7 / 121,4 / 46,1 |
+| `/kategori/silecek` | 315,7 / 125,0 / 45,5 | 313,0 / 122,3 / 44,7 |
+| `/urun/4fb0a274-…` | 145,5 / 79,9 / 27,5 | 141,9 / 76,3 / 26,4 |
+
+`.next/static/chunks/*.js` toplamı 3.681.005 → 3.660.691 bayt. Reddedilen seçenekler: (a) sunucuda satır içi SVG, kullanım başına flight'ı büyütür; (b) sprite geç boyanır ve ek önbellek/CSS işi ister; (c) CSS maskeleri 8–9,5 KB render-engelleyici CSS ekler, birden çok çizgi kalınlığı gerektirir ve iki tonlu ikonları yapamaz.
+
 ## Yerel ortam notları
 - Ana checkout `/Users/void/www/getirbakim` dalı `dev`'de durur; dev sunucusu `localhost:3000` (öldürülmez, worktree kodunu göstermez).
 - Worktree'ler `../getirbakim-<N>`; `.env.local` ve `node_modules` ana checkout'a symlink (lint/tsc/test için yeterli). Tarayıcı QA'sı için worktree'de gerçek `npm ci` + `npx next dev -p 31NN` (Turbopack symlink'li `node_modules` ile çalışmaz); QA bitince sunucu kapatılır.

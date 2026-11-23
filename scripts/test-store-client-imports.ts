@@ -60,3 +60,32 @@ test("the deferred modules are still reached through import()", () => {
     ["src/components/privacy/cookie-consent.tsx", "./cookie-settings"],
   ]) assert.match(fs.readFileSync(file, "utf8"), new RegExp(`import\\("${target.replace(".", "\\.")}"\\)`), file);
 });
+
+// #1213: a server component that imports lucide puts the icon definition and long dedupe references into the RSC flight.
+// Storefront server files use StoreIcon (a name-keyed client wrapper); this list only shrinks as the remaining pages migrate.
+const lucideAllowlist = [
+  "src/app/(store)/bakim-robotu/page.tsx",
+  "src/app/(store)/garaj/page.tsx",
+  "src/app/(store)/hesap/adresler/page.tsx",
+  "src/app/(store)/sepet/page.tsx",
+  "src/app/(store)/siparis-olustur/page.tsx",
+  "src/app/(store)/siparis/[id]/page.tsx",
+  "src/components/cart-action-bar.tsx",
+  "src/components/checkout-steps.tsx",
+  "src/components/order-progress.tsx",
+  "src/components/order-summary.tsx",
+];
+
+// Permanent: no "use client" directive, but every importer is a client component, so it is client by inheritance and costs no flight.
+const lucideInherited = ["src/components/navigation/category-parts.tsx"];
+
+test("storefront server components do not import lucide-react", () => {
+  const importing = files
+    .filter(file => (file.startsWith("src/app/(store)/") || file.startsWith("src/components/")) && !file.startsWith("src/components/ui/") && !file.startsWith("src/components/admin/"))
+    .filter(file => { const text = fs.readFileSync(file, "utf8"); return !isClient(text) && imports(text).includes("lucide-react"); })
+    .sort();
+  const unexpected = importing.filter(file => !lucideAllowlist.includes(file) && !lucideInherited.includes(file));
+  assert.deepEqual(unexpected, [], "use StoreIcon from @/components/site/store-icon in storefront server components");
+  const stale = [...lucideAllowlist, ...lucideInherited].filter(file => !importing.includes(file));
+  assert.deepEqual(stale, [], "these files no longer import lucide-react: remove them from the allowlist");
+});
