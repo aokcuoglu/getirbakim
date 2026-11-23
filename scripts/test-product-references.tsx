@@ -41,6 +41,27 @@ test("initialReferenceView cuts past any cap and names the rest", () => {
   assert.equal(capped.rest, rest);
 });
 
+test("a vehicle maker's OEM row is not capped per row, only by the total", () => {
+  const oem = new Set(["FORD"]);
+  // Within the totals a long OEM row goes out whole; a parts brand's as long a row would be cut.
+  const short: ReferenceRow[] = [["BOSCH", codes("B", 2)], ["FORD", codes("F", 20)]];
+  assert.deepEqual(initialReferenceView(short, oem, rest), { rows: short, rowCount: 2 });
+  assert.equal(initialReferenceView(short, new Set(), rest).rest, rest);
+  // Past the caps: linked rows, then the OEM row with all its numbers, then parts brands at referenceRowCodes each.
+  const rows: ReferenceRow[] = [["AAA", [["A-L", "/urun/a"], ...codes("A", 9)]], ["BOSCH", codes("B", 10)], ["FORD", codes("F", 40)],
+    ...Array.from({ length: 30 }, (_, index): ReferenceRow => [brand(index), codes(brand(index), 10)]), ["NGK", codes("N", 10)]];
+  const view = initialReferenceView(rows, oem, rest);
+  const shown = new Map(view.rows.map(([name, printed, more]) => [name, { count: printed.length, more }]));
+  assert.deepEqual(shown.get("AAA"), { count: referenceRowCodes, more: 10 - referenceRowCodes });
+  assert.deepEqual(shown.get("FORD"), { count: 40, more: undefined });
+  assert.deepEqual(shown.get("BOSCH"), { count: referenceRowCodes, more: 10 - referenceRowCodes });
+  assert.equal(view.rows.reduce((sum, [, printed]) => sum + printed.length, 0), referenceInitialCodes);
+  // An OEM row longer than what is left of the total is cut there.
+  const huge = initialReferenceView([["FORD", codes("F", 100)], ["NGK", ["1"]]], oem, rest);
+  assert.deepEqual(huge.rows, [["FORD", codes("F", referenceInitialCodes), 100 - referenceInitialCodes]]);
+  assert.equal(huge.rowCount, 2);
+});
+
 test("initialReferenceView prints linked rows, then vehicle makers' OEM rows, then the others, in alphabetical order", () => {
   const rows: ReferenceRow[] = [];
   for (let index = 0; index < 40; index++) rows.push([brand(index), [`${index}`]]);
@@ -69,7 +90,9 @@ test("ProductReferences prints every row it is given, its links and the show-all
   const view = initialReferenceView(rows, new Set(), rest);
   const html = renderToStaticMarkup(<ProductReferences view={view} title="BOSCH 0 258 986 507 OEM ve muadil numaraları"/>);
   assert.ok(html.startsWith('<section class="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 class="reference-title">BOSCH 0 258 986 507 OEM ve muadil numaraları</h2>'));
-  assert.ok(html.includes('<dl class="reference-list" tabindex="0" aria-label="OEM ve muadil numaraları">'));
+  // The scroll box is a labelled region holding the list.
+  assert.ok(html.includes('<div class="reference-list" tabindex="0" role="region" aria-label="OEM ve muadil numaraları"><dl>'));
+  assert.ok(html.includes('<p class="sr-only" role="status"></p>'));
   const printed = html.split('<div class="reference-row">').slice(1);
   assert.equal(printed.length, view.rows.length);
   for (const [name, shown] of view.rows) {
@@ -84,9 +107,12 @@ test("ProductReferences prints every row it is given, its links and the show-all
     const bare = `<div class="reference-row">${row.replace(/<a class="reference-link" href="[^"]*">[^<]*<\/a>|<span>[^<]*<\/span>/g, "").split("</dl>")[0]}`;
     assert.ok(Buffer.byteLength(bare) <= 120, `row ${Buffer.byteLength(bare)} bytes: ${bare}`);
   }
-  // A list printed whole has no button.
+  // Every brand printed, only numbers left out: the button speaks of numbers.
+  const numbers = renderToStaticMarkup(<ProductReferences view={initialReferenceView([["BOSCH", codes("B", 10)]], new Set(), rest)} title="T"/>);
+  assert.ok(numbers.includes(">Tüm numaraları göster</button>") && !numbers.includes("markayı göster"));
+  // A list printed whole has no button and no status line.
   const whole = renderToStaticMarkup(<ProductReferences view={initialReferenceView(rows.slice(0, 3).map(([name]) => [name, ["1"]]), new Set(), rest)} title="T"/>);
-  assert.ok(!whole.includes("<button") && !whole.includes("reference-more"));
+  assert.ok(!whole.includes("<button") && !whole.includes("reference-more") && !whole.includes('role="status"'));
 });
 
 test("ProductFitment prints the first groups with no svg in a group header", () => {

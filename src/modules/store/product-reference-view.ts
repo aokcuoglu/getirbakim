@@ -14,7 +14,10 @@ export type ReferenceView = { rows: ReferenceRow[]; rowCount: number; rest?: str
 
 /** Rows printed before "Tüm {n} markayı göster". */
 export const referenceInitialRows = 24;
-/** Numbers printed per row. */
+/**
+ * Numbers printed per row of a parts brand. A vehicle maker's OEM row is not capped per row (its numbers are the
+ * searches people make, #1211), only by `referenceInitialCodes`.
+ */
 export const referenceRowCodes = 6;
 /** Numbers printed in all rows together. */
 export const referenceInitialCodes = 72;
@@ -30,12 +33,14 @@ export function isReferenceRow(value: unknown): value is ReferenceRow {
 /**
  * The view the product page ships. A list within the caps goes out whole. A longer one prints the rows with a store
  * link first, then the vehicle makers' OEM rows (`oemBrands`), then the other brands (alphabetical within each), up to
- * `referenceInitialRows` rows, `referenceRowCodes` numbers per row (linked ones first) and `referenceInitialCodes` in all;
- * the printed rows keep the list's alphabetical order and `more` counts each row's numbers left out.
+ * `referenceInitialRows` rows and `referenceInitialCodes` numbers in all; a parts brand's row prints at most
+ * `referenceRowCodes` of them, a vehicle maker's row all it can within the total (linked numbers first). The printed rows
+ * keep the list's alphabetical order and `more` counts each row's numbers left out.
  */
 export function initialReferenceView(rows: readonly ReferenceRow[], oemBrands: ReadonlySet<string>, restUrl: string): ReferenceView {
+  const rowCap = (brand: string) => oemBrands.has(brand) ? referenceInitialCodes : referenceRowCodes;
   const codeCount = rows.reduce((sum, [, codes]) => sum + codes.length, 0);
-  if (rows.length <= referenceInitialRows && codeCount <= referenceInitialCodes && rows.every(([, codes]) => codes.length <= referenceRowCodes)) {
+  if (rows.length <= referenceInitialRows && codeCount <= referenceInitialCodes && rows.every(([brand, codes]) => codes.length <= rowCap(brand))) {
     return { rows: [...rows], rowCount: rows.length };
   }
   const tier = ([brand, codes]: ReferenceRow) => codes.some(linked) ? 0 : oemBrands.has(brand) ? 1 : 2;
@@ -46,7 +51,7 @@ export function initialReferenceView(rows: readonly ReferenceRow[], oemBrands: R
   for (const { row: [brand, codes], index } of ranked) {
     if (picked.length === referenceInitialRows || left === 0) break;
     const ordered = [...codes.filter(linked), ...codes.filter(code => !linked(code))];
-    const shown = ordered.slice(0, Math.min(referenceRowCodes, left));
+    const shown = ordered.slice(0, Math.min(rowCap(brand), left));
     left -= shown.length;
     picked.push({ row: shown.length < codes.length ? [brand, shown, codes.length - shown.length] : [brand, codes], index });
   }
