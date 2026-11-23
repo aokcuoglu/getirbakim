@@ -59,6 +59,9 @@ before(async () => {
     SELECT 'basbug',$1,'G','MRK','TB D'||n,jsonb_build_object('uk','TESTBRAND','ac','D'||n||' PARCA','dc','TL'),
      jsonb_build_object('nf',10+(n*37)%500),'{"stok":1}',1,1,1,'present',now(),now(),now() FROM generate_series(1,${pricedProducts}) n`, [basbug]);
   await schema.pool.query("INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT 3,id FROM supplier_items WHERE code LIKE 'TB D%'");
+  // A make × category price order (#1335), two id sets: 4 in 5 of them are filters, more than the cached window too.
+  await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"category":"filtre"}'
+    WHERE code LIKE 'TB D%' AND substring(code from 5)::int%5<>0`);
   await schema.pool.query("SELECT refresh_product_matches()");
   await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1) ON CONFLICT (item_id) DO UPDATE SET primary_id=EXCLUDED.primary_id", [ids.g4, ids.g4s]);
   for (const key of ["g1", "g2", "g3", "g12"]) await fit("storefront_model_fits", 10, key);
@@ -322,6 +325,33 @@ test("page 2 of a make listing is its products 25-48 in either order, with the m
   }
   assert.equal(listingRangeLabel(0, 1, 24), "0 ürün");
 });
+
+test("a price-sorted make × category listing, priced by its id array, orders like the query with both clauses (#1335)", () => inRequest(async () => {
+  // The category page's ids as catalogFilter reads them: Filtre (241) has no child, "filtre" is its legacy slug.
+  const category = await catalog.categoryProductIds(["filtre"], [241]);
+  for (const dir of ["ASC", "DESC"] as const) {
+    const sort = dir === "ASC" ? "price-asc" : "price-desc";
+    const live = (await schema.pool.query<{ id: string }>(`SELECT id::text FROM storefront_catalog catalog
+      WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND ${catalog.listedOnly}
+       AND catalog.id=ANY(ARRAY(${catalog.makeFitsSql("$2::int")})::uuid[]) AND catalog.id=ANY($3::uuid[])
+      ORDER BY unavailable,price_kurus ${dir} NULLS LAST,id`, [storefrontCompanies(), 3, category])).rows.map(row => row.id);
+    assert.equal(live.length, 496, sort);
+    const page = (number: number) => catalog.browseProducts({ make: "dacia", category: "filtre", sort, page: String(number) });
+    const [first, second] = [await page(1), await page(2)];
+    assert.deepEqual([first.total, first.pages], [496, 21], sort);
+    assert.deepEqual(first.items.map(row => row.id), live.slice(0, 24), sort);
+    assert.deepEqual(second.items.map(row => row.id), live.slice(24, 48), sort);
+    // Beyond the cached window the page reads live, its offset bound after the id array.
+    assert.deepEqual((await page(21)).items.map(row => row.id), live.slice(480), sort);
+  }
+}));
+
+test("a price-sorted listing without products is empty (#1335)", () => inRequest(async () => {
+  for (const sort of ["price-asc", "price-desc"] as const) {
+    const result = await catalog.browseProducts({ make: "dacia", category: "aydinlatma-200", sort });
+    assert.deepEqual([result.items, result.total, result.page, result.pages], [[], 0, 1, 1], sort);
+  }
+}));
 test("model × category pages: 404 without products, noindex below 10, indexable from 10 (#673)", () => inRequest(async () => {
   const page = (category: string, model: string, search = {}) => load.findListing({ category, make: "vw", model, search });
   const golf = (await page("fren", "golf-7"))!;
