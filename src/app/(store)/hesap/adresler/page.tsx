@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChevronRight, CircleCheck, MapPin, Trash2 } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { privatePageRobots } from "@/modules/seo/crawlers";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { currentAccount } from "@/modules/auth/session";
@@ -46,7 +46,7 @@ export default async function Addresses({ searchParams }: { searchParams: Promis
   const error = params.error ? fixedText(errors, params.error) ?? errors.missing : null;
   const deleting = params.sil && uuid.test(params.sil) ? params.sil : null;
   return <section className="mx-auto min-h-[55vh] w-full max-w-[1280px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10">
-    <nav aria-label="Sayfa yolu" className="mb-7 flex flex-wrap items-center gap-[9px] text-[13px] leading-5 wrap-anywhere text-muted-foreground"><Link href="/" className="inline-flex min-h-8 items-center underline-offset-4 hover:text-primary hover:underline">Ana sayfa</Link><ChevronRight className="size-[13px]" aria-hidden/><span aria-current="page">Adreslerim</span></nav>
+    <nav aria-label="Sayfa yolu" className="mb-7 flex flex-wrap items-center gap-[9px] text-[13px] leading-5 wrap-anywhere text-muted-foreground"><Link href="/" className="inline-flex min-h-8 items-center underline-offset-4 hover:text-primary hover:underline">Ana sayfa</Link><StoreIcon name="chevron-right" className="size-[13px]"/><span aria-current="page">Adreslerim</span></nav>
     <AddressNoticeScope notice={notice} noticeId={randomUUID()}>
     <div className="mx-auto grid max-w-[1120px] grid-cols-[minmax(0,1fr)_440px] gap-[56px] max-[1000px]:grid-cols-2 max-[1000px]:gap-[32px] max-[600px]:grid-cols-1 max-[600px]:gap-6">
       <div className="min-w-0">
@@ -58,17 +58,17 @@ export default async function Addresses({ searchParams }: { searchParams: Promis
           <Card id={`adres-${address.id}`} className="scroll-mt-6 gap-2 rounded-2xl border border-border bg-white p-5 ring-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="min-w-0 text-lg leading-7 font-semibold wrap-anywhere">{address.label}</h2>
-              {address.default_delivery && <Badge variant="info"><CircleCheck data-icon="inline-start" aria-hidden/>Varsayılan teslimat</Badge>}
-              {address.default_invoice && <Badge variant="info"><CircleCheck data-icon="inline-start" aria-hidden/>Varsayılan fatura</Badge>}
+              {address.default_delivery && <Badge variant="info"><StoreIcon name="circle-check" data-icon="inline-start"/>Varsayılan teslimat</Badge>}
+              {address.default_invoice && <Badge variant="info"><StoreIcon name="circle-check" data-icon="inline-start"/>Varsayılan fatura</Badge>}
             </div>
             <p className="text-sm leading-5 wrap-anywhere">{address.recipient_name} · <span className="tabular-nums">{address.phone}</span></p>
-            <p className="flex gap-2 text-sm leading-5 wrap-anywhere text-muted-foreground"><MapPin className="mt-0.5 size-4 shrink-0" aria-hidden/>{composeAddress({ line: address.address_line, district: address.district, province: address.province, postalCode: address.postal_code })}</p>
+            <p className="flex gap-2 text-sm leading-5 wrap-anywhere text-muted-foreground"><StoreIcon name="map-pin" className="mt-0.5 size-4 shrink-0"/>{composeAddress({ line: address.address_line, district: address.district, province: address.province, postalCode: address.postal_code })}</p>
             <div className="flex flex-wrap items-center gap-x-5">
               <Link href={`/hesap/adresler?duzenle=${address.id}#adres-formu`} className="inline-flex min-h-11 items-center text-sm leading-5 text-primary underline-offset-4 hover:underline">Düzenle</Link>
               {!address.default_delivery && <DefaultForm address={address} kind="delivery" text="Teslimat için varsayılan yap"/>}
               {!address.default_invoice && <DefaultForm address={address} kind="invoice" text="Fatura için varsayılan yap"/>}
               {deleting !== address.id && <Link href={`/hesap/adresler?sil=${address.id}#adres-${address.id}`} aria-label={`${address.label} adresini sil`}
-                className="ml-auto inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 text-muted-foreground hover:text-destructive"><Trash2 className="size-[18px]" aria-hidden/>Sil</Link>}
+                className="ml-auto inline-flex min-h-11 items-center gap-1.5 text-sm leading-5 text-muted-foreground hover:text-destructive"><StoreIcon name="trash-2" className="size-[18px]"/>Sil</Link>}
             </div>
             {deleting === address.id && <div className="grid gap-2 border-t border-border pt-3">
               <p className="text-sm leading-5 font-medium">“{address.label}” silinsin mi?{(address.default_delivery || address.default_invoice) &&
@@ -80,7 +80,7 @@ export default async function Addresses({ searchParams }: { searchParams: Promis
               </div>
             </div>}
           </Card></li>)}</ul>
-          : <Empty className="items-start gap-2 rounded-2xl border border-dashed border-border p-6 text-left"><MapPin className="size-6 text-muted-foreground" aria-hidden/><p className="text-base leading-6 font-medium">Henüz kayıtlı adresin yok.</p><p className="text-sm leading-5 text-muted-foreground">İlk adresin varsayılan teslimat ve fatura adresin olur.</p></Empty>}
+          : <Empty className="items-start gap-2 rounded-2xl border border-dashed border-border p-6 text-left"><StoreIcon name="map-pin" className="size-6 text-muted-foreground"/><p className="text-base leading-6 font-medium">Henüz kayıtlı adresin yok.</p><p className="text-sm leading-5 text-muted-foreground">İlk adresin varsayılan teslimat ve fatura adresin olur.</p></Empty>}
       </div>
       <Card id="adres-formu" className="scroll-mt-6 gap-0 self-start rounded-2xl border border-border bg-white p-[25px] ring-0 max-[600px]:p-5">
         <h2 className="mb-4 text-[23px] leading-[34px] font-semibold">{editing ? "Adresi düzenle" : "Yeni adres ekle"}</h2>

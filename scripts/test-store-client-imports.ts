@@ -62,19 +62,8 @@ test("the deferred modules are still reached through import()", () => {
 });
 
 // #1213: a server component that imports lucide puts the icon definition and long dedupe references into the RSC flight.
-// Storefront server files use StoreIcon (a name-keyed client wrapper); this list only shrinks as the remaining pages migrate.
-const lucideAllowlist = [
-  "src/app/(store)/bakim-robotu/page.tsx",
-  "src/app/(store)/garaj/page.tsx",
-  "src/app/(store)/hesap/adresler/page.tsx",
-  "src/app/(store)/sepet/page.tsx",
-  "src/app/(store)/siparis-olustur/page.tsx",
-  "src/app/(store)/siparis/[id]/page.tsx",
-  "src/components/cart-action-bar.tsx",
-  "src/components/checkout-steps.tsx",
-  "src/components/order-progress.tsx",
-  "src/components/order-summary.tsx",
-];
+// Storefront server files use StoreIcon (a name-keyed client wrapper); this list only shrinks; it is empty since #1333.
+const lucideAllowlist: string[] = [];
 
 // Permanent: no "use client" directive, but every importer is a client component, so it is client by inheritance and costs no flight.
 const lucideInherited = ["src/components/navigation/category-parts.tsx"];

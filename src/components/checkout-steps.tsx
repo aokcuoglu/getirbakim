@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { cn } from "@/lib/utils";
 
 export const checkoutStepsClass = "m-0 flex list-none items-center gap-6 p-0 text-[13px] leading-5 max-[760px]:gap-3 max-[760px]:text-xs max-[380px]:gap-2";
@@ -9,7 +9,7 @@ const stepMark = "grid size-8 place-items-center rounded-full border border-inpu
 
 export function CheckoutSteps() {
   return <ol className={checkoutStepsClass}>
-    <li className={checkoutStepClass}><Link href="/sepet" className="flex items-center gap-2 hover:text-primary max-[760px]:min-h-11 max-[380px]:gap-1.5"><span className={cn(stepMark,"border-[#73a985] bg-[#f1f8f3] text-[#168657]")}><Check className="size-4" aria-hidden/></span>Sepet<span className="sr-only"> (tamamlandı)</span></Link></li>
+    <li className={checkoutStepClass}><Link href="/sepet" className="flex items-center gap-2 hover:text-primary max-[760px]:min-h-11 max-[380px]:gap-1.5"><span className={cn(stepMark,"border-[#73a985] bg-[#f1f8f3] text-[#168657]")}><StoreIcon name="check" className="size-4"/></span>Sepet<span className="sr-only"> (tamamlandı)</span></Link></li>
     <li className={checkoutStepClass} aria-current="step"><span className={cn(stepMark,"border-primary text-primary")}>1</span>Teslimat</li>
     <li className={checkoutStepClass}><span className={stepMark}>2</span>Ödeme</li>
   </ol>;

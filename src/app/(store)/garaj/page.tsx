@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { privatePageRobots } from "@/modules/seo/crawlers";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import Link from "next/link";
-import { CarFront,ChevronRight,Check,Trash2 } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { currentVehicle,savedVehicles,vehicleKey,garageVehicleLabel } from "@/modules/store/garage";
 import { shownVehicle } from "@/modules/store/vehicle-label";
 import { Alert } from "@/components/ui/alert";
@@ -24,17 +24,17 @@ export default async function Garage({searchParams}:{searchParams:Promise<Search
  const shown=shownVehicle(vehicle);
  const others=saved.vehicles.filter(entry=>!vehicle||entry.key!==vehicleKey(vehicle));
  return <section className="mx-auto min-h-[55vh] w-full max-w-[1280px] px-8 pt-7 pb-14 max-[600px]:px-5 max-[600px]:pt-6 max-[600px]:pb-10">
-  <nav aria-label="Sayfa yolu" className="mb-7 flex flex-wrap items-center gap-[9px] text-[13px] leading-5 wrap-anywhere text-muted-foreground"><Link href="/" className="inline-flex min-h-8 items-center underline-offset-4 hover:text-primary hover:underline">Ana sayfa</Link><ChevronRight className="size-[13px]" aria-hidden/><span aria-current="page">Garajım</span></nav>
+  <nav aria-label="Sayfa yolu" className="mb-7 flex flex-wrap items-center gap-[9px] text-[13px] leading-5 wrap-anywhere text-muted-foreground"><Link href="/" className="inline-flex min-h-8 items-center underline-offset-4 hover:text-primary hover:underline">Ana sayfa</Link><StoreIcon name="chevron-right" className="size-[13px]"/><span aria-current="page">Garajım</span></nav>
   <div className="mx-auto grid max-w-[1020px] grid-cols-[1fr_440px] gap-[70px] max-[1000px]:grid-cols-2 max-[1000px]:gap-[35px] max-[600px]:grid-cols-1 max-[600px]:gap-6">
    <div>
     <span className="mb-2 block text-[11px] leading-[18px] font-medium tracking-[1.2px] text-muted-foreground max-[600px]:text-[10px]">GETİRBAKİM GARAJIM</span>
     <h1 className="mb-5 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">Aracını tanıyalım.</h1>
     <p className="text-base leading-6 text-muted-foreground">Marka, model ve yıl bilgilerini kaydet.<br/>Aracın, sonraki ziyaretinde de garajında olsun.</p>
-    <CarFront className="my-5 h-[150px] w-[190px] text-[#8ea9bf] max-[600px]:hidden" strokeWidth={1} aria-hidden/>
+    <StoreIcon name="car-front" className="my-5 h-[150px] w-[190px] text-[#8ea9bf] max-[600px]:hidden" strokeWidth={1}/>
     <p className="max-w-[440px] text-[11px] leading-[22px] text-muted-foreground">{saved.signedIn ? "Araçların hesabına kaydedilir ve her cihazda görünür." : "Araçların bu tarayıcıda 30 gün saklanır (en çok 5). Giriş yaparsan hesabına kaydedilir."} Katalogda “Yalnızca aracıma uyanları göster” ile araç tipine bağlı ürünleri süzebilirsin; bağlantısı olmayan ürünlerde OEM numarasını kontrol et.</p>
    </div>
    <Card className="gap-0 rounded-2xl border border-border bg-white p-[25px] ring-0 max-[600px]:p-5">
-    {params.saved && <Alert role="status" className="mb-4 flex items-center gap-2 rounded-md border-0 bg-[#ebf5ed] p-[13px] text-sm leading-5 text-[#397247]"><Check className="size-[18px] shrink-0" aria-hidden/> Araç bilgilerin kaydedildi.</Alert>}
+    {params.saved && <Alert role="status" className="mb-4 flex items-center gap-2 rounded-md border-0 bg-[#ebf5ed] p-[13px] text-sm leading-5 text-[#397247]"><StoreIcon name="check" className="size-[18px] shrink-0"/> Araç bilgilerin kaydedildi.</Alert>}
     {params.error && <Alert className={cn(storeErrorBox, "mb-4")}>Marka, model ve yılı kontrol et.</Alert>}
     <h2 className="text-[23px] leading-[34px] font-semibold">{vehicle ? "Araç bilgilerini güncelle" : "Garajına araç ekle"}</h2>
     <form action={saveVehicle} className="grid gap-5">
@@ -42,12 +42,12 @@ export default async function Garage({searchParams}:{searchParams:Promise<Search
      <datalist id="vehicle-makes">{vehicleMakes.map(m=><option key={m} value={m}/>)}</datalist>
      <Field className="gap-2"><FieldLabel htmlFor="garage-model" className={label}>Model</FieldLabel><Input id="garage-model" className={input} name="model" defaultValue={shown?.modelLabel} placeholder="Örn. Golf 1.6 TDI" maxLength={60} required/></Field>
      <Field className="gap-2"><FieldLabel htmlFor="garage-year" className={label}>Model yılı</FieldLabel><Input id="garage-year" className={input} name="year" type="number" min={1950} max={new Date().getFullYear()+1} defaultValue={vehicle?.year} placeholder="Örn. 2018" required/></Field>
-     <Button type="submit" className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full gap-2.5")}>Aracımı kaydet <ChevronRight className="size-4" aria-hidden/></Button>
+     <Button type="submit" className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full gap-2.5")}>Aracımı kaydet <StoreIcon name="chevron-right" className="size-4"/></Button>
     </form>
     {vehicle && <form action={removeVehicle}><Button type="submit" variant="link" className={cn(storeButton({ intent: "link", size: "md" }), "mt-1 px-0")}>Aracı garajımdan kaldır</Button></form>}
     {others.length>0 && <><h2 className="mt-6 mb-2 text-lg leading-7 font-semibold">Diğer kayıtlı araçlar</h2><ul className="grid divide-y divide-border">{others.map(entry=><li key={entry.key} className="flex items-center gap-3 py-2.5 text-sm leading-5"><span className="min-w-0 flex-1 wrap-anywhere">{garageVehicleLabel(entry)}</span>
      <form action={switchVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="link" className={cn(storeButton({ intent: "link", size: "md" }), "px-0")}>Bu aracı seç</Button></form>
-     <form action={removeVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="ghost" size="icon" className={cn(storeButton({intent:"ghost",size:"icon"}),"text-muted-foreground hover:text-destructive")} aria-label={`${shownVehicle(entry).makeLabel} ${shownVehicle(entry).modelLabel} aracını kaldır`}><Trash2 className="size-[15px]"/></Button></form></li>)}</ul></>}
+     <form action={removeVehicleForm}><input type="hidden" name="key" value={entry.key}/><Button type="submit" variant="ghost" size="icon" className={cn(storeButton({intent:"ghost",size:"icon"}),"text-muted-foreground hover:text-destructive")} aria-label={`${shownVehicle(entry).makeLabel} ${shownVehicle(entry).modelLabel} aracını kaldır`}><StoreIcon name="trash-2" className="size-[15px]"/></Button></form></li>)}</ul></>}
    </Card>
   </div>
  </section>;
