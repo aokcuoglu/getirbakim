@@ -578,9 +578,12 @@ describe("availability filter (#1242)", () => {
       const { rows: [{ def }] } = await schema.pool.query<{ def: string }>("SELECT pg_get_viewdef($1::regclass) AS def", [view]);
       for (const call of ["commerce_source_fresh(", "commerce_supplier_available(", "commerce_supplier_stock_label(", "commerce_store_stock_label("])
         assert.ok(def.includes(call), `${view} calls ${call}`);
+      // The view stores the calls, not their inlined text: no copy of the rule sits beside them.
+      for (const copy of ["'Stok bilgisi güncelleniyor'", "sFarkliDepo"]) assert.ok(!def.includes(copy), `${view} carries ${copy}`);
     }
   });
 
+  // Migration guard for #1249: when the rule is changed on purpose, update this grid's old expressions or delete the test.
   // The expressions both views carried before #1249, frozen here: the functions must give the same result on every
   // combination of checkout mode, supplier, observation age, scope window, last success and stock document.
   const preFunctionGrid = `WITH g AS (
