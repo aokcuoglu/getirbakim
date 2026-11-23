@@ -20,6 +20,12 @@ export const referenceRowCodes = 6;
 export const referenceInitialCodes = 72;
 
 const linked = (code: ReferenceCode) => typeof code !== "string";
+const isCode = (code: unknown) => typeof code === "string" || (Array.isArray(code) && typeof code[0] === "string" && typeof code[1] === "string");
+
+/** Whether a loaded row has this shape: a brand and its numbers. */
+export function isReferenceRow(value: unknown): value is ReferenceRow {
+  return Array.isArray(value) && typeof value[0] === "string" && Array.isArray(value[1]) && value[1].every(isCode);
+}
 
 /**
  * The view the product page ships. A list within the caps goes out whole. A longer one prints the rows with a store

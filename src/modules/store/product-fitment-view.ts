@@ -106,6 +106,15 @@ export function initialFitmentView(full: FitmentView, restUrl: string): FitmentV
   };
 }
 
+/**
+ * Whether a loaded group has this shape: a model and tuple rows. An older deploy answers object rows (before #1211), which
+ * the page must reject rather than read.
+ */
+export function isFitmentGroup(value: unknown): value is FitmentGroup {
+  return typeof value === "object" && value !== null && "model" in value && typeof value.model === "string"
+    && "rows" in value && Array.isArray(value.rows) && value.rows.every(row => Array.isArray(row) && typeof row[0] === "string");
+}
+
 /** The printed groups first (the same objects, so open rows stay open), then the loaded ones they do not hold, in order. */
 export function mergeFitmentGroups(printed: readonly FitmentGroup[], all: readonly FitmentGroup[]): FitmentGroup[] {
   const seen = new Set(printed.map(group => group.model));

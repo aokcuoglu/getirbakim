@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createFitmentMatcher, englishModelName, type FitmentCatalogModel, type FitmentCatalogType, type SourceVehicle } from "../src/modules/store/fitment-matcher";
 import { parseFitmentPaging } from "../src/modules/admin/fitment-details";
-import { fitmentCacheControl, fitmentEagerModelOptions, fitmentInitialGroups, fitmentRow, fitmentRowFields, fitmentView, initialFitmentView, mergeFitmentGroups, visibleFitmentGroups, type FitmentSource } from "../src/modules/store/product-fitment-view";
+import { fitmentCacheControl, fitmentEagerModelOptions, fitmentInitialGroups, fitmentRow, fitmentRowFields, fitmentView, initialFitmentView, isFitmentGroup, mergeFitmentGroups, visibleFitmentGroups, type FitmentSource } from "../src/modules/store/product-fitment-view";
 import { fitmentSources, fitmentVersion, productFitmentGroups, productPageFitment } from "../src/modules/store/product-fitment-sources";
 
 const models: FitmentCatalogModel[] = [{ id: 1, brand_id: 2, brand: "VW", display_brand: "VOLKSWAGEN", name: "GOLF (5G1)" }];
@@ -141,6 +141,15 @@ test("fitmentRow fills a gap before a present field and leaves missing trailing 
     assert.deepEqual(fitmentRow(fields), row);
     assert.deepEqual(fitmentRowFields(fitmentRow(fields)), { to: undefined, typeId: undefined, catalog: undefined, ...fields });
   }
+});
+
+test("isFitmentGroup accepts tuple rows and rejects the object rows of an older deploy", () => {
+  const [group] = fitmentView([vehicle("Volkswagen Golf VII (5G1)", { vehicleTypeId: 10 })]).groups;
+  assert.equal(isFitmentGroup(group), true);
+  assert.equal(isFitmentGroup({ ...group, rows: [] }), true);
+  // The pre-#1211 answer: the same group with its rows as objects.
+  assert.equal(isFitmentGroup({ ...group, rows: [fitmentRowFields(group.rows[0])] }), false);
+  for (const value of [null, "x", [], { model: "Golf" }, { rows: [] }, { model: 1, rows: [] }]) assert.equal(isFitmentGroup(value), false, JSON.stringify(value));
 });
 
 test("visibleFitmentGroups prints the first groups until showAll; filters and search lift the cap", () => {

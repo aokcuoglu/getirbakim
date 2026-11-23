@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Search, Loader2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fitmentEagerModelOptions, fitmentRowFields, mergeFitmentGroups, visibleFitmentGroups, type FitmentGroup, type FitmentView } from "@/modules/store/product-fitment-view";
+import { fitmentEagerModelOptions, fitmentRowFields, isFitmentGroup, mergeFitmentGroups, visibleFitmentGroups, type FitmentGroup, type FitmentView } from "@/modules/store/product-fitment-view";
 import { loadedPublicList, publicListFetch } from "@/components/public-list-fetch";
 
 const fuelLabels: Record<string, string> = {
@@ -18,7 +18,7 @@ const fuelLabels: Record<string, string> = {
 };
 
 // One request per list, shared by every trigger and kept for a page visited again (public-list-fetch.ts).
-const fetchFitments = (url: string) => publicListFetch<FitmentGroup>(url, "groups", "Uyumlu araçlar yüklenemedi.");
+const fetchFitments = (url: string) => publicListFetch(url, "groups", isFitmentGroup, "Uyumlu araçlar yüklenemedi.");
 
 /** How long a load may take before it shows: a fast answer does not flash the loading state. */
 const loadingDelay = 180;

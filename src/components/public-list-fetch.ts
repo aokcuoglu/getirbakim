@@ -16,14 +16,18 @@ export function loadedPublicList<T>(url: string) {
   return (loadedLists.get(url) as T[] | undefined) ?? null;
 }
 
-/** The `key` array of the JSON at `url`; rejects with `message` when the answer is not one. */
-export function publicListFetch<T>(url: string, key: "groups" | "rows", message: string) {
+/**
+ * The `key` array of the JSON at `url` when every item passes `isItem`, else a rejection with `message`: an answer in
+ * another shape (during a rolling deploy an older task can answer the new page's URL) takes the failed-load path
+ * ("Tekrar dene") instead of breaking the page.
+ */
+export function publicListFetch<T>(url: string, key: "groups" | "rows", isItem: (item: unknown) => item is T, message: string) {
   let request = requests.get(url);
   if (!request) {
-    request = fetch(url, { credentials: "omit", signal: AbortSignal.timeout(10_000) }).then(async (response): Promise<unknown[]> => {
+    request = fetch(url, { credentials: "omit", signal: AbortSignal.timeout(10_000) }).then(async (response): Promise<T[]> => {
       const data: unknown = await response.json();
-      const list = data && typeof data === "object" && key in data ? (data as Record<string, unknown>)[key] : null;
-      if (!response.ok || !Array.isArray(list)) throw new Error(message);
+      const list: unknown = data && typeof data === "object" && key in data ? (data as Record<string, unknown>)[key] : null;
+      if (!response.ok || !Array.isArray(list) || !list.every(isItem)) throw new Error(message);
       keep(loadedLists, url, list);
       return list;
     }).catch(error => {

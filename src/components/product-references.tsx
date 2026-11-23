@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { loadedPublicList, publicListFetch } from "@/components/public-list-fetch";
-import type { ReferenceRow, ReferenceView } from "@/modules/store/product-reference-view";
+import { isReferenceRow, type ReferenceRow, type ReferenceView } from "@/modules/store/product-reference-view";
 
 /** How long a load may take before it shows: a fast answer does not flash the loading state. */
 const loadingDelay = 180;
@@ -32,7 +32,7 @@ export function ProductReferences({ view, title }: { view: ReferenceView; title:
     if (!view.rest || loading) return;
     setSlow(false);
     setLoading(true);
-    publicListFetch<ReferenceRow>(view.rest, "rows", "Numaraların tamamı yüklenemedi.").then(list => {
+    publicListFetch(view.rest, "rows", isReferenceRow, "Numaraların tamamı yüklenemedi.").then(list => {
       // The button leaves with the printed selection: focus goes to the whole list.
       flushSync(() => { setAll(list); setLoading(false); });
       listRef.current?.focus();

@@ -4,8 +4,9 @@ import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ProductFitment } from "../src/components/product-fitment";
 import { ProductReferences } from "../src/components/product-references";
-import { fitmentInitialGroups, fitmentView, initialFitmentView, type FitmentSource } from "../src/modules/store/product-fitment-view";
-import { initialReferenceView, referenceInitialCodes, referenceInitialRows, referenceRowCodes, type ReferenceRow } from "../src/modules/store/product-reference-view";
+import { loadedPublicList, publicListFetch } from "../src/components/public-list-fetch";
+import { fitmentInitialGroups, fitmentView, initialFitmentView, isFitmentGroup, type FitmentSource } from "../src/modules/store/product-fitment-view";
+import { initialReferenceView, isReferenceRow, referenceInitialCodes, referenceInitialRows, referenceRowCodes, type ReferenceRow } from "../src/modules/store/product-reference-view";
 
 // #1211: a product page with hundreds of reference brands and dozens of fitted models keeps its HTML small (budget
 // ≤ 150 KB): the OEM list prints a capped selection, the fitment list its first light group headers.
@@ -114,4 +115,26 @@ test("the product page lists use plain controls and named classes", () => {
     assert.ok(defined(name), `.${name} is missing from storefront.css`);
   }
   assert.ok(!defined("reference-codes"), ".reference-codes is unused");
+});
+
+// A rolling deploy can answer the new page's list URL from an older task (#1211 review): a list of another shape takes
+// the failed-load path ("Tekrar dene") instead of reaching the component.
+test("publicListFetch rejects a list of another shape and asks again on the next try", async (t) => {
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  let body: unknown;
+  globalThis.fetch = async () => Response.json(body);
+  const fitments = "/api/product-fitments/9db4f695-185e-4d35-b8e4-190bfb549e91?v=old";
+  body = { v: "old", groups: [{ make: "VOLKSWAGEN", model: "Volkswagen Golf VII (5G1)", rows: [{ engine: "2.0 TDI", fuel: "Diesel", ps: 150, kw: 110, cc: 1968, from: "04/2013" }] }] };
+  await assert.rejects(publicListFetch(fitments, "groups", isFitmentGroup, "Uyumlu araçlar yüklenemedi."), /Uyumlu araçlar yüklenemedi\./);
+  assert.equal(loadedPublicList(fitments), null);
+  body = { v: "old", groups: [{ make: "VOLKSWAGEN", model: "Volkswagen Golf VII (5G1)", rows: [["2.0 TDI", "Diesel", 150, 110, 1968, "04/2013"]] }] };
+  assert.equal((await publicListFetch(fitments, "groups", isFitmentGroup, "Uyumlu araçlar yüklenemedi.")).length, 1);
+  const references = "/api/product-references/9db4f695-185e-4d35-b8e4-190bfb549e91?v=old";
+  body = { v: "old", rows: [{ brand: "BOSCH", codes: ["1"] }] };
+  await assert.rejects(publicListFetch(references, "rows", isReferenceRow, "Numaraların tamamı yüklenemedi."), /Numaraların tamamı yüklenemedi\./);
+  body = { v: "old", rows: [["BOSCH", ["1", ["2", "/urun/b-2"]]]] };
+  assert.deepEqual(await publicListFetch(references, "rows", isReferenceRow, "Numaraların tamamı yüklenemedi."), [["BOSCH", ["1", ["2", "/urun/b-2"]]]]);
+  assert.deepEqual(loadedPublicList(references), [["BOSCH", ["1", ["2", "/urun/b-2"]]]]);
+  for (const value of [["BOSCH"], ["BOSCH", [1]], ["BOSCH", [["2"]]], [1, []], {}]) assert.equal(isReferenceRow(value), false, JSON.stringify(value));
 });
