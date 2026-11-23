@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import {
-  acquireLock, checkInboundReport, type InboundReport, LOCK_PATH, nextRetry, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, STATE_PATH, summarizeParts, SYNC_DIR,
+  acquireLock, checkInboundReport, exportSummary, type InboundReport, LOCK_PATH, nextRetry, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, STATE_PATH, summarizeParts, SYNC_DIR,
   reportKey, type SyncState, tombstoneWarnings,
 } from "./storefront-sync-state";
 import { TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
@@ -214,12 +214,8 @@ try {
       ...(since ? [`--since=${since}`] : []), ...(retry.length ? [`--retry-file=${retryFile}`] : []), ...(maxDeletions ? [`--max-deletions=${maxDeletions}`] : []),
       // Pruning the local log is a write: only real runs do it.
       ...(dryRun ? [] : ["--prune"])]);
-    // The export's manifest.json carries no enrichments (they are in its enrichments.ndjson), only their count.
-    const manifest = JSON.parse(await readFile(resolve(fullDir, "manifest.json"), "utf8")) as {
-      snapshotAt: string; enrichmentCount: number; jobs?: unknown[]; tombstones?: unknown[]; invalidatedJobs?: number; maxDeletions?: number;
-    };
-    if (typeof manifest.enrichmentCount !== "number") throw new Error("The export's manifest.json has no enrichmentCount");
-    const tombstones = manifest.tombstones?.length ?? 0;
+    const manifest = exportSummary(await readFile(resolve(fullDir, "manifest.json"), "utf8"));
+    const tombstones = manifest.tombstones;
     const exportMs = Date.now() - startedAt;
     const splitStart = Date.now();
     const partsDir = resolve(local, "parts");
@@ -228,14 +224,14 @@ try {
     if (!transfer) {
       const summary = await summarizeParts(partsDir);
       console.log(JSON.stringify({
-        dryRun: true, target, since, snapshotAt: manifest.snapshotAt, exportMs, splitMs, retried: retry.length, tombstones, invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions,
+        dryRun: true, target, since, snapshotAt: manifest.snapshotAt, exportMs, splitMs, retried: retry.length, tombstones, invalidatedJobs: manifest.invalidatedJobs, maxDeletions: manifest.maxDeletions,
         totals: { ...summary.totals, mediaMB: Math.round(summary.totals.mediaBytes / 1024 / 1024 * 10) / 10,
           jsonMB: Math.round(summary.totals.jsonBytes / 1024 / 1024 * 10) / 10 }, base: summary.base, parts: summary.parts,
       }, null, 2));
     } else {
       console.log(JSON.stringify({
-        target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichmentCount, jobs: manifest.jobs?.length ?? 0, tombstones,
-        invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length, exportMs, splitMs,
+        target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichmentCount, jobs: manifest.jobs, tombstones,
+        invalidatedJobs: manifest.invalidatedJobs, maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length, exportMs, splitMs,
       }));
       const result = await transfer(partsDir, parts, manifest.snapshotAt);
       // Throws (the watermark stays) when the report is missing or belongs to another bundle.
@@ -247,7 +243,7 @@ try {
       for (const warning of deletions.warnings) console.warn(`WARNING: ${warning}`);
       for (const note of deletions.notes) console.log(note);
       const written: SyncState = {
-        snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), target, since, enrichments: manifest.enrichmentCount, jobs: manifest.jobs?.length ?? 0, tombstones,
+        snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), target, since, enrichments: manifest.enrichmentCount, jobs: manifest.jobs, tombstones,
         ...(next.length ? { retry: next } : {}),
       };
       await writeFile(state, JSON.stringify(written, null, 2));

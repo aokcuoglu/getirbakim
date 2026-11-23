@@ -119,6 +119,20 @@ export function releaseLock(path: string, pid = process.pid) {
   }
 }
 
+/**
+ * What the sync needs from an export's manifest.json: the snapshot and counts. The export keeps its enrichments in
+ * enrichments.ndjson and records only enrichmentCount (#1316); only these fields are returned, so the parsed jobs and
+ * vehicle data are not held in memory while the export is split.
+ */
+export function exportSummary(text: string) {
+  const { snapshotAt, enrichmentCount, jobs, tombstones, invalidatedJobs, maxDeletions } = JSON.parse(text) as {
+    snapshotAt?: unknown; enrichmentCount?: unknown; jobs?: unknown[]; tombstones?: unknown[]; invalidatedJobs?: number; maxDeletions?: number;
+  };
+  if (typeof snapshotAt !== "string") throw new Error("The export's manifest.json has no snapshotAt");
+  if (typeof enrichmentCount !== "number") throw new Error("The export's manifest.json has no enrichmentCount");
+  return { snapshotAt, enrichmentCount, jobs: jobs?.length ?? 0, tombstones: tombstones?.length ?? 0, invalidatedJobs: invalidatedJobs ?? 0, maxDeletions };
+}
+
 // jsonBytes: the size of the part's manifest.json (split-storefront-bundle.ts caps its enrichment JSON, #1316).
 type PartSummary = { part: string; enrichments: number; mappings: number; jobs: number; tombstones: number; media: number; mediaBytes: number; jsonBytes: number };
 

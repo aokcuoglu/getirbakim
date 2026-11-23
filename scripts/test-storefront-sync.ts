@@ -13,7 +13,7 @@ import {
   uploadFailure, uploadParts, withS3Concurrency, type UploadIo,
 } from "./storefront-upload";
 import {
-  acquireLock, buildInboundReport, checkInboundReport, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
+  acquireLock, buildInboundReport, checkInboundReport, exportSummary, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
   sinceFrom, STATE_PATH, summarizeParts, tombstoneWarnings,
 } from "./storefront-sync-state";
 
@@ -142,6 +142,20 @@ test("the dry-run summary counts every part, part-00 apart", async () => {
     });
     assert.ok(json.every(bytes => bytes > 0));
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("the sync reads the snapshot and counts from the export's manifest; enrichments are only counted there", () => {
+  const manifest = {
+    snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentsFile: ENRICHMENTS_FILE, enrichmentCount: 43327, jobs: [{}, {}], tombstones: [{}],
+    invalidatedJobs: 4, maxDeletions: 1000, vehicleSpecs: [{}],
+  };
+  assert.deepEqual(exportSummary(JSON.stringify(manifest)),
+    { snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 43327, jobs: 2, tombstones: 1, invalidatedJobs: 4, maxDeletions: 1000 });
+  assert.deepEqual(exportSummary(JSON.stringify({ snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 0 })),
+    { snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 0, jobs: 0, tombstones: 0, invalidatedJobs: 0, maxDeletions: undefined });
+  // A pre-#1316 export carried the enrichments inline and no count.
+  assert.throws(() => exportSummary(JSON.stringify({ snapshotAt: "2026-11-23T01:29:00.000Z", enrichments: [] })), /no enrichmentCount/);
+  assert.throws(() => exportSummary(JSON.stringify({ enrichmentCount: 1 })), /no snapshotAt/);
 });
 
 const PARTS = ["part-00", "part-01", "part-02"];
