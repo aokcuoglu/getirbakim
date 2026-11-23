@@ -18,9 +18,9 @@ export type UploadIo = {
   removePrefix: (prefix: string) => void | Promise<void>;
 };
 
-const MAX_ATTEMPTS = 4;
 /** Wait before attempt 2, 3 and 4 (~3.5 min in all): long enough for a brief network degradation to pass. */
 export const RETRY_DELAYS_MS = [30_000, 60_000, 120_000];
+const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 const defaultSleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const SHOWN_KEYS = 5;
 
@@ -83,6 +83,8 @@ export function uploadFailure(part: string, check: PartCheck): string | null {
   return `Upload of ${part} is incomplete: ${classes.join("; ")}; the import was not started; the watermark stays`;
 }
 
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 export async function uploadParts({ partsDir, parts, io, log, now = Date.now, sleep = defaultSleep }: {
   partsDir: string; parts: string[]; io: UploadIo; log: (line: string) => void; now?: () => number; sleep?: (ms: number) => Promise<void>;
 }): Promise<PartStats[]> {
@@ -96,7 +98,8 @@ export async function uploadParts({ partsDir, parts, io, log, now = Date.now, sl
     const started = now();
     let attempts = 0;
     let check: PartCheck | null = null;
-    let syncError: unknown = null;
+    let threw = false;
+    let lastError: unknown;
     // A part is retried on a silent drop (sync exits 0 but the listing is short) and on a failed sync (non-zero `aws s3 sync`
     // exit, e.g. a brief network outage), both within one budget with a growing wait (#1326). `s3 sync` only uploads missing
     // or changed files, so repeating it is cheap and safe. Verification is key + size only: in the fixed `current` layout a
@@ -104,28 +107,28 @@ export async function uploadParts({ partsDir, parts, io, log, now = Date.now, sl
     // stale is there to pass.
     for (;;) {
       attempts += 1;
-      syncError = null;
+      threw = false;
       check = null;
       try {
         await io.syncPart(part);
         check = checkPartUpload(expected, await io.listPart(part));
       } catch (error) {
-        syncError = error;
+        threw = true;
+        lastError = error;
       }
-      if (check && isClean(check)) break;
+      if (!threw && check && isClean(check)) break;
       if (attempts >= MAX_ATTEMPTS) break;
       const waitMs = RETRY_DELAYS_MS[attempts - 1];
-      const reason = check
+      const reason = !threw && check
         ? `incomplete listing: ${check.missing.length} missing, ${check.sizeMismatch.length} size mismatch, ${check.unexpected.length} unexpected`
-        : `sync failed: ${(syncError instanceof Error ? syncError.message : String(syncError)).split("\n")[0]}`;
+        : `sync failed: ${errorText(lastError).split("\n")[0]}`;
       log(JSON.stringify({ retry: part, attempt: attempts, reason, waitMs }));
       await sleep(waitMs);
     }
-    if (syncError) {
-      const message = syncError instanceof Error ? syncError.message : String(syncError);
-      throw new Error(`Upload of ${part} failed after ${attempts} attempts: ${message}; the import was not started; the watermark stays`);
+    if (threw || !check) {
+      throw new Error(`Upload of ${part} failed after ${attempts} attempts: ${errorText(lastError)}; the import was not started; the watermark stays`, { cause: lastError });
     }
-    const failure = check ? uploadFailure(part, check) : null;
+    const failure = uploadFailure(part, check);
     if (failure) throw new Error(failure);
     const entry = { part, objects: expected.length, bytes: expected.reduce((sum, object) => sum + object.size, 0), uploadMs: now() - started, attempts };
     log(JSON.stringify(entry));

@@ -305,6 +305,34 @@ test("a part whose sync always throws stops the run after four attempts; later p
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("a part whose listing throws once is retried after a wait and then passes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const { io } = fakeBucket(partsDir);
+    const inner = io.listPart;
+    let calls = 0;
+    io.listPart = part => { if (part === "part-01" && ++calls === 1) throw new Error("list timed out"); return inner(part); };
+    const wait = recordingSleep();
+    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep: wait.sleep });
+    assert.deepEqual(stats.map(entry => entry.attempts), [1, 2, 1]);
+    assert.deepEqual(wait.delays, [30_000]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a part whose sync throws a non-Error value on every attempt still fails the run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const { io, synced } = fakeBucket(partsDir);
+    const inner = io.syncPart;
+    io.syncPart = async part => { if (part === "part-01") { synced.push(part); throw undefined; } await inner(part); };
+    const wait = recordingSleep();
+    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep: wait.sleep }), /Upload of part-01 failed after 4 attempts: undefined; the import was not started; the watermark stays/);
+    assert.deepEqual(synced, ["part-00", "part-01", "part-01", "part-01", "part-01"]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
 test("a throw, then a silent drop, then success share one budget", async () => {
   const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
   try {
