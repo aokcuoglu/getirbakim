@@ -295,6 +295,52 @@ CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
 $$;
+-- The availability rule (#1249), defined once and called by commerce_catalog and commerce_item_availability below:
+-- whether a supplier row's observation is fresh, whether a row can be sold now, and the stock label its card shows.
+-- Plain SQL bodies without SET or STRICT, like the price rules above, so the planner inlines them and both views plan
+-- as if the expressions were written in place (scripts/test-unavailable-catalog.ts checks the plans). source_fresh is
+-- read once per body: the views pass it as the inlined commerce_source_fresh expression, and an argument a body reads
+-- twice is inlined only while it is cheap. commerce_source_fresh and commerce_store_stock_label are STABLE, not
+-- IMMUTABLE: timestamptz-interval and text||integer are stable, and a function declared IMMUTABLE over a stable body is
+-- never inlined. now() is the caller's `at` argument. commerce_supplier_available and commerce_supplier_stock_label
+-- have SQL-standard bodies (RETURN): their commerce_supplier_in_stock call is bound when they are created instead of
+-- through the caller's search_path, and they inline the same way. A changed signature cannot be replaced while the
+-- views use it: add a new name.
+-- A supplier row is fresh within commerce_settings.max_age_hours of its last observation, within its scope's commerce
+-- window when the scope checks stock at order time (commerce_enabled), and while its scope's last successful sync is
+-- not older than the scope's stale_minutes. A manual list's prices and stock are what an admin entered; they do not
+-- age like an API observation.
+CREATE OR REPLACE FUNCTION commerce_source_fresh(supplier text,last_seen_at timestamptz,max_age_hours integer,commerce_enabled boolean,
+ commerce_stale_minutes integer,last_success_at timestamptz,stale_minutes integer,at timestamptz) RETURNS boolean
+LANGUAGE sql STABLE PARALLEL SAFE AS $$
+ SELECT supplier='manual' OR (last_seen_at>at-make_interval(hours=>max_age_hours)
+ AND (NOT COALESCE(commerce_enabled,false) OR last_seen_at>at-commerce_stale_minutes*interval '1 minute')
+ AND (last_success_at IS NULL OR last_success_at>at-COALESCE(stale_minutes,2160)*interval '1 minute'))
+$$;
+-- Stock in the supplier's warehouse or in another of its depots.
+CREATE OR REPLACE FUNCTION commerce_supplier_in_stock(stock_data jsonb) RETURNS boolean
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
+ SELECT COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0
+$$;
+-- A supplier row can be sold when it has stock and a fresh observation; snapshot checkout confirms stock after the
+-- order, so it sells a stale observation too.
+CREATE OR REPLACE FUNCTION commerce_supplier_available(checkout_mode text,source_fresh boolean,stock_data jsonb) RETURNS boolean
+LANGUAGE sql IMMUTABLE PARALLEL SAFE
+RETURN ((checkout_mode='snapshot' OR source_fresh) AND commerce_supplier_in_stock(stock_data));
+CREATE OR REPLACE FUNCTION commerce_supplier_stock_label(checkout_mode text,source_fresh boolean,stock_data jsonb) RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE
+RETURN (CASE WHEN checkout_mode='snapshot' AND commerce_supplier_in_stock(stock_data) THEN 'Stokta · Siparişten sonra teyit edilir'
+ WHEN NOT source_fresh AND checkout_mode='live' THEN 'Stok bilgisi güncelleniyor'
+ WHEN stock_data IS NULL THEN 'Stok bilgisi bulunamadı'
+ WHEN (stock_data->>'stok')::numeric>0 THEN 'Tedarikçide mevcut'
+ WHEN (stock_data->>'sFarkliDepo')::numeric>0 THEN 'Diğer depoda mevcut'
+ WHEN (stock_data->>'sYol')::numeric>0 THEN 'Tedarikçiye sevkiyat bekleniyor'
+ ELSE 'Stokta yok' END);
+-- A store product's label carries its own stock count.
+CREATE OR REPLACE FUNCTION commerce_store_stock_label(stock integer) RETURNS text
+LANGUAGE sql STABLE PARALLEL SAFE AS $$
+ SELECT CASE WHEN stock>0 THEN 'Stokta mevcut: '||stock||' adet' ELSE 'Stokta yok' END
+$$;
 -- Single-row price anomalies (#1030, #1050): a supplier row whose currency disagrees with the rest of its brand and whose
 -- converted cost is far above the brand's median (Başbuğ once sent one KENTPAR row as EUR among 196 TRY rows: a 77k TL
 -- cost for a ~1.5k TL part). src/modules/suppliers/price-anomalies.ts detects them after a full list import; an open row
@@ -315,8 +361,9 @@ CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  evidence jsonb NOT NULL, detected_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(),
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz
 );
--- Its source_fresh, available and stock_label expressions are copied into commerce_item_availability below (#1242), the
--- listing's availability filter; keep both equal (scripts/test-unavailable-catalog.ts compares the two views).
+-- Its source_fresh, available and stock_label columns, like those of commerce_item_availability below (#1242, the
+-- listing's availability filter): both views call the commerce_source_fresh / commerce_supplier_* /
+-- commerce_store_stock_label functions above (#1249).
 DO $setup$ DECLARE def text := $view$
 -- The latest succeeded import per supplier and company: supplier_latest_imports (db/schema.sql, #1158, #1169).
 WITH latest AS (
@@ -327,10 +374,7 @@ WITH latest AS (
 ), supplier_prices AS (
  SELECT i.*,COALESCE(p.markup_percent,s.markup_percent) AS markup_percent,
  COALESCE(p.vat_percent,s.vat_percent) AS vat_percent,s.max_age_hours,s.basbug_checkout_mode,
- -- A manual list's prices and stock are what an admin entered; they do not age like an API observation.
- (i.supplier='manual' OR (i.last_seen_at>now()-make_interval(hours=>s.max_age_hours)
- AND (NOT COALESCE(sc.commerce_enabled,false) OR i.last_seen_at>now()-sc.commerce_stale_minutes*interval '1 minute')
- AND (sc.last_success_at IS NULL OR sc.last_success_at>now()-COALESCE(sc.stale_minutes,2160)*interval '1 minute'))) AS source_fresh,
+ commerce_source_fresh(i.supplier,i.last_seen_at,s.max_age_hours,sc.commerce_enabled,sc.commerce_stale_minutes,sc.last_success_at,sc.stale_minutes,now()) AS source_fresh,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN 1::numeric ELSE r.rate END AS exchange_rate,
  CASE WHEN i.product_data->>'dc' IN ('TL','TRY') THEN i.last_seen_at ELSE r.completed_at END AS rate_at,
  (i.price_data->>'nf')::numeric AS cost,ov.name AS override_name,ov.description AS override_description,
@@ -380,7 +424,7 @@ WITH latest AS (
 SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,
  stock>0 AS available,LEAST(stock,99) AS max_quantity,
- CASE WHEN stock>0 THEN 'Stokta mevcut: '||stock||' adet' ELSE 'Stokta yok' END AS stock_label,
+ commerce_store_stock_label(stock) AS stock_label,
  jsonb_build_object('source','store','base_price_kurus',price_kurus) AS pricing_snapshot,
  brand AS display_brand,code AS display_code,false AS name_overridden,brand AS brand_label
 FROM store_products
@@ -390,16 +434,9 @@ SELECT id,NULLIF(product_data->>'category',''),supplier,code,
  COALESCE(override_description,product_data->>'ac2',''),
  final_price,
  NULL::integer,changed_at,CASE WHEN override_hide_oem THEN '' ELSE COALESCE(product_data->>'oe','') END,'supplier',company,
- (basbug_checkout_mode='snapshot' OR source_fresh) AND
- (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0),
+ commerce_supplier_available(basbug_checkout_mode,source_fresh,stock_data),
  99,
- CASE WHEN basbug_checkout_mode='snapshot' AND (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0) THEN 'Stokta · Siparişten sonra teyit edilir'
- WHEN NOT source_fresh AND basbug_checkout_mode='live' THEN 'Stok bilgisi güncelleniyor'
- WHEN stock_data IS NULL THEN 'Stok bilgisi bulunamadı'
- WHEN (stock_data->>'stok')::numeric>0 THEN 'Tedarikçide mevcut'
- WHEN (stock_data->>'sFarkliDepo')::numeric>0 THEN 'Diğer depoda mevcut'
- WHEN (stock_data->>'sYol')::numeric>0 THEN 'Tedarikçiye sevkiyat bekleniyor'
- ELSE 'Stokta yok' END,
+ commerce_supplier_stock_label(basbug_checkout_mode,source_fresh,stock_data),
  -- docs/commerce.md: price_kind fixed (the admin's price) or sale (the campaign; list_price_kurus is the price it replaces).
  CASE WHEN NOT overridden THEN formula_snapshot ELSE formula_snapshot
   || jsonb_build_object('source','override','price_kind',CASE WHEN on_sale THEN 'sale' ELSE 'fixed' END,'auto_price_kurus',auto_price)
@@ -422,28 +459,19 @@ END $setup$;
 -- Availability only (#1242): the listing's "Stokta" / "Stokta yok" filter reads which rows can be sold now. A supplier
 -- row's available and stock_label depend only on the settings, its sync scope, last_seen_at and stock_data, so this view
 -- skips the pricing joins (pricing, overrides' prices, brands, rates, anomalies) commerce_catalog pays for on every row.
--- The source_fresh, available and stock_label expressions are copies of commerce_catalog's above and must stay equal:
+-- Both views call the commerce_source_fresh / commerce_supplier_* / commerce_store_stock_label functions above (#1249);
 -- scripts/test-unavailable-catalog.ts ("the availability view equals commerce_catalog's columns") compares both views.
 DO $setup$ DECLARE def text := $view$
 SELECT id,'store'::text AS source,''::text AS company,stock>0 AS available,
- CASE WHEN stock>0 THEN 'Stokta mevcut: '||stock||' adet' ELSE 'Stokta yok' END AS stock_label
+ commerce_store_stock_label(stock) AS stock_label
 FROM store_products
 UNION ALL
 SELECT id,'supplier',company,
- (basbug_checkout_mode='snapshot' OR source_fresh) AND
- (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0),
- CASE WHEN basbug_checkout_mode='snapshot' AND (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0) THEN 'Stokta · Siparişten sonra teyit edilir'
- WHEN NOT source_fresh AND basbug_checkout_mode='live' THEN 'Stok bilgisi güncelleniyor'
- WHEN stock_data IS NULL THEN 'Stok bilgisi bulunamadı'
- WHEN (stock_data->>'stok')::numeric>0 THEN 'Tedarikçide mevcut'
- WHEN (stock_data->>'sFarkliDepo')::numeric>0 THEN 'Diğer depoda mevcut'
- WHEN (stock_data->>'sYol')::numeric>0 THEN 'Tedarikçiye sevkiyat bekleniyor'
- ELSE 'Stokta yok' END
+ commerce_supplier_available(basbug_checkout_mode,source_fresh,stock_data),
+ commerce_supplier_stock_label(basbug_checkout_mode,source_fresh,stock_data)
 FROM (
  SELECT i.id,i.company,i.stock_data,s.basbug_checkout_mode,
- (i.supplier='manual' OR (i.last_seen_at>now()-make_interval(hours=>s.max_age_hours)
- AND (NOT COALESCE(sc.commerce_enabled,false) OR i.last_seen_at>now()-sc.commerce_stale_minutes*interval '1 minute')
- AND (sc.last_success_at IS NULL OR sc.last_success_at>now()-COALESCE(sc.stale_minutes,2160)*interval '1 minute'))) AS source_fresh
+ commerce_source_fresh(i.supplier,i.last_seen_at,s.max_age_hours,sc.commerce_enabled,sc.commerce_stale_minutes,sc.last_success_at,sc.stale_minutes,now()) AS source_fresh
  FROM commerce_supplier_items i CROSS JOIN commerce_settings s
  LEFT JOIN commerce_item_overrides ov ON ov.supplier_item_id=i.id
  LEFT JOIN supplier_sync_scopes sc ON sc.supplier=i.supplier AND sc.company=i.company AND sc.list_group=i.list_group AND sc.warehouse=i.warehouse
