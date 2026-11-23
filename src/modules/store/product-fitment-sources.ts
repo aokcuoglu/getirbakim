@@ -3,7 +3,7 @@
 // so the tests read it directly.
 import { createHash } from "node:crypto";
 import { fitmentLabels } from "./vehicle-label";
-import { fitmentShipsWhole, fitmentView, initialFitmentView, type FitmentGarage, type FitmentSource, type FitmentView } from "./product-fitment-view";
+import { fitmentShipsWhole, fitmentView, garageRank, initialFitmentView, type FitmentGarage, type FitmentSource, type FitmentView } from "./product-fitment-view";
 
 type FitmentVehicle = Omit<FitmentSource, "makeKey" | "makeLabel" | "modelLabel" | "modelHref"> & { model: string; catalogBrand?: string | null };
 
@@ -38,7 +38,8 @@ export const productFitmentGroups = (input: ProductFitmentInput) =>
 /**
  * The view the product page ships: the garage vehicle's groups first, and past `fitmentInitialGroups` groups or
  * `fitmentInlineRows` printed engine rows (#1324) the URL of the whole list under the version productFitmentGroups gives
- * the route for the same input. A garage vehicle's leading group keeps its rows when it is short.
+ * the route for the same input. The group of the garage vehicle's engine type or model leads and keeps its rows when it
+ * is short; with a garage vehicle whose engine type and model the list does not name, no group keeps its rows.
  */
 export function productPageFitment(input: ProductFitmentInput, garage: FitmentGarage | null, productId: string): FitmentView | null {
   if (!input.vehicles.length) return null;
@@ -46,5 +47,7 @@ export function productPageFitment(input: ProductFitmentInput, garage: FitmentGa
   const personal = fitmentView(sources, garage);
   if (fitmentShipsWhole(personal)) return personal;
   const { v } = garage ? canonicalFitment(sources) : { v: fitmentVersion(personal.groups) };
-  return initialFitmentView(personal, `/api/product-fitments/${productId}?v=${v}`, Boolean(garage));
+  // Groups sort by their best rank (fitmentView), so any row of the vehicle's engine type or model puts its group first.
+  const ownLeads = garage !== null && sources.some(source => garageRank(source, garage) <= 1);
+  return initialFitmentView(personal, `/api/product-fitments/${productId}?v=${v}`, ownLeads);
 }

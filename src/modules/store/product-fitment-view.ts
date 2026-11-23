@@ -78,6 +78,12 @@ export type FitmentSource = {
 /** The visitor's garage vehicle: its catalog engine type and model (fitmentVehicle) and its make's reading label. */
 export type FitmentGarage = { typeId: string | null; modelId: string | null; makeLabel: string };
 
+/** How closely a row fits the garage vehicle: 0 its engine type, 1 its model, 2 its make, 3 none. */
+export function garageRank(vehicle: FitmentSource, garage: FitmentGarage) {
+  return garage.typeId && String(vehicle.vehicleTypeId) === garage.typeId ? 0
+    : garage.modelId && String(vehicle.modelId) === garage.modelId ? 1 : vehicle.makeLabel === garage.makeLabel ? 2 : 3;
+}
+
 /**
  * The rows grouped by model label in first-seen order; a group links the first model page any of its rows names. Makes
  * are one entry per reading label, so "TOGG" and "Togg" spellings filter together under the first key seen. With a garage
@@ -96,11 +102,7 @@ export function fitmentView(vehicles: readonly FitmentSource[], garage?: Fitment
     group.rows.push(fitmentRow({ engine: vehicle.engineAndCodes, fuel: vehicle.fuel, ps: vehicle.ps, kw: vehicle.kw, cc: vehicle.cc, from: vehicle.from,
       to: vehicle.to || undefined, typeId: vehicle.vehicleTypeId || undefined,
       catalog: vehicle.catalogEngine && vehicle.catalogEngine !== vehicle.engineAndCodes ? vehicle.catalogEngine : undefined }));
-    if (garage) {
-      const own = garage.typeId && String(vehicle.vehicleTypeId) === garage.typeId ? 0
-        : garage.modelId && String(vehicle.modelId) === garage.modelId ? 1 : vehicle.makeLabel === garage.makeLabel ? 2 : 3;
-      rank.set(group, Math.min(rank.get(group) ?? 3, own));
-    }
+    if (garage) rank.set(group, Math.min(rank.get(group) ?? 3, garageRank(vehicle, garage)));
   }
   // Array sort is stable: groups of one rank keep their first-seen order.
   const ordered = [...groups.values()].sort((a, b) => (rank.get(a) ?? 3) - (rank.get(b) ?? 3));
@@ -116,8 +118,8 @@ export const fitmentShipsWhole = (view: FitmentView) => view.groupCount <= fitme
 /**
  * The view the product page ships (#966, #1324): a short list whole; past `fitmentInitialGroups` groups the first
  * groups, the URL of the rest and, up to `fitmentEagerModelOptions` groups, the model select's [make, model] pairs.
- * Printed groups with more than `fitmentInlineRows` rows in all ship their counts only; `keepFirst` (a garage vehicle's
- * group leads) keeps the first group's rows when it has up to `fitmentInlineRows`.
+ * Printed groups with more than `fitmentInlineRows` rows in all ship their counts only; `keepFirst` (the garage vehicle's
+ * engine type or model leads) keeps the first group's rows when it has up to `fitmentInlineRows`.
  */
 export function initialFitmentView(full: FitmentView, restUrl: string, keepFirst = false): FitmentView {
   if (fitmentShipsWhole(full)) return full;
@@ -209,8 +211,10 @@ export function visibleFitmentGroups(view: FitmentView, { make, model, query, sh
  */
 export function fitmentFailureNote(view: FitmentView, { searching, filtering }: { searching: boolean; filtering: boolean }) {
   const someHidden = view.groupCount > view.groups.length;
+  // A garage vehicle's group can be printed with its rows among held-back ones: the note speaks of the held-back ones.
   if (searching && view.groups.some(group => group.count !== undefined)) {
-    return someHidden ? ` Yalnız ilk ${view.groups.length} modelin adında arandı.` : " Yalnız model adlarında arandı.";
+    return someHidden ? ` Yalnız ilk ${view.groups.length} model içinde arandı; motor seçenekleri yüklenmemiş olanlarda yalnız model adında.`
+      : " Motor seçenekleri yüklenmemiş modellerde yalnız model adında arandı.";
   }
   return filtering && someHidden ? ` Yalnız ilk ${view.groups.length} model içinde arandı.` : "";
 }

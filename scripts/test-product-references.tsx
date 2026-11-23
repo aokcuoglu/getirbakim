@@ -175,13 +175,15 @@ test("FitmentPanel shows placeholder rows while loading, a retry after a failure
   assert.ok(loading.includes(">Motor / motor kodu</th>") && loading.includes(">Veri bağlantısı</th>"));
   assert.equal(loading.match(/<tr(?=[^>]*aria-hidden="true")(?=[^>]*fitment-row)[^>]*>/g)?.length, 3);
   // Word-wide bars, so a placeholder row wraps like a real one; a linked model's rows add the source engine's line.
-  const bars = (html: string) => html.split('class="inline-block h-3.5 rounded-sm bg-muted align-middle').length - 1;
+  const bars = (html: string) => html.split('class="inline-block h-3.5 rounded-sm bg-border align-middle').length - 1;
   assert.equal(bars(loading), 3 * 8);
   assert.equal(bars(panel("loading", [], true, true)), 3 * 11);
   const failed = panel("failed");
   assert.ok(failed.startsWith(`${region}>`));
   assert.ok(failed.includes("<span>Motor seçenekleri yüklenemedi.</span>"));
   assert.ok(/<button type="button" class="fitment-text-button"[^>]*>Tekrar dene<\/button>/.test(failed));
+  // The alert has a "Tekrar dene" too: the panel's names its model.
+  assert.ok(failed.includes('aria-label="Tekrar dene: Volkswagen Golf VII (5G1) motor seçenekleri"'));
   assert.ok(!failed.includes("<table"));
   // A retry keeps the button, busy, and the region busy.
   const retrying = panel("failed", [], true);

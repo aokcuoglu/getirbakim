@@ -47,8 +47,10 @@ export function ProductFitment({ view }: { view: FitmentView }) {
   const [status, setStatus] = useState<"idle" | "warming" | "loading" | "error">("idle");
   // Whether a load waited `loadingDelay`: the loading state shows from then on (aria-busy at once).
   const [slow, setSlow] = useState(false);
-  // "Tekrar dene" was pressed: the alert stays (busy) until the answer, so its focused button does not vanish.
-  const [retrying, setRetrying] = useState(false);
+  // "Tekrar dene" was pressed: its button stays (busy) until the answer, so a focused one does not vanish. "alert": the
+  // alert was showing and stays through the retry; "panel": a held-back panel's retry after "Sıfırla" hid the alert,
+  // which does not come back (and announce itself) until the retry fails too.
+  const [retrying, setRetrying] = useState<false | "alert" | "panel">(false);
   // Whether the list opens once loaded ("Tüm … modeli göster", kept through a failure for "Tekrar dene"); read in the
   // request's callbacks only.
   const reveal = useRef(false);
@@ -74,16 +76,20 @@ export function ProductFitment({ view }: { view: FitmentView }) {
   const loaded = (list: FitmentGroup[]) => {
     // "Tekrar dene" leaves with the alert: its focus goes to the first new group, else the first group or the search. A
     // panel's own "Tekrar dene" (#1324) gives way to its rows: the focus stays on the panel's region, the same element.
+    // A region whose model the loaded list no longer has (a stale `v`) leaves: its focus goes where the alert's would.
     const retried = Boolean(alertRef.current?.contains(document.activeElement));
     const focused = document.activeElement?.closest<HTMLElement>('[role="region"]');
     const region = focused && listRef.current?.contains(focused) ? focused : null;
     const opening = reveal.current;
     reveal.current = false;
+    // The first new group follows the printed ones the merge keeps (mergeFitmentGroups drops a held-back one it lost).
+    const models = new Set(list.map(group => group.model));
+    const firstNew = view.groups.filter(group => group.count === undefined || models.has(group.model)).length;
     flushSync(() => { setAll(list); setStatus("idle"); setSlow(false); setRetrying(false); if (opening) setShowAll(true); });
     const triggers = listRef.current?.querySelectorAll<HTMLElement>(".fitment-trigger");
-    if (region) region.focus();
-    else if (opening) triggers?.[view.groups.length]?.focus();
-    else if (retried) (triggers?.[0] ?? document.getElementById(inputId))?.focus();
+    if (region?.isConnected) region.focus();
+    else if (opening) triggers?.[firstNew]?.focus();
+    else if (retried || region) (triggers?.[0] ?? document.getElementById(inputId))?.focus();
   };
   // A failed warm-up stays quiet; the next use asks again.
   const failedLoad = () => {
@@ -103,7 +109,7 @@ export function ProductFitment({ view }: { view: FitmentView }) {
   // "Tekrar dene" in the alert and in a held-back panel: the button stays (busy) until the answer.
   const retry = () => {
     if (loading) return;
-    setRetrying(true);
+    setRetrying(failed ? "alert" : "panel");
     load(true);
   };
 
@@ -134,7 +140,7 @@ export function ProductFitment({ view }: { view: FitmentView }) {
       return;
     }
     flushSync(() => setShowAll(true));
-    listRef.current?.querySelectorAll<HTMLElement>(".fitment-trigger")[view.groups.length]?.focus();
+    listRef.current?.querySelectorAll<HTMLElement>(".fitment-trigger")[groups.length]?.focus();
   };
   const reset = () => {
     setMake(""); setSelectedModel(""); setQuery("");
@@ -163,7 +169,7 @@ export function ProductFitment({ view }: { view: FitmentView }) {
     <label className="fitment-search" htmlFor={inputId}><Search size={18}/><input id={inputId} type="search" value={query} onChange={event => { setQuery(event.target.value); if (event.target.value.trim()) load(true); }} placeholder="Model, motor kodu veya yıl ara"/><span className="sr-only">Uyumlu araçlarda ara</span></label>
     </div>
     <p className="fitment-status" role="status">{statusText}</p>
-    {(failed || (loading && retrying)) && <div ref={alertRef} className="fitment-alert" role="alert"><span>Araç listesinin tamamı yüklenemedi.{fitmentFailureNote(view, { searching, filtering })}</span><button type="button" className="fitment-text-button" aria-busy={loading} aria-disabled={loading} onClick={retry}>{showLoading ? <><Loader2 className="animate-spin" aria-hidden="true"/>Yükleniyor…</> : "Tekrar dene"}</button></div>}
+    {(failed || (loading && retrying === "alert")) && <div ref={alertRef} className="fitment-alert" role="alert"><span>Araç listesinin tamamı yüklenemedi.{fitmentFailureNote(view, { searching, filtering })}</span><button type="button" className="fitment-text-button" aria-busy={loading} aria-disabled={loading} onClick={retry}>{showLoading ? <><Loader2 className="animate-spin" aria-hidden="true"/>Yükleniyor…</> : "Tekrar dene"}</button></div>}
     <div ref={listRef} className="overflow-hidden rounded-b-lg border border-t-0 border-[#dce2e9] bg-white" onPointerEnter={warm} onFocus={warm} onTouchStart={warm}>
       {groups.map(group => <Collapsible key={group.model + (searching ? "-search" : "")} defaultOpen={searching} className="fitment-group" onOpenChange={open => { if (open && group.count !== undefined) load(true); }}>
         <div className="flex items-center hover:bg-[#f7f8fa]">
@@ -184,7 +190,7 @@ export function ProductFitment({ view }: { view: FitmentView }) {
 const columns = ["Motor / motor kodu", "Güç / hacim", "Üretim aralığı", "Veri bağlantısı"];
 
 // A word-wide placeholder bar that flows like the text it stands for, so a cell's bars wrap where its words would.
-const Bar = ({ width }: { width: string }) => <span className={`inline-block h-3.5 rounded-sm bg-muted align-middle ${width}`}/>;
+const Bar = ({ width }: { width: string }) => <span className={`inline-block h-3.5 rounded-sm bg-border align-middle ${width}`}/>;
 
 /**
  * A placeholder engine row as tall as a typical real one at any width: the power and the years wrap on a narrow table
@@ -209,7 +215,7 @@ export function FitmentPanel({ model, rows, count, linked, state, busy, showLoad
 }) {
   const header = <TableHeader className="[&_tr]:border-0"><TableRow className="hover:bg-transparent">{columns.map(label => <TableHead key={label} scope="col" className="h-auto bg-[#f7f8fa] px-4 py-3 font-medium text-muted-foreground">{label}</TableHead>)}</TableRow></TableHeader>;
   return <div className="overflow-x-auto border-t border-border" tabIndex={0} role="region" aria-label={`${model} motor seçenekleri`} aria-busy={state === "loading" || (state === "failed" && busy) || undefined}>
-    {state === "failed" ? <div className="flex flex-wrap items-center gap-x-3 px-4 text-sm leading-5"><span>Motor seçenekleri yüklenemedi.</span><button type="button" className="fitment-text-button" aria-busy={busy} aria-disabled={busy} onClick={onRetry}>{showLoading ? <><Loader2 className="animate-spin" aria-hidden="true"/>Yükleniyor…</> : "Tekrar dene"}</button></div>
+    {state === "failed" ? <div className="flex flex-wrap items-center gap-x-3 px-4 text-sm leading-5"><span>Motor seçenekleri yüklenemedi.</span><button type="button" className="fitment-text-button" aria-label={`${showLoading ? "Yükleniyor…" : "Tekrar dene"}: ${model} motor seçenekleri`} aria-busy={busy} aria-disabled={busy} onClick={onRetry}>{showLoading ? <><Loader2 className="animate-spin" aria-hidden="true"/>Yükleniyor…</> : "Tekrar dene"}</button></div>
       : <Table className="min-w-[540px] border-collapse text-left text-xs leading-5">{header}<TableBody>
         {state === "loading" ? Array.from({ length: count }, (_, index) => placeholderRow(linked, index)) : rows.map(row => {
           const { engine, catalog, fuel, ps, kw, cc, from, to, typeId } = fitmentRowFields(row);

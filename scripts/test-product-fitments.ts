@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createFitmentMatcher, englishModelName, type FitmentCatalogModel, type FitmentCatalogType, type SourceVehicle } from "../src/modules/store/fitment-matcher";
 import { parseFitmentPaging } from "../src/modules/admin/fitment-details";
-import { fitmentCacheControl, fitmentEagerModelOptions, fitmentFailureNote, fitmentInitialGroups, fitmentInlineRows, fitmentRow, fitmentRowCount, fitmentRowFields, fitmentShipsWhole, fitmentView, initialFitmentView, isFitmentGroup, mergeFitmentGroups, visibleFitmentGroups, type FitmentSource } from "../src/modules/store/product-fitment-view";
+import { fitmentCacheControl, fitmentEagerModelOptions, fitmentFailureNote, fitmentInitialGroups, fitmentInlineRows, fitmentRow, fitmentRowCount, fitmentRowFields, fitmentShipsWhole, fitmentView, garageRank, initialFitmentView, isFitmentGroup, mergeFitmentGroups, visibleFitmentGroups, type FitmentSource } from "../src/modules/store/product-fitment-view";
 import { fitmentSources, fitmentVersion, productFitmentGroups, productPageFitment } from "../src/modules/store/product-fitment-sources";
 
 const models: FitmentCatalogModel[] = [{ id: 1, brand_id: 2, brand: "VW", display_brand: "VOLKSWAGEN", name: "GOLF (5G1)" }];
@@ -192,6 +192,14 @@ test("fitmentView lists one make per reading label, so both spellings filter tog
   assert.deepEqual(view.groups.map(group => group.make), ["TOGG", "TOGG", "VOLKSWAGEN"]);
   const togg = visibleFitmentGroups(view, { make: "TOGG", model: "", query: "", showAll: false });
   assert.deepEqual(togg.groups.map(group => group.model), ["Togg T10X", "Togg T10F"]);
+});
+
+test("garageRank ranks a row by the garage vehicle's engine type, then model, then make", () => {
+  const row = vehicle("Volkswagen Golf VII (5G1)", { vehicleTypeId: 77, modelId: 200 });
+  assert.equal(garageRank(row, { typeId: "77", modelId: "1", makeLabel: "Audi" }), 0);
+  assert.equal(garageRank(row, { typeId: "1", modelId: "200", makeLabel: "Audi" }), 1);
+  assert.equal(garageRank(row, { typeId: null, modelId: null, makeLabel: "Volkswagen" }), 2);
+  assert.equal(garageRank(row, { typeId: null, modelId: null, makeLabel: "Audi" }), 3);
 });
 
 test("fitmentView puts the garage vehicle's groups first: its engine type, then its model, then its make", () => {
@@ -432,8 +440,13 @@ test("fitmentRowCount and the load-failure note", () => {
   const held = initialFitmentView(fitmentView(engines([10, 10, 10])), rest);
   const heldLong = initialFitmentView(fitmentView(engines(Array(8).fill(5))), rest);
   const inlineLong = initialFitmentView(fitmentView(series(8)), rest);
-  assert.equal(fitmentFailureNote(held, { searching: true, filtering: true }), " Yalnız model adlarında arandı.");
-  assert.equal(fitmentFailureNote(heldLong, { searching: true, filtering: true }), ` Yalnız ilk ${fitmentInitialGroups} modelin adında arandı.`);
+  assert.equal(fitmentFailureNote(held, { searching: true, filtering: true }), " Motor seçenekleri yüklenmemiş modellerde yalnız model adında arandı.");
+  assert.equal(fitmentFailureNote(heldLong, { searching: true, filtering: true }),
+    ` Yalnız ilk ${fitmentInitialGroups} model içinde arandı; motor seçenekleri yüklenmemiş olanlarda yalnız model adında.`);
+  // A garage vehicle's group printed with its rows among held-back ones: the note still holds.
+  const garaged = initialFitmentView(fitmentView(engines([3, 10, 15])), rest, true);
+  assert.deepEqual(garaged.groups.map(group => group.count), [undefined, 10, 15]);
+  assert.equal(fitmentFailureNote(garaged, { searching: true, filtering: true }), " Motor seçenekleri yüklenmemiş modellerde yalnız model adında arandı.");
   assert.equal(fitmentFailureNote(inlineLong, { searching: true, filtering: true }), ` Yalnız ilk ${fitmentInitialGroups} model içinde arandı.`);
   assert.equal(fitmentFailureNote(heldLong, { searching: false, filtering: true }), ` Yalnız ilk ${fitmentInitialGroups} model içinde arandı.`);
   // Every group printed and no search, or nothing filtered: nothing to add.
@@ -460,6 +473,14 @@ test("productPageFitment holds back three models of ten rows under the route's v
   assert.equal(garaged?.groups[0].count, undefined);
   assert.deepEqual(garaged?.groups.slice(1).map(group => group.count), [10, 10]);
   assert.equal(mergeFitmentGroups(garaged!.groups, route.groups).length, 3);
+  // The model alone puts its group first and keeps its rows too.
+  assert.equal(productPageFitment(input, { typeId: null, modelId: "2", makeLabel: "Volkswagen" }, id)?.groups[0].rows.length, 10);
+  // A garage vehicle the list does not name (only its make matches, or nothing) keeps no group's rows.
+  for (const garage of [{ typeId: "999", modelId: "999", makeLabel: "Volkswagen" }, { typeId: null, modelId: null, makeLabel: "Fiat" }]) {
+    const other = productPageFitment(input, garage, id);
+    assert.equal(other?.rest, plain?.rest);
+    assert.deepEqual(other?.groups.map(group => [group.rows.length, group.count]), [[0, 10], [0, 10], [0, 10]], JSON.stringify(garage));
+  }
   // Two models of ten rows stay whole.
   assert.equal(productPageFitment({ ...input, vehicles: vehicles.slice(0, 20) }, null, id)?.rest, undefined);
 });
