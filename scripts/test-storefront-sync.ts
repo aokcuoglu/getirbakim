@@ -161,6 +161,9 @@ test("the sync reads the snapshot and counts from the export's manifest; enrichm
 const PARTS = ["part-00", "part-01", "part-02"];
 
 // An in-memory bucket under one run prefix; `drop` decides which part syncs silently upload nothing.
+const sleep = async () => {};
+const recordingSleep = () => { const delays: number[] = []; return { delays, sleep: async (ms: number) => { delays.push(ms); } }; };
+
 function fakeBucket(partsDir: string, drop: (part: string, call: number) => boolean = () => false) {
   const objects = new Map<string, number>();
   const synced: string[] = [];
@@ -231,7 +234,7 @@ test("an upload that leaves an extra part or root object behind fails the final 
       const bucket = fakeBucket(partsDir);
       const sync = bucket.io.syncPart;
       bucket.io.syncPart = async part => { await sync(part); if (part === "part-02") bucket.objects.set(extra, 1); };
-      await assert.rejects(uploadParts({ partsDir, parts: PARTS, io: bucket.io, log: () => {} }), new RegExp(`after the upload: ${extra.startsWith("part") ? "part-09/" : "leftover\\.json"}`));
+      await assert.rejects(uploadParts({ partsDir, parts: PARTS, io: bucket.io, log: () => {}, sleep }), new RegExp(`after the upload: ${extra.startsWith("part") ? "part-09/" : "leftover\\.json"}`));
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -242,7 +245,7 @@ test("a complete upload returns per-part stats", async () => {
     const partsDir = await writeFixtureBundle(root);
     const { io, synced } = fakeBucket(partsDir);
     const lines: string[] = [];
-    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: line => lines.push(line) });
+    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: line => lines.push(line), sleep });
     assert.deepEqual(synced, PARTS);
     assert.deepEqual(stats.map(entry => [entry.part, entry.objects, entry.attempts]), [["part-00", 2, 1], ["part-01", 2, 1], ["part-02", 2, 1]]);
     assert.equal(stats[1].bytes, statSync(join(partsDir, "part-01", "manifest.json")).size + 60);
@@ -250,13 +253,13 @@ test("a complete upload returns per-part stats", async () => {
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("a part silently dropped twice stops the run after two attempts; later parts are never synced", async () => {
+test("a part silently dropped every time stops the run after four attempts; later parts are never synced", async () => {
   const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
   try {
     const partsDir = await writeFixtureBundle(root);
     const { io, synced } = fakeBucket(partsDir, part => part === "part-01");
-    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {} }), /Upload of part-01 is incomplete: 2 missing .*the import was not started/);
-    assert.deepEqual(synced, ["part-00", "part-01", "part-01"]);
+    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep }), /Upload of part-01 is incomplete: 2 missing .*the import was not started/);
+    assert.deepEqual(synced, ["part-00", "part-01", "part-01", "part-01", "part-01"]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -265,8 +268,55 @@ test("a part dropped once is uploaded on the second attempt", async () => {
   try {
     const partsDir = await writeFixtureBundle(root);
     const { io } = fakeBucket(partsDir, (part, call) => part === "part-02" && call === 1);
-    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: () => {} });
+    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep });
     assert.deepEqual(stats.map(entry => entry.attempts), [1, 1, 2]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a part whose sync throws once is retried after a wait and then passes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const { io } = fakeBucket(partsDir);
+    const inner = io.syncPart;
+    let calls = 0;
+    io.syncPart = async part => { if (part === "part-01" && ++calls === 1) throw new Error("aws s3 sync failed with exit code 1\nCould not connect"); await inner(part); };
+    const wait = recordingSleep();
+    const lines: string[] = [];
+    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: line => lines.push(line), sleep: wait.sleep });
+    assert.deepEqual(stats.map(entry => entry.attempts), [1, 2, 1]);
+    assert.deepEqual(wait.delays, [30_000]);
+    const retry = lines.map(line => JSON.parse(line) as Record<string, unknown>).find(line => line.retry);
+    assert.deepEqual(retry, { retry: "part-01", attempt: 1, reason: "sync failed: aws s3 sync failed with exit code 1", waitMs: 30_000 });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a part whose sync always throws stops the run after four attempts; later parts are never synced", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const { io, synced } = fakeBucket(partsDir);
+    const inner = io.syncPart;
+    io.syncPart = async part => { if (part === "part-01") { synced.push(part); throw new Error("endpoint unreachable"); } await inner(part); };
+    const wait = recordingSleep();
+    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep: wait.sleep }), /Upload of part-01 failed after 4 attempts: endpoint unreachable; the import was not started; the watermark stays/);
+    assert.deepEqual(synced, ["part-00", "part-01", "part-01", "part-01", "part-01"]);
+    assert.deepEqual(wait.delays, [30_000, 60_000, 120_000]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a throw, then a silent drop, then success share one budget", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const { io } = fakeBucket(partsDir, (part, call) => part === "part-02" && call === 1);
+    const inner = io.syncPart;
+    let calls = 0;
+    io.syncPart = async part => { if (part === "part-02" && ++calls === 1) throw new Error("boom"); await inner(part); };
+    const wait = recordingSleep();
+    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep: wait.sleep });
+    assert.deepEqual(stats.map(entry => entry.attempts), [1, 1, 3]);
+    assert.deepEqual(wait.delays, [30_000, 60_000]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -276,12 +326,12 @@ test("a stale part of an earlier run is removed before the upload; a stray root 
     const partsDir = await writeFixtureBundle(root);
     const stale = fakeBucket(partsDir);
     stale.objects.set("part-07/manifest.json", 9);
-    await uploadParts({ partsDir, parts: PARTS, io: stale.io, log: () => {} });
+    await uploadParts({ partsDir, parts: PARTS, io: stale.io, log: () => {}, sleep });
     assert.equal([...stale.objects.keys()].some(key => key.startsWith("part-07/")), false);
 
     const rooted = fakeBucket(partsDir);
     rooted.objects.set("manifest.json", 9);
-    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io: rooted.io, log: () => {} }), /Unexpected objects directly under the run prefix: manifest\.json/);
+    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io: rooted.io, log: () => {}, sleep }), /Unexpected objects directly under the run prefix: manifest\.json/);
     assert.deepEqual(rooted.synced, []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -368,7 +418,7 @@ test("a run prefix with a part missing its manifest or with a mis-sized file fai
       const io = prefixedBucket(partsDir, objects, prefix);
       const sync = io.syncPart;
       io.syncPart = async part => { await sync(part); if (part === "part-01") damage(objects); };
-      await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {} }), pattern);
+      await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep }), pattern);
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
