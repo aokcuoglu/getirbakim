@@ -161,5 +161,7 @@ test("StoreIcon renders lucide's own markup", () => {
   assert.ok(renderToStaticMarkup(<StoreIcon name="x" />).includes('aria-hidden="true"'), "decorative by default");
   const source = readFileSync(new URL("../src/components/site/store-icon.tsx", import.meta.url), "utf8");
   assert.ok(source.startsWith('"use client"'));
+  const mapped = source.match(/const icons = \{([\s\S]*?)\} as const/)?.[1].split("\n").filter((line) => /^\s+\S+: \w+,$/.test(line)).length;
+  assert.equal(mapped, Object.keys(direct).length, "every icon in store-icon.tsx is covered by the markup comparison");
   assert.equal(source.match(/^export\s/gm)?.length, 1, "one client export: each extra one is another module row in the flight");
 });
