@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import tailwind from "@tailwindcss/postcss";
+import postcss from "postcss";
 import { adminSentinel, compileCss } from "./harness/measure-css.mjs";
-import { allImports, chain, reach, sourceFiles } from "./test-helpers/import-graph";
+import { allImports, chain, reach, resolve, sourceFiles } from "./test-helpers/import-graph";
 
 // The storefront stylesheet (globals.css) scans only storefront sources; the /yonetim workspace adds admin.css, a full
 // scan that is a superset of the storefront utilities (#1027). These checks keep the two in step with the import graph.
@@ -114,4 +116,210 @@ test("every dark: class left out of the storefront sheet is still emitted for th
   assert.ok(names.every(name => name.startsWith("dark:")), "only dark: classes belong in that list");
   const missing = names.filter(name => !admin.has(`.${name.replace(/[^A-Za-z0-9_-]/g, "\\$&")}`));
   assert.deepEqual(missing, [], "admin.css must still emit these (remove stale entries from @source not inline)");
+});
+
+// Second and third `@source not inline` lists (#1288): utilities only unused ui exports use, and stray words Tailwind
+// reads from comments and identifiers. The first list (dark:) is covered above.
+const inlineLists = [...globals.matchAll(/@source not inline\("([^"]+)"\);/g)].map(match => match[1].split(" ").filter(Boolean));
+assert.equal(inlineLists.length, 3, "globals.css has three @source not inline lists: dark:, unused ui exports, stray words");
+const [, uiExportList, strayWords] = inlineLists;
+const selectorOf = (name: string) => `.${name.replace(/[^A-Za-z0-9_-]/g, "\\$&")}`;
+const boundary = (name: string) =>
+  new RegExp(`(?<![A-Za-z0-9_\\-:/\\[\\].!])${name.replace(/[.*+?^${}()|[\]\\/-]/g, "\\$&")}(?![A-Za-z0-9_\\-:/\\[\\]])`);
+
+const cssSources = ["src/app/storefront.css", "src/app/catalog-card.css", "src/app/theme.css"];
+const nonAdminSources = [...sourceFiles("src/app"), ...sourceFiles("src/components"), ...sourceFiles("src/content")].filter(file => !isAdmin(file));
+const scannedUi = fs
+  .readdirSync("src/components/ui")
+  .filter(name => name.endsWith(".tsx"))
+  .map(name => path.join("src/components/ui", name))
+  .filter(file => !excludedUi.has(file));
+const storefrontOnly = nonAdminSources.filter(file => !file.startsWith("src/components/ui/"));
+const read = (file: string) => fs.readFileSync(file, "utf8");
+
+test("every utility left out as an unused ui export or stray word is still emitted for the workspace", async () => {
+  const admin = classSelectors(await compileCss("src/app/admin.css"));
+  const missing = [...uiExportList, ...strayWords].filter(name => !admin.has(selectorOf(name)));
+  assert.deepEqual(missing, [], "admin.css must still emit these (remove stale entries from @source not inline)");
+});
+
+test("no storefront source uses a class left out as an unused ui export", () => {
+  const found: string[] = [];
+  for (const file of [...storefrontOnly, ...cssSources]) {
+    const text = read(file);
+    for (const name of uiExportList) if (boundary(name).test(text)) found.push(`${name} in ${file}`);
+  }
+  assert.deepEqual(found, [], "remove the class from the second @source not inline list in globals.css");
+});
+
+/** Top-level `function`/`const` declarations of a ui file, each with the text up to the next declaration. */
+function declarations(text: string) {
+  const starts = [...text.matchAll(/^(?:export\s+)?(?:function|const)\s+([A-Za-z0-9_]+)/gm)];
+  return starts.map((match, index) => ({ name: match[1], text: text.slice(match.index, starts[index + 1]?.index ?? text.length) }));
+}
+
+/** Named value imports of a ui file (`import { A, B as C } from "<specifier>"`). */
+function namedImports(text: string) {
+  const found: { specifier: string; names: string[] }[] = [];
+  for (const [, names, specifier] of text.matchAll(/^import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']/gm)) {
+    found.push({ specifier, names: names.split(",").map(part => part.trim().replace(/^type\s+.*/, "").split(/\s+as\s+/)[0]).filter(Boolean) });
+  }
+  return found;
+}
+
+test("excluded ui classes sit only in exports the storefront does not import", () => {
+  const chunks = new Map<string, { file: string; name: string; text: string }>();
+  for (const file of scannedUi) for (const chunk of declarations(read(file))) chunks.set(`${file}#${chunk.name}`, { file, ...chunk });
+
+  const used = new Map<string, string>();
+  const queue: string[] = [];
+  const mark = (key: string, by: string) => {
+    if (chunks.has(key) && !used.has(key)) {
+      used.set(key, by);
+      queue.push(key);
+    }
+  };
+
+  const wholeModule: string[] = [];
+  for (const file of sourceFiles("src").filter(file => !isAdmin(file) && !file.startsWith("src/components/ui/"))) {
+    const text = read(file);
+    if (/import\s*\*\s*as\s+\w+\s+from\s*["']@\/components\/ui\//.test(text) || /import\(\s*["']@\/components\/ui\//.test(text)) wholeModule.push(file);
+    for (const { specifier, names } of namedImports(text)) {
+      const target = specifier.startsWith("@/components/ui/") ? resolve(file, specifier) : undefined;
+      if (target) for (const name of names) mark(`${target}#${name}`, file);
+    }
+  }
+  assert.deepEqual(wholeModule, [], "import ui exports by name so unused ones can be left out of the storefront sheet");
+
+  while (queue.length) {
+    const key = queue.shift() as string;
+    const chunk = chunks.get(key) as { file: string; name: string; text: string };
+    const importer = used.get(key) as string;
+    for (const other of chunks.values()) {
+      if (other.file === chunk.file && other.name !== chunk.name && new RegExp(`\\b${other.name}\\b`).test(chunk.text)) mark(`${other.file}#${other.name}`, importer);
+    }
+    for (const { specifier, names } of namedImports(read(chunk.file))) {
+      const target = specifier.startsWith("@/components/ui/") ? resolve(chunk.file, specifier) : undefined;
+      if (target) for (const name of names) if (new RegExp(`\\b${name}\\b`).test(chunk.text)) mark(`${target}#${name}`, importer);
+    }
+  }
+
+  const problems: string[] = [];
+  for (const name of uiExportList) {
+    const holders = [...chunks.entries()].filter(([, chunk]) => boundary(name).test(chunk.text));
+    const preamble = scannedUi.filter(file => {
+      const text = read(file);
+      const first = declarations(text)[0];
+      return boundary(name).test(first ? text.slice(0, text.indexOf(first.text)) : text);
+    });
+    if (!holders.length && !preamble.length) problems.push(`${name}: in no scanned ui export (stale entry)`);
+    for (const [key, chunk] of holders) if (used.has(key)) problems.push(`${name}: in ${chunk.file} ${chunk.name}, imported by ${used.get(key)}`);
+    for (const file of preamble) problems.push(`${name}: outside any export of ${file}`);
+  }
+  assert.deepEqual(problems, [], "remove these from the second @source not inline list in globals.css");
+});
+
+/** `text` without block and line comments (a `//` after `:` or a quote is kept: URLs). */
+const stripComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
+
+const literalPattern = /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`/g;
+const literalsOf = (text: string) => [...text.matchAll(literalPattern)].map(match => match[0].slice(1, -1));
+
+/** The source of every `cn(…)`, `cva(…)` call and `className={…}` expression in `text` (balanced, string-aware). */
+function classExpressions(text: string) {
+  const found: string[] = [];
+  for (const start of text.matchAll(/\b(?:cn|cva)\(|\bclassName=\{/g)) {
+    const open = start[0].endsWith("(") ? "(" : "{";
+    const close = open === "(" ? ")" : "}";
+    let depth = 1;
+    let index = start.index + start[0].length;
+    const begin = index;
+    for (; index < text.length && depth > 0; index++) {
+      const char = text[index];
+      if (char === '"' || char === "'" || char === "`") {
+        for (index++; index < text.length && text[index] !== char; index++) if (text[index] === "\\") index++;
+      } else if (char === open) depth++;
+      else if (char === close) depth--;
+    }
+    found.push(text.slice(begin, index));
+  }
+  return found;
+}
+
+// Known non-class uses of a stray word, as `<word> in <file>`; rewording the string is the other way out.
+const strayAllowlist = new Set<string>([]);
+
+const contentFiles = fs
+  .readdirSync("src/content", { recursive: true, withFileTypes: true })
+  .filter(entry => entry.isFile() && /\.(?:tsx?|json|mdx?)$/.test(entry.name))
+  .map(entry => path.join(entry.parentPath, entry.name));
+const guardedFiles = [...new Set([...storefrontOnly, ...scannedUi, ...contentFiles])];
+
+test("stray words are not used as classes", () => {
+  const found: string[] = [];
+  for (const file of guardedFiles) {
+    const text = stripComments(read(file));
+    const hits = new Set<string>();
+    for (const literal of literalsOf(text)) {
+      const tokens = literal.split(/\s+/).filter(Boolean);
+      for (const word of strayWords) if (tokens.length > 1 && tokens.includes(word)) hits.add(word);
+    }
+    for (const expression of classExpressions(text)) {
+      for (const literal of literalsOf(expression)) for (const word of strayWords) if (literal.trim() === word) hits.add(word);
+    }
+    for (const word of strayWords) {
+      if (new RegExp(`\\b(?:className|class)=\\{?\\s*["'\`]${word}["'\`]`).test(text)) hits.add(word);
+    }
+    for (const word of hits) if (!strayAllowlist.has(`${word} in ${file}`)) found.push(`${word} in ${file}`);
+  }
+  for (const file of cssSources) {
+    for (const [, classes] of read(file).matchAll(/@apply\s+([^;}]+)/g)) {
+      for (const word of strayWords) if (classes.split(/\s+/).includes(word)) found.push(`${word} in @apply in ${file}`);
+    }
+  }
+  assert.deepEqual(
+    found,
+    [],
+    "these words are left out of the storefront sheet (third @source not inline list in globals.css): reword the string so it is not a bare class token, or drop the word from the list; a real non-class use goes into strayAllowlist",
+  );
+});
+
+test("storefront files reach ui only through named @/components/ui imports", () => {
+  const found: string[] = [];
+  for (const file of sourceFiles("src").filter(file => !isAdmin(file) && !file.startsWith("src/components/ui/"))) {
+    const rest = stripComments(read(file)).replace(/^import\s+(?:type\s+)?\{[^}]*\}\s*from\s*["']@\/components\/ui\/[\w-]+["'];?/gm, "");
+    if (rest.includes("components/ui/")) found.push(file);
+  }
+  assert.deepEqual(found, [], "use `import { X } from \"@/components/ui/<file>\"` (no default, namespace, dynamic, relative or re-export) so unused exports can be left out");
+});
+
+test("ui files have no default export and no renamed exports", () => {
+  const found: string[] = [];
+  for (const file of fs.readdirSync("src/components/ui").filter(name => name.endsWith(".tsx")).map(name => path.join("src/components/ui", name))) {
+    const text = stripComments(read(file));
+    if (/^export\s+default\b/m.test(text)) found.push(`${file}: export default`);
+    for (const [, names] of text.matchAll(/^export\s*\{([^}]*)\}/gm)) if (/\bas\b/.test(names)) found.push(`${file}: export { … as … }`);
+  }
+  assert.deepEqual(found, [], "the unused-export guard matches exports by declaration name");
+});
+
+test("the exclusions remove exactly the listed utilities", async () => {
+  const real = await compileCss("src/app/globals.css");
+  const from = path.resolve("src/app/globals.css");
+  const stripped = (
+    await postcss([tailwind({ base: process.cwd(), optimize: { minify: true } })]).process(
+      globals.replace(/^@source not inline\("(?!dark:)[^"]+"\);\n/gm, ""),
+      { from },
+    )
+  ).css;
+
+  const listed = new Set([...uiExportList, ...strayWords].map(selectorOf));
+  const before = classSelectors(layer(stripped, "utilities"));
+  const after = classSelectors(real);
+  assert.deepEqual([...listed].filter(name => !before.has(name)), [], "listed class is not a utility any more (stale entry)");
+  assert.deepEqual([...listed].filter(name => after.has(name)), [], "listed class is still emitted (used somewhere the storefront scans)");
+  const unexpected = [...before].filter(name => !after.has(name) && !listed.has(name) && !name.startsWith(".group\\/"));
+  assert.deepEqual(unexpected, [], "the exclusions removed utilities that are not listed");
+  assert.equal(layer(real, "components"), layer(stripped, "components"));
+  assert.equal(layer(real, "base"), layer(stripped, "base"));
 });
