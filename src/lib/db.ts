@@ -20,9 +20,12 @@ if (process.env.NODE_ENV !== "production") globalDb.getirbakimPool = db;
  * One read with a server-side time limit. node-postgres stops waiting on its own, but the query would keep running:
  * a request the CDN abandoned (504) must not leave it on the database. Meant for the expensive, cached catalog reads.
  * `workMem` ("64MB", "512kB") raises work_mem for this read only, for a sort that would otherwise spill to disk.
+ * `label` is `<module>.<query>` plus optional listing detail, built only when the query runs (a cache miss); a statement
+ * timeout (57014) is logged with it, cut to 200 chars, so a slow listing can be traced to its query.
  */
-export async function boundedQuery<T extends QueryResultRow>(sql: string, values: unknown[], timeoutMs = 30_000, { workMem }: { workMem?: string } = {}) {
+export async function boundedQuery<T extends QueryResultRow>(label: string, sql: string, values: unknown[], timeoutMs = 30_000, { workMem }: { workMem?: string } = {}) {
   if (workMem !== undefined && !/^\d+(kB|MB)$/.test(workMem)) throw new Error(`Invalid work_mem: ${workMem}`);
+  const started = Date.now();
   const client = await db.connect();
   try {
     await client.query("BEGIN READ ONLY");
@@ -33,6 +36,7 @@ export async function boundedQuery<T extends QueryResultRow>(sql: string, values
     return result;
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
+    if ((error as { code?: string }).code === "57014") console.error(`boundedQuery timeout: ${label.slice(0, 200)} (limit ${timeoutMs} ms, ${Date.now() - started} ms)`);
     throw error;
   } finally { client.release(); }
 }

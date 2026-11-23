@@ -99,14 +99,14 @@ export async function loadProductChunk(index: number): Promise<ProductSitemapRow
     store: `${productAddressColumns.store},${isoUtc("p.updated_at")} AS lastmod`,
     priceOnly: `${productAddressColumns.priceOnly},${isoUtc(`GREATEST(i.changed_at,l.imported_at,q.qualified_at,${adminEditedAtSql()})`)} AS lastmod`,
   });
-  const { rows } = await boundedQuery<ProductAddress & { lastmod: string }>(`SELECT id,name,name_overridden,display_brand,display_code,lastmod FROM (${branches}) u ORDER BY id LIMIT ${sitemapUrlLimit + 1}`,
+  const { rows } = await boundedQuery<ProductAddress & { lastmod: string }>(`sitemap.products chunk=${index}`, `SELECT id,name,name_overridden,display_brand,display_code,lastmod FROM (${branches}) u ORDER BY id LIMIT ${sitemapUrlLimit + 1}`,
     [storefrontCompanies(), from, to]);
   return rows.map(row => ({ id: row.id, path: productPath(row), lastmod: row.lastmod }));
 }
 
 // Categories with a product of their own, as the catalog filter finds them (categoryProductIds in catalog.ts): Trodo
 // categories of enriched supplier items and an admin's category (#575). One hashed pass over the enrichments for the
-// whole tree (~0.2-0.5 s locally).
+// whole tree (~0.2-0.5 s locally). One hashed SubPlan, ~0.5 s; it has the 1-row estimate of #1240 but not that plan (#1245).
 const categorySql = `SELECT c.category_id AS id,c.path_ids AS path,l.slug,
  (EXISTS (SELECT 1 FROM product_source_categories pc
    JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
@@ -126,8 +126,8 @@ WHERE EXISTS (SELECT 1 FROM commerce_supplier_items s WHERE s.company=ANY($2::te
 /** Slugs of the indexable categories holding products and of their ancestors (the noindex root is left out, #1222). */
 export async function loadCategorySlugs(): Promise<string[]> {
   const [nodes, legacy] = await Promise.all([
-    boundedQuery<{ id: number; path: number[]; slug: string; direct: boolean }>(categorySql, []),
-    boundedQuery<{ slug: string }>(legacySql, [Object.keys(legacyCategoryIds), storefrontCompanies()]),
+    boundedQuery<{ id: number; path: number[]; slug: string; direct: boolean }>("sitemap.categories", categorySql, []),
+    boundedQuery<{ slug: string }>("sitemap.legacyCategories", legacySql, [Object.keys(legacyCategoryIds), storefrontCompanies()]),
   ]);
   const direct = [...nodes.rows.filter(node => node.direct).map(node => node.id), ...legacy.rows.map(row => legacyCategoryIds[row.slug])];
   return sitemapCategorySlugs(withAncestors(nodes.rows, direct).map(node => node.slug));
@@ -138,7 +138,7 @@ export async function loadCategorySlugs(): Promise<string[]> {
  * supplier description, the two sources the make page lists (#674).
  */
 export async function loadMakeSlugs(): Promise<string[]> {
-  const { rows } = await boundedQuery<{ name: string }>(`SELECT b.display_name AS name FROM vehicle_brands b
+  const { rows } = await boundedQuery<{ name: string }>("sitemap.makes", `SELECT b.display_name AS name FROM vehicle_brands b
    WHERE EXISTS (SELECT 1 FROM storefront_make_fits f WHERE f.brand_id=b.id)
     OR EXISTS (SELECT 1 FROM vehicle_models m JOIN storefront_description_fits f ON f.model_id=m.id WHERE m.brand_id=b.id) ORDER BY b.id`, []);
   return [...new Set(rows.map(row => vehicleBrandSlug(row.name)))];

@@ -31,6 +31,9 @@ export async function categoryParams(): Promise<[string[], number[], string[], n
  *   as the filter adds them after the admin's rule.
  * `scoped` names a relation with an `id` column: every branch starts from it through the tables' id indexes. Without it
  * the whole catalog is read (the model × category sitemap).
+ * The trusted-enrichment branch carries the same 1-row estimate as #1240 (~199k rows in fact), but the mis-estimated side
+ * only drives product_source_categories_pkey probes by donor (~199k, ~0.45 s unscoped), and every caller fences it in a
+ * MATERIALIZED CTE (#1245).
  */
 export function itemCategoriesSql({ scoped, legacySlugs, legacyIds, oilIds, oilCategory }: ItemCategoryParams & { scoped?: string }): string {
   const from = (table: string, alias: string, key: string) => scoped ? `${scoped} JOIN ${table} ${alias} ON ${alias}.${key}=${scoped}.id` : `${table} ${alias}`;
@@ -94,6 +97,6 @@ export async function scopeCategoryCounts(query: Pick<CatalogQuery, "make" | "mo
     // The make listing's fits as catalogFilter reads them: engine-level and description fits (#674).
     scope = { sql: `SELECT supplier_item_id AS id FROM (${makeFitsSql("$6::int")}) fits`, value: Number(make.id) };
   }
-  return new Map(await cachedCounts(`${query.make}|${query.model ?? ""}`, async () => (await boundedQuery<{ category_id: number; products: number }>(
+  return new Map(await cachedCounts(`${query.make}|${query.model ?? ""}`, async () => (await boundedQuery<{ category_id: number; products: number }>(`listing.categoryCounts ${query.make}|${query.model ?? ""}`, 
     scopeCountsSql(scope.sql), [storefrontCompanies(), ...await categoryParams(), scope.value])).rows.map(row => [row.category_id, row.products])));
 }
