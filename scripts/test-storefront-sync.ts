@@ -7,12 +7,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { isClockSkewError, sendWithSkewRetry } from "./storefront-media-read";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
+import { ENRICHMENTS_FILE } from "./storefront-bundle-stream";
 import {
   checkPartUpload, expectedPartObjects, KEEP_RUNS, parsePartListing, parsePrefixMode, parseRootListing, runDirName, staleRunEntries, strayEntries, SYNC_BASE_PREFIX,
   uploadFailure, uploadParts, withS3Concurrency, type UploadIo,
 } from "./storefront-upload";
 import {
-  acquireLock, buildInboundReport, checkInboundReport, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
+  acquireLock, buildInboundReport, checkInboundReport, exportSummary, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
   sinceFrom, STATE_PATH, summarizeParts, tombstoneWarnings,
 } from "./storefront-sync-state";
 
@@ -100,24 +101,27 @@ test("the lock admits one live sync, takes over a dead holder's lock and is free
 
 const fixtureMedia = [{ id: "c", key: "cat/c.jpg", size: 10 }, { id: "a", key: "p/a.jpg", size: 60 }, { id: "b", key: "p/b.jpg", size: 70 }];
 
-// A bundle of three media files, split at 100 bytes into part-00 (the category image), part-01 and part-02.
+// A bundle of three media files, split at 100 bytes into part-00 (the category image), part-01 and part-02. The export
+// keeps its enrichments in enrichments.ndjson (#1316).
 async function writeFixtureBundle(root: string) {
   const source = join(root, "full");
   for (const object of fixtureMedia) {
     await mkdir(dirname(join(source, "media", object.key)), { recursive: true });
     await writeFile(join(source, "media", object.key), Buffer.alloc(object.size, 1));
   }
+  const enrichments = [{ supplier_item_id: "i1", image_id: "a" }, { supplier_item_id: "i2", image_id: "b" }, { supplier_item_id: "i3", image_id: null }];
+  await writeFile(join(source, ENRICHMENTS_FILE), enrichments.map(row => `${JSON.stringify(row)}\n`).join(""));
   await writeFile(join(source, "manifest.json"), JSON.stringify({
     snapshotAt: "2026-11-14T00:00:00Z", categories: [], labels: [], logos: [],
     images: [{ source: "trodo", category_id: 1, media_id: "c" }],
     jobs: [{ supplier_item_id: "i1", status: "complete" }, { supplier_item_id: "i9", status: "partial" }],
     tombstones: [{ supplier_item_id: "i8", kind: "enrichment_deleted" }],
-    enrichments: [{ supplier_item_id: "i1", image_id: "a" }, { supplier_item_id: "i2", image_id: "b" }, { supplier_item_id: "i3", image_id: null }],
+    enrichmentsFile: ENRICHMENTS_FILE, enrichmentCount: enrichments.length,
     products: [{ supplier_item_id: "i1", category_id: 1 }, { supplier_item_id: "i3", category_id: 1 }],
     media: fixtureMedia.map(object => ({ id: object.id, object_key: object.key, size_bytes: object.size })),
   }));
   const partsDir = join(root, "parts");
-  await splitStorefrontBundle(source, partsDir, 100);
+  await splitStorefrontBundle(source, partsDir, { mediaBytes: 100, jsonBytes: 64 * 1024 * 1024 });
   return partsDir;
 }
 
@@ -126,13 +130,32 @@ test("the dry-run summary counts every part, part-00 apart", async () => {
   try {
     const partsDir = await writeFixtureBundle(root);
     const summary = await summarizeParts(partsDir);
-    assert.deepEqual(summary.base, { part: "part-00", enrichments: 0, mappings: 0, jobs: 2, tombstones: 1, media: 1, mediaBytes: 10 });
+    // jsonBytes is the size of each part's manifest.json.
+    const json = ["part-00", "part-01", "part-02"].map(part => statSync(join(partsDir, part, "manifest.json")).size);
+    assert.deepEqual(summary.base, { part: "part-00", enrichments: 0, mappings: 0, jobs: 2, tombstones: 1, media: 1, mediaBytes: 10, jsonBytes: json[0] });
     assert.deepEqual(summary.parts, [
-      { part: "part-01", enrichments: 1, mappings: 1, jobs: 0, tombstones: 0, media: 1, mediaBytes: 60 },
-      { part: "part-02", enrichments: 2, mappings: 1, jobs: 0, tombstones: 0, media: 1, mediaBytes: 70 },
+      { part: "part-01", enrichments: 1, mappings: 1, jobs: 0, tombstones: 0, media: 1, mediaBytes: 60, jsonBytes: json[1] },
+      { part: "part-02", enrichments: 2, mappings: 1, jobs: 0, tombstones: 0, media: 1, mediaBytes: 70, jsonBytes: json[2] },
     ]);
-    assert.deepEqual(summary.totals, { parts: 3, enrichments: 3, mappings: 2, jobs: 2, tombstones: 1, media: 3, mediaBytes: 140 });
+    assert.deepEqual(summary.totals, {
+      parts: 3, enrichments: 3, mappings: 2, jobs: 2, tombstones: 1, media: 3, mediaBytes: 140, jsonBytes: json[0] + json[1] + json[2],
+    });
+    assert.ok(json.every(bytes => bytes > 0));
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("the sync reads the snapshot and counts from the export's manifest; enrichments are only counted there", () => {
+  const manifest = {
+    snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentsFile: ENRICHMENTS_FILE, enrichmentCount: 43327, jobs: [{}, {}], tombstones: [{}],
+    invalidatedJobs: 4, maxDeletions: 1000, vehicleSpecs: [{}],
+  };
+  assert.deepEqual(exportSummary(JSON.stringify(manifest)),
+    { snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 43327, jobs: 2, tombstones: 1, invalidatedJobs: 4, maxDeletions: 1000 });
+  assert.deepEqual(exportSummary(JSON.stringify({ snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 0 })),
+    { snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 0, jobs: 0, tombstones: 0, invalidatedJobs: 0, maxDeletions: undefined });
+  // A pre-#1316 export carried the enrichments inline and no count.
+  assert.throws(() => exportSummary(JSON.stringify({ snapshotAt: "2026-11-23T01:29:00.000Z", enrichments: [] })), /no enrichmentCount/);
+  assert.throws(() => exportSummary(JSON.stringify({ enrichmentCount: 1 })), /no snapshotAt/);
 });
 
 const PARTS = ["part-00", "part-01", "part-02"];
