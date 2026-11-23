@@ -423,6 +423,31 @@ test("the make × category sitemap lists exactly the indexable make × category 
   assert.ok(!(await pages(10)).includes("/kategori/fren/vw"));
 }));
 
+test("a product in two categories under one ancestor, fitting two models of one unit, counts once (#1320)", () => inRequest(async () => {
+  // g3 is in Fren twice (legacy slug and Trodo 269, both under 252) and fits Golf VII; the fit on Golf VII Variant puts
+  // it in a second member model of the same unit: golf-7 × fren stays at 10 products and vw × fren at 9.
+  await fit("storefront_model_fits", 11, "g3");
+  try {
+    const pages = async (minimum: number) => {
+      const { text, values, units } = await sitemap.makeCategoryPathsQuery(minimum);
+      const { rows } = await schema.pool.query<{ unit: number; slug: string }>(text, values);
+      return rows.map(row => listingPath({ makeSlug: units[row.unit], categorySlug: row.slug }));
+    };
+    assert.ok((await pages(9)).includes("/kategori/fren/vw"));
+    assert.ok(!(await pages(10)).includes("/kategori/fren/vw"));
+    const model = async (minimum: number) => {
+      const { text, values, units } = await sitemap.modelCategoryPathsQuery();
+      const { rows } = await schema.pool.query<{ unit: number; slug: string }>(text, values.map((value, index) => index === 7 ? minimum : value));
+      return rows.map(row => listingPath({ makeSlug: units[row.unit].makeSlug, modelSlug: units[row.unit].modelSlug, categorySlug: row.slug }));
+    };
+    assert.ok((await model(10)).includes("/kategori/fren/vw/golf-7"));
+    assert.ok(!(await model(11)).includes("/kategori/fren/vw/golf-7"));
+    assert.deepEqual((await sitemap.loadModelCategoryPaths()).sort(), ["/kategori/fren/vw/golf-7"]);
+  } finally {
+    await schema.pool.query("DELETE FROM storefront_model_fits WHERE model_id=11 AND supplier_item_id=$1", [ids.g3]);
+  }
+}));
+
 test("loadAllVehicleModelGroups returns the same units as the per-make read (#778)", async () => {
   const all = await groups.loadAllVehicleModelGroups();
   const brands = (await schema.pool.query<{ id: string }>("SELECT id::text FROM vehicle_brands ORDER BY id")).rows.map(row => row.id);
