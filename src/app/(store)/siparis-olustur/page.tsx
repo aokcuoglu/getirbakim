@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { privatePageRobots } from "@/modules/seo/crawlers";
 import Link from "next/link";
 import { randomUUID } from "node:crypto";
-import { LockKeyhole } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { normalizeSearchParams, type SearchParams } from "@/lib/search-params";
 import { currentAccount } from "@/modules/auth/session";
 import { cartFor, currentCartOwner } from "@/modules/store/cart";
@@ -76,7 +76,7 @@ export default async function Checkout({searchParams}:{searchParams:Promise<Sear
         <CheckoutInvoiceFields initial={prefill.invoice} addresses={addresses} selectedId={prefill.invoiceAddressId}/>
         {options.length>1 && <InstallmentPicker/>}
         <Field orientation="horizontal" className="items-start gap-2.5"><Checkbox id="checkout-consent" name="consent" required className={checkoutCheckbox}/><FieldLabel htmlFor="checkout-consent" className="block text-sm leading-[22px] font-normal"><Link href="/on-bilgilendirme-formu" target="_blank" className="hover:text-primary hover:underline">Ön bilgilendirme formunu</Link> ve <Link href="/mesafeli-satis-sozlesmesi" target="_blank" className="hover:text-primary hover:underline">mesafeli satış sözleşmesini</Link> okudum, onaylıyorum. Ödemenin TAMI güvenli ödeme sayfasında alınacağını; tedarikçi stoku teyit edilemezse siparişin iptal edilip ödemenin iade edileceğini biliyorum.</FieldLabel></Field>
-      </CheckoutForm><p className="mt-[18px] mb-6 flex flex-wrap items-center gap-1.5 text-xs leading-[18px] text-muted-foreground"><LockKeyhole className="size-[15px]" aria-hidden/>Bilgilerin yalnız sipariş işlemleri için kullanılır. <Link href="/gizlilik-politikasi" className="text-[#0065a5] hover:underline">Gizlilik politikası</Link></p><Link href="/sepet" className="inline-flex min-h-11 items-center hover:text-primary">← Sepete dön</Link></Card><OrderSummary items={items} discount={discount} shipping={shipping} checkout/></div></InstallmentProvider>
+      </CheckoutForm><p className="mt-[18px] mb-6 flex flex-wrap items-center gap-1.5 text-xs leading-[18px] text-muted-foreground"><StoreIcon name="lock-keyhole" className="size-[15px]"/>Bilgilerin yalnız sipariş işlemleri için kullanılır. <Link href="/gizlilik-politikasi" className="text-[#0065a5] hover:underline">Gizlilik politikası</Link></p><Link href="/sepet" className="inline-flex min-h-11 items-center hover:text-primary">← Sepete dön</Link></Card><OrderSummary items={items} discount={discount} shipping={shipping} checkout/></div></InstallmentProvider>
     : <Empty className="gap-6 rounded-none border-0 px-4 py-16"><h2 className="m-0 text-2xl leading-[34px] font-semibold">Sepetin henüz boş.</h2><Button nativeButton={false} className={storeButton({ intent: "primary", size: "lg" })} render={<Link href={catalogPath}/>}>Alışverişe başla</Button></Empty>}
   </section></div>;
 }

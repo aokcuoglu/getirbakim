@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ArrowRight, CarFront, ChevronRight, CircleAlert, CircleCheck, ClipboardCheck, CreditCard, Headphones, Info, Package, PackageCheck, RotateCcw, Search, ShieldCheck, Truck, UserRound, Wrench, X } from "lucide-react";
+import { ArrowRight, CalendarCheck, CarFront, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, ClipboardCheck, Clock, CreditCard, Headphones, Images, Info, Layers, LockKeyhole, MapPin, Package, PackageCheck, RotateCcw, Search, ShieldCheck, ShoppingCart, Trash2, Truck, Undo2, UserRound, Wrench, X } from "lucide-react";
 import { CatalogCategoryChips } from "../src/components/catalog-category-chips";
 import { CategoryCards } from "../src/components/category-cards";
 import { SocialLinks } from "../src/components/social-links";
@@ -152,6 +152,8 @@ test("StoreIcon renders lucide's own markup", () => {
     "arrow-right": ArrowRight, "car-front": CarFront, "chevron-right": ChevronRight, "circle-alert": CircleAlert, "circle-check": CircleCheck,
     "clipboard-check": ClipboardCheck, "credit-card": CreditCard, headphones: Headphones, info: Info, package: Package, "package-check": PackageCheck,
     "rotate-ccw": RotateCcw, search: Search, "shield-check": ShieldCheck, truck: Truck, "user-round": UserRound, wrench: Wrench, x: X,
+    "calendar-check": CalendarCheck, check: Check, "chevron-down": ChevronDown, clock: Clock, images: Images, layers: Layers, "lock-keyhole": LockKeyhole,
+    "map-pin": MapPin, "shopping-cart": ShoppingCart, "trash-2": Trash2, "undo-2": Undo2,
   };
   for (const [name, Icon] of Object.entries(direct) as [keyof typeof direct, typeof Search][]) {
     assert.equal(renderToStaticMarkup(<StoreIcon name={name} size={22} className="shrink-0 text-primary" />), renderToStaticMarkup(<Icon size={22} className="shrink-0 text-primary" />), name);

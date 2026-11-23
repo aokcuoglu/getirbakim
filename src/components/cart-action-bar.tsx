@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { LockKeyhole } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { Button } from "@/components/ui/button";
 import { storeButton } from "@/components/store-button";
 import { cn } from "@/lib/utils";
@@ -15,8 +15,8 @@ export function CartActionBar({ total, valid }: { total: string; valid: boolean 
     <div className="flex min-w-0 flex-1 flex-col gap-1">
     {!valid && <p id="cart-bar-invalid" className="m-0 text-xs leading-4 font-medium text-destructive">Uygun olmayan ürünler var</p>}
     {valid
-      ? <Button nativeButton={false} className={action} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]" aria-hidden/>Siparişi tamamla</Button>
-      : <Button disabled className={action} aria-describedby="cart-bar-invalid"><LockKeyhole className="size-[18px]" aria-hidden/>Siparişi tamamla</Button>}
+      ? <Button nativeButton={false} className={action} render={<Link href="/siparis-olustur"/>}><StoreIcon name="lock-keyhole" className="size-[18px]"/>Siparişi tamamla</Button>
+      : <Button disabled className={action} aria-describedby="cart-bar-invalid"><StoreIcon name="lock-keyhole" className="size-[18px]"/>Siparişi tamamla</Button>}
     </div>
   </div>;
 }
