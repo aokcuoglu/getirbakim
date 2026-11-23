@@ -151,8 +151,11 @@
   .home-card-image { @apply flex h-[210px] shrink-0 items-start justify-center pb-[30px] max-md:h-[190px] max-md:pb-5 max-[37.5rem]:h-[170px]; }
   .home-card-img { @apply size-[180px] max-w-full object-contain max-md:size-[170px] max-[37.5rem]:size-[150px]; }
   .home-card-text { @apply min-h-[84.5px] max-md:min-h-[78px]; }
-  .home-card-category { @apply mb-[5px] block truncate text-[13px] leading-[19.5px] text-muted-foreground; }
-  .home-card-title { @apply line-clamp-3 text-sm leading-5 font-medium text-foreground hover:text-primary max-md:text-[13px] max-md:leading-[18px]; }
+  /* Both card links are at least 24px tall (WCAG 2.5.8 target size, #1327): the category line keeps its 19.5px text box
+     and gains the bottom space below it (24 + 0.5 = the old 19.5 + 5 margin), a one-line title grows into the text
+     block's reserved height, so nothing on the card moves. */
+  .home-card-category { @apply mb-[0.5px] block min-h-6 truncate text-[13px] leading-[19.5px] text-muted-foreground; }
+  .home-card-title { @apply line-clamp-3 min-h-6 text-sm leading-5 font-medium text-foreground hover:text-primary max-md:text-[13px] max-md:leading-[18px]; }
   .home-card-price { @apply mt-2 min-h-[21px]; }
   .home-card-note { @apply text-[13px] leading-5 text-muted-foreground; }
   .home-card-note-link { @apply hover:text-primary; }
