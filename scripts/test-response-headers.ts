@@ -9,7 +9,7 @@ import { matchHas } from "next/dist/shared/lib/router/utils/prepare-destination"
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
 import { adminThemeScript } from "../src/lib/admin-theme-script";
-import { ADMIN_THEME_SCRIPT_HASH, CSP_REPORT_PATH, REPORTING_ENDPOINTS, TAMI_FORM_HOSTS, cspReportOnly, newNonce } from "../src/lib/csp";
+import { ADMIN_THEME_SCRIPT_HASH, CSP_REPORT_PATH, REPORTING_ENDPOINTS, TAMI_FORM_HOSTS, cspReportOnly, newNonce, policyNonce } from "../src/lib/csp";
 import { cspReportLine, parseCspReports } from "../src/lib/csp-report";
 import { RETURN_TO_HEADER } from "../src/modules/auth/return-to";
 import { config, proxy } from "../src/proxy";
@@ -378,4 +378,11 @@ test("garbage, oversize and unknown bodies yield no report", () => {
   assert.deepEqual(parseCspReports("application/csp-report", legacyReport({ "effective-directive": "<script>", "blocked-uri": "inline" })), []);
   assert.deepEqual(parseCspReports("application/reports+json", JSON.stringify({ type: "csp-violation" })), []);
   assert.deepEqual(parseCspReports("application/csp-report", legacyReport({ "document-uri": "https://getirbakim.com/", "effective-directive": "script-src", "blocked-uri": "inline", pad: "x".repeat(17 * 1024) })), []);
+});
+
+test("policyNonce reads the nonce back from the request policy (#1290)", () => {
+  const nonce = newNonce();
+  assert.equal(policyNonce(cspReportOnly({ nonce, dev: false })), nonce);
+  assert.equal(policyNonce(null), null);
+  assert.equal(policyNonce("script-src 'self'"), null);
 });

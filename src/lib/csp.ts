@@ -37,6 +37,14 @@ export function newNonce(): string {
   return Buffer.from(crypto.randomUUID()).toString("base64");
 }
 
+/**
+ * The nonce in a policy the proxy put on the request (null without one). A script tag rendered on the server needs it:
+ * 'strict-dynamic' makes browsers ignore 'self', so a same-origin tag without the nonce is a violation (#1290).
+ */
+export function policyNonce(policy: string | null | undefined): string | null {
+  return policy?.match(/'nonce-([^']+)'/)?.[1] ?? null;
+}
+
 /** The Report-Only policy for one response. Development adds what React's dev build and HMR need. */
 export function cspReportOnly({ nonce, dev }: { nonce: string; dev: boolean }): string {
   return [
