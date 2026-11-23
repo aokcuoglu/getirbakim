@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Search, Loader2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fitmentEagerModelOptions, fitmentRowFields, isFitmentGroup, mergeFitmentGroups, visibleFitmentGroups, type FitmentGroup, type FitmentView } from "@/modules/store/product-fitment-view";
+import { fitmentEagerModelOptions, fitmentFailureNote, fitmentRowCount, fitmentRowFields, isFitmentGroup, mergeFitmentGroups, visibleFitmentGroups, type FitmentGroup, type FitmentRow, type FitmentView } from "@/modules/store/product-fitment-view";
 import { loadedPublicList, publicListFetch } from "@/components/public-list-fetch";
 
 const fuelLabels: Record<string, string> = {
@@ -25,10 +25,13 @@ const loadingDelay = 180;
 
 // The rows come grouped by model from the server (product-fitment-view.ts). Up to `fitmentInitialGroups` groups print
 // until "Tüm … modeli göster", a search or a make/model choice (#642); a long model select fills when first used. A
-// product with more groups ships only the first ones (#966): the rest loads from `view.rest` when the controls are
-// pointed at or (past `fitmentEagerModelOptions` models) the list scrolls into view, and when they are used.
-// The controls are plain elements with named classes from storefront.css (#1211): the selects and text buttons copy
-// ui/native-select's and storeButton's look, and the chevron and arrow are CSS masks, so a group header carries no svg.
+// product with more groups ships only the first ones (#966): the rest loads from `view.rest` when the controls or the
+// list are pointed at or (past `fitmentEagerModelOptions` models) the list scrolls into view, and when they are used.
+// Printed groups past `fitmentInlineRows` engine rows ship their row counts only (#1324): opening one loads the list,
+// its panel shows placeholder rows meanwhile and "Tekrar dene" after a failure; a search matches their model names until
+// the list arrives. The controls are plain elements with named classes from storefront.css (#1211): the selects and
+// text buttons copy ui/native-select's and storeButton's look, and the chevron and arrow are CSS masks, so a group
+// header carries no svg.
 export function ProductFitment({ view }: { view: FitmentView }) {
   const inputId = useId();
   const sectionRef = useRef<HTMLElement>(null);
@@ -50,13 +53,14 @@ export function ProductFitment({ view }: { view: FitmentView }) {
   // request's callbacks only.
   const reveal = useRef(false);
   const pending = Boolean(view.rest) && !all;
+  const moreGroups = view.groupCount > view.groups.length;
   const merged = all && mergeFitmentGroups(view.groups, all);
   const shown: FitmentView = merged ? { ...view, groups: merged, groupCount: merged.length, rest: undefined } : view;
   const { groups, matches, hidden } = visibleFitmentGroups(shown, { make, model: selectedModel, query, showAll });
   const searching = Boolean(query.trim()), filtering = searching || Boolean(make || selectedModel);
   const loading = pending && status === "loading", failed = pending && status === "error", showLoading = loading && slow;
   const makeLabels = new Map(view.makes);
-  const pairs = pending ? view.models : shown.groups.map((group): [string, string] => [group.make, group.model]);
+  const pairs = pending && moreGroups ? view.models : shown.groups.map((group): [string, string] => [group.make, group.model]);
   const models = (pairs ?? []).filter(([groupMake]) => !make || groupMake === make).map(([, model]) => model);
   const modelOptions = !pairs ? (selectedModel ? [selectedModel] : [])
     : make || allModels || models.length <= fitmentEagerModelOptions ? models : selectedModel ? [selectedModel] : [];
@@ -68,13 +72,17 @@ export function ProductFitment({ view }: { view: FitmentView }) {
   }, [loading]);
 
   const loaded = (list: FitmentGroup[]) => {
-    // "Tekrar dene" leaves with the alert: its focus goes to the first new group, else the first group or the search.
+    // "Tekrar dene" leaves with the alert: its focus goes to the first new group, else the first group or the search. A
+    // panel's own "Tekrar dene" (#1324) gives way to its rows: the focus stays on the panel's region, the same element.
     const retried = Boolean(alertRef.current?.contains(document.activeElement));
+    const focused = document.activeElement?.closest<HTMLElement>('[role="region"]');
+    const region = focused && listRef.current?.contains(focused) ? focused : null;
     const opening = reveal.current;
     reveal.current = false;
     flushSync(() => { setAll(list); setStatus("idle"); setSlow(false); setRetrying(false); if (opening) setShowAll(true); });
     const triggers = listRef.current?.querySelectorAll<HTMLElement>(".fitment-trigger");
-    if (opening) triggers?.[view.groups.length]?.focus();
+    if (region) region.focus();
+    else if (opening) triggers?.[view.groups.length]?.focus();
     else if (retried) (triggers?.[0] ?? document.getElementById(inputId))?.focus();
   };
   // A failed warm-up stays quiet; the next use asks again.
@@ -92,10 +100,16 @@ export function ProductFitment({ view }: { view: FitmentView }) {
     if (!asked) fetchFitments(view.rest).then(loaded, failedLoad);
   };
   const warm = () => load(false);
+  // "Tekrar dene" in the alert and in a held-back panel: the button stays (busy) until the answer.
+  const retry = () => {
+    if (loading) return;
+    setRetrying(true);
+    load(true);
+  };
 
   // Past `fitmentEagerModelOptions` models the page sends no model names: the list loads once the section is in view,
   // so the model select is filled before the first tap on a phone.
-  const warmOnView = Boolean(view.rest && !view.models && !all);
+  const warmOnView = Boolean(view.rest && moreGroups && !view.models && !all);
   useEffect(() => {
     const section = sectionRef.current;
     if (!warmOnView || !view.rest || !section || typeof IntersectionObserver === "undefined") return;
@@ -134,7 +148,7 @@ export function ProductFitment({ view }: { view: FitmentView }) {
   const openModels = (event: SyntheticEvent) => {
     event.stopPropagation();
     setAllModels(true);
-    load(!view.models);
+    load(!pairs);
   };
   const statusText = showLoading ? "Tüm araçlar yükleniyor…"
     : filtering ? `${matches} eşleşme bulundu` : `${shown.groupCount} model serisi · Motor ayrıntıları için aç`;
@@ -149,31 +163,63 @@ export function ProductFitment({ view }: { view: FitmentView }) {
     <label className="fitment-search" htmlFor={inputId}><Search size={18}/><input id={inputId} type="search" value={query} onChange={event => { setQuery(event.target.value); if (event.target.value.trim()) load(true); }} placeholder="Model, motor kodu veya yıl ara"/><span className="sr-only">Uyumlu araçlarda ara</span></label>
     </div>
     <p className="fitment-status" role="status">{statusText}</p>
-    {(failed || (loading && retrying)) && <div ref={alertRef} className="fitment-alert" role="alert"><span>Araç listesinin tamamı yüklenemedi.{filtering && ` Yalnız ilk ${view.groups.length} model içinde arandı.`}</span><button type="button" className="fitment-text-button" aria-busy={loading} aria-disabled={loading} onClick={() => { if (!loading) { setRetrying(true); load(true); } }}>{showLoading ? <><Loader2 className="animate-spin" aria-hidden="true"/>Yükleniyor…</> : "Tekrar dene"}</button></div>}
-    <div ref={listRef} className="overflow-hidden rounded-b-lg border border-t-0 border-[#dce2e9] bg-white">
-      {groups.map(({ model, href, rows }) => <Collapsible key={model + (searching ? "-search" : "")} defaultOpen={searching} className="fitment-group">
+    {(failed || (loading && retrying)) && <div ref={alertRef} className="fitment-alert" role="alert"><span>Araç listesinin tamamı yüklenemedi.{fitmentFailureNote(view, { searching, filtering })}</span><button type="button" className="fitment-text-button" aria-busy={loading} aria-disabled={loading} onClick={retry}>{showLoading ? <><Loader2 className="animate-spin" aria-hidden="true"/>Yükleniyor…</> : "Tekrar dene"}</button></div>}
+    <div ref={listRef} className="overflow-hidden rounded-b-lg border border-t-0 border-[#dce2e9] bg-white" onPointerEnter={warm} onFocus={warm} onTouchStart={warm}>
+      {groups.map(group => <Collapsible key={group.model + (searching ? "-search" : "")} defaultOpen={searching} className="fitment-group" onOpenChange={open => { if (open && group.count !== undefined) load(true); }}>
         <div className="flex items-center hover:bg-[#f7f8fa]">
-        <CollapsibleTrigger className="fitment-trigger"><strong className="font-medium">{model}</strong><span className="fitment-count">{rows.length} seçenek</span></CollapsibleTrigger>
-        {href && <Link prefetch={false} href={href} className="fitment-link"><span className="max-[750px]:sr-only">Model sayfası</span><span className="sr-only">: {model} parçaları</span></Link>}
+        <CollapsibleTrigger className="fitment-trigger"><strong className="font-medium">{group.model}</strong><span className="fitment-count">{fitmentRowCount(group)} seçenek</span></CollapsibleTrigger>
+        {group.href && <Link prefetch={false} href={group.href} className="fitment-link"><span className="max-[750px]:sr-only">Model sayfası</span><span className="sr-only">: {group.model} parçaları</span></Link>}
         </div>
         <CollapsibleContent>
-        <div className="overflow-x-auto border-t border-border" tabIndex={0} role="region" aria-label={`${model} motor seçenekleri`}>
-          <Table className="min-w-[540px] border-collapse text-left text-xs leading-5"><TableHeader className="[&_tr]:border-0"><TableRow className="hover:bg-transparent">{["Motor / motor kodu","Güç / hacim","Üretim aralığı","Veri bağlantısı"].map(label => <TableHead key={label} scope="col" className="h-auto bg-[#f7f8fa] px-4 py-3 font-medium text-muted-foreground">{label}</TableHead>)}</TableRow></TableHeader><TableBody>
-            {rows.map(row => {
-              const { engine, catalog, fuel, ps, kw, cc, from, to, typeId } = fitmentRowFields(row);
-              return <TableRow key={`${engine}-${fuel}-${ps}-${kw}-${cc}-${from}-${to}`} className="fitment-row border-0 hover:bg-transparent">
-              <TableCell className="w-[48%] whitespace-normal"><strong className="font-medium">{catalog ?? engine}</strong>{catalog && <small>Kaynak motor bilgisi: {engine}</small>}<small>{fuelLabels[fuel] || fuel}</small></TableCell>
-              <TableCell className="whitespace-normal">{ps} PS · {kw} kW{cc > 0 && <small>{cc} cm³</small>}</TableCell>
-              <TableCell className="whitespace-normal">{from} – {to || "Bitiş belirtilmemiş"}</TableCell>
-              <TableCell>{typeId ? <span className="text-[11px] whitespace-nowrap text-[#26734d]" title={`Araç tipi: ${typeId}`}>Kataloğa bağlı</span> : <span className="text-[11px] whitespace-nowrap text-[#68778a]">Kaynak kaydı</span>}</TableCell>
-            </TableRow>;
-            })}
-          </TableBody></Table>
-        </div>
+          <FitmentPanel model={group.model} rows={group.rows} count={fitmentRowCount(group)} linked={Boolean(group.href)}
+            state={group.count === undefined ? "ready" : loading && !retrying ? "loading" : "failed"} busy={loading} showLoading={showLoading} onRetry={retry}/>
         </CollapsibleContent>
       </Collapsible>)}
       {hidden > 0 && <div className="border-t border-border"><button type="button" className="fitment-text-button w-full" aria-busy={loading} aria-disabled={loading} onPointerEnter={warm} onFocus={warm} onTouchStart={warm} onClick={revealAll}>{showLoading ? <><Loader2 className="animate-spin" aria-hidden="true"/>Modeller yükleniyor…</> : `Tüm ${shown.groupCount} modeli göster`}</button></div>}
     </div>
     {matches === 0 && !loading && !failed && <p className="rounded-lg bg-[#f7f8fa] p-6 text-sm">Bu aramayla eşleşen araç bulunamadı. Model veya motor koduyla tekrar ara.</p>}
   </section>;
+}
+
+const columns = ["Motor / motor kodu", "Güç / hacim", "Üretim aralığı", "Veri bağlantısı"];
+
+// A word-wide placeholder bar that flows like the text it stands for, so a cell's bars wrap where its words would.
+const Bar = ({ width }: { width: string }) => <span className={`inline-block h-3.5 rounded-sm bg-muted align-middle ${width}`}/>;
+
+/**
+ * A placeholder engine row as tall as a typical real one at any width: the power and the years wrap on a narrow table
+ * like their text, and a linked model's rows (`linked`: most name the catalog engine) carry the source engine's line.
+ */
+const placeholderRow = (linked: boolean, key: number) => <TableRow key={key} aria-hidden="true" className="fitment-row border-0 animate-pulse motion-reduce:animate-none hover:bg-transparent">
+  <TableCell className="w-[48%] whitespace-normal"><Bar width="w-24"/>{linked && <small><Bar width="w-32"/> <Bar width="w-20"/> <Bar width="w-14"/></small>}<small><Bar width="w-10"/></small></TableCell>
+  <TableCell className="whitespace-normal"><Bar width="w-12"/> <Bar width="w-10"/><small><Bar width="w-14"/></small></TableCell>
+  <TableCell className="whitespace-normal"><Bar width="w-14"/> <Bar width="w-12"/></TableCell>
+  <TableCell><Bar width="w-20"/></TableCell>
+</TableRow>;
+
+/**
+ * A model group's engine rows under its trigger (#1324). `state` "ready" prints `rows`; a group whose rows were held back
+ * shows `count` placeholder rows under the header while the list loads ("loading"), else (a failed load, or reset after
+ * one) a note with "Tekrar dene" that stays, `busy`, through the retry. The region is one element in every state, so the
+ * focus inside it stays on it when the rows arrive; it is aria-busy while its rows load, not while the note waits.
+ */
+export function FitmentPanel({ model, rows, count, linked, state, busy, showLoading, onRetry }: {
+  model: string; rows: readonly FitmentRow[]; count: number; linked: boolean; state: "ready" | "loading" | "failed";
+  busy: boolean; showLoading: boolean; onRetry: () => void;
+}) {
+  const header = <TableHeader className="[&_tr]:border-0"><TableRow className="hover:bg-transparent">{columns.map(label => <TableHead key={label} scope="col" className="h-auto bg-[#f7f8fa] px-4 py-3 font-medium text-muted-foreground">{label}</TableHead>)}</TableRow></TableHeader>;
+  return <div className="overflow-x-auto border-t border-border" tabIndex={0} role="region" aria-label={`${model} motor seçenekleri`} aria-busy={state === "loading" || (state === "failed" && busy) || undefined}>
+    {state === "failed" ? <div className="flex flex-wrap items-center gap-x-3 px-4 text-sm leading-5"><span>Motor seçenekleri yüklenemedi.</span><button type="button" className="fitment-text-button" aria-busy={busy} aria-disabled={busy} onClick={onRetry}>{showLoading ? <><Loader2 className="animate-spin" aria-hidden="true"/>Yükleniyor…</> : "Tekrar dene"}</button></div>
+      : <Table className="min-w-[540px] border-collapse text-left text-xs leading-5">{header}<TableBody>
+        {state === "loading" ? Array.from({ length: count }, (_, index) => placeholderRow(linked, index)) : rows.map(row => {
+          const { engine, catalog, fuel, ps, kw, cc, from, to, typeId } = fitmentRowFields(row);
+          return <TableRow key={`${engine}-${fuel}-${ps}-${kw}-${cc}-${from}-${to}`} className="fitment-row border-0 hover:bg-transparent">
+          <TableCell className="w-[48%] whitespace-normal"><strong className="font-medium">{catalog ?? engine}</strong>{catalog && <small>Kaynak motor bilgisi: {engine}</small>}<small>{fuelLabels[fuel] || fuel}</small></TableCell>
+          <TableCell className="whitespace-normal">{ps} PS · {kw} kW{cc > 0 && <small>{cc} cm³</small>}</TableCell>
+          <TableCell className="whitespace-normal">{from} – {to || "Bitiş belirtilmemiş"}</TableCell>
+          <TableCell>{typeId ? <span className="text-[11px] whitespace-nowrap text-[#26734d]" title={`Araç tipi: ${typeId}`}>Kataloğa bağlı</span> : <span className="text-[11px] whitespace-nowrap text-[#68778a]">Kaynak kaydı</span>}</TableCell>
+        </TableRow>;
+        })}
+      </TableBody></Table>}
+  </div>;
 }
