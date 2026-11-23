@@ -646,26 +646,52 @@ describe("availability filter (#1242)", () => {
     }
   });
 
-  test("'Stokta' lists a group whose primary is sold out by its stocked offer; the offer is never its own card", async () => {
-    const { invalidateListings } = await import("../src/modules/store/listing-epoch");
-    await item("grpPrimary", { supplier: "basbug", code: "GRP 7777", brand: "GRUPTEST", stock: 0 });
-    await item("grpOffer", { supplier: "dinamik", code: "GRUPTEST 7777", brand: "GRUPTEST", stock: 4 });
-    await schema.pool.query("INSERT INTO products(id,brand,part_number,name,brand_label,code) VALUES($1,'GRUPTEST','7777','PARCA','GRUPTEST','GRP 7777')", [ids.grpPrimary]);
-    await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($2,$1)", [ids.grpPrimary, ids.grpOffer]);
+  // Groups of a Başbuğ primary and a Dinamik offer (product_offers) under the GRUPTEST brand, created once by whichever
+  // test needs them first: sold out with a stocked offer, sold out with a sold-out offer, and unknown stock (no stock
+  // document) with a sold-out offer.
+  let groupsReady: Promise<void> | undefined;
+  const groups = () => groupsReady ??= (async () => {
+    const fixtures = [["grpPrimary", "grpOffer", "7777", 0, 4], ["grpZeroPrimary", "grpZeroOffer", "7778", 0, 0],
+      ["grpUnknownPrimary", "grpUnknownOffer", "7779", null, 0]] as const;
+    for (const [primary, offer, number, primaryStock, offerStock] of fixtures) {
+      await item(primary, { supplier: "basbug", code: `GRP ${number}`, brand: "GRUPTEST", stock: primaryStock });
+      await item(offer, { supplier: "dinamik", code: `GRUPTEST ${number}`, brand: "GRUPTEST", stock: offerStock });
+      await schema.pool.query("INSERT INTO products(id,brand,part_number,name,brand_label,code) VALUES($1,'GRUPTEST',$2,'PARCA','GRUPTEST',$3)",
+        [ids[primary], number, `GRP ${number}`]);
+      await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($2,$1)", [ids[primary], ids[offer]]);
+    }
     await schema.pool.query("SELECT refresh_product_matches()");
-    const primary = (await schema.pool.query<{ primary_id: string }>("SELECT primary_id::text FROM product_offers WHERE item_id=$1", [ids.grpOffer])).rows[0]?.primary_id;
-    assert.equal(primary, ids.grpPrimary);
+    const { rows } = await schema.pool.query<{ item_id: string; primary_id: string }>(
+      "SELECT item_id::text,primary_id::text FROM product_offers WHERE item_id=ANY($1::uuid[])", [fixtures.map(([, offer]) => ids[offer])]);
+    assert.deepEqual(new Map(rows.map(row => [row.item_id, row.primary_id])), new Map(fixtures.map(([primary, offer]) => [ids[offer], ids[primary]])));
+    const { invalidateListings } = await import("../src/modules/store/listing-epoch");
     await invalidateListings();
-    const listed = async (availability: "in_stock" | "out_of_stock") =>
-      (await catalog.browseProducts({ brand: "GRUPTEST", availability })).items.map(row => row.id);
-    assert.deepEqual(await listed("in_stock"), [ids.grpPrimary]);
-    assert.ok(!(await listed("out_of_stock")).includes(ids.grpOffer));
+  })();
+  const groupListing = async (availability: "in_stock" | "out_of_stock") =>
+    (await catalog.browseProducts({ brand: "GRUPTEST", availability })).items.map(row => row.id);
+
+  test("'Stokta' lists a group whose primary is sold out by its stocked offer; the offer is never its own card", async () => {
+    await groups();
+    assert.deepEqual(await groupListing("in_stock"), [ids.grpPrimary]);
+    assert.ok(!(await groupListing("out_of_stock")).includes(ids.grpOffer));
     // The primary's own row says "Stokta yok", but the card is sold through its offer (#1342).
-    assert.ok(!(await listed("out_of_stock")).includes(ids.grpPrimary));
+    assert.ok(!(await groupListing("out_of_stock")).includes(ids.grpPrimary));
+  });
+
+  test("'Stokta yok' lists a group none of whose offers can be sold; an unknown-stock primary is in neither (#1342)", async () => {
+    await groups();
+    const [inStock, outOfStock] = [await groupListing("in_stock"), await groupListing("out_of_stock")];
+    assert.ok(outOfStock.includes(ids.grpZeroPrimary) && !inStock.includes(ids.grpZeroPrimary));
+    assert.ok(!outOfStock.includes(ids.grpUnknownPrimary) && !inStock.includes(ids.grpUnknownPrimary));
+    // The sold-out offers are in the function's "Stokta yok" rows, but an offer is never its own card.
+    assert.ok(!outOfStock.includes(ids.grpZeroOffer) && !outOfStock.includes(ids.grpUnknownOffer));
+    const card = (await catalog.browseProducts({ brand: "GRUPTEST" })).items.find(row => row.id === ids.grpUnknownPrimary);
+    assert.equal(card?.stock_label, "Stok bilgisi bulunamadı");
   });
 
   // A card is in at most one of "Stokta" and "Stokta yok"; unknown-stock and unsupplied cards are in neither (#1342).
   test("availability filters partition the listing (#1342)", async () => {
+    await groups();
     const { invalidateListings } = await import("../src/modules/store/listing-epoch");
     await invalidateListings();
     for (const brand of ["AVTEST", "GRUPTEST"]) {
@@ -726,6 +752,8 @@ describe("availability filter (#1242)", () => {
     assert.match(clause, /catalog\.id IN \(SELECT id FROM commerce_out_of_stock_ids\(\$1::text\[\]\) id WHERE id NOT IN \(/);
     assert.doesNotMatch(clause, /stock_label='Stokta yok'/);
     assert.match(clause, /inStockIdsSql/);
+    // The NOT IN stays a hashed SubPlan only within work_mem: its reads ask for more than the session default (#1342).
+    assert.match(clause, /workMem="\d+MB"/);
     assert.doesNotMatch(clause, /catalogSql|commerce_catalog/);
     assert.match(source, /const inStockIdsSql=`SELECT COALESCE\(o\.primary_id,a\.id\) FROM \(\$\{availabilitySql\}\) a /);
     assert.match(source, /export const availabilitySql = "SELECT \* FROM commerce_item_availability /);
