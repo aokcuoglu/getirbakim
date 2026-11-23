@@ -1,5 +1,5 @@
 import "server-only";
-import type { PoolClient } from "pg";
+import type { PoolClient, QueryResultRow } from "pg";
 import { boundedQuery, db, preparedQuery } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
@@ -55,6 +55,8 @@ export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' O
 // Only id, available and stock_label of the same rows, without the pricing joins (db/commerce.sql, #1242): the listing's
 // availability filter.
 export const availabilitySql = "SELECT * FROM commerce_item_availability WHERE source='store' OR company=ANY($1::text[])";
+/** The cards that can be sold now: a row, or the primary of a group one of whose offers is available. */
+const inStockIdsSql=`SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available`;
 // The store's listing, search and product page also show products nobody supplies now (`unavailable`, #475); cart,
 // checkout, partner API and maintenance kits keep reading the saleable catalogSql.
 export const storefrontCatalogSql = "SELECT * FROM storefront_catalog WHERE source='store' OR company=ANY($1::text[])";
@@ -626,15 +628,38 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))::uuid[])`);
  }
  // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
+ // Out of stock: the card's own row says "Stokta yok" and none of its grouped offers can be sold, so a card is never in
+ // both filters, and unknown-stock or unsupplied cards are in neither (#1342; locally 25,018 cards were in both).
  // Both read the lean availability view, not commerce_catalog's priced rows a second time (#1242). Out of stock reads it
  // through commerce_out_of_stock_ids (db/commerce.sql), whose declared size keeps deep pages off a nested loop (#1286).
+ // The in-stock exclusion sits inside that subquery, a hashed SubPlan on the Function Scan the catalog hash-joins (page 49:
+ // ~0.85 s -> ~1.1 s); NOT IN at the top level filters the catalog scan itself and serialises it (~1.6 s), and EXCEPT
+ // took ~60 s. The planner hashes the NOT IN only while the in-stock ids' estimate (~40 B a row) fits work_mem x
+ // hash_mem_multiplier: locally ~189k rows, 7.6 MB against the default 4 MB x 2, hashed at 3750 kB but a per-row SubPlan
+ // at 3600 kB (estimated cost 8e10, a hang). Its reads therefore run bounded with 32 MB (listingQuery): room for ~1.6M
+ // estimated rows, where the session default would leave ~200k locally and ~800k on production's 16 MB.
+ // Pushed as clauses, not idSet: availability stays out of pricedScope's id-set count (#1335).
+ let workMem:string|undefined;
  if(query.availability==='supplied')clauses.push('NOT catalog.unavailable');
- else if(query.availability)clauses.push(query.availability==='in_stock'
-  ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
-  :`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id)`);
+ else if(query.availability==='in_stock')clauses.push(`catalog.id IN (${inStockIdsSql})`);
+ else if(query.availability){
+  clauses.push(`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id WHERE id NOT IN (${inStockIdsSql}))`);
+  workMem="32MB";
+ }
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
- return {values,where,from,search,idSets};
+ return {values,where,from,search,idSets,workMem};
+}
+/**
+ * A read of a catalogFilter listing: a plain statement, or, when the filter asks for more work_mem than the session's
+ * (out of stock, #1342), a bounded one with that work_mem and boundedQuery's time limit.
+ */
+function listingQuery<T extends QueryResultRow>({workMem}:{workMem?:string},label:string,sql:string,values:unknown[]){
+ return workMem?boundedQuery<T>(label,sql,values,30_000,{workMem}):db.query<T>(sql,values);
+}
+/** The listing's product count, as the count caches keep it. */
+async function countListing(listing:{values:unknown[];from:string;workMem?:string},key:string){
+ return Number((await listingQuery<{count:string}>(listing,`catalog.listingCount ${key}`,`SELECT count(*) ${listing.from}`,listing.values)).rows[0].count);
 }
 // Listings without a search scan the whole 320k-row catalog for counts, facets and the date order
 // (~0.5-1.5 s each on the VPS). Those change only with supplier syncs, so they are served from a
@@ -791,11 +816,12 @@ const pricedByIdsMax=50_000;
  * The ids travel as one array literal, never as rows: 50k row objects and their bound array added ~8 MB heap and ~34 MB
  * RSS per call, paid by every live page beyond the cached ones (#1262 ran out of memory). Null when the listing has no
  * rows: there is nothing to price. `total` may be as old as the count cache; it only picks the statement, both read the
- * same rows.
+ * same rows. `workMem` stays with the filter's clause (listingQuery); the id array needs none.
  */
-async function pricedScope(total:number,{values,where,from,idSets}:{values:unknown[];where:string;from:string;idSets:number},label:string){
- if(total>pricedByIdsMax||idSets<2)return {where,values};
- const ids=(await boundedQuery<{ids:string|null}>(`catalog.pricedListedIds ${label}`,`SELECT array_agg(catalog.id)::text AS ids ${from}`,values)).rows[0]?.ids;
+async function pricedScope(total:number,{values,where,from,idSets,workMem}:{values:unknown[];where:string;from:string;idSets:number;workMem?:string},
+ label:string):Promise<{where:string;values:unknown[];workMem?:string}|null>{
+ if(total>pricedByIdsMax||idSets<2)return {where,values,workMem};
+ const ids=(await boundedQuery<{ids:string|null}>(`catalog.pricedListedIds ${label}`,`SELECT array_agg(catalog.id)::text AS ids ${from}`,values,30_000,{workMem})).rows[0]?.ids;
  return ids?{where:"WHERE catalog.id=ANY($2::uuid[])",values:[values[0],ids]}:null;
 }
 /**
@@ -803,11 +829,8 @@ async function pricedScope(total:number,{values,where,from,idSets}:{values:unkno
  * pages' metadata and their 404 and index rules read it before the page renders.
  */
 export function listingTotal(query:CatalogQuery,context:CatalogContext={}){
- const scope={...query,q:undefined};
- return countCache(query)(filterKey(query,context),async()=>{
-  const {values,from}=await catalogFilter(scope,context);
-  return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
- },{persist:persistable(scope)});
+ const scope={...query,q:undefined},key=filterKey(query,context);
+ return countCache(query)(key,async()=>countListing(await catalogFilter(scope,context),key),{persist:persistable(scope)});
 }
 /** `limit`: read only the first `limit` cards of the page (vehicleLead); counts, pages and cached page ids stay the page's. */
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={},{limit=catalogPageSize}:{limit?:number}={}){
@@ -823,7 +846,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  }
  // Without a search the filter is built only when a cache misses; a search always needs it (its matches).
  const filter=lazyFilter(query,context),search=query.q?.trim()?(await filter()).search:undefined;
- const count=async()=>{const {values,from}=await filter();return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);};
+ const count=async()=>countListing(await filter(),filterKey(query,context));
  const total = search ? await count() : await countCache(query)(filterKey(query,context),count,{persist:persistable(query)});
  const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize)), take = Math.min(pageSize,Math.max(1,Number.isFinite(limit)?Math.trunc(limit):pageSize));
  const requested = Number(query.page);
@@ -832,7 +855,8 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const order=query.sort === "price-asc" ? "unavailable,price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "unavailable,price_kurus DESC NULLS LAST,id" : "unavailable,updated_at DESC,id";
  const pricedSort = query.sort === "price-asc" || query.sort === "price-desc";
  if(!search&&!pricedSort){
-  const ids=await pageIdCache(query)(`${filterKey(query,context)}|${page}`,async()=>{const {values,from}=await filter();return (await db.query<{id:string}>(
+  const key=`${filterKey(query,context)}|${page}`;
+  const ids=await pageIdCache(query)(key,async()=>{const listing=await filter(),{values,from}=listing;return (await listingQuery<{id:string}>(listing,`catalog.listingPageIds ${key}`,
    `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id);},
    {persist:persistablePage(query,page)});
   const items=await storefrontRowsByIds(ids.slice(0,take));
@@ -864,11 +888,11 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  if(!scope)return {items:[],total,page,pages,pageSize};
  const pageValues=[...scope.values],bind=binder(pageValues);
  const rank=search&&(query.sort??"relevance")==="relevance"?catalogRank("catalog",search.parsed,bind):"0";
- const offset=bind((page-1)*pageSize);
+ const offset=bind((page-1)*pageSize),label=`catalog.listingPage ${filterKey(query,context)}|${query.sort??""}|${page}`;
  // The page's ids first, then its cards by id array (storefrontRowsByIds, #1135).
  const items = pricedSort
-  ? (await db.query<CatalogProduct>(`SELECT * FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`, pageValues)).rows
-  : await storefrontRowsByIds((await db.query<{id:string}>(`SELECT id::text FROM (SELECT id,updated_at,unavailable,${rank} AS rank ${from}
+  ? (await listingQuery<CatalogProduct>(scope,label,`SELECT * FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`, pageValues)).rows
+  : await storefrontRowsByIds((await listingQuery<{id:string}>(scope,label,`SELECT id::text FROM (SELECT id,updated_at,unavailable,${rank} AS rank ${from}
      ORDER BY unavailable,rank DESC,${order} LIMIT ${take} OFFSET ${offset}) page`, pageValues)).rows.map(row=>row.id));
  return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
 }
@@ -921,7 +945,7 @@ export async function catalogBrands() {
 export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
  const scope:CatalogQuery={...query,fits:'vehicle',page:undefined},context={vehicleTypeId};
  const filter=lazyFilter(scope,context),search=scope.q?.trim()?(await filter()).search:undefined;
- const count=async()=>{const {values,from}=await filter();return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);};
+ const count=async()=>countListing(await filter(),filterKey(scope,context));
  return search ? count() : countCache(scope)(filterKey(scope,context),count,{persist:persistable(scope)});
 }
 /**
