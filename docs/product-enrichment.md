@@ -224,7 +224,7 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
 | `product_vehicle_fitments` | AWS'de türetilir | `scripts/rebuild-product-fitments.ts --items`: paketin yazdığı ürünler + eski `matcher_version`'lı satırlar (#561) |
 | `product_override_fitments` | Aktarılmaz | Yöneticinin araç uyumu kararları (#583) AWS panelinde yönetilir; `products.id` ortama özgüdür. Yeniden kurulum yalnız `product_vehicle_fitments`'ı yazar, kararlar kalır |
 | `product_override_fitment_hides` | Aktarılmaz | Yöneticinin mağazadan çıkardığı bağlanmamış kaynak satırları ve modeller (#661); kararlar gibi AWS panelinde yönetilir |
-| `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş); yalnız değişen satırlar yazılır, değişmeyenin `derived_at`'i korunur (#798) — bu sürümden eski bir release ile AWS'de derive koşulmaz |
+| `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş, aşağıda); yalnız değişen satırlar yazılır, değişmeyenin `derived_at`'i korunur (#798) — bu sürümden eski bir release ile AWS'de derive koşulmaz |
 | `vehicle_type_oil_specs` | Aktarılmaz | `data/vehicle_type_oil_specs.csv` + `npm run db:vehicle-oils` |
 | `vehicle_type_trodo_oils`, `product_enrichment_sources` | Aktarılmaz | Yerel kalır |
 | `product_enrichment_tombstones` (#564) | Pakette, son 90 gün her seferinde, part-00'da | Yerelde silinen/geçersizleşen zenginleştirmelerin günlüğü; canlıda yalnız `enrichment_deleted` uygulanır, `job_invalidated` sayılır. Tablo her ortamda kendi silmelerini de günlükler; 90 günden eski satırlar dışa aktarımdan ve `--apply`'dan sonra silinir |
@@ -232,6 +232,16 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
 İş durumlarının doğruluk kaynağı yereldir: paketteki ürünlerin canlıdaki `product_enrichment_jobs` durumu (ve `supplier_code`, `supplier_brand`, `candidate_url`) paketteki değerle ezilir; canlıda o ürün için başka bir durum yazılmışsa korunmaz.
 
 `enrichment-categories.ts backfill` `imported_at`'i yalnız kategoriler gerçekten değiştiğinde ilerletir; böylece bir backfill tüm Trodo zenginleştirmelerini yeniden göndermez.
+
+#### AWS'de açıklama uyumluluğu görevi (#562)
+
+`product_model_fitments` canlıda yalnız canlının kendi türetmesiyle güncellenir. Görev, `PRODUCTION_DESCRIPTION_FITMENTS_ENABLED` açıkken (varsayılan kapalı) her gün 06:15'te (İstanbul) `node --import tsx scripts/description-fitments.ts derive` koşar; komut sunucuya özel modül içermez, `--conditions=react-server` gerekmez. Elle koşmak için getirbakim-infra'dan:
+
+```bash
+./scripts/run-task.sh production -- node --import tsx scripts/description-fitments.ts derive --dry-run
+```
+
+Çıktı tek satır JSON'dur (`job`, `status`, `seconds`, `items`, `rows`, `existing`, `written`). Çıkış kodları: `0` tamam, `1` hata, `2` koruma reddetti, `3` başka bir derive kilidi tutuyor (`pg_try_advisory_xact_lock(20261106,1)`), `64` hatalı kullanım. Koruma yazmadan önce durdurur: araç model kataloğu boşsa, okunacak Dinamik ürünü yoksa, ya da tabloda en az 1000 satır varken türetme saklı satırların %70'inden azını veriyorsa veya %10'undan fazlasını siliyorsa (yeni satırlar toplamı korusa da; yarım kalmış bir Dinamik durumu tabloyu boşaltmasın). Daralma ya da silme gerçekten bekleniyorsa fark incelendikten sonra bir kez `--allow-shrink` ile koşulur. `--dry-run` aynı farkı (`diff`: `inserted`/`updated`/`deleted`/`unchanged`) geri alınan bir işlemde hesaplar; silme korumasına takılan koşu da farkı inceleme için yazar. İşlem `lock_timeout=10s`, `statement_timeout=15min` ile sınırlıdır. Canlıda 30 günü aşkın süredir koşmadığı için ilk koşu önce `--dry-run` olur; silme payı büyük olacağından (yerelde 1,37 milyon satırın ~%21'i) gerçek koşu büyük olasılıkla dry-run farkı incelendikten sonra yoğun olmayan bir saatte `--allow-shrink` ister. Büyük bir koşu `product_model_fitments` tetikleyicileriyle 20.000'den fazla bağlantı senkronu satırı kuyruğa yazar: arka plan senkronu paylaşım bağlantılarını tümden yeniden kurar (~10–20 sn, okuyanlar bu sürede eski satırları görür) ve liste sayacını ilerletir. Büyük bir fark IndexNow'da gün başına `INDEXNOW_MAX_URLS` (varsayılan 50.000) ile birkaç güne yayılır.
 
 #### Silinen/geçersizleşen zenginleştirmeler (#564)
 
