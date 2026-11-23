@@ -224,7 +224,7 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
 | `product_vehicle_fitments` | AWS'de türetilir | `scripts/rebuild-product-fitments.ts --items`: paketin yazdığı ürünler + eski `matcher_version`'lı satırlar (#561) |
 | `product_override_fitments` | Aktarılmaz | Yöneticinin araç uyumu kararları (#583) AWS panelinde yönetilir; `products.id` ortama özgüdür. Yeniden kurulum yalnız `product_vehicle_fitments`'ı yazar, kararlar kalır |
 | `product_override_fitment_hides` | Aktarılmaz | Yöneticinin mağazadan çıkardığı bağlanmamış kaynak satırları ve modeller (#661); kararlar gibi AWS panelinde yönetilir |
-| `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş); yalnız değişen satırlar yazılır, değişmeyenin `derived_at`'i korunur (#798) — bu sürümden eski bir release ile AWS'de derive koşulmaz |
+| `product_model_fitments` | AWS'de türetilir, aktarım başına değil | Canlının kendi Dinamik `supplier_items`'ından `description-fitments` derive (ayrı iş, aşağıda); yalnız değişen satırlar yazılır, değişmeyenin `derived_at`'i korunur (#798) — bu sürümden eski bir release ile AWS'de derive koşulmaz |
 | `vehicle_type_oil_specs` | Aktarılmaz | `data/vehicle_type_oil_specs.csv` + `npm run db:vehicle-oils` |
 | `vehicle_type_trodo_oils`, `product_enrichment_sources` | Aktarılmaz | Yerel kalır |
 | `product_enrichment_tombstones` (#564) | Pakette, son 90 gün her seferinde, part-00'da | Yerelde silinen/geçersizleşen zenginleştirmelerin günlüğü; canlıda yalnız `enrichment_deleted` uygulanır, `job_invalidated` sayılır. Tablo her ortamda kendi silmelerini de günlükler; 90 günden eski satırlar dışa aktarımdan ve `--apply`'dan sonra silinir |
@@ -232,6 +232,16 @@ Zenginleştirme işçileri (Trodo, otoparcasan, spareto, parts2world) yerelde ç
 İş durumlarının doğruluk kaynağı yereldir: paketteki ürünlerin canlıdaki `product_enrichment_jobs` durumu (ve `supplier_code`, `supplier_brand`, `candidate_url`) paketteki değerle ezilir; canlıda o ürün için başka bir durum yazılmışsa korunmaz.
 
 `enrichment-categories.ts backfill` `imported_at`'i yalnız kategoriler gerçekten değiştiğinde ilerletir; böylece bir backfill tüm Trodo zenginleştirmelerini yeniden göndermez.
+
+#### AWS'de açıklama uyumluluğu görevi (#562)
+
+`product_model_fitments` canlıda yalnız canlının kendi türetmesiyle güncellenir. Görev, `PRODUCTION_DESCRIPTION_FITMENTS_ENABLED` açıkken (varsayılan kapalı) her gün 06:15'te (İstanbul) `node --import tsx scripts/description-fitments.ts derive` koşar; komut sunucuya özel modül içermez, `--conditions=react-server` gerekmez. Elle koşmak için getirbakim-infra'dan:
+
+```bash
+./scripts/run-task.sh production -- node --import tsx scripts/description-fitments.ts derive --dry-run
+```
+
+Çıktı tek satır JSON'dur (`job`, `status`, `seconds`, `items`, `rows`, `existing`, `written`). Çıkış kodları: `0` tamam, `1` hata, `2` koruma reddetti, `3` başka bir derive kilidi tutuyor (`pg_try_advisory_xact_lock(20261106,1)`), `64` hatalı kullanım. Koruma yazmadan önce durdurur: araç model kataloğu boşsa, okunacak Dinamik ürünü yoksa, ya da tabloda en az 1000 satır varken türetme saklı satırların %70'inden azını veriyorsa veya %10'undan fazlasını siliyorsa (yeni satırlar toplamı korusa da; yarım kalmış bir Dinamik durumu tabloyu boşaltmasın). Daralma ya da silme gerçekten bekleniyorsa fark incelendikten sonra bir kez `--allow-shrink` ile koşulur. `--dry-run` aynı farkı (`diff`: `inserted`/`updated`/`deleted`/`unchanged`) geri alınan bir işlemde hesaplar; silme korumasına takılan koşu da farkı inceleme için yazar. İşlem `lock_timeout=10s`, `statement_timeout=15min` ile sınırlıdır. Canlıda 30 günü aşkın süredir koşmadığı için ilk koşu önce `--dry-run` olur; silme payı büyük olacağından (yerelde 1,37 milyon satırın ~%21'i) gerçek koşu büyük olasılıkla dry-run farkı incelendikten sonra yoğun olmayan bir saatte `--allow-shrink` ister. Büyük bir koşu `product_model_fitments` tetikleyicileriyle 20.000'den fazla bağlantı senkronu satırı kuyruğa yazar: arka plan senkronu paylaşım bağlantılarını tümden yeniden kurar (~10–20 sn, okuyanlar bu sürede eski satırları görür) ve liste sayacını ilerletir. Büyük bir fark IndexNow'da gün başına `INDEXNOW_MAX_URLS` (varsayılan 50.000) ile birkaç güne yayılır.
 
 #### Silinen/geçersizleşen zenginleştirmeler (#564)
 
@@ -400,11 +410,35 @@ eşlenmeden kalır. Bilinçli olarak eklenmeyenler (tip adı altında karışık
 - `bulb-fog-light`: 14 üründen en az 6'sı H4 far ampulü.
 - `mounting-stabilizer-coupling-rod`: 18 üründen ~11'i stabilizatör burcu, yalnız 4'ü gerçek z-rot.
 - `trim-protection-strip-wing`: 6 üründen 4'ü FAST basamak/tampon parçası.
+- `goods-to-assign`: spareto'nun "atanacak ürün" yer tutucusu, parça tipi değil.
+- #1299'da bakılıp eklenmeyenler:
+  - Karışık ürünler: `cylinder-head` (silindir kapağı, kapak contası ve üst takım conta), `repair-kit-manual-transmission`
+    (çoğu şanzıman rulmanı, bir kısmı vites mekanizması), `spring-seat` (amortisör takozu, yay tablası, get lastiği),
+    `repair-kit-control-arm` (salıncak, denge kolu, tamir takımı), `link-set-wheel-suspension`, `tie-bar-bush`
+    (viraj demiri ve salıncak burcu, braket), `mounting-transfer-case` (motor/şanzıman takozu, diferansiyel burcu),
+    `engine-cover` (motor üst kapağı ve alt muhafaza), `trim-protective-strip-bumper` (tampon bandı, panel köşesi,
+    çamurluk bakaliti), `gear-lever-gaiter` (körük ve topuz), `cap-radiator` (radyatör ve yedek su deposu kapağı),
+    `gasket-housing-cover-crankcase` (yan kapak ve yağ pompası contası), `bearing-wheel-bearing-housing` (adı
+    rulman yuvası, ürünler salıncak/torsiyon burcu), `solenoid-valve` ve `solenoid-valve-shift-cylinder` (şanzıman,
+    dorse, motor freni valfleri), `multifunctional-relay`, `relay-main-current` (röleler; tek bir kategori yok).
+  - Trodo'da uygun kategori yok: `control-unit-glow-time` (kızdırma rölesi), `switch-unit-ignition-system` (ateşleme
+    modülü), `lift-point-pad-jack` (kriko takozu), `low-temperature-cooler-charge-air-cooler` (turbo devresi su
+    radyatörü), `valve-spring`, `panelling-mudguard` (çamurluk davlumbazı; `mudguard` paçalık),
+    `oil-jet-piston-underside-cooling` (piston yağlama memesi), `air-dryer-cartridge-compressed-air-system` (ağır
+    vasıta hava kurutucu; Klima kurutucuları değil).
+  - Konumu belli olmayan ampuller (`bulb-cornering-light`, `bulb-interior-light`, `bulb-boot-interior-light`,
+    `bulb-auxiliary-stop-light`): Trodo'da yalnız far, sis ve sinyal ampulü kategorileri var.
 
 **Ölçüm (17 Kasım 2026, yerel, yalnız okuma):** başlangıç listesi 93 kayıt (33 takma ad, 60 elle). spareto 36.908
 kaydın eşlenen payı %92,7 → %96,4 (öğrenilmiş 34.225 → 34.406, küratörlü 1.188; eşleşmeyen 2.596 → 1.312; tipsiz
 87 → 2, marka ön ekleri sayesinde). parts2world tipli kayıtlarda %91,5 → %96,4 (1.437 tipli kaydın 70'i küratörlü),
 saklanan makale adlarında %90,2 → %95,9 (1.091 makalenin 62'si; `fetch-types` sürerken).
+
+**#1299 genişletmesi (22 Kasım 2026, yerel, `backfill-types --dry-run`):** 102 kayıt eklendi (57 takma ad, 45 elle;
+liste 195 kayıt). spareto: eşlenen 53.435 → 53.866, küratörlü 1.626 → 1.997, eşleşmeyen tip 784 → 736, değişecek
+kayıt 370. parts2world: eşlenen 91.236 → 94.675, küratörlü 4.125 → 7.297, eşleşmeyen tip 584 → 505, değişecek kayıt
+3.162. `water-recirculation-pump-parking-heater` Trodo'nun `water-pump-parking-heater` (Park ısıtıcıları) tipine
+bağlanmadı: 54 ürünün hepsi motorun ilave su pompası, bu yüzden Su pompaları.
 
 **Operasyon:** canlıda komut yok (liste koddadır). Yerelde birleştirmeden sonra, son sürüme kadar bekletmeli:
 `check-aliases` → `backfill-types --source spareto --hold` ve `backfill-types --source parts2world --hold`; yayın

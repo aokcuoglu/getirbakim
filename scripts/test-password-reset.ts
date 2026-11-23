@@ -27,6 +27,8 @@ mock.module("next/navigation", { namedExports: { redirect: (to: string) => { thr
 mock.module("next/server", { namedExports: { NextRequest, NextResponse, after: (callback: () => Promise<unknown>) => { afterCallbacks.push(callback); } } });
 // No mail provider: sendMail skips, so the action's background send only issues the token.
 delete process.env.MAIL_TRANSPORT;
+// Password reset is on unless a test turns account e-mail off (#1303), whatever .env.local says.
+process.env.ACCOUNT_EMAIL = "on";
 
 const password = "yeni-ve-uzun-şifre-42";
 const sentMessage = "Bu adrese kayıtlı bir hesap varsa şifre yenileme bağlantısını gönderdik. Bağlantı 60 dakika geçerlidir; gelen kutunu ve spam klasörünü kontrol et.";
@@ -262,4 +264,27 @@ test("an unusable e-mail link lands on ?durum=gecersiz and clears the reset cook
     assert.match(cookie, /Path=\/sifre-yenile(;|$)/);
     assert.match(cookie, /Max-Age=0/);
   }
+});
+
+test("with account e-mail off reset is refused and its link and form leave the token and password alone (#1303)", async () => {
+  const closed = "Bu işlem şu anda kullanılamıyor. Destek için bizimle iletişime geç.";
+  const id = await createAccount("closed@example.invalid");
+  const token = await tokens.issueAccountToken(schema.pool, id, "password_reset", 60);
+  const hashOf = async () => (await schema.pool.query<{ password_hash: string }>("SELECT password_hash FROM accounts WHERE id=$1", [id])).rows[0].password_hash;
+  process.env.ACCOUNT_EMAIL = "off";
+  try {
+    assert.deepEqual(await actions.requestPasswordReset(initialResetState, form({ email: "closed@example.invalid" })), { status: "error", message: closed, attempt: 1 });
+    assert.equal(afterCallbacks.length, 0);
+    assert.equal((await schema.pool.query("SELECT 1 FROM service_application_attempts")).rowCount, 0);
+    cookieStore.set("gb_reset", token);
+    assert.equal(await redirected(actions.resetPassword(initialResetState, form({ newPassword: password, confirmPassword: password }))), "/giris");
+    assert.equal(cookieStore.get("gb_reset"), token);
+    const response = await openLink(`?t=${token}`);
+    assertSeeOther(response, `${siteUrl}/giris`);
+    assert.equal(response.headers.get("set-cookie"), null);
+  } finally {
+    process.env.ACCOUNT_EMAIL = "on";
+  }
+  assert.deepEqual((await tokenRows(id)).map(row => row.token_hash), [sha(token)]);
+  assert.equal(await hashOf(), "eski-hash");
 });

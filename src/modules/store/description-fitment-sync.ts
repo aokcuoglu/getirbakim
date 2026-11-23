@@ -12,8 +12,8 @@ import type { PoolClient } from "pg";
 export type DescriptionFitmentRow = { supplier_item_id: string; model_id: number; year_from: number | null; year_to: number | null; source_text: string };
 export type DescriptionFitmentWriteResult = { inserted: number; updated: number; deleted: number; unchanged: number };
 
-/** Replaces product_model_fitments with `rows` in the caller's transaction, writing only what changed. */
-export async function writeDescriptionFitments(client: PoolClient, rows: DescriptionFitmentRow[]): Promise<DescriptionFitmentWriteResult> {
+/** Loads `rows` into the transaction's temp table description_fitments_next, the input of the diff and the write. */
+export async function loadDescriptionFitmentsNext(client: PoolClient, rows: DescriptionFitmentRow[]) {
   await client.query("DROP TABLE IF EXISTS pg_temp.description_fitments_next");
   await client.query(`CREATE TEMP TABLE description_fitments_next(supplier_item_id uuid NOT NULL,model_id integer NOT NULL,
     year_from integer,year_to integer,source_text text NOT NULL) ON COMMIT DROP`);
@@ -24,6 +24,26 @@ export async function writeDescriptionFitments(client: PoolClient, rows: Descrip
   await client.query("CREATE UNIQUE INDEX ON description_fitments_next(supplier_item_id,model_id)");
   // Temp tables are never autoanalyzed; without statistics the joins below fall back to nested loops over every fitment.
   await client.query("ANALYZE description_fitments_next");
+}
+
+/** What writeDescriptionFitments would write for the loaded description_fitments_next, counted without writing. */
+export async function diffDescriptionFitments(client: PoolClient): Promise<DescriptionFitmentWriteResult> {
+  return (await client.query<DescriptionFitmentWriteResult>(`SELECT count(*) FILTER (WHERE o.supplier_item_id IS NULL)::int AS inserted,
+    count(*) FILTER (WHERE o.supplier_item_id IS NOT NULL AND (o.year_from,o.year_to,o.source_text) IS DISTINCT FROM (n.year_from,n.year_to,n.source_text))::int AS updated,
+    (SELECT count(*) FROM product_model_fitments f WHERE NOT EXISTS(SELECT 1 FROM description_fitments_next x
+      WHERE x.supplier_item_id=f.supplier_item_id AND x.model_id=f.model_id))::int AS deleted,
+    count(*) FILTER (WHERE o.supplier_item_id IS NOT NULL AND (o.year_from,o.year_to,o.source_text) IS NOT DISTINCT FROM (n.year_from,n.year_to,n.source_text))::int AS unchanged
+    FROM description_fitments_next n LEFT JOIN product_model_fitments o ON o.supplier_item_id=n.supplier_item_id AND o.model_id=n.model_id`)).rows[0];
+}
+
+/** Replaces product_model_fitments with `rows` in the caller's transaction, writing only what changed. */
+export async function writeDescriptionFitments(client: PoolClient, rows: DescriptionFitmentRow[]): Promise<DescriptionFitmentWriteResult> {
+  await loadDescriptionFitmentsNext(client, rows);
+  return applyDescriptionFitmentsNext(client, rows.length);
+}
+
+/** writeDescriptionFitments for an already loaded description_fitments_next holding `count` rows. */
+export async function applyDescriptionFitmentsNext(client: PoolClient, count: number): Promise<DescriptionFitmentWriteResult> {
   // The UPDATE sees the rows as they were before the DELETE; the EXISTS keeps the two row sets disjoint (kept vs deleted).
   const { deleted } = (await client.query<{ deleted: number }>(`WITH d AS (
     DELETE FROM product_model_fitments f WHERE NOT EXISTS(SELECT 1 FROM description_fitments_next n
@@ -42,5 +62,5 @@ export async function writeDescriptionFitments(client: PoolClient, rows: Descrip
      WHERE (f.year_from,f.year_to,f.source_text) IS DISTINCT FROM (EXCLUDED.year_from,EXCLUDED.year_to,EXCLUDED.source_text)
     RETURNING (xmax=0) AS inserted)
     SELECT count(*) FILTER (WHERE inserted)::int AS inserted,count(*) FILTER (WHERE NOT inserted)::int AS updated FROM w`)).rows[0];
-  return { inserted: written.inserted, updated: written.updated, deleted, unchanged: rows.length - written.inserted - written.updated };
+  return { inserted: written.inserted, updated: written.updated, deleted, unchanged: count - written.inserted - written.updated };
 }

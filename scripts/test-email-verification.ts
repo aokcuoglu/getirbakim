@@ -29,6 +29,8 @@ mock.module("next/navigation", { namedExports: { redirect: (to: string) => { thr
 mock.module("next/server", { namedExports: { ...nextServer, after: (callback: () => Promise<unknown>) => { afterCallbacks.push(callback); } } });
 // No mail provider: sendMail skips and, outside production, logs the verification link.
 delete process.env.MAIL_TRANSPORT;
+// Verification is on unless a test turns account e-mail off (#1303), whatever .env.local says.
+process.env.ACCOUNT_EMAIL = "on";
 
 const password = "dogru-at-pil-zımba";
 const resendMessage = "Bu adres doğrulama bekliyorsa yeni bir doğrulama bağlantısı gönderdik. Bağlantı 24 saat geçerlidir; gelen kutunu ve spam klasörünü kontrol et.";
@@ -374,4 +376,27 @@ test("a password reset verifies an unverified signup and deletes its verificatio
   assert.ok((await account("reset@example.invalid")).email_verified_at instanceof Date);
   assert.deepEqual(await tokenRows(created.id), []);
   assert.equal(await verification.emailVerificationTarget(token), null);
+});
+
+test("with account e-mail off resend is refused and the link and form leave the address unverified (#1303)", async () => {
+  const closed = "Bu işlem şu anda kullanılamıyor. Destek için bizimle iletişime geç.";
+  const id = await createAccount("closed@example.invalid", { verified: false });
+  const token = await tokens.issueAccountToken(schema.pool, id, "email_verification", 24 * 60);
+  process.env.ACCOUNT_EMAIL = "off";
+  try {
+    assert.deepEqual(await actions.resendVerification(initialResetState, form({ email: "closed@example.invalid" })), { status: "error", message: closed, attempt: 1 });
+    assert.equal(afterCallbacks.length, 0);
+    assert.equal(cookieStore.size, 0);
+    assert.equal((await schema.pool.query("SELECT 1 FROM service_application_attempts")).rowCount, 0);
+    cookieStore.set("gb_verify", token);
+    assert.equal(await redirected(actions.verifyEmail(initialResetState)), "/giris");
+    assert.equal(cookieStore.get("gb_verify"), token);
+    const response = await openLink(`?t=${token}`);
+    assertSeeOther(response, `${siteUrl}/giris`);
+    assert.equal(response.headers.get("set-cookie"), null);
+  } finally {
+    process.env.ACCOUNT_EMAIL = "on";
+  }
+  assert.deepEqual((await tokenRows(id)).map(row => row.token_hash), [sha(token)]);
+  assert.equal((await account("closed@example.invalid")).email_verified_at, null);
 });

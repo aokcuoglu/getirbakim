@@ -1,5 +1,6 @@
 import { Suspense } from "react";
-import Link from "next/link";
+import { IntentLink } from "@/components/intent-link";
+import { accountEmailEnabled } from "@/modules/auth/account-email-switch";
 import { currentAccount } from "@/modules/auth/session";
 import { currentVehicle } from "@/modules/store/garage";
 import { shownVehicle } from "@/modules/store/vehicle-label";
@@ -14,7 +15,7 @@ const cartClass = "header-cart";
 
 async function HeaderAccount() {
   const account = await currentAccount();
-  return <AccountMenu account={account ? { name: account.name, role: account.role } : null} />;
+  return <AccountMenu account={account ? { name: account.name, role: account.role } : null} accountEmail={accountEmailEnabled()} />;
 }
 
 async function HeaderGarage() {
@@ -42,6 +43,6 @@ export function HeaderTools() {
   return <div className="header-tools">
     <Suspense fallback={<LoadingTool name="profile" label="Hesabım" />}><HeaderAccount /></Suspense>
     <Suspense fallback={<LoadingTool name="garage" label="Garajım" />}><HeaderGarage /></Suspense>
-    <Suspense fallback={<Link href="/sepet" className={cartClass} aria-label="Sepetim" aria-busy="true"><SiteIcon name="cart" size={32} /></Link>}><HeaderCart /></Suspense>
+    <Suspense fallback={<IntentLink href="/sepet" className={cartClass} aria-label="Sepetim" aria-busy="true"><SiteIcon name="cart" size={32} /></IntentLink>}><HeaderCart /></Suspense>
   </div>;
 }

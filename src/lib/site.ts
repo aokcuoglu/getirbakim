@@ -81,10 +81,9 @@ export const siteJsonLd = {
       foundingDate: String(foundingYear),
       url: siteUrl,
       logo: `${siteUrl}/brand/logo-light.png`,
-      email: contactEmail,
       telephone: contactPhone,
       address: { "@type": "PostalAddress", ...sellerAddress },
-      contactPoint: { "@type": "ContactPoint", contactType: "customer service", telephone: contactPhone, email: contactEmail, areaServed: "TR", availableLanguage: "tr" },
+      contactPoint: { "@type": "ContactPoint", contactType: "customer service", telephone: contactPhone, url: `${siteUrl}/iletisim`, areaServed: "TR", availableLanguage: "tr" },
       sameAs: Object.values(socialProfiles),
     },
     {

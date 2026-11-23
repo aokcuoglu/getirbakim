@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { after, before, beforeEach, mock, test } from "node:test";
 import * as nextServer from "next/server";
 import { legalDocument, type LegalNode } from "../src/content/legal";
+import { accountEmailEnabled } from "../src/modules/auth/account-email-switch";
 import { membershipConsentText } from "../src/modules/auth/membership-consent";
 import { legalPageVersion, membershipTermsSlug, privacyNoticeSlug } from "../src/modules/auth/membership-terms";
 import { customerSignupSchema } from "../src/modules/auth/schemas";
@@ -24,6 +25,8 @@ mock.module("next/navigation", { namedExports: { redirect: (to: string) => { thr
 const afterCallbacks: (() => Promise<unknown>)[] = [];
 mock.module("next/server", { namedExports: { ...nextServer, after: (callback: () => Promise<unknown>) => { afterCallbacks.push(callback); } } });
 delete process.env.MAIL_TRANSPORT;
+// Signup is on unless a test turns account e-mail off (#1303), whatever .env.local says.
+process.env.ACCOUNT_EMAIL = "on";
 
 const valid = { name: "  Ayşe Yılmaz ", email: "Ayse@Example.invalid", password: "dogru-at-pil-zımba", confirmPassword: "dogru-at-pil-zımba", terms: "on", website: "" };
 const fieldError = "Bilgileri kontrol et: şifre en az 12 karakter olmalı, iki şifre aynı olmalı ve koşulları kabul etmelisin.";
@@ -85,6 +88,25 @@ test("the KVKK notice and the privacy policy describe individual membership in t
     assert.equal(copy.includes("yetkili yönetici tarafından servis hesabı oluşturulurken sisteme girilir"), false, page.title);
   }
   assert.ok(legalDocument(membershipTermsSlug)!.updatedAt >= "2026-11-22");
+});
+
+test("account e-mail opens in production only when switched on with a mail transport, elsewhere unless switched off (#1303)", () => {
+  const ses = { MAIL_TRANSPORT: "ses", MAIL_FROM: "Getirbakim <siparis@example.invalid>" };
+  const cases: [string, Record<string, string | undefined>, boolean][] = [
+    ["production, unset", { NODE_ENV: "production", ...ses }, false],
+    ["production, on without mail", { NODE_ENV: "production", ACCOUNT_EMAIL: "on" }, false],
+    ["production, on with file transport", { NODE_ENV: "production", ACCOUNT_EMAIL: "on", MAIL_TRANSPORT: "file", MAIL_FROM: ses.MAIL_FROM }, false],
+    ["production, other value with ses", { NODE_ENV: "production", ACCOUNT_EMAIL: "true", ...ses }, false],
+    ["production, on with ses", { NODE_ENV: "production", ACCOUNT_EMAIL: "on", ...ses }, true],
+    ["production, padded upper-case on with ses", { NODE_ENV: "production", ACCOUNT_EMAIL: " ON ", ...ses }, true],
+    ["development, unset", { NODE_ENV: "development" }, true],
+    ["test, unset", { NODE_ENV: "test" }, true],
+    ["no NODE_ENV, unset", {}, true],
+    ["development, off", { NODE_ENV: "development", ACCOUNT_EMAIL: "off" }, false],
+    ["development, padded upper-case off", { NODE_ENV: "development", ACCOUNT_EMAIL: " OFF " }, false],
+    ["development, on", { NODE_ENV: "development", ACCOUNT_EMAIL: "on" }, true],
+  ];
+  for (const [name, env, expected] of cases) assert.equal(accountEmailEnabled(env), expected, name);
 });
 
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
@@ -201,4 +223,20 @@ test("a refusal echoes the attempt count, so the form remounts with the typed va
   const second = await signup.registerCustomer(first, signupForm("echo@example.invalid", { confirmPassword: "farklı-bir-şifre-1" }));
   assert.equal(second.attempt, 2);
   assert.equal(JSON.stringify(second).includes(valid.password), false);
+});
+
+test("with account e-mail off a signup is refused before any budget, row, cookie or mail (#1303)", async () => {
+  const acceptedBefore = await acceptanceCount();
+  process.env.ACCOUNT_EMAIL = "off";
+  try {
+    const state = await signup.registerCustomer(initialSignupState, signupForm("closed@example.invalid"));
+    assert.deepEqual(state, { status: "error", message: "Yeni üyelik kaydı şu anda kapalı.", attempt: 1 });
+  } finally {
+    process.env.ACCOUNT_EMAIL = "on";
+  }
+  assert.equal(await account("closed@example.invalid"), undefined);
+  assert.equal(await acceptanceCount(), acceptedBefore);
+  assert.equal((await schema.pool.query("SELECT 1 FROM service_application_attempts")).rowCount, 0);
+  assert.equal(cookieStore.size, 0);
+  assert.equal(afterCallbacks.length, 0);
 });
