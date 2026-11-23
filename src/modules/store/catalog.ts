@@ -536,6 +536,7 @@ async function shownBrandClause(names:string[],values:unknown[]) {
  if(ids.length){values.push(ids);reach=`(${reach} OR catalog.id=ANY($${values.length}::uuid[]))`;}
  return `${reach} AND catalog.display_brand=ANY(${key})`;
 }
+const facetKeys:ReadonlySet<string>=new Set(facetSpecificationKeys);
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: unknown[] = [company()]; const clauses: string[] = [listedOnly];
  let search:CatalogSearch|undefined;
@@ -596,19 +597,27 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  // A manufacturer page (#660) lists its master brand's name and labels (display_brand values), the column the brand filter reads.
  if(query.manufacturer){const labels=await manufacturerLabels(query.manufacturer);clauses.push(labels.length?await shownBrandClause(labels,values):'false');}
  const brands=selectedBrands(query);if(brands.length)clauses.push(await shownBrandClause(brands,values));
+ // A property reads the facet rows its sidebar options come from (storefront_facet_specs, #994) instead of unpacking
+ // every enrichment payload per request (#1248, locally: 1.5-3.6 s per /katalog count, 2.2-5.3 s in the root category,
+ // and a price order hit the 30 s limit). The rows carry the guards applied when they were refreshed (match basis,
+ // "Brand class" only from an exact part); the offer's identity (code and brand) is checked again here against its
+ // link, as the cards do. A key the sidebar never offers (outside facetSpecificationKeys, so only from a hand-written
+ // URL) matches nothing rather than reopening the payload read.
+ // =ANY(ARRAY(...)) is an InitPlan run once that drives the catalog by primary key, like makeFitsSql: 50-140 ms per
+ // /katalog count, 240-450 ms in the root category (its ~189k-id array). The same set as IN (...) kept the catalog's
+ // full scan: 330-460 ms on /katalog, 1.2-1.4 s with the category, and once a 24.5 s plan.
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
+  if(!facetKeys.has(attribute)){clauses.push('false');continue;}
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
-  clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
-   AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
-   CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
-   WHERE spec->>0=${attributeKey} AND spec->>1=ANY(${optionsKey}::text[])
-   AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')
+  clauses.push(`catalog.id=ANY(ARRAY(SELECT f.supplier_item_id FROM storefront_facet_specs f
+   JOIN product_enrichment_shared_links l ON l.supplier_item_id=f.supplier_item_id
+   JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
+   WHERE f.key=${attributeKey} AND f.value=ANY(${optionsKey}::text[])
    -- The admin's value or hiding of the key (#603) replaces the automatic one: those products match by the set value only.
    -- NOT IN (product_sources.supplier_item_id is NOT NULL) plans as a hashed SubPlan; <>ALL(ARRAY(...)) scans the array per row.
-   AND e.supplier_item_id NOT IN (SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=${attributeKey})
+   AND f.supplier_item_id NOT IN (SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=${attributeKey})
    UNION ALL SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id
-   WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))`);
+   WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))::uuid[])`);
  }
  // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
  // Both read the lean availability view, not commerce_catalog's priced rows a second time (#1242). Out of stock reads it
@@ -628,6 +637,8 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
 // The plain listings' counts, page ids and facets (persistable below) are also kept in storefront_listing_cache (#957), so a
 // new or restarted container serves them at once: up to 24 hours old there, the first visitor sees the stored value while
 // one refresh runs. Listings narrowed by brand, property, availability or a vehicle have too many variants to share.
+// A property listing reads the same precomputed rows as its options (storefront_facet_specs, #1248): a changed enrichment
+// value reaches both with the next shared-link sync, then with this cache's refresh (the sync does not move the epoch).
 // The stored keys must stay bounded until the 2-day prune: a crawler walking model x category pages (~5.8k models x ~590
 // categories) would add hundreds of thousands of rows, so model listings stay in memory, and a make's listing keeps its
 // first page only (deeper pages of the plain, category and manufacturer listings are stored up to page 20; a price order is one key).
@@ -915,7 +926,8 @@ export function attributeFacetsSql(scopedSql:string,keys:string){
  // guards the readers apply (the offer's own code and brand, no cross-reference match, "Brand class" only from an
  // exact part). Unpacking every listed payload here took ~2.3 s of the unfiltered /katalog facet's 3.4 s (warm; 6.6 s
  // cold); reading the ~83k rows instead brings it under a second. The table holds the facet keys only, so `fs` is one
- // small scan whatever the listing; the two size-dependent branches of #955 went with the payloads.
+ // small scan whatever the listing; the two size-dependent branches of #955 went with the payloads. The attribute filter
+ // (catalogFilter) reads the same rows and admin values (#1248), and also checks the offer's identity when it reads them.
  // MATERIALIZED: inlined, the search filter gets planned across the joins (~60 s instead of ms).
  // `ov`: the admin's specifications of the facet keys (#603); a set or hidden key replaces the row's automatic values.
  return `WITH scoped AS MATERIALIZED (${scopedSql}),
