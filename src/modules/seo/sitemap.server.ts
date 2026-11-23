@@ -106,7 +106,7 @@ export async function loadProductChunk(index: number): Promise<ProductSitemapRow
 
 // Categories with a product of their own, as the catalog filter finds them (categoryProductIds in catalog.ts): Trodo
 // categories of enriched supplier items and an admin's category (#575). One hashed pass over the enrichments for the
-// whole tree (~0.2-0.5 s locally). One hashed SubPlan, ~0.5 s; it has the 1-row estimate of #1240 but not that plan (#1245).
+// whole tree as one hashed SubPlan (~0.2-0.5 s locally); it has the 1-row estimate of #1240 but not that plan (#1245).
 const categorySql = `SELECT c.category_id AS id,c.path_ids AS path,l.slug,
  (EXISTS (SELECT 1 FROM product_source_categories pc
    JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
