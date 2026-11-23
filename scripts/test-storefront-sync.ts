@@ -7,12 +7,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { isClockSkewError, sendWithSkewRetry } from "./storefront-media-read";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
+import { ENRICHMENTS_FILE } from "./storefront-bundle-stream";
 import {
   checkPartUpload, expectedPartObjects, KEEP_RUNS, parsePartListing, parsePrefixMode, parseRootListing, runDirName, staleRunEntries, strayEntries, SYNC_BASE_PREFIX,
   uploadFailure, uploadParts, withS3Concurrency, type UploadIo,
 } from "./storefront-upload";
 import {
-  acquireLock, buildInboundReport, checkInboundReport, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
+  acquireLock, buildInboundReport, checkInboundReport, exportSummary, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
   sinceFrom, STATE_PATH, summarizeParts, tombstoneWarnings,
 } from "./storefront-sync-state";
 
@@ -100,24 +101,27 @@ test("the lock admits one live sync, takes over a dead holder's lock and is free
 
 const fixtureMedia = [{ id: "c", key: "cat/c.jpg", size: 10 }, { id: "a", key: "p/a.jpg", size: 60 }, { id: "b", key: "p/b.jpg", size: 70 }];
 
-// A bundle of three media files, split at 100 bytes into part-00 (the category image), part-01 and part-02.
+// A bundle of three media files, split at 100 bytes into part-00 (the category image), part-01 and part-02. The export
+// keeps its enrichments in enrichments.ndjson (#1316).
 async function writeFixtureBundle(root: string) {
   const source = join(root, "full");
   for (const object of fixtureMedia) {
     await mkdir(dirname(join(source, "media", object.key)), { recursive: true });
     await writeFile(join(source, "media", object.key), Buffer.alloc(object.size, 1));
   }
+  const enrichments = [{ supplier_item_id: "i1", image_id: "a" }, { supplier_item_id: "i2", image_id: "b" }, { supplier_item_id: "i3", image_id: null }];
+  await writeFile(join(source, ENRICHMENTS_FILE), enrichments.map(row => `${JSON.stringify(row)}\n`).join(""));
   await writeFile(join(source, "manifest.json"), JSON.stringify({
     snapshotAt: "2026-11-14T00:00:00Z", categories: [], labels: [], logos: [],
     images: [{ source: "trodo", category_id: 1, media_id: "c" }],
     jobs: [{ supplier_item_id: "i1", status: "complete" }, { supplier_item_id: "i9", status: "partial" }],
     tombstones: [{ supplier_item_id: "i8", kind: "enrichment_deleted" }],
-    enrichments: [{ supplier_item_id: "i1", image_id: "a" }, { supplier_item_id: "i2", image_id: "b" }, { supplier_item_id: "i3", image_id: null }],
+    enrichmentsFile: ENRICHMENTS_FILE, enrichmentCount: enrichments.length,
     products: [{ supplier_item_id: "i1", category_id: 1 }, { supplier_item_id: "i3", category_id: 1 }],
     media: fixtureMedia.map(object => ({ id: object.id, object_key: object.key, size_bytes: object.size })),
   }));
   const partsDir = join(root, "parts");
-  await splitStorefrontBundle(source, partsDir, 100);
+  await splitStorefrontBundle(source, partsDir, { mediaBytes: 100, jsonBytes: 64 * 1024 * 1024 });
   return partsDir;
 }
 
@@ -126,18 +130,40 @@ test("the dry-run summary counts every part, part-00 apart", async () => {
   try {
     const partsDir = await writeFixtureBundle(root);
     const summary = await summarizeParts(partsDir);
-    assert.deepEqual(summary.base, { part: "part-00", enrichments: 0, mappings: 0, jobs: 2, tombstones: 1, media: 1, mediaBytes: 10 });
+    // jsonBytes is the size of each part's manifest.json.
+    const json = ["part-00", "part-01", "part-02"].map(part => statSync(join(partsDir, part, "manifest.json")).size);
+    assert.deepEqual(summary.base, { part: "part-00", enrichments: 0, mappings: 0, jobs: 2, tombstones: 1, media: 1, mediaBytes: 10, jsonBytes: json[0] });
     assert.deepEqual(summary.parts, [
-      { part: "part-01", enrichments: 1, mappings: 1, jobs: 0, tombstones: 0, media: 1, mediaBytes: 60 },
-      { part: "part-02", enrichments: 2, mappings: 1, jobs: 0, tombstones: 0, media: 1, mediaBytes: 70 },
+      { part: "part-01", enrichments: 1, mappings: 1, jobs: 0, tombstones: 0, media: 1, mediaBytes: 60, jsonBytes: json[1] },
+      { part: "part-02", enrichments: 2, mappings: 1, jobs: 0, tombstones: 0, media: 1, mediaBytes: 70, jsonBytes: json[2] },
     ]);
-    assert.deepEqual(summary.totals, { parts: 3, enrichments: 3, mappings: 2, jobs: 2, tombstones: 1, media: 3, mediaBytes: 140 });
+    assert.deepEqual(summary.totals, {
+      parts: 3, enrichments: 3, mappings: 2, jobs: 2, tombstones: 1, media: 3, mediaBytes: 140, jsonBytes: json[0] + json[1] + json[2],
+    });
+    assert.ok(json.every(bytes => bytes > 0));
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("the sync reads the snapshot and counts from the export's manifest; enrichments are only counted there", () => {
+  const manifest = {
+    snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentsFile: ENRICHMENTS_FILE, enrichmentCount: 43327, jobs: [{}, {}], tombstones: [{}],
+    invalidatedJobs: 4, maxDeletions: 1000, vehicleSpecs: [{}],
+  };
+  assert.deepEqual(exportSummary(JSON.stringify(manifest)),
+    { snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 43327, jobs: 2, tombstones: 1, invalidatedJobs: 4, maxDeletions: 1000 });
+  assert.deepEqual(exportSummary(JSON.stringify({ snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 0 })),
+    { snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 0, jobs: 0, tombstones: 0, invalidatedJobs: 0, maxDeletions: undefined });
+  // A pre-#1316 export carried the enrichments inline and no count.
+  assert.throws(() => exportSummary(JSON.stringify({ snapshotAt: "2026-11-23T01:29:00.000Z", enrichments: [] })), /no enrichmentCount/);
+  assert.throws(() => exportSummary(JSON.stringify({ enrichmentCount: 1 })), /no snapshotAt/);
 });
 
 const PARTS = ["part-00", "part-01", "part-02"];
 
 // An in-memory bucket under one run prefix; `drop` decides which part syncs silently upload nothing.
+const sleep = async () => {};
+const recordingSleep = () => { const delays: number[] = []; return { delays, sleep: async (ms: number) => { delays.push(ms); } }; };
+
 function fakeBucket(partsDir: string, drop: (part: string, call: number) => boolean = () => false) {
   const objects = new Map<string, number>();
   const synced: string[] = [];
@@ -208,7 +234,7 @@ test("an upload that leaves an extra part or root object behind fails the final 
       const bucket = fakeBucket(partsDir);
       const sync = bucket.io.syncPart;
       bucket.io.syncPart = async part => { await sync(part); if (part === "part-02") bucket.objects.set(extra, 1); };
-      await assert.rejects(uploadParts({ partsDir, parts: PARTS, io: bucket.io, log: () => {} }), new RegExp(`after the upload: ${extra.startsWith("part") ? "part-09/" : "leftover\\.json"}`));
+      await assert.rejects(uploadParts({ partsDir, parts: PARTS, io: bucket.io, log: () => {}, sleep }), new RegExp(`after the upload: ${extra.startsWith("part") ? "part-09/" : "leftover\\.json"}`));
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -219,7 +245,7 @@ test("a complete upload returns per-part stats", async () => {
     const partsDir = await writeFixtureBundle(root);
     const { io, synced } = fakeBucket(partsDir);
     const lines: string[] = [];
-    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: line => lines.push(line) });
+    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: line => lines.push(line), sleep });
     assert.deepEqual(synced, PARTS);
     assert.deepEqual(stats.map(entry => [entry.part, entry.objects, entry.attempts]), [["part-00", 2, 1], ["part-01", 2, 1], ["part-02", 2, 1]]);
     assert.equal(stats[1].bytes, statSync(join(partsDir, "part-01", "manifest.json")).size + 60);
@@ -227,13 +253,13 @@ test("a complete upload returns per-part stats", async () => {
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test("a part silently dropped twice stops the run after two attempts; later parts are never synced", async () => {
+test("a part silently dropped every time stops the run after four attempts; later parts are never synced", async () => {
   const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
   try {
     const partsDir = await writeFixtureBundle(root);
     const { io, synced } = fakeBucket(partsDir, part => part === "part-01");
-    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {} }), /Upload of part-01 is incomplete: 2 missing .*the import was not started/);
-    assert.deepEqual(synced, ["part-00", "part-01", "part-01"]);
+    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep }), /Upload of part-01 is incomplete: 2 missing .*the import was not started/);
+    assert.deepEqual(synced, ["part-00", "part-01", "part-01", "part-01", "part-01"]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -242,8 +268,83 @@ test("a part dropped once is uploaded on the second attempt", async () => {
   try {
     const partsDir = await writeFixtureBundle(root);
     const { io } = fakeBucket(partsDir, (part, call) => part === "part-02" && call === 1);
-    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: () => {} });
+    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep });
     assert.deepEqual(stats.map(entry => entry.attempts), [1, 1, 2]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a part whose sync throws once is retried after a wait and then passes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const { io } = fakeBucket(partsDir);
+    const inner = io.syncPart;
+    let calls = 0;
+    io.syncPart = async part => { if (part === "part-01" && ++calls === 1) throw new Error("aws s3 sync failed with exit code 1\nCould not connect"); await inner(part); };
+    const wait = recordingSleep();
+    const lines: string[] = [];
+    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: line => lines.push(line), sleep: wait.sleep });
+    assert.deepEqual(stats.map(entry => entry.attempts), [1, 2, 1]);
+    assert.deepEqual(wait.delays, [30_000]);
+    const retry = lines.map(line => JSON.parse(line) as Record<string, unknown>).find(line => line.retry);
+    assert.deepEqual(retry, { retry: "part-01", attempt: 1, reason: "sync failed: aws s3 sync failed with exit code 1", waitMs: 30_000 });
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a part whose sync always throws stops the run after four attempts; later parts are never synced", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const { io, synced } = fakeBucket(partsDir);
+    const inner = io.syncPart;
+    io.syncPart = async part => { if (part === "part-01") { synced.push(part); throw new Error("endpoint unreachable"); } await inner(part); };
+    const wait = recordingSleep();
+    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep: wait.sleep }), /Upload of part-01 failed after 4 attempts: endpoint unreachable; the import was not started; the watermark stays/);
+    assert.deepEqual(synced, ["part-00", "part-01", "part-01", "part-01", "part-01"]);
+    assert.deepEqual(wait.delays, [30_000, 60_000, 120_000]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a part whose listing throws once is retried after a wait and then passes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const { io } = fakeBucket(partsDir);
+    const inner = io.listPart;
+    let calls = 0;
+    io.listPart = part => { if (part === "part-01" && ++calls === 1) throw new Error("list timed out"); return inner(part); };
+    const wait = recordingSleep();
+    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep: wait.sleep });
+    assert.deepEqual(stats.map(entry => entry.attempts), [1, 2, 1]);
+    assert.deepEqual(wait.delays, [30_000]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a part whose sync throws a non-Error value on every attempt still fails the run", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const { io, synced } = fakeBucket(partsDir);
+    const inner = io.syncPart;
+    io.syncPart = async part => { if (part === "part-01") { synced.push(part); throw undefined; } await inner(part); };
+    const wait = recordingSleep();
+    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep: wait.sleep }), /Upload of part-01 failed after 4 attempts: undefined; the import was not started; the watermark stays/);
+    assert.deepEqual(synced, ["part-00", "part-01", "part-01", "part-01", "part-01"]);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("a throw, then a silent drop, then success share one budget", async () => {
+  const root = await mkdtemp(join(tmpdir(), "storefront-upload-"));
+  try {
+    const partsDir = await writeFixtureBundle(root);
+    const { io } = fakeBucket(partsDir, (part, call) => part === "part-02" && call === 1);
+    const inner = io.syncPart;
+    let calls = 0;
+    io.syncPart = async part => { if (part === "part-02" && ++calls === 1) throw new Error("boom"); await inner(part); };
+    const wait = recordingSleep();
+    const stats = await uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep: wait.sleep });
+    assert.deepEqual(stats.map(entry => entry.attempts), [1, 1, 3]);
+    assert.deepEqual(wait.delays, [30_000, 60_000]);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
@@ -253,12 +354,12 @@ test("a stale part of an earlier run is removed before the upload; a stray root 
     const partsDir = await writeFixtureBundle(root);
     const stale = fakeBucket(partsDir);
     stale.objects.set("part-07/manifest.json", 9);
-    await uploadParts({ partsDir, parts: PARTS, io: stale.io, log: () => {} });
+    await uploadParts({ partsDir, parts: PARTS, io: stale.io, log: () => {}, sleep });
     assert.equal([...stale.objects.keys()].some(key => key.startsWith("part-07/")), false);
 
     const rooted = fakeBucket(partsDir);
     rooted.objects.set("manifest.json", 9);
-    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io: rooted.io, log: () => {} }), /Unexpected objects directly under the run prefix: manifest\.json/);
+    await assert.rejects(uploadParts({ partsDir, parts: PARTS, io: rooted.io, log: () => {}, sleep }), /Unexpected objects directly under the run prefix: manifest\.json/);
     assert.deepEqual(rooted.synced, []);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
@@ -345,7 +446,7 @@ test("a run prefix with a part missing its manifest or with a mis-sized file fai
       const io = prefixedBucket(partsDir, objects, prefix);
       const sync = io.syncPart;
       io.syncPart = async part => { await sync(part); if (part === "part-01") damage(objects); };
-      await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {} }), pattern);
+      await assert.rejects(uploadParts({ partsDir, parts: PARTS, io, log: () => {}, sleep }), pattern);
     }
   } finally { await rm(root, { recursive: true, force: true }); }
 });

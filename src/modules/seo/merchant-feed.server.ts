@@ -24,7 +24,7 @@ const pricingBatch = 500;
 
 /** Trodo category names (Turkish), read once per run; product_type is built from a category's path ids. */
 export async function loadCategoryNames(): Promise<Map<number, string>> {
-  const { rows } = await boundedQuery<{ id: number; name: string }>(
+  const { rows } = await boundedQuery<{ id: number; name: string }>("merchant-feed.categoryNames", 
     "SELECT category_id AS id,name FROM source_category_labels WHERE source='trodo' AND locale='tr'", []);
   return new Map(rows.map(row => [row.id, row.name]));
 }
@@ -42,7 +42,8 @@ const gtinSql = `SELECT i.id::text AS id,
  FROM supplier_items i WHERE i.id=ANY($1::uuid[])`;
 
 // The category of a supplier row as the listing files it (categoryProductIds in catalog.ts): a trusted enrichment's
-// Trodo categories, replaced by the admin's category when one is set (#575). The deepest path wins.
+// Trodo categories, replaced by the admin's category when one is set (#575). The deepest path wins. Bounded by the
+// 500-id batch through product_enrichment_shared_links_pkey, ~2.5 ms (#1245).
 const categorySql = `SELECT x.id::text AS id,c.path_ids AS path,x.admin FROM (
  SELECT e.supplier_item_id AS id,pc.category_id,false AS admin FROM storefront_enrichments e
   JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
@@ -65,12 +66,12 @@ export async function loadFeedChunk(index: number, categoryNames: Map<number, st
   // Without `priceOnly`: the Dinamik price-list-only cards (#1068) are indexed pages but never orderable, so they are not
   // read here at all (and do not count as `missing`).
   const sql = indexableProductsSql({ supplier: productAddressColumns.supplier, store: productAddressColumns.store });
-  const ids = (await boundedQuery<{ id: string }>(`SELECT id FROM (${sql}) u ORDER BY id`, [storefrontCompanies(), from, to])).rows.map(row => row.id);
+  const ids = (await boundedQuery<{ id: string }>(`merchant-feed.ids chunk=${index}`, `SELECT id FROM (${sql}) u ORDER BY id`, [storefrontCompanies(), from, to])).rows.map(row => row.id);
   const sources: FeedSource[] = [];
   let missing = 0;
   for (let start = 0; start < ids.length; start += pricingBatch) {
     const batch = ids.slice(start, start + pricingBatch);
-    const rows = await withBestOffers((await boundedQuery<CatalogProduct>(`SELECT * FROM (${catalogSql}) catalog WHERE id=ANY($2::uuid[]) ORDER BY id`,
+    const rows = await withBestOffers((await boundedQuery<CatalogProduct>(`merchant-feed.catalog chunk=${index} offset=${start}`, `SELECT * FROM (${catalogSql}) catalog WHERE id=ANY($2::uuid[]) ORDER BY id`,
       [storefrontCompanies(), batch])).rows);
     missing += batch.length - rows.length;
     // Image, barcode and category only for the supplier rows price and stock let in (store rows carry no enrichment).
@@ -78,8 +79,8 @@ export async function loadFeedChunk(index: number, categoryNames: Map<number, st
     const candidateIds = candidates.map(row => row.id);
     const [images, gtins, categories] = await Promise.all([
       getCatalogProductImages(candidates),
-      candidateIds.length ? boundedQuery<{ id: string; admin_ean: string | null; barcodes: string[] }>(gtinSql, [candidateIds]).then(result => result.rows) : [],
-      candidateIds.length ? boundedQuery<{ id: string; path: number[]; admin: boolean }>(categorySql, [candidateIds]).then(result => result.rows) : [],
+      candidateIds.length ? boundedQuery<{ id: string; admin_ean: string | null; barcodes: string[] }>(`merchant-feed.gtins chunk=${index} offset=${start}`, gtinSql, [candidateIds]).then(result => result.rows) : [],
+      candidateIds.length ? boundedQuery<{ id: string; path: number[]; admin: boolean }>(`merchant-feed.categories chunk=${index} offset=${start}`, categorySql, [candidateIds]).then(result => result.rows) : [],
     ]);
     const gtinById = new Map(gtins.map(row => [row.id, row.admin_ean ?? (row.barcodes.length === 1 ? row.barcodes[0] : null)]));
     const pathById = new Map<string, { path: number[]; admin: boolean }>();

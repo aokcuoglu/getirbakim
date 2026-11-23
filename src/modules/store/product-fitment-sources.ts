@@ -3,7 +3,7 @@
 // so the tests read it directly.
 import { createHash } from "node:crypto";
 import { fitmentLabels } from "./vehicle-label";
-import { fitmentInitialGroups, fitmentView, initialFitmentView, type FitmentGarage, type FitmentGroup, type FitmentSource, type FitmentView } from "./product-fitment-view";
+import { fitmentInitialGroups, fitmentView, initialFitmentView, type FitmentGarage, type FitmentSource, type FitmentView } from "./product-fitment-view";
 
 type FitmentVehicle = Omit<FitmentSource, "makeKey" | "makeLabel" | "modelLabel" | "modelHref"> & { model: string; catalogBrand?: string | null };
 
@@ -16,10 +16,10 @@ export function fitmentSources(vehicles: readonly FitmentVehicle[], makeNames: r
 
 /**
  * The version of a product's whole list in its garage-independent order: the page puts it in the list's URL (`?v=`), so
- * a cache keeps one answer per list and a changed list gets a new URL.
+ * a cache keeps one answer per list and a changed list gets a new URL. The reference list (#1211) uses it too.
  */
-export const fitmentVersion = (groups: readonly FitmentGroup[]) =>
-  createHash("sha1").update(JSON.stringify(groups)).digest("base64url").slice(0, 12);
+export const fitmentVersion = (list: readonly unknown[]) =>
+  createHash("sha1").update(JSON.stringify(list)).digest("base64url").slice(0, 12);
 
 /** What the page and the route have read for a product's list: the shown vehicles, the catalog makes and model pages. */
 export type ProductFitmentInput = {

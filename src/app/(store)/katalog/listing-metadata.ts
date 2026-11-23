@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { vehicleMakeLabel, vehicleModelCategoryLabels, vehicleModelGroupYears, vehicleModelLabels, withModelYears } from "@/modules/store/vehicle-model-groups";
 import { categoryNameInText } from "@/modules/store/category-tree";
 import type { LoadedListing } from "@/modules/store/listing-load";
-import { listingIndexable } from "@/modules/seo/indexing";
+import { listingViewIndexable } from "@/modules/store/manufacturers";
 import { listingPath } from "@/modules/seo/paths";
 import { pageMetadata } from "@/lib/site";
 import { brandedTitle, catalogMetaDescription, categoryDescription, fitDescription, listingTitlePad, searchQueryLabel, searchResultsTitle, vehicleCategoryTexts } from "@/modules/seo/meta-text";
@@ -13,7 +13,7 @@ export function listingMetadata({ query, category, make, model, plainTotal }: Lo
   const path = listingPath({ makeSlug: make && query.make, modelSlug: make && model && query.model, categorySlug: category?.slug });
   // Model and make × category pages need enough products to be indexed (#639, #673); the other listings keep the
   // plain-listing rule (#638).
-  const robots = listingIndexable(query, plainTotal ?? 0) ? undefined : { index: false, follow: true };
+  const robots = listingViewIndexable(query, { plainTotal }) ? undefined : { index: false, follow: true };
   // A search result's title says what was searched, as its H1 does; the page stays noindex,follow.
   if (query.q) return pageMetadata({ ...brandedTitle(searchResultsTitle(query.q)), path, robots,
     description: fitDescription(`“${searchQueryLabel(query.q)}” için Getirbakim yedek parça kataloğundaki sonuçlar: ürünleri üreticiye göre incele, ürün kodu veya OEM numarasıyla karşılaştır.`) });

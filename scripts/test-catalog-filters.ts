@@ -5,6 +5,7 @@ import {applySpecOverrides,mergeSpecificationRows,pageSpecifications} from "../s
 import {activeFilters,isPanelFilter,clearAllFilters,clearPanelFilters,toggleAttribute,toggleBrand,type CatalogFacet,selectedBrands, selectedAttributes,catalogSpecifications,sameSpecificationText,specificationKey,specificationLabel,specificationRawValue,specificationValue} from "../src/modules/store/catalog-filters";
 import {parseCatalogQuery} from "../src/modules/store/catalog-query";
 import {listingUrl} from "../src/modules/seo/paths";
+import {isIndexableListing} from "../src/modules/store/catalog-query";
 
 test("manufacturer selection supports multiple brands and legacy links", () => {
   assert.deepEqual(selectedBrands({brand:"BOSCH"}), ["BOSCH"]);
@@ -217,4 +218,12 @@ test("selected values the facets no longer offer get one chip per sidebar transl
   const fallback=activeFilters({attributes:JSON.stringify(attributes)},[]);
   assert.deepEqual(fallback.map(item=>item.label),["Montaj konumu: Arka aks","Montaj konumu: Ön aks","Montaj konumu: front axle","Yüzey: Kaplamalı"]);
   assert.deepEqual(withSelectedOptions([],{}),[]);
+});
+
+test("page 1 is the listing without a page parameter (#1250)", () => {
+  for (const page of ["1", "0", "01"]) assert.equal(parseCatalogQuery({page}).page, undefined);
+  assert.equal(parseCatalogQuery({page: "2"}).page, "2");
+  const first = parseCatalogQuery({category: "filtre", page: "1"});
+  assert.equal(isIndexableListing(first), true);
+  assert.equal(listingUrl(first), "/kategori/filtre");
 });

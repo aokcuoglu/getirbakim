@@ -3,7 +3,7 @@
 // supplier label (supplier_brands.label). Pure: the server loader (manufacturers.server.ts) feeds it the rows,
 // scripts/test-manufacturers.ts checks the rules.
 import { isIndexableListing, type CatalogQuery } from "./catalog-query";
-import { minIndexableListingProducts } from "@/modules/seo/indexing";
+import { listingIndexable, minIndexableListingProducts } from "@/modules/seo/indexing";
 import { manufacturerSlug } from "@/modules/seo/manufacturer-path";
 import { descriptionMax, fitDescription } from "@/modules/seo/meta-text";
 import { catalogPath, manufacturerPath } from "@/modules/seo/paths";
@@ -135,6 +135,11 @@ export function featuredManufacturers(order: readonly string[], shown: readonly 
  */
 export function manufacturerIndexable(slug: string, query: CatalogQuery, total: number): boolean {
   return isIndexableListing(query) && total >= minIndexableListingProducts && !unindexedManufacturerSlugs.includes(slug);
+}
+
+/** Whether a listing view is indexed: the rule behind the page's robots, and so its CollectionPage (#1241). */
+export function listingViewIndexable(query: CatalogQuery, scope: { plainTotal?: number; manufacturer?: { slug: string; total: number } }): boolean {
+  return scope.manufacturer ? manufacturerIndexable(scope.manufacturer.slug, query, scope.manufacturer.total) : listingIndexable(query, scope.plainTotal ?? 0);
 }
 
 export function manufacturerTrail(manufacturer: { name: string; slug: string }): Crumb[] {

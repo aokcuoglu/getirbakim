@@ -259,7 +259,7 @@ export const categories = [
  * row of the product, enriched or not. The decisions of the selected types are read once, through their index.
  */
 async function fittedProductIds(typesSql:string,values:unknown[]){
- return (await boundedQuery<{id:string}>(`WITH types AS MATERIALIZED (${typesSql}),
+ return (await boundedQuery<{id:string}>(`catalog.fittedProductIds ${JSON.stringify(values).slice(0, 200)}`, `WITH types AS MATERIALIZED (${typesSql}),
   fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle,f.vehicle_type_id FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
   trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM storefront_enrichments e
    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
@@ -305,7 +305,7 @@ export const modelFitsSql=`SELECT model_id,supplier_item_id AS id FROM storefron
  * Products fitting a vehicle model page's series (#639), from modelFitsSql. Both branches are index reads (Golf 7:
  * ~25 ms for the description side); cached per process.
  */
-const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",")}`,async()=>(await boundedQuery<{id:string}>(
+const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",")}`,async()=>(await boundedQuery<{id:string}>(`catalog.modelFittedIds models=${modelIds.join(",")}`, 
  `SELECT DISTINCT id::text FROM (${modelFitsSql}) fits WHERE model_id=ANY($1::int[])`,[modelIds])).rows.map(row=>row.id));
 /**
  * A make's model page units that list at least one product (#639): the make page links only these, so no link ends in
@@ -317,7 +317,7 @@ const cachedListedModels=staleCache<string[]>(10*60*1000,300,listings);
 export async function getListedModelGroups(brandId:string) {
  const groups=await getVehicleModelGroups(brandId);
  const modelIds=groups.flatMap(group=>group.models.map(member=>member.id));
- const listedIds=new Set(await cachedListedModels(brandId,async()=>(await boundedQuery<{id:string}>(
+ const listedIds=new Set(await cachedListedModels(brandId,async()=>(await boundedQuery<{id:string}>(`catalog.listedModels brand=${brandId}`, 
   `WITH fits AS MATERIALIZED (SELECT model_id,supplier_item_id AS id FROM storefront_model_fits WHERE model_id=ANY($2::int[])
     UNION SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM storefront_description_fits f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id
     WHERE f.model_id=ANY($2::int[])),
@@ -346,7 +346,7 @@ export const categoryMovedAwaySql=(itemId:string,ids:string)=>`NOT EXISTS (SELEC
  * 55.7 s and hit the 30 s limit; materialised first it reads in ~0.5 s. Same rows: same columns and conditions.
  */
 export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedCategoryIds(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
- (await boundedQuery<{id:string}>(`WITH linked AS MATERIALIZED (SELECT DISTINCT e.supplier_item_id,e.supplier_code,e.supplier_brand
+ (await boundedQuery<{id:string}>(`catalog.categoryProductIds legacy=${legacy.join(",")} categories=${categoryIds.length}:${categoryIds.slice(0, 5).join(",")}`, `WITH linked AS MATERIALIZED (SELECT DISTINCT e.supplier_item_id,e.supplier_code,e.supplier_brand
    FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
    WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])
     AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem))
@@ -805,7 +805,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // the limit (VW: ~57 MB): it spilled to disk (external merge) at both the local default (4 MB) and the production RDS
  // setting (16 MB); 64 MB for this read keeps it in memory.
  if(!search&&pricedSort&&page<=cachedPages){
-  const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>{const {values,where}=await filter();return (await boundedQuery<{id:string}>(
+  const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>{const {values,where}=await filter();return (await boundedQuery<{id:string}>(`catalog.pricedPageIds ${filterKey(query,context)}|${query.sort}`, 
    `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
    {persist:persistable(query)});
   const items=await storefrontRowsByIds(ordered.slice((page-1)*pageSize,(page-1)*pageSize+take));

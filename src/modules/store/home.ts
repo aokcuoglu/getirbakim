@@ -24,7 +24,7 @@ const automaticArm=`s.company=ANY($1::text[]) AND s.presence='present' AND s.cod
         AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=s.id AND h.hidden)
         -- On the links side: on s.id the planner seq-scans supplier_items for the category rails (~7x slower).
         AND e.supplier_item_id NOT IN (${hiddenAutomaticItemsSql})`;
-export const homeProductIds=(categoryIds:number[]|null)=>cachedHomeIds(categoryIds?.join(",")??"all",async()=>(await boundedQuery<{id:string}>(`
+export const homeProductIds=(categoryIds:number[]|null)=>cachedHomeIds(categoryIds?.join(",")??"all",async()=>(await boundedQuery<{id:string}>(`home.productIds categories=${categoryIds?.join(",") ?? "all"}`, `
     SELECT id::text AS id FROM (
      (SELECT s.id,e.imported_at AS shown_at FROM supplier_items s JOIN storefront_enrichments e ON e.supplier_item_id=s.id
       WHERE ${automaticArm}

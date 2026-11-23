@@ -2,9 +2,14 @@ import Image from "next/image";
 import { IntentLink } from "@/components/intent-link";
 import { ArrowRight, Wrench } from "lucide-react";
 
-/** Home's first static featured card: an ad-style banner for /bakim-robotu, as tall as the category cards next to it. */
+/**
+ * Home's first static featured card: an ad-style banner for /bakim-robotu, as tall as the category cards next to it.
+ * The link is named by its visible text, not an aria-label: a label that leaves out what is on screen fails WCAG 2.5.3
+ * Label in Name, so a voice-control user reading out the heading "Bakım setini aracına göre kur" could not activate it
+ * (#1327).
+ */
 export function MaintenanceRobotBanner() {
-  return <IntentLink href="/bakim-robotu" aria-label="Bakım Robotu: aracına özel bakım setini kur"
+  return <IntentLink href="/bakim-robotu"
     className="group relative grid h-[292px] grid-cols-[minmax(0,1fr)_236px] items-center gap-4 overflow-hidden rounded-md bg-[linear-gradient(118deg,#0a2540_0%,#0b4a85_55%,#0077c7_100%)] pr-7 pl-8 text-white max-[1100px]:grid-cols-[minmax(0,1fr)_190px] max-md:h-[250px] max-md:grid-cols-[minmax(0,1fr)_128px] max-md:gap-3 max-md:pr-4 max-md:pl-5">
     <span aria-hidden="true" className="pointer-events-none absolute -top-24 -right-16 size-[340px] rounded-full bg-white/[.07]"/>
     <span aria-hidden="true" className="pointer-events-none absolute -bottom-32 left-[38%] size-[260px] rounded-full bg-[#4fb3ff]/[.12]"/>

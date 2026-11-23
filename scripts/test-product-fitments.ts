@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createFitmentMatcher, englishModelName, type FitmentCatalogModel, type FitmentCatalogType, type SourceVehicle } from "../src/modules/store/fitment-matcher";
 import { parseFitmentPaging } from "../src/modules/admin/fitment-details";
-import { fitmentCacheControl, fitmentEagerModelOptions, fitmentInitialGroups, fitmentView, initialFitmentView, mergeFitmentGroups, visibleFitmentGroups, type FitmentSource } from "../src/modules/store/product-fitment-view";
+import { fitmentCacheControl, fitmentEagerModelOptions, fitmentInitialGroups, fitmentRow, fitmentRowFields, fitmentView, initialFitmentView, isFitmentGroup, mergeFitmentGroups, visibleFitmentGroups, type FitmentSource } from "../src/modules/store/product-fitment-view";
 import { fitmentSources, fitmentVersion, productFitmentGroups, productPageFitment } from "../src/modules/store/product-fitment-sources";
 
 const models: FitmentCatalogModel[] = [{ id: 1, brand_id: 2, brand: "VW", display_brand: "VOLKSWAGEN", name: "GOLF (5G1)" }];
@@ -119,12 +119,37 @@ test("fitmentView groups rows by model in first-seen order and keeps only the pr
   assert.equal("href" in audi, false);
   assert.equal(golf.make, "VOLKSWAGEN");
   assert.equal(audi.make, "AUDI");
-  assert.deepEqual(golf.rows[0], { engine: "2.0 TDI CRBC", catalog: "2.0 TDI", fuel: "Diesel", ps: 150, kw: 110, cc: 1968, from: "04/2013", to: "03/2017", typeId: 10 });
+  // Rows are tuples (#1211): engine, fuel, PS, kW, cm³, from, then to, type id and catalog name when present.
+  assert.deepEqual(golf.rows[0], ["2.0 TDI CRBC", "Diesel", 150, 110, 1968, "04/2013", "03/2017", 10, "2.0 TDI"]);
+  assert.deepEqual(fitmentRowFields(golf.rows[0]), { engine: "2.0 TDI CRBC", catalog: "2.0 TDI", fuel: "Diesel", ps: 150, kw: 110, cc: 1968, from: "04/2013", to: "03/2017", typeId: 10 });
   // The catalog name only where it differs; no end date and no type id are left out.
-  assert.equal("catalog" in golf.rows[1], false);
-  assert.equal("typeId" in golf.rows[1], false);
-  assert.equal("to" in passat.rows[0], false);
-  assert.equal("typeId" in audi.rows[0], false);
+  assert.deepEqual(golf.rows[1], ["1.6 TDI", "Diesel", 150, 110, 1968, "04/2013", "03/2017"]);
+  assert.deepEqual(passat.rows[0], ["2.0 TDI CRBC", "Diesel", 150, 110, 1968, "04/2013"]);
+  assert.equal(audi.rows[0].length, 7);
+  assert.equal(fitmentRowFields(audi.rows[0]).typeId, undefined);
+});
+
+test("fitmentRow fills a gap before a present field and leaves missing trailing ones off; fitmentRowFields reads it back", () => {
+  const base = { engine: "1.4 TSI CZCA", fuel: "Petrol", ps: 125, kw: 92, cc: 1395, from: "05/2014" };
+  const cases = [
+    [base, ["1.4 TSI CZCA", "Petrol", 125, 92, 1395, "05/2014"]],
+    [{ ...base, to: "12/2018" }, ["1.4 TSI CZCA", "Petrol", 125, 92, 1395, "05/2014", "12/2018"]],
+    [{ ...base, typeId: 77 }, ["1.4 TSI CZCA", "Petrol", 125, 92, 1395, "05/2014", "", 77]],
+    [{ ...base, catalog: "1.4 TSI" }, ["1.4 TSI CZCA", "Petrol", 125, 92, 1395, "05/2014", "", 0, "1.4 TSI"]],
+  ] as const;
+  for (const [fields, row] of cases) {
+    assert.deepEqual(fitmentRow(fields), row);
+    assert.deepEqual(fitmentRowFields(fitmentRow(fields)), { to: undefined, typeId: undefined, catalog: undefined, ...fields });
+  }
+});
+
+test("isFitmentGroup accepts tuple rows and rejects the object rows of an older deploy", () => {
+  const [group] = fitmentView([vehicle("Volkswagen Golf VII (5G1)", { vehicleTypeId: 10 })]).groups;
+  assert.equal(isFitmentGroup(group), true);
+  assert.equal(isFitmentGroup({ ...group, rows: [] }), true);
+  // The pre-#1211 answer: the same group with its rows as objects.
+  assert.equal(isFitmentGroup({ ...group, rows: [fitmentRowFields(group.rows[0])] }), false);
+  for (const value of [null, "x", [], { model: "Golf" }, { rows: [] }, { model: 1, rows: [] }]) assert.equal(isFitmentGroup(value), false, JSON.stringify(value));
 });
 
 test("visibleFitmentGroups prints the first groups until showAll; filters and search lift the cap", () => {
@@ -144,7 +169,7 @@ test("visibleFitmentGroups prints the first groups until showAll; filters and se
   assert.equal(audi.hidden, 0);
   const model = visibleFitmentGroups(view, { ...none, model: "Volkswagen Model 22" });
   assert.deepEqual(model.groups.map(group => group.model), ["Volkswagen Model 22"]);
-  // A make filter lists every group of the make, past the first twenty.
+  // A make filter lists every group of the make, past the printed ones.
   assert.equal(visibleFitmentGroups(view, { ...none, make: "VOLKSWAGEN" }).groups.length, 26);
   // Turkish lower case reads "VII" as "vıı"; the search folds ı to i on both sides.
   const golf = visibleFitmentGroups(view, { ...none, query: " golf vii " });
@@ -154,7 +179,7 @@ test("visibleFitmentGroups prints the first groups until showAll; filters and se
   assert.equal(visibleFitmentGroups(view, { ...none, query: "yok böyle" }).groups.length, 0);
   // Only matching rows of a group are printed.
   const mixed = fitmentView([vehicle("Volkswagen Golf VII (5G1)"), vehicle("Volkswagen Golf VII (5G1)", { engineAndCodes: "1.4 TSI CZCA" })]);
-  assert.deepEqual(visibleFitmentGroups(mixed, { ...none, query: "tsi" }).groups[0].rows.map(row => row.engine), ["1.4 TSI CZCA"]);
+  assert.deepEqual(visibleFitmentGroups(mixed, { ...none, query: "tsi" }).groups[0].rows.map(row => fitmentRowFields(row).engine), ["1.4 TSI CZCA"]);
 });
 
 test("fitmentView lists one make per reading label, so both spellings filter together", () => {
@@ -219,16 +244,21 @@ test("initialFitmentView keeps the garage vehicle's groups among the printed one
   assert.equal(fitmentView(sources).groups.at(-1)?.model, "Audi A3 (8V1)");
 });
 
+test("the page prints six model groups (#1211)", () => {
+  assert.equal(fitmentInitialGroups, 6);
+});
+
 test("visibleFitmentGroups counts the groups not loaded yet as hidden", () => {
   const view = initialFitmentView(fitmentView(series(27)), rest), none = { make: "", model: "", query: "", showAll: false };
-  assert.equal(visibleFitmentGroups(view, none).hidden, 7);
+  assert.equal(visibleFitmentGroups(view, none).hidden, 27 - fitmentInitialGroups);
   // Revealing before the rest arrives still holds the unloaded groups back.
   const shown = visibleFitmentGroups(view, { ...none, showAll: true });
   assert.equal(shown.groups.length, fitmentInitialGroups);
-  assert.equal(shown.hidden, 7);
-  // A search reads the printed groups until the rest arrives.
+  assert.equal(shown.hidden, 27 - fitmentInitialGroups);
+  // A search reads the printed groups until the rest arrives: "Model 1" matches Model 1 only among the first ones.
   assert.equal(visibleFitmentGroups(view, { ...none, query: "Model 25" }).groups.length, 0);
-  assert.equal(visibleFitmentGroups(view, { ...none, query: "Model 2" }).groups.length, 2);
+  assert.deepEqual(visibleFitmentGroups(view, { ...none, query: "Model 1" }).groups.map(group => group.model), ["Volkswagen Model 1"]);
+  assert.equal(visibleFitmentGroups(fitmentView(series(27)), { ...none, query: "Model 1" }).groups.length, 11);
 });
 
 test("mergeFitmentGroups keeps the printed groups first, then the loaded ones in order, once each", () => {
@@ -241,8 +271,10 @@ test("mergeFitmentGroups keeps the printed groups first, then the loaded ones in
   assert.equal(merged.length, 26);
   assert.equal(new Set(merged.map(group => group.model)).size, 26);
   printed.forEach((group, index) => assert.equal(merged[index], group));
-  assert.deepEqual(merged.slice(fitmentInitialGroups).map(group => group.model), ["Volkswagen Model 20", "Volkswagen Model 21", "Volkswagen Model 22", "Volkswagen Model 23", "Volkswagen Model 24", "Volkswagen Model 25"]);
-  assert.equal(merged[fitmentInitialGroups], loaded[19]);
+  // The garage's Audi group and Model 1 … (fitmentInitialGroups - 1) were printed; the loaded list adds the next models.
+  const next = Array.from({ length: 26 - fitmentInitialGroups }, (_, index) => `Volkswagen Model ${fitmentInitialGroups + index}`);
+  assert.deepEqual(merged.slice(fitmentInitialGroups).map(group => group.model), next);
+  assert.equal(merged[fitmentInitialGroups], loaded[fitmentInitialGroups - 1]);
 });
 
 test("fitmentCacheControl keeps the page's version long and any other briefly", () => {

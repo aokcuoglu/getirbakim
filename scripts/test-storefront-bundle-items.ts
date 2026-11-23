@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { bundleItems, referencedItemIds, resolveBundleItems } from "./storefront-bundle-items";
-import { EXPORTED_ENRICHMENT_IDS } from "./storefront-bundle-export";
+import { EXPORTED_ENRICHMENT_IDS, exportedEnrichmentBatches, exportedEnrichmentIds } from "./storefront-bundle-export";
 import { importBundleJobs } from "./storefront-bundle-jobs";
 import { replaceBundleMappings } from "./storefront-bundle-mappings";
 
@@ -95,11 +95,27 @@ test("PostgreSQL: an export carries enrichments after the watermark and the retr
     for (const [id, code] of [[old, "OLD"], [fresh, "FRESH"], [byId, "BYID"], [byKey, "BYKEY"]]) await insertItem(client, id, code);
     for (const id of [old, byId, byKey]) await insertEnrichment(client, id, "2026-11-01T00:00:00Z");
     await insertEnrichment(client, fresh, "2026-11-14T00:00:00Z");
+    const changed = (retry: unknown[]) => [new Date("2026-11-13T00:00:00Z"), JSON.stringify(retry)];
     const exported = async (retry: unknown[]) => (await client.query<{ supplier_item_id: string }>(
-      `SELECT supplier_item_id FROM (${EXPORTED_ENRICHMENT_IDS}) x ORDER BY 1`, [new Date("2026-11-13T00:00:00Z"), JSON.stringify(retry)])).rows.map(row => row.supplier_item_id);
+      `SELECT supplier_item_id FROM (${EXPORTED_ENRICHMENT_IDS}) x ORDER BY 1`, changed(retry))).rows.map(row => row.supplier_item_id);
     assert.deepEqual(await exported([]), [fresh]);
     // The second retry item was re-created locally under another id; its natural key still finds it.
-    assert.deepEqual(await exported([{ id: byId }, { id: randomUUID(), ...itemKey("BYKEY") }, { id: randomUUID(), ...itemKey("GONE") }]), [fresh, byId, byKey].sort());
+    const retry = [{ id: byId }, { id: randomUUID(), ...itemKey("BYKEY") }, { id: randomUUID(), ...itemKey("GONE") }];
+    assert.deepEqual(await exported(retry), [fresh, byId, byKey].sort());
+
+    // The streamed export (#1316) evaluates the ids once and reads the rows in batches: the same rows in the same order
+    // as the single query it replaced, retried items included.
+    const ids = await exportedEnrichmentIds(client, changed(retry));
+    assert.deepEqual(ids, [fresh, byId, byKey].sort());
+    const single = (await client.query(`SELECT * FROM product_enrichments WHERE supplier_item_id IN (${EXPORTED_ENRICHMENT_IDS}) ORDER BY supplier_item_id`,
+      changed(retry))).rows;
+    for (const size of [1, 2, 200]) {
+      const batches: Record<string, unknown>[][] = [];
+      for await (const rows of exportedEnrichmentBatches(client, ids, size)) batches.push(rows);
+      assert.equal(batches.length, Math.ceil(ids.length / size));
+      assert.deepEqual(batches.flat(), single);
+    }
+    assert.deepEqual(await exportedEnrichmentIds(client, changed([])), [fresh]);
   });
 });
 
