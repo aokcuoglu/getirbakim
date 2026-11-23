@@ -219,8 +219,8 @@ test("initialFitmentView keeps the garage vehicle's groups among the printed one
   assert.equal(fitmentView(sources).groups.at(-1)?.model, "Audi A3 (8V1)");
 });
 
-test("the page prints eight model groups (#1211)", () => {
-  assert.equal(fitmentInitialGroups, 8);
+test("the page prints six model groups (#1211)", () => {
+  assert.equal(fitmentInitialGroups, 6);
 });
 
 test("visibleFitmentGroups counts the groups not loaded yet as hidden", () => {
@@ -230,7 +230,7 @@ test("visibleFitmentGroups counts the groups not loaded yet as hidden", () => {
   const shown = visibleFitmentGroups(view, { ...none, showAll: true });
   assert.equal(shown.groups.length, fitmentInitialGroups);
   assert.equal(shown.hidden, 27 - fitmentInitialGroups);
-  // A search reads the printed groups until the rest arrives: "Model 1" matches Model 1 only among Model 1–8.
+  // A search reads the printed groups until the rest arrives: "Model 1" matches Model 1 only among the first ones.
   assert.equal(visibleFitmentGroups(view, { ...none, query: "Model 25" }).groups.length, 0);
   assert.deepEqual(visibleFitmentGroups(view, { ...none, query: "Model 1" }).groups.map(group => group.model), ["Volkswagen Model 1"]);
   assert.equal(visibleFitmentGroups(fitmentView(series(27)), { ...none, query: "Model 1" }).groups.length, 11);

@@ -24,10 +24,10 @@ export type FitmentView = {
 };
 
 /**
- * Model groups printed before "Tüm {n} modeli göster": eight keep a heavy-fitment product page under its HTML budget
- * (#1211, ≤ 150 KB); the rest loads from /api/product-fitments/[id] (#966).
+ * Model groups printed before "Tüm {n} modeli göster", kept low for a heavy-fitment product page's HTML budget (#1211,
+ * ≤ 150 KB: the printed groups' engine rows ship as props); the rest loads from /api/product-fitments/[id] (#966).
  */
-export const fitmentInitialGroups = 8;
+export const fitmentInitialGroups = 6;
 /**
  * Above this many models the model select fills its options when first pointed at or focused; a page that ships part of
  * the list (#966) sends the model names up to this many, past it the select waits for the whole list.

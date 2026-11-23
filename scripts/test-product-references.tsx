@@ -7,8 +7,8 @@ import { ProductReferences } from "../src/components/product-references";
 import { fitmentInitialGroups, fitmentView, initialFitmentView, type FitmentSource } from "../src/modules/store/product-fitment-view";
 import { initialReferenceView, referenceInitialCodes, referenceInitialRows, referenceRowCodes, type ReferenceRow } from "../src/modules/store/product-reference-view";
 
-// #1211: a product page with hundreds of reference brands and dozens of fitted models stays within its HTML budget
-// (≤ 150 KB): the OEM list prints a capped selection, the fitment list eight light group headers.
+// #1211: a product page with hundreds of reference brands and dozens of fitted models keeps its HTML small (budget
+// ≤ 150 KB): the OEM list prints a capped selection, the fitment list its first light group headers.
 
 const rest = "/api/product-references/9db4f695-185e-4d35-b8e4-190bfb549e91?v=abc";
 const codes = (brand: string, count: number) => Array.from({ length: count }, (_, index) => `${brand}-${index + 1}`);
@@ -16,8 +16,9 @@ const brand = (index: number) => `MARKA ${String(index).padStart(3, "0")}`;
 const source = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
 
 test("initialReferenceView ships a list within the caps whole", () => {
-  const rows: ReferenceRow[] = Array.from({ length: referenceInitialRows }, (_, index) => [brand(index), codes(brand(index), referenceInitialCodes / referenceInitialRows)]);
-  rows[0] = [rows[0][0], [["0 986 1", "/urun/a-1"], ...codes("A", 2)]];
+  const each = Math.min(referenceRowCodes, Math.floor(referenceInitialCodes / referenceInitialRows));
+  const rows: ReferenceRow[] = Array.from({ length: referenceInitialRows }, (_, index) => [brand(index), codes(brand(index), each)]);
+  rows[0] = [rows[0][0], [["0 986 1", "/urun/a-1"], ...codes("A", each - 1)]];
   const view = initialReferenceView(rows, new Set(), rest);
   assert.deepEqual(view, { rows, rowCount: referenceInitialRows });
   assert.equal("rest" in view, false);

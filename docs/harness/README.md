@@ -83,18 +83,18 @@ Nerede koşar:
 
 ## Ürün sayfası HTML bütçesi (#1211)
 
-Uzun uyumlu araç ve OEM listeli ürün sayfaları `/urun/=150` bütçesinin çok üstündeydi: OEM satırları sunucuda render edildiği için HTML + flight'ta iki kez gidiyordu, "Uyumlu araçlar" 20 grup başlığı (her birinde iki lucide svg) ve bu grupların motor satırlarını prop olarak taşıyordu. Değişiklik: "Uyumlu araçlar" ilk 8 grubu basar (`fitmentInitialGroups`), grup başlığında svg yok (chevron ve ok `storefront.css`te CSS maskesi), seçimler ve metin düğmeleri adlı sınıflı düz öğeler (`.fitment-select`, `.fitment-text-button`); "OEM ve muadil numaraları" `ProductReferences` istemci bileşenidir, uzun listede önce bağlantılı, sonra araç üreticisi OEM, sonra diğer marka satırlarından en çok 24 satır / satırda 6 / toplam 72 numara basar, tamamı `/api/product-references/[id]?v=` ile yüklenir. Yerel `next build --webpack` + `next start`, 5 koşu (`npm run harness:measure -- --build --port <port> <yollar>`), htmlKB / RSC KB / gzip KB:
+Uzun uyumlu araç ve OEM listeli ürün sayfaları `/urun/=150` bütçesinin çok üstündeydi: OEM satırları sunucuda render edildiği için HTML + flight'ta iki kez gidiyordu, "Uyumlu araçlar" 20 grup başlığı (her birinde iki lucide svg) ve bu grupların motor satırlarını prop olarak taşıyordu. Değişiklik: "Uyumlu araçlar" ilk 6 grubu basar (`fitmentInitialGroups`), grup başlığında svg yok (chevron ve ok `storefront.css`te CSS maskesi), seçimler ve metin düğmeleri adlı sınıflı düz öğeler (`.fitment-select`, `.fitment-text-button`); "OEM ve muadil numaraları" `ProductReferences` istemci bileşenidir, uzun listede önce bağlantılı, sonra araç üreticisi OEM, sonra diğer marka satırlarından en çok 24 satır / satırda 6 / toplam 72 numara basar, tamamı `/api/product-references/[id]?v=` ile yüklenir. Yerel üretim derlemesi (Turbopack, CI/üretimle aynı `next build`; worktree'de symlink yerine gerçek `npm ci` ile), `next start`, 5 koşu (`npm run harness:measure -- --build --port <port> <yollar>`), htmlKB / RSC KB / gzip KB:
 
-| Ürün | Önce (`df512696e`) | Sonra |
+| Ürün | Önce (`df512696e`) | 8 grup, 24 satır (`b06fd9dc8`) |
 |---|---|---|
-| SWAG 50104788 | 229,5 / 127,6 / 35,6 | 155,9 / 87,8 / 28,5 |
-| BOSCH 0258986507 | 376,9 / 232,0 / 58,9 | 152,2 / 82,5 / 28,9 |
-| BLUEPRINT ADM54282 | 363,4 / 228,3 / 51,0 | 176,0 / 103,7 / 31,6 |
-| FEBI 07022 | 339,2 / 207,0 / 51,5 | 160,0 / 88,5 / 29,9 |
-| FEBI 102793 (16 model) | 385,6 / 248,9 / 58,2 | 174,1 / 102,5 / 31,6 |
-| MAG 300704004900 | 257,1 / 152,2 / 38,4 | 175,3 / 103,7 / 30,9 |
+| SWAG 50104788 | 224,8 / 124,4 / 34,8 | 150,8 / 84,2 / 27,8 |
+| BOSCH 0258986507 | 372,1 / 228,5 / 58,3 | 146,7 / 78,4 / 28,3 |
+| BLUEPRINT ADM54282 | 358,3 / 224,7 / 50,3 | 170,4 / 99,6 / 30,7 |
+| FEBI 07022 | 334,1 / 203,3 / 50,8 | 154,5 / 84,4 / 29,3 |
+| FEBI 102793 (16 model) | 380,4 / 245,2 / 57,3 | 168,5 / 98,4 / 30,7 |
+| MAG 300704004900 | 252,0 / 148,5 / 37,8 | 169,8 / 99,6 / 30,2 |
 
-Bütçe ağır örneklerde henüz tutmuyor. Kalan ağırlık: basılan grupların motor satırları `ProductFitment` prop'larında (satır başına ~135 bayt; ağır örneklerde 8 grupta 129–140 satır, flight'ta ~20–23 KB; kapalı panel DOM'da olmadığı halde) ve webpack derlemesinin istemci referans satırları (`I[…]`, sayfa başına ~27 KB; canlıdaki Turbopack derlemesinde daha kısa). Sıradaki adım motor satırlarını grup açılınca yüklemek ya da satırları dizi olarak taşımaktır.
+Canlıda SWAG önce 221,3 KB (yerel Turbopack ~3,5 KB ağır). Grup sınırı 8 → 6 ağır örneklerde 1,5–7,7 KB kazandırır (webpack ölçümü). OEM satır sınırını 24 → 16 indirmek yalnız 0–1,2 KB kazandırdığı için (ağır örneklerde 72 numara sınırı önce doluyor) uygulanmadı: orta boy sayfalarda SEO metni olan marka satırlarını düşürüyordu. Kalan ağırlık basılan grupların motor satırlarıdır (`ProductFitment` prop'ları; satır başına ~135 bayt, ağır örneklerde 8 grupta 129–140 satır, flight'ta ~20–23 KB; kapalı panel DOM'da olmadığı halde).
 
 ## Yerel ortam notları
 - Ana checkout `/Users/void/www/getirbakim` dalı `dev`'de durur; dev sunucusu `localhost:3000` (öldürülmez, worktree kodunu göstermez).
