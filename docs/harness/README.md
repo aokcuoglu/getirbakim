@@ -81,6 +81,21 @@ Nerede koşar:
 - **CSS ağırlığı ölçümü** — `npm run harness:css [-- <dosya.css>... --next]` (projenin PostCSS + Tailwind'i dışında bağımlılıksız; `compileCss` işlevi `scripts/test-stylesheet-scope.ts`te de kullanılır; CI'da koşmaz). Varsayılan olarak `src/app/globals.css` (vitrin) ve `src/app/admin.css` (`/yonetim`) sayfalarını derlemedeki gibi küçültüp ham ve gzip -9 boyutunu yazar; `--next` son `npm run build`ün `.next/static/chunks/*.css` parçalarını da listeler ve `/yonetim` kenar çubuğu utility'lerini (`collapsible=icon`) taşıyanı `admin` diye işaretler. #1027 ölçümü (küçültülmüş, gzip -9): eski `globals.css` 318,6 / 48,1 KB → vitrin `globals.css` 245,3 / 37,7 KB; `admin.css` 248,4 / 38,7 KB (yalnız `/yonetim` yükler, vitrin sayfasından istemci gezinmesiyle gelindiğinde kalır). `--breakdown` her sayfa için üst düzey blok başına bayt döker (`@layer theme/base/components/utilities`, `@property`, diğer). **Vitrin stil sayfası ağırlığı (#1288):** `dark:` varyantları vitrinde kullanılmaz (`.dark` yalnız `/yonetim` altında açılır), bu yüzden 26 sınıf `globals.css`te `@source not inline(...)` ile dışarıda tutulur (`admin.css` yine üretir; `npm run test:stylesheet-scope` iki yönü de doğrular; 244,8 → 238,4 KB, gzip 37,6 → 37,0 KB). Bileşim (öncesi): utilities 167,6 KB (48,8 KB'ı yalnız `ui/*`ten), components 62,7 KB, `@property` 10,1 KB, base/theme ~13 KB. Liste/ürün kurallarını rota stil sayfasına taşımak reddedildi: ikinci bir render-blocking istek ekler. Yalnız-anasayfa stil sayfası ayrı bir spike: sayfalar arası cascade riski var ve Tailwind 4.3.3 `@layer` içinde iç içe `@source`/`@utility`ye izin vermiyor. `npm run harness:css-chunks` (CI'da `npm run build` sonrası) derleme manifestlerinden (`entryCSSFiles`) `/yonetim` dışındaki hiçbir segmentin `admin` parçasını bağlamadığını ve `/yonetim` segmentlerinde vitrin sayfasının önce geldiğini doğrular.
 - **CI** — `.github/workflows/ci.yml` lint'ten sonra `harness:lint` + `harness:test` koşar.
 
+## Ürün sayfası HTML bütçesi (#1211)
+
+Uzun uyumlu araç ve OEM listeli ürün sayfaları `/urun/=150` bütçesinin çok üstündeydi: OEM satırları sunucuda render edildiği için HTML + flight'ta iki kez gidiyordu, "Uyumlu araçlar" 20 grup başlığı (her birinde iki lucide svg) ve bu grupların motor satırlarını prop olarak taşıyordu. Değişiklik: "Uyumlu araçlar" ilk 8 grubu basar (`fitmentInitialGroups`), grup başlığında svg yok (chevron ve ok `storefront.css`te CSS maskesi), seçimler ve metin düğmeleri adlı sınıflı düz öğeler (`.fitment-select`, `.fitment-text-button`); "OEM ve muadil numaraları" `ProductReferences` istemci bileşenidir, uzun listede önce bağlantılı, sonra araç üreticisi OEM, sonra diğer marka satırlarından en çok 24 satır / satırda 6 / toplam 72 numara basar, tamamı `/api/product-references/[id]?v=` ile yüklenir. Yerel `next build --webpack` + `next start`, 5 koşu (`npm run harness:measure -- --build --port <port> <yollar>`), htmlKB / RSC KB / gzip KB:
+
+| Ürün | Önce (`df512696e`) | Sonra |
+|---|---|---|
+| SWAG 50104788 | 229,5 / 127,6 / 35,6 | 155,9 / 87,8 / 28,5 |
+| BOSCH 0258986507 | 376,9 / 232,0 / 58,9 | 152,2 / 82,5 / 28,9 |
+| BLUEPRINT ADM54282 | 363,4 / 228,3 / 51,0 | 176,0 / 103,7 / 31,6 |
+| FEBI 07022 | 339,2 / 207,0 / 51,5 | 160,0 / 88,5 / 29,9 |
+| FEBI 102793 (16 model) | 385,6 / 248,9 / 58,2 | 174,1 / 102,5 / 31,6 |
+| MAG 300704004900 | 257,1 / 152,2 / 38,4 | 175,3 / 103,7 / 30,9 |
+
+Bütçe ağır örneklerde henüz tutmuyor. Kalan ağırlık: basılan grupların motor satırları `ProductFitment` prop'larında (satır başına ~135 bayt; ağır örneklerde 8 grupta 129–140 satır, flight'ta ~20–23 KB; kapalı panel DOM'da olmadığı halde) ve webpack derlemesinin istemci referans satırları (`I[…]`, sayfa başına ~27 KB; canlıdaki Turbopack derlemesinde daha kısa). Sıradaki adım motor satırlarını grup açılınca yüklemek ya da satırları dizi olarak taşımaktır.
+
 ## Yerel ortam notları
 - Ana checkout `/Users/void/www/getirbakim` dalı `dev`'de durur; dev sunucusu `localhost:3000` (öldürülmez, worktree kodunu göstermez).
 - Worktree'ler `../getirbakim-<N>`; `.env.local` ve `node_modules` ana checkout'a symlink (lint/tsc/test için yeterli). Tarayıcı QA'sı için worktree'de gerçek `npm ci` + `npx next dev -p 31NN` (Turbopack symlink'li `node_modules` ile çalışmaz); QA bitince sunucu kapatılır.

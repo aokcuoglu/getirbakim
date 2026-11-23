@@ -7,6 +7,7 @@ import { Search, Loader2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { fitmentEagerModelOptions, mergeFitmentGroups, visibleFitmentGroups, type FitmentGroup, type FitmentView } from "@/modules/store/product-fitment-view";
+import { loadedPublicList, publicListFetch } from "@/components/public-list-fetch";
 
 const fuelLabels: Record<string, string> = {
   Electric: "Elektrik", Diesel: "Dizel", Petrol: "Benzin", "Petrol/Electric": "Benzin / Elektrik",
@@ -16,34 +17,8 @@ const fuelLabels: Record<string, string> = {
   "Petrol/Liquified Petroleum Gas (LPG)": "Benzin / LPG",
 };
 
-// One request per list, shared by every trigger; a failed one is forgotten so "Tekrar dene" asks again. No cookies: the
-// list is the same for everyone and publicly cached (#966). Only the last few lists are kept for a page visited again.
-const keptLists = 5;
-const requests = new Map<string, Promise<FitmentGroup[]>>();
-const loadedLists = new Map<string, FitmentGroup[]>();
-function keep<T>(map: Map<string, T>, key: string, value: T) {
-  map.delete(key);
-  map.set(key, value);
-  for (const oldest of map.keys()) if (map.size > keptLists) map.delete(oldest);
-}
-
-function fetchFitments(url: string) {
-  let request = requests.get(url);
-  if (!request) {
-    request = fetch(url, { credentials: "omit", signal: AbortSignal.timeout(10_000) }).then(async response => {
-      const data: unknown = await response.json();
-      const groups = data && typeof data === "object" && "groups" in data ? data.groups : null;
-      if (!response.ok || !Array.isArray(groups)) throw new Error("Uyumlu araçlar yüklenemedi.");
-      keep(loadedLists, url, groups as FitmentGroup[]);
-      return groups as FitmentGroup[];
-    }).catch(error => {
-      requests.delete(url);
-      throw error;
-    });
-    keep(requests, url, request);
-  }
-  return request;
-}
+// One request per list, shared by every trigger and kept for a page visited again (public-list-fetch.ts).
+const fetchFitments = (url: string) => publicListFetch<FitmentGroup>(url, "groups", "Uyumlu araçlar yüklenemedi.");
 
 /** How long a load may take before it shows: a fast answer does not flash the loading state. */
 const loadingDelay = 180;
@@ -64,7 +39,7 @@ export function ProductFitment({ view }: { view: FitmentView }) {
   const [selectedModel, setSelectedModel] = useState("");
   const [showAll, setShowAll] = useState(false);
   const [allModels, setAllModels] = useState(false);
-  const [all, setAll] = useState<FitmentGroup[] | null>(() => view.rest ? loadedLists.get(view.rest) ?? null : null);
+  const [all, setAll] = useState<FitmentGroup[] | null>(() => view.rest ? loadedPublicList<FitmentGroup>(view.rest) : null);
   // "warming": asked ahead of use; "loading": a visitor's action waits for the list; "error": that action's load failed.
   const [status, setStatus] = useState<"idle" | "warming" | "loading" | "error">("idle");
   // Whether a load waited `loadingDelay`: the loading state shows from then on (aria-busy at once).

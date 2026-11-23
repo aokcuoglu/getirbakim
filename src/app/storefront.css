@@ -22,9 +22,15 @@
   .model-link { @apply inline-flex min-h-8 items-center gap-1.5 hover:text-primary hover:underline; }
   .model-link > span { @apply text-muted-foreground; }
 
-  /* Product page: OEM and equivalent numbers, specification rows. */
+  /* Product page: OEM and equivalent numbers (ProductReferences: the page's section title, the scroll box, a brand row
+     with its numbers, a linked number and the count of numbers left out, #1211), specification rows. */
+  .reference-title { @apply mb-7 text-[26px] leading-[34px] font-semibold tracking-[-.6px] max-[750px]:mb-5 max-[750px]:text-[23px] max-[750px]:leading-[30px]; }
+  .reference-list { @apply m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]; }
   .reference-row { @apply grid grid-cols-[180px_minmax(0,1fr)] gap-6 border-b border-[#e0e5eb] px-5 py-[15px] last:border-0 max-[750px]:grid-cols-[100px_minmax(0,1fr)] max-[750px]:gap-4 max-[750px]:p-3.5 max-[750px]:text-[13px]; }
-  .reference-codes { @apply m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere; }
+  .reference-row > dt { @apply text-[#53677d]; }
+  .reference-row > dd { @apply m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere; }
+  .reference-link { @apply text-[#0065c3] hover:underline focus-visible:underline; }
+  .reference-more { @apply font-normal whitespace-nowrap text-muted-foreground; }
   .spec-row { @apply grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3; }
 
   /* Product page "Uyumlu araçlar" (ProductFitment): a model group, its trigger with the chevron and row count, and the
@@ -58,7 +64,7 @@
   }
   .fitment-status { @apply m-0 border-x border-[#dce2e9] bg-white px-4 py-3 text-xs leading-5 text-muted-foreground; }
   .fitment-alert { @apply flex flex-wrap items-center gap-x-3 border-x border-t border-[#dce2e9] bg-white px-4 text-sm leading-5; }
-  /* The product page's text buttons ("Sıfırla", "Tekrar dene", "Tüm … göster"; ProductFitment):
+  /* The product page's text buttons ("Sıfırla", "Tekrar dene", "Tüm … göster"; ProductFitment, ProductReferences):
      ui/button with storeButton({intent: "link", size: "md"}) and px-2 as rendered, like .store-cta (no icon-slot,
      invalid or dark states; the loading spinner keeps the svg rules). Busy (aria-disabled) shows the progress cursor. */
   .fitment-text-button { @apply inline-flex h-auto min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-transparent bg-transparent bg-clip-padding px-2 py-2.5 text-sm leading-5 font-medium whitespace-nowrap text-primary underline-offset-4 transition-all outline-none select-none hover:underline focus-visible:border-ring focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring active:not-aria-[haspopup]:translate-y-px aria-disabled:cursor-progress aria-disabled:no-underline [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4; }

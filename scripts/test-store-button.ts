@@ -231,6 +231,7 @@ const rawButtons: Record<string, number> = {
   "components/product-gallery.tsx": 1, // thumbnail: an image selector
   "privacy/cookie-consent.tsx": 1, // footer cookie link
   "components/product-fitment.tsx": 3, // product page text buttons: .fitment-text-button copies storeButton link/md (#1211)
+  "components/product-references.tsx": 1, // product page "Tüm … markayı göster": .fitment-text-button (#1211)
 };
 
 test("raw <button> elements appear only in the header and the listed exceptions", () => {
