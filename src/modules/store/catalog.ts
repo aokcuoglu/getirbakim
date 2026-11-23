@@ -106,6 +106,8 @@ export function withBestOffer<T extends CatalogProduct>(item: T, group: CatalogP
  * `ARRAY(SELECT …)` with the whole read inside a MATERIALIZED CTE (`WITH p AS MATERIALIZED (${catalogRowsByIdsSql(…)})`),
  * which plans as one InitPlan feeding the primary key scan. Never `IN (subquery)`, a plain join against the view or a
  * per-row LATERAL: the planner then builds the whole view (seconds) or repeats it per row.
+ * A price order over up to 50k listed ids (pricedScope in browseProducts, #1335) reads the same bind array shape: the
+ * planner sees their count and hash-joins, where the listing's own two id-set clauses estimated one row and priced per row.
  * The hot reads go out as named prepared statements (preparedQuery, #1170): planning was most of their time. Name a
  * statement on any connection only when its outer select lists its columns; one returning `*` (the view's row) only on
  * the pool, where a cached plan broken by a view gaining a column is retried, never inside a transaction it would abort.
@@ -539,6 +541,10 @@ async function shownBrandClause(names:string[],values:unknown[]) {
 const facetKeys:ReadonlySet<string>=new Set(facetSpecificationKeys);
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: unknown[] = [company()]; const clauses: string[] = [listedOnly];
+ // The clauses narrowing the listing to an id set (search, category, model, make, vehicle fits, oil, each property) go
+ // through idSet: a price order over two or more is priced by id array (pricedScope, #1335).
+ let idSets=0;
+ const idSet=(clause:string)=>{idSets++;clauses.push(clause);};
  let search:CatalogSearch|undefined;
  const fitted=query.fits==='vehicle'&&context.vehicleTypeId?await typeFittedIds(Number(context.vehicleTypeId)):undefined;
  if(query.q?.trim()) {
@@ -546,7 +552,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   // A search for the vehicle's fits passes their intersection as one small array (#884): the two id arrays (a broad
   // search's 20k+ and a type's ~2k) took ~0.1 s per query, twice per page with the "Aracına uyanlar" lead.
   const linked=fitted&&new Set(fitted);
-  clauses.push(`catalog.id=ANY(${binder(values)(linked?search.ids.filter(id=>linked.has(id)):search.ids)}::uuid[])`);
+  idSet(`catalog.id=ANY(${binder(values)(linked?search.ids.filter(id=>linked.has(id)):search.ids)}::uuid[])`);
  }
  if(query.category) {
   const selected=(await getStoreCategories()).find(c=>c.slug===query.category);
@@ -557,7 +563,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    // Few oils carry a category yet; the engine-oil category also lists the oils read from product names.
    const ids=await categoryProductIds(legacy,descendants);
    values.push(descendants.includes(engineOilCategoryId)?[...new Set([...ids,...await engineOilIds()])]:ids);
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  // A model page lists its own fits, not their intersection with the make's: the make's list is the union of its
@@ -568,7 +574,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!model)clauses.push('false');
   else {
    values.push(await modelFittedIds(model.models.map(member=>member.id)));
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  else if(query.make) {
@@ -576,14 +582,14 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!make)clauses.push('false');
   else {
    values.push(Number(make.id));
-   clauses.push(`catalog.id=ANY(ARRAY(${makeFitsSql(`$${values.length}::int`)})::uuid[])`);
+   idSet(`catalog.id=ANY(ARRAY(${makeFitsSql(`$${values.length}::int`)})::uuid[])`);
   }
  }
  if(query.fits==='vehicle') {
   if(!fitted)clauses.push('false');
   else if(!search) {
    values.push(fitted);
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  const oil=parseOilFilters(query.oil);
@@ -591,7 +597,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!context.vehicleTypeId)clauses.push('false');
   else {
    values.push(await vehicleOilProductIds(context.vehicleTypeId,oil));
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  // A manufacturer page (#660) lists its master brand's name and labels (display_brand values), the column the brand filter reads.
@@ -609,7 +615,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
   if(!facetKeys.has(attribute)){clauses.push('false');continue;}
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
-  clauses.push(`catalog.id=ANY(ARRAY(SELECT f.supplier_item_id FROM storefront_facet_specs f
+  idSet(`catalog.id=ANY(ARRAY(SELECT f.supplier_item_id FROM storefront_facet_specs f
    JOIN product_enrichment_shared_links l ON l.supplier_item_id=f.supplier_item_id
    JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
    WHERE f.key=${attributeKey} AND f.value=ANY(${optionsKey}::text[])
@@ -628,7 +634,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   :`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id)`);
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
- return {values,where,from,search};
+ return {values,where,from,search,idSets};
 }
 // Listings without a search scan the whole 320k-row catalog for counts, facets and the date order
 // (~0.5-1.5 s each on the VPS). Those change only with supplier syncs, so they are served from a
@@ -769,6 +775,29 @@ export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalo
  const {ids}=await summarizeSearch(await catalogSearch(raw,mode),false);
  return withBestOffers(await catalogRowsByIds(ids.slice(0,limit)));
 }
+// A price order over a listing narrowed by two id sets (a category's ids and a property's or a make's) planned the priced
+// view as per-row nested loops (#1335): the sets' selectivities multiply to a 1-row estimate on the supplier_items primary
+// key scan, so the view looked up each row's currency on supplier_imports again (5,314 loops for yedek-parca + Front
+// Axle: 3.8 s; six Fitting Position values 12.5 s; yedek-parca + VW 16.8 s). Up to pricedByIdsMax rows the listing's ids
+// are read first and priced by bind array (pricedScope): the planner sees their real count and hash-joins (a cold page,
+// count included: Front Axle 3.3 s → 0.7 s, VW 16.5 s → 1.3 s). Above it the extra id read costs more than it saves (the
+// root category's 149k rows: 1.97 s → 2.5 s; the gain is smallest near 57k), so those keep the one statement, and so do
+// listings with fewer than two id sets, whose plan was right (priced read of 480 rows: manufacturer page 0.34 s → 0.44 s,
+// model page 0.19 s → 0.29 s, category + brand 0.48 s → 0.93 s by ids).
+const pricedByIdsMax=50_000;
+/**
+ * Where a price order reads its rows (#1335): `filter`'s own clause above pricedByIdsMax rows or below two id sets, else
+ * the listing's ids (the entries the count reads) as `$2`, `$1` staying the companies array storefrontCatalogSql reads.
+ * The ids travel as one array literal, never as rows: 50k row objects and their bound array added ~8 MB heap and ~34 MB
+ * RSS per call, paid by every live page beyond the cached ones (#1262 ran out of memory). Null when the listing has no
+ * rows: there is nothing to price. `total` may be as old as the count cache; it only picks the statement, both read the
+ * same rows.
+ */
+async function pricedScope(total:number,{values,where,from,idSets}:{values:unknown[];where:string;from:string;idSets:number},label:string){
+ if(total>pricedByIdsMax||idSets<2)return {where,values};
+ const ids=(await boundedQuery<{ids:string|null}>(`catalog.pricedListedIds ${label}`,`SELECT array_agg(catalog.id)::text AS ids ${from}`,values)).rows[0]?.ids;
+ return ids?{where:"WHERE catalog.id=ANY($2::uuid[])",values:[values[0],ids]}:null;
+}
 /**
  * The product count of a listing without a search, as browseProducts reports it (the same cache entry): the model
  * pages' metadata and their 404 and index rules read it before the page renders.
@@ -814,22 +843,31 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // the current price and stock, while its position follows the prices of up to 10 minutes ago (supplier syncs, and admin
  // price edits, which do not move the listing epoch). Deeper pages keep the live query. The priced rows are sorted before
  // the limit (VW: ~57 MB): it spilled to disk (external merge) at both the local default (4 MB) and the production RDS
- // setting (16 MB); 64 MB for this read keeps it in memory.
+ // setting (16 MB); 64 MB for this read keeps it in memory. A listing of two id sets up to pricedByIdsMax rows is priced
+ // by its id array (pricedScope), off a per-row plan (#1335).
  if(!search&&pricedSort&&page<=cachedPages){
-  const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>{const {values,where}=await filter();return (await boundedQuery<{id:string}>(`catalog.pricedPageIds ${filterKey(query,context)}|${query.sort}`, 
-   `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
+  const key=`${filterKey(query,context)}|${query.sort}`;
+  const ordered=await pageIdCache(query)(key,async()=>{const scope=await pricedScope(total,await filter(),key);
+   if(!scope)return [];
+   return (await boundedQuery<{id:string}>(`catalog.pricedPageIds ${key}`,
+   `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,scope.values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
    {persist:persistable(query)});
   const items=await storefrontRowsByIds(ordered.slice((page-1)*pageSize,(page-1)*pageSize+take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
  // A search lists the best matches first unless the shopper picked another order.
- const {values,where,from}=await filter();
- const pageValues=[...values],bind=binder(pageValues);
+ const filtered=await filter(),{from}=filtered;
+ // A deeper page of a price order reads the rows the cached order above reads (pricedScope); none, no page read. A search
+ // keeps its one statement: for "fren" in yedek-parca the extra id read (~0.39 s) cost more than the priced read saved
+ // (0.48 s → 0.22 s).
+ const scope=pricedSort&&!search?await pricedScope(total,filtered,`${filterKey(query,context)}|${query.sort}`):filtered;
+ if(!scope)return {items:[],total,page,pages,pageSize};
+ const pageValues=[...scope.values],bind=binder(pageValues);
  const rank=search&&(query.sort??"relevance")==="relevance"?catalogRank("catalog",search.parsed,bind):"0";
  const offset=bind((page-1)*pageSize);
  // The page's ids first, then its cards by id array (storefrontRowsByIds, #1135).
  const items = pricedSort
-  ? (await db.query<CatalogProduct>(`SELECT * FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`, pageValues)).rows
+  ? (await db.query<CatalogProduct>(`SELECT * FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`, pageValues)).rows
   : await storefrontRowsByIds((await db.query<{id:string}>(`SELECT id::text FROM (SELECT id,updated_at,unavailable,${rank} AS rank ${from}
      ORDER BY unavailable,rank DESC,${order} LIMIT ${take} OFFSET ${offset}) page`, pageValues)).rows.map(row=>row.id));
  return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
