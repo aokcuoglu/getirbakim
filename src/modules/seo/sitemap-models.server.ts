@@ -48,7 +48,7 @@ export async function modelPathsQuery() {
 /** Addresses of the model pages that are indexed (/yedek-parca/<make>/<model>). */
 export async function loadModelPaths(): Promise<string[]> {
   const { text, values, units } = await modelPathsQuery();
-  const { rows } = await boundedQuery<{ unit: number }>(text, values, 120_000);
+  const { rows } = await boundedQuery<{ unit: number }>("sitemap.models", text, values, 120_000);
   return rows.map(row => modelPath(units[row.unit].makeSlug, units[row.unit].modelSlug));
 }
 
@@ -57,7 +57,7 @@ export async function loadModelPaths(): Promise<string[]> {
  * (itemCategoriesSql over the whole catalog), keeps those the store lists, then reads each one's model fits through
  * the item indexes (the inverse of modelFitsSql: its engine-level fits, the description fits of its offers, and its
  * own when it groups no offer). The root category ($9) is left out: on a model it repeats the model page (#673).
- * ~1.5 s locally.
+ * ~10 s locally: the cost is the final sort for count(DISTINCT) (427 MB external merge), not the enrichment join (#1245).
  */
 const modelCategoriesSql = `WITH units AS MATERIALIZED (SELECT * FROM unnest($6::int[],$7::int[]) u(model_id,unit)),
  cats AS MATERIALIZED (${itemCategoriesSql({ legacySlugs: "$2", legacyIds: "$3", oilIds: "$4", oilCategory: "$5" })}),
@@ -84,7 +84,7 @@ export async function modelCategoryPathsQuery() {
 /** Addresses of the model × category pages that are indexed (/kategori/<category>/<make>/<model>). */
 export async function loadModelCategoryPaths(): Promise<string[]> {
   const { text, values, units } = await modelCategoryPathsQuery();
-  const { rows } = await boundedQuery<{ unit: number; slug: string }>(text, values, 120_000);
+  const { rows } = await boundedQuery<{ unit: number; slug: string }>("sitemap.modelCategories", text, values, 120_000);
   return rows.map(row => listingPath({ makeSlug: units[row.unit].makeSlug, modelSlug: units[row.unit].modelSlug, categorySlug: row.slug }));
 }
 
@@ -121,6 +121,6 @@ export async function makeCategoryPathsQuery(minimum = minIndexableListingProduc
 /** Addresses of the make × category pages that are indexed (/kategori/<category>/<make>). */
 export async function loadMakeCategoryPaths(): Promise<string[]> {
   const { text, values, units } = await makeCategoryPathsQuery();
-  const { rows } = await boundedQuery<{ unit: number; slug: string }>(text, values, 120_000);
+  const { rows } = await boundedQuery<{ unit: number; slug: string }>("sitemap.makeCategories", text, values, 120_000);
   return rows.map(row => listingPath({ makeSlug: units[row.unit], categorySlug: row.slug }));
 }

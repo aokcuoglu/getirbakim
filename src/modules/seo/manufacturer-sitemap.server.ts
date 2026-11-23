@@ -12,7 +12,7 @@ import { manufacturerDirectory } from "@/modules/store/manufacturers.server";
  */
 export async function loadManufacturerSlugs(): Promise<string[]> {
   const [directory, { rows }] = await Promise.all([manufacturerDirectory(),
-    boundedQuery<{ label: string; n: number }>(`SELECT display_brand AS label,count(*)::int AS n FROM (${catalogEntriesSql}) catalog WHERE ${listedOnly} GROUP BY 1`, [storefrontCompanies()])]);
+    boundedQuery<{ label: string; n: number }>("sitemap.manufacturers", `SELECT display_brand AS label,count(*)::int AS n FROM (${catalogEntriesSql}) catalog WHERE ${listedOnly} GROUP BY 1`, [storefrontCompanies()])]);
   const counts = new Map(rows.map(row => [row.label, row.n]));
   return directory.all
     .filter(manufacturer => manufacturerIndexable(manufacturer.slug, {}, manufacturer.labels.reduce((sum, label) => sum + (counts.get(label) ?? 0), 0)))
