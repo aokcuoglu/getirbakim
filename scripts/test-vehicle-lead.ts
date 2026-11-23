@@ -87,6 +87,11 @@ test("the lead keeps the listing's search, brand filter and order", async () => 
   assert.deepEqual(idsOf(cheapest.items), [ids.bosch2, ids.febi2]);
   const ranked = await catalog.vehicleLead({ q: "fren balatası", sort: "price-desc" }, String(GOLF), 1);
   assert.deepEqual(idsOf(ranked.items), [ids.bosch1]);
+  // A price-sorted search has the listing's total in either order (#1345); the search and the fits are one id set here,
+  // read through its clause (two or more are priced by id array: test-vehicle-model-listing).
+  assert.equal(ranked.total, searched.total);
+  const pricedSearch = await catalog.browseProducts({ q: "fren balatası", fits: "vehicle", sort: "price-asc" }, { vehicleTypeId: String(GOLF) });
+  assert.deepEqual(idsOf(pricedSearch.items), [ids.bosch2, ids.trw2, ids.trw1, ids.febi1, ids.bosch1]);
 });
 
 test("a vehicle without fits in the listing has no lead", async () => {
