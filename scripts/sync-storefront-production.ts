@@ -59,6 +59,9 @@ const state = resolve(STATE_PATH);
 const OVERLAP_MS = 60 * 60 * 1000;
 // Media bytes per part, well under the operations container's memory (see split-storefront-bundle.ts).
 const PART_BYTES = 100 * 1024 * 1024;
+// Enrichment JSON bytes per part (#1316): the released importer stringifies manifest.enrichments several times per part
+// inside the same 4096 MB operations task, so a part of image-less enrichments must not grow without bound.
+const PART_JSON_BYTES = 64 * 1024 * 1024;
 const prefixMode = parsePrefixMode(process.env.STOREFRONT_SYNC_PREFIX_MODE);
 const s3Concurrency = process.env.STOREFRONT_SYNC_S3_CONCURRENCY
   ? parsePositiveInteger(process.env.STOREFRONT_SYNC_S3_CONCURRENCY, "STOREFRONT_SYNC_S3_CONCURRENCY") : null;
@@ -211,24 +214,27 @@ try {
       ...(since ? [`--since=${since}`] : []), ...(retry.length ? [`--retry-file=${retryFile}`] : []), ...(maxDeletions ? [`--max-deletions=${maxDeletions}`] : []),
       // Pruning the local log is a write: only real runs do it.
       ...(dryRun ? [] : ["--prune"])]);
+    // The export's manifest.json carries no enrichments (they are in its enrichments.ndjson), only their count.
     const manifest = JSON.parse(await readFile(resolve(fullDir, "manifest.json"), "utf8")) as {
-      snapshotAt: string; enrichments: unknown[]; jobs?: unknown[]; tombstones?: unknown[]; invalidatedJobs?: number; maxDeletions?: number;
+      snapshotAt: string; enrichmentCount: number; jobs?: unknown[]; tombstones?: unknown[]; invalidatedJobs?: number; maxDeletions?: number;
     };
+    if (typeof manifest.enrichmentCount !== "number") throw new Error("The export's manifest.json has no enrichmentCount");
     const tombstones = manifest.tombstones?.length ?? 0;
     const exportMs = Date.now() - startedAt;
     const splitStart = Date.now();
     const partsDir = resolve(local, "parts");
-    const parts = (await splitStorefrontBundle(fullDir, partsDir, PART_BYTES)).map(dir => dir.split("/").at(-1)!);
+    const parts = (await splitStorefrontBundle(fullDir, partsDir, { mediaBytes: PART_BYTES, jsonBytes: PART_JSON_BYTES })).map(dir => dir.split("/").at(-1)!);
     const splitMs = Date.now() - splitStart;
     if (!transfer) {
       const summary = await summarizeParts(partsDir);
       console.log(JSON.stringify({
         dryRun: true, target, since, snapshotAt: manifest.snapshotAt, exportMs, splitMs, retried: retry.length, tombstones, invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions,
-        totals: { ...summary.totals, mediaMB: Math.round(summary.totals.mediaBytes / 1024 / 1024 * 10) / 10 }, base: summary.base, parts: summary.parts,
+        totals: { ...summary.totals, mediaMB: Math.round(summary.totals.mediaBytes / 1024 / 1024 * 10) / 10,
+          jsonMB: Math.round(summary.totals.jsonBytes / 1024 / 1024 * 10) / 10 }, base: summary.base, parts: summary.parts,
       }, null, 2));
     } else {
       console.log(JSON.stringify({
-        target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, tombstones,
+        target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichmentCount, jobs: manifest.jobs?.length ?? 0, tombstones,
         invalidatedJobs: manifest.invalidatedJobs ?? 0, maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length, exportMs, splitMs,
       }));
       const result = await transfer(partsDir, parts, manifest.snapshotAt);
@@ -241,7 +247,7 @@ try {
       for (const warning of deletions.warnings) console.warn(`WARNING: ${warning}`);
       for (const note of deletions.notes) console.log(note);
       const written: SyncState = {
-        snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), target, since, enrichments: manifest.enrichments.length, jobs: manifest.jobs?.length ?? 0, tombstones,
+        snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), target, since, enrichments: manifest.enrichmentCount, jobs: manifest.jobs?.length ?? 0, tombstones,
         ...(next.length ? { retry: next } : {}),
       };
       await writeFile(state, JSON.stringify(written, null, 2));

@@ -31,6 +31,8 @@ const reportPath = process.argv.find(arg => arg.startsWith("--report="))?.slice(
 const bucket = process.env.S3_BUCKET;
 if (!bucket) throw new Error("S3_BUCKET required");
 const manifest = JSON.parse(await readFile(resolve(root, "manifest.json"), "utf8"));
+// An export directory keeps its enrichments outside manifest.json (#1316); only the parts split-storefront-bundle.ts writes are bundles.
+if (manifest.enrichmentsFile) throw new Error("Unsplit export (enrichments are in enrichments.ndjson): import its parts");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const storage = objectStorage();
 const client = await pool.connect();

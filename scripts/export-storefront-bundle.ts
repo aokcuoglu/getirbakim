@@ -5,7 +5,8 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
 import { sendWithSkewRetry } from "./storefront-media-read";
-import { EXPORTED_ENRICHMENT_IDS } from "./storefront-bundle-export";
+import { EXPORTED_ENRICHMENT_IDS, exportedEnrichmentBatches, exportedEnrichmentIds } from "./storefront-bundle-export";
+import { ENRICHMENTS_FILE, ndjsonWriter } from "./storefront-bundle-stream";
 import type { BundleItem } from "./storefront-bundle-items";
 import { bundleTombstones, DEFAULT_MAX_DELETIONS, exportTombstones, pruneTombstones, TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
 import { parsePositiveInteger, parseRetryItems } from "./storefront-sync-state";
@@ -14,6 +15,11 @@ import { parsePositiveInteger, parseRetryItems } from "./storefront-sync-state";
 // mappings, product enrichments with their images, manufacturer logos, REPXPERT vehicle type specs and pictures) to a bundle that
 // scripts/import-storefront-bundle.ts loads into another database. manifest.items carries the natural key of every
 // supplier item the bundle references, so a product whose id differs there is still found (storefront-bundle-items.ts).
+// Layout (#1316): <root>/manifest.json holds everything but the enrichments plus enrichmentsFile/enrichmentCount; the
+// enrichments go to <root>/enrichments.ndjson (storefront-bundle-stream.ts), read in batches inside the snapshot and
+// streamed, never one array or one string (a 43k-enrichment delta passed V8's ~512 MiB string limit on 2026-11-23);
+// media files go to <root>/media/<object_key>. manifest.json is written last, so an aborted export leaves none.
+// scripts/split-storefront-bundle.ts turns this into the part-NN/ bundles the importer reads; it is never imported whole.
 // Enrichment runs, request logs and caches stay local; vehicle fitments are rebuilt after import.
 // --since=ISO exports only enrichments imported after that time (and their mappings and images); the
 // category tree, logos, REPXPERT vehicle data and enrichment job statuses are always complete. manifest.snapshotAt is the next run's --since.
@@ -47,6 +53,7 @@ const retry = retryFile ? parseRetryItems(await readFile(retryFile, "utf8")) : [
 const prune = process.argv.includes("--prune");
 const maxDeletionsArg = process.argv.find(arg => arg.startsWith("--max-deletions="))?.slice("--max-deletions=".length);
 const maxDeletions = maxDeletionsArg === undefined ? DEFAULT_MAX_DELETIONS : parsePositiveInteger(maxDeletionsArg, "--max-deletions");
+await mkdir(root, { recursive: true });
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const storage = objectStorage();
 const client = await pool.connect();
@@ -66,6 +73,17 @@ try {
     if (!listed.has(id)) items.push({ id, supplier, company, list_group, warehouse, code });
     listed.add(id);
   }
+  const ids = await exportedEnrichmentIds(client, changed);
+  const enrichments = ndjsonWriter(resolve(root, ENRICHMENTS_FILE));
+  let written = 0;
+  for await (const rows of exportedEnrichmentBatches(client, ids)) {
+    for (const row of rows) {
+      await enrichments.write(row);
+      written++;
+    }
+  }
+  await enrichments.close();
+  if (written !== ids.length) throw new Error(`Wrote ${written} of ${ids.length} enrichments`);
   const manifest = {
     exportedAt: new Date().toISOString(),
     since: since?.toISOString() ?? null,
@@ -76,7 +94,8 @@ try {
     images: await read("SELECT * FROM source_category_images ORDER BY source,category_id"),
     products: await read(`SELECT * FROM product_source_categories WHERE supplier_item_id IN (${EXPORTED_ENRICHMENT_IDS})
       ORDER BY supplier_item_id,source,category_id`, changed),
-    enrichments: await read(`SELECT * FROM product_enrichments WHERE supplier_item_id IN (${EXPORTED_ENRICHMENT_IDS}) ORDER BY supplier_item_id`, changed),
+    enrichmentsFile: ENRICHMENTS_FILE,
+    enrichmentCount: ids.length,
     // Hex bytea text survives JSON; the driver's Buffer would not.
     logos: await read(`SELECT brand_key,manufacturer,'\\x'||encode(image_data,'hex') AS image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url,imported_at
       FROM manufacturer_logos ORDER BY brand_key`),
@@ -107,5 +126,5 @@ try {
     await writeFile(path, bytes);
   }
   await writeFile(resolve(root, "manifest.json"), JSON.stringify(manifest));
-  console.log(`Exported ${manifest.categories.length} categories, ${manifest.labels.length} labels, ${manifest.images.length} category images, ${manifest.products.length} product mappings, ${manifest.enrichments.length} enrichments, ${manifest.jobs.length} enrichment jobs, ${manifest.logos.length} logos, ${manifest.vehicleSpecs.length} vehicle specs, ${manifest.vehicleImages.length} vehicle images, ${manifest.media.length} media objects, ${tombstones.length} tombstones, ${invalidatedJobs} invalidated jobs (max ${maxDeletions} deletions, ${pruned} log entries older than ${TOMBSTONE_RETENTION_DAYS} days pruned)${retry.length ? ` (${retry.length} retried supplier items)` : ""} to ${root}`);
+  console.log(`Exported ${manifest.categories.length} categories, ${manifest.labels.length} labels, ${manifest.images.length} category images, ${manifest.products.length} product mappings, ${manifest.enrichmentCount} enrichments, ${manifest.jobs.length} enrichment jobs, ${manifest.logos.length} logos, ${manifest.vehicleSpecs.length} vehicle specs, ${manifest.vehicleImages.length} vehicle images, ${manifest.media.length} media objects, ${tombstones.length} tombstones, ${invalidatedJobs} invalidated jobs (max ${maxDeletions} deletions, ${pruned} log entries older than ${TOMBSTONE_RETENTION_DAYS} days pruned)${retry.length ? ` (${retry.length} retried supplier items)` : ""} to ${root}`);
 } finally { client.release(); storage.destroy(); await pool.end(); }
