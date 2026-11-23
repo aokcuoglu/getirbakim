@@ -567,7 +567,7 @@ Süzgeç seçenekleri (`attributeFacetsSql`) ve öznitelik süzgeci (`catalogFil
 
 Kontroller:
 - `npm run test:catalog-filters`
-- `node --env-file=.env.local --conditions=react-server --import tsx scripts/verify-catalog-filters.ts`
+- Elle (CI'da değil; yerel veritabanının canlı verisini okur, fikstür kategorisini oradan seçer; #1336): `PGOPTIONS="-c default_transaction_read_only=on" node --env-file=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx scripts/verify-catalog-filters.ts`
 
 Trodo kartlarının görünür kalite/stok SVG simgeleri `/public/media/site/icons/` altında yerel olarak saklanır.
 
