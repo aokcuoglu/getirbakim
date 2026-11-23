@@ -15,8 +15,8 @@ export type ReferenceView = { rows: ReferenceRow[]; rowCount: number; rest?: str
 /** Rows printed before "Tüm {n} markayı göster". */
 export const referenceInitialRows = 24;
 /**
- * Numbers printed per row of a parts brand. A vehicle maker's OEM row is not capped per row (its numbers are the
- * searches people make, #1211), only by `referenceInitialCodes`.
+ * Numbers every printed row gets first. A vehicle maker's OEM row then takes what is left of `referenceInitialCodes`
+ * (its numbers are the searches people make, #1211); a parts brand's row stops here.
  */
 export const referenceRowCodes = 6;
 /** Numbers printed in all rows together. */
@@ -33,9 +33,10 @@ export function isReferenceRow(value: unknown): value is ReferenceRow {
 /**
  * The view the product page ships. A list within the caps goes out whole. A longer one prints the rows with a store
  * link first, then the vehicle makers' OEM rows (`oemBrands`), then the other brands (alphabetical within each), up to
- * `referenceInitialRows` rows and `referenceInitialCodes` numbers in all; a parts brand's row prints at most
- * `referenceRowCodes` of them, a vehicle maker's row all it can within the total (linked numbers first). The printed rows
- * keep the list's alphabetical order and `more` counts each row's numbers left out.
+ * `referenceInitialRows` rows and `referenceInitialCodes` numbers in all, in two passes: every printed row gets its first
+ * `referenceRowCodes` numbers (linked ones first), so a long OEM row cannot crowd out the linked equivalents after it;
+ * then the vehicle makers' rows take what is left of the total, in the same order. The printed rows keep the list's
+ * alphabetical order and `more` counts each row's numbers left out.
  */
 export function initialReferenceView(rows: readonly ReferenceRow[], oemBrands: ReadonlySet<string>, restUrl: string): ReferenceView {
   const rowCap = (brand: string) => oemBrands.has(brand) ? referenceInitialCodes : referenceRowCodes;
@@ -46,14 +47,24 @@ export function initialReferenceView(rows: readonly ReferenceRow[], oemBrands: R
   const tier = ([brand, codes]: ReferenceRow) => codes.some(linked) ? 0 : oemBrands.has(brand) ? 1 : 2;
   // Array sort is stable: rows of one tier keep the list's alphabetical order.
   const ranked = rows.map((row, index) => ({ row, index })).sort((a, b) => tier(a.row) - tier(b.row));
-  const picked: { row: ReferenceRow; index: number }[] = [];
+  const picked: { brand: string; codes: ReferenceCode[]; ordered: ReferenceCode[]; count: number; index: number }[] = [];
   let left = referenceInitialCodes;
   for (const { row: [brand, codes], index } of ranked) {
     if (picked.length === referenceInitialRows || left === 0) break;
-    const ordered = [...codes.filter(linked), ...codes.filter(code => !linked(code))];
-    const shown = ordered.slice(0, Math.min(rowCap(brand), left));
-    left -= shown.length;
-    picked.push({ row: shown.length < codes.length ? [brand, shown, codes.length - shown.length] : [brand, codes], index });
+    const count = Math.min(referenceRowCodes, codes.length, left);
+    left -= count;
+    picked.push({ brand, codes, ordered: [...codes.filter(linked), ...codes.filter(code => !linked(code))], count, index });
   }
-  return { rows: picked.sort((a, b) => a.index - b.index).map(({ row }) => row), rowCount: rows.length, rest: restUrl };
+  for (const row of picked) {
+    if (left === 0) break;
+    if (!oemBrands.has(row.brand)) continue;
+    const extra = Math.min(row.codes.length - row.count, left);
+    row.count += extra;
+    left -= extra;
+  }
+  return {
+    rows: picked.sort((a, b) => a.index - b.index)
+      .map(({ brand, codes, ordered, count }): ReferenceRow => count < codes.length ? [brand, ordered.slice(0, count), codes.length - count] : [brand, codes]),
+    rowCount: rows.length, rest: restUrl,
+  };
 }

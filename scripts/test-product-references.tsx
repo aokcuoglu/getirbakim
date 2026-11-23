@@ -6,7 +6,7 @@ import { ProductFitment } from "../src/components/product-fitment";
 import { ProductReferences } from "../src/components/product-references";
 import { loadedPublicList, publicListFetch } from "../src/components/public-list-fetch";
 import { fitmentInitialGroups, fitmentView, initialFitmentView, isFitmentGroup, type FitmentSource } from "../src/modules/store/product-fitment-view";
-import { initialReferenceView, isReferenceRow, referenceInitialCodes, referenceInitialRows, referenceRowCodes, type ReferenceRow } from "../src/modules/store/product-reference-view";
+import { initialReferenceView, isReferenceRow, referenceInitialCodes, referenceInitialRows, referenceRowCodes, type ReferenceCode, type ReferenceRow } from "../src/modules/store/product-reference-view";
 
 // #1211: a product page with hundreds of reference brands and dozens of fitted models keeps its HTML small (budget
 // ≤ 150 KB): the OEM list prints a capped selection, the fitment list its first light group headers.
@@ -41,25 +41,39 @@ test("initialReferenceView cuts past any cap and names the rest", () => {
   assert.equal(capped.rest, rest);
 });
 
-test("a vehicle maker's OEM row is not capped per row, only by the total", () => {
+test("a vehicle maker's OEM row is not capped per row: it takes what is left of the total after every row's first numbers", () => {
   const oem = new Set(["FORD"]);
+  const counts = (view: ReturnType<typeof initialReferenceView>) => new Map(view.rows.map(([name, printed, more]) => [name, { count: printed.length, more }]));
   // Within the totals a long OEM row goes out whole; a parts brand's as long a row would be cut.
   const short: ReferenceRow[] = [["BOSCH", codes("B", 2)], ["FORD", codes("F", 20)]];
   assert.deepEqual(initialReferenceView(short, oem, rest), { rows: short, rowCount: 2 });
   assert.equal(initialReferenceView(short, new Set(), rest).rest, rest);
-  // Past the caps: linked rows, then the OEM row with all its numbers, then parts brands at referenceRowCodes each.
-  const rows: ReferenceRow[] = [["AAA", [["A-L", "/urun/a"], ...codes("A", 9)]], ["BOSCH", codes("B", 10)], ["FORD", codes("F", 40)],
-    ...Array.from({ length: 30 }, (_, index): ReferenceRow => [brand(index), codes(brand(index), 10)]), ["NGK", codes("N", 10)]];
-  const view = initialReferenceView(rows, oem, rest);
-  const shown = new Map(view.rows.map(([name, printed, more]) => [name, { count: printed.length, more }]));
-  assert.deepEqual(shown.get("AAA"), { count: referenceRowCodes, more: 10 - referenceRowCodes });
-  assert.deepEqual(shown.get("FORD"), { count: 40, more: undefined });
-  assert.deepEqual(shown.get("BOSCH"), { count: referenceRowCodes, more: 10 - referenceRowCodes });
-  assert.equal(view.rows.reduce((sum, [, printed]) => sum + printed.length, 0), referenceInitialCodes);
-  // An OEM row longer than what is left of the total is cut there.
+  // Past the caps every printed row gets referenceRowCodes numbers first, then the OEM row takes the rest of the total.
+  const rows: ReferenceRow[] = [["AAA", [["A-L", "/urun/a"], ...codes("A", 9)]], ["BOSCH", codes("B", 10)], ["FORD", codes("F", 40)], ["NGK", codes("N", 10)]];
+  const view = counts(initialReferenceView(rows, oem, rest));
+  assert.deepEqual(view.get("AAA"), { count: referenceRowCodes, more: 10 - referenceRowCodes });
+  assert.deepEqual(view.get("BOSCH"), { count: referenceRowCodes, more: 10 - referenceRowCodes });
+  assert.deepEqual(view.get("NGK"), { count: referenceRowCodes, more: 10 - referenceRowCodes });
+  assert.deepEqual(view.get("FORD"), { count: 40, more: undefined });
+  // An OEM row longer than what is left is cut there; the rows after it keep their first numbers.
   const huge = initialReferenceView([["FORD", codes("F", 100)], ["NGK", ["1"]]], oem, rest);
-  assert.deepEqual(huge.rows, [["FORD", codes("F", referenceInitialCodes), 100 - referenceInitialCodes]]);
+  assert.deepEqual(huge.rows, [["FORD", codes("F", referenceInitialCodes - 1), 100 - (referenceInitialCodes - 1)], ["NGK", ["1"]]]);
   assert.equal(huge.rowCount, 2);
+  // When the printed rows' first numbers use up the total, the OEM row keeps referenceRowCodes like the others.
+  const many: ReferenceRow[] = [["FORD", codes("F", 40)], ...Array.from({ length: 30 }, (_, index): ReferenceRow => [brand(index), codes(brand(index), 10)])];
+  const crowded = initialReferenceView(many, oem, rest);
+  assert.deepEqual(counts(crowded).get("FORD"), { count: referenceRowCodes, more: 40 - referenceRowCodes });
+  assert.equal(crowded.rows.length, referenceInitialCodes / referenceRowCodes);
+  assert.equal(crowded.rows.reduce((sum, [, printed]) => sum + printed.length, 0), referenceInitialCodes);
+});
+
+test("long linked OEM rows do not crowd out the linked equivalents after them (#1211 review)", () => {
+  const linkedCodes = (name: string, count: number): ReferenceCode[] => [[`${name}-L`, `/katalog?q=${name}`], ...codes(name, count - 1)];
+  const rows: ReferenceRow[] = [["AUDI", linkedCodes("AUDI", 40)], ["BMW", linkedCodes("BMW", 40)], ["SETA", [["S-1", "/urun/s-1"], ["S-2", "/urun/s-2"]]]];
+  const view = initialReferenceView(rows, new Set(["AUDI", "BMW"]), rest);
+  assert.deepEqual(view.rows.map(([name, printed, more]) => [name, printed.length, more]), [["AUDI", 40, undefined], ["BMW", 30, 10], ["SETA", 2, undefined]]);
+  assert.deepEqual(view.rows[2], ["SETA", [["S-1", "/urun/s-1"], ["S-2", "/urun/s-2"]]]);
+  assert.equal(view.rows.reduce((sum, [, printed]) => sum + printed.length, 0), referenceInitialCodes);
 });
 
 test("initialReferenceView prints linked rows, then vehicle makers' OEM rows, then the others, in alphabetical order", () => {
