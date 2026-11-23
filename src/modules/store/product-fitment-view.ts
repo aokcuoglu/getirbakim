@@ -2,15 +2,34 @@
 // client component prints, so a product with 1,500 vehicles does not ship every row's labels and ids twice (HTML and RSC
 // payload). Client-safe: no server modules; the labels come in computed (vehicle-label.ts).
 
-export type FitmentRow = {
+/** An engine row's fields by name (fitmentRowFields). */
+export type FitmentRowFields = {
   /** The source's engine and engine codes; searched and printed under the catalog's name when that differs. */
   engine: string;
-  /** The catalog engine type's name, only where it differs from `engine`. */
-  catalog?: string;
   fuel: string; ps: number; kw: number; cc: number; from: string; to?: string;
   /** The linked catalog engine type. */
   typeId?: number;
+  /** The catalog engine type's name, only where it differs from `engine`. */
+  catalog?: string;
 };
+/**
+ * An engine row as the page's props and /api/product-fitments carry it: a tuple, so the field names do not repeat per
+ * row (#1211). The optional fields follow the required ones; a missing one before a present one is "" / 0, missing
+ * trailing ones are left off. Built by fitmentRow, read by fitmentRowFields.
+ */
+export type FitmentRow = [engine: string, fuel: string, ps: number, kw: number, cc: number, from: string, to?: string, typeId?: number, catalog?: string];
+
+/** The tuple of a row's fields. */
+export function fitmentRow({ engine, fuel, ps, kw, cc, from, to, typeId, catalog }: FitmentRowFields): FitmentRow {
+  if (catalog) return [engine, fuel, ps, kw, cc, from, to ?? "", typeId ?? 0, catalog];
+  if (typeId) return [engine, fuel, ps, kw, cc, from, to ?? "", typeId];
+  return to ? [engine, fuel, ps, kw, cc, from, to] : [engine, fuel, ps, kw, cc, from];
+}
+
+/** A row's fields by name; a "" / 0 gap reads as missing. */
+export function fitmentRowFields([engine, fuel, ps, kw, cc, from, to, typeId, catalog]: FitmentRow): FitmentRowFields {
+  return { engine, fuel, ps, kw, cc, from, to: to || undefined, typeId: typeId || undefined, catalog: catalog || undefined };
+}
 /** One model series: `make` is the make as the catalog writes it (the filter's value), `model` its reading-form label. */
 export type FitmentGroup = { make: string; model: string; href?: string; rows: FitmentRow[] };
 /**
@@ -61,11 +80,9 @@ export function fitmentView(vehicles: readonly FitmentSource[], garage?: Fitment
     if (!group) groups.set(vehicle.modelLabel, group = { make, model: vehicle.modelLabel, rows: [] });
     // A label can join several series of one model page; the first linked one stands for it.
     if (!group.href && vehicle.modelHref) group.href = vehicle.modelHref;
-    const row: FitmentRow = { engine: vehicle.engineAndCodes, fuel: vehicle.fuel, ps: vehicle.ps, kw: vehicle.kw, cc: vehicle.cc, from: vehicle.from };
-    if (vehicle.catalogEngine && vehicle.catalogEngine !== vehicle.engineAndCodes) row.catalog = vehicle.catalogEngine;
-    if (vehicle.to) row.to = vehicle.to;
-    if (vehicle.vehicleTypeId) row.typeId = vehicle.vehicleTypeId;
-    group.rows.push(row);
+    group.rows.push(fitmentRow({ engine: vehicle.engineAndCodes, fuel: vehicle.fuel, ps: vehicle.ps, kw: vehicle.kw, cc: vehicle.cc, from: vehicle.from,
+      to: vehicle.to || undefined, typeId: vehicle.vehicleTypeId || undefined,
+      catalog: vehicle.catalogEngine && vehicle.catalogEngine !== vehicle.engineAndCodes ? vehicle.catalogEngine : undefined }));
     if (garage) {
       const own = garage.typeId && String(vehicle.vehicleTypeId) === garage.typeId ? 0
         : garage.modelId && String(vehicle.modelId) === garage.modelId ? 1 : vehicle.makeLabel === garage.makeLabel ? 2 : 3;
@@ -123,7 +140,10 @@ export function visibleFitmentGroups(view: FitmentView, { make, model, query, sh
   let matches = 0;
   for (const group of view.groups) {
     if ((make && group.make !== make) || (model && group.model !== model)) continue;
-    const rows = normalized ? group.rows.filter(row => fold(`${group.model} ${row.engine} ${row.from} ${row.to ?? ""} ${row.ps} ${row.kw}`).includes(normalized)) : group.rows;
+    const rows = normalized ? group.rows.filter(row => {
+      const { engine, from, to, ps, kw } = fitmentRowFields(row);
+      return fold(`${group.model} ${engine} ${from} ${to ?? ""} ${ps} ${kw}`).includes(normalized);
+    }) : group.rows;
     if (!rows.length) continue;
     groups.push(rows === group.rows ? group : { ...group, rows });
     matches += rows.length;

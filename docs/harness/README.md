@@ -83,18 +83,18 @@ Nerede koşar:
 
 ## Ürün sayfası HTML bütçesi (#1211)
 
-Uzun uyumlu araç ve OEM listeli ürün sayfaları `/urun/=150` bütçesinin çok üstündeydi: OEM satırları sunucuda render edildiği için HTML + flight'ta iki kez gidiyordu, "Uyumlu araçlar" 20 grup başlığı (her birinde iki lucide svg) ve bu grupların motor satırlarını prop olarak taşıyordu. Değişiklik: "Uyumlu araçlar" ilk 6 grubu basar (`fitmentInitialGroups`), grup başlığında svg yok (chevron ve ok `storefront.css`te CSS maskesi), seçimler ve metin düğmeleri adlı sınıflı düz öğeler (`.fitment-select`, `.fitment-text-button`); "OEM ve muadil numaraları" `ProductReferences` istemci bileşenidir, uzun listede önce bağlantılı, sonra araç üreticisi OEM, sonra diğer marka satırlarından en çok 24 satır / satırda 6 / toplam 72 numara basar, tamamı `/api/product-references/[id]?v=` ile yüklenir. Yerel üretim derlemesi (Turbopack, CI/üretimle aynı `next build`; worktree'de symlink yerine gerçek `npm ci` ile), `next start`, 5 koşu (`npm run harness:measure -- --build --port <port> <yollar>`), htmlKB / RSC KB / gzip KB:
+Uzun uyumlu araç ve OEM listeli ürün sayfaları `/urun/=150` bütçesinin çok üstündeydi: OEM satırları sunucuda render edildiği için HTML + flight'ta iki kez gidiyordu, "Uyumlu araçlar" 20 grup başlığı (her birinde iki lucide svg) ve bu grupların motor satırlarını nesne olarak prop'ta taşıyordu. Değişiklik: "Uyumlu araçlar" ilk 6 grubu basar (`fitmentInitialGroups`), grup başlığında svg yok (chevron ve ok `storefront.css`te CSS maskesi), seçimler ve metin düğmeleri adlı sınıflı düz öğeler (`.fitment-select`, `.fitment-text-button`), motor satırları prop'ta ve `/api/product-fitments` yanıtında dizi (`fitmentRow` / `fitmentRowFields`); "OEM ve muadil numaraları" `ProductReferences` istemci bileşenidir, uzun listede önce bağlantılı, sonra araç üreticisi OEM, sonra diğer marka satırlarından en çok 24 satır / satırda 6 / toplam 72 numara basar, tamamı `/api/product-references/[id]?v=` ile yüklenir. Yerel üretim derlemesi (Turbopack, CI/üretimle aynı `next build`; worktree'de symlink yerine gerçek `npm ci` ile), `next start`, 5 koşu (`npm run harness:measure -- --build --port <port> <yollar>`), htmlKB / RSC KB / gzip KB:
 
-| Ürün | Önce (`df512696e`) | 8 grup, 24 satır (`b06fd9dc8`) |
-|---|---|---|
-| SWAG 50104788 | 224,8 / 124,4 / 34,8 | 150,8 / 84,2 / 27,8 |
-| BOSCH 0258986507 | 372,1 / 228,5 / 58,3 | 146,7 / 78,4 / 28,3 |
-| BLUEPRINT ADM54282 | 358,3 / 224,7 / 50,3 | 170,4 / 99,6 / 30,7 |
-| FEBI 07022 | 334,1 / 203,3 / 50,8 | 154,5 / 84,4 / 29,3 |
-| FEBI 102793 (16 model) | 380,4 / 245,2 / 57,3 | 168,5 / 98,4 / 30,7 |
-| MAG 300704004900 | 252,0 / 148,5 / 37,8 | 169,8 / 99,6 / 30,2 |
+| Ürün | Önce (`df512696e`) | Plan: 8 grup, 24 satır | Son: 6 grup, 24 satır, dizi satırlar |
+|---|---|---|---|
+| SWAG 50104788 | 224,8 / 124,4 / 34,8 | 150,8 / 84,2 / 27,8 | 145,5 / 79,9 / 27,5 |
+| BOSCH 0258986507 | 372,1 / 228,5 / 58,3 | 146,7 / 78,4 / 28,3 | 143,8 / 76,6 / 28,1 |
+| BLUEPRINT ADM54282 | 358,3 / 224,7 / 50,3 | 170,4 / 99,6 / 30,7 | **155,5** / 85,8 / 29,4 |
+| FEBI 07022 | 334,1 / 203,3 / 50,8 | 154,5 / 84,4 / 29,3 | 149,1 / 80,1 / 28,9 |
+| FEBI 102793 (16 model) | 380,4 / 245,2 / 57,3 | 168,5 / 98,4 / 30,7 | **154,8** / 85,7 / 29,7 |
+| MAG 300704004900 | 252,0 / 148,5 / 37,8 | 169,8 / 99,6 / 30,2 | **155,4** / 86,4 / 29,2 |
 
-Canlıda SWAG önce 221,3 KB (yerel Turbopack ~3,5 KB ağır). Grup sınırı 8 → 6 ağır örneklerde 1,5–7,7 KB kazandırır (webpack ölçümü). OEM satır sınırını 24 → 16 indirmek yalnız 0–1,2 KB kazandırdığı için (ağır örneklerde 72 numara sınırı önce doluyor) uygulanmadı: orta boy sayfalarda SEO metni olan marka satırlarını düşürüyordu. Kalan ağırlık basılan grupların motor satırlarıdır (`ProductFitment` prop'ları; satır başına ~135 bayt, ağır örneklerde 8 grupta 129–140 satır, flight'ta ~20–23 KB; kapalı panel DOM'da olmadığı halde).
+Son sütun `26155a6c2` (`dev`) üzerine yeniden tabanlanmış dalda ölçüldü. Canlıda SWAG önce 221,3 KB (yerel Turbopack ~3,5 KB ağır). Bütçe üç ağır örnekte (BLUEPRINT ADM54282, FEBI 102793, MAG 300704004900) hâlâ 5–6 KB aşılıyor; kalan ağırlık basılan 6 grubun motor satırlarıdır (ağır örneklerde 94–101 satır, dizi olarak prop'ta ~8–9 KB; kapalı panel DOM'da olmadığı halde). Kaldıraçların katkısı: grup sınırı 8 → 6 ağır örneklerde 1,5–7,7 KB, dizi satırlar 6 grupta 6–7,6 KB (nesneye göre ~%45 küçük; `/api/product-fitments` yanıtı da küçüldü, BLUEPRINT ADM54282: 34 grup / 429 satır 32,1 KB). OEM satır sınırını 24 → 16 indirmek yalnız 0–1,2 KB kazandırdığı için (ağır örneklerde 72 numara sınırı önce doluyor) uygulanmadı: orta boy sayfalarda SEO metni olan marka satırlarını düşürüyordu.
 
 ## Yerel ortam notları
 - Ana checkout `/Users/void/www/getirbakim` dalı `dev`'de durur; dev sunucusu `localhost:3000` (öldürülmez, worktree kodunu göstermez).

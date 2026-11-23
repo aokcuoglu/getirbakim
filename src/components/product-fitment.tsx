@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Search, Loader2 } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { fitmentEagerModelOptions, mergeFitmentGroups, visibleFitmentGroups, type FitmentGroup, type FitmentView } from "@/modules/store/product-fitment-view";
+import { fitmentEagerModelOptions, fitmentRowFields, mergeFitmentGroups, visibleFitmentGroups, type FitmentGroup, type FitmentView } from "@/modules/store/product-fitment-view";
 import { loadedPublicList, publicListFetch } from "@/components/public-list-fetch";
 
 const fuelLabels: Record<string, string> = {
@@ -159,12 +159,15 @@ export function ProductFitment({ view }: { view: FitmentView }) {
         <CollapsibleContent>
         <div className="overflow-x-auto border-t border-border" tabIndex={0} role="region" aria-label={`${model} motor seçenekleri`}>
           <Table className="min-w-[540px] border-collapse text-left text-xs leading-5"><TableHeader className="[&_tr]:border-0"><TableRow className="hover:bg-transparent">{["Motor / motor kodu","Güç / hacim","Üretim aralığı","Veri bağlantısı"].map(label => <TableHead key={label} scope="col" className="h-auto bg-[#f7f8fa] px-4 py-3 font-medium text-muted-foreground">{label}</TableHead>)}</TableRow></TableHeader><TableBody>
-            {rows.map(row => <TableRow key={`${row.engine}-${row.fuel}-${row.ps}-${row.kw}-${row.cc}-${row.from}-${row.to}`} className="fitment-row border-0 hover:bg-transparent">
-              <TableCell className="w-[48%] whitespace-normal"><strong className="font-medium">{row.catalog ?? row.engine}</strong>{row.catalog && <small>Kaynak motor bilgisi: {row.engine}</small>}<small>{fuelLabels[row.fuel] || row.fuel}</small></TableCell>
-              <TableCell className="whitespace-normal">{row.ps} PS · {row.kw} kW{row.cc > 0 && <small>{row.cc} cm³</small>}</TableCell>
-              <TableCell className="whitespace-normal">{row.from} – {row.to || "Bitiş belirtilmemiş"}</TableCell>
-              <TableCell>{row.typeId ? <span className="text-[11px] whitespace-nowrap text-[#26734d]" title={`Araç tipi: ${row.typeId}`}>Kataloğa bağlı</span> : <span className="text-[11px] whitespace-nowrap text-[#68778a]">Kaynak kaydı</span>}</TableCell>
-            </TableRow>)}
+            {rows.map(row => {
+              const { engine, catalog, fuel, ps, kw, cc, from, to, typeId } = fitmentRowFields(row);
+              return <TableRow key={`${engine}-${fuel}-${ps}-${kw}-${cc}-${from}-${to}`} className="fitment-row border-0 hover:bg-transparent">
+              <TableCell className="w-[48%] whitespace-normal"><strong className="font-medium">{catalog ?? engine}</strong>{catalog && <small>Kaynak motor bilgisi: {engine}</small>}<small>{fuelLabels[fuel] || fuel}</small></TableCell>
+              <TableCell className="whitespace-normal">{ps} PS · {kw} kW{cc > 0 && <small>{cc} cm³</small>}</TableCell>
+              <TableCell className="whitespace-normal">{from} – {to || "Bitiş belirtilmemiş"}</TableCell>
+              <TableCell>{typeId ? <span className="text-[11px] whitespace-nowrap text-[#26734d]" title={`Araç tipi: ${typeId}`}>Kataloğa bağlı</span> : <span className="text-[11px] whitespace-nowrap text-[#68778a]">Kaynak kaydı</span>}</TableCell>
+            </TableRow>;
+            })}
           </TableBody></Table>
         </div>
         </CollapsibleContent>

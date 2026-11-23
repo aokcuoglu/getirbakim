@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createFitmentMatcher, englishModelName, type FitmentCatalogModel, type FitmentCatalogType, type SourceVehicle } from "../src/modules/store/fitment-matcher";
 import { parseFitmentPaging } from "../src/modules/admin/fitment-details";
-import { fitmentCacheControl, fitmentEagerModelOptions, fitmentInitialGroups, fitmentView, initialFitmentView, mergeFitmentGroups, visibleFitmentGroups, type FitmentSource } from "../src/modules/store/product-fitment-view";
+import { fitmentCacheControl, fitmentEagerModelOptions, fitmentInitialGroups, fitmentRow, fitmentRowFields, fitmentView, initialFitmentView, mergeFitmentGroups, visibleFitmentGroups, type FitmentSource } from "../src/modules/store/product-fitment-view";
 import { fitmentSources, fitmentVersion, productFitmentGroups, productPageFitment } from "../src/modules/store/product-fitment-sources";
 
 const models: FitmentCatalogModel[] = [{ id: 1, brand_id: 2, brand: "VW", display_brand: "VOLKSWAGEN", name: "GOLF (5G1)" }];
@@ -119,12 +119,28 @@ test("fitmentView groups rows by model in first-seen order and keeps only the pr
   assert.equal("href" in audi, false);
   assert.equal(golf.make, "VOLKSWAGEN");
   assert.equal(audi.make, "AUDI");
-  assert.deepEqual(golf.rows[0], { engine: "2.0 TDI CRBC", catalog: "2.0 TDI", fuel: "Diesel", ps: 150, kw: 110, cc: 1968, from: "04/2013", to: "03/2017", typeId: 10 });
+  // Rows are tuples (#1211): engine, fuel, PS, kW, cm³, from, then to, type id and catalog name when present.
+  assert.deepEqual(golf.rows[0], ["2.0 TDI CRBC", "Diesel", 150, 110, 1968, "04/2013", "03/2017", 10, "2.0 TDI"]);
+  assert.deepEqual(fitmentRowFields(golf.rows[0]), { engine: "2.0 TDI CRBC", catalog: "2.0 TDI", fuel: "Diesel", ps: 150, kw: 110, cc: 1968, from: "04/2013", to: "03/2017", typeId: 10 });
   // The catalog name only where it differs; no end date and no type id are left out.
-  assert.equal("catalog" in golf.rows[1], false);
-  assert.equal("typeId" in golf.rows[1], false);
-  assert.equal("to" in passat.rows[0], false);
-  assert.equal("typeId" in audi.rows[0], false);
+  assert.deepEqual(golf.rows[1], ["1.6 TDI", "Diesel", 150, 110, 1968, "04/2013", "03/2017"]);
+  assert.deepEqual(passat.rows[0], ["2.0 TDI CRBC", "Diesel", 150, 110, 1968, "04/2013"]);
+  assert.equal(audi.rows[0].length, 7);
+  assert.equal(fitmentRowFields(audi.rows[0]).typeId, undefined);
+});
+
+test("fitmentRow fills a gap before a present field and leaves missing trailing ones off; fitmentRowFields reads it back", () => {
+  const base = { engine: "1.4 TSI CZCA", fuel: "Petrol", ps: 125, kw: 92, cc: 1395, from: "05/2014" };
+  const cases = [
+    [base, ["1.4 TSI CZCA", "Petrol", 125, 92, 1395, "05/2014"]],
+    [{ ...base, to: "12/2018" }, ["1.4 TSI CZCA", "Petrol", 125, 92, 1395, "05/2014", "12/2018"]],
+    [{ ...base, typeId: 77 }, ["1.4 TSI CZCA", "Petrol", 125, 92, 1395, "05/2014", "", 77]],
+    [{ ...base, catalog: "1.4 TSI" }, ["1.4 TSI CZCA", "Petrol", 125, 92, 1395, "05/2014", "", 0, "1.4 TSI"]],
+  ] as const;
+  for (const [fields, row] of cases) {
+    assert.deepEqual(fitmentRow(fields), row);
+    assert.deepEqual(fitmentRowFields(fitmentRow(fields)), { to: undefined, typeId: undefined, catalog: undefined, ...fields });
+  }
 });
 
 test("visibleFitmentGroups prints the first groups until showAll; filters and search lift the cap", () => {
@@ -154,7 +170,7 @@ test("visibleFitmentGroups prints the first groups until showAll; filters and se
   assert.equal(visibleFitmentGroups(view, { ...none, query: "yok böyle" }).groups.length, 0);
   // Only matching rows of a group are printed.
   const mixed = fitmentView([vehicle("Volkswagen Golf VII (5G1)"), vehicle("Volkswagen Golf VII (5G1)", { engineAndCodes: "1.4 TSI CZCA" })]);
-  assert.deepEqual(visibleFitmentGroups(mixed, { ...none, query: "tsi" }).groups[0].rows.map(row => row.engine), ["1.4 TSI CZCA"]);
+  assert.deepEqual(visibleFitmentGroups(mixed, { ...none, query: "tsi" }).groups[0].rows.map(row => fitmentRowFields(row).engine), ["1.4 TSI CZCA"]);
 });
 
 test("fitmentView lists one make per reading label, so both spellings filter together", () => {
