@@ -164,6 +164,11 @@
   .home-category-tile { @apply flex h-[180px] flex-col items-center justify-center rounded-[4px] border border-[#dfe3e8] bg-white p-6 text-center text-foreground hover:border-brand hover:text-brand max-md:h-40 max-md:px-2 max-md:py-3.5; }
   .home-category-tile-image { @apply grid h-[90px] w-[135px] max-w-full shrink-0 place-items-center; }
   .home-category-tile-name { @apply flex h-10 w-full items-center justify-center overflow-hidden text-sm leading-[18px] font-medium; }
+  /* HomeCategoryTabs (#1295): Base UI's Tabs.List / Tabs.Tab with the line look the shadcn TabsList / TabsTrigger class
+     lists gave them (~1.4 KB per tab). The list is as tall as its tabs: the old group-data h-8 cut the 44px phone tabs
+     and their underline. The list's overflow clips anything outside a tab, so the focus outline is drawn inside it. */
+  .home-tabs { @apply mb-[42px] flex w-full items-center justify-start gap-4 overflow-x-auto [scrollbar-width:none] max-md:mb-6 [&::-webkit-scrollbar]:hidden; }
+  .home-tab { @apply relative inline-flex h-8 min-h-0 flex-none items-center justify-center gap-1.5 pb-3 text-base leading-5 font-medium whitespace-nowrap text-muted-foreground transition-all hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring data-active:text-foreground max-md:h-11 max-md:text-sm after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:rounded-[2px] after:bg-brand after:opacity-0 after:transition-opacity data-active:after:opacity-100; }
 }
 
 @layer components {
