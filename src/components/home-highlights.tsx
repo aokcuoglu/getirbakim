@@ -1,22 +1,22 @@
+import type { ComponentProps } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { RotateCcw, Search, Truck } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { IntentLink } from "@/components/intent-link";
 import { MaintenanceRobotBanner } from "@/components/maintenance-robot-banner";
 import { homeFeatured, homeTrust, type HomeTrustIcon } from "@/content/home";
 import { catalogPath, categoryPath } from "@/modules/seo/paths";
 
-const icons: Record<HomeTrustIcon, typeof Search> = { search: Search, return: RotateCcw, truck: Truck };
+const icons: Record<HomeTrustIcon, ComponentProps<typeof StoreIcon>["name"]> = { search: "search", return: "rotate-ccw", truck: "truck" };
 
 /** Three policy-backed facts under the hero; phones show the titles only, one per row. */
 export function HomeTrustLine() {
   return <div className="border-b border-border bg-white">
     <ul aria-label="Alışveriş bilgileri" className="mx-auto grid w-full max-w-[1350px] grid-cols-3 gap-4 px-[15px] max-md:grid-cols-1 max-md:gap-0">
       {homeTrust.map(({ icon, title, text, href }) => {
-        const Icon = icons[icon];
         return <li key={icon}>
           <Link href={href} prefetch={false} className="flex min-h-11 items-center gap-3 py-4 text-foreground hover:text-primary max-md:py-2 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-solid focus-visible:outline-ring">
-            <Icon size={22} aria-hidden="true" className="shrink-0 text-primary"/>
+            <StoreIcon name={icons[icon]} size={22} className="shrink-0 text-primary"/>
             <span className="min-w-0"><strong className="block text-sm leading-5 font-medium">{title}</strong><span className="block text-[13px] leading-[18px] text-muted-foreground max-md:hidden">{text}</span></span>
           </Link>
         </li>;

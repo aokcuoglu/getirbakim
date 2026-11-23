@@ -1,9 +1,9 @@
 import Link from "next/link";
 import {Suspense} from "react";
-import {UserRound} from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import {currentAccount} from "@/modules/auth/session";
 function AccountRow({signedIn}:{signedIn:boolean}){
- return <Link href={signedIn?"/hesap":"/giris"} className="sheet-account-row"><UserRound size={15}/><span>{signedIn?"Hesabım":"Giriş yap"}</span></Link>;
+ return <Link href={signedIn?"/hesap":"/giris"} className="sheet-account-row"><StoreIcon name="user-round" size={15}/><span>{signedIn?"Hesabım":"Giriş yap"}</span></Link>;
 }
 
 async function SessionAccountRow(){
