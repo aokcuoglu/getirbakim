@@ -322,21 +322,23 @@ test("boundedQuery logs a statement timeout with its label", async t => {
 });
 
 // Last: a missing table turns the persisted level off for five minutes in this process.
-test("a missing cache table reads as a miss and does not throw", async () => {
-  await schema.pool.query("DROP TABLE storefront_listing_cache");
+test("a missing cache table reads as a miss and does not throw", async t => {
   // The isolated search_path ends in public, so a dropped table would fall through to a shared public.storefront_listing_cache
-  // (#1321). Take public off every connection the app pool can open: all of them exist and are pinned before the reads.
+  // (#1321). Take public off every connection the app pool can open before the drop: all of them exist and are pinned.
   const { db } = await import("../src/lib/db");
-  const held = await Promise.all(Array.from({ length: db.options.max ?? 10 }, () => db.connect()));
+  const settled = await Promise.allSettled(Array.from({ length: db.options.max ?? 10 }, () => db.connect()));
+  const held = settled.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
   try {
+    const failure = settled.find(result => result.status === "rejected");
+    if (failure) throw failure.reason;
     for (const client of held) await client.query(`SET search_path TO ${schema.name}`);
   } finally { for (const client of held) client.release(); }
+  await schema.pool.query("DROP TABLE storefront_listing_cache");
   const counts = cacheStore.listingCacheStore<number>("test-count", 1);
-  const originalError = console.error;
-  console.error = () => {};
-  try {
-    assert.equal(await counts.read("a"), null);
-    await counts.write("a", 1, 9);
-    assert.ok((await catalog.browseProducts({ sort: "newest", page: "2" })).total >= 0);
-  } finally { console.error = originalError; }
+  const logged = t.mock.method(console, "error", () => {});
+  assert.equal(await counts.read("a"), null);
+  await counts.write("a", 1, 9);
+  assert.ok((await catalog.browseProducts({ sort: "newest", page: "2" })).total >= 0);
+  assert.equal(logged.mock.callCount(), 1);
+  assert.match(String(logged.mock.calls[0].arguments[0]), /storefront_listing_cache is missing/);
 });
