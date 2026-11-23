@@ -541,6 +541,10 @@ async function shownBrandClause(names:string[],values:unknown[]) {
 const facetKeys:ReadonlySet<string>=new Set(facetSpecificationKeys);
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: unknown[] = [company()]; const clauses: string[] = [listedOnly];
+ // The clauses narrowing the listing to an id set (search, category, model, make, vehicle fits, oil, each property) go
+ // through idSet: a price order over two or more is priced by id array (pricedScope, #1335).
+ let idSets=0;
+ const idSet=(clause:string)=>{idSets++;clauses.push(clause);};
  let search:CatalogSearch|undefined;
  const fitted=query.fits==='vehicle'&&context.vehicleTypeId?await typeFittedIds(Number(context.vehicleTypeId)):undefined;
  if(query.q?.trim()) {
@@ -548,7 +552,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   // A search for the vehicle's fits passes their intersection as one small array (#884): the two id arrays (a broad
   // search's 20k+ and a type's ~2k) took ~0.1 s per query, twice per page with the "Aracına uyanlar" lead.
   const linked=fitted&&new Set(fitted);
-  clauses.push(`catalog.id=ANY(${binder(values)(linked?search.ids.filter(id=>linked.has(id)):search.ids)}::uuid[])`);
+  idSet(`catalog.id=ANY(${binder(values)(linked?search.ids.filter(id=>linked.has(id)):search.ids)}::uuid[])`);
  }
  if(query.category) {
   const selected=(await getStoreCategories()).find(c=>c.slug===query.category);
@@ -559,7 +563,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    // Few oils carry a category yet; the engine-oil category also lists the oils read from product names.
    const ids=await categoryProductIds(legacy,descendants);
    values.push(descendants.includes(engineOilCategoryId)?[...new Set([...ids,...await engineOilIds()])]:ids);
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  // A model page lists its own fits, not their intersection with the make's: the make's list is the union of its
@@ -570,7 +574,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!model)clauses.push('false');
   else {
    values.push(await modelFittedIds(model.models.map(member=>member.id)));
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  else if(query.make) {
@@ -578,14 +582,14 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!make)clauses.push('false');
   else {
    values.push(Number(make.id));
-   clauses.push(`catalog.id=ANY(ARRAY(${makeFitsSql(`$${values.length}::int`)})::uuid[])`);
+   idSet(`catalog.id=ANY(ARRAY(${makeFitsSql(`$${values.length}::int`)})::uuid[])`);
   }
  }
  if(query.fits==='vehicle') {
   if(!fitted)clauses.push('false');
   else if(!search) {
    values.push(fitted);
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  const oil=parseOilFilters(query.oil);
@@ -593,7 +597,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!context.vehicleTypeId)clauses.push('false');
   else {
    values.push(await vehicleOilProductIds(context.vehicleTypeId,oil));
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  // A manufacturer page (#660) lists its master brand's name and labels (display_brand values), the column the brand filter reads.
@@ -611,7 +615,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
   if(!facetKeys.has(attribute)){clauses.push('false');continue;}
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
-  clauses.push(`catalog.id=ANY(ARRAY(SELECT f.supplier_item_id FROM storefront_facet_specs f
+  idSet(`catalog.id=ANY(ARRAY(SELECT f.supplier_item_id FROM storefront_facet_specs f
    JOIN product_enrichment_shared_links l ON l.supplier_item_id=f.supplier_item_id
    JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
    WHERE f.key=${attributeKey} AND f.value=ANY(${optionsKey}::text[])
@@ -630,9 +634,6 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   :`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id)`);
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
- // The clauses narrowing the listing to an id set (search, category, model, make, vehicle fits, oil, each property): a
- // price order over two or more is priced by id array (pricedScope, #1335).
- const idSets=clauses.filter(clause=>clause.startsWith("catalog.id=ANY(")).length;
  return {values,where,from,search,idSets};
 }
 // Listings without a search scan the whole 320k-row catalog for counts, facets and the date order
@@ -787,13 +788,15 @@ const pricedByIdsMax=50_000;
 /**
  * Where a price order reads its rows (#1335): `filter`'s own clause above pricedByIdsMax rows or below two id sets, else
  * the listing's ids (the entries the count reads) as `$2`, `$1` staying the companies array storefrontCatalogSql reads.
- * Null when the listing has no rows: there is nothing to price. `total` may be as old as the count cache; it only picks
- * the statement, both read the same rows.
+ * The ids travel as one array literal, never as rows: 50k row objects and their bound array added ~8 MB heap and ~34 MB
+ * RSS per call, paid by every live page beyond the cached ones (#1262 ran out of memory). Null when the listing has no
+ * rows: there is nothing to price. `total` may be as old as the count cache; it only picks the statement, both read the
+ * same rows.
  */
 async function pricedScope(total:number,{values,where,from,idSets}:{values:unknown[];where:string;from:string;idSets:number},label:string){
  if(total>pricedByIdsMax||idSets<2)return {where,values};
- const ids=(await boundedQuery<{id:string}>(`catalog.pricedListedIds ${label}`,`SELECT catalog.id::text ${from}`,values)).rows.map(row=>row.id);
- return ids.length?{where:"WHERE catalog.id=ANY($2::uuid[])",values:[values[0],ids]}:null;
+ const ids=(await boundedQuery<{ids:string|null}>(`catalog.pricedListedIds ${label}`,`SELECT array_agg(catalog.id)::text AS ids ${from}`,values)).rows[0]?.ids;
+ return ids?{where:"WHERE catalog.id=ANY($2::uuid[])",values:[values[0],ids]}:null;
 }
 /**
  * The product count of a listing without a search, as browseProducts reports it (the same cache entry): the model
