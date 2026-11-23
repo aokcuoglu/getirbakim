@@ -324,6 +324,13 @@ test("boundedQuery logs a statement timeout with its label", async t => {
 // Last: a missing table turns the persisted level off for five minutes in this process.
 test("a missing cache table reads as a miss and does not throw", async () => {
   await schema.pool.query("DROP TABLE storefront_listing_cache");
+  // The isolated search_path ends in public, so a dropped table would fall through to a shared public.storefront_listing_cache
+  // (#1321). Take public off every connection the app pool can open: all of them exist and are pinned before the reads.
+  const { db } = await import("../src/lib/db");
+  const held = await Promise.all(Array.from({ length: db.options.max ?? 10 }, () => db.connect()));
+  try {
+    for (const client of held) await client.query(`SET search_path TO ${schema.name}`);
+  } finally { for (const client of held) client.release(); }
   const counts = cacheStore.listingCacheStore<number>("test-count", 1);
   const originalError = console.error;
   console.error = () => {};
