@@ -12,13 +12,13 @@ export function bundleSources(manifest: { products?: Row[]; categories?: Row[] }
   return [...new Set([...(manifest.categories ?? []), ...(manifest.products ?? [])].map(row => row.source).filter((source): source is string => typeof source === "string"))];
 }
 
-/** Replaces the mappings of the bundle's enrichments; returns the rows removed and inserted. */
-export async function replaceBundleMappings(client: PoolClient, manifest: { enrichments?: Row[]; products?: Row[]; categories?: Row[] }) {
+/** Replaces the mappings of the bundle's enrichments (`enrichmentsJson`: their JSON, when the caller already holds it); returns the rows removed and inserted. */
+export async function replaceBundleMappings(client: PoolClient, manifest: { enrichments?: Row[]; products?: Row[]; categories?: Row[] }, enrichmentsJson = JSON.stringify(manifest.enrichments ?? [])) {
   const sources = bundleSources(manifest);
   const removed = await client.query(`DELETE FROM product_source_categories p USING bundle_items bi
     WHERE p.supplier_item_id=bi.id AND p.source=ANY($2::text[])
     AND bi.bundle_id IN (SELECT r.supplier_item_id FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r)`,
-  [JSON.stringify(manifest.enrichments ?? []), sources]);
+  [enrichmentsJson, sources]);
   const inserted = await client.query(`INSERT INTO product_source_categories(supplier_item_id,source,category_id)
     SELECT bi.id,r.source,r.category_id FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r
     JOIN bundle_items bi ON bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL

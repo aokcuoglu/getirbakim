@@ -95,7 +95,7 @@ try {
     enrichments: enriched.written,
   };
   // After the category tree (the mappings reference it) and the enrichments they belong to.
-  const mappings = await replaceBundleMappings(client, manifest);
+  const mappings = await replaceBundleMappings(client, manifest, enrichmentsJson);
   const report = {
     ...written,
     productMappings: mappings.inserted,
@@ -143,6 +143,8 @@ try {
     await client.query("ROLLBACK");
     console.log("DRY RUN (nothing written)", report);
   } else {
+    const skippedIds = (await client.query<{ id: string }>(`SELECT DISTINCT r.supplier_item_id AS id
+      FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, [enrichmentsJson])).rows.map(row => row.id);
     const targets = (await client.query<{ bucket: string; object_key: string; sha256: string; content_type: string }>(
       "SELECT m.bucket,m.object_key,m.sha256,m.content_type FROM bundle_media bm JOIN product_media_objects m ON m.id=bm.id")).rows;
     for (const target of targets) {
@@ -150,8 +152,6 @@ try {
       const saved = await (await storage.send(new GetObjectCommand({ Bucket: target.bucket, Key: target.object_key }))).Body?.transformToByteArray();
       if (!saved || createHash("sha256").update(saved).digest("hex") !== target.sha256) throw new Error(`Stored media integrity failed: ${target.object_key}`);
     }
-    const skippedIds = (await client.query<{ id: string }>(`SELECT DISTINCT r.supplier_item_id AS id
-      FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, [enrichmentsJson])).rows.map(row => row.id);
     await pruneTombstones(client);
     await client.query("COMMIT");
     console.log("APPLIED", report);
