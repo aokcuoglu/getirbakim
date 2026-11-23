@@ -18,7 +18,10 @@ export type UploadIo = {
   removePrefix: (prefix: string) => void | Promise<void>;
 };
 
-const MAX_ATTEMPTS = 2;
+/** Wait before attempt 2, 3 and 4 (~3.5 min in all): long enough for a brief network degradation to pass. */
+export const RETRY_DELAYS_MS = [30_000, 60_000, 120_000];
+const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
+const defaultSleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 const SHOWN_KEYS = 5;
 
 export async function expectedPartObjects(partDir: string): Promise<RemoteObject[]> {
@@ -80,8 +83,10 @@ export function uploadFailure(part: string, check: PartCheck): string | null {
   return `Upload of ${part} is incomplete: ${classes.join("; ")}; the import was not started; the watermark stays`;
 }
 
-export async function uploadParts({ partsDir, parts, io, log, now = Date.now }: {
-  partsDir: string; parts: string[]; io: UploadIo; log: (line: string) => void; now?: () => number;
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
+export async function uploadParts({ partsDir, parts, io, log, now = Date.now, sleep = defaultSleep }: {
+  partsDir: string; parts: string[]; io: UploadIo; log: (line: string) => void; now?: () => number; sleep?: (ms: number) => Promise<void>;
 }): Promise<PartStats[]> {
   const before = await io.listRoot();
   if (before.keys.length) throw new Error(`Unexpected objects directly under the run prefix: ${before.keys.slice(0, SHOWN_KEYS).join(", ")}; the import was not started; the watermark stays`);
@@ -92,15 +97,37 @@ export async function uploadParts({ partsDir, parts, io, log, now = Date.now }: 
     const expected = await expectedPartObjects(join(partsDir, part));
     const started = now();
     let attempts = 0;
-    let check: PartCheck;
-    // Only a silent drop (sync exits 0 but the listing is short) is retried; a non-zero `s3 sync` exit throws and fails
-    // the run, which is safe. Verification is key + size only: in the fixed `current` layout a stale object of the same size
-    // passes; a run prefix (STOREFRONT_SYNC_PREFIX_MODE=run, #1137) starts empty, so nothing stale is there to pass.
-    do {
+    let check: PartCheck | null = null;
+    let threw = false;
+    let lastError: unknown;
+    // A part is retried on a silent drop (sync exits 0 but the listing is short) and on a failed sync (non-zero `aws s3 sync`
+    // exit, e.g. a brief network outage), both within one budget with a growing wait (#1326). `s3 sync` only uploads missing
+    // or changed files, so repeating it is cheap and safe. Verification is key + size only: in the fixed `current` layout a
+    // stale object of the same size passes; a run prefix (STOREFRONT_SYNC_PREFIX_MODE=run, #1137) starts empty, so nothing
+    // stale is there to pass.
+    for (;;) {
       attempts += 1;
-      await io.syncPart(part);
-      check = checkPartUpload(expected, await io.listPart(part));
-    } while (!isClean(check) && attempts < MAX_ATTEMPTS);
+      threw = false;
+      check = null;
+      try {
+        await io.syncPart(part);
+        check = checkPartUpload(expected, await io.listPart(part));
+      } catch (error) {
+        threw = true;
+        lastError = error;
+      }
+      if (!threw && check && isClean(check)) break;
+      if (attempts >= MAX_ATTEMPTS) break;
+      const waitMs = RETRY_DELAYS_MS[attempts - 1];
+      const reason = !threw && check
+        ? `incomplete listing: ${check.missing.length} missing, ${check.sizeMismatch.length} size mismatch, ${check.unexpected.length} unexpected`
+        : `sync failed: ${errorText(lastError).split("\n")[0]}`;
+      log(JSON.stringify({ retry: part, attempt: attempts, reason, waitMs }));
+      await sleep(waitMs);
+    }
+    if (threw || !check) {
+      throw new Error(`Upload of ${part} failed after ${attempts} attempts: ${errorText(lastError)}; the import was not started; the watermark stays`, { cause: lastError });
+    }
     const failure = uploadFailure(part, check);
     if (failure) throw new Error(failure);
     const entry = { part, objects: expected.length, bytes: expected.reduce((sum, object) => sum + object.size, 0), uploadMs: now() - started, attempts };
