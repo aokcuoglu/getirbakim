@@ -1,5 +1,4 @@
-import { isIndexableListing, type CatalogQuery } from "@/modules/store/catalog-query";
-import { isRootCategoryListing } from "@/modules/seo/indexing";
+import type { CatalogQuery } from "@/modules/store/catalog-query";
 import { Fragment } from "react";
 import Link from "next/link";
 import { minSearchLength } from "@/modules/search/query";
@@ -49,7 +48,7 @@ import {siteUrl} from "@/lib/site";
 import {TrackItemList} from "@/components/privacy/track-events";
 import {catalogItem} from "@/modules/analytics/events";
 import {legacyCategoryIds} from "@/modules/store/category-tree";
-import {manufacturerTexts,manufacturerTrail} from "@/modules/store/manufacturers";
+import {listingViewIndexable,manufacturerTexts,manufacturerTrail} from "@/modules/store/manufacturers";
 import {scopeCategoryCounts} from "@/modules/store/listing-categories.server";
 import { storeButton } from "@/components/store-button";
 import brakeBannerMobile from "@/assets/hero/brake-system-banner-mobile.webp";
@@ -179,11 +178,11 @@ export async function CatalogView({params,make,model,plainTotal,manufacturer,man
   {scope.fitted?<>“{scope.vehicleText}” aracına bağlı <strong>“{scope.productText}”</strong> ürünleri gösteriliyor. <Link className="font-semibold text-primary hover:underline" href={partHref!}>Tüm “{scope.productText}” sonuçları</Link></>
    :<>“{scope.vehicleText}” aracına bağlı <strong>“{scope.productText}”</strong> ürünü bulunamadı; tüm “{scope.productText}” sonuçları gösteriliyor. Aracına uyduğunu OEM numarasıyla kontrol et.</>}</p>;
  const trail=manufacturer?manufacturerTrail(manufacturer):catalogTrail({make:make&&{name:makeName!,slug:params.make!},model:model&&{name:modelLabels!.model,slug:params.model!},categories:category?categoryPath(categories,category.id):[]});
- // Only the plain listings are indexed (the pages' robots rule): a search, filter, sort or page 2 is not a collection.
+ // The collection follows the page's robots rule (#1241): a search, filter, sort or page 2, a gated listing under the product minimum and a root category are not collections.
  // A model page says what its list is: model-level fits, which the garage vehicle narrows to an engine type.
  const intro=params.q?undefined:manufacturerCopy?manufacturerCopy.intro:modelVehicle&&parts?vehicleCategoryTexts(modelVehicle,parts,plainTotal??result.total,"model").intro:modelVehicle?`${modelVehicle} için listelenen ${(plainTotal??result.total).toLocaleString("tr-TR")} parça. Liste model düzeyindedir: ürünler bu modelin bir motor tipine bağlı ya da tedarikçinin ürün açıklamasında bu model geçiyor. Siparişten önce ürün sayfasındaki araç uyumluluğunu ve OEM numarasını kontrol et.`:make&&category&&parts&&!model?vehicleCategoryTexts(makeName!,parts,plainTotal??result.total,"make").intro:make&&!category?`${makeName} modellerine uygun olarak listelenen parçaları kategori ve üreticiye göre incele. Siparişten önce ürün sayfasındaki araç uyumluluğunu, OEM numarasını ve motor bilgilerini kontrol et.`:catalogDescription(category?.slug??"yedek-parca")??category?.name+" kategorisindeki ürünleri üretici, montaj konumu ve teknik özelliklerine göre incele. Ürün kodunu veya OEM numarasını kullanarak aradığın parçayı bul ve siparişten önce aracınla uyumunu kontrol et.";
   const guideNote=products.length>0?categoryGuideNote(params,{vehicle:Boolean(make||model),manufacturer:Boolean(manufacturer)}):undefined;
-  const collection=isIndexableListing(params)&&!isRootCategoryListing(params)&&products.length>0
+  const collection=listingViewIndexable(params,{plainTotal,manufacturer:manufacturer&&{slug:manufacturer.slug,total:manufacturerTotal??0}})&&products.length>0
   ?collectionJsonLd({name:title,description:intro,path:listingPath({makeSlug:params.make,modelSlug,categorySlug:category?.slug,manufacturerSlug}),items:products.map(product=>({path:productPath(product),name:catalogCardTitle(product,details.get(product.id)?.partNumber)}))},siteUrl):null;
  // The OEM box repeats only a code search; a name search belongs to the header's box.
  const finder=(compact:boolean)=><CatalogFinder compact={compact} home={home} query={params.searchBy==="code"?params.q:undefined} vehicle={shown}/>;

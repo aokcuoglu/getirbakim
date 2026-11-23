@@ -19,9 +19,10 @@ const schema = z.object({
   oil: z.string().max(40).regex(/^(viscosity|approval)(,(viscosity|approval))?$/).optional().catch(undefined),
   sort: z.enum(["relevance", "newest", "price-asc", "price-desc"]).optional().catch(undefined),
   searchBy: z.enum(["all", "code"]).optional().catch(undefined),
-  page: z.string().regex(/^\d+$/).refine(value => Number.isSafeInteger(Number(value))).optional().catch(undefined),
+  page: z.string().regex(/^\d+$/).refine(value => Number.isSafeInteger(Number(value))).transform(value => (Number(value) > 1 ? value : undefined)).optional().catch(undefined),
 });
 
+// `page`: page 1 is the address without a page parameter (#1250), as `listingUrl` writes it.
 // `manufacturer` (a /marka/<slug> page, #660) comes from the route only: it is not in the schema, so a query string never sets it.
 export type CatalogQuery = z.infer<typeof schema> & { manufacturer?: string };
 export function parseCatalogQuery(params: SearchParams): CatalogQuery {
