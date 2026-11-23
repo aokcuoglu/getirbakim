@@ -222,24 +222,85 @@ test("excluded ui classes sit only in exports the storefront does not import", (
 /** `text` without block and line comments (a `//` after `:` or a quote is kept: URLs). */
 const stripComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/.*$/gm, "$1");
 
+const literalPattern = /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`/g;
+const literalsOf = (text: string) => [...text.matchAll(literalPattern)].map(match => match[0].slice(1, -1));
+
+/** The source of every `cn(…)`, `cva(…)` call and `className={…}` expression in `text` (balanced, string-aware). */
+function classExpressions(text: string) {
+  const found: string[] = [];
+  for (const start of text.matchAll(/\b(?:cn|cva)\(|\bclassName=\{/g)) {
+    const open = start[0].endsWith("(") ? "(" : "{";
+    const close = open === "(" ? ")" : "}";
+    let depth = 1;
+    let index = start.index + start[0].length;
+    const begin = index;
+    for (; index < text.length && depth > 0; index++) {
+      const char = text[index];
+      if (char === '"' || char === "'" || char === "`") {
+        for (index++; index < text.length && text[index] !== char; index++) if (text[index] === "\\") index++;
+      } else if (char === open) depth++;
+      else if (char === close) depth--;
+    }
+    found.push(text.slice(begin, index));
+  }
+  return found;
+}
+
+// Known non-class uses of a stray word, as `<word> in <file>`; rewording the string is the other way out.
+const strayAllowlist = new Set<string>([]);
+
+const contentFiles = fs
+  .readdirSync("src/content", { recursive: true, withFileTypes: true })
+  .filter(entry => entry.isFile() && /\.(?:tsx?|json|mdx?)$/.test(entry.name))
+  .map(entry => path.join(entry.parentPath, entry.name));
+const guardedFiles = [...new Set([...storefrontOnly, ...scannedUi, ...contentFiles])];
+
 test("stray words are not used as classes", () => {
   const found: string[] = [];
-  for (const file of [...storefrontOnly, ...scannedUi]) {
+  for (const file of guardedFiles) {
     const text = stripComments(read(file));
-    for (const [, , literal] of text.matchAll(/(["'`])((?:\\.|(?!\1)[^\\\n])*)\1/g)) {
+    const hits = new Set<string>();
+    for (const literal of literalsOf(text)) {
       const tokens = literal.split(/\s+/).filter(Boolean);
-      for (const word of strayWords) if (tokens.length > 1 && tokens.includes(word)) found.push(`${word} in a class list in ${file}`);
+      for (const word of strayWords) if (tokens.length > 1 && tokens.includes(word)) hits.add(word);
+    }
+    for (const expression of classExpressions(text)) {
+      for (const literal of literalsOf(expression)) for (const word of strayWords) if (literal.trim() === word) hits.add(word);
     }
     for (const word of strayWords) {
-      if (new RegExp(`\\b(?:className|class)=\\{?\\s*["'\`]${word}["'\`]`).test(text)) found.push(`${word} as className in ${file}`);
+      if (new RegExp(`\\b(?:className|class)=\\{?\\s*["'\`]${word}["'\`]`).test(text)) hits.add(word);
     }
+    for (const word of hits) if (!strayAllowlist.has(`${word} in ${file}`)) found.push(`${word} in ${file}`);
   }
   for (const file of cssSources) {
     for (const [, classes] of read(file).matchAll(/@apply\s+([^;}]+)/g)) {
       for (const word of strayWords) if (classes.split(/\s+/).includes(word)) found.push(`${word} in @apply in ${file}`);
     }
   }
-  assert.deepEqual(found, [], "remove the word from the third @source not inline list in globals.css");
+  assert.deepEqual(
+    found,
+    [],
+    "these words are left out of the storefront sheet (third @source not inline list in globals.css): reword the string so it is not a bare class token, or drop the word from the list; a real non-class use goes into strayAllowlist",
+  );
+});
+
+test("storefront files reach ui only through named @/components/ui imports", () => {
+  const found: string[] = [];
+  for (const file of sourceFiles("src").filter(file => !isAdmin(file) && !file.startsWith("src/components/ui/"))) {
+    const rest = stripComments(read(file)).replace(/^import\s+(?:type\s+)?\{[^}]*\}\s*from\s*["']@\/components\/ui\/[\w-]+["'];?/gm, "");
+    if (rest.includes("components/ui/")) found.push(file);
+  }
+  assert.deepEqual(found, [], "use `import { X } from \"@/components/ui/<file>\"` (no default, namespace, dynamic, relative or re-export) so unused exports can be left out");
+});
+
+test("ui files have no default export and no renamed exports", () => {
+  const found: string[] = [];
+  for (const file of fs.readdirSync("src/components/ui").filter(name => name.endsWith(".tsx")).map(name => path.join("src/components/ui", name))) {
+    const text = stripComments(read(file));
+    if (/^export\s+default\b/m.test(text)) found.push(`${file}: export default`);
+    for (const [, names] of text.matchAll(/^export\s*\{([^}]*)\}/gm)) if (/\bas\b/.test(names)) found.push(`${file}: export { … as … }`);
+  }
+  assert.deepEqual(found, [], "the unused-export guard matches exports by declaration name");
 });
 
 test("the exclusions remove exactly the listed utilities", async () => {
