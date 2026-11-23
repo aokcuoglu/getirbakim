@@ -144,7 +144,7 @@ test("visibleFitmentGroups prints the first groups until showAll; filters and se
   assert.equal(audi.hidden, 0);
   const model = visibleFitmentGroups(view, { ...none, model: "Volkswagen Model 22" });
   assert.deepEqual(model.groups.map(group => group.model), ["Volkswagen Model 22"]);
-  // A make filter lists every group of the make, past the first twenty.
+  // A make filter lists every group of the make, past the printed ones.
   assert.equal(visibleFitmentGroups(view, { ...none, make: "VOLKSWAGEN" }).groups.length, 26);
   // Turkish lower case reads "VII" as "vıı"; the search folds ı to i on both sides.
   const golf = visibleFitmentGroups(view, { ...none, query: " golf vii " });
@@ -219,16 +219,21 @@ test("initialFitmentView keeps the garage vehicle's groups among the printed one
   assert.equal(fitmentView(sources).groups.at(-1)?.model, "Audi A3 (8V1)");
 });
 
+test("the page prints eight model groups (#1211)", () => {
+  assert.equal(fitmentInitialGroups, 8);
+});
+
 test("visibleFitmentGroups counts the groups not loaded yet as hidden", () => {
   const view = initialFitmentView(fitmentView(series(27)), rest), none = { make: "", model: "", query: "", showAll: false };
-  assert.equal(visibleFitmentGroups(view, none).hidden, 7);
+  assert.equal(visibleFitmentGroups(view, none).hidden, 27 - fitmentInitialGroups);
   // Revealing before the rest arrives still holds the unloaded groups back.
   const shown = visibleFitmentGroups(view, { ...none, showAll: true });
   assert.equal(shown.groups.length, fitmentInitialGroups);
-  assert.equal(shown.hidden, 7);
-  // A search reads the printed groups until the rest arrives.
+  assert.equal(shown.hidden, 27 - fitmentInitialGroups);
+  // A search reads the printed groups until the rest arrives: "Model 1" matches Model 1 only among Model 1–8.
   assert.equal(visibleFitmentGroups(view, { ...none, query: "Model 25" }).groups.length, 0);
-  assert.equal(visibleFitmentGroups(view, { ...none, query: "Model 2" }).groups.length, 2);
+  assert.deepEqual(visibleFitmentGroups(view, { ...none, query: "Model 1" }).groups.map(group => group.model), ["Volkswagen Model 1"]);
+  assert.equal(visibleFitmentGroups(fitmentView(series(27)), { ...none, query: "Model 1" }).groups.length, 11);
 });
 
 test("mergeFitmentGroups keeps the printed groups first, then the loaded ones in order, once each", () => {
@@ -241,8 +246,10 @@ test("mergeFitmentGroups keeps the printed groups first, then the loaded ones in
   assert.equal(merged.length, 26);
   assert.equal(new Set(merged.map(group => group.model)).size, 26);
   printed.forEach((group, index) => assert.equal(merged[index], group));
-  assert.deepEqual(merged.slice(fitmentInitialGroups).map(group => group.model), ["Volkswagen Model 20", "Volkswagen Model 21", "Volkswagen Model 22", "Volkswagen Model 23", "Volkswagen Model 24", "Volkswagen Model 25"]);
-  assert.equal(merged[fitmentInitialGroups], loaded[19]);
+  // The garage's Audi group and Model 1 … (fitmentInitialGroups - 1) were printed; the loaded list adds the next models.
+  const next = Array.from({ length: 26 - fitmentInitialGroups }, (_, index) => `Volkswagen Model ${fitmentInitialGroups + index}`);
+  assert.deepEqual(merged.slice(fitmentInitialGroups).map(group => group.model), next);
+  assert.equal(merged[fitmentInitialGroups], loaded[fitmentInitialGroups - 1]);
 });
 
 test("fitmentCacheControl keeps the page's version long and any other briefly", () => {

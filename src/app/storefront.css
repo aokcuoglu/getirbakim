@@ -28,11 +28,40 @@
   .spec-row { @apply grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3; }
 
   /* Product page "Uyumlu araçlar" (ProductFitment): a model group, its trigger with the chevron and row count, and the
-     model page link. The chevron turns with the trigger's own data-panel-open. */
+     model page link. The chevron and the link's arrow are masks of lucide's chevron-right / arrow-right over the text
+     colour (#1211: no svg per group); the chevron turns with the trigger's own data-panel-open. */
   .fitment-group { @apply border-t border-[#e0e5eb]; }
-  .fitment-trigger { @apply flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-none border-0 bg-transparent px-4 py-5 text-left text-base leading-5 text-foreground outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#2e78c7] [&>svg]:shrink-0 [&>svg]:text-[#53677d] [&>svg]:transition-transform data-panel-open:[&>svg]:rotate-90; }
+  .fitment-trigger {
+    @apply flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-none border-0 bg-transparent px-4 py-5 text-left text-base leading-5 text-foreground outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#2e78c7];
+    &::before { @apply size-[18px] shrink-0 bg-[#53677d] transition-transform; content: ""; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat; }
+    &[data-panel-open]::before { @apply rotate-90; }
+  }
   .fitment-count { @apply ml-auto text-[11px] whitespace-nowrap text-muted-foreground max-[750px]:hidden; }
-  .fitment-link { @apply mr-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-[5px] px-2 text-[13px] leading-5 font-medium whitespace-nowrap text-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2e78c7]; }
+  .fitment-link {
+    @apply mr-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-[5px] px-2 text-[13px] leading-5 font-medium whitespace-nowrap text-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2e78c7];
+    &::after { @apply size-3.5 shrink-0 bg-current; content: ""; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='m12 5 7 7-7 7'/%3E%3C/svg%3E") center / contain no-repeat; }
+  }
+  /* Its toolbar (make and model selects, "Sıfırla", search), status line and load-failure alert. The selects are native
+     ones with ui/native-select's look as the page set it (40px, white, 5px corners), the chevron a mask of lucide's
+     chevron-down. */
+  .fitment-toolbar { @apply flex flex-wrap items-center gap-2 rounded-t-lg border border-[#dce2e9] bg-white p-4; }
+  .fitment-select {
+    @apply relative block w-[200px] max-[1000px]:w-40 max-[750px]:w-full;
+    & > select { @apply h-10 w-full min-w-0 appearance-none rounded-[5px] border border-input bg-white py-1 pr-8 pl-3 text-sm transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50; }
+    &::after { @apply pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 bg-foreground; content: ""; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat; }
+  }
+  /* Forced colours repaint backgrounds: the masked icons keep the system text colour instead. */
+  .fitment-trigger::before, .fitment-link::after, .fitment-select::after { @apply forced-colors:bg-[CanvasText]; forced-color-adjust: none; }
+  .fitment-search {
+    @apply flex h-10 min-w-40 flex-1 items-center gap-3 rounded-[5px] border border-[#e5e7eb] px-3.5 text-muted-foreground focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 max-[750px]:basis-full;
+    & > input { @apply h-[38px] w-full min-w-0 border-0 bg-transparent py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground; }
+  }
+  .fitment-status { @apply m-0 border-x border-[#dce2e9] bg-white px-4 py-3 text-xs leading-5 text-muted-foreground; }
+  .fitment-alert { @apply flex flex-wrap items-center gap-x-3 border-x border-t border-[#dce2e9] bg-white px-4 text-sm leading-5; }
+  /* The product page's text buttons ("Sıfırla", "Tekrar dene", "Tüm … göster"; ProductFitment):
+     ui/button with storeButton({intent: "link", size: "md"}) and px-2 as rendered, like .store-cta (no icon-slot,
+     invalid or dark states; the loading spinner keeps the svg rules). Busy (aria-disabled) shows the progress cursor. */
+  .fitment-text-button { @apply inline-flex h-auto min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-transparent bg-transparent bg-clip-padding px-2 py-2.5 text-sm leading-5 font-medium whitespace-nowrap text-primary underline-offset-4 transition-all outline-none select-none hover:underline focus-visible:border-ring focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring active:not-aria-[haspopup]:translate-y-px aria-disabled:cursor-progress aria-disabled:no-underline [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4; }
 
   /* Product page, 600px and below (#876): the purchase form is a fixed bottom bar; the body keeps its height free. */
   .buy-bar { @apply max-[600px]:fixed max-[600px]:inset-x-0 max-[600px]:bottom-0 max-[600px]:z-40 max-[600px]:border-t max-[600px]:border-border max-[600px]:bg-white max-[600px]:pr-[max(16px,env(safe-area-inset-right))] max-[600px]:pl-[max(16px,env(safe-area-inset-left))] max-[600px]:pt-3 max-[600px]:pb-[calc(12px+env(safe-area-inset-bottom))] max-[600px]:shadow-[0_-4px_16px_#212b3614]; }
