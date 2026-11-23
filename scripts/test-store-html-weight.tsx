@@ -116,6 +116,12 @@ test("the listing views are client components and their server adapters render n
   }
 });
 
+// #1295: the home category tabs are Base UI's Tabs.List / Tabs.Tab with named classes, not the TabsTrigger class list.
+test("the home tab classes exist in storefront.css", () => {
+  for (const name of ["home-tabs", "home-tab"]) assert.ok(defined(name), `.${name} is missing from storefront.css`);
+  assert.ok(source("../src/components/home-controls.tsx").includes('className="home-tab"'), "home-controls.tsx: home-tab");
+});
+
 test("HomeProductCardView keeps the home card markup", () => {
   const priced = renderToStaticMarkup(<HomeProductCardView model={{ href: "/urun/a-1", title: "Yağ Filtresi BOSCH 123", categoryHref: "/kategori/filtre",
     categoryName: "Filtreler", amount: "900,00 ₺", regular: "1.350,00 ₺" }} />);

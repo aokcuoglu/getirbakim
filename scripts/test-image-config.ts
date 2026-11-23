@@ -41,7 +41,6 @@ test("an optimized response may be as large as the biggest upload and import fil
 // With localPatterns a next/image that is not `unoptimized` and whose src is not a media route fails (400 in
 // production). Every such <Image> must be listed here as "file :: src expression"; a new one fails the test.
 const optimizedImages = new Set([
-  "src/app/(store)/page.tsx :: child.imagePath",
   "src/app/(store)/sepet/page.tsx :: image.src",
   "src/app/(store)/bakim-robotu/kit-builder.tsx :: selected.image.src",
   // m.image is CatalogProductImage.src, set by listingCardModel / homeCardModel (#1212).
@@ -49,6 +48,8 @@ const optimizedImages = new Set([
   "src/components/category-cards.tsx :: category.imagePath",
   "src/components/home-controls.tsx :: category.imagePath",
   "src/components/home-product-card-view.tsx :: m.image",
+  // The fallback collection slide (a subcategory's imagePath, #1295).
+  "src/components/home-static.tsx :: image",
   "src/components/navigation/category-menu.tsx :: category.imagePath",
   "src/components/navigation/category-parts.tsx :: category.imagePath",
   "src/components/product-gallery.tsx :: image.src",

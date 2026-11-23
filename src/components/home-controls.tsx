@@ -4,12 +4,17 @@ import {Children, useCallback, useEffect, useState, type ReactNode} from "react"
 import Image from "next/image";
 import Link from "next/link";
 import {Package} from "lucide-react";
+import {Tabs as TabsPrimitive} from "@base-ui/react/tabs";
 import {Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, useCarousel} from "@/components/ui/carousel";
-import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs";
+import {Skeleton} from "@/components/ui/skeleton";
+import {Tabs, TabsContent} from "@/components/ui/tabs";
 import {armOnApproach} from "@/components/home-arming";
 import {SlideImages} from "@/components/home-slide-images";
+import {TreeStatus} from "@/components/navigation/category-parts";
+import {useCategoryTree} from "@/components/navigation/use-category-tree";
 import {cn} from "@/lib/utils";
 import {categoryPath} from "@/modules/seo/paths";
+import {childCategories, type HomeTabCategory} from "@/modules/store/home-rail";
 
 function useMobile() {
   const [mobile, setMobile] = useState(false);
@@ -103,21 +108,43 @@ export function HomeGridPager({children,label,kind}:{children:ReactNode;label:st
   </Carousel>;
 }
 
-export type HomeCategoryRoot={id:number;name:string;children:{id:number;name:string;slug:string;imagePath?:string|null}[]};
+const tileGrid="-mx-0.5 grid grid-cols-6 gap-4 max-[68.75rem]:grid-cols-4 max-md:mx-0 max-md:grid-cols-3 max-md:gap-3 max-[37.5rem]:grid-cols-2";
 
-export function HomeCategoryTabs({roots}:{roots:HomeCategoryRoot[]}) {
+function TabTiles({items}:{items:HomeTabCategory[]}) {
+  if(!items.length)return null;
+  return <div className={tileGrid}>
+    {items.map(category=><Link key={category.id} href={categoryPath(category.slug)} className="home-category-tile">
+      <div className="home-category-tile-image">{category.imagePath?<Image src={category.imagePath} width={135} height={90} alt="" className="h-[90px] w-[135px] object-contain"/>:<Package size={48} aria-hidden="true"/>}</div>
+      <strong className="home-category-tile-name">{category.name}</strong>
+    </Link>)}
+  </div>;
+}
+
+/** Placeholder tiles, as tall as the real ones, while the category tree loads. */
+function TabTilesLoading() {
+  return <div role="status" aria-busy="true" className={tileGrid}>
+    <span className="sr-only">Kategoriler yükleniyor…</span>
+    {Array.from({length:12},(_,index)=><div key={index} aria-hidden="true" className="home-category-tile"><Skeleton className="h-[90px] w-[135px] max-w-full"/><Skeleton className="mt-4 h-4 w-24"/></div>)}
+  </div>;
+}
+
+/**
+ * Every root is a tab, but only the first root's tiles come with the page (#1295): Base UI renders the active panel
+ * only, so the other roots' tiles were never in the HTML, only in the RSC payload. They come from the category tree the
+ * header menu shares (/api/categories, one request per page load), asked for when the tab list is approached or a tab
+ * is chosen. Base UI's Tabs.List / Tabs.Tab carry named classes instead of the TabsTrigger class list.
+ */
+export function HomeCategoryTabs({roots,initial}:{roots:{id:number;name:string}[];initial:HomeTabCategory[]}) {
   const [selected,setSelected]=useState(roots[0]?.id);
+  const tree=useCategoryTree();
+  const items=selected===roots[0]?.id?initial:tree.categories?childCategories(tree.categories,selected):null;
+  const panel=items?<TabTiles items={items}/>:tree.error?<TreeStatus error retry={tree.retry} rows={0} rowClass=""/>:<TabTilesLoading/>;
   return <section className="mt-[100px] max-md:mt-[76px]" aria-label="Ürün kategorileri">
-    <Tabs value={selected} onValueChange={value=>setSelected(value as number)} className="gap-0">
-      <TabsList variant="line" activateOnFocus aria-label="Ana kategoriler" className="mb-[42px] flex h-auto w-full justify-start gap-4 overflow-x-auto rounded-none p-0 [scrollbar-width:none] max-md:mb-6 [&::-webkit-scrollbar]:hidden">
-        {roots.map(category=><TabsTrigger key={category.id} value={category.id} className="h-8 max-md:h-11 min-h-0 flex-none rounded-none border-0 px-0 pt-0 pb-3 text-base leading-5 font-medium text-muted-foreground hover:text-foreground data-active:text-foreground max-md:text-sm group-data-horizontal/tabs:after:bottom-0 group-data-horizontal/tabs:after:h-[3px] after:rounded-[2px] after:bg-brand focus-visible:ring-0 focus-visible:outline-2">{category.name}</TabsTrigger>)}
-      </TabsList>
-      {roots.map(root=><TabsContent key={root.id} value={root.id} className="pb-4">{root.children.length>0&&<div className="-mx-0.5 grid grid-cols-6 gap-4 max-[68.75rem]:grid-cols-4 max-md:mx-0 max-md:grid-cols-3 max-md:gap-3 max-[37.5rem]:grid-cols-2">
-        {root.children.map(category=><Link key={category.id} href={categoryPath(category.slug)} className="home-category-tile">
-          <div className="home-category-tile-image">{category.imagePath?<Image src={category.imagePath} width={135} height={90} alt="" className="h-[90px] w-[135px] object-contain"/>:<Package size={48} aria-hidden="true"/>}</div>
-          <strong className="home-category-tile-name">{category.name}</strong>
-        </Link>)}
-      </div>}</TabsContent>)}
+    <Tabs value={selected} onValueChange={value=>{setSelected(value as number);tree.load();}} className="gap-0">
+      <TabsPrimitive.List activateOnFocus aria-label="Ana kategoriler" className="home-tabs" onPointerEnter={tree.load} onTouchStart={tree.load} onFocus={tree.load}>
+        {roots.map(category=><TabsPrimitive.Tab key={category.id} value={category.id} className="home-tab">{category.name}</TabsPrimitive.Tab>)}
+      </TabsPrimitive.List>
+      {roots.map(root=><TabsContent key={root.id} value={root.id} className="pb-4">{root.id===selected&&panel}</TabsContent>)}
     </Tabs>
   </section>;
 }
