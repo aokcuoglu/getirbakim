@@ -4839,7 +4839,7 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
-                  "gb_order_link: İmzalı sipariş bağlantısını açtığında, bu siparişi üye girişi yapmadan görüntülemeni sağlar. Yalnızca ilgili siparişin sayfasında kullanılır; geçerlilik süresi bağlantının kalan süresi kadardır ve en fazla 90 gündür."
+                  "gb_order_link: Sipariş e-postasındaki bağlantıyı açtığında, bu siparişi üye girişi yapmadan görüntülemeni sağlar. Yalnızca ilgili siparişin sayfalarında kullanılır; geçerlilik süresi bağlantının kalan süresi kadardır ve en fazla 90 gündür."
                 ]
               },
               {
