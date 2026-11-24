@@ -9,7 +9,7 @@ import { matchHas } from "next/dist/shared/lib/router/utils/prepare-destination"
 import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest } from "next/server";
 import { adminThemeScript } from "../src/lib/admin-theme-script";
-import { ADMIN_THEME_SCRIPT_HASH, CSP_REPORT_PATH, REPORTING_ENDPOINTS, TAMI_FORM_HOSTS, cspReportOnly, newNonce } from "../src/lib/csp";
+import { ADMIN_THEME_SCRIPT_HASH, CSP_REPORT_PATH, REPORTING_ENDPOINTS, TAMI_FORM_HOSTS, cspReportOnly, newNonce, policyNonce } from "../src/lib/csp";
 import { cspReportLine, parseCspReports } from "../src/lib/csp-report";
 import { HOME_CACHE_CONTROL, PERSONAL_COOKIES, anonymousHome } from "../src/lib/edge-cache";
 import { ORDER_LINK_COOKIE, orderLinkGrant, signOrderLink } from "../src/modules/store/order-link";
@@ -534,4 +534,15 @@ test("garbage, oversize and unknown bodies yield no report", () => {
   assert.deepEqual(parseCspReports("application/csp-report", legacyReport({ "effective-directive": "<script>", "blocked-uri": "inline" })), []);
   assert.deepEqual(parseCspReports("application/reports+json", JSON.stringify({ type: "csp-violation" })), []);
   assert.deepEqual(parseCspReports("application/csp-report", legacyReport({ "document-uri": "https://getirbakim.com/", "effective-directive": "script-src", "blocked-uri": "inline", pad: "x".repeat(17 * 1024) })), []);
+});
+
+test("policyNonce reads the nonce back from the request policy (#1290)", () => {
+  const nonce = newNonce();
+  assert.equal(policyNonce(cspReportOnly({ nonce, dev: false })), nonce);
+  assert.equal(policyNonce(null), null);
+  assert.equal(policyNonce("script-src 'self'"), null);
+  // The edge-cached home (#1349): StoreTags reads the nonce-free policy, so the Plausible tag is the same for everyone;
+  // a personal request still gets its own nonce on the tag.
+  assert.equal(policyNonce(reportOnly(proxy(proxyRequest("/", browser)))), null);
+  assert.ok(policyNonce(reportOnly(proxy(proxyRequest("/", { ...browser, cookie: "gb_consent=3.0.0.1700000000" })))));
 });

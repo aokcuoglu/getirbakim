@@ -20,12 +20,14 @@ import { legacyRedirect } from "@/modules/seo/legacy-redirects";
 // the session slide, so it never carries a Set-Cookie. No Vary: Cookie: the app-page runtime replaces Vary with its own
 // list (next/dist/build/templates/app-page-runtime.js:462-463), so the cookies split the edge cache only through the
 // CloudFront key, and the header has no stale-while-revalidate a browser could reuse an anonymous copy with.
-// No nonce can be shared, so it gets the Report-Only policy without script-src.
+// No nonce can be shared, so it gets the Report-Only policy without script-src. Next hands the proxy's response headers
+// to the render as request headers too, so StoreTags reads this nonce-free policy and the Plausible tag (#1290) renders
+// without a nonce, the same for every visitor.
 // The render gets the request without its cookie header, so it cannot depend on a cookie or answer one with a
 // Set-Cookie (Next clears an invalid __prerender_bypass / __next_preview_data that way), and without a client's own CSP
 // header: Next takes its script nonce from one (app-render), and that nonce would be cached for everyone.
 // RSC requests and prefetches for "/" without gb_session never run the proxy (matcher), so they keep private, no-store.
-const publicCachedPath = /^\/(?:api\/(?:categories|category-media|product-media|product-fitments|product-references)|feeds)(?:\/|$)/;
+const publicCachedPath = /^\/(?:api\/(?:categories|category-media|product-media|product-fitments|product-references)|feeds|stats)(?:\/|$)/;
 const strippedHomeHeaders = ["cookie", "content-security-policy", "content-security-policy-report-only"];
 function cachedHome(request: NextRequest) {
  const headers = new Headers(request.headers);
@@ -93,9 +95,9 @@ export const config = {
   // value, so "/?_rsc=" and "/?_rsc" still run the proxy and are public: accepted, their page embeds only the fixed
   // "?_rsc=" and the all-query-strings CloudFront key gives them their own entry.
   {
-   source: "/((?!api/|_next/static|_next/image|feeds/|sitemaps/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|webmanifest|woff2?)$).*)",
+   source: "/((?!api/|_next/static|_next/image|feeds/|sitemaps/|stats/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|webmanifest|woff2?)$).*)",
    missing: [{ type: "header", key: "rsc" }, { type: "header", key: "next-router-prefetch" }, { type: "header", key: "purpose", value: "prefetch" }, { type: "query", key: "_rsc" }],
   },
-  { source: "/((?!_next/static|_next/image|api/(?:categories|category-media|product-media|product-fitments|product-references)(?:/|$)|feeds/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
+  { source: "/((?!_next/static|_next/image|api/(?:categories|category-media|product-media|product-fitments|product-references)(?:/|$)|feeds/|stats/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
  ],
 };

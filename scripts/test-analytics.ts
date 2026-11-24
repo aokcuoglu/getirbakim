@@ -3,11 +3,12 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { CONSENT_MAX_AGE, consentBannerOpen, consentSignals, parseConsent, serializeConsent } from "../src/lib/cookie-consent";
-import { analyticsConfig } from "../src/modules/analytics/config";
+import { analyticsConfig, plausibleConfig } from "../src/modules/analytics/config";
 import {
   addPaymentInfo, addToCart, beginCheckout, catalogItem, cleanPageLocation, kurusToValue, purchase, removeFromCart, search, selectItem,
   vatIncludedKurus, viewCart, viewItem, viewItemList,
 } from "../src/modules/analytics/events";
+import { forwardedEvent, resetScriptCache, scriptCache } from "../src/modules/analytics/plausible";
 import { PURCHASE_EVENT_WINDOW_DAYS, purchaseClaimAllowed, purchaseEventOpen } from "../src/modules/analytics/purchase";
 
 const now = Date.UTC(2026, 10, 15);
@@ -140,6 +141,80 @@ test("the admin area never loads the tag and no id is baked in at build", () => 
   for (const file of sources("src")) assert.doesNotMatch(readFileSync(file, "utf8"), /NEXT_PUBLIC_GA/, file);
 });
 
+test("plausible stays out of the consent-gated tag code and is never baked in at build (#1290)", () => {
+  for (const file of ["src/components/privacy/tag-manager.tsx", "src/modules/analytics/track.ts"]) {
+    assert.doesNotMatch(readFileSync(file, "utf8"), /plausible/i, file);
+  }
+  for (const file of sources("src")) assert.doesNotMatch(readFileSync(file, "utf8"), /NEXT_PUBLIC_PLAUSIBLE/, file);
+});
+
+test("plausibleConfig: needs an http(s) URL, strips the path, defaults the domain (#1290)", () => {
+  for (const url of [undefined, "", "  ", "not a url", "ftp://plausible.internal", "javascript:alert(1)"]) assert.equal(plausibleConfig({ PLAUSIBLE_URL: url }), null, String(url));
+  assert.deepEqual(plausibleConfig({ PLAUSIBLE_URL: "http://plausible.internal:8000/" }), { url: "http://plausible.internal:8000", domain: "getirbakim.com" });
+  assert.deepEqual(plausibleConfig({ PLAUSIBLE_URL: "https://p.example.com", PLAUSIBLE_DOMAIN: " shop.example.com " }), { url: "https://p.example.com", domain: "shop.example.com" });
+  assert.equal(plausibleConfig({ PLAUSIBLE_URL: "https://p.example.com", PLAUSIBLE_DOMAIN: "Bad Domain!" }), null);
+});
+
+const host = "getirbakim.com";
+const eventBody = (u: string, extra: Record<string, unknown> = {}) => JSON.stringify({ n: "pageview", u, d: "evil.example", ...extra });
+
+test("forwardedEvent: forces the domain, cleans the address, forwards one resolved IP (#1290)", () => {
+  const headers = new Headers({ "user-agent": "Mozilla/5.0 Test", "x-forwarded-for": "203.0.113.9, 198.51.100.7", "cloudfront-viewer-address": "192.0.2.44:51234" });
+  const sent = forwardedEvent(eventBody("https://getirbakim.com/giris?next=%2Fyonetim&x=1", { r: "https://getirbakim.com/a?next=%2Fyonetim" }), headers, "getirbakim.com", host);
+  assert.ok(sent);
+  const body = JSON.parse(sent.body);
+  assert.equal(body.d, "getirbakim.com");
+  assert.equal(body.u, "https://getirbakim.com/giris?x=1");
+  assert.equal(body.r, "https://getirbakim.com/a");
+  assert.deepEqual(sent.headers, { "Content-Type": "application/json", "User-Agent": "Mozilla/5.0 Test", "X-Forwarded-For": "192.0.2.44" });
+  const external = forwardedEvent(eventBody("https://getirbakim.com/", { r: "https://www.google.com/search?q=x" }), new Headers(), "getirbakim.com", host);
+  assert.equal(JSON.parse(external!.body).r, "https://www.google.com/search?q=x");
+  assert.deepEqual(external!.headers, { "Content-Type": "application/json" });
+});
+
+test("forwardedEvent: X-Forwarded-For uses the last hop, never the client-supplied first (#1290)", () => {
+  const sent = forwardedEvent(eventBody("https://getirbakim.com/"), new Headers({ "x-forwarded-for": "203.0.113.9, 198.51.100.7" }), "getirbakim.com", host);
+  assert.equal(sent!.headers["X-Forwarded-For"], "198.51.100.7");
+});
+
+test("forwardedEvent: drops admin, token links and malformed or oversize bodies (#1290)", () => {
+  const headers = new Headers();
+  for (const path of ["/yonetim", "/yonetim/urunler/1", "/sifre-yenile/baglanti", "/e-posta-dogrula/baglanti", "/siparis/abc/erisim"]) {
+    assert.equal(forwardedEvent(eventBody(`https://getirbakim.com${path}?t=secret`), headers, "getirbakim.com", host), null, path);
+  }
+  const order = forwardedEvent(eventBody("https://getirbakim.com/siparis/0b8f6a52-1c3d-4e7a-9a41-2f6d3c1b7e90/sozlesme?t=secret"), headers, "getirbakim.com", host);
+  assert.equal(JSON.parse(order!.body).u, "https://getirbakim.com/siparis/:id/sozlesme");
+  assert.equal(JSON.parse(forwardedEvent(eventBody("https://getirbakim.com/urun/12345678"), headers, "getirbakim.com", host)!.body).u, "https://getirbakim.com/urun/12345678");
+  assert.equal(forwardedEvent(eventBody("https://evil.example/"), headers, "getirbakim.com", host), null);
+  assert.equal(forwardedEvent(eventBody("http://localhost:3000/"), headers, "getirbakim.com", host) !== null, true);
+  assert.deepEqual(Object.keys(JSON.parse(forwardedEvent(eventBody("https://getirbakim.com/", { junk: 1, p: { a: 1 } }), headers, "getirbakim.com", host)!.body)).sort(), ["d", "n", "p", "u"]);
+  assert.equal(forwardedEvent("not json", headers, "getirbakim.com", host), null);
+  assert.equal(forwardedEvent(JSON.stringify({ n: 1, u: "https://getirbakim.com/" }), headers, "getirbakim.com", host), null);
+  assert.equal(forwardedEvent(JSON.stringify(["x"]), headers, "getirbakim.com", host), null);
+  assert.equal(forwardedEvent(eventBody("https://getirbakim.com/", { pad: "x".repeat(5000) }), headers, "getirbakim.com", host), null);
+});
+
+test("scriptCache: one hour TTL, last good copy on error, null without one (#1290)", async () => {
+  resetScriptCache();
+  const failing = async () => { throw new Error("down"); };
+  assert.equal(await scriptCache(failing, 0), null);
+  assert.equal(await scriptCache(async () => "v1", 30_000), null);
+  assert.equal(await scriptCache(async () => "v1", 61_000), "v1");
+  assert.equal(await scriptCache(async () => "v2", 59 * 60_000), "v1");
+  assert.equal(await scriptCache(async () => "v2", 62 * 60_000), "v2");
+  assert.equal(await scriptCache(failing, 3 * 60 * 60_000), "v2");
+  // Backoff: a failure is not retried for a minute; concurrent callers share one fetch.
+  let calls = 0;
+  const counting = async () => { calls++; return "v3"; };
+  assert.equal(await scriptCache(counting, 3 * 60 * 60_000 + 30_000), "v2");
+  assert.equal(calls, 0);
+  assert.equal(await scriptCache(counting, 3 * 60 * 60_000 + 61_000), "v3");
+  resetScriptCache();
+  assert.deepEqual(await Promise.all([scriptCache(counting, 0), scriptCache(counting, 0)]), ["v3", "v3"]);
+  assert.equal(calls, 2);
+  resetScriptCache();
+});
+
 // A minimal browser: a cookie jar, an event target and the globals the modules read.
 function browser(cookie = "") {
   const target = new EventTarget();
@@ -243,4 +318,33 @@ test("canTrack: needs both the tag and analytics consent (#675)", async () => {
   browser(`gb_consent=${serializeConsent({ analytics: false, marketing: true, savedAt: Date.now() })}`);
   window.gtag = () => undefined;
   assert.equal(canTrack(), false);
+});
+
+test("stats routes: never an error status, whatever the input or upstream (#1290)", async () => {
+  const { GET } = await import("../src/app/stats/js/script.js/route");
+  const { POST } = await import("../src/app/stats/api/event/route");
+  const { NextRequest } = await import("next/server");
+  const event = (body: string, headers: Record<string, string> = {}) => new NextRequest("https://getirbakim.com/stats/api/event", { method: "POST", body, headers });
+  const previous = { url: process.env.PLAUSIBLE_URL, fetch: globalThis.fetch };
+  try {
+    delete process.env.PLAUSIBLE_URL;
+    assert.equal((await GET()).status, 404);
+    assert.equal((await POST(event(eventBody("https://getirbakim.com/")))).status, 202);
+    process.env.PLAUSIBLE_URL = "http://plausible.invalid:8000";
+    globalThis.fetch = async () => { throw new Error("down"); };
+    resetScriptCache();
+    const script = await GET();
+    assert.equal(script.status, 200);
+    assert.equal(script.headers.get("cache-control"), "no-store");
+    assert.equal(await script.text(), "/* stats unavailable */");
+    for (const request of [event("not json"), event("x".repeat(5000)), event("{}", { "content-length": "99999" })]) {
+      const response = await POST(request);
+      assert.equal(response.status, 202);
+      assert.equal(response.headers.get("cache-control"), "no-store");
+    }
+  } finally {
+    if (previous.url === undefined) delete process.env.PLAUSIBLE_URL; else process.env.PLAUSIBLE_URL = previous.url;
+    globalThis.fetch = previous.fetch;
+    resetScriptCache();
+  }
 });

@@ -41,6 +41,15 @@ export function newNonce(): string {
 }
 
 /**
+ * The nonce in a policy the proxy put on the request (null without one, as on the edge-cached home). A script tag rendered
+ * on the server needs it: 'strict-dynamic' makes browsers ignore 'self', so a same-origin tag without the nonce is a
+ * violation (#1290).
+ */
+export function policyNonce(policy: string | null | undefined): string | null {
+  return policy?.match(/'nonce-([^']+)'/)?.[1] ?? null;
+}
+
+/**
  * The Report-Only policy for one response. Development adds what React's dev build and HMR need. Without a nonce (the
  * edge-cached home) script-src is left out and the other directives are still measured.
  */
