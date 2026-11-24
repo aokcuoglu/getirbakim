@@ -15,7 +15,8 @@ import { applyBundleTombstones, DEFAULT_MAX_DELETIONS, pruneTombstones } from ".
 // Idempotent: rows are upserted (the bundle is the source of truth for these tables), media is
 // matched by sha256, supplier items are matched by their natural key (then by id; see storefront-bundle-items.ts),
 // and rows whose supplier item does not exist here are skipped and counted.
-// manifest.jobs (complete/partial enrichment job statuses) is upserted only where it changes (storefront-bundle-jobs.ts).
+// manifest.jobs (complete/partial enrichment job statuses) is upserted only where it changes (storefront-bundle-jobs.ts);
+// jobs a part does not carry are left alone, as the split sends them in the job parts that follow part-00 (#1317).
 // The bundle's category mappings replace those of its enrichments' products (storefront-bundle-mappings.ts).
 // manifest.tombstones (#564, part-00 only) deletes the enrichments deleted at the source, before anything is written;
 // more than manifest.maxDeletions deletions stop the import, in a dry run too (storefront-bundle-tombstones.ts).

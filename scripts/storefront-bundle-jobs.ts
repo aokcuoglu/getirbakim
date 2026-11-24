@@ -6,7 +6,9 @@ type Row = Record<string, unknown>;
 // (enrichment_valid_data in db/enrichment-products.sql). The bundle therefore carries those job statuses, and this
 // writes them into product_enrichment_jobs for the supplier items resolved in bundle_items (storefront-bundle-items.ts).
 // Only rows that actually change are written: product_enrichment_jobs has statement triggers that queue every written
-// row for enrichment_product_states and product_enrichment_shared_links, and the bundle repeats all ~69k jobs each run.
+// row for enrichment_product_states and product_enrichment_shared_links, and the bundle repeats every job each run
+// (~198k on 2026-11-24). Since #1317 those jobs are spread over the job parts after part-00: only the rows given here
+// are written, a job missing from them is never deleted or reset.
 
 /** Upserts the bundle's job statuses; call after resolveBundleItems in the same transaction. */
 export async function importBundleJobs(client: PoolClient, jobs: Row[]) {

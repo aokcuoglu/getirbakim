@@ -60,7 +60,9 @@ const OVERLAP_MS = 60 * 60 * 1000;
 // Media bytes per part, well under the operations container's memory (see split-storefront-bundle.ts).
 const PART_BYTES = 100 * 1024 * 1024;
 // Enrichment JSON bytes per part (#1316): the released importer stringifies manifest.enrichments several times per part
-// inside the same 4096 MB operations task, so a part of image-less enrichments must not grow without bound.
+// inside the same 4096 MB operations task, so a part of image-less enrichments must not grow without bound. The same
+// cap cuts the job parts (#1317): every run sends every complete/partial job status with its supplier item key, which
+// grows with the enriched products (they made the base manifest ~115 MB on 2026-11-23, all of it copied to part-00).
 const PART_JSON_BYTES = 64 * 1024 * 1024;
 const prefixMode = parsePrefixMode(process.env.STOREFRONT_SYNC_PREFIX_MODE);
 const s3Concurrency = process.env.STOREFRONT_SYNC_S3_CONCURRENCY
