@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { CSP_REPORT_ONLY_HEADER, REPORTING_ENDPOINTS, cspReportOnly, cspReportOnlyEnabled, newNonce } from "@/lib/csp";
+import { HOME_CACHE_CONTROL, anonymousHome } from "@/lib/edge-cache";
 import { RETURN_TO_HEADER } from "@/modules/auth/return-to";
 import { SESSION_COOKIE, SESSION_SEEN_COOKIE, sessionCookieDue, sessionCookieOptions } from "@/modules/auth/session-cookie";
 import { legacyRedirect } from "@/modules/seo/legacy-redirects";
@@ -14,7 +15,31 @@ import { legacyRedirect } from "@/modules/seo/legacy-redirects";
 // #1211, the product feed) never carry a session cookie: a shared cache would keep the Set-Cookie with the body and hand
 // one visitor's session to the next (#642). The matcher skips them; the check here keeps it that way if the matcher
 // changes.
+// The cookie-less home page is publicly cacheable too (#1349, src/lib/edge-cache.ts): Next keeps a Cache-Control the
+// proxy set on a dynamic page (it adds its own private, no-store only when there is none), and the branch returns before
+// the session slide, so it never carries a Set-Cookie. No Vary: Cookie: the app-page runtime replaces Vary with its own
+// list (next/dist/build/templates/app-page-runtime.js:462-463), so the cookies split the edge cache only through the
+// CloudFront key, and the header has no stale-while-revalidate a browser could reuse an anonymous copy with.
+// No nonce can be shared, so it gets the Report-Only policy without script-src. Next hands the proxy's response headers
+// to the render as request headers too, so StoreTags reads this nonce-free policy and the Plausible tag (#1290) renders
+// without a nonce, the same for every visitor.
+// The render gets the request without its cookie header, so it cannot depend on a cookie or answer one with a
+// Set-Cookie (Next clears an invalid __prerender_bypass / __next_preview_data that way), and without a client's own CSP
+// header: Next takes its script nonce from one (app-render), and that nonce would be cached for everyone.
+// RSC requests and prefetches for "/" without gb_session never run the proxy (matcher), so they keep private, no-store.
 const publicCachedPath = /^\/(?:api\/(?:categories|category-media|product-media|product-fitments|product-references)|feeds|stats)(?:\/|$)/;
+const strippedHomeHeaders = ["cookie", "content-security-policy", "content-security-policy-report-only"];
+function cachedHome(request: NextRequest) {
+ const headers = new Headers(request.headers);
+ for (const name of strippedHomeHeaders) headers.delete(name);
+ const response = NextResponse.next({ request: { headers } });
+ response.headers.set("Cache-Control", HOME_CACHE_CONTROL);
+ if (cspReportOnlyEnabled()) {
+  response.headers.set(CSP_REPORT_ONLY_HEADER, cspReportOnly({ nonce: null, dev: process.env.NODE_ENV === "development" }));
+  response.headers.set("Reporting-Endpoints", REPORTING_ENDPOINTS);
+ }
+ return response;
+}
 // The Report-Only CSP (#1291, src/lib/csp.ts) goes on document requests only: server actions and API routes render no
 // HTML, so they need no nonce. RSC requests are left out by the matcher: Next strips the rsc header (and _rsc) before
 // the proxy sees the request. A signed-in RSC request still runs the proxy for the cookie and gets the (ignored)
@@ -26,6 +51,7 @@ export function proxy(request: NextRequest) {
  if (publicCachedPath.test(request.nextUrl.pathname)) return NextResponse.next();
  const target = legacyRedirect(request.nextUrl.pathname, request.nextUrl.searchParams);
  if (target) return NextResponse.redirect(new URL(target, request.url), 301);
+ if (anonymousHome(request)) return cachedHome(request);
  const path = request.nextUrl.pathname;
  const workspace = path === "/yonetim" || path.startsWith("/yonetim/");
  const nonce = cspNonceWanted(request) ? newNonce() : null;
@@ -62,10 +88,15 @@ export const config = {
   { source: "/katalog", has: [{ type: "query", key: "category" }] }, "/automakers", "/car-parts/:path*",
   // /katalog?brand=<label> moves to its manufacturer page /marka/<slug> (#660).
   { source: "/katalog", has: [{ type: "query", key: "brand" }] },
-  // Every document without a session gets the Report-Only CSP nonce (#1291); RSC requests, prefetches and assets skip the proxy.
+  // Every document without a session gets the Report-Only CSP (#1291; the cookie-less home without a nonce, #1349).
+  // RSC requests, prefetches and assets skip the proxy; the edge-cached home relies on that for "/". So does a document
+  // request with a non-empty _rsc: Next strips _rsc before the proxy, which would take "/?_rsc=x" for the bare "/" and mark
+  // it public while the page embeds the visitor's value (#1349). A `missing` query condition only counts a non-empty
+  // value, so "/?_rsc=" and "/?_rsc" still run the proxy and are public: accepted, their page embeds only the fixed
+  // "?_rsc=" and the all-query-strings CloudFront key gives them their own entry.
   {
    source: "/((?!api/|_next/static|_next/image|feeds/|sitemaps/|stats/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|webmanifest|woff2?)$).*)",
-   missing: [{ type: "header", key: "rsc" }, { type: "header", key: "next-router-prefetch" }, { type: "header", key: "purpose", value: "prefetch" }],
+   missing: [{ type: "header", key: "rsc" }, { type: "header", key: "next-router-prefetch" }, { type: "header", key: "purpose", value: "prefetch" }, { type: "query", key: "_rsc" }],
   },
   { source: "/((?!_next/static|_next/image|api/(?:categories|category-media|product-media|product-fitments|product-references)(?:/|$)|feeds/|stats/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|woff2?)$).*)", has: [{ type: "cookie", key: "gb_session" }] },
  ],
