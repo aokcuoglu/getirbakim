@@ -3,7 +3,7 @@
 // so the tests read it directly.
 import { createHash } from "node:crypto";
 import { fitmentLabels } from "./vehicle-label";
-import { fitmentInitialGroups, fitmentView, initialFitmentView, type FitmentGarage, type FitmentSource, type FitmentView } from "./product-fitment-view";
+import { fitmentShipsWhole, fitmentView, garageRank, initialFitmentView, type FitmentGarage, type FitmentSource, type FitmentView } from "./product-fitment-view";
 
 type FitmentVehicle = Omit<FitmentSource, "makeKey" | "makeLabel" | "modelLabel" | "modelHref"> & { model: string; catalogBrand?: string | null };
 
@@ -36,14 +36,18 @@ export const productFitmentGroups = (input: ProductFitmentInput) =>
   canonicalFitment(fitmentSources(input.vehicles, input.makeNames, input.modelFits, input.modelPaths));
 
 /**
- * The view the product page ships: the garage vehicle's groups first, and past `fitmentInitialGroups` groups the URL of
- * the whole list under the version productFitmentGroups gives the route for the same input.
+ * The view the product page ships: the garage vehicle's groups first, and past `fitmentInitialGroups` groups or
+ * `fitmentInlineRows` printed engine rows (#1324) the URL of the whole list under the version productFitmentGroups gives
+ * the route for the same input. The group of the garage vehicle's engine type or model leads and keeps its rows when it
+ * is short; with a garage vehicle whose engine type and model the list does not name, no group keeps its rows.
  */
 export function productPageFitment(input: ProductFitmentInput, garage: FitmentGarage | null, productId: string): FitmentView | null {
   if (!input.vehicles.length) return null;
   const sources = fitmentSources(input.vehicles, input.makeNames, input.modelFits, input.modelPaths);
   const personal = fitmentView(sources, garage);
-  if (personal.groupCount <= fitmentInitialGroups) return personal;
+  if (fitmentShipsWhole(personal)) return personal;
   const { v } = garage ? canonicalFitment(sources) : { v: fitmentVersion(personal.groups) };
-  return initialFitmentView(personal, `/api/product-fitments/${productId}?v=${v}`);
+  // Groups sort by their best rank (fitmentView), so any row of the vehicle's engine type or model puts its group first.
+  const ownLeads = garage !== null && sources.some(source => garageRank(source, garage) <= 1);
+  return initialFitmentView(personal, `/api/product-fitments/${productId}?v=${v}`, ownLeads);
 }

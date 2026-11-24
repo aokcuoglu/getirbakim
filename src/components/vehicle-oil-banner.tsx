@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import Link from "next/link";
-import { CircleAlert, X } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { oilCapacity, vehicleOilFilters, type OilFilter, type VehicleOilSpec } from "@/modules/store/vehicle-oil";
 
 const chip = "inline-flex min-h-8 max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] leading-5 font-medium";
@@ -28,7 +28,7 @@ export function VehicleOilBanner({ spec, vehicleName, active, total, href }: {
   const filters = vehicleOilFilters(spec).map(key => ({ key, label: key === "viscosity" ? spec.viscosities.join(" / ") : oilApprovalLabel(spec) }));
   const without = (key: OilFilter) => filters.map(filter => filter.key).filter(other => active.has(other) && other !== key);
   return <section aria-label="Aracın için önerilen motor yağı" className="mb-4 flex gap-3 rounded-[5px] border border-[#f1d08a] bg-[#fff9eb] px-4 py-3.5 text-[13px] leading-5 text-foreground max-[600px]:px-3.5">
-    <CircleAlert size={22} className="mt-px shrink-0 fill-[#f0a020] text-white" aria-hidden="true"/>
+    <StoreIcon name="circle-alert" size={22} className="mt-px shrink-0 fill-[#f0a020] text-white"/>
     <div className="min-w-0 flex-1">
       {capacity ? <p className="m-0 text-[15px] leading-[22px]"><strong className="font-semibold">Aracın için önerilen yağ miktarı:</strong> {capacity}</p>
         : <p className="m-0 text-[15px] leading-[22px]"><strong className="font-semibold">Aracın için önerilen motor yağı</strong></p>}
@@ -38,7 +38,7 @@ export function VehicleOilBanner({ spec, vehicleName, active, total, href }: {
         {active.size ? <>
           {filters.filter(filter => active.has(filter.key)).map(filter => <Link key={filter.key} scroll={false} href={href(without(filter.key))}
             aria-label={`${filter.label} filtresini kaldır`} className={`${chip} border-[#d9dee3] bg-white hover:border-[#54626e]`}>
-            <span className="truncate">{filter.label}</span><X size={14} className="shrink-0" aria-hidden="true"/></Link>)}
+            <span className="truncate">{filter.label}</span><StoreIcon name="x" size={14} className="shrink-0"/></Link>)}
           {filters.filter(filter => !active.has(filter.key)).map(filter => <Link key={filter.key} scroll={false} href={href([...active, filter.key])}
             className="text-[13px] font-semibold text-primary hover:underline">+ {filter.key === "viscosity" ? "Viskoziteye" : "Onaya"} göre süz</Link>)}
           <Link scroll={false} href={href([])} className="text-[13px] font-semibold text-primary hover:underline">Tümünü temizle</Link>

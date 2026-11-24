@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ProductFitment } from "../src/components/product-fitment";
+import { FitmentPanel, ProductFitment } from "../src/components/product-fitment";
 import { ProductReferences } from "../src/components/product-references";
 import { loadedPublicList, publicListFetch } from "../src/components/public-list-fetch";
-import { fitmentInitialGroups, fitmentView, initialFitmentView, isFitmentGroup, type FitmentSource } from "../src/modules/store/product-fitment-view";
+import { fitmentInitialGroups, fitmentView, initialFitmentView, isFitmentGroup, type FitmentRow, type FitmentSource } from "../src/modules/store/product-fitment-view";
 import { initialReferenceView, isReferenceRow, referenceInitialCodes, referenceInitialRows, referenceRowCodes, type ReferenceCode, type ReferenceRow } from "../src/modules/store/product-reference-view";
 
 // #1211: a product page with hundreds of reference brands and dozens of fitted models keeps its HTML small (budget
@@ -140,6 +140,59 @@ test("ProductFitment prints the first groups with no svg in a group header", () 
   for (const name of ["fitment-toolbar", "fitment-select", "fitment-search", "fitment-status", "fitment-text-button"]) assert.ok(html.includes(`class="${name}`), name);
   assert.ok(html.includes(">Tüm 12 modeli göster</button>"));
   assert.ok(!html.includes('data-slot="button"') && !html.includes('data-slot="native-select'));
+});
+
+// #1324: past 24 engine rows the printed groups ship their counts; a group's panel loads its rows when opened.
+const fitted = (models: number, rows: number): FitmentSource[] => Array.from({ length: models * rows }, (_, index) => ({ engineAndCodes: `MOTORKOD${index}`,
+  fuel: "Diesel", ps: 150, kw: 110, cc: 1968, from: "04/2013", to: "03/2017", makeKey: "VOLKSWAGEN", makeLabel: "Volkswagen",
+  modelLabel: `Volkswagen Model ${Math.floor(index / rows) + 1}` }));
+const fitmentRest = "/api/product-fitments/9db4f695-185e-4d35-b8e4-190bfb549e91?v=abc";
+
+test("ProductFitment prints a held-back group's row count and no engine text", () => {
+  const html = renderToStaticMarkup(<ProductFitment view={initialFitmentView(fitmentView(fitted(9, 7)), fitmentRest)}/>);
+  assert.equal(html.split('class="fitment-group"').length - 1, fitmentInitialGroups);
+  assert.equal(html.split('<span class="fitment-count">7 seçenek</span>').length - 1, fitmentInitialGroups);
+  assert.ok(!html.includes("MOTORKOD"));
+  assert.ok(html.includes(">Tüm 9 modeli göster</button>"));
+});
+
+test("ProductFitment with up to six held-back groups prints them all with their model options", () => {
+  const view = initialFitmentView(fitmentView(fitted(3, 10)), fitmentRest);
+  assert.equal(view.rest, fitmentRest);
+  const html = renderToStaticMarkup(<ProductFitment view={view}/>);
+  assert.ok(!html.includes("modeli göster"));
+  for (const index of [1, 2, 3]) assert.ok(html.includes(`<option value="Volkswagen Model ${index}">Volkswagen Model ${index}</option>`), `Model ${index}`);
+  assert.ok(!html.includes("Modeller yükleniyor…"));
+  assert.ok(html.includes("10 seçenek") && !html.includes("MOTORKOD"));
+});
+
+test("FitmentPanel shows placeholder rows while loading, a retry after a failure, and the rows once loaded", () => {
+  const panel = (state: "ready" | "loading" | "failed", rows: FitmentRow[] = [], busy = false, linked = false) =>
+    renderToStaticMarkup(<FitmentPanel model="Volkswagen Golf VII (5G1)" rows={rows} count={3} linked={linked} state={state} busy={busy} showLoading={false} onRetry={() => {}}/>);
+  const region = '<div class="overflow-x-auto border-t border-border" tabindex="0" role="region" aria-label="Volkswagen Golf VII (5G1) motor seçenekleri"';
+  const loading = panel("loading", [], true);
+  assert.ok(loading.startsWith(`${region} aria-busy="true">`));
+  assert.ok(loading.includes(">Motor / motor kodu</th>") && loading.includes(">Veri bağlantısı</th>"));
+  assert.equal(loading.match(/<tr(?=[^>]*aria-hidden="true")(?=[^>]*fitment-row)[^>]*>/g)?.length, 3);
+  // Word-wide bars, so a placeholder row wraps like a real one; a linked model's rows add the source engine's line.
+  const bars = (html: string) => html.split('class="inline-block h-3.5 rounded-sm bg-border align-middle').length - 1;
+  assert.equal(bars(loading), 3 * 8);
+  assert.equal(bars(panel("loading", [], true, true)), 3 * 11);
+  const failed = panel("failed");
+  assert.ok(failed.startsWith(`${region}>`));
+  assert.ok(failed.includes("<span>Motor seçenekleri yüklenemedi.</span>"));
+  assert.ok(/<button type="button" class="fitment-text-button"[^>]*>Tekrar dene<\/button>/.test(failed));
+  // The alert has a "Tekrar dene" too: the panel's names its model.
+  assert.ok(failed.includes('aria-label="Tekrar dene: Volkswagen Golf VII (5G1) motor seçenekleri"'));
+  assert.ok(!failed.includes("<table"));
+  // A retry keeps the button, busy, and the region busy.
+  const retrying = panel("failed", [], true);
+  assert.ok(retrying.startsWith(`${region} aria-busy="true">`));
+  assert.ok(retrying.includes('aria-busy="true" aria-disabled="true">Tekrar dene</button>'));
+  const ready = panel("ready", [["2.0 TDI CRBC", "Diesel", 150, 110, 1968, "04/2013", "03/2017", 10, "2.0 TDI"]]);
+  assert.ok(ready.startsWith(`${region}>`));
+  assert.ok(ready.includes("<strong class=\"font-medium\">2.0 TDI</strong><small>Kaynak motor bilgisi: 2.0 TDI CRBC</small><small>Dizel</small>"));
+  assert.ok(!ready.includes("skeleton") && !ready.includes("Tekrar dene"));
 });
 
 test("the product page lists use plain controls and named classes", () => {

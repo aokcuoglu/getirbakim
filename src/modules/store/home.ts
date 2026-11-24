@@ -24,6 +24,7 @@ const automaticArm=`s.company=ANY($1::text[]) AND s.presence='present' AND s.cod
         AND NOT EXISTS (SELECT 1 FROM commerce_item_overrides h WHERE h.supplier_item_id=s.id AND h.hidden)
         -- On the links side: on s.id the planner seq-scans supplier_items for the category rails (~7x slower).
         AND e.supplier_item_id NOT IN (${hiddenAutomaticItemsSql})`;
+// #1320 check: the category rails take 6.6-19 ms with the 1-row estimate present; the #1240 plan is not (the donor-category rule is a hashed SubPlan filter). The "all" rail takes 407 ms, is bounded by the enrichment count and cached 10 min by cachedHomeIds; no SQL change.
 export const homeProductIds=(categoryIds:number[]|null)=>cachedHomeIds(categoryIds?.join(",")??"all",async()=>(await boundedQuery<{id:string}>(`home.productIds categories=${categoryIds?.join(",") ?? "all"}`, `
     SELECT id::text AS id FROM (
      (SELECT s.id,e.imported_at AS shown_at FROM supplier_items s JOIN storefront_enrichments e ON e.supplier_item_id=s.id

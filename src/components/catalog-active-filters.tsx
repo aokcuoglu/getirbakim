@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { X } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 
 /**
  * The listing's selected filters as removable chips above the results, at every width (#883). Each chip is a plain link
@@ -11,7 +11,7 @@ export function CatalogActiveFilters({ items, clearHref }: { items: { key: strin
   return <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Seçili filtreler">
     {items.map(item => <Link key={item.key} href={item.href} scroll={false}
       className={`${chip} max-w-full border-input bg-white text-foreground hover:border-brand hover:text-primary`}>
-      <span className="wrap-anywhere">{item.label}<span className="sr-only"> filtresini kaldır</span></span><X size={14} className="shrink-0" aria-hidden="true" />
+      <span className="wrap-anywhere">{item.label}<span className="sr-only"> filtresini kaldır</span></span><StoreIcon name="x" size={14} className="shrink-0"/>
     </Link>)}
     <Link href={clearHref} scroll={false} className={`${chip} border-transparent font-medium text-brand-strong hover:underline`}>Tümünü temizle</Link>
   </div>;

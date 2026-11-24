@@ -1,4 +1,4 @@
-import { Check } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { cn } from "@/lib/utils";
 
 export type OrderStep = { key: "placed" | "payment" | "confirmation" | "shipping"; label: string; state: "done" | "current" | "upcoming" };
@@ -28,7 +28,7 @@ export function OrderProgress({ order }: { order: { status: string; payment_stat
   return <ol aria-label="Sipariş adımları" className="m-0 mb-5 flex list-none flex-wrap gap-x-2 gap-y-1 p-0 text-sm leading-5">
     {steps.map((step, index) => <li key={step.key} aria-current={step.state === "current" ? "step" : undefined} className={cn("flex items-center gap-2", step.state === "upcoming" ? "text-muted-foreground" : "text-foreground", step.state === "current" && "font-semibold")}>
       {index > 0 && <span aria-hidden className="text-muted-foreground">›</span>}
-      <span className={cn("grid size-5 place-items-center rounded-full text-[11px] leading-none font-semibold", step.state === "done" ? "bg-primary text-primary-foreground" : step.state === "current" ? "border-2 border-primary text-primary" : "border border-border text-muted-foreground")} aria-hidden>{step.state === "done" ? <Check className="size-3.5"/> : index + 1}</span>
+      <span className={cn("grid size-5 place-items-center rounded-full text-[11px] leading-none font-semibold", step.state === "done" ? "bg-primary text-primary-foreground" : step.state === "current" ? "border-2 border-primary text-primary" : "border border-border text-muted-foreground")} aria-hidden>{step.state === "done" ? <StoreIcon name="check" className="size-3.5"/> : index + 1}</span>
       <span>{step.label}{step.state === "done" && <span className="sr-only"> tamamlandı</span>}</span>
     </li>)}
   </ol>;
