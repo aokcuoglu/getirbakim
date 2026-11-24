@@ -4832,6 +4832,20 @@
                 "tag": "li",
                 "attrs": {},
                 "children": [
+                  "gb_garage: Üye olmadan araç kaydettiğinde kayıtlı araç listesini hatırlar. Araç kaydedildiğinde veya listeden çıkarıldığında kullanılır; giriş yaptığında liste hesabına aktarılır ve çerez silinir. Geçerlilik süresi 30 gündür."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
+                  "gb_order_link: Sipariş e-postasındaki bağlantıyı açtığında, bu siparişi üye girişi yapmadan görüntülemeni sağlar. Yalnızca ilgili siparişin sayfalarında kullanılır; geçerlilik süresi bağlantının kalan süresi kadardır ve en fazla 90 gündür."
+                ]
+              },
+              {
+                "tag": "li",
+                "attrs": {},
+                "children": [
                   "gb_consent: Çerez kategorisi tercihlerini ve kayıt zamanını tutan birinci taraf çerezdir. 180 gün geçerlidir; süre dolduğunda veya çerez kategorileri değiştiğinde yeniden seçim istenir."
                 ]
               }

@@ -47,6 +47,22 @@ test("seller address and phone match the reviewed contact page", () => {
   assert.ok(contact.includes(`tel:${contactPhone}`));
 });
 
+test("every gb_* cookie name in src/ is listed in the cookie policy", () => {
+  const policy = JSON.stringify(JSON.parse(readFileSync("src/content/legal-pages.json", "utf8"))["cerez-politikasi"]);
+  const notCookies = new Set(["gb_cookie_consent"]); // the pre-#644 localStorage key (LEGACY_CONSENT_KEY), not a cookie
+  const names = new Set<string>();
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) walk(path);
+      else if (/\.(tsx?|jsx?|mjs)$/.test(entry.name)) for (const m of readFileSync(path, "utf8").matchAll(/gb_[a-z_]+/g)) names.add(m[0]);
+    }
+  };
+  walk("src");
+  assert.ok(names.size >= 8, String(names.size));
+  for (const name of names) if (!notCookies.has(name)) assert.ok(policy.includes(`${name}:`), `${name} is missing from the cookie policy list`);
+});
+
 test("the brand suffix comes from the title template, not from page titles", () => {
   const files: string[] = [];
   const walk = (dir: string) => {
