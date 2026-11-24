@@ -4,6 +4,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { listingIndexable } from "../src/modules/seo/indexing";
 import { listingRangeLabel } from "../src/modules/store/catalog-filters";
 import { listingPath, modelPath } from "../src/modules/seo/paths";
+import { parseSearchQuery } from "../src/modules/search/query";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { AsyncLocalStorage } from "node:async_hooks";
 
@@ -350,6 +351,40 @@ test("a price-sorted listing without products is empty (#1335)", () => inRequest
   for (const sort of ["price-asc", "price-desc"] as const) {
     const result = await catalog.browseProducts({ make: "dacia", category: "aydinlatma-200", sort });
     assert.deepEqual([result.items, result.total, result.page, result.pages], [[], 0, 1, 1], sort);
+  }
+}));
+
+test("a price-sorted search in a category, priced by the ids its total counts, orders like the query with both clauses (#1345)", () => inRequest(async () => {
+  const query = { q: "parca", category: "filtre" };
+  // The search's hits as catalogSearch reads them, and the category's ids as catalogFilter does.
+  const values: unknown[] = [];
+  const hits = (await schema.pool.query<{ id: string }>(catalog.searchHitIdsSql(parseSearchQuery(query.q), values, "all"), values)).rows.map(row => row.id);
+  const category = await catalog.categoryProductIds(["filtre"], [241]);
+  for (const dir of ["ASC", "DESC"] as const) {
+    const sort = dir === "ASC" ? "price-asc" : "price-desc";
+    const live = (await schema.pool.query<{ id: string }>(`SELECT id::text FROM storefront_catalog catalog
+      WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND ${catalog.listedOnly}
+       AND catalog.id=ANY($2::uuid[]) AND catalog.id=ANY($3::uuid[])
+      ORDER BY unavailable,price_kurus ${dir} NULLS LAST,id`, [storefrontCompanies(), hits, category])).rows.map(row => row.id);
+    // The 496 DACIA filters, g4 (its secondary offer g4s is not listed) and g12.
+    assert.equal(live.length, 498, sort);
+    const page = (number: number) => catalog.browseProducts({ ...query, sort, page: String(number) });
+    const [first, second, last] = [await page(1), await page(2), await page(21)];
+    assert.deepEqual([first.total, first.pages, last.page], [498, 21, 21], sort);
+    // The total is the count the other orders of the same search read.
+    assert.equal(first.total, (await catalog.browseProducts({ ...query, sort: "newest" })).total, sort);
+    assert.deepEqual(first.items.map(row => row.id), live.slice(0, 24), sort);
+    assert.deepEqual(second.items.map(row => row.id), live.slice(24, 48), sort);
+    assert.deepEqual(last.items.map(row => row.id), live.slice(480), sort);
+  }
+}));
+
+test("a price-sorted search without matches is empty and keeps its notice (#1345)", () => inRequest(async () => {
+  for (const sort of ["price-asc", "price-desc"] as const) {
+    const none = await catalog.browseProducts({ q: "zzqqxx", category: "filtre", sort });
+    assert.deepEqual([none.items, none.total, none.page, none.pages], [[], 0, 1, 1], sort);
+    const short = await catalog.browseProducts({ q: "a", category: "filtre", sort });
+    assert.deepEqual([short.items, short.total, short.searchTooShort], [[], 0, true], sort);
   }
 }));
 test("model × category pages: 404 without products, noindex below 10, indexable from 10 (#673)", () => inRequest(async () => {

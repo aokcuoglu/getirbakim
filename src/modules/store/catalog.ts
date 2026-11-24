@@ -809,20 +809,36 @@ export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalo
 // root category's 149k rows: 1.97 s → 2.5 s; the gain is smallest near 57k), so those keep the one statement, and so do
 // listings with fewer than two id sets, whose plan was right (priced read of 480 rows: manufacturer page 0.34 s → 0.44 s,
 // model page 0.19 s → 0.29 s, category + brand 0.48 s → 0.93 s by ids).
+// A price-sorted search is counted live on every page, so over two or more id sets its id read replaces that count
+// (listedIds, #1345) and costs nothing extra (page 1: "fren" in yedek-parca 0.85 s → 0.59 s, with VW 2.45 s → 0.22 s,
+// with Front Axle 1.31 s → 0.31 s). A search alone keeps its count and clause: its bound hit ids already give the planner
+// their size ("fren", 50k ids: 0.80 s → 0.81 s by ids). Its ids are capped at maxSearchHits, so a search never exceeds
+// the limit below.
 const pricedByIdsMax=50_000;
+type PricedScope={where:string;values:unknown[];workMem?:string};
+type ListingFilter=PricedScope&{from:string;idSets:number};
 /**
- * Where a price order reads its rows (#1335): `filter`'s own clause above pricedByIdsMax rows or below two id sets, else
- * the listing's ids (the entries the count reads) as `$2`, `$1` staying the companies array storefrontCatalogSql reads.
+ * The listing's product count and where a price order reads its rows (#1335, #1345), from one read of the entries the
+ * count reads: the listing's ids as `$2` (`$1` staying the companies array storefrontCatalogSql reads); `filter`'s own
+ * clause above pricedByIdsMax rows (the array is built but not sent); null without rows, there is nothing to price.
  * The ids travel as one array literal, never as rows: 50k row objects and their bound array added ~8 MB heap and ~34 MB
- * RSS per call, paid by every live page beyond the cached ones (#1262 ran out of memory). Null when the listing has no
- * rows: there is nothing to price. `total` may be as old as the count cache; it only picks the statement, both read the
- * same rows. `workMem` stays with the filter's clause (listingQuery); the id array needs none.
+ * RSS per call, paid by every live page beyond the cached ones (#1262 ran out of memory). `workMem` stays with the
+ * filter's clause (listingQuery); the id array needs none.
  */
-async function pricedScope(total:number,{values,where,from,idSets,workMem}:{values:unknown[];where:string;from:string;idSets:number;workMem?:string},
- label:string):Promise<{where:string;values:unknown[];workMem?:string}|null>{
- if(total>pricedByIdsMax||idSets<2)return {where,values,workMem};
- const ids=(await boundedQuery<{ids:string|null}>(`catalog.pricedListedIds ${label}`,`SELECT array_agg(catalog.id)::text AS ids ${from}`,values,30_000,{workMem})).rows[0]?.ids;
- return ids?{where:"WHERE catalog.id=ANY($2::uuid[])",values:[values[0],ids]}:null;
+async function listedIds({values,where,from,workMem}:ListingFilter,label:string):Promise<{total:number;scope:PricedScope|null}>{
+ const row=(await boundedQuery<{count:string;ids:string|null}>(`catalog.pricedListedIds ${label}`,
+  `SELECT count(*) AS count,CASE WHEN count(*)<=${pricedByIdsMax} THEN array_agg(catalog.id)::text END AS ids ${from}`,values,30_000,{workMem})).rows[0];
+ const total=Number(row.count);
+ return {total,scope:row.ids?{where:"WHERE catalog.id=ANY($2::uuid[])",values:[values[0],row.ids]}:total?{where,values,workMem}:null};
+}
+/**
+ * Where a price order reads its rows when its total did not come from listedIds (#1335): `filter`'s own clause above
+ * pricedByIdsMax rows or below two id sets, else its ids (listedIds). `total` may be as old as the count cache; it only
+ * picks the statement (listedIds checks its live count against the limit again), both read the same rows.
+ */
+async function pricedScope(total:number,filter:ListingFilter,label:string):Promise<PricedScope|null>{
+ if(total>pricedByIdsMax||filter.idSets<2)return {where:filter.where,values:filter.values,workMem:filter.workMem};
+ return (await listedIds(filter,label)).scope;
 }
 /**
  * The product count of a listing without a search, as browseProducts reports it (the same cache entry): the model
@@ -846,14 +862,16 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  }
  // Without a search the filter is built only when a cache misses; a search always needs it (its matches).
  const filter=lazyFilter(query,context),search=query.q?.trim()?(await filter()).search:undefined;
+ const pricedSort = query.sort === "price-asc" || query.sort === "price-desc", pricedKey=`${filterKey(query,context)}|${query.sort}`;
+ // A price-sorted search over two or more id sets prices its page by the ids it counts (listedIds, #1345).
+ const pricedSearch=search&&pricedSort&&(await filter()).idSets>=2?await listedIds(await filter(),pricedKey):undefined;
  const count=async()=>countListing(await filter(),filterKey(query,context));
- const total = search ? await count() : await countCache(query)(filterKey(query,context),count,{persist:persistable(query)});
+ const total = pricedSearch ? pricedSearch.total : search ? await count() : await countCache(query)(filterKey(query,context),count,{persist:persistable(query)});
  const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize)), take = Math.min(pageSize,Math.max(1,Number.isFinite(limit)?Math.trunc(limit):pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
  // Products nobody supplies now come after every saleable one, in every order (#475).
  const order=query.sort === "price-asc" ? "unavailable,price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "unavailable,price_kurus DESC NULLS LAST,id" : "unavailable,updated_at DESC,id";
- const pricedSort = query.sort === "price-asc" || query.sort === "price-desc";
  if(!search&&!pricedSort){
   const key=`${filterKey(query,context)}|${page}`;
   const ids=await pageIdCache(query)(key,async()=>{const listing=await filter(),{values,from}=listing;return (await listingQuery<{id:string}>(listing,`catalog.listingPageIds ${key}`,
@@ -870,10 +888,9 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // setting (16 MB); 64 MB for this read keeps it in memory. A listing of two id sets up to pricedByIdsMax rows is priced
  // by its id array (pricedScope), off a per-row plan (#1335).
  if(!search&&pricedSort&&page<=cachedPages){
-  const key=`${filterKey(query,context)}|${query.sort}`;
-  const ordered=await pageIdCache(query)(key,async()=>{const scope=await pricedScope(total,await filter(),key);
+  const ordered=await pageIdCache(query)(pricedKey,async()=>{const scope=await pricedScope(total,await filter(),pricedKey);
    if(!scope)return [];
-   return (await boundedQuery<{id:string}>(`catalog.pricedPageIds ${key}`,
+   return (await boundedQuery<{id:string}>(`catalog.pricedPageIds ${pricedKey}`,
    `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,scope.values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
    {persist:persistable(query)});
   const items=await storefrontRowsByIds(ordered.slice((page-1)*pageSize,(page-1)*pageSize+take));
@@ -881,11 +898,11 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  }
  // A search lists the best matches first unless the shopper picked another order.
  const filtered=await filter(),{from}=filtered;
- // A deeper page of a price order reads the rows the cached order above reads (pricedScope); none, no page read. A search
- // keeps its one statement: for "fren" in yedek-parca the extra id read (~0.39 s) cost more than the priced read saved
- // (0.48 s → 0.22 s).
- const scope=pricedSort&&!search?await pricedScope(total,filtered,`${filterKey(query,context)}|${query.sort}`):filtered;
- if(!scope)return {items:[],total,page,pages,pageSize};
+ // A deeper page of a price order reads the rows the cached order above reads (pricedScope), a price-sorted search over
+ // two or more id sets the ids its total came from; none, no page read.
+ const scope=pricedSearch?pricedSearch.scope:pricedSort?await pricedScope(total,filtered,pricedKey):filtered;
+ const notes={correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
+ if(!scope)return {items:[],total,page,pages,pageSize,...notes};
  const pageValues=[...scope.values],bind=binder(pageValues);
  const rank=search&&(query.sort??"relevance")==="relevance"?catalogRank("catalog",search.parsed,bind):"0";
  const offset=bind((page-1)*pageSize),label=`catalog.listingPage ${filterKey(query,context)}|${query.sort??""}|${page}`;
@@ -894,7 +911,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   ? (await listingQuery<CatalogProduct>(scope,label,`SELECT * FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`, pageValues)).rows
   : await storefrontRowsByIds((await listingQuery<{id:string}>(scope,label,`SELECT id::text FROM (SELECT id,updated_at,unavailable,${rank} AS rank ${from}
      ORDER BY unavailable,rank DESC,${order} LIMIT ${take} OFFSET ${offset}) page`, pageValues)).rows.map(row=>row.id));
- return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
+ return {items:await withBestOffers(items),total,page,pages,pageSize,...notes};
 }
 /** A product, or (for broad searches) a product name shared by `products` items. */
 export type ProductSuggestion={kind:"product";id:string;name:string;name_overridden:boolean;brand:string;code:string}|{kind:"name";name:string;products:number};
