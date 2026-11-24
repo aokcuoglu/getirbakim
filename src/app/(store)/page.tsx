@@ -37,6 +37,8 @@ const shell="mx-auto w-full max-w-[1350px] px-[15px]";
 
 export const metadata=pageMetadata({title:homeTitle,absoluteTitle:true,description:siteDescription,path:"/"});
 
+// The response without personal cookies is cached at the edge (#1349): a new per-visitor input here (cookie, header,
+// query) goes into PERSONAL_COOKIES / anonymousHome (src/lib/edge-cache.ts) and the CloudFront cache key in getirbakim-infra.
 export default async function Home({searchParams}:{searchParams:Promise<SearchParams>}) {
   const {q}=normalizeSearchParams(await searchParams);
   if(q)redirect(searchPath({q}));

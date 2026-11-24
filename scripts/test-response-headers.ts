@@ -11,6 +11,7 @@ import { NextRequest } from "next/server";
 import { adminThemeScript } from "../src/lib/admin-theme-script";
 import { ADMIN_THEME_SCRIPT_HASH, CSP_REPORT_PATH, REPORTING_ENDPOINTS, TAMI_FORM_HOSTS, cspReportOnly, newNonce } from "../src/lib/csp";
 import { cspReportLine, parseCspReports } from "../src/lib/csp-report";
+import { HOME_CACHE_CONTROL, PERSONAL_COOKIES, anonymousHome } from "../src/lib/edge-cache";
 import { RETURN_TO_HEADER } from "../src/modules/auth/return-to";
 import { config, proxy } from "../src/proxy";
 
@@ -204,6 +205,9 @@ test("the Report-Only policy is exact in production and development", () => {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'sha256-${themeHash}' ${tags.script}; connect-src 'self' ${tags.connect}; ${tail}`);
   assert.equal(cspReportOnly({ nonce, dev: true }),
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'sha256-${themeHash}' 'unsafe-eval' ${tags.script}; connect-src 'self' ws: ${tags.connect}; ${tail}`);
+  // The edge-cached home (#1349): no nonce, so no script-src; every other directive is still measured.
+  assert.equal(cspReportOnly({ nonce: null, dev: false }), `connect-src 'self' ${tags.connect}; ${tail}`);
+  assert.equal(cspReportOnly({ nonce: null, dev: true }), `connect-src 'self' ws: ${tags.connect}; ${tail}`);
   assert.equal(REPORTING_ENDPOINTS, `csp="${CSP_REPORT_PATH}"`);
 });
 
@@ -246,19 +250,105 @@ test("next.config never sets the Report-Only header (it would replace the per-re
 const proxyRequest = (path: string, headers: Record<string, string> = {}, method = "GET") =>
   new NextRequest(new URL(path, "https://shop.example.invalid"), { method, headers });
 const reportOnly = (response: Response) => response.headers.get("content-security-policy-report-only");
+const token = "a".repeat(64);
+// One request per personal cookie, each with a value the store would really hold.
+const personalCookies: Record<(typeof PERSONAL_COOKIES)[number], string> = {
+  gb_session: `gb_session=${token}`, gb_vehicle: "gb_vehicle=none", gb_garage: "gb_garage=%5B%5D", gb_cart: `gb_cart=${token}`, gb_consent: "gb_consent=3.0.0.1700000000",
+};
 
 test("the proxy puts a fresh nonce on documents and hands it to the renderer", () => {
-  for (const path of ["/", "/urun/x", "/yonetim"]) {
-    const first = proxy(proxyRequest(path)), second = proxy(proxyRequest(path));
+  const documents: [string, Record<string, string>][] = [
+    ["/katalog", {}], ["/urun/x", {}], ["/yonetim", {}],
+    ...Object.values(personalCookies).map((cookie): [string, Record<string, string>] => ["/", { cookie }]),
+  ];
+  for (const [path, headers] of documents) {
+    const label = `${path} ${headers.cookie ?? ""}`;
+    const first = proxy(proxyRequest(path, headers)), second = proxy(proxyRequest(path, headers));
     const policy = reportOnly(first);
-    assert.ok(policy, path);
-    assert.match(policy, /'nonce-[A-Za-z0-9+/]+=*'/, path);
-    assert.equal(first.headers.get("x-middleware-request-content-security-policy-report-only"), policy, path);
-    assert.equal(first.headers.get("reporting-endpoints"), REPORTING_ENDPOINTS, path);
-    assert.notEqual(reportOnly(second), policy, path);
+    assert.ok(policy, label);
+    assert.match(policy, /'nonce-[A-Za-z0-9+/]+=*'/, label);
+    assert.equal(first.headers.get("x-middleware-request-content-security-policy-report-only"), policy, label);
+    assert.equal(first.headers.get("reporting-endpoints"), REPORTING_ENDPOINTS, label);
+    assert.equal(first.headers.get("cache-control"), null, label);
+    assert.notEqual(reportOnly(second), policy, label);
   }
   // /yonetim keeps its return address alongside the nonce.
   assert.equal(proxy(proxyRequest("/yonetim/urunler?page=2")).headers.get(`x-middleware-request-${RETURN_TO_HEADER}`), "/yonetim/urunler?page=2");
+});
+
+/**
+ * The cookie-less home response: public, no Set-Cookie, the Report-Only policy without a nonce or script-src. No Vary from
+ * the proxy: Next's app-page runtime replaces it with its own list (checked on a production build), so the CloudFront key
+ * is what keeps the cookies apart.
+ */
+function assertCachedHome(response: Response, label: string) {
+  assert.equal(response.headers.get("cache-control"), HOME_CACHE_CONTROL, label);
+  assert.equal(response.headers.get("vary"), null, label);
+  assert.deepEqual(response.headers.getSetCookie(), [], label);
+  const policy = reportOnly(response);
+  assert.ok(policy, label);
+  assert.doesNotMatch(policy, /nonce-/, label);
+  assert.doesNotMatch(policy, /script-src/, label);
+  assert.equal(response.headers.get("x-middleware-request-content-security-policy-report-only"), null, label);
+  assert.equal(response.headers.get("reporting-endpoints"), REPORTING_ENDPOINTS, label);
+}
+
+test("the cookie-less home is publicly cacheable (#1349)", () => {
+  for (const [path, method] of [["/", "GET"], ["/?utm_source=x&gclid=y", "GET"], ["/", "HEAD"]] as const) {
+    const request = proxyRequest(path, {}, method);
+    assert.equal(anonymousHome(request), true, `${method} ${path}`);
+    assertCachedHome(proxy(request), `${method} ${path}`);
+  }
+});
+
+test("a CSP request header never hands the cached home a nonce", () => {
+  // Next takes its script nonce from these request headers (app-render); the edge would keep the forged nonce for everyone.
+  for (const name of ["content-security-policy", "content-security-policy-report-only"]) {
+    const response = proxy(proxyRequest("/", { [name]: "script-src 'nonce-forged'", accept: "text/html" }));
+    assertCachedHome(response, name);
+    const passed = (response.headers.get("x-middleware-override-headers") ?? "").split(",");
+    assert.ok(passed.includes("accept"), name);
+    assert.ok(!passed.includes("content-security-policy") && !passed.includes("content-security-policy-report-only"), name);
+    assert.equal(response.headers.get(`x-middleware-request-${name}`), null, name);
+  }
+  // Without one, the request goes on unchanged.
+  assert.equal(proxy(proxyRequest("/")).headers.get("x-middleware-override-headers"), null);
+});
+
+test("anything personal keeps the home private", () => {
+  const cookies = Object.entries(personalCookies).flatMap(([name, cookie]) => [cookie, `${name}=`, `other=1; ${cookie}`]);
+  const requests: [string, NextRequest][] = [
+    ...cookies.map((cookie): [string, NextRequest] => [cookie, proxyRequest("/", { cookie })]),
+    ["/?q=fren", proxyRequest("/?q=fren")],
+    ["/?q=", proxyRequest("/?q=")],
+    ["server action", proxyRequest("/", { "next-action": "00", "content-type": "text/plain;charset=UTF-8" }, "POST")],
+    ["POST", proxyRequest("/", {}, "POST")],
+    ["/katalog", proxyRequest("/katalog")],
+  ];
+  for (const [label, request] of requests) {
+    assert.equal(anonymousHome(request), false, label);
+    assert.equal(proxy(request).headers.get("cache-control"), null, label);
+  }
+  // A cookie that changes nothing on the page (an analytics cookie) keeps the home cacheable.
+  assert.equal(anonymousHome(proxyRequest("/", { cookie: "_ga=GA1.1.1.1; gb_session_at=1" })), true);
+});
+
+test("the edge keeps the home at most five minutes and browsers always revalidate", () => {
+  const directive = (name: string) => Number(new RegExp(`(?:^|,\\s*)${name}=(\\d+)`).exec(HOME_CACHE_CONTROL)?.[1]);
+  assert.match(HOME_CACHE_CONTROL, /^public,/);
+  assert.equal(directive("max-age"), 0);
+  assert.ok(directive("s-maxage") > 0 && directive("s-maxage") <= 300);
+  assert.ok(directive("s-maxage") + directive("stale-while-revalidate") <= 300);
+});
+
+// Cookie names the four cookie modules define that do not change the home page.
+const nonPersonalCookies = new Set(["gb_session_at", "gb_cookie_consent"]);
+
+test("every cookie the store, garage, session and consent modules define is personal or listed as harmless", () => {
+  const files = ["src/modules/store/garage.ts", "src/modules/store/cart.ts", "src/modules/auth/session-cookie.ts", "src/lib/cookie-consent.ts"];
+  const names = new Set(files.flatMap((file) => [...readFileSync(file, "utf8").matchAll(/gb_[a-z_]+/g)].map((m) => m[0])));
+  for (const name of names) assert.ok((PERSONAL_COOKIES as readonly string[]).includes(name) || nonPersonalCookies.has(name), `${name} is neither personal nor listed as harmless`);
+  for (const name of [...PERSONAL_COOKIES, ...nonPersonalCookies]) assert.ok(names.has(name), `${name} is not defined in ${files.join(", ")}`);
 });
 
 test("API routes and server actions get no nonce", () => {
@@ -275,15 +365,22 @@ test("API routes and server actions get no nonce", () => {
 test("CSP_REPORT_ONLY=off turns the header off", () => {
   process.env.CSP_REPORT_ONLY = "off";
   try {
-    const response = proxy(proxyRequest("/"));
-    assert.equal(reportOnly(response), null);
-    assert.equal(response.headers.get("x-middleware-request-content-security-policy-report-only"), null);
+    for (const path of ["/", "/katalog"]) {
+      const response = proxy(proxyRequest(path));
+      assert.equal(reportOnly(response), null, path);
+      assert.equal(response.headers.get("x-middleware-request-content-security-policy-report-only"), null, path);
+      assert.equal(response.headers.get("reporting-endpoints"), null, path);
+    }
+    // The cookie-less home stays edge-cacheable without the policy.
+    assert.equal(proxy(proxyRequest("/")).headers.get("cache-control"), HOME_CACHE_CONTROL);
   } finally {
     delete process.env.CSP_REPORT_ONLY;
   }
 });
 
 // Next strips the rsc and prefetch headers before the proxy runs, so only the matcher can leave those requests out.
+// The edge-cached home (#1349) depends on it: a cookie-less RSC request or prefetch for "/" must keep Next's
+// private, no-store instead of getting the public Cache-Control the proxy gives the document.
 test("the proxy matcher runs on documents, not on API routes, assets, feeds, RSC requests or prefetches", () => {
   for (const url of ["/", "/urun/x", "/yonetim", "/kategori/fren"]) assert.equal(unstable_doesMiddlewareMatch({ config, url }), true, url);
   for (const url of ["/api/categories", "/api/csp-report", "/feeds/google.xml.gz", "/manifest.webmanifest", "/_next/static/x.js", "/_next/image", "/favicon.ico", "/robots.txt", "/media/a.webp"]) {
