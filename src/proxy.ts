@@ -18,7 +18,8 @@ import { legacyRedirect } from "@/modules/seo/legacy-redirects";
 // The cookie-less home page is publicly cacheable too (#1349, src/lib/edge-cache.ts): Next keeps a Cache-Control the
 // proxy set on a dynamic page (it adds its own private, no-store only when there is none), and the branch returns before
 // the session slide, so it never carries a Set-Cookie. No Vary: Cookie: the app-page runtime replaces Vary with its own
-// list (next/dist/build/templates/app-page-runtime.js), so the cookies split the cache only through the CloudFront key.
+// list (next/dist/build/templates/app-page-runtime.js:462-463), so the cookies split the edge cache only through the
+// CloudFront key, and the header has no stale-while-revalidate a browser could reuse an anonymous copy with.
 // No nonce can be shared, so it gets the Report-Only policy without script-src, and a client's own CSP request header
 // never reaches the render: Next takes its script nonce from one (app-render), and that nonce would be cached for everyone.
 // RSC requests and prefetches for "/" without gb_session never run the proxy (matcher), so they keep private, no-store.

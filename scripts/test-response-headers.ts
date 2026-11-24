@@ -333,12 +333,15 @@ test("anything personal keeps the home private", () => {
   assert.equal(anonymousHome(proxyRequest("/", { cookie: "_ga=GA1.1.1.1; gb_session_at=1" })), true);
 });
 
+// No stale-while-revalidate: Next app pages cannot send Vary: Cookie (app-page-runtime.js:462-463 replaces Vary), and the
+// header reaches browsers unchanged, so a browser honouring SWR could reuse its anonymous copy after login, consent or a
+// garage change. It can come back once getirbakim-infra overrides the viewer-facing Cache-Control.
 test("the edge keeps the home at most five minutes and browsers always revalidate", () => {
   const directive = (name: string) => Number(new RegExp(`(?:^|,\\s*)${name}=(\\d+)`).exec(HOME_CACHE_CONTROL)?.[1]);
   assert.match(HOME_CACHE_CONTROL, /^public,/);
   assert.equal(directive("max-age"), 0);
   assert.ok(directive("s-maxage") > 0 && directive("s-maxage") <= 300);
-  assert.ok(directive("s-maxage") + directive("stale-while-revalidate") <= 300);
+  assert.doesNotMatch(HOME_CACHE_CONTROL, /stale-while-revalidate/);
 });
 
 // Cookie names the four cookie modules define that do not change the home page.
