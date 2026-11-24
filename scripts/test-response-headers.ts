@@ -438,11 +438,16 @@ test("the proxy matcher runs on documents, not on API routes, assets, feeds, RSC
   assert.equal(unstable_doesMiddlewareMatch({ config, url: "/", headers: { rsc: "1" } }), false);
   assert.equal(unstable_doesMiddlewareMatch({ config, url: "/", headers: { "next-router-prefetch": "1" } }), false);
   assert.equal(unstable_doesMiddlewareMatch({ config, url: "/", headers: { purpose: "prefetch" } }), false);
-  // A document request with _rsc: the proxy would see it without the query (Next strips _rsc) and mark it public.
+  // A document request with a non-empty _rsc skips the proxy: the proxy would see it without the query (Next strips _rsc)
+  // and mark it public while the page embeds the visitor's value.
   assert.equal(unstable_doesMiddlewareMatch({ config, url: "/?_rsc=PROBE" }), false);
   assert.equal(unstable_doesMiddlewareMatch({ config, url: "/?gclid=PROBE" }), true);
   // A session still slides on it (and keeps the page private).
   assert.equal(unstable_doesMiddlewareMatch({ config, url: "/?_rsc=PROBE", cookies: { gb_session: token } }), true);
+  // Accepted: a `missing` query condition only counts a non-empty value, so "/?_rsc=" and "/?_rsc" still run the proxy,
+  // which sees "/" and marks them public. Their page embeds only the fixed "?_rsc=", nothing from the visitor, and the
+  // all-query-strings CloudFront key gives them their own entry.
+  for (const url of ["/?_rsc=", "/?_rsc"]) assert.equal(unstable_doesMiddlewareMatch({ config, url }), true, url);
 });
 
 test("the TAMI return page carries the policy and its script the same nonce", () => {

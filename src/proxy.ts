@@ -88,8 +88,10 @@ export const config = {
   { source: "/katalog", has: [{ type: "query", key: "brand" }] },
   // Every document without a session gets the Report-Only CSP (#1291; the cookie-less home without a nonce, #1349).
   // RSC requests, prefetches and assets skip the proxy; the edge-cached home relies on that for "/". So does a document
-  // request with _rsc: Next strips _rsc before the proxy, which would take "/?_rsc=x" for the bare "/" and mark it public,
-  // while the page embeds that query (#1349).
+  // request with a non-empty _rsc: Next strips _rsc before the proxy, which would take "/?_rsc=x" for the bare "/" and mark
+  // it public while the page embeds the visitor's value (#1349). A `missing` query condition only counts a non-empty
+  // value, so "/?_rsc=" and "/?_rsc" still run the proxy and are public: accepted, their page embeds only the fixed
+  // "?_rsc=" and the all-query-strings CloudFront key gives them their own entry.
   {
    source: "/((?!api/|_next/static|_next/image|feeds/|sitemaps/|favicon\\.ico|.*\\.(?:png|jpe?g|webp|avif|svg|ico|css|js|txt|xml|webmanifest|woff2?)$).*)",
    missing: [{ type: "header", key: "rsc" }, { type: "header", key: "next-router-prefetch" }, { type: "header", key: "purpose", value: "prefetch" }, { type: "query", key: "_rsc" }],
