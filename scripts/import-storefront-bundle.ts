@@ -31,6 +31,8 @@ const reportPath = process.argv.find(arg => arg.startsWith("--report="))?.slice(
 const bucket = process.env.S3_BUCKET;
 if (!bucket) throw new Error("S3_BUCKET required");
 const manifest = JSON.parse(await readFile(resolve(root, "manifest.json"), "utf8"));
+// An export directory keeps its enrichments outside manifest.json (#1316); only the parts split-storefront-bundle.ts writes are bundles.
+if (manifest.enrichmentsFile) throw new Error("Unsplit export (enrichments are in enrichments.ndjson): import its parts");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const storage = objectStorage();
 const client = await pool.connect();
@@ -50,6 +52,12 @@ try {
   const vehicleSpecs: unknown[] = manifest.vehicleSpecs ?? [];
   const vehicleImages: unknown[] = manifest.vehicleSpecs ? manifest.vehicleImages ?? [] : [];
   const json = (value: unknown) => JSON.stringify(value);
+  // Each large array is serialised once and the string reused by every query below.
+  const mediaJson = json(manifest.media);
+  const logosJson = json(manifest.logos);
+  const enrichmentsJson = json(manifest.enrichments);
+  const vehicleSpecsJson = json(vehicleSpecs);
+  const vehicleImagesJson = json(vehicleImages);
   const count = async (sql: string, ...params: unknown[]) => Number((await client.query(sql, params)).rows[0].count);
   const run = async (sql: string, ...params: unknown[]) => (await client.query(sql, params)).rowCount ?? 0;
   const keys = bundleItems(manifest);
@@ -61,9 +69,9 @@ try {
   // Media rows keep their sha256 identity; an existing object with the same content is reused.
   await run(`INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at)
     SELECT id,$2,object_key,sha256,content_type,size_bytes,source_url,created_at FROM jsonb_populate_recordset(null::product_media_objects,$1::jsonb)
-    ON CONFLICT DO NOTHING`, json(manifest.media), bucket);
+    ON CONFLICT DO NOTHING`, mediaJson, bucket);
   await client.query(`CREATE TEMP TABLE bundle_media ON COMMIT DROP AS SELECT b.id AS bundle_id,m.id FROM jsonb_populate_recordset(null::product_media_objects,$1::jsonb) b
-    JOIN product_media_objects m ON m.sha256=b.sha256`, [json(manifest.media)]);
+    JOIN product_media_objects m ON m.sha256=b.sha256`, [mediaJson]);
   if (await count("SELECT count(*) FROM bundle_media") !== manifest.media.length) throw new Error("Media rows could not be resolved by sha256");
 
   // Bundles written before #564 carry no tombstones. Applied before the jobs and enrichments: the export leaves out
@@ -74,7 +82,7 @@ try {
   const jobs = await importBundleJobs(client, manifest.jobs ?? []);
   // Unconditional on purpose (see storefront-bundle-enrichments.ts): enriched.items, the local supplier items whose
   // enrichments this bundle wrote, scope the fitment rebuild (--items of rebuild-product-fitments.ts).
-  const enriched = await importBundleEnrichments(client, manifest.enrichments);
+  const enriched = await importBundleEnrichments(client, manifest.enrichments, enrichmentsJson);
   const written = {
     categories: await run(`INSERT INTO source_categories SELECT * FROM jsonb_populate_recordset(null::source_categories,$1::jsonb)
       ON CONFLICT (source,category_id) DO UPDATE SET parent_id=EXCLUDED.parent_id,name=EXCLUDED.name,slug=EXCLUDED.slug,path_ids=EXCLUDED.path_ids,
@@ -87,7 +95,7 @@ try {
     enrichments: enriched.written,
   };
   // After the category tree (the mappings reference it) and the enrichments they belong to.
-  const mappings = await replaceBundleMappings(client, manifest);
+  const mappings = await replaceBundleMappings(client, manifest, enrichmentsJson);
   const report = {
     ...written,
     productMappings: mappings.inserted,
@@ -97,24 +105,24 @@ try {
       bi.id,r.evidence_source_url,r.imported_at
       FROM jsonb_populate_recordset(null::manufacturer_logos,$1::jsonb) r LEFT JOIN bundle_items bi ON bi.bundle_id=r.evidence_product_id
       ON CONFLICT (brand_key) DO UPDATE SET manufacturer=EXCLUDED.manufacturer,image_data=EXCLUDED.image_data,sha256=EXCLUDED.sha256,width=EXCLUDED.width,
-      height=EXCLUDED.height,source_url=EXCLUDED.source_url,evidence_product_id=EXCLUDED.evidence_product_id,evidence_source_url=EXCLUDED.evidence_source_url,imported_at=EXCLUDED.imported_at`, json(manifest.logos)),
+      height=EXCLUDED.height,source_url=EXCLUDED.source_url,evidence_product_id=EXCLUDED.evidence_product_id,evidence_source_url=EXCLUDED.evidence_source_url,imported_at=EXCLUDED.imported_at`, logosJson),
     // A vehicle type missing here (older vehicle import) is skipped and counted.
     vehicleSpecs: await run(`INSERT INTO vehicle_type_specs(vehicle_type_id,outcome,detail,full_name,body_type,drive_type,engine_type,fuel_mixture,cylinders,valves,engine_codes,kba_numbers,fetched_at)
       SELECT r.vehicle_type_id,r.outcome,r.detail,r.full_name,r.body_type,r.drive_type,r.engine_type,r.fuel_mixture,r.cylinders,r.valves,r.engine_codes,r.kba_numbers,r.fetched_at
       FROM jsonb_populate_recordset(null::vehicle_type_specs,$1::jsonb) r WHERE ${vehicleTypeExists}
       ON CONFLICT (vehicle_type_id) DO UPDATE SET outcome=EXCLUDED.outcome,detail=EXCLUDED.detail,full_name=EXCLUDED.full_name,body_type=EXCLUDED.body_type,
       drive_type=EXCLUDED.drive_type,engine_type=EXCLUDED.engine_type,fuel_mixture=EXCLUDED.fuel_mixture,cylinders=EXCLUDED.cylinders,valves=EXCLUDED.valves,
-      engine_codes=EXCLUDED.engine_codes,kba_numbers=EXCLUDED.kba_numbers,fetched_at=EXCLUDED.fetched_at`, json(vehicleSpecs)),
+      engine_codes=EXCLUDED.engine_codes,kba_numbers=EXCLUDED.kba_numbers,fetched_at=EXCLUDED.fetched_at`, vehicleSpecsJson),
     vehicleImages: await run(`INSERT INTO vehicle_type_images(vehicle_type_id,media_id,width,height,imported_at)
       SELECT r.vehicle_type_id,bm.id,r.width,r.height,r.imported_at FROM jsonb_populate_recordset(null::vehicle_type_images,$1::jsonb) r
       JOIN bundle_media bm ON bm.bundle_id=r.media_id WHERE ${vehicleTypeExists}
-      ON CONFLICT (vehicle_type_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height,imported_at=EXCLUDED.imported_at`, json(vehicleImages)),
-    skippedVehicleSpecs: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_specs,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, json(vehicleSpecs)),
-    skippedVehicleImages: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_images,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, json(vehicleImages)),
+      ON CONFLICT (vehicle_type_id) DO UPDATE SET media_id=EXCLUDED.media_id,width=EXCLUDED.width,height=EXCLUDED.height,imported_at=EXCLUDED.imported_at`, vehicleImagesJson),
+    skippedVehicleSpecs: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_specs,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, vehicleSpecsJson),
+    skippedVehicleImages: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::vehicle_type_images,$1::jsonb) r WHERE NOT ${vehicleTypeExists}`, vehicleImagesJson),
     jobs: jobs.jobs,
     skippedJobs: jobs.skipped,
     media: manifest.media.length,
-    skippedEnrichments: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, json(manifest.enrichments)),
+    skippedEnrichments: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, enrichmentsJson),
     skippedMappings: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r WHERE ${missingItem}`, json(manifest.products)),
     // Products found here by supplier key under a different id (listed after the cutover on each side separately).
     itemsByKey: items.rekeyed,
@@ -129,12 +137,14 @@ try {
   };
   if (report.categoryImages !== manifest.images.length) throw new Error(`Category image rows mismatch: ${report.categoryImages}/${manifest.images.length}`);
   const logoMismatch = await count(`SELECT count(*) FROM jsonb_populate_recordset(null::manufacturer_logos,$1::jsonb) r JOIN manufacturer_logos l USING(brand_key)
-    WHERE encode(sha256(l.image_data),'hex')<>r.sha256`, json(manifest.logos));
+    WHERE encode(sha256(l.image_data),'hex')<>r.sha256`, logosJson);
   if (logoMismatch) throw new Error(`Logo bytes differ from their sha256: ${logoMismatch}`);
   if (!apply) {
     await client.query("ROLLBACK");
     console.log("DRY RUN (nothing written)", report);
   } else {
+    const skippedIds = (await client.query<{ id: string }>(`SELECT DISTINCT r.supplier_item_id AS id
+      FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, [enrichmentsJson])).rows.map(row => row.id);
     const targets = (await client.query<{ bucket: string; object_key: string; sha256: string; content_type: string }>(
       "SELECT m.bucket,m.object_key,m.sha256,m.content_type FROM bundle_media bm JOIN product_media_objects m ON m.id=bm.id")).rows;
     for (const target of targets) {
@@ -142,8 +152,6 @@ try {
       const saved = await (await storage.send(new GetObjectCommand({ Bucket: target.bucket, Key: target.object_key }))).Body?.transformToByteArray();
       if (!saved || createHash("sha256").update(saved).digest("hex") !== target.sha256) throw new Error(`Stored media integrity failed: ${target.object_key}`);
     }
-    const skippedIds = (await client.query<{ id: string }>(`SELECT DISTINCT r.supplier_item_id AS id
-      FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, [json(manifest.enrichments)])).rows.map(row => row.id);
     await pruneTombstones(client);
     await client.query("COMMIT");
     console.log("APPLIED", report);

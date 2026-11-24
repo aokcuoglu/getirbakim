@@ -570,20 +570,141 @@ describe("availability filter (#1242)", () => {
     }
   });
 
-  test("'Stokta' lists a group whose primary is sold out by its stocked offer; the offer is never its own card", async () => {
-    const { invalidateListings } = await import("../src/modules/store/listing-epoch");
-    await item("grpPrimary", { supplier: "basbug", code: "GRP 7777", brand: "GRUPTEST", stock: 0 });
-    await item("grpOffer", { supplier: "dinamik", code: "GRUPTEST 7777", brand: "GRUPTEST", stock: 4 });
-    await schema.pool.query("INSERT INTO products(id,brand,part_number,name,brand_label,code) VALUES($1,'GRUPTEST','7777','PARCA','GRUPTEST','GRP 7777')", [ids.grpPrimary]);
-    await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($2,$1)", [ids.grpPrimary, ids.grpOffer]);
+  test("the availability rule is defined once (#1249)", async () => {
+    const sql = await readFile("db/commerce.sql", "utf8");
+    for (const fragment of ["'Stok bilgisi güncelleniyor'", "'Stokta mevcut: '", "'Tedarikçide mevcut'", "commerce_stale_minutes*interval"])
+      assert.equal(sql.split(fragment).length - 1, 1, fragment);
+    for (const view of ["commerce_catalog", "commerce_item_availability"]) {
+      const { rows: [{ def }] } = await schema.pool.query<{ def: string }>("SELECT pg_get_viewdef($1::regclass) AS def", [view]);
+      for (const call of ["commerce_source_fresh(", "commerce_supplier_available(", "commerce_supplier_stock_label(", "commerce_store_stock_label("])
+        assert.ok(def.includes(call), `${view} calls ${call}`);
+      // The view stores the calls, not their inlined text: no copy of the rule sits beside them.
+      for (const copy of ["'Stok bilgisi güncelleniyor'", "sFarkliDepo"]) assert.ok(!def.includes(copy), `${view} carries ${copy}`);
+    }
+  });
+
+  // Migration guard for #1249: when the rule is changed on purpose, update this grid's old expressions or delete the test.
+  // The expressions both views carried before #1249, frozen here: the functions must give the same result on every
+  // combination of checkout mode, supplier, observation age, scope window, last success and stock document.
+  const preFunctionGrid = `WITH g AS (
+    SELECT mode,supplier,now()-ls*interval '1 minute' AS last_seen_at,max_age,ce,csm,
+     CASE WHEN lsa IS NULL THEN NULL ELSE now()-lsa*interval '1 minute' END AS last_success_at,sm,sd::jsonb AS stock_data
+    FROM unnest(ARRAY['live','snapshot']) mode, unnest(ARRAY['manual','basbug','dinamik','seta']) supplier,
+     unnest(ARRAY[0,29,31,119,121,2159,2161,5000]) ls, unnest(ARRAY[1,36,72]) max_age, unnest(ARRAY[NULL,true,false]) ce,
+     unnest(ARRAY[30,120]) csm, unnest(ARRAY[NULL,0,59,61,2159,2161,9000]::int[]) lsa, unnest(ARRAY[NULL,60]::int[]) sm,
+     unnest(ARRAY[NULL,'null','{}','{"stok":0}','{"stok":3}','{"stok":0.5}','{"stok":-1}','{"stok":0,"sFarkliDepo":2}',
+      '{"stok":null,"sFarkliDepo":1}','{"stok":0,"sFarkliDepo":0,"sYol":5}','{"sYol":1}','{"stok":"2"}',
+      '{"stok":0,"sFarkliDepo":0,"sYol":0}','{"stok":1,"sFarkliDepo":1,"sYol":1}']::text[]) sd
+  ), o AS (
+    SELECT *,(supplier='manual' OR (last_seen_at>now()-make_interval(hours=>max_age)
+     AND (NOT COALESCE(ce,false) OR last_seen_at>now()-csm*interval '1 minute')
+     AND (last_success_at IS NULL OR last_success_at>now()-COALESCE(sm,2160)*interval '1 minute'))) AS old_fresh,
+     commerce_source_fresh(supplier,last_seen_at,max_age,ce,csm,last_success_at,sm,now()) AS new_fresh
+    FROM g
+  ), r AS (
+    SELECT *,(mode='snapshot' OR old_fresh) AND
+     (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0) AS old_available,
+     CASE WHEN mode='snapshot' AND (COALESCE((stock_data->>'stok')::numeric,0)>0 OR COALESCE((stock_data->>'sFarkliDepo')::numeric,0)>0) THEN 'Stokta · Siparişten sonra teyit edilir'
+     WHEN NOT old_fresh AND mode='live' THEN 'Stok bilgisi güncelleniyor'
+     WHEN stock_data IS NULL THEN 'Stok bilgisi bulunamadı'
+     WHEN (stock_data->>'stok')::numeric>0 THEN 'Tedarikçide mevcut'
+     WHEN (stock_data->>'sFarkliDepo')::numeric>0 THEN 'Diğer depoda mevcut'
+     WHEN (stock_data->>'sYol')::numeric>0 THEN 'Tedarikçiye sevkiyat bekleniyor'
+     ELSE 'Stokta yok' END AS old_label,
+     commerce_supplier_available(mode,new_fresh,stock_data) AS new_available,
+     commerce_supplier_stock_label(mode,new_fresh,stock_data) AS new_label
+    FROM o
+  )
+  SELECT count(*)::int AS cases,count(*) FILTER (WHERE old_fresh IS DISTINCT FROM new_fresh)::int AS fresh_diff,
+   count(*) FILTER (WHERE old_available IS DISTINCT FROM new_available)::int AS available_diff,
+   count(*) FILTER (WHERE old_label IS DISTINCT FROM new_label)::int AS label_diff,count(DISTINCT old_label)::int AS labels
+  FROM r`;
+
+  test("the functions equal the pre-#1249 expressions", async () => {
+    const { rows: [grid] } = await schema.pool.query(preFunctionGrid);
+    assert.deepEqual(grid, { cases: 225792, fresh_diff: 0, available_diff: 0, label_diff: 0, labels: 7 });
+    const { rows } = await schema.pool.query<{ stock: number | null; same: boolean; label: string }>(`SELECT stock,
+      (CASE WHEN stock>0 THEN 'Stokta mevcut: '||stock||' adet' ELSE 'Stokta yok' END) IS NOT DISTINCT FROM commerce_store_stock_label(stock) AS same,
+      commerce_store_stock_label(stock) AS label FROM unnest(ARRAY[NULL,-1,0,1,250]::int[]) WITH ORDINALITY s(stock,n) ORDER BY n`);
+    assert.deepEqual(rows, [
+      { stock: null, same: true, label: "Stokta yok" }, { stock: -1, same: true, label: "Stokta yok" }, { stock: 0, same: true, label: "Stokta yok" },
+      { stock: 1, same: true, label: "Stokta mevcut: 1 adet" }, { stock: 250, same: true, label: "Stokta mevcut: 250 adet" }]);
+  });
+
+  // An inlined function plans as the expression written in place; a function call left in the plan runs per row and
+  // hides its expression from the planner (a STRICT or SET clause, or IMMUTABLE over a stable body, stops the inlining).
+  test("both views inline the rule (#1249)", async () => {
+    for (const [query, values] of [["SELECT * FROM commerce_catalog WHERE id=$1", [ids.avStock]],
+      ["SELECT * FROM commerce_item_availability WHERE available", []]] as const) {
+      const plan = (await schema.pool.query<{ "QUERY PLAN": string }>(`EXPLAIN (VERBOSE, COSTS OFF) ${query}`, [...values]))
+        .rows.map(row => row["QUERY PLAN"]).join("\n");
+      assert.doesNotMatch(plan, /commerce_(source_fresh|supplier_in_stock|supplier_available|supplier_stock_label|store_stock_label)\(/, query);
+      // The inlined expressions are in the plan's output columns.
+      assert.match(plan, /commerce_stale_minutes/, query);
+      assert.match(plan, /Stok bilgisi güncelleniyor/, query);
+      assert.match(plan, /Stokta mevcut: /, query);
+    }
+  });
+
+  // Groups of a Başbuğ primary and a Dinamik offer (product_offers) under the GRUPTEST brand, created once by whichever
+  // test needs them first: sold out with a stocked offer, sold out with a sold-out offer, and unknown stock (no stock
+  // document) with a sold-out offer.
+  let groupsReady: Promise<void> | undefined;
+  const groups = () => groupsReady ??= (async () => {
+    const fixtures = [["grpPrimary", "grpOffer", "7777", 0, 4], ["grpZeroPrimary", "grpZeroOffer", "7778", 0, 0],
+      ["grpUnknownPrimary", "grpUnknownOffer", "7779", null, 0]] as const;
+    for (const [primary, offer, number, primaryStock, offerStock] of fixtures) {
+      await item(primary, { supplier: "basbug", code: `GRP ${number}`, brand: "GRUPTEST", stock: primaryStock });
+      await item(offer, { supplier: "dinamik", code: `GRUPTEST ${number}`, brand: "GRUPTEST", stock: offerStock });
+      await schema.pool.query("INSERT INTO products(id,brand,part_number,name,brand_label,code) VALUES($1,'GRUPTEST',$2,'PARCA','GRUPTEST',$3)",
+        [ids[primary], number, `GRP ${number}`]);
+      await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($2,$1)", [ids[primary], ids[offer]]);
+    }
     await schema.pool.query("SELECT refresh_product_matches()");
-    const primary = (await schema.pool.query<{ primary_id: string }>("SELECT primary_id::text FROM product_offers WHERE item_id=$1", [ids.grpOffer])).rows[0]?.primary_id;
-    assert.equal(primary, ids.grpPrimary);
+    const { rows } = await schema.pool.query<{ item_id: string; primary_id: string }>(
+      "SELECT item_id::text,primary_id::text FROM product_offers WHERE item_id=ANY($1::uuid[])", [fixtures.map(([, offer]) => ids[offer])]);
+    assert.deepEqual(new Map(rows.map(row => [row.item_id, row.primary_id])), new Map(fixtures.map(([primary, offer]) => [ids[offer], ids[primary]])));
+    const { invalidateListings } = await import("../src/modules/store/listing-epoch");
     await invalidateListings();
-    const listed = async (availability: "in_stock" | "out_of_stock") =>
-      (await catalog.browseProducts({ brand: "GRUPTEST", availability })).items.map(row => row.id);
-    assert.deepEqual(await listed("in_stock"), [ids.grpPrimary]);
-    assert.ok(!(await listed("out_of_stock")).includes(ids.grpOffer));
+  })();
+  const groupListing = async (availability: "in_stock" | "out_of_stock") =>
+    (await catalog.browseProducts({ brand: "GRUPTEST", availability })).items.map(row => row.id);
+
+  test("'Stokta' lists a group whose primary is sold out by its stocked offer; the offer is never its own card", async () => {
+    await groups();
+    assert.deepEqual(await groupListing("in_stock"), [ids.grpPrimary]);
+    assert.ok(!(await groupListing("out_of_stock")).includes(ids.grpOffer));
+    // The primary's own row says "Stokta yok", but the card is sold through its offer (#1342).
+    assert.ok(!(await groupListing("out_of_stock")).includes(ids.grpPrimary));
+  });
+
+  test("'Stokta yok' lists a group none of whose offers can be sold; an unknown-stock primary is in neither (#1342)", async () => {
+    await groups();
+    const [inStock, outOfStock] = [await groupListing("in_stock"), await groupListing("out_of_stock")];
+    assert.ok(outOfStock.includes(ids.grpZeroPrimary) && !inStock.includes(ids.grpZeroPrimary));
+    assert.ok(!outOfStock.includes(ids.grpUnknownPrimary) && !inStock.includes(ids.grpUnknownPrimary));
+    // The sold-out offers are in the function's "Stokta yok" rows, but an offer is never its own card.
+    assert.ok(!outOfStock.includes(ids.grpZeroOffer) && !outOfStock.includes(ids.grpUnknownOffer));
+    const card = (await catalog.browseProducts({ brand: "GRUPTEST" })).items.find(row => row.id === ids.grpUnknownPrimary);
+    assert.equal(card?.stock_label, "Stok bilgisi bulunamadı");
+  });
+
+  // A card is in at most one of "Stokta" and "Stokta yok"; unknown-stock and unsupplied cards are in neither (#1342).
+  test("availability filters partition the listing (#1342)", async () => {
+    await groups();
+    const { invalidateListings } = await import("../src/modules/store/listing-epoch");
+    await invalidateListings();
+    for (const brand of ["AVTEST", "GRUPTEST"]) {
+      const listing = (availability?: "in_stock" | "out_of_stock") => catalog.browseProducts({ brand, availability });
+      const [all, inStock, outOfStock] = await Promise.all([listing(), listing("in_stock"), listing("out_of_stock")]);
+      assert.ok(all.total > 0 && all.total === all.items.length, brand);
+      const listedIds = (rows: CatalogProduct[]) => rows.map(row => row.id).sort();
+      const outIds = new Set(listedIds(outOfStock.items));
+      assert.deepEqual(listedIds(inStock.items).filter(id => outIds.has(id)), [], brand);
+      const unknown = all.items.filter(row => !row.available && row.stock_label !== "Stokta yok").length;
+      assert.equal(inStock.total + outOfStock.total + unknown, all.total, brand);
+      assert.deepEqual(listedIds(outOfStock.items), listedIds(all.items.filter(row => !row.available && row.stock_label === "Stokta yok")), brand);
+    }
   });
 
   // The planner read the view's "Stokta yok" set (expressions over jsonb) as ~155 rows for ~530k, and deep pages walked
@@ -626,11 +747,15 @@ describe("availability filter (#1242)", () => {
     const clause = source.slice(start, end);
     assert.match(clause, /in_stock/);
     assert.match(clause, /out_of_stock|NOT available/);
-    // Out of stock goes through the sized function, never the view's expressions directly (#1286).
-    assert.match(clause, /catalog\.id IN \(SELECT id FROM commerce_out_of_stock_ids\(\$1::text\[\]\) id\)/);
+    // Out of stock goes through the sized function, never the view's expressions directly (#1286), and drops the cards in
+    // stock through a grouped offer inside the function's subquery (#1342).
+    assert.match(clause, /catalog\.id IN \(SELECT id FROM commerce_out_of_stock_ids\(\$1::text\[\]\) id WHERE id NOT IN \(/);
     assert.doesNotMatch(clause, /stock_label='Stokta yok'/);
-    assert.match(clause, /availabilitySql/);
+    assert.match(clause, /inStockIdsSql/);
+    // The NOT IN stays a hashed SubPlan only within work_mem: its reads ask for more than the session default (#1342).
+    assert.match(clause, /workMem="\d+MB"/);
     assert.doesNotMatch(clause, /catalogSql|commerce_catalog/);
+    assert.match(source, /const inStockIdsSql=`SELECT COALESCE\(o\.primary_id,a\.id\) FROM \(\$\{availabilitySql\}\) a /);
     assert.match(source, /export const availabilitySql = "SELECT \* FROM commerce_item_availability /);
   });
 });

@@ -22,17 +22,55 @@
   .model-link { @apply inline-flex min-h-8 items-center gap-1.5 hover:text-primary hover:underline; }
   .model-link > span { @apply text-muted-foreground; }
 
-  /* Product page: OEM and equivalent numbers, specification rows. */
+  /* Product page: OEM and equivalent numbers (ProductReferences: the page's section title, the scroll box, a brand row
+     with its numbers, a linked number and the count of numbers left out, #1211), specification rows. */
+  .reference-title { @apply mb-7 text-[26px] leading-[34px] font-semibold tracking-[-.6px] max-[750px]:mb-5 max-[750px]:text-[23px] max-[750px]:leading-[30px]; }
+  .reference-list { @apply m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]; }
   .reference-row { @apply grid grid-cols-[180px_minmax(0,1fr)] gap-6 border-b border-[#e0e5eb] px-5 py-[15px] last:border-0 max-[750px]:grid-cols-[100px_minmax(0,1fr)] max-[750px]:gap-4 max-[750px]:p-3.5 max-[750px]:text-[13px]; }
-  .reference-codes { @apply m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere; }
+  .reference-row > dt { @apply text-[#53677d]; }
+  .reference-row > dd { @apply m-0 flex flex-wrap gap-x-[22px] gap-y-2 font-medium wrap-anywhere; }
+  .reference-link { @apply text-[#0065c3] hover:underline focus-visible:underline; }
+  .reference-more { @apply font-normal whitespace-nowrap text-muted-foreground; }
   .spec-row { @apply grid grid-cols-[45%_minmax(0,1fr)] items-start gap-3 border-b border-[#e0e5eb] py-[11px] max-[1000px]:grid-cols-1 max-[1000px]:gap-1 max-[750px]:grid-cols-[45%_minmax(0,1fr)] max-[750px]:gap-3; }
 
   /* Product page "Uyumlu araçlar" (ProductFitment): a model group, its trigger with the chevron and row count, and the
-     model page link. The chevron turns with the trigger's own data-panel-open. */
+     model page link. The chevron and the link's arrow are masks of lucide's chevron-right / arrow-right over the text
+     colour (#1211: no svg per group); the chevron turns with the trigger's own data-panel-open. */
   .fitment-group { @apply border-t border-[#e0e5eb]; }
-  .fitment-trigger { @apply flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-none border-0 bg-transparent px-4 py-5 text-left text-base leading-5 text-foreground outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#2e78c7] [&>svg]:shrink-0 [&>svg]:text-[#53677d] [&>svg]:transition-transform data-panel-open:[&>svg]:rotate-90; }
+  .fitment-trigger {
+    @apply flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-none border-0 bg-transparent px-4 py-5 text-left text-base leading-5 text-foreground outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#2e78c7];
+    &::before { @apply size-[18px] shrink-0 bg-[#53677d] transition-transform; content: ""; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat; }
+    &[data-panel-open]::before { @apply rotate-90; }
+  }
   .fitment-count { @apply ml-auto text-[11px] whitespace-nowrap text-muted-foreground max-[750px]:hidden; }
-  .fitment-link { @apply mr-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-[5px] px-2 text-[13px] leading-5 font-medium whitespace-nowrap text-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2e78c7]; }
+  .fitment-link {
+    @apply mr-2 inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1 rounded-[5px] px-2 text-[13px] leading-5 font-medium whitespace-nowrap text-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2e78c7];
+    &::after { @apply size-3.5 shrink-0 bg-current; content: ""; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14'/%3E%3Cpath d='m12 5 7 7-7 7'/%3E%3C/svg%3E") center / contain no-repeat; }
+  }
+  /* Its toolbar (make and model selects, "Sıfırla", search), status line and load-failure alert. The selects are native
+     ones with ui/native-select's look as the page set it (40px, white, 5px corners), the chevron a mask of lucide's
+     chevron-down; the select and search borders are the outline-control border (DESIGN.md, 3:1 on white). */
+  .fitment-toolbar { @apply flex flex-wrap items-center gap-2 rounded-t-lg border border-[#dce2e9] bg-white p-4; }
+  .fitment-select {
+    @apply relative block w-[200px] max-[1000px]:w-40 max-[750px]:w-full;
+    & > select { @apply h-10 w-full min-w-0 appearance-none rounded-[5px] border border-control-border bg-white py-1 pr-8 pl-3 text-sm transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50; }
+    &::after { @apply pointer-events-none absolute top-1/2 right-2.5 size-4 -translate-y-1/2 bg-foreground; content: ""; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat; }
+  }
+  /* Forced colours repaint backgrounds: the masked icons keep the system text colour instead. */
+  .fitment-trigger::before, .fitment-link::after, .fitment-select::after { forced-color-adjust: none; }
+  @media (forced-colors: active) {
+    .fitment-trigger::before, .fitment-link::after, .fitment-select::after { background-color: CanvasText; }
+  }
+  .fitment-search {
+    @apply flex h-10 min-w-40 flex-1 items-center gap-3 rounded-[5px] border border-control-border px-3.5 text-muted-foreground focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 max-[750px]:basis-full;
+    & > input { @apply h-[38px] w-full min-w-0 border-0 bg-transparent py-2 text-[13px] text-foreground outline-none placeholder:text-muted-foreground; }
+  }
+  .fitment-status { @apply m-0 border-x border-[#dce2e9] bg-white px-4 py-3 text-xs leading-5 text-muted-foreground; }
+  .fitment-alert { @apply flex flex-wrap items-center gap-x-3 border-x border-t border-[#dce2e9] bg-white px-4 text-sm leading-5; }
+  /* The product page's text buttons ("Sıfırla", "Tekrar dene", "Tüm … göster"; ProductFitment, ProductReferences):
+     ui/button with storeButton({intent: "link", size: "md"}) and px-2 as rendered, like .store-cta (no icon-slot,
+     invalid or dark states; the loading spinner keeps the svg rules). Busy (aria-disabled) shows the progress cursor. */
+  .fitment-text-button { @apply inline-flex h-auto min-h-11 shrink-0 items-center justify-center gap-2 rounded-lg border border-transparent bg-transparent bg-clip-padding px-2 py-2.5 text-sm leading-5 font-medium whitespace-nowrap text-primary underline-offset-4 transition-all outline-none select-none hover:underline focus-visible:border-ring focus-visible:outline-2 focus-visible:outline-solid focus-visible:outline-offset-2 focus-visible:outline-ring active:not-aria-[haspopup]:translate-y-px aria-disabled:cursor-progress aria-disabled:no-underline [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4; }
 
   /* Product page, 600px and below (#876): the purchase form is a fixed bottom bar; the body keeps its height free. */
   .buy-bar { @apply max-[600px]:fixed max-[600px]:inset-x-0 max-[600px]:bottom-0 max-[600px]:z-40 max-[600px]:border-t max-[600px]:border-border max-[600px]:bg-white max-[600px]:pr-[max(16px,env(safe-area-inset-right))] max-[600px]:pl-[max(16px,env(safe-area-inset-left))] max-[600px]:pt-3 max-[600px]:pb-[calc(12px+env(safe-area-inset-bottom))] max-[600px]:shadow-[0_-4px_16px_#212b3614]; }
@@ -151,8 +189,11 @@
   .home-card-image { @apply flex h-[210px] shrink-0 items-start justify-center pb-[30px] max-md:h-[190px] max-md:pb-5 max-[37.5rem]:h-[170px]; }
   .home-card-img { @apply size-[180px] max-w-full object-contain max-md:size-[170px] max-[37.5rem]:size-[150px]; }
   .home-card-text { @apply min-h-[84.5px] max-md:min-h-[78px]; }
-  .home-card-category { @apply mb-[5px] block truncate text-[13px] leading-[19.5px] text-muted-foreground; }
-  .home-card-title { @apply line-clamp-3 text-sm leading-5 font-medium text-foreground hover:text-primary max-md:text-[13px] max-md:leading-[18px]; }
+  /* Both card links are at least 24px tall (WCAG 2.5.8 target size, #1327): the category line keeps its 19.5px text box
+     and gains the bottom space below it (24 + 0.5 = the old 19.5 + 5 margin), a one-line title grows into the text
+     block's reserved height, so nothing on the card moves. */
+  .home-card-category { @apply mb-[0.5px] block min-h-6 truncate text-[13px] leading-[19.5px] text-muted-foreground; }
+  .home-card-title { @apply line-clamp-3 min-h-6 text-sm leading-5 font-medium text-foreground hover:text-primary max-md:text-[13px] max-md:leading-[18px]; }
   .home-card-price { @apply mt-2 min-h-[21px]; }
   .home-card-note { @apply text-[13px] leading-5 text-muted-foreground; }
   .home-card-note-link { @apply hover:text-primary; }
@@ -164,6 +205,11 @@
   .home-category-tile { @apply flex h-[180px] flex-col items-center justify-center rounded-[4px] border border-[#dfe3e8] bg-white p-6 text-center text-foreground hover:border-brand hover:text-brand max-md:h-40 max-md:px-2 max-md:py-3.5; }
   .home-category-tile-image { @apply grid h-[90px] w-[135px] max-w-full shrink-0 place-items-center; }
   .home-category-tile-name { @apply flex h-10 w-full items-center justify-center overflow-hidden text-sm leading-[18px] font-medium; }
+  /* HomeCategoryTabs (#1295): Base UI's Tabs.List / Tabs.Tab with the line look the shadcn TabsList / TabsTrigger class
+     lists gave them (~1.4 KB per tab). The list is as tall as its tabs: the old group-data h-8 cut the 44px phone tabs
+     and their underline. The list's overflow clips anything outside a tab, so the focus outline is drawn inside it. */
+  .home-tabs { @apply mb-[42px] flex w-full items-center justify-start gap-4 overflow-x-auto [scrollbar-width:none] max-md:mb-6 [&::-webkit-scrollbar]:hidden; }
+  .home-tab { @apply relative inline-flex h-8 min-h-0 flex-none items-center justify-center gap-1.5 pb-3 text-base leading-5 font-medium whitespace-nowrap text-muted-foreground transition-all hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring data-active:text-foreground max-md:h-11 max-md:text-sm after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:rounded-[2px] after:bg-brand after:opacity-0 after:transition-opacity data-active:after:opacity-100; }
 }
 
 @layer components {

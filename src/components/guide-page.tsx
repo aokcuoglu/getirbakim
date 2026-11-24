@@ -1,3 +1,4 @@
+import { StoreIcon } from "@/components/site/store-icon";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
@@ -16,8 +17,8 @@ export function GuidePage({ guide }: { guide: Guide }) {
   const h2 = "scroll-mt-6 mt-9 mb-3 text-[22px] leading-8 font-semibold tracking-[-.4px]";
   return <article className="mx-auto min-h-[55vh] w-full max-w-[830px] px-8 pt-6 pb-14 max-[600px]:px-5 max-[600px]:pb-10">
     <Breadcrumb aria-label="Sayfa yolu" className="mb-6"><BreadcrumbList className="gap-[9px] text-[13px] leading-5">
-      <BreadcrumbItem><BreadcrumbLink render={<Link href="/"/>} className="inline-flex min-h-11 items-center hover:text-brand md:min-h-8 hover:underline">Ana sayfa</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator className="[&>svg]:size-[13px]"/>
-      <BreadcrumbItem><BreadcrumbLink render={<Link href={guidesPath}/>} className="inline-flex min-h-11 items-center hover:text-brand md:min-h-8 hover:underline">Rehber</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator className="[&>svg]:size-[13px]"/>
+      <BreadcrumbItem><BreadcrumbLink render={<Link href="/"/>} className="inline-flex min-h-11 items-center hover:text-brand md:min-h-8 hover:underline">Ana sayfa</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator className="[&>svg]:size-[13px]"><StoreIcon name="chevron-right"/></BreadcrumbSeparator>
+      <BreadcrumbItem><BreadcrumbLink render={<Link href={guidesPath}/>} className="inline-flex min-h-11 items-center hover:text-brand md:min-h-8 hover:underline">Rehber</BreadcrumbLink></BreadcrumbItem><BreadcrumbSeparator className="[&>svg]:size-[13px]"><StoreIcon name="chevron-right"/></BreadcrumbSeparator>
       <BreadcrumbItem><BreadcrumbPage className="text-muted-foreground">{guide.title}</BreadcrumbPage></BreadcrumbItem>
     </BreadcrumbList></Breadcrumb>
     <h1 className="mb-4 text-[32px] leading-[42px] font-semibold tracking-[-0.7px] wrap-anywhere max-[600px]:text-[27px] max-[600px]:leading-[35px]">{guide.title}</h1>

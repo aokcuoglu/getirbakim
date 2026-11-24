@@ -1,5 +1,5 @@
 import "server-only";
-import type { PoolClient } from "pg";
+import type { PoolClient, QueryResultRow } from "pg";
 import { boundedQuery, db, preparedQuery } from "@/lib/db";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
@@ -55,6 +55,8 @@ export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' O
 // Only id, available and stock_label of the same rows, without the pricing joins (db/commerce.sql, #1242): the listing's
 // availability filter.
 export const availabilitySql = "SELECT * FROM commerce_item_availability WHERE source='store' OR company=ANY($1::text[])";
+/** The cards that can be sold now: a row, or the primary of a group one of whose offers is available. */
+const inStockIdsSql=`SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available`;
 // The store's listing, search and product page also show products nobody supplies now (`unavailable`, #475); cart,
 // checkout, partner API and maintenance kits keep reading the saleable catalogSql.
 export const storefrontCatalogSql = "SELECT * FROM storefront_catalog WHERE source='store' OR company=ANY($1::text[])";
@@ -106,6 +108,8 @@ export function withBestOffer<T extends CatalogProduct>(item: T, group: CatalogP
  * `ARRAY(SELECT …)` with the whole read inside a MATERIALIZED CTE (`WITH p AS MATERIALIZED (${catalogRowsByIdsSql(…)})`),
  * which plans as one InitPlan feeding the primary key scan. Never `IN (subquery)`, a plain join against the view or a
  * per-row LATERAL: the planner then builds the whole view (seconds) or repeats it per row.
+ * A price order over up to 50k listed ids (pricedScope in browseProducts, #1335) reads the same bind array shape: the
+ * planner sees their count and hash-joins, where the listing's own two id-set clauses estimated one row and priced per row.
  * The hot reads go out as named prepared statements (preparedQuery, #1170): planning was most of their time. Name a
  * statement on any connection only when its outer select lists its columns; one returning `*` (the view's row) only on
  * the pool, where a cached plan broken by a view gaining a column is retried, never inside a transaction it would abort.
@@ -259,7 +263,7 @@ export const categories = [
  * row of the product, enriched or not. The decisions of the selected types are read once, through their index.
  */
 async function fittedProductIds(typesSql:string,values:unknown[]){
- return (await boundedQuery<{id:string}>(`WITH types AS MATERIALIZED (${typesSql}),
+ return (await boundedQuery<{id:string}>(`catalog.fittedProductIds ${JSON.stringify(values).slice(0, 200)}`, `WITH types AS MATERIALIZED (${typesSql}),
   fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle,f.vehicle_type_id FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
   trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM storefront_enrichments e
    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
@@ -305,7 +309,7 @@ export const modelFitsSql=`SELECT model_id,supplier_item_id AS id FROM storefron
  * Products fitting a vehicle model page's series (#639), from modelFitsSql. Both branches are index reads (Golf 7:
  * ~25 ms for the description side); cached per process.
  */
-const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",")}`,async()=>(await boundedQuery<{id:string}>(
+const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",")}`,async()=>(await boundedQuery<{id:string}>(`catalog.modelFittedIds models=${modelIds.join(",")}`, 
  `SELECT DISTINCT id::text FROM (${modelFitsSql}) fits WHERE model_id=ANY($1::int[])`,[modelIds])).rows.map(row=>row.id));
 /**
  * A make's model page units that list at least one product (#639): the make page links only these, so no link ends in
@@ -317,7 +321,7 @@ const cachedListedModels=staleCache<string[]>(10*60*1000,300,listings);
 export async function getListedModelGroups(brandId:string) {
  const groups=await getVehicleModelGroups(brandId);
  const modelIds=groups.flatMap(group=>group.models.map(member=>member.id));
- const listedIds=new Set(await cachedListedModels(brandId,async()=>(await boundedQuery<{id:string}>(
+ const listedIds=new Set(await cachedListedModels(brandId,async()=>(await boundedQuery<{id:string}>(`catalog.listedModels brand=${brandId}`, 
   `WITH fits AS MATERIALIZED (SELECT model_id,supplier_item_id AS id FROM storefront_model_fits WHERE model_id=ANY($2::int[])
     UNION SELECT f.model_id,COALESCE(o.primary_id,f.supplier_item_id) FROM storefront_description_fits f LEFT JOIN product_offers o ON o.item_id=f.supplier_item_id
     WHERE f.model_id=ANY($2::int[])),
@@ -346,7 +350,7 @@ export const categoryMovedAwaySql=(itemId:string,ids:string)=>`NOT EXISTS (SELEC
  * 55.7 s and hit the 30 s limit; materialised first it reads in ~0.5 s. Same rows: same columns and conditions.
  */
 export const categoryProductIds=(legacy:string[],categoryIds:number[])=>cachedCategoryIds(`category:${legacy.join(",")}:${categoryIds.join(",")}`,async()=>
- (await boundedQuery<{id:string}>(`WITH linked AS MATERIALIZED (SELECT DISTINCT e.supplier_item_id,e.supplier_code,e.supplier_brand
+ (await boundedQuery<{id:string}>(`catalog.categoryProductIds legacy=${legacy.join(",")} categories=${categoryIds.length}:${categoryIds.slice(0, 5).join(",")}`, `WITH linked AS MATERIALIZED (SELECT DISTINCT e.supplier_item_id,e.supplier_code,e.supplier_brand
    FROM product_source_categories pc JOIN storefront_enrichments e ON e.donor_item_id=pc.supplier_item_id
    WHERE pc.source='trodo' AND pc.category_id=ANY($2::int[])
     AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem))
@@ -536,8 +540,13 @@ async function shownBrandClause(names:string[],values:unknown[]) {
  if(ids.length){values.push(ids);reach=`(${reach} OR catalog.id=ANY($${values.length}::uuid[]))`;}
  return `${reach} AND catalog.display_brand=ANY(${key})`;
 }
+const facetKeys:ReadonlySet<string>=new Set(facetSpecificationKeys);
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: unknown[] = [company()]; const clauses: string[] = [listedOnly];
+ // The clauses narrowing the listing to an id set (search, category, model, make, vehicle fits, oil, each property) go
+ // through idSet: a price order over two or more is priced by id array (pricedScope, #1335).
+ let idSets=0;
+ const idSet=(clause:string)=>{idSets++;clauses.push(clause);};
  let search:CatalogSearch|undefined;
  const fitted=query.fits==='vehicle'&&context.vehicleTypeId?await typeFittedIds(Number(context.vehicleTypeId)):undefined;
  if(query.q?.trim()) {
@@ -545,7 +554,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   // A search for the vehicle's fits passes their intersection as one small array (#884): the two id arrays (a broad
   // search's 20k+ and a type's ~2k) took ~0.1 s per query, twice per page with the "Aracına uyanlar" lead.
   const linked=fitted&&new Set(fitted);
-  clauses.push(`catalog.id=ANY(${binder(values)(linked?search.ids.filter(id=>linked.has(id)):search.ids)}::uuid[])`);
+  idSet(`catalog.id=ANY(${binder(values)(linked?search.ids.filter(id=>linked.has(id)):search.ids)}::uuid[])`);
  }
  if(query.category) {
   const selected=(await getStoreCategories()).find(c=>c.slug===query.category);
@@ -556,7 +565,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    // Few oils carry a category yet; the engine-oil category also lists the oils read from product names.
    const ids=await categoryProductIds(legacy,descendants);
    values.push(descendants.includes(engineOilCategoryId)?[...new Set([...ids,...await engineOilIds()])]:ids);
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  // A model page lists its own fits, not their intersection with the make's: the make's list is the union of its
@@ -567,7 +576,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!model)clauses.push('false');
   else {
    values.push(await modelFittedIds(model.models.map(member=>member.id)));
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  else if(query.make) {
@@ -575,14 +584,14 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!make)clauses.push('false');
   else {
    values.push(Number(make.id));
-   clauses.push(`catalog.id=ANY(ARRAY(${makeFitsSql(`$${values.length}::int`)})::uuid[])`);
+   idSet(`catalog.id=ANY(ARRAY(${makeFitsSql(`$${values.length}::int`)})::uuid[])`);
   }
  }
  if(query.fits==='vehicle') {
   if(!fitted)clauses.push('false');
   else if(!search) {
    values.push(fitted);
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  const oil=parseOilFilters(query.oil);
@@ -590,36 +599,67 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   if(!context.vehicleTypeId)clauses.push('false');
   else {
    values.push(await vehicleOilProductIds(context.vehicleTypeId,oil));
-   clauses.push(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
   }
  }
  // A manufacturer page (#660) lists its master brand's name and labels (display_brand values), the column the brand filter reads.
  if(query.manufacturer){const labels=await manufacturerLabels(query.manufacturer);clauses.push(labels.length?await shownBrandClause(labels,values):'false');}
  const brands=selectedBrands(query);if(brands.length)clauses.push(await shownBrandClause(brands,values));
+ // A property reads the facet rows its sidebar options come from (storefront_facet_specs, #994) instead of unpacking
+ // every enrichment payload per request (#1248, locally: 1.5-3.6 s per /katalog count, 2.2-5.3 s in the root category,
+ // and a price order hit the 30 s limit). The rows carry the guards applied when they were refreshed (match basis,
+ // "Brand class" only from an exact part); the offer's identity (code and brand) is checked again here against its
+ // link, as the cards do. A key the sidebar never offers (outside facetSpecificationKeys, so only from a hand-written
+ // URL) matches nothing rather than reopening the payload read.
+ // =ANY(ARRAY(...)) is an InitPlan run once that drives the catalog by primary key, like makeFitsSql: 50-140 ms per
+ // /katalog count, 240-450 ms in the root category (its ~189k-id array). The same set as IN (...) kept the catalog's
+ // full scan: 330-460 ms on /katalog, 1.2-1.4 s with the category, and once a 24.5 s plan.
  for(const [attribute,options] of Object.entries(selectedAttributes(query))){if(!options.length)continue;
+  if(!facetKeys.has(attribute)){clauses.push('false');continue;}
   values.push(attribute);const attributeKey=`$${values.length}`;values.push(options);const optionsKey=`$${values.length}`;
-  clauses.push(`catalog.id IN (SELECT e.supplier_item_id FROM storefront_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
-   AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
-   CROSS JOIN LATERAL jsonb_array_elements(e.payload->'specifications') spec
-   WHERE spec->>0=${attributeKey} AND spec->>1=ANY(${optionsKey}::text[])
-   AND (spec->>0<>'Brand class' OR e.match_basis->>'type'='exact_part')
+  idSet(`catalog.id=ANY(ARRAY(SELECT f.supplier_item_id FROM storefront_facet_specs f
+   JOIN product_enrichment_shared_links l ON l.supplier_item_id=f.supplier_item_id
+   JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
+   WHERE f.key=${attributeKey} AND f.value=ANY(${optionsKey}::text[])
    -- The admin's value or hiding of the key (#603) replaces the automatic one: those products match by the set value only.
    -- NOT IN (product_sources.supplier_item_id is NOT NULL) plans as a hashed SubPlan; <>ALL(ARRAY(...)) scans the array per row.
-   AND e.supplier_item_id NOT IN (SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=${attributeKey})
+   AND f.supplier_item_id NOT IN (SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=${attributeKey})
    UNION ALL SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id
-   WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))`);
+   WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))::uuid[])`);
  }
  // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
+ // Out of stock: the card's own row says "Stokta yok" and none of its grouped offers can be sold, so a card is never in
+ // both filters, and unknown-stock or unsupplied cards are in neither (#1342; locally 25,018 cards were in both).
  // Both read the lean availability view, not commerce_catalog's priced rows a second time (#1242). Out of stock reads it
  // through commerce_out_of_stock_ids (db/commerce.sql), whose declared size keeps deep pages off a nested loop (#1286).
+ // The in-stock exclusion sits inside that subquery, a hashed SubPlan on the Function Scan the catalog hash-joins (page 49:
+ // ~0.85 s -> ~1.1 s); NOT IN at the top level filters the catalog scan itself and serialises it (~1.6 s), and EXCEPT
+ // took ~60 s. The planner hashes the NOT IN only while the in-stock ids' estimate (~40 B a row) fits work_mem x
+ // hash_mem_multiplier: locally ~189k rows, 7.6 MB against the default 4 MB x 2, hashed at 3750 kB but a per-row SubPlan
+ // at 3600 kB (estimated cost 8e10, a hang). Its reads therefore run bounded with 32 MB (listingQuery): room for ~1.6M
+ // estimated rows, where the session default would leave ~200k locally and ~800k on production's 16 MB.
+ // Pushed as clauses, not idSet: availability stays out of pricedScope's id-set count (#1335).
+ let workMem:string|undefined;
  if(query.availability==='supplied')clauses.push('NOT catalog.unavailable');
- else if(query.availability)clauses.push(query.availability==='in_stock'
-  ?`catalog.id IN (SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available)`
-  :`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id)`);
+ else if(query.availability==='in_stock')clauses.push(`catalog.id IN (${inStockIdsSql})`);
+ else if(query.availability){
+  clauses.push(`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id WHERE id NOT IN (${inStockIdsSql}))`);
+  workMem="32MB";
+ }
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
- return {values,where,from,search};
+ return {values,where,from,search,idSets,workMem};
+}
+/**
+ * A read of a catalogFilter listing: a plain statement, or, when the filter asks for more work_mem than the session's
+ * (out of stock, #1342), a bounded one with that work_mem and boundedQuery's time limit.
+ */
+function listingQuery<T extends QueryResultRow>({workMem}:{workMem?:string},label:string,sql:string,values:unknown[]){
+ return workMem?boundedQuery<T>(label,sql,values,30_000,{workMem}):db.query<T>(sql,values);
+}
+/** The listing's product count, as the count caches keep it. */
+async function countListing(listing:{values:unknown[];from:string;workMem?:string},key:string){
+ return Number((await listingQuery<{count:string}>(listing,`catalog.listingCount ${key}`,`SELECT count(*) ${listing.from}`,listing.values)).rows[0].count);
 }
 // Listings without a search scan the whole 320k-row catalog for counts, facets and the date order
 // (~0.5-1.5 s each on the VPS). Those change only with supplier syncs, so they are served from a
@@ -628,6 +668,8 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
 // The plain listings' counts, page ids and facets (persistable below) are also kept in storefront_listing_cache (#957), so a
 // new or restarted container serves them at once: up to 24 hours old there, the first visitor sees the stored value while
 // one refresh runs. Listings narrowed by brand, property, availability or a vehicle have too many variants to share.
+// A property listing reads the same precomputed rows as its options (storefront_facet_specs, #1248): a changed enrichment
+// value reaches both with the next shared-link sync, then with this cache's refresh (the sync does not move the epoch).
 // The stored keys must stay bounded until the 2-day prune: a crawler walking model x category pages (~5.8k models x ~590
 // categories) would add hundreds of thousands of rows, so model listings stay in memory, and a make's listing keeps its
 // first page only (deeper pages of the plain, category and manufacturer listings are stored up to page 20; a price order is one key).
@@ -758,16 +800,53 @@ export async function searchCatalogItems(raw:string,mode:SearchMode,limit=catalo
  const {ids}=await summarizeSearch(await catalogSearch(raw,mode),false);
  return withBestOffers(await catalogRowsByIds(ids.slice(0,limit)));
 }
+// A price order over a listing narrowed by two id sets (a category's ids and a property's or a make's) planned the priced
+// view as per-row nested loops (#1335): the sets' selectivities multiply to a 1-row estimate on the supplier_items primary
+// key scan, so the view looked up each row's currency on supplier_imports again (5,314 loops for yedek-parca + Front
+// Axle: 3.8 s; six Fitting Position values 12.5 s; yedek-parca + VW 16.8 s). Up to pricedByIdsMax rows the listing's ids
+// are read first and priced by bind array (pricedScope): the planner sees their real count and hash-joins (a cold page,
+// count included: Front Axle 3.3 s → 0.7 s, VW 16.5 s → 1.3 s). Above it the extra id read costs more than it saves (the
+// root category's 149k rows: 1.97 s → 2.5 s; the gain is smallest near 57k), so those keep the one statement, and so do
+// listings with fewer than two id sets, whose plan was right (priced read of 480 rows: manufacturer page 0.34 s → 0.44 s,
+// model page 0.19 s → 0.29 s, category + brand 0.48 s → 0.93 s by ids).
+// A price-sorted search is counted live on every page, so over two or more id sets its id read replaces that count
+// (listedIds, #1345) and costs nothing extra (page 1: "fren" in yedek-parca 0.85 s → 0.59 s, with VW 2.45 s → 0.22 s,
+// with Front Axle 1.31 s → 0.31 s). A search alone keeps its count and clause: its bound hit ids already give the planner
+// their size ("fren", 50k ids: 0.80 s → 0.81 s by ids). Its ids are capped at maxSearchHits, so a search never exceeds
+// the limit below.
+const pricedByIdsMax=50_000;
+type PricedScope={where:string;values:unknown[];workMem?:string};
+type ListingFilter=PricedScope&{from:string;idSets:number};
+/**
+ * The listing's product count and where a price order reads its rows (#1335, #1345), from one read of the entries the
+ * count reads: the listing's ids as `$2` (`$1` staying the companies array storefrontCatalogSql reads); `filter`'s own
+ * clause above pricedByIdsMax rows (the array is built but not sent); null without rows, there is nothing to price.
+ * The ids travel as one array literal, never as rows: 50k row objects and their bound array added ~8 MB heap and ~34 MB
+ * RSS per call, paid by every live page beyond the cached ones (#1262 ran out of memory). `workMem` stays with the
+ * filter's clause (listingQuery); the id array needs none.
+ */
+async function listedIds({values,where,from,workMem}:ListingFilter,label:string):Promise<{total:number;scope:PricedScope|null}>{
+ const row=(await boundedQuery<{count:string;ids:string|null}>(`catalog.pricedListedIds ${label}`,
+  `SELECT count(*) AS count,CASE WHEN count(*)<=${pricedByIdsMax} THEN array_agg(catalog.id)::text END AS ids ${from}`,values,30_000,{workMem})).rows[0];
+ const total=Number(row.count);
+ return {total,scope:row.ids?{where:"WHERE catalog.id=ANY($2::uuid[])",values:[values[0],row.ids]}:total?{where,values,workMem}:null};
+}
+/**
+ * Where a price order reads its rows when its total did not come from listedIds (#1335): `filter`'s own clause above
+ * pricedByIdsMax rows or below two id sets, else its ids (listedIds). `total` may be as old as the count cache; it only
+ * picks the statement (listedIds checks its live count against the limit again), both read the same rows.
+ */
+async function pricedScope(total:number,filter:ListingFilter,label:string):Promise<PricedScope|null>{
+ if(total>pricedByIdsMax||filter.idSets<2)return {where:filter.where,values:filter.values,workMem:filter.workMem};
+ return (await listedIds(filter,label)).scope;
+}
 /**
  * The product count of a listing without a search, as browseProducts reports it (the same cache entry): the model
  * pages' metadata and their 404 and index rules read it before the page renders.
  */
 export function listingTotal(query:CatalogQuery,context:CatalogContext={}){
- const scope={...query,q:undefined};
- return countCache(query)(filterKey(query,context),async()=>{
-  const {values,from}=await catalogFilter(scope,context);
-  return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);
- },{persist:persistable(scope)});
+ const scope={...query,q:undefined},key=filterKey(query,context);
+ return countCache(query)(key,async()=>countListing(await catalogFilter(scope,context),key),{persist:persistable(scope)});
 }
 /** `limit`: read only the first `limit` cards of the page (vehicleLead); counts, pages and cached page ids stay the page's. */
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={},{limit=catalogPageSize}:{limit?:number}={}){
@@ -783,16 +862,19 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  }
  // Without a search the filter is built only when a cache misses; a search always needs it (its matches).
  const filter=lazyFilter(query,context),search=query.q?.trim()?(await filter()).search:undefined;
- const count=async()=>{const {values,from}=await filter();return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);};
- const total = search ? await count() : await countCache(query)(filterKey(query,context),count,{persist:persistable(query)});
+ const pricedSort = query.sort === "price-asc" || query.sort === "price-desc", pricedKey=`${filterKey(query,context)}|${query.sort}`;
+ // A price-sorted search over two or more id sets prices its page by the ids it counts (listedIds, #1345).
+ const pricedSearch=search&&pricedSort&&(await filter()).idSets>=2?await listedIds(await filter(),pricedKey):undefined;
+ const count=async()=>countListing(await filter(),filterKey(query,context));
+ const total = pricedSearch ? pricedSearch.total : search ? await count() : await countCache(query)(filterKey(query,context),count,{persist:persistable(query)});
  const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize)), take = Math.min(pageSize,Math.max(1,Number.isFinite(limit)?Math.trunc(limit):pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
  // Products nobody supplies now come after every saleable one, in every order (#475).
  const order=query.sort === "price-asc" ? "unavailable,price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "unavailable,price_kurus DESC NULLS LAST,id" : "unavailable,updated_at DESC,id";
- const pricedSort = query.sort === "price-asc" || query.sort === "price-desc";
  if(!search&&!pricedSort){
-  const ids=await pageIdCache(query)(`${filterKey(query,context)}|${page}`,async()=>{const {values,from}=await filter();return (await db.query<{id:string}>(
+  const key=`${filterKey(query,context)}|${page}`;
+  const ids=await pageIdCache(query)(key,async()=>{const listing=await filter(),{values,from}=listing;return (await listingQuery<{id:string}>(listing,`catalog.listingPageIds ${key}`,
    `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id);},
    {persist:persistablePage(query,page)});
   const items=await storefrontRowsByIds(ids.slice(0,take));
@@ -803,25 +885,33 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // the current price and stock, while its position follows the prices of up to 10 minutes ago (supplier syncs, and admin
  // price edits, which do not move the listing epoch). Deeper pages keep the live query. The priced rows are sorted before
  // the limit (VW: ~57 MB): it spilled to disk (external merge) at both the local default (4 MB) and the production RDS
- // setting (16 MB); 64 MB for this read keeps it in memory.
+ // setting (16 MB); 64 MB for this read keeps it in memory. A listing of two id sets up to pricedByIdsMax rows is priced
+ // by its id array (pricedScope), off a per-row plan (#1335).
  if(!search&&pricedSort&&page<=cachedPages){
-  const ordered=await pageIdCache(query)(`${filterKey(query,context)}|${query.sort}`,async()=>{const {values,where}=await filter();return (await boundedQuery<{id:string}>(
-   `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
+  const ordered=await pageIdCache(query)(pricedKey,async()=>{const scope=await pricedScope(total,await filter(),pricedKey);
+   if(!scope)return [];
+   return (await boundedQuery<{id:string}>(`catalog.pricedPageIds ${pricedKey}`,
+   `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,scope.values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
    {persist:persistable(query)});
   const items=await storefrontRowsByIds(ordered.slice((page-1)*pageSize,(page-1)*pageSize+take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
  // A search lists the best matches first unless the shopper picked another order.
- const {values,where,from}=await filter();
- const pageValues=[...values],bind=binder(pageValues);
+ const filtered=await filter(),{from}=filtered;
+ // A deeper page of a price order reads the rows the cached order above reads (pricedScope), a price-sorted search over
+ // two or more id sets the ids its total came from; none, no page read.
+ const scope=pricedSearch?pricedSearch.scope:pricedSort?await pricedScope(total,filtered,pricedKey):filtered;
+ const notes={correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
+ if(!scope)return {items:[],total,page,pages,pageSize,...notes};
+ const pageValues=[...scope.values],bind=binder(pageValues);
  const rank=search&&(query.sort??"relevance")==="relevance"?catalogRank("catalog",search.parsed,bind):"0";
- const offset=bind((page-1)*pageSize);
+ const offset=bind((page-1)*pageSize),label=`catalog.listingPage ${filterKey(query,context)}|${query.sort??""}|${page}`;
  // The page's ids first, then its cards by id array (storefrontRowsByIds, #1135).
  const items = pricedSort
-  ? (await db.query<CatalogProduct>(`SELECT * FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`, pageValues)).rows
-  : await storefrontRowsByIds((await db.query<{id:string}>(`SELECT id::text FROM (SELECT id,updated_at,unavailable,${rank} AS rank ${from}
+  ? (await listingQuery<CatalogProduct>(scope,label,`SELECT * FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`, pageValues)).rows
+  : await storefrontRowsByIds((await listingQuery<{id:string}>(scope,label,`SELECT id::text FROM (SELECT id,updated_at,unavailable,${rank} AS rank ${from}
      ORDER BY unavailable,rank DESC,${order} LIMIT ${take} OFFSET ${offset}) page`, pageValues)).rows.map(row=>row.id));
- return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
+ return {items:await withBestOffers(items),total,page,pages,pageSize,...notes};
 }
 /** A product, or (for broad searches) a product name shared by `products` items. */
 export type ProductSuggestion={kind:"product";id:string;name:string;name_overridden:boolean;brand:string;code:string}|{kind:"name";name:string;products:number};
@@ -872,7 +962,7 @@ export async function catalogBrands() {
 export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
  const scope:CatalogQuery={...query,fits:'vehicle',page:undefined},context={vehicleTypeId};
  const filter=lazyFilter(scope,context),search=scope.q?.trim()?(await filter()).search:undefined;
- const count=async()=>{const {values,from}=await filter();return Number((await db.query<{count:string}>(`SELECT count(*) ${from}`,values)).rows[0].count);};
+ const count=async()=>countListing(await filter(),filterKey(scope,context));
  return search ? count() : countCache(scope)(filterKey(scope,context),count,{persist:persistable(scope)});
 }
 /**
@@ -915,7 +1005,8 @@ export function attributeFacetsSql(scopedSql:string,keys:string){
  // guards the readers apply (the offer's own code and brand, no cross-reference match, "Brand class" only from an
  // exact part). Unpacking every listed payload here took ~2.3 s of the unfiltered /katalog facet's 3.4 s (warm; 6.6 s
  // cold); reading the ~83k rows instead brings it under a second. The table holds the facet keys only, so `fs` is one
- // small scan whatever the listing; the two size-dependent branches of #955 went with the payloads.
+ // small scan whatever the listing; the two size-dependent branches of #955 went with the payloads. The attribute filter
+ // (catalogFilter) reads the same rows and admin values (#1248), and also checks the offer's identity when it reads them.
  // MATERIALIZED: inlined, the search filter gets planned across the joins (~60 s instead of ms).
  // `ov`: the admin's specifications of the facet keys (#603); a set or hidden key replaces the row's automatic values.
  return `WITH scoped AS MATERIALIZED (${scopedSql}),

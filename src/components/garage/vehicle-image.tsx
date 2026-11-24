@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { CarFront } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { cn } from "@/lib/utils";
 import type { VehicleImage as VehicleImageData } from "@/modules/store/vehicle-catalog";
 
@@ -11,6 +11,6 @@ export function VehicleHeroImage({ image, alt }: { image?: VehicleImageData | nu
   return <span className={cn("flex items-center justify-center bg-[radial-gradient(ellipse_at_50%_40%,#fff_0%,#f3f5f6_70%,#e9edef_100%)] px-4", image ? "aspect-[800/287]" : "h-20")}>
     {image
       ? <Image src={image.src} alt={alt} width={image.width} height={image.height} unoptimized className="size-full object-contain mix-blend-multiply" />
-      : <CarFront size={40} strokeWidth={1.25} className="text-muted-foreground opacity-60" aria-hidden="true" />}
+      : <StoreIcon name="car-front" size={40} strokeWidth={1.25} className="text-muted-foreground opacity-60"/>}
   </span>;
 }

@@ -4,6 +4,7 @@ import { isolatedSchema } from "./isolated-schema";
 import { listingIndexable } from "../src/modules/seo/indexing";
 import { listingRangeLabel } from "../src/modules/store/catalog-filters";
 import { listingPath, modelPath } from "../src/modules/seo/paths";
+import { parseSearchQuery } from "../src/modules/search/query";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import { AsyncLocalStorage } from "node:async_hooks";
 
@@ -59,6 +60,9 @@ before(async () => {
     SELECT 'basbug',$1,'G','MRK','TB D'||n,jsonb_build_object('uk','TESTBRAND','ac','D'||n||' PARCA','dc','TL'),
      jsonb_build_object('nf',10+(n*37)%500),'{"stok":1}',1,1,1,'present',now(),now(),now() FROM generate_series(1,${pricedProducts}) n`, [basbug]);
   await schema.pool.query("INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT 3,id FROM supplier_items WHERE code LIKE 'TB D%'");
+  // A make × category price order (#1335), two id sets: 4 in 5 of them are filters, more than the cached window too.
+  await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"category":"filtre"}'
+    WHERE code LIKE 'TB D%' AND substring(code from 5)::int%5<>0`);
   await schema.pool.query("SELECT refresh_product_matches()");
   await schema.pool.query("INSERT INTO product_offers(item_id,primary_id) VALUES($1,$1),($2,$1) ON CONFLICT (item_id) DO UPDATE SET primary_id=EXCLUDED.primary_id", [ids.g4, ids.g4s]);
   for (const key of ["g1", "g2", "g3", "g12"]) await fit("storefront_model_fits", 10, key);
@@ -141,15 +145,18 @@ after(async () => { await closeDb?.(); await schema?.drop(); });
 
 test("a make × category description states the product count and follows the noindex gate (#1224)", () => inRequest(async () => {
   const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
+  const { listingViewIndexable } = await import("../src/modules/store/manufacturers");
   const fren = (await load.findListing({ category: "fren", make: "vw", search: {} }))!;
   assert.equal(fren.plainTotal, 9);
   const below = listingMetadata(fren);
   assert.ok(String(below.description).includes("9 ürün"), String(below.description));
   assert.ok(String(below.description).includes("araçlar için"));
   assert.equal((below.robots as { index?: boolean }).index, false);
+  assert.equal(listingViewIndexable(fren.query, { plainTotal: fren.plainTotal }), below.robots === undefined);
   const enough = listingMetadata({ ...fren, plainTotal: 10 });
   assert.ok(String(enough.description).includes("10 ürün"));
   assert.equal(enough.robots, undefined);
+  assert.equal(listingViewIndexable(fren.query, { plainTotal: 10 }), enough.robots === undefined);
 }));
 
 test("a search result's title says the query within 65 characters and stays noindex,follow (#1218)", async () => {
@@ -166,9 +173,12 @@ test("a search result's title says the query within 65 characters and stays noin
 test("the root category stays noindex,follow with a self canonical; the plain catalog is indexable (#1222)", async () => {
   const { listingMetadata } = await import("../src/app/(store)/katalog/listing-metadata");
   const root = listingMetadata({ query: { category: "yedek-parca" }, category: { id: 3, parentId: null, name: "Yedek parçalar", slug: "yedek-parca", path: [3], position: 0 } });
+  const { listingViewIndexable } = await import("../src/modules/store/manufacturers");
   assert.deepEqual(root.robots, { index: false, follow: true });
+  assert.equal(listingViewIndexable({ category: "yedek-parca" }, {}), root.robots === undefined);
   assert.equal(root.alternates?.canonical, "/kategori/yedek-parca");
   const plain = listingMetadata({ query: {} });
+  assert.equal(listingViewIndexable({}, {}), plain.robots === undefined);
   assert.equal(plain.robots, undefined);
   assert.equal(plain.alternates?.canonical, "/katalog");
 });
@@ -316,6 +326,67 @@ test("page 2 of a make listing is its products 25-48 in either order, with the m
   }
   assert.equal(listingRangeLabel(0, 1, 24), "0 ürün");
 });
+
+test("a price-sorted make × category listing, priced by its id array, orders like the query with both clauses (#1335)", () => inRequest(async () => {
+  // The category page's ids as catalogFilter reads them: Filtre (241) has no child, "filtre" is its legacy slug.
+  const category = await catalog.categoryProductIds(["filtre"], [241]);
+  for (const dir of ["ASC", "DESC"] as const) {
+    const sort = dir === "ASC" ? "price-asc" : "price-desc";
+    const live = (await schema.pool.query<{ id: string }>(`SELECT id::text FROM storefront_catalog catalog
+      WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND ${catalog.listedOnly}
+       AND catalog.id=ANY(ARRAY(${catalog.makeFitsSql("$2::int")})::uuid[]) AND catalog.id=ANY($3::uuid[])
+      ORDER BY unavailable,price_kurus ${dir} NULLS LAST,id`, [storefrontCompanies(), 3, category])).rows.map(row => row.id);
+    assert.equal(live.length, 496, sort);
+    const page = (number: number) => catalog.browseProducts({ make: "dacia", category: "filtre", sort, page: String(number) });
+    const [first, second] = [await page(1), await page(2)];
+    assert.deepEqual([first.total, first.pages], [496, 21], sort);
+    assert.deepEqual(first.items.map(row => row.id), live.slice(0, 24), sort);
+    assert.deepEqual(second.items.map(row => row.id), live.slice(24, 48), sort);
+    // Beyond the cached window the page reads live, its offset bound after the id array.
+    assert.deepEqual((await page(21)).items.map(row => row.id), live.slice(480), sort);
+  }
+}));
+
+test("a price-sorted listing without products is empty (#1335)", () => inRequest(async () => {
+  for (const sort of ["price-asc", "price-desc"] as const) {
+    const result = await catalog.browseProducts({ make: "dacia", category: "aydinlatma-200", sort });
+    assert.deepEqual([result.items, result.total, result.page, result.pages], [[], 0, 1, 1], sort);
+  }
+}));
+
+test("a price-sorted search in a category, priced by the ids its total counts, orders like the query with both clauses (#1345)", () => inRequest(async () => {
+  const query = { q: "parca", category: "filtre" };
+  // The search's hits as catalogSearch reads them, and the category's ids as catalogFilter does.
+  const values: unknown[] = [];
+  const hits = (await schema.pool.query<{ id: string }>(catalog.searchHitIdsSql(parseSearchQuery(query.q), values, "all"), values)).rows.map(row => row.id);
+  const category = await catalog.categoryProductIds(["filtre"], [241]);
+  for (const dir of ["ASC", "DESC"] as const) {
+    const sort = dir === "ASC" ? "price-asc" : "price-desc";
+    const live = (await schema.pool.query<{ id: string }>(`SELECT id::text FROM storefront_catalog catalog
+      WHERE (catalog.source='store' OR catalog.company=ANY($1::text[])) AND ${catalog.listedOnly}
+       AND catalog.id=ANY($2::uuid[]) AND catalog.id=ANY($3::uuid[])
+      ORDER BY unavailable,price_kurus ${dir} NULLS LAST,id`, [storefrontCompanies(), hits, category])).rows.map(row => row.id);
+    // The 496 DACIA filters, g4 (its secondary offer g4s is not listed) and g12.
+    assert.equal(live.length, 498, sort);
+    const page = (number: number) => catalog.browseProducts({ ...query, sort, page: String(number) });
+    const [first, second, last] = [await page(1), await page(2), await page(21)];
+    assert.deepEqual([first.total, first.pages, last.page], [498, 21, 21], sort);
+    // The total is the count the other orders of the same search read.
+    assert.equal(first.total, (await catalog.browseProducts({ ...query, sort: "newest" })).total, sort);
+    assert.deepEqual(first.items.map(row => row.id), live.slice(0, 24), sort);
+    assert.deepEqual(second.items.map(row => row.id), live.slice(24, 48), sort);
+    assert.deepEqual(last.items.map(row => row.id), live.slice(480), sort);
+  }
+}));
+
+test("a price-sorted search without matches is empty and keeps its notice (#1345)", () => inRequest(async () => {
+  for (const sort of ["price-asc", "price-desc"] as const) {
+    const none = await catalog.browseProducts({ q: "zzqqxx", category: "filtre", sort });
+    assert.deepEqual([none.items, none.total, none.page, none.pages], [[], 0, 1, 1], sort);
+    const short = await catalog.browseProducts({ q: "a", category: "filtre", sort });
+    assert.deepEqual([short.items, short.total, short.searchTooShort], [[], 0, true], sort);
+  }
+}));
 test("model × category pages: 404 without products, noindex below 10, indexable from 10 (#673)", () => inRequest(async () => {
   const page = (category: string, model: string, search = {}) => load.findListing({ category, make: "vw", model, search });
   const golf = (await page("fren", "golf-7"))!;
@@ -415,6 +486,31 @@ test("the make × category sitemap lists exactly the indexable make × category 
   // vw × fren has 9 products: the boundary sits between 9 and 10.
   assert.ok((await pages(9)).includes("/kategori/fren/vw"));
   assert.ok(!(await pages(10)).includes("/kategori/fren/vw"));
+}));
+
+test("a product in two categories under one ancestor, fitting two models of one unit, counts once (#1320)", () => inRequest(async () => {
+  // g3 is in Fren twice (legacy slug and Trodo 269, both under 252) and fits Golf VII; the fit on Golf VII Variant puts
+  // it in a second member model of the same unit: golf-7 × fren stays at 10 products and vw × fren at 9.
+  await fit("storefront_model_fits", 11, "g3");
+  try {
+    const pages = async (minimum: number) => {
+      const { text, values, units } = await sitemap.makeCategoryPathsQuery(minimum);
+      const { rows } = await schema.pool.query<{ unit: number; slug: string }>(text, values);
+      return rows.map(row => listingPath({ makeSlug: units[row.unit], categorySlug: row.slug }));
+    };
+    assert.ok((await pages(9)).includes("/kategori/fren/vw"));
+    assert.ok(!(await pages(10)).includes("/kategori/fren/vw"));
+    const model = async (minimum: number) => {
+      const { text, values, units } = await sitemap.modelCategoryPathsQuery();
+      const { rows } = await schema.pool.query<{ unit: number; slug: string }>(text, values.map((value, index) => index === 7 ? minimum : value));
+      return rows.map(row => listingPath({ makeSlug: units[row.unit].makeSlug, modelSlug: units[row.unit].modelSlug, categorySlug: row.slug }));
+    };
+    assert.ok((await model(10)).includes("/kategori/fren/vw/golf-7"));
+    assert.ok(!(await model(11)).includes("/kategori/fren/vw/golf-7"));
+    assert.deepEqual((await sitemap.loadModelCategoryPaths()).sort(), ["/kategori/fren/vw/golf-7"]);
+  } finally {
+    await schema.pool.query("DELETE FROM storefront_model_fits WHERE model_id=11 AND supplier_item_id=$1", [ids.g3]);
+  }
 }));
 
 test("loadAllVehicleModelGroups returns the same units as the per-make read (#778)", async () => {

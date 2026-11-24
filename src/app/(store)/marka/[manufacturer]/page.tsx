@@ -6,7 +6,7 @@ import { pageMetadata } from "@/lib/site";
 import { manufacturerPath, slugPattern } from "@/modules/seo/paths";
 import { listingTotal } from "@/modules/store/catalog";
 import { parseCatalogQuery, type CatalogQuery } from "@/modules/store/catalog-query";
-import { manufacturerIndexable, manufacturerTexts } from "@/modules/store/manufacturers";
+import { listingViewIndexable, manufacturerTexts } from "@/modules/store/manufacturers";
 import { brandedTitle } from "@/modules/seo/meta-text";
 import { findManufacturer } from "@/modules/store/manufacturers.server";
 import { CatalogView } from "../../katalog/catalog-view";
@@ -41,7 +41,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const { manufacturer, query, total } = await loadPage(props);
   const { title, description } = manufacturerTexts(manufacturer.name, total);
   return pageMetadata({ ...brandedTitle(title), description, path: manufacturerPath(manufacturer.slug),
-    robots: manufacturerIndexable(manufacturer.slug, query, total) ? undefined : { index: false, follow: true } });
+    robots: listingViewIndexable(query, { manufacturer: { slug: manufacturer.slug, total } }) ? undefined : { index: false, follow: true } });
 }
 
 // A manufacturer's (master brand's) products under every supplier label (#660).

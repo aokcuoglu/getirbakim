@@ -6,6 +6,7 @@ import { faqGroups } from "../src/content/faq";
 import { aboutPageJsonLd, articleJsonLd, breadcrumbJsonLd, catalogTrail, collectionJsonLd, faqJsonLd, maxStructuredVehicles, outOfStockLabel, guideTrail, pageTrail, productJsonLd, productOffer, productTrail, returnPolicy,
   serializeJsonLd, unconfirmedStockLabel, type JsonLdNode, type ProductJsonLdInput } from "../src/modules/seo/structured-data";
 import { listingPath, makePath } from "../src/modules/seo/paths";
+import { listingViewIndexable } from "../src/modules/store/manufacturers";
 import { productPath } from "../src/modules/seo/product-path";
 import { defaultSocialImage, foundingYear, organizationId, siteJsonLd } from "../src/lib/site";
 
@@ -228,4 +229,21 @@ test("about page references the organization instead of reprinting it", () => {
   assert.equal(node["@type"], "AboutPage");
   assert.equal(node.url, `${base}/bilgi/hakkimizda`);
   assert.deepEqual(node.mainEntity, { "@id": organizationId });
+});
+
+test("a noindex listing has no CollectionPage: the view's gate is the robots rule (#1241)", () => {
+  const modelCategory = { category: "fren", make: "vw", model: "golf-7" };
+  assert.equal(listingViewIndexable(modelCategory, { plainTotal: 9 }), false);
+  assert.equal(listingViewIndexable(modelCategory, { plainTotal: 10 }), true);
+  assert.equal(listingViewIndexable({ category: "fren", make: "vw" }, { plainTotal: 9 }), false);
+  assert.equal(listingViewIndexable({ make: "vw", model: "golf-7" }, { plainTotal: 9 }), false);
+  assert.equal(listingViewIndexable({ category: "yedek-parca" }, {}), false);
+  for (const query of [{}, { category: "fren" }, { make: "vw" }]) assert.equal(listingViewIndexable(query, {}), true);
+  assert.equal(listingViewIndexable({ category: "fren", page: "2" }, {}), false);
+  assert.equal(listingViewIndexable({ q: "x" }, {}), false);
+  assert.equal(listingViewIndexable({}, { manufacturer: { slug: "bosch", total: 9 } }), false);
+  assert.equal(listingViewIndexable({}, { manufacturer: { slug: "bosch", total: 10 } }), true);
+  assert.equal(listingViewIndexable({}, { manufacturer: { slug: "orijinal", total: 100000 } }), false);
+  const view = readFileSync("src/app/(store)/katalog/catalog-view.tsx", "utf8");
+  assert.ok(view.includes("listingViewIndexable(") && !view.includes("isIndexableListing("));
 });

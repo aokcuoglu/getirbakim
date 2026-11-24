@@ -12,7 +12,7 @@ const StubImage = ({ src, alt, className }: { src: string; alt: string; classNam
 nodeRequire.cache[imageId] = { id: imageId, filename: imageId, loaded: true, exports: Object.assign(StubImage, { __esModule: true, default: StubImage }) } as unknown as NodeJS.Module;
 
 import test from "node:test";
-import { homeCollectionSize, homeRailSize, spreadByBrand } from "@/modules/store/home-rail";
+import { childCategories, homeCategoryTabs, homeCollectionSize, homeRailSize, spreadByBrand } from "@/modules/store/home-rail";
 import { popularVehicleMakes, splitPopularBrands, turkeyPopularMakes } from "@/modules/store/vehicle-catalog";
 
 test("splitPopularBrands orders popular makes by Türkiye rank and keeps the rest as received", () => {
@@ -179,7 +179,23 @@ test("HomeCarousel renders <img> only in the first slides until armed; every lin
   assert.equal((html.match(/<img /g) ?? []).length, 5);
   for (let index = 0; index < 8; index++) assert.ok(html.includes(`href="/urun/p-${index}"`));
   assert.equal((html.match(/<span class="home-card-img rounded-md bg-muted"><\/span>/g) ?? []).length, 3);
-  assert.equal((html.match(/class="home-card-image"[^>]*aria-hidden="true"[^>]*tabindex="-1"|tabindex="-1"[^>]*aria-hidden="true"/g) ?? []).length, 3);
+  assert.equal((html.match(/<div class="home-card-image"><span class="home-card-img rounded-md bg-muted"><\/span><\/div>/g) ?? []).length, 3);
+  assert.equal((html.match(/<a class="home-card-image"/g) ?? []).length, 5);
+  assert.doesNotMatch(html, /<a [^>]*>(<span[^>]*><\/span>)?<\/a>/);
+  assert.doesNotMatch(html, /aria-hidden="true"/);
+});
+
+test("a home card without an image renders no empty image link (#1313)", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { HomeProductCardView } = await import("@/components/home-product-card-view");
+  const model = { href: "/urun/p-1", title: "Ürün 1", categoryHref: "/katalog", categoryName: "Parça", amount: "1,00 ₺" };
+  const noImage = renderToStaticMarkup(createElement(HomeProductCardView, { model }));
+  assert.doesNotMatch(noImage, /<a [^>]*class="home-card-image"/);
+  assert.match(noImage, /<div class="home-card-image"><\/div>/);
+  assert.doesNotMatch(noImage, /<a [^>]*>(<span[^>]*><\/span>)?<\/a>/);
+  const withImage = renderToStaticMarkup(createElement(HomeProductCardView, { model: { ...model, image: "/img/1.jpg" } }));
+  assert.match(withImage, /<a class="home-card-image" href="\/urun\/p-1"><img [^>]*alt="Ürün 1"/);
 });
 
 test("HomeGridPager renders tile logos on page 0 only; every tile link stays (#1289)", async () => {
@@ -199,4 +215,98 @@ test("the e-mail address is not in the footer markup or the Organization JSON-LD
   assert.doesNotMatch(readFileSync("src/components/site-footer.tsx", "utf8"), /mailto:|contactEmail/);
   const { siteJsonLd } = await import("@/lib/site");
   assert.doesNotMatch(JSON.stringify(siteJsonLd), /"email"/);
+});
+
+test("IntentLink renders a plain anchor and the four eager-prefetch call sites use it (#1283)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { IntentLink } = await import("@/components/intent-link");
+  const html = renderToStaticMarkup(createElement(IntentLink, { href: "/sepet", className: "cart-x", "aria-label": "Sepetim" }, "Sepet"));
+  assert.equal(html, '<a class="cart-x" aria-label="Sepetim" href="/sepet">Sepet</a>');
+  const intentSource = readFileSync("src/components/intent-link.tsx", "utf8");
+  assert.ok(intentSource.includes("prefetch={armed ? null : false}"));
+  for (const handler of ["onPointerEnter", "onTouchStart", "onFocus"]) assert.match(intentSource, new RegExp(`${handler}=\\{event => \\{ setArmed\\(true\\)`), handler);
+  for (const [file, href] of [["home-highlights.tsx", "categoryPath"], ["maintenance-robot-banner.tsx", "/bakim-robotu"], ["navigation/cart-badge.tsx", "/sepet"], ["navigation/header-tools.tsx", "/sepet"]]) {
+    const source = readFileSync(`src/components/${file}`, "utf8");
+    assert.match(source, /<IntentLink /, file);
+    assert.ok(source.includes(href), file);
+    assert.doesNotMatch(source, /<Link[^>]*href=\{?"?\/?(sepet|bakim-robotu)/, file);
+  }
+  assert.doesNotMatch(readFileSync("src/components/home-highlights.tsx", "utf8").split("HomeFeaturedCards")[1], /<Link /);
+});
+
+// #1295: the tabs carry only the first root's tiles; the others come from /api/categories (useCategoryTree).
+const tree = [
+  { id: 3, parentId: null, name: "Yedek Parça", slug: "yedek-parca", imagePath: null, path: [3], position: 0 },
+  { id: 10, parentId: 3, name: "Fren", slug: "fren-10", imagePath: "/api/category-media/a", path: [3, 10], position: 1 },
+  { id: 956, parentId: null, name: "Madeni Yağlar", slug: "yag", imagePath: null, path: [956], position: 2 },
+  { id: 11, parentId: 3, name: "Filtre", slug: "filtre-11", imagePath: null, path: [3, 11], position: 3 },
+  { id: 12, parentId: 956, name: "Motor Yağı", slug: "motor-yagi-12", imagePath: "/api/category-media/b", path: [956, 12], position: 4 },
+  { id: 967, parentId: null, name: "Aksesuar", slug: "aksesuar", imagePath: null, path: [967], position: 5 },
+];
+
+test("homeCategoryTabs sends every root but only the first root's children, in store order and with four fields", () => {
+  const { roots, initial } = homeCategoryTabs(tree);
+  assert.deepEqual(roots, [{ id: 3, name: "Yedek Parça" }, { id: 956, name: "Madeni Yağlar" }, { id: 967, name: "Aksesuar" }]);
+  assert.deepEqual(initial, [{ id: 10, name: "Fren", slug: "fren-10", imagePath: "/api/category-media/a" }, { id: 11, name: "Filtre", slug: "filtre-11", imagePath: null }]);
+  assert.deepEqual(childCategories(tree, 956), [{ id: 12, name: "Motor Yağı", slug: "motor-yagi-12", imagePath: "/api/category-media/b" }]);
+  assert.deepEqual(childCategories(tree, 967), []);
+  assert.deepEqual(homeCategoryTabs([]), { roots: [], initial: [] });
+});
+
+test("HomeCategoryTabs renders small named-class tabs and the first root's tiles only (#1295)", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { HomeCategoryTabs } = await import("@/components/home-controls");
+  const roots = ["Yedek Parça", "Bakım", "Madeni Yağlar", "Aksesuar", "Lastik"].map((name, index) => ({ id: index + 1, name }));
+  const initial = [1, 2, 3].map(id => ({ id: 100 + id, name: `Alt ${id}`, slug: `alt-${id}`, imagePath: id === 1 ? "/api/category-media/x" : null }));
+  const html = renderToStaticMarkup(createElement(HomeCategoryTabs, { roots, initial }));
+  const tabs = html.match(/<button [^>]*>/g) ?? [];
+  assert.equal(tabs.length, 5);
+  assert.equal((html.match(/role="tab"/g) ?? []).length, 5);
+  assert.match(tabs[0], /aria-selected="true"/);
+  for (const tab of tabs) {
+    assert.match(tab, /class="home-tab"/);
+    assert.ok(Buffer.byteLength(tab) <= 450, `tab tag ${Buffer.byteLength(tab)} bytes`);
+  }
+  assert.match(html, /role="tablist"[^>]*class="home-tabs"|class="home-tabs"[^>]*role="tablist"/);
+  assert.doesNotMatch(html, /group-data-/);
+  assert.equal((html.match(/role="tabpanel"/g) ?? []).length, 1);
+  assert.deepEqual([...html.matchAll(/href="(\/kategori\/[^"]*)"/g)].map(match => match[1]), ["/kategori/alt-1", "/kategori/alt-2", "/kategori/alt-3"]);
+});
+
+test("HomeStatic keeps the home SEO text, links and tax note in the HTML (#1295)", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { HomeStatic } = await import("@/components/home-static");
+  const about = renderToStaticMarkup(createElement(HomeStatic, { part: "about" }));
+  assert.ok(about.includes("Yedek parça ve bakım ürünleri için online mağazan"));
+  assert.ok(about.includes("Neden Getirbakim?"));
+  assert.equal((about.match(/<article /g) ?? []).length, 9);
+  assert.match(about, /href="\/katalog"/);
+  assert.equal((renderToStaticMarkup(createElement(HomeStatic, { part: "help" })).match(/<a /g) ?? []).length, 4);
+  const nav = renderToStaticMarkup(createElement(HomeStatic, { part: "nav", name: "Aksesuar", links: [["Paspas", "paspas-1"], ["Bagaj", "bagaj-2"]] }));
+  assert.match(nav, /<nav aria-label="Aksesuar alt kategorileri"/);
+  assert.deepEqual([...nav.matchAll(/href="([^"]*)"/g)].map(match => match[1]), ["/kategori/paspas-1", "/kategori/bagaj-2"]);
+  const card = renderToStaticMarkup(createElement(HomeStatic, { part: "category", parent: "Aksesuar", name: "Paspas", slug: "paspas-1", image: null }));
+  assert.match(card, /^<a [^>]*href="\/kategori\/paspas-1"/);
+  assert.ok(card.includes("Paspas") && card.includes("Aksesuar"));
+  const title = renderToStaticMarkup(createElement(HomeStatic, { part: "title", title: "Ürünleri keşfet", note: true, link: ["/katalog", "Tüm ürünler"] }));
+  assert.equal(title.split("Fiyatlar KDV dahil · Kargo hariç").length - 1, 1);
+  assert.match(title, /<h2 [^>]*>Ürünleri keşfet<\/h2>/);
+  assert.match(title, /href="\/katalog">Tüm ürünler <svg/);
+  const plain = renderToStaticMarkup(createElement(HomeStatic, { part: "title", title: "Popüler üreticiler", centered: true }));
+  assert.doesNotMatch(plain, /KDV|<a /);
+});
+
+test("home static blocks and tabs source guards (#1295)", async () => {
+  const { readFileSync } = await import("node:fs");
+  const staticSource = readFileSync("src/components/home-static.tsx", "utf8");
+  assert.ok(staticSource.startsWith('"use client";'));
+  assert.equal((staticSource.match(/^export function /gm) ?? []).length, 1, "one client export: each one is its own module row in the payload");
+  const page = readFileSync("src/app/(store)/page.tsx", "utf8");
+  for (const text of ["Neden Getirbakim", "<nav", "<article", "TabsTrigger"]) assert.ok(!page.includes(text), `page.tsx still has ${text}`);
+  const controls = readFileSync("src/components/home-controls.tsx", "utf8");
+  assert.ok(controls.includes("useCategoryTree") && !controls.includes("<TabsTrigger") && !controls.includes("<TabsList"));
 });

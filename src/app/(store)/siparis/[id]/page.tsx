@@ -26,7 +26,7 @@ import { storeErrorBox } from "@/components/store-alert-classes";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { CircleAlert, CircleCheck, Clock, Info, Undo2 } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { OrderProgress } from "@/components/order-progress";
 import { TrackPurchase } from "@/components/privacy/track-commerce";
 import { TrackRefund } from "@/components/privacy/track-refund";
@@ -84,7 +84,7 @@ function ReturnBlock({orderId,productId,ordered,shipment,returns,pending}:{order
   return <>
     {returns.map(r=><p key={r.id} className={panelMuted}>İade: {r.quantity} adet · {returnReasonLabels[r.reason as ReturnReason] ?? r.reason}{r.note ? ` · ${r.note}` : ""} · {time(r.created_at)}</p>)}
     {pending.length>0 && <div className="flex flex-col">
-      {pending.map(r=><p key={r.request_id} className={cn(panelMuted,"flex items-start gap-1.5")}><Clock className="mt-0.5 size-4 shrink-0" aria-hidden/><span><span className="font-medium text-foreground">Bekleyen partner iade talebi:</span> {r.quantity} adet · {returnReasonLabels[r.reason]}{r.note ? ` · ${r.note}` : ""} · {time(r.requested_at)}</span></p>)}
+      {pending.map(r=><p key={r.request_id} className={cn(panelMuted,"flex items-start gap-1.5")}><StoreIcon name="clock" className="mt-0.5 size-4 shrink-0"/><span><span className="font-medium text-foreground">Bekleyen partner iade talebi:</span> {r.quantity} adet · {returnReasonLabels[r.reason]}{r.note ? ` · ${r.note}` : ""} · {time(r.requested_at)}</span></p>)}
       <Link href="/yonetim/siparisler?status=return_request" className="-mt-2 inline-flex min-h-11 items-center gap-1.5 self-start text-sm leading-5 font-medium text-primary hover:underline">Talebi yönetimde incele<span aria-hidden>→</span></Link>
     </div>}
     {shipment && room>0 && <>
@@ -162,7 +162,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
   const returnMessage=admin && query.iade && Object.hasOwn(returnMessages,query.iade) ? returnMessages[query.iade] : null;
   const date=new Date(order.created_at);
   const metaDate=`${date.toLocaleDateString("tr-TR",{day:"numeric",month:"long",year:"numeric",timeZone:"Europe/Istanbul"})}, ${date.toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit",timeZone:"Europe/Istanbul"})}`;
-  const PaymentIcon=order.payment_status==="paid" ? CircleCheck : order.payment_status==="on_account" ? Info : order.payment_status==="awaiting" ? Clock : order.payment_status==="refunded" || order.payment_status==="refund_required" ? Undo2 : CircleAlert;
+  const paymentIcon=order.payment_status==="paid" ? "circle-check" : order.payment_status==="on_account" ? "info" : order.payment_status==="awaiting" ? "clock" : order.payment_status==="refunded" || order.payment_status==="refund_required" ? "undo-2" : "circle-alert";
   const row="flex items-baseline justify-between gap-4";
   const value="m-0 text-right tabular-nums";
   const trackUrl=shipment && order.tracking_url;
@@ -175,7 +175,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
     {linkView && <Alert role="note" className={cn(noticeBox,"mb-3")}><p>Bu sayfayı e-postandaki bağlantıyla görüntülüyorsun. {awaiting ? "Ödeme, iptal ya da değişiklik" : "İptal ya da değişiklik"} için siparişi verdiğin tarayıcıyı kullan.</p><p>Bu tarayıcıya erişemiyorsan bize ulaş: <a href={`mailto:${contactEmail}`} className={contactLink}>{contactEmail}</a> · <a href={`tel:${contactPhone}`} className={cn(contactLink,"whitespace-nowrap")}>{aboutContact.phone}</a></p></Alert>}
     {cancelMessage && <Alert role={cancelMessage.error ? "alert" : "status"} className={cn(cancelMessage.error ? storeErrorBox : noticeBox,"mb-3")}>{cancelMessage.text}</Alert>}
     <Card className={cn(panel,"mb-6 gap-3 ring-0")}>
-      <p role="status" className="m-0 text-[15px] leading-6">{order.payment_status==="on_account" && <Info className="mr-1.5 inline-block size-4 align-text-bottom" aria-hidden/>}{notice}</p>
+      <p role="status" className="m-0 text-[15px] leading-6">{order.payment_status==="on_account" && <StoreIcon name="info" className="mr-1.5 inline-block size-4 align-text-bottom"/>}{notice}</p>
       {payNow && order.installment_count>1 && <Alert role="note" className={noticeBox}>Siparişin {order.installment_count} taksitli (vade farkı dahil) toplamla oluşturuldu. {installmentHint(order.installment_count)}.</Alert>}
       {payNow && <PayButton orderId={order.id} total={total} installments={order.installment_count}/>}
       {payNow && <p className={panelMuted}>{PAYMENT_NOTICE}{order.payment_due_at && <><br/>Son ödeme zamanı: <time dateTime={new Date(order.payment_due_at).toISOString()}>{time(order.payment_due_at)}</time></>}</p>}
@@ -203,7 +203,7 @@ export default async function Order({params,searchParams}:{params:Promise<{id:st
           </dl>
           <Separator/>
           <dl className="m-0 grid gap-2.5 text-sm leading-5">
-            <div className={row}><dt>Ödeme durumu</dt><dd className="m-0 flex items-center gap-1.5 text-right"><PaymentIcon className="size-4 shrink-0" aria-hidden/>{paymentStatus[order.payment_status]}</dd></div>
+            <div className={row}><dt>Ödeme durumu</dt><dd className="m-0 flex items-center gap-1.5 text-right"><StoreIcon name={paymentIcon} className="size-4 shrink-0"/>{paymentStatus[order.payment_status]}</dd></div>
             {order.paid_at && <div className={row}><dt>Ödeme zamanı</dt><dd className={value}>{time(order.paid_at)}</dd></div>}
             {order.payment_status==="refunded" && order.refunded_at && <div className={row}><dt>İade</dt><dd className={value}>İade edilen: {money(refundedKurus)}, {new Date(order.refunded_at).toLocaleDateString("tr-TR",{timeZone:"Europe/Istanbul"})}</dd></div>}
           </dl>

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Truck, LockKeyhole, ChevronDown } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import type { CartItem } from "@/modules/store/cart";
 import { money, servicePrice } from "@/modules/store/catalog";
 import { orderTotals, type ShippingRule } from "@/modules/store/orders";
@@ -40,14 +40,14 @@ export function OrderSummary({items,discount,shipping,checkout=false,className}:
     <h2 id="order-summary-title" className="m-0 text-xl leading-7 font-semibold tracking-[-0.5px]">Sipariş özeti</h2>
     <p className="mb-4 text-[13px] text-muted-foreground">Sepetinde {quantity} ürün var</p>
     <div className="flex items-center gap-4 border-y border-border py-4 text-sm leading-5">
-      <Truck className="size-6 shrink-0 text-muted-foreground" aria-hidden/>
+      <StoreIcon name="truck" className="size-6 shrink-0 text-muted-foreground"/>
       <div><strong className="mb-1 block font-medium">Tek noktadan sevkiyat</strong><span className="block text-[13px] text-[#28652b]">Stok ve teslimat süresi teyit edilecek</span><small className="mt-1 block text-xs">{totals.freeShippingRemaining>0 ? `${money(totals.freeShippingRemaining)} daha ekle, kargo ücretsiz olsun.` : totals.shipping ? `Kargo ücreti ${money(totals.shipping)}.` : "Kargo ücretsiz."}</small></div>
     </div>
     {snapshot && <p className="m-0 pt-3 text-xs leading-[18px] text-muted-foreground">Fiyat ve stok bilgileri son kayıtlara dayanır. Siparişin fiyat ve stok teyidi bekleyecek.</p>}
     {checkout && <SummaryLines items={items} discount={discount}/>}
     <SummaryTotals totals={totals} discount={discount} checkout={checkout}/>
     {!checkout && <div className="grid gap-4">
-      {valid ? <Button nativeButton={false} className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full gap-2.5 max-[760px]:hidden")} render={<Link href="/siparis-olustur"/>}><LockKeyhole className="size-[18px]" aria-hidden/>Siparişi tamamla</Button>
+      {valid ? <Button nativeButton={false} className={cn(storeButton({ intent: "primary", size: "lg" }), "w-full gap-2.5 max-[760px]:hidden")} render={<Link href="/siparis-olustur"/>}><StoreIcon name="lock-keyhole" className="size-[18px]"/>Siparişi tamamla</Button>
         : <p id="cart-invalid" className="my-2 max-w-[420px] text-[13px] leading-5 text-[#ae3025]">Siparişe devam etmek için uygun olmayan ürünleri kaldır veya adetlerini güncelle.</p>}
       <Button variant="outline" nativeButton={false} className={cn(storeButton({ intent: "outline", size: "lg" }), "w-full gap-2.5 max-[760px]:hidden")} render={<Link href={catalogPath}/>}>Alışverişe devam et</Button>
     </div>}
@@ -62,7 +62,7 @@ export function CheckoutSummaryToggle({items,discount,shipping}:{items:CartItem[
   const totals=orderTotals(items,discount,shipping);
   return <Collapsible className="rounded-[10px] border border-border bg-card text-sm min-[761px]:hidden">
     <CollapsibleTrigger className="flex min-h-12 w-full cursor-pointer items-center justify-between gap-3 rounded-[10px] px-4 py-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50 [&[data-panel-open]>svg]:rotate-180">
-      <span>Sipariş özeti · {quantity} ürün</span><strong className="ml-auto tabular-nums"><InstallmentAmount fallbackKurus={totals.total}/></strong><ChevronDown className="size-4" aria-hidden/>
+      <span>Sipariş özeti · {quantity} ürün</span><strong className="ml-auto tabular-nums"><InstallmentAmount fallbackKurus={totals.total}/></strong><StoreIcon name="chevron-down" className="size-4"/>
     </CollapsibleTrigger>
     <CollapsibleContent className="border-t border-border px-4 pb-4">
       <SummaryLines items={items} discount={discount}/>

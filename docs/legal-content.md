@@ -14,7 +14,7 @@ KVKK hakları tamamlandı; amaç ve hukuki sebepler mevcut hesap/sepet/garaj iş
 
 - Site getirbakim.com adresinde yayındadır; 18 Kasım 2026'dan bu yana AWS Almanya/Frankfurt bölgesinde (eu-central-1) barındırılır ([AWS geçişi](aws-cutover.md); KVKK Aydınlatma Metni "Yurt Dışına Aktarım" bölümü).
 - Ödemeler TAMI ortak ödeme sayfasında alınır ([ödeme](payments.md)); kargo etiketleri Geliver aracılığıyla Yurtiçi Kargo'dan alınır ([entegrasyonlar](integrations.md)).
-- Bireysel müşteri kaydı mağazada açıktır (#1254); hesap e-posta adresi doğrulanınca açılır (#1258). Kodda sosyal giriş ve pazarlama gönderimi etkin değil; Google Analytics 4 yalnızca analiz çerezi rızasıyla ve `GA4_MEASUREMENT_ID` doluyken yüklenir (#644); Google Ads ve Meta Pixel yalnızca reklam çerezi rızasıyla ve `GOOGLE_ADS_ID` / `META_PIXEL_ID` doluyken yüklenir (#676).
+- Bireysel müşteri kaydı mağazada açıktır (#1254); hesap e-posta adresi doğrulanınca açılır (#1258). Kodda sosyal giriş ve pazarlama gönderimi etkin değil; Google Analytics 4 yalnızca analiz çerezi rızasıyla ve `GA4_MEASUREMENT_ID` doluyken yüklenir (#644); Google Ads ve Meta Pixel yalnızca reklam çerezi rızasıyla ve `GOOGLE_ADS_ID` / `META_PIXEL_ID` doluyken yüklenir (#676). Çerezsiz anonim ziyaret istatistiği (kendi sunucumuzda Plausible CE, AWS Frankfurt) birinci taraf analitik ölçütüyle, rıza istemeden ve yöneticiler hariç herkes için çalışır; yalnızca `PLAUSIBLE_URL` doluyken etiket basılır (#1290).
 
 Metinler uygulanmış bir AWS aktarım mekanizması veya tamamlanmış saklama/imha takvimi varmış gibi taahhüt içermez. Şirket, bu fiilî bilgilerin değişmesiyle metinleri güncellemelidir.
 

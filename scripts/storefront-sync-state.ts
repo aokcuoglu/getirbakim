@@ -1,5 +1,5 @@
 import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { BundleItem } from "./storefront-bundle-items";
 
@@ -119,26 +119,43 @@ export function releaseLock(path: string, pid = process.pid) {
   }
 }
 
-type PartSummary = { part: string; enrichments: number; mappings: number; jobs: number; tombstones: number; media: number; mediaBytes: number };
+/**
+ * What the sync needs from an export's manifest.json: the snapshot and counts. The export keeps its enrichments in
+ * enrichments.ndjson and records only enrichmentCount (#1316); only these fields are returned, so the parsed jobs and
+ * vehicle data are not held in memory while the export is split.
+ */
+export function exportSummary(text: string) {
+  const { snapshotAt, enrichmentCount, jobs, tombstones, invalidatedJobs, maxDeletions } = JSON.parse(text) as {
+    snapshotAt?: unknown; enrichmentCount?: unknown; jobs?: unknown[]; tombstones?: unknown[]; invalidatedJobs?: number; maxDeletions?: number;
+  };
+  if (typeof snapshotAt !== "string") throw new Error("The export's manifest.json has no snapshotAt");
+  if (typeof enrichmentCount !== "number") throw new Error("The export's manifest.json has no enrichmentCount");
+  return { snapshotAt, enrichmentCount, jobs: jobs?.length ?? 0, tombstones: tombstones?.length ?? 0, invalidatedJobs: invalidatedJobs ?? 0, maxDeletions };
+}
+
+// jsonBytes: the size of the part's manifest.json (split-storefront-bundle.ts caps its enrichment JSON, #1316).
+type PartSummary = { part: string; enrichments: number; mappings: number; jobs: number; tombstones: number; media: number; mediaBytes: number; jsonBytes: number };
 
 /** Row and media counts of every part split-storefront-bundle.ts wrote; part-00 (always-complete data) apart. */
 export async function summarizeParts(partsDir: string) {
   const names = (await readdir(partsDir)).filter(name => /^part-\d+$/.test(name)).sort((a, b) => Number(a.slice(5)) - Number(b.slice(5)));
   const parts: PartSummary[] = [];
   for (const part of names) {
-    const manifest = JSON.parse(await readFile(resolve(partsDir, part, "manifest.json"), "utf8")) as {
+    const path = resolve(partsDir, part, "manifest.json");
+    const manifest = JSON.parse(await readFile(path, "utf8")) as {
       enrichments?: unknown[]; products?: unknown[]; jobs?: unknown[]; tombstones?: unknown[]; media?: { size_bytes: number | string }[];
     };
     parts.push({
       part, enrichments: manifest.enrichments?.length ?? 0, mappings: manifest.products?.length ?? 0, jobs: manifest.jobs?.length ?? 0,
       tombstones: manifest.tombstones?.length ?? 0,
       media: manifest.media?.length ?? 0, mediaBytes: (manifest.media ?? []).reduce((sum, object) => sum + Number(object.size_bytes), 0),
+      jsonBytes: (await stat(path)).size,
     });
   }
-  const totals = { parts: parts.length, enrichments: 0, mappings: 0, jobs: 0, tombstones: 0, media: 0, mediaBytes: 0 };
+  const totals = { parts: parts.length, enrichments: 0, mappings: 0, jobs: 0, tombstones: 0, media: 0, mediaBytes: 0, jsonBytes: 0 };
   for (const part of parts) {
     totals.enrichments += part.enrichments; totals.mappings += part.mappings; totals.jobs += part.jobs; totals.tombstones += part.tombstones;
-    totals.media += part.media; totals.mediaBytes += part.mediaBytes;
+    totals.media += part.media; totals.mediaBytes += part.mediaBytes; totals.jsonBytes += part.jsonBytes;
   }
   const base = parts.find(part => part.part === "part-00") ?? null;
   return { base, parts: parts.filter(part => part !== base), totals };

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Wrench } from "lucide-react";
+import { StoreIcon } from "@/components/site/store-icon";
 import { BrandLogo } from "@/components/brand-logo";
 import { HeaderTools } from "@/components/navigation/header-tools";
 import { CategoryMenu } from "@/components/navigation/category-menu";
@@ -38,7 +38,7 @@ export async function SiteHeader() {
       </div>
       <nav aria-label="Kategoriler" className="site-header-nav">
         <CategoryMenu links={headerCategoryLinks(categories)} account={<SheetAccount/>}/>
-        <Link className="site-nav-robot" href="/bakim-robotu" prefetch={false}><Wrench size={14} aria-hidden="true"/> Bakım Robotu</Link>
+        <Link className="site-nav-robot" href="/bakim-robotu" prefetch={false}><StoreIcon name="wrench" size={14}/> Bakım Robotu</Link>
         <Link className="site-nav-help" href="/bilgi/yardim" prefetch={false}><SiteIcon name="help" size={14}/> Yardım al</Link>
       </nav>
     </header>

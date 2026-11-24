@@ -361,3 +361,42 @@ test("the facet rows follow the links (#994)", async () => {
   await syncSharedLinks(schema.pool);
   assert.equal((await facetRows()).facet, undefined);
 });
+
+test("the attribute filter reads the facet rows (#1248)", async () => {
+  await item("filterA", { supplier: "dinamik", code: "ATE 15015", brand: "ATE", name: "ATE FREN DISKI ON SOL" });
+  await item("filterB", { supplier: "dinamik", code: "ATE 16016", brand: "ATE", name: "ATE FREN DISKI ON SOL EKO" });
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await enrich("filterA", "ATE", "15015", [["Fitting Position", "Front Axle Left"], ["Brand class", "Premium"], ["Thickness [mm]", "24"]]);
+  await enrich("filterB", "ATE", "16016", [["Fitting Position", "Front Axle Left"], ["Brand class", "Budget"]]);
+  await syncSharedLinks(schema.pool);
+  const rowsA: [string, string][] = [["Brand class", "Premium"], ["Fitting Position", "Front Axle Left"]];
+  assert.deepEqual((await facetRows()).filterA, rowsA);
+  assert.deepEqual((await facetRows()).filterB, [["Brand class", "Budget"], ["Fitting Position", "Front Axle Left"]]);
+  // Listings are cached per filter for the process: every read below uses another option set.
+  assert.deepEqual((await filtered({ "Fitting Position": ["Front Axle Left"] })).sort(), [ids.filterA, ids.filterB].sort());
+  // Two properties are both required.
+  assert.deepEqual(await filtered({ "Fitting Position": ["Front Axle Left"], "Brand class": ["Premium"] }), [ids.filterA]);
+  // Only the keys the sidebar offers filter: another key matches nothing, from the payload or set by the admin.
+  assert.ok((await card("filterA"))?.some(([key, value]) => key === "Thickness [mm]" && value === "24"));
+  assert.deepEqual(await filtered({ "Thickness [mm]": ["24"] }), []);
+  assert.deepEqual(await set(await productOf("filterA"), "Renk", "Lacivert"), { ok: true });
+  assert.ok((await card("filterA"))?.some(([key, value]) => key === "Renk" && value === "Lacivert"));
+  assert.deepEqual(await filtered({ Renk: ["Lacivert"] }), []);
+  // The identity guard runs when the filter reads: a row whose code changed is still listed and keeps its facet rows
+  // until the queue is drained, yet the filter no longer finds it.
+  await schema.pool.query("UPDATE supplier_items SET code='ATE 15017' WHERE id=$1", [ids.filterA]);
+  assert.deepEqual((await facetRows()).filterA, rowsA);
+  const listed = await schema.pool.query(`SELECT 1 FROM (${catalog.catalogEntriesSql}) catalog WHERE catalog.id=$2`, [storefrontCompanies(), ids.filterA]);
+  assert.equal(listed.rowCount, 1);
+  assert.deepEqual(await filtered({ "Fitting Position": ["Front Axle Left", "Front Axle Right"] }), [ids.filterB]);
+  await schema.pool.query("UPDATE supplier_items SET code='ATE 15015' WHERE id=$1", [ids.filterA]);
+  await syncSharedLinks(schema.pool);
+  assert.deepEqual((await facetRows()).filterA, rowsA);
+  // The admin's value of a facet key replaces the automatic one, beside the automatic values of another key.
+  assert.deepEqual(await set(await productOf("filterB"), "Fitting Position", "Rear Axle Right"), { ok: true });
+  assert.deepEqual(await filtered({ "Fitting Position": ["Rear Axle Right"], "Brand class": ["Budget"] }), [ids.filterB]);
+  assert.deepEqual(await filtered({ "Fitting Position": ["Front Axle Left"], "Brand class": ["Budget"] }), []);
+  assert.deepEqual((await filtered({ "Fitting Position": ["Front Axle Left", "Rear Axle Right"] })).sort(), [ids.filterA, ids.filterB].sort());
+  // No listing read unpacks the enrichment payload's specifications any more.
+  assert.ok(!/payload->'specifications'/.test(await readFile("src/modules/store/catalog.ts", "utf8")));
+});

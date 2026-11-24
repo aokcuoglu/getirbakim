@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import { defaultSocialImage, siteOpenGraph, siteUrl } from "@/lib/site";
 import Link from "next/link";
 import { notFound, permanentRedirect, redirect } from "next/navigation";
-import { ChevronRight, Truck, Info, ShieldCheck, RotateCcw, ClipboardCheck, PackageCheck, CircleAlert, CarFront, Headphones } from "lucide-react";
-import { getDecidedEquivalents, getSetaEquivalents, getStorefrontProduct, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
+import { StoreIcon } from "@/components/site/store-icon";
+import { getStorefrontProduct, getStoreProduct, money, servicePrice, categories } from "@/modules/store/catalog";
 import { currentAccount } from "@/modules/auth/session";
 import { accountEmailEnabled } from "@/modules/auth/account-email-switch";
 import { PurchaseForm } from "@/components/purchase-form";
@@ -43,8 +43,10 @@ import { notListedInput, vehicleNotListed } from "@/modules/store/fitment-notice
 import { fitmentVehicle } from "@/modules/store/fitment-level.server";
 import { describeYears, getDescriptionFitments } from "@/modules/store/description-fitment.server";
 import { ProductFitment } from "@/components/product-fitment";
-import { productPageFitment } from "@/modules/store/product-fitment-sources";
-import { getReferenceLinks } from "@/modules/store/reference-links";
+import { fitmentVersion, productPageFitment } from "@/modules/store/product-fitment-sources";
+import { ProductReferences } from "@/components/product-references";
+import { productReferenceRows } from "@/modules/store/product-reference-data.server";
+import { initialReferenceView } from "@/modules/store/product-reference-view";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { cn } from "@/lib/utils";
 import { JsonLd } from "@/components/json-ld";
@@ -60,10 +62,10 @@ import { installmentOptions } from "@/modules/payments/installment-plan";
 import { PaymentOptions } from "@/components/payment-options";
 
 const benefits = [
-  { icon: ShieldCheck, size: 23, title: "Güvenli alışveriş", text: <>Fiyat ve sipariş bilgilerini hesabından takip et.</> },
-  { icon: Truck, size: 25, title: "Tek noktadan tedarik", text: <>Parçaların Getirbakim operasyonunda bir araya gelir.</> },
-  { icon: RotateCcw, size: 23, title: "İade ve değişim", text: <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">İade koşullarını ve sürecini incele.</Link> },
-  { icon: ClipboardCheck, size: 23, title: "Araç uyumluluğu", text: <>OEM kodunu, motor ve model bilgilerini karşılaştır.</> },
+  { icon: "shield-check" as const, size: 23, title: "Güvenli alışveriş", text: <>Fiyat ve sipariş bilgilerini hesabından takip et.</> },
+  { icon: "truck" as const, size: 25, title: "Tek noktadan tedarik", text: <>Parçaların Getirbakim operasyonunda bir araya gelir.</> },
+  { icon: "rotate-ccw" as const, size: 23, title: "İade ve değişim", text: <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">İade koşullarını ve sürecini incele.</Link> },
+  { icon: "clipboard-check" as const, size: 23, title: "Araç uyumluluğu", text: <>OEM kodunu, motor ve model bilgilerini karşılaştır.</> },
 ];
 
 // Metadata and the page read the same enrichment once per request. The enrichment is looked up by the supplier's code
@@ -229,40 +231,15 @@ export default async function Detail({ params, searchParams }: { params: Promise
   const fitmentSummary = fallbacks.vehicleModels.length ? fallbacks.vehicleModels
     : vehicles.length ? [...new Set(vehicles.map(row => row.model))] : descriptionModels.map(row => `${row.brand} ${row.model}`);
   // The list prints its first model groups, the garage vehicle's first; the rest loads from /api/product-fitments/[id]
-  // under the version of the garage-independent list (#966).
+  // under the version of the garage-independent list (#966), as do the printed groups' engine rows past 24 (#1324).
   const fitmentGarage = garageVehicle && vehicle ? { ...garageVehicle, makeLabel: fitmentLabels({ model: vehicle.make }, makeNames).makeLabel } : null;
   const fitmentList = productPageFitment({ vehicles, makeNames, modelFits, modelPaths }, fitmentGarage, product.id);
-  const referenceNumbers: Record<string, string[]> = {};
-  for (const [brand, codes] of [...Object.entries(refs.crossReferences), ...Object.entries(refs.oemNumbers)]) {
-    referenceNumbers[brand] = [...new Set([...(referenceNumbers[brand] || []), ...codes])];
-  }
-  const references = Object.entries(referenceNumbers).sort(([a], [b]) => a.localeCompare(b));
-  const referenceHref = await getReferenceLinks(product.id, [
-    ...Object.entries(refs.crossReferences).map(([brand, codes]) => ({ brand, codes, kind: "cross" as const })),
-    ...Object.entries(refs.oemNumbers).map(([brand, codes]) => ({ brand, codes, kind: "oem" as const })),
-  ]);
-  const [seta, decided] = await Promise.all([product.supplier === "seta" ? [] : getSetaEquivalents(product.id), getDecidedEquivalents(product.id)]);
-  const referenceRows: [string, { code: string; href?: string | null }[]][] = references.map(([brand, codes]) => [brand, codes.map(code => ({ code, href: referenceHref(brand, code) }))]);
-  // Equivalents listed in the store link to their pages, first in their brand's row; a code printed by the
-  // enrichment's references as well is shown once.
-  const linkEquivalents = (brand: string, items: { href: string | null; code: string }[]) => {
-    // Dinamik codes carry the brand's first word ("WAGENBURG 15036003"), printed in the row's label already.
-    const prefix = `${brand.split(" ")[0]} `;
-    const linked = items.map(item => ({ code: brand !== "SETA" && item.code.startsWith(prefix) ? item.code.slice(prefix.length) : item.code, href: item.href }));
-    const existing = referenceRows.findIndex(([name]) => name.toLocaleUpperCase("tr-TR") === brand.toLocaleUpperCase("tr-TR"));
-    if (existing >= 0) {
-      const [name, codes] = referenceRows[existing];
-      referenceRows[existing] = [name, [...linked, ...codes.filter(({ code }) => !linked.some(item => item.code === code))]];
-    } else referenceRows.push([brand, linked]);
-  };
-  // SETA equivalents under the part number the store shows for them (#602).
-  if (seta.length > 0) linkEquivalents("SETA", seta.map(item => ({ href: productPath(item), code: item.display_code })));
-  const decidedBrands = new Map<string, typeof decided>();
-  for (const item of decided.filter(item => !seta.some(row => row.id === item.id))) decidedBrands.set(item.brand, [...(decidedBrands.get(item.brand) || []), item]);
-  for (const [brand, items] of decidedBrands) linkEquivalents(brand, items);
-  referenceRows.sort(([a], [b]) => a.localeCompare(b));
+  // The OEM and equivalent numbers (#1211): a long list prints its first rows, the linked and vehicle-maker ones first;
+  // the rest loads from /api/product-references/[id] under the whole list's version.
+  const { rows, oemBrands } = await productReferenceRows(product, refs);
+  const referenceView = initialReferenceView(rows, oemBrands, `/api/product-references/${product.id}?v=${fitmentVersion(rows)}`);
   const crumbLink = "transition-colors hover:text-[#2d78c7] max-[750px]:inline-flex max-[750px]:min-h-11 max-[750px]:items-center";
-  const crumbSeparator = <BreadcrumbSeparator className="max-[750px]:shrink-0 [&>svg]:size-[13px]"><ChevronRight/></BreadcrumbSeparator>;
+  const crumbSeparator = <BreadcrumbSeparator className="max-[750px]:shrink-0 [&>svg]:size-[13px]"><StoreIcon name="chevron-right"/></BreadcrumbSeparator>;
   const sectionTitle = "mb-7 text-[26px] leading-[34px] font-semibold tracking-[-.6px] max-[750px]:mb-5 max-[750px]:text-[23px] max-[750px]:leading-[30px]";
   const shell = "mx-auto w-full max-w-[1440px] px-3.5 min-[1450px]:px-8 max-[750px]:px-4";
   const garageNote = "flex items-start gap-2 text-[13px] leading-5 [&>svg]:mt-0.5 [&>svg]:shrink-0";
@@ -302,16 +279,16 @@ export default async function Detail({ params, searchParams }: { params: Promise
           <p className="mb-[18px] flex items-center gap-2 text-[13px] text-[#53677d]">KDV dahil <span className="h-3.5 border-l border-[#dbe0e6]"/> <Link className="hover:text-[#0065c3]" href="/bilgi/teslimat">Kargo ücreti hariç</Link></p>
           <PurchaseForm productId={product.offer_id ?? product.id} name={product.display_code} available={product.available} maxQuantity={product.max_quantity} variant="product" price={price!}/>
         </>}
-        <div className={cn("flex min-h-[54px] items-center gap-4 rounded-[5px] border px-4 py-3", vehicle ? "border-border bg-[#f8fafc]" : "border-[#ffb380] bg-[#fffaee]")}>{vehicle ? <CarFront size={20} className="shrink-0 text-primary"/> : <CircleAlert size={20} className="shrink-0 text-[#fb8c00]"/>}<GarageButton vehicle={shown} variant="product"/></div>
-        {fitment === "guaranteed" && <p className={cn(garageNote, "text-[#26734d]")}><ClipboardCheck size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel}, bu ürünün uyumluluk listesinde yer alıyor.</p>}
+        <div className={cn("flex min-h-[54px] items-center gap-4 rounded-[5px] border px-4 py-3", vehicle ? "border-border bg-[#f8fafc]" : "border-[#ffb380] bg-[#fffaee]")}>{vehicle ? <StoreIcon name="car-front" size={20} className="shrink-0 text-primary"/> : <StoreIcon name="circle-alert" size={20} className="shrink-0 text-[#fb8c00]"/>}<GarageButton vehicle={shown} variant="product"/></div>
+        {fitment === "guaranteed" && <p className={cn(garageNote, "text-[#26734d]")}><StoreIcon name="clipboard-check" size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel}, bu ürünün uyumluluk listesinde yer alıyor.</p>}
         {fitment === "likely" && (descriptionModels.length
-          ? <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel} modeli ürün açıklamasında geçiyor; motor tipi doğrulanmadı, siparişten önce OEM kodunu kontrol et.</p>
-          : <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel} modeli listede; motor tipini <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> tablosundan doğrula.</p>)}
-        {vehicle && fitment === "unknown" && !notListed && <p className={cn(garageNote, "text-[#8a5a00]")}><Info size={17}/>Bu ürünün aracınla uyumu doğrulanamadı; siparişten önce {product.oem || referenceRows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</p>}
-        {notListed && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/><span>Seçili aracınla uyumlu görünmüyor: garajındaki {shown!.makeLabel} {shown!.modelLabel}, bu ürünün <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> listesinde görünmüyor. Siparişten önce {product.oem || referenceRows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</span></p>}
-        {fitment === "mismatch" && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><CircleAlert size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
-        {!product.unavailable && <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><PackageCheck size={17}/>{product.stock_label}</p>}
-        <Link className="flex items-center gap-4 border-y border-[#dbe0e6] py-[18px]" href="/bilgi/teslimat"><Truck size={32} className="shrink-0"/><span><strong className="flex items-center gap-1.5 text-base font-medium">Teslimat bilgileri <Info size={14} className="text-[#2e78c7]"/></strong><small className="mt-1 block text-[13px] text-[#53677d]">{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><ChevronRight size={18} className="ml-auto shrink-0 text-[#53677d]"/></Link>
+          ? <p className={cn(garageNote, "text-[#8a5a00]")}><StoreIcon name="info" size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel} modeli ürün açıklamasında geçiyor; motor tipi doğrulanmadı, siparişten önce OEM kodunu kontrol et.</p>
+          : <p className={cn(garageNote, "text-[#8a5a00]")}><StoreIcon name="info" size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel} modeli listede; motor tipini <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> tablosundan doğrula.</p>)}
+        {vehicle && fitment === "unknown" && !notListed && <p className={cn(garageNote, "text-[#8a5a00]")}><StoreIcon name="info" size={17}/>Bu ürünün aracınla uyumu doğrulanamadı; siparişten önce {product.oem || rows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</p>}
+        {notListed && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><StoreIcon name="circle-alert" size={17}/><span>Seçili aracınla uyumlu görünmüyor: garajındaki {shown!.makeLabel} {shown!.modelLabel}, bu ürünün <a className="underline" href="#uyumlu-araclar">uyumlu araçlar</a> listesinde görünmüyor. Siparişten önce {product.oem || rows.length > 0 ? "OEM kodunu" : "ürün özelliklerini"} kontrol et.</span></p>}
+        {fitment === "mismatch" && <p className={cn(garageNote, "font-semibold text-[#b3261e]")} role="alert"><StoreIcon name="circle-alert" size={17}/>Garajındaki {shown!.makeLabel} {shown!.modelLabel}{vehicle!.engine ? ` ${vehicle!.engine}` : ""} bu ürünün uyumluluk listesinde yok. Siparişten önce OEM kodunu kontrol et.</p>}
+        {!product.unavailable && <p className={cn("my-5 flex items-center gap-2 text-[13px] max-[750px]:my-[18px]", !product.available && "text-[#66778a]")}><StoreIcon name="package-check" size={17}/>{product.stock_label}</p>}
+        <Link className="flex items-center gap-4 border-y border-[#dbe0e6] py-[18px]" href="/bilgi/teslimat"><StoreIcon name="truck" size={32} className="shrink-0"/><span><strong className="flex items-center gap-1.5 text-base font-medium">Teslimat bilgileri <StoreIcon name="info" size={14} className="text-[#2e78c7]"/></strong><small className="mt-1 block text-[13px] text-[#53677d]">{product.source === "supplier" ? "Stok ve sevkiyat süresi sipariş sonrası teyit edilir." : "Parçaların tek noktadan hazırlanır ve gönderilir."}</small></span><StoreIcon name="chevron-right" size={18} className="ml-auto shrink-0 text-[#53677d]"/></Link>
         {paymentOptions.length > 1 && <PaymentOptions options={paymentOptions}/>}
         <dl className="mt-[18px] mb-1.5">{specificationRows.slice(0, 4).map(([label, value]) => <div key={label} className="my-2 flex gap-[5px]"><dt className="text-[#53677d]">{label}:</dt><dd className="font-medium">{value}</dd></div>)}</dl>
         <a className="mb-5 inline-block font-medium text-[#0065c3] hover:underline" href="#product-specifications">Tüm özellikleri göster</a>
@@ -319,7 +296,7 @@ export default async function Detail({ params, searchParams }: { params: Promise
       </div>
     </div>
     <div className="mt-8 mb-10 grid grid-cols-2 gap-[15px] max-[750px]:my-7 max-[750px]:grid-cols-1 max-[750px]:gap-2.5">
-      {benefits.map(({ icon: Icon, size, title, text }) => <div key={title} className="flex min-h-[86px] items-start gap-3.5 rounded-[5px] border border-[#dfe4ea] p-5 max-[750px]:min-h-[76px] max-[750px]:p-4"><Icon size={size} strokeWidth={1.25} className="shrink-0"/><span><strong className="block font-medium">{title}</strong><small className="mt-1 block text-[13px] leading-5 text-[#465a70]">{text}</small></span></div>)}
+      {benefits.map(({ icon, size, title, text }) => <div key={title} className="flex min-h-[86px] items-start gap-3.5 rounded-[5px] border border-[#dfe4ea] p-5 max-[750px]:min-h-[76px] max-[750px]:p-4"><StoreIcon name={icon} size={size} strokeWidth={1.25} className="shrink-0"/><span><strong className="block font-medium">{title}</strong><small className="mt-1 block text-[13px] leading-5 text-[#465a70]">{text}</small></span></div>)}
     </div>
   </section>
   <div className="border-t border-[#dce2e9] bg-[#f7f8fa] pt-[50px] pb-[60px] max-[750px]:pt-7 max-[750px]:pb-10"><div className={cn(shell, "grid grid-cols-[minmax(0,1fr)_280px] items-start gap-12 max-[1000px]:grid-cols-[minmax(0,1fr)_230px] max-[1000px]:gap-6 max-[750px]:flex max-[750px]:flex-col max-[750px]:gap-6")}>
@@ -333,16 +310,16 @@ export default async function Detail({ params, searchParams }: { params: Promise
       {descriptionModels.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="uyumlu-araclar"><h2 className={sectionTitle}>Uyumlu araç modelleri</h2><div className="flex flex-wrap gap-3">{descriptionModels.map(row => {
         const label = <>{vehicleSeriesLabel(`${row.brand} ${row.model}`)}{describeYears(row) && <span className="text-[#53677d]"> · {describeYears(row)}</span>}</>, href = modelPaths.get(row.modelId);
         // A linked model (#674) reads as a link at rest too: blue text and an arrow, not only on hover.
-        return href ? <Link key={row.modelId} prefetch={false} href={href} className="inline-flex items-center gap-1.5 rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3 text-[#0065c3] transition-colors hover:border-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3]"><span>{label}</span><ChevronRight size={15} aria-hidden="true" className="shrink-0"/></Link>
+        return href ? <Link key={row.modelId} prefetch={false} href={href} className="inline-flex items-center gap-1.5 rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3 text-[#0065c3] transition-colors hover:border-[#0065c3] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3]"><span>{label}</span><StoreIcon name="chevron-right" size={15} className="shrink-0"/></Link>
           : <span key={row.modelId} className="rounded-[5px] border border-[#dce2e9] bg-white px-[18px] py-3">{label}</span>;
       })}</div><p className="mt-3 text-[#53677d]">Bu liste tedarikçinin ürün açıklamasından çıkarıldı; motor tipi doğrulanmadı. Siparişten önce OEM numarasıyla kontrol et.</p></section>}
-      {referenceRows.length > 0 && <section className="mt-[42px] scroll-mt-[110px]" id="oem-numaralari"><h2 className={sectionTitle}>{brand} {displayPartNumber} OEM ve muadil numaraları</h2><dl className="m-0 max-h-[420px] overflow-y-auto overscroll-contain rounded-lg border border-[#dce2e9] bg-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0065c3] max-[750px]:max-h-[360px]" tabIndex={0} aria-label="OEM ve muadil numaraları">{referenceRows.map(([brand, codes]) => <div key={brand} className="reference-row"><dt className="text-[#53677d]">{brand}</dt><dd className="reference-codes">{codes.map(({ code, href }) => href ? <Link key={code} className="text-[#0065c3] hover:underline focus-visible:underline" href={href}>{code}</Link> : <span key={code}>{code}</span>)}</dd></div>)}</dl></section>}
-      <section className="mt-[42px] flex scroll-mt-[110px] gap-5 border-t border-[#dce2e9] pt-9" id="urun-yardim"><Headphones size={30} className="shrink-0"/><div><h2 className={cn(sectionTitle, "mb-3 max-[750px]:mb-3")}>Bu ürün hakkında soruların mı var?</h2><p className="text-[#53677d]">{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link className="inline-flex items-center gap-1.5 font-medium text-[#0065c3] hover:underline" href="/bilgi/yardim">Yardım merkezine git <ChevronRight size={15}/></Link></div></section>
+      {rows.length > 0 && <ProductReferences view={referenceView} title={`${brand} ${displayPartNumber} OEM ve muadil numaraları`}/>}
+      <section className="mt-[42px] flex scroll-mt-[110px] gap-5 border-t border-[#dce2e9] pt-9" id="urun-yardim"><StoreIcon name="headphones" size={30} className="shrink-0"/><div><h2 className={cn(sectionTitle, "mb-3 max-[750px]:mb-3")}>Bu ürün hakkında soruların mı var?</h2><p className="text-[#53677d]">{title} için ürün, uyumluluk ve sipariş bilgileri konusunda yardım al.</p><Link className="inline-flex items-center gap-1.5 font-medium text-[#0065c3] hover:underline" href="/bilgi/yardim">Yardım merkezine git <StoreIcon name="chevron-right" size={15}/></Link></div></section>
     </div>
     <nav className="sticky top-[110px] overflow-hidden rounded-[11px] border border-[#dce2e9] bg-white py-2 max-[750px]:static max-[750px]:order-first max-[750px]:flex max-[750px]:w-full max-[750px]:flex-nowrap max-[750px]:overflow-x-auto max-[750px]:[scrollbar-width:none] max-[750px]:[&::-webkit-scrollbar]:hidden max-[750px]:mask-r-from-[calc(100%-24px)] max-[750px]:rounded-md max-[750px]:p-1.5" aria-label="Ürün bilgileri">{[
       ["#product-specifications", "Ürün detayları", true],
       ["#uyumlu-araclar", "Uyumlu araçlar", hasFitment],
-      ["#oem-numaralari", "OEM ve muadil numaraları", referenceRows.length > 0],
+      ["#oem-numaralari", "OEM ve muadil numaraları", rows.length > 0],
       ["#urun-yardim", "Bu ürün hakkında sorular", true],
     ].filter(([, , shown]) => shown).map(([href, label]) => <a key={String(href)} href={String(href)} className="block px-5 py-2 text-sm leading-[18px] font-medium hover:bg-[#f7f8fa] max-[750px]:inline-flex max-[750px]:min-h-11 max-[750px]:shrink-0 max-[750px]:items-center max-[750px]:whitespace-nowrap max-[750px]:rounded-[5px] max-[750px]:px-3 max-[750px]:text-[13px]">{label}</a>)}</nav>
   </div></div></div>;

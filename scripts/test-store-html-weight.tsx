@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import { ArrowRight, CalendarCheck, CarFront, Check, ChevronDown, ChevronRight, CircleAlert, CircleCheck, ClipboardCheck, Clock, CreditCard, Headphones, Images, Info, Layers, LockKeyhole, MapPin, Package, PackageCheck, RotateCcw, Search, ShieldCheck, ShoppingCart, Trash2, Truck, Undo2, UserRound, Wrench, X } from "lucide-react";
 import { CatalogCategoryChips } from "../src/components/catalog-category-chips";
 import { CategoryCards } from "../src/components/category-cards";
 import { SocialLinks } from "../src/components/social-links";
 import { VehicleModelListView } from "../src/components/vehicle-model-list-view";
 import { HomeProductCardView } from "../src/components/home-product-card-view";
+import { StoreIcon } from "../src/components/site/store-icon";
 import type { StoreCategory } from "../src/modules/store/category-tree";
 
 // #642: the listing markup repeated per category carries named classes, not utility lists. A card or chip that grows
@@ -116,6 +118,14 @@ test("the listing views are client components and their server adapters render n
   }
 });
 
+// #1295: the home category tabs are Base UI's Tabs.List / Tabs.Tab with named classes, not the TabsTrigger class list.
+test("the home tab classes exist in storefront.css", () => {
+  for (const name of ["home-tabs", "home-tab"]) assert.ok(defined(name), `.${name} is missing from storefront.css`);
+  // The list's overflow-x clips everything outside a tab, so the focus outline must be drawn inside it.
+  assert.match(css, /\.home-tab \{[^}]*focus-visible:-outline-offset-2/, ".home-tab focus outline must be inset");
+  assert.ok(source("../src/components/home-controls.tsx").includes('className="home-tab"'), "home-controls.tsx: home-tab");
+});
+
 test("HomeProductCardView keeps the home card markup", () => {
   const priced = renderToStaticMarkup(<HomeProductCardView model={{ href: "/urun/a-1", title: "Yağ Filtresi BOSCH 123", categoryHref: "/kategori/filtre",
     categoryName: "Filtreler", amount: "900,00 ₺", regular: "1.350,00 ₺" }} />);
@@ -134,4 +144,26 @@ test("HomeProductCardView keeps the home card markup", () => {
   const noPrice = renderToStaticMarkup(<HomeProductCardView model={{ href: "/urun/a-1", title: "T", categoryHref: "/katalog", categoryName: "Yedek parçalar",
     note: { text: "Fiyat bilgisi güncelleniyor" } }} />);
   assert.ok(noPrice.includes('<span class="home-card-note">Fiyat bilgisi güncelleniyor</span>'));
+});
+
+// #1213: the wrapper only moves the client boundary; the server HTML must stay lucide's own.
+test("StoreIcon renders lucide's own markup", () => {
+  const direct = {
+    "arrow-right": ArrowRight, "car-front": CarFront, "chevron-right": ChevronRight, "circle-alert": CircleAlert, "circle-check": CircleCheck,
+    "clipboard-check": ClipboardCheck, "credit-card": CreditCard, headphones: Headphones, info: Info, package: Package, "package-check": PackageCheck,
+    "rotate-ccw": RotateCcw, search: Search, "shield-check": ShieldCheck, truck: Truck, "user-round": UserRound, wrench: Wrench, x: X,
+    "calendar-check": CalendarCheck, check: Check, "chevron-down": ChevronDown, clock: Clock, images: Images, layers: Layers, "lock-keyhole": LockKeyhole,
+    "map-pin": MapPin, "shopping-cart": ShoppingCart, "trash-2": Trash2, "undo-2": Undo2,
+  };
+  for (const [name, Icon] of Object.entries(direct) as [keyof typeof direct, typeof Search][]) {
+    assert.equal(renderToStaticMarkup(<StoreIcon name={name} size={22} className="shrink-0 text-primary" />), renderToStaticMarkup(<Icon size={22} className="shrink-0 text-primary" />), name);
+  }
+  assert.equal(renderToStaticMarkup(<StoreIcon name="truck" size={25} strokeWidth={1.25} className="shrink-0" />), renderToStaticMarkup(<Truck size={25} strokeWidth={1.25} className="shrink-0" />));
+  assert.equal(renderToStaticMarkup(<StoreIcon name="circle-alert" size={22} className="fill-[#f0a020] text-white" />), renderToStaticMarkup(<CircleAlert size={22} className="fill-[#f0a020] text-white" />));
+  assert.ok(renderToStaticMarkup(<StoreIcon name="x" />).includes('aria-hidden="true"'), "decorative by default");
+  const source = readFileSync(new URL("../src/components/site/store-icon.tsx", import.meta.url), "utf8");
+  assert.ok(source.startsWith('"use client"'));
+  const mapped = source.match(/const icons = \{([\s\S]*?)\} as const/)?.[1].split("\n").filter((line) => /^\s+\S+: \w+,$/.test(line)).length;
+  assert.equal(mapped, Object.keys(direct).length, "every icon in store-icon.tsx is covered by the markup comparison");
+  assert.equal(source.match(/^export\s/gm)?.length, 1, "one client export: each extra one is another module row in the flight");
 });

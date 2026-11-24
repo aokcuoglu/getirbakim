@@ -48,31 +48,35 @@ export async function modelPathsQuery() {
 /** Addresses of the model pages that are indexed (/yedek-parca/<make>/<model>). */
 export async function loadModelPaths(): Promise<string[]> {
   const { text, values, units } = await modelPathsQuery();
-  const { rows } = await boundedQuery<{ unit: number }>(text, values, 120_000);
+  const { rows } = await boundedQuery<{ unit: number }>("sitemap.models", text, values, 120_000);
   return rows.map(row => modelPath(units[row.unit].makeSlug, units[row.unit].modelSlug));
 }
 
 /**
- * Model × category pairs with enough listed products, subcategories included. Starts from the categorised products
- * (itemCategoriesSql over the whole catalog), keeps those the store lists, then reads each one's model fits through
- * the item indexes (the inverse of modelFitsSql: its engine-level fits, the description fits of its offers, and its
- * own when it groups no offer). The root category ($9) is left out: on a model it repeats the model page (#673).
- * ~1.5 s locally.
+ * Model × category and make × category pairs with enough listed products, subcategories included (#673, #1224). Starts
+ * from the categorised products (itemCategoriesSql over the whole catalog), keeps those the store lists, then reads each
+ * one's fits through the item indexes (the inverse of modelFitsSql / makeFitsSql: its engine-level fits, the description
+ * fits of its offers, and its own when it groups no offer). `$6`/`$7` pair each model or brand id with its unit. The root
+ * category ($9) is left out: on a model or make it repeats that page.
+ * (unit, product) and (product, ancestor) are deduplicated before the join, so the count needs no DISTINCT and no sort
+ * over the 7.6M joined rows (#1320). ~5–6.5 s locally; the floor is `listed` plus the fit reads. At 16 MB work_mem the
+ * hash dedup still writes ~340 MB of temp (hash batches + the `pairs` spool), down from the 432 MB external sort.
  */
-const modelCategoriesSql = `WITH units AS MATERIALIZED (SELECT * FROM unnest($6::int[],$7::int[]) u(model_id,unit)),
+const scopeCategoriesSql = (key: "model_id" | "brand_id", engineFits: string, descriptionFits: string) => `WITH units AS MATERIALIZED (SELECT * FROM unnest($6::int[],$7::int[]) u(${key},unit)),
  cats AS MATERIALIZED (${itemCategoriesSql({ legacySlugs: "$2", legacyIds: "$3", oilIds: "$4", oilCategory: "$5" })}),
  ids AS MATERIALIZED (SELECT DISTINCT id FROM cats),
  listed AS MATERIALIZED (SELECT ids.id FROM ids JOIN LATERAL (SELECT e.id,e.unavailable FROM storefront_catalog_entries e
    WHERE e.id=ids.id AND (e.source='store' OR e.company=ANY($1::text[])) OFFSET 0) catalog ON true WHERE ${listedOnly}),
- fits AS MATERIALIZED (SELECT f.model_id,f.supplier_item_id AS id FROM listed JOIN storefront_model_fits f ON f.supplier_item_id=listed.id
-  UNION ALL SELECT f.model_id,listed.id FROM listed JOIN product_offers o ON o.primary_id=listed.id JOIN storefront_description_fits f ON f.supplier_item_id=o.item_id
-  UNION ALL SELECT f.model_id,listed.id FROM listed JOIN storefront_description_fits f ON f.supplier_item_id=listed.id
-   WHERE NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=listed.id))
- SELECT units.unit,label.slug FROM fits JOIN units USING (model_id) JOIN cats ON cats.id=fits.id
- ${categoryAncestorsSql("cats.category_id")}
- JOIN source_category_labels label ON label.source='trodo' AND label.category_id=ancestor.category_id AND label.locale='tr'
- WHERE ancestor.category_id<>$9
- GROUP BY units.unit,ancestor.category_id,label.slug HAVING count(DISTINCT fits.id)>=$8 ORDER BY 1,ancestor.category_id`;
+ pairs AS MATERIALIZED (SELECT units.unit,listed.id FROM listed JOIN ${engineFits} f ON f.supplier_item_id=listed.id JOIN units USING (${key})
+  UNION SELECT units.unit,listed.id FROM listed JOIN product_offers o ON o.primary_id=listed.id JOIN ${descriptionFits} f ON f.supplier_item_id=o.item_id JOIN units USING (${key})
+  UNION SELECT units.unit,listed.id FROM listed JOIN ${descriptionFits} f ON f.supplier_item_id=listed.id JOIN units USING (${key})
+   WHERE NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=listed.id)),
+ tree AS MATERIALIZED (SELECT DISTINCT cats.id,ancestor.category_id FROM cats ${categoryAncestorsSql("cats.category_id")} WHERE ancestor.category_id<>$9)
+ SELECT counted.unit,label.slug FROM (SELECT pairs.unit,tree.category_id FROM pairs JOIN tree USING (id) GROUP BY 1,2 HAVING count(*)>=$8) counted
+ JOIN source_category_labels label ON label.source='trodo' AND label.category_id=counted.category_id AND label.locale='tr'
+ ORDER BY 1,counted.category_id`;
+const modelCategoriesSql = scopeCategoriesSql("model_id", "storefront_model_fits", "storefront_description_fits");
+const makeCategoriesSql = scopeCategoriesSql("brand_id", "storefront_make_fits", "storefront_make_description_fits");
 
 /** The model × category query with its parameters and `units` (see modelPathsQuery). */
 export async function modelCategoryPathsQuery() {
@@ -84,30 +88,9 @@ export async function modelCategoryPathsQuery() {
 /** Addresses of the model × category pages that are indexed (/kategori/<category>/<make>/<model>). */
 export async function loadModelCategoryPaths(): Promise<string[]> {
   const { text, values, units } = await modelCategoryPathsQuery();
-  const { rows } = await boundedQuery<{ unit: number; slug: string }>(text, values, 120_000);
+  const { rows } = await boundedQuery<{ unit: number; slug: string }>("sitemap.modelCategories", text, values, 120_000);
   return rows.map(row => listingPath({ makeSlug: units[row.unit].makeSlug, modelSlug: units[row.unit].modelSlug, categorySlug: row.slug }));
 }
-
-/**
- * Make × category pairs with enough listed products, subcategories included (#1224). The same shape as
- * modelCategoriesSql, with the make-level fits: the inverse of makeFitsSql (engine-level fits, the description fits of
- * a product's offers, and its own when it groups no offer). `$6`/`$7` pair each brand id with its unit; the root
- * category ($9) is left out because on a make it repeats the make page.
- */
-const makeCategoriesSql = `WITH units AS MATERIALIZED (SELECT * FROM unnest($6::int[],$7::int[]) u(brand_id,unit)),
- cats AS MATERIALIZED (${itemCategoriesSql({ legacySlugs: "$2", legacyIds: "$3", oilIds: "$4", oilCategory: "$5" })}),
- ids AS MATERIALIZED (SELECT DISTINCT id FROM cats),
- listed AS MATERIALIZED (SELECT ids.id FROM ids JOIN LATERAL (SELECT e.id,e.unavailable FROM storefront_catalog_entries e
-   WHERE e.id=ids.id AND (e.source='store' OR e.company=ANY($1::text[])) OFFSET 0) catalog ON true WHERE ${listedOnly}),
- fits AS MATERIALIZED (SELECT f.brand_id,f.supplier_item_id AS id FROM listed JOIN storefront_make_fits f ON f.supplier_item_id=listed.id
-  UNION ALL SELECT f.brand_id,listed.id FROM listed JOIN product_offers o ON o.primary_id=listed.id JOIN storefront_make_description_fits f ON f.supplier_item_id=o.item_id
-  UNION ALL SELECT f.brand_id,listed.id FROM listed JOIN storefront_make_description_fits f ON f.supplier_item_id=listed.id
-   WHERE NOT EXISTS (SELECT 1 FROM product_offers o WHERE o.item_id=listed.id))
- SELECT units.unit,label.slug FROM fits JOIN units USING (brand_id) JOIN cats ON cats.id=fits.id
- ${categoryAncestorsSql("cats.category_id")}
- JOIN source_category_labels label ON label.source='trodo' AND label.category_id=ancestor.category_id AND label.locale='tr'
- WHERE ancestor.category_id<>$9
- GROUP BY units.unit,ancestor.category_id,label.slug HAVING count(DISTINCT fits.id)>=$8 ORDER BY 1,ancestor.category_id`;
 
 /** The make × category query with its parameters and the make slug of each `unit` (see modelPathsQuery). */
 export async function makeCategoryPathsQuery(minimum = minIndexableListingProducts) {
@@ -121,6 +104,6 @@ export async function makeCategoryPathsQuery(minimum = minIndexableListingProduc
 /** Addresses of the make × category pages that are indexed (/kategori/<category>/<make>). */
 export async function loadMakeCategoryPaths(): Promise<string[]> {
   const { text, values, units } = await makeCategoryPathsQuery();
-  const { rows } = await boundedQuery<{ unit: number; slug: string }>(text, values, 120_000);
+  const { rows } = await boundedQuery<{ unit: number; slug: string }>("sitemap.makeCategories", text, values, 120_000);
   return rows.map(row => listingPath({ makeSlug: units[row.unit], categorySlug: row.slug }));
 }
