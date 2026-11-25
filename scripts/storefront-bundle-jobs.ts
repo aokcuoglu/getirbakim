@@ -13,6 +13,9 @@ type Row = Record<string, unknown>;
 /** Upserts the bundle's job statuses; call after resolveBundleItems in the same transaction. */
 export async function importBundleJobs(client: PoolClient, jobs: Row[]) {
   const json = JSON.stringify(jobs);
+  // DISTINCT ON keeps the latest attempt among this part's jobs that resolve to one local item. Across job parts the
+  // later part wins instead; that needs two bundle jobs resolving to one item here (same id, different natural key on
+  // each side), so it is theoretical.
   const written = await client.query(`INSERT INTO product_enrichment_jobs AS j(supplier_item_id,supplier_code,supplier_brand,oem,status,candidate_url,attempts,last_attempt_at)
     SELECT DISTINCT ON (bi.id) bi.id,r.supplier_code,r.supplier_brand,coalesce(r.oem,''),r.status,r.candidate_url,1,r.last_attempt_at
     FROM jsonb_populate_recordset(null::product_enrichment_jobs,$1::jsonb) r JOIN bundle_items bi ON bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL

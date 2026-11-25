@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, resolve, sep } from "node:path";
 import { GetObjectCommand } from "@aws-sdk/client-s3";
@@ -19,10 +19,11 @@ import { parsePositiveInteger, parseRetryItems } from "./storefront-sync-state";
 // (storefront-bundle-stream.ts), never one string: enrichments.ndjson (read in batches inside the snapshot and streamed;
 // a 43k-enrichment delta passed V8's ~512 MiB string limit on 2026-11-23), jobs.ndjson (every complete/partial job
 // status), items.ndjson (the supplier item keys), products.ndjson (category mappings) and media.ndjson (media rows).
-// <root>/manifest.json keeps the bounded rest (category tree, logos, REPXPERT vehicle data, tombstones, counts) and,
-// for each file, its name and row count (enrichmentsFile/enrichmentCount, jobsFile/jobCount, itemsFile/itemCount,
-// productsFile/productCount, mediaFile/mediaCount). Media files go to <root>/media/<object_key>. manifest.json is
-// written last, so an aborted export leaves none.
+// <root>/manifest.json keeps the rest, which does not grow with the enriched products (category tree, logos, REPXPERT
+// vehicle data, the tombstones of the retention window, counts) and, for each file, its name and row count
+// (enrichmentsFile/enrichmentCount, jobsFile/jobCount, itemsFile/itemCount, productsFile/productCount,
+// mediaFile/mediaCount). Media files go to <root>/media/<object_key>. An old manifest.json is removed first and the new
+// one written last, so an aborted export, even into a reused directory, leaves none.
 // scripts/split-storefront-bundle.ts turns this into the part-NN/ bundles the importer reads; it is never imported whole.
 // Enrichment runs, request logs and caches stay local; vehicle fitments are rebuilt after import.
 // --since=ISO exports only enrichments imported after that time (and their mappings and images); the
@@ -58,6 +59,8 @@ const prune = process.argv.includes("--prune");
 const maxDeletionsArg = process.argv.find(arg => arg.startsWith("--max-deletions="))?.slice("--max-deletions=".length);
 const maxDeletions = maxDeletionsArg === undefined ? DEFAULT_MAX_DELETIONS : parsePositiveInteger(maxDeletionsArg, "--max-deletions");
 await mkdir(root, { recursive: true });
+// A manual export into a reused directory must not leave an old manifest naming the side files it rewrites.
+await rm(resolve(root, "manifest.json"), { force: true });
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const storage = objectStorage();
 const client = await pool.connect();

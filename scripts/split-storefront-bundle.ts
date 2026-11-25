@@ -5,7 +5,7 @@ import { readNdjson, readNdjsonRows } from "./storefront-bundle-stream";
 
 type Media = { id: string; object_key: string; size_bytes: number | string };
 type Row = Record<string, unknown>;
-// The bounded data of the export's manifest.json, which every part copies or blanks.
+// The data of the export's manifest.json that does not grow with the enriched products; every part copies or blanks it.
 type Shared = Row & { images: Row[]; logos?: Row[]; tombstones?: Row[]; invalidatedJobs?: number; vehicleImages?: Row[] };
 // The export's manifest.json: the rows that grow with the enriched products are in NDJSON files it names and counts
 // (export-storefront-bundle.ts).
@@ -21,8 +21,10 @@ export type SplitLimits = { mediaBytes: number; jsonBytes: number };
 // Production's operations task has 4096 MB (2 vCPU) and import-storefront-bundle.ts holds every media
 // file of a bundle in memory, so a large export is split into self-contained parts the unchanged importer
 // loads one by one, in order:
-// - part-00: the always-complete bounded data (category images, logos, REPXPERT vehicle data, tombstones of deleted
-//   enrichments and the invalidated job count) with its media, and no jobs;
+// - part-00: the always-complete data (category images, logos, REPXPERT vehicle data, tombstones of deleted
+//   enrichments and the invalidated job count) with its media, and no jobs. None of it grows with the enriched
+//   products, but nothing caps it in bytes either: the tombstones follow the deletions of the retention window
+//   (TOMBSTONE_RETENTION_DAYS, the whole log with --full), the REPXPERT data its vehicle types;
 // - job parts (#1317): every complete/partial enrichment job status, cut before the jobs' JSON plus their supplier item
 //   keys would pass limits.jsonBytes. The importer only upserts the jobs a part carries (storefront-bundle-jobs.ts), so
 //   spreading them over parts writes the same rows as one part did; they still come after part-00's tombstones;
@@ -31,9 +33,9 @@ export type SplitLimits = { mediaBytes: number; jsonBytes: number };
 //   its mappings, its media row (once per part) and its supplier item key.
 // A row over a limit on its own gets a part of its own; a part opens only when a row arrives, so none is empty. Every
 // part after part-00 blanks the always-complete data; tombstones: [] and invalidatedJobs: 0 above all, or the import
-// would apply deletions again and count the invalidated jobs once per part. A part's manifest.json is therefore at most
-// the empty part (with the small category tree) plus limits.jsonBytes, or plus one row bigger than that, however many
-// products are enriched.
+// would apply deletions again and count the invalidated jobs once per part. A job or enrichment part's manifest.json is
+// therefore at most the empty part (with the small category tree) plus limits.jsonBytes, or plus one row bigger than
+// that, however many products are enriched.
 // The small category tree goes in every part: each part is dry-run on its own, and its mappings
 // reference categories that may be new. An image shared by enrichments in different parts is linked into each
 // of them, because an enrichment whose image is missing from its part would be imported without one.
