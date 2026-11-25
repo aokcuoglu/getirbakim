@@ -14,8 +14,11 @@ const createPool = () => {
   pool.on("error", error => console.error("Idle database client error", error.message));
   return pool;
 };
-export const db = globalDb.getirbakimPool ?? createPool();
-if (process.env.NODE_ENV !== "production") globalDb.getirbakimPool = db;
+// One pool per process, in production too. `next start` loads this module twice: in the instrumentation bundle (the
+// warm-up and the enrichment sync) and in the server bundle all routes share; a module-level pool would open `max`
+// connections per copy (#771 measured 16 open against a max of 15). Dev reload also reuses it. DATABASE_POOL_MAX is the real
+// per-process ceiling only because the pool lives on globalThis; its error listener is registered once, in createPool.
+export const db = (globalDb.getirbakimPool ??= createPool());
 /**
  * One read with a server-side time limit. node-postgres stops waiting on its own, but the query would keep running:
  * a request the CDN abandoned (504) must not leave it on the database. Meant for the expensive, cached catalog reads.
