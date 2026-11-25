@@ -4,9 +4,13 @@ import { db } from "@/lib/db";
 /**
  * Storefront listing cache epoch (#585, db/product-overrides.sql storefront_listing_epoch). Listing counts, page ids,
  * facets and plain searches are cached per process (src/lib/stale-cache.ts); an admin edit that changes what a listing
- * shows bumps the shared counter, and every process drops entries loaded under an older value. Each process reads the
+ * shows bumps the shared counter, and every process reloads entries loaded under an older value. Each process reads the
  * counter at most once per `pollMs`, so another app container sees an edit within about a second; the process that
  * made the edit sees it at once. Database errors keep the last known value: they never empty the caches.
+ * The listing counts, page ids and facets wait at most LISTING_EPOCH_WAIT_MS (250 ms, listing-wait.ts) for that reload
+ * (#771, catalog.ts): past it a visitor gets the replaced value (unless it is empty) and the reload goes on, so a large
+ * listing shows an edit once its reload ends.
+ * The fit sync bumps the counter too (enrichment-links.server.ts, up to every 30 s while fit rows change).
  * The known value only grows (Math.max), so a racing older read cannot undo a bump; if the counter is ever set back
  * (restoring a backup, recreating the table), restart the app tasks and TRUNCATE storefront_listing_cache (#957), or
  * their caches keep serving until the counter passes the old value (rows stored under a higher epoch would be adopted

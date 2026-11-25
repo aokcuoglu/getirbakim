@@ -8,7 +8,9 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
  * The shared, persisted level of the storefront listing caches (#957, db/storefront-catalog.sql storefront_listing_cache).
  * A new app container or a restart reads the counts, page ids and facets another process already computed instead of
  * scanning the catalog again (0.5-3 s each). Rows carry the listing epoch they were loaded under (#585): staleCache
- * adopts only a current one, and an older write never replaces a newer row. The key hash covers `version` (bump it when
+ * adopts only a current one, and an older write never replaces a newer row. A row it may not adopt (an older epoch, or
+ * past maxStaleMs) up to 48 hours old and not empty is still the fallback a visitor gets after the bounded wait while the
+ * reload runs (#771, catalog.ts); the reload then replaces the row. The key hash covers `version` (bump it when
  * the stored value's shape or meaning changes) and the storefront's supplier companies. LISTING_CACHE_PERSIST=0 turns
  * the level off; a missing table (setup not run yet) turns it off for five minutes. Errors are logged (throttled) and
  * count as a miss: the caller loads the value itself.

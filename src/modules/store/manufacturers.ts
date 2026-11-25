@@ -130,6 +130,30 @@ export function featuredManufacturers(order: readonly string[], shown: readonly 
 }
 
 /**
+ * The manufacturer pages a new server requests once at start (#771): brands with at least `minItems` supplier items
+ * (their labels summed), largest first, at most `limit`, each as the page `directory` shows its name under; a brand
+ * without a page is left out, and a page reached by two brands is listed once. Their counts, page ids and facets scan
+ * every row of the brand (ORIJINAL: ~3 s); warmed, an earlier value exists for the bounded wait after an epoch bump.
+ */
+export function manufacturerWarmSlugs(rows: ManufacturerRow[], directory: ManufacturerDirectory, minItems = 5000, limit = 60): string[] {
+  const brands = new Map<string, { id: string; name: string; items: number }>();
+  for (const row of rows) {
+    const brand = brands.get(row.id) ?? { id: row.id, name: row.name, items: 0 };
+    brand.items += row.items;
+    brands.set(row.id, brand);
+  }
+  const ranked = [...brands.values()].filter(brand => brand.items >= minItems)
+    .sort((a, b) => b.items - a.items || (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+  const slugs = new Set<string>();
+  for (const brand of ranked) {
+    if (slugs.size >= limit) break;
+    const page = directory.manufacturerFor(brand.name);
+    if (page) slugs.add(page.slug);
+  }
+  return [...slugs];
+}
+
+/**
  * A manufacturer page is indexed as a plain listing (no search, filter, sort or page) with at least
  * `minIndexableListingProducts` listed products, unless it is one of the groups that are no manufacturer.
  */
