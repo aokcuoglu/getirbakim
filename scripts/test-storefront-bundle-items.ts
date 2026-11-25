@@ -119,21 +119,23 @@ test("PostgreSQL: an export carries enrichments after the watermark and the retr
   });
 });
 
-test("PostgreSQL: keyset batches stream the same jobs and item keys, in the same order, as the single queries (#1357)", { skip: !process.env.DATABASE_URL && "DATABASE_URL not set" }, async () => {
-  await withSchema("storefront_keyset_test", [...enrichmentFiles, "db/manufacturer-logos.sql"], async client => {
+test("PostgreSQL: cursor batches stream the same jobs and item keys, in the same order, as the single queries (#1357)", { skip: !process.env.DATABASE_URL && "DATABASE_URL not set" }, async () => {
+  await withSchema("storefront_cursor_test", [...enrichmentFiles, "db/manufacturer-logos.sql"], async client => {
     const ids = Array.from({ length: 23 }, () => randomUUID());
     for (const [index, id] of ids.entries()) await insertItem(client, id, `CODE${index}`);
-    // Enrichments on every second item (old and fresh), jobs of several statuses on the first 18, logo evidence on two items without either.
+    // Enrichments on every second item (idx % 4 == 0 fresh, == 2 old). Jobs are placed independently of that parity: a partial job on a fresh
+    // enrichment (4), complete and partial jobs on old enrichments (6, 10) that reach the item keys only through the job branch of the union,
+    // a pending job (0) and complete/partial jobs without an enrichment (1, 3) that must stay out.
     for (const [index, id] of ids.entries()) if (index % 2 === 0) await insertEnrichment(client, id, index % 4 === 0 ? "2026-11-14T00:00:00Z" : "2026-11-01T00:00:00Z");
-    const statuses = ["complete", "partial", "pending", "not_found"];
-    for (const [index, id] of ids.slice(0, 18).entries()) {
-      await client.query("INSERT INTO product_enrichment_jobs(supplier_item_id,status,supplier_code,supplier_brand,oem,last_attempt_at) VALUES($1,$2,'X','FEBI',$3,now())", [id, statuses[index % statuses.length], `OEM${index}`]);
+    const statuses: Record<number, string> = { 0: "pending", 1: "complete", 3: "partial", 4: "partial", 6: "complete", 10: "partial", 14: "not_found" };
+    for (const [index, status] of Object.entries(statuses)) {
+      await client.query("INSERT INTO product_enrichment_jobs(supplier_item_id,status,supplier_code,supplier_brand,oem,last_attempt_at) VALUES($1,$2,'X','FEBI',$3,now())", [ids[Number(index)], status, `OEM${index}`]);
     }
     for (const [key, id] of [["AAA", ids[19]], ["BBB", ids[21]], ["CCC", ids[19]]] as const) {
       await client.query(`INSERT INTO manufacturer_logos(brand_key,manufacturer,image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url)
         VALUES($1,'M','\\x01',repeat('a',64),1,1,'u',$2,'u')`, [key, id]);
     }
-    const changed = [new Date("2026-11-13T00:00:00Z"), JSON.stringify([{ id: ids[2] }])];
+    const changed = [new Date("2026-11-13T00:00:00Z"), JSON.stringify([{ id: ids[2] }, { id: randomUUID(), ...itemKey("CODE14") }])];
     const gone = randomUUID();
     const key = (id: string, code: string) => ({ supplier_item_id: id, supplier: "basbug", company: "C", list_group: "L", warehouse: "MRK", code });
     // One tombstone for a listed item, one for a deleted item twice (the first entry wins), one more deleted item.
@@ -151,7 +153,7 @@ test("PostgreSQL: keyset batches stream the same jobs and item keys, in the same
       if (!listed.has(id)) itemsSingle.push({ id, supplier, company, list_group, warehouse, code });
       listed.add(id);
     }
-    assert.ok(jobsSingle.length > 3 && itemsSingle.length > 9, "the fixture spans several batches");
+    assert.ok(jobsSingle.length === 3 && itemsSingle.length > 9, "the fixture spans several batches");
     for (const size of [1, 2, 5, 7, 1000]) {
       const jobs: unknown[] = [], items: unknown[] = [];
       assert.equal(await streamJobs(client, async row => { jobs.push(row); }, size), jobsSingle.length);

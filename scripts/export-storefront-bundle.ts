@@ -87,7 +87,7 @@ try {
   }
   await enrichments.close();
   if (written !== ids.length) throw new Error(`Wrote ${written} of ${ids.length} enrichments`);
-  // Job statuses and supplier item keys stream from keyset batches inside this snapshot (#1357), so memory is bounded by the batch.
+  // Job statuses and supplier item keys stream from server-side cursors inside this snapshot (#1357): their memory is bounded by the batch (ids, products and media stay delta-bounded).
   const jobCount = await writeToFile(resolve(root, JOBS_FILE), write => streamJobs(client, write));
   const itemCount = await writeToFile(resolve(root, ITEMS_FILE), write => streamItems(client, changed, tombstones, write));
   // Kept for the media download below; the manifest names the file and the count only.
