@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { after, before, describe, test } from "node:test";
+import type { Pool } from "pg";
 import { isolatedSchema } from "./isolated-schema";
-import { deriveDescriptionFitments, type DeriveOptions } from "../src/modules/store/description-fitment-derive";
-import { diffDescriptionFitments, loadDescriptionFitmentsNext, writeDescriptionFitments, type DescriptionFitmentRow } from "../src/modules/store/description-fitment-sync";
+import { deriveDescriptionFitments, SHRINK_GUARD_RATIO, type DeriveOptions } from "../src/modules/store/description-fitment-derive";
+import { diffDescriptionFitments, loadDescriptionFitmentsKeep, loadDescriptionFitmentsNext, writeDescriptionFitments,
+  type DescriptionFitmentRow } from "../src/modules/store/description-fitment-sync";
 
 // The description fitment derivation syncs product_model_fitments (#798): unchanged rows are not rewritten and keep
 // derived_at (the sitemap's lastmod), a model or year change moves it, a source_text change alone updates the text only.
@@ -32,6 +34,7 @@ describe("description fitment sync", { skip: !process.env.DATABASE_URL }, () => 
     const client = await schema.pool.connect();
     try {
       await client.query("BEGIN");
+      await loadDescriptionFitmentsKeep(client);
       await loadDescriptionFitmentsNext(client, rows);
       return await diffDescriptionFitments(client);
     } finally { await client.query("ROLLBACK"); client.release(); }
@@ -63,12 +66,12 @@ describe("description fitment sync", { skip: !process.env.DATABASE_URL }, () => 
   // Each test starts from an empty table, so any of them runs alone under --test-name-pattern.
   test("only changed rows are written and derived_at moves only with the model or years", async () => {
     await write([]);
-    assert.deepEqual(await write(first()), { inserted: 7, updated: 0, deleted: 0, unchanged: 0 });
+    assert.deepEqual(await write(first()), { inserted: 7, updated: 0, deleted: 0, unchanged: 0, kept: 0 });
     await schema.pool.query("UPDATE product_model_fitments SET derived_at=$1", [EPOCH]);
     const before = await stored();
 
-    assert.deepEqual(await diff(second()), { inserted: 1, updated: 4, deleted: 1, unchanged: 2 }, "the dry-run diff counts what the write then does");
-    assert.deepEqual(await write(second()), { inserted: 1, updated: 4, deleted: 1, unchanged: 2 });
+    assert.deepEqual(await diff(second()), { inserted: 1, updated: 4, deleted: 1, unchanged: 2, kept: 0 }, "the dry-run diff counts what the write then does");
+    assert.deepEqual(await write(second()), { inserted: 1, updated: 4, deleted: 1, unchanged: 2, kept: 0 });
     const after = await stored();
     assert.deepEqual(new Set(after.keys()), new Set(["A:10", "A2:10", "B:10", "B2:10", "B3:10", "D:11", "E:11"]));
     for (const key of ["A:10", "A2:10"]) {
@@ -82,7 +85,7 @@ describe("description fitment sync", { skip: !process.env.DATABASE_URL }, () => 
     assert.ok(after.get("D:11")!.derived_at > EPOCH);
     assert.deepEqual([after.get("D:11")?.year_from, after.get("D:11")?.year_to], [null, 2010]);
 
-    assert.deepEqual(await write(second()), { inserted: 0, updated: 0, deleted: 0, unchanged: 7 });
+    assert.deepEqual(await write(second()), { inserted: 0, updated: 0, deleted: 0, unchanged: 7, kept: 0 });
     const again = await stored();
     for (const [key, value] of after) assert.equal(again.get(key)?.xmin, value.xmin, `${key} is not rewritten by an identical sync`);
   });
@@ -93,7 +96,7 @@ describe("description fitment sync", { skip: !process.env.DATABASE_URL }, () => 
     await schema.pool.query("UPDATE product_model_fitments SET derived_at=$1", [EPOCH]);
     const before = await stored();
 
-    assert.deepEqual(await write([row("F", 10, 2000, 2004), row("G", 10, null, null)]), { inserted: 0, updated: 0, deleted: 1, unchanged: 2 });
+    assert.deepEqual(await write([row("F", 10, 2000, 2004), row("G", 10, null, null)]), { inserted: 0, updated: 0, deleted: 1, unchanged: 2, kept: 0 });
     const after = await stored();
     assert.deepEqual(new Set(after.keys()), new Set(["F:10", "G:10"]));
     assert.ok(after.get("F:10")!.derived_at > EPOCH, "the product's lastmod still moves");
@@ -103,36 +106,43 @@ describe("description fitment sync", { skip: !process.env.DATABASE_URL }, () => 
 
   test("two syncs in one transaction work and an empty derivation empties the table", async () => {
     await write([]);
-    assert.deepEqual(await write(second()), { inserted: 7, updated: 0, deleted: 0, unchanged: 0 });
+    assert.deepEqual(await write(second()), { inserted: 7, updated: 0, deleted: 0, unchanged: 0, kept: 0 });
     const client = await schema.pool.connect();
     try {
       await client.query("BEGIN");
-      assert.deepEqual(await writeDescriptionFitments(client, second()), { inserted: 0, updated: 0, deleted: 0, unchanged: 7 });
-      assert.deepEqual(await writeDescriptionFitments(client, []), { inserted: 0, updated: 0, deleted: 7, unchanged: 0 });
+      assert.deepEqual(await writeDescriptionFitments(client, second()), { inserted: 0, updated: 0, deleted: 0, unchanged: 7, kept: 0 });
+      assert.deepEqual(await writeDescriptionFitments(client, []), { inserted: 0, updated: 0, deleted: 7, unchanged: 0, kept: 0 });
       await client.query("COMMIT");
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
     assert.equal((await schema.pool.query("SELECT 1 FROM product_model_fitments")).rowCount, 0);
   });
 });
 
+async function deriveIn(pool: Pool, options: Partial<DeriveOptions> = {}) {
+  const client = await pool.connect();
+  try { return await deriveDescriptionFitments(client, { dryRun: false, allowShrink: false, ...options }); } finally { client.release(); }
+}
+/** Every stored row with its derived_at and xmin: an equal snapshot means nothing was written. */
+const snapshotOf = async (pool: Pool) => (await pool.query<{ key: string }>(`SELECT string_agg(concat_ws(':',supplier_item_id,model_id,year_from,year_to,
+  source_text,derived_at,xmin),',' ORDER BY supplier_item_id,model_id) AS key FROM product_model_fitments`)).rows[0].key;
+const countOf = async (pool: Pool) => (await pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_model_fitments")).rows[0].n;
+/** A supplier item described by `text` (`ac`) for the vehicle make `make` (`kull1s`); a present Dinamik one by default. */
+async function insertItem(pool: Pool, code: string, text: string, { make = "VAG", supplier = "dinamik", presence = "present" } = {}) {
+  return (await pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+    product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+    VALUES($1::text,upper($1::text),'G','MRK',$2,jsonb_build_object('uk','TST','kull1s',$3::text,'ac',$4::text),'{"nf":100}','{"stok":2}',1,1,1,false,$5,now(),now(),now())
+    RETURNING id::text`, [supplier, code, make, text, presence])).rows[0].id;
+}
+
 // The derive (#562) runs as an AWS operations task: a dry run diffs without writing, a busy lock or a guard stops it
 // before anything is written.
 describe("description fitment derive", { skip: !process.env.DATABASE_URL }, () => {
   let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 
-  async function derive(options: Partial<DeriveOptions> = {}) {
-    const client = await schema.pool.connect();
-    try { return await deriveDescriptionFitments(client, { dryRun: false, allowShrink: false, ...options }); } finally { client.release(); }
-  }
-  const snapshot = async () => (await schema.pool.query<{ key: string }>(`SELECT string_agg(concat_ws(':',supplier_item_id,model_id,year_from,year_to,
-    source_text,derived_at,xmin),',' ORDER BY supplier_item_id,model_id) AS key FROM product_model_fitments`)).rows[0].key;
-  const count = async () => (await schema.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_model_fitments")).rows[0].n;
-  async function dinamik(code: string, make: string, text: string) {
-    return (await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
-      product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
-      VALUES('dinamik','DINAMIK','G','MRK',$1,jsonb_build_object('uk','TST','kull1s',$2::text,'ac',$3::text),'{"nf":100}','{"stok":2}',1,1,1,false,'present',now(),now(),now())
-      RETURNING id::text`, [code, make, text])).rows[0].id;
-  }
+  const derive = (options: Partial<DeriveOptions> = {}) => deriveIn(schema.pool, options);
+  const snapshot = () => snapshotOf(schema.pool);
+  const count = () => countOf(schema.pool);
+  const dinamik = (code: string, make: string, text: string) => insertItem(schema.pool, code, text, { make });
 
   before(async () => {
     schema = await isolatedSchema("descderive");
@@ -149,12 +159,12 @@ describe("description fitment derive", { skip: !process.env.DATABASE_URL }, () =
     const first = await derive();
     assert.equal(first.status, "ok");
     assert.equal(first.items, 2);
-    assert.deepEqual(first.written, { inserted: 1, updated: 0, deleted: 0, unchanged: 0 });
+    assert.deepEqual(first.written, { inserted: 1, updated: 0, deleted: 0, unchanged: 0, kept: 0 });
     assert.deepEqual((await schema.pool.query("SELECT supplier_item_id::text,model_id,year_from,year_to FROM product_model_fitments")).rows,
       [{ supplier_item_id: golf, model_id: 10, year_from: 1998, year_to: 2004 }]);
     const stored = await snapshot();
     const second = await derive();
-    assert.deepEqual(second.written, { inserted: 0, updated: 0, deleted: 0, unchanged: 1 });
+    assert.deepEqual(second.written, { inserted: 0, updated: 0, deleted: 0, unchanged: 1, kept: 0 });
     assert.equal(await snapshot(), stored, "an identical derive rewrites nothing");
   });
 
@@ -164,7 +174,7 @@ describe("description fitment derive", { skip: !process.env.DATABASE_URL }, () =
     const before = await snapshot();
     const dry = await derive({ dryRun: true });
     assert.equal(dry.status, "ok");
-    assert.deepEqual(dry.written, { inserted: 1, updated: 1, deleted: 0, unchanged: 0 });
+    assert.deepEqual(dry.written, { inserted: 1, updated: 1, deleted: 0, unchanged: 0, kept: 0 });
     assert.equal(await snapshot(), before, "a dry run writes nothing");
     assert.deepEqual((await derive()).written, dry.written);
     assert.equal(await count(), 2);
@@ -199,7 +209,7 @@ describe("description fitment derive", { skip: !process.env.DATABASE_URL }, () =
 
     const allowed = await derive({ allowShrink: true });
     assert.equal(allowed.status, "ok");
-    assert.deepEqual(allowed.written, { inserted: 1, updated: 0, deleted: 1000, unchanged: 2 });
+    assert.deepEqual(allowed.written, { inserted: 1, updated: 0, deleted: 1000, unchanged: 2, kept: 0 });
     assert.equal(await count(), 3);
   });
 
@@ -208,11 +218,11 @@ describe("description fitment derive", { skip: !process.env.DATABASE_URL }, () =
       product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
       SELECT 'dinamik','DINAMIK','G','MRK','BULK '||g,'{"uk":"TST","kull1s":"VAG","ac":"SILECEK GOLF IV 98>04"}','{}','{}',1,1,1,false,'present',now(),now(),now()
       FROM generate_series(1,1000) g`);
-    assert.deepEqual((await derive()).written, { inserted: 1000, updated: 0, deleted: 0, unchanged: 3 });
+    assert.deepEqual((await derive()).written, { inserted: 1000, updated: 0, deleted: 0, unchanged: 3, kept: 0 });
     await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||'{"ac":"FAR PASSAT 97>00"}'
       WHERE code IN (SELECT 'BULK '||g FROM generate_series(1,150) g)`);
     const before = await snapshot();
-    const expected = { inserted: 150, updated: 0, deleted: 150, unchanged: 853 };
+    const expected = { inserted: 150, updated: 0, deleted: 150, unchanged: 853, kept: 0 };
     const refused = await derive();
     assert.equal(refused.status, "refused");
     assert.match(refused.reason ?? "", /deletes 150 of the 1003/);
@@ -241,6 +251,143 @@ describe("description fitment derive", { skip: !process.env.DATABASE_URL }, () =
     assert.equal(refused.status, "refused");
     assert.match(refused.reason ?? "", /catalog is empty/);
     assert.equal(refused.written, null);
+  });
+});
+
+// The derive keeps the stored rows of Dinamik items with a usable enrichment, whatever their presence (#1370): its
+// matching pass skips them, yet storefront_description_fits still lists them on make and model pages next to their
+// engine fits.
+describe("description fitment derive keeps the rows of enriched items", { skip: !process.env.DATABASE_URL }, () => {
+  let schema: Awaited<ReturnType<typeof isolatedSchema>>;
+  const ids: Record<string, string> = {};
+  const EPOCH = "2026-01-01T00:00:00.000Z";
+  const GOLF = "SILECEK MOTORU GOLF IV 98>04", PASSAT = "FAR SAG PASSAT 97>00";
+
+  const derive = (options: Partial<DeriveOptions> = {}) => deriveIn(schema.pool, options);
+  const snapshot = () => snapshotOf(schema.pool);
+  async function item(key: string, text: string, options: { supplier?: string; presence?: string } = {}) {
+    ids[key] = await insertItem(schema.pool, `TST ${key}`, text, options);
+  }
+  /** A shared enrichment: the job in `status`, a payload listing one vehicle or none. */
+  async function enrich(items: string[], status: "complete" | "partial", vehicles: boolean) {
+    await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status)
+      SELECT id,code,product_data->>'uk',$2 FROM supplier_items WHERE id=ANY($1::uuid[])`, [items, status]);
+    await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
+      SELECT id,code,product_data->>'uk','https://example.test/p','test','TST',code,$2::jsonb FROM supplier_items WHERE id=ANY($1::uuid[])`,
+    [items, JSON.stringify({ vehicles: vehicles ? [{ model: "GOLF IV" }] : [], specifications: [], oemNumbers: {} })]);
+  }
+  // The first `n` bulk items leave Dinamik and their enrichment becomes unusable (job back to pending): rows to delete.
+  async function leave(n: number) {
+    const bulk = "SELECT id FROM supplier_items WHERE code IN (SELECT 'KEPT '||g FROM generate_series(1,$1::int) g)";
+    await schema.pool.query(`UPDATE supplier_items SET presence='inactive' WHERE id IN (${bulk})`, [n]);
+    await schema.pool.query(`UPDATE product_enrichment_jobs SET status='pending' WHERE supplier_item_id IN (${bulk})`, [n]);
+  }
+  async function store(key: string, ...models: number[]) {
+    await schema.pool.query(`INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text,derived_at)
+      SELECT $1,m,'OLD',$3 FROM unnest($2::int[]) m`, [ids[key], models, EPOCH]);
+  }
+  /** The named items' rows by `key:model`, each with its years, text, derived_at and xmin. */
+  async function stored() {
+    const keys = new Map(Object.entries(ids).map(([key, id]) => [id, key]));
+    const rows = (await schema.pool.query<{ id: string; model_id: number; row: string }>(`SELECT supplier_item_id::text AS id,model_id,
+      format('%s:%s:%s:%s:%s',year_from,year_to,source_text,derived_at,xmin) AS row FROM product_model_fitments
+      WHERE supplier_item_id=ANY($1::uuid[])`, [Object.values(ids)])).rows;
+    return new Map(rows.map(row => [`${keys.get(row.id)}:${row.model_id}`, row.row]));
+  }
+
+  before(async () => {
+    schema = await isolatedSchema("desckeep");
+    await schema.pool.query("INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VOLKSWAGEN')");
+    await schema.pool.query(`INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(10,1,'GOLF IV (1J1)','1997-08-01','2005-06-01'),
+      (11,1,'PASSAT (3B2)','1996-08-01','2001-11-01')`);
+  });
+  after(async () => { await schema?.drop(); });
+
+  // The tests share one schema and run in order.
+  test("enriched Dinamik items keep their rows whatever their presence; every other item the derive does not read loses them", async () => {
+    await item("plain", GOLF);
+    // Usable enrichments, complete or listing vehicles; each description names a model its stored rows lack.
+    await item("enriched", PASSAT); await enrich([ids.enriched], "complete", true); await store("enriched", 10, 11);
+    await item("partial", PASSAT); await enrich([ids.partial], "partial", true); await store("partial", 10);
+    await item("bare", GOLF); await enrich([ids.bare], "complete", false); await store("bare", 11);
+    // A partial enrichment without vehicles is not usable: the item is read like a plain one.
+    await item("thin", GOLF); await enrich([ids.thin], "partial", false); await store("thin", 11);
+    // Enriched items that missed a Dinamik list keep their rows for when they return.
+    await item("inactive", GOLF, { presence: "inactive" }); await enrich([ids.inactive], "complete", true); await store("inactive", 10);
+    await item("missing", GOLF, { presence: "pending_missing" }); await enrich([ids.missing], "complete", true); await store("missing", 10);
+    // An unenriched item gone from Dinamik, an enriched non-Dinamik item, a present Dinamik item without a description.
+    await item("gone", GOLF, { presence: "inactive" }); await store("gone", 10);
+    await item("basbug", GOLF, { supplier: "basbug" }); await enrich([ids.basbug], "complete", true); await store("basbug", 10);
+    await item("empty", ""); await store("empty", 10);
+    const before = await stored();
+
+    const expected = { inserted: 2, updated: 0, deleted: 4, unchanged: 0, kept: 6 };
+    const dry = await derive({ dryRun: true });
+    assert.deepEqual([dry.status, dry.items, dry.rows, dry.existing, dry.written], ["ok", 2, 2, 10, expected]);
+    assert.deepEqual(await stored(), before, "a dry run writes nothing");
+    const real = await derive();
+    assert.deepEqual([real.status, real.diff, real.written], ["ok", expected, expected], "the write matches the dry-run diff, kept included");
+
+    const after = await stored();
+    const kept = ["bare:11", "enriched:10", "enriched:11", "inactive:10", "missing:10", "partial:10"];
+    assert.deepEqual([...after.keys()].sort(), [...kept, "plain:10", "thin:10"].sort());
+    for (const key of kept) assert.equal(after.get(key), before.get(key), `${key} is kept untouched`);
+  });
+
+  test("an item moves from derived to kept when it gets an enrichment, and back when it loses it", async () => {
+    // plain gets an enrichment and a description naming another model; bare loses its enrichment; missing returns.
+    await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||jsonb_build_object('ac',$2::text) WHERE id=$1`, [ids.plain, PASSAT]);
+    await enrich([ids.plain], "complete", true);
+    await schema.pool.query("DELETE FROM product_enrichments WHERE supplier_item_id=$1", [ids.bare]);
+    await schema.pool.query("UPDATE supplier_items SET presence='present' WHERE id=$1", [ids.missing]);
+    const before = await stored();
+
+    const result = await derive();
+    assert.deepEqual([result.status, result.items, result.written], ["ok", 2, { inserted: 1, updated: 0, deleted: 1, unchanged: 1, kept: 6 }]);
+    const after = await stored();
+    assert.equal(after.get("plain:10"), before.get("plain:10"), "the newly enriched item keeps its derived row untouched");
+    assert.equal(after.has("plain:11"), false, "and gets no row from its new description");
+    assert.equal(after.get("missing:10"), before.get("missing:10"), "a returning enriched item still has its rows");
+    assert.deepEqual([after.has("bare:11"), after.has("bare:10")], [false, true], "an item that lost its enrichment is derived again");
+  });
+
+  test("the shrink guard counts the kept rows as remaining", async () => {
+    await schema.pool.query(`WITH s AS (INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+      SELECT 'dinamik','DINAMIK','G','MRK','KEPT '||g,jsonb_build_object('uk','TST','kull1s','VAG','ac',$1::text),'{}','{}',1,1,1,false,'present',now(),now(),now()
+      FROM generate_series(1,1000) g RETURNING id)
+      INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text) SELECT id,10,'OLD' FROM s`, [PASSAT]);
+    await enrich((await schema.pool.query<{ ids: string[] }>("SELECT array_agg(id::text) AS ids FROM supplier_items WHERE code LIKE 'KEPT %'")).rows[0].ids,
+      "complete", true);
+    const ok = await derive();
+    assert.equal(ok.status, "ok", ok.reason);
+    assert.ok(ok.rows < ok.existing * SHRINK_GUARD_RATIO, "the derivation alone is under the guard");
+    assert.deepEqual([ok.rows, ok.existing, ok.written], [2, 1008, { inserted: 0, updated: 0, deleted: 0, unchanged: 2, kept: 1006 }]);
+
+    // 400 items leave Dinamik without a usable enrichment: 608 of the 1008 rows would remain.
+    await leave(400);
+    const before = await snapshot();
+    const refused = await derive();
+    assert.equal(refused.status, "refused");
+    assert.match(refused.reason ?? "", /leaves 608 rows \(2 derived, 606 kept\), under 70% of the 1008 stored/);
+    assert.deepEqual([refused.diff, refused.written], [{ inserted: 0, updated: 0, deleted: 400, unchanged: 2, kept: 606 }, null]);
+    assert.equal(await snapshot(), before, "a refused derive writes nothing");
+    await schema.pool.query("UPDATE supplier_items SET presence='present' WHERE code LIKE 'KEPT %'");
+    await schema.pool.query("UPDATE product_enrichment_jobs SET status='complete' WHERE supplier_item_id IN (SELECT id FROM supplier_items WHERE code LIKE 'KEPT %')");
+  });
+
+  test("the delete guard counts only the rows it deletes, not the kept ones", async () => {
+    // The 1006 kept rows passed above; 150 items leaving Dinamik without a usable enrichment are deletions.
+    await leave(150);
+    const before = await snapshot();
+    const expected = { inserted: 0, updated: 0, deleted: 150, unchanged: 2, kept: 856 };
+    const refused = await derive();
+    assert.equal(refused.status, "refused");
+    assert.match(refused.reason ?? "", /deletes 150 of the 1008/);
+    assert.deepEqual([refused.diff, refused.written], [expected, null]);
+    assert.equal(await snapshot(), before, "a refused derive writes nothing");
+    assert.deepEqual((await derive({ allowShrink: true })).written, expected);
+    assert.equal(await countOf(schema.pool), 858);
   });
 });
 
