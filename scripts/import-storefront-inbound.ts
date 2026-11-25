@@ -25,7 +25,8 @@ import { objectStorage } from "../src/lib/object-storage";
 //
 // Table decisions (#553; the full table is in docs/product-enrichment.md):
 // - carried in the bundle: enrichments, mappings, media, categories, logos, REPXPERT vehicle data and the
-//   complete/partial product_enrichment_jobs (sent whole in part-00 every run; the storefront needs the job status).
+//   complete/partial product_enrichment_jobs (sent whole every run, in the job parts after part-00 since #1317; the
+//   storefront needs the job status).
 // - derived here, after the parts: product_vehicle_fitments (rebuild-product-fitments.ts --items: the supplier items the
 //   parts wrote plus rows of an older matcher version), product_enrichment_shared_links
 //   and storefront_make_fits / storefront_model_fits / storefront_make_description_fits / storefront_facet_specs (the shared-link queue the import filled is drained below), enrichment_product_states
