@@ -14,6 +14,9 @@ import { db } from "@/lib/db";
  * admin edit's too, as does a raw `UPDATE … SET epoch=epoch+1` (an app task still on the code before #1368 during a
  * rolling deploy); fits_epoch starts at 0 when setup adds it, so the fits value continues from the epoch the stored rows
  * carry. Each cache key reads one of the two values only, so the value its entries and stored rows carry only grows.
+ * While old and new tasks run side by side (a rolling deploy, or a new task in its legacy window below), an old task
+ * compares make-key rows tagged epoch+fits_epoch with `epoch` alone, so after an admin edit it can adopt a pre-edit
+ * make row until its 10-minute refresh; this ends when the old tasks drain.
  * Each process reads the row at most once per `pollMs`, so another app container sees a bump within about a second; the
  * process that made it sees it at once. Database errors keep the last known values: they never empty the caches.
  * Until setup has added fits_epoch (a missing column, 42703), both values read `epoch` and both bumps move it, for five
