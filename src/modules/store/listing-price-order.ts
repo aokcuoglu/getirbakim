@@ -16,43 +16,56 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
  * The key hash covers priceOrderVersion (bump it when the stored order's meaning changes) and the storefront's supplier
  * companies, as listingCacheStore's. LISTING_PRICE_ORDER=0 turns the stored orders off (deep pages read live again);
  * LISTING_PRICE_ORDER_MAX_IDS (default 1,000,000) is the largest listing stored. A missing table (setup not run yet)
- * turns them off for five minutes. Read and slice errors are logged (throttled) and read live; a build error other than
- * the missing table reaches the page, as the live read's would.
+ * turns them off for five minutes. Errors never reach the page: a failed read or slice reads the page live, and so does a
+ * failed build (its 30 s limit included), after which the listing reads live for ten minutes instead of starting another
+ * build per request. Errors are logged, each kind at most once a minute.
  */
 export const priceOrderVersion = 1;
 /** The build's work_mem: the whole order is sorted in memory (ORIJINAL ~12 MB; /katalog's 900k rows need more). */
 export const priceOrderWorkMem = "64MB";
 const defaultMaxIds = 1_000_000;
+/** The stored total and the build's bound are integer columns and parameters. */
+const maxInt = 2_147_483_647;
 const pruneEvery = 20;
 const missingTableBackoffMs = 5 * 60 * 1000;
-let disabledUntil = 0, builds = 0, lastErrorLog = 0;
+/** How long after a failed build starts its listing reads live before it builds again. */
+export const failedBuildBackoffMs = 10 * 60 * 1000;
+let disabledUntil = 0, builds = 0;
+/** Keys (hashed) whose last build failed, with when they may build again; expired entries go on the next failure. */
+const failedBuilds = new Map<string, number>();
+const lastLogged = new Map<string, number>();
 
 /** The stored order as the process cache keeps it: its id count, 0 when nothing was stored. */
 export type PriceOrder = { total: number };
 
-function logError(message: string, error: unknown) {
-  // A database outage would otherwise log on every request.
-  if (Date.now() - lastErrorLog < 60_000) return;
-  lastErrorLog = Date.now();
+/**
+ * Logs at most once a minute per `kind`: a database outage would otherwise log on every request, and a missing table is
+ * still reported right after a failed build.
+ */
+function logError(kind: string, message: string, error: unknown) {
+  const now = Date.now();
+  if (now - (lastLogged.get(kind) ?? -Infinity) < 60_000) return;
+  lastLogged.set(kind, now);
   console.error(`Listing price order: ${message}`, error instanceof Error ? error.message : error);
 }
-const missingTable = (error: unknown) => (error as { code?: string } | null)?.code === "42P01";
+const errorCode = (error: unknown) => (error as { code?: string } | null)?.code;
+const missingTable = (error: unknown) => errorCode(error) === "42P01";
 function failed(action: string, error: unknown) {
   if (missingTable(error)) {
     disabledUntil = Date.now() + missingTableBackoffMs;
-    logError(`${action} failed: storefront_listing_price_orders is missing; deep price pages read live for 5 minutes`, error);
-  } else logError(`${action} failed; reading live instead`, error);
+    logError("missing", `${action} failed: storefront_listing_price_orders is missing; deep price pages read live for 5 minutes`, error);
+  } else logError(action, `${action} failed; reading live instead`, error);
 }
 
 /** Whether deep price pages read stored orders: LISTING_PRICE_ORDER is not 0 and the table was not found missing lately. Read per request. */
 export function priceOrderEnabled() {
   return process.env.LISTING_PRICE_ORDER?.trim() !== "0" && Date.now() >= disabledUntil;
 }
-/** The largest listing whose order is stored: LISTING_PRICE_ORDER_MAX_IDS (blank or invalid: 1,000,000). */
+/** The largest listing whose order is stored: LISTING_PRICE_ORDER_MAX_IDS (blank or invalid: 1,000,000; at most 2^31-1). */
 export function priceOrderMaxIds() {
   const setting = process.env.LISTING_PRICE_ORDER_MAX_IDS?.trim();
   const value = setting ? Number(setting) : defaultMaxIds;
-  return Number.isSafeInteger(value) && value > 0 ? value : defaultMaxIds;
+  return Number.isSafeInteger(value) && value > 0 ? Math.min(value, maxInt) : defaultMaxIds;
 }
 const keyHash = (key: string) => createHash("sha256").update(JSON.stringify([priceOrderVersion, storefrontCompanies(), key])).digest("hex");
 
@@ -100,22 +113,33 @@ export function priceOrderBuildSql(pricedSql: string, order: string, keyParam: s
 
 /**
  * Orders the listing (`pricedSql` with `values`) by `order` and stores it under `key` and `epoch` (the listing epoch read
- * before the build), with boundedQuery's 30 s limit and priceOrderWorkMem. `{ total: 0 }` when nothing was stored: no
- * rows, more than priceOrderMaxIds, a newer row kept, or the table missing.
+ * before the listing's filter was built), with boundedQuery's 30 s limit and priceOrderWorkMem. `{ total: 0 }` when
+ * nothing was stored: no rows, more than priceOrderMaxIds, a newer row kept, the table missing, or a failed build. Never
+ * throws: the page then reads live. A failed build (a statement timeout, 57014, or any other error) is remembered for
+ * the key: its builds return `{ total: 0 }` without a query until failedBuildBackoffMs after the failed one started, so
+ * a listing whose build cannot finish reads live instead of starting another 30 s build per request or epoch reload.
  */
 export async function buildPriceOrder(key: string, epoch: number, pricedSql: string, values: unknown[], order: string): Promise<PriceOrder> {
   if (!priceOrderEnabled()) return { total: 0 };
+  const hash = keyHash(key), started = Date.now();
+  if ((failedBuilds.get(hash) ?? 0) > started) return { total: 0 };
   const at = values.length;
   try {
     const { rows } = await boundedQuery<{ total: number }>(`catalog.priceOrder ${key}`,
-      priceOrderBuildSql(pricedSql, order, `$${at + 1}`, `$${at + 2}`, `$${at + 3}`), [...values, keyHash(key), epoch, priceOrderMaxIds()],
+      priceOrderBuildSql(pricedSql, order, `$${at + 1}`, `$${at + 2}`, `$${at + 3}`), [...values, hash, epoch, priceOrderMaxIds()],
       30_000, { workMem: priceOrderWorkMem, write: true });
     // Keys nobody reads any more (a removed category, an old version) are dropped now and then.
     if (++builds % pruneEvery === 0) db.query("DELETE FROM storefront_listing_price_orders WHERE computed_at<now()-interval '2 days'").catch(error => failed("prune", error));
     return { total: rows[0]?.total ?? 0 };
   } catch (error) {
-    if (!missingTable(error)) throw error;
-    failed("build", error);
+    if (missingTable(error)) {
+      failed("build", error);
+      return { total: 0 };
+    }
+    // Expired failures go first, so the map holds only listings whose build failed within the back-off.
+    for (const [failedKey, until] of failedBuilds) if (until <= started) failedBuilds.delete(failedKey);
+    failedBuilds.set(hash, started + failedBuildBackoffMs);
+    logError("build", `build failed (${errorCode(error) ?? "no code"}); the listing reads live for ${failedBuildBackoffMs / 60_000} minutes`, error);
     return { total: 0 };
   }
 }

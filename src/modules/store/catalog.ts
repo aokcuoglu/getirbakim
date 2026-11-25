@@ -962,6 +962,9 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const items=await storefrontRowsByIds(ids);
   return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
  }
+ // The listing epoch a stored price order is tagged with (#1369), read before the filter is built: an edit after it
+ // leaves an order built from the filter's earlier id sets older than the epoch, so it is rebuilt, never taken as current.
+ const orderEpoch=pricedOrder(query)&&!query.q?.trim()?await listings.epoch():0;
  // Without a search the filter is built only when a cache misses; a search always needs it (its matches).
  const filter=lazyFilter(query,context),search=query.q?.trim()?(await filter()).search:undefined;
  const pricedSort = pricedOrder(query), pricedKey=`${filterKey(query,context)}|${query.sort}`;
@@ -1005,12 +1008,12 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // ones read a slice (under 1 ms in SQL; a page ~20-40 ms over HTTP against 1.8-2.1 s and 6.5-7.6 s). The process
  // keeps the stored order's size under the cached pages' rules (cachedPriceOrders); cards are read live by id as above.
  // A listing over priceOrderMaxIds, an order with nothing stored, a row gone (the UNLOGGED table empties after a crash)
- // or a page past its end read live below. A build error reaches the page: after its 30 s limit a live read would wait
- // as long again.
+ // or a page past its end read live below, and so does a failed build (its 30 s limit included): the listing then reads
+ // live without another build for ten minutes (buildPriceOrder), instead of failing the page or building per request.
  if(!search&&pricedSort&&persistable(query)&&priceOrderEnabled()&&total<=priceOrderMaxIds()){
   const stored=await cachedPriceOrders(pricedKey,async()=>{
-   const epoch=await listings.epoch(),scope=await pricedScope(total,await filter(),pricedKey);
-   return scope?buildPriceOrder(pricedKey,epoch,pricedRowsSql(scope.where),scope.values,order):{total:0};});
+   const scope=await pricedScope(total,await filter(),pricedKey);
+   return scope?buildPriceOrder(pricedKey,orderEpoch,pricedRowsSql(scope.where),scope.values,order):{total:0};});
   const ids=stored.total>0?await priceOrderSlice(pricedKey,(page-1)*pageSize,take):null;
   if(ids?.length)return {items:await withBestOffers(await storefrontRowsByIds(ids)),total,page,pages,pageSize};
  }

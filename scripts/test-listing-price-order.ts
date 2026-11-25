@@ -51,20 +51,27 @@ async function withEnv<T>(values: Record<string, string | undefined>, run: () =>
     apply(saved);
   }
 }
-/** What `run` sends on any connection: stored-order builds, live price pages (ORDER BY … OFFSET) and statements naming the table. */
-async function sent(run: () => Promise<unknown>) {
+/**
+ * Runs `run` with every statement's text, on any connection, passed to `onText` first; an error it returns fails that
+ * statement without sending it (only for promise-style calls, as boundedQuery's).
+ */
+async function intercepted(onText: (text: string) => Error | undefined, run: () => Promise<unknown>) {
   const original = pg.Client.prototype.query;
-  const texts: string[] = [];
   pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
     const config = args[0];
-    texts.push(typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "");
-    return (original as (...rest: unknown[]) => unknown).apply(this, args);
+    const failure = onText(typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "");
+    return failure ? Promise.reject(failure) : (original as (...rest: unknown[]) => unknown).apply(this, args);
   } as typeof original;
   try {
     await run();
   } finally {
     pg.Client.prototype.query = original;
   }
+}
+/** What `run` sends on any connection: stored-order builds, live price pages (ORDER BY … OFFSET) and statements naming the table. */
+async function sent(run: () => Promise<unknown>) {
+  const texts: string[] = [];
+  await intercepted(text => { texts.push(text); return undefined; }, run);
   return {
     builds: texts.filter(text => text.includes("INSERT INTO storefront_listing_price_orders")).length,
     livePages: texts.filter(text => /ORDER BY unavailable,price_kurus (ASC|DESC) NULLS LAST,id LIMIT \d+ OFFSET/.test(text)).length,
@@ -322,6 +329,50 @@ test("boundedQuery writes with write: true; a plain one stays read only", async 
   assert.deepEqual((await boundedQuery<{ n: number }>("test.write", "INSERT INTO bounded_write_probe VALUES(1) RETURNING n", [], 5_000, { write: true })).rows, [{ n: 1 }]);
   await assert.rejects(boundedQuery("test.readOnly", "INSERT INTO bounded_write_probe VALUES(2)", []), { code: "25006" });
   assert.deepEqual((await schema.pool.query("SELECT n FROM bounded_write_probe")).rows, [{ n: 1 }]);
+});
+
+test("LISTING_PRICE_ORDER_MAX_IDS is at most the integer columns' 2^31-1", () => withEnv({ LISTING_PRICE_ORDER_MAX_IDS: "9000000000" }, async () => {
+  assert.equal(priceOrder.priceOrderMaxIds(), 2_147_483_647);
+}));
+
+// Next to last: it moves the clock (Date only) ten minutes and more ahead. This process's polled listing epoch then stays
+// as it last read it until the real clock catches up; the tests after it move it through invalidateListings() only.
+test("a failed build reads the page live, builds no more for ten minutes, then stores the order", async t => {
+  const query = bosch("price-asc", 21), next = bosch("price-asc", 22);
+  const [live, liveNext] = [await livePage(query), await livePage(next)];
+  const logged = t.mock.method(console, "error", () => {});
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  // A statement timeout (the build's 30 s limit) and any other error.
+  for (const code of ["57014", "53200"]) {
+    await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+    // Another process: its process cache is empty, so the listing's first deep page builds.
+    const other = await otherProcess(`failing${code}`);
+    let builds = 0;
+    const failBuild = (text: string) => {
+      if (!text.includes("INSERT INTO storefront_listing_price_orders")) return undefined;
+      builds++;
+      return Object.assign(new Error(`simulated ${code}`), { code });
+    };
+    await intercepted(failBuild, async () => {
+      assert.deepEqual(await pageIds(query, other), live, `${code}: the live page`);
+      // Epoch reloads within the back-off read live too, without a build.
+      await invalidateListings();
+      assert.deepEqual(await pageIds(next, other), liveNext);
+      t.mock.timers.tick(priceOrder.failedBuildBackoffMs - 1);
+      await invalidateListings();
+      assert.deepEqual(await pageIds(query, other), live);
+    });
+    assert.equal(builds, 1, `${code}: one build within the back-off`);
+    assert.deepEqual(await stored(), []);
+    t.mock.timers.tick(1);
+    await invalidateListings();
+    const after = await sent(async () => assert.deepEqual(await pageIds(next, other), liveNext));
+    assert.deepEqual({ builds: after.builds, livePages: after.livePages }, { builds: 1, livePages: 0 }, `${code}: stored after the back-off`);
+    assert.equal((await stored()).length, 1);
+  }
+  const messages = logged.mock.calls.map(call => String(call.arguments[0]));
+  assert.ok(messages.some(message => message.startsWith("Listing price order: build failed (57014)")));
+  assert.ok(messages.some(message => message.startsWith("Listing price order: build failed (53200)")));
 });
 
 // Last: a missing table turns the stored orders off for five minutes in this process.
