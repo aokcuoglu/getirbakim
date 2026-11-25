@@ -10,6 +10,7 @@ import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { listingEpoch } from "./listing-epoch";
 import { listingCacheStore } from "./listing-cache-store";
+import { buildPriceOrder, priceOrderEnabled, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
@@ -679,6 +680,8 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // The stored keys must stay bounded until the 2-day prune: a crawler walking model x category pages (~5.8k models x ~590
 // categories) would add hundreds of thousands of rows, so model listings stay in memory, and a make's listing keeps its
 // first page only (deeper pages of the plain, category and manufacturer listings are stored up to page 20; a price order is one key).
+// Past page 20 a price order is read from the listing's whole stored order (storefront_listing_price_orders, #1369): one
+// row per listing and sort, the same keys as the price order above, under the same rules (cachedPriceOrders).
 // These three also wait at most LISTING_EPOCH_WAIT_MS (250 ms, listing-wait.ts) for a reload when an earlier value
 // exists (#771): the entry an epoch bump replaced, or a stored row of an older epoch or past maxStaleMs, up to 48 hours
 // old (the store's prune window). The fit sync bumps the epoch up to every 30 s while fit rows change
@@ -706,6 +709,9 @@ const countCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehicleCounts:
 const pageIdCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehiclePageIds:cachedPageIds;
 type Facets={brands:string[];attributes:CatalogFacet[]};
 const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,fallbackWhen:facets=>facets.brands.length+facets.attributes.length>0,store:listingCacheStore<Facets>("facets",1)}),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
+// The stored whole price orders (#1369): the process keeps each one's size only, its ids stay in the table
+// (listing-price-order.ts). Same rules as the three above; an order stored empty (nothing to store) is no earlier value.
+const cachedPriceOrders=staleCache<PriceOrder>(aggregateTtl,500,{...persistedListings,fallbackWhen:order=>order.total>0,store:priceOrderStore});
 const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
 const persistablePage=(query:CatalogQuery,page:number)=>persistable(query)&&page<=(query.make?1:cachedPages);
 /** The listing filter built at most once, on the first call: a cached listing never builds it (its id sets take queries too). */
@@ -910,6 +916,15 @@ export function listingTotal(query:CatalogQuery,context:CatalogContext={}){
 /** The default listing order: newest first, products nobody supplies now last (#475). */
 const newestOrder="unavailable,updated_at DESC,id";
 const pricedOrder=(query:CatalogQuery)=>query.sort==="price-asc"||query.sort==="price-desc";
+/**
+ * A listing's ORDER BY: by price, else newest first (a search ranked by relevance puts its rank before it). Products
+ * nobody supplies now come after every saleable one, in every order (#475).
+ */
+const listingOrder=(query:CatalogQuery)=>query.sort==="price-asc"?"unavailable,price_kurus ASC NULLS LAST,id":query.sort==="price-desc"?"unavailable,price_kurus DESC NULLS LAST,id":newestOrder;
+/** The rows a price order sorts, from pricedScope's `where`: the columns its ORDER BY reads. */
+const pricedRowsSql=(where:string)=>`SELECT catalog.id,catalog.unavailable,catalog.price_kurus FROM (${storefrontCatalogSql}) catalog ${where}`;
+/** One live page of a price order (`offset` a parameter): the rows themselves, for a page no stored order serves. */
+const pricedPageSql=(where:string,order:string,take:number,offset:string)=>`SELECT * FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`;
 /** Page 1 whatever the total: no page asked, or one below 2 (browseProducts clamps it the same way). */
 const firstPageAsked=(query:CatalogQuery)=>{const requested=Number(query.page);return !Number.isSafeInteger(requested)||requested<=1;};
 /** The cached ids of one page of a listing without a search in the default order (newest first); page 1 of a covered listing from its summary. */
@@ -947,6 +962,9 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const items=await storefrontRowsByIds(ids);
   return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
  }
+ // The listing epoch a stored price order is tagged with (#1369), read before the filter is built: an edit after it
+ // leaves an order built from the filter's earlier id sets older than the epoch, so it is rebuilt, never taken as current.
+ const orderEpoch=pricedOrder(query)&&!query.q?.trim()?await listings.epoch():0;
  // Without a search the filter is built only when a cache misses; a search always needs it (its matches).
  const filter=lazyFilter(query,context),search=query.q?.trim()?(await filter()).search:undefined;
  const pricedSort = pricedOrder(query), pricedKey=`${filterKey(query,context)}|${query.sort}`;
@@ -960,8 +978,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize)), take = Math.min(pageSize,Math.max(1,Number.isFinite(limit)?Math.trunc(limit):pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
- // Products nobody supplies now come after every saleable one, in every order (#475).
- const order=query.sort === "price-asc" ? "unavailable,price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "unavailable,price_kurus DESC NULLS LAST,id" : newestOrder;
+ const order=listingOrder(query);
  if(!search&&!pricedSort){
   const ids=await (page===1&&firstIds?firstIds:listingPageIds(query,context,filter,page));
   const items=await storefrontRowsByIds(ids.slice(0,take));
@@ -970,10 +987,10 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // A price order prices every listed row before it sorts (VW make page: ~50k rows, ~3 s per page). Its first
  // cachedPages pages are ordered once and kept like the page ids above; the cards are still read live, so a card shows
  // the current price and stock, while its position follows the prices of up to 10 minutes ago (supplier syncs, and admin
- // price edits, which do not move the listing epoch). Deeper pages keep the live query. The priced rows are sorted before
- // the limit (VW: ~57 MB): it spilled to disk (external merge) at both the local default (4 MB) and the production RDS
- // setting (16 MB); 64 MB for this read keeps it in memory. A listing of two id sets up to pricedByIdsMax rows is priced
- // by its id array (pricedScope), off a per-row plan (#1335).
+ // price edits, which do not move the listing epoch). Deeper pages read the listing's whole stored order below. The priced
+ // rows are sorted before the limit (VW: ~57 MB): it spilled to disk (external merge) at both the local default (4 MB) and
+ // the production RDS setting (16 MB); 64 MB for this read keeps it in memory. A listing of two id sets up to
+ // pricedByIdsMax rows is priced by its id array (pricedScope), off a per-row plan (#1335).
  if(!search&&pricedSort&&page<=cachedPages){
   const ordered=await pageIdCache(query)(pricedKey,async()=>{const scope=await pricedScope(total,await filter(),pricedKey);
    if(!scope)return [];
@@ -983,10 +1000,27 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const items=await storefrontRowsByIds(ordered.slice((page-1)*pageSize,(page-1)*pageSize+take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
+ // A deeper page of a stored listing's price order (persistable, #1369) slices the listing's whole order, stored by one
+ // statement that prices and sorts the rows the cached pages above read (pricedScope) and keeps the ids in the database
+ // (listing-price-order.ts). Building the whole order costs about one live deep page (locally, npm run
+ // catalog:listing-timings -- --price-order: ORIJINAL, 155k rows, ~1.65 s against ~1.8 s; /katalog, 804k rows, ~6.6 s
+ // against ~6.5 s; no parallel plan on either side), so the first deep page of a listing waits for it once and the next
+ // ones read a slice (under 1 ms in SQL; a page ~20-40 ms over HTTP against 1.8-2.1 s and 6.5-7.6 s). The process
+ // keeps the stored order's size under the cached pages' rules (cachedPriceOrders); cards are read live by id as above.
+ // A listing over priceOrderMaxIds, an order with nothing stored, a row gone (the UNLOGGED table empties after a crash)
+ // or a page past its end read live below, and so does a failed build (its 30 s limit included): the listing then reads
+ // live without another build for ten minutes (buildPriceOrder), instead of failing the page or building per request.
+ if(!search&&pricedSort&&persistable(query)&&priceOrderEnabled()&&total<=priceOrderMaxIds()){
+  const stored=await cachedPriceOrders(pricedKey,async()=>{
+   const scope=await pricedScope(total,await filter(),pricedKey);
+   return scope?buildPriceOrder(pricedKey,orderEpoch,pricedRowsSql(scope.where),scope.values,order):{total:0};});
+  const ids=stored.total>0?await priceOrderSlice(pricedKey,(page-1)*pageSize,take):null;
+  if(ids?.length)return {items:await withBestOffers(await storefrontRowsByIds(ids)),total,page,pages,pageSize};
+ }
  // A search lists the best matches first unless the shopper picked another order.
  const filtered=await filter(),{from}=filtered;
- // A deeper page of a price order reads the rows the cached order above reads (pricedScope), a price-sorted search over
- // two or more id sets the ids its total came from; none, no page read.
+ // A deeper page of a price order no stored order serves reads the rows the cached order above reads (pricedScope), a
+ // price-sorted search over two or more id sets the ids its total came from; none, no page read.
  const scope=pricedSearch?pricedSearch.scope:pricedSort?await pricedScope(total,filtered,pricedKey):filtered;
  const notes={correctedQuery:search?.correctedQuery,vehicleScope:search?.vehicle,searchTooShort:search?.tooShort};
  if(!scope)return {items:[],total,page,pages,pageSize,...notes};
@@ -995,7 +1029,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const offset=bind((page-1)*pageSize),label=`catalog.listingPage ${filterKey(query,context)}|${query.sort??""}|${page}`;
  // The page's ids first, then its cards by id array (storefrontRowsByIds, #1135).
  const items = pricedSort
-  ? (await listingQuery<CatalogProduct>(scope,label,`SELECT * FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`, pageValues)).rows
+  ? (await listingQuery<CatalogProduct>(scope,label,pricedPageSql(scope.where,order,take,offset), pageValues)).rows
   : await storefrontRowsByIds((await listingQuery<{id:string}>(scope,label,`SELECT id::text FROM (SELECT id,updated_at,unavailable,${rank} AS rank ${from}
      ORDER BY unavailable,rank DESC,${order} LIMIT ${take} OFFSET ${offset}) page`, pageValues)).rows.map(row=>row.id));
  return {items:await withBestOffers(items),total,page,pages,pageSize,...notes};
@@ -1150,4 +1184,17 @@ export async function listingStatements(query:CatalogQuery):Promise<Record<"coun
  const {values,from}=await catalogFilter(query),withKeys=[...values,facetSpecificationKeys],keys=`$${withKeys.length}::text[]`;
  return {count:{text:countSql(from),values},pageIds:{text:pageIdsSql(from,`$${values.length+1}`),values:[...values,0]},brands:{text:brandsSql(from),values},
   attributes:{text:attributeFacetsSql(`SELECT catalog.id ${from}`,keys),values:withKeys},summary:{text:listingSummarySql(from,keys),values:withKeys}};
+}
+/**
+ * A stored listing's (persistable) price-sorted page `page` read live, and the whole order a deep page slices instead
+ * (#1369), as statements for the read-only comparison scripts/listing-summary-timings.ts: the live page browseProducts
+ * runs, and the build's select without its INSERT. The rows are scoped as pricedScope does with the listing's live count.
+ */
+export async function priceOrderStatements(query:CatalogQuery,page:number):Promise<Record<"livePage"|"order",Statement>>{
+ if(!persistable(query)||!pricedOrder(query))throw new Error("priceOrderStatements: a price-sorted listing without a search, model or narrowing filter only");
+ const filter=await catalogFilter(query),label=`${filterKey(query,{})}|${query.sort}`;
+ const scope=filter.idSets>=2?(await listedIds(filter,label)).scope:{where:filter.where,values:filter.values};
+ if(!scope)throw new Error(`priceOrderStatements: ${label} lists no rows`);
+ const order=listingOrder(query),values=[...scope.values,(page-1)*catalogPageSize];
+ return {livePage:{text:pricedPageSql(scope.where,order,catalogPageSize,`$${values.length}`),values},order:{text:priceOrderSelectSql(pricedRowsSql(scope.where),order),values:scope.values}};
 }

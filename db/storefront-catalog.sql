@@ -301,3 +301,20 @@ CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_cache (
  value jsonb NOT NULL,
  PRIMARY KEY (namespace,key_hash)
 );
+-- Whole price orders of the plain listings (#1369): one row per listing and price sort (the listings
+-- storefront_listing_cache keeps, a model listing excepted), holding every listed id in the page order. Pages 1-20 keep
+-- their 480 ids in storefront_listing_cache; a deeper page slices this array (ids[a:b]) and reads its cards live by id, so
+-- prices and stock stay current while the order follows the prices of the last build (src/modules/store/listing-price-order.ts).
+-- One statement prices, sorts and stores a listing (INSERT … SELECT): its ids never pass through the app (#1262). `epoch`
+-- is the storefront_listing_epoch value the build ran under; the app rebuilds a row of an older epoch, and an older
+-- build never replaces a newer row. UNLOGGED: a crash empties it and deep pages read live until the next build. The app
+-- prunes rows older than two days. No index but the primary key: every read and write names one key_hash. The array is
+-- read whole to slice it (~16 bytes an id: 900k ids ~14 MB, stored out of line).
+CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_price_orders (
+ key_hash text NOT NULL,
+ epoch bigint NOT NULL,
+ computed_at timestamptz NOT NULL DEFAULT now(),
+ total integer NOT NULL,
+ ids uuid[] NOT NULL,
+ PRIMARY KEY (key_hash)
+);

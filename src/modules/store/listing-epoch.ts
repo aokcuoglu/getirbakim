@@ -12,9 +12,9 @@ import { db } from "@/lib/db";
  * listing shows an edit once its reload ends.
  * The fit sync bumps the counter too (enrichment-links.server.ts, up to every 30 s while fit rows change).
  * The known value only grows (Math.max), so a racing older read cannot undo a bump; if the counter is ever set back
- * (restoring a backup, recreating the table), restart the app tasks and TRUNCATE storefront_listing_cache (#957), or
- * their caches keep serving until the counter passes the old value (rows stored under a higher epoch would be adopted
- * for up to 24 hours).
+ * (restoring a backup, recreating the table), restart the app tasks and TRUNCATE storefront_listing_cache (#957) and
+ * storefront_listing_price_orders (#1369), or their caches keep serving until the counter passes the old value (rows
+ * stored under a higher epoch would be adopted for up to 24 hours).
  */
 const pollMs = 1000;
 let known = 0, readAt = 0;

@@ -26,13 +26,15 @@ export const db = (globalDb.getirbakimPool ??= createPool());
  * `label` is `<module>.<query>` plus optional listing detail, built only when the query runs (a cache miss); a statement
  * timeout (57014) is logged with it, cut to 200 chars, so a slow listing can be traced to its query. The logged time
  * includes the pool wait, and 57014 also covers a pg_cancel_backend.
+ * The transaction is READ ONLY unless `write`: a statement that stores what it reads (a listing's whole price order,
+ * src/modules/store/listing-price-order.ts, #1369) runs under the same limits.
  */
-export async function boundedQuery<T extends QueryResultRow>(label: string, sql: string, values: unknown[], timeoutMs = 30_000, { workMem }: { workMem?: string } = {}) {
+export async function boundedQuery<T extends QueryResultRow>(label: string, sql: string, values: unknown[], timeoutMs = 30_000, { workMem, write = false }: { workMem?: string; write?: boolean } = {}) {
   if (workMem !== undefined && !/^\d+(kB|MB)$/.test(workMem)) throw new Error(`Invalid work_mem: ${workMem}`);
   const started = Date.now();
   const client = await db.connect();
   try {
-    await client.query("BEGIN READ ONLY");
+    await client.query(write ? "BEGIN" : "BEGIN READ ONLY");
     await client.query(`SET LOCAL statement_timeout = ${Math.max(1, Math.floor(timeoutMs))}`);
     if (workMem) await client.query(`SET LOCAL work_mem = '${workMem}'`);
     const result = await client.query<T>(sql, values);
