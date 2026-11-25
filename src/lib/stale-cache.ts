@@ -31,8 +31,16 @@ export type StaleCacheStore<T> = {
   read(key: string): Promise<{ value: T; ageMs: number; epoch: number } | null>;
   write(key: string, value: T, epoch: number): Promise<void>;
 };
+/**
+ * A load: `at` is the epoch value the entry is loaded under (0 without an epoch), the one a stored value is written with.
+ * A load that tags data of its own with an epoch (a stored price order) uses this value, so the tag and the entry agree.
+ */
+type Load<T> = (at: number) => Promise<T>;
 type Options<T> = {
-  /** Shared invalidation counter (src/modules/store/listing-epoch.ts): an entry loaded under an older value is reloaded. */
+  /**
+   * Shared invalidation counter (src/modules/store/listing-epoch.ts): an entry loaded under an older value is reloaded.
+   * A call may name its own (the call's `epoch`), which then replaces this one for that call.
+   */
   epoch?: () => Promise<number>;
   /** Optional second level read on a memory miss and written after every load. Its errors count as a miss. */
   store?: StaleCacheStore<T>;
@@ -67,6 +75,9 @@ type Options<T> = {
  * With `epoch`, an entry loaded before the counter moved is not served: the caller waits for a new load
  * (concurrent callers share it); if that load fails the old value is put back and returned, and the next
  * request tries again. Each app container keeps its own copy; prices and stock must not go through here.
+ * A call may pass its own `epoch` (#1368): one cache then serves keys that follow different counters (the listings that
+ * read vehicle fits and those that do not). A key must always be read with the same counter: its entry and stored value
+ * carry that counter's value, which another counter's would not compare with. The load gets the value it runs under (`at`).
  *
  * With `store`, a memory miss first reads the shared level: a stored value of the current epoch (or newer) no older than
  * `maxStaleMs` is adopted with its age, so one older than `ttlMs` is served while a background refresh runs. A refresh
@@ -105,7 +116,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
   // Reads the store first when `persist`; a stored value is adopted when its epoch is current and it is at most `maxAgeMs` old.
   // `stored` hears what the read found that is not adopted and at most maxFallbackMs old (an earlier value for
   // maxWaitMs), or null.
-  const obtain = async (key: string, load: () => Promise<T>, at: number, persist: boolean, maxAgeMs: number,
+  const obtain = async (key: string, load: Load<T>, at: number, persist: boolean, maxAgeMs: number,
     stored: (earlier: Earlier<T>) => void = () => {}): Promise<Loaded<T>> => {
     if (persist && store) {
       const row = await Promise.resolve().then(() => store.read(key)).catch(() => null);
@@ -113,11 +124,11 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
       stored(row && !adopted && row.ageMs <= maxFallbackMs ? { value: row.value } : null);
       if (adopted) return { value: row.value, ageMs: Math.max(0, row.ageMs) };
     }
-    const value = await load();
+    const value = await load(at);
     if (persist && store) Promise.resolve().then(() => store.write(key, value, at)).catch(() => {});
     return { value };
   };
-  const refresh = (key: string, entry: Entry<T>, load: () => Promise<T>, at: number, persist: boolean) => {
+  const refresh = (key: string, entry: Entry<T>, load: Load<T>, at: number, persist: boolean) => {
     entry.refreshing = true;
     obtain(key, load, at, persist, ttlMs)
       .then(loaded => {
@@ -156,7 +167,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
   const earlierOf = (entry: Entry<T>): Promise<Earlier<T>> => entry.known ? Promise.resolve(entry.known)
     : entry.earlier ? entry.earlier() : entry.value.then(value => ({ value }), () => null);
   const usable = (found: Earlier<T>): Earlier<T> => found && fallbackWhen(found.value) ? found : null;
-  const insert = (key: string, load: () => Promise<T>, epoch: number | undefined, persist: boolean, previous?: Entry<T>) => {
+  const insert = (key: string, load: Load<T>, epoch: number | undefined, persist: boolean, previous?: Entry<T>) => {
     const loadedAt = Date.now();
     const bound = maxWaitMs === undefined ? Infinity : typeof maxWaitMs === "function" ? maxWaitMs() : maxWaitMs;
     // With a finite bound, what a waiting caller may get: the replaced entry's value (earlierOf), or a stored value this
@@ -217,7 +228,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     if (entries.size > maxEntries) drop(entries.keys().next().value!);
     return serve(fresh);
   };
-  const read = (key: string, load: () => Promise<T>, epoch: number | undefined, persist: boolean): Promise<T> => {
+  const read = (key: string, load: Load<T>, epoch: number | undefined, persist: boolean): Promise<T> => {
     const entry = entries.get(key);
     if (!entry) return insert(key, load, epoch, persist);
     // An entry from an older epoch is stale; one from a newer epoch (a racing read saw the bump first) is kept.
@@ -227,8 +238,8 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     if (!entry.refreshing && Date.now() - entry.loadedAt > ttlMs) refresh(key, entry, load, epoch ?? 0, persist);
     return serve(entry);
   };
-  return (key: string, load: () => Promise<T>, { persist = true }: { persist?: boolean } = {}): Promise<T> => {
-    const shared = persist && Boolean(store);
-    return epoch ? epoch().then(current => read(key, load, current, shared)) : read(key, load, undefined, shared);
+  return (key: string, load: Load<T>, { persist = true, epoch: own }: { persist?: boolean; epoch?: () => Promise<number> } = {}): Promise<T> => {
+    const shared = persist && Boolean(store), source = own ?? epoch;
+    return source ? source().then(current => read(key, load, current, shared)) : read(key, load, undefined, shared);
   };
 }

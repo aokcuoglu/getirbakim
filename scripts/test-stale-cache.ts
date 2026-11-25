@@ -296,6 +296,45 @@ test("maxWaitMs: an earlier value fallbackWhen refuses, or an unbounded wait, ma
   assert.equal(await unbounded("k", async () => { await pause(30); return "new"; }), "new", "Infinity: no bound for that load");
 });
 
+// The load's `at` (#1368): the epoch value the entry is loaded under, the one its stored value is written with.
+test("the load gets the epoch value it runs under: first load, epoch reload and TTL refresh; 0 without an epoch", async () => {
+  let epoch = 4;
+  const seen: number[] = [];
+  const cache = staleCache<number>(20, 100, { epoch: async () => epoch });
+  const load = async (at: number) => { seen.push(at); return at; };
+  assert.equal(await cache("k", load), 4);
+  epoch = 6;
+  assert.equal(await cache("k", load), 6, "an epoch reload");
+  await pause(30);
+  assert.equal(await cache("k", load), 6, "past the TTL: the old value while the refresh runs");
+  await pause(5);
+  assert.deepEqual(seen, [4, 6, 6]);
+  const plain = staleCache<number>(60_000, 100);
+  assert.equal(await plain("k", async at => at), 0, "no epoch: 0");
+  assert.equal(await plain("zero-argument", async () => 9), 9, "a load without the argument still fits");
+});
+
+test("a call's own epoch replaces the instance's for that call; the stored value carries the value the load saw", async () => {
+  let listing = 2, fits = 10;
+  const written: { key: string; epoch: number }[] = [];
+  const store = { read: async () => null, write: async (key: string, _value: number, epoch: number) => { written.push({ key, epoch }); } };
+  const cache = staleCache<number>(60_000, 100, { epoch: async () => listing, store });
+  const own = { epoch: async () => fits };
+  let loads = 0;
+  const load = async (at: number) => { loads++; return at; };
+  assert.equal(await cache("plain", load), 2);
+  assert.equal(await cache("fitted", load, own), 10);
+  fits = 11;
+  assert.equal(await cache("plain", load), 2, "the instance's counter did not move: a hit");
+  assert.equal(await cache("fitted", load, own), 11, "the call's counter moved: reloaded");
+  listing = 3;
+  assert.equal(await cache("fitted", load, own), 11, "the instance's counter does not reach a key read with its own");
+  assert.equal(await cache("plain", load), 3);
+  assert.equal(loads, 4);
+  await pause(5);
+  assert.deepEqual(written, [{ key: "plain", epoch: 2 }, { key: "fitted", epoch: 10 }, { key: "fitted", epoch: 11 }, { key: "plain", epoch: 3 }]);
+});
+
 test("listingWaitMs: the setting, 250 ms when blank or invalid, unbounded while warming", async () => {
   const { listingWaitMs, whileWarming } = await import("../src/modules/store/listing-wait");
   const original = process.env.LISTING_EPOCH_WAIT_MS;
