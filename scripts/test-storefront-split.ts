@@ -1,8 +1,17 @@
+// Golden-file guard for the part-NN/manifest.json format (#1358). The split ships with the main checkout, the importer only with a release
+// (release-aws), so the format is their contract. The "storefront part format" test below compares a normalized schema of part-00, all job parts
+// and all enrichment parts (keys, JSON value types, element schemas of arrays, recursively) with scripts/fixtures/storefront-part-format.json.
+// Scope: it guards the split's own output: the top-level keys and types, which arrays each part kind blanks, and that rows pass through intact for the
+// row shapes in the fixture (written from the export SELECTs and the columns the importer reads). It cannot see an export or importer column change
+// by itself; that needs an export -> split -> import run on a database. Values are not compared, only keys and types.
+// If the format change is intended: release the importer first (backward compatible), then change the split, then regenerate the golden file with
+//   UPDATE_GOLDEN=1 node --import tsx --test scripts/test-storefront-split.ts   (refused in CI)
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import { ENRICHMENTS_FILE, ITEMS_FILE, JOBS_FILE, MEDIA_FILE, PRODUCTS_FILE, readNdjson, writeNdjson } from "./storefront-bundle-stream";
 
@@ -11,7 +20,7 @@ type Rows = { enrichments?: Row[]; jobs?: Row[]; items?: Row[]; products?: Row[]
 
 // An export directory as export-storefront-bundle.ts writes it (#1316, #1317): enrichments, jobs, supplier item keys,
 // category mappings and media rows go to NDJSON files, the manifest names each file and its row count.
-async function bundle(media: { id: string; key: string; size: number }[], { enrichments = [], jobs = [], items = [], products = [], ...manifest }: Row & Rows) {
+async function bundle(media: { id: string; key: string; size: number; row?: Row }[], { enrichments = [], jobs = [], items = [], products = [], ...manifest }: Row & Rows) {
   const root = await mkdtemp(join(tmpdir(), "storefront-split-"));
   const source = join(root, "full");
   await mkdir(source);
@@ -19,7 +28,7 @@ async function bundle(media: { id: string; key: string; size: number }[], { enri
     await mkdir(dirname(join(source, "media", object.key)), { recursive: true });
     await writeFile(join(source, "media", object.key), Buffer.alloc(object.size, 1));
   }
-  const rows = media.map(object => ({ id: object.id, object_key: object.key, size_bytes: object.size }));
+  const rows = media.map(object => ({ id: object.id, object_key: object.key, size_bytes: object.size, ...object.row }));
   await writeFile(join(source, "manifest.json"), JSON.stringify({
     snapshotAt: "2026-10-26T00:00:00Z", ...manifest,
     enrichmentsFile: ENRICHMENTS_FILE, enrichmentCount: await writeNdjson(join(source, ENRICHMENTS_FILE), enrichments),
@@ -349,5 +358,73 @@ test("an export written before #1317 (jobs, items, mappings or media inline) or 
     }
     await writeFile(path, JSON.stringify({ ...exported, jobsFile: "../jobs.ndjson" }));
     await assert.rejects(splitStorefrontBundle(source, join(root, "parts"), MEDIA), /Unsafe jobsFile: \.\.\/jobs\.ndjson/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+// JSON schema of values seen at one position: a type name, an object of its keys' schemas, or { "[]": element schema }; mixed types list "oneOf".
+function describe(values: unknown[]): unknown {
+  if (!values.length) return "empty";
+  const nodes = new Map<string, unknown>();
+  for (const kind of new Set(values.map(value => value === null ? "null" : Array.isArray(value) ? "array" : typeof value))) {
+    const of = values.filter(value => (value === null ? "null" : Array.isArray(value) ? "array" : typeof value) === kind);
+    if (kind === "array") nodes.set(kind, { "[]": describe(of.flat()) });
+    else if (kind === "object") {
+      const names = [...new Set(of.flatMap(value => Object.keys(value as Row)))].sort();
+      nodes.set(kind, Object.fromEntries(names.map(name => [name, describe(of.filter(value => name in (value as Row)).map(value => (value as Row)[name]))])));
+    } else nodes.set(kind, kind);
+  }
+  const all = [...nodes.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, node]) => node);
+  return all.length === 1 ? all[0] : { oneOf: all };
+}
+
+const GOLDEN = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "storefront-part-format.json");
+
+test("storefront part format: part-00, the job parts and the enrichment parts match the golden schema", async () => {
+  const jobs = [uuid(1), uuid(2)].map((id, index) => ({
+    supplier_item_id: id, supplier_code: `C00000${index}`, supplier_brand: "FEBI", oem: "", status: index ? "partial" : "complete", candidate_url: index ? "https://example.test/p" : null,
+    last_attempt_at: "2026-11-24T01:00:00.000Z",
+  }));
+  const enrichments = [uuid(1), uuid(2)].map((id, index) => ({
+    supplier_item_id: id, supplier_code: `C00000${index}`, supplier_brand: "FEBI", source_url: "https://example.test/p", source_method: "trodo",
+    manufacturer: "FEBI", manufacturer_part_number: `P-${index}`, image_id: index ? null : "a", payload: { name: "Fren balatası", vehicles: ["Ford"] },
+    imported_at: "2026-11-23T01:30:00.000Z", match_basis: { type: "exact_part" },
+  }));
+  const sha = (n: number) => String(n).repeat(64);
+  const mediaRow = (n: number) => ({ bucket: "product-media", sha256: sha(n), content_type: "image/webp", source_url: "https://example.test/i.webp", created_at: "2026-11-01T00:00:00.000Z", stored_at: null });
+  const { root, source } = await bundle([
+    { id: "c", key: "cat/c.webp", size: 10, row: mediaRow(1) }, { id: "v", key: "veh/v.webp", size: 10, row: mediaRow(2) }, { id: "a", key: "p/a.webp", size: 10, row: mediaRow(3) },
+  ], {
+    exportedAt: "2026-11-23T01:30:00Z", since: null, retried: 0, snapshotAt: "2026-11-23T01:29:00Z",
+    categories: [{ source: "trodo", category_id: 1, parent_id: null, name: "Fren", slug: "fren", path_ids: [1], source_url: "https://example.test/c/1", raw: { id: 1 }, fetched_at: "2026-11-01T00:00:00.000Z" }],
+    labels: [{ source: "trodo", category_id: 1, locale: "tr", name: "Fren", slug: "fren" }],
+    images: [{ source: "trodo", category_id: 1, media_id: "c", width: 64, height: 64 }],
+    logos: [{ brand_key: "FEBI", manufacturer: "FEBI", image_data: "\\x89504e47", sha256: sha(4), width: 64, height: 32, source_url: "https://example.test/l.png",
+      evidence_product_id: uuid(1), evidence_source_url: "https://example.test/p", imported_at: "2026-11-01T00:00:00.000Z" }],
+    vehicleSpecs: [{ vehicle_type_id: 7, outcome: "found", detail: null, full_name: "Ford Focus 1.6", body_type: "Hatchback", drive_type: "FWD", engine_type: "Petrol", fuel_mixture: "Injection",
+      cylinders: 4, valves: 16, engine_codes: ["HXDA"], kba_numbers: ["8009/AEK"], fetched_at: "2026-11-01T00:00:00.000Z" }],
+    vehicleImages: [{ vehicle_type_id: 7, media_id: "v", original_media_id: null, width: 512, height: 256, imported_at: "2026-11-01T00:00:00.000Z" }],
+    tombstones: [{ supplier_item_id: uuid(9), supplier: "basbug", company: "C", list_group: "L", warehouse: "MRK", code: "CODE 9", kind: "enrichment_deleted", source_method: null,
+      recorded_at: "2026-11-20T00:00:00.000Z" }],
+    invalidatedJobs: 1, maxDeletions: 1000,
+    jobs, enrichments, products: [{ supplier_item_id: uuid(1), source: "trodo", category_id: 1 }],
+    items: [key(uuid(1)), key(uuid(2)), key(uuid(9))],
+  });
+  try {
+    // One job with its key per job part; part 0 has no byte limit.
+    const parts = await split(source, join(root, "parts"), { mediaBytes: 1e9, jsonBytes: lineBytes(jobs[0]) + lineBytes(key(uuid(1))) });
+    const jobParts = parts.filter((part, index) => index && part.jobs.length);
+    const enrichmentParts = parts.filter(part => part.enrichments.length);
+    assert.ok(parts[0].jobs.length === 0 && jobParts.length > 1 && enrichmentParts.length > 1, "fixture must give part-00, job parts and enrichment parts");
+    const schema = { "part-00": describe([parts[0]]), "job parts": describe(jobParts), "enrichment parts": describe(enrichmentParts) };
+    const text = `${JSON.stringify(schema, null, 2)}\n`;
+    if (process.env.UPDATE_GOLDEN === "1") {
+      if (process.env.CI) assert.fail("UPDATE_GOLDEN is not allowed in CI");
+      await mkdir(dirname(GOLDEN), { recursive: true });
+      await writeFile(GOLDEN, text);
+      return;
+    }
+    assert.deepEqual(schema, JSON.parse(await readFile(GOLDEN, "utf8")),
+      "the storefront part format changed: the AWS importer reads this format; release the importer first (backward compatible), then change the split. "
+      + "If the change is intended, regenerate the golden file with `UPDATE_GOLDEN=1 node --import tsx --test scripts/test-storefront-split.ts`.");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
