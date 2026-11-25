@@ -1,7 +1,12 @@
 import "server-only";
 
 // Just under the 60 s after which the CDN (CloudFront's origin read timeout) and the internal load balancer (its idle
-// timeout) give the request up: a read past it serves nobody, while one that finishes sooner still answers its page.
+// timeout) give up a request still waiting for bytes: a visitor's read that answered within that still does, one of
+// 55-60 s that answered before now fails. A load staleCache runs in the background (a TTL refresh, or an epoch reload whose
+// visitors got the earlier value after the bounded wait, #771) serves no request, it only fills the cache: one past the
+// limit never completes, so the key keeps its earlier value and the next request starts the read again, where an
+// unbounded one finished late and filled it. boundedQuery logs every timeout and every read that took over 20 s
+// (BOUNDED_QUERY_SLOW_MS), so production shows how close the loads come to the limit.
 const defaultLimitMs = 55_000;
 
 /**

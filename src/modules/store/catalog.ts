@@ -678,11 +678,16 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
 /**
  * A catalog listing or search read, run under a server-side time limit (#1377: listingStatementTimeoutMs, 55 s, just under
  * the CDN's and load balancer's 60 s): a read the CDN gave up on (504) must not keep running on the database and hold one
- * of the pool's connections, while a read that answers within 60 s today still does. A timeout (57014) is logged with
- * `label` and fails the load: a cache then keeps or serves its earlier value under its own rules (staleCache, #771), a
- * first load without one fails the page. LISTING_STATEMENT_TIMEOUT_MS=0 sends the plain statement again (the rollback).
- * `workMem` (out of stock, #1342) raises work_mem for the read and keeps the 30 s it had before, whatever the setting.
- * Costs three more round trips (BEGIN, SET LOCAL, COMMIT), locally ~0.16 ms per read.
+ * of the pool's connections. The limit is per statement, not per request: an uncached search runs several in sequence
+ * (hits, vehicle readings, summary, facets), so a request the CDN abandoned can still hold a connection for up to that many
+ * times 55 s plus its pool waits; bounded, where before it was not. A statement of 55-60 s that answered its page before
+ * now fails. On a page that streams, the CDN's 60 s count from the last bytes sent, not from the request, so a read under
+ * its shell may have taken longer than 55 s and still answered before. A load in the background (a TTL refresh, an epoch
+ * reload past the bounded wait) that hits the limit leaves its key at the earlier value (listing-timeout.ts).
+ * A timeout (57014) is logged with `label` and fails the load: a cache then keeps or serves its earlier value under its
+ * own rules (staleCache, #771), a first load without one fails the page. LISTING_STATEMENT_TIMEOUT_MS=0 sends the plain
+ * statement again (the rollback). `workMem` (out of stock, #1342) raises work_mem for the read and keeps the 30 s it had
+ * before, whatever the setting. Costs three more round trips (BEGIN, SET LOCAL, COMMIT), locally ~0.16 ms per read.
  */
 function listingQuery<T extends QueryResultRow>({workMem}:{workMem?:string},label:string,sql:string,values:unknown[]){
  if(workMem)return boundedQuery<T>(label,sql,values,30_000,{workMem});
