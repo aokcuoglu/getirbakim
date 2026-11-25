@@ -53,8 +53,8 @@ export const LOCAL_ONLY = {
 /** Columns the importer inserts but never updates on an existing row (the update-path comparisons skip them). */
 export const INSERT_ONLY: Partial<Record<keyof typeof LOCAL_ONLY, Record<string, string>>> = {
   product_enrichment_jobs: {
-    oem: "storefront-bundle-jobs.ts rewrites a job only when status/code/brand differ and its SET list has no oem (open question: #1372 follow-up)",
-    last_attempt_at: "same upsert: not in the DO UPDATE SET list (open question: #1372 follow-up)",
+    oem: "storefront-bundle-jobs.ts rewrites a job only when status/code/brand differ and its SET list has no oem (open question: #1386)",
+    last_attempt_at: "same upsert: not in the DO UPDATE SET list (open question: #1386)",
   },
 };
 type CarriedTable = keyof typeof LOCAL_ONLY;
