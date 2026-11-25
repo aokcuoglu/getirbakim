@@ -36,6 +36,8 @@ export const CURSOR_BATCH = 5000;
  * REPEATABLE READ READ ONLY transaction and sees its snapshot; the set is evaluated once and streamed, `sql` keeps its own ORDER BY.
  */
 async function* cursorBatches(client: PoolClient, name: string, sql: string, params: unknown[], size: number) {
+  // Plan the cursor for the whole result like the single query (the default 0.1 favours a fast start); SET LOCAL ends with the transaction.
+  await client.query("SET LOCAL cursor_tuple_fraction = 1");
   await client.query(`DECLARE ${name} NO SCROLL CURSOR FOR ${sql}`, params);
   try {
     for (;;) {
