@@ -14,9 +14,9 @@ const createPool = () => {
   pool.on("error", error => console.error("Idle database client error", error.message));
   return pool;
 };
-// One pool per process, in production too. `next start` loads this module once per bundle (the instrumentation bundle
-// with the warm-up and the enrichment sync, each route bundle), and a module-level pool would open `max` connections
-// per copy (#771 measured 16 open against a max of 15). Dev reload also reuses it. DATABASE_POOL_MAX is the real
+// One pool per process, in production too. `next start` loads this module twice: in the instrumentation bundle (the
+// warm-up and the enrichment sync) and in the server bundle all routes share; a module-level pool would open `max`
+// connections per copy (#771 measured 16 open against a max of 15). Dev reload also reuses it. DATABASE_POOL_MAX is the real
 // per-process ceiling only because the pool lives on globalThis; its error listener is registered once, in createPool.
 export const db = (globalDb.getirbakimPool ??= createPool());
 /**
