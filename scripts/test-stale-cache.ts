@@ -313,3 +313,23 @@ test("listingWaitMs: the setting, 250 ms when blank or invalid, unbounded while 
     else process.env.LISTING_EPOCH_WAIT_MS = original;
   }
 });
+
+test("db: two copies of the module (instrumentation and route bundles) share one pool in production", async () => {
+  const globals = globalThis as { getirbakimPool?: unknown };
+  const previous = globals.getirbakimPool;
+  delete globals.getirbakimPool;
+  try {
+    // A query string makes the loader evaluate the file again, as a second webpack bundle does.
+    const load = (copy: string): Promise<typeof import("../src/lib/db")> => import(`../src/lib/db?bundle=${copy}`);
+    const first = await load("a");
+    const second = await load("b");
+    assert.notEqual(first, second, "two separate module copies");
+    assert.equal(first.db, second.db, "one Pool per process");
+    assert.equal(globals.getirbakimPool, first.db);
+    assert.equal(first.db.listenerCount("error"), 1, "the idle-client error listener is registered once");
+    await first.db.end();
+  } finally {
+    if (previous === undefined) delete globals.getirbakimPool;
+    else globals.getirbakimPool = previous;
+  }
+});
