@@ -16,8 +16,12 @@ import { buildInboundReport, type PartReport } from "./storefront-sync-state";
 // The storefront sync end to end (#1372): export-storefront-bundle.ts -> splitStorefrontBundle -> import-storefront-bundle.ts, each
 // a real child process, between two isolated copies of the schema (a local database as source, production as target) and an
 // in-test S3 stub. It checks what the pieces' own tests cannot: that every column an exporter SELECT or importer INSERT carries
-// reaches the target unchanged. Whatever may legitimately differ is listed in LOCAL_ONLY, with its reason; anything else that
-// differs fails. A column nobody seeded fails assertColumnCoverage, so a new column cannot pass by being empty on both sides.
+// reaches the target unchanged, both when the row is new on the target (run 1) and when it already exists there and changes
+// (run 2 changes every carried non-key column of one imported row per table, run 3 the vehicle data), so a column missing from an
+// importer's INSERT or from its ON CONFLICT DO UPDATE list fails. Whatever may legitimately differ is listed in LOCAL_ONLY, with its
+// reason; anything else that differs fails. INSERT_ONLY lists columns the importer writes on insert but never updates: they are
+// left out of the comparisons that follow an update, so the gap stays visible. A column nobody seeded, or one that only ever holds
+// its constant default, fails assertColumnCoverage, so a new column cannot pass by being empty or defaulted on both sides.
 const skip = !process.env.DATABASE_URL && "DATABASE_URL not set";
 if (process.env.CI && skip) throw new Error("DATABASE_URL is required in CI: the storefront e2e test must not be skipped silently");
 
@@ -46,6 +50,13 @@ export const LOCAL_ONLY = {
   vehicle_type_specs: { payload: "the raw REPXPERT response stays local" },
   vehicle_type_images: { original_media_id: "the cut-out's origin (media row of the REPXPERT original) is not carried" },
 } as const satisfies Record<string, Record<string, string>>;
+/** Columns the importer inserts but never updates on an existing row (the update-path comparisons skip them). */
+export const INSERT_ONLY: Partial<Record<keyof typeof LOCAL_ONLY, Record<string, string>>> = {
+  product_enrichment_jobs: {
+    oem: "storefront-bundle-jobs.ts rewrites a job only when status/code/brand differ and its SET list has no oem (open question: #1372 follow-up)",
+    last_attempt_at: "same upsert: not in the DO UPDATE SET list (open question: #1372 follow-up)",
+  },
+};
 type CarriedTable = keyof typeof LOCAL_ONLY;
 const TABLES = Object.keys(LOCAL_ONLY) as CarriedTable[];
 const TYPE_NOT_ON_TARGET = 104;
@@ -82,9 +93,9 @@ const SPECS: Record<CarriedTable, { select: string; where?: string; order: strin
   },
 };
 type Queryable = Pick<Pool, "query">;
-async function compareRows(table: CarriedTable, db: Queryable, excludeCodes: string[]) {
+async function compareRows(table: CarriedTable, db: Queryable, excludeCodes: string[], afterUpdate = false) {
   const spec = SPECS[table];
-  const dropped = Object.keys(LOCAL_ONLY[table]);
+  const dropped = [...Object.keys(LOCAL_ONLY[table]), ...(afterUpdate ? Object.keys(INSERT_ONLY[table] ?? {}) : [])];
   const sql = `SELECT (${spec.select})-$2::text[] AS row FROM ${table} t WHERE $1::text[] IS NOT NULL ${spec.where ? `AND ${spec.where}` : ""} ORDER BY ${spec.order}`;
   return (await db.query<{ row: Record<string, unknown> }>(sql, [excludeCodes, dropped])).rows.map(entry => entry.row);
 }
@@ -154,7 +165,7 @@ async function run(script: string, args: string[], side: "source" | "target") {
   assert.equal(new URL(env.DATABASE_URL!).searchParams.get("options"), `-c search_path=${schema.name},public`);
   assert.ok(!args.some(arg => arg.startsWith("--env-file") || arg === "--prune"));
   try {
-    return (await execFileAsync(process.execPath, ["--conditions=react-server", "--import", "tsx", `scripts/${script}`, ...args], { cwd: repoRoot, env, encoding: "utf8", maxBuffer: 1 << 26 })).stdout;
+    return (await execFileAsync(process.execPath, ["--conditions=react-server", "--import", "tsx", `scripts/${script}`, ...args], { cwd: repoRoot, env, encoding: "utf8", maxBuffer: 1 << 26, timeout: 60_000, killSignal: "SIGKILL" })).stdout;
   } catch (error) {
     const failure = error as { stdout?: string; stderr?: string; message: string };
     throw new Error(`${script} failed: ${failure.message}\n${failure.stdout ?? ""}\n${failure.stderr ?? ""}`);
@@ -251,24 +262,32 @@ async function seedTarget(pool: Pool) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-async function compareAll(excludeCodes: string[] = []) {
+async function compareAll(excludeCodes: string[] = [], afterUpdate = false) {
   for (const table of TABLES) {
-    const [fromSource, fromTarget] = [await compareRows(table, source.pool, excludeCodes), await compareRows(table, target.pool, excludeCodes)];
+    const [fromSource, fromTarget] = [await compareRows(table, source.pool, excludeCodes, afterUpdate), await compareRows(table, target.pool, excludeCodes, afterUpdate)];
     assert.ok(fromSource.length > 0 && fromTarget.length > 0, `${table}: the comparison is empty (source ${fromSource.length}, target ${fromTarget.length} rows)`);
     assert.deepEqual(fromTarget, fromSource, `${table} differs between source and target`);
   }
 }
 
-/** Every column of a carried table is either listed in LOCAL_ONLY or has a value in the fixture on both sides. */
+// A column default that changes with time or a sequence says nothing about whether the column was carried.
+const VOLATILE_DEFAULT = /\b(now|clock_timestamp|statement_timestamp|transaction_timestamp|gen_random_uuid|nextval|random)\s*\(|\bcurrent_/i;
+
+/** Every column of a carried table is either listed in LOCAL_ONLY or has a value in the fixture on both sides, and a column with a constant default a value other than it. */
 async function assertColumnCoverage() {
   for (const table of TABLES) {
-    const columns = (await source.pool.query<{ column_name: string }>("SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY ordinal_position",
-      [source.name, table])).rows.map(row => row.column_name);
+    const columns = (await source.pool.query<{ column_name: string; column_default: string | null }>(
+      "SELECT column_name,column_default FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY ordinal_position",
+      [source.name, table])).rows;
     assert.ok(columns.length > 0, `${table} has no columns in the source schema`);
-    for (const column of columns.filter(name => !(name in LOCAL_ONLY[table]))) {
+    for (const { column_name: column, column_default: fallback } of columns.filter(entry => !(entry.column_name in LOCAL_ONLY[table]))) {
+      const constant = fallback !== null && !VOLATILE_DEFAULT.test(fallback);
       for (const [side, pool] of [["source", source.pool], ["target", target.pool]] as const) {
-        const { rows } = await pool.query<{ filled: number }>(`SELECT count("${column}")::int AS filled FROM ${table}`);
+        // The default is a catalog expression (constants only here, checked above), so it is evaluated by the database, never built from input.
+        const { rows } = await pool.query<{ filled: number; custom: number }>(
+          `SELECT count("${column}")::int AS filled, ${constant ? `count(*) FILTER (WHERE "${column}" IS DISTINCT FROM (${fallback}))` : "0"}::int AS custom FROM ${table}`);
         assert.ok(rows[0].filled > 0, `${table}.${column} is empty on the ${side}: seed ${table}.${column} in the fixture and carry it, or add it to LOCAL_ONLY with a reason`);
+        assert.ok(!constant || rows[0].custom > 0, `${table}.${column} only holds its default (${fallback}) on the ${side}: seed a non-default ${table}.${column} in the fixture and carry it, or add it to LOCAL_ONLY with a reason`);
       }
     }
   }
@@ -286,10 +305,11 @@ before(async () => {
   await seedTarget(target.pool);
 });
 after(async () => {
-  await target?.drop();
-  await source?.drop();
-  await stub?.close();
-  if (dir) await rm(dir, { recursive: true, force: true });
+  try { await target?.drop(); } finally {
+    try { await source?.drop(); } finally {
+      try { await stub?.close(); } finally { if (dir) await rm(dir, { recursive: true, force: true }); }
+    }
+  }
 });
 
 const state: { digest: string; snapshotAt: string; skipped: unknown[]; vehicleSnapshot: unknown[] } = { digest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [] };
@@ -366,8 +386,24 @@ test("run 1: a full export, split, applied part by part, leaves the target equal
 });
 
 test("run 2: a delta with a deletion and a retry applies, resets the removed job and leaves the unchanged vehicle data alone", { skip }, async () => {
-  // Timestamps travel as JSON through a JS Date: milliseconds, so the edit is set at that precision.
-  await source.pool.query("UPDATE product_enrichments SET payload='{\"title\":\"changed\"}',imported_at=date_trunc('milliseconds',now()) WHERE supplier_item_id=$1", [sourceId["E2E-A"]]);
+  // The update path: every carried non-key column of one row that is already on the target changes, in each table the delta carries.
+  // Timestamps travel as JSON through a JS Date: milliseconds, so the edits are set at that precision. Tables whose only columns are
+  // keys (product_source_categories) change by replacing a row; vehicle data changes in run 3, which is where it travels.
+  const a = sourceId["E2E-A"];
+  await source.pool.query(`UPDATE product_enrichments SET supplier_code='SC-A2',supplier_brand='BRAND-A2',source_url='https://example.com/p/A2',source_method='otoparcasan',
+    manufacturer='MAN-A2',manufacturer_part_number='PN-A2',image_id=$2,payload='{"title":"changed"}',imported_at=date_trunc('milliseconds',now()),match_basis='{"type":"cross","oem":"999"}'
+    WHERE supplier_item_id=$1`, [a, mediaId.mGone]);
+  await source.pool.query(`UPDATE product_enrichment_jobs SET status='partial',supplier_code='SC-A2',supplier_brand='BRAND-A2',oem='OEM-A2',candidate_url='https://example.com/cand/A2',
+    last_attempt_at=$2 WHERE supplier_item_id=$1`, [a, day(28)]);
+  await source.pool.query("DELETE FROM product_source_categories WHERE supplier_item_id=$1 AND category_id=2", [a]);
+  await source.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'otoparcasan',9)", [a]);
+  await source.pool.query(`UPDATE source_categories SET parent_id=NULL,name='Filtre 2',slug='filtre-2',path_ids='{2}',source_url='https://example.com/c2b',raw='{"id":2,"changed":true}',fetched_at=$1
+    WHERE source='trodo' AND category_id=2`, [day(29)]);
+  await source.pool.query("UPDATE source_category_labels SET name='Filtre 2',slug='filtre-2' WHERE source='trodo' AND category_id=2 AND locale='tr'");
+  await source.pool.query("UPDATE source_category_images SET media_id=$1,width=321,height=241 WHERE source='trodo' AND category_id=2", [mediaId.mA]);
+  const logo = randomBytes(40);
+  await source.pool.query(`UPDATE manufacturer_logos SET manufacturer='FEBI AG',image_data=$1,sha256=$2,width=99,height=33,source_url='https://example.com/logo/FEBI2',
+    evidence_product_id=$3,evidence_source_url='https://example.com/evidence/FEBI2',imported_at=$4 WHERE brand_key='FEBI'`, [logo, sha256(logo), sourceId["E2E-B"], day(30)]);
   await source.pool.query("DELETE FROM product_enrichments WHERE supplier_item_id=$1", [sourceId["E2E-GONE"]]);
   await insertItem(target.pool, randomUUID(), "E2E-MISSING");
   const retry = join(dir, "retry.json");
@@ -392,18 +428,27 @@ test("run 2: a delta with a deletion and a retry applies, resets the removed job
   assert.ok(!stub.puts.some(path => path.endsWith(mediaKey("mVeh"))), "the unchanged vehicle image was uploaded again");
   assert.deepEqual(await vehicleRows(target.pool), state.vehicleSnapshot);
 
-  await compareAll();
+  await compareAll([], true);
   const gone = (await target.pool.query<{ status: string; last_error: string | null }>(
     "SELECT j.status,j.last_error FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id WHERE s.code='E2E-GONE'")).rows;
   assert.deepEqual(gone, [{ status: "pending", last_error: REMOVED_JOB_ERROR }]);
 });
 
-test("run 3: changed vehicle data is sent again whatever digest the target confirmed", { skip }, async () => {
-  await source.pool.query("UPDATE vehicle_type_specs SET full_name='changed' WHERE vehicle_type_id=101");
+test("run 3: changed vehicle data is sent again whatever digest the target confirmed, and updates the rows already there", { skip }, async () => {
+  // Every carried non-key column of an imported spec (101) and image (101) changes; 102 changes its outcome, which 101 keeps.
+  await source.pool.query(`UPDATE vehicle_type_specs SET detail='changed detail',full_name='changed',body_type='Sedan',drive_type='AWD',engine_type='Hybrid',fuel_mixture='Carburettor',
+    cylinders=6,valves=24,engine_codes='{Z1}',kba_numbers='{9999}',fetched_at=$1 WHERE vehicle_type_id=101`, [day(27)]);
+  await source.pool.query("UPDATE vehicle_type_specs SET outcome='found',full_name='Ford Focus 2' WHERE vehicle_type_id=102");
+  await source.pool.query("UPDATE vehicle_type_images SET media_id=$1,width=641,height=321,imported_at=$2 WHERE vehicle_type_id=101", [mediaId.mGone, day(27)]);
   const full = join(dir, "full3");
   await run("export-storefront-bundle.ts", [full, `--vehicle-digest=${state.digest}`], "source");
   const manifest = await readJson<ExportManifest>(join(full, "manifest.json"));
   assert.equal(manifest.vehicleData.sent, true);
   assert.notEqual(manifest.vehicleData.digest, state.digest);
   assert.equal(manifest.vehicleSpecs.length, 3);
+
+  const parts = await splitStorefrontBundle(full, join(dir, "parts3"), { mediaBytes: 1e9, jsonBytes: 1e9 });
+  const { totals } = buildInboundReport(await importParts(parts));
+  assert.deepEqual([totals.vehicleSpecs, totals.vehicleImages, totals.skippedVehicleSpecs], [2, 1, 1]);
+  await compareAll([], true);
 });
