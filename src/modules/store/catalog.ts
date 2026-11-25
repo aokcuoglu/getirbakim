@@ -5,7 +5,7 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 import { z } from "zod";
 import { cache } from "react";
 import { staleCache } from "@/lib/stale-cache";
-import { ttlCache } from "@/lib/ttl-cache";
+import { sharedLoads, ttlCache } from "@/lib/ttl-cache";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { listingEpoch } from "./listing-epoch";
@@ -658,9 +658,14 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
 function listingQuery<T extends QueryResultRow>({workMem}:{workMem?:string},label:string,sql:string,values:unknown[]){
  return workMem?boundedQuery<T>(label,sql,values,30_000,{workMem}):db.query<T>(sql,values);
 }
+// The listing reads, from catalogFilter's `from`: its count, one page of ids in the default order (`offset` a parameter),
+// and its shown brands (the brand facet).
+const countSql=(from:string)=>`SELECT count(*) ${from}`;
+const pageIdsSql=(from:string,offset:string)=>`SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${newestOrder} LIMIT ${catalogPageSize} OFFSET ${offset}) page`;
+const brandsSql=(from:string)=>`SELECT DISTINCT display_brand AS brand ${from} ORDER BY brand`;
 /** The listing's product count, as the count caches keep it. */
 async function countListing(listing:{values:unknown[];from:string;workMem?:string},key:string){
- return Number((await listingQuery<{count:string}>(listing,`catalog.listingCount ${key}`,`SELECT count(*) ${listing.from}`,listing.values)).rows[0].count);
+ return Number((await listingQuery<{count:string}>(listing,`catalog.listingCount ${key}`,countSql(listing.from),listing.values)).rows[0].count);
 }
 // Listings without a search scan the whole 320k-row catalog for counts, facets and the date order
 // (~0.5-1.5 s each on the VPS). Those change only with supplier syncs, so they are served from a
@@ -686,6 +691,8 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // that just gained products must not show "no products" beside a fresh count, so callers wait for the reload, which is
 // cheap for a listing that was empty. The warm-up waits for every reload (listingWaitMs). The vehicle, fit, brand and
 // search caches still wait for their reload.
+// A listing without a search, vehicle or narrowing filter loads its count, first page ids and facets from one scan
+// (listingSummary, #1367): the three caches keep their own keys, stored rows and rules, and their loaders share it.
 const aggregateTtl=10*60*1000,persistedFor={maxStaleMs:24*60*60*1000};
 const boundedWait={maxWaitMs:listingWaitMs,maxFallbackMs:48*60*60*1000};
 const persistedListings={...listings,...persistedFor,...boundedWait};
@@ -709,6 +716,39 @@ function lazyFilter(query:CatalogQuery,context:CatalogContext){
 /** Cache key of everything that narrows the listing except search, which goes uncached. */
 function filterKey(query:CatalogQuery,context:CatalogContext){
  return JSON.stringify([query.category,query.make,query.model,query.manufacturer,query.brand,query.brands,query.attributes,query.availability,query.fits,query.oil,query.fits||query.oil?context.vehicleTypeId:null]);
+}
+/**
+ * Whether listingSummary covers the listing (#1367): no search, no vehicle filter (fits, oil) and no narrowing filter
+ * (brand, brands, attributes, availability), read from the raw fields as filterKey does. The plain, category, make, model
+ * and manufacturer listings, and every listing's facet scope (catalogFacets).
+ */
+const summarized=(query:CatalogQuery)=>!(query.q?.trim()||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
+/** LISTING_ONE_SCAN=0 loads the count, page ids and facets with their own statements again (the rollback); read per load. */
+const oneScan=()=>process.env.LISTING_ONE_SCAN?.trim()!=="0";
+type ListingSummary={count:number;ids:string[];facets:Facets};
+/**
+ * The summaries being loaded, and each for 5 s after it settles (sharedLoads): the caches that miss together share one
+ * scan, a page's count, ids and facets started side by side (primeListing, catalog-view) and a gated listing's count
+ * read before the other two (findListing). Keyed by the listing epoch too, so a reload after an admin edit never takes a
+ * summary read before it. A failed summary fails each loader; each cache then applies its own rule (#771).
+ */
+const sharedSummaries=sharedLoads<ListingSummary>(5_000,50);
+/**
+ * A covered listing's (summarized) count, page-1 ids in the default order and facets from one read of its rows
+ * (listingSummarySql, #1367). Read as four statements, each scanned every row of the listing: ORIJINAL (155k rows) took
+ * 14.5-15.7 s of database time summed and 5.1-5.3 s side by side, one scan 2.8-4.5 s (a busy local machine).
+ */
+function listingSummary(key:string,filter:()=>ReturnType<typeof catalogFilter>){
+ return listingEpoch().then(epoch=>sharedSummaries(`${epoch}|${key}`,async()=>{
+  const listing=await filter(),values=[...listing.values,facetSpecificationKeys];
+  const row=(await listingQuery<{count:string;ids:string[];brands:string[];attributes:FacetRow[]}>(listing,`catalog.listingSummary ${key}`,
+   listingSummarySql(listing.from,`$${values.length}::text[]`),values)).rows[0];
+  return {count:Number(row.count),ids:row.ids,facets:{brands:row.brands,attributes:row.attributes.map(facetOf)}};
+ }));
+}
+/** The count a count cache loads under `key`: the summary's when it covers the listing, else its own statement. */
+async function loadCount(query:CatalogQuery,filter:()=>ReturnType<typeof catalogFilter>,key:string){
+ return summarized(query)&&oneScan()?(await listingSummary(key,filter)).count:countListing(await filter(),key);
 }
 /**
  * Everything a plain search listing needs from its matches in one pass: ids in relevance order and the
@@ -861,30 +901,33 @@ async function pricedScope(total:number,filter:ListingFilter,label:string):Promi
  */
 export function listingTotal(query:CatalogQuery,context:CatalogContext={}){
  const scope={...query,q:undefined},key=filterKey(query,context);
- return countCache(query)(key,async()=>countListing(await catalogFilter(scope,context),key),{persist:persistable(scope)});
+ return countCache(query)(key,()=>loadCount(scope,lazyFilter(scope,context),key),{persist:persistable(scope)});
 }
 /** The default listing order: newest first, products nobody supplies now last (#475). */
 const newestOrder="unavailable,updated_at DESC,id";
 const pricedOrder=(query:CatalogQuery)=>query.sort==="price-asc"||query.sort==="price-desc";
 /** Page 1 whatever the total: no page asked, or one below 2 (browseProducts clamps it the same way). */
 const firstPageAsked=(query:CatalogQuery)=>{const requested=Number(query.page);return !Number.isSafeInteger(requested)||requested<=1;};
-/** The cached ids of one page of a listing without a search in the default order (newest first). */
+/** The cached ids of one page of a listing without a search in the default order (newest first); page 1 of a covered listing from its summary. */
 function listingPageIds(query:CatalogQuery,context:CatalogContext,filter:()=>ReturnType<typeof catalogFilter>,page:number){
  const key=`${filterKey(query,context)}|${page}`;
- return pageIdCache(query)(key,async()=>{const listing=await filter(),{values,from}=listing;return (await listingQuery<{id:string}>(listing,`catalog.listingPageIds ${key}`,
-  `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${newestOrder} LIMIT ${catalogPageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*catalogPageSize])).rows.map(row=>row.id);},
+ return pageIdCache(query)(key,async()=>{
+  if(page===1&&summarized(query)&&oneScan())return (await listingSummary(filterKey(query,context),filter)).ids;
+  const listing=await filter(),{values,from}=listing;
+  return (await listingQuery<{id:string}>(listing,`catalog.listingPageIds ${key}`,pageIdsSql(from,`$${values.length+1}`),[...values,(page-1)*catalogPageSize])).rows.map(row=>row.id);},
   {persist:persistablePage(query,page)});
 }
 /**
  * Starts a listing's facets, count and (page 1 in the default order) page ids without waiting for them (#771), so a page
  * that reads its total before it renders (the manufacturer page) does not run them one after another. They fill the
  * entries browseProducts and catalogFacets read; a failure is left to those reads. Not for a search, nor for a vehicle
- * filter without the vehicle (its keys carry the vehicle type).
+ * filter without the vehicle (its keys carry the vehicle type). On a listing listingSummary covers, the three misses
+ * share one scan (#1367); a filtered listing's facets read its unfiltered scope's summary.
  */
 export function primeListing(query:CatalogQuery,context:CatalogContext={}){
  if(query.q?.trim()||(vehicleScoped(query)&&!context.vehicleTypeId))return;
  const filter=lazyFilter(query,context),key=filterKey(query,context);
- const started:Promise<unknown>[]=[catalogFacets(query,context),countCache(query)(key,async()=>countListing(await filter(),key),{persist:persistable(query)})];
+ const started:Promise<unknown>[]=[catalogFacets(query,context),countCache(query)(key,()=>loadCount(query,filter,key),{persist:persistable(query)})];
  if(!pricedOrder(query)&&firstPageAsked(query))started.push(listingPageIds(query,context,filter,1));
  for(const promise of started)promise.catch(()=>{});
 }
@@ -908,7 +951,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  firstIds?.catch(()=>{});
  // A price-sorted search over two or more id sets prices its page by the ids it counts (listedIds, #1345).
  const pricedSearch=search&&pricedSort&&(await filter()).idSets>=2?await listedIds(await filter(),pricedKey):undefined;
- const count=async()=>countListing(await filter(),filterKey(query,context));
+ const count=()=>loadCount(query,filter,filterKey(query,context));
  const total = pricedSearch ? pricedSearch.total : search ? await count() : await countCache(query)(filterKey(query,context),count,{persist:persistable(query)});
  const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize)), take = Math.min(pageSize,Math.max(1,Number.isFinite(limit)?Math.trunc(limit):pageSize));
  const requested = Number(query.page);
@@ -1027,14 +1070,17 @@ export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}
   const plain=await plainSearch(query.q!,query.searchBy==="code"?"code":"all");
   return {brands:plain.brands,attributes:plain.attributes};
  }
- const filter=lazyFilter(scope,context),search=scope.q?.trim()?(await filter()).search:undefined;
- const load=async()=>{const {values,from}=await filter();return facetsFor(values,from);};
- return search ? load() : cachedFacets(filterKey(scope,context),load,{persist:persistable(scope)});
+ const filter=lazyFilter(scope,context),search=scope.q?.trim()?(await filter()).search:undefined,key=filterKey(scope,context);
+ const load=async()=>{
+  if(summarized(scope)&&oneScan())return (await listingSummary(key,filter)).facets;
+  const {values,from}=await filter();return facetsFor(values,from);
+ };
+ return search ? load() : cachedFacets(key,load,{persist:persistable(scope)});
 }
 async function facetsFor(values:unknown[],from:string){
  // Independent reads: the brand list and the property facet run side by side (#994).
  const [brands,attributes]=await Promise.all([
-  db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand ${from} ORDER BY brand`,values).then(result=>result.rows.map(r=>r.brand)),
+  db.query<{brand:string}>(brandsSql(from),values).then(result=>result.rows.map(r=>r.brand)),
   attributeFacets(values,`SELECT catalog.id ${from}`),
  ]);
  return {brands,attributes};
@@ -1048,20 +1094,56 @@ export function attributeFacetsSql(scopedSql:string,keys:string){
  // small scan whatever the listing; the two size-dependent branches of #955 went with the payloads. The attribute filter
  // (catalogFilter) reads the same rows and admin values (#1248), and also checks the offer's identity when it reads them.
  // MATERIALIZED: inlined, the search filter gets planned across the joins (~60 s instead of ms).
- // `ov`: the admin's specifications of the facet keys (#603); a set or hidden key replaces the row's automatic values.
  return `WITH scoped AS MATERIALIZED (${scopedSql}),
- ov AS MATERIALIZED (SELECT ps.supplier_item_id AS id,o.key,o.action,o.value FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=ANY(${keys})),
+ ${facetSpecsSql(keys)}
+ ${facetSelectSql("")}`;
+}
+/**
+ * The CTEs after `scoped` (its `id` column) that attributeFacetsSql and listingSummarySql share: `specs`, the listed rows'
+ * facet values. `ov`: the admin's specifications of the facet keys (#603); a set or hidden key replaces the row's
+ * automatic values.
+ */
+const facetSpecsSql=(keys:string)=>`ov AS MATERIALIZED (SELECT ps.supplier_item_id AS id,o.key,o.action,o.value FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.key=ANY(${keys})),
  fs AS MATERIALIZED (SELECT supplier_item_id,key,value FROM storefront_facet_specs WHERE key=ANY(${keys})),
  specs AS (
   SELECT f.key,f.value FROM scoped JOIN fs f ON f.supplier_item_id=scoped.id
   WHERE NOT EXISTS (SELECT 1 FROM ov WHERE ov.id=scoped.id AND ov.key=f.key)
   UNION ALL
-  SELECT ov.key,ov.value FROM ov JOIN scoped ON scoped.id=ov.id WHERE ov.action='set' AND length(ov.value)<=200)
- SELECT key,array_agg(DISTINCT value ORDER BY value) AS values FROM specs
- GROUP BY key HAVING count(DISTINCT value)<=40 ORDER BY CASE WHEN key='Fitting Position' THEN 0 WHEN key='Brand class' THEN 1 ELSE 2 END,key LIMIT 8`;
+  SELECT ov.key,ov.value FROM ov JOIN scoped ON scoped.id=ov.id WHERE ov.action='set' AND length(ov.value)<=200)`;
+const facetOrder="CASE WHEN key='Fitting Position' THEN 0 WHEN key='Brand class' THEN 1 ELSE 2 END,key";
+/** The facet keys shown, with their values, from `specs`; `columns` adds output columns after `values`. */
+const facetSelectSql=(columns:string)=>`SELECT key,array_agg(DISTINCT value ORDER BY value) AS values${columns} FROM specs
+ GROUP BY key HAVING count(DISTINCT value)<=40 ORDER BY ${facetOrder} LIMIT 8`;
+/**
+ * A covered listing's count, page-1 ids in the default order, shown brands and property facet in one statement (#1367):
+ * the values countSql, pageIdsSql (offset 0), brandsSql and attributeFacetsSql read, from one read of the listing's rows
+ * (`from`: catalogFilter's; `keys`: the facet keys parameter). `scoped` keeps the four columns those reads use; each
+ * value then reads it instead of the catalog. The ids are cast after the order: a bare `id` in ORDER BY names the output
+ * column, and `id::text` would break ties as text. The facet keys keep their order (`position`) through the JSON aggregate.
+ */
+export function listingSummarySql(from:string,keys:string){
+ return `WITH scoped AS MATERIALIZED (SELECT catalog.id,catalog.updated_at,catalog.unavailable,catalog.display_brand ${from}),
+ ${facetSpecsSql(keys)},
+ facet AS (${facetSelectSql(`,row_number() OVER (ORDER BY ${facetOrder}) AS position`)})
+ SELECT (SELECT count(*) FROM scoped)::text AS count,
+  ARRAY(SELECT id FROM scoped ORDER BY ${newestOrder} LIMIT ${catalogPageSize})::text[] AS ids,
+  ARRAY(SELECT DISTINCT display_brand FROM scoped ORDER BY 1) AS brands,
+  (SELECT COALESCE(json_agg(json_build_object('key',facet.key,'values',facet.values) ORDER BY facet.position),'[]') FROM facet) AS attributes`;
 }
+type FacetRow={key:string;values:string[]};
+const facetOf=(row:FacetRow):CatalogFacet=>({key:row.key,label:specificationLabel(row.key),options:facetOptions(row.values)});
 /** `scopedSql` selects the listing's ids (one `id` column) using `values`. */
 async function attributeFacets(values:unknown[],scopedSql:string):Promise<CatalogFacet[]>{
- const rows=(await db.query<{key:string;values:string[]}>(attributeFacetsSql(scopedSql,`$${values.length+1}::text[]`),[...values,facetSpecificationKeys])).rows;
- return rows.map(row=>({key:row.key,label:specificationLabel(row.key),options:facetOptions(row.values)}));
+ return (await db.query<FacetRow>(attributeFacetsSql(scopedSql,`$${values.length+1}::text[]`),[...values,facetSpecificationKeys])).rows.map(facetOf);
+}
+type Statement={text:string;values:unknown[]};
+/**
+ * A covered listing's (no search, vehicle or narrowing filter) four reads and the summary that replaces them, as
+ * statements, for the read-only comparison scripts/listing-summary-timings.ts (#1367). The same texts the loaders run.
+ */
+export async function listingStatements(query:CatalogQuery):Promise<Record<"count"|"pageIds"|"brands"|"attributes"|"summary",Statement>>{
+ if(!summarized(query))throw new Error("listingStatements: a listing without a search, vehicle or narrowing filter only");
+ const {values,from}=await catalogFilter(query),withKeys=[...values,facetSpecificationKeys],keys=`$${withKeys.length}::text[]`;
+ return {count:{text:countSql(from),values},pageIds:{text:pageIdsSql(from,`$${values.length+1}`),values:[...values,0]},brands:{text:brandsSql(from),values},
+  attributes:{text:attributeFacetsSql(`SELECT catalog.id ${from}`,keys),values:withKeys},summary:{text:listingSummarySql(from,keys),values:withKeys}};
 }
