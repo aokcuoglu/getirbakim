@@ -3,9 +3,18 @@
     "categories": {
       "[]": {
         "category_id": "number",
+        "fetched_at": "string",
         "name": "string",
         "parent_id": "null",
-        "source": "string"
+        "path_ids": {
+          "[]": "number"
+        },
+        "raw": {
+          "id": "number"
+        },
+        "slug": "string",
+        "source": "string",
+        "source_url": "string"
       }
     },
     "enrichments": {
@@ -15,8 +24,10 @@
     "images": {
       "[]": {
         "category_id": "number",
+        "height": "number",
         "media_id": "string",
-        "source": "string"
+        "source": "string",
+        "width": "number"
       }
     },
     "invalidatedJobs": "number",
@@ -36,8 +47,9 @@
     "labels": {
       "[]": {
         "category_id": "number",
-        "label": "string",
         "locale": "string",
+        "name": "string",
+        "slug": "string",
         "source": "string"
       }
     },
@@ -45,52 +57,96 @@
       "[]": {
         "brand_key": "string",
         "evidence_product_id": "string",
-        "media_id": "null"
+        "evidence_source_url": "string",
+        "height": "number",
+        "image_data": "string",
+        "imported_at": "string",
+        "manufacturer": "string",
+        "sha256": "string",
+        "source_url": "string",
+        "width": "number"
       }
     },
     "maxDeletions": "number",
     "media": {
       "[]": {
+        "bucket": "string",
+        "content_type": "string",
+        "created_at": "string",
         "id": "string",
         "object_key": "string",
-        "size_bytes": "number"
+        "sha256": "string",
+        "size_bytes": "number",
+        "source_url": "string",
+        "stored_at": "null"
       }
     },
     "products": {
       "[]": "empty"
     },
     "retried": "number",
-    "since": "string",
+    "since": "null",
     "snapshotAt": "string",
     "tombstones": {
       "[]": {
-        "deleted_at": "string",
+        "code": "string",
+        "company": "string",
         "kind": "string",
-        "supplier_item_id": "string"
+        "list_group": "string",
+        "recorded_at": "string",
+        "source_method": "null",
+        "supplier": "string",
+        "supplier_item_id": "string",
+        "warehouse": "string"
       }
     },
     "vehicleImages": {
       "[]": {
+        "height": "number",
+        "imported_at": "string",
         "media_id": "string",
-        "vehicle_type_id": "number"
+        "vehicle_type_id": "number",
+        "width": "number"
       }
     },
     "vehicleSpecs": {
       "[]": {
-        "specs": {
-          "engine": "string"
+        "body_type": "string",
+        "cylinders": "number",
+        "detail": "null",
+        "drive_type": "string",
+        "engine_codes": {
+          "[]": "string"
         },
+        "engine_type": "string",
+        "fetched_at": "string",
+        "fuel_mixture": "string",
+        "full_name": "string",
+        "kba_numbers": {
+          "[]": "string"
+        },
+        "outcome": "string",
+        "valves": "number",
         "vehicle_type_id": "number"
       }
     }
   },
-  "job part": {
+  "job parts": {
     "categories": {
       "[]": {
         "category_id": "number",
+        "fetched_at": "string",
         "name": "string",
         "parent_id": "null",
-        "source": "string"
+        "path_ids": {
+          "[]": "number"
+        },
+        "raw": {
+          "id": "number"
+        },
+        "slug": "string",
+        "source": "string",
+        "source_url": "string"
       }
     },
     "enrichments": {
@@ -113,7 +169,12 @@
     },
     "jobs": {
       "[]": {
-        "candidate_url": "null",
+        "candidate_url": {
+          "oneOf": [
+            "null",
+            "string"
+          ]
+        },
         "last_attempt_at": "string",
         "oem": "string",
         "status": "string",
@@ -125,8 +186,9 @@
     "labels": {
       "[]": {
         "category_id": "number",
-        "label": "string",
         "locale": "string",
+        "name": "string",
+        "slug": "string",
         "source": "string"
       }
     },
@@ -141,7 +203,7 @@
       "[]": "empty"
     },
     "retried": "number",
-    "since": "string",
+    "since": "null",
     "snapshotAt": "string",
     "tombstones": {
       "[]": "empty"
@@ -153,23 +215,51 @@
       "[]": "empty"
     }
   },
-  "enrichment part": {
+  "enrichment parts": {
     "categories": {
       "[]": {
         "category_id": "number",
+        "fetched_at": "string",
         "name": "string",
         "parent_id": "null",
-        "source": "string"
+        "path_ids": {
+          "[]": "number"
+        },
+        "raw": {
+          "id": "number"
+        },
+        "slug": "string",
+        "source": "string",
+        "source_url": "string"
       }
     },
     "enrichments": {
       "[]": {
-        "image_id": "string",
+        "image_id": {
+          "oneOf": [
+            "null",
+            "string"
+          ]
+        },
         "imported_at": "string",
+        "manufacturer": {
+          "oneOf": [
+            "null",
+            "string"
+          ]
+        },
+        "manufacturer_part_number": "string",
+        "match_basis": "string",
         "payload": {
           "name": "string",
-          "vehicles": "string"
+          "vehicles": {
+            "[]": "string"
+          }
         },
+        "source_method": "string",
+        "source_url": "string",
+        "supplier_brand": "string",
+        "supplier_code": "string",
         "supplier_item_id": "string"
       }
     },
@@ -194,8 +284,9 @@
     "labels": {
       "[]": {
         "category_id": "number",
-        "label": "string",
         "locale": "string",
+        "name": "string",
+        "slug": "string",
         "source": "string"
       }
     },
@@ -205,9 +296,15 @@
     "maxDeletions": "number",
     "media": {
       "[]": {
+        "bucket": "string",
+        "content_type": "string",
+        "created_at": "string",
         "id": "string",
         "object_key": "string",
-        "size_bytes": "number"
+        "sha256": "string",
+        "size_bytes": "number",
+        "source_url": "string",
+        "stored_at": "null"
       }
     },
     "products": {
@@ -218,7 +315,7 @@
       }
     },
     "retried": "number",
-    "since": "string",
+    "since": "null",
     "snapshotAt": "string",
     "tombstones": {
       "[]": "empty"
