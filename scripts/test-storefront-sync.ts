@@ -283,6 +283,14 @@ test("the vehicle entry is recorded only when the report accounts for every row 
   assert.equal(released.vehicle, undefined);
   assert.deepEqual(released.warnings, []);
   assert.match(released.notes[0], /getirbakim-operations:41 -> getirbakim-operations:42/);
+  // Rows the target skipped on the last send are only noted while the data is omitted; the entry stays as it was.
+  const withSkipped = { ...previous, skippedSpecs: 7, skippedImages: 2 };
+  const reminded = nextVehicleState({ previous: withSkipped, exported: omitted, totals: omittedReport, taskDefinition: "getirbakim-operations:41", now });
+  assert.deepEqual(reminded.vehicle, withSkipped);
+  assert.deepEqual(reminded.warnings, []);
+  assert.deepEqual(reminded.notes, ["Vehicle data omitted; 7 specs / 2 images were skipped on the target at 2026-11-24T05:00:00.000Z "
+    + "(vehicle type missing there): run with --vehicle-data once their vehicle types exist there."]);
+  assert.deepEqual(nextVehicleState({ previous: { ...previous, skippedSpecs: 0, skippedImages: 0 }, exported: omitted, totals: omittedReport, taskDefinition: null, now }).notes, []);
   // An entry without a task definition takes this run's.
   const unnamed = vehicleState("2026-11-24T05:00:00.000Z");
   assert.deepEqual(nextVehicleState({ previous: unnamed, exported: omitted, totals: omittedReport, taskDefinition: "getirbakim-operations:41", now }).vehicle,

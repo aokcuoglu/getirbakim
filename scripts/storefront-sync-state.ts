@@ -311,9 +311,10 @@ export function nextRetry(report: InboundReport, limit = RETRY_LIMIT) {
  *   type, per table). A report without those counts (an operations image that ignores the data) or with other counts
  *   records nothing, so the next run sends it in full again. Skipped rows are recorded with a warning: they come back
  *   only with the next full send.
- * - The export left it out: the previous entry stays (its sentAt too, so the weekly resend still comes). When the
- *   operations task definition differs from the one that imported the data (a release may have changed the importer),
- *   the entry is dropped so the next run sends in full; an entry without one takes this run's.
+ * - The export left it out: the previous entry stays (its sentAt too, so the weekly resend still comes), with a note
+ *   while it holds rows the target skipped (they wait for the next full send). When the operations task definition
+ *   differs from the one that imported the data (a release may have changed the importer), the entry is dropped so the
+ *   next run sends in full; an entry without one takes this run's.
  * - An export without vehicleData (older than #1359): no entry.
  */
 export function nextVehicleState(input: {
@@ -327,6 +328,11 @@ export function nextVehicleState(input: {
     if (taskDefinition && previous.taskDefinition && taskDefinition !== previous.taskDefinition) {
       notes.push(`The operations task definition changed since the vehicle data was sent (${previous.taskDefinition} -> ${taskDefinition}); the next run sends it in full.`);
       return { warnings, notes };
+    }
+    const skippedSpecs = previous.skippedSpecs ?? 0, skippedImages = previous.skippedImages ?? 0;
+    if (skippedSpecs > 0 || skippedImages > 0) {
+      notes.push(`Vehicle data omitted; ${skippedSpecs} specs / ${skippedImages} images were skipped on the target at ${previous.sentAt} `
+        + "(vehicle type missing there): run with --vehicle-data once their vehicle types exist there.");
     }
     return { vehicle: previous.taskDefinition || !taskDefinition ? previous : { ...previous, taskDefinition }, warnings, notes };
   }

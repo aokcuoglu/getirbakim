@@ -220,8 +220,9 @@ try {
     const retryFile = resolve(local, "retry.json");
     if (retry.length) await writeFile(retryFile, JSON.stringify(parseRetryItems(JSON.stringify(retry))));
     const fullDir = resolve(local, "full");
-    // The REPXPERT vehicle data is left out only while its digest equals the one the target confirmed (#1359).
-    const vehicleSkip = vehicleDigestToSkip(previous, { full, force: vehicleData, now: new Date() });
+    // The REPXPERT vehicle data is left out only while its digest equals the one the target confirmed (#1359). A dry run
+    // with --baseline ignores the state's entry like a real baseline drops it: the run after one sends the data in full.
+    const vehicleSkip = vehicleDigestToSkip(baseline ? null : previous, { full, force: vehicleData, now: new Date() });
     const startedAt = Date.now();
     run(process.execPath, ["--env-file=.env.local", "--conditions=react-server", "--import", "tsx", "scripts/export-storefront-bundle.ts", fullDir,
       ...(since ? [`--since=${since}`] : []), ...(retry.length ? [`--retry-file=${retryFile}`] : []), ...(maxDeletions ? [`--max-deletions=${maxDeletions}`] : []),
