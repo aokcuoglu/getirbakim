@@ -50,7 +50,7 @@ export async function isolatedSchema(prefix: string) {
   process.env.DATABASE_URL = url.toString();
   // The listing caches serve an earlier value after LISTING_EPOCH_WAIT_MS while a reload runs (#771); tests that check
   // an edit shows after a bump wait for the reload instead. A test of the bounded wait sets its own value.
-  process.env.LISTING_EPOCH_WAIT_MS ??= "30000";
+  process.env.LISTING_EPOCH_WAIT_MS ||= "30000";
   return {
     name, pool,
     async drop() {
