@@ -386,8 +386,8 @@ test("storefront part format: part-00, the job parts and the enrichment parts ma
   }));
   const enrichments = [uuid(1), uuid(2)].map((id, index) => ({
     supplier_item_id: id, supplier_code: `C00000${index}`, supplier_brand: "FEBI", source_url: "https://example.test/p", source_method: "trodo",
-    manufacturer: index ? null : "FEBI", manufacturer_part_number: `P-${index}`, image_id: index ? null : "a", payload: { name: "Fren balatası", vehicles: ["Ford"] },
-    imported_at: "2026-11-23T01:30:00.000Z", match_basis: "barcode",
+    manufacturer: "FEBI", manufacturer_part_number: `P-${index}`, image_id: index ? null : "a", payload: { name: "Fren balatası", vehicles: ["Ford"] },
+    imported_at: "2026-11-23T01:30:00.000Z", match_basis: { type: "exact_part" },
   }));
   const sha = (n: number) => String(n).repeat(64);
   const mediaRow = (n: number) => ({ bucket: "product-media", sha256: sha(n), content_type: "image/webp", source_url: "https://example.test/i.webp", created_at: "2026-11-01T00:00:00.000Z", stored_at: null });
@@ -400,9 +400,9 @@ test("storefront part format: part-00, the job parts and the enrichment parts ma
     images: [{ source: "trodo", category_id: 1, media_id: "c", width: 64, height: 64 }],
     logos: [{ brand_key: "FEBI", manufacturer: "FEBI", image_data: "\\x89504e47", sha256: sha(4), width: 64, height: 32, source_url: "https://example.test/l.png",
       evidence_product_id: uuid(1), evidence_source_url: "https://example.test/p", imported_at: "2026-11-01T00:00:00.000Z" }],
-    vehicleSpecs: [{ vehicle_type_id: 7, outcome: "ok", detail: null, full_name: "Ford Focus 1.6", body_type: "Hatchback", drive_type: "FWD", engine_type: "Petrol", fuel_mixture: "Injection",
+    vehicleSpecs: [{ vehicle_type_id: 7, outcome: "found", detail: null, full_name: "Ford Focus 1.6", body_type: "Hatchback", drive_type: "FWD", engine_type: "Petrol", fuel_mixture: "Injection",
       cylinders: 4, valves: 16, engine_codes: ["HXDA"], kba_numbers: ["8009/AEK"], fetched_at: "2026-11-01T00:00:00.000Z" }],
-    vehicleImages: [{ vehicle_type_id: 7, media_id: "v", width: 512, height: 256, imported_at: "2026-11-01T00:00:00.000Z" }],
+    vehicleImages: [{ vehicle_type_id: 7, media_id: "v", original_media_id: null, width: 512, height: 256, imported_at: "2026-11-01T00:00:00.000Z" }],
     tombstones: [{ supplier_item_id: uuid(9), supplier: "basbug", company: "C", list_group: "L", warehouse: "MRK", code: "CODE 9", kind: "enrichment_deleted", source_method: null,
       recorded_at: "2026-11-20T00:00:00.000Z" }],
     invalidatedJobs: 1, maxDeletions: 1000,

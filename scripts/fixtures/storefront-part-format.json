@@ -105,6 +105,7 @@
         "height": "number",
         "imported_at": "string",
         "media_id": "string",
+        "original_media_id": "null",
         "vehicle_type_id": "number",
         "width": "number"
       }
@@ -242,14 +243,11 @@
           ]
         },
         "imported_at": "string",
-        "manufacturer": {
-          "oneOf": [
-            "null",
-            "string"
-          ]
-        },
+        "manufacturer": "string",
         "manufacturer_part_number": "string",
-        "match_basis": "string",
+        "match_basis": {
+          "type": "string"
+        },
         "payload": {
           "name": "string",
           "vehicles": {
