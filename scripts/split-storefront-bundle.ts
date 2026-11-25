@@ -8,10 +8,10 @@ type Row = Record<string, unknown>;
 // The data of the export's manifest.json that does not grow with the enriched products; every part copies or blanks it.
 type Shared = Row & { images: Row[]; logos?: Row[]; tombstones?: Row[]; invalidatedJobs?: number; vehicleImages?: Row[] };
 // The export's manifest.json: the rows that grow with the enriched products are in NDJSON files it names and counts
-// (export-storefront-bundle.ts).
+// (export-storefront-bundle.ts); vehicleData (#1359) is the digest of the REPXPERT data for the sync, never part of a part.
 type Export = Shared & {
   enrichmentsFile?: unknown; enrichmentCount?: unknown; jobsFile?: unknown; jobCount?: unknown; itemsFile?: unknown; itemCount?: unknown;
-  productsFile?: unknown; productCount?: unknown; mediaFile?: unknown; mediaCount?: unknown;
+  productsFile?: unknown; productCount?: unknown; mediaFile?: unknown; mediaCount?: unknown; vehicleData?: unknown;
 };
 // A part's manifest.json, the format the released importer reads (import-storefront-bundle.ts).
 type Part = Shared & { products: Row[]; enrichments: Row[]; jobs: Row[]; media: Media[]; items?: BundleItem[] };
@@ -21,10 +21,10 @@ export type SplitLimits = { mediaBytes: number; jsonBytes: number };
 // Production's operations task has 4096 MB (2 vCPU) and import-storefront-bundle.ts holds every media
 // file of a bundle in memory, so a large export is split into self-contained parts the unchanged importer
 // loads one by one, in order:
-// - part-00: the always-complete data (category images, logos, REPXPERT vehicle data, tombstones of deleted
-//   enrichments and the invalidated job count) with its media, and no jobs. None of it grows with the enriched
-//   products, but nothing caps it in bytes either: the tombstones follow the deletions of the retention window
-//   (TOMBSTONE_RETENTION_DAYS, the whole log with --full), the REPXPERT data its vehicle types;
+// - part-00: the always-complete data (category images, logos, REPXPERT vehicle data when the export sent it, #1359,
+//   tombstones of deleted enrichments and the invalidated job count) with its media, and no jobs. None of it grows with
+//   the enriched products, but nothing caps it in bytes either: the tombstones follow the deletions of the retention
+//   window (TOMBSTONE_RETENTION_DAYS, the whole log with --full), the REPXPERT data its vehicle types;
 // - job parts (#1317): every complete/partial enrichment job status, cut before the jobs' JSON plus their supplier item
 //   keys would pass limits.jsonBytes. The importer only upserts the jobs a part carries (storefront-bundle-jobs.ts), so
 //   spreading them over parts writes the same rows as one part did; they still come after part-00's tombstones;
@@ -43,8 +43,10 @@ export type SplitLimits = { mediaBytes: number; jsonBytes: number };
 // soon as it closes; memory holds the media rows, mappings and supplier item keys of the export (as rows, never one
 // string) and one part.
 export async function splitStorefrontBundle(source: string, out: string, limits: SplitLimits) {
-  const { enrichmentsFile, enrichmentCount, jobsFile, jobCount, itemsFile, itemCount, productsFile, productCount, mediaFile, mediaCount, ...shared }
-    = JSON.parse(await readFile(resolve(source, "manifest.json"), "utf8")) as Export;
+  const exported = JSON.parse(await readFile(resolve(source, "manifest.json"), "utf8")) as Export;
+  // The released importer's format has no such key (scripts/fixtures/storefront-part-format.json).
+  delete exported.vehicleData;
+  const { enrichmentsFile, enrichmentCount, jobsFile, jobCount, itemsFile, itemCount, productsFile, productCount, mediaFile, mediaCount, ...shared } = exported;
   const side = (file: unknown, count: unknown, fileKey: string, countKey: string): SideFile => {
     if (typeof file !== "string" || typeof count !== "number") {
       throw new Error(`The export's manifest.json names no ${fileKey} and ${countKey}: export it again with this version`);

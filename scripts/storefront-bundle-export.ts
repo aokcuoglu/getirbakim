@@ -1,6 +1,22 @@
+import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
 import type { BundleItem } from "./storefront-bundle-items";
 import type { Tombstone } from "./storefront-bundle-tombstones";
+
+// Part of the vehicle data digest (#1359): raise it when the exported REPXPERT rows change shape or meaning without their values
+// changing (a new column, another format), so the next sync sends the data in full whatever the target confirmed before.
+export const VEHICLE_DATA_VERSION = 1;
+
+/**
+ * The digest of the REPXPERT vehicle data an export would carry (#1359): sha256 hex over VEHICLE_DATA_VERSION, the exported
+ * spec rows, the image rows and [id, sha256, size_bytes] of their media rows, each in its SQL order (a Date serialises as
+ * its ISO text, so the same rows give the same digest). The sync omits the data while it equals the digest the target
+ * last confirmed (export-storefront-bundle.ts --vehicle-digest).
+ */
+export function vehicleDataDigest(specs: unknown[], images: unknown[], media: { id: string; sha256: string; size_bytes: number | string }[]) {
+  const content = JSON.stringify([VEHICLE_DATA_VERSION, specs, images, media.map(object => [object.id, object.sha256, Number(object.size_bytes)])]);
+  return createHash("sha256").update(content).digest("hex");
+}
 
 // The enrichments an export carries: those imported after $1 (the watermark), plus the supplier items in $2 (a JSON
 // array of bundle items, the sync's retry list of enrichments the target skipped), matched by id or by natural key.
