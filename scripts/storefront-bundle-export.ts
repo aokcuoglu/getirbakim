@@ -1,4 +1,6 @@
 import type { PoolClient } from "pg";
+import type { BundleItem } from "./storefront-bundle-items";
+import type { Tombstone } from "./storefront-bundle-tombstones";
 
 // The enrichments an export carries: those imported after $1 (the watermark), plus the supplier items in $2 (a JSON
 // array of bundle items, the sync's retry list of enrichments the target skipped), matched by id or by natural key.
@@ -24,4 +26,72 @@ export async function* exportedEnrichmentBatches(client: PoolClient, ids: string
     yield (await client.query<Record<string, unknown>>("SELECT * FROM product_enrichments WHERE supplier_item_id = ANY($1::uuid[]) ORDER BY supplier_item_id",
       [ids.slice(start, start + size)])).rows;
   }
+}
+
+// Rows fetched per cursor batch while the export streams the job statuses and supplier item keys to jobs.ndjson / items.ndjson (#1357).
+export const CURSOR_BATCH = 5000;
+
+/**
+ * Reads a query in batches from a server-side cursor on the caller's client. The cursor is not holdable, so it lives inside the export's
+ * REPEATABLE READ READ ONLY transaction and sees its snapshot; the set is evaluated once and streamed, `sql` keeps its own ORDER BY.
+ */
+async function* cursorBatches(client: PoolClient, name: string, sql: string, params: unknown[], size: number) {
+  // Plan the cursor for the whole result like the single query (the default 0.1 favours a fast start); SET LOCAL ends with the transaction.
+  await client.query("SET LOCAL cursor_tuple_fraction = 1");
+  await client.query(`DECLARE ${name} NO SCROLL CURSOR FOR ${sql}`, params);
+  try {
+    for (;;) {
+      const { rows } = await client.query<Record<string, unknown>>(`FETCH ${size} FROM ${name}`);
+      if (rows.length) yield rows;
+      if (rows.length < size) return;
+    }
+  } finally {
+    // After a server error the transaction is aborted and CLOSE fails too (25P02); the cursor dies with the transaction,
+    // so a failed CLOSE must not replace the original error.
+    await client.query(`CLOSE ${name}`).catch(() => {});
+  }
+}
+
+/** The complete/partial job statuses of enriched products ordered by supplier_item_id (the primary key), one cursor batch at a time. */
+export function exportedJobBatches(client: PoolClient, size = CURSOR_BATCH) {
+  return cursorBatches(client, "export_jobs",
+    `SELECT j.supplier_item_id,j.supplier_code,j.supplier_brand,j.oem,j.status,j.candidate_url,j.last_attempt_at
+      FROM product_enrichment_jobs j JOIN product_enrichments e USING(supplier_item_id) WHERE j.status IN ('complete','partial') ORDER BY j.supplier_item_id`, [], size);
+}
+
+/** The supplier item keys the bundle references (exported enrichments, logo evidence, complete/partial jobs) ordered by id, one cursor batch at a time. `changed` is [watermark, retry JSON]. */
+export function exportedItemBatches(client: PoolClient, changed: unknown[], size = CURSOR_BATCH) {
+  return cursorBatches(client, "export_items",
+    `SELECT id,supplier,company,list_group,warehouse,code FROM supplier_items WHERE id IN (
+      ${EXPORTED_ENRICHMENT_IDS} UNION SELECT evidence_product_id FROM manufacturer_logos
+      UNION SELECT j.supplier_item_id FROM product_enrichment_jobs j JOIN product_enrichments e USING(supplier_item_id) WHERE j.status IN ('complete','partial'))
+      ORDER BY id`, changed, size);
+}
+
+/** Writes every job status in order; resolves to the row count. */
+export async function streamJobs(client: PoolClient, write: (row: unknown) => Promise<void>, size = CURSOR_BATCH) {
+  let count = 0;
+  for await (const rows of exportedJobBatches(client, size)) for (const row of rows) { await write(row); count++; }
+  return count;
+}
+
+/**
+ * Writes the supplier item keys in id order, then the keys of the tombstones whose supplier item was not among them, in tombstone
+ * order and once per id (the item may be gone here, so its key comes from the log); resolves to the row count.
+ */
+export async function streamItems(client: PoolClient, changed: unknown[], tombstones: Pick<Tombstone, "supplier_item_id" | "supplier" | "company" | "list_group" | "warehouse" | "code">[],
+  write: (row: unknown) => Promise<void>, size = CURSOR_BATCH) {
+  // Tombstones are bounded by the retention window; only their ids are tracked, never the (large) item id set.
+  const pending = new Set(tombstones.map(tombstone => tombstone.supplier_item_id));
+  let count = 0;
+  for await (const rows of exportedItemBatches(client, changed, size)) {
+    for (const row of rows) { await write(row); pending.delete(String(row.id)); count++; }
+  }
+  for (const { supplier_item_id: id, supplier, company, list_group, warehouse, code } of tombstones) {
+    if (!pending.delete(id)) continue;
+    const item: BundleItem = { id, supplier, company, list_group, warehouse, code };
+    await write(item);
+    count++;
+  }
+  return count;
 }

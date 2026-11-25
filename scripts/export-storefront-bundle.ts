@@ -5,9 +5,8 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
 import { sendWithSkewRetry } from "./storefront-media-read";
-import { EXPORTED_ENRICHMENT_IDS, exportedEnrichmentBatches, exportedEnrichmentIds } from "./storefront-bundle-export";
+import { EXPORTED_ENRICHMENT_IDS, exportedEnrichmentBatches, exportedEnrichmentIds, streamItems, streamJobs } from "./storefront-bundle-export";
 import { ENRICHMENTS_FILE, ITEMS_FILE, JOBS_FILE, MEDIA_FILE, ndjsonWriter, PRODUCTS_FILE, writeNdjson } from "./storefront-bundle-stream";
-import type { BundleItem } from "./storefront-bundle-items";
 import { bundleTombstones, DEFAULT_MAX_DELETIONS, exportTombstones, pruneTombstones, TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
 import { parsePositiveInteger, parseRetryItems } from "./storefront-sync-state";
 
@@ -49,6 +48,13 @@ import { parsePositiveInteger, parseRetryItems } from "./storefront-sync-state";
 //   Dinamik supplier items (description-fitments.ts derive), not per sync.
 // - shipped separately: vehicle_type_oil_specs (data/vehicle_type_oil_specs.csv + db:vehicle-oils); not shipped:
 //   vehicle_type_trodo_oils, product_enrichment_sources, enrichment runs, request logs and caches.
+/** Streams rows to a new NDJSON file through `fill`; resolves to the number of rows written. */
+async function writeToFile(path: string, fill: (write: (row: unknown) => Promise<void>) => Promise<number>) {
+  const writer = ndjsonWriter(path);
+  try {
+    return await fill(async row => { await writer.write(row); });
+  } finally { await writer.close(); }
+}
 const root = resolve(process.argv.slice(2).find(arg => !arg.startsWith("--")) || ".local/storefront-bundle");
 const sinceArg = process.argv.find(arg => arg.startsWith("--since="))?.slice(8);
 const since = sinceArg ? new Date(sinceArg) : null;
@@ -70,16 +76,6 @@ try {
   const read = async (sql: string, params: unknown[] = []) => (await client.query(sql, params)).rows;
   const changed = [since ?? new Date(0), JSON.stringify(retry)];
   const { tombstones, invalidatedJobs } = bundleTombstones(await exportTombstones(client, since === null));
-  const items: BundleItem[] = await read(`SELECT id,supplier,company,list_group,warehouse,code FROM supplier_items WHERE id IN (
-      ${EXPORTED_ENRICHMENT_IDS} UNION SELECT evidence_product_id FROM manufacturer_logos
-      UNION SELECT j.supplier_item_id FROM product_enrichment_jobs j JOIN product_enrichments e USING(supplier_item_id) WHERE j.status IN ('complete','partial'))
-      ORDER BY id`, changed);
-  // A tombstone's supplier item may be gone here; its key comes from the log.
-  const listed = new Set(items.map(item => item.id));
-  for (const { supplier_item_id: id, supplier, company, list_group, warehouse, code } of tombstones) {
-    if (!listed.has(id)) items.push({ id, supplier, company, list_group, warehouse, code });
-    listed.add(id);
-  }
   const ids = await exportedEnrichmentIds(client, changed);
   const enrichments = ndjsonWriter(resolve(root, ENRICHMENTS_FILE));
   let written = 0;
@@ -91,6 +87,9 @@ try {
   }
   await enrichments.close();
   if (written !== ids.length) throw new Error(`Wrote ${written} of ${ids.length} enrichments`);
+  // Job statuses and supplier item keys stream from server-side cursors inside this snapshot (#1357): their memory is bounded by the batch (ids, products and media stay delta-bounded).
+  const jobCount = await writeToFile(resolve(root, JOBS_FILE), write => streamJobs(client, write));
+  const itemCount = await writeToFile(resolve(root, ITEMS_FILE), write => streamItems(client, changed, tombstones, write));
   // Kept for the media download below; the manifest names the file and the count only.
   const media = await read(`SELECT * FROM product_media_objects WHERE id IN (SELECT media_id FROM source_category_images UNION SELECT image_id FROM product_enrichments WHERE supplier_item_id IN (${EXPORTED_ENRICHMENT_IDS})
     UNION SELECT media_id FROM vehicle_type_images) ORDER BY id`, changed);
@@ -118,13 +117,12 @@ try {
     mediaFile: MEDIA_FILE,
     mediaCount: await writeNdjson(resolve(root, MEDIA_FILE), media),
     jobsFile: JOBS_FILE,
-    jobCount: await writeNdjson(resolve(root, JOBS_FILE), await read(`SELECT j.supplier_item_id,j.supplier_code,j.supplier_brand,j.oem,j.status,j.candidate_url,j.last_attempt_at
-      FROM product_enrichment_jobs j JOIN product_enrichments e USING(supplier_item_id) WHERE j.status IN ('complete','partial') ORDER BY j.supplier_item_id`)),
+    jobCount,
     tombstones,
     invalidatedJobs,
     maxDeletions,
     itemsFile: ITEMS_FILE,
-    itemCount: await writeNdjson(resolve(root, ITEMS_FILE), items),
+    itemCount,
   };
   await client.query("COMMIT");
   const pruned = prune ? await pruneTombstones(client) : 0;

@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
 import { bundleItems, referencedItemIds, resolveBundleItems } from "./storefront-bundle-items";
-import { EXPORTED_ENRICHMENT_IDS, exportedEnrichmentBatches, exportedEnrichmentIds } from "./storefront-bundle-export";
+import { EXPORTED_ENRICHMENT_IDS, exportedEnrichmentBatches, exportedEnrichmentIds, streamItems, streamJobs } from "./storefront-bundle-export";
 import { importBundleJobs } from "./storefront-bundle-jobs";
 import { replaceBundleMappings } from "./storefront-bundle-mappings";
 
@@ -116,6 +116,52 @@ test("PostgreSQL: an export carries enrichments after the watermark and the retr
       assert.deepEqual(batches.flat(), single);
     }
     assert.deepEqual(await exportedEnrichmentIds(client, changed([])), [fresh]);
+  });
+});
+
+test("PostgreSQL: cursor batches stream the same jobs and item keys, in the same order, as the single queries (#1357)", { skip: !process.env.DATABASE_URL && "DATABASE_URL not set" }, async () => {
+  await withSchema("storefront_cursor_test", [...enrichmentFiles, "db/manufacturer-logos.sql"], async client => {
+    const ids = Array.from({ length: 23 }, () => randomUUID());
+    for (const [index, id] of ids.entries()) await insertItem(client, id, `CODE${index}`);
+    // Enrichments on every second item (idx % 4 == 0 fresh, == 2 old). Jobs are placed independently of that parity: a partial job on a fresh
+    // enrichment (4), complete and partial jobs on old enrichments (6, 10) that reach the item keys only through the job branch of the union,
+    // a pending job (0) and complete/partial jobs without an enrichment (1, 3) that must stay out.
+    for (const [index, id] of ids.entries()) if (index % 2 === 0) await insertEnrichment(client, id, index % 4 === 0 ? "2026-11-14T00:00:00Z" : "2026-11-01T00:00:00Z");
+    const statuses: Record<number, string> = { 0: "pending", 1: "complete", 3: "partial", 4: "partial", 6: "complete", 10: "partial", 14: "not_found" };
+    for (const [index, status] of Object.entries(statuses)) {
+      await client.query("INSERT INTO product_enrichment_jobs(supplier_item_id,status,supplier_code,supplier_brand,oem,last_attempt_at) VALUES($1,$2,'X','FEBI',$3,now())", [ids[Number(index)], status, `OEM${index}`]);
+    }
+    for (const [key, id] of [["AAA", ids[19]], ["BBB", ids[21]], ["CCC", ids[19]]] as const) {
+      await client.query(`INSERT INTO manufacturer_logos(brand_key,manufacturer,image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url)
+        VALUES($1,'M','\\x01',repeat('a',64),1,1,'u',$2,'u')`, [key, id]);
+    }
+    const changed = [new Date("2026-11-13T00:00:00Z"), JSON.stringify([{ id: ids[2] }, { id: randomUUID(), ...itemKey("CODE14") }])];
+    const gone = randomUUID();
+    const key = (id: string, code: string) => ({ supplier_item_id: id, supplier: "basbug", company: "C", list_group: "L", warehouse: "MRK", code });
+    // One tombstone for a listed item, one for a deleted item twice (the first entry wins), one more deleted item.
+    const tombstones = [key(ids[0], "CODE0"), key(gone, "GONE1"), key(gone, "GONE2"), key(randomUUID(), "GONE3")];
+
+    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+    const jobsSingle = (await client.query(`SELECT j.supplier_item_id,j.supplier_code,j.supplier_brand,j.oem,j.status,j.candidate_url,j.last_attempt_at
+      FROM product_enrichment_jobs j JOIN product_enrichments e USING(supplier_item_id) WHERE j.status IN ('complete','partial') ORDER BY j.supplier_item_id`)).rows;
+    const itemsSingle: Record<string, unknown>[] = (await client.query(`SELECT id,supplier,company,list_group,warehouse,code FROM supplier_items WHERE id IN (
+      ${EXPORTED_ENRICHMENT_IDS} UNION SELECT evidence_product_id FROM manufacturer_logos
+      UNION SELECT j.supplier_item_id FROM product_enrichment_jobs j JOIN product_enrichments e USING(supplier_item_id) WHERE j.status IN ('complete','partial'))
+      ORDER BY id`, changed)).rows;
+    const listed = new Set(itemsSingle.map(item => item.id));
+    for (const { supplier_item_id: id, supplier, company, list_group, warehouse, code } of tombstones) {
+      if (!listed.has(id)) itemsSingle.push({ id, supplier, company, list_group, warehouse, code });
+      listed.add(id);
+    }
+    assert.ok(jobsSingle.length === 3 && itemsSingle.length > 9, "the fixture spans several batches");
+    for (const size of [1, 2, 5, 7, 1000]) {
+      const jobs: unknown[] = [], items: unknown[] = [];
+      assert.equal(await streamJobs(client, async row => { jobs.push(row); }, size), jobsSingle.length);
+      assert.equal(await streamItems(client, changed, tombstones, async row => { items.push(row); }, size), itemsSingle.length);
+      assert.deepEqual(jobs, jobsSingle, `jobs at batch size ${size}`);
+      assert.deepEqual(items, itemsSingle, `items at batch size ${size}`);
+    }
+    await client.query("COMMIT");
   });
 });
 
