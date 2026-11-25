@@ -7,7 +7,7 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 /**
  * The whole price order of a plain listing, for its pages past the cached first 20 (#1369, db/storefront-catalog.sql
  * storefront_listing_price_orders). A deep price-sorted page priced and sorted every row of the listing per request
- * (ORIJINAL, 155k rows: ~1.7 s locally, 5-6 s live); building the whole order costs about the same once, and a page then
+ * (ORIJINAL, 155k rows: ~1.8 s locally, 5-6 s live); building the whole order costs about the same once, and a page then
  * slices it. One statement prices, sorts and stores the order (buildPriceOrder), and a page reads its slice
  * (priceOrderSlice): the ids never pass through Node (#1262). The process cache in catalog.ts (cachedPriceOrders) keeps
  * only the stored order's size, under the persisted listings' rules: rebuilt after 10 minutes in the background, a row up

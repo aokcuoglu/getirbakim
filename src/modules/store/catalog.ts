@@ -999,8 +999,10 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  }
  // A deeper page of a stored listing's price order (persistable, #1369) slices the listing's whole order, stored by one
  // statement that prices and sorts the rows the cached pages above read (pricedScope) and keeps the ids in the database
- // (listing-price-order.ts). Building the whole order cost about one live deep page (ORIJINAL, 155k rows: ~1.6 s against
- // ~1.7 s locally), so the first deep page of a listing waits for it once and the next ones read a slice. The process
+ // (listing-price-order.ts). Building the whole order costs about one live deep page (locally, npm run
+ // catalog:listing-timings -- --price-order: ORIJINAL, 155k rows, ~1.65 s against ~1.8 s; /katalog, 804k rows, ~6.6 s
+ // against ~6.5 s; no parallel plan on either side), so the first deep page of a listing waits for it once and the next
+ // ones read a slice (under 1 ms in SQL; a page ~20-40 ms over HTTP against 1.8-2.1 s and 6.5-7.6 s). The process
  // keeps the stored order's size under the cached pages' rules (cachedPriceOrders); cards are read live by id as above.
  // A listing over priceOrderMaxIds, an order with nothing stored, a row gone (the UNLOGGED table empties after a crash)
  // or a page past its end read live below. A build error reaches the page: after its 30 s limit a live read would wait
