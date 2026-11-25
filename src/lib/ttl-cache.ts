@@ -22,3 +22,27 @@ export function ttlCache<T>(ttlMs: number, maxEntries = 100, now: () => number =
     return fresh.value;
   };
 }
+/**
+ * One load per key, shared by every caller that arrives while it runs and for `holdMs` after it settles with a value
+ * (#1367). Unlike ttlCache the hold counts from the settle, not from the start: callers that wait for one value before
+ * they ask for another built from the same load still share it when the load took longer than `holdMs`. A failed load is
+ * dropped as it fails, so the next caller tries again. Least recently used entries leave first.
+ */
+export function sharedLoads<T>(holdMs: number, maxEntries = 100, now: () => number = Date.now) {
+  const entries = new Map<string, { value: Promise<T>; expiresAt: number }>();
+  return (key: string, load: () => Promise<T>): Promise<T> => {
+    const time = now();
+    for (const [stored, old] of entries) if (old.expiresAt <= time) entries.delete(stored);
+    const entry = entries.get(key);
+    if (entry) {
+      entries.delete(key);
+      entries.set(key, entry);
+      return entry.value;
+    }
+    const fresh = { value: load(), expiresAt: Infinity };
+    fresh.value.then(() => { fresh.expiresAt = now() + holdMs; }, () => { if (entries.get(key) === fresh) entries.delete(key); });
+    entries.set(key, fresh);
+    if (entries.size > maxEntries) entries.delete(entries.keys().next().value!);
+    return fresh.value;
+  };
+}
