@@ -146,8 +146,9 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
       const finish = (settle: () => void) => { if (!done) { done = true; clearTimeout(timer); settle(); } };
       entry.value.then(value => finish(() => resolve(value)), error => finish(() => reject(error)));
       const useEarlier = () => void earlier().then(found => { if (found) finish(() => resolve(found.value)); });
-      // Not keeping the process alive: the load itself settles every caller.
-      if (wait > 0) { timer = setTimeout(useEarlier, wait); timer.unref?.(); } else useEarlier();
+      // Not unref()ed: it lives at most `wait` and is cleared when the load settles; an unref()ed timer let the test
+      // runner end a test whose only pending work was this wait (CI, Node 22).
+      if (wait > 0) timer = setTimeout(useEarlier, wait); else useEarlier();
     });
   };
   // What a reload replacing `entry` may serve: the value it last resolved to; while its first load is still pending, its
