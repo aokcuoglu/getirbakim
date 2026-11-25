@@ -336,6 +336,8 @@ test("listingCacheStore skips values over 256 KB and is off with LISTING_CACHE_P
 test("plain and make listings persist their count, page ids and facets; searches, brand filters and models do not", async () => {
   await schema.pool.query("TRUNCATE storefront_listing_cache");
   await epoch.invalidateListings();
+  // The fit sync's bump (#1368): the make's rows carry the fits value, now ahead of the epoch the plain listing's carry.
+  await epoch.invalidateFits();
   const stored = async () => (await schema.pool.query<{ namespace: string; n: number }>(
     "SELECT namespace,count(*)::int AS n FROM storefront_listing_cache GROUP BY namespace ORDER BY namespace")).rows;
   // Not persisted: a search, a brand filter and a model listing (too many keys).
@@ -351,6 +353,13 @@ test("plain and make listings persist their count, page ids and facets; searches
   await catalog.catalogFacets({});
   const expected = [{ namespace: "count", n: 2 }, { namespace: "facets", n: 1 }, { namespace: "page-ids", n: 2 }];
   assert.deepEqual(await until(stored, rows => JSON.stringify(rows) === JSON.stringify(expected)), expected);
+  const [listing, fits] = [await epoch.listingEpoch(), await epoch.fitsEpoch()];
+  assert.ok(fits > listing);
+  const { rows: values } = await schema.pool.query<{ namespace: string; epoch: string; n: number }>(
+    "SELECT namespace,epoch::text,count(*)::int AS n FROM storefront_listing_cache GROUP BY namespace,storefront_listing_cache.epoch ORDER BY namespace,storefront_listing_cache.epoch");
+  assert.deepEqual(values, [{ namespace: "count", epoch: String(listing), n: 1 }, { namespace: "count", epoch: String(fits), n: 1 },
+    { namespace: "facets", epoch: String(listing), n: 1 }, { namespace: "page-ids", epoch: String(listing), n: 1 }, { namespace: "page-ids", epoch: String(fits), n: 1 }],
+  "the plain listing's rows carry the epoch, the make's the fits value");
 });
 
 test("after a bump a listing serves its earlier count and ids past LISTING_EPOCH_WAIT_MS, its cards live, then the reload (#771)", async () => {

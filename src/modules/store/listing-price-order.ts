@@ -12,9 +12,11 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
  * (priceOrderSlice): the ids never pass through Node (#1262). The process cache in catalog.ts (cachedPriceOrders) keeps
  * only the stored order's size, under the persisted listings' rules: rebuilt after 10 minutes in the background, a row up
  * to 24 hours old adopted on a memory miss, a row of an older epoch rebuilt, the earlier row (up to 48 hours old, not
- * empty) served after the bounded wait (#771).
+ * empty) served after the bounded wait (#771). A row's epoch is the value its key follows (listing-epoch.ts, #1368): a
+ * make's listing the fits value, the others the listing epoch.
  * The key hash covers priceOrderVersion (bump it when the stored order's meaning changes) and the storefront's supplier
- * companies, as listingCacheStore's. LISTING_PRICE_ORDER=0 turns the stored orders off (deep pages read live again);
+ * companies, as listingCacheStore's. #1368 kept it at 1: the fits value starts at the epoch the rows already carry, so a
+ * stored row keeps its meaning. LISTING_PRICE_ORDER=0 turns the stored orders off (deep pages read live again);
  * LISTING_PRICE_ORDER_MAX_IDS (default 1,000,000) is the largest listing stored. A missing table (setup not run yet)
  * turns them off for five minutes. Errors never reach the page: a failed read or slice reads the page live, and so does a
  * failed build (its 30 s limit included), after which the listing reads live for ten minutes instead of starting another
@@ -112,8 +114,9 @@ export function priceOrderBuildSql(pricedSql: string, order: string, keyParam: s
 }
 
 /**
- * Orders the listing (`pricedSql` with `values`) by `order` and stores it under `key` and `epoch` (the listing epoch read
- * before the listing's filter was built), with boundedQuery's 30 s limit and priceOrderWorkMem. `{ total: 0 }` when
+ * Orders the listing (`pricedSql` with `values`) by `order` and stores it under `key` and `epoch` (the value its key
+ * follows, read before the listing's filter was built: the process cache's load value, catalog.ts), with boundedQuery's
+ * 30 s limit and priceOrderWorkMem. `{ total: 0 }` when
  * nothing was stored: no rows, more than priceOrderMaxIds, a newer row kept, the table missing, or a failed build. Never
  * throws: the page then reads live. A failed build (a statement timeout, 57014, or any other error) is remembered for
  * the key: its builds return `{ total: 0 }` without a query until failedBuildBackoffMs after the failed one started, so

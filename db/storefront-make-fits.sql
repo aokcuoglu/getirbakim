@@ -146,7 +146,7 @@ BEGIN
 END $$;
 
 -- product_enrichment_shared_sync() and how many make, description make and model fit rows it changed. The app's
--- background sync (src/modules/store/enrichment-links.server.ts) moves the listing epoch when they changed (#956):
+-- background sync (src/modules/store/enrichment-links.server.ts) moves the fits epoch when they changed (#956, #1368):
 -- listings cache their fits per process, and an admin's edit bumps the epoch before this sync rebuilt the tables.
 CREATE OR REPLACE FUNCTION storefront_fits_sync(batch integer DEFAULT 20000) RETURNS TABLE(written integer, fits_changed bigint)
 LANGUAGE plpgsql AS $$

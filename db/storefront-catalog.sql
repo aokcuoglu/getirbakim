@@ -291,8 +291,9 @@ END $setup$;
 -- Storefront listing cache, persisted level (#957): listing counts, page ids and facets of the plain listings (no search,
 -- brand, property, availability or vehicle filter) that the per-process stale-while-revalidate caches computed, so a new
 -- or restarted app container reads them instead of scanning the catalog again (src/modules/store/listing-cache-store.ts).
--- Each row keeps the storefront_listing_epoch value it was loaded under: rows of an older epoch are not served and never
--- replace a newer row. UNLOGGED: a crash empties it and the caches load again. The app prunes rows older than two days.
+-- Each row keeps the storefront_listing_epoch value it was loaded under, the one its key follows (#1368: a listing of a
+-- make epoch+fits_epoch, the others `epoch`): rows of an older value are not served and never replace a newer row.
+-- UNLOGGED: a crash empties it and the caches load again. The app prunes rows older than two days.
 CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_cache (
  namespace text NOT NULL,
  key_hash text NOT NULL,
@@ -306,10 +307,11 @@ CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_cache (
 -- their 480 ids in storefront_listing_cache; a deeper page slices this array (ids[a:b]) and reads its cards live by id, so
 -- prices and stock stay current while the order follows the prices of the last build (src/modules/store/listing-price-order.ts).
 -- One statement prices, sorts and stores a listing (INSERT … SELECT): its ids never pass through the app (#1262). `epoch`
--- is the storefront_listing_epoch value the build ran under; the app rebuilds a row of an older epoch, and an older
--- build never replaces a newer row. UNLOGGED: a crash empties it and deep pages read live until the next build. The app
--- prunes rows older than two days. No index but the primary key: every read and write names one key_hash. The array is
--- read whole to slice it (~16 bytes an id: 900k ids ~14 MB, stored out of line).
+-- is the storefront_listing_epoch value the build ran under, the one its key follows (as storefront_listing_cache's,
+-- #1368); the app rebuilds a row of an older value, and an older build never replaces a newer row. UNLOGGED: a crash
+-- empties it and deep pages read live until the next build. The app prunes rows older than two days. No index but the
+-- primary key: every read and write names one key_hash. The array is read whole to slice it (~16 bytes an id: 900k ids
+-- ~14 MB, stored out of line).
 CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_price_orders (
  key_hash text NOT NULL,
  epoch bigint NOT NULL,
