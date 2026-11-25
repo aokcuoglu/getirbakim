@@ -3,7 +3,7 @@
 // and all enrichment parts (keys, JSON value types, element schemas of arrays, recursively) with scripts/fixtures/storefront-part-format.json.
 // Scope: it guards the split's own output: the top-level keys and types, which arrays each part kind blanks, and that rows pass through intact for the
 // row shapes in the fixture (written from the export SELECTs and the columns the importer reads). It cannot see an export or importer column change
-// by itself; that needs an export -> split -> import run on a database. Values are not compared, only keys and types.
+// by itself; scripts/test-storefront-e2e.ts runs export -> split -> import on two databases and compares the tables. Values are not compared, only keys and types.
 // If the format change is intended: release the importer first (backward compatible), then change the split, then regenerate the golden file with
 //   UPDATE_GOLDEN=1 node --import tsx --test scripts/test-storefront-split.ts   (refused in CI)
 import assert from "node:assert/strict";

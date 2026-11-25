@@ -229,6 +229,7 @@
     "test:manual": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-manual-template.ts scripts/test-manual-import.ts scripts/test-manual-bulk-csv.ts scripts/test-manual-bulk-db.ts",
     "test:storefront-split": "node --import tsx --test scripts/test-storefront-split.ts",
     "test:storefront-tombstones": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-storefront-tombstones.ts",
+    "test:storefront-e2e": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-storefront-e2e.ts",
     "test:storefront-sync": "node --import tsx --test scripts/test-storefront-sync.ts"
   },
   "dependencies": {
