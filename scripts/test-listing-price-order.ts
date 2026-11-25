@@ -15,7 +15,7 @@ type Catalog = typeof import("../src/modules/store/catalog");
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let catalog: Catalog;
 let priceOrder: typeof import("../src/modules/store/listing-price-order");
-let invalidateListings: () => Promise<void>;
+let invalidateListings: () => Promise<void>, invalidateFits: () => Promise<void>;
 let closeDb: () => Promise<void>;
 const [basbug] = storefrontCompanies();
 
@@ -118,6 +118,7 @@ before(async () => {
   catalog = catalogModule;
   priceOrder = priceOrderModule;
   invalidateListings = epoch.invalidateListings;
+  invalidateFits = epoch.invalidateFits;
   closeDb = () => db.end();
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
@@ -321,6 +322,32 @@ test("brand-filtered, search and model listings store nothing; a make listing st
   const make = { make: "vw", sort: "price-desc" as const, page: "22" };
   assert.deepEqual(await pageIds(make), await livePage(make));
   assert.deepEqual((await stored()).map(row => row.total), [rows - 2], "BOSCH without its two hidden rows");
+});
+
+test("a make listing's order carries the fits value: the fit sync's bump rebuilds it and not a manufacturer's (#1368)", async () => {
+  const fitsValue = async () => (await schema.pool.query<{ fits: number }>("SELECT (epoch+fits_epoch)::int AS fits FROM storefront_listing_epoch")).rows[0].fits;
+  const make = { make: "vw", sort: "price-asc" as const, page: "21" }, manufacturer = bosch("price-asc", 21);
+  // Both listings reload (an admin edit's bump), with the fits value ahead of the epoch, so the two rows' values differ.
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  await invalidateListings();
+  await invalidateFits();
+  assert.deepEqual(await pageIds(make), await livePage(make));
+  assert.deepEqual(await pageIds(manufacturer), await livePage(manufacturer));
+  const [epochBefore, fitsBefore] = [await currentEpoch(), await fitsValue()];
+  assert.ok(fitsBefore > epochBefore);
+  assert.deepEqual((await stored()).map(row => row.epoch), [fitsBefore, epochBefore], "the make's row, then the manufacturer's");
+  await invalidateFits();
+  const rebuilt = await sent(async () => assert.deepEqual(await pageIds(make), await livePage(make)));
+  const kept = await sent(async () => assert.deepEqual(await pageIds(manufacturer), await livePage(manufacturer)));
+  assert.deepEqual([rebuilt.builds, kept.builds], [1, 0]);
+  assert.deepEqual((await stored()).map(row => row.epoch), [fitsBefore + 1, epochBefore]);
+  // A build under the epoch alone (a task still on the code before #1368) never replaces the make's newer row.
+  const { rows: [row] } = await schema.pool.query<{ key_hash: string; total: number }>("SELECT key_hash,total FROM storefront_listing_price_orders WHERE epoch=$1", [fitsBefore + 1]);
+  const pricedSql = `SELECT catalog.id,catalog.unavailable,catalog.price_kurus FROM (${catalog.storefrontCatalogSql}) catalog WHERE catalog.display_brand=$2`;
+  assert.deepEqual((await schema.pool.query(priceOrder.priceOrderBuildSql(pricedSql, "unavailable,price_kurus ASC NULLS LAST,id", "$3", "$4", "$5"),
+    [storefrontCompanies(), "MAHLE", row.key_hash, epochBefore, 1000])).rows, [], "nothing stored");
+  assert.deepEqual((await schema.pool.query("SELECT epoch::int,total FROM storefront_listing_price_orders WHERE key_hash=$1", [row.key_hash])).rows,
+    [{ epoch: fitsBefore + 1, total: row.total }]);
 });
 
 test("boundedQuery writes with write: true; a plain one stays read only", async () => {

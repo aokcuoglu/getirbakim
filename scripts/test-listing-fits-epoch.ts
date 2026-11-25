@@ -1,15 +1,68 @@
 import assert from "node:assert/strict";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import { after, before, test } from "node:test";
+import pg from "pg";
 import { isolatedSchema } from "./isolated-schema";
+import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
+import type { CatalogQuery } from "../src/modules/store/catalog-query";
 
 // The fits epoch (#1368) in an isolated copy of the schema: the fit sync's bump (invalidateFits) moves only the value the
 // caches that read vehicle fits follow (epoch+fits_epoch), an admin edit's (invalidateListings) moves both, and the
-// guarded column is added once, continuing the scale of the stored rows. Nothing is written to the shared database.
+// guarded column is added once, continuing the scale of the stored rows. The fit sync's bump reloads the make listing,
+// its listed models and category counts, and leaves the manufacturer and category listings cached. Nothing is written
+// to the shared database.
 type Epoch = typeof import("../src/modules/store/listing-epoch");
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let epoch: Epoch;
+let catalog: typeof import("../src/modules/store/catalog");
+let categories: typeof import("../src/modules/store/listing-categories.server");
 let closeDb: () => Promise<void>;
+const [basbug] = storefrontCompanies();
+/** BOSCH rows: all in Filtre, all fitting VW and its Golf 7; Polo 6 has no fit yet. */
+const rows = 30;
+let added = 0;
+
+// The category tree (getStoreCategories) calls connection(), which needs a request scope: a static work store lets it
+// run. Next reads the global AsyncLocalStorage when its storage module loads (before, ahead of the other imports).
+let workStorage: typeof import("next/dist/server/app-render/work-async-storage.external").workAsyncStorage;
+const inRequest = <T>(run: () => Promise<T>) => workStorage.run({ route: "/test", forceStatic: true } as Parameters<typeof workStorage.run>[0], run);
+const manufacturer: CatalogQuery = { manufacturer: "bosch" }, category: CatalogQuery = { category: "filtre" }, make: CatalogQuery = { make: "vw" };
+const total = (query: CatalogQuery) => inRequest(() => catalog.listingTotal(query));
+const listedModels = async () => (await catalog.getListedModelGroups("1")).map(group => group.slug).sort();
+const filterCount = async () => (await inRequest(() => categories.scopeCategoryCounts({ make: "vw" }))).get(241);
+/** A new BOSCH row in Filtre fitting VW and (`model`) one of its models: what the fit sync and an import change. */
+async function addFittedRow(model: number) {
+  added++;
+  const { rows: [row] } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+    product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
+    VALUES('basbug',$1,'G','MRK',$2,jsonb_build_object('uk','BOSCH','ac',$2::text||' PARCA','ac2','','dc','TL','category','filtre'),'{"nf":100}','{"stok":2}',
+     1,1,1,'present',now(),now(),now()) RETURNING id::text`, [basbug, `BOSCH N${added}`]);
+  await schema.pool.query("INSERT INTO storefront_make_fits(brand_id,supplier_item_id) VALUES(1,$1)", [row.id]);
+  await schema.pool.query("INSERT INTO storefront_model_fits(model_id,supplier_item_id) VALUES($1,$2)", [model, row.id]);
+}
+/**
+ * The loads `run` sends on any connection: by default listing loads (the one-scan summary or a count statement over the
+ * catalog), else the statements `matches` names; `other`, every statement but those and the epoch reads.
+ */
+async function loads(run: () => Promise<unknown>, matches = (text: string) => text.includes("storefront_catalog_entries")) {
+  const original = pg.Client.prototype.query;
+  let sent = 0, other = 0;
+  pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+    const config = args[0];
+    const text = typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "";
+    if (matches(text)) sent++;
+    else if (!text.includes("storefront_listing_epoch")) other++;
+    return (original as (...rest: unknown[]) => unknown).apply(this, args);
+  } as typeof original;
+  try {
+    await run();
+  } finally {
+    pg.Client.prototype.query = original;
+  }
+  return { loads: sent, other };
+}
 
 /** The row as another process reads it: `epoch` and the fits value. */
 const counters = async () => (await schema.pool.query<{ epoch: number; fits_epoch: number; fits: number }>(
@@ -24,8 +77,27 @@ const otherProcess = async (name: string) => await import(`../src/modules/store/
 
 before(async () => {
   schema = await isolatedSchema("listing_fits_epoch_test");
-  const [{ db }, epochModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/listing-epoch")]);
+  const { rows: [brand] } = await schema.pool.query<{ id: string }>("INSERT INTO brands(key,name) VALUES('BOSCH','BOSCH') RETURNING id::text");
+  await schema.pool.query("INSERT INTO supplier_brands(supplier,label,brand_id,items) VALUES('basbug','BOSCH',$1,$2)", [brand.id, rows]);
+  await schema.pool.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+    product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
+    SELECT 'basbug',$1,'G','MRK','BOSCH P'||n,jsonb_build_object('uk','BOSCH','ac','P'||n||' PARCA','ac2','','dc','TL','category','filtre'),
+     '{"nf":100}','{"stok":2}',1,1,1,'present',now()-interval '30 days',now(),now() FROM generate_series(1,$2::int) n`, [basbug, rows]);
+  await schema.pool.query(`INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VW');
+    INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(10,1,'GOLF VII (5G1)','2012-08-01','2017-03-01'),(20,1,'POLO VI (AW1)','2017-06-01',NULL);
+    INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT 1,id FROM supplier_items;
+    INSERT INTO storefront_model_fits(model_id,supplier_item_id) SELECT 10,id FROM supplier_items;
+    INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
+     ('trodo',3,NULL,'Yedek parçalar','yedek-parca','{3}','','{}'),('trodo',241,3,'Filtre','filtre','{3,241}','','{}');
+    INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES
+     ('trodo',3,'tr','Yedek parçalar','yedek-parca'),('trodo',241,'tr','Filtre','filtre')`);
+  Object.assign(globalThis, { AsyncLocalStorage });
+  workStorage = (await import("next/dist/server/app-render/work-async-storage.external")).workAsyncStorage;
+  const [{ db }, epochModule, catalogModule, categoriesModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/listing-epoch"),
+    import("../src/modules/store/catalog"), import("../src/modules/store/listing-categories.server")]);
   epoch = epochModule;
+  catalog = catalogModule;
+  categories = categoriesModule;
   closeDb = () => db.end();
 });
 after(async () => { await closeDb?.(); await schema?.drop(); });
@@ -64,6 +136,63 @@ test("invalidateFits moves the fits value only; invalidateListings moves both; t
     const [listing, fits] = [await epoch.listingEpoch(), await epoch.fitsEpoch()];
     assert.ok(fits >= listing, `bump ${bump}: ${fits} >= ${listing}`);
   }
+});
+
+test("the fit sync's bump reloads the make listing, its models and category counts; manufacturer and category listings stay cached", async () => {
+  assert.deepEqual([await total(manufacturer), await total(category), await total(make)], [rows, rows, rows]);
+  assert.deepEqual(await listedModels(), ["golf-7"]);
+  assert.equal(await filterCount(), rows);
+  await addFittedRow(20);
+  assert.deepEqual([await total(make), await listedModels(), await filterCount()], [rows, ["golf-7"], rows], "no bump: the cached values");
+  await epoch.invalidateFits();
+  for (const query of [manufacturer, category]) {
+    let shown = 0;
+    assert.deepEqual(await loads(async () => { shown = await total(query); }), { loads: 0, other: 0 }, `${JSON.stringify(query)}: no statement`);
+    assert.equal(shown, rows, `${JSON.stringify(query)}: the cached count`);
+  }
+  assert.equal(await total(make), rows + 1);
+  assert.deepEqual(await listedModels(), ["golf-7", "polo-6"]);
+  assert.equal(await filterCount(), rows + 1);
+  // An admin edit's bump reaches every listing.
+  await epoch.invalidateListings();
+  assert.deepEqual([await total(manufacturer), await total(category), await total(make)], [rows + 1, rows + 1, rows + 1]);
+});
+
+test("a raw epoch bump from another task (the code before #1368) reloads a make listing within about a second", async () => {
+  const before = await total(make);
+  await addFittedRow(10);
+  await schema.pool.query("UPDATE storefront_listing_epoch SET epoch=epoch+1,bumped_at=now()");
+  await sleep(1100);
+  assert.equal(await total(make), before + 1);
+});
+
+test("12 fit sync bumps reload a make listing 12 times and a manufacturer listing never; 12 admin bumps reload both", async () => {
+  const reloads = async (bump: () => Promise<void>) => {
+    const counted = { manufacturer: 0, make: 0 };
+    for (let round = 0; round < 12; round++) {
+      await bump();
+      counted.manufacturer += (await loads(() => total(manufacturer))).loads;
+      counted.make += (await loads(() => total(make))).loads;
+    }
+    return counted;
+  };
+  await Promise.all([total(manufacturer), total(make)]);
+  assert.deepEqual(await reloads(() => epoch.invalidateListings()), { manufacturer: 12, make: 12 }, "before #1368 the fit sync bumped this way");
+  assert.deepEqual(await reloads(() => epoch.invalidateFits()), { manufacturer: 0, make: 12 });
+});
+
+test("a search that may name a vehicle follows the fits value; a one-word or code search keeps its entry through the fit sync", async () => {
+  const search = (q: string, code = false) => inRequest(() => catalog.browseProducts(code ? { q, searchBy: "code" } : { q }));
+  // The search's hit read (searchHitIdsSql): a cached plain search sends none, its cards are read live.
+  const hitReads = (run: () => Promise<unknown>) => loads(run, text => text.includes("WITH main AS MATERIALIZED"));
+  const [word, vehicle, code] = [() => search("bosch"), () => search("bosch golf"), () => search("BOSCH P1", true)];
+  for (const read of [word, vehicle, code]) assert.ok((await hitReads(read)).loads > 0, "the first read searches");
+  await epoch.invalidateFits();
+  assert.equal((await hitReads(word)).loads, 0, "one word: no vehicle reading, cached");
+  assert.equal((await hitReads(code)).loads, 0, "a code search: cached");
+  assert.ok((await hitReads(vehicle)).loads > 0, "two words may read a vehicle's fits: reloaded");
+  await epoch.invalidateListings();
+  for (const read of [word, vehicle, code]) assert.ok((await hitReads(read)).loads > 0, "an admin edit's bump reloads every search");
 });
 
 // Last: drops the column, as on a database whose setup has not run yet.

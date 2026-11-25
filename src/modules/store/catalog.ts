@@ -8,7 +8,7 @@ import { staleCache } from "@/lib/stale-cache";
 import { sharedLoads, ttlCache } from "@/lib/ttl-cache";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
-import { listingEpoch } from "./listing-epoch";
+import { fitsEpoch, listingEpoch } from "./listing-epoch";
 import { listingCacheStore } from "./listing-cache-store";
 import { buildPriceOrder, priceOrderEnabled, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
@@ -278,12 +278,13 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
   UNION SELECT supplier_item_id FROM decided WHERE mode='add') fitted`,values)).rows.map(row=>row.id);
 }
 // Admin edits move products between categories (#575) and change vehicle fitments (#583): an edit bumps the listing
-// epoch and these reload (#585).
-const listings={epoch:listingEpoch};
+// epoch and these reload (#585). The caches that read vehicle fits follow the fits value instead (`fitListings`, #1368,
+// listing-epoch.ts): it moves with every admin edit and also when the fit sync changed fit rows, which the others ignore.
+const listings={epoch:listingEpoch},fitListings={epoch:fitsEpoch};
 // Fitments change when enrichments are imported or an admin decides; vehicle-type lists are shared per process.
 // Each value is an id array that can hold hundreds of thousands of uuids, so the caches are also bounded by total id
 // count (#1262), not only by entries.
-const cachedFitted=staleCache<string[]>(10*60*1000,500,{...listings,weigh:ids=>ids.length,maxWeight:400_000});
+const cachedFitted=staleCache<string[]>(10*60*1000,500,{...fitListings,weigh:ids=>ids.length,maxWeight:400_000});
 const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,{...listings,weigh:ids=>ids.length,maxWeight:600_000});
 /**
  * Products fitting one make (`param`: its vehicle_brands id, e.g. "$2::int"), as one id column: the engine-level fits
@@ -317,9 +318,9 @@ const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",
  * A make's model page units that list at least one product (#639): the make page links only these, so no link ends in
  * the empty model page's 404. A unit counts when a fitted product (as in modelFittedIds) is in the storefront listing
  * (listedOnly); a fit pointing at a hidden or no longer supplied item does not. One query per make over the make's
- * series, cached like the fits (per process, reloaded when a listing edit moves the epoch).
+ * series, cached like the fits (per process, reloaded when a listing edit or the fit sync moves the fits value).
  */
-const cachedListedModels=staleCache<string[]>(10*60*1000,300,listings);
+const cachedListedModels=staleCache<string[]>(10*60*1000,300,fitListings);
 export async function getListedModelGroups(brandId:string) {
  const groups=await getVehicleModelGroups(brandId);
  const modelIds=groups.flatMap(group=>group.models.map(member=>member.id));
@@ -458,6 +459,18 @@ const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearc
  if(corrected&&correctedIds.length)return {parsed:corrected.parsed,ids:correctedIds,correctedQuery:corrected.text};
  return await vehicleSearch(raw,hits,true)??{parsed,ids};
 });
+/** A query's words as vehicleSearch splits them; null for fewer than two or more than six (no vehicle reading). */
+function vehicleReadingWords(raw:string){
+ const words=normalizeSearchText(raw.slice(0,120)).split(" ").filter(Boolean);
+ return words.length<2||words.length>6?null:words;
+}
+/**
+ * The counter a cached search follows (#1368). A search that may read as a part and a vehicle (vehicleSearch: two to six
+ * words, not a code search) reads the vehicle's fits (fittedProductIds), so it follows the fits value; any other search
+ * never reads them and keeps its entries through the fit sync. Decided from the words alone, which its key holds, so a
+ * key always reads the same counter.
+ */
+const searchEpoch=(raw:string,mode:SearchMode)=>mode!=="code"&&vehicleReadingWords(raw)?fitsEpoch:listingEpoch;
 /**
  * Most product names never mention vehicles, so "fren balatası passat" often matches nothing as a whole. Tries
  * every split of the words into a leading or trailing vehicle part ("passat", "golf 7 2015") and a
@@ -466,8 +479,8 @@ const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearc
  */
 /** `fittedOnly`: only readings whose vehicle has linked parts count, checked before the costlier product search. */
 async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<string[]>,correct:boolean,fittedOnly=false):Promise<CatalogSearch|null>{
- const words=normalizeSearchText(raw.slice(0,120)).split(" ").filter(Boolean);
- if(words.length<2||words.length>6)return null;
+ const words=vehicleReadingWords(raw);
+ if(!words)return null;
  // Notices quote the shopper's own spelling ("yağ filtresi") when each typed word is one search word.
  const typed=raw.trim().split(/\s+/),sameWords=typed.length===words.length&&typed.every((word,index)=>normalizeSearchText(word)===words[index]);
  const display=(text:string,part:string[])=>sameWords&&text===part.join(" ")?part.map(word=>typed[words.indexOf(word)]).join(" "):text;
@@ -684,9 +697,10 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // row per listing and sort, the same keys as the price order above, under the same rules (cachedPriceOrders).
 // These three also wait at most LISTING_EPOCH_WAIT_MS (250 ms, listing-wait.ts) for a reload when an earlier value
 // exists (#771): the entry an epoch bump replaced, or a stored row of an older epoch or past maxStaleMs, up to 48 hours
-// old (the store's prune window). The fit sync bumps the epoch up to every 30 s while fit rows change
-// (enrichment-links.server.ts), and a large manufacturer's count, ids and facets each scan every row of the brand
-// (ORIJINAL, 155k rows: ~3 s cold); the visitor gets the earlier aggregate while the reload runs. Cards are read live by
+// old (the store's prune window). The fit sync bumps the fits value up to every 30 s while fit rows change
+// (enrichment-links.server.ts, #1368), which a make's listings follow (epochOf; the manufacturer, category and plain ones
+// follow the listing epoch, which only an admin edit moves), and a large listing's count, ids and facets scan every row
+// of it (ORIJINAL, 155k rows: ~3 s cold); the visitor gets the earlier aggregate while the reload runs. Cards are read live by
 // id (storefrontRowsByIds), so prices, stock and hidden products stay current; only the count, the order and the facets
 // can be one reload behind. After an admin edit (#585) a listing whose reload takes longer than the wait shows the
 // earlier count and ids until it finishes; a quick one shows the edit at once. An empty earlier value (a 0 count, no ids,
@@ -703,7 +717,7 @@ const cachedCounts=staleCache<number>(aggregateTtl,500,{...persistedListings,fal
 const cachedPageIds=staleCache<string[]>(aggregateTtl,500,{...persistedListings,fallbackWhen:ids=>ids.length>0,store:listingCacheStore<string[]>("page-ids",1)});
 // A garage vehicle's fit and oil filters key their entries per vehicle type (#884): kept apart, so every page view with a
 // vehicle (its "Aracına uyanlar" lead) does not push the plain listings, 0.5-1.5 s each to recompute, out of the LRU above.
-const cachedVehicleCounts=staleCache<number>(aggregateTtl,500,listings),cachedVehiclePageIds=staleCache<string[]>(aggregateTtl,500,listings);
+const cachedVehicleCounts=staleCache<number>(aggregateTtl,500,fitListings),cachedVehiclePageIds=staleCache<string[]>(aggregateTtl,500,fitListings);
 const vehicleScoped=(query:CatalogQuery)=>Boolean(query.fits||query.oil);
 const countCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehicleCounts:cachedCounts;
 const pageIdCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehiclePageIds:cachedPageIds;
@@ -714,6 +728,16 @@ const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,fal
 const cachedPriceOrders=staleCache<PriceOrder>(aggregateTtl,500,{...persistedListings,fallbackWhen:order=>order.total>0,store:priceOrderStore});
 const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
 const persistablePage=(query:CatalogQuery,page:number)=>persistable(query)&&page<=(query.make?1:cachedPages);
+/**
+ * A listing that reads vehicle fits (#1368): a make's or model's, or one with a garage vehicle's filter (fits, oil; their
+ * keys share the vehicle caches). Its cached count, page ids, facets and price order follow the fits value (epochOf), so
+ * the fit sync reloads them; every other listing follows the listing epoch and keeps its entries through the sync. Read
+ * from the fields filterKey holds, so a key always reads the same counter.
+ */
+const fitScoped=(query:CatalogQuery)=>Boolean(query.make||query.model||query.fits||query.oil);
+const epochOf=(query:CatalogQuery)=>fitScoped(query)?fitsEpoch:listingEpoch;
+/** The options of a listing cache read: whether the key is stored (persistable) and the counter it follows (epochOf). */
+const readOptions=(query:CatalogQuery,persist:boolean)=>({persist,epoch:epochOf(query)});
 /** The listing filter built at most once, on the first call: a cached listing never builds it (its id sets take queries too). */
 function lazyFilter(query:CatalogQuery,context:CatalogContext){
  let filter:ReturnType<typeof catalogFilter>|undefined;
@@ -735,8 +759,9 @@ type ListingSummary={count:number;ids:string[];facets:Facets};
 /**
  * The summaries being loaded, and each for 5 s after it settles (sharedLoads): the caches that miss together share one
  * scan, a page's count, ids and facets started side by side (primeListing, catalog-view) and a gated listing's count
- * read before the other two (findListing). Keyed by the listing epoch too, so a reload after an admin edit never takes a
- * summary read before it. A failed summary fails each loader; each cache then applies its own rule (#771).
+ * read before the other two (findListing). Keyed by the epoch value the caches load under too (their `at`: the listing's
+ * counter, epochOf), so a reload after a bump never takes a summary read before it. A failed summary fails each loader;
+ * each cache then applies its own rule (#771).
  */
 const sharedSummaries=sharedLoads<ListingSummary>(5_000,50);
 /**
@@ -748,17 +773,20 @@ const sharedSummaries=sharedLoads<ListingSummary>(5_000,50);
  * third more temp blocks than the four (/katalog 57 against 45 MB); with production's 16 MB only /katalog spills (32
  * against 20 MB). 32 MB gained nothing over 16 MB, so the summary keeps the session's work_mem.
  */
-function listingSummary(key:string,filter:()=>ReturnType<typeof catalogFilter>){
- return listingEpoch().then(epoch=>sharedSummaries(`${epoch}|${key}`,async()=>{
+function listingSummary(key:string,filter:()=>ReturnType<typeof catalogFilter>,at:number){
+ return sharedSummaries(`${at}|${key}`,async()=>{
   const listing=await filter(),values=[...listing.values,facetSpecificationKeys];
   const row=(await listingQuery<{count:string;ids:string[];brands:string[];attributes:FacetRow[]}>(listing,`catalog.listingSummary ${key}`,
    listingSummarySql(listing.from,`$${values.length}::text[]`),values)).rows[0];
   return {count:Number(row.count),ids:row.ids,facets:{brands:row.brands,attributes:row.attributes.map(facetOf)}};
- }));
+ });
 }
-/** The count a count cache loads under `key`: the summary's when it covers the listing, else its own statement. */
-async function loadCount(query:CatalogQuery,filter:()=>ReturnType<typeof catalogFilter>,key:string){
- return summarized(query)&&oneScan()?(await listingSummary(key,filter)).count:countListing(await filter(),key);
+/**
+ * The count a count cache loads under `key` and epoch value `at` (the cache's): the summary's when it covers the listing,
+ * else its own statement. A search's count, read without the cache, is never a summary (`at` 0).
+ */
+async function loadCount(query:CatalogQuery,filter:()=>ReturnType<typeof catalogFilter>,key:string,at:number){
+ return summarized(query)&&oneScan()?(await listingSummary(key,filter,at)).count:countListing(await filter(),key);
 }
 /**
  * Everything a plain search listing needs from its matches in one pass: ids in relevance order and the
@@ -799,7 +827,8 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
 }
 // A search with no other filter is the common case. Broad ones ("fren": ~70k matches) spend ~0.5 s just
 // reading the matched rows, and their answer changes only with supplier syncs — like the listings above,
-// it is served stale-while-revalidate for 10 minutes (admin edits reload it at once through the listing epoch, #585). Prices and stock are still read live for the listed
+// it is served stale-while-revalidate for 10 minutes (admin edits reload it at once through the listing epoch, #585; a
+// search that may name a vehicle also with the fit sync, searchEpoch, #1368). Prices and stock are still read live for the listed
 // ids. The first pages are kept (deeper pages are recomputed); facets need every match, so they are kept too.
 // 24 cards (#739, was 30) keep a listing page closer to the 350 KB HTML target (#642); 20 cached pages cover 480 results.
 const catalogPageSize=24;
@@ -810,36 +839,36 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
  const attributes=await attributeFacets([summary.ids],"SELECT unnest($1::uuid[]) AS id");
  return {ids:summary.ids.slice(0,cachedPages*catalogPageSize),total:summary.ids.length,brands:summary.brands,attributes,
   correctedQuery:search.correctedQuery,vehicle:search.vehicle,tooShort:search.tooShort};
-});
+},{epoch:searchEpoch(raw,mode)});
 /** How deep API searches read the ranking (#1093): exact-number filters and fit-first ordering work on these ids. */
 export const rankedSearchDepth=200;
 const cachedRankedSearches=staleCache<string[]>(aggregateTtl,300,listings);
 // The hit set the two API rankings below share (#1119): loaded once when both miss together (a partner request with a
 // vehicle), not searched twice. Few and short-lived entries: a broad search holds up to maxSearchHits ids. Keyed by the
-// listing epoch too, so a ranking reloaded after an admin edit never starts from a hit set found before it.
+// search's counter too (searchEpoch), so a ranking reloaded after a bump never starts from a hit set found before it.
 const sharedApiSearches=ttlCache<CatalogSearch>(30_000,4);
 const apiSearchKey=(raw:string,mode:SearchMode)=>`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`;
-const apiSearch=async(raw:string,mode:SearchMode)=>sharedApiSearches(`${await listingEpoch()}|${apiSearchKey(raw,mode)}`,()=>catalogSearch(raw,mode));
+const apiSearch=async(raw:string,mode:SearchMode)=>sharedApiSearches(`${await searchEpoch(raw,mode)()}|${apiSearchKey(raw,mode)}`,()=>catalogSearch(raw,mode));
 /**
  * The first rankedSearchDepth saleable matches of a search (no unavailable cards), in the storefront's relevance order
  * (#1093). For the BakımX partner API, which filters and reorders them per request: cached like plainSearch, so repeated
  * keystrokes skip the search and its ranking (~0.2-0.5 s), while prices and stock are read live for the ids.
  */
 export const rankedSearchIds=(raw:string,mode:SearchMode)=>cachedRankedSearches(apiSearchKey(raw,mode),
- async()=>(await summarizeSearch(await apiSearch(raw,mode),false)).ids.slice(0,rankedSearchDepth));
+ async()=>(await summarizeSearch(await apiSearch(raw,mode),false)).ids.slice(0,rankedSearchDepth),{epoch:searchEpoch(raw,mode)});
 /**
  * The listed products a vehicle type's linked supplier rows belong to (#1119): typeFittedIds names supplier rows, and a
  * search hit is the product's listing row (a secondary offer counts as the primary it is grouped under). Cached per type
- * in its own LRU (reloaded with the listing epoch), apart from the storefront's fit sets.
+ * in its own LRU (reloaded with the fits value), apart from the storefront's fit sets.
  */
-const cachedFittedListings=staleCache<string[]>(10*60*1000,300,{...listings,weigh:ids=>ids.length,maxWeight:300_000});
+const cachedFittedListings=staleCache<string[]>(10*60*1000,300,{...fitListings,weigh:ids=>ids.length,maxWeight:300_000});
 const typeFittedListingIds=(typeId:number)=>cachedFittedListings(String(typeId),async()=>{
  const fitted=await typeFittedIds(typeId);
  if(!fitted.length)return [];
  return (await db.query<{id:string}>(`SELECT DISTINCT COALESCE(o.primary_id,f.id)::text AS id FROM unnest($1::uuid[]) f(id)
   LEFT JOIN product_offers o ON o.item_id=f.id`,[fitted])).rows.map(row=>row.id);
 });
-const cachedRankedFits=staleCache<string[]>(aggregateTtl,300,listings);
+const cachedRankedFits=staleCache<string[]>(aggregateTtl,300,fitListings);
 /**
  * The first rankedSearchDepth saleable matches of a search that are linked to the vehicle type, in relevance order
  * (#1119): the whole hit set intersected with the type's fits, as the storefront's "Aracına uyanlar" lead does
@@ -911,7 +940,7 @@ async function pricedScope(total:number,filter:ListingFilter,label:string):Promi
  */
 export function listingTotal(query:CatalogQuery,context:CatalogContext={}){
  const scope={...query,q:undefined},key=filterKey(query,context);
- return countCache(query)(key,()=>loadCount(scope,lazyFilter(scope,context),key),{persist:persistable(scope)});
+ return countCache(query)(key,at=>loadCount(scope,lazyFilter(scope,context),key,at),readOptions(scope,persistable(scope)));
 }
 /** The default listing order: newest first, products nobody supplies now last (#475). */
 const newestOrder="unavailable,updated_at DESC,id";
@@ -930,11 +959,11 @@ const firstPageAsked=(query:CatalogQuery)=>{const requested=Number(query.page);r
 /** The cached ids of one page of a listing without a search in the default order (newest first); page 1 of a covered listing from its summary. */
 function listingPageIds(query:CatalogQuery,context:CatalogContext,filter:()=>ReturnType<typeof catalogFilter>,page:number){
  const key=`${filterKey(query,context)}|${page}`;
- return pageIdCache(query)(key,async()=>{
-  if(page===1&&summarized(query)&&oneScan())return (await listingSummary(filterKey(query,context),filter)).ids;
+ return pageIdCache(query)(key,async at=>{
+  if(page===1&&summarized(query)&&oneScan())return (await listingSummary(filterKey(query,context),filter,at)).ids;
   const listing=await filter(),{values,from}=listing;
   return (await listingQuery<{id:string}>(listing,`catalog.listingPageIds ${key}`,pageIdsSql(from,`$${values.length+1}`),[...values,(page-1)*catalogPageSize])).rows.map(row=>row.id);},
-  {persist:persistablePage(query,page)});
+  readOptions(query,persistablePage(query,page)));
 }
 /**
  * Starts a listing's facets, count and (page 1 in the default order) page ids without waiting for them (#771), so a page
@@ -946,7 +975,7 @@ function listingPageIds(query:CatalogQuery,context:CatalogContext,filter:()=>Ret
 export function primeListing(query:CatalogQuery,context:CatalogContext={}){
  if(query.q?.trim()||(vehicleScoped(query)&&!context.vehicleTypeId))return;
  const filter=lazyFilter(query,context),key=filterKey(query,context);
- const started:Promise<unknown>[]=[catalogFacets(query,context),countCache(query)(key,()=>loadCount(query,filter,key),{persist:persistable(query)})];
+ const started:Promise<unknown>[]=[catalogFacets(query,context),countCache(query)(key,at=>loadCount(query,filter,key,at),readOptions(query,persistable(query)))];
  if(!pricedOrder(query)&&firstPageAsked(query))started.push(listingPageIds(query,context,filter,1));
  for(const promise of started)promise.catch(()=>{});
 }
@@ -962,9 +991,6 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const items=await storefrontRowsByIds(ids);
   return {items:await withBestOffers(items),total,page,pages,pageSize,correctedQuery:plain.correctedQuery,vehicleScope:plain.vehicle,searchTooShort:plain.tooShort};
  }
- // The listing epoch a stored price order is tagged with (#1369), read before the filter is built: an edit after it
- // leaves an order built from the filter's earlier id sets older than the epoch, so it is rebuilt, never taken as current.
- const orderEpoch=pricedOrder(query)&&!query.q?.trim()?await listings.epoch():0;
  // Without a search the filter is built only when a cache misses; a search always needs it (its matches).
  const filter=lazyFilter(query,context),search=query.q?.trim()?(await filter()).search:undefined;
  const pricedSort = pricedOrder(query), pricedKey=`${filterKey(query,context)}|${query.sort}`;
@@ -973,8 +999,8 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  firstIds?.catch(()=>{});
  // A price-sorted search over two or more id sets prices its page by the ids it counts (listedIds, #1345).
  const pricedSearch=search&&pricedSort&&(await filter()).idSets>=2?await listedIds(await filter(),pricedKey):undefined;
- const count=()=>loadCount(query,filter,filterKey(query,context));
- const total = pricedSearch ? pricedSearch.total : search ? await count() : await countCache(query)(filterKey(query,context),count,{persist:persistable(query)});
+ const count=(at:number)=>loadCount(query,filter,filterKey(query,context),at);
+ const total = pricedSearch ? pricedSearch.total : search ? await count(0) : await countCache(query)(filterKey(query,context),count,readOptions(query,persistable(query)));
  const pageSize = catalogPageSize, pages = Math.max(1,Math.ceil(total/pageSize)), take = Math.min(pageSize,Math.max(1,Number.isFinite(limit)?Math.trunc(limit):pageSize));
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
@@ -996,7 +1022,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
    if(!scope)return [];
    return (await boundedQuery<{id:string}>(`catalog.pricedPageIds ${pricedKey}`,
    `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,scope.values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
-   {persist:persistable(query)});
+   readOptions(query,persistable(query)));
   const items=await storefrontRowsByIds(ordered.slice((page-1)*pageSize,(page-1)*pageSize+take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
@@ -1007,13 +1033,17 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // against ~6.5 s; no parallel plan on either side), so the first deep page of a listing waits for it once and the next
  // ones read a slice (under 1 ms in SQL; a page ~20-40 ms over HTTP against 1.8-2.1 s and 6.5-7.6 s). The process
  // keeps the stored order's size under the cached pages' rules (cachedPriceOrders); cards are read live by id as above.
+ // The order is tagged with the epoch value the cache loads it under (`at`, the listing's counter: epochOf), and its filter
+ // is built after that value was read: an edit after it leaves an order built from earlier id sets tagged older than the
+ // counter, so it is rebuilt, never taken as current (#1369). The page's own filter may be older (built by a count miss
+ // above), so the build builds its own.
  // A listing over priceOrderMaxIds, an order with nothing stored, a row gone (the UNLOGGED table empties after a crash)
  // or a page past its end read live below, and so does a failed build (its 30 s limit included): the listing then reads
  // live without another build for ten minutes (buildPriceOrder), instead of failing the page or building per request.
  if(!search&&pricedSort&&persistable(query)&&priceOrderEnabled()&&total<=priceOrderMaxIds()){
-  const stored=await cachedPriceOrders(pricedKey,async()=>{
-   const scope=await pricedScope(total,await filter(),pricedKey);
-   return scope?buildPriceOrder(pricedKey,orderEpoch,pricedRowsSql(scope.where),scope.values,order):{total:0};});
+  const stored=await cachedPriceOrders(pricedKey,async at=>{
+   const scope=await pricedScope(total,await catalogFilter(query,context),pricedKey);
+   return scope?buildPriceOrder(pricedKey,at,pricedRowsSql(scope.where),scope.values,order):{total:0};},{epoch:epochOf(query)});
   const ids=stored.total>0?await priceOrderSlice(pricedKey,(page-1)*pageSize,take):null;
   if(ids?.length)return {items:await withBestOffers(await storefrontRowsByIds(ids)),total,page,pages,pageSize};
  }
@@ -1084,7 +1114,7 @@ export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
  const scope:CatalogQuery={...query,fits:'vehicle',page:undefined},context={vehicleTypeId};
  const filter=lazyFilter(scope,context),search=scope.q?.trim()?(await filter()).search:undefined;
  const count=async()=>countListing(await filter(),filterKey(scope,context));
- return search ? count() : countCache(scope)(filterKey(scope,context),count,{persist:persistable(scope)});
+ return search ? count() : countCache(scope)(filterKey(scope,context),count,readOptions(scope,persistable(scope)));
 }
 /**
  * The first `limit` products of the listing linked to the garage vehicle's type, and how many there are (#884): the
@@ -1109,11 +1139,11 @@ export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}
   return {brands:plain.brands,attributes:plain.attributes};
  }
  const filter=lazyFilter(scope,context),search=scope.q?.trim()?(await filter()).search:undefined,key=filterKey(scope,context);
- const load=async()=>{
-  if(summarized(scope)&&oneScan())return (await listingSummary(key,filter)).facets;
+ const load=async(at:number)=>{
+  if(summarized(scope)&&oneScan())return (await listingSummary(key,filter,at)).facets;
   const {values,from}=await filter();return facetsFor(values,from);
  };
- return search ? load() : cachedFacets(key,load,{persist:persistable(scope)});
+ return search ? load(0) : cachedFacets(key,load,readOptions(scope,persistable(scope)));
 }
 async function facetsFor(values:unknown[],from:string){
  // Independent reads: the brand list and the property facet run side by side (#994).
