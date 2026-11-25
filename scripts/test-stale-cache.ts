@@ -154,15 +154,17 @@ const quietErrors = async <T>(run: () => Promise<T>) => {
 
 test("maxWaitMs: a slow epoch reload serves the previous value after the wait, the next call the new one", async () => {
   let epoch = 1, loads = 0;
-  const cache = staleCache<string>(60_000, 100, { epoch: async () => epoch, maxWaitMs: () => 20 });
+  const cache = staleCache<string>(60_000, 100, { epoch: async () => epoch, maxWaitMs: () => 60 });
   assert.equal(await cache("k", async () => "old"), "old");
   epoch = 2;
   const reload = deferred<string>();
   const slow = () => { loads++; return reload.promise; };
   const started = Date.now();
   assert.equal(await cache("k", slow), "old");
-  assert.ok(Date.now() - started >= 15, "the caller waited for the bound first");
+  assert.ok(Date.now() - started >= 55, "the caller waited for the bound first");
+  const again = Date.now();
   assert.equal(await cache("k", slow), "old", "still pending: the previous value again");
+  assert.ok(Date.now() - again < 30, "the bound counts from the reload's start, not from each call");
   reload.resolve("new");
   await pause(0);
   assert.equal(await cache("k", slow), "new");
@@ -181,17 +183,23 @@ test("maxWaitMs: a fast reload returns the new value; a first load without an ea
 
 test("maxWaitMs: concurrent callers share one reload", async () => {
   let epoch = 1, loads = 0;
-  const cache = staleCache<string>(60_000, 100, { epoch: async () => epoch, maxWaitMs: 10 });
+  const cache = staleCache<string>(60_000, 100, { epoch: async () => epoch, maxWaitMs: 40 });
   await cache("k", async () => "old");
   epoch = 2;
   const reload = deferred<string>();
   const slow = () => { loads++; return reload.promise; };
-  assert.deepEqual(await Promise.all([cache("k", slow), cache("k", slow), cache("k", slow)]), ["old", "old", "old"]);
-  const waiting = cache("k", slow);
-  reload.resolve("new");
-  assert.equal(await waiting, "new", "a caller still waiting gets the reload's result");
-  assert.deepEqual(await Promise.all([cache("k", slow), cache("k", slow)]), ["new", "new"]);
-  assert.equal(loads, 1);
+  setTimeout(() => reload.resolve("new"), 10);
+  assert.deepEqual(await Promise.all([cache("k", slow), cache("k", slow), cache("k", slow)]), ["new", "new", "new"],
+    "within the bound every caller gets the reload's result");
+  epoch = 3;
+  const late = deferred<string>();
+  const slower = () => { loads++; return late.promise; };
+  assert.deepEqual(await Promise.all([cache("k", slower), cache("k", slower), cache("k", slower)]), ["new", "new", "new"],
+    "past the bound every caller gets the previous value");
+  late.resolve("newer");
+  await pause(0);
+  assert.deepEqual(await Promise.all([cache("k", slower), cache("k", slower)]), ["newer", "newer"]);
+  assert.equal(loads, 2);
 });
 
 test("maxWaitMs: a failed reload serves the previous value and the next call retries, without unhandled rejections", async () => {

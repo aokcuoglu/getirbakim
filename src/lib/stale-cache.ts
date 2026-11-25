@@ -2,7 +2,8 @@ import "server-only";
 
 /** An earlier value a caller of a pending load may get after maxWaitMs; null when there is none. */
 type Fallback<T> = Promise<{ value: T } | null>;
-type Entry<T> = { value: Promise<T>; loadedAt: number; refreshing: boolean; epoch?: number; weight: number; fallback?: Fallback<T> };
+/** `fallback` and `fallbackAt` (when it may be served) are set only while a load with an earlier value is pending. */
+type Entry<T> = { value: Promise<T>; loadedAt: number; refreshing: boolean; epoch?: number; weight: number; fallback?: Fallback<T>; fallbackAt?: number };
 type Instance = { size: () => number; weight: () => number };
 // Next bundles instrumentation.ts (which logs the stats) apart from the route handlers (which create the caches), so a
 // module-level set would be empty where it is read. Instances are registered only in production, where every
@@ -39,10 +40,11 @@ type Options<T> = {
    */
   maxWeight?: number;
   /**
-   * The longest a caller waits for a pending load when an earlier value exists (#771): the entry an epoch reload replaces,
-   * or a stored value a memory miss may not adopt (an older epoch, or older than maxStaleMs). After the wait the caller
-   * gets that value while the load goes on; callers after it has settled get the new one. Read on every call. Without
-   * it, callers wait for the load.
+   * How long after a load starts its callers may wait for it when an earlier value exists (#771): the entry an epoch
+   * reload replaces, or a stored value a memory miss may not adopt (an older epoch, or older than maxStaleMs). Past it
+   * every caller gets that value at once while the load goes on; callers after it has settled get the new one. The bound
+   * counts from the load's start, not from each call, so a page that reads the same key twice in a row waits once. Read
+   * when a load starts. Without it, callers wait for the load.
    */
   maxWaitMs?: number | (() => number);
 };
@@ -61,8 +63,8 @@ type Options<T> = {
  * computed; only otherwise does it load and write the result back (not awaited). Pass `{ persist: false }` for keys
  * that must stay in memory only (too many variants to be worth sharing).
  *
- * With `maxWaitMs` (#771), a caller waits at most that long for an epoch reload, or for the load after a memory miss
- * whose stored value could not be adopted: it then gets the replaced entry's value or that stored value (one reload
+ * With `maxWaitMs` (#771), callers wait at most that long after an epoch reload starts, or the load after a memory miss
+ * whose stored value could not be adopted: they then get the replaced entry's value or that stored value (one reload
  * behind), and the load goes on in the background. A failed load serves the earlier value too: an epoch reload puts the
  * old entry back, a memory miss drops its entry; either way the next request tries again. With nothing earlier the
  * caller waits for the load as before.
@@ -107,7 +109,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     obtain(key, load, at, persist, ttlMs)
       .then(loaded => {
         entry.value = Promise.resolve(loaded.value);
-        entry.fallback = undefined;
+        entry.fallback = entry.fallbackAt = undefined;
         entry.loadedAt = Date.now() - (loaded.ageMs ?? 0);
         // An entry evicted while it refreshed is no longer counted.
         if (entries.get(key) === entry) {
@@ -120,11 +122,11 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
       .catch(error => console.error("Stale cache refresh failed; serving the previous value", error))
       .finally(() => { entry.refreshing = false; });
   };
-  // A pending entry with an earlier value: the load's result, or the earlier value once maxWaitMs has passed and it is known.
+  // A pending entry with an earlier value: the load's result, or the earlier value once `fallbackAt` has passed and it is known.
   const serve = (entry: Entry<T>): Promise<T> => {
-    const fallback = entry.fallback;
+    const { fallback, fallbackAt = 0 } = entry;
     if (!fallback) return entry.value;
-    const wait = typeof maxWaitMs === "function" ? maxWaitMs() : maxWaitMs ?? 0;
+    const wait = fallbackAt - Date.now();
     return new Promise<T>((resolve, reject) => {
       let done = false, timer: ReturnType<typeof setTimeout> | undefined;
       const finish = (settle: () => void) => { if (!done) { done = true; clearTimeout(timer); settle(); } };
@@ -157,7 +159,8 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
       }
       return loaded.value;
     });
-    const fresh: Entry<T> = { value, loadedAt, refreshing: false, epoch, weight: 0, fallback };
+    const fallbackAt = fallback ? loadedAt + (typeof maxWaitMs === "function" ? maxWaitMs() : maxWaitMs ?? 0) : undefined;
+    const fresh: Entry<T> = { value, loadedAt, refreshing: false, epoch, weight: 0, fallback, fallbackAt };
     if (previous) {
       // A failed reload after an epoch change serves the old value; the old entry's epoch makes the next request try again.
       fresh.value = fresh.value.catch(error => {
@@ -180,7 +183,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
       fresh.value.catch(() => { if (entries.get(key) === fresh) drop(key); });
     }
     // Settled: later callers get the value directly. Both handlers, so a failure is not reported as unhandled here.
-    if (fallback) { const settled = () => { fresh.fallback = undefined; }; fresh.value.then(settled, settled); }
+    if (fallback) { const settled = () => { fresh.fallback = fresh.fallbackAt = undefined; }; fresh.value.then(settled, settled); }
     drop(key);
     entries.set(key, fresh);
     if (entries.size > maxEntries) drop(entries.keys().next().value!);
