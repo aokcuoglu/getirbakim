@@ -12,7 +12,11 @@ const suggestionCount = 3;
 // opening (loadCartSuggestions), while the first lookup keeps warming the caches in the background.
 const relatedBudgetMs = 250;
 
-/** `work`'s result, or `null` when it takes longer than `ms` (the work itself is not cancelled). */
+/**
+ * `work`'s result, or `null` when it takes longer than `ms`. The work itself is not cancelled: the related-parts lookup
+ * (index reads, related-suggestions.ts) runs on, holding its pool connection until it finishes, and warms the caches the
+ * dialog's follow-up request reads; it has no server-side limit (#1377).
+ */
 export function withinBudget<T>(work: Promise<T>, ms: number): Promise<T | null> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), ms); });
