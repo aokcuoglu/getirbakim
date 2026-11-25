@@ -17,8 +17,9 @@ import type {useCategoryTree} from "./use-category-tree";
 const sheetIconButton=cn(reset,"absolute top-2.5 grid size-11 min-h-11 place-items-center rounded-[3px] bg-white/14 text-white hover:bg-white/27");
 
 /**
- * The phone/tablet category sheet (below 769px), loaded with the first tap on a category trigger (#1017); the desktop mega
- * menu in category-menu.tsx never downloads it. `selected` (null: the catalog root) lives in the menu, which also sets aria-expanded.
+ * The left category sheet: the header Katalog button opens it at every width (#1371), the strip triggers below 769px (from 769px
+ * they open the mega menu in category-menu.tsx). Loaded on the first intent of a trigger that opens it (#1017).
+ * `selected` (null: the catalog root) lives in the menu, which also sets aria-expanded.
  * `account` is the server-rendered account row (sheet-account.tsx, #1043); a click on any footer link closes the sheet.
  */
 export function CategorySheet({open,onOpenChange,trigger,tree,links,account,selected,onSelect,onClose}:{

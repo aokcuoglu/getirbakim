@@ -322,6 +322,18 @@ test("header menu controls are 44px and token-coloured (#1173)", () => {
   assert.doesNotMatch(css.match(/\.site-nav-catalog \{[^}]*\}/)?.[0] ?? "#", /#/);
 });
 
+test("the Katalog button opens the left category sheet at every width; the strip keeps the desktop mega menu (#1371)", () => {
+  const menu = readFileSync("src/components/navigation/category-menu.tsx", "utf8");
+  const katalog = menu.split("\n").find(line => line.includes('aria-label="Tüm kategoriler"')) ?? "";
+  assert.match(katalog, /aria-controls="category-sheet"/);
+  assert.match(katalog, /onClick=\{event=>show\(null,event\.currentTarget\)\}/);
+  assert.match(katalog, /onPointerEnter=\{catalogIntent\}/);
+  assert.match(menu, /function catalogIntent\(\)\{tree\.load\(\);void categorySheet\.preload\(\);\}/);
+  // Only a strip trigger (a root id) reaches the mega menu, and only from 769px.
+  assert.match(menu, /if\(rootId!==null&&!mobile\(\)\)\{/);
+  assert.match(menu, /onClick=\{event=>show\(category\.id,event\.currentTarget\)\}/);
+});
+
 test("header strip and search submit carry a 44px hit area (#1181)", () => {
   const css = readFileSync("src/app/storefront.css", "utf8");
   const grouped = css.match(/\.tap-44,[^{]*\{[^}]*\}/)?.[0] ?? "";
