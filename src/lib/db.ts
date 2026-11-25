@@ -9,6 +9,9 @@ const createPool = () => {
     connectionString: process.env.DATABASE_URL,
     max: Number(process.env.DATABASE_POOL_MAX) || 15,
     connectionTimeoutMillis: Number(process.env.DATABASE_POOL_ACQUIRE_TIMEOUT_MS) || 10_000,
+    // Names the app's sessions in pg_stat_activity (#1377), so its client backends (and their parallel workers, through
+    // leader_pid) can be counted apart from psql, tasks and other services. PGAPPNAME or an application_name URL parameter wins.
+    fallback_application_name: "getirbakim-web",
   });
   // Without a listener, an error on an idle client is an unhandled 'error' event and kills the process.
   pool.on("error", error => console.error("Idle database client error", error.message));
@@ -26,6 +29,8 @@ export const db = (globalDb.getirbakimPool ??= createPool());
  * `label` is `<module>.<query>` plus optional listing detail, built only when the query runs (a cache miss); a statement
  * timeout (57014) is logged with it, cut to 200 chars, so a slow listing can be traced to its query. The logged time
  * includes the pool wait, and 57014 also covers a pg_cancel_backend.
+ * `timeoutMs` limits the statement alone, as the server counts it: its lock waits are inside it, the wait for a pool
+ * connection (up to DATABASE_POOL_ACQUIRE_TIMEOUT_MS) and the BEGIN/SET round trips are not.
  * The transaction is READ ONLY unless `write`: a statement that stores what it reads (a listing's whole price order,
  * src/modules/store/listing-price-order.ts, #1369) runs under the same limits.
  */
