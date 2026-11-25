@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { invalidateListings } from "./listing-epoch";
+import { invalidateFits } from "./listing-epoch";
 import { fitsBumpDue } from "./listing-bump";
 
 /**
@@ -33,8 +33,9 @@ const started = globalThis as unknown as { getirbakimEnrichmentLinkSync?: boolea
 /**
  * Runs syncEnrichmentLinks every `intervalMs` in the server process, then refreshPriceOnlyItems (due a minute after links
  * changed, else every 10 minutes, counted across tasks in the database); one run at a time, failures logged once a minute.
- * Changed fit rows bump the listing epoch (throttled, see listing-bump.ts): only the task holding the sync lock sees
- * them, and the epoch reaches every task.
+ * Changed fit rows bump the fits epoch (throttled, see listing-bump.ts; #1368): only the task holding the sync lock sees
+ * them, and the counter reaches every task. Only the caches that read vehicle fits reload; the manufacturer, category and
+ * plain listings keep theirs (listing-epoch.ts).
  */
 export function startEnrichmentLinkSync(intervalMs: number) {
   if (started.getirbakimEnrichmentLinkSync || !(intervalMs > 0)) return;
@@ -50,7 +51,7 @@ export function startEnrichmentLinkSync(intervalMs: number) {
       if (fitsBumpDue(fitsPending, lastFitsBump, Date.now())) {
         fitsPending = false;
         lastFitsBump = Date.now();
-        await invalidateListings();
+        await invalidateFits();
       }
       // A cheap check in the database when it is not due; a change seen here waits until some task's rebuild.
       if (await refreshPriceOnlyItems(linksChanged ? priceOnlyChangedSeconds : priceOnlyMaxAgeSeconds) !== null) linksChanged = false;

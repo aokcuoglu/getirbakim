@@ -375,13 +375,22 @@ END $$;
 DELETE FROM commerce_item_overrides c WHERE NOT EXISTS (SELECT 1 FROM product_overrides o WHERE o.product_id=c.product_id);
 SELECT product_overrides_project(ARRAY(SELECT product_id FROM product_overrides));
 
--- Storefront listing cache epoch (#585): the app keeps listing counts, page ids, facets and plain searches in a
+-- Storefront listing cache epochs (#585, #1368): the app keeps listing counts, page ids, facets and plain searches in a
 -- per-process stale-while-revalidate cache. An admin edit that changes what a listing shows (name, category, hidden,
--- brand, part number, references, supplier OEM hiding, merge/split) bumps this one-row counter; every app process reads it at most once a
--- second and drops cached entries loaded under an older epoch (src/modules/store/listing-epoch.ts).
+-- brand, part number, references, supplier OEM hiding, merge/split, fitments) bumps `epoch`; the background fit sync
+-- bumps `fits_epoch`. Every app process reads them at most once a second and drops cached entries loaded under an older
+-- value: the caches that read vehicle fits (make, model, garage vehicle) follow epoch+fits_epoch, which every bump moves,
+-- every other one `epoch` (src/modules/store/listing-epoch.ts).
 CREATE TABLE IF NOT EXISTS storefront_listing_epoch (
  id boolean PRIMARY KEY DEFAULT true CHECK (id),
  epoch bigint NOT NULL DEFAULT 0,
  bumped_at timestamptz NOT NULL DEFAULT now()
 );
 INSERT INTO storefront_listing_epoch DEFAULT VALUES ON CONFLICT DO NOTHING;
+-- The fit sync's counter (#1368), added only when missing (ADD COLUMN IF NOT EXISTS locks the table on every setup run).
+-- It starts at 0, so the fit caches' value epoch+fits_epoch continues from the epoch their stored rows already carry.
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='storefront_listing_epoch'::regclass AND attname='fits_epoch' AND NOT attisdropped) THEN
+  ALTER TABLE storefront_listing_epoch ADD COLUMN fits_epoch bigint NOT NULL DEFAULT 0;
+ END IF;
+END $$;
