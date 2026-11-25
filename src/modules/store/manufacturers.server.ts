@@ -9,9 +9,14 @@ import { buildManufacturerDirectory, type ManufacturerDirectory, type Manufactur
 // reloaded when an admin edit moves the listing epoch.
 const cachedDirectory = staleCache<ManufacturerDirectory>(10 * 60 * 1000, 1, { epoch: listingEpoch });
 
+/** Every master brand's supplier labels with their item counts: the rows the directory is built from. */
+export async function manufacturerRows(): Promise<ManufacturerRow[]> {
+  return (await db.query<ManufacturerRow>(
+    "SELECT b.id::text AS id,b.name,sb.label,sb.items FROM brands b JOIN supplier_brands sb ON sb.brand_id=b.id ORDER BY b.id,sb.label")).rows;
+}
+
 export function manufacturerDirectory(): Promise<ManufacturerDirectory> {
-  return cachedDirectory("all", async () => buildManufacturerDirectory((await db.query<ManufacturerRow>(
-    "SELECT b.id::text AS id,b.name,sb.label,sb.items FROM brands b JOIN supplier_brands sb ON sb.brand_id=b.id ORDER BY b.id,sb.label")).rows));
+  return cachedDirectory("all", async () => buildManufacturerDirectory(await manufacturerRows()));
 }
 
 export async function findManufacturer(slug: string) {

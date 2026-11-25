@@ -1,6 +1,8 @@
 import "server-only";
+import { buildManufacturerDirectory, manufacturerWarmSlugs } from "./manufacturers";
+import { manufacturerRows } from "./manufacturers.server";
 import { popularVehicleMakes, vehicleBrandSlug } from "./vehicle-catalog";
-import { catalogPath, makePath, makesPath } from "@/modules/seo/paths";
+import { catalogPath, makePath, makesPath, manufacturerPath } from "@/modules/seo/paths";
 
 /**
  * Requests the most visited storefront pages once when a server starts (#448). Make lists, category ids,
@@ -8,7 +10,8 @@ import { catalogPath, makePath, makesPath } from "@/modules/seo/paths";
  * new container computed them: 4-5 s for a catalog or make page, up to 20 s for Volkswagen. The plain listings'
  * counts, page ids and facets now come from the shared storefront_listing_cache table when another process stored them
  * (#957), so the warm-up mostly loads what that level does not keep. A visitor who arrives during the warm-up shares the
- * pending cache entry instead of starting the same query again.
+ * pending cache entry instead of starting the same query again. The largest manufacturer pages come last (#771): each
+ * scans every row of its brand, and once loaded an epoch bump serves their earlier value while they reload.
  * The health check does not wait for it: the load balancer would mark a slow-starting task unhealthy.
  */
 export async function warmStorefront(origin: string, options: { concurrency?: number; timeoutMs?: number } = {}) {
@@ -24,7 +27,11 @@ export async function warmStorefront(origin: string, options: { concurrency?: nu
   // The catalog page lists the main categories; a failed read leaves only the fixed pages.
   const catalog = await get(catalogPath).then(response => response.ok ? response.text() : "").catch(() => "");
   const categories = [...new Set([...catalog.matchAll(/href="(\/kategori\/[^"?/]+)"/g)].map(match => match[1]))];
-  const paths = ["/", makesPath, ...popularVehicleMakes.map(name => makePath(vehicleBrandSlug(name))), ...categories];
+  // The largest manufacturers by the directory's own rows; a failed read leaves the pages above.
+  const manufacturers = await manufacturerRows()
+    .then(rows => manufacturerWarmSlugs(rows, buildManufacturerDirectory(rows)).map(manufacturerPath))
+    .catch(() => [] as string[]);
+  const paths = ["/", makesPath, ...popularVehicleMakes.map(name => makePath(vehicleBrandSlug(name))), ...categories, ...manufacturers];
   let next = 0, failed = 0;
   const worker = async () => {
     while (next < paths.length) {
