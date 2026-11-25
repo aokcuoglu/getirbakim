@@ -11,9 +11,12 @@ import type { CatalogQuery } from "../src/modules/store/catalog-query";
 // One-scan listing summaries (#1367) in an isolated copy of the schema: a listing without a search, vehicle or narrowing
 // filter loads its count, page-1 ids and facets from one statement (listingSummary), with the same values the separate
 // statements give (LISTING_ONE_SCAN=0), one scan per cold page, a new scan after an epoch bump, and the three stored
-// rows as before. Nothing is written to the shared database's tables.
+// rows as before. The listing and search reads' server-side limit (#1377, LISTING_STATEMENT_TIMEOUT_MS) is checked with
+// real statement timeouts: another session locks supplier_items in this schema while a read runs. Nothing is written to
+// the shared database's tables.
+type Catalog = typeof import("../src/modules/store/catalog");
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
-let catalog: typeof import("../src/modules/store/catalog");
+let catalog: Catalog;
 let invalidateListings: () => Promise<void>;
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
@@ -44,8 +47,8 @@ async function until<T>(read: () => Promise<T>, done: (value: T) => boolean, tim
     await sleep(10);
   }
 }
-/** The statements reading the catalog's rows (storefront_catalog_entries) that `run` sends, on any connection. */
-async function scans(run: () => Promise<unknown>) {
+/** Every statement's text `run` sends, on any connection. */
+async function sentTexts(run: () => Promise<unknown>) {
   const original = pg.Client.prototype.query;
   const texts: string[] = [];
   pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
@@ -58,8 +61,60 @@ async function scans(run: () => Promise<unknown>) {
   } finally {
     pg.Client.prototype.query = original;
   }
-  return texts.filter(text => text.includes("storefront_catalog_entries")).length;
+  return texts;
 }
+/** The statements reading the catalog's rows (storefront_catalog_entries) that `run` sends, on any connection. */
+async function scans(run: () => Promise<unknown>) {
+  return (await sentTexts(run)).filter(text => text.includes("storefront_catalog_entries")).length;
+}
+/** Another app process: a second copy of the catalog module, with its own process caches, on the same database and epoch. */
+const otherProcess = async (name: string) => await import(`../src/modules/store/catalog.ts?${name}`) as Catalog;
+/** `run` with these environment variables set (undefined: unset), restored afterwards. */
+async function withEnv<T>(values: Record<string, string | undefined>, run: () => Promise<T>) {
+  const saved = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]));
+  const apply = (next: Record<string, string | undefined>) => {
+    for (const [key, value] of Object.entries(next)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+  apply(values);
+  try {
+    return await run();
+  } finally {
+    apply(saved);
+  }
+}
+/**
+ * `run` with a 200 ms limit on the listing and search reads while another session holds supplier_items in ACCESS EXCLUSIVE
+ * mode: every read of the catalog's rows waits for the lock until its statement timeout (57014). Released afterwards, and
+ * after 5 s at the latest, so an unbounded read fails the test's timing check instead of waiting for the lock for good.
+ */
+async function whileLocked<T>(run: () => Promise<T>) {
+  const locker = await schema.pool.connect();
+  let release: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE supplier_items IN ACCESS EXCLUSIVE MODE");
+    release = setTimeout(() => void locker.query("ROLLBACK").catch(() => {}), 5_000);
+    return await withEnv({ LISTING_STATEMENT_TIMEOUT_MS: "200" }, run);
+  } finally {
+    clearTimeout(release);
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
+}
+/** `run`'s value or rejection, and how long it took to settle. */
+async function timed<T>(run: () => Promise<T>) {
+  const started = Date.now();
+  try {
+    return { value: await run(), ms: Date.now() - started };
+  } catch (error) {
+    return { error: error as { code?: string }, ms: Date.now() - started };
+  }
+}
+/** What console.error was called with (its first argument), from a t.mock.method(console, "error") mock. */
+const logLines = (logged: { mock: { calls: { arguments: unknown[] }[] } }) => logged.mock.calls.map(call => String(call.arguments[0]));
 /** What a listing page shows of the three caches: the count, page 1's ids and the facets. */
 const listing = (query: CatalogQuery) => inRequest(async () => ({
   total: await catalog.listingTotal(query),
@@ -253,4 +308,84 @@ test("a summarized listing stores one count, page-ids and facets row; a make lis
   // Nothing else arrives later.
   await sleep(50);
   assert.deepEqual(await stored(), make);
+});
+
+test("boundedQuery stops a read on the server at its limit: 57014, nothing left running, the pool still answers (#1377)", async t => {
+  const { boundedQuery, db } = await import("../src/lib/db");
+  const logged = t.mock.method(console, "error", () => {});
+  const { error, ms } = await timed(() => boundedQuery("test.sleep", "SELECT pg_sleep(5)", [], 200));
+  assert.equal(error?.code, "57014");
+  assert.ok(ms < 2_000, `${ms} ms`);
+  assert.match(logLines(logged)[0] ?? "", /^boundedQuery timeout: test\.sleep \(limit 200 ms, \d+ ms\)$/);
+  const running = await schema.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM pg_stat_activity WHERE state='active' AND query='SELECT pg_sleep(5)'");
+  assert.equal(running.rows[0].n, 0, "the statement was cancelled on the server");
+  // The pool's sessions are named (fallback_application_name) unless PGAPPNAME or the URL names them.
+  const expected = process.env.PGAPPNAME || new URL(process.env.DATABASE_URL!).searchParams.get("application_name") || "getirbakim-web";
+  assert.deepEqual((await db.query("SELECT current_setting('application_name') AS name")).rows, [{ name: expected }]);
+});
+
+test("a listing reload that times out serves the earlier count and facets; the next read after the lock reloads (#1377)", async t => {
+  const query = { manufacturer: "bosch" };
+  const read = () => inRequest(async () => ({ total: await catalog.listingTotal(query), facets: await catalog.catalogFacets(query) }));
+  const earlier = await read();
+  assert.ok(earlier.total > 0 && earlier.facets.brands.length > 0);
+  const logged = t.mock.method(console, "error", () => {});
+  await invalidateListings();
+  // Only the reads of the catalog's rows wait on the lock; the epoch, the manufacturer directory and the brand labels do not.
+  const locked = await whileLocked(() => timed(read));
+  assert.deepEqual(locked.value, earlier, "the earlier values");
+  // The bounded wait (LISTING_EPOCH_WAIT_MS, 30 s in these tests) would serve them too, but only after 30 s.
+  assert.ok(locked.ms < 2_000, `${locked.ms} ms`);
+  assert.ok(logLines(logged).some(line => line.startsWith("boundedQuery timeout: catalog.listingSummary [")), logLines(logged).join("\n"));
+  assert.equal(await scans(read), 1, "the next read reloads, the count and facets from one scan");
+  assert.deepEqual(await read(), earlier);
+});
+
+test("another process serves the stored count when its load times out after a bump (#1377)", async t => {
+  const query = { manufacturer: "bosch" };
+  await schema.pool.query("TRUNCATE storefront_listing_cache");
+  await invalidateListings();
+  const total = await inRequest(() => catalog.listingTotal(query));
+  const storedCounts = async () => (await schema.pool.query<{ value: number }>("SELECT value FROM storefront_listing_cache WHERE namespace='count'")).rows.map(row => row.value);
+  assert.deepEqual(await until(storedCounts, values => values.length === 1), [total]);
+  await invalidateListings();
+  const other = await otherProcess("timeout");
+  const logged = t.mock.method(console, "error", () => {});
+  const locked = await whileLocked(() => timed(() => inRequest(() => other.listingTotal(query))));
+  assert.equal(locked.value, total, "the stored count of the earlier epoch");
+  assert.ok(locked.ms < 2_000, `${locked.ms} ms`);
+  assert.ok(logLines(logged).includes("Stale cache load failed; serving the stored value"), logLines(logged).join("\n"));
+  assert.equal(await inRequest(() => other.listingTotal(query)), total, "loaded after the lock");
+});
+
+test("a cold listing whose read times out fails within the limit instead of hanging, and loads after the lock (#1377)", async t => {
+  t.mock.method(console, "error", () => {});
+  // Never read before, and not stored (brands): no earlier value to serve.
+  const query = { manufacturer: "mahle", brands: JSON.stringify(["MAHLE"]) };
+  const locked = await whileLocked(() => timed(() => inRequest(() => catalog.listingTotal(query))));
+  assert.equal(locked.error?.code, "57014");
+  assert.ok(locked.ms < 2_000, `${locked.ms} ms`);
+  assert.equal(await inRequest(() => catalog.listingTotal(query)), 5, "the failed load was not cached");
+});
+
+test("a search whose hit read times out fails within the limit, and answers after the lock (#1377)", async t => {
+  t.mock.method(console, "error", () => {});
+  const search = () => inRequest(() => catalog.browseProducts({ q: "parca" }));
+  const locked = await whileLocked(() => timed(search));
+  assert.equal(locked.error?.code, "57014");
+  assert.ok(locked.ms < 2_000, `${locked.ms} ms`);
+  assert.ok((await search()).total > 0);
+});
+
+test("LISTING_STATEMENT_TIMEOUT_MS=0 sends the reads as plain statements; by default they carry 55 s, an out-of-stock read keeps 30 s (#1377)", async () => {
+  const limits = async (from: Catalog, query: CatalogQuery, setting: string | undefined) => [...new Set((await sentTexts(() =>
+    withEnv({ LISTING_STATEMENT_TIMEOUT_MS: setting }, () => inRequest(() => from.listingTotal(query)))))
+    .filter(text => text.includes("statement_timeout")))];
+  const filtered = { manufacturer: "mahle", brands: JSON.stringify(["MAHLE"]) }, outOfStock = { manufacturer: "mahle", availability: "out_of_stock" as const };
+  // Other processes: the count and the brand labels are read cold.
+  const off = await otherProcess("off"), on = await otherProcess("on");
+  assert.deepEqual(await limits(off, filtered, "0"), []);
+  assert.deepEqual(await limits(on, filtered, undefined), ["SET LOCAL statement_timeout = 55000"]);
+  assert.deepEqual(await limits(off, outOfStock, "0"), ["SET LOCAL statement_timeout = 30000"]);
+  assert.deepEqual(await limits(on, outOfStock, undefined), ["SET LOCAL statement_timeout = 30000"]);
 });

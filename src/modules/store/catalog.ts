@@ -12,6 +12,7 @@ import { fitsEpoch, listingEpoch } from "./listing-epoch";
 import { listingCacheStore } from "./listing-cache-store";
 import { buildPriceOrder, priceOrderEnabled, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
+import { listingStatementTimeoutMs } from "./listing-timeout";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
@@ -125,6 +126,8 @@ async function rowsByIds(sourceSql:string,ids:string[],connection:Pick<PoolClien
  if(!ids.length)return [] as CatalogProduct[];
  const sql=catalogRowsByIdsSql("$2::uuid[]",sourceSql);
  // `*` result: named only on the pool (catalogRowsByIdsSql); a transaction's client keeps it unnamed.
+ // This file's by-id reads stay without listingQuery's limit (#1377): key reads of ~1 ms, and preparedQuery's 0A000 retry
+ // needs the pool, not a transaction.
  const rows=(connection===db?await preparedQuery<CatalogProduct>(db,sql,[company(),ids]):await connection.query<CatalogProduct>(sql,[company(),ids])).rows;
  const byId=new Map<string,CatalogProduct[]>();
  for(const row of rows)byId.set(row.id,[...byId.get(row.id)??[],row]);
@@ -447,7 +450,7 @@ const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearc
  // Admin synonyms (#822) join the parser before the query is read.
  await ensureCustomSynonyms();
  const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
-  return (await db.query<{id:string}>(searchHitIdsSql(candidate,values,mode),values)).rows.map(row=>row.id);};
+  return (await catalogRead<{id:string}>(`catalog.searchHits mode=${mode} q=${candidate.compact.slice(0,80)}`,searchHitIdsSql(candidate,values,mode),values)).rows.map(row=>row.id);};
  if(searchTooShort(raw))return {parsed:parseSearchQuery(raw),ids:[],tooShort:true};
  const parsed=parseSearchQuery(raw),ids=await hits(parsed);
  if(mode==="code")return {parsed,ids};
@@ -502,7 +505,7 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   // "shooting brake" body style of "fren balatası".
   const vehicleWords=(parsed:ParsedSearch)=>fittedOnly?withoutSynonyms(parsed):parsed;
   const vehicle=await resolvePart(split.vehicle.join(" "),"vehicle",correct,async parsed=>{const values:unknown[]=[];
-   return Boolean((await db.query(`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values)).rowCount);});
+   return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values)).rowCount);});
   if(!vehicle)continue;
   const fitValues:unknown[]=[];
   const linked=new Set(await fittedProductIds(`SELECT v.id FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(vehicle.parsed),binder(fitValues))}`,fitValues));
@@ -551,7 +554,7 @@ export type CatalogContext={vehicleTypeId?:string|null};
 // so a page's count, facet and id reads share one.
 type BrandReach={labels:string[];ids:string[]};
 const cachedBrandReach=staleCache<BrandReach>(10*60*1000,500,listings);
-const brandReach=(names:string[])=>cachedBrandReach(JSON.stringify([...names].sort()),async()=>(await db.query<BrandReach>(`SELECT
+const brandReach=(names:string[])=>cachedBrandReach(JSON.stringify([...names].sort()),async()=>(await catalogRead<BrandReach>("catalog.brandReach",`SELECT
   ARRAY(SELECT sb.label FROM supplier_brands sb JOIN brands mb ON mb.id=sb.brand_id WHERE mb.name=ANY($1::text[]))||$1::text[] AS labels,
   ARRAY(SELECT ov.supplier_item_id::text FROM commerce_item_overrides ov WHERE ov.brand=ANY($1::text[])) AS ids`,[names])).rows[0]);
 async function shownBrandClause(names:string[],values:unknown[]) {
@@ -673,11 +676,22 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  return {values,where,from,search,idSets,workMem};
 }
 /**
- * A read of a catalogFilter listing: a plain statement, or, when the filter asks for more work_mem than the session's
- * (out of stock, #1342), a bounded one with that work_mem and boundedQuery's time limit.
+ * A catalog listing or search read, run under a server-side time limit (#1377: listingStatementTimeoutMs, 55 s, just under
+ * the CDN's and load balancer's 60 s): a read the CDN gave up on (504) must not keep running on the database and hold one
+ * of the pool's connections, while a read that answers within 60 s today still does. A timeout (57014) is logged with
+ * `label` and fails the load: a cache then keeps or serves its earlier value under its own rules (staleCache, #771), a
+ * first load without one fails the page. LISTING_STATEMENT_TIMEOUT_MS=0 sends the plain statement again (the rollback).
+ * `workMem` (out of stock, #1342) raises work_mem for the read and keeps the 30 s it had before, whatever the setting.
+ * Costs three more round trips (BEGIN, SET LOCAL, COMMIT), locally ~0.16 ms per read.
  */
 function listingQuery<T extends QueryResultRow>({workMem}:{workMem?:string},label:string,sql:string,values:unknown[]){
- return workMem?boundedQuery<T>(label,sql,values,30_000,{workMem}):db.query<T>(sql,values);
+ if(workMem)return boundedQuery<T>(label,sql,values,30_000,{workMem});
+ const limit=listingStatementTimeoutMs();
+ return limit?boundedQuery<T>(label,sql,values,limit):db.query<T>(sql,values);
+}
+/** A catalog read outside a catalogFilter listing (search, type-ahead, facets, brand reach) under listingQuery's limit. */
+function catalogRead<T extends QueryResultRow>(label:string,sql:string,values:unknown[]){
+ return listingQuery<T>({},label,sql,values);
 }
 // The listing reads, from catalogFilter's `from`: its count, one page of ids in the default order (`offset` a parameter),
 // and its shown brands (the brand facet).
@@ -807,7 +821,7 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
  if(!search.ids.length)return {ids:[] as string[],brands:[] as string[]};
  const values:unknown[]=[company(),search.ids],bind=binder(values);
  const queries=`to_tsquery('simple',${bind(prefixTsQuery(search.parsed))}::text),to_tsquery('simple',${bind(exactTsQuery(search.parsed))}::text),${bind(search.parsed.compact)}::text`;
- const row=(await db.query<{ids:string[]|null;brands:string[]|null}>(`WITH hits AS MATERIALIZED (
+ const row=(await catalogRead<{ids:string[]|null;brands:string[]|null}>(`catalog.searchSummary ids=${search.ids.length}`,`WITH hits AS MATERIALIZED (
    SELECT i.id,${displayBrandSql('i','ov')} AS brand,i.updated_at,i.unavailable,
     -- The stored ranking inputs are the supplier's; a row with an admin-edited name, description, store brand or part
     -- number ranks the edit (#575, #602), the part number as the better of it and the supplier code. A price-only edit
@@ -874,7 +888,7 @@ const cachedFittedListings=staleCache<string[]>(10*60*1000,300,{...fitListings,w
 const typeFittedListingIds=(typeId:number)=>cachedFittedListings(String(typeId),async()=>{
  const fitted=await typeFittedIds(typeId);
  if(!fitted.length)return [];
- return (await db.query<{id:string}>(`SELECT DISTINCT COALESCE(o.primary_id,f.id)::text AS id FROM unnest($1::uuid[]) f(id)
+ return (await catalogRead<{id:string}>(`catalog.typeFittedListings type=${typeId}`,`SELECT DISTINCT COALESCE(o.primary_id,f.id)::text AS id FROM unnest($1::uuid[]) f(id)
   LEFT JOIN product_offers o ON o.item_id=f.id`,[fitted])).rows.map(row=>row.id);
 });
 const cachedRankedFits=staleCache<string[]>(aggregateTtl,300,fitListings);
@@ -1087,7 +1101,7 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  // Products named only in English ("BRAKE HOSE" for "fren hor") never reach the ranked list: their English names come
  // from the type-name dictionary and are suggested as names (#962). The recheck keeps the text-index plan (~1 ms).
  const expansion=mode==="all"&&!searchTooShort(raw)?typeNamePrefixQuery(parseSearchQuery(raw)):null;
- const [search,english]=await Promise.all([catalogSearch(raw,mode),expansion?db.query<{name:string;products:number}>(`SELECT name,products FROM search_product_names
+ const [search,english]=await Promise.all([catalogSearch(raw,mode),expansion?catalogRead<{name:string;products:number}>("catalog.suggestNames",`SELECT name,products FROM search_product_names
   WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1) AND normalized=ANY($2::text[])
   ORDER BY products DESC,name LIMIT ${Number(limit)}`,[expansion.query,expansion.names]).then(result=>result.rows):[]]);
  const notes={correctedQuery:search.correctedQuery,vehicleScope:search.vehicle};
@@ -1096,7 +1110,7 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  if(search.ids.length>maxRankedSuggestions&&!search.vehicle?.fitted){
   const query=prefixTsQuery(search.parsed);
   // The names most products share first: "filtre" means "Hava Filtresi" (5k) more than "Filtre Hortumu".
-  const names=query?(await db.query<{name:string;products:number}>(`SELECT name,products FROM search_product_names
+  const names=query?(await catalogRead<{name:string;products:number}>("catalog.suggestNames",`SELECT name,products FROM search_product_names
    WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1)
    ORDER BY products DESC,name LIMIT ${Number(limit)}`,[query])).rows:[];
   // The caller merges names by label, so both spellings of one type add up: it takes up to twice the rows.
@@ -1105,14 +1119,14 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  }
  const values:unknown[]=[company(),search.ids.slice(0,maxRankedSuggestions)],bind=binder(values);
  // One suggestion per name and brand: a supplier lists the same part in many sizes.
- const products=(await db.query<{id:string;name:string;name_overridden:boolean;brand:string;code:string}>(`SELECT id,name,name_overridden,brand,code FROM (
+ const products=(await catalogRead<{id:string;name:string;name_overridden:boolean;brand:string;code:string}>("catalog.suggestProducts",`SELECT id,name,name_overridden,brand,code FROM (
   SELECT DISTINCT ON (name,display_brand) id::text,name,name_overridden,display_brand AS brand,display_code AS code,rank,updated_at,unavailable FROM (
    SELECT catalog.*,${catalogRank("catalog",search.parsed,bind)} AS rank FROM (${catalogEntriesSql}) catalog WHERE catalog.id=ANY($2::uuid[])) ranked
   ORDER BY name,display_brand,unavailable,rank DESC,updated_at DESC,id) best ORDER BY unavailable,rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
  return {products:[...englishNames.slice(0,2),...products.map(row=>({kind:"product" as const,...row}))].slice(0,limit) as ProductSuggestion[],...notes};
 }
 export async function catalogBrands() {
- return cachedBrands("all",async()=>(await db.query<{brand:string}>(`SELECT DISTINCT display_brand AS brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));
+ return cachedBrands("all",async()=>(await catalogRead<{brand:string}>("catalog.brands",`SELECT DISTINCT display_brand AS brand FROM (${catalogEntriesSql}) catalog ORDER BY brand`,[company()])).rows.map(p=>p.brand));
 }
 
 /**
@@ -1157,7 +1171,7 @@ export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}
 async function facetsFor(values:unknown[],from:string){
  // Independent reads: the brand list and the property facet run side by side (#994).
  const [brands,attributes]=await Promise.all([
-  db.query<{brand:string}>(brandsSql(from),values).then(result=>result.rows.map(r=>r.brand)),
+  catalogRead<{brand:string}>("catalog.facetBrands",brandsSql(from),values).then(result=>result.rows.map(r=>r.brand)),
   attributeFacets(values,`SELECT catalog.id ${from}`),
  ]);
  return {brands,attributes};
@@ -1211,7 +1225,7 @@ type FacetRow={key:string;values:string[]};
 const facetOf=(row:FacetRow):CatalogFacet=>({key:row.key,label:specificationLabel(row.key),options:facetOptions(row.values)});
 /** `scopedSql` selects the listing's ids (one `id` column) using `values`. */
 async function attributeFacets(values:unknown[],scopedSql:string):Promise<CatalogFacet[]>{
- return (await db.query<FacetRow>(attributeFacetsSql(scopedSql,`$${values.length+1}::text[]`),[...values,facetSpecificationKeys])).rows.map(facetOf);
+ return (await catalogRead<FacetRow>("catalog.facetAttributes",attributeFacetsSql(scopedSql,`$${values.length+1}::text[]`),[...values,facetSpecificationKeys])).rows.map(facetOf);
 }
 type Statement={text:string;values:unknown[]};
 /**
