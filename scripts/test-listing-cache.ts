@@ -249,6 +249,22 @@ test("with maxWaitMs a failed load after a memory miss serves the stored value a
   assert.equal(await empty("k", async () => { await sleep(40); return "loaded"; }), "loaded", "nothing earlier: the caller waits for the load");
 });
 
+test("with maxWaitMs a stored row past maxFallbackMs (48 h, the prune window) or a stored 0 count is not served", async () => {
+  const hour = 60 * 60 * 1000;
+  const shared = fakeStore<number>();
+  shared.put("recent", 7, 47 * hour);
+  shared.put("old", 7, 49 * hour);
+  // Past maxStaleMs, so not adopted: a current 0 row of the epoch would be (#957), it is no earlier value.
+  shared.put("zero", 0, 25 * hour);
+  // The catalog's count options: adopt up to 24 hours, serve an earlier value up to 48 hours, never a 0 count.
+  const counts = staleCache<number>(60_000, 500, { store: shared.store, maxStaleMs: 24 * hour, maxWaitMs: 10, maxFallbackMs: 48 * hour,
+    fallbackWhen: count => count > 0 });
+  const slow = async () => { await sleep(40); return 9; };
+  assert.equal(await counts("recent", slow), 7, "47 hours old: served while the load runs");
+  assert.equal(await counts("old", slow), 9, "49 hours old: the caller waits for the load");
+  assert.equal(await counts("zero", slow), 9, "a 0 count: the caller waits for the load");
+});
+
 test("a TTL refresh or an epoch reload adopts a fresher value another process stored", async () => {
   const shared = fakeStore<string>();
   let current = 0, loads = 0;
@@ -355,6 +371,25 @@ test("after a bump a listing serves its earlier count and ids past LISTING_EPOCH
     const reloaded = await until(listing, result => result.total === earlier.total - 1);
     assert.equal(reloaded.total, earlier.total - 1);
     assert.deepEqual(reloaded.ids, stale.ids);
+  } finally {
+    if (wait === undefined) delete process.env.LISTING_EPOCH_WAIT_MS;
+    else process.env.LISTING_EPOCH_WAIT_MS = wait;
+  }
+});
+
+test("after a bump an empty listing waits for its reload: a 0 count or no ids is never the earlier value (#771)", async () => {
+  // SACHS was hidden above: its brand listing is empty until it is published again.
+  const listing = async () => {
+    const result = await catalog.browseProducts({ brands: JSON.stringify(["SACHS"]) });
+    return { total: result.total, ids: result.items.map(row => row.id) };
+  };
+  assert.deepEqual(await listing(), { total: 0, ids: [] });
+  await overrides.persistProductOverride(schema.pool, await productOf("sachs"), { hidden: false }, admin);
+  const wait = process.env.LISTING_EPOCH_WAIT_MS;
+  process.env.LISTING_EPOCH_WAIT_MS = "0";
+  try {
+    await epoch.invalidateListings();
+    assert.deepEqual(await listing(), { total: 1, ids: [ids.sachs] }, "the first request after the bump already has the product");
   } finally {
     if (wait === undefined) delete process.env.LISTING_EPOCH_WAIT_MS;
     else process.env.LISTING_EPOCH_WAIT_MS = wait;

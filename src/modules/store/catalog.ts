@@ -10,6 +10,7 @@ import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { listingEpoch } from "./listing-epoch";
 import { listingCacheStore } from "./listing-cache-store";
+import { listingWaitMs } from "./listing-wait";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
@@ -673,19 +674,23 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // The stored keys must stay bounded until the 2-day prune: a crawler walking model x category pages (~5.8k models x ~590
 // categories) would add hundreds of thousands of rows, so model listings stay in memory, and a make's listing keeps its
 // first page only (deeper pages of the plain, category and manufacturer listings are stored up to page 20; a price order is one key).
-// These three also wait at most LISTING_EPOCH_WAIT_MS (250 ms) for a reload when an earlier value exists (#771): the
-// entry an epoch bump replaced, or a stored row of an older epoch or past maxStaleMs. The fit sync bumps the epoch up to
-// every 30 s while fit rows change (enrichment-links.server.ts), and a large manufacturer's count, ids and facets each scan
-// every row of the brand (ORIJINAL, 155k rows: ~3 s cold); the visitor gets the earlier aggregate while the reload runs.
-// Cards are read live by id (storefrontRowsByIds), so prices, stock and hidden products stay current; only the count, the
-// order and the facets can be one reload behind. After an admin edit (#585) a listing whose reload takes longer than the
-// wait shows the earlier count and ids until it finishes; a quick one shows the edit at once. The vehicle, fit, brand and
+// These three also wait at most LISTING_EPOCH_WAIT_MS (250 ms, listing-wait.ts) for a reload when an earlier value
+// exists (#771): the entry an epoch bump replaced, or a stored row of an older epoch or past maxStaleMs, up to 48 hours
+// old (the store's prune window). The fit sync bumps the epoch up to every 30 s while fit rows change
+// (enrichment-links.server.ts), and a large manufacturer's count, ids and facets each scan every row of the brand
+// (ORIJINAL, 155k rows: ~3 s cold); the visitor gets the earlier aggregate while the reload runs. Cards are read live by
+// id (storefrontRowsByIds), so prices, stock and hidden products stay current; only the count, the order and the facets
+// can be one reload behind. After an admin edit (#585) a listing whose reload takes longer than the wait shows the
+// earlier count and ids until it finishes; a quick one shows the edit at once. An empty earlier value (a 0 count, no ids,
+// no facet) is never served: a count gates the 404 and the index rules (marka page, findListing), and an empty listing
+// that just gained products must not show "no products" beside a fresh count, so callers wait for the reload, which is
+// cheap for a listing that was empty. The warm-up waits for every reload (listingWaitMs). The vehicle, fit, brand and
 // search caches still wait for their reload.
 const aggregateTtl=10*60*1000,persistedFor={maxStaleMs:24*60*60*1000};
-const listingWaitMs=()=>{const value=Number(process.env.LISTING_EPOCH_WAIT_MS??250);return Number.isFinite(value)&&value>=0?value:250;};
-const persistedListings={...listings,...persistedFor,maxWaitMs:listingWaitMs};
-const cachedCounts=staleCache<number>(aggregateTtl,500,{...persistedListings,store:listingCacheStore<number>("count",1)});
-const cachedPageIds=staleCache<string[]>(aggregateTtl,500,{...persistedListings,store:listingCacheStore<string[]>("page-ids",1)});
+const boundedWait={maxWaitMs:listingWaitMs,maxFallbackMs:48*60*60*1000};
+const persistedListings={...listings,...persistedFor,...boundedWait};
+const cachedCounts=staleCache<number>(aggregateTtl,500,{...persistedListings,fallbackWhen:count=>count>0,store:listingCacheStore<number>("count",1)});
+const cachedPageIds=staleCache<string[]>(aggregateTtl,500,{...persistedListings,fallbackWhen:ids=>ids.length>0,store:listingCacheStore<string[]>("page-ids",1)});
 // A garage vehicle's fit and oil filters key their entries per vehicle type (#884): kept apart, so every page view with a
 // vehicle (its "Aracına uyanlar" lead) does not push the plain listings, 0.5-1.5 s each to recompute, out of the LRU above.
 const cachedVehicleCounts=staleCache<number>(aggregateTtl,500,listings),cachedVehiclePageIds=staleCache<string[]>(aggregateTtl,500,listings);
@@ -693,7 +698,7 @@ const vehicleScoped=(query:CatalogQuery)=>Boolean(query.fits||query.oil);
 const countCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehicleCounts:cachedCounts;
 const pageIdCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehiclePageIds:cachedPageIds;
 type Facets={brands:string[];attributes:CatalogFacet[]};
-const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,store:listingCacheStore<Facets>("facets",1)}),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
+const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,fallbackWhen:facets=>facets.brands.length+facets.attributes.length>0,store:listingCacheStore<Facets>("facets",1)}),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
 const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
 const persistablePage=(query:CatalogQuery,page:number)=>persistable(query)&&page<=(query.make?1:cachedPages);
 /** The listing filter built at most once, on the first call: a cached listing never builds it (its id sets take queries too). */

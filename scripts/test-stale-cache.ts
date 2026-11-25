@@ -244,3 +244,72 @@ test("maxWaitMs: the weight total stays right while and after a fallback is serv
   assert.equal(stats.weight - start.weight, 7, "the restored entry is counted once");
   assert.equal(stats.entries - start.entries, 2);
 });
+
+test("maxWaitMs: 0 serves the previous value at once; the reload's result follows", async () => {
+  let epoch = 1;
+  const cache = staleCache<string>(60_000, 100, { epoch: async () => epoch, maxWaitMs: 0 });
+  await cache("k", async () => "old");
+  epoch = 2;
+  const reload = deferred<string>();
+  const started = Date.now();
+  assert.equal(await cache("k", () => reload.promise), "old");
+  assert.ok(Date.now() - started < 20, "no wait");
+  reload.resolve("new");
+  await pause(0);
+  assert.equal(await cache("k", () => reload.promise), "new");
+});
+
+test("maxWaitMs: a second bump during a reload serves that reload's value once it settled, before then the one before", async () => {
+  let epoch = 1, loads = 0;
+  const cache = staleCache<string>(60_000, 100, { epoch: async () => epoch, maxWaitMs: 0 });
+  await cache("k", async () => "v1");
+  epoch = 2;
+  const second = deferred<string>();
+  assert.equal(await cache("k", () => { loads++; return second.promise; }), "v1");
+  epoch = 3;
+  const third = deferred<string>();
+  const load3 = () => { loads++; return third.promise; };
+  assert.equal(await cache("k", load3), "v1", "the replaced reload is still pending: its own earlier value");
+  second.resolve("v2");
+  await pause(0);
+  assert.equal(await cache("k", load3), "v2", "the replaced reload settled: one reload behind");
+  third.resolve("v3");
+  await pause(0);
+  assert.equal(await cache("k", load3), "v3");
+  assert.equal(loads, 2);
+});
+
+test("maxWaitMs: an earlier value fallbackWhen refuses, or an unbounded wait, makes callers wait for the reload", async () => {
+  let epoch = 1;
+  const counts = staleCache<number>(60_000, 100, { epoch: async () => epoch, maxWaitMs: 0, fallbackWhen: count => count > 0 });
+  await counts("empty", async () => 0);
+  await counts("full", async () => 5);
+  epoch = 2;
+  const slow = (value: number) => async () => { await pause(30); return value; };
+  assert.equal(await counts("empty", slow(3)), 3, "a 0 count is not served");
+  assert.equal(await counts("full", slow(6)), 5, "a count above 0 is");
+  let wait = 0;
+  const unbounded = staleCache<string>(60_000, 100, { epoch: async () => epoch, maxWaitMs: () => wait });
+  await unbounded("k", async () => "old");
+  epoch = 3;
+  wait = Infinity;
+  assert.equal(await unbounded("k", async () => { await pause(30); return "new"; }), "new", "Infinity: no bound for that load");
+});
+
+test("listingWaitMs: the setting, 250 ms when blank or invalid, unbounded while warming", async () => {
+  const { listingWaitMs, whileWarming } = await import("../src/modules/store/listing-wait");
+  const original = process.env.LISTING_EPOCH_WAIT_MS;
+  try {
+    for (const [setting, expected] of [[undefined, 250], ["", 250], ["  ", 250], ["abc", 250], ["-5", 250], ["0", 0], ["1000", 1000]] as const) {
+      if (setting === undefined) delete process.env.LISTING_EPOCH_WAIT_MS;
+      else process.env.LISTING_EPOCH_WAIT_MS = setting;
+      assert.equal(listingWaitMs(), expected, JSON.stringify(setting));
+    }
+    assert.equal(await whileWarming(async () => listingWaitMs()), Infinity);
+    await assert.rejects(whileWarming(async () => { throw new Error("warm-up failed"); }));
+    assert.equal(listingWaitMs(), 1000, "the flag is reset after the warm-up, also after a failure");
+  } finally {
+    if (original === undefined) delete process.env.LISTING_EPOCH_WAIT_MS;
+    else process.env.LISTING_EPOCH_WAIT_MS = original;
+  }
+});

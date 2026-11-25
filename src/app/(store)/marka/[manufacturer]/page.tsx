@@ -27,7 +27,8 @@ const load = cache(async (slug: string, search: SearchParams) => {
   }
   // Category, make and model are other listings' path segments; a query one is ignored here.
   const query: CatalogQuery = { ...parseCatalogQuery({ ...search, category: undefined, make: undefined, model: undefined }), manufacturer: slug };
-  // The listing's facets, count and first page ids start now, beside the total, not after it (#771).
+  // The listing's facets, count and first page ids start now, beside the total, not after it (#771). Before the 404
+  // check on purpose: a manufacturer without listed products is rare, and its empty listing is cheap to read.
   primeListing(query);
   const total = await listingTotal({ manufacturer: slug });
   if (!total) notFound();
