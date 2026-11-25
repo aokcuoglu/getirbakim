@@ -46,7 +46,9 @@ async function* cursorBatches(client: PoolClient, name: string, sql: string, par
       if (rows.length < size) return;
     }
   } finally {
-    await client.query(`CLOSE ${name}`);
+    // After a server error the transaction is aborted and CLOSE fails too (25P02); the cursor dies with the transaction,
+    // so a failed CLOSE must not replace the original error.
+    await client.query(`CLOSE ${name}`).catch(() => {});
   }
 }
 
