@@ -1,8 +1,15 @@
+// Golden-file guard for the part-NN/manifest.json format (#1358). The split ships with the main checkout, the importer only with a release
+// (release-aws), so the format is their contract. The "storefront part format" test below compares a normalized schema of a part-00, a job part
+// and an enrichment part (keys, JSON value types, element schemas of arrays, recursively) with scripts/fixtures/storefront-part-format.json.
+// Values are not compared: ids, texts and sizes may change freely; a key or a type changing is what breaks the importer.
+// If the format change is intended: release the importer first (backward compatible), then change the split, then regenerate the golden file with
+//   UPDATE_GOLDEN=1 node --import tsx --test scripts/test-storefront-split.ts
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { appendFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import { ENRICHMENTS_FILE, ITEMS_FILE, JOBS_FILE, MEDIA_FILE, PRODUCTS_FILE, readNdjson, writeNdjson } from "./storefront-bundle-stream";
 
@@ -349,5 +356,55 @@ test("an export written before #1317 (jobs, items, mappings or media inline) or 
     }
     await writeFile(path, JSON.stringify({ ...exported, jobsFile: "../jobs.ndjson" }));
     await assert.rejects(splitStorefrontBundle(source, join(root, "parts"), MEDIA), /Unsafe jobsFile: \.\.\/jobs\.ndjson/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+// JSON schema of values seen at one position: a type name, an object of its keys' schemas, or { "[]": element schema }; mixed types list "oneOf".
+function describe(values: unknown[]): unknown {
+  if (!values.length) return "empty";
+  const nodes = new Map<string, unknown>();
+  for (const kind of new Set(values.map(value => value === null ? "null" : Array.isArray(value) ? "array" : typeof value))) {
+    const of = values.filter(value => (value === null ? "null" : Array.isArray(value) ? "array" : typeof value) === kind);
+    if (kind === "array") nodes.set(kind, { "[]": describe(of.flat()) });
+    else if (kind === "object") {
+      const names = [...new Set(of.flatMap(value => Object.keys(value as Row)))].sort();
+      nodes.set(kind, Object.fromEntries(names.map(name => [name, describe(of.filter(value => name in (value as Row)).map(value => (value as Row)[name]))])));
+    } else nodes.set(kind, kind);
+  }
+  const all = [...nodes.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, node]) => node);
+  return all.length === 1 ? all[0] : { oneOf: all };
+}
+
+const GOLDEN = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "storefront-part-format.json");
+
+test("storefront part format: part-00, a job part and an enrichment part match the golden schema", async () => {
+  const jobs = [uuid(1), uuid(2)].map((id, index) => ({
+    supplier_item_id: id, supplier_code: `C00000${index}`, supplier_brand: "FEBI", oem: "", status: index ? "partial" : "complete", candidate_url: null,
+    last_attempt_at: "2026-11-24T01:00:00.000Z",
+  }));
+  const enrichments = [uuid(1), uuid(2)].map((id, index) => ({
+    supplier_item_id: id, image_id: index ? null : "a", imported_at: "2026-11-23T01:30:00.000Z", payload: { name: "Fren balatası", vehicles: "Ford" },
+  }));
+  const { root, source } = await bundle([{ id: "c", key: "cat/c.jpg", size: 10 }, { id: "v", key: "veh/v.jpg", size: 10 }, { id: "a", key: "p/a.jpg", size: 10 }], {
+    exportedAt: "2026-11-23T01:30:00Z", since: "2026-11-22T00:30:03.779Z", retried: 0, snapshotAt: "2026-11-23T01:29:00Z",
+    categories: [{ source: "trodo", category_id: 1, parent_id: null, name: "Fren" }], labels: [{ source: "trodo", category_id: 1, locale: "tr", label: "Fren" }],
+    images: [{ source: "trodo", category_id: 1, media_id: "c" }], logos: [{ brand_key: "febi", evidence_product_id: uuid(1), media_id: null }],
+    vehicleSpecs: [{ vehicle_type_id: 7, specs: { engine: "1.6" } }], vehicleImages: [{ vehicle_type_id: 7, media_id: "v" }],
+    tombstones: [{ supplier_item_id: uuid(9), kind: "enrichment_deleted", deleted_at: "2026-11-20T00:00:00.000Z" }], invalidatedJobs: 1, maxDeletions: 1000,
+    jobs, enrichments, products: [{ supplier_item_id: uuid(1), source: "trodo", category_id: 1 }],
+    items: [key(uuid(1)), key(uuid(2)), key(uuid(9))],
+  });
+  try {
+    // One job with its key per job part; part 0 has no byte limit.
+    const parts = await split(source, join(root, "parts"), { mediaBytes: 1e9, jsonBytes: lineBytes(jobs[0]) + lineBytes(key(uuid(1))) });
+    const jobPart = parts.find((part, index) => index && part.jobs.length);
+    const enrichmentPart = parts.find(part => part.enrichments.length);
+    assert.ok(parts[0].jobs.length === 0 && jobPart && enrichmentPart && parts.length >= 4, "fixture must give part-00, a job part and an enrichment part");
+    const schema = { "part-00": describe([parts[0]]), "job part": describe([jobPart]), "enrichment part": describe([enrichmentPart]) };
+    const text = `${JSON.stringify(schema, null, 2)}\n`;
+    if (process.env.UPDATE_GOLDEN === "1") { await mkdir(dirname(GOLDEN), { recursive: true }); await writeFile(GOLDEN, text); return; }
+    assert.deepEqual(schema, JSON.parse(await readFile(GOLDEN, "utf8")),
+      "the storefront part format changed: the AWS importer reads this format; release the importer first (backward compatible), then change the split. "
+      + "If the change is intended, regenerate the golden file with `UPDATE_GOLDEN=1 node --import tsx --test scripts/test-storefront-split.ts`.");
   } finally { await rm(root, { recursive: true, force: true }); }
 });

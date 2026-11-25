@@ -1,0 +1,233 @@
+{
+  "part-00": {
+    "categories": {
+      "[]": {
+        "category_id": "number",
+        "name": "string",
+        "parent_id": "null",
+        "source": "string"
+      }
+    },
+    "enrichments": {
+      "[]": "empty"
+    },
+    "exportedAt": "string",
+    "images": {
+      "[]": {
+        "category_id": "number",
+        "media_id": "string",
+        "source": "string"
+      }
+    },
+    "invalidatedJobs": "number",
+    "items": {
+      "[]": {
+        "code": "string",
+        "company": "string",
+        "id": "string",
+        "list_group": "string",
+        "supplier": "string",
+        "warehouse": "string"
+      }
+    },
+    "jobs": {
+      "[]": "empty"
+    },
+    "labels": {
+      "[]": {
+        "category_id": "number",
+        "label": "string",
+        "locale": "string",
+        "source": "string"
+      }
+    },
+    "logos": {
+      "[]": {
+        "brand_key": "string",
+        "evidence_product_id": "string",
+        "media_id": "null"
+      }
+    },
+    "maxDeletions": "number",
+    "media": {
+      "[]": {
+        "id": "string",
+        "object_key": "string",
+        "size_bytes": "number"
+      }
+    },
+    "products": {
+      "[]": "empty"
+    },
+    "retried": "number",
+    "since": "string",
+    "snapshotAt": "string",
+    "tombstones": {
+      "[]": {
+        "deleted_at": "string",
+        "kind": "string",
+        "supplier_item_id": "string"
+      }
+    },
+    "vehicleImages": {
+      "[]": {
+        "media_id": "string",
+        "vehicle_type_id": "number"
+      }
+    },
+    "vehicleSpecs": {
+      "[]": {
+        "specs": {
+          "engine": "string"
+        },
+        "vehicle_type_id": "number"
+      }
+    }
+  },
+  "job part": {
+    "categories": {
+      "[]": {
+        "category_id": "number",
+        "name": "string",
+        "parent_id": "null",
+        "source": "string"
+      }
+    },
+    "enrichments": {
+      "[]": "empty"
+    },
+    "exportedAt": "string",
+    "images": {
+      "[]": "empty"
+    },
+    "invalidatedJobs": "number",
+    "items": {
+      "[]": {
+        "code": "string",
+        "company": "string",
+        "id": "string",
+        "list_group": "string",
+        "supplier": "string",
+        "warehouse": "string"
+      }
+    },
+    "jobs": {
+      "[]": {
+        "candidate_url": "null",
+        "last_attempt_at": "string",
+        "oem": "string",
+        "status": "string",
+        "supplier_brand": "string",
+        "supplier_code": "string",
+        "supplier_item_id": "string"
+      }
+    },
+    "labels": {
+      "[]": {
+        "category_id": "number",
+        "label": "string",
+        "locale": "string",
+        "source": "string"
+      }
+    },
+    "logos": {
+      "[]": "empty"
+    },
+    "maxDeletions": "number",
+    "media": {
+      "[]": "empty"
+    },
+    "products": {
+      "[]": "empty"
+    },
+    "retried": "number",
+    "since": "string",
+    "snapshotAt": "string",
+    "tombstones": {
+      "[]": "empty"
+    },
+    "vehicleImages": {
+      "[]": "empty"
+    },
+    "vehicleSpecs": {
+      "[]": "empty"
+    }
+  },
+  "enrichment part": {
+    "categories": {
+      "[]": {
+        "category_id": "number",
+        "name": "string",
+        "parent_id": "null",
+        "source": "string"
+      }
+    },
+    "enrichments": {
+      "[]": {
+        "image_id": "string",
+        "imported_at": "string",
+        "payload": {
+          "name": "string",
+          "vehicles": "string"
+        },
+        "supplier_item_id": "string"
+      }
+    },
+    "exportedAt": "string",
+    "images": {
+      "[]": "empty"
+    },
+    "invalidatedJobs": "number",
+    "items": {
+      "[]": {
+        "code": "string",
+        "company": "string",
+        "id": "string",
+        "list_group": "string",
+        "supplier": "string",
+        "warehouse": "string"
+      }
+    },
+    "jobs": {
+      "[]": "empty"
+    },
+    "labels": {
+      "[]": {
+        "category_id": "number",
+        "label": "string",
+        "locale": "string",
+        "source": "string"
+      }
+    },
+    "logos": {
+      "[]": "empty"
+    },
+    "maxDeletions": "number",
+    "media": {
+      "[]": {
+        "id": "string",
+        "object_key": "string",
+        "size_bytes": "number"
+      }
+    },
+    "products": {
+      "[]": {
+        "category_id": "number",
+        "source": "string",
+        "supplier_item_id": "string"
+      }
+    },
+    "retried": "number",
+    "since": "string",
+    "snapshotAt": "string",
+    "tombstones": {
+      "[]": "empty"
+    },
+    "vehicleImages": {
+      "[]": "empty"
+    },
+    "vehicleSpecs": {
+      "[]": "empty"
+    }
+  }
+}
