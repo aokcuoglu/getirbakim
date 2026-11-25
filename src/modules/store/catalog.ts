@@ -281,9 +281,15 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
 // epoch and these reload (#585). The caches that read vehicle fits follow the fits value instead (`fitListings`, #1368,
 // listing-epoch.ts): it moves with every admin edit and also when the fit sync changed fit rows, which the others ignore.
 const listings={epoch:listingEpoch},fitListings={epoch:fitsEpoch};
+// How long a visitor waits for a reload when an earlier value exists (#771, listing-wait.ts), and how old a stored one
+// served meanwhile may be (the store's prune window). Used by the listing caches below and, since #1368, by the fit
+// caches a page reads itself (listed models, garage vehicle listings).
+const boundedWait={maxWaitMs:listingWaitMs,maxFallbackMs:48*60*60*1000};
 // Fitments change when enrichments are imported or an admin decides; vehicle-type lists are shared per process.
 // Each value is an id array that can hold hundreds of thousands of uuids, so the caches are also bounded by total id
-// count (#1262), not only by entries.
+// count (#1262), not only by entries. The fitted ids wait for their reload (no bounded wait, #1368): other caches' loads
+// read them (catalogFilter, the API's fitted rankings), and an earlier id set served there would be stored in that cache
+// as the new value, one reload behind until its next bump or refresh.
 const cachedFitted=staleCache<string[]>(10*60*1000,500,{...fitListings,weigh:ids=>ids.length,maxWeight:400_000});
 const cachedCategoryIds=staleCache<string[]>(10*60*1000,500,{...listings,weigh:ids=>ids.length,maxWeight:600_000});
 /**
@@ -318,9 +324,10 @@ const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",
  * A make's model page units that list at least one product (#639): the make page links only these, so no link ends in
  * the empty model page's 404. A unit counts when a fitted product (as in modelFittedIds) is in the storefront listing
  * (listedOnly); a fit pointing at a hidden or no longer supplied item does not. One query per make over the make's
- * series, cached like the fits (per process, reloaded when a listing edit or the fit sync moves the fits value).
+ * series, cached like the fits (per process, reloaded when a listing edit or the fit sync moves the fits value). After a
+ * bump the make page waits at most LISTING_EPOCH_WAIT_MS for the reload, then links the earlier units (none: it waits).
  */
-const cachedListedModels=staleCache<string[]>(10*60*1000,300,fitListings);
+const cachedListedModels=staleCache<string[]>(10*60*1000,300,{...fitListings,...boundedWait,fallbackWhen:ids=>ids.length>0});
 export async function getListedModelGroups(brandId:string) {
  const groups=await getVehicleModelGroups(brandId);
  const modelIds=groups.flatMap(group=>group.models.map(member=>member.id));
@@ -706,18 +713,20 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // earlier count and ids until it finishes; a quick one shows the edit at once. An empty earlier value (a 0 count, no ids,
 // no facet) is never served: a count gates the 404 and the index rules (marka page, findListing), and an empty listing
 // that just gained products must not show "no products" beside a fresh count, so callers wait for the reload, which is
-// cheap for a listing that was empty. The warm-up waits for every reload (listingWaitMs). The vehicle, fit, brand and
-// search caches still wait for their reload.
+// cheap for a listing that was empty. The warm-up waits for every reload (listingWaitMs). A garage vehicle's listings, a
+// make's listed models and a make's or model's category counts (listing-categories.server.ts) wait the same way (#1368);
+// the fitted id sets, the brand and the search caches still wait for their reload.
 // A listing without a search, vehicle or narrowing filter loads its count, first page ids and facets from one scan
 // (listingSummary, #1367): the three caches keep their own keys, stored rows and rules, and their loaders share it.
 const aggregateTtl=10*60*1000,persistedFor={maxStaleMs:24*60*60*1000};
-const boundedWait={maxWaitMs:listingWaitMs,maxFallbackMs:48*60*60*1000};
 const persistedListings={...listings,...persistedFor,...boundedWait};
 const cachedCounts=staleCache<number>(aggregateTtl,500,{...persistedListings,fallbackWhen:count=>count>0,store:listingCacheStore<number>("count",1)});
 const cachedPageIds=staleCache<string[]>(aggregateTtl,500,{...persistedListings,fallbackWhen:ids=>ids.length>0,store:listingCacheStore<string[]>("page-ids",1)});
 // A garage vehicle's fit and oil filters key their entries per vehicle type (#884): kept apart, so every page view with a
 // vehicle (its "Aracına uyanlar" lead) does not push the plain listings, 0.5-1.5 s each to recompute, out of the LRU above.
-const cachedVehicleCounts=staleCache<number>(aggregateTtl,500,fitListings),cachedVehiclePageIds=staleCache<string[]>(aggregateTtl,500,fitListings);
+// They wait like the three above (#1368), in memory only: the earlier value is the entry a bump replaced.
+const cachedVehicleCounts=staleCache<number>(aggregateTtl,500,{...fitListings,...boundedWait,fallbackWhen:count=>count>0}),
+ cachedVehiclePageIds=staleCache<string[]>(aggregateTtl,500,{...fitListings,...boundedWait,fallbackWhen:ids=>ids.length>0});
 const vehicleScoped=(query:CatalogQuery)=>Boolean(query.fits||query.oil);
 const countCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehicleCounts:cachedCounts;
 const pageIdCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehiclePageIds:cachedPageIds;

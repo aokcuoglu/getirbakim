@@ -11,8 +11,9 @@ import type { CatalogQuery } from "../src/modules/store/catalog-query";
 // The fits epoch (#1368) in an isolated copy of the schema: the fit sync's bump (invalidateFits) moves only the value the
 // caches that read vehicle fits follow (epoch+fits_epoch), an admin edit's (invalidateListings) moves both, and the
 // guarded column is added once, continuing the scale of the stored rows. The fit sync's bump reloads the make listing,
-// its listed models and category counts, and leaves the manufacturer and category listings cached. Nothing is written
-// to the shared database.
+// its listed models and category counts and the searches that may name a vehicle, leaves the manufacturer and category
+// listings cached, and the fit caches a page reads itself wait at most LISTING_EPOCH_WAIT_MS for their reload. Nothing
+// is written to the shared database.
 type Epoch = typeof import("../src/modules/store/listing-epoch");
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let epoch: Epoch;
@@ -20,8 +21,8 @@ let catalog: typeof import("../src/modules/store/catalog");
 let categories: typeof import("../src/modules/store/listing-categories.server");
 let closeDb: () => Promise<void>;
 const [basbug] = storefrontCompanies();
-/** BOSCH rows: all in Filtre, all fitting VW and its Golf 7; Polo 6 has no fit yet. */
-const rows = 30;
+/** BOSCH rows: all in Filtre, all fitting VW and its Golf 7; Polo 6 and Tiguan 2 have no fit yet; 1001 and 1002 fit the garage's Golf. */
+const rows = 30, GOLF = 340;
 let added = 0;
 
 // The category tree (getStoreCategories) calls connection(), which needs a request scope: a static work store lets it
@@ -38,9 +39,37 @@ async function addFittedRow(model: number) {
   const { rows: [row] } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
     product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
     VALUES('basbug',$1,'G','MRK',$2,jsonb_build_object('uk','BOSCH','ac',$2::text||' PARCA','ac2','','dc','TL','category','filtre'),'{"nf":100}','{"stok":2}',
-     1,1,1,'present',now(),now(),now()) RETURNING id::text`, [basbug, `BOSCH N${added}`]);
+     1,1,1,'present',now(),now(),now()) RETURNING id::text`, [basbug, `BOSCH ${9000 + added}`]);
   await schema.pool.query("INSERT INTO storefront_make_fits(brand_id,supplier_item_id) VALUES(1,$1)", [row.id]);
   await schema.pool.query("INSERT INTO storefront_model_fits(model_id,supplier_item_id) VALUES($1,$2)", [model, row.id]);
+}
+/** An admin's added fitment (#583) of the product of supplier code `code` to the garage's Golf: a fit the store lists. */
+const addVehicleFit = (code: string) => schema.pool.query(`INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode)
+  SELECT ps.product_id,$2,'add' FROM product_sources ps JOIN supplier_items s ON s.id=ps.supplier_item_id WHERE s.code=$1`, [code, GOLF]);
+/** `run` with these environment variables set (undefined: unset), restored afterwards. */
+async function withEnv<T>(values: Record<string, string | undefined>, run: () => Promise<T>) {
+  const saved = Object.fromEntries(Object.keys(values).map(key => [key, process.env[key]]));
+  const apply = (next: Record<string, string | undefined>) => {
+    for (const [key, value] of Object.entries(next)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+  apply(values);
+  try {
+    return await run();
+  } finally {
+    apply(saved);
+  }
+}
+/** Polls `read` until `done` holds or the deadline passes (loads finish in the background). */
+async function until<T>(read: () => Promise<T>, done: (value: T) => boolean, timeoutMs = 5_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await read();
+    if (done(value) || Date.now() > deadline) return value;
+    await sleep(10);
+  }
 }
 /**
  * The loads `run` sends on any connection: by default listing loads (the one-scan summary or a count statement over the
@@ -81,16 +110,22 @@ before(async () => {
   await schema.pool.query("INSERT INTO supplier_brands(supplier,label,brand_id,items) VALUES('basbug','BOSCH',$1,$2)", [brand.id, rows]);
   await schema.pool.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
     product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
-    SELECT 'basbug',$1,'G','MRK','BOSCH P'||n,jsonb_build_object('uk','BOSCH','ac','P'||n||' PARCA','ac2','','dc','TL','category','filtre'),
+    SELECT 'basbug',$1,'G','MRK','BOSCH '||(1000+n),jsonb_build_object('uk','BOSCH','ac','P'||n||' PARCA','ac2','','dc','TL','category','filtre'),
      '{"nf":100}','{"stok":2}',1,1,1,'present',now()-interval '30 days',now(),now() FROM generate_series(1,$2::int) n`, [basbug, rows]);
   await schema.pool.query(`INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VW');
-    INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(10,1,'GOLF VII (5G1)','2012-08-01','2017-03-01'),(20,1,'POLO VI (AW1)','2017-06-01',NULL);
+    INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(10,1,'GOLF VII (5G1)','2012-08-01','2017-03-01'),(20,1,'POLO VI (AW1)','2017-06-01',NULL),
+     (30,1,'TIGUAN II (AD1)','2016-01-01',NULL);
+    INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
+     VALUES(${GOLF},10,'1.6 TDI',1598,'Diesel','Dizel',110,81,'2012-08-01','golf');
     INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT 1,id FROM supplier_items;
     INSERT INTO storefront_model_fits(model_id,supplier_item_id) SELECT 10,id FROM supplier_items;
     INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
      ('trodo',3,NULL,'Yedek parçalar','yedek-parca','{3}','','{}'),('trodo',241,3,'Filtre','filtre','{3,241}','','{}');
     INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES
      ('trodo',3,'tr','Yedek parçalar','yedek-parca'),('trodo',241,'tr','Filtre','filtre')`);
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await addVehicleFit("BOSCH 1001");
+  await addVehicleFit("BOSCH 1002");
   Object.assign(globalThis, { AsyncLocalStorage });
   workStorage = (await import("next/dist/server/app-render/work-async-storage.external")).workAsyncStorage;
   const [{ db }, epochModule, catalogModule, categoriesModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/listing-epoch"),
@@ -185,7 +220,7 @@ test("a search that may name a vehicle follows the fits value; a one-word or cod
   const search = (q: string, code = false) => inRequest(() => catalog.browseProducts(code ? { q, searchBy: "code" } : { q }));
   // The search's hit read (searchHitIdsSql): a cached plain search sends none, its cards are read live.
   const hitReads = (run: () => Promise<unknown>) => loads(run, text => text.includes("WITH main AS MATERIALIZED"));
-  const [word, vehicle, code] = [() => search("bosch"), () => search("bosch golf"), () => search("BOSCH P1", true)];
+  const [word, vehicle, code] = [() => search("bosch"), () => search("bosch golf"), () => search("BOSCH 1001", true)];
   for (const read of [word, vehicle, code]) assert.ok((await hitReads(read)).loads > 0, "the first read searches");
   await epoch.invalidateFits();
   assert.equal((await hitReads(word)).loads, 0, "one word: no vehicle reading, cached");
@@ -193,6 +228,34 @@ test("a search that may name a vehicle follows the fits value; a one-word or cod
   assert.ok((await hitReads(vehicle)).loads > 0, "two words may read a vehicle's fits: reloaded");
   await epoch.invalidateListings();
   for (const read of [word, vehicle, code]) assert.ok((await hitReads(read)).loads > 0, "an admin edit's bump reloads every search");
+});
+
+test("after the fit sync's bump a make's listed models and category counts and a garage vehicle's listing wait at most LISTING_EPOCH_WAIT_MS", async () => {
+  const vehicle = async () => (await inRequest(() => catalog.browseProducts({ fits: "vehicle" }, { vehicleTypeId: String(GOLF) }))).total;
+  const read = async () => ({ models: (await listedModels()).length, filter: await filterCount(), vehicle: await vehicle() });
+  const earlier = await read();
+  assert.equal(earlier.vehicle, 2);
+  // Tiguan gains its first fit (and Filtre a product); the garage's Golf a third fitted product.
+  await addFittedRow(30);
+  await addVehicleFit("BOSCH 1003");
+  // The reloads read these tables: held, they wait while the pages are served.
+  const locker = await schema.pool.connect();
+  try {
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE storefront_model_fits,storefront_make_fits,product_override_fitments IN ACCESS EXCLUSIVE MODE");
+    await withEnv({ LISTING_EPOCH_WAIT_MS: "0" }, async () => {
+      await epoch.invalidateFits();
+      const started = Date.now();
+      assert.deepEqual(await read(), earlier, "the earlier values while the reloads wait");
+      assert.ok(Date.now() - started < 2_000, "served without waiting for the held reloads");
+      await locker.query("COMMIT");
+      const expected = { models: earlier.models + 1, filter: (earlier.filter ?? 0) + 1, vehicle: earlier.vehicle + 1 };
+      assert.deepEqual(await until(read, value => JSON.stringify(value) === JSON.stringify(expected)), expected);
+    });
+  } finally {
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
 });
 
 // Last: drops the column, as on a database whose setup has not run yet.

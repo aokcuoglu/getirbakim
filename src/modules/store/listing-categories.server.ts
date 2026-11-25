@@ -6,6 +6,7 @@ import type { CatalogQuery } from "./catalog-query";
 import { listedOnly, makeFitsSql, modelFitsSql } from "./catalog";
 import { legacyCategoryIds } from "./category-tree";
 import { fitsEpoch } from "./listing-epoch";
+import { listingWaitMs } from "./listing-wait";
 import { getVehicleBrandBySlug } from "./vehicle-catalog.server";
 import { getVehicleModelGroup } from "./vehicle-model-groups.server";
 import { engineOilCategoryId } from "./vehicle-oil";
@@ -63,9 +64,10 @@ export const categoryAncestorsSql = (column: string) => `JOIN source_categories 
  CROSS JOIN LATERAL unnest(own.path_ids) ancestor(category_id)`;
 
 // Like the make and model listings' counts: reloaded when the fits value moves (an admin edit or the fit sync, #1368,
-// listing-epoch.ts), otherwise every 10 minutes in the background. One entry per make or model page visited (~4.4k
-// units): 1000 keeps the popular ones warm.
-const cachedCounts = staleCache<[number, number][]>(10 * 60 * 1000, 1000, { epoch: fitsEpoch });
+// listing-epoch.ts), otherwise every 10 minutes in the background; after a bump a page waits at most
+// LISTING_EPOCH_WAIT_MS for the reload, then gets the earlier counts (none: it waits). One entry per make or model page
+// visited (~4.4k units): 1000 keeps the popular ones warm.
+const cachedCounts = staleCache<[number, number][]>(10 * 60 * 1000, 1000, { epoch: fitsEpoch, maxWaitMs: listingWaitMs, fallbackWhen: counts => counts.length > 0 });
 
 /**
  * Products per category, subcategories included, of a make's or a vehicle model's listing ($1 companies, $2-$5
