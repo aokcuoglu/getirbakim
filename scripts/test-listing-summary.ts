@@ -324,6 +324,23 @@ test("boundedQuery stops a read on the server at its limit: 57014, nothing left 
   assert.deepEqual((await db.query("SELECT current_setting('application_name') AS name")).rows, [{ name: expected }]);
 });
 
+test("boundedQuery logs a read that succeeds after BOUNDED_QUERY_SLOW_MS once; a fast read, a timeout, the 20 s default and 0 log none (#1377)", async t => {
+  const { boundedQuery } = await import("../src/lib/db");
+  const warned = t.mock.method(console, "warn", () => {});
+  t.mock.method(console, "error", () => {});
+  await withEnv({ BOUNDED_QUERY_SLOW_MS: "100" }, async () => {
+    assert.equal((await boundedQuery("test.slow", "SELECT pg_sleep(0.2)", [], 5_000)).rowCount, 1);
+    await boundedQuery("test.fast", "SELECT 1", [], 5_000);
+    await assert.rejects(boundedQuery("test.timeout", "SELECT pg_sleep(1)", [], 150), { code: "57014" });
+  });
+  await withEnv({ BOUNDED_QUERY_SLOW_MS: undefined }, () => boundedQuery("test.default", "SELECT pg_sleep(0.2)", [], 5_000));
+  await withEnv({ BOUNDED_QUERY_SLOW_MS: "0" }, () => boundedQuery("test.off", "SELECT pg_sleep(0.2)", [], 5_000));
+  const lines = logLines(warned);
+  assert.equal(lines.length, 1, lines.join("\n"));
+  const [, ms] = /^boundedQuery slow: test\.slow \((\d+) ms, limit 5000 ms\)$/.exec(lines[0]) ?? [];
+  assert.ok(Number(ms) >= 200, lines[0]);
+});
+
 test("a listing reload that times out serves the earlier count and facets; the next read after the lock reloads (#1377)", async t => {
   const query = { manufacturer: "bosch" };
   const read = () => inRequest(async () => ({ total: await catalog.listingTotal(query), facets: await catalog.catalogFacets(query) }));
