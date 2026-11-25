@@ -735,8 +735,12 @@ type ListingSummary={count:number;ids:string[];facets:Facets};
 const sharedSummaries=sharedLoads<ListingSummary>(5_000,50);
 /**
  * A covered listing's (summarized) count, page-1 ids in the default order and facets from one read of its rows
- * (listingSummarySql, #1367). Read as four statements, each scanned every row of the listing: ORIJINAL (155k rows) took
- * 14.5-15.7 s of database time summed and 5.1-5.3 s side by side, one scan 2.8-4.5 s (a busy local machine).
+ * (listingSummarySql, #1367). Read as four statements, each scanned every row of the listing. Locally (load ~8,
+ * npm run catalog:listing-timings) ORIJINAL (155k rows) took 1.9-2.0 s of database time summed and 1.3-1.5 s side by
+ * side, one scan 0.5-0.6 s; the root category (156k) 6.4-8.3 s summed and 3.4-4.5 s side by side, one scan 1.6-2.1 s;
+ * /katalog (803k) 3.1-3.4 s and 2.0-2.1 s against 1.4-1.5 s and 1.1-1.3 s. With 4 MB work_mem the scan writes up to a
+ * third more temp blocks than the four (/katalog 57 against 45 MB); with production's 16 MB only /katalog spills (32
+ * against 20 MB). 32 MB gained nothing over 16 MB, so the summary keeps the session's work_mem.
  */
 function listingSummary(key:string,filter:()=>ReturnType<typeof catalogFilter>){
  return listingEpoch().then(epoch=>sharedSummaries(`${epoch}|${key}`,async()=>{
