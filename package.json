@@ -103,6 +103,7 @@
     "test:manufacturers": "node --import tsx --test scripts/test-manufacturers.ts",
     "test:manufacturer-listing": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-manufacturer-listing.ts",
     "test:listing-summary": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-listing-summary.ts",
+    "test:listing-price-order": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-listing-price-order.ts",
     "test:brand-logos": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-brand-logos.ts",
     "test:session-cookie": "node --import tsx --test scripts/test-session-cookie.ts",
     "test:product-paths": "node --import tsx --test scripts/test-product-paths.ts",
