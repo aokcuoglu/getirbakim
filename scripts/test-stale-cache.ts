@@ -353,6 +353,22 @@ test("listingWaitMs: the setting, 250 ms when blank or invalid, unbounded while 
   }
 });
 
+test("listingStatementTimeoutMs: the setting's whole milliseconds, 55 s when blank or invalid, 0 turns the limit off", async () => {
+  const { listingStatementTimeoutMs } = await import("../src/modules/store/listing-timeout");
+  const original = process.env.LISTING_STATEMENT_TIMEOUT_MS;
+  try {
+    for (const [setting, expected] of [[undefined, 55_000], ["", 55_000], ["  ", 55_000], ["abc", 55_000], ["-5", 55_000], ["0.5", 55_000],
+      ["Infinity", 55_000], ["0", 0], [" 0 ", 0], ["200", 200], ["1500.7", 1500], ["30000", 30_000]] as const) {
+      if (setting === undefined) delete process.env.LISTING_STATEMENT_TIMEOUT_MS;
+      else process.env.LISTING_STATEMENT_TIMEOUT_MS = setting;
+      assert.equal(listingStatementTimeoutMs(), expected, JSON.stringify(setting));
+    }
+  } finally {
+    if (original === undefined) delete process.env.LISTING_STATEMENT_TIMEOUT_MS;
+    else process.env.LISTING_STATEMENT_TIMEOUT_MS = original;
+  }
+});
+
 test("db: two copies of the module (instrumentation and route bundles) share one pool in production", async () => {
   const globals = globalThis as { getirbakimPool?: unknown };
   const previous = globals.getirbakimPool;

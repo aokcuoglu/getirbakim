@@ -9,6 +9,11 @@ const createPool = () => {
     connectionString: process.env.DATABASE_URL,
     max: Number(process.env.DATABASE_POOL_MAX) || 15,
     connectionTimeoutMillis: Number(process.env.DATABASE_POOL_ACQUIRE_TIMEOUT_MS) || 10_000,
+    // Names this pool's sessions in pg_stat_activity (#1377), so their client backends (and their parallel workers, through
+    // leader_pid) can be counted apart from psql and other clients. Every process using this module carries it: the web
+    // tasks, and the scripts and in-process imports that import it too; PGAPPNAME or an application_name URL parameter
+    // wins, so a script can name its own.
+    fallback_application_name: "getirbakim-web",
   });
   // Without a listener, an error on an idle client is an unhandled 'error' event and kills the process.
   pool.on("error", error => console.error("Idle database client error", error.message));
@@ -19,6 +24,13 @@ const createPool = () => {
 // connections per copy (#771 measured 16 open against a max of 15). Dev reload also reuses it. DATABASE_POOL_MAX is the real
 // per-process ceiling only because the pool lives on globalThis; its error listener is registered once, in createPool.
 export const db = (globalDb.getirbakimPool ??= createPool());
+const defaultSlowMs = 20_000;
+/** BOUNDED_QUERY_SLOW_MS, read per call: blank or invalid 20 s, 0 no slow-read line (boundedQuery). */
+function boundedQuerySlowMs() {
+  const setting = process.env.BOUNDED_QUERY_SLOW_MS?.trim();
+  const value = setting ? Number(setting) : defaultSlowMs;
+  return Number.isFinite(value) && value >= 0 ? value : defaultSlowMs;
+}
 /**
  * One read with a server-side time limit. node-postgres stops waiting on its own, but the query would keep running:
  * a request the CDN abandoned (504) must not leave it on the database. Meant for the expensive, cached catalog reads.
@@ -26,6 +38,11 @@ export const db = (globalDb.getirbakimPool ??= createPool());
  * `label` is `<module>.<query>` plus optional listing detail, built only when the query runs (a cache miss); a statement
  * timeout (57014) is logged with it, cut to 200 chars, so a slow listing can be traced to its query. The logged time
  * includes the pool wait, and 57014 also covers a pg_cancel_backend.
+ * `timeoutMs` limits the statement alone, as the server counts it: its lock waits are inside it, the wait for a pool
+ * connection (up to DATABASE_POOL_ACQUIRE_TIMEOUT_MS) and the BEGIN/SET round trips are not.
+ * A statement that succeeds after more than BOUNDED_QUERY_SLOW_MS (20 s) logs one line, `boundedQuery slow: <label> (<ms>
+ * ms, limit <timeoutMs> ms)` with the statement's own time (no pool wait), so production shows how close the reads come
+ * to their limits before they time out (#1377).
  * The transaction is READ ONLY unless `write`: a statement that stores what it reads (a listing's whole price order,
  * src/modules/store/listing-price-order.ts, #1369) runs under the same limits.
  */
@@ -37,8 +54,12 @@ export async function boundedQuery<T extends QueryResultRow>(label: string, sql:
     await client.query(write ? "BEGIN" : "BEGIN READ ONLY");
     await client.query(`SET LOCAL statement_timeout = ${Math.max(1, Math.floor(timeoutMs))}`);
     if (workMem) await client.query(`SET LOCAL work_mem = '${workMem}'`);
+    const run = Date.now();
     const result = await client.query<T>(sql, values);
+    const ms = Date.now() - run;
     await client.query("COMMIT");
+    const slowMs = boundedQuerySlowMs();
+    if (slowMs > 0 && ms > slowMs) console.warn(`boundedQuery slow: ${label.slice(0, 200)} (${ms} ms, limit ${timeoutMs} ms)`);
     return result;
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
