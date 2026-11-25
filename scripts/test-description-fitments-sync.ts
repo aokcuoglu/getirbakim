@@ -254,8 +254,9 @@ describe("description fitment derive", { skip: !process.env.DATABASE_URL }, () =
   });
 });
 
-// The derive keeps the stored rows of present Dinamik items with a usable enrichment (#1370): its matching pass skips
-// them, yet storefront_description_fits still lists them on make and model pages next to their engine fits.
+// The derive keeps the stored rows of Dinamik items with a usable enrichment, whatever their presence (#1370): its
+// matching pass skips them, yet storefront_description_fits still lists them on make and model pages next to their
+// engine fits.
 describe("description fitment derive keeps the rows of enriched items", { skip: !process.env.DATABASE_URL }, () => {
   let schema: Awaited<ReturnType<typeof isolatedSchema>>;
   const ids: Record<string, string> = {};
@@ -274,6 +275,12 @@ describe("description fitment derive keeps the rows of enriched items", { skip: 
     await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,payload)
       SELECT id,code,product_data->>'uk','https://example.test/p','test','TST',code,$2::jsonb FROM supplier_items WHERE id=ANY($1::uuid[])`,
     [items, JSON.stringify({ vehicles: vehicles ? [{ model: "GOLF IV" }] : [], specifications: [], oemNumbers: {} })]);
+  }
+  // The first `n` bulk items leave Dinamik and their enrichment becomes unusable (job back to pending): rows to delete.
+  async function leave(n: number) {
+    const bulk = "SELECT id FROM supplier_items WHERE code IN (SELECT 'KEPT '||g FROM generate_series(1,$1::int) g)";
+    await schema.pool.query(`UPDATE supplier_items SET presence='inactive' WHERE id IN (${bulk})`, [n]);
+    await schema.pool.query(`UPDATE product_enrichment_jobs SET status='pending' WHERE supplier_item_id IN (${bulk})`, [n]);
   }
   async function store(key: string, ...models: number[]) {
     await schema.pool.query(`INSERT INTO product_model_fitments(supplier_item_id,model_id,source_text,derived_at)
@@ -297,7 +304,7 @@ describe("description fitment derive keeps the rows of enriched items", { skip: 
   after(async () => { await schema?.drop(); });
 
   // The tests share one schema and run in order.
-  test("enriched present Dinamik items keep their rows; every other item the derive does not read loses them", async () => {
+  test("enriched Dinamik items keep their rows whatever their presence; every other item the derive does not read loses them", async () => {
     await item("plain", GOLF);
     // Usable enrichments, complete or listing vehicles; each description names a model its stored rows lack.
     await item("enriched", PASSAT); await enrich([ids.enriched], "complete", true); await store("enriched", 10, 11);
@@ -305,37 +312,42 @@ describe("description fitment derive keeps the rows of enriched items", { skip: 
     await item("bare", GOLF); await enrich([ids.bare], "complete", false); await store("bare", 11);
     // A partial enrichment without vehicles is not usable: the item is read like a plain one.
     await item("thin", GOLF); await enrich([ids.thin], "partial", false); await store("thin", 11);
-    // Enriched but gone from Dinamik, or not a Dinamik item; and a present Dinamik item without a description.
+    // Enriched items that missed a Dinamik list keep their rows for when they return.
     await item("inactive", GOLF, { presence: "inactive" }); await enrich([ids.inactive], "complete", true); await store("inactive", 10);
     await item("missing", GOLF, { presence: "pending_missing" }); await enrich([ids.missing], "complete", true); await store("missing", 10);
+    // An unenriched item gone from Dinamik, an enriched non-Dinamik item, a present Dinamik item without a description.
+    await item("gone", GOLF, { presence: "inactive" }); await store("gone", 10);
     await item("basbug", GOLF, { supplier: "basbug" }); await enrich([ids.basbug], "complete", true); await store("basbug", 10);
     await item("empty", ""); await store("empty", 10);
     const before = await stored();
 
-    const expected = { inserted: 2, updated: 0, deleted: 5, unchanged: 0, kept: 4 };
+    const expected = { inserted: 2, updated: 0, deleted: 4, unchanged: 0, kept: 6 };
     const dry = await derive({ dryRun: true });
-    assert.deepEqual([dry.status, dry.items, dry.rows, dry.existing, dry.written], ["ok", 2, 2, 9, expected]);
+    assert.deepEqual([dry.status, dry.items, dry.rows, dry.existing, dry.written], ["ok", 2, 2, 10, expected]);
     assert.deepEqual(await stored(), before, "a dry run writes nothing");
     const real = await derive();
     assert.deepEqual([real.status, real.diff, real.written], ["ok", expected, expected], "the write matches the dry-run diff, kept included");
 
     const after = await stored();
-    assert.deepEqual([...after.keys()].sort(), ["bare:11", "enriched:10", "enriched:11", "partial:10", "plain:10", "thin:10"]);
-    for (const key of ["bare:11", "enriched:10", "enriched:11", "partial:10"]) assert.equal(after.get(key), before.get(key), `${key} is kept untouched`);
+    const kept = ["bare:11", "enriched:10", "enriched:11", "inactive:10", "missing:10", "partial:10"];
+    assert.deepEqual([...after.keys()].sort(), [...kept, "plain:10", "thin:10"].sort());
+    for (const key of kept) assert.equal(after.get(key), before.get(key), `${key} is kept untouched`);
   });
 
   test("an item moves from derived to kept when it gets an enrichment, and back when it loses it", async () => {
-    // plain gets an enrichment and a description naming another model; bare loses its enrichment.
+    // plain gets an enrichment and a description naming another model; bare loses its enrichment; missing returns.
     await schema.pool.query(`UPDATE supplier_items SET product_data=product_data||jsonb_build_object('ac',$2::text) WHERE id=$1`, [ids.plain, PASSAT]);
     await enrich([ids.plain], "complete", true);
     await schema.pool.query("DELETE FROM product_enrichments WHERE supplier_item_id=$1", [ids.bare]);
+    await schema.pool.query("UPDATE supplier_items SET presence='present' WHERE id=$1", [ids.missing]);
     const before = await stored();
 
     const result = await derive();
-    assert.deepEqual([result.status, result.items, result.written], ["ok", 2, { inserted: 1, updated: 0, deleted: 1, unchanged: 1, kept: 4 }]);
+    assert.deepEqual([result.status, result.items, result.written], ["ok", 2, { inserted: 1, updated: 0, deleted: 1, unchanged: 1, kept: 6 }]);
     const after = await stored();
     assert.equal(after.get("plain:10"), before.get("plain:10"), "the newly enriched item keeps its derived row untouched");
     assert.equal(after.has("plain:11"), false, "and gets no row from its new description");
+    assert.equal(after.get("missing:10"), before.get("missing:10"), "a returning enriched item still has its rows");
     assert.deepEqual([after.has("bare:11"), after.has("bare:10")], [false, true], "an item that lost its enrichment is derived again");
   });
 
@@ -350,31 +362,32 @@ describe("description fitment derive keeps the rows of enriched items", { skip: 
     const ok = await derive();
     assert.equal(ok.status, "ok", ok.reason);
     assert.ok(ok.rows < ok.existing * SHRINK_GUARD_RATIO, "the derivation alone is under the guard");
-    assert.deepEqual([ok.rows, ok.existing, ok.written], [2, 1006, { inserted: 0, updated: 0, deleted: 0, unchanged: 2, kept: 1004 }]);
+    assert.deepEqual([ok.rows, ok.existing, ok.written], [2, 1008, { inserted: 0, updated: 0, deleted: 0, unchanged: 2, kept: 1006 }]);
 
-    // 400 enriched items leave Dinamik: 606 of the 1006 rows would remain.
-    await schema.pool.query("UPDATE supplier_items SET presence='inactive' WHERE code IN (SELECT 'KEPT '||g FROM generate_series(1,400) g)");
+    // 400 items leave Dinamik without a usable enrichment: 608 of the 1008 rows would remain.
+    await leave(400);
     const before = await snapshot();
     const refused = await derive();
     assert.equal(refused.status, "refused");
-    assert.match(refused.reason ?? "", /leaves 606 rows \(2 derived, 604 kept\), under 70% of the 1006 stored/);
-    assert.deepEqual([refused.diff, refused.written], [{ inserted: 0, updated: 0, deleted: 400, unchanged: 2, kept: 604 }, null]);
+    assert.match(refused.reason ?? "", /leaves 608 rows \(2 derived, 606 kept\), under 70% of the 1008 stored/);
+    assert.deepEqual([refused.diff, refused.written], [{ inserted: 0, updated: 0, deleted: 400, unchanged: 2, kept: 606 }, null]);
     assert.equal(await snapshot(), before, "a refused derive writes nothing");
     await schema.pool.query("UPDATE supplier_items SET presence='present' WHERE code LIKE 'KEPT %'");
+    await schema.pool.query("UPDATE product_enrichment_jobs SET status='complete' WHERE supplier_item_id IN (SELECT id FROM supplier_items WHERE code LIKE 'KEPT %')");
   });
 
   test("the delete guard counts only the rows it deletes, not the kept ones", async () => {
-    // The 1004 kept rows passed above; 150 enriched items leaving Dinamik are deletions.
-    await schema.pool.query("UPDATE supplier_items SET presence='inactive' WHERE code IN (SELECT 'KEPT '||g FROM generate_series(1,150) g)");
+    // The 1006 kept rows passed above; 150 items leaving Dinamik without a usable enrichment are deletions.
+    await leave(150);
     const before = await snapshot();
-    const expected = { inserted: 0, updated: 0, deleted: 150, unchanged: 2, kept: 854 };
+    const expected = { inserted: 0, updated: 0, deleted: 150, unchanged: 2, kept: 856 };
     const refused = await derive();
     assert.equal(refused.status, "refused");
-    assert.match(refused.reason ?? "", /deletes 150 of the 1006/);
+    assert.match(refused.reason ?? "", /deletes 150 of the 1008/);
     assert.deepEqual([refused.diff, refused.written], [expected, null]);
     assert.equal(await snapshot(), before, "a refused derive writes nothing");
     assert.deepEqual((await derive({ allowShrink: true })).written, expected);
-    assert.equal(await countOf(schema.pool), 856);
+    assert.equal(await countOf(schema.pool), 858);
   });
 });
 

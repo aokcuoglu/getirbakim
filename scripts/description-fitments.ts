@@ -1,7 +1,7 @@
 // Model-level fitment from Dinamik's product descriptions (#392).
 //   derive [--dry-run] [--allow-shrink]  syncs product_model_fitments for products without an engine-level enrichment:
 //                       only changed rows are written, and derived_at moves only when a row's model or years change (#798).
-//                       The rows of present Dinamik items with one are kept untouched (diff.kept, #1370).
+//                       The rows of Dinamik items with one, present or not, are kept untouched (diff.kept, #1370).
 //                       --dry-run computes the same diff in a rolled-back transaction. Prints one JSON line.
 //   report              counts what is stored, per brand
 // The derivation lives in src/modules/store/description-fitment-derive.ts; neither imports a server-only module, so the

@@ -10,9 +10,12 @@ import { applyDescriptionFitmentsNext, diffDescriptionFitments, loadDescriptionF
 // storefront_description_fits does not exclude enriched items and their engine fits do not cover every model the
 // description named, so deleting the rows would drop the products from make and model pages, counts and sitemaps.
 
-// The present Dinamik items with a usable enrichment: the matching pass reads none of them and the sync keeps their
-// stored rows. Both read description_fitments_keep, loaded once from this query, so the two sets cannot drift apart.
-const ENRICHED_DINAMIK_ITEMS = `SELECT s.id FROM supplier_items s WHERE s.supplier='dinamik' AND s.presence='present'
+// The Dinamik items with a usable enrichment, whatever their presence: the matching pass reads none of them and the
+// sync keeps their stored rows. An enriched item that misses a list (pending_missing, then inactive) keeps its rows, so
+// they are still there when it returns; as a kept item it is never derived again. Both the item query and the sync
+// read description_fitments_keep, loaded once from this query at the start of the run: no item is both derived and
+// kept. An enrichment that lands after the load counts from the next run; this run derives the item as unenriched.
+const ENRICHED_DINAMIK_ITEMS = `SELECT s.id FROM supplier_items s WHERE s.supplier='dinamik'
   AND EXISTS(SELECT 1 FROM product_enrichment_shared e WHERE e.supplier_item_id=s.id
    AND (e.status='complete' OR jsonb_array_length(COALESCE(e.payload->'vehicles','[]'::jsonb))>0))`;
 
@@ -38,7 +41,7 @@ export type DeriveResult = { status: "ok" | "busy" | "refused"; reason?: string;
 
 /**
  * Syncs product_model_fitments with a fresh derivation in its own transaction on `client`, keeping the rows of enriched
- * present Dinamik items. busy: another derive holds the lock; refused: a guard stopped it before anything was written.
+ * Dinamik items. busy: another derive holds the lock; refused: a guard stopped it before anything was written.
  * `diff` is what the derivation would change once computed (also on a shrink- or delete-guard refusal, for review); a
  * dry run then rolls back with `written` = `diff`.
  */
