@@ -673,9 +673,19 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // The stored keys must stay bounded until the 2-day prune: a crawler walking model x category pages (~5.8k models x ~590
 // categories) would add hundreds of thousands of rows, so model listings stay in memory, and a make's listing keeps its
 // first page only (deeper pages of the plain, category and manufacturer listings are stored up to page 20; a price order is one key).
+// These three also wait at most LISTING_EPOCH_WAIT_MS (250 ms) for a reload when an earlier value exists (#771): the
+// entry an epoch bump replaced, or a stored row of an older epoch or past maxStaleMs. The fit sync bumps the epoch up to
+// every 30 s while fit rows change (enrichment-links.server.ts), and a large manufacturer's count, ids and facets each scan
+// every row of the brand (ORIJINAL, 155k rows: ~3 s cold); the visitor gets the earlier aggregate while the reload runs.
+// Cards are read live by id (storefrontRowsByIds), so prices, stock and hidden products stay current; only the count, the
+// order and the facets can be one reload behind. After an admin edit (#585) a listing whose reload takes longer than the
+// wait shows the earlier count and ids until it finishes; a quick one shows the edit at once. The vehicle, fit, brand and
+// search caches still wait for their reload.
 const aggregateTtl=10*60*1000,persistedFor={maxStaleMs:24*60*60*1000};
-const cachedCounts=staleCache<number>(aggregateTtl,500,{...listings,...persistedFor,store:listingCacheStore<number>("count",1)});
-const cachedPageIds=staleCache<string[]>(aggregateTtl,500,{...listings,...persistedFor,store:listingCacheStore<string[]>("page-ids",1)});
+const listingWaitMs=()=>{const value=Number(process.env.LISTING_EPOCH_WAIT_MS??250);return Number.isFinite(value)&&value>=0?value:250;};
+const persistedListings={...listings,...persistedFor,maxWaitMs:listingWaitMs};
+const cachedCounts=staleCache<number>(aggregateTtl,500,{...persistedListings,store:listingCacheStore<number>("count",1)});
+const cachedPageIds=staleCache<string[]>(aggregateTtl,500,{...persistedListings,store:listingCacheStore<string[]>("page-ids",1)});
 // A garage vehicle's fit and oil filters key their entries per vehicle type (#884): kept apart, so every page view with a
 // vehicle (its "Aracına uyanlar" lead) does not push the plain listings, 0.5-1.5 s each to recompute, out of the LRU above.
 const cachedVehicleCounts=staleCache<number>(aggregateTtl,500,listings),cachedVehiclePageIds=staleCache<string[]>(aggregateTtl,500,listings);
@@ -683,7 +693,7 @@ const vehicleScoped=(query:CatalogQuery)=>Boolean(query.fits||query.oil);
 const countCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehicleCounts:cachedCounts;
 const pageIdCache=(query:CatalogQuery)=>vehicleScoped(query)?cachedVehiclePageIds:cachedPageIds;
 type Facets={brands:string[];attributes:CatalogFacet[]};
-const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...listings,...persistedFor,store:listingCacheStore<Facets>("facets",1)}),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
+const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,store:listingCacheStore<Facets>("facets",1)}),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
 const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
 const persistablePage=(query:CatalogQuery,page:number)=>persistable(query)&&page<=(query.make?1:cachedPages);
 /** The listing filter built at most once, on the first call: a cached listing never builds it (its id sets take queries too). */
@@ -848,6 +858,31 @@ export function listingTotal(query:CatalogQuery,context:CatalogContext={}){
  const scope={...query,q:undefined},key=filterKey(query,context);
  return countCache(query)(key,async()=>countListing(await catalogFilter(scope,context),key),{persist:persistable(scope)});
 }
+/** The default listing order: newest first, products nobody supplies now last (#475). */
+const newestOrder="unavailable,updated_at DESC,id";
+const pricedOrder=(query:CatalogQuery)=>query.sort==="price-asc"||query.sort==="price-desc";
+/** Page 1 whatever the total: no page asked, or one below 2 (browseProducts clamps it the same way). */
+const firstPageAsked=(query:CatalogQuery)=>{const requested=Number(query.page);return !Number.isSafeInteger(requested)||requested<=1;};
+/** The cached ids of one page of a listing without a search in the default order (newest first). */
+function listingPageIds(query:CatalogQuery,context:CatalogContext,filter:()=>ReturnType<typeof catalogFilter>,page:number){
+ const key=`${filterKey(query,context)}|${page}`;
+ return pageIdCache(query)(key,async()=>{const listing=await filter(),{values,from}=listing;return (await listingQuery<{id:string}>(listing,`catalog.listingPageIds ${key}`,
+  `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${newestOrder} LIMIT ${catalogPageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*catalogPageSize])).rows.map(row=>row.id);},
+  {persist:persistablePage(query,page)});
+}
+/**
+ * Starts a listing's facets, count and (page 1 in the default order) page ids without waiting for them (#771), so a page
+ * that reads its total before it renders (the manufacturer page) does not run them one after another. They fill the
+ * entries browseProducts and catalogFacets read; a failure is left to those reads. Not for a search, nor for a vehicle
+ * filter without the vehicle (its keys carry the vehicle type).
+ */
+export function primeListing(query:CatalogQuery,context:CatalogContext={}){
+ if(query.q?.trim()||(vehicleScoped(query)&&!context.vehicleTypeId))return;
+ const filter=lazyFilter(query,context),key=filterKey(query,context);
+ const started:Promise<unknown>[]=[catalogFacets(query,context),countCache(query)(key,async()=>countListing(await filter(),key),{persist:persistable(query)})];
+ if(!pricedOrder(query)&&firstPageAsked(query))started.push(listingPageIds(query,context,filter,1));
+ for(const promise of started)promise.catch(()=>{});
+}
 /** `limit`: read only the first `limit` cards of the page (vehicleLead); counts, pages and cached page ids stay the page's. */
 export async function browseProducts(query:CatalogQuery,context:CatalogContext={},{limit=catalogPageSize}:{limit?:number}={}){
  if(isPlainSearch(query)&&(query.sort??"relevance")==="relevance"){
@@ -862,7 +897,10 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  }
  // Without a search the filter is built only when a cache misses; a search always needs it (its matches).
  const filter=lazyFilter(query,context),search=query.q?.trim()?(await filter()).search:undefined;
- const pricedSort = query.sort === "price-asc" || query.sort === "price-desc", pricedKey=`${filterKey(query,context)}|${query.sort}`;
+ const pricedSort = pricedOrder(query), pricedKey=`${filterKey(query,context)}|${query.sort}`;
+ // Page 1 of the default order does not depend on the total: its ids load beside the count (#771).
+ const firstIds=!search&&!pricedSort&&firstPageAsked(query)?listingPageIds(query,context,filter,1):undefined;
+ firstIds?.catch(()=>{});
  // A price-sorted search over two or more id sets prices its page by the ids it counts (listedIds, #1345).
  const pricedSearch=search&&pricedSort&&(await filter()).idSets>=2?await listedIds(await filter(),pricedKey):undefined;
  const count=async()=>countListing(await filter(),filterKey(query,context));
@@ -871,12 +909,9 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const requested = Number(query.page);
  const page = Number.isSafeInteger(requested) ? Math.min(pages,Math.max(1,requested)) : 1;
  // Products nobody supplies now come after every saleable one, in every order (#475).
- const order=query.sort === "price-asc" ? "unavailable,price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "unavailable,price_kurus DESC NULLS LAST,id" : "unavailable,updated_at DESC,id";
+ const order=query.sort === "price-asc" ? "unavailable,price_kurus ASC NULLS LAST,id" : query.sort === "price-desc" ? "unavailable,price_kurus DESC NULLS LAST,id" : newestOrder;
  if(!search&&!pricedSort){
-  const key=`${filterKey(query,context)}|${page}`;
-  const ids=await pageIdCache(query)(key,async()=>{const listing=await filter(),{values,from}=listing;return (await listingQuery<{id:string}>(listing,`catalog.listingPageIds ${key}`,
-   `SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${order} LIMIT ${pageSize} OFFSET $${values.length+1}) page`,[...values,(page-1)*pageSize])).rows.map(row=>row.id);},
-   {persist:persistablePage(query,page)});
+  const ids=await (page===1&&firstIds?firstIds:listingPageIds(query,context,filter,page));
   const items=await storefrontRowsByIds(ids.slice(0,take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }

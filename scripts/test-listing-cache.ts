@@ -216,6 +216,39 @@ test("a stored value older than maxStaleMs or from an older epoch is a miss", as
   assert.deepEqual([shared.rows.get("epoch")?.value, shared.rows.get("epoch")?.epoch], ["loaded", 2]);
 });
 
+test("with maxWaitMs a stored value of an older epoch or past maxStaleMs is served while the load runs, then replaced (#771)", async () => {
+  const shared = fakeStore<string>();
+  shared.put("old", "stored", 2_000);
+  shared.put("epoch", "stored", 0, 1);
+  const cache = staleCache<string>(60_000, 500, { store: shared.store, maxStaleMs: 1_000, epoch: async () => 2, maxWaitMs: 10 });
+  let release = () => {};
+  const gate = new Promise<void>(done => { release = done; });
+  let loads = 0;
+  const slow = async () => { loads++; await gate; return "loaded"; };
+  assert.deepEqual(await Promise.all([cache("old", slow), cache("epoch", slow)]), ["stored", "stored"]);
+  assert.equal(await cache("old", slow), "stored", "still loading: the stored value again");
+  release();
+  await until(async () => [shared.rows.get("old")?.value, shared.rows.get("epoch")?.value], values => values.every(value => value === "loaded"));
+  assert.equal(await cache("old", slow), "loaded");
+  assert.equal(await cache("epoch", slow), "loaded");
+  assert.deepEqual([shared.rows.get("old")?.value, shared.rows.get("epoch")?.value, shared.rows.get("epoch")?.epoch], ["loaded", "loaded", 2]);
+  assert.equal(loads, 2, "one load per key");
+});
+
+test("with maxWaitMs a failed load after a memory miss serves the stored value and the next call loads again; no stored value is waited for", async () => {
+  const shared = fakeStore<string>();
+  shared.put("k", "stored", 2_000);
+  const cache = staleCache<string>(60_000, 500, { store: shared.store, maxStaleMs: 1_000, maxWaitMs: 10 });
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    assert.equal(await cache("k", async () => { throw new Error("database down"); }), "stored");
+  } finally { console.error = originalError; }
+  assert.equal(await cache("k", async () => "loaded"), "loaded", "the failed entry was dropped");
+  const empty = staleCache<string>(60_000, 500, { store: fakeStore<string>().store, maxWaitMs: 10 });
+  assert.equal(await empty("k", async () => { await sleep(40); return "loaded"; }), "loaded", "nothing earlier: the caller waits for the load");
+});
+
 test("a TTL refresh or an epoch reload adopts a fresher value another process stored", async () => {
   const shared = fakeStore<string>();
   let current = 0, loads = 0;
@@ -302,6 +335,30 @@ test("plain and make listings persist their count, page ids and facets; searches
   await catalog.catalogFacets({});
   const expected = [{ namespace: "count", n: 2 }, { namespace: "facets", n: 1 }, { namespace: "page-ids", n: 2 }];
   assert.deepEqual(await until(stored, rows => JSON.stringify(rows) === JSON.stringify(expected)), expected);
+});
+
+test("after a bump a listing serves its earlier count and ids past LISTING_EPOCH_WAIT_MS, its cards live, then the reload (#771)", async () => {
+  const listing = async () => {
+    const result = await catalog.browseProducts({ sort: "newest" });
+    return { total: result.total, ids: result.items.map(row => row.id) };
+  };
+  const earlier = await listing();
+  assert.ok(earlier.ids.includes(ids.skf));
+  await overrides.persistProductOverride(schema.pool, await productOf("skf"), { hidden: true }, admin);
+  const wait = process.env.LISTING_EPOCH_WAIT_MS;
+  process.env.LISTING_EPOCH_WAIT_MS = "0";
+  try {
+    await epoch.invalidateListings();
+    const stale = await listing();
+    assert.equal(stale.total, earlier.total, "the count from before the bump while it reloads");
+    assert.deepEqual(stale.ids, earlier.ids.filter(id => id !== ids.skf), "the cards are read live: the hidden one is gone");
+    const reloaded = await until(listing, result => result.total === earlier.total - 1);
+    assert.equal(reloaded.total, earlier.total - 1);
+    assert.deepEqual(reloaded.ids, stale.ids);
+  } finally {
+    if (wait === undefined) delete process.env.LISTING_EPOCH_WAIT_MS;
+    else process.env.LISTING_EPOCH_WAIT_MS = wait;
+  }
 });
 
 test("boundedQuery raises work_mem for its read only and refuses a malformed value", async () => {

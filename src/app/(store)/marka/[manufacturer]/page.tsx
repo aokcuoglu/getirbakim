@@ -4,7 +4,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import type { SearchParams } from "@/lib/search-params";
 import { pageMetadata } from "@/lib/site";
 import { manufacturerPath, slugPattern } from "@/modules/seo/paths";
-import { listingTotal } from "@/modules/store/catalog";
+import { listingTotal, primeListing } from "@/modules/store/catalog";
 import { parseCatalogQuery, type CatalogQuery } from "@/modules/store/catalog-query";
 import { listingViewIndexable, manufacturerTexts } from "@/modules/store/manufacturers";
 import { brandedTitle } from "@/modules/seo/meta-text";
@@ -27,6 +27,8 @@ const load = cache(async (slug: string, search: SearchParams) => {
   }
   // Category, make and model are other listings' path segments; a query one is ignored here.
   const query: CatalogQuery = { ...parseCatalogQuery({ ...search, category: undefined, make: undefined, model: undefined }), manufacturer: slug };
+  // The listing's facets, count and first page ids start now, beside the total, not after it (#771).
+  primeListing(query);
   const total = await listingTotal({ manufacturer: slug });
   if (!total) notFound();
   return { manufacturer: match.manufacturer, query, total };
