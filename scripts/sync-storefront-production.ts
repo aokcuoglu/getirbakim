@@ -5,8 +5,8 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import {
-  acquireLock, checkInboundReport, exportSummary, type InboundReport, LOCK_PATH, nextRetry, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, STATE_PATH, summarizeParts, SYNC_DIR,
-  reportKey, type SyncState, tombstoneWarnings,
+  acquireLock, checkInboundReport, exportSummary, type InboundReport, LOCK_PATH, nextRetry, nextVehicleState, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, sinceFrom, STATE_PATH,
+  summarizeParts, SYNC_DIR, reportKey, type SyncState, tombstoneWarnings, vehicleDigestToSkip,
 } from "./storefront-sync-state";
 import { TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
 import {
@@ -40,6 +40,8 @@ import {
 //                      otherwise, so a full send is always deliberate).
 //   --max-deletions=<n> the most enrichments the import may delete for local deletions (#564, default 1000); more
 //                      stop the import before anything is written.
+//   --vehicle-data     send the REPXPERT vehicle data in full even if the target confirmed the same digest (#1359; e.g.
+//                      after the target's database was restored). Not with a real --baseline, which exports nothing.
 // Any other argument is an error. Real runs and --baseline hold .local/storefront-sync/sync.lock, so two syncs
 // (launchd and a manual run) never overlap.
 // aws: the import task writes report.json (media bucket, storefront-sync-state.ts reportKey); without a report
@@ -47,12 +49,16 @@ import {
 // state.aws.json as `retry` and exported again next run whatever the watermark (export --retry-file).
 // Every bundle carries the tombstones of enrichments deleted or invalidated locally in the last 90 days
 // (storefront-bundle-tombstones.ts); an operations image older than #564 ignores them, which is only a warning.
+// REPXPERT vehicle data (#1359): state.aws.json `vehicle` keeps the digest the target confirmed (written only when the
+// report accounts for every row); the export leaves the data and its media out while its digest is the same. It goes in
+// full without that entry (first run, a new --baseline), with --full or --vehicle-data, once the last send is
+// VEHICLE_RESEND_DAYS old, and on the run after one that saw another operations task definition revision.
 // An old `vps` value must not silently run something else.
 if (process.env.STOREFRONT_SYNC_TARGET && process.env.STOREFRONT_SYNC_TARGET !== "aws") {
   throw new Error("STOREFRONT_SYNC_TARGET is obsolete: the VPS target was removed (#563), AWS is the only target. Remove it or set it to aws.");
 }
 const target = "aws";
-const { dryRun, full, force, baseline, maxDeletions } = parseSyncArgs(process.argv.slice(2), new Date());
+const { dryRun, full, force, vehicleData, baseline, maxDeletions } = parseSyncArgs(process.argv.slice(2), new Date());
 const state = resolve(STATE_PATH);
 // Enrichment imports that started before the last snapshot but committed after it would be missed;
 // the overlap re-sends them, and the import is an idempotent upsert.
@@ -137,6 +143,8 @@ function awsTarget() {
       "--overrides", JSON.stringify(overrides)]);
     const taskArn: string | undefined = started.tasks?.[0]?.taskArn;
     if (!taskArn) throw new Error(`run-task started no task: ${JSON.stringify(started.failures)}`);
+    // family:revision the task runs (the family resolves to its latest revision); a new one may carry another importer (#1359).
+    const taskDefinition: string | null = started.tasks[0].taskDefinitionArn?.split("/").at(-1) ?? null;
     console.log(JSON.stringify({ task: taskArn.split("/").at(-1), bucket, prefix, at: new Date().toISOString() }));
     for (;;) {
       await new Promise(done => setTimeout(done, 15_000));
@@ -154,9 +162,9 @@ function awsTarget() {
       };
       // An operations image older than #553 writes no report (checkInboundReport then stops the run).
       try {
-        return { report: aws(["s3", "cp", `s3://${mediaBucket}/${reportKey(prefix)}`, "-"]) as InboundReport, cleanup };
+        return { report: aws(["s3", "cp", `s3://${mediaBucket}/${reportKey(prefix)}`, "-"]) as InboundReport, cleanup, taskDefinition };
       } catch (error) {
-        if (/\b404\b|Not Found|NoSuchKey/i.test((error as Error).message)) return { report: null, cleanup };
+        if (/\b404\b|Not Found|NoSuchKey/i.test((error as Error).message)) return { report: null, cleanup, taskDefinition };
         // Without s3:ListBucket on the media bucket S3 answers 403 for a missing key too, so a 403 on a run report is either
         // the missing infra change (STOREFRONT_SYNC_PREFIX_MODE=run, #1137) or a task that wrote no report.
         if (runDir && /AccessDenied|\b403\b|Forbidden/i.test((error as Error).message)) {
@@ -201,7 +209,8 @@ if (writesState) {
 try {
   if (baseline && !dryRun) {
     if (previous && !force) throw new Error(`${state} exists (snapshotAt ${previous.snapshotAt}); add --force to overwrite it`);
-    // A forced baseline keeps the retry list: those enrichments are still missing on the target.
+    // A forced baseline keeps the retry list: those enrichments are still missing on the target. It drops `vehicle`: a
+    // new baseline may stand for another target, so the next run sends the REPXPERT data in full (#1359).
     const written: SyncState = { snapshotAt: baseline, baseline: true, syncedAt: new Date().toISOString(), target, ...(previous?.retry ? { retry: previous.retry } : {}) };
     await writeFile(state, JSON.stringify(written, null, 2));
     console.log(JSON.stringify({ baseline: written, state }));
@@ -211,13 +220,17 @@ try {
     const retryFile = resolve(local, "retry.json");
     if (retry.length) await writeFile(retryFile, JSON.stringify(parseRetryItems(JSON.stringify(retry))));
     const fullDir = resolve(local, "full");
+    // The REPXPERT vehicle data is left out only while its digest equals the one the target confirmed (#1359).
+    const vehicleSkip = vehicleDigestToSkip(previous, { full, force: vehicleData, now: new Date() });
     const startedAt = Date.now();
     run(process.execPath, ["--env-file=.env.local", "--conditions=react-server", "--import", "tsx", "scripts/export-storefront-bundle.ts", fullDir,
       ...(since ? [`--since=${since}`] : []), ...(retry.length ? [`--retry-file=${retryFile}`] : []), ...(maxDeletions ? [`--max-deletions=${maxDeletions}`] : []),
+      ...(vehicleSkip.digest ? [`--vehicle-digest=${vehicleSkip.digest}`] : []),
       // Pruning the local log is a write: only real runs do it.
       ...(dryRun ? [] : ["--prune"])]);
     const manifest = exportSummary(await readFile(resolve(fullDir, "manifest.json"), "utf8"));
     const tombstones = manifest.tombstones;
+    const vehicle = { ...manifest.vehicle, reason: vehicleSkip.reason };
     const exportMs = Date.now() - startedAt;
     const splitStart = Date.now();
     const partsDir = resolve(local, "parts");
@@ -227,13 +240,14 @@ try {
       const summary = await summarizeParts(partsDir);
       console.log(JSON.stringify({
         dryRun: true, target, since, snapshotAt: manifest.snapshotAt, exportMs, splitMs, retried: retry.length, tombstones, invalidatedJobs: manifest.invalidatedJobs, maxDeletions: manifest.maxDeletions,
+        vehicle,
         totals: { ...summary.totals, mediaMB: Math.round(summary.totals.mediaBytes / 1024 / 1024 * 10) / 10,
           jsonMB: Math.round(summary.totals.jsonBytes / 1024 / 1024 * 10) / 10 }, base: summary.base, parts: summary.parts,
       }, null, 2));
     } else {
       console.log(JSON.stringify({
         target, since, snapshotAt: manifest.snapshotAt, enrichments: manifest.enrichmentCount, jobs: manifest.jobs, tombstones,
-        invalidatedJobs: manifest.invalidatedJobs, maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length, exportMs, splitMs,
+        invalidatedJobs: manifest.invalidatedJobs, maxDeletions: manifest.maxDeletions, retried: retry.length, parts: parts.length, exportMs, splitMs, vehicle,
       }));
       const result = await transfer(partsDir, parts, manifest.snapshotAt);
       // Throws (the watermark stays) when the report is missing or belongs to another bundle.
@@ -244,9 +258,14 @@ try {
       const deletions = tombstoneWarnings(report, tombstones, TOMBSTONE_RETENTION_DAYS);
       for (const warning of deletions.warnings) console.warn(`WARNING: ${warning}`);
       for (const note of deletions.notes) console.log(note);
+      const vehicleOutcome = nextVehicleState({
+        previous: previous?.vehicle, exported: manifest.vehicle, totals: report.totals, taskDefinition: result.taskDefinition, now: new Date(),
+      });
+      for (const warning of vehicleOutcome.warnings) console.warn(`WARNING: ${warning}`);
+      for (const note of vehicleOutcome.notes) console.log(note);
       const written: SyncState = {
         snapshotAt: manifest.snapshotAt, syncedAt: new Date().toISOString(), target, since, enrichments: manifest.enrichmentCount, jobs: manifest.jobs, tombstones,
-        ...(next.length ? { retry: next } : {}),
+        ...(next.length ? { retry: next } : {}), ...(vehicleOutcome.vehicle ? { vehicle: vehicleOutcome.vehicle } : {}),
       };
       await writeFile(state, JSON.stringify(written, null, 2));
       console.log(JSON.stringify({ synced: name, target, snapshotAt: manifest.snapshotAt, retry: next.length }));

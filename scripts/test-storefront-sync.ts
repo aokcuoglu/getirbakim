@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,13 +9,14 @@ import { dirname, join } from "node:path";
 import { isClockSkewError, sendWithSkewRetry } from "./storefront-media-read";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import { ENRICHMENTS_FILE, ITEMS_FILE, JOBS_FILE, MEDIA_FILE, PRODUCTS_FILE, writeNdjson } from "./storefront-bundle-stream";
+import { VEHICLE_DATA_VERSION, vehicleDataDigest } from "./storefront-bundle-export";
 import {
   checkPartUpload, expectedPartObjects, KEEP_RUNS, parsePartListing, parsePrefixMode, parseRootListing, runDirName, staleRunEntries, strayEntries, SYNC_BASE_PREFIX,
   uploadFailure, uploadParts, withS3Concurrency, type UploadIo,
 } from "./storefront-upload";
 import {
-  acquireLock, buildInboundReport, checkInboundReport, exportSummary, nextRetry, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs, releaseLock, reportKey,
-  sinceFrom, STATE_PATH, summarizeParts, tombstoneWarnings,
+  acquireLock, buildInboundReport, checkInboundReport, exportSummary, nextRetry, nextVehicleState, parseBaseline, parsePositiveInteger, parseRetryItems, parseSyncArgs,
+  parseVehicleDigest, releaseLock, reportKey, sinceFrom, STATE_PATH, summarizeParts, tombstoneWarnings, VEHICLE_RESEND_DAYS, vehicleDigestToSkip, type VehicleState,
 } from "./storefront-sync-state";
 
 test("the watermark stays in state.aws.json", () => {
@@ -43,20 +45,25 @@ test("a baseline must be an ISO timestamp that is not in the future", () => {
 
 test("sync arguments are parsed strictly; a mistyped flag never becomes a real run", () => {
   const now = new Date("2026-11-14T12:00:00Z");
-  assert.deepEqual(parseSyncArgs([], now), { dryRun: false, full: false, force: false, baseline: null, maxDeletions: null });
+  assert.deepEqual(parseSyncArgs([], now), { dryRun: false, full: false, force: false, vehicleData: false, baseline: null, maxDeletions: null });
   assert.deepEqual(parseSyncArgs(["--dry-run", "--baseline=2026-11-13T05:47:24Z"], now),
-    { dryRun: true, full: false, force: false, baseline: "2026-11-13T05:47:24.000Z", maxDeletions: null });
+    { dryRun: true, full: false, force: false, vehicleData: false, baseline: "2026-11-13T05:47:24.000Z", maxDeletions: null });
   assert.deepEqual(parseSyncArgs(["--baseline=2026-11-13T05:47:24Z", "--force"], now),
-    { dryRun: false, full: false, force: true, baseline: "2026-11-13T05:47:24.000Z", maxDeletions: null });
-  assert.deepEqual(parseSyncArgs(["--full"], now), { dryRun: false, full: true, force: false, baseline: null, maxDeletions: null });
-  assert.deepEqual(parseSyncArgs(["--max-deletions=5000", "--dry-run"], now), { dryRun: true, full: false, force: false, baseline: null, maxDeletions: 5000 });
+    { dryRun: false, full: false, force: true, vehicleData: false, baseline: "2026-11-13T05:47:24.000Z", maxDeletions: null });
+  assert.deepEqual(parseSyncArgs(["--full"], now), { dryRun: false, full: true, force: false, vehicleData: false, baseline: null, maxDeletions: null });
+  assert.deepEqual(parseSyncArgs(["--max-deletions=5000", "--dry-run"], now), { dryRun: true, full: false, force: false, vehicleData: false, baseline: null, maxDeletions: 5000 });
+  assert.deepEqual(parseSyncArgs(["--vehicle-data"], now), { dryRun: false, full: false, force: false, vehicleData: true, baseline: null, maxDeletions: null });
+  assert.deepEqual(parseSyncArgs(["--dry-run", "--baseline=2026-11-13T05:47:24Z", "--vehicle-data"], now),
+    { dryRun: true, full: false, force: false, vehicleData: true, baseline: "2026-11-13T05:47:24.000Z", maxDeletions: null });
   for (const argv of [["--dryrun"], ["-n"], ["--baseline", "2026-11-13T05:47:24Z"], ["--dry-run", "--dry-run"], ["dry-run"], ["--baseline="],
     ["--max-deletions=0"], ["--max-deletions=-1"], ["--max-deletions=1e3"], ["--max-deletions=10.5"], ["--max-deletions="], ["--max-deletions", "10"],
-    ["--max-deletions=10", "--max-deletions=20"]]) {
+    ["--max-deletions=10", "--max-deletions=20"], ["--vehicle-data", "--vehicle-data"], ["--vehicle-data=1"], ["--vehicle-digest=" + "a".repeat(64)]]) {
     assert.throws(() => parseSyncArgs(argv, now), Error, argv.join(" "));
   }
   assert.throws(() => parseSyncArgs(["--full", "--baseline=2026-11-13T05:47:24Z"], now), /exclude/);
   assert.throws(() => parseSyncArgs(["--force"], now), /--force only applies/);
+  // A real baseline exports nothing the flag could apply to.
+  assert.throws(() => parseSyncArgs(["--baseline=2026-11-13T05:47:24Z", "--vehicle-data"], now), /--vehicle-data does not apply to --baseline/);
 });
 
 test("the lock admits one live sync, takes over a dead holder's lock and is free again after release", async () => {
@@ -154,12 +161,135 @@ test("the sync reads the snapshot and counts from the export's manifest; enrichm
     invalidatedJobs: 4, maxDeletions: 1000, vehicleSpecs: [{}],
   };
   assert.deepEqual(exportSummary(JSON.stringify(manifest)),
-    { snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 43327, jobs: 198280, tombstones: 1, invalidatedJobs: 4, maxDeletions: 1000 });
+    { snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 43327, jobs: 198280, tombstones: 1, invalidatedJobs: 4, maxDeletions: 1000, vehicle: null });
   assert.deepEqual(exportSummary(JSON.stringify({ snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 0 })),
-    { snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 0, jobs: 0, tombstones: 0, invalidatedJobs: 0, maxDeletions: undefined });
+    { snapshotAt: "2026-11-23T01:29:00.000Z", enrichmentCount: 0, jobs: 0, tombstones: 0, invalidatedJobs: 0, maxDeletions: undefined, vehicle: null });
   // A pre-#1316 export carried the enrichments inline and no count.
   assert.throws(() => exportSummary(JSON.stringify({ snapshotAt: "2026-11-23T01:29:00.000Z", enrichments: [] })), /no enrichmentCount/);
   assert.throws(() => exportSummary(JSON.stringify({ enrichmentCount: 1 })), /no snapshotAt/);
+});
+
+const DIGEST = "a".repeat(64);
+const OTHER_DIGEST = "b".repeat(64);
+
+test("the sync reads the export's vehicle data digest and counts (#1359); an older export has none, a malformed one stops the run", () => {
+  const base = { snapshotAt: "2026-11-25T04:29:00.000Z", enrichmentCount: 0 };
+  assert.deepEqual(exportSummary(JSON.stringify({ ...base, vehicleSpecs: [], vehicleImages: [], vehicleData: { digest: DIGEST, specs: 37937, images: 26617, sent: false } })).vehicle,
+    { digest: DIGEST, specs: 37937, images: 26617, sent: false });
+  assert.deepEqual(exportSummary(JSON.stringify({ ...base, vehicleData: { digest: DIGEST, specs: 0, images: 0, sent: true } })).vehicle, { digest: DIGEST, specs: 0, images: 0, sent: true });
+  for (const vehicleData of [null, {}, { digest: "A".repeat(64), specs: 1, images: 1, sent: true }, { digest: DIGEST, specs: -1, images: 1, sent: true },
+    { digest: DIGEST, specs: 1, images: "1", sent: true }, { digest: DIGEST, specs: 1, images: 1, sent: "yes" }]) {
+    assert.throws(() => exportSummary(JSON.stringify({ ...base, vehicleData })), /invalid vehicleData/, JSON.stringify(vehicleData));
+  }
+});
+
+test("a vehicle digest is 64 lower-case hex digits", () => {
+  assert.equal(parseVehicleDigest(DIGEST, "--vehicle-digest"), DIGEST);
+  for (const value of ["", "a".repeat(63), "a".repeat(65), "A".repeat(64), "g".repeat(64), ` ${"a".repeat(63)}`]) {
+    assert.throws(() => parseVehicleDigest(value, "--vehicle-digest"), /--vehicle-digest must be a sha256 hex digest/, value);
+  }
+});
+
+test("the vehicle data digest is stable and changes with a spec field, an image row, a media checksum or the version", () => {
+  const specs = [{ vehicle_type_id: 7, outcome: "found", engine_codes: ["HXDA"], fetched_at: new Date("2026-10-19T00:00:00Z") }];
+  const images = [{ vehicle_type_id: 7, media_id: "m1", width: 512, height: 256, imported_at: new Date("2026-10-19T00:00:00Z") }];
+  const media = [{ id: "m1", sha256: "1".repeat(64), size_bytes: 2048 }];
+  const digest = vehicleDataDigest(specs, images, media);
+  assert.match(digest, /^[0-9a-f]{64}$/);
+  // The same rows read again (new Date objects, a numeric text size) give the same digest.
+  assert.equal(vehicleDataDigest(structuredClone(specs), structuredClone(images), [{ ...media[0], size_bytes: "2048" }]), digest);
+  // A media row's other columns (bucket, key, type) are not the target's concern: the importer resolves media by sha256.
+  const keyed = [{ ...media[0], object_key: "elsewhere.webp" }];
+  assert.equal(vehicleDataDigest(specs, images, keyed), digest);
+  for (const changed of [
+    vehicleDataDigest([{ ...specs[0], engine_codes: ["HXDB"] }], images, media),
+    vehicleDataDigest([...specs, { vehicle_type_id: 8, outcome: "not_found" }], images, media),
+    vehicleDataDigest(specs, [{ ...images[0], width: 640 }], media),
+    vehicleDataDigest(specs, [], media),
+    vehicleDataDigest(specs, images, [{ ...media[0], sha256: "2".repeat(64) }]),
+    vehicleDataDigest(specs, images, [{ ...media[0], size_bytes: 2049 }]),
+  ]) assert.notEqual(changed, digest);
+  assert.equal(VEHICLE_DATA_VERSION, 1);
+  const content = (version: number) => JSON.stringify([version, specs, images, media.map(object => [object.id, object.sha256, object.size_bytes])]);
+  assert.equal(createHash("sha256").update(content(VEHICLE_DATA_VERSION)).digest("hex"), digest);
+  assert.notEqual(createHash("sha256").update(content(VEHICLE_DATA_VERSION + 1)).digest("hex"), digest);
+});
+
+const DAY = 24 * 60 * 60 * 1000;
+const vehicleState = (sentAt: string, extra: Partial<VehicleState> = {}): VehicleState => ({ digest: DIGEST, specs: 37937, images: 26617, sentAt, ...extra });
+const syncState = (vehicle?: VehicleState) => ({ snapshotAt: "2026-11-25T01:32:15.465Z", ...(vehicle ? { vehicle } : {}) });
+
+test("the export may skip the vehicle data only with a confirmed digest younger than a week and no --full or --vehicle-data", () => {
+  const now = new Date("2026-11-25T04:30:00Z");
+  const flags = { full: false, force: false, now };
+  const fresh = syncState(vehicleState("2026-11-24T04:31:00.000Z"));
+  assert.deepEqual(vehicleDigestToSkip(fresh, flags), { digest: DIGEST, reason: "unchanged-candidate" });
+  assert.deepEqual(vehicleDigestToSkip(null, flags), { digest: null, reason: "no-state" });
+  // A state written before #1359, or by a --baseline, has no vehicle entry.
+  assert.deepEqual(vehicleDigestToSkip(syncState(), flags), { digest: null, reason: "no-state" });
+  assert.deepEqual(vehicleDigestToSkip(fresh, { ...flags, full: true }), { digest: null, reason: "full" });
+  assert.deepEqual(vehicleDigestToSkip(fresh, { ...flags, force: true }), { digest: null, reason: "forced" });
+  // Resent once the last send is VEHICLE_RESEND_DAYS old.
+  assert.equal(VEHICLE_RESEND_DAYS, 7);
+  const sentDaysAgo = (ms: number) => syncState(vehicleState(new Date(now.getTime() - ms).toISOString()));
+  assert.deepEqual(vehicleDigestToSkip(sentDaysAgo(7 * DAY - 1), flags), { digest: DIGEST, reason: "unchanged-candidate" });
+  assert.deepEqual(vehicleDigestToSkip(sentDaysAgo(7 * DAY), flags), { digest: null, reason: "stale" });
+  // A send "in the future" (the clock moved) is not trusted either.
+  assert.deepEqual(vehicleDigestToSkip(sentDaysAgo(-60_000), flags), { digest: null, reason: "stale" });
+  // A hand-edited or truncated entry counts as none.
+  for (const vehicle of [{ ...vehicleState("2026-11-24T04:31:00.000Z"), digest: "x" }, { ...vehicleState("2026-11-24T04:31:00.000Z"), sentAt: "soon" },
+    { ...vehicleState("2026-11-24T04:31:00.000Z"), specs: -1 }, { digest: DIGEST } as VehicleState]) {
+    assert.deepEqual(vehicleDigestToSkip(syncState(vehicle), flags), { digest: null, reason: "no-state" }, JSON.stringify(vehicle));
+  }
+});
+
+test("the vehicle entry is recorded only when the report accounts for every row sent; an omitted run keeps it until the task definition changes", () => {
+  const now = new Date("2026-11-25T05:00:00Z");
+  const sent = { digest: OTHER_DIGEST, specs: 37937, images: 26617, sent: true };
+  const omitted = { ...sent, digest: DIGEST, sent: false };
+  const counts = { vehicleSpecs: 37937, vehicleImages: 26617, skippedVehicleSpecs: 0, skippedVehicleImages: 0 };
+  const previous = vehicleState("2026-11-24T05:00:00.000Z", { taskDefinition: "getirbakim-operations:41" });
+
+  // Sent and confirmed: the new digest, counts, send time and task definition.
+  assert.deepEqual(nextVehicleState({ previous, exported: sent, totals: { enrichments: 3, ...counts }, taskDefinition: "getirbakim-operations:42", now }), {
+    vehicle: { digest: OTHER_DIGEST, specs: 37937, images: 26617, sentAt: "2026-11-25T05:00:00.000Z", taskDefinition: "getirbakim-operations:42", skippedSpecs: 0, skippedImages: 0 },
+    warnings: [], notes: [],
+  });
+  // Rows skipped for a vehicle type missing on the target: recorded, with a warning.
+  const skipped = nextVehicleState({ exported: sent, totals: { ...counts, vehicleSpecs: 37930, skippedVehicleSpecs: 7, vehicleImages: 26615, skippedVehicleImages: 2 }, taskDefinition: null, now });
+  assert.deepEqual(skipped.vehicle, { digest: OTHER_DIGEST, specs: 37937, images: 26617, sentAt: "2026-11-25T05:00:00.000Z", skippedSpecs: 7, skippedImages: 2 });
+  assert.equal(skipped.warnings.length, 1);
+  assert.match(skipped.warnings[0], /7 vehicle specs and 2 vehicle images were skipped on the target/);
+  assert.match(skipped.warnings[0], /--vehicle-data/);
+  // An operations image that ignores the data reports no counts: nothing recorded, the next run sends again.
+  const ignored = nextVehicleState({ previous, exported: sent, totals: { enrichments: 3 }, taskDefinition: "getirbakim-operations:42", now });
+  assert.equal(ignored.vehicle, undefined);
+  assert.match(ignored.warnings[0], /no vehicle data counts/);
+  const partial = nextVehicleState({ previous, exported: sent, totals: Object.fromEntries(Object.entries(counts).filter(([name]) => name !== "skippedVehicleImages")), taskDefinition: null, now });
+  assert.equal(partial.vehicle, undefined);
+  // Counts that do not add up: nothing recorded.
+  const short = nextVehicleState({ previous, exported: sent, totals: { ...counts, vehicleImages: 26000 }, taskDefinition: null, now });
+  assert.equal(short.vehicle, undefined);
+  assert.match(short.warnings[0], /accounted for 37937 of 37937 vehicle specs and 26000 of 26617 vehicle images/);
+
+  // Omitted under the same task definition: the entry stays as it was, sentAt too (the weekly resend still comes).
+  const omittedReport = { ...counts, vehicleSpecs: 0, vehicleImages: 0 };
+  assert.deepEqual(nextVehicleState({ previous, exported: omitted, totals: omittedReport, taskDefinition: "getirbakim-operations:41", now }),
+    { vehicle: previous, warnings: [], notes: [] });
+  // Unknown this run: kept.
+  assert.deepEqual(nextVehicleState({ previous, exported: omitted, totals: omittedReport, taskDefinition: null, now }).vehicle, previous);
+  // Another task definition imported this run: dropped, so the next run sends in full.
+  const released = nextVehicleState({ previous, exported: omitted, totals: omittedReport, taskDefinition: "getirbakim-operations:42", now });
+  assert.equal(released.vehicle, undefined);
+  assert.deepEqual(released.warnings, []);
+  assert.match(released.notes[0], /getirbakim-operations:41 -> getirbakim-operations:42/);
+  // An entry without a task definition takes this run's.
+  const unnamed = vehicleState("2026-11-24T05:00:00.000Z");
+  assert.deepEqual(nextVehicleState({ previous: unnamed, exported: omitted, totals: omittedReport, taskDefinition: "getirbakim-operations:41", now }).vehicle,
+    { ...unnamed, taskDefinition: "getirbakim-operations:41" });
+
+  // An export older than #1359 says nothing about the vehicle data.
+  assert.deepEqual(nextVehicleState({ previous, exported: null, totals: counts, taskDefinition: null, now }), { warnings: [], notes: [] });
 });
 
 const PARTS = ["part-00", "part-01", "part-02"];

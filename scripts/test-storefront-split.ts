@@ -305,6 +305,31 @@ test("every part, job parts included, has exactly the keys of the format the rel
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 
+test("the export's vehicle data digest never reaches a part; unchanged vehicle data leaves part 0 with the category images only (#1359)", async () => {
+  const exported = (sent: boolean) => ({
+    exportedAt: "2026-11-25T04:30:00Z", since: "2026-11-25T00:32:15.465Z", retried: 0, snapshotAt: "2026-11-25T04:29:00Z",
+    categories: [], labels: [], images: [{ source: "trodo", category_id: 1, media_id: "c" }], logos: [],
+    vehicleSpecs: sent ? [{ vehicle_type_id: 7 }] : [], vehicleImages: sent ? [{ vehicle_type_id: 7, media_id: "v" }] : [],
+    vehicleData: { digest: "f".repeat(64), specs: 1, images: 1, sent },
+    jobs: [{ supplier_item_id: "i1", status: "complete" }], tombstones: [], invalidatedJobs: 0, maxDeletions: 1000,
+    enrichments: [{ supplier_item_id: "i1", image_id: "a" }], items: [key("i1")],
+  });
+  const category = { id: "c", key: "cat/c.jpg", size: 10 }, vehicle = { id: "v", key: "veh/v.jpg", size: 10 }, enrichment = { id: "a", key: "p/a.jpg", size: 60 };
+  // The export reads the vehicle images' media only when it sends the data.
+  const cases: [boolean, (typeof category)[], string[]][] = [[false, [category, enrichment], ["c"]], [true, [category, vehicle, enrichment], ["c", "v"]]];
+  for (const [sent, media, base] of cases) {
+    const { root, source } = await bundle(media, exported(sent));
+    try {
+      const parts = await split(source, join(root, "parts"), MEDIA);
+      assert.equal(parts.length, 3);
+      for (const part of parts) assert.deepEqual(Object.keys(part).sort(), LEGACY_KEYS);
+      assert.deepEqual(parts[0].media.map((m: { id: string }) => m.id), base);
+      assert.deepEqual([parts[0].vehicleSpecs.length, parts[0].vehicleImages.length], sent ? [1, 1] : [0, 0]);
+      assert.deepEqual(parts.slice(1).map(part => [part.vehicleSpecs, part.vehicleImages]), [[[], []], [[], []]]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+});
+
 test("a count that disagrees with the manifest or a cut-off last line stops the split", async () => {
   const manifest = {
     categories: [], labels: [], images: [], logos: [], enrichments: [{ supplier_item_id: "i1", image_id: null }],
