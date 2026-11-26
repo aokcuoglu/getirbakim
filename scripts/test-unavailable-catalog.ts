@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import type { CatalogProduct } from "../src/modules/store/catalog";
+import type { CatalogQuery } from "../src/modules/store/catalog-query";
 
 // Products no supplier sells now (#475) in an isolated copy of the schema: db/storefront-catalog.sql and the store
 // catalog reading it. Nothing is written to the shared database's tables.
@@ -12,6 +14,10 @@ let catalog: typeof import("../src/modules/store/catalog");
 let closeDb: () => Promise<void>;
 const ids: Record<string, string> = {};
 const [basbug, , dinamik] = storefrontCompanies();
+// A category listing reads the category tree, which calls connection() and needs a request scope: a static work store
+// lets it run. Next reads the global AsyncLocalStorage when its storage module loads (before, ahead of the catalog import).
+let workStorage: typeof import("next/dist/server/app-render/work-async-storage.external").workAsyncStorage;
+const inRequest = <T>(run: () => Promise<T>) => workStorage.run({ route: "/test", forceStatic: true } as Parameters<typeof workStorage.run>[0], run);
 
 type Item = { supplier: "basbug" | "dinamik"; code: string; brand: string; presence?: "present" | "pending_missing" | "inactive";
   group?: string; stock?: number | null; cost?: number; conflicting?: boolean; seenHoursAgo?: number };
@@ -48,6 +54,8 @@ before(async () => {
   await schema.pool.query("INSERT INTO product_sources(supplier_item_id,product_id) VALUES($1,$1),($2,$1)", [ids.mannBasbug, ids.mannDinamik]);
   // Creates the Bosch product from the Dinamik row and links the dropped Başbuğ row to it (#475).
   await schema.pool.query("SELECT refresh_product_matches()");
+  Object.assign(globalThis, { AsyncLocalStorage });
+  workStorage = (await import("next/dist/server/app-render/work-async-storage.external")).workAsyncStorage;
   const [{ db }, module] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog")]);
   catalog = module;
   closeDb = () => db.end();
@@ -574,10 +582,13 @@ describe("availability filter (#1242)", () => {
     const sql = await readFile("db/commerce.sql", "utf8");
     for (const fragment of ["'Stok bilgisi güncelleniyor'", "'Stokta mevcut: '", "'Tedarikçide mevcut'", "commerce_stale_minutes*interval"])
       assert.equal(sql.split(fragment).length - 1, 1, fragment);
-    for (const view of ["commerce_catalog", "commerce_item_availability"]) {
+    // commerce_catalog's supplier rows come from commerce_supplier_catalog (#1424): the supplier calls sit there.
+    const supplierCalls = ["commerce_source_fresh(", "commerce_supplier_available(", "commerce_supplier_stock_label("];
+    const calls: Record<string, string[]> = { commerce_supplier_catalog: supplierCalls, commerce_catalog: ["commerce_store_stock_label("],
+      commerce_item_availability: [...supplierCalls, "commerce_store_stock_label("] };
+    for (const [view, expected] of Object.entries(calls)) {
       const { rows: [{ def }] } = await schema.pool.query<{ def: string }>("SELECT pg_get_viewdef($1::regclass) AS def", [view]);
-      for (const call of ["commerce_source_fresh(", "commerce_supplier_available(", "commerce_supplier_stock_label(", "commerce_store_stock_label("])
-        assert.ok(def.includes(call), `${view} calls ${call}`);
+      for (const call of expected) assert.ok(def.includes(call), `${view} calls ${call}`);
       // The view stores the calls, not their inlined text: no copy of the rule sits beside them.
       for (const copy of ["'Stok bilgisi güncelleniyor'", "sFarkliDepo"]) assert.ok(!def.includes(copy), `${view} carries ${copy}`);
     }
@@ -757,5 +768,229 @@ describe("availability filter (#1242)", () => {
     assert.doesNotMatch(clause, /catalogSql|commerce_catalog/);
     assert.match(source, /const inStockIdsSql=`SELECT COALESCE\(o\.primary_id,a\.id\) FROM \(\$\{availabilitySql\}\) a /);
     assert.match(source, /export const availabilitySql = "SELECT \* FROM commerce_item_availability /);
+  });
+});
+
+// commerce_catalog is the store products UNION ALL commerce_supplier_catalog (#1424). The one view before held both a WITH
+// and the UNION ALL: the planner could neither flatten it nor drop its unused columns, and built every column of every
+// supplier row (pricing_snapshot's jsonb, stock labels, names) for a price order reading three. The body before the split,
+// frozen in scripts/fixtures/commerce-catalog-pre-1424.sql, is the oracle: the same rows, and the same listings when the
+// unchanged storefront_catalog reads it.
+describe("split catalog views (#1424)", () => {
+  const preSplitBody = () => readFile("scripts/fixtures/commerce-catalog-pre-1424.sql", "utf8");
+  let invalidateListings: () => Promise<void>;
+  let order = 0;
+  type SplitRow = { supplier?: "basbug" | "dinamik"; stock?: Record<string, number> | null; cost?: number; currency?: string; category?: string;
+    seenHoursAgo?: number; presence?: "present" | "inactive" };
+  /** A SPLITTEST row; each later row is older (changed_at), so the newest order is fixed. */
+  async function splitRow(key: string, { supplier = "basbug", stock = { stok: 2 }, cost = 100, currency = "TL", category = "", seenHoursAgo = 1,
+    presence = "present" }: SplitRow = {}) {
+    const product = { uk: "SPLITTEST", ac: `${key} PARCA`, dc: currency, ...(category ? { category } : {}),
+      ...(supplier === "dinamik" ? { marka: "SPLITTEST", stokAdi: `${key} PARCA` } : {}) };
+    const { rows } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+      VALUES($1,$2,'SPLIT',$3,$4,$5,$6,$7,1,1,1,false,$8,now()-interval '10 days',now()-make_interval(hours=>$9),now()-make_interval(mins=>$10))
+      RETURNING id::text`, [supplier, supplier === "basbug" ? basbug : dinamik, supplier === "basbug" ? "MRK" : "ALL", `SPLITTEST ${key.toUpperCase()}`,
+      product, { nf: cost }, stock, presence, seenHoursAgo, ++order]);
+    ids[key] = rows[0].id;
+  }
+  const setMode = (mode: string) => schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [mode]);
+  /** `run` in both checkout modes, the stored mode restored afterwards. */
+  async function inBothModes(run: (mode: string) => Promise<void>) {
+    const saved = (await schema.pool.query<{ mode: string }>("SELECT basbug_checkout_mode AS mode FROM commerce_settings")).rows[0].mode;
+    try {
+      for (const mode of ["live", "snapshot"]) {
+        await setMode(mode);
+        await run(mode);
+      }
+    } finally {
+      await setMode(saved);
+    }
+  }
+  /** `run` while commerce_catalog has its pre-split body (storefront_catalog, unchanged, reads it), the split body restored afterwards. */
+  async function withPreSplitCatalog<T>(run: () => Promise<T>) {
+    const { rows: [{ def }] } = await schema.pool.query<{ def: string }>("SELECT pg_get_viewdef('commerce_catalog'::regclass) AS def");
+    await schema.pool.query(`CREATE OR REPLACE VIEW commerce_catalog AS ${await preSplitBody()}`);
+    try {
+      await invalidateListings();
+      return await run();
+    } finally {
+      await schema.pool.query(`CREATE OR REPLACE VIEW commerce_catalog AS ${def}`);
+      await invalidateListings();
+    }
+  }
+  const plan = async (sql: string, values: unknown[] = []) => (await schema.pool.query<{ "QUERY PLAN": string }>(`EXPLAIN (VERBOSE, COSTS OFF) ${sql}`, values))
+    .rows.map(row => row["QUERY PLAN"]).join("\n");
+
+  // After invalidateListings() the listing counts, page ids and facets serve their earlier value once a reload takes longer
+  // than LISTING_EPOCH_WAIT_MS (listing-wait.ts; 250 ms by default). On a slow runner the pre-split reads below would then
+  // repeat the split ones, and the stock change would not show: every reload here is awaited, whatever the environment sets.
+  let savedWait: string | undefined;
+  before(() => {
+    savedWait = process.env.LISTING_EPOCH_WAIT_MS;
+    process.env.LISTING_EPOCH_WAIT_MS = "600000";
+  });
+  after(() => {
+    if (savedWait === undefined) delete process.env.LISTING_EPOCH_WAIT_MS;
+    else process.env.LISTING_EPOCH_WAIT_MS = savedWait;
+  });
+
+  before(async () => {
+    invalidateListings = (await import("../src/modules/store/listing-epoch")).invalidateListings;
+    await schema.pool.query(`CREATE VIEW commerce_catalog_pre1424 AS ${await preSplitBody()}`);
+    // Categories 3 Yedek parçalar > 252 Fren: the legacy "fren" category of store products and supplier rows.
+    await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
+      ('trodo',3,NULL,'Yedek parçalar','yedek-parca','{3}','','{}'),('trodo',252,3,'Fren','fren','{3,252}','','{}');
+      INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES
+      ('trodo',3,'tr','Yedek parçalar','yedek-parca'),('trodo',252,'tr','Fren','fren')`);
+    // A master brand with a manufacturer page (/marka/splittest).
+    const brand = (await schema.pool.query<{ id: string }>("INSERT INTO brands(key,name) VALUES('SPLITTEST','SPLITTEST') RETURNING id::text")).rows[0].id;
+    await schema.pool.query("INSERT INTO supplier_brands(supplier,label,brand_id,items) VALUES('basbug','SPLITTEST',$1,12),('dinamik','SPLITTEST',$1,1)", [brand]);
+    // Rates: Başbuğ's newest succeeded import (EUR 50, fresh) and Dinamik's (USD 30, older than max_age_hours: a stale rate).
+    await schema.pool.query(`INSERT INTO supplier_imports(supplier,company,list_group,warehouse,started_at,completed_at,observations,quality,groups_data,currencies_data,status)
+      VALUES('basbug',$1,'SPLIT','MRK',now()-interval '50 minutes',now()-interval '50 minutes','{}','{}','{}','{"dovizListesi":[{"dovizCinsi":"EUR","satis":50}]}','succeeded'),
+       ('dinamik',$2,'SPLIT','ALL',now()-interval '200 hours',now()-interval '200 hours','{}','{}','{}','{"dovizListesi":[{"dovizCinsi":"USD","satis":30}]}','succeeded')`,
+    [basbug, dinamik]);
+    await splitRow("spCheap", { cost: 10, category: "fren" });
+    await splitRow("spTieA", { cost: 20 });
+    await splitRow("spTieB", { cost: 20, category: "fren" });
+    await splitRow("spFixed", { cost: 50 });
+    await splitRow("spCampaign", { cost: 60, category: "fren" });
+    await splitRow("spAnomaly", { cost: 40 });
+    await splitRow("spEur", { cost: 2, currency: "EUR" });
+    await splitRow("spStaleRate", { supplier: "dinamik", cost: 3, currency: "USD" });
+    await splitRow("spSoldOut", { cost: 30, stock: { stok: 0 }, category: "fren" });
+    await splitRow("spOtherDepot", { cost: 35, stock: { stok: 0, sFarkliDepo: 2 } });
+    await splitRow("spStaleSeen", { cost: 45, seenHoursAgo: 100 });
+    await splitRow("spHidden", { cost: 15 });
+    await splitRow("spGone", { cost: 25, stock: { stok: 0 }, presence: "inactive", category: "fren" });
+    // Matching first: its sync of product edits drops item overrides no product override backs (db/product-overrides.sql).
+    await schema.pool.query("SELECT refresh_product_matches()");
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,price_kurus) VALUES($1,$1,1234)", [ids.spFixed]);
+    await schema.pool.query(`INSERT INTO commerce_item_overrides(supplier_item_id,product_id,sale_price_kurus,sale_from,sale_until)
+      VALUES($1,$1,999,now()-interval '1 day',now()+interval '1 day')`, [ids.spCampaign]);
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [ids.spHidden]);
+    await schema.pool.query("INSERT INTO supplier_price_anomalies(supplier_item_id,supplier,evidence) VALUES($1,'basbug','{}')", [ids.spAnomaly]);
+    const store = await schema.pool.query<{ id: string }>(`INSERT INTO store_products(supplier,code,name,brand,price_kurus,stock,category)
+      VALUES('demo','SPLIT-STORE-1','Depo ürünü','SPLITTEST',5000,3,'fren'),('demo','SPLIT-STORE-0','Depo ürünü','SPLITTEST',4000,0,'') RETURNING id::text`);
+    [ids.spStore, ids.spStoreEmpty] = store.rows.map(row => row.id);
+    await invalidateListings();
+  });
+
+  test("the split views return the pre-split rows and columns in both checkout modes", async () => {
+    const columns = async (view: string) => (await schema.pool.query(`SELECT attname AS name,format_type(atttypid,atttypmod) AS type,
+      attcollation::regcollation::text AS collation FROM pg_attribute WHERE attrelid=$1::regclass AND attnum>0 AND NOT attisdropped ORDER BY attnum`, [view])).rows;
+    const catalogColumns = await columns("commerce_catalog");
+    assert.equal(catalogColumns.length, 21);
+    assert.deepEqual(catalogColumns, await columns("commerce_catalog_pre1424"));
+    // The inner view carries commerce_catalog's columns, names, order and types alike (db/commerce.sql).
+    assert.deepEqual(await columns("commerce_supplier_catalog"), catalogColumns);
+    const difference = async (from: string, minus: string) => (await schema.pool.query<{ id: string }>(
+      `SELECT id::text FROM (SELECT * FROM ${from} EXCEPT ALL SELECT * FROM ${minus}) d`)).rows.map(row => row.id);
+    const row = async (key: string) => (await schema.pool.query<{ price_kurus: number | null; pricing_snapshot: Record<string, unknown> }>(
+      "SELECT price_kurus,pricing_snapshot FROM commerce_catalog WHERE id=$1", [ids[key]])).rows[0];
+    await inBothModes(async mode => {
+      assert.deepEqual(await difference("commerce_catalog", "commerce_catalog_pre1424"), [], mode);
+      assert.deepEqual(await difference("commerce_catalog_pre1424", "commerce_catalog"), [], mode);
+      // The fixture reaches each pricing case: fixed price, campaign, open anomaly, another currency, a stale rate, hidden, store.
+      assert.equal((await row("spFixed")).price_kurus, 1234, mode);
+      assert.equal((await row("spFixed")).pricing_snapshot.price_kind, "fixed", mode);
+      assert.equal((await row("spCampaign")).price_kurus, 999, mode);
+      assert.equal((await row("spCampaign")).pricing_snapshot.price_kind, "sale", mode);
+      assert.equal((await row("spAnomaly")).price_kurus, null, mode);
+      assert.equal(Number((await row("spEur")).pricing_snapshot.exchange_rate), 50, mode);
+      assert.equal((await row("spStaleRate")).price_kurus === null, mode === "live", mode);
+      assert.equal(await row("spHidden"), undefined, mode);
+      assert.deepEqual((await row("spStore")).pricing_snapshot, { source: "store", base_price_kurus: 5000 }, mode);
+    });
+  });
+
+  test("a price order's read builds only the columns it sorts by (#1424)", async () => {
+    const priced = "SELECT id,unavailable,price_kurus FROM storefront_catalog";
+    const pricedPlan = await plan(priced);
+    // No pricing_snapshot (jsonb_build_object), no stock label, and the catalog is not one subquery scan over its UNION ALL.
+    assert.doesNotMatch(pricedPlan, /jsonb_build_object/);
+    assert.doesNotMatch(pricedPlan, /Stok bilgisi güncelleniyor/);
+    assert.doesNotMatch(pricedPlan, /Subquery Scan on c\b/);
+    // A row read still builds every column.
+    const rowPlan = await plan("SELECT * FROM storefront_catalog WHERE id=$1", [ids.spCheap]);
+    assert.match(rowPlan, /jsonb_build_object/);
+    assert.match(rowPlan, /Stok bilgisi güncelleniyor/);
+    // What the check guards against: the pre-split body built them for the price order too.
+    await withPreSplitCatalog(async () => {
+      const old = await plan(priced);
+      assert.match(old, /Subquery Scan on c\b/);
+      assert.match(old, /jsonb_build_object/);
+      assert.match(old, /Stok bilgisi güncelleniyor/);
+    });
+  });
+
+  test("listings show the pre-split ids, order, cards, counts and facets (#1424)", async () => {
+    const scopes: Record<string, CatalogQuery> = { none: {}, category: { category: "fren" }, brand: { brand: "SPLITTEST" },
+      manufacturer: { manufacturer: "splittest" }, "category+brand": { category: "fren", brand: "SPLITTEST" } };
+    const availabilities = [undefined, "in_stock", "supplied", "out_of_stock"] as const;
+    const sorts = [undefined, "price-asc", "price-desc"] as const;
+    /** Every page's cards (up to five pages) and the total of each case, and each scope's facets. */
+    const readAll = async () => {
+      const read = new Map<string, unknown>();
+      for (const [name, scope] of Object.entries(scopes)) {
+        read.set(`${name} facets`, await inRequest(() => catalog.catalogFacets(scope)));
+        for (const availability of availabilities) for (const sort of sorts) {
+          const query: CatalogQuery = { ...scope, ...availability && { availability }, ...sort && { sort } };
+          const first = await inRequest(() => catalog.browseProducts(query));
+          const items = [...first.items];
+          for (let page = 2; page <= Math.min(first.pages, 5); page++)
+            items.push(...(await inRequest(() => catalog.browseProducts({ ...query, page: String(page) }))).items);
+          read.set(JSON.stringify(query), { total: first.total, items });
+        }
+      }
+      return read;
+    };
+    await invalidateListings();
+    const split = await readAll();
+    const preSplit = await withPreSplitCatalog(readAll);
+    assert.equal(split.size, 65);
+    for (const [key, value] of split) assert.deepEqual(value, preSplit.get(key), key);
+    // Not two empty answers: the brand's price order, the manufacturer's facet and the category scope.
+    const listed = (query: CatalogQuery) => split.get(JSON.stringify(query)) as { total: number; items: CatalogProduct[] };
+    const ascending = listed({ brand: "SPLITTEST", sort: "price-asc" });
+    assert.equal(ascending.total, 14);
+    // The campaign (999) and the fixed price (1234) under the formula's cheapest (10 TL: 1560), the tie in id order.
+    assert.deepEqual(ascending.items.slice(0, 5).map(row => row.id), [ids.spCampaign, ids.spFixed, ids.spCheap, ...[ids.spTieA, ids.spTieB].sort()]);
+    assert.deepEqual(ascending.items.slice(0, 3).map(row => row.price_kurus), [999, 1234, 1560]);
+    // Unpriced rows (open anomaly, stale observation, stale rate) after the priced ones, the unavailable card last.
+    assert.deepEqual(ascending.items.slice(-4).map(row => row.id), [...[ids.spAnomaly, ids.spStaleSeen, ids.spStaleRate].sort(), ids.spGone]);
+    assert.ok(!ascending.items.some(row => row.id === ids.spHidden));
+    assert.deepEqual((split.get("manufacturer facets") as { brands: string[] }).brands, ["SPLITTEST"]);
+    assert.equal(listed({ manufacturer: "splittest", sort: "price-desc" }).total, ascending.total);
+    assert.deepEqual(new Set(listed({ category: "fren", brand: "SPLITTEST", availability: "in_stock", sort: "price-asc" }).items.map(row => row.id)),
+      new Set([ids.spCheap, ids.spTieB, ids.spCampaign, ids.spStore]));
+  });
+
+  test("a stock change shows in the next price-sorted listing read after the caches are reset (#1424)", async () => {
+    const listing = (availability: "in_stock" | "out_of_stock") => inRequest(() => catalog.browseProducts({ brand: "SPLITTEST", availability, sort: "price-asc" }));
+    const listedIds = (rows: CatalogProduct[]) => rows.map(row => row.id);
+    const [inBefore, outBefore] = [await listing("in_stock"), await listing("out_of_stock")];
+    for (const key of ["spCheap", "spStore"]) {
+      assert.ok(listedIds(inBefore.items).includes(ids[key]) && !listedIds(outBefore.items).includes(ids[key]), key);
+    }
+    try {
+      await schema.pool.query(`UPDATE supplier_items SET stock_data='{"stok":0}' WHERE id=$1`, [ids.spCheap]);
+      await schema.pool.query("UPDATE store_products SET stock=0 WHERE id=$1", [ids.spStore]);
+      await invalidateListings();
+      const [inAfter, outAfter] = [await listing("in_stock"), await listing("out_of_stock")];
+      for (const key of ["spCheap", "spStore"]) {
+        assert.ok(!listedIds(inAfter.items).includes(ids[key]), key);
+        const card = outAfter.items.find(row => row.id === ids[key]);
+        assert.equal(card?.stock_label, "Stokta yok", key);
+        assert.equal(card?.available, false, key);
+      }
+      assert.equal(inAfter.total, inBefore.total - 2);
+      assert.equal(outAfter.total, outBefore.total + 2);
+    } finally {
+      await schema.pool.query(`UPDATE supplier_items SET stock_data='{"stok":2}' WHERE id=$1`, [ids.spCheap]);
+      await schema.pool.query("UPDATE store_products SET stock=3 WHERE id=$1", [ids.spStore]);
+      await invalidateListings();
+    }
   });
 });
