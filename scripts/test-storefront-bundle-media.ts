@@ -5,14 +5,21 @@ import type { S3Client } from "@aws-sdk/client-s3";
 import { DEFAULT_MEDIA_CONCURRENCY, ensureStoredObject, ensureStoredObjects, type MediaTarget, mediaConcurrency, mediaToRecheck,
   type PlannedMedia } from "./storefront-bundle-media";
 
-// The bundle media store of import-storefront-bundle.ts (#1406), against an in-memory object store; the e2e
-// (test-storefront-e2e.ts) runs it through the real importer and an S3 stub.
+// The bundle media store of import-storefront-bundle.ts (#1406) and its checksummed write (#1417, src/lib/stored-object.ts),
+// against an in-memory object store; the e2e (test-storefront-e2e.ts) runs it through the real importer and an S3 stub.
 
 type FakeObject = { bytes: Uint8Array; contentType?: string; metadata?: Record<string, string> };
-type Input = { Bucket: string; Key: string; Body?: Uint8Array; ContentType?: string; Metadata?: Record<string, string> };
+type Input = { Bucket: string; Key: string; Body?: Uint8Array; ContentType?: string; Metadata?: Record<string, string>; ChecksumSHA256?: string };
+type FakeOptions = { headStatus?: Record<string, number>; corruptPuts?: Set<string>; ignoresChecksum?: boolean };
 
-/** An object store keyed by bucket/key that records "<Head|Put|Get> bucket/key" per command; `headStatus` makes a key's HEAD fail with that status. */
-function fakeStorage(initial: Record<string, FakeObject> = {}, options: { headStatus?: Record<string, number>; corruptGets?: Set<string> } = {}) {
+const checksumOf = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("base64");
+
+/**
+ * An object store keyed by bucket/key that records "<Head|Put|Get> bucket/key" per command. Like S3 it refuses a PUT whose
+ * ChecksumSHA256 does not match the bytes it received (BadDigest) and echoes an accepted one; `ignoresChecksum` makes it
+ * neither check nor echo. `headStatus` makes a key's HEAD fail with that status; `corruptPuts` flips a key's first byte on arrival.
+ */
+function fakeStorage(initial: Record<string, FakeObject> = {}, options: FakeOptions = {}) {
   const objects = new Map(Object.entries(initial));
   const calls: string[] = [], puts: Input[] = [];
   let inFlight = 0, maxInFlight = 0;
@@ -25,15 +32,20 @@ function fakeStorage(initial: Record<string, FakeObject> = {}, options: { headSt
       await new Promise(resolve => setTimeout(resolve, 1));
       if (name === "Put") {
         puts.push(command.input);
-        objects.set(key, { bytes: command.input.Body!, contentType: command.input.ContentType, metadata: command.input.Metadata });
-        return {};
+        const bytes = Buffer.from(command.input.Body!);
+        if (options.corruptPuts?.has(key)) bytes[0] ^= 0xff;
+        const checksum = options.ignoresChecksum ? undefined : command.input.ChecksumSHA256;
+        if (checksum !== undefined && checksum !== checksumOf(bytes)) {
+          throw Object.assign(new Error("The SHA256 you specified did not match the calculated checksum."), { name: "BadDigest", $metadata: { httpStatusCode: 400 } });
+        }
+        objects.set(key, { bytes, contentType: command.input.ContentType, metadata: command.input.Metadata });
+        return checksum === undefined ? {} : { ChecksumSHA256: checksum };
       }
       const status = name === "Head" ? options.headStatus?.[key] : undefined;
       const object = objects.get(key);
       if (status || !object) throw Object.assign(new Error(`HTTP ${status ?? 404}`), { $metadata: { httpStatusCode: status ?? 404 } });
       if (name === "Head") return { ContentLength: object.bytes.length, Metadata: object.metadata ?? {} };
-      const bytes = options.corruptGets?.has(key) ? randomBytes(object.bytes.length) : object.bytes;
-      return { Body: { transformToByteArray: async () => bytes } };
+      return { Body: { transformToByteArray: async () => object.bytes } };
     } finally { inFlight--; }
   };
   return { objects, calls, puts, maxInFlight: () => maxInFlight, storage: { send } as unknown as Pick<S3Client, "send"> };
@@ -55,13 +67,16 @@ test("an object with its size and sha256 metadata costs one HEAD", async () => {
   assert.deepEqual(fake.calls, [`Head ${object.path}`]);
 });
 
-test("a missing object is written with its type and sha256 metadata, then read back", async () => {
+test("a missing object is written with its type, sha256 metadata and checksum, and not read back (#1417)", async () => {
   const object = media("a");
   const fake = fakeStorage();
   assert.equal(await ensureStoredObject(fake.storage, object.target, object.bytes), "uploaded");
-  assert.deepEqual(fake.calls, [`Head ${object.path}`, `Put ${object.path}`, `Get ${object.path}`]);
+  assert.deepEqual(fake.calls, [`Head ${object.path}`, `Put ${object.path}`]);
   assert.equal(fake.puts[0].ContentType, "image/png");
   assert.deepEqual(fake.puts[0].Metadata, { sha256: object.target.sha256 });
+  // The base64 of the 32 raw sha256 bytes, as S3 expects in x-amz-checksum-sha256.
+  assert.equal(fake.puts[0].ChecksumSHA256, Buffer.from(object.target.sha256, "hex").toString("base64"));
+  assert.equal(fake.puts[0].ChecksumSHA256, checksumOf(object.bytes));
   assert.deepEqual(fake.objects.get(object.path)?.bytes, object.bytes);
 });
 
@@ -69,7 +84,7 @@ test("a HEAD answered 403 (a missing key without s3:ListBucket) uploads", async 
   const object = media("a");
   const fake = fakeStorage({}, { headStatus: { [object.path]: 403 } });
   assert.equal(await ensureStoredObject(fake.storage, object.target, object.bytes), "uploaded");
-  assert.deepEqual(fake.calls, [`Head ${object.path}`, `Put ${object.path}`, `Get ${object.path}`]);
+  assert.deepEqual(fake.calls, [`Head ${object.path}`, `Put ${object.path}`]);
 });
 
 test("an object of another size is rewritten", async () => {
@@ -95,10 +110,37 @@ test("a HEAD failing otherwise throws without writing", async () => {
   assert.deepEqual(fake.calls, [`Head ${object.path}`]);
 });
 
-test("a written object that reads back other bytes fails the integrity check", async () => {
+test("an upload whose checksum the store refuses fails the integrity check, without a read-back or a stored object (#1417)", async () => {
   const object = media("a");
-  const fake = fakeStorage({}, { corruptGets: new Set([object.path]) });
+  const fake = fakeStorage({}, { corruptPuts: new Set([object.path]) });
+  await assert.rejects(ensureStoredObject(fake.storage, object.target, object.bytes), (error: Error) => {
+    assert.equal(error.message, `Stored media integrity failed: ${object.target.object_key}`);
+    assert.equal((error.cause as Error | undefined)?.name, "BadDigest");
+    return true;
+  });
+  assert.deepEqual(fake.calls, [`Head ${object.path}`, `Put ${object.path}`]);
+  assert.ok(!fake.objects.has(object.path));
+});
+
+test("bytes other than the expected sha256 are refused: the checksum is the target's sha256, not a hash of the bytes (#1417)", async () => {
+  const [object, other] = [media("a"), media("b")];
+  const fake = fakeStorage();
+  await assert.rejects(ensureStoredObject(fake.storage, object.target, other.bytes), { message: `Stored media integrity failed: ${object.target.object_key}` });
+  assert.ok(!fake.objects.has(object.path));
+});
+
+test("a store that does not acknowledge the checksum gets the object read back (#1417)", async () => {
+  const object = media("a");
+  const fake = fakeStorage({}, { ignoresChecksum: true });
+  assert.equal(await ensureStoredObject(fake.storage, object.target, object.bytes), "uploaded");
+  assert.deepEqual(fake.calls, [`Head ${object.path}`, `Put ${object.path}`, `Get ${object.path}`]);
+});
+
+test("on a store that ignores the checksum, a written object that reads back other bytes fails the integrity check", async () => {
+  const object = media("a");
+  const fake = fakeStorage({}, { ignoresChecksum: true, corruptPuts: new Set([object.path]) });
   await assert.rejects(ensureStoredObject(fake.storage, object.target, object.bytes), { message: `Stored media integrity failed: ${object.target.object_key}` });
+  assert.deepEqual(fake.calls, [`Head ${object.path}`, `Put ${object.path}`, `Get ${object.path}`]);
 });
 
 test("ensureStoredObjects counts verified and uploaded objects and handles a bucket/key once", async () => {

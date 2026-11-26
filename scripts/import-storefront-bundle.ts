@@ -17,8 +17,8 @@ import { importerVersion } from "./storefront-sync-state";
 // matched by sha256, supplier items are matched by their natural key (then by id; see storefront-bundle-items.ts),
 // and rows whose supplier item does not exist here are skipped and counted.
 // With --apply the media objects are stored before the transaction, so S3 round trips hold no row locks (#1406): an object
-// whose size and sha256 metadata match costs one HEAD, any other is written and read back (storefront-bundle-media.ts,
-// STOREFRONT_MEDIA_CONCURRENCY at a time). A failure there leaves nothing written. Inside the transaction only the rows it
+// whose size and sha256 metadata match costs one HEAD, any other is written with a ChecksumSHA256 the store validates (#1417;
+// read back only where the store does not echo it; storefront-bundle-media.ts, STOREFRONT_MEDIA_CONCURRENCY at a time). A failure there leaves nothing written. Inside the transaction only the rows it
 // resolved differently from that read are stored again (normally none). report.mediaUploaded / mediaVerified count them.
 // manifest.jobs (complete/partial enrichment job statuses) is upserted only where it changes (storefront-bundle-jobs.ts);
 // jobs a part does not carry are left alone, as the split sends them in the job parts that follow part-00 (#1317).
