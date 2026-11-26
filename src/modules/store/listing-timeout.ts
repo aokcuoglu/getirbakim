@@ -27,7 +27,7 @@ const defaultSuggestLimitMs = 5_000;
 /**
  * The server-side limit of a type-ahead read (suggestProducts and its search, catalog.ts): SUGGEST_STATEMENT_TIMEOUT_MS,
  * read per call. Blank or invalid: 5 s. 0: the listing limit (listingStatementTimeoutMs). A load that fails on it is not
- * cached, so a search that always takes longer is read again on every keystroke.
+ * cached but held (searchFailureHoldMs), so a search that always takes longer is not read again on every keystroke.
  */
 export function suggestStatementTimeoutMs(): number {
   const setting = process.env.SUGGEST_STATEMENT_TIMEOUT_MS?.trim();
@@ -35,4 +35,19 @@ export function suggestStatementTimeoutMs(): number {
   const value = Number(setting);
   if (value === 0) return listingStatementTimeoutMs();
   return Number.isFinite(value) && value >= 1 ? Math.floor(value) : defaultSuggestLimitMs;
+}
+
+const defaultSearchFailureHoldMs = 30_000;
+
+/**
+ * How long a search read that failed on a limit stays failed (#1416): SEARCH_FAILURE_HOLD_MS, read per call. Blank or
+ * invalid: 30 s. 0 turns it off: every request tries the read again. Holds a type-ahead hit set, a spell-correction scope
+ * and the synonym load.
+ */
+export function searchFailureHoldMs(): number {
+  const setting = process.env.SEARCH_FAILURE_HOLD_MS?.trim();
+  if (!setting) return defaultSearchFailureHoldMs;
+  const value = Number(setting);
+  if (value === 0) return 0;
+  return Number.isFinite(value) && value >= 1 ? Math.floor(value) : defaultSearchFailureHoldMs;
 }

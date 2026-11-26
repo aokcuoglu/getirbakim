@@ -1,5 +1,7 @@
 import "server-only";
-import { db } from "@/lib/db";
+import { boundedQuery, db } from "@/lib/db";
+import { failureHold } from "@/lib/ttl-cache";
+import { listingStatementTimeoutMs, searchFailureHoldMs } from "@/modules/store/listing-timeout";
 import { compactSearchCode, exactTsQuery, parseSearchQuery, prefixTsQuery, type ParsedSearch, type ParseOptions } from "./query";
 import { typeNameExactQueries, typeNameRankBoosts, typeNameTsQueries } from "./type-names";
 
@@ -209,22 +211,39 @@ export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
     CASE WHEN ${alias}.display_code <> ${alias}.code THEN GREATEST(${rank("code")}, ${rank("display_code")}) ELSE ${rank("code")} END)`;
 }
 
+// A scope whose correction failed is not asked again for a while (#1416): the failing read is the same for every query.
+const correctionFailures = failureHold(searchFailureHoldMs, 2);
+
 /**
  * "Did you mean": after a search found nothing, swaps each word for the likeliest catalog word of
  * the scope — close in spelling and common, so a one-off typo in the data ("FIILTRESI") loses to
  * "FILTRESI". Below 0.45 similarity a match is noise ("qqzzvehicle" → "vehicle") rather than a typo
  * ("sitroen" → "citroen" is 0.45). Null when no word changes.
+ * The read runs under `timeoutMs` (the type-ahead's limit) or the listing limit (#1416). It is a nicety: a failed read
+ * answers null, so the search goes on as typed, and pauses the scope for SEARCH_FAILURE_HOLD_MS.
  */
-export async function correctSearch(raw: string, scope: SearchScope, options: ParseOptions = {}) {
+export async function correctSearch(raw: string, scope: SearchScope, options: ParseOptions = {}, timeoutMs?: number) {
   const parsed = parseSearchQuery(raw, options);
   const words = parsed.terms.filter(term => term.required && /^[a-z]{3,}$/.test(term.text)).map(term => term.text);
   if (!words.length) return null;
-  const { rows } = await db.query<{ term: string; word: string }>(`
+  if (correctionFailures.failure(scope)) return null;
+  const sql = `
     SELECT t.term, c.word FROM unnest($2::text[]) t(term)
     CROSS JOIN LATERAL (SELECT v.word FROM search_vocabulary v WHERE v.scope=$1 AND v.word % t.term
       AND similarity(v.word, t.term) >= 0.45
       ORDER BY similarity(v.word, t.term) * ln(2 + v.frequency) DESC, v.word LIMIT 1) c
-    WHERE c.word <> t.term`, [scope, words]);
+    WHERE c.word <> t.term`;
+  const limit = timeoutMs ?? listingStatementTimeoutMs();
+  let rows: { term: string; word: string }[];
+  try {
+    ({ rows } = limit
+      ? await boundedQuery<{ term: string; word: string }>(`search.correct scope=${scope} words=${words.length}`, sql, [scope, words], limit)
+      : await db.query<{ term: string; word: string }>(sql, [scope, words]));
+  } catch (error) {
+    correctionFailures.hold(scope, error);
+    console.error("Search correction failed; searching as typed", error instanceof Error ? error.message : error);
+    return null;
+  }
   if (!rows.length) return null;
   const replacements = new Map(rows.map(row => [row.term, row.word]));
   const text = [...parsed.terms.map(term => replacements.get(term.text) ?? term.text), ...parsed.years].join(" ");
