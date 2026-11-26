@@ -17,8 +17,9 @@ import { buildInboundReport, checkInboundReport, type PartReport, reportKey } fr
 
 // The storefront sync end to end (#1372): export-storefront-bundle.ts -> splitStorefrontBundle -> import-storefront-bundle.ts, each
 // a real child process, between two isolated copies of the schema (a local database as source, production as target) and an
-// S3 stub on 127.0.0.1 (storefront-s3-stub.ts: whole-object GET/HEAD/PUT with x-amz-meta-* metadata, listing). It checks what the pieces' own tests cannot: that every column an exporter SELECT or importer INSERT carries
-// reaches the target unchanged, both when the row is new on the target (run 1) and when it already exists there and changes
+// S3 stub on 127.0.0.1 (storefront-s3-stub.ts: whole-object GET/HEAD/PUT with x-amz-meta-* metadata, listing). It checks what
+// the pieces' own tests cannot: that every column an exporter SELECT or importer INSERT carries reaches the target unchanged,
+// both when the row is new on the target (run 1) and when it already exists there and changes
 // (run 2 changes every carried non-key column of one imported row per table, run 3 the vehicle data), so a column missing from an
 // importer's INSERT or from its ON CONFLICT DO UPDATE list fails. Whatever may legitimately differ is listed in LOCAL_ONLY, with its
 // reason; anything else that differs fails. The inbound tests (#1384) then run import-storefront-inbound.ts, the operations-task entry
@@ -28,9 +29,10 @@ import { buildInboundReport, checkInboundReport, type PartReport, reportKey } fr
 // Run 3 also skips the category images and logos run 2 sent (--static-digest, #1379) and sends them again once a logo changes; run 4 imports media
 // the target already holds under another id and object key (#1385): every referencing table must point at the existing object. Run 5
 // imports run 4's parts again: an unchanged object costs one HEAD and no PUT or GET, a missing, truncated or metadata-less one is
-// rewritten (#1406). Run 6 fails one upload: the part writes no row. INSERT_ONLY lists columns the importer writes on insert but never updates: they are
-// left out of the comparisons that follow an update, so the gap stays visible. A column nobody seeded, or one that only ever holds
-// its constant default, fails assertColumnCoverage, so a new column cannot pass by being empty or defaulted on both sides.
+// rewritten (#1406). Run 6 fails one upload: the part writes no row. INSERT_ONLY lists columns the importer writes on insert but
+// never updates: they are left out of the comparisons that follow an update, so the gap stays visible. A column nobody seeded, or
+// one that only ever holds its constant default, fails assertColumnCoverage, so a new column cannot pass by being empty or defaulted
+// on both sides.
 const skip = !process.env.DATABASE_URL && "DATABASE_URL not set";
 if (process.env.CI && skip) throw new Error("DATABASE_URL is required in CI: the storefront e2e test must not be skipped silently");
 
