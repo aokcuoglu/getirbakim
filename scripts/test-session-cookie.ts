@@ -31,6 +31,17 @@ test("a skipped refresh never lets the cookie die before the database session", 
 
 test("the proxy writes no cookie for a visitor without a session", () => {
   assert.deepEqual(setCookies(proxy(request("/sepet"))), []);
+  // The edge-cached home (#1349) never carries a Set-Cookie.
+  assert.deepEqual(setCookies(proxy(request("/"))), []);
+});
+
+test("a session on the home page still slides and keeps the page private (#1349)", () => {
+  const response = proxy(request("/", `${SESSION_COOKIE}=${token}`));
+  const cookies = setCookies(response);
+  assert.equal(cookies.length, 2);
+  assert.ok(cookies.some(c => c.startsWith(`${SESSION_COOKIE}=${token};`)));
+  assert.ok(cookies.some(c => c.startsWith(`${SESSION_SEEN_COOKIE}=`)));
+  assert.equal(response.headers.get("cache-control"), null);
 });
 
 test("a session without a stamp gets both cookies with the session lifetime", () => {

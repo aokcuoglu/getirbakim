@@ -7,12 +7,23 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
 /**
  * The shared, persisted level of the storefront listing caches (#957, db/storefront-catalog.sql storefront_listing_cache).
  * A new app container or a restart reads the counts, page ids and facets another process already computed instead of
- * scanning the catalog again (0.5-3 s each). Rows carry the listing epoch they were loaded under (#585): staleCache
- * adopts only a current one, and an older write never replaces a newer row. The key hash covers `version` (bump it when
- * the stored value's shape or meaning changes) and the storefront's supplier companies. LISTING_CACHE_PERSIST=0 turns
+ * scanning the catalog again (0.5-3 s each). Rows carry the epoch value they were loaded under (#585), the one their key
+ * follows (a make's listing, its listed models and the make/model category counts the fits value, the others the listing epoch, #1368, listing-epoch.ts): staleCache adopts only
+ * a current one, and an older write never replaces a newer row. A row it may not adopt (an older epoch, or
+ * past maxStaleMs) up to 48 hours old and not empty is still the fallback a visitor gets after the bounded wait while the
+ * reload runs (#771, catalog.ts); the reload then replaces the row. The key hash covers `version` (bump it when
+ * the stored value's shape or meaning changes; #1368 kept 1: the fits value starts at the epoch the rows already carry)
+ * and the storefront's supplier companies. LISTING_CACHE_PERSIST=0 turns
  * the level off; a missing table (setup not run yet) turns it off for five minutes. Errors are logged (throttled) and
  * count as a miss: the caller loads the value itself.
  */
+/**
+ * Staleness bounds of the persisted listed models and category counts (#1391). Unlike the other namespaces (ids that cards
+ * re-read live) these are rendered as model and category links and counts, and a supplier sync moves them without an epoch
+ * bump: an old row could link a model or category that has since lost its last listed product (a 404). So a new task adopts a row
+ * up to 1 hour old, and one up to 6 hours old is only the fallback while the reload runs.
+ */
+export const storedLinks = { maxStaleMs: 60 * 60 * 1000, maxFallbackMs: 6 * 60 * 60 * 1000 };
 const maxBytes = 256 * 1024;
 const pruneEvery = 200;
 const missingTableBackoffMs = 5 * 60 * 1000;
@@ -30,13 +41,17 @@ function failed(action: string, error: unknown) {
     logError(`${action} failed: storefront_listing_cache is missing; the persisted level is off for 5 minutes`, error);
   } else logError(`${action} failed; loading instead`, error);
 }
-const enabled = () => process.env.LISTING_CACHE_PERSIST !== "0" && Date.now() >= disabledUntil;
+/**
+ * Whether the shared level is read and written: LISTING_CACHE_PERSIST is not 0 and the table was not found missing in the
+ * last five minutes. Read per call; the price-sorted first pages' other stored source follows it too (listing-price-order.ts).
+ */
+export const listingCacheEnabled = () => process.env.LISTING_CACHE_PERSIST !== "0" && Date.now() >= disabledUntil;
 
 export function listingCacheStore<T>(namespace: string, version: number): StaleCacheStore<T> {
   const hash = (key: string) => createHash("sha256").update(JSON.stringify([version, storefrontCompanies(), key])).digest("hex");
   return {
     async read(key) {
-      if (!enabled()) return null;
+      if (!listingCacheEnabled()) return null;
       try {
         const { rows } = await db.query<{ value: T; epoch: string; age_ms: string }>(
           `SELECT value,epoch::text AS epoch,(extract(epoch FROM now()-computed_at)*1000)::bigint::text AS age_ms
@@ -48,7 +63,7 @@ export function listingCacheStore<T>(namespace: string, version: number): StaleC
       }
     },
     async write(key, value, epoch) {
-      if (!enabled()) return;
+      if (!listingCacheEnabled()) return;
       const json = JSON.stringify(value);
       if (json === undefined || Buffer.byteLength(json) > maxBytes) return;
       try {

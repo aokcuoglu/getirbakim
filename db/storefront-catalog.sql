@@ -291,8 +291,9 @@ END $setup$;
 -- Storefront listing cache, persisted level (#957): listing counts, page ids and facets of the plain listings (no search,
 -- brand, property, availability or vehicle filter) that the per-process stale-while-revalidate caches computed, so a new
 -- or restarted app container reads them instead of scanning the catalog again (src/modules/store/listing-cache-store.ts).
--- Each row keeps the storefront_listing_epoch value it was loaded under: rows of an older epoch are not served and never
--- replace a newer row. UNLOGGED: a crash empties it and the caches load again. The app prunes rows older than two days.
+-- Each row keeps the storefront_listing_epoch value it was loaded under, the one its key follows (#1368: a listing of a
+-- make epoch+fits_epoch, the others `epoch`): rows of an older value are not served and never replace a newer row.
+-- UNLOGGED: a crash empties it and the caches load again. The app prunes rows older than two days.
 CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_cache (
  namespace text NOT NULL,
  key_hash text NOT NULL,
@@ -301,3 +302,31 @@ CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_cache (
  value jsonb NOT NULL,
  PRIMARY KEY (namespace,key_hash)
 );
+-- Whole price orders of the plain listings (#1369): one row per listing and price sort (the listings
+-- storefront_listing_cache keeps, a model listing excepted), holding every listed id in the page order. Pages 1-20 keep
+-- their 480 ids in storefront_listing_cache; a deeper page slices this array (ids[a:b]) and reads its cards live by id, so
+-- prices and stock stay current while the order follows the prices of the last build (src/modules/store/listing-price-order.ts).
+-- One statement prices, sorts and stores a listing (INSERT … SELECT): its ids never pass through the app (#1262). `epoch`
+-- is the storefront_listing_epoch value the build ran under, the one its key follows (as storefront_listing_cache's,
+-- #1368); the app rebuilds a row of an older value, and an older build never replaces a newer row. UNLOGGED: a crash
+-- empties it and deep pages read live until the next build. The app prunes rows older than two days. No index but the
+-- primary key: every read and write names one key_hash. The array is read whole to slice it (~16 bytes an id: 900k ids
+-- ~14 MB, stored out of line).
+-- `last_sliced_at` (#1405; nullable, not indexed): when a deep page last read a slice of the row, NULL until one does. The
+-- app moves it at most once a minute per row, by an UPDATE of this column alone (the array is not rewritten), and a
+-- build keeps it. The first pages' cache reads it by primary key when it loads: a listing a deep page sliced within the
+-- last 20 minutes refreshes its first pages by rebuilding this order (one pricing pass for both), any other by its own
+-- 480-id pass. Added only when missing: ADD COLUMN IF NOT EXISTS locks the table on every setup run.
+CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_price_orders (
+ key_hash text NOT NULL,
+ epoch bigint NOT NULL,
+ computed_at timestamptz NOT NULL DEFAULT now(),
+ total integer NOT NULL,
+ ids uuid[] NOT NULL,
+ PRIMARY KEY (key_hash)
+);
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='storefront_listing_price_orders'::regclass AND attname='last_sliced_at' AND NOT attisdropped) THEN
+  ALTER TABLE storefront_listing_price_orders ADD COLUMN last_sliced_at timestamptz;
+ END IF;
+END $$;

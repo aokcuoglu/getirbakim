@@ -13,7 +13,8 @@ import {lazyModule} from "@/lib/lazy-module";
 import {categoryPath as categoryHref} from "@/modules/seo/paths";
 import {CategoryThumb,TreeStatus,reset} from "./category-parts";
 
-// Phones and tablets only: fetched on the first hover, focus or tap below 769px; the desktop never downloads it (#1017).
+// The Katalog button's sheet at every width (#1371), the strip's below 769px: fetched on the first hover, focus or tap of a
+// trigger that opens it, so a desktop visitor who only uses the strip's mega menu never downloads it (#1017).
 const categorySheet=lazyModule(()=>import("./category-sheet"));
 const mobile=()=>!window.matchMedia('(min-width:769px)').matches;
 /** The mega menu's close button, top right of its panel (the right panel leaves it room with pr-12). */
@@ -22,7 +23,8 @@ function MegaClose({onClick}:{onClick:()=>void}){
 }
 const megaLink="flex min-h-11 items-center gap-1.5 px-4 pt-3 pb-0 text-sm font-medium text-brand hover:underline hover:underline-offset-3";
 /**
- * The header category navigation: desktop mega menu (from 769px) and the phone/tablet category sheet.
+ * The header category navigation: the left category sheet (the Katalog button at every width, #1371; the strip below 769px)
+ * and the strip's desktop mega menu (from 769px).
  * The page sends only the bar's `links`; the tree comes from /api/categories on the first hover, focus or click (#642).
  * `account` is the sheet's server-rendered account row (#1043).
  */
@@ -32,7 +34,7 @@ export function CategoryMenu({links,account}:{links:CategoryLink[];account:React
  const categories=tree.categories??[];
  const [open,setOpen]=useState(false);
  const [selected,setSelected]=useState<number|null>(null);
- // `selectedId` null: the root's first branch for "Katalog", the root itself otherwise (known once the tree is here).
+ // `selectedId` null: the catalog root's (3, the strip's first item) first branch, the root itself otherwise (known once the tree is here).
  const [desktop,setDesktop]=useState<{rootId:number;selectedId:number|null;top:number}|null>(null);
  const desktopOpen=desktop!==null;
  const menu=useRef<HTMLDivElement>(null);
@@ -67,23 +69,26 @@ export function CategoryMenu({links,account}:{links:CategoryLink[];account:React
   return()=>{document.body.style.overflow=previous;document.removeEventListener('pointerdown',dismiss);document.removeEventListener('focusin',dismiss);document.removeEventListener('keydown',escape);window.removeEventListener('resize',resize);};
  },[desktopOpen]);
  function close(){setOpen(false);setDesktop(null);trigger.current?.focus();}
- function show(rootId:number,button:HTMLButtonElement,all=false){
+ /** A strip trigger (`rootId`) opens the mega menu from 769px and the sheet below it; Katalog (`rootId` null) always the sheet at the catalog root. */
+ function show(rootId:number|null,button:HTMLButtonElement){
   trigger.current=button;
   tree.load();
-  if(window.matchMedia('(min-width:769px)').matches){
+  if(rootId!==null&&!mobile()){
    if(desktop?.rootId===rootId){setDesktop(null);return;}
    setDesktop({rootId,selectedId:null,top:navBottom()});
   }else{
-   setSelected(all?null:rootId);
+   setDesktop(null);
+   setSelected(rootId);
    setOpen(true);
    categorySheet.preload().catch(()=>setOpen(false));
   }
  }
- // Hover/focus on a trigger: the tree for both layouts, the sheet's code only where the sheet is used.
+ // Hover/focus on a trigger: the tree for both layouts, the sheet's code only where that trigger opens the sheet.
  function intent(){tree.load();if(mobile())void categorySheet.preload();}
+ function catalogIntent(){tree.load();void categorySheet.preload();}
  function selectDesktop(id:number){setDesktop(previous=>previous?{...previous,selectedId:id}:null);}
  return <><div ref={menu} data-mega-open={desktopOpen?"":undefined} className="site-nav-all">
-  <button data-category-trigger type="button" aria-label="Tüm kategoriler" aria-expanded={open||desktop!==null} aria-busy={open&&!sheet&&selected===null?true:undefined} aria-controls={open?"category-sheet":"desktop-category-panel"} onPointerEnter={intent} onFocus={intent} onClick={event=>show(3,event.currentTarget,true)}
+  <button data-category-trigger type="button" aria-label="Tüm kategoriler" aria-expanded={open} aria-busy={open&&!sheet&&selected===null?true:undefined} aria-controls="category-sheet" onPointerEnter={catalogIntent} onFocus={catalogIntent} onClick={event=>show(null,event.currentTarget)}
    className="site-nav-catalog">
    <Menu size={18}/><span className="text-sm font-semibold max-[1100px]:hidden">Katalog</span>
   </button>

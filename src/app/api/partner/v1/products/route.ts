@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { clampPartnerLimit, partnerMinQueryLength, searchPartnerProducts } from "@/modules/partner/catalog";
 import { cachedPartnerDiscount } from "@/modules/partner/discounts";
-import { partnerError, partnerGuard, partnerNoStore } from "@/modules/partner/guard";
+import { partnerError, partnerGuard, partnerNoStore, partnerSearchFailure } from "@/modules/partner/guard";
 import { partnerDiscountEnv, resolvePartnerDiscountBps } from "@/modules/partner/pricing";
 import { createRateLimiter } from "@/lib/rate-limit";
 
@@ -42,7 +42,10 @@ export async function GET(request: NextRequest) {
     });
     return Response.json({ products, source, minQueryLength: partnerMinQueryLength }, { headers: partnerNoStore });
   } catch (error) {
-    console.error(`[partner/v1/products] ${partner.code}:`, error instanceof Error ? error.message : error);
-    return partnerError(500, "INTERNAL_ERROR", "Partner search failed.");
+    // A search the database did not answer in time is 503 with Retry-After (#1395); "timeout <kind>:" counts those apart.
+    const failure = partnerSearchFailure(error), message = error instanceof Error ? error.message : error;
+    if (failure.timeout) console.error(`[partner/v1/products] ${partner.code}: timeout ${failure.timeout}:`, message);
+    else console.error(`[partner/v1/products] ${partner.code}:`, message);
+    return failure.response;
   }
 }

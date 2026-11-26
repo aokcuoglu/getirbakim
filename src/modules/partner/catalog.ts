@@ -26,6 +26,7 @@ export function clampPartnerLimit(raw: string | null) {
 export type PartnerSearch = { q?: string | null; oem?: string | null; partNo?: string | null; limit: number; vehicleTypeId: number | null; discountBps: number };
 export type PartnerSearchSource = "part_no" | "oem" | "search";
 
+// Since #1394 a response may be built from an earlier ranking (the reload time plus up to 30 s); fitment levels stay live.
 // Nothing partner-specific goes in: the discount is one setting for every partner, and it is part of the key.
 const cachedResponses = ttlCache<PartnerProduct[]>(partnerResponseTtlMs, 100);
 

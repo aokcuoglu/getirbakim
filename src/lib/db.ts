@@ -1,7 +1,8 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { Pool, type PoolClient, type QueryResultRow } from "pg";
-const globalDb = globalThis as unknown as { getirbakimPool?: Pool };
+import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg";
+import { isStatementTimeout } from "./db-errors";
+const globalDb = globalThis as unknown as { getirbakimPool?: Pool; getirbakimCancelPool?: Pool };
 // One catalog render runs 9+ queries in parallel and every product image takes a client,
 // so a 5-client pool with a 3 s acquire timeout failed pages with 500 under light load.
 const createPool = () => {
@@ -9,13 +10,59 @@ const createPool = () => {
     connectionString: process.env.DATABASE_URL,
     max: Number(process.env.DATABASE_POOL_MAX) || 15,
     connectionTimeoutMillis: Number(process.env.DATABASE_POOL_ACQUIRE_TIMEOUT_MS) || 10_000,
+    // Names this pool's sessions in pg_stat_activity (#1377), so their client backends (and their parallel workers, through
+    // leader_pid) can be counted apart from psql and other clients. Every process using this module carries it: the web
+    // tasks, and the scripts and in-process imports that import it too; PGAPPNAME or an application_name URL parameter
+    // wins, so a script can name its own.
+    fallback_application_name: "getirbakim-web",
   });
   // Without a listener, an error on an idle client is an unhandled 'error' event and kills the process.
   pool.on("error", error => console.error("Idle database client error", error.message));
   return pool;
 };
-export const db = globalDb.getirbakimPool ?? createPool();
-if (process.env.NODE_ENV !== "production") globalDb.getirbakimPool = db;
+// One pool per process, in production too. `next start` loads this module twice: in the instrumentation bundle (the
+// warm-up and the enrichment sync) and in the server bundle all routes share; a module-level pool would open `max`
+// connections per copy (#771 measured 16 open against a max of 15). Dev reload also reuses it. DATABASE_POOL_MAX is the real
+// per-process ceiling only because the pool lives on globalThis; its error listener is registered once, in createPool.
+export const db = (globalDb.getirbakimPool ??= createPool());
+const defaultSlowMs = 20_000;
+/** BOUNDED_QUERY_SLOW_MS, read per call: blank or invalid 20 s, 0 no slow-read line (boundedQuery). */
+function boundedQuerySlowMs() {
+  const setting = process.env.BOUNDED_QUERY_SLOW_MS?.trim();
+  const value = setting ? Number(setting) : defaultSlowMs;
+  return Number.isFinite(value) && value >= 0 ? value : defaultSlowMs;
+}
+// A connection of its own for pg_cancel_backend (#1398): a cancel matters most when every connection of `db` is busy, and
+// waiting for one of them would let the statement it means to stop run on. One client at most, kept 30 s after its last
+// cancel (sparse aborts do not reopen TLS and auth each time) and never keeping a process alive; on globalThis for the
+// reason `db` is. The read waiting on a cancel keeps its own client checked out, so a stalled cancel connection gives up
+// after 2 s (query_timeout), as one that does not open does (connectionTimeoutMillis).
+function cancelPool() {
+  if (globalDb.getirbakimCancelPool) return globalDb.getirbakimCancelPool;
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL, max: 1, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 2_000,
+    query_timeout: 2_000, application_name: "getirbakim-cancel", allowExitOnIdle: true,
+  });
+  pool.on("error", error => console.error("Idle database cancel client error", error.message));
+  return (globalDb.getirbakimCancelPool = pool);
+}
+/**
+ * Cancels the statement backend `pid` is running, if it is still running one: a backend that has gone idle (its statement
+ * answered while the cancel was on its way) is left alone. A failure is logged, never thrown: the statement then runs on
+ * until its statement_timeout.
+ * Assumes DATABASE_URL reaches one server (the primary): a pid names a backend on that server only, and behind a reader
+ * endpoint or a pooler spreading sessions over several servers the cancel could reach another one. `since` (the
+ * backend's start, in microseconds, read with the pid in boundedQuery) must match too, so the cancel then misses instead
+ * of stopping another session's statement, as it does when the pid was reused after our backend ended.
+ */
+export async function cancelBackend(pid: number, since: string): Promise<void> {
+  try {
+    await cancelPool().query(`SELECT pg_cancel_backend(pid) FROM pg_stat_activity
+      WHERE pid=$1 AND (extract(epoch FROM backend_start)*1000000)::bigint=$2 AND state='active'`, [pid, since]);
+  } catch (error) {
+    console.error("Database statement cancel failed", error instanceof Error ? error.message : error);
+  }
+}
 /**
  * One read with a server-side time limit. node-postgres stops waiting on its own, but the query would keep running:
  * a request the CDN abandoned (504) must not leave it on the database. Meant for the expensive, cached catalog reads.
@@ -23,21 +70,64 @@ if (process.env.NODE_ENV !== "production") globalDb.getirbakimPool = db;
  * `label` is `<module>.<query>` plus optional listing detail, built only when the query runs (a cache miss); a statement
  * timeout (57014) is logged with it, cut to 200 chars, so a slow listing can be traced to its query. The logged time
  * includes the pool wait, and 57014 also covers a pg_cancel_backend.
+ * `timeoutMs` limits the statement alone, as the server counts it: its lock waits are inside it, the wait for a pool
+ * connection (up to DATABASE_POOL_ACQUIRE_TIMEOUT_MS) and the BEGIN/SET round trips are not.
+ * A statement that succeeds after more than BOUNDED_QUERY_SLOW_MS (20 s) logs one line, `boundedQuery slow: <label> (<ms>
+ * ms, limit <timeoutMs> ms)` with the statement's own time (no pool wait), so production shows how close the reads come
+ * to their limits before they time out (#1377).
+ * The transaction is READ ONLY unless `write`: a statement that stores what it reads (a listing's whole price order,
+ * src/modules/store/listing-price-order.ts, #1369) runs under the same limits.
+ * `signal` (a read only; with `write` it throws) stops the read when its request is aborted (#1398). Already aborted,
+ * nothing is sent. Aborted while waiting for a pool connection, nothing is sent either, but the wait goes on until a
+ * client is handed over (up to DATABASE_POOL_ACQUIRE_TIMEOUT_MS, 10 s), which is then released at once. Aborted before
+ * the statement is sent, the transaction is rolled back without it. Aborted while the statement runs, the statement is
+ * cancelled on the server (cancelBackend, through its own connection) and the cancel is awaited before the ROLLBACK and
+ * the release, so the connection goes back idle. It then rejects with the signal's reason and logs `boundedQuery
+ * cancelled: <label> (<ms> ms)` (console.warn) instead of the timeout line. The limit, the backend's pid and its start
+ * are set and read in one round trip (set_config(..., true), as SET LOCAL; pg_stat_get_activity for the one backend,
+ * ~0.01-0.02 ms more locally); without a signal the statements sent are the ones above.
  */
-export async function boundedQuery<T extends QueryResultRow>(label: string, sql: string, values: unknown[], timeoutMs = 30_000, { workMem }: { workMem?: string } = {}) {
+export async function boundedQuery<T extends QueryResultRow>(label: string, sql: string, values: unknown[], timeoutMs = 30_000, { workMem, write = false, signal }: { workMem?: string; write?: boolean; signal?: AbortSignal } = {}) {
   if (workMem !== undefined && !/^\d+(kB|MB)$/.test(workMem)) throw new Error(`Invalid work_mem: ${workMem}`);
+  if (signal && write) throw new Error("boundedQuery: only a read takes an abort signal");
+  signal?.throwIfAborted();
   const started = Date.now();
   const client = await db.connect();
+  // Aborted while waiting for the pool: the client handed over goes straight back.
+  if (signal?.aborted) { client.release(); throw signal.reason; }
+  let cancelling: Promise<void> | undefined;
   try {
-    await client.query("BEGIN READ ONLY");
-    await client.query(`SET LOCAL statement_timeout = ${Math.max(1, Math.floor(timeoutMs))}`);
+    await client.query(write ? "BEGIN" : "BEGIN READ ONLY");
+    const limit = Math.max(1, Math.floor(timeoutMs));
+    let backend = { pid: 0, since: "" };
+    if (signal) {
+      backend = (await client.query<{ pid: number; since: string }>(`SELECT set_config('statement_timeout',$1,true), pg_backend_pid() AS pid,
+        (SELECT (extract(epoch FROM backend_start)*1000000)::bigint FROM pg_stat_get_activity(pg_backend_pid())) AS since`, [String(limit)])).rows[0];
+    } else await client.query(`SET LOCAL statement_timeout = ${limit}`);
     if (workMem) await client.query(`SET LOCAL work_mem = '${workMem}'`);
-    const result = await client.query<T>(sql, values);
+    const onAbort = () => { cancelling = cancelBackend(backend.pid, backend.since); };
+    // Checked and registered in one synchronous step: an abort during the round trips above is seen here.
+    if (signal) { signal.throwIfAborted(); signal.addEventListener("abort", onAbort, { once: true }); }
+    const run = Date.now();
+    let result: QueryResult<T>;
+    try {
+      result = await client.query<T>(sql, values);
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+      await cancelling;
+    }
+    const ms = Date.now() - run;
     await client.query("COMMIT");
+    const slowMs = boundedQuerySlowMs();
+    if (slowMs > 0 && ms > slowMs) console.warn(`boundedQuery slow: ${label.slice(0, 200)} (${ms} ms, limit ${timeoutMs} ms)`);
     return result;
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
-    if ((error as { code?: string }).code === "57014") console.error(`boundedQuery timeout: ${label.slice(0, 200)} (limit ${timeoutMs} ms, ${Date.now() - started} ms)`);
+    if (signal?.aborted && isStatementTimeout(error)) {
+      console.warn(`boundedQuery cancelled: ${label.slice(0, 200)} (${Date.now() - started} ms)`);
+      throw signal.reason;
+    }
+    if (isStatementTimeout(error)) console.error(`boundedQuery timeout: ${label.slice(0, 200)} (limit ${timeoutMs} ms, ${Date.now() - started} ms)`);
     throw error;
   } finally { client.release(); }
 }

@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, beforeEach, test } from "node:test";
 import type { PoolClient } from "pg";
 import { isolatedSchema } from "./isolated-schema";
+import { splitStorefrontBundle } from "./split-storefront-bundle";
 import { resolveBundleItems } from "./storefront-bundle-items";
+import { ENRICHMENTS_FILE, ITEMS_FILE, JOBS_FILE, MEDIA_FILE, PRODUCTS_FILE, writeNdjson } from "./storefront-bundle-stream";
+import { buildInboundReport, type PartReport } from "./storefront-sync-state";
 import {
   applyBundleTombstones, bundleTombstones, exportTombstones, MANUAL_SOURCE_METHOD, pruneTombstones, REMOVED_JOB_ERROR, TOMBSTONE_RETENTION_DAYS, type Tombstone,
 } from "./storefront-bundle-tombstones";
@@ -229,5 +232,94 @@ test("PostgreSQL: import-storefront-bundle applies tombstones before the part's 
     assert.deepEqual([await has(removed), await has(added)], [false, true]);
     const status = async (id: string) => (await client.query<{ status: string }>("SELECT status FROM product_enrichment_jobs WHERE supplier_item_id=$1", [id])).rows[0].status;
     assert.deepEqual([await status(removed), await status(added)], ["pending", "complete"]);
+  } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("PostgreSQL: job statuses spread over the job parts after part-00 write the same rows as one part with every job (#1317)", { skip }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), "storefront-job-parts-"));
+  try {
+    const codes = ["Q-NEW", "Q-PENDING", "Q-SAME", "Q-PARTIAL", "Q-MISSING", "Q-TOMB", "Q-TOMB-JOB"] as const;
+    const bundleId = Object.fromEntries(codes.map(code => [code, randomUUID()])) as Record<(typeof codes)[number], string>;
+    const job = (code: (typeof codes)[number], status = "complete") => ({ supplier_item_id: bundleId[code], supplier_code: "X", supplier_brand: "FEBI", oem: "",
+      status, candidate_url: null, last_attempt_at: "2026-11-11T00:00:00Z" });
+    // As the export orders them. Q-TOMB-JOB has a tombstone and a job, which the export never sends together
+    // (EXPORTED_TOMBSTONES leaves out items enriched and valid again): even then part-00's deletion comes first, as it did
+    // inside one part.
+    const jobs = [job("Q-NEW"), job("Q-PENDING"), job("Q-SAME"), job("Q-PARTIAL", "partial"), job("Q-MISSING"), job("Q-TOMB-JOB")]
+      .sort((a, b) => a.supplier_item_id.localeCompare(b.supplier_item_id));
+    const tombstone = (code: "Q-TOMB" | "Q-TOMB-JOB") => ({ supplier_item_id: bundleId[code], ...key(code), kind: "enrichment_deleted", source_method: "trodo",
+      recorded_at: "2026-11-10T00:00:00Z" });
+    const enrichment = { supplier_item_id: bundleId["Q-NEW"], supplier_code: "X", supplier_brand: "FEBI", source_url: "https://www.trodo.com/q", source_method: "trodo",
+      manufacturer: "FEBI", manufacturer_part_number: "3", image_id: null, payload: {}, imported_at: "2026-11-11T00:00:00Z", match_basis: { type: "exact_part" } };
+    const items = codes.map(code => ({ id: bundleId[code], ...key(code) }));
+    const bounded = {
+      exportedAt: "2026-11-12T00:00:01Z", since: null, retried: 0, snapshotAt: "2026-11-12T00:00:00Z", categories: [], labels: [], images: [], logos: [],
+      vehicleSpecs: [], vehicleImages: [], tombstones: [tombstone("Q-TOMB"), tombstone("Q-TOMB-JOB")], invalidatedJobs: 2, maxDeletions: 1000,
+    };
+
+    // The target: ids differ from the bundle's; Q-MISSING is not there. Recreated before each import.
+    const seed = async () => {
+      await client.query("DELETE FROM supplier_items WHERE code LIKE 'Q-%'");
+      await client.query("DELETE FROM product_enrichment_tombstones");
+      await item("Q-NEW");
+      await enrich(await item("Q-PENDING"), { status: "pending" });
+      for (const code of ["Q-SAME", "Q-PARTIAL", "Q-TOMB", "Q-TOMB-JOB"]) await enrich(await item(code));
+    };
+    const reportFile = join(dir, "report.json");
+    const apply = async (part: string) => {
+      const result = spawnSync(process.execPath, ["--conditions=react-server", "--import", "tsx", "scripts/import-storefront-bundle.ts", part, "--apply", `--report=${reportFile}`],
+        { encoding: "utf8", env: { ...process.env, S3_BUCKET: "test-media", S3_REGION: process.env.S3_REGION || "eu-central-1" } });
+      assert.equal(result.status, 0, result.stderr);
+      return JSON.parse(await readFile(reportFile, "utf8")) as PartReport;
+    };
+    // product_enrichment_jobs without updated_at, and the enrichments, by supplier code.
+    const snapshot = async () => ({
+      jobs: (await client.query(`SELECT s.code,j.supplier_code,j.supplier_brand,j.oem,j.status,j.candidate_url,j.attempts,j.last_attempt_at,j.last_error
+        FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id WHERE s.code LIKE 'Q-%' ORDER BY s.code`)).rows,
+      enrichments: (await client.query(`SELECT s.code,e.source_method,e.imported_at FROM product_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
+        WHERE s.code LIKE 'Q-%' ORDER BY s.code`)).rows,
+    });
+    const compared = ["jobs", "skippedJobs", "enrichments", "skippedEnrichments", "tombstones", "removedEnrichments", "resetJobs", "invalidatedJobsReported", "tombstonesKept"];
+    const totals = (reports: PartReport[]) => Object.fromEntries(compared.map(name => [name, buildInboundReport(reports).totals[name]]));
+
+    // Before #1317: one part carries every job.
+    await seed();
+    const legacy = join(dir, "legacy");
+    await mkdir(legacy);
+    await writeFile(join(legacy, "manifest.json"), JSON.stringify({ ...bounded, products: [], enrichments: [enrichment], media: [], jobs, items }));
+    const legacyTotals = totals([await apply(legacy)]);
+    const legacyRows = await snapshot();
+
+    // Now: the export's NDJSON files, split with room for two jobs per part.
+    await seed();
+    const source = join(dir, "full");
+    await mkdir(source);
+    await writeFile(join(source, "manifest.json"), JSON.stringify({
+      ...bounded,
+      enrichmentsFile: ENRICHMENTS_FILE, enrichmentCount: await writeNdjson(join(source, ENRICHMENTS_FILE), [enrichment]),
+      jobsFile: JOBS_FILE, jobCount: await writeNdjson(join(source, JOBS_FILE), jobs),
+      itemsFile: ITEMS_FILE, itemCount: await writeNdjson(join(source, ITEMS_FILE), items),
+      productsFile: PRODUCTS_FILE, productCount: await writeNdjson(join(source, PRODUCTS_FILE), []),
+      mediaFile: MEDIA_FILE, mediaCount: await writeNdjson(join(source, MEDIA_FILE), []),
+    }));
+    const size = (row: unknown) => Buffer.byteLength(JSON.stringify(row)) + 1;
+    const unit = Math.max(...jobs.map(row => size(row) + size(items.find(entry => entry.id === row.supplier_item_id))));
+    const dirs = await splitStorefrontBundle(source, join(dir, "parts"), { mediaBytes: 1e9, jsonBytes: unit * 2 });
+    const parts = await Promise.all(dirs.map(async part => JSON.parse(await readFile(join(part, "manifest.json"), "utf8")) as { jobs: unknown[]; enrichments: unknown[] }));
+    assert.deepEqual(parts.map(part => [part.jobs.length, part.enrichments.length]), [[0, 0], [2, 0], [2, 0], [2, 0], [0, 1]]);
+    const reports: PartReport[] = [];
+    for (const part of dirs) reports.push(await apply(part));
+
+    assert.deepEqual(await snapshot(), legacyRows);
+    assert.deepEqual(totals(reports), legacyTotals);
+    // The outcome itself: inserted, updated, unchanged, skipped, deleted and reset, reset then sent again.
+    assert.deepEqual(legacyRows.jobs.map(row => [row.code, row.status, row.last_error]), [
+      ["Q-NEW", "complete", null], ["Q-PARTIAL", "partial", null], ["Q-PENDING", "complete", null], ["Q-SAME", "complete", null],
+      ["Q-TOMB", "pending", REMOVED_JOB_ERROR], ["Q-TOMB-JOB", "complete", null],
+    ]);
+    assert.deepEqual(legacyRows.enrichments.map(row => row.code), ["Q-NEW", "Q-PARTIAL", "Q-PENDING", "Q-SAME"]);
+    assert.deepEqual(legacyTotals, {
+      jobs: 4, skippedJobs: 1, enrichments: 1, skippedEnrichments: 0, tombstones: 2, removedEnrichments: 2, resetJobs: 2, invalidatedJobsReported: 2, tombstonesKept: 0,
+    });
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

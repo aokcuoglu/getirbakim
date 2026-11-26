@@ -3,6 +3,7 @@ import { clientEvidence } from "@/lib/client-address";
 import { partnerKeysEnv, resolvePartner, type PartnerIdentity } from "./auth";
 import { PartnerOrderError } from "./quotes";
 import { createRateLimiter } from "@/lib/rate-limit";
+import { isPoolTimeout, isStatementTimeout } from "@/lib/db-errors";
 
 export const partnerNoStore = { "Cache-Control": "no-store" };
 
@@ -11,6 +12,21 @@ export type PartnerErrorBody = { error: { code: string; message: string; details
 export function partnerError(status: number, code: string, message: string, details?: Record<string, unknown>, headers: Record<string, string> = {}) {
   const body: PartnerErrorBody = { error: details ? { code, message, details } : { code, message } };
   return Response.json(body, { status, headers: { ...partnerNoStore, ...headers } });
+}
+
+/** `503 SEARCH_UNAVAILABLE` (#1395): the search did not finish in time; the same request may be retried after `Retry-After` seconds. */
+export function partnerUnavailable(retryAfterSeconds = 5) {
+  return partnerError(503, "SEARCH_UNAVAILABLE", "Search is temporarily unavailable. Retry later.", undefined, { "Retry-After": String(retryAfterSeconds) });
+}
+
+/**
+ * A failed product search as its answer (#1395): a read past its server-side time limit (57014) or no pool connection
+ * in time (`pool`) means the database was too busy, answered `partnerUnavailable()` so the partner retries; anything
+ * else is `500 INTERNAL_ERROR` (`timeout` null). The route's log line names the timeout kind.
+ */
+export function partnerSearchFailure(error: unknown): { timeout: "57014" | "pool" | null; response: Response } {
+  const timeout = isStatementTimeout(error) ? "57014" : isPoolTimeout(error) ? "pool" : null;
+  return { timeout, response: timeout ? partnerUnavailable() : partnerError(500, "INTERNAL_ERROR", "Partner search failed.") };
 }
 
 type Limiter = ReturnType<typeof createRateLimiter>;

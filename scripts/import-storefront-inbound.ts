@@ -8,7 +8,7 @@ import { pipeline } from "node:stream/promises";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { drainSharedLinks } from "./enrichment-derived-sync";
-import { buildInboundReport, type PartReport, reportKey } from "./storefront-sync-state";
+import { buildInboundReport, importerVersion, type PartReport, reportKey } from "./storefront-sync-state";
 import { objectStorage } from "../src/lib/object-storage";
 
 // Import side of sync-storefront-production.ts. Runs in the operations task, reads the parts that the sync uploaded
@@ -25,7 +25,8 @@ import { objectStorage } from "../src/lib/object-storage";
 //
 // Table decisions (#553; the full table is in docs/product-enrichment.md):
 // - carried in the bundle: enrichments, mappings, media, categories, logos, REPXPERT vehicle data and the
-//   complete/partial product_enrichment_jobs (sent whole in part-00 every run; the storefront needs the job status).
+//   complete/partial product_enrichment_jobs (sent whole every run, in the job parts after part-00 since #1317; the
+//   storefront needs the job status).
 // - derived here, after the parts: product_vehicle_fitments (rebuild-product-fitments.ts --items: the supplier items the
 //   parts wrote plus rows of an older matcher version), product_enrichment_shared_links
 //   and storefront_make_fits / storefront_model_fits / storefront_make_description_fits / storefront_facet_specs (the shared-link queue the import filled is drained below), enrichment_product_states
@@ -115,7 +116,7 @@ try {
   node([], "scripts/enrichment-states.ts", ["sync"]);
   // The data is committed by now, but without the report the sync cannot know what was skipped: the task fails, so
   // the sync keeps its watermark and the next run re-sends (idempotent). Each run overwrites the report.
-  const report = { snapshotAt, ...buildInboundReport(applied) };
+  const report = { snapshotAt, importerVersion: importerVersion(), ...buildInboundReport(applied) };
   console.log(JSON.stringify({ report: { ...report, skipped: report.skipped.length } }));
   const mediaBucket = process.env.S3_BUCKET;
   if (!mediaBucket) throw new Error("S3_BUCKET required for report.json");

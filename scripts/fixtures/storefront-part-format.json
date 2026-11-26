@@ -1,0 +1,378 @@
+{
+  "part-00": {
+    "categories": {
+      "[]": {
+        "category_id": "number",
+        "fetched_at": "string",
+        "name": "string",
+        "parent_id": {
+          "oneOf": [
+            "null",
+            "number"
+          ]
+        },
+        "path_ids": {
+          "[]": "number"
+        },
+        "raw": {
+          "id": "number"
+        },
+        "slug": "string",
+        "source": "string",
+        "source_url": "string"
+      }
+    },
+    "enrichments": {
+      "[]": "empty"
+    },
+    "exportedAt": "string",
+    "images": {
+      "[]": {
+        "category_id": "number",
+        "height": "number",
+        "media_id": "string",
+        "source": "string",
+        "width": "number"
+      }
+    },
+    "invalidatedJobs": "number",
+    "items": {
+      "[]": {
+        "code": "string",
+        "company": "string",
+        "id": "string",
+        "list_group": "string",
+        "supplier": "string",
+        "warehouse": "string"
+      }
+    },
+    "jobs": {
+      "[]": "empty"
+    },
+    "labels": {
+      "[]": {
+        "category_id": "number",
+        "locale": "string",
+        "name": "string",
+        "slug": "string",
+        "source": "string"
+      }
+    },
+    "logos": {
+      "[]": {
+        "brand_key": "string",
+        "evidence_product_id": "string",
+        "evidence_source_url": "string",
+        "height": "number",
+        "image_data": "string",
+        "imported_at": "string",
+        "manufacturer": "string",
+        "sha256": "string",
+        "source_url": "string",
+        "width": "number"
+      }
+    },
+    "maxDeletions": "number",
+    "media": {
+      "[]": {
+        "bucket": "string",
+        "content_type": "string",
+        "created_at": "string",
+        "id": "string",
+        "object_key": "string",
+        "sha256": "string",
+        "size_bytes": "number",
+        "source_url": "string",
+        "stored_at": "string"
+      }
+    },
+    "products": {
+      "[]": "empty"
+    },
+    "retried": "number",
+    "since": "string",
+    "snapshotAt": "string",
+    "tombstones": {
+      "[]": {
+        "code": "string",
+        "company": "string",
+        "kind": "string",
+        "list_group": "string",
+        "recorded_at": "string",
+        "source_method": "string",
+        "supplier": "string",
+        "supplier_item_id": "string",
+        "warehouse": "string"
+      }
+    },
+    "vehicleImages": {
+      "[]": {
+        "height": "number",
+        "imported_at": "string",
+        "media_id": "string",
+        "original_media_id": "string",
+        "vehicle_type_id": "number",
+        "width": "number"
+      }
+    },
+    "vehicleSpecs": {
+      "[]": {
+        "body_type": {
+          "oneOf": [
+            "null",
+            "string"
+          ]
+        },
+        "cylinders": {
+          "oneOf": [
+            "null",
+            "number"
+          ]
+        },
+        "detail": "string",
+        "drive_type": {
+          "oneOf": [
+            "null",
+            "string"
+          ]
+        },
+        "engine_codes": {
+          "[]": "string"
+        },
+        "engine_type": {
+          "oneOf": [
+            "null",
+            "string"
+          ]
+        },
+        "fetched_at": "string",
+        "fuel_mixture": {
+          "oneOf": [
+            "null",
+            "string"
+          ]
+        },
+        "full_name": {
+          "oneOf": [
+            "null",
+            "string"
+          ]
+        },
+        "kba_numbers": {
+          "[]": "string"
+        },
+        "outcome": "string",
+        "valves": {
+          "oneOf": [
+            "null",
+            "number"
+          ]
+        },
+        "vehicle_type_id": "number"
+      }
+    }
+  },
+  "job parts": {
+    "categories": {
+      "[]": {
+        "category_id": "number",
+        "fetched_at": "string",
+        "name": "string",
+        "parent_id": {
+          "oneOf": [
+            "null",
+            "number"
+          ]
+        },
+        "path_ids": {
+          "[]": "number"
+        },
+        "raw": {
+          "id": "number"
+        },
+        "slug": "string",
+        "source": "string",
+        "source_url": "string"
+      }
+    },
+    "enrichments": {
+      "[]": "empty"
+    },
+    "exportedAt": "string",
+    "images": {
+      "[]": "empty"
+    },
+    "invalidatedJobs": "number",
+    "items": {
+      "[]": {
+        "code": "string",
+        "company": "string",
+        "id": "string",
+        "list_group": "string",
+        "supplier": "string",
+        "warehouse": "string"
+      }
+    },
+    "jobs": {
+      "[]": {
+        "candidate_url": {
+          "oneOf": [
+            "null",
+            "string"
+          ]
+        },
+        "last_attempt_at": "string",
+        "oem": "string",
+        "status": "string",
+        "supplier_brand": "string",
+        "supplier_code": "string",
+        "supplier_item_id": "string"
+      }
+    },
+    "labels": {
+      "[]": {
+        "category_id": "number",
+        "locale": "string",
+        "name": "string",
+        "slug": "string",
+        "source": "string"
+      }
+    },
+    "logos": {
+      "[]": "empty"
+    },
+    "maxDeletions": "number",
+    "media": {
+      "[]": "empty"
+    },
+    "products": {
+      "[]": "empty"
+    },
+    "retried": "number",
+    "since": "string",
+    "snapshotAt": "string",
+    "tombstones": {
+      "[]": "empty"
+    },
+    "vehicleImages": {
+      "[]": "empty"
+    },
+    "vehicleSpecs": {
+      "[]": "empty"
+    }
+  },
+  "enrichment parts": {
+    "categories": {
+      "[]": {
+        "category_id": "number",
+        "fetched_at": "string",
+        "name": "string",
+        "parent_id": {
+          "oneOf": [
+            "null",
+            "number"
+          ]
+        },
+        "path_ids": {
+          "[]": "number"
+        },
+        "raw": {
+          "id": "number"
+        },
+        "slug": "string",
+        "source": "string",
+        "source_url": "string"
+      }
+    },
+    "enrichments": {
+      "[]": {
+        "image_id": {
+          "oneOf": [
+            "null",
+            "string"
+          ]
+        },
+        "imported_at": "string",
+        "manufacturer": "string",
+        "manufacturer_part_number": "string",
+        "match_basis": {
+          "type": "string"
+        },
+        "payload": {
+          "name": "string",
+          "vehicles": {
+            "[]": "string"
+          }
+        },
+        "source_method": "string",
+        "source_url": "string",
+        "supplier_brand": "string",
+        "supplier_code": "string",
+        "supplier_item_id": "string"
+      }
+    },
+    "exportedAt": "string",
+    "images": {
+      "[]": "empty"
+    },
+    "invalidatedJobs": "number",
+    "items": {
+      "[]": {
+        "code": "string",
+        "company": "string",
+        "id": "string",
+        "list_group": "string",
+        "supplier": "string",
+        "warehouse": "string"
+      }
+    },
+    "jobs": {
+      "[]": "empty"
+    },
+    "labels": {
+      "[]": {
+        "category_id": "number",
+        "locale": "string",
+        "name": "string",
+        "slug": "string",
+        "source": "string"
+      }
+    },
+    "logos": {
+      "[]": "empty"
+    },
+    "maxDeletions": "number",
+    "media": {
+      "[]": {
+        "bucket": "string",
+        "content_type": "string",
+        "created_at": "string",
+        "id": "string",
+        "object_key": "string",
+        "sha256": "string",
+        "size_bytes": "number",
+        "source_url": "string",
+        "stored_at": "string"
+      }
+    },
+    "products": {
+      "[]": {
+        "category_id": "number",
+        "source": "string",
+        "supplier_item_id": "string"
+      }
+    },
+    "retried": "number",
+    "since": "string",
+    "snapshotAt": "string",
+    "tombstones": {
+      "[]": "empty"
+    },
+    "vehicleImages": {
+      "[]": "empty"
+    },
+    "vehicleSpecs": {
+      "[]": "empty"
+    }
+  }
+}

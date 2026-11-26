@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { manufacturerSlug } from "../src/modules/seo/manufacturer-path";
-import { buildManufacturerDirectory, featuredManufacturers, manufacturerIndexable, manufacturerDescriptionLimit, manufacturerTexts, manufacturerTrail, unindexedManufacturerSlugs, type ManufacturerRow } from "../src/modules/store/manufacturers";
+import { buildManufacturerDirectory, featuredManufacturers, manufacturerIndexable, manufacturerDescriptionLimit, manufacturerTexts, manufacturerTrail, manufacturerWarmSlugs, unindexedManufacturerSlugs, type ManufacturerRow } from "../src/modules/store/manufacturers";
 
 // Manufacturer pages (#660): slugs, the label directory, the index rule and the page texts. Pure.
 
@@ -90,6 +90,19 @@ test("home tiles resolve labels to their manufacturer page under the shown maste
   assert.deepEqual(directory.labelsOf("NO SUCH LABEL"), []);
   assert.deepEqual(featuredManufacturers(["BLUE PRINT", "BOSCH", "BOSCH AV", "MANN-FILTER", "GATES", "NO SUCH LABEL"], ["BLUEPRINT", "BOSCH", "MANN"], directory),
     [{ brand: "BLUEPRINT", href: "/marka/blueprint" }, { brand: "BOSCH", href: "/marka/bosch" }, { brand: "MANN", href: "/marka/mann" }]);
+});
+
+test("the warm-up takes the largest brands' pages: by summed items, over the threshold, up to the limit (#771)", () => {
+  const directory = buildManufacturerDirectory(rows);
+  // Summed items: BOSCH 120, & 50 (no slug), SKF VKM 50, BLUEPRINT 45, MANN 30, SKF 20, GATES 10, CONTI 10, DAYCO (13) 9,
+  // T.R.W 7, TRW 7, DAYCO (12) 5 (its name is the larger DAYCO's page), Bosch 3 (BOSCH has the slug).
+  assert.deepEqual(manufacturerWarmSlugs(rows, directory, 1, 100),
+    ["bosch", "skf-vkm", "blueprint", "mann", "skf", "gates", "conti", "dayco", "t-r-w", "trw"]);
+  assert.deepEqual(manufacturerWarmSlugs(rows, directory, 30), ["bosch", "skf-vkm", "blueprint", "mann"], "the threshold");
+  assert.deepEqual(manufacturerWarmSlugs(rows, directory, 1, 2), ["bosch", "skf-vkm"], "the limit counts pages, not skipped brands");
+  assert.deepEqual(manufacturerWarmSlugs(rows, directory, 5, 100).filter(slug => slug === "dayco"), ["dayco"], "a page reached by two brands once");
+  assert.deepEqual(manufacturerWarmSlugs(rows, directory), [], "the defaults: 5000 items");
+  assert.deepEqual(manufacturerWarmSlugs([], buildManufacturerDirectory([])), []);
 });
 
 test("supplier_item_brand is declared identically in db/commerce.sql and db/product-matching.sql", () => {
