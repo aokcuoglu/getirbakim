@@ -87,6 +87,8 @@ async function sent(run: () => Promise<unknown>) {
     hits: texts.filter(text => text.startsWith("WITH main AS MATERIALIZED")).length,
     counts: texts.filter(text => /^SELECT count\(\*\)/.test(text)).length,
     offsets: texts.filter(text => /\bOFFSET\b/.test(text)).length,
+    facetBrands: texts.filter(text => text.startsWith("SELECT DISTINCT display_brand")).length,
+    facetAttributes: texts.filter(text => text.startsWith("WITH scoped AS MATERIALIZED")).length,
   };
 }
 const failure = (code: string) => Object.assign(new Error(`simulated ${code}`), { code });
@@ -725,4 +727,178 @@ test("vehicleFitCount is the live count with the kill switch of its sort at 0, a
     const again = await sent(async () => assert.equal(await fitCount(query, held), want));
     assert.ok(again.orders === 0 && again.hits >= 1 && again.counts >= 1, "held: live hit read and count, no order statement");
   });
+||||||| parent of 53af0ff64 (perf(search): cache facets of searches scoped by category, make, model, manufacturer or garage vehicle (#1441))
+
+
+// The facets of a scoped search (#1441): one entry per scope, the brand, property, availability, sort and page variants sharing it.
+const facetsOf = (query: CatalogQuery, context: { vehicleTypeId?: string } = {}, from: Catalog = catalog) => inRequest(() => from.catalogFacets(query, context));
+const noFacetOff = <T>(run: () => Promise<T>) => withEnv({ SEARCH_FACETS_CACHE: "0" }, run);
+const facetReads = (reads: Awaited<ReturnType<typeof sent>>) => reads.facetBrands + reads.facetAttributes;
+const scopes: Spec[] = [
+  ["category", { q: "fren", category: "fren" }],
+  ["make", { q: "fren", make: "vw" }],
+  ["make and model", { q: "fren", make: "vw", model: "golf" }],
+  ["manufacturer", { q: "fren", manufacturer: "bosch" }],
+  ["the garage vehicle's fits", { q: "fren", fits: "vehicle" }, vw],
+  ["oil", { q: "fren", oil: "viscosity" }, vw],
+  ["category and make", { q: "fren", category: "fren", make: "vw" }],
+  ["code, in a category", { q: "P10", searchBy: "code", category: "fren" }],
+  ["vehicle reading, in a category", { q: "bosch golf", category: "fren" }],
+  ["corrected, in a category", { q: "frenx", category: "fren" }],
+];
+const warmKeys: [string, CatalogQuery, { vehicleTypeId?: string }?][] = [
+  ["category", { q: "fren", category: "fren" }],
+  ["manufacturer", { q: "fren", manufacturer: "bosch" }],
+  ["make", { q: "fren", make: "vw" }],
+  ["the garage vehicle's fits", { q: "fren", fits: "vehicle" }, vw],
+  ["vehicle reading, in a category", { q: "bosch golf", category: "fren" }],
+];
+
+test("the cached facets of every scoped search are the live facets; every variant of a scope shares one entry and loads nothing", async () => {
+  const proc = await otherProcess("facets-oracle");
+  let nonEmpty = 0;
+  for (const [label, scope, context = {}] of scopes) {
+    const expected = await noFacetOff(() => facetsOf(scope, context));
+    if (expected.brands.length + expected.attributes.length > 0) nonEmpty++;
+    assert.deepEqual(await facetsOf(scope, context, proc), expected, `${label}: cold`);
+    assert.deepEqual(await facetsOf(scope, context, proc), expected, `${label}: warm`);
+    const variants: CatalogQuery[] = [
+      { ...scope, brands: JSON.stringify(["TRW"]) }, { ...scope, brand: "BOSCH" }, { ...scope, availability: "in_stock" },
+      { ...scope, attributes: JSON.stringify({ "Fitting Position": ["Front Axle"] }) }, { ...scope, sort: asc }, { ...scope, sort: "newest", page: "3" },
+    ];
+    for (const variant of variants) {
+      const reads = await sent(async () => assert.deepEqual(await facetsOf(variant, context, proc), expected, `${label}: ${JSON.stringify(variant)}`));
+      assert.deepEqual({ hits: reads.hits, facets: facetReads(reads) }, { hits: 0, facets: 0 }, `${label}: a variant adds no load`);
+    }
+  }
+  assert.ok(nonEmpty >= 5, `scopes with facets: ${nonEmpty}`);
+});
+
+test("a warm scoped search page sends no hit read and no facet statement", async () => {
+  const proc = await otherProcess("facets-warm");
+  for (const [label, scope, context = {}] of warmKeys) {
+    const cold = await sent(async () => { await browse(scope, context, proc); await facetsOf(scope, context, proc); });
+    assert.ok(cold.hits >= 1 && facetReads(cold) >= 1, `${label}: cold loads`);
+    for (const page of ["2", "1"]) {
+      const warm = await sent(async () => { await browse({ ...scope, page }, context, proc); await facetsOf({ ...scope, page }, context, proc); });
+      assert.deepEqual({ hits: warm.hits, facets: facetReads(warm) }, { hits: 0, facets: 0 }, `${label}: page ${page}: ${warm.texts.filter(text => !isCardRead(text)).map(text => text.slice(0, 60)).join(" | ")}`);
+    }
+  }
+});
+
+test("facets follow the epochs: an admin bump reloads every key, the fit sync's only the ones that read vehicle fits", async () => {
+  const proc = await otherProcess("facets-epochs");
+  const keys: [string, CatalogQuery, boolean][] = [
+    ["category", { q: "fren", category: "fren" }, false],
+    ["manufacturer", { q: "fren", manufacturer: "bosch" }, false],
+    ["code, in a category", { q: "P10", searchBy: "code", category: "fren" }, false],
+    ["make", { q: "fren", make: "vw" }, true],
+    ["make and model", { q: "fren", make: "vw", model: "golf" }, true],
+    ["the garage vehicle's fits", { q: "fren", fits: "vehicle" }, true],
+    ["oil", { q: "fren", oil: "viscosity" }, true],
+    ["vehicle reading, in a category", { q: "bosch golf", category: "fren" }, true],
+  ];
+  const read = async (query: CatalogQuery) => facetReads(await sent(() => facetsOf(query, query.fits || query.oil ? vw : {}, proc)));
+  for (const [label, query] of keys) assert.ok(await read(query) >= 1, `${label}: loaded`);
+  for (const [label, query] of keys) assert.equal(await read(query), 0, `${label}: kept`);
+  await invalidateFits();
+  for (const [label, query, fits] of keys) assert.equal(await read(query) >= 1, fits, `${label}: after the fit sync's bump`);
+  await invalidateListings();
+  for (const [label, query] of keys) assert.ok(await read(query) >= 1, `${label}: after an admin edit's bump`);
+});
+
+test("after a bump with a held load the earlier facets are served within the wait, then the new ones; empty earlier facets never are", async () => {
+  await withEnv({ LISTING_EPOCH_WAIT_MS: "50" }, async () => {
+    const proc = await otherProcess("facets-slow");
+    const scope: CatalogQuery = { q: "fren", category: "fren" };
+    const earlier = await facetsOf(scope, {}, proc);
+    assert.ok(earlier.brands.length > 0);
+    // A store brand override renames the shown brand of every row of one supplier label.
+    const hold = async (run: (release: () => void) => Promise<unknown>) => {
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const original = pg.Client.prototype.query;
+      pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+        const config = args[0];
+        const text = typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "";
+        const call = () => (original as (...rest: unknown[]) => unknown).apply(this, args);
+        return text.startsWith("WITH main AS MATERIALIZED") ? gate.then(call) : call();
+      } as typeof original;
+      try {
+        await run(release);
+      } finally {
+        release();
+        pg.Client.prototype.query = original;
+      }
+    };
+    await hold(async release => {
+      await invalidateListings();
+      assert.deepEqual(await facetsOf(scope, {}, proc), earlier, "the earlier facets within the wait");
+      release();
+      assert.deepEqual(await facetsOf(scope, {}, proc), earlier, "and the new ones, which equal the earlier here");
+    });
+    const empty: CatalogQuery = { q: "qqqwww", category: "fren" };
+    assert.deepEqual(await facetsOf(empty, {}, proc), { brands: [], attributes: [] });
+    const { rows: [added] } = await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+      product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
+      VALUES('basbug',$1,'G','MRK','QQQ P2001','{"uk":"BOSCH","ac":"BOSCH QQQWWW","ac2":"","dc":"TL","category":"fren"}','{"nf":10}','{"stok":2}',1,1,1,'present',now(),now(),now()) RETURNING id::text`, [basbug]);
+    try {
+      await hold(async release => {
+        await invalidateListings();
+        const timer = setTimeout(release, 300);
+        const found = await facetsOf(empty, {}, proc);
+        clearTimeout(timer);
+        assert.deepEqual(found.brands, ["BOSCH"], "waited for the reload instead of showing no facets");
+      });
+    } finally {
+      await schema.pool.query("DELETE FROM supplier_items WHERE id=$1", [added.id]);
+      await invalidateListings();
+    }
+  });
+});
+
+test("an admin's store brand override changes the brand facet after the bump", async () => {
+  const proc = await otherProcess("facets-override");
+  const scope: CatalogQuery = { q: "fren", category: "fren" };
+  const before = await facetsOf(scope, {}, proc);
+  assert.ok(!before.brands.includes("ESKI MARKA"));
+  const { rows: [item] } = await schema.pool.query<{ id: string }>("SELECT id::text FROM supplier_items WHERE product_data->>'category'='fren' AND product_data->>'ac' LIKE '%FREN%' AND presence='present' LIMIT 1");
+  await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,brand) VALUES($1,$1,'ESKI MARKA') ON CONFLICT (supplier_item_id) DO UPDATE SET brand='ESKI MARKA'", [item.id]);
+  try {
+    assert.deepEqual(await facetsOf(scope, {}, proc), before, "kept until the bump");
+    await invalidateListings();
+    const after = await facetsOf(scope, {}, proc);
+    assert.ok(after.brands.includes("ESKI MARKA"));
+    assert.deepEqual(after, await noFacetOff(() => facetsOf(scope)));
+  } finally {
+    await schema.pool.query("UPDATE commerce_item_overrides SET brand=NULL WHERE supplier_item_id=$1", [item.id]);
+    await invalidateListings();
+  }
+});
+
+test("a failing facet statement on a cold key rejects as with the switch off and the next read retries; a failing refresh keeps the earlier facets", async t => {
+  t.mock.method(console, "error", () => {});
+  const proc = await otherProcess("facets-failing");
+  const scope: CatalogQuery = { q: "fren", category: "fren" };
+  const broken = (text: string) => text.startsWith("SELECT DISTINCT display_brand") ? failure("XX000") : undefined;
+  await intercepted(broken, () => assert.rejects(noFacetOff(() => facetsOf(scope)), /simulated XX000/));
+  await intercepted(broken, () => assert.rejects(facetsOf(scope, {}, proc), /simulated XX000/));
+  const earlier = await facetsOf(scope, {}, proc);
+  assert.ok(earlier.brands.length > 0, "the next read retried and loaded");
+  await invalidateListings();
+  await intercepted(broken, async () => assert.deepEqual(await facetsOf(scope, {}, proc), earlier, "a failed reload keeps the earlier facets"));
+});
+
+test("SEARCH_FACETS_CACHE=0 sends the live statements and never touches the cache; switching it back loads", async () => {
+  const proc = await otherProcess("facets-kill-switch");
+  const scope: CatalogQuery = { q: "fren", category: "fren" };
+  const expected = await noFacetOff(() => facetsOf(scope));
+  await withEnv({ SEARCH_FACETS_CACHE: " 0 " }, async () => {
+    for (let read = 0; read < 2; read++) {
+      const off = await sent(async () => assert.deepEqual(await facetsOf(scope, {}, proc), expected));
+      assert.deepEqual({ hits: off.hits, brands: off.facetBrands, attributes: off.facetAttributes }, { hits: 1, brands: 1, attributes: 1 }, `read ${read}`);
+    }
+  });
+  const on = await sent(async () => assert.deepEqual(await facetsOf(scope, {}, proc), expected));
+  assert.deepEqual({ brands: on.facetBrands, attributes: on.facetAttributes }, { brands: 1, attributes: 1 }, "the switch left nothing in the cache");
 });

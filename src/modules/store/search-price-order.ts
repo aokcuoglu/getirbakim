@@ -57,6 +57,13 @@ export class SearchOrderBuildError extends Error {
 export function searchRankOrderEnabled() {
   return process.env.SEARCH_RANK_ORDER?.trim() !== "0";
 }
+/**
+ * Whether the facets of a scoped search (category, make, model, manufacturer, garage vehicle, oil) are cached (#1441):
+ * SEARCH_FACETS_CACHE is not 0. Read per request; 0 reads them live again (the rollback).
+ */
+export function searchFacetsEnabled() {
+  return process.env.SEARCH_FACETS_CACHE?.trim() !== "0";
+}
 /** Whether price-sorted searches read the cached order: SEARCH_PRICE_ORDER is not 0. Read per request. */
 export function searchPriceOrderEnabled() {
   return process.env.SEARCH_PRICE_ORDER?.trim() !== "0";

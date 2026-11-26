@@ -13,7 +13,7 @@ import { fitsEpoch, listingEpoch } from "./listing-epoch";
 import { listingCacheStore, storedLinks } from "./listing-cache-store";
 import { buildPriceOrder, failedBuildBackoffMs, filteredPriceOrderEnabled, filteredTimeoutBackoffMs, filteredPriceOrderMinIds, priceOrderEnabled, priceOrderHeadStore, priceOrderInUse, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, priceOrderTextSql, priceOrderWorkMem, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
-import { idCount, packIds, SearchOrderBuildError, searchPriceOrderEnabled, searchPriceOrderMaxIds, searchRankOrderEnabled, unpackIds, type SearchOrder } from "./search-price-order";
+import { idCount, packIds, SearchOrderBuildError, searchFacetsEnabled, searchPriceOrderEnabled, searchPriceOrderMaxIds, searchRankOrderEnabled, unpackIds, type SearchOrder } from "./search-price-order";
 import { defaultListingLimitMs, listingStatementTimeoutMs, searchFailureHoldMs, suggestStatementTimeoutMs } from "./listing-timeout";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
@@ -1090,6 +1090,13 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
 // limit) and then the live page (55 s limit) when the build fails; searches are capped at maxSearchHits, so that is unlikely.
 const cachedSearchOrders=staleCache<SearchOrder>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:order=>order.total>0,
  weigh:order=>Math.max(1,order.total),maxWeight:searchPriceOrderMaxIds()});
+// The facets of a scoped search (#1441): catalogFacets reduces the query to its scope (search, category, make, model,
+// manufacturer, garage vehicle, oil), so brand, property, availability, sort and page variants share one entry. Warm
+// pages paid 0.8-2.6 s for them (/marka/bosch?q=fren 2.3 s, /kategori/yedek-parca?q=bosch 1.65 s, q=filtre&make=volkswagen
+// 2.06 s, the hit read being 45-80% of it). Follows the listing epoch, the fit epoch for a vehicle-scoped or
+// vehicle-reading search (searchEpoch). No failure hold: a failed first load fails the page as the live read does, a
+// failed refresh keeps the earlier value.
+const cachedSearchFacets=staleCache<Facets>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:facets=>facets.brands.length+facets.attributes.length>0});
 const failedSearchOrders=failureHold(()=>failedBuildBackoffMs,300,()=>Date.now()),timedOutSearchOrders=failureHold(()=>filteredTimeoutBackoffMs,300,()=>Date.now());
 /**
  * The cached order of a search (price, relevance or newest), or null when its key is held or its build failed (the caller
@@ -1528,6 +1535,13 @@ export async function catalogFacets(query:CatalogQuery,context:CatalogContext={}
  if(isPlainSearch(scope)){
   const plain=await plainSearch(query.q!,query.searchBy==="code"?"code":"all");
   return {brands:plain.brands,attributes:plain.attributes};
+ }
+ if(scope.q?.trim()&&searchFacetsEnabled()){
+  const raw=scope.q,mode=scope.searchBy==="code"?"code":"all";
+  return cachedSearchFacets(`${apiSearchKey(raw,mode)}|${filterKey(scope,context)}`,async()=>{
+   const {values,from}=await catalogFilter(scope,context);
+   return facetsFor(values,from);
+  },{epoch:fitScoped(scope)?fitsEpoch:searchEpoch(raw,mode)});
  }
  const filter=lazyFilter(scope,context),search=scope.q?.trim()?(await filter()).search:undefined,key=filterKey(scope,context);
  const load=async(at:number)=>{
