@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { createServer, type Server } from "node:http";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve, sep } from "node:path";
@@ -11,13 +10,14 @@ import type { Pool } from "pg";
 import type { z } from "zod";
 import { enrichmentDataSchema } from "../src/modules/store/enrichment-contract";
 import { isolatedSchema } from "./isolated-schema";
+import { type S3Stub, startS3Stub, stubEnv } from "./storefront-s3-stub";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import { REMOVED_JOB_ERROR } from "./storefront-bundle-tombstones";
 import { buildInboundReport, checkInboundReport, type PartReport, reportKey } from "./storefront-sync-state";
 
 // The storefront sync end to end (#1372): export-storefront-bundle.ts -> splitStorefrontBundle -> import-storefront-bundle.ts, each
 // a real child process, between two isolated copies of the schema (a local database as source, production as target) and an
-// in-test S3 stub. It checks what the pieces' own tests cannot: that every column an exporter SELECT or importer INSERT carries
+// S3 stub on 127.0.0.1 (storefront-s3-stub.ts: whole-object GET/HEAD/PUT with x-amz-meta-* metadata, listing). It checks what the pieces' own tests cannot: that every column an exporter SELECT or importer INSERT carries
 // reaches the target unchanged, both when the row is new on the target (run 1) and when it already exists there and changes
 // (run 2 changes every carried non-key column of one imported row per table, run 3 the vehicle data), so a column missing from an
 // importer's INSERT or from its ON CONFLICT DO UPDATE list fails. Whatever may legitimately differ is listed in LOCAL_ONLY, with its
@@ -108,81 +108,10 @@ async function compareRows(table: CarriedTable, db: Queryable, excludeCodes: str
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// An S3 stub: path-style GET/PUT of whole objects and ListObjectsV2 (prefix, delimiter, continuation-token) on 127.0.0.1, nothing else. Anything it does not understand answers 501 and is recorded.
-type Stub = Awaited<ReturnType<typeof startS3Stub>>;
-// A small page size makes the importer's continuation loop run.
-const LIST_PAGE = 3;
-const xmlEscape = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-async function startS3Stub() {
-  const objects = new Map<string, { bytes: Buffer; contentType: string }>();
-  const state = { puts: [] as string[], unsupported: [] as string[] };
-  const server: Server = createServer((req, res) => {
-    const path = (req.url ?? "").split("?")[0].split("/").filter(Boolean).map(segment => decodeURIComponent(segment)).join("/");
-    const chunks: Buffer[] = [];
-    req.on("data", chunk => chunks.push(chunk as Buffer));
-    req.on("end", () => {
-      const fail = (status: number, code: string) => { res.writeHead(status, { "Content-Type": "application/xml" }); res.end(`<Error><Code>${code}</Code></Error>`); };
-      if (req.headers["content-encoding"]?.includes("aws-chunked") || String(req.headers["x-amz-content-sha256"] ?? "").startsWith("STREAMING-")) {
-        state.unsupported.push(`${req.method} ${path} (aws-chunked)`);
-        return fail(501, "NotImplemented");
-      }
-      if (req.method === "GET" && !path.includes("/")) {
-        const query = new URL(req.url ?? "", "http://stub").searchParams;
-        if (query.get("list-type") !== "2" || [...query.keys()].some(name => !["list-type", "prefix", "delimiter", "continuation-token"].includes(name))) {
-          state.unsupported.push(`GET ${path}?${query.toString()}`);
-          return fail(501, "NotImplemented");
-        }
-        const prefix = query.get("prefix") ?? "", delimiter = query.get("delimiter");
-        const entries = new Map<string, { key: string; size: number } | { prefix: string }>();
-        for (const [full, object] of objects) {
-          if (!full.startsWith(`${path}/${prefix}`)) continue;
-          const key = full.slice(path.length + 1), rest = key.slice(prefix.length);
-          const cut = delimiter ? rest.indexOf(delimiter) : -1;
-          if (cut >= 0) entries.set(`${prefix}${rest.slice(0, cut + delimiter!.length)}`, { prefix: `${prefix}${rest.slice(0, cut + delimiter!.length)}` });
-          else entries.set(key, { key, size: object.bytes.length });
-        }
-        const after = query.get("continuation-token");
-        const sorted = [...entries.keys()].sort().filter(name => after === null || name > after);
-        const page = sorted.slice(0, LIST_PAGE), truncated = sorted.length > page.length;
-        const body = page.map(name => {
-          const entry = entries.get(name)!;
-          return "key" in entry ? `<Contents><Key>${xmlEscape(entry.key)}</Key><Size>${entry.size}</Size></Contents>` : `<CommonPrefixes><Prefix>${xmlEscape(entry.prefix)}</Prefix></CommonPrefixes>`;
-        }).join("");
-        res.writeHead(200, { "Content-Type": "application/xml" });
-        return void res.end(`<?xml version="1.0" encoding="UTF-8"?><ListBucketResult><Name>${path}</Name><Prefix>${xmlEscape(prefix)}</Prefix><KeyCount>${page.length}</KeyCount><MaxKeys>${LIST_PAGE}</MaxKeys>`
-          + `<IsTruncated>${truncated}</IsTruncated>${truncated ? `<NextContinuationToken>${xmlEscape(page[page.length - 1])}</NextContinuationToken>` : ""}${body}</ListBucketResult>`);
-      }
-      if (req.method === "GET") {
-        const object = objects.get(path);
-        if (!object) return fail(404, "NoSuchKey");
-        res.writeHead(200, { "Content-Length": object.bytes.length, "Content-Type": object.contentType, ETag: `"${createHash("md5").update(object.bytes).digest("hex")}"` });
-        return void res.end(object.bytes);
-      }
-      if (req.method === "PUT") {
-        const bytes = Buffer.concat(chunks);
-        objects.set(path, { bytes, contentType: String(req.headers["content-type"] ?? "application/octet-stream") });
-        state.puts.push(path);
-        res.writeHead(200, { ETag: `"${createHash("md5").update(bytes).digest("hex")}"`, "Content-Length": 0 });
-        return void res.end();
-      }
-      state.unsupported.push(`${req.method} ${path}`);
-      fail(501, "NotImplemented");
-    });
-  });
-  await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("S3 stub has no port");
-  return {
-    url: `http://127.0.0.1:${address.port}`, objects, ...state,
-    close: () => new Promise<void>(done => { server.closeAllConnections(); server.close(() => done()); }),
-  };
-}
-
-// ---------------------------------------------------------------------------------------------------------------------------------
 type Schema = Awaited<ReturnType<typeof isolatedSchema>>;
 let source: Schema, target: Schema, inbound: Schema;
 let sourceUrl = "", targetUrl = "", inboundUrl = "";
-let stub: Stub;
+let stub: S3Stub;
 let dir = "";
 const srcBucket = `e2e-src-${randomBytes(4).toString("hex")}`;
 const dstBucket = `e2e-dst-${randomBytes(4).toString("hex")}`;
@@ -201,10 +130,7 @@ async function run(script: string, args: string[], side: Side, options: { env?: 
   const { schema, url, bucket } = sideOf(side);
   const env = { ...process.env };
   for (const name of Object.keys(env)) if (name.startsWith("AWS_") || name.startsWith("S3_")) delete env[name];
-  Object.assign(env, {
-    DATABASE_URL: url, S3_ENDPOINT: stub.url, S3_REGION: "us-east-1", S3_ACCESS_KEY_ID: "test", S3_SECRET_ACCESS_KEY: "test-secret",
-    AWS_REQUEST_CHECKSUM_CALCULATION: "WHEN_REQUIRED", AWS_RESPONSE_CHECKSUM_VALIDATION: "WHEN_REQUIRED",
-  });
+  Object.assign(env, { DATABASE_URL: url, ...stubEnv(stub.url) });
   if (bucket) env.S3_BUCKET = bucket;
   // Names the child's database sessions after the schema; killChildSessions() ends what a timed-out child's own children left behind.
   env.PGAPPNAME = schema.name;
