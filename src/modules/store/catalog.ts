@@ -268,7 +268,7 @@ export const categories = [
  * 512 batches); now 0.3-0.4 s without temp files. 120 types ("passat tdi"): 4.0 s → 1.3 s; 1,890 ("tdi"): 10.9 s → 7.8 s;
  * the same ids. The types are an array parameter, so the planner sees their number: an index read per type for a few,
  * one sequential pass for thousands. The 30 s limit stays: one type now takes ~1/60-1/90 of it, so it only stops a
- * runaway read (the vehicle search reads whole models elsewhere, vehicleFittedIds). A search read under a shorter limit
+ * runaway read (the vehicle search reads whole models elsewhere, vehicleFittedHits). A search read under a shorter limit
  * (the type-ahead's, `read`, #1398) keeps the shorter one, and its signal cancels the read.
  * An admin's decisions (db/product-override-fitments.sql, #583) apply per row and type: a removed type drops that
  * automatic fitment only (a search over several types still lists the row through another), an added type lists every
@@ -492,20 +492,20 @@ function vehicleReadingWords(raw:string){
 }
 /**
  * The counter a cached search follows (#1368). A search that may read as a part and a vehicle (vehicleSearch: two to six
- * words, not a code search) reads the vehicle's fits (vehicleFittedIds), so it follows the fits value; any other search
+ * words, not a code search) reads the vehicle's fits (vehicleFittedHits), so it follows the fits value; any other search
  * never reads them and keeps its entries through the fit sync. Decided from the words alone, which its key holds, so a
  * key always reads the same counter.
  */
 const searchEpoch=(raw:string,mode:SearchMode)=>mode!=="code"&&vehicleReadingWords(raw)?fitsEpoch:listingEpoch;
 /**
- * The most types of partly matched models a search's vehicle reading reads live (#1395); a split whose words match more
- * is no vehicle reading at all (vehicleSearch tries its other splits). The live read costs ~10 ms a type locally: "passat
- * tdi" 120 types 1.3 s, "golf tdi" 2 whole models + 120 types 1.5 s, "volkswagen tdi" 13 whole + 769 types 4.5 s, "tdi"
- * 1,890 types 7.8-8.6 s, "dizel" 10,649-12,019 types 27.5-32.6 s (the 30 s limit on RDS, holding a pool connection each
- * time BakımX resends the request). Broad words like these (also "benzin": 24,270 types, "hatchback" 1,187, "quattro"
- * 1,037) say little about fit, and "fren balatası passat tdi" then reads "passat tdi" instead of "tdi". Whole models
- * are read from their model fits whatever their number. VEHICLE_SEARCH_MAX_LIVE_TYPES, read per call: blank or invalid
- * 500, 0 reads no partly matched model live.
+ * The most types of partly matched models a split's vehicle words may match and still be read in its turn (#1395,
+ * #1407). A split whose words match more (an engine or fuel word: "tdi" 1,890 types, "volkswagen tdi" 13 whole models +
+ * 769 types, "dizel" 10,649-12,019, "benzin" 14,547-24,270, "quattro" 850-1,037) is deferred: vehicleSearch reads it
+ * only when no other split gives a fitted reading, longest vehicle phrase first. Read from the hits (vehicleFittedHits)
+ * such a reading now takes 0.1-1.2 s locally instead of 4-42 s, so it is no longer skipped (#1395 did: "fren balatası
+ * dizel" lost its fitted pads), but words like these say little about fit: "fren balatası passat tdi" still reads
+ * "passat tdi" rather than "tdi". Whole models are never counted. VEHICLE_SEARCH_MAX_LIVE_TYPES, read per call: blank or
+ * invalid 500, 0 defers every split whose words partly match a model.
  */
 const maxLiveVehicleTypes=500;
 function liveVehicleTypeLimit(){
@@ -513,38 +513,83 @@ function liveVehicleTypeLimit(){
  const value=setting?Number(setting):maxLiveVehicleTypes;
  return Number.isInteger(value)&&value>=0?value:maxLiveVehicleTypes;
 }
+/** A search's vehicle words for statement labels, so a timeout or slow line names the search that caused it. */
+const vehicleLabel=(parsed:ParsedSearch)=>[...parsed.terms.map(term=>term.text),...parsed.years.map(String)].join(" ").slice(0,60);
 /**
- * The supplier rows linked to the vehicle types a search's vehicle words match (vehicleSearch), the same rows
- * fittedProductIds gives for all those types (#1395). A model whose every type matches ("bmw", "passat", "volkswagen")
- * is read from storefront_model_fits, which the shared-link refresh keeps per model by the same rule (trusted payload,
- * the admin's removed and added types; db/storefront-make-fits.sql); only the matched types of the other models
- * ("passat tdi") are read live, through fittedProductIds. Read live for every matched type, a make took 8-21 s locally
- * ("bmw": 2,451 types; "volkswagen" 10 s, "passat" 6 s) and hit its 30 s limit in production, while BakımX gives up after
- * 4 s and searches again as the mechanic types; whole models now read in 0.02-0.35 s, the same ids. Words matching more
- * types of partly matched models than liveVehicleTypeLimit() (a broad engine or fuel word) give null and read no fits:
- * live they took 8-33 s. The model rows are as fresh as the refresh (a fitment change or an admin's decision shows after
- * the background sync and its fits bump, at most ~30 s), as on the make and model pages. Unlike modelFittedIds this adds
- * no models read from supplier descriptions: the search never counted them. The scope is read first and handed over as
- * arrays, so the live read is planned for its real number of types; as one statement with both branches the planner read
- * every fitment sequentially for "passat tdi".
+ * The vehicle types a search's vehicle words match (#1395): `models` whose every type matches ("bmw", "passat",
+ * "volkswagen"), and `types`, the matched types of the other models ("passat tdi"). Read first and handed to the fits
+ * read (vehicleFittedHits) as arrays, so that read is planned for its real number of models, types and hits: as one
+ * statement with the scope the planner read every fitment sequentially for "passat tdi".
  */
-export async function vehicleFittedIds(parsed:ParsedSearch,read?:ReadOptions):Promise<string[]|null>{
+export type VehicleTypeScope={models:number[];types:number[]};
+export async function vehicleSearchScope(parsed:ParsedSearch,read?:ReadOptions):Promise<VehicleTypeScope>{
  const values:unknown[]=[];
- // The words in the labels, so a timeout or slow line names the search that caused it.
- const words=[...parsed.terms.map(term=>term.text),...parsed.years.map(String)].join(" ").slice(0,60);
- const scope=(await catalogRead<{models:number[];types:number[]}>(`catalog.searchVehicleScope words=${words}`,`WITH types AS MATERIALIZED (
+ return (await catalogRead<VehicleTypeScope>(`catalog.searchVehicleScope words=${vehicleLabel(parsed)}`,`WITH types AS MATERIALIZED (
    SELECT v.id,v.model_id FROM vehicle_types v WHERE ${vehicleTypeMatch("v",parsed,binder(values))}),
   models AS MATERIALIZED (SELECT v.model_id,count(*)=count(t.id) AS whole FROM vehicle_types v LEFT JOIN types t ON t.id=v.id
    WHERE v.model_id IN (SELECT model_id FROM types) GROUP BY 1)
   SELECT ARRAY(SELECT model_id FROM models WHERE whole ORDER BY 1) AS models,
    ARRAY(SELECT t.id FROM types t JOIN models m ON m.model_id=t.model_id AND NOT m.whole ORDER BY 1) AS types`,values,read)).rows[0];
- if(scope.types.length>liveVehicleTypeLimit())return null;
- const [modelFitted,typeFitted]=await Promise.all([
+}
+/** At least this many hits per partly matched type before vehicleFittedHits reads from the types instead of the hits. */
+const hitsPerLiveType=300;
+/**
+ * The search hits (`hitIds`, supplier rows) linked to a vehicle scope (vehicleSearchScope), in hit order (#1395, #1407):
+ * a hit fits a whole model when storefront_model_fits holds it, which the shared-link refresh keeps per model by the
+ * fittedProductIds rule (trusted payload, the admin's removed and added types; db/storefront-make-fits.sql), and a
+ * partly matched model's type when fittedProductIds would list it for that type. The model rows are as fresh as the
+ * refresh (a fitment change or an admin's decision shows after the background sync and its fits bump, at most ~30 s), as
+ * on the make and model pages; unlike modelFittedIds no models read from supplier descriptions count: the search never
+ * counted them. `words` names the vehicle in the statement labels. Two reads of the same rows, chosen by `by`:
+ * - "hits", unless there are at least hitsPerLiveType hits per type: from the hits outward, one statement. Each hit is
+ *   checked against the whole models' fits by index; the rest reach their donor enrichment through the shared link (the
+ *   fittedProductIds trust rule, each donor's hits as one array), each donor's payload vehicles are read once (OFFSET 0)
+ *   and compared with the donor's fitments to the scope's types; the admin's removed types drop a row's fitment, added
+ *   ones list its hits. Its cost follows the hits, not the types, so an engine or fuel word is no longer a scan of every
+ *   fitment: locally, warm, the same ids, "fren balatası dizel" (400 whole models + 10,649 types) 31.6 s → 0.6 s, "yağ
+ *   filtresi benzin" (2,720 + 14,547) 39 s → 0.3-0.4 s, "fren balatası volkswagen tdi" (13 + 769) 4.3-6.6 s → 0.9 s, "fren
+ *   balatası passat tdi" (120 types) 1.7-3.8 s → 0.8 s, "fren balatası bmw" (183 whole models) 0.36 s → 0.07 s.
+ *   `f.vehicle_type_id+0` is load-bearing: on the bare column the planner probes product_vehicle_fitments_type_idx
+ *   (vehicle_type_id, supplier_item_id) once per type and donor, 6.1M probes and 6.5 s for "fren balatası passat tdi";
+ *   `+0` keeps the types out of the index condition, so a donor's few fitments are read through the primary key
+ *   (supplier_item_id first) and tested against the hashed type array (0.76-0.9 s).
+ * - "types": the reading before #1407, from the scope outward: the whole models' fits and fittedProductIds over the types,
+ *   kept to the hits in Node. It wins for few types against many hits: "filtre passat tdi" (41,612 hits, 120 types)
+ *   1.3 s, against 1.5-3.7 s from the hits.
+ * No hits (or an empty scope) read nothing.
+ */
+export async function vehicleFittedHits(scope:VehicleTypeScope,hitIds:string[],words:string,read?:ReadOptions,by?:"hits"|"types"):Promise<string[]>{
+ if(!hitIds.length||!scope.models.length&&!scope.types.length)return [];
+ const fromTypes=by?by==="types":scope.types.length>0&&scope.types.length*hitsPerLiveType<=hitIds.length;
+ const linked=new Set(fromTypes?(await Promise.all([
   scope.models.length?catalogRead<{id:string}>(`catalog.searchModelFits models=${scope.models.length}:${scope.models.slice(0,5).join(",")}`,
    "SELECT DISTINCT supplier_item_id::text AS id FROM storefront_model_fits WHERE model_id=ANY($1::int[])",[scope.models],read).then(result=>result.rows.map(row=>row.id)):[],
   scope.types.length?fittedProductIds(scope.types,`words=${words} types=${scope.types.length}:${scope.types.slice(0,10).join(",")}`,read):[],
- ]);
- return [...new Set([...modelFitted,...typeFitted])];
+ ])).flat():(await catalogRead<{id:string}>(`catalog.searchFittedHits words=${words} hits=${hitIds.length} models=${scope.models.length} types=${scope.types.length}`,
+  `WITH hits AS MATERIALIZED (SELECT DISTINCT h.id FROM unnest($1::uuid[]) h(id)),
+  whole AS MATERIALIZED (SELECT h.id FROM hits h WHERE cardinality($2::int[])>0
+   AND EXISTS (SELECT 1 FROM storefront_model_fits f WHERE f.supplier_item_id=h.id AND f.model_id=ANY($2::int[]))),
+  donors AS MATERIALIZED (SELECT l.donor_item_id,array_agg(l.supplier_item_id) AS items FROM hits h
+   JOIN product_enrichment_shared_links l ON l.supplier_item_id=h.id
+   JOIN product_enrichments e ON e.supplier_item_id=l.donor_item_id
+   JOIN supplier_items s ON s.id=l.supplier_item_id AND s.code=l.supplier_code AND s.product_data->>'uk'=l.supplier_brand
+   WHERE cardinality($3::int[])>0 AND h.id NOT IN (SELECT id FROM whole)
+    AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=l.donor_oem) GROUP BY 1),
+  observed AS MATERIALIZED (SELECT d.items,m.types FROM donors d
+   JOIN product_enrichments e ON e.supplier_item_id=d.donor_item_id
+   CROSS JOIN LATERAL (SELECT e.payload->'vehicles' AS vehicles OFFSET 0) v
+   CROSS JOIN LATERAL (SELECT array_agg(f.vehicle_type_id) AS types FROM product_vehicle_fitments f
+    WHERE f.supplier_item_id=d.donor_item_id AND f.vehicle_type_id+0=ANY($3::int[]) AND f.source_vehicle=v.vehicles->f.source_index) m
+   WHERE m.types IS NOT NULL),
+  decided AS MATERIALIZED (SELECT ps.supplier_item_id,o.vehicle_type_id,o.mode FROM product_override_fitments o
+   JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.vehicle_type_id=ANY($3::int[]))
+  SELECT id::text FROM (SELECT id FROM whole
+   UNION SELECT item.id FROM observed o CROSS JOIN LATERAL unnest(o.items) item(id)
+    WHERE EXISTS (SELECT 1 FROM unnest(o.types) type_id
+     WHERE (item.id,type_id) NOT IN (SELECT supplier_item_id,vehicle_type_id FROM decided WHERE mode='remove'))
+   UNION SELECT d.supplier_item_id FROM decided d JOIN hits h ON h.id=d.supplier_item_id WHERE d.mode='add') fitted`,
+  [hitIds,scope.models,scope.types],read)).rows.map(row=>row.id));
+ return hitIds.filter(id=>linked.has(id));
 }
 /**
  * Most product names never mention vehicles, so "fren balatası passat" often matches nothing as a whole. Tries
@@ -553,13 +598,14 @@ export async function vehicleFittedIds(parsed:ParsedSearch,read?:ReadOptions):Pr
  * vehicle part ("buji | bmw 320d" over "buji bmw | 320d").
  */
 /**
- * `fittedOnly`: only readings whose vehicle has linked parts count, checked before the costlier product search.
- * A split whose vehicle words are too broad to read live (vehicleFittedIds: null, #1395) is no reading and blocks no
- * other split. When no split gives a reading and some were too broad, the product part of the first of them (the first
- * tried: fewest vehicle words) whose product part matches is the result, as a plain search without a vehicle notice:
- * its fit was not read, so it is neither fitted nor "not fitted" ("silecek benzin" lists the wipers). Not with
- * `fittedOnly`: there the whole query's name matches are the result ("fren balatası tdi": pads named "… TDI"). A product part found by spell-correction is
- * reported as the corrected query.
+ * `fittedOnly`: only readings whose vehicle has linked parts count. A split whose vehicle words partly match more types
+ * than liveVehicleTypeLimit() (an engine or fuel word, #1395, #1407) is deferred and blocks no other split. When the
+ * other splits give no fitted reading, the deferred ones are read, longest vehicle phrase first, and the first with
+ * fitted parts is the result, with its vehicle notice ("fren balatası dizel": the pads linked to a diesel type). A
+ * deferred split without fitted parts is never a "not fitted" reading (too broad to say so): an unfitted reading of
+ * another split is the result, else the product part of the first deferred split tried (fewest vehicle words) whose
+ * product part matches, as a plain search without a vehicle notice. Not with `fittedOnly`: there the whole query's
+ * name matches are the result. A product part found by spell-correction is reported as the corrected query.
  */
 async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<string[]>,correct:boolean,fittedOnly=false,read?:ReadOptions):Promise<CatalogSearch|null>{
  const words=vehicleReadingWords(raw);
@@ -569,8 +615,29 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
  const display=(text:string,part:string[])=>sameWords&&text===part.join(" ")?part.map(word=>typed[words.indexOf(word)]).join(" "):text;
  const splits=words.slice(1).flatMap((_,index)=>{const size=index+1;
   return [{product:words.slice(0,words.length-size),vehicle:words.slice(words.length-size)},{product:words.slice(size),vehicle:words.slice(0,size)}];});
+ // Each product part is resolved once: the deferred pass and the plain fallback reuse it.
+ const products=new Map<string,Promise<{text:string;parsed:ParsedSearch;ids:string[]}|null>>();
+ const productPart=(part:string[])=>{
+  const text=part.join(" ");
+  let resolved=products.get(text);
+  if(!resolved){
+   resolved=(async()=>{let ids:string[]=[];
+    const product=await resolvePart(text,"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
+    return product&&{...product,ids};})();
+   products.set(text,resolved);
+  }
+  return resolved;
+ };
+ type Reading={split:(typeof splits)[number];vehicle:{text:string;parsed:ParsedSearch};scope:VehicleTypeScope};
+ const reading=async({split,vehicle,scope}:Reading)=>{
+  const product=await productPart(split.product);
+  if(!product)return null;
+  const fitted=await vehicleFittedHits(scope,product.ids,vehicleLabel(vehicle.parsed),read);
+  return {parsed:product.parsed,ids:fitted.length?fitted:product.ids,vehicleWords:split.vehicle.length,
+   vehicle:{productText:display(product.text,split.product),vehicleText:display(vehicle.text,split.vehicle),fitted:fitted.length>0}};
+ };
  let best:(CatalogSearch&{vehicleWords:number})|null=null;
- const tooBroad:string[][]=[];
+ const deferred:Reading[]=[];
  for(const split of splits){
   if(best&&(best.vehicle?.fitted||split.vehicle.length<=best.vehicleWords))continue;
   if(!parseSearchQuery(split.vehicle.join(" ")).terms.some(term=>term.required&&/[a-z]/.test(term.text)))continue;
@@ -581,27 +648,25 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   const vehicle=await resolvePart(split.vehicle.join(" "),"vehicle",correct,async parsed=>{const values:unknown[]=[];
    return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values,read)).rowCount);});
   if(!vehicle)continue;
-  const fittedIds=await vehicleFittedIds(vehicleWords(vehicle.parsed),read);
-  // Too broad to read live (liveVehicleTypeLimit): no vehicle reading; its product part is the fallback below.
-  if(!fittedIds){tooBroad.push(split.product);continue;}
-  const linked=new Set(fittedIds);
-  if(fittedOnly&&!linked.size)continue;
-  let ids:string[]=[];
-  const product=await resolvePart(split.product.join(" "),"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
-  if(!product)continue;
-  const fitted=ids.filter(id=>linked.has(id));
-  if(fittedOnly&&!fitted.length)continue;
-  const candidate={parsed:product.parsed,ids:fitted.length?fitted:ids,vehicleWords:split.vehicle.length,
-   vehicle:{productText:display(product.text,split.product),vehicleText:display(vehicle.text,split.vehicle),fitted:fitted.length>0}};
+  const entry={split,vehicle,scope:await vehicleSearchScope(vehicleWords(vehicle.parsed),read)};
+  // Too broad to read in its turn (liveVehicleTypeLimit): read after the others, below.
+  if(entry.scope.types.length>liveVehicleTypeLimit()){deferred.push(entry);continue;}
+  const candidate=await reading(entry);
+  if(!candidate||fittedOnly&&!candidate.vehicle.fitted)continue;
   if(!best||(candidate.vehicle.fitted&&!best.vehicle?.fitted)||(candidate.vehicle.fitted===best.vehicle?.fitted&&candidate.vehicleWords>best.vehicleWords))best=candidate;
+ }
+ if(!best?.vehicle?.fitted){
+  // Longest vehicle phrase first ("volkswagen tdi" before "tdi"); the sort is stable, so equals keep the tried order.
+  for(const entry of [...deferred].sort((a,b)=>b.split.vehicle.length-a.split.vehicle.length)){
+   const candidate=await reading(entry);
+   if(candidate?.vehicle.fitted)return {parsed:candidate.parsed,ids:candidate.ids,vehicle:candidate.vehicle};
+  }
  }
  if(best)return {parsed:best.parsed,ids:best.ids,vehicle:best.vehicle};
  if(fittedOnly)return null;
- for(const productWords of tooBroad){
-  let ids:string[]=[];
-  const text=productWords.join(" ");
-  const product=await resolvePart(text,"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
-  if(product)return product.text===text?{parsed:product.parsed,ids}:{parsed:product.parsed,ids,correctedQuery:product.text};
+ for(const {split} of deferred){
+  const product=await productPart(split.product);
+  if(product)return product.text===split.product.join(" ")?{parsed:product.parsed,ids:product.ids}:{parsed:product.parsed,ids:product.ids,correctedQuery:product.text};
  }
  return null;
 }
