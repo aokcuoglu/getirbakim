@@ -533,6 +533,25 @@ test("an automatic image converts to an upload: same media object, at the end, s
   assert.ok(await images.servableProductMedia(mediaId, storefrontCompanies()));
 });
 
+test("an automatic image of a non-present row is previewed through the admin route and cannot be converted (#1442)", async () => {
+  const mediaId = await itemWithImage("prevA", "PVA 10201", "PREVA", "prev-a");
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await syncSharedLinks(schema.pool);
+  const product = await productOf("prevA");
+  const present = await store.loadProductImages(schema.pool, product);
+  assert.deepEqual(present.automatic.map(image => [image.src, image.inStore]), [[`/api/product-media/${mediaId}`, true]]);
+  for (const presence of ["inactive", "pending_missing"]) {
+    await schema.pool.query("UPDATE supplier_items SET presence=$2 WHERE id=$1", [ids.prevA, presence]);
+    const loaded = await store.loadProductImages(schema.pool, product);
+    assert.deepEqual(loaded.automatic.map(image => [image.src, image.inStore]), [[`/api/admin/product-media/${mediaId}`, false]], presence);
+    assert.equal(await images.servableProductMedia(mediaId, storefrontCompanies()), undefined, presence);
+    assert.deepEqual(await store.convertAutomaticImage(schema.pool, product, mediaId, admin), { ok: false, reason: "stale" }, presence);
+    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_override_images WHERE product_id=$1", [product])).rows[0].n, 0);
+  }
+  await schema.pool.query("UPDATE supplier_items SET presence='present' WHERE id=$1", [ids.prevA]);
+  assert.deepEqual((await store.loadProductImages(schema.pool, product)).automatic.map(image => [image.src, image.inStore]), [[`/api/product-media/${mediaId}`, true]]);
+});
+
 test("converting refuses a foreign image, a full gallery and a merged product (#598)", async () => {
   const mediaLimit = await itemWithImage("convL", "CVL 10102", "CONVL", "conv-l");
   const mediaOther = await itemWithImage("convO", "CVO 10103", "CONVO", "conv-o");
