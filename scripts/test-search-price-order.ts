@@ -178,6 +178,8 @@ const specs: Spec[] = [
   ["category (two id sets)", { q: "fren", category: "fren" }],
   ["make (two id sets)", { q: "fren", make: "vw" }],
   ["the garage vehicle's fits", { q: "fren", fits: "vehicle" }, vw],
+  ["category and make (three id sets)", { q: "fren", category: "fren", make: "vw" }],
+  ["a property (attributes)", { q: "fren", attributes: JSON.stringify({ "Fitting Position": ["Front Axle"] }) }],
 ];
 const shape = (result: Result) => ({ ids: result.items.map(item => item.id), total: result.total, page: result.page, pages: result.pages, pageSize: result.pageSize,
   correctedQuery: (result as { correctedQuery?: string }).correctedQuery, vehicleScope: (result as { vehicleScope?: unknown }).vehicleScope,
@@ -358,7 +360,7 @@ test("a price change without a bump keeps the position and shows the new price; 
   }
 });
 
-test("a failed order statement reads that request live and holds the key: an hour after a timeout (57014), ten minutes after any other error", async t => {
+test("a failed first order statement reads that request live and holds the key: an hour after a timeout (57014), ten minutes after any other error", async t => {
   t.mock.method(console, "error", () => {});
   t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const minute = 60 * 1000;
@@ -386,6 +388,53 @@ test("a failed order statement reads that request live and holds the key: an hou
     assert.equal((await sent(() => browse(query, {}, proc))).orders, 0, `${code}: the order is kept now`);
     // Another key of the same search was not held.
     t.mock.timers.tick(0);
+  }
+});
+
+test("a key that loaded, then failed to reload (epoch bump or TTL), reads live during the hold without error logs per request, not the earlier order", async t => {
+  const logged = t.mock.method(console, "error", () => {});
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const minute = 60 * 1000;
+  for (const [reason, reload] of [["an epoch bump", async () => { await invalidateListings(); }], ["the TTL", async () => { t.mock.timers.tick(10 * minute + 1); }]] as const) {
+    const proc = await otherProcess(`reload-fails-${reason.replace(/ /g, "-")}`);
+    const query: CatalogQuery = { q: "fren", sort: asc }, next: CatalogQuery = { ...query, page: "2" };
+    const earlier = shape(await browse(query, {}, proc));
+    const hidden = earlier.ids[3];
+    await hide(hidden);
+    try {
+      const expected = [shape(await live(() => browse(query, {}))), shape(await live(() => browse(next, {})))];
+      assert.equal(expected[0].total, earlier.total - 1);
+      let attempts = 0, failing = true;
+      logged.mock.resetCalls();
+      await intercepted(text => {
+        if (!isOrder(text)) return undefined;
+        attempts++;
+        return failing ? failure("57014") : undefined;
+      }, async () => {
+        await reload();
+        // The request whose reload fails may still get the earlier entry; the hold is set by then.
+        await browse(query, {}, proc);
+        await until(async () => attempts, found => found >= 1);
+        await sleep(100);
+        const errorsAfterFailure = logged.mock.callCount();
+        assert.equal(attempts, 1, `${reason}: one failed statement`);
+        for (const [page, index] of [["1", 0], ["2", 1], ["1", 0]] as const) {
+          const read = await sent(async () => assert.deepEqual(shape(await browse({ ...query, page }, {}, proc)), expected[index], `${reason}: page ${page} is live`));
+          assert.ok(read.livePages >= 1 && read.orders === 0, `${reason}: live page, no order statement`);
+        }
+        assert.equal(attempts, 1, `${reason}: no order statement within the hold`);
+        assert.equal(logged.mock.callCount(), errorsAfterFailure, `${reason}: no error log per request in the hold`);
+        assert.ok(errorsAfterFailure <= 3, `${reason}: the failure itself logs once each by the database timeout, the build and the cache`);
+        failing = false;
+        t.mock.timers.tick(60 * minute);
+        await until(async () => (await browse(query, {}, proc)).total, total => total === expected[0].total);
+        assert.ok(attempts >= 2, `${reason}: an order statement again after the hold`);
+      });
+      assert.deepEqual(shape(await browse(query, {}, proc)), expected[0]);
+    } finally {
+      await unhide(hidden);
+      await invalidateListings();
+    }
   }
 });
 

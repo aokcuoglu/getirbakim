@@ -18,7 +18,9 @@ import type { VehicleSearchScope } from "./catalog";
  * The cache is bounded by ids (SEARCH_PRICE_ORDER_MAX_IDS, default 1,000,000, the least recently used keys go first) and
  * by 300 keys. A build that fails (30 s limit included) throws SearchOrderBuildError: the caller reads that request live
  * and holds the key, 10 minutes after a failure and an hour after a statement timeout (as #1390's filtered orders), so a
- * search that cannot be ordered is not tried on every request. SEARCH_PRICE_ORDER=0 reads every price-sorted search
+ * search that cannot be ordered is not tried on every request. A held key bypasses the cache: every request in the hold
+ * reads live, also when the key has an earlier entry (a failed reload would otherwise keep serving an order older than
+ * an edit), and no loader runs, so nothing is logged per request. The request whose load fails may still get the earlier entry. SEARCH_PRICE_ORDER=0 reads every price-sorted search
  * live again (the rollback), apart from LISTING_PRICE_ORDER, which keeps governing the stored listing orders.
  * The listing price orders stored in the database (listing-price-order.ts) never serve a search: their key has no query.
  */

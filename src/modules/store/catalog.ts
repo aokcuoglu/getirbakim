@@ -1091,16 +1091,21 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
 // or a search that may name a vehicle) and the listing epoch otherwise. Waits, fallbacks and budget as the other search
 // caches (boundedWait, weight in ids). A failed order statement throws SearchOrderBuildError: the page reads that request
 // live (the path without this cache), and the key is held for ten minutes, an hour after a statement timeout (#1390).
+// A held key bypasses the cache: searchPriceOrder checks the holds before it, so every request in the hold reads live, even
+// one whose key has an earlier entry (a failed epoch reload or TTL refresh would otherwise put that entry back and keep
+// serving an order older than the edit), and calls no loader, so staleCache logs nothing per request. The request whose
+// load fails may still be served the earlier entry. After the hold the next request goes through the cache again (the
+// earlier entry may be served within the bounded wait while it reloads). A first load can pay the order's build (30 s
+// limit) and then the live page (55 s limit) when the build fails; searches are capped at maxSearchHits, so that is unlikely.
 const cachedSearchOrders=staleCache<SearchPriceOrder>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:order=>order.total>0,
  weigh:order=>Math.max(1,order.total),maxWeight:searchPriceOrderMaxIds()});
 const failedSearchOrders=failureHold(()=>failedBuildBackoffMs,300,()=>Date.now()),timedOutSearchOrders=failureHold(()=>filteredTimeoutBackoffMs,300,()=>Date.now());
-/** The cached order of a price-sorted search, or null when its build failed (the caller reads live); other failures reject. */
+/** The cached order of a price-sorted search, or null when its key is held or its build failed (the caller reads live); other failures reject. */
 async function searchPriceOrder(query:CatalogQuery,context:CatalogContext):Promise<SearchPriceOrder|null>{
  const raw=query.q!,mode=query.searchBy==="code"?"code":"all",key=`${apiSearchKey(raw,mode)}|${filterKey(query,context)}|${query.sort}`;
+ if(timedOutSearchOrders.failure(key)||failedSearchOrders.failure(key))return null;
  try{
   return await cachedSearchOrders(key,async()=>{
-   const held=timedOutSearchOrders.failure(key)??failedSearchOrders.failure(key);
-   if(held)throw held.error;
    const filter=await catalogFilter(query,context),{search}=filter;
    const notes={correctedQuery:search?.correctedQuery,vehicle:search?.vehicle,tooShort:search?.tooShort};
    const empty={packed:Buffer.alloc(0),total:0,...notes};
