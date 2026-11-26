@@ -13,6 +13,8 @@ type Row = Record<string, unknown>;
 /** Upserts the bundle's job statuses; call after resolveBundleItems in the same transaction. */
 export async function importBundleJobs(client: PoolClient, jobs: Row[]) {
   const json = JSON.stringify(jobs);
+  // oem is compared and rewritten because enrichment_product_candidates (db/enrichment-products.sql) counts a failed job
+  // only while its oem matches the supplier row (#1386); candidate_url and last_attempt_at are never read on the target.
   // DISTINCT ON keeps the latest attempt among this part's jobs that resolve to one local item. Across job parts the
   // later part wins instead; that needs two bundle jobs resolving to one item here (same id, different natural key on
   // each side), so it is theoretical.
@@ -21,8 +23,8 @@ export async function importBundleJobs(client: PoolClient, jobs: Row[]) {
     FROM jsonb_populate_recordset(null::product_enrichment_jobs,$1::jsonb) r JOIN bundle_items bi ON bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL
     ORDER BY bi.id,r.last_attempt_at DESC NULLS LAST
     ON CONFLICT (supplier_item_id) DO UPDATE SET status=EXCLUDED.status,supplier_code=EXCLUDED.supplier_code,supplier_brand=EXCLUDED.supplier_brand,
-    candidate_url=EXCLUDED.candidate_url,last_error=NULL,updated_at=now()
-    WHERE ROW(j.status,j.supplier_code,j.supplier_brand) IS DISTINCT FROM ROW(EXCLUDED.status,EXCLUDED.supplier_code,EXCLUDED.supplier_brand)`, [json]);
+    oem=EXCLUDED.oem,candidate_url=EXCLUDED.candidate_url,last_error=NULL,updated_at=now()
+    WHERE ROW(j.status,j.supplier_code,j.supplier_brand,j.oem) IS DISTINCT FROM ROW(EXCLUDED.status,EXCLUDED.supplier_code,EXCLUDED.supplier_brand,EXCLUDED.oem)`, [json]);
   const skipped = await client.query<{ count: number }>(`SELECT count(*)::int AS count FROM jsonb_populate_recordset(null::product_enrichment_jobs,$1::jsonb) r
     WHERE NOT EXISTS (SELECT 1 FROM bundle_items bi WHERE bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL)`, [json]);
   return { jobs: written.rowCount ?? 0, skipped: skipped.rows[0].count };
