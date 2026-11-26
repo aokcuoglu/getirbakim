@@ -501,10 +501,10 @@ const searchEpoch=(raw:string,mode:SearchMode)=>mode!=="code"&&vehicleReadingWor
  * ("bmw": 2,451 types; "volkswagen" 10 s, "passat" 6 s) and hit its 30 s limit in production, while BakımX gives up after
  * 4 s and searches again as the mechanic types; whole models now read in 0.02-0.35 s, the same ids. A broad engine word
  * stays live and slow ("tdi": 1,890 types of partly matched models, ~8 s). The model rows are as fresh as the refresh
- * (seconds behind a fitment change or an admin's decision), as on the make and model pages. Unlike modelFittedIds this
- * adds no models read from supplier descriptions: the search never counted them. The scope is read first and handed
- * over as arrays, so the live read is planned for its real number of types; as one statement with both branches the
- * planner read every fitment sequentially for "passat tdi".
+ * (a fitment change or an admin's decision shows after the background sync and its fits bump, at most ~30 s), as on the
+ * make and model pages. Unlike modelFittedIds this adds no models read from supplier descriptions: the search never
+ * counted them. The scope is read first and handed over as arrays, so the live read is planned for its real number of
+ * types; as one statement with both branches the planner read every fitment sequentially for "passat tdi".
  */
 export async function vehicleFittedIds(parsed:ParsedSearch):Promise<string[]>{
  const values:unknown[]=[];

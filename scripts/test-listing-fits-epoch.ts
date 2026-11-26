@@ -122,6 +122,10 @@ before(async () => {
     INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(60,3,'LEON (5F1)','2012-01-01',NULL);
     INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
      VALUES(${GOLF},10,'1.6 TDI',1598,'Diesel','Dizel',110,81,'2012-08-01','golf');
+    -- A second Golf VII engine "golf" does not name: the vehicle searches read the garage type's fits live (a partly
+    -- matched model, #1395), which addVehicleFit changes; a model every type of which matches is read from its model fits.
+    INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
+     VALUES(${GOLF + 1},10,'2.0 TSI',1984,'Petrol','Benzin',230,169,'2013-05-01','gti');
     INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT 1,id FROM supplier_items;
     INSERT INTO storefront_model_fits(model_id,supplier_item_id) SELECT 10,id FROM supplier_items;
     INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
