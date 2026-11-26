@@ -330,6 +330,35 @@ test("the export's vehicle data digest never reaches a part; unchanged vehicle d
   }
 });
 
+test("the export's staticMedia never reaches a part; unchanged category images and logos leave part 0 without media (#1379)", async () => {
+  const exported = (sentStatic: boolean, sentVehicle: boolean) => ({
+    exportedAt: "2026-11-26T04:30:00Z", since: "2026-11-26T00:32:15.465Z", retried: 0, snapshotAt: "2026-11-26T04:29:00Z",
+    categories: [{ source: "trodo", category_id: 1 }], labels: [{ source: "trodo", category_id: 1, locale: "tr" }],
+    images: sentStatic ? [{ source: "trodo", category_id: 1, media_id: "c" }] : [], logos: sentStatic ? [{ brand_key: "febi" }] : [],
+    vehicleSpecs: sentVehicle ? [{ vehicle_type_id: 7 }] : [], vehicleImages: [],
+    vehicleData: { digest: "f".repeat(64), specs: 1, images: 0, sent: sentVehicle },
+    staticMedia: { digest: "e".repeat(64), images: 1, logos: 1, sent: sentStatic },
+    jobs: [{ supplier_item_id: "i1", status: "complete" }], tombstones: [], invalidatedJobs: 0, maxDeletions: 1000,
+    enrichments: [{ supplier_item_id: "i1", image_id: "a" }], items: [key("i1")],
+  });
+  const category = { id: "c", key: "cat/c.jpg", size: 10 }, enrichment = { id: "a", key: "p/a.jpg", size: 60 };
+  // The export reads the category images' media only when it sends them.
+  for (const [sent, media, base] of [[false, [enrichment], []], [true, [category, enrichment], ["c"]]] as const) {
+    const { root, source } = await bundle([...media], exported(sent, false));
+    try {
+      const parts = await split(source, join(root, "parts"), MEDIA);
+      assert.equal(parts.length, 3);
+      for (const part of parts) assert.deepEqual(Object.keys(part).sort(), LEGACY_KEYS);
+      assert.deepEqual(parts[0].media.map((m: { id: string }) => m.id), base);
+      assert.deepEqual([parts[0].images.length, parts[0].logos.length], sent ? [1, 1] : [0, 0]);
+      assert.deepEqual(parts.slice(1).map(part => [part.images, part.logos]), [[[], []], [[], []]]);
+      // The tree and labels travel either way: the mappings and the replaced sources derive from them.
+      assert.deepEqual([parts[0].categories.length, parts[0].labels.length], [1, 1]);
+      assert.deepEqual(parts[0].items.map((item: { id: string }) => item.id), []);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+});
+
 test("a count that disagrees with the manifest or a cut-off last line stops the split", async () => {
   const manifest = {
     categories: [], labels: [], images: [], logos: [], enrichments: [{ supplier_item_id: "i1", image_id: null }],
