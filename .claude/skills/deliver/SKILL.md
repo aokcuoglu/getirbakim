@@ -1,6 +1,6 @@
 ---
-name: ship
-description: Orchestrate one getirbakim development end to end — issue → worktree from origin/dev → plan → implement → code + UI review → QA → PR into dev → CI → merge into dev → update the main checkout → clean up. Use for "/ship 489", "/ship <description>", or whenever the user asks to start, build, fix or deliver a development in getirbakim.
+name: deliver
+description: Orchestrate one getirbakim development end to end — issue → worktree from origin/dev → plan → implement → code + UI review → QA → PR into dev → CI → merge into dev → update the main checkout → clean up. Use for "/deliver 489", "/deliver <description>" (not the built-in /ship, which shadows a project skill of that name), or whenever the user asks to start, build, fix or deliver a development in getirbakim.
 argument-hint: <issue number | short description>
 ---
 

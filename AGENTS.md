@@ -24,7 +24,7 @@ Full policy: [docs/development-workflow.md](docs/development-workflow.md) (Turki
 
 ## Agent harness (Claude Code)
 
-Developments go through a fixed multi-agent pipeline: [`docs/harness/README.md`](docs/harness/README.md). With the `/ship <issue>` skill the main session becomes the **orchestrator** and hands work to `getirbakim-planner` → `getirbakim-developer` → `getirbakim-reviewer` + `getirbakim-ui-ux` → `getirbakim-qa` in `.claude/agents/`. Other skills: `/issue`, `/qa`, `/design-check`, `/backlog`, `/release-check`. Deterministic checks live in `scripts/harness/` (`admin-ui-lint.mjs`: post-edit hook, `npm run harness:lint`, CI); flow hooks in `scripts/flow/` (session brief, `dev`/`main` guard; `.claude/settings.json`).
+Developments go through a fixed multi-agent pipeline: [`docs/harness/README.md`](docs/harness/README.md). With the `/deliver <issue>` skill the main session becomes the **orchestrator** (named `/deliver` because Claude Code's built-in `/ship` shadows a project skill of that name and only commits, pushes and watches a PR) and hands work to `getirbakim-planner` → `getirbakim-developer` → `getirbakim-reviewer` + `getirbakim-ui-ux` → `getirbakim-qa` in `.claude/agents/`. Other skills: `/issue`, `/qa`, `/design-check`, `/backlog`, `/release-check`. Deterministic checks live in `scripts/harness/` (`admin-ui-lint.mjs`: post-edit hook, `npm run harness:lint`, CI); flow hooks in `scripts/flow/` (session brief, `dev`/`main` guard; `.claude/settings.json`).
 
 ## Admin panel (/yonetim) UI rule
 

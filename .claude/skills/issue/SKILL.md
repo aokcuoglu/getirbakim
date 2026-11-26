@@ -38,4 +38,4 @@ gh issue create --title "<type>(<area>): <imperative English summary>" --label <
 MD
 )"
 ```
-5. Give the Issue URL and title. Do not start work unless asked (then `/ship <N>`).
+5. Give the Issue URL and title. Do not start work unless asked (then `/deliver <N>`).

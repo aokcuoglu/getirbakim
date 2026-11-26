@@ -14,7 +14,7 @@ const lines = [
   "2. Conventional commits/PR titles: <type>(<area>): <summary>; labels = type + area:* (+ release:minor|patch for behaviour changes).",
   "3. PR --base dev with Closes #N → CI green → merge into dev without asking → fast-forward the main checkout (dev) → remove own worktree/branch.",
   "4. main = releasable version: dev → main only as a versioned release with the user's explicit approval (/release-check). AWS production (release-aws.yml) is a separate, explicitly approved step.",
-  "5. /ship <N|description> runs the whole pipeline with the getirbakim-* agents (planner → developer → reviewer + ui-ux → qa).",
+  "5. /deliver <N|description> runs the whole pipeline with the getirbakim-* agents (planner → developer → reviewer + ui-ux → qa).",
 ]
 
 try {
