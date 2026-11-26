@@ -919,7 +919,7 @@ test("LISTING_STOCK_MAX_SERVE_MS=0 turns the bound off: the idle stock-filtered 
   const seen = await idleAcrossStockChange(t, "stock-max-serve-off", "0");
   assert.deepEqual(seen.stockNow, seen.stockBefore);
 });
-test("a stock-filtered deep page's stored order older than the limit is not adopted: its build runs before the page is served; a plain listing's row of that age is sliced first (#1390, #1453)", async () => {
+test("a stock-filtered deep page's stored order older than LISTING_STOCK_MAX_SERVE_MS is still adopted and sliced first, as a plain row is: the stored deep orders are exempt (#1390, #1453)", async () => {
   await schema.pool.query("TRUNCATE storefront_listing_price_orders");
   const stockQuery: CatalogQuery = { availability: "in_stock", sort: "price-desc", page: "21" }, plainQuery = bosch("price-desc", 21);
   const builder = await otherProcess("stock-adopt-build");
@@ -940,10 +940,7 @@ test("a stock-filtered deep page's stored order older than the limit is not adop
     return uses[0];
   };
   assert.equal(await firstUse(plainQuery, "stock-adopt-plain"), "slice", "the plain row is adopted");
-  assert.equal(await firstUse(stockQuery, "stock-adopt-stock"), "build", "the over-age stock row is rebuilt first");
-  await withEnv({ LISTING_STOCK_MAX_SERVE_MS: "0" }, async () => {
-    assert.equal(await firstUse(stockQuery, "stock-adopt-off"), "slice", "with the bound off it is adopted");
-  });
+  assert.equal(await firstUse(stockQuery, "stock-adopt-stock"), "slice", "the over-age stock row is adopted: the exemption");
 });
 
 test("LISTING_PRICE_ORDER_FILTERED=0 neither stores nor reads a filtered order, the plain ones go on; a search stores none at the minimum (#1390)", () => withEnv(anyFiltered, async () => {

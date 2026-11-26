@@ -952,7 +952,9 @@ const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.br
  * ids, ~2.2 s out of stock at 10k. Its keys are bounded by the filtered rows' budget, not by the site's pages
  * (listing-price-order.ts); its first pages keep their 480 ids in memory. Its stored order is at most 10 minutes old while
  * its deep pages are read; the first request after idle time or a restart can take one up to 24 hours old (the stored
- * rows' adoption window) while it is rebuilt. Cards are read live, so their prices and stock labels stay current: an
+ * rows' adoption window) while it is rebuilt. This stays true for stock filters (#1453): cachedPriceOrders is exempt from
+ * LISTING_STOCK_MAX_SERVE_MS, since a capped row would send every request of the rebuild to a live deep page (4-10 s for
+ * in stock on /katalog) to refresh only card positions, the cards and the total (the capped count cache) being current. Cards are read live, so their prices and stock labels stay current: an
  * in-stock listing can show a card sold out since, labelled so. Stock filters store at any size for the stock set's cost
  * alone: #1424 attacks that cost, so measure them again after it and drop `stockFiltered(query)||` below if small stock
  * listings have become cheap. Since #1429 a category, model, garage vehicle, oil or search listing of up to
@@ -1082,9 +1084,9 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
 // One cache and one budget (SEARCH_PRICE_ORDER_MAX_IDS) for every sort. Waits, fallbacks and budget as the other search
 // caches (boundedWait, weight in ids). A failed order statement throws SearchOrderBuildError: the page reads that request
 // live (the path without this cache), and the key is held for ten minutes, an hour after a statement timeout (#1390).
-// A stock-filtered key (availability in or out of stock) is never served older than LISTING_STOCK_MAX_SERVE_MS (60 minutes, #1453):
-// past it the request waits for the reload, since stock syncs do not move the epoch. The same bound caps the in-memory
-// listing counts, page ids and stored price orders of a stock-filtered listing, and the stored row a miss may adopt.
+// A stock-filtered key (availability in or out of stock) is not served older than LISTING_STOCK_MAX_SERVE_MS (60 minutes,
+// #1453) unless its reload fails: past it the request waits for the reload, since stock syncs do not move the epoch. The same
+// bound caps the in-memory listing counts and page ids of a stock-filtered listing. Its stored deep price order is exempt.
 // A held key bypasses the cache: searchOrder checks the holds before it, so every request in the hold reads live, even
 // one whose key has an earlier entry (a failed epoch reload or TTL refresh would otherwise put that entry back and keep
 // serving an order older than the edit), and calls no loader, so staleCache logs nothing per request. The request whose
@@ -1422,7 +1424,7 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
    if(!scope)return {total:0};
    const built=await buildPriceOrder(pricedKey,at,pricedRowsSql(scope.where),scope.values,order,
     filteredDeep?{head:0,freshMs:aggregateTtl,filtered:true,expected:total}:{head:cachedPages*pageSize,freshMs:aggregateTtl});
-   return {total:built.total};},{epoch:epochOf(query),maxServeMs:stockMaxServeMs(query.availability)});
+   return {total:built.total};},{epoch:epochOf(query)});
   // A filtered listing's page never waits for a build (#1390): past the bounded wait (listingWaitMs, 250 ms; unbounded
   // during the warm-up) it reads live below while the load goes on, shared by the cache's next callers. Its first deep
   // page costs at most one live page and the wait, never a build that runs into its 30 s limit and a live page after it

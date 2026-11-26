@@ -42,6 +42,7 @@ type CallOptions = {
    * maxWaitMs may serve as an earlier value (a stored row, or the entry an epoch bump replaced): a value older than it is
    * never served at once. If the reload of an over-age entry fails, the old value is served after all, with a logged error,
    * and the next request tries again: a stale page beats an error page. A cold key (nothing to serve) still gets the error.
+   * So does a failed reload after an epoch bump, which restores the previous entry whatever its age (existing behaviour).
    */
   maxServeMs?: number;
 };
@@ -253,6 +254,7 @@ export function staleCache<T>(ttlMs: number, maxEntries = 500, options: Options<
     // An entry from an older epoch is stale; one from a newer epoch (a racing read saw the bump first) is kept.
     if (epoch !== undefined && (entry.epoch === undefined || entry.epoch < epoch)) return insert(key, load, epoch, persist, entry, maxServe);
     // A settled entry past the hard bound is reloaded before it is served (#1453); a pending one is young by construction.
+    // A TTL refresh already running when the entry crosses the bound is not reused: a duplicate load is possible within one refresh's duration.
     if (maxServe && entry.known && Date.now() - entry.loadedAt > maxServe) return insert(key, load, epoch, persist, entry, maxServe, true);
     // Map order doubles as recency for eviction.
     entries.delete(key); entries.set(key, entry);

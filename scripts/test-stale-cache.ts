@@ -499,3 +499,51 @@ test("maxServeMs bounds what a memory miss adopts from the store", async t => {
   assert.equal(await cache("ok", async () => "fresh", { maxServeMs: 40_000 }), "stored", "a younger row is");
   assert.equal(await cache("unbounded", async () => "fresh"), "stored");
 });
+
+test("maxServeMs: after an epoch bump a bounded wait serves the replaced entry only within the limit", async t => {
+  for (const [idleMs, serves] of [[1000, true], [6000, false]] as const) {
+    t.mock.timers.reset();
+    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    let epoch = 1;
+    const cache = staleCache<string>(60_000, 100, { epoch: async () => epoch, maxWaitMs: 0 });
+    await cache("k", async () => "v1", { maxServeMs: 5000 });
+    t.mock.timers.tick(idleMs);
+    epoch = 2;
+    let release!: () => void;
+    const gate = new Promise<void>(done => { release = done; });
+    const read = cache("k", async () => { await gate; return "v2"; }, { maxServeMs: 5000 });
+    let first: string | undefined;
+    void read.then(value => { first = value; });
+    await settle();
+    assert.equal(first, serves ? "v1" : undefined, serves ? "within the limit the earlier value is served at once" : "past the limit the caller waits");
+    release();
+    assert.equal(await read, serves ? "v1" : "v2");
+    await settle();
+  }
+});
+
+test("maxServeMs: a stored row past the limit is not an earlier value for a bounded wait; the caller waits, and a failed load rejects", async t => {
+  t.mock.timers.reset();
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const row = { value: "stored", ageMs: 30_000, epoch: 0 };
+  const store = { read: async () => row, write: async () => {} };
+  const make = () => staleCache<string>(1000, 100, { store, maxStaleMs: 10, maxWaitMs: 0 });
+  const gate = () => { let release!: () => void; const wait = new Promise<void>(done => { release = done; }); return { release, wait }; };
+  const unbounded = gate();
+  const first = make()("k", async () => { await unbounded.wait; return "fresh"; });
+  let seen: string | undefined;
+  void first.then(value => { seen = value; });
+  await settle();
+  assert.equal(seen, "stored", "without the limit the stored row is the earlier value");
+  unbounded.release();
+  await first;
+  const bounded = gate();
+  const read = make()("k", async () => { await bounded.wait; return "fresh"; }, { maxServeMs: 10_000 });
+  let waiting = true;
+  void read.then(() => { waiting = false; }, () => { waiting = false; });
+  await settle();
+  assert.equal(waiting, true, "past the limit the caller waits for the load");
+  bounded.release();
+  assert.equal(await read, "fresh");
+  await assert.rejects(make()("k", async () => { throw new Error("boom"); }, { maxServeMs: 10_000 }), /boom/);
+});

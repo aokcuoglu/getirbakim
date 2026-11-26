@@ -932,6 +932,9 @@ async function idleSearchAcrossChanges(t: import("node:test").TestContext, name:
   } finally {
     await schema.pool.query("UPDATE supplier_items SET stock_data=$2 WHERE id=$1", [soldOut, originalStock]);
     await schema.pool.query("UPDATE supplier_items SET price_data=$2 WHERE id=$1", [repriced, originalPrice]);
+    // The stale reads started background refreshes: wait until no statement has been sent for 200 ms, before the next test or the pool shutdown.
+    let last = performance.now();
+    await intercepted(() => { last = performance.now(); return undefined; }, async () => { while (performance.now() - last < 200) await sleep(20); });
   }
 }
 test("a stock-filtered search order idle for two hours returns the fresh order and total at once; a search without a stock filter serves stale once (#1453)", async t => {
