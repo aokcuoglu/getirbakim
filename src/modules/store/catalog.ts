@@ -1503,11 +1503,16 @@ export async function catalogBrands() {
 /**
  * Products of the listing, every filter kept, that are linked to the vehicle type: the total of its `fits=vehicle`
  * listing (#884). Without a search it reads the count cache entry browseProducts uses, so the count matches the page it links
- * to. A search counts live, while browseProducts reads a search's total from its cached order (#1440): the two can differ
- * by up to one order reload (10 minutes).
+ * to. A search reads the total of the cached order vehicleLead's page 1 reads (same query and gate as browseProducts, #1450), so
+ * the figure is the same on every page and a warm deep page sends no hit read or count; it counts live when the order is
+ * unavailable (key held, kill switch off, failed build).
  */
 export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
  const scope:CatalogQuery={...query,fits:'vehicle',page:undefined},context={vehicleTypeId};
+ if(scope.q?.trim()&&(pricedOrder(scope)?searchPriceOrderEnabled():searchRankOrderEnabled())){
+  const stored=await searchOrder(scope,context);
+  if(stored)return stored.total;
+ }
  const filter=lazyFilter(scope,context),search=scope.q?.trim()?(await filter()).search:undefined;
  const count=async()=>countListing(await filter(),filterKey(scope,context));
  return search ? count() : countCache(scope)(filterKey(scope,context),count,readOptions(scope,persistable(scope)));
@@ -1515,7 +1520,7 @@ export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
 /**
  * The first `limit` products of the listing linked to the garage vehicle's type, and how many there are (#884): the
  * listing's `fits=vehicle` page 1 (every filter and the order kept), shown above the full results. The vehicle does not
- * filter the catalog (DESIGN.md); its fits are put first. Without a search its count and page ids share the `fits=vehicle` listing's cache; a search reads its cached order.
+ * filter the catalog (DESIGN.md); its fits are put first. Without a search its count and page ids share the `fits=vehicle` listing's cache; a search reads its cached order, which vehicleFitCount reads too.
  * Four cards: a card is ~7.5 KB of HTML, and the 24-card page sits near the 350 KB target (#642, #739).
  */
 export async function vehicleLead(query:CatalogQuery,vehicleTypeId:string,limit=4) {

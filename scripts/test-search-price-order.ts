@@ -666,3 +666,51 @@ test("a ranked order and a price order share SEARCH_PRICE_ORDER_MAX_IDS", async 
   assert.equal(await orders(price), 0, "the price order stays");
   assert.equal(await orders(rank), 1, "the evicted rank order is rebuilt on return");
 });
+
+const fitCount = (query: CatalogQuery, from: Catalog = catalog) => inRequest(() => from.vehicleFitCount(query, vw.vehicleTypeId));
+const lead = async (query: CatalogQuery, from: Catalog = catalog) => (await inRequest(() => from.vehicleLead(query, vw.vehicleTypeId))).total;
+
+test("vehicleFitCount of a search reads the total of the order vehicleLead's page 1 reads, also after a change without a bump (#1450)", async () => {
+  for (const query of [{ q: "fren" }, { q: "fren", sort: newest }, { q: "fren", sort: asc, availability: "in_stock" }] as CatalogQuery[]) {
+    const proc = await otherProcess(`fit-count-${query.sort ?? "relevance"}`);
+    const total = await lead(query, proc);
+    assert.ok(total > 0);
+    assert.equal(await fitCount({ ...query, page: "3" }, proc), total, "page 2+ shows page 1's figure");
+    const { rows: [fitting] } = await schema.pool.query<{ id: string }>(
+      "SELECT id::text FROM supplier_items WHERE presence='present' AND code ~ '[0-5]$' AND product_data->>'ac' ILIKE 'TRW FREN%' ORDER BY code LIMIT 1");
+    await schema.pool.query("UPDATE supplier_items SET presence='inactive' WHERE id=$1", [fitting.id]);
+    try {
+      assert.equal(await fitCount(query, proc), total, "the cached total until the reload");
+      assert.equal(await lead(query, proc), total);
+      assert.equal(await fitCount(query), await live(() => fitCount(query)), "a fresh process loads the new state");
+    } finally {
+      await schema.pool.query("UPDATE supplier_items SET presence='present' WHERE id=$1", [fitting.id]);
+    }
+  }
+});
+
+test("a warm vehicleFitCount of a search sends no hit read and no count (#1450)", async () => {
+  const proc = await otherProcess("fit-count-warm");
+  const query: CatalogQuery = { q: "fren", availability: "in_stock" };
+  await lead(query, proc);
+  const warm = await sent(() => fitCount({ ...query, page: "2" }, proc));
+  assert.deepEqual({ hits: warm.hits, counts: warm.counts, orders: warm.orders }, { hits: 0, counts: 0, orders: 0 });
+});
+
+test("vehicleFitCount is the live count with the kill switch of its sort at 0, and for a held key (#1450)", async t => {
+  const proc = await otherProcess("fit-count-live");
+  const ranked: CatalogQuery = { q: "fren", sort: newest }, priced: CatalogQuery = { q: "fren", sort: asc };
+  const expected = [await live(() => fitCount(ranked)), await live(() => fitCount(priced))];
+  for (const [query, name, want] of [[ranked, "SEARCH_RANK_ORDER", expected[0]], [priced, "SEARCH_PRICE_ORDER", expected[1]]] as const) {
+    const off = await withEnv({ [name]: "0" }, () => sent(async () => assert.equal(await fitCount(query, proc), want)));
+    assert.deepEqual({ orders: off.orders, hits: off.hits >= 1, counts: off.counts >= 1 }, { orders: 0, hits: true, counts: true }, name);
+  }
+  t.mock.method(console, "error", () => {});
+  const held = await otherProcess("fit-count-held"), query: CatalogQuery = { q: "fren", availability: "in_stock" };
+  const want = await live(() => fitCount(query));
+  await intercepted(text => (isOrder(text) || text.includes("catalog.searchOrder") ? failure("53200") : undefined), async () => {
+    assert.equal(await fitCount(query, held), want, "the failed build reads live");
+    const again = await sent(async () => assert.equal(await fitCount(query, held), want));
+    assert.ok(again.orders === 0 && again.hits >= 1 && again.counts >= 1, "held: live hit read and count, no order statement");
+  });
+});
