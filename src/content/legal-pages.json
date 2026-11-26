@@ -2906,7 +2906,7 @@
     "title": "Gizlilik Politikası",
     "sourceUrl": "https://getirbakim.com/gizlilik-politikasi",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-11-25",
+    "updatedAt": "2026-11-22",
     "description": "Mevcut site hizmetlerinde kişisel verilerin kullanılması, güvenliği ve başvuru hakları.",
     "sections": [
       {
@@ -3394,7 +3394,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ile e-posta doğrulama ve şifre yenileme bağlantıları gibi işlem e-postaları, e-posta gönderim hizmeti Resend (Plus Five Five, Inc., ABD) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla Resend tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ile e-posta doğrulama ve şifre yenileme bağlantıları gibi işlem e-postaları, sitenin barındırıldığı Amazon Web Services’in e-posta gönderim hizmeti (Amazon SES) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla AWS tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -3434,14 +3434,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "İşlem e-postaları (sipariş bildirimleri, e-posta doğrulama ve şifre yenileme bağlantıları), Amerika Birleşik Devletleri’nde yerleşik e-posta gönderim hizmeti Resend (Plus Five Five, Inc.) üzerinden gönderilir. Bu e-postalardaki ad, e-posta adresi ve e-posta içeriği Resend tarafından ağırlıklı olarak ABD’de işlenir."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Almanya’daki sunucularda kişisel veri saklanması ve işlem e-postalarının Resend üzerinden gönderilmesi KVKK bakımından yurt dışına aktarım niteliğindedir. Bu aktarımlar, KVKK madde 9/4 uyarınca uygun güvence olarak Kişisel Verileri Koruma Kurumunun yayımladığı standart sözleşmeye dayanılarak yapılır; standart sözleşme imzalandıktan sonra beş iş günü içinde Kuruma bildirilir. Aktarımlar, verinin işlenmesine dayanak olan şartlara (özellikle sözleşmenin kurulması veya ifası ve kanuni yükümlülük) dayanır."
+              "Almanya’daki sunucularda kişisel veri saklanması KVKK bakımından yurt dışına aktarım niteliğindedir. Bu aktarım, KVKK madde 9/4 uyarınca uygun güvence olarak Kişisel Verileri Koruma Kurumunun yayımladığı standart sözleşmeye dayanılarak yapılır; standart sözleşme imzalandıktan sonra beş iş günü içinde Kuruma bildirilir. Aktarım, verinin işlenmesine dayanak olan şartlara (özellikle sözleşmenin kurulması veya ifası ve kanuni yükümlülük) dayanır."
             ]
           },
           {
@@ -3833,7 +3826,7 @@
     "title": "KVKK Aydınlatma Metni",
     "sourceUrl": "https://getirbakim.com/kvkk-aydinlatma-metni",
     "importedAt": "2026-10-03",
-    "updatedAt": "2026-11-25",
+    "updatedAt": "2026-11-22",
     "description": "Mevcut site hizmetlerinde işlenen kişisel veriler, işleme amaçları ve hukuki sebepler ile ilgili kişi hakları.",
     "sections": [
       {
@@ -4302,7 +4295,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ile e-posta doğrulama ve şifre yenileme bağlantıları gibi işlem e-postaları, e-posta gönderim hizmeti Resend (Plus Five Five, Inc., ABD) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla Resend tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
+              "Kişisel veriler, yalnızca siparişin ödenmesi ve teslimi için gerekli olduğu ölçüde paylaşılır: ödeme kuruluşu TAMI ile ödeme tutarı, ödeme referansı ve telefon numarası; Geliver gönderi hizmeti aracılığıyla Yurtiçi Kargo ile alıcı adı, e-posta, telefon, teslimat adresi, ürün adları ve adetleri, sipariş numarası ve tutarı. Sipariş bildirimleri ile e-posta doğrulama ve şifre yenileme bağlantıları gibi işlem e-postaları, sitenin barındırıldığı Amazon Web Services’in e-posta gönderim hizmeti (Amazon SES) üzerinden gönderilir; bu kapsamda ad, e-posta adresi ve e-posta içeriği veri işleyen sıfatıyla AWS tarafından işlenir. Bunun dışında üçüncü kişilere aktarılmaz ve satılmaz."
             ]
           },
           {
@@ -4342,14 +4335,7 @@
             "tag": "p",
             "attrs": {},
             "children": [
-              "İşlem e-postaları (sipariş bildirimleri, e-posta doğrulama ve şifre yenileme bağlantıları), Amerika Birleşik Devletleri’nde yerleşik e-posta gönderim hizmeti Resend (Plus Five Five, Inc.) üzerinden gönderilir. Bu e-postalardaki ad, e-posta adresi ve e-posta içeriği Resend tarafından ağırlıklı olarak ABD’de işlenir."
-            ]
-          },
-          {
-            "tag": "p",
-            "attrs": {},
-            "children": [
-              "Almanya’daki sunucularda kişisel veri saklanması ve işlem e-postalarının Resend üzerinden gönderilmesi KVKK bakımından yurt dışına aktarım niteliğindedir. Bu aktarımlar, KVKK madde 9/4 uyarınca uygun güvence olarak Kişisel Verileri Koruma Kurumunun yayımladığı standart sözleşmeye dayanılarak yapılır; standart sözleşme imzalandıktan sonra beş iş günü içinde Kuruma bildirilir. Aktarımlar, verinin işlenmesine dayanak olan şartlara (özellikle sözleşmenin kurulması veya ifası ve kanuni yükümlülük) dayanır."
+              "Almanya’daki sunucularda kişisel veri saklanması KVKK bakımından yurt dışına aktarım niteliğindedir. Bu aktarım, KVKK madde 9/4 uyarınca uygun güvence olarak Kişisel Verileri Koruma Kurumunun yayımladığı standart sözleşmeye dayanılarak yapılır; standart sözleşme imzalandıktan sonra beş iş günü içinde Kuruma bildirilir. Aktarım, verinin işlenmesine dayanak olan şartlara (özellikle sözleşmenin kurulması veya ifası ve kanuni yükümlülük) dayanır."
             ]
           },
           {
