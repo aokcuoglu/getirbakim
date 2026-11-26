@@ -394,6 +394,8 @@ test("run 2: a delta with a deletion and a retry applies, resets the removed job
     WHERE supplier_item_id=$1`, [a, mediaId.mGone]);
   await source.pool.query(`UPDATE product_enrichment_jobs SET status='partial',supplier_code='SC-A2',supplier_brand='BRAND-A2',oem='OEM-A2',candidate_url='https://example.com/cand/A2',
     last_attempt_at=$2 WHERE supplier_item_id=$1`, [a, day(28)]);
+  // A job whose only change is its OEM is rewritten too: the target counts a failed job only while its OEM matches (#1386).
+  await source.pool.query("UPDATE product_enrichment_jobs SET oem='OEM-B2' WHERE supplier_item_id=$1", [sourceId["E2E-B"]]);
   await source.pool.query("DELETE FROM product_source_categories WHERE supplier_item_id=$1 AND category_id=2", [a]);
   await source.pool.query("INSERT INTO product_source_categories(supplier_item_id,source,category_id) VALUES($1,'otoparcasan',9)", [a]);
   await source.pool.query(`UPDATE source_categories SET parent_id=NULL,name='Filtre 2',slug='filtre-2',path_ids='{2}',source_url='https://example.com/c2b',raw='{"id":2,"changed":true}',fetched_at=$1
