@@ -495,13 +495,13 @@ test("partner search failures (#1395): a timeout is 503 SEARCH_UNAVAILABLE with 
   assert.equal(unavailable.headers.get("cache-control"), "no-store");
   assert.deepEqual(await unavailable.json(), { error: { code: "SEARCH_UNAVAILABLE", message: "Search is temporarily unavailable. Retry later." } });
   assert.equal(partnerUnavailable(12).headers.get("retry-after"), "12");
-  for (const error of [{ code: "57014" }, new Error("timeout exceeded when trying to connect")]) {
+  for (const [error, kind] of [[{ code: "57014" }, "57014"], [new Error("timeout exceeded when trying to connect"), "pool"]] as const) {
     const failure = partnerSearchFailure(error);
-    assert.deepEqual([failure.timeout, failure.response.status, failure.response.headers.get("retry-after")], [true, 503, "5"]);
+    assert.deepEqual([failure.timeout, failure.response.status, failure.response.headers.get("retry-after")], [kind, 503, "5"]);
     assert.equal((await failure.response.json()).error.code, "SEARCH_UNAVAILABLE");
   }
   const failed = partnerSearchFailure(new Error("relation \"x\" does not exist"));
-  assert.deepEqual([failed.timeout, failed.response.status, failed.response.headers.get("retry-after"), failed.response.headers.get("cache-control")], [false, 500, null, "no-store"]);
+  assert.deepEqual([failed.timeout, failed.response.status, failed.response.headers.get("retry-after"), failed.response.headers.get("cache-control")], [null, 500, null, "no-store"]);
   assert.deepEqual(await failed.response.json(), { error: { code: "INTERNAL_ERROR", message: "Partner search failed." } });
 });
 

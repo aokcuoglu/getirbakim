@@ -21,11 +21,11 @@ export function partnerUnavailable(retryAfterSeconds = 5) {
 
 /**
  * A failed product search as its answer (#1395): a read past its server-side time limit (57014) or no pool connection
- * in time means the database was too busy, answered `partnerUnavailable()` so the partner retries; anything else is
- * `500 INTERNAL_ERROR`. `timeout` tells the route's log line which one it was.
+ * in time (`pool`) means the database was too busy, answered `partnerUnavailable()` so the partner retries; anything
+ * else is `500 INTERNAL_ERROR` (`timeout` null). The route's log line names the timeout kind.
  */
-export function partnerSearchFailure(error: unknown): { timeout: boolean; response: Response } {
-  const timeout = isStatementTimeout(error) || isPoolTimeout(error);
+export function partnerSearchFailure(error: unknown): { timeout: "57014" | "pool" | null; response: Response } {
+  const timeout = isStatementTimeout(error) ? "57014" : isPoolTimeout(error) ? "pool" : null;
   return { timeout, response: timeout ? partnerUnavailable() : partnerError(500, "INTERNAL_ERROR", "Partner search failed.") };
 }
 

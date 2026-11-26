@@ -42,9 +42,10 @@ export async function GET(request: NextRequest) {
     });
     return Response.json({ products, source, minQueryLength: partnerMinQueryLength }, { headers: partnerNoStore });
   } catch (error) {
-    // A search the database did not answer in time is 503 with Retry-After (#1395); " timeout" in the line counts those apart.
-    const failure = partnerSearchFailure(error);
-    console.error(`[partner/v1/products]${failure.timeout ? " timeout" : ""} ${partner.code}:`, error instanceof Error ? error.message : error);
+    // A search the database did not answer in time is 503 with Retry-After (#1395); "timeout <kind>:" counts those apart.
+    const failure = partnerSearchFailure(error), message = error instanceof Error ? error.message : error;
+    if (failure.timeout) console.error(`[partner/v1/products] ${partner.code}: timeout ${failure.timeout}:`, message);
+    else console.error(`[partner/v1/products] ${partner.code}:`, message);
     return failure.response;
   }
 }
