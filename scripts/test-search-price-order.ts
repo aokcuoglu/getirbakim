@@ -117,6 +117,10 @@ before(async () => {
   }
   // Rank ties: six groups of 16 rows share one updated_at, so the ranked order falls to the updated_at and id tie-breaks.
   await schema.pool.query("UPDATE supplier_items SET changed_at=timestamptz '2026-01-01' + (right(code,2)::int % 6) * interval '1 day'");
+  // Two rows rank away from the rest in the distinct-rank specs (the renamed row ids[0] ranks last for "fren balatasi", the
+  // row ids[9] first for the code "P10"); their dates sit outside the groups, ids[0] newest and ids[9] oldest, so the newest
+  // order cannot coincide with the relevance order whatever the random uuids tie-break to.
+  await schema.pool.query("UPDATE supplier_items SET changed_at=CASE id WHEN $1 THEN timestamptz '2026-02-01' ELSE timestamptz '2025-12-01' END WHERE id=ANY($2::uuid[])", [ids[0], [ids[0], ids[9]]]);
   await schema.pool.query("SELECT refresh_product_matches()");
   // An admin-renamed row ranks from its computed name, not the stored rank.
   await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,name) VALUES($1,$1,'SPORT FREN BALATA ÖZEL')", [ids[0]]);
@@ -162,8 +166,11 @@ async function held(run: (release: () => void) => Promise<unknown>) {
     pg.Client.prototype.query = original;
   }
 }
-/** The card reads of one page: the rows by id and their grouped offers. Nothing else belongs to a warm page. */
-const isCardRead = (text: string) => text.startsWith("SELECT * FROM (SELECT * FROM storefront_catalog") || text.includes("FROM product_offers o WHERE o.primary_id=ANY");
+/**
+ * The card reads of one page: the rows by id and their grouped offers, and the cache epoch poll (listing-epoch.ts reads the
+ * shared counter when the last read is over a second old, so a page slowed by load may send one). Nothing else belongs to a warm page.
+ */
+const isCardRead = (text: string) => text.includes("FROM storefront_listing_epoch") || text.startsWith("SELECT * FROM (SELECT * FROM storefront_catalog") || text.includes("FROM product_offers o WHERE o.primary_id=ANY");
 const asc = "price-asc" as const, desc = "price-desc" as const;
 const priceOf = async (id: string) => (await schema.pool.query<{ price_data: { nf: number } }>("SELECT price_data FROM supplier_items WHERE id=$1", [id])).rows[0].price_data;
 // An upsert: the fixture's renamed row is an override too, and keeps its name.
@@ -351,9 +358,10 @@ test("a price change without a bump keeps the position and shows the new price; 
     const fresh = (await schema.pool.query<{ price_kurus: number }>("SELECT price_kurus FROM storefront_catalog WHERE id=$1", [moved])).rows[0].price_kurus;
     assert.equal(card.price_kurus, fresh, "the card is read live");
     assert.notEqual(fresh, earlierPrice, "the price did change");
-    t.mock.timers.tick(10 * 60 * 1000 - 1);
+    // The order was stamped by the real clock before the mock started: a second of margin on both sides keeps the test off the real time between the two.
+    t.mock.timers.tick(10 * 60 * 1000 - 1000);
     assert.equal((await sent(() => browse(query, {}, proc))).orders, 0, "within the TTL");
-    t.mock.timers.tick(2);
+    t.mock.timers.tick(1001);
     let ids: string[] = [];
     const reload = await sent(async () => {
       assert.deepEqual((await browse(query, {}, proc)).items.map(item => item.id), earlier.ids, "the stale order is served at once");
