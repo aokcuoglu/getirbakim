@@ -454,9 +454,66 @@ test("boundedQuery sends nothing for an aborted signal, refuses a signal on a wr
   assert.deepEqual(await sentTexts(() => boundedQuery("test.plain", "SELECT 1", [], 1_234)), ["BEGIN READ ONLY", "SET LOCAL statement_timeout = 1234", "SELECT 1", "COMMIT"]);
   assert.deepEqual(await sentTexts(() => boundedQuery("test.workMem", "SELECT 1", [], 1_234, { workMem: "8MB" })),
     ["BEGIN READ ONLY", "SET LOCAL statement_timeout = 1234", "SET LOCAL work_mem = '8MB'", "SELECT 1", "COMMIT"]);
-  // With a signal, the limit and the backend's pid in one round trip.
-  assert.deepEqual(await sentTexts(() => boundedQuery("test.signal", "SELECT 1", [], 1_234, { signal: new AbortController().signal })),
-    ["BEGIN READ ONLY", "SELECT set_config('statement_timeout',$1,true), pg_backend_pid() AS pid", "SELECT 1", "COMMIT"]);
+  // With a signal, the limit, the backend's pid and its start in one round trip.
+  const [begin, limit, ...rest] = await sentTexts(() => boundedQuery("test.signal", "SELECT 1", [], 1_234, { signal: new AbortController().signal }));
+  assert.equal(begin, "BEGIN READ ONLY");
+  assert.match(limit, /^SELECT set_config\('statement_timeout',\$1,true\), pg_backend_pid\(\) AS pid,\s+\(SELECT [\s\S]*backend_start[\s\S]* AS since$/);
+  assert.deepEqual(rest, ["SELECT 1", "COMMIT"]);
+});
+
+test("an abort before the statement is sent sends no statement and gives the client back: while waiting for the pool, during the limit's round trip (#1398)", async () => {
+  const { boundedQuery, db } = await import("../src/lib/db");
+  const checkedOut = async () => db.totalCount - db.idleCount;
+  const reason = new Error("gone");
+  // Aborted after the call, while the pool hands over a client.
+  const waiting = new AbortController();
+  assert.deepEqual(await sentTexts(async () => {
+    const read = boundedQuery("test.poolAbort", "SELECT 1", [], 5_000, { signal: waiting.signal });
+    waiting.abort(reason);
+    await assert.rejects(read, error => error === reason);
+  }), []);
+  assert.equal(await until(checkedOut, n => n === 0), 0, "the client went back");
+  // Aborted while the limit is being set: after connect, before the listener.
+  const between = new AbortController();
+  const original = pg.Client.prototype.query;
+  pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+    const config = args[0];
+    if ((typeof config === "string" ? config : "").includes("set_config")) between.abort(reason);
+    return (original as (...rest: unknown[]) => unknown).apply(this, args);
+  } as typeof original;
+  let texts: string[];
+  try {
+    texts = await sentTexts(() => assert.rejects(boundedQuery("test.limitAbort", "SELECT 1", [], 5_000, { signal: between.signal }), error => error === reason));
+  } finally {
+    pg.Client.prototype.query = original;
+  }
+  assert.equal(texts.length, 3, texts.join("\n"));
+  assert.equal(texts[0], "BEGIN READ ONLY");
+  assert.match(texts[1], /^SELECT set_config/);
+  assert.equal(texts[2], "ROLLBACK", "rolled back without the statement");
+  assert.equal(await until(checkedOut, n => n === 0), 0, "the client went back");
+  assert.deepEqual((await boundedQuery("test.afterAbort", "SELECT 1 AS n", [], 5_000)).rows, [{ n: 1 }]);
+});
+
+test("cancelBackend stops a statement only on the backend that started at `since`: a reused pid is left alone (#1398)", async () => {
+  const { cancelBackend } = await import("../src/lib/db");
+  const session = await schema.pool.connect();
+  try {
+    const { pid, since } = (await session.query<{ pid: number; since: string }>(
+      "SELECT pid,(extract(epoch FROM backend_start)*1000000)::bigint AS since FROM pg_stat_activity WHERE pid=pg_backend_pid()")).rows[0];
+    const sleepSql = `SELECT pg_sleep(3) AS ${schema.name}_since`;
+    const read = timed(() => session.query(sleepSql));
+    assert.equal(await until(() => running(sleepSql), n => n === 1), 1, "running");
+    await cancelBackend(pid, String(BigInt(since) - BigInt(1)));
+    await sleep(200);
+    assert.equal(await running(sleepSql), 1, "another start: not cancelled");
+    await cancelBackend(pid, since);
+    const { error, ms } = await read;
+    assert.equal(error?.code, "57014");
+    assert.ok(ms < 1_500, `${ms} ms`);
+  } finally {
+    session.release();
+  }
 });
 
 test("an abort after the read has settled cancels nothing: the next read answers, no cancelled line (#1398)", async t => {

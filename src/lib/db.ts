@@ -33,13 +33,15 @@ function boundedQuerySlowMs() {
   return Number.isFinite(value) && value >= 0 ? value : defaultSlowMs;
 }
 // A connection of its own for pg_cancel_backend (#1398): a cancel matters most when every connection of `db` is busy, and
-// waiting for one of them would let the statement it means to stop run on. One client at most, closed after 5 s idle and
-// never keeping a process alive; on globalThis for the reason `db` is.
+// waiting for one of them would let the statement it means to stop run on. One client at most, kept 30 s after its last
+// cancel (sparse aborts do not reopen TLS and auth each time) and never keeping a process alive; on globalThis for the
+// reason `db` is. The read waiting on a cancel keeps its own client checked out, so a stalled cancel connection gives up
+// after 2 s (query_timeout), as one that does not open does (connectionTimeoutMillis).
 function cancelPool() {
   if (globalDb.getirbakimCancelPool) return globalDb.getirbakimCancelPool;
   const pool = new Pool({
-    connectionString: process.env.DATABASE_URL, max: 1, idleTimeoutMillis: 5_000, connectionTimeoutMillis: 2_000,
-    application_name: "getirbakim-cancel", allowExitOnIdle: true,
+    connectionString: process.env.DATABASE_URL, max: 1, idleTimeoutMillis: 30_000, connectionTimeoutMillis: 2_000,
+    query_timeout: 2_000, application_name: "getirbakim-cancel", allowExitOnIdle: true,
   });
   pool.on("error", error => console.error("Idle database cancel client error", error.message));
   return (globalDb.getirbakimCancelPool = pool);
@@ -48,10 +50,15 @@ function cancelPool() {
  * Cancels the statement backend `pid` is running, if it is still running one: a backend that has gone idle (its statement
  * answered while the cancel was on its way) is left alone. A failure is logged, never thrown: the statement then runs on
  * until its statement_timeout.
+ * Assumes DATABASE_URL reaches one server (the primary): a pid names a backend on that server only, and behind a reader
+ * endpoint or a pooler spreading sessions over several servers the cancel could reach another one. `since` (the
+ * backend's start, in microseconds, read with the pid in boundedQuery) must match too, so the cancel then misses instead
+ * of stopping another session's statement, as it does when the pid was reused after our backend ended.
  */
-export async function cancelBackend(pid: number): Promise<void> {
+export async function cancelBackend(pid: number, since: string): Promise<void> {
   try {
-    await cancelPool().query("SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE pid=$1 AND state='active'", [pid]);
+    await cancelPool().query(`SELECT pg_cancel_backend(pid) FROM pg_stat_activity
+      WHERE pid=$1 AND (extract(epoch FROM backend_start)*1000000)::bigint=$2 AND state='active'`, [pid, since]);
   } catch (error) {
     console.error("Database statement cancel failed", error instanceof Error ? error.message : error);
   }
@@ -70,12 +77,15 @@ export async function cancelBackend(pid: number): Promise<void> {
  * to their limits before they time out (#1377).
  * The transaction is READ ONLY unless `write`: a statement that stores what it reads (a listing's whole price order,
  * src/modules/store/listing-price-order.ts, #1369) runs under the same limits.
- * `signal` (a read only; with `write` it throws) stops the read when its request is aborted (#1398): already aborted, or
- * aborted while waiting for the pool, nothing is sent; aborted while the statement runs, the statement is cancelled on
- * the server (cancelBackend, through its own connection) and the cancel is awaited before the ROLLBACK and the release,
- * so the connection goes back idle. It then rejects with the signal's reason and logs `boundedQuery cancelled: <label>
- * (<ms> ms)` (console.warn) instead of the timeout line. The limit and the backend's pid are set and read in one round
- * trip (set_config(..., true), as SET LOCAL); without a signal the statements sent are the ones above.
+ * `signal` (a read only; with `write` it throws) stops the read when its request is aborted (#1398). Already aborted,
+ * nothing is sent. Aborted while waiting for a pool connection, nothing is sent either, but the wait goes on until a
+ * client is handed over (up to DATABASE_POOL_ACQUIRE_TIMEOUT_MS, 10 s), which is then released at once. Aborted before
+ * the statement is sent, the transaction is rolled back without it. Aborted while the statement runs, the statement is
+ * cancelled on the server (cancelBackend, through its own connection) and the cancel is awaited before the ROLLBACK and
+ * the release, so the connection goes back idle. It then rejects with the signal's reason and logs `boundedQuery
+ * cancelled: <label> (<ms> ms)` (console.warn) instead of the timeout line. The limit, the backend's pid and its start
+ * are set and read in one round trip (set_config(..., true), as SET LOCAL; pg_stat_get_activity for the one backend,
+ * ~0.01-0.02 ms more locally); without a signal the statements sent are the ones above.
  */
 export async function boundedQuery<T extends QueryResultRow>(label: string, sql: string, values: unknown[], timeoutMs = 30_000, { workMem, write = false, signal }: { workMem?: string; write?: boolean; signal?: AbortSignal } = {}) {
   if (workMem !== undefined && !/^\d+(kB|MB)$/.test(workMem)) throw new Error(`Invalid work_mem: ${workMem}`);
@@ -83,16 +93,19 @@ export async function boundedQuery<T extends QueryResultRow>(label: string, sql:
   signal?.throwIfAborted();
   const started = Date.now();
   const client = await db.connect();
+  // Aborted while waiting for the pool: the client handed over goes straight back.
   if (signal?.aborted) { client.release(); throw signal.reason; }
   let cancelling: Promise<void> | undefined;
   try {
     await client.query(write ? "BEGIN" : "BEGIN READ ONLY");
     const limit = Math.max(1, Math.floor(timeoutMs));
-    let pid = 0;
-    if (signal) pid = (await client.query<{ pid: number }>("SELECT set_config('statement_timeout',$1,true), pg_backend_pid() AS pid", [String(limit)])).rows[0].pid;
-    else await client.query(`SET LOCAL statement_timeout = ${limit}`);
+    let backend = { pid: 0, since: "" };
+    if (signal) {
+      backend = (await client.query<{ pid: number; since: string }>(`SELECT set_config('statement_timeout',$1,true), pg_backend_pid() AS pid,
+        (SELECT (extract(epoch FROM backend_start)*1000000)::bigint FROM pg_stat_get_activity(pg_backend_pid())) AS since`, [String(limit)])).rows[0];
+    } else await client.query(`SET LOCAL statement_timeout = ${limit}`);
     if (workMem) await client.query(`SET LOCAL work_mem = '${workMem}'`);
-    const onAbort = () => { cancelling = cancelBackend(pid); };
+    const onAbort = () => { cancelling = cancelBackend(backend.pid, backend.since); };
     // Checked and registered in one synchronous step: an abort during the round trips above is seen here.
     if (signal) { signal.throwIfAborted(); signal.addEventListener("abort", onAbort, { once: true }); }
     const run = Date.now();
