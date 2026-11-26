@@ -822,6 +822,19 @@ describe("split catalog views (#1424)", () => {
   const plan = async (sql: string, values: unknown[] = []) => (await schema.pool.query<{ "QUERY PLAN": string }>(`EXPLAIN (VERBOSE, COSTS OFF) ${sql}`, values))
     .rows.map(row => row["QUERY PLAN"]).join("\n");
 
+  // After invalidateListings() the listing counts, page ids and facets serve their earlier value once a reload takes longer
+  // than LISTING_EPOCH_WAIT_MS (listing-wait.ts; 250 ms by default). On a slow runner the pre-split reads below would then
+  // repeat the split ones, and the stock change would not show: every reload here is awaited, whatever the environment sets.
+  let savedWait: string | undefined;
+  before(() => {
+    savedWait = process.env.LISTING_EPOCH_WAIT_MS;
+    process.env.LISTING_EPOCH_WAIT_MS = "600000";
+  });
+  after(() => {
+    if (savedWait === undefined) delete process.env.LISTING_EPOCH_WAIT_MS;
+    else process.env.LISTING_EPOCH_WAIT_MS = savedWait;
+  });
+
   before(async () => {
     invalidateListings = (await import("../src/modules/store/listing-epoch")).invalidateListings;
     await schema.pool.query(`CREATE VIEW commerce_catalog_pre1424 AS ${await preSplitBody()}`);
