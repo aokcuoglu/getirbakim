@@ -4,7 +4,7 @@ import type { Pool } from "pg";
 /**
  * The automatic image of a storefront row that is not in the supplier's current list (#1442), for the admin product
  * page preview. Mirror of servableProductMedia's enrichment branch for non-present rows; it reads storefront_enrichments,
- * so a blocked or denylisted image (link image_id NULL) is not served.
+ * so a blocked image (link image_id NULL) is not matched by this branch.
  */
 export async function unlistedAutomaticMedia(database: Pick<Pool, "query">, id: string, companies: string[]) {
   return (await database.query<{ bucket: string; object_key: string; content_type: string; size_bytes: number }>(

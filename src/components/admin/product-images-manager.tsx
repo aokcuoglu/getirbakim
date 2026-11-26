@@ -267,12 +267,13 @@ export function ProductImagesManager({ productId, images: stored, hideAutomatic,
         <ItemMedia variant="image" className="size-16"><Image src={image.src} alt="" width={image.width} height={image.height} unoptimized/></ItemMedia>
         <ItemContent>
           <ItemTitle>Zenginleştirme görseli</ItemTitle>
-          <ItemDescription>{!image.inStore ? `${image.supplier} kaydı tedarikçinin güncel listesinde yok (pasif) · görsel yalnız bu panelde önizlenir`
-            : `${image.supplier} kaydından · ${image.inGallery ? "yüklenenler arasında olduğu için mağazada bir kez gösterilir"
-            : images.length ? "yüklenen görsellerin ardından gösterilir" : "yüklenen görsel olmadığı için ana görsel"}`}</ItemDescription>
+          <ItemDescription>{image.inStore ? `${image.supplier} kaydından · ${image.inGallery ? "yüklenenler arasında olduğu için mağazada bir kez gösterilir"
+            : images.length ? "yüklenen görsellerin ardından gösterilir" : "yüklenen görsel olmadığı için ana görsel"}`
+            : image.inGallery ? `${image.supplier} kaydı tedarikçinin güncel listesinde bulunamadı · görsel yüklenenler arasında olduğu için mağazada gösterilir`
+              : `${image.supplier} kaydı tedarikçinin güncel listesinde bulunamadı · görsel yalnız bu panelde önizlenir; yüklemeye çevirmek için kaydın listeye dönmesi gerekir`}</ItemDescription>
           <div className="flex flex-wrap gap-2">
             <Badge variant="outline">Otomatik</Badge>
-            {!image.inStore && <Badge variant="warning"><EyeOff data-icon="inline-start" aria-hidden="true"/>Ürün pasif — mağazada gösterilmiyor</Badge>}
+            {!image.inStore && !image.inGallery && <Badge variant="warning"><EyeOff data-icon="inline-start" aria-hidden="true"/>Tedarikçi listesinde yok — mağazada gösterilmiyor</Badge>}
             {image.inGallery && <Badge variant="success"><CircleCheck data-icon="inline-start" aria-hidden="true"/>Yüklenenlerde</Badge>}
             {image.inStore && hideAutomatic && <Badge variant="warning"><EyeOff data-icon="inline-start" aria-hidden="true"/>Mağazada gizli</Badge>}
           </div>
