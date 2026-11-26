@@ -101,8 +101,8 @@ type Sort = "price-asc" | "price-desc";
 const bosch = (sort: Sort, page: number): CatalogQuery => ({ manufacturer: "bosch", sort, page: String(page) });
 const cards = (query: CatalogQuery, from: Catalog = catalog) => inRequest(async () => (await from.browseProducts(query)).items);
 const pageIds = async (query: CatalogQuery, from: Catalog = catalog) => (await cards(query, from)).map(card => card.id);
-/** The page read live, as before #1369 (pages 1-20: their cached 480 ids). */
-const livePage = (query: CatalogQuery) => withEnv({ LISTING_PRICE_ORDER: "0" }, () => pageIds(query));
+/** The page read live, as before #1369 (pages 1-20: their cached 480 ids) and #1425 (a price-sorted search's cached order). */
+const livePage = (query: CatalogQuery) => withEnv({ LISTING_PRICE_ORDER: "0", SEARCH_PRICE_ORDER: "0" }, () => pageIds(query));
 /** The BOSCH listing's whole price order, read now by one statement: what every page must show. */
 const liveOrder = async (sort: Sort) => (await schema.pool.query<{ id: string }>(`SELECT id::text FROM (${catalog.storefrontCatalogSql}) catalog
   WHERE catalog.display_brand='BOSCH' ORDER BY unavailable,price_kurus ${sort === "price-asc" ? "ASC" : "DESC"} NULLS LAST,id`, [storefrontCompanies()])).rows.map(row => row.id);
@@ -900,8 +900,13 @@ test("LISTING_PRICE_ORDER_FILTERED=0 neither stores nor reads a filtered order, 
   });
   for (const sort of ["price-asc", "price-desc"] as const) {
     const query: CatalogQuery = { q: "bosch", sort, page: "21" }, searchLive = await livePage(query);
-    const search = await sent(async () => assert.deepEqual(await pageIds(query, proc), searchLive));
-    assert.deepEqual({ table: search.table, livePages: search.livePages }, { table: 0, livePages: 1 }, `search ${sort}: live`);
+    // A search's order is kept in memory (#1425): no live page, one order statement on the first read, none table-side.
+    let orders = 0;
+    const search = await sent(() => intercepted(text => { if (text.includes("SELECT ids::text AS ids FROM ordered")) orders++; return undefined; },
+      async () => assert.deepEqual(await pageIds(query, proc), searchLive)));
+    assert.deepEqual({ table: search.table, livePages: search.livePages, orders }, { table: 0, livePages: 0, orders: 1 }, `search ${sort}: cached order`);
+    const off = await sent(async () => assert.deepEqual(await withEnv({ SEARCH_PRICE_ORDER: "0" }, () => pageIds(query, proc)), searchLive));
+    assert.deepEqual({ table: off.table, livePages: off.livePages }, { table: 0, livePages: 1 }, `search ${sort}: SEARCH_PRICE_ORDER=0 reads live`);
   }
   assert.deepEqual((await storedRows()).map(row => row.filtered).sort(), [false, true], "the filtered order from before the switch, and the plain one");
 }));
