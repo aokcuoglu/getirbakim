@@ -1264,8 +1264,12 @@ const pricedOrder=(query:CatalogQuery)=>query.sort==="price-asc"||query.sort==="
 const listingOrder=(query:CatalogQuery)=>query.sort==="price-asc"?"unavailable,price_kurus ASC NULLS LAST,id":query.sort==="price-desc"?"unavailable,price_kurus DESC NULLS LAST,id":newestOrder;
 /** The rows a price order sorts, from pricedScope's `where`: the columns its ORDER BY reads. */
 const pricedRowsSql=(where:string)=>`SELECT catalog.id,catalog.unavailable,catalog.price_kurus FROM (${storefrontCatalogSql}) catalog ${where}`;
-/** One live page of a price order (`offset` a parameter): the rows themselves, for a page no stored order serves. */
-const pricedPageSql=(where:string,order:string,take:number,offset:string)=>`SELECT * FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`;
+/**
+ * One live page of a price order (`offset` a parameter), for a page no stored order serves: the page's ids only. It sorts
+ * the lean columns the ORDER BY reads (pricedRowsSql's), so the view's names, stock labels and pricing snapshot are not
+ * computed for every sorted row (#1430); browseProducts reads the cards of these ids afterwards (storefrontRowsByIds).
+ */
+const pricedPageSql=(where:string,order:string,take:number,offset:string)=>`SELECT catalog.id::text FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`;
 /** Page 1 whatever the total: no page asked, or one below 2 (browseProducts clamps it the same way). */
 const firstPageAsked=(query:CatalogQuery)=>{const requested=Number(query.page);return !Number.isSafeInteger(requested)||requested<=1;};
 /** The cached ids of one page of a listing without a search in the default order (newest first); page 1 of a covered listing from its summary. */
@@ -1428,9 +1432,9 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  const pageValues=[...scope.values],bind=binder(pageValues);
  const rank=search&&(query.sort??"relevance")==="relevance"?catalogRank("catalog",search.parsed,bind):"0";
  const offset=bind((page-1)*pageSize),label=`catalog.listingPage ${filterKey(query,context)}|${query.sort??""}|${page}`;
- // The page's ids first, then its cards by id array (storefrontRowsByIds, #1135).
+ // The page's ids first (a price order's from the lean columns, #1430), then its cards by id array (storefrontRowsByIds, #1135).
  const items = pricedSort
-  ? (await listingQuery<CatalogProduct>(scope,label,pricedPageSql(scope.where,order,take,offset), pageValues)).rows
+  ? await storefrontRowsByIds((await listingQuery<{id:string}>(scope,label,pricedPageSql(scope.where,order,take,offset), pageValues)).rows.map(row=>row.id))
   : await storefrontRowsByIds((await listingQuery<{id:string}>(scope,label,`SELECT id::text FROM (SELECT id,updated_at,unavailable,${rank} AS rank ${from}
      ORDER BY unavailable,rank DESC,${order} LIMIT ${take} OFFSET ${offset}) page`, pageValues)).rows.map(row=>row.id));
  return {items:await withBestOffers(items),total,page,pages,pageSize,...notes};
@@ -1590,7 +1594,7 @@ export async function listingStatements(query:CatalogQuery):Promise<Record<"coun
   attributes:{text:attributeFacetsSql(`SELECT catalog.id ${from}`,keys),values:withKeys},summary:{text:listingSummarySql(from,keys),values:withKeys}};
 }
 /**
- * A price-sorted listing's page `page` read live, and the whole order a deep page slices instead (#1369; a filtered
+ * A price-sorted listing's page `page` read live (its ids, #1430), and the whole order a deep page slices instead (#1369; a filtered
  * listing's too, #1390), as statements for the read-only comparison scripts/listing-summary-timings.ts: the live page
  * browseProducts runs, and the build's select without its INSERT. The rows are scoped as pricedScope does with the
  * listing's live count. Not for a search, which never stores an order.
