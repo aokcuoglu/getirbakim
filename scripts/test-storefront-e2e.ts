@@ -662,7 +662,7 @@ test("run 4: media the target already holds under another id and object key is r
 // fixture describes is compared with the rows the real exporter wrote and the real split cut (runs 1 and 2: run 2 is the one with a tombstone).
 type GoldenNode = string | { [key: string]: unknown };
 const GOLDEN_FILE = "scripts/fixtures/storefront-part-format.json";
-const GOLDEN_UPDATE = "update the sample rows of the 'storefront part format' test in scripts/test-storefront-split.ts to match, then regenerate the fixture with `UPDATE_GOLDEN=1 node --import tsx --test scripts/test-storefront-split.ts` (local only)";
+const GOLDEN_UPDATE = "update the sample rows of the 'storefront part format' test in scripts/test-storefront-split.ts to match (release the importer first if it must read a new column), then regenerate the fixture with `UPDATE_GOLDEN=1 node --import tsx --test scripts/test-storefront-split.ts` (local only)";
 const jsonType = (value: unknown) => value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
 /** The JSON types a fixture node allows for one value: "string", an array node ({ "[]": ... }), an object node, or a oneOf of those. */
 function nodeTypes(node: unknown): Set<string> {
@@ -676,13 +676,24 @@ function rowNode(node: unknown): Record<string, unknown> | null {
   const element = node && typeof node === "object" ? (node as { "[]"?: unknown })["[]"] : undefined;
   return element && typeof element === "object" && !("oneOf" in element) && !("[]" in element) ? element as Record<string, unknown> : null;
 }
-/** Why the JSON types seen in the real export and the ones the fixture allows disagree (null when they do not). A null in the fixture says nothing about the type, and a real null is allowed wherever the column can be null. */
-function typeProblem(real: Set<string>, fixed: Set<string>) {
+/** Why the JSON types seen in the real export and the ones the fixture allows disagree (null when they do not). A fixture type that is only null says nothing, so it
+ * fails as soon as the real export holds a value. A real null is allowed against a typed fixture for a top-level key; for a row column (`strict`) the fixture must allow it too. */
+function typeProblem(real: Set<string>, fixed: Set<string>, strict: boolean) {
   const realValued = [...real].filter(type => type !== "null").sort(), fixedValued = [...fixed].filter(type => type !== "null").sort();
-  if (fixedValued.length === 0 || (realValued.length === 0 ? fixed.has("null") : realValued.join() === fixedValued.join())) return null;
-  return `the real export holds ${[...real].sort().join("|")}, the fixture ${[...fixed].sort().join("|")}`;
+  const mismatch = realValued.length === 0 ? !fixed.has("null") : realValued.join() !== fixedValued.join() || (strict && real.has("null") && !fixed.has("null"));
+  return mismatch ? `the real export holds ${[...real].sort().join("|")}, the fixture ${[...fixed].sort().join("|")}` : null;
 }
-/** Differences between a fixture row type and the real rows of it, as readable lines (none when the shapes agree). Values below a column (jsonb) are not compared. */
+/** The type problem of one key, and of the elements of an array of scalars (path_ids, engine_codes, kba_numbers). Values below an object column (jsonb: raw, payload, match_basis) are deliberately not compared: they are free-form. */
+function valueProblem(values: unknown[], node: unknown, strict: boolean) {
+  const problem = typeProblem(new Set(values.map(jsonType)), nodeTypes(node), strict);
+  if (problem) return problem;
+  const element = (node as { "[]"?: unknown })["[]"];
+  if (element === undefined || (element !== null && typeof element === "object" && !("oneOf" in element))) return null;
+  const elements = values.filter(Array.isArray).flat();
+  const inner = elements.length ? typeProblem(new Set(elements.map(jsonType)), nodeTypes(element), strict) : null;
+  return inner && `its elements: ${inner}`;
+}
+/** Differences between a fixture row type and the real rows of it, as readable lines (none when the shapes agree). Values below a column (jsonb) are not compared, scalar arrays only by element type. */
 function rowShapeProblems(label: string, fixture: Record<string, unknown>, rows: Record<string, unknown>[]) {
   const problems: string[] = [];
   if (rows.length === 0) return [`${label}: the real export has no such rows, so the fixture's row type is not checked`];
@@ -696,7 +707,7 @@ function rowShapeProblems(label: string, fixture: Record<string, unknown>, rows:
   if (extra.size) problems.push(`${label}: the real rows have keys the fixture lacks: ${[...extra].sort().join(", ")}`);
   if (missing.size) problems.push(`${label}: the fixture has keys the real rows lack: ${[...missing].sort().join(", ")}`);
   for (const key of expected.filter(name => !missing.has(name))) {
-    const problem = typeProblem(new Set(rows.map(row => jsonType(row[key]))), nodeTypes(fixture[key]));
+    const problem = valueProblem(rows.map(row => row[key]), fixture[key], true);
     if (problem) problems.push(`${label}.${key}: ${problem}`);
   }
   return problems;
@@ -725,7 +736,7 @@ test("the golden fixture's row shapes are the ones the real export writes (#1383
       else if (node === "empty" || (node as { "[]"?: unknown })["[]"] === "empty") {
         if (values.some(value => (value as unknown[]).length > 0)) problems.push(`${kind}.${name}: the fixture has no rows here but the real parts carry some`);
       } else {
-        const problem = typeProblem(new Set(values.map(jsonType)), nodeTypes(node));
+        const problem = valueProblem(values, node, false);
         if (problem) problems.push(`${kind}.${name}: ${problem}`);
       }
     }
