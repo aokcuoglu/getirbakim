@@ -7,9 +7,10 @@ import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import type { CatalogQuery } from "../src/modules/store/catalog-query";
 
-// The cached priced order of a price-sorted search (#1425) in an isolated copy of the schema: every page of a search
-// sorted by price slices one order kept in memory (SEARCH_PRICE_ORDER=0 reads the live count and page again), with the
-// ids, total, pages and notes of the live path, under the epoch, TTL, failure and budget rules of the search caches.
+// The cached order of a search in an isolated copy of the schema: every page of a search sorted by price (#1425), by
+// relevance with a filter, or newest (#1440) slices one order kept in memory (SEARCH_PRICE_ORDER=0 / SEARCH_RANK_ORDER=0
+// read the live count and page again), with the ids, total, pages and notes of the live path, under the epoch, TTL,
+// failure and budget rules of the search caches.
 // Nothing is written to the shared database's tables.
 type Catalog = typeof import("../src/modules/store/catalog");
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
@@ -82,6 +83,7 @@ async function sent(run: () => Promise<unknown>) {
     texts,
     orders: texts.filter(isOrder).length,
     livePages: texts.filter(text => /ORDER BY unavailable,price_kurus (ASC|DESC) NULLS LAST,id LIMIT \d+ OFFSET/.test(text)).length,
+    rankPages: texts.filter(text => /rank DESC,[\s\S]* LIMIT \d+ OFFSET/.test(text)).length,
     hits: texts.filter(text => text.startsWith("WITH main AS MATERIALIZED")).length,
     counts: texts.filter(text => /^SELECT count\(\*\)/.test(text)).length,
     offsets: texts.filter(text => /\bOFFSET\b/.test(text)).length,
@@ -93,7 +95,7 @@ const vw = { vehicleTypeId: "340" };
 type Result = Awaited<ReturnType<Catalog["browseProducts"]>>;
 const browse = (query: CatalogQuery, context: { vehicleTypeId?: string } = {}, from: Catalog = catalog, options?: { limit?: number }): Promise<Result> =>
   inRequest(() => from.browseProducts(query, context, options));
-const live = <T>(run: () => Promise<T>) => withEnv({ SEARCH_PRICE_ORDER: "0" }, run);
+const live = <T>(run: () => Promise<T>) => withEnv({ SEARCH_PRICE_ORDER: "0", SEARCH_RANK_ORDER: "0" }, run);
 
 before(async () => {
   schema = await isolatedSchema("search_price_order_test");
@@ -113,7 +115,11 @@ before(async () => {
       { nf: 40 + (n * 37) % 200 }, { stok: n % 5 === 0 ? 0 : 2 }, n % 17 === 0 ? "inactive" : "present"]);
     ids.push(row.id);
   }
+  // Rank ties: six groups of 16 rows share one updated_at, so the ranked order falls to the updated_at and id tie-breaks.
+  await schema.pool.query("UPDATE supplier_items SET changed_at=timestamptz '2026-01-01' + (right(code,2)::int % 6) * interval '1 day'");
   await schema.pool.query("SELECT refresh_product_matches()");
+  // An admin-renamed row ranks from its computed name, not the stored rank.
+  await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,name) VALUES($1,$1,'SPORT FREN BALATA ÖZEL')", [ids[0]]);
   await schema.pool.query(`INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VW');
     INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(10,1,'GOLF VII (5G1)','2012-08-01','2017-03-01');
     INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
@@ -160,8 +166,9 @@ async function held(run: (release: () => void) => Promise<unknown>) {
 const isCardRead = (text: string) => text.startsWith("SELECT * FROM (SELECT * FROM storefront_catalog") || text.includes("FROM product_offers o WHERE o.primary_id=ANY");
 const asc = "price-asc" as const, desc = "price-desc" as const;
 const priceOf = async (id: string) => (await schema.pool.query<{ price_data: { nf: number } }>("SELECT price_data FROM supplier_items WHERE id=$1", [id])).rows[0].price_data;
-const hide = (id: string) => schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [id]);
-const unhide = (id: string) => schema.pool.query("DELETE FROM commerce_item_overrides WHERE supplier_item_id=$1", [id]);
+// An upsert: the fixture's renamed row is an override too, and keeps its name.
+const hide = (id: string) => schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true) ON CONFLICT (supplier_item_id) DO UPDATE SET hidden=true", [id]);
+const unhide = (id: string) => schema.pool.query("UPDATE commerce_item_overrides SET hidden=false WHERE supplier_item_id=$1", [id]);
 
 type Spec = [string, CatalogQuery, { vehicleTypeId?: string }?];
 const specs: Spec[] = [
@@ -505,3 +512,146 @@ test("SEARCH_PRICE_ORDER=0 sends the live statements and never touches the cache
   assert.equal((await withEnv({ SEARCH_PRICE_ORDER: " 0 " }, () => sent(() => browse(query, {}, proc)))).livePages, 1, "read per request, trimmed");
 });
 
+
+// The ranked orders (#1440): relevance with a filter and newest, from the live ranked page's rows and ORDER BY.
+const newest = "newest" as const;
+const sorts: [string, CatalogQuery["sort"]][] = [["no sort", undefined], ["relevance", "relevance"], ["newest", newest]];
+
+test("every page of the relevance and newest orders of every search kind is the live ranked page: ids, total, page, pages and notes", async () => {
+  const proc = await otherProcess("rank-oracle");
+  const kinds: Spec[] = [...specs, ["plain newest of another word", { q: "filtre" }]];
+  let orders = 0, nonEmpty = 0;
+  for (const [label, base, context = {}] of kinds) {
+    for (const [sortLabel, sort] of sorts) {
+      for (const page of [undefined, "1", "2", "3", "4", "99", "0", "x"]) {
+        const query = { ...base, sort, page };
+        let cached: ReturnType<typeof shape> | undefined;
+        orders += (await sent(async () => { cached = shape(await browse(query, context, proc)); })).orders;
+        const expected = shape(await live(() => browse(query, context)));
+        assert.deepEqual(cached, expected, `${label} ${sortLabel} page ${page}`);
+        if (page === "1" && expected.total > 0) nonEmpty++;
+      }
+    }
+  }
+  assert.ok(orders >= 20 && nonEmpty >= 30, `${orders} orders, ${nonEmpty} non-empty`);
+  // The notes the search reads carry over, on a ranked order too.
+  assert.equal(shape(await browse({ q: "frenx", sort: newest }, {}, proc)).correctedQuery, "fren");
+  assert.equal(shape(await browse({ q: "f", sort: newest }, {}, proc)).searchTooShort, true);
+  assert.deepEqual(shape(await browse({ q: "bosch golf", sort: newest }, {}, proc)).vehicleScope, { productText: "bosch", vehicleText: "golf", fitted: false });
+  // The fixtures tie: the order is saleable first, newest first within a rank, ties by id; the renamed row is ranked from its name.
+  const all = (await Promise.all([1, 2, 3].map(page => browse({ q: "fren", sort: newest, page: String(page) }, {}, proc)))).flatMap(result => result.items);
+  assert.equal(all.length, 72);
+  const stamps = all.filter(card => !card.unavailable).map(card => `${new Date(card.updated_at as unknown as string).getTime()}`);
+  assert.ok(new Set(stamps).size < stamps.length, "updated_at ties exist");
+  for (let index = 1; index < all.length; index++) {
+    const [previous, card] = [all[index - 1], all[index]];
+    if (previous.unavailable !== card.unavailable) { assert.ok(!previous.unavailable, "saleable first"); continue; }
+    const [before, now] = [new Date(previous.updated_at as unknown as string).getTime(), new Date(card.updated_at as unknown as string).getTime()];
+    assert.ok(before > now || (before === now && previous.id < card.id), `newest: ${index}`);
+  }
+  const relevance = (await Promise.all([1, 2, 3].map(page => browse({ q: "fren", availability: "supplied", sort: "relevance", page: String(page) }, {}, proc)))).flatMap(result => result.items);
+  assert.ok(relevance.some(card => card.id === ids[0]) && new Set(relevance.map(card => card.id)).size === relevance.length, "the renamed row is listed once");
+});
+
+test("a warm ranked page sends only its card reads; no sort and relevance share a key, newest has its own", async () => {
+  const proc = await otherProcess("rank-warm");
+  const query: CatalogQuery = { q: "fren", brands: JSON.stringify(["TRW"]) };
+  const cold = await sent(() => browse({ ...query, page: "1" }, {}, proc));
+  assert.deepEqual({ orders: cold.orders, hits: cold.hits, rankPages: cold.rankPages, counts: cold.counts }, { orders: 1, hits: 1, rankPages: 0, counts: 0 }, "the cold page: the hits and one order");
+  for (const sort of [undefined, "relevance", undefined] as const) for (const page of ["2", "1", "3"]) {
+    const warm = await sent(() => browse({ ...query, sort, page }, {}, proc));
+    assert.deepEqual({ orders: warm.orders, hits: warm.hits, rankPages: warm.rankPages, counts: warm.counts, offsets: warm.offsets }, { orders: 0, hits: 0, rankPages: 0, counts: 0, offsets: 0 }, `${sort} page ${page}`);
+    assert.ok(warm.texts.length > 0 && warm.texts.every(isCardRead), `${sort} page ${page}: ${warm.texts.filter(text => !isCardRead(text)).join(" | ")}`);
+  }
+  assert.equal((await sent(() => browse({ ...query, sort: newest, page: "2" }, {}, proc))).orders, 1, "newest is another key");
+  const warmNewest = await sent(() => browse({ ...query, sort: newest, page: "1" }, {}, proc));
+  assert.deepEqual({ orders: warmNewest.orders, hits: warmNewest.hits, rankPages: warmNewest.rankPages, counts: warmNewest.counts }, { orders: 0, hits: 0, rankPages: 0, counts: 0 });
+  assert.equal((await sent(() => browse({ ...query, page: "2" }, {}, proc))).orders, 0, "and relevance is still kept");
+  assert.equal((await sent(() => browse({ q: "fren", sort: newest }, {}, proc))).orders, 1, "plain newest is a key too");
+  assert.equal((await sent(() => browse({ q: "fren", sort: newest, page: "2" }, {}, proc))).orders, 0);
+});
+
+test("an epoch bump reloads every ranked key; the fit sync's bump only the ones that read vehicle fits", async () => {
+  const proc = await otherProcess("rank-epochs");
+  const keys: [string, CatalogQuery, boolean][] = [
+    ["brand", { q: "fren", brands: JSON.stringify(["TRW"]) }, false],
+    ["plain newest", { q: "fren", sort: newest }, false],
+    ["code search", { q: "P10", searchBy: "code", sort: newest }, false],
+    ["category", { q: "fren", category: "fren" }, false],
+    ["two words", { q: "bosch golf", sort: newest }, true],
+    ["make filter", { q: "fren", make: "vw" }, true],
+    ["the garage vehicle's filter", { q: "fren", fits: "vehicle" }, true],
+  ];
+  const context = (query: CatalogQuery) => query.fits ? vw : {};
+  const read = async (query: CatalogQuery) => (await sent(() => browse(query, context(query), proc))).orders;
+  for (const [label, query] of keys) assert.equal(await read(query), 1, `${label}: loaded`);
+  for (const [label, query] of keys) assert.equal(await read(query), 0, `${label}: kept`);
+  await invalidateFits();
+  for (const [label, query, fits] of keys) assert.equal(await read(query), fits ? 1 : 0, `${label}: after the fit sync's bump`);
+  await invalidateListings();
+  for (const [label, query] of keys) assert.equal(await read(query), 1, `${label}: after an admin edit's bump`);
+  for (const [label, query] of keys) assert.equal(await read(query), 0, `${label}: kept again`);
+});
+
+test("a failed ranked order statement reads that request live and holds the key; a held key bypasses the cache", async t => {
+  t.mock.method(console, "error", () => {});
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const minute = 60 * 1000;
+  for (const [code, holdMs] of [["57014", 60 * minute], ["53200", 10 * minute]] as const) {
+    const proc = await otherProcess(`rank-failing${code}`);
+    const query: CatalogQuery = { q: "fren", availability: "in_stock", sort: newest }, next: CatalogQuery = { ...query, page: "2" };
+    const expected = [shape(await live(() => browse(query, {}))).ids, shape(await live(() => browse(next, {}))).ids];
+    let attempts = 0, failing = true;
+    await intercepted(text => {
+      if (!isOrder(text)) return undefined;
+      attempts++;
+      return failing ? failure(code) : undefined;
+    }, async () => {
+      const first = await sent(async () => assert.deepEqual(shape(await browse(query, {}, proc)).ids, expected[0], `${code}: the live page`));
+      assert.ok(first.rankPages >= 1 && attempts === 1, `${code}: read live after one order statement`);
+      const second = await sent(async () => assert.deepEqual(shape(await browse(next, {}, proc)).ids, expected[1], `${code}: the next page is live too`));
+      assert.ok(second.rankPages >= 1 && second.orders === 0, `${code}: held: live page, no order statement`);
+      t.mock.timers.tick(holdMs - 1);
+      await browse(query, {}, proc);
+      assert.equal(attempts, 1, `${code}: no order statement within the hold`);
+      failing = false;
+      t.mock.timers.tick(1);
+      assert.deepEqual(shape(await browse(next, {}, proc)).ids, expected[1]);
+      assert.equal(attempts, 2, `${code}: one again after the hold`);
+    });
+    assert.equal((await sent(() => browse(query, {}, proc))).orders, 0, `${code}: the order is kept now`);
+  }
+});
+
+test("SEARCH_RANK_ORDER=0 reads the ranked searches live and leaves price orders cached; SEARCH_PRICE_ORDER=0 the reverse", async () => {
+  const proc = await otherProcess("rank-switches");
+  const ranked: CatalogQuery = { q: "fren", availability: "in_stock", page: "2" }, priced: CatalogQuery = { q: "fren", sort: asc, page: "2" };
+  const [rankedExpected, pricedExpected] = [shape(await live(() => browse(ranked, {}))), shape(await live(() => browse(priced, {})))];
+  await withEnv({ SEARCH_RANK_ORDER: "0" }, async () => {
+    for (let read = 0; read < 2; read++) {
+      const off = await sent(async () => assert.deepEqual(shape(await browse(ranked, {}, proc)), rankedExpected));
+      assert.deepEqual({ orders: off.orders, rankPages: off.rankPages, hits: off.hits, counts: off.counts }, { orders: 0, rankPages: 1, hits: 1, counts: 1 }, `read ${read}`);
+    }
+    assert.equal((await sent(async () => assert.deepEqual(shape(await browse(priced, {}, proc)), pricedExpected))).orders, 1, "the price order is cached");
+    assert.equal((await sent(() => browse(priced, {}, proc))).orders, 0);
+  });
+  const on = await sent(async () => assert.deepEqual(shape(await browse(ranked, {}, proc)), rankedExpected));
+  assert.deepEqual({ orders: on.orders, rankPages: on.rankPages }, { orders: 1, rankPages: 0 }, "the switch left nothing in the cache");
+  assert.equal((await withEnv({ SEARCH_RANK_ORDER: " 0 " }, () => sent(() => browse(ranked, {}, proc)))).rankPages, 1, "read per request, trimmed");
+  await withEnv({ SEARCH_PRICE_ORDER: "0" }, async () => {
+    assert.equal((await sent(() => browse(ranked, {}, proc))).orders, 0, "the rank order is still kept");
+    const off = await sent(async () => assert.deepEqual(shape(await browse(priced, {}, proc)), pricedExpected));
+    assert.deepEqual({ orders: off.orders, livePages: off.livePages }, { orders: 0, livePages: 1 }, "the price sort is live");
+  });
+});
+
+test("a ranked order and a price order share SEARCH_PRICE_ORDER_MAX_IDS", async () => {
+  const proc = await withEnv({ SEARCH_PRICE_ORDER_MAX_IDS: "100", NODE_ENV: "production" }, () => otherProcess("rank-budget"));
+  const [rank, price]: CatalogQuery[] = [{ q: "fren", sort: newest }, { q: "fren", sort: asc }];
+  const orders = async (query: CatalogQuery) => (await sent(() => browse(query, {}, proc))).orders;
+  assert.equal(await orders(rank), 1);
+  assert.equal(await orders(rank), 0);
+  assert.equal(await orders(price), 1, "72 + 72 ids is over the budget: the rank order goes");
+  assert.equal(await orders(price), 0, "the newest stays");
+  assert.equal(await orders(rank), 1, "the evicted rank order is rebuilt on return");
+});
