@@ -752,22 +752,129 @@ describe("availability filter (#1242)", () => {
   });
 
   test("the availability clause does not scan commerce_catalog again", async () => {
-    const source = await readFile("src/modules/store/catalog.ts", "utf8");
-    const start = source.indexOf("if(query.availability==='supplied')"), end = source.indexOf("const where", start);
-    assert.ok(start >= 0 && end > start, "availability clause anchors not found in catalog.ts");
-    const clause = source.slice(start, end);
-    assert.match(clause, /in_stock/);
-    assert.match(clause, /out_of_stock|NOT available/);
+    const source = await readFile("src/modules/store/stock-filter.ts", "utf8");
+    const start = source.indexOf("export function stockClause("), end = source.indexOf("\n}", start);
+    assert.ok(start >= 0 && end > start, "stockClause not found in stock-filter.ts");
+    const body = source.slice(start, end);
+    const { inStockIdsSql, stockClause } = await import("../src/modules/store/stock-filter");
+    const [inStock, outOfStock] = [stockClause("in_stock"), stockClause("out_of_stock")];
+    assert.ok(inStock && outOfStock);
+    assert.equal(inStock.clause, `catalog.id IN (${inStockIdsSql})`);
     // Out of stock goes through the sized function, never the view's expressions directly (#1286), and drops the cards in
     // stock through a grouped offer inside the function's subquery (#1342).
-    assert.match(clause, /catalog\.id IN \(SELECT id FROM commerce_out_of_stock_ids\(\$1::text\[\]\) id WHERE id NOT IN \(/);
-    assert.doesNotMatch(clause, /stock_label='Stokta yok'/);
-    assert.match(clause, /inStockIdsSql/);
+    assert.equal(outOfStock.clause, `catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id WHERE id NOT IN (${inStockIdsSql}))`);
+    assert.doesNotMatch(outOfStock.clause, /stock_label='Stokta yok'/);
     // The NOT IN stays a hashed SubPlan only within work_mem: its reads ask for more than the session default (#1342).
-    assert.match(clause, /workMem="\d+MB"/);
-    assert.doesNotMatch(clause, /catalogSql|commerce_catalog/);
-    assert.match(source, /const inStockIdsSql=`SELECT COALESCE\(o\.primary_id,a\.id\) FROM \(\$\{availabilitySql\}\) a /);
+    assert.match(outOfStock.workMem ?? "", /^\d+MB$/);
+    assert.deepEqual([inStock.idSet, outOfStock.idSet], [false, false]);
+    // Scoped (#1429): the bound ids' stock as one InitPlan array, never `catalog.id IN (…)` over it: out of stock then
+    // planned nested loops (4-30 s).
+    const scope = { param: "$3::uuid[]", size: 10 };
+    const clauses = [inStock.clause, outOfStock.clause];
+    for (const availability of ["in_stock", "out_of_stock"] as const) {
+      const scoped = stockClause(availability, scope);
+      assert.ok(scoped, availability);
+      clauses.push(scoped.clause);
+      assert.ok(scoped.clause.startsWith("catalog.id=ANY(ARRAY(") && scoped.clause.endsWith(")::uuid[])"), availability);
+      assert.ok(scoped.clause.includes("a.id=ANY($3::uuid[])") && scoped.clause.includes("o.primary_id=ANY($3::uuid[])"), availability);
+      assert.doesNotMatch(scoped.clause, /catalog\.id IN \(/, availability);
+      assert.deepEqual([scoped.idSet, scoped.workMem], [true, undefined], availability);
+    }
+    assert.match(body, /catalog\.id=ANY\(ARRAY\(\$\{ids\}\)::uuid\[\]\)/);
+    assert.doesNotMatch(body, /catalog\.id IN \(\$\{ids\}/);
+    for (const clause of clauses) assert.doesNotMatch(clause, /commerce_catalog|storefront_catalog/);
+    assert.match(source, /export const inStockIdsSql=`SELECT COALESCE\(o\.primary_id,a\.id\) FROM \(\$\{availabilitySql\}\) a /);
     assert.match(source, /export const availabilitySql = "SELECT \* FROM commerce_item_availability /);
+    // catalog.ts keeps the public name and builds its availability clause here only.
+    const catalogSource = await readFile("src/modules/store/catalog.ts", "utf8");
+    assert.match(catalogSource, /export \{ availabilitySql \} from "\.\/stock-filter";/);
+    assert.match(catalogSource, /const stock=stockClause\(query\.availability,/);
+    assert.doesNotMatch(catalogSource, /commerce_out_of_stock_ids\(|inStockIdsSql/);
+  });
+
+  // The stock filter of a listing that binds a JS id array (search, category, model, garage vehicle, oils) reads those ids'
+  // stock only (#1429). The oracle is the unscoped clause: over the same ids both must list the same cards, in both
+  // checkout modes, for in and out of stock.
+  describe("scoped stock filter (#1429)", () => {
+    let stockFilter: typeof import("../src/modules/store/stock-filter");
+    before(async () => {
+      await groups();
+      stockFilter = await import("../src/modules/store/stock-filter");
+    });
+    /** The listed cards of `scope` that `clause` keeps, read as catalogFilter's listing reads them. */
+    const listed = async (scope: string[], clause: string) => (await schema.pool.query<{ id: string }>(
+      `SELECT catalog.id::text AS id FROM (${catalog.catalogEntriesSql}) catalog WHERE ${catalog.listedOnly} AND catalog.id=ANY($2::uuid[]) AND ${clause} ORDER BY 1`,
+      [storefrontCompanies(), scope])).rows.map(row => row.id);
+    const scoped = (availability: "in_stock" | "out_of_stock", size: number) => stockFilter.stockClause(availability, { param: "$2::uuid[]", size })!;
+
+    test("lists the same cards as the whole stock set's clause over any id array", async () => {
+      const { randomUUID } = await import("node:crypto");
+      const scopes: Record<string, string[]> = {
+        "all fixture ids": Object.values(ids),
+        ...Object.fromEntries((["grp", "grpZero", "grpUnknown"] as const).flatMap(group => [
+          [`${group} group`, [ids[`${group}Primary`], ids[`${group}Offer`]]], [`${group} primary alone`, [ids[`${group}Primary`]]]])),
+        "a secondary offer alone": [ids.grpOffer],
+        "store products": [ids.avStore, ids.avStoreEmpty],
+        "a random uuid": [randomUUID()],
+        "an empty array": [],
+      };
+      const mode = (await schema.pool.query<{ mode: string }>("SELECT basbug_checkout_mode AS mode FROM commerce_settings")).rows[0].mode;
+      try {
+        for (const checkout of ["live", "snapshot"]) {
+          await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [checkout]);
+          for (const availability of ["in_stock", "out_of_stock"] as const) {
+            const whole = stockFilter.stockClause(availability)!;
+            for (const [name, scope] of Object.entries(scopes)) {
+              const clause = scoped(availability, scope.length);
+              assert.equal(clause.idSet, true, `${checkout} ${availability} ${name}`);
+              assert.deepEqual(await listed(scope, clause.clause), await listed(scope, whole.clause), `${checkout} ${availability} ${name}`);
+            }
+          }
+          // Not vacuous: both sides list cards, among them a primary sold only through its offer, which is never a card itself.
+          const all = scopes["all fixture ids"];
+          const [inStock, outOfStock] = [await listed(all, scoped("in_stock", all.length).clause), await listed(all, scoped("out_of_stock", all.length).clause)];
+          assert.ok(inStock.includes(ids.grpPrimary) && inStock.includes(ids.avStore) && !inStock.includes(ids.grpOffer), checkout);
+          assert.ok(outOfStock.includes(ids.grpZeroPrimary) && outOfStock.includes(ids.avZero) && outOfStock.includes(ids.avStoreEmpty), checkout);
+          assert.ok(!outOfStock.includes(ids.grpPrimary) && !outOfStock.includes(ids.grpUnknownPrimary), checkout);
+          assert.deepEqual(await listed([ids.grpPrimary], scoped("in_stock", 1).clause), [ids.grpPrimary], checkout);
+        }
+      } finally {
+        await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [mode]);
+      }
+    });
+
+    test("LISTING_STOCK_SCOPE_MAX_IDS bounds the scoped clause; 0 turns it off", async () => {
+      const saved = process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+      const withMax = <T>(value: string | undefined, run: () => T) => {
+        if (value === undefined) delete process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+        else process.env.LISTING_STOCK_SCOPE_MAX_IDS = value;
+        try {
+          return run();
+        } finally {
+          if (saved === undefined) delete process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+          else process.env.LISTING_STOCK_SCOPE_MAX_IDS = saved;
+        }
+      };
+      const { stockScopeMaxIds, defaultStockScopeMaxIds, stockClause } = stockFilter;
+      assert.equal(defaultStockScopeMaxIds, 30_000);
+      for (const [value, expected] of [[undefined, 30_000], ["", 30_000], [" ", 30_000], ["0", 0], ["abc", 30_000], ["-5", 30_000], ["1.5", 30_000],
+        ["12000", 12_000], ["50000", 50_000], ["999999", 50_000]] as const)
+        assert.equal(withMax(value, stockScopeMaxIds), expected, `LISTING_STOCK_SCOPE_MAX_IDS=${value}`);
+      // The ceiling is pricedByIdsMax: a scoped listing has at most that many rows, so a price order prices it by its ids.
+      assert.match(await readFile("src/modules/store/catalog.ts", "utf8"), /const pricedByIdsMax=50_000;/);
+      const scope = (size: number) => ({ param: "$2::uuid[]", size });
+      for (const availability of ["in_stock", "out_of_stock"] as const) {
+        const whole = stockClause(availability);
+        assert.equal(withMax(undefined, () => stockClause(availability, scope(30_000)))?.idSet, true, availability);
+        assert.equal(withMax("100", () => stockClause(availability, scope(100)))?.idSet, true, availability);
+        // One id over the limit, the setting 0 (an empty array too) or no bound array: the whole set's clause, as before.
+        for (const [value, size] of [[undefined, 30_001], ["100", 101], ["999999", 50_001], ["0", 5], ["0", 0]] as const)
+          assert.deepEqual(withMax(value, () => stockClause(availability, scope(size))), whole, `${availability} ${value} ${size}`);
+      }
+      assert.equal(withMax(undefined, () => stockClause("out_of_stock", scope(30_001)))?.workMem, "32MB");
+      assert.deepEqual(stockClause("supplied", scope(1)), { clause: "NOT catalog.unavailable", idSet: false });
+      assert.equal(stockClause(undefined, scope(1)), undefined);
+    });
   });
 });
 

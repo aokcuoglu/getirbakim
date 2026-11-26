@@ -32,6 +32,7 @@ import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
 import {compareOffers} from './best-offer';
 import {manufacturerLabels} from './manufacturers.server';
 import {displayBrandSql,masterBrandJoinSql} from './display-brand-sql';
+import {stockClause,type StockScope} from './stock-filter';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "seta" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
  category: string | null; price_kurus: number | null; stock: number | null; oem: string; source: "store" | "supplier";
@@ -57,11 +58,8 @@ export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category">
 };
 // Prices and availability are calculated by the shared commerce view.
 export const catalogSql = "SELECT * FROM commerce_catalog WHERE source='store' OR company=ANY($1::text[])";
-// Only id, available and stock_label of the same rows, without the pricing joins (db/commerce.sql, #1242): the listing's
-// availability filter.
-export const availabilitySql = "SELECT * FROM commerce_item_availability WHERE source='store' OR company=ANY($1::text[])";
-/** The cards that can be sold now: a row, or the primary of a group one of whose offers is available. */
-const inStockIdsSql=`SELECT COALESCE(o.primary_id,a.id) FROM (${availabilitySql}) a LEFT JOIN product_offers o ON o.item_id=a.id WHERE a.available`;
+// The listing's availability filter and its in-stock ids live in stock-filter.ts (#1429).
+export { availabilitySql } from "./stock-filter";
 // The store's listing, search and product page also show products nobody supplies now (`unavailable`, #475); cart,
 // checkout, partner API and maintenance kits keep reading the saleable catalogSql.
 export const storefrontCatalogSql = "SELECT * FROM storefront_catalog WHERE source='store' OR company=ANY($1::text[])";
@@ -745,10 +743,14 @@ async function shownBrandClause(names:string[],values:unknown[]) {
 const facetKeys:ReadonlySet<string>=new Set(facetSpecificationKeys);
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: unknown[] = [company()]; const clauses: string[] = [listedOnly];
- // The clauses narrowing the listing to an id set (search, category, model, make, vehicle fits, oil, each property) go
- // through idSet: a price order over two or more is priced by id array (pricedScope, #1335).
+ // The clauses narrowing the listing to an id set (search, category, model, make, vehicle fits, oil, each property, a
+ // scoped stock filter) go through idSet: a price order over two or more is priced by id array (pricedScope, #1335).
  let idSets=0;
  const idSet=(clause:string)=>{idSets++;clauses.push(clause);};
+ // The id arrays read in JS and bound (search hits, category, model, garage vehicle fits, oils), with their sizes: the
+ // stock filter reads the smallest one's stock only (stockClause, #1429). The make's and properties' sets stay in SQL.
+ const bounds:StockScope[]=[];
+ const bound=(ids:string[])=>{values.push(ids);const param=`$${values.length}::uuid[]`;bounds.push({param,size:ids.length});return param;};
  let search:CatalogSearch|undefined;
  const fitted=query.fits==='vehicle'&&context.vehicleTypeId?await typeFittedIds(Number(context.vehicleTypeId)):undefined;
  if(query.q?.trim()) {
@@ -756,7 +758,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   // A search for the vehicle's fits passes their intersection as one small array (#884): the two id arrays (a broad
   // search's 20k+ and a type's ~2k) took ~0.1 s per query, twice per page with the "Aracına uyanlar" lead.
   const linked=fitted&&new Set(fitted);
-  idSet(`catalog.id=ANY(${binder(values)(linked?search.ids.filter(id=>linked.has(id)):search.ids)}::uuid[])`);
+  idSet(`catalog.id=ANY(${bound(linked?search.ids.filter(id=>linked.has(id)):search.ids)})`);
  }
  if(query.category) {
   const selected=(await getStoreCategories()).find(c=>c.slug===query.category);
@@ -766,8 +768,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    const legacy=Object.entries(legacyCategoryIds).filter(([,id])=>descendants.includes(id)).map(([slug])=>slug);
    // Few oils carry a category yet; the engine-oil category also lists the oils read from product names.
    const ids=await categoryProductIds(legacy,descendants);
-   values.push(descendants.includes(engineOilCategoryId)?[...new Set([...ids,...await engineOilIds()])]:ids);
-   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY(${bound(descendants.includes(engineOilCategoryId)?[...new Set([...ids,...await engineOilIds()])]:ids)})`);
   }
  }
  // A model page lists its own fits, not their intersection with the make's: the make's list is the union of its
@@ -777,8 +778,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   const model=make&&await getVehicleModelGroup(make,query.model);
   if(!model)clauses.push('false');
   else {
-   values.push(await modelFittedIds(model.models.map(member=>member.id)));
-   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY(${bound(await modelFittedIds(model.models.map(member=>member.id)))})`);
   }
  }
  else if(query.make) {
@@ -791,17 +791,13 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  }
  if(query.fits==='vehicle') {
   if(!fitted)clauses.push('false');
-  else if(!search) {
-   values.push(fitted);
-   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
-  }
+  else if(!search)idSet(`catalog.id=ANY(${bound(fitted)})`);
  }
  const oil=parseOilFilters(query.oil);
  if(oil.size) {
   if(!context.vehicleTypeId)clauses.push('false');
   else {
-   values.push(await vehicleOilProductIds(context.vehicleTypeId,oil));
-   idSet(`catalog.id=ANY($${values.length}::uuid[])`);
+   idSet(`catalog.id=ANY(${bound(await vehicleOilProductIds(context.vehicleTypeId,oil))})`);
   }
  }
  // A manufacturer page (#660) lists its master brand's name and labels (display_brand values), the column the brand filter reads.
@@ -829,25 +825,15 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
    UNION ALL SELECT ps.supplier_item_id FROM product_override_specs o JOIN product_sources ps ON ps.product_id=o.product_id
    WHERE o.action='set' AND o.key=${attributeKey} AND o.value=ANY(${optionsKey}::text[]))::uuid[])`);
  }
- // In stock: the row or any offer grouped under it can be sold now. Supplied: some supplier sells it (#475).
- // Out of stock: the card's own row says "Stokta yok" and none of its grouped offers can be sold, so a card is never in
- // both filters, and unknown-stock or unsupplied cards are in neither (#1342; locally 25,018 cards were in both).
- // Both read the lean availability view, not commerce_catalog's priced rows a second time (#1242). Out of stock reads it
- // through commerce_out_of_stock_ids (db/commerce.sql), whose declared size keeps deep pages off a nested loop (#1286).
- // The in-stock exclusion sits inside that subquery, a hashed SubPlan on the Function Scan the catalog hash-joins (page 49:
- // ~0.85 s -> ~1.1 s); NOT IN at the top level filters the catalog scan itself and serialises it (~1.6 s), and EXCEPT
- // took ~60 s. The planner hashes the NOT IN only while the in-stock ids' estimate (~40 B a row) fits work_mem x
- // hash_mem_multiplier: locally ~189k rows, 7.6 MB against the default 4 MB x 2, hashed at 3750 kB but a per-row SubPlan
- // at 3600 kB (estimated cost 8e10, a hang). Its reads therefore run bounded with 32 MB (listingQuery): room for ~1.6M
- // estimated rows, where the session default would leave ~200k locally and ~800k on production's 16 MB.
- // Pushed as clauses, not idSet: availability stays out of pricedScope's id-set count (#1335).
- let workMem:string|undefined;
- if(query.availability==='supplied')clauses.push('NOT catalog.unavailable');
- else if(query.availability==='in_stock')clauses.push(`catalog.id IN (${inStockIdsSql})`);
- else if(query.availability){
-  clauses.push(`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id WHERE id NOT IN (${inStockIdsSql}))`);
-  workMem="32MB";
- }
+ // The availability filter (stockClause in stock-filter.ts, which says what each one lists and why its SQL is shaped so).
+ // A stock filter reads the stock of the smallest bound array's ids only when that array holds at most
+ // LISTING_STOCK_SCOPE_MAX_IDS ids (#1429): an id set, so a price order reads the listing's ids first and never prices the
+ // view through it. Without such an array (brand, manufacturer, a make alone, /katalog) it reads the whole stock set as a
+ // plain clause, out of stock with more work_mem (listingQuery).
+ const stock=stockClause(query.availability,bounds.sort((a,b)=>a.size-b.size)[0]);
+ if(stock?.idSet)idSet(stock.clause);
+ else if(stock)clauses.push(stock.clause);
+ const workMem=stock?.workMem;
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
  return {values,where,from,search,idSets,workMem};
@@ -967,7 +953,9 @@ const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.br
  * rows' adoption window) while it is rebuilt. Cards are read live, so their prices and stock labels stay current: an
  * in-stock listing can show a card sold out since, labelled so. Stock filters store at any size for the stock set's cost
  * alone: #1424 attacks that cost, so measure them again after it and drop `stockFiltered(query)||` below if small stock
- * listings have become cheap.
+ * listings have become cheap. Since #1429 a category, model, garage vehicle, oil or search listing of up to
+ * LISTING_STOCK_SCOPE_MAX_IDS ids reads only its own ids' stock (stockClause), while brand, manufacturer and make-only
+ * listings still read the whole set, so the rule stays until those are scoped too or measured otherwise.
  */
 const stockFiltered=(query:CatalogQuery)=>query.availability==="in_stock"||query.availability==="out_of_stock";
 const filteredOrder=(query:CatalogQuery,total:number)=>!query.q?.trim()&&!persistable(query)&&filteredPriceOrderEnabled()&&(stockFiltered(query)||total>=filteredPriceOrderMinIds());
@@ -1610,6 +1598,23 @@ export async function listingStatements(query:CatalogQuery):Promise<Record<"coun
  const {values,from}=await catalogFilter(query),withKeys=[...values,facetSpecificationKeys],keys=`$${withKeys.length}::text[]`;
  return {count:{text:countSql(from),values},pageIds:{text:pageIdsSql(from,`$${values.length+1}`),values:[...values,0]},brands:{text:brandsSql(from),values},
   attributes:{text:attributeFacetsSql(`SELECT catalog.id ${from}`,keys),values:withKeys},summary:{text:listingSummarySql(from,keys),values:withKeys}};
+}
+/**
+ * A stock-filtered listing's reads (#1429) as statements, for the read-only comparison scripts/stock-scope-timings.ts,
+ * built under the LISTING_STOCK_SCOPE_MAX_IDS in force: its count and page `page` of ids in the default order (the texts
+ * countListing and listingPageIds run), and a price-asc page as pricedScope reads it. Over two or more id sets that is
+ * `listed` (the text listedIds runs: the count and, up to pricedByIdsMax rows, the ids as an array literal), then
+ * `pricePage(ids)` by those ids; otherwise `listed` is null and `pricePage(null)` reads the filter's clause. `workMem`:
+ * the filter's, which listingQuery runs its reads with. Not for a search.
+ */
+export async function stockListingStatements(query:CatalogQuery,page:number,context:CatalogContext={}):Promise<{count:Statement;pageIds:Statement;listed:Statement|null;pricePage:(ids:string|null)=>Statement;workMem?:string}>{
+ if(query.q?.trim()||!stockFiltered(query))throw new Error("stockListingStatements: a stock-filtered listing without a search only");
+ const filter=await catalogFilter(query,context),{values,where,from}=filter,offset=(page-1)*catalogPageSize,order=listingOrder({sort:"price-asc"});
+ return {count:{text:countSql(from),values},pageIds:{text:pageIdsSql(from,`$${values.length+1}`),values:[...values,offset]},
+  listed:filter.idSets>=2?{text:`SELECT count(*) AS count,CASE WHEN count(*)<=${pricedByIdsMax} THEN array_agg(catalog.id)::text END AS ids ${from}`,values}:null,
+  pricePage:ids=>ids?{text:pricedPageSql("WHERE catalog.id=ANY($2::uuid[])",order,catalogPageSize,"$3"),values:[values[0],ids,offset]}
+   :{text:pricedPageSql(where,order,catalogPageSize,`$${values.length+1}`),values:[...values,offset]},
+  workMem:filter.workMem};
 }
 /**
  * A price-sorted listing's page `page` read live (its ids, #1430), and the whole order a deep page slices instead (#1369; a filtered
