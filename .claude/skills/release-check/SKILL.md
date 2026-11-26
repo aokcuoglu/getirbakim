@@ -18,8 +18,8 @@ Show the user: current version → proposed `vX.Y.Z`, PR list (with type and are
 ## 3. Preparation (after approval)
 1. A `chore(release): prepare vX.Y.Z` Issue under `/issue` rules; worktree `../getirbakim-<N>` branch `chore/<N>-release-vX.Y.Z` (from origin/dev).
 2. `npm version X.Y.Z --no-git-tag-version` (package.json + lock together); a release section in `CHANGELOG.md`: features, fixes, Issue/PR links, migration/operations steps.
-3. PR → `dev`, CI green, merge (normal `/ship` steps 6–7).
-4. `gh pr create --base main --head dev --title "chore(release): vX.Y.Z" --label release:<…>` — scope and verification in the body. Wait for and verify CI with the `/ship` step 6 gate (unpiped `gh pr checks --watch`, then `statusCheckRollup` all `SUCCESS`); only then `gh pr merge <PR> --merge` (the guard asks for confirmation — the user already approved; show version and scope again).
+3. PR → `dev`, CI green, merge (normal `/deliver` steps 6–7).
+4. `gh pr create --base main --head dev --title "chore(release): vX.Y.Z" --label release:<…>` — scope and verification in the body. Wait for and verify CI with the `/deliver` step 6 gate (unpiped `gh pr checks --watch`, then `statusCheckRollup` all `SUCCESS`); only then `gh pr merge <PR> --merge` (the guard asks for confirmation — the user already approved; show version and scope again).
 5. Annotated tag on the main merge commit: `git tag -a vX.Y.Z <merge-sha> -m "vX.Y.Z — <title>"` + `git push origin vX.Y.Z`; `gh release create vX.Y.Z --title "vX.Y.Z — <title>" --notes-file <CHANGELOG section>`. Never move/delete an existing tag.
 6. Align dev to main: `git push origin origin/main:refs/heads/dev` (fast-forward; not force) and in the main checkout `git merge --ff-only origin/dev`.
 7. Report: merge, version, tag, Release link.

@@ -5,7 +5,7 @@
 ## Hat
 
 ```
-/ship <issue>                 (ana oturum = orkestratör)
+/deliver <issue>                 (ana oturum = orkestratör)
    │
    ├─ 1 worktree               ../getirbakim-<N>  (dal <tür>/<N>-<konu>, origin/dev'den)
    ├─ 2 getirbakim-planner     salt okur → plan (dosyalar, yeniden kullanım, SQL/yetki etkisi, testler, QA rotaları)
@@ -38,7 +38,7 @@ Orkestratör ürün kodu yazmaz; ajanlara brief verir, bulguları taşır, kapsa
 
 | Skill | Ne yapar |
 |-------|----------|
-| `/ship <N veya açıklama>` | Hattın tamamı; `dev`'e merge + temizlik dahil |
+| `/deliver <N veya açıklama>` | Hattın tamamı; `dev`'e merge + temizlik dahil |
 | `/issue <açıklama>` | Kısa kod taramasıyla etiketli, kabul kriterli Issue |
 | `/qa [worktree\|N] [rotalar]` | Yalnız QA aşaması |
 | `/design-check [--changed\|yollar]` | admin-ui-lint + `getirbakim-ui-ux` incelemesi |

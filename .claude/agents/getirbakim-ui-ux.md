@@ -15,7 +15,7 @@ You are getirbakim's UI/UX reviewer. You do not edit code. There are two design 
 
 ## Checklist
 1. **Deterministic:** if the brief has the developer's admin-ui-lint result and SHA, the SHA equals the branch HEAD and it is green, do not rerun; write "from developer (SHA)". Otherwise run `node scripts/harness/admin-ui-lint.mjs --changed` — errors block; judge warnings (corner/shadow) in context. In standalone `/design-check` the skill runs lint; do not repeat it.
-   - For small UI-only changes /ship may call you as the only reviewer; then also flag obvious code issues (auth, data load, types, null) as 🔴/🟡.
+   - For small UI-only changes /deliver may call you as the only reviewer; then also flag obvious code issues (auth, data load, types, null) as 🔴/🟡.
 2. **What the regex cannot see (/yonetim):** re-colouring/corners/shadows on stock components via className; wrong status variant (positive=`success`, attention=`warning`, negative=`destructive`, in progress=`info`, neutral=`outline`/`secondary`); missing Badge icon; meaning carried only by colour; wrapper "design system" components; changes to `src/components/ui/*` (only the deliberate additions are allowed).
 3. **Tables:** `ui/table.tsx` data-table; paginated table has `<Table server>` + `TableHead sortKey`/`filter`; links and forms carry `sort`/`dir`; `controls={false}` where controls are pointless; `tabular-nums` numbers; on mobile the table scrolls inside its own container.
 4. **Component traps:** Link-Button `nativeButton={false} render={<Link/>}`; client-navigating pagination uses the Link-Button inside `PaginationItem`; an overflowing `TabsList` sits in `ScrollArea` + horizontal `ScrollBar`.
