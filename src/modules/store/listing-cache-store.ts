@@ -8,7 +8,7 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
  * The shared, persisted level of the storefront listing caches (#957, db/storefront-catalog.sql storefront_listing_cache).
  * A new app container or a restart reads the counts, page ids and facets another process already computed instead of
  * scanning the catalog again (0.5-3 s each). Rows carry the epoch value they were loaded under (#585), the one their key
- * follows (a make's listing the fits value, the others the listing epoch, #1368, listing-epoch.ts): staleCache adopts only
+ * follows (a make's listing, its listed models and the make/model category counts the fits value, the others the listing epoch, #1368, listing-epoch.ts): staleCache adopts only
  * a current one, and an older write never replaces a newer row. A row it may not adopt (an older epoch, or
  * past maxStaleMs) up to 48 hours old and not empty is still the fallback a visitor gets after the bounded wait while the
  * reload runs (#771, catalog.ts); the reload then replaces the row. The key hash covers `version` (bump it when
@@ -17,6 +17,8 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
  * the level off; a missing table (setup not run yet) turns it off for five minutes. Errors are logged (throttled) and
  * count as a miss: the caller loads the value itself.
  */
+/** Staleness bounds shared by the persisted caches whose declaration cannot reach catalog.ts' own constants. */
+export const storedListing = { maxStaleMs: 24 * 60 * 60 * 1000, maxFallbackMs: 48 * 60 * 60 * 1000 };
 const maxBytes = 256 * 1024;
 const pruneEvery = 200;
 const missingTableBackoffMs = 5 * 60 * 1000;
