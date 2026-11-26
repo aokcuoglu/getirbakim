@@ -870,6 +870,18 @@ test("the filtered minimum: a listing of fewer ids reads its deep pages live and
   assert.deepEqual((await storedRows()).map(row => [row.total, row.filtered]), [[total, true]]);
 });
 
+test("a stock-filtered listing stores its deep pages' order below the filtered minimum; a supplied one does not (#1390)", async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const proc = await otherProcess("filtered-stock"), inStock: CatalogQuery = { availability: "in_stock", sort: "price-desc", page: "21" };
+  assert.ok(await liveTotal(inStock) < 20_000, "below the default minimum");
+  const [inStockLive, suppliedLive] = [await livePage(inStock), await livePage(supplied("price-desc", 21))];
+  const stock = await sent(async () => assert.deepEqual(await pageIds(inStock, proc), inStockLive));
+  assert.deepEqual({ builds: stock.builds, livePages: stock.livePages }, { builds: 1, livePages: 0 }, "in stock: stored");
+  const plainFilter = await sent(async () => assert.deepEqual(await pageIds(supplied("price-desc", 21), proc), suppliedLive));
+  assert.deepEqual({ table: plainFilter.table, livePages: plainFilter.livePages }, { table: 0, livePages: 1 }, "supplied: live");
+  assert.deepEqual((await storedRows()).map(row => row.filtered), [true]);
+});
+
 test("LISTING_PRICE_ORDER_FILTERED=0 neither stores nor reads a filtered order, the plain ones go on; a search stores none at the minimum (#1390)", () => withEnv(anyFiltered, async () => {
   await schema.pool.query("TRUNCATE storefront_listing_price_orders");
   const proc = await otherProcess("filtered-off");

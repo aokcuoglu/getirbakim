@@ -813,8 +813,8 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // Past page 20 a price order is read from the listing's whole stored order (storefront_listing_price_orders, #1369): one
 // row per listing and sort, the same keys as the price order above, under the same rules (cachedPriceOrders). Its first
 // 480 ids also serve as the stored first pages of that price order when they are newer (cachedPricedHeads, #1389).
-// A filtered or model listing of at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids stores its deep pages' order there too
-// (filteredOrder, #1390): those rows are bounded by a budget of ids instead, and the listing's first pages stay in memory.
+// A filtered or model listing of at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids (any stock-filtered one) stores its deep
+// pages' order there too (filteredOrder, #1390): those rows share a budget of ids, its first pages stay in memory.
 // These three also wait at most LISTING_EPOCH_WAIT_MS (250 ms, listing-wait.ts) for a reload when an earlier value
 // exists (#771): the entry an epoch bump replaced, or a stored row of an older epoch or past maxStaleMs, up to 48 hours
 // old (the store's prune window). The fit sync bumps the fits value up to every 30 s while fit rows change
@@ -864,11 +864,15 @@ const cachedPricedHeads=staleCache<string[]>(aggregateTtl,500,{...persistedListi
 const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
 /**
  * Whether a listing persistable leaves out (a brand, property, availability, model or garage vehicle filter) stores the
- * whole price order of its deep pages all the same (#1390): no search, at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids
- * (`total`, its count), and the filtered orders on (filteredPriceOrderEnabled). Its keys are bounded by the filtered
- * rows' budget, not by the site's pages (listing-price-order.ts); its first pages keep their 480 ids in memory.
+ * whole price order of its deep pages all the same (#1390): no search, the filtered orders on (filteredPriceOrderEnabled),
+ * and at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids (`total`, its count) or a stock filter. A live deep page's cost
+ * follows the listing's rows (~17-30 µs a row locally: brand=ORIJINAL, 155k, ~2 s; BOSCH supplied, 21k, 0.34 s), but an
+ * in-stock or out-of-stock page also reads the catalog's whole stock set whatever its size: ~0.9 s in stock at 1.8-9.8k
+ * ids, ~2.2 s out of stock at 10k. Its keys are bounded by the filtered rows' budget, not by the site's pages
+ * (listing-price-order.ts); its first pages keep their 480 ids in memory.
  */
-const filteredOrder=(query:CatalogQuery,total:number)=>!query.q?.trim()&&!persistable(query)&&filteredPriceOrderEnabled()&&total>=filteredPriceOrderMinIds();
+const stockFiltered=(query:CatalogQuery)=>query.availability==="in_stock"||query.availability==="out_of_stock";
+const filteredOrder=(query:CatalogQuery,total:number)=>!query.q?.trim()&&!persistable(query)&&filteredPriceOrderEnabled()&&(stockFiltered(query)||total>=filteredPriceOrderMinIds());
 const persistablePage=(query:CatalogQuery,page:number)=>persistable(query)&&page<=(query.make?1:cachedPages);
 /**
  * A listing that reads vehicle fits (#1368): a make's or model's, or one with a garage vehicle's filter (fits, oil; their
@@ -1218,12 +1222,13 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // A listing over priceOrderMaxIds, an order with nothing stored, a row gone (the UNLOGGED table empties after a crash)
  // or a page past its end read live below, and so does a failed build (its 30 s limit included): the listing then reads
  // live without another build for ten minutes (buildPriceOrder), instead of failing the page or building per request.
- // A filtered listing of at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids (filteredOrder, #1390: a brand, property,
- // availability, model or garage vehicle filter) stores its order the same way, under the same key, epoch value and
- // rows: its live deep page prices and sorts every row whatever its depth (~25-30 µs a row locally; availability=in_stock,
- // 325k rows, ~10 s). Its first pages keep their own 480 ids in memory (above), so it asks for no head, and its row is
- // marked filtered: those share a budget of ids, the least recently used evicted (buildPriceOrder). An evicted row reads
- // live until the cache's next load builds it again. A smaller filtered listing reads live below.
+ // A filtered listing (a brand, property, availability, model or garage vehicle filter) of at least
+ // LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids, or with a stock filter (filteredOrder, #1390), stores its order the same way,
+ // under the same key, epoch value and rows: its live deep page prices and sorts every row whatever its depth
+ // (availability=in_stock, 325k rows: ~10 s locally). Its first pages keep their own 480 ids in memory (above), so it asks
+ // for no head, and its row is marked filtered: those share a budget of ids, the least recently used evicted
+ // (buildPriceOrder). An evicted row reads live until the cache's next load builds it again. A smaller filtered listing
+ // reads live below.
  const filteredDeep=filteredOrder(query,total);
  if(!search&&pricedSort&&(persistable(query)||filteredDeep)&&priceOrderEnabled()&&total<=priceOrderMaxIds()){
   const stored=await cachedPriceOrders(pricedKey,async at=>{

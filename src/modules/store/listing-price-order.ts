@@ -40,11 +40,12 @@ import { listingCacheEnabled } from "./listing-cache-store";
  * added last_sliced_at (a missing column, 42703) the first pages price their own ids and slices leave it alone, for five
  * minutes at a time.
  * A filtered listing (a brand, property, availability, model or garage vehicle filter; never a search) stores its order
- * too once it lists at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids (#1390, default 20,000): the same build, slice and
- * rules, its row marked `filtered`, while its first 20 pages keep their own 480 ids in memory. A deep page's cost grows
- * with the listing's rows, not with its depth (locally ~25-30 µs a row: availability=in_stock, 325k rows, ~10 s a page;
- * availability=supplied 776k, 8-9 s; brand=ORIJINAL 155k, 2.6-3.6 s; BOSCH 22k, 0.5-0.7 s; under ~15k rows 0.5 s or less),
- * and building the whole order costs about one live deep page. Those keys are not bounded by the site's pages, so the
+ * too once it lists at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids (#1390, default 20,000), a stock filter (in or out
+ * of stock) at any size: the same build, slice and rules, its row marked `filtered`, while its first 20 pages keep their
+ * own 480 ids in memory. A live deep page's cost follows the listing's rows, not its depth (locally ~17-30 µs a row:
+ * availability=supplied, 776k rows, 6-8 s; brand=ORIJINAL 155k, ~2 s; BOSCH supplied 21k, 0.34 s), and a stock filter
+ * adds a read of the catalog's whole stock set (in stock: 0.9 s at 1.8k ids, ~10 s at 325k; out of stock 2.2 s at 10k).
+ * Building the whole order costs about one live deep page. Those keys are not bounded by the site's pages, so the
  * filtered rows share a budget of LISTING_PRICE_ORDER_FILTERED_MAX_TOTAL_IDS ids (default 8,000,000, ~130 MB): before a
  * filtered build the rows unused (built or sliced) for filteredIdleMs go, then the least recently used ones until the
  * new order fits; a listing larger than the budget is not stored, and a plain row is never evicted. Two processes
