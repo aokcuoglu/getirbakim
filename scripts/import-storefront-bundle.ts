@@ -10,6 +10,7 @@ import { importBundleJobs } from "./storefront-bundle-jobs";
 import { bundleSources, replaceBundleMappings } from "./storefront-bundle-mappings";
 import { ensureStoredObjects, type MediaTarget, mediaToRecheck, resolveMediaTargets } from "./storefront-bundle-media";
 import { applyBundleTombstones, DEFAULT_MAX_DELETIONS, pruneTombstones } from "./storefront-bundle-tombstones";
+import { importerVersion } from "./storefront-sync-state";
 
 // Loads a bundle from scripts/export-storefront-bundle.ts. Dry run by default; --apply writes.
 // Idempotent: rows are upserted (the bundle is the source of truth for these tables), media is
@@ -173,7 +174,8 @@ try {
     console.log("APPLIED", report, { mediaMs, transactionMs: Math.round(performance.now() - transactionStarted) });
     if (reportPath) {
       const byId = new Map(keys.map(item => [item.id, item]));
-      await writeFile(reportPath, JSON.stringify({ report, skipped: skippedIds.map(id => byId.get(id) ?? { id }), items: enriched.items }));
+      // importerVersion is informational per part: the inbound runner reads its own env for report.json (same container).
+      await writeFile(reportPath, JSON.stringify({ importerVersion: importerVersion(), report, skipped: skippedIds.map(id => byId.get(id) ?? { id }), items: enriched.items }));
     }
   }
 } catch (error) { await client.query("ROLLBACK").catch(() => {}); throw error; }

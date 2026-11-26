@@ -134,6 +134,7 @@ async function run(script: string, args: string[], side: Side, options: { env?: 
   const { schema, url, bucket } = sideOf(side);
   const env = { ...process.env };
   for (const name of Object.keys(env)) if (name.startsWith("AWS_") || name.startsWith("S3_")) delete env[name];
+  delete env.BUILD_VERSION;
   Object.assign(env, { DATABASE_URL: url, ...stubEnv(stub.url) });
   if (bucket) env.S3_BUCKET = bucket;
   // Names the child's database sessions after the schema; killChildSessions() ends what a timed-out child's own children left behind.
@@ -782,7 +783,8 @@ test("the golden fixture's row shapes are the ones the real export writes (#1383
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // import-storefront-inbound.ts (#1384): the operations-task entry point, on its own schema and bucket pair.
-const inboundRun = (prefix: string) => run("import-storefront-inbound.ts", [prefix], "inbound", { env: { INBOUND_BUCKET: inboundBucket }, timeoutMs: 180_000 });
+const IMPORTER_BUILD = "e2e-build-1";
+const inboundRun = (prefix: string, env: Record<string, string> = {}) => run("import-storefront-inbound.ts", [prefix], "inbound", { env: { INBOUND_BUCKET: inboundBucket, ...env }, timeoutMs: 180_000 });
 const countOf = (text: string, needle: string) => text.split(needle).length - 1;
 
 test("inbound: a part that fails its dry run stops the run before anything is applied", { skip }, async () => {
@@ -815,7 +817,7 @@ test("inbound: a part that fails its dry run stops the run before anything is ap
 test("inbound: the e2e parts imported by import-storefront-inbound.ts leave the same target and report as the per-part import", { skip }, async () => {
   assert.ok(state.run1Target);
   await uploadParts(state.parts1, "storefront/current");
-  const out = await inboundRun("storefront/current");
+  const out = await inboundRun("storefront/current", { BUILD_VERSION: IMPORTER_BUILD });
 
   const count = state.parts1.length;
   assert.equal(countOf(out, "DRY RUN (nothing written)"), count);
@@ -838,7 +840,10 @@ test("inbound: the e2e parts imported by import-storefront-inbound.ts leave the 
   assert.ok(written, "report.json was not written");
   assert.equal(written.contentType, "application/json");
   const report = JSON.parse(written.bytes.toString("utf8")) as Parameters<typeof checkInboundReport>[0] & object;
-  assert.deepEqual(report, JSON.parse(JSON.stringify({ snapshotAt: state.snapshotAt, ...buildInboundReport(state.run1Reports) })));
+  // The importer reports its own version at the top level of the report only (#1380): the part reports of the per-part import ran without BUILD_VERSION.
+  assert.ok(state.run1Reports.every(part => part.importerVersion === null));
+  assert.equal(report.importerVersion, IMPORTER_BUILD);
+  assert.deepEqual(report, JSON.parse(JSON.stringify({ snapshotAt: state.snapshotAt, importerVersion: IMPORTER_BUILD, ...buildInboundReport(state.run1Reports) })));
   assert.ok(!("items" in report));
   checkInboundReport(report, state.snapshotAt);
 

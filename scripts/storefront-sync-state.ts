@@ -12,11 +12,11 @@ export type SyncTarget = "aws";
 // The REPXPERT vehicle data the target last confirmed (#1359): the export's digest of it, its row counts, when it was sent,
 // the operations task definition (family:revision) that imported it and the rows it skipped (vehicle type missing there).
 export type VehicleState = {
-  digest: string; specs: number; images: number; sentAt: string; taskDefinition?: string; skippedSpecs?: number; skippedImages?: number;
+  digest: string; specs: number; images: number; sentAt: string; taskDefinition?: string; importerVersion?: string; skippedSpecs?: number; skippedImages?: number;
 };
 // The category images and manufacturer logos the target last confirmed (#1379): the export's digest of them, their row counts,
 // when they were sent and the operations task definition that imported them.
-export type StaticMediaState = { digest: string; images: number; logos: number; sentAt: string; taskDefinition?: string };
+export type StaticMediaState = { digest: string; images: number; logos: number; sentAt: string; taskDefinition?: string; importerVersion?: string };
 export type SyncState = {
   snapshotAt: string; syncedAt?: string; target?: SyncTarget; since?: string | null; baseline?: boolean; enrichments?: number; jobs?: number;
   // Supplier items whose enrichments the target skipped (item not there yet); the next export sends them again.
@@ -295,8 +295,41 @@ export function reportKey(prefix: string) {
 }
 
 /** One part's --report of import-storefront-bundle.ts; items (local supplier items it wrote) stay on the target, report.json never carries them. */
-export type PartReport = { report: Record<string, unknown>; skipped: BundleItem[]; items?: string[] };
-export type InboundReport = { snapshotAt?: string | null; parts: number; totals: Record<string, number>; skippedEnrichments: number; skipped: BundleItem[]; truncated: boolean };
+export type PartReport = { importerVersion?: string | null; report: Record<string, unknown>; skipped: BundleItem[]; items?: string[] };
+/**
+ * The importer's own version (#1380): BUILD_VERSION as the operations task definition sets it (the infra repo puts the image
+ * tag there, the release's commit, the same value /api/health shows; the Dockerfile's operations stage does not carry it).
+ * null when unset or "development" (local runs); then, and if infra ever drops that env, the task definition rule applies.
+ */
+export function importerVersion(env: Record<string, string | undefined> = process.env) {
+  const raw = (env.BUILD_VERSION ?? "").trim();
+  return raw && raw !== "development" ? raw : null;
+}
+
+/**
+ * Whether an entry sent by an earlier importer must be sent again. Both versions known: only a changed version counts and the
+ * task definition is ignored (env and secret deploys bump it without touching the importer). Either one unknown (old importer,
+ * old state): the task definition rule.
+ */
+function importerChanged(previous: { taskDefinition?: string; importerVersion?: string }, current: { taskDefinition: string | null; importerVersion: string | null }) {
+  if (current.importerVersion && previous.importerVersion) return { changed: current.importerVersion !== previous.importerVersion, by: "version" as const };
+  return { changed: Boolean(current.taskDefinition && previous.taskDefinition && current.taskDefinition !== previous.taskDefinition), by: "taskDefinition" as const };
+}
+
+/** What a kept entry still lacks and this run knows: an entry without a task definition or version takes this run's. */
+function adopted(previous: { taskDefinition?: string; importerVersion?: string }, taskDefinition: string | null, version: string | null) {
+  return {
+    ...(!previous.taskDefinition && taskDefinition ? { taskDefinition } : {}),
+    ...(!previous.importerVersion && version ? { importerVersion: version } : {}),
+  };
+}
+
+/** The identity fields an entry adopts from this run (the version when known; the task definition as before). */
+function importerStamp(taskDefinition: string | null, version: string | null) {
+  return { ...(taskDefinition ? { taskDefinition } : {}), ...(version ? { importerVersion: version } : {}) };
+}
+
+export type InboundReport = { snapshotAt?: string | null; importerVersion?: string | null; parts: number; totals: Record<string, number>; skippedEnrichments: number; skipped: BundleItem[]; truncated: boolean };
 
 function uniqueItems(items: BundleItem[]) {
   return [...new Map(items.map(item => [item.id, item])).values()];
@@ -352,19 +385,24 @@ export function nextRetry(report: InboundReport, limit = RETRY_LIMIT) {
  * - The export left it out: the previous entry stays (its sentAt too, so the weekly resend still comes), with a note
  *   while it holds rows the target skipped (they wait for the next full send). When the operations task definition
  *   differs from the one that imported the data (a release may have changed the importer), the entry is dropped so the
- *   next run sends in full; an entry without one takes this run's.
+ *   next run sends in full; an entry without one takes this run's. When both sides know the importer version (#1380), only
+ *   a changed version drops the entry and the task definition is ignored.
  * - An export without vehicleData (older than #1359): no entry.
  */
 export function nextVehicleState(input: {
-  previous?: VehicleState; exported: ExportedVehicle | null; totals: Record<string, number>; taskDefinition: string | null; now: Date;
+  previous?: VehicleState; exported: ExportedVehicle | null; totals: Record<string, number>; taskDefinition: string | null; importerVersion?: string | null; now: Date;
 }): { vehicle?: VehicleState; warnings: string[]; notes: string[] } {
   const { previous, exported, totals, taskDefinition, now } = input;
+  const version = input.importerVersion ?? null;
   const warnings: string[] = [], notes: string[] = [];
   if (!exported) return { warnings, notes };
   if (!exported.sent) {
     if (!previous) return { warnings, notes };
-    if (taskDefinition && previous.taskDefinition && taskDefinition !== previous.taskDefinition) {
-      notes.push(`The operations task definition changed since the vehicle data was sent (${previous.taskDefinition} -> ${taskDefinition}); the next run sends it in full.`);
+    const change = importerChanged(previous, { taskDefinition, importerVersion: version });
+    if (change.changed) {
+      notes.push(change.by === "version"
+        ? `The importer version changed since the vehicle data was sent (${previous.importerVersion} -> ${version}); the next run sends it in full.`
+        : `The operations task definition changed since the vehicle data was sent (${previous.taskDefinition} -> ${taskDefinition}); the next run sends it in full.`);
       return { warnings, notes };
     }
     const skippedSpecs = previous.skippedSpecs ?? 0, skippedImages = previous.skippedImages ?? 0;
@@ -372,7 +410,7 @@ export function nextVehicleState(input: {
       notes.push(`Vehicle data omitted; ${skippedSpecs} specs / ${skippedImages} images were skipped on the target at ${previous.sentAt} `
         + "(vehicle type missing there): run with --vehicle-data once their vehicle types exist there.");
     }
-    return { vehicle: previous.taskDefinition || !taskDefinition ? previous : { ...previous, taskDefinition }, warnings, notes };
+    return { vehicle: { ...previous, ...adopted(previous, taskDefinition, version) }, warnings, notes };
   }
   const { vehicleSpecs: specs, vehicleImages: images, skippedVehicleSpecs: skippedSpecs, skippedVehicleImages: skippedImages } = totals;
   if (![specs, images, skippedSpecs, skippedImages].every(value => typeof value === "number")) {
@@ -389,7 +427,7 @@ export function nextVehicleState(input: {
       + `when the vehicle data changes, after ${VEHICLE_RESEND_DAYS} days or with --vehicle-data.`);
   }
   return {
-    vehicle: { digest: exported.digest, specs: exported.specs, images: exported.images, sentAt: now.toISOString(), ...(taskDefinition ? { taskDefinition } : {}), skippedSpecs, skippedImages },
+    vehicle: { digest: exported.digest, specs: exported.specs, images: exported.images, sentAt: now.toISOString(), ...importerStamp(taskDefinition, version), skippedSpecs, skippedImages },
     warnings, notes,
   };
 }
@@ -405,18 +443,22 @@ export function nextVehicleState(input: {
  * - An export without staticMedia (older than #1379): no entry.
  */
 export function nextStaticMediaState(input: {
-  previous?: StaticMediaState; exported: ExportedStaticMedia | null; totals: Record<string, number>; taskDefinition: string | null; now: Date;
+  previous?: StaticMediaState; exported: ExportedStaticMedia | null; totals: Record<string, number>; taskDefinition: string | null; importerVersion?: string | null; now: Date;
 }): { staticMedia?: StaticMediaState; warnings: string[]; notes: string[] } {
   const { previous, exported, totals, taskDefinition, now } = input;
+  const version = input.importerVersion ?? null;
   const warnings: string[] = [], notes: string[] = [];
   if (!exported) return { warnings, notes };
   if (!exported.sent) {
     if (!previous) return { warnings, notes };
-    if (taskDefinition && previous.taskDefinition && taskDefinition !== previous.taskDefinition) {
-      notes.push(`The operations task definition changed since the category images and logos were sent (${previous.taskDefinition} -> ${taskDefinition}); the next run sends them in full.`);
+    const change = importerChanged(previous, { taskDefinition, importerVersion: version });
+    if (change.changed) {
+      notes.push(change.by === "version"
+        ? `The importer version changed since the category images and logos were sent (${previous.importerVersion} -> ${version}); the next run sends them in full.`
+        : `The operations task definition changed since the category images and logos were sent (${previous.taskDefinition} -> ${taskDefinition}); the next run sends them in full.`);
       return { warnings, notes };
     }
-    return { staticMedia: previous.taskDefinition || !taskDefinition ? previous : { ...previous, taskDefinition }, warnings, notes };
+    return { staticMedia: { ...previous, ...adopted(previous, taskDefinition, version) }, warnings, notes };
   }
   const { categoryImages: images, logos } = totals;
   if (typeof images !== "number" || typeof logos !== "number") {
@@ -428,7 +470,7 @@ export function nextStaticMediaState(input: {
     return { warnings, notes };
   }
   return {
-    staticMedia: { digest: exported.digest, images: exported.images, logos: exported.logos, sentAt: now.toISOString(), ...(taskDefinition ? { taskDefinition } : {}) },
+    staticMedia: { digest: exported.digest, images: exported.images, logos: exported.logos, sentAt: now.toISOString(), ...importerStamp(taskDefinition, version) },
     warnings, notes,
   };
 }
