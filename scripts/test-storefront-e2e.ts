@@ -24,6 +24,7 @@ import { buildInboundReport, checkInboundReport, type PartReport, reportKey } fr
 // reason; anything else that differs fails. The inbound tests (#1384) then run import-storefront-inbound.ts, the operations-task entry
 // point, on a third isolated schema: the same parts through a listing-capable stub, all dry runs, apply, fitment rebuild, queue drain,
 // report.json, and a part that fails its dry run must write nothing.
+// The golden fixture of the part format (#1383) is compared with the rows the real export wrote: same keys, same JSON types per key.
 // Run 3 also skips the category images and logos run 2 sent (--static-digest, #1379) and sends them again once a logo changes; run 4 imports media
 // the target already holds under another id and object key (#1385): every referencing table must point at the existing object. INSERT_ONLY lists columns the importer writes on insert but never updates: they are
 // left out of the comparisons that follow an update, so the gap stays visible. A column nobody seeded, or one that only ever holds
@@ -410,8 +411,8 @@ after(async () => {
 
 const state: {
   digest: string; staticDigest: string; snapshotAt: string; skipped: unknown[]; vehicleSnapshot: unknown[];
-  full1: string; parts1: string[]; run1Reports: PartReport[]; run1Target: Record<CarriedTable, Record<string, unknown>[]> | null; run1SharedQueue: number;
-} = { digest: "", staticDigest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [], full1: "", parts1: [], run1Reports: [], run1Target: null, run1SharedQueue: 0 };
+  full1: string; parts1: string[]; parts2: string[]; run1Reports: PartReport[]; run1Target: Record<CarriedTable, Record<string, unknown>[]> | null; run1SharedQueue: number;
+} = { digest: "", staticDigest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [], full1: "", parts1: [], parts2: [], run1Reports: [], run1Target: null, run1SharedQueue: 0 };
 const vehicleRows = async (pool: Pool) => [...(await compareRows("vehicle_type_specs", pool, [])), ...(await compareRows("vehicle_type_images", pool, []))];
 
 async function importParts(parts: string[]) {
@@ -535,6 +536,7 @@ test("run 2: a delta with a deletion and a retry applies, resets the removed job
 
   const parts = await splitStorefrontBundle(full, join(dir, "parts2"), { mediaBytes: 1e9, jsonBytes: 1e9 });
   assert.equal(parts.length, 3);
+  state.parts2 = parts;
   const { totals } = buildInboundReport(await importParts(parts));
   assert.deepEqual([totals.removedEnrichments, totals.resetJobs, totals.enrichments, totals.skippedEnrichments], [1, 1, 2, 0]);
   assert.ok(!stub.puts.some(path => path.endsWith(mediaKey("mVeh"))), "the unchanged vehicle image was uploaded again");
@@ -652,6 +654,94 @@ test("run 4: media the target already holds under another id and object key is r
   for (const object of objects) { assert.equal(fromSource[object.sha], object.bundleKey); assert.equal(fromTarget[object.sha], object.existingKey); }
   const rest = (keys: Record<string, string>) => Object.fromEntries(Object.entries(keys).filter(([sha]) => !objects.some(object => object.sha === sha)));
   assert.deepEqual(rest(fromTarget), rest(fromSource));
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The golden fixture (#1383): scripts/fixtures/storefront-part-format.json is generated from the hand-written sample rows of
+// test-storefront-split.ts, so on its own it cannot tell when the exporter starts writing another column. Here every row type the
+// fixture describes is compared with the rows the real exporter wrote and the real split cut (runs 1 and 2: run 2 is the one with a tombstone).
+type GoldenNode = string | { [key: string]: unknown };
+const GOLDEN_FILE = "scripts/fixtures/storefront-part-format.json";
+const GOLDEN_UPDATE = "update the sample rows of the 'storefront part format' test in scripts/test-storefront-split.ts to match (release the importer first if it must read a new column), then regenerate the fixture with `UPDATE_GOLDEN=1 node --import tsx --test scripts/test-storefront-split.ts` (local only)";
+const jsonType = (value: unknown) => value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+/** The JSON types a fixture node allows for one value: "string", an array node ({ "[]": ... }), an object node, or a oneOf of those. */
+function nodeTypes(node: unknown): Set<string> {
+  if (typeof node === "string") return new Set([node]);
+  const alternatives = (node as { oneOf?: unknown[] }).oneOf;
+  if (alternatives) return new Set(alternatives.flatMap(alternative => [...nodeTypes(alternative)]));
+  return new Set(["[]" in (node as object) ? "array" : "object"]);
+}
+/** A fixture node that describes rows: an array whose element is an object of columns (not "empty", a scalar, or a oneOf). */
+function rowNode(node: unknown): Record<string, unknown> | null {
+  const element = node && typeof node === "object" ? (node as { "[]"?: unknown })["[]"] : undefined;
+  return element && typeof element === "object" && !("oneOf" in element) && !("[]" in element) ? element as Record<string, unknown> : null;
+}
+/** Why the JSON types seen in the real export and the ones the fixture allows disagree (null when they do not). A fixture type that is only null says nothing, so it
+ * fails as soon as the real export holds a value. A real null is allowed against a typed fixture for a top-level key; for a row column (`strict`) the fixture must allow it too. */
+function typeProblem(real: Set<string>, fixed: Set<string>, strict: boolean) {
+  const realValued = [...real].filter(type => type !== "null").sort(), fixedValued = [...fixed].filter(type => type !== "null").sort();
+  const mismatch = realValued.length === 0 ? !fixed.has("null") : realValued.join() !== fixedValued.join() || (strict && real.has("null") && !fixed.has("null"));
+  return mismatch ? `the real export holds ${[...real].sort().join("|")}, the fixture ${[...fixed].sort().join("|")}` : null;
+}
+/** The type problem of one key, and of the elements of an array of scalars (path_ids, engine_codes, kba_numbers). Values below an object column (jsonb: raw, payload, match_basis) are deliberately not compared: they are free-form. */
+function valueProblem(values: unknown[], node: unknown, strict: boolean) {
+  const problem = typeProblem(new Set(values.map(jsonType)), nodeTypes(node), strict);
+  if (problem) return problem;
+  const element = (node as { "[]"?: unknown })["[]"];
+  if (element === undefined || (element !== null && typeof element === "object" && !("oneOf" in element))) return null;
+  const elements = values.filter(Array.isArray).flat();
+  const inner = elements.length ? typeProblem(new Set(elements.map(jsonType)), nodeTypes(element), strict) : null;
+  return inner && `its elements: ${inner}`;
+}
+/** Differences between a fixture row type and the real rows of it, as readable lines (none when the shapes agree). Values below a column (jsonb) are not compared, scalar arrays only by element type. */
+function rowShapeProblems(label: string, fixture: Record<string, unknown>, rows: Record<string, unknown>[]) {
+  const problems: string[] = [];
+  if (rows.length === 0) return [`${label}: the real export has no such rows, so the fixture's row type is not checked`];
+  const expected = Object.keys(fixture).sort();
+  const extra = new Set<string>(), missing = new Set<string>();
+  for (const row of rows) {
+    const keys = Object.keys(row);
+    for (const key of keys) if (!expected.includes(key)) extra.add(key);
+    for (const key of expected) if (!keys.includes(key)) missing.add(key);
+  }
+  if (extra.size) problems.push(`${label}: the real rows have keys the fixture lacks: ${[...extra].sort().join(", ")}`);
+  if (missing.size) problems.push(`${label}: the fixture has keys the real rows lack: ${[...missing].sort().join(", ")}`);
+  for (const key of expected.filter(name => !missing.has(name))) {
+    const problem = valueProblem(rows.map(row => row[key]), fixture[key], true);
+    if (problem) problems.push(`${label}.${key}: ${problem}`);
+  }
+  return problems;
+}
+
+test("the golden fixture's row shapes are the ones the real export writes (#1383)", { skip }, async () => {
+  assert.ok(state.parts1.length > 1 && state.parts2.length > 1, "runs 1 and 2 must have produced parts");
+  const golden = await readJson<Record<string, Record<string, GoldenNode>>>(join(repoRoot, GOLDEN_FILE));
+  const manifests = async (parts: string[]) => Promise.all(parts.map(part => readJson<Record<string, unknown>>(join(part, "manifest.json"))));
+  const [first, second] = [await manifests(state.parts1), await manifests(state.parts2)];
+  const carrying = (name: string) => [...first, ...second].filter(part => (part[name] as unknown[]).length > 0);
+  const partsOf = (kind: string) => kind === "part-00" ? [first[0], second[0]] : carrying(kind === "job parts" ? "jobs" : "enrichments");
+  const problems: string[] = [];
+  for (const [kind, schema] of Object.entries(golden)) {
+    const parts = partsOf(kind);
+    assert.ok(parts.length > 0, `${kind}: the real export has no such part`);
+    const keys = new Set(parts.flatMap(part => Object.keys(part)));
+    const fixed = Object.keys(schema);
+    const [extra, missing] = [[...keys].filter(key => !fixed.includes(key)), fixed.filter(key => !keys.has(key))];
+    if (extra.length) problems.push(`${kind}: the real manifest has keys the fixture lacks: ${extra.sort().join(", ")}`);
+    if (missing.length) problems.push(`${kind}: the fixture has keys the real manifest lacks: ${missing.sort().join(", ")}`);
+    for (const [name, node] of Object.entries(schema)) {
+      const values = parts.map(part => part[name]).filter(value => value !== undefined);
+      const row = rowNode(node);
+      if (row) problems.push(...rowShapeProblems(`${kind}.${name}`, row, values.flat() as Record<string, unknown>[]));
+      else if (node === "empty" || (node as { "[]"?: unknown })["[]"] === "empty") {
+        if (values.some(value => (value as unknown[]).length > 0)) problems.push(`${kind}.${name}: the fixture has no rows here but the real parts carry some`);
+      } else {
+        const problem = valueProblem(values, node, false);
+        if (problem) problems.push(`${kind}.${name}: ${problem}`);
+      }
+    }
+  }
+  assert.deepEqual(problems, [], `${GOLDEN_FILE} drifted from the real export:\n${problems.join("\n")}\nTo fix it, ${GOLDEN_UPDATE}.`);
 });
 
 // ---------------------------------------------------------------------------------------------------------------------------------

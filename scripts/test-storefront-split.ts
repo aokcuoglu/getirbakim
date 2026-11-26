@@ -3,7 +3,9 @@
 // and all enrichment parts (keys, JSON value types, element schemas of arrays, recursively) with scripts/fixtures/storefront-part-format.json.
 // Scope: it guards the split's own output: the top-level keys and types, which arrays each part kind blanks, and that rows pass through intact for the
 // row shapes in the fixture (written from the export SELECTs and the columns the importer reads). It cannot see an export or importer column change
-// by itself; scripts/test-storefront-e2e.ts runs export -> split -> import on two databases and compares the tables. Values are not compared, only keys and types.
+// by itself; scripts/test-storefront-e2e.ts runs export -> split -> import on two databases and compares the tables, and since #1383 it also compares this
+// fixture with the rows the real export wrote, so an export column change no longer goes unseen: the e2e test names the keys to change here.
+// Values are not compared, only keys and types.
 // If the format change is intended: release the importer first (backward compatible), then change the split, then regenerate the golden file with
 //   UPDATE_GOLDEN=1 node --import tsx --test scripts/test-storefront-split.ts   (refused in CI)
 import assert from "node:assert/strict";
@@ -444,20 +446,28 @@ test("storefront part format: part-00, the job parts and the enrichment parts ma
     imported_at: "2026-11-23T01:30:00.000Z", match_basis: { type: "exact_part" },
   }));
   const sha = (n: number) => String(n).repeat(64);
-  const mediaRow = (n: number) => ({ bucket: "product-media", sha256: sha(n), content_type: "image/webp", source_url: "https://example.test/i.webp", created_at: "2026-11-01T00:00:00.000Z", stored_at: null });
+  const mediaRow = (n: number) => ({ bucket: "product-media", sha256: sha(n), content_type: "image/webp", source_url: "https://example.test/i.webp", created_at: "2026-11-01T00:00:00.000Z", stored_at: "2026-11-02T00:00:00.000Z" });
   const { root, source } = await bundle([
     { id: "c", key: "cat/c.webp", size: 10, row: mediaRow(1) }, { id: "v", key: "veh/v.webp", size: 10, row: mediaRow(2) }, { id: "a", key: "p/a.webp", size: 10, row: mediaRow(3) },
   ], {
-    exportedAt: "2026-11-23T01:30:00Z", since: null, retried: 0, snapshotAt: "2026-11-23T01:29:00Z",
-    categories: [{ source: "trodo", category_id: 1, parent_id: null, name: "Fren", slug: "fren", path_ids: [1], source_url: "https://example.test/c/1", raw: { id: 1 }, fetched_at: "2026-11-01T00:00:00.000Z" }],
+    exportedAt: "2026-11-23T01:30:00Z", since: "2026-11-22T01:29:00Z", retried: 0, snapshotAt: "2026-11-23T01:29:00Z",
+    categories: [
+      { source: "trodo", category_id: 1, parent_id: null, name: "Fren", slug: "fren", path_ids: [1], source_url: "https://example.test/c/1", raw: { id: 1 }, fetched_at: "2026-11-01T00:00:00.000Z" },
+      { source: "trodo", category_id: 2, parent_id: 1, name: "Balata", slug: "balata", path_ids: [1, 2], source_url: "https://example.test/c/2", raw: { id: 2 }, fetched_at: "2026-11-01T00:00:00.000Z" },
+    ],
     labels: [{ source: "trodo", category_id: 1, locale: "tr", name: "Fren", slug: "fren" }],
     images: [{ source: "trodo", category_id: 1, media_id: "c", width: 64, height: 64 }],
     logos: [{ brand_key: "FEBI", manufacturer: "FEBI", image_data: "\\x89504e47", sha256: sha(4), width: 64, height: 32, source_url: "https://example.test/l.png",
       evidence_product_id: uuid(1), evidence_source_url: "https://example.test/p", imported_at: "2026-11-01T00:00:00.000Z" }],
-    vehicleSpecs: [{ vehicle_type_id: 7, outcome: "found", detail: null, full_name: "Ford Focus 1.6", body_type: "Hatchback", drive_type: "FWD", engine_type: "Petrol", fuel_mixture: "Injection",
-      cylinders: 4, valves: 16, engine_codes: ["HXDA"], kba_numbers: ["8009/AEK"], fetched_at: "2026-11-01T00:00:00.000Z" }],
-    vehicleImages: [{ vehicle_type_id: 7, media_id: "v", original_media_id: null, width: 512, height: 256, imported_at: "2026-11-01T00:00:00.000Z" }],
-    tombstones: [{ supplier_item_id: uuid(9), supplier: "basbug", company: "C", list_group: "L", warehouse: "MRK", code: "CODE 9", kind: "enrichment_deleted", source_method: null,
+    // The second spec is a "missing" outcome: the columns REPXPERT did not answer are null (as in the real export).
+    vehicleSpecs: [
+      { vehicle_type_id: 7, outcome: "found", detail: "spec detail", full_name: "Ford Focus 1.6", body_type: "Hatchback", drive_type: "FWD", engine_type: "Petrol", fuel_mixture: "Injection",
+        cylinders: 4, valves: 16, engine_codes: ["HXDA"], kba_numbers: ["8009/AEK"], fetched_at: "2026-11-01T00:00:00.000Z" },
+      { vehicle_type_id: 8, outcome: "missing", detail: "not known to REPXPERT", full_name: null, body_type: null, drive_type: null, engine_type: null, fuel_mixture: null,
+        cylinders: null, valves: null, engine_codes: [], kba_numbers: [], fetched_at: "2026-11-01T00:00:00.000Z" },
+    ],
+    vehicleImages: [{ vehicle_type_id: 7, media_id: "v", original_media_id: "c", width: 512, height: 256, imported_at: "2026-11-01T00:00:00.000Z" }],
+    tombstones: [{ supplier_item_id: uuid(9), supplier: "basbug", company: "C", list_group: "L", warehouse: "MRK", code: "CODE 9", kind: "enrichment_deleted", source_method: "trodo",
       recorded_at: "2026-11-20T00:00:00.000Z" }],
     invalidatedJobs: 1, maxDeletions: 1000,
     jobs, enrichments, products: [{ supplier_item_id: uuid(1), source: "trodo", category_id: 1 }],
