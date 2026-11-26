@@ -9,7 +9,7 @@ import { sharedLoads, ttlCache } from "@/lib/ttl-cache";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { fitsEpoch, listingEpoch } from "./listing-epoch";
-import { listingCacheStore } from "./listing-cache-store";
+import { listingCacheStore, storedLinks } from "./listing-cache-store";
 import { buildPriceOrder, priceOrderEnabled, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
 import { listingStatementTimeoutMs } from "./listing-timeout";
@@ -295,8 +295,9 @@ async function fittedProductIds(typeIds:number[]){
 // listing-epoch.ts): it moves with every admin edit and also when the fit sync changed fit rows, which the others ignore.
 const listings={epoch:listingEpoch},fitListings={epoch:fitsEpoch};
 // How long a visitor waits for a reload when an earlier value exists (#771, listing-wait.ts), and how old a stored one
-// served meanwhile may be (the store's prune window). Used by the listing caches below and, since #1368, by the fit
-// caches a page reads itself (listed models, garage vehicle listings).
+// served meanwhile may be (the store's prune window). Used by the listing caches below, since #1368 by the fit
+// caches a page reads itself (listed models, garage vehicle listings), and since #1394 by the search caches (plain,
+// API rankings, suggestions).
 const boundedWait={maxWaitMs:listingWaitMs,maxFallbackMs:48*60*60*1000};
 // Fitments change when enrichments are imported or an admin decides; vehicle-type lists are shared per process.
 // Each value is an id array that can hold hundreds of thousands of uuids, so the caches are also bounded by total id
@@ -337,10 +338,10 @@ const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",
  * A make's model page units that list at least one product (#639): the make page links only these, so no link ends in
  * the empty model page's 404. A unit counts when a fitted product (as in modelFittedIds) is in the storefront listing
  * (listedOnly); a fit pointing at a hidden or no longer supplied item does not. One query per make over the make's
- * series, cached like the fits (per process, reloaded when a listing edit or the fit sync moves the fits value). After a
+ * series, cached like the fits (per process and in storefront_listing_cache, so a new container adopts it, #1391; reloaded when a listing edit or the fit sync moves the fits value). After a
  * bump the make page waits at most LISTING_EPOCH_WAIT_MS for the reload, then links the earlier units (none: it waits).
  */
-const cachedListedModels=staleCache<string[]>(10*60*1000,300,{...fitListings,...boundedWait,fallbackWhen:ids=>ids.length>0});
+const cachedListedModels=staleCache<string[]>(10*60*1000,300,{...fitListings,...boundedWait,...storedLinks,fallbackWhen:ids=>ids.length>0,store:listingCacheStore<string[]>("listed-models",1)});
 export async function getListedModelGroups(brandId:string) {
  const groups=await getVehicleModelGroups(brandId);
  const modelIds=groups.flatMap(group=>group.models.map(member=>member.id));
@@ -772,7 +773,7 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // that just gained products must not show "no products" beside a fresh count, so callers wait for the reload, which is
 // cheap for a listing that was empty. The warm-up waits for every reload (listingWaitMs). A garage vehicle's listings, a
 // make's listed models and a make's or model's category counts (listing-categories.server.ts) wait the same way (#1368);
-// the fitted id sets, the brand and the search caches still wait for their reload.
+// the fitted id sets and the brand cache still wait for their reload.
 // A listing without a search, vehicle or narrowing filter loads its count, first page ids and facets from one scan
 // (listingSummary, #1367): the three caches keep their own keys, stored rows and rules, and their loaders share it.
 const aggregateTtl=10*60*1000,persistedFor={maxStaleMs:24*60*60*1000};
@@ -894,11 +895,12 @@ async function summarizeSearch(search:CatalogSearch,includeUnavailable=true){
 // A search with no other filter is the common case. Broad ones ("fren": ~70k matches) spend ~0.5 s just
 // reading the matched rows, and their answer changes only with supplier syncs — like the listings above,
 // it is served stale-while-revalidate for 10 minutes (admin edits reload it at once through the listing epoch, #585; a
-// search that may name a vehicle also with the fit sync, searchEpoch, #1368). Prices and stock are still read live for the listed
+// search that may name a vehicle also with the fit sync, searchEpoch, #1368). A search waits at most LISTING_EPOCH_WAIT_MS
+// for that reload, then shows the earlier result unless it was empty (#1394). Cards (prices, stock) are still read live for the listed
 // ids. The first pages are kept (deeper pages are recomputed); facets need every match, so they are kept too.
 // 24 cards (#739, was 30) keep a listing page closer to the 350 KB HTML target (#642); 20 cached pages cover 480 results.
 const catalogPageSize=24;
-const cachedPages=20,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300,listings);
+const cachedPages=20,cachedPlainSearches=staleCache<PlainSearch>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:plain=>plain.total>0});
 type PlainSearch={ids:string[];total:number;brands:string[];attributes:CatalogFacet[];correctedQuery?:string;vehicle?:VehicleSearchScope;tooShort?:boolean};
 const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`,async()=>{
  const search=await catalogSearch(raw,mode),summary=await summarizeSearch(search);
@@ -908,12 +910,20 @@ const plainSearch=(raw:string,mode:SearchMode)=>cachedPlainSearches(`${mode}|${n
 },{epoch:searchEpoch(raw,mode)});
 /** How deep API searches read the ranking (#1093): exact-number filters and fit-first ordering work on these ids. */
 export const rankedSearchDepth=200;
-const cachedRankedSearches=staleCache<string[]>(aggregateTtl,300,listings);
+const cachedRankedSearches=staleCache<string[]>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:ids=>ids.length>0});
 // The hit set the two API rankings below share (#1119): loaded once when both miss together (a partner request with a
 // vehicle), not searched twice. Few and short-lived entries: a broad search holds up to maxSearchHits ids. Keyed by the
 // search's counter too (searchEpoch), so a ranking reloaded after a bump never starts from a hit set found before it.
 const sharedApiSearches=ttlCache<CatalogSearch>(30_000,4);
 const apiSearchKey=(raw:string,mode:SearchMode)=>`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`;
+// The type-ahead's hit set (#1394): the ids it ranks (at most maxRankedSuggestions) and whether there were more, kept like
+// the API rankings so a keystroke repeated within 10 minutes sends no hit read; names and products below stay live.
+type SuggestSearch=Pick<CatalogSearch,"parsed"|"correctedQuery"|"vehicle">&{ids:string[];many:boolean};
+const cachedSuggestSearches=staleCache<SuggestSearch>(aggregateTtl,500,{...listings,...boundedWait,fallbackWhen:search=>search.ids.length>0,weigh:search=>search.ids.length,maxWeight:100_000});
+const suggestSearch=(raw:string,mode:SearchMode)=>cachedSuggestSearches(apiSearchKey(raw,mode),async()=>{
+ const {parsed,correctedQuery,vehicle,ids}=await catalogSearch(raw,mode);
+ return {parsed,correctedQuery,vehicle,ids:ids.slice(0,maxRankedSuggestions),many:ids.length>maxRankedSuggestions};
+},{epoch:searchEpoch(raw,mode)});
 const apiSearch=async(raw:string,mode:SearchMode)=>sharedApiSearches(`${await searchEpoch(raw,mode)()}|${apiSearchKey(raw,mode)}`,()=>catalogSearch(raw,mode));
 /**
  * The first rankedSearchDepth saleable matches of a search (no unavailable cards), in the storefront's relevance order
@@ -934,7 +944,7 @@ const typeFittedListingIds=(typeId:number)=>cachedFittedListings(String(typeId),
  return (await catalogRead<{id:string}>(`catalog.typeFittedListings type=${typeId}`,`SELECT DISTINCT COALESCE(o.primary_id,f.id)::text AS id FROM unnest($1::uuid[]) f(id)
   LEFT JOIN product_offers o ON o.item_id=f.id`,[fitted])).rows.map(row=>row.id);
 });
-const cachedRankedFits=staleCache<string[]>(aggregateTtl,300,fitListings);
+const cachedRankedFits=staleCache<string[]>(aggregateTtl,300,{...fitListings,...boundedWait,fallbackWhen:ids=>ids.length>0});
 /**
  * The first rankedSearchDepth saleable matches of a search that are linked to the vehicle type, in relevance order
  * (#1119): the whole hit set intersected with the type's fits, as the storefront's "Aracına uyanlar" lead does
@@ -1144,13 +1154,13 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  // Products named only in English ("BRAKE HOSE" for "fren hor") never reach the ranked list: their English names come
  // from the type-name dictionary and are suggested as names (#962). The recheck keeps the text-index plan (~1 ms).
  const expansion=mode==="all"&&!searchTooShort(raw)?typeNamePrefixQuery(parseSearchQuery(raw)):null;
- const [search,english]=await Promise.all([catalogSearch(raw,mode),expansion?catalogRead<{name:string;products:number}>("catalog.suggestNames",`SELECT name,products FROM search_product_names
+ const [search,english]=await Promise.all([suggestSearch(raw,mode),expansion?catalogRead<{name:string;products:number}>("catalog.suggestNames",`SELECT name,products FROM search_product_names
   WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1) AND normalized=ANY($2::text[])
   ORDER BY products DESC,name LIMIT ${Number(limit)}`,[expansion.query,expansion.names]).then(result=>result.rows):[]]);
  const notes={correctedQuery:search.correctedQuery,vehicleScope:search.vehicle};
  const englishNames=english.map(row=>({kind:"name" as const,...row}));
  if(!search.ids.length)return {products:englishNames as ProductSuggestion[],...notes};
- if(search.ids.length>maxRankedSuggestions&&!search.vehicle?.fitted){
+ if(search.many&&!search.vehicle?.fitted){
   const query=prefixTsQuery(search.parsed);
   // The names most products share first: "filtre" means "Hava Filtresi" (5k) more than "Filtre Hortumu".
   const names=query?(await catalogRead<{name:string;products:number}>("catalog.suggestNames",`SELECT name,products FROM search_product_names
@@ -1160,7 +1170,7 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
   const merged=[...new Map([...names,...english].map(row=>[row.name,row])).values()].sort((a,b)=>b.products-a.products||a.name.localeCompare(b.name)).slice(0,limit*2);
   if(merged.length)return {products:merged.map(row=>({kind:"name" as const,...row})),...notes};
  }
- const values:unknown[]=[company(),search.ids.slice(0,maxRankedSuggestions)],bind=binder(values);
+ const values:unknown[]=[company(),search.ids],bind=binder(values);
  // One suggestion per name and brand: a supplier lists the same part in many sizes.
  const products=(await catalogRead<{id:string;name:string;name_overridden:boolean;brand:string;code:string}>("catalog.suggestProducts",`SELECT id,name,name_overridden,brand,code FROM (
   SELECT DISTINCT ON (name,display_brand) id::text,name,name_overridden,display_brand AS brand,display_code AS code,rank,updated_at,unavailable FROM (

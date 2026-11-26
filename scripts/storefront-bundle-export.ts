@@ -18,6 +18,20 @@ export function vehicleDataDigest(specs: unknown[], images: unknown[], media: { 
   return createHash("sha256").update(content).digest("hex");
 }
 
+// Part of the static media digest (#1379): raise it when the exported category image or logo rows change shape or meaning without
+// their values changing (a new column, another format), so the next sync sends them in full whatever the target confirmed before.
+export const STATIC_MEDIA_VERSION = 1;
+
+/**
+ * The digest of the category images and manufacturer logos an export would carry (#1379): sha256 hex over STATIC_MEDIA_VERSION, the
+ * category image rows, the logo rows (image data included) and [id, sha256, size_bytes] of the category images' media rows, each
+ * in its SQL order. The sync omits them while it equals the digest the target last confirmed (export-storefront-bundle.ts --static-digest).
+ */
+export function staticMediaDigest(images: unknown[], logos: unknown[], media: { id: string; sha256: string; size_bytes: number | string }[]) {
+  const content = JSON.stringify([STATIC_MEDIA_VERSION, images, logos, media.map(object => [object.id, object.sha256, Number(object.size_bytes)])]);
+  return createHash("sha256").update(content).digest("hex");
+}
+
 // The enrichments an export carries: those imported after $1 (the watermark), plus the supplier items in $2 (a JSON
 // array of bundle items, the sync's retry list of enrichments the target skipped), matched by id or by natural key.
 // A product whose enrichment the target could not place yet is therefore sent again whatever the watermark says.

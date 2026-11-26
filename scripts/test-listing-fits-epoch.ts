@@ -6,6 +6,7 @@ import { after, before, test } from "node:test";
 import pg from "pg";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
+import type { StaleCacheStore } from "../src/lib/stale-cache";
 import type { CatalogQuery } from "../src/modules/store/catalog-query";
 
 // The fits epoch (#1368) in an isolated copy of the schema: the fit sync's bump (invalidateFits) moves only the value the
@@ -115,6 +116,10 @@ before(async () => {
   await schema.pool.query(`INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VW');
     INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(10,1,'GOLF VII (5G1)','2012-08-01','2017-03-01'),(20,1,'POLO VI (AW1)','2017-06-01',NULL),
      (30,1,'TIGUAN II (AD1)','2016-01-01',NULL);
+    INSERT INTO vehicle_brands(id,name,display_name) VALUES(2,'AUDI','AUDI');
+    INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(40,2,'A3 (8V1)','2012-01-01',NULL),(50,2,'A4 (8W2)','2015-01-01',NULL);
+    INSERT INTO vehicle_brands(id,name,display_name) VALUES(3,'SEAT','SEAT'),(4,'SKODA','SKODA');
+    INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(60,3,'LEON (5F1)','2012-01-01',NULL);
     INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
      VALUES(${GOLF},10,'1.6 TDI',1598,'Diesel','Dizel',110,81,'2012-08-01','golf');
     INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT 1,id FROM supplier_items;
@@ -128,8 +133,10 @@ before(async () => {
   await addVehicleFit("BOSCH 1002");
   Object.assign(globalThis, { AsyncLocalStorage });
   workStorage = (await import("next/dist/server/app-render/work-async-storage.external")).workAsyncStorage;
-  const [{ db }, epochModule, catalogModule, categoriesModule] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/listing-epoch"),
-    import("../src/modules/store/catalog"), import("../src/modules/store/listing-categories.server")]);
+  const [{ db }, epochModule, catalogModule, categoriesModule, { listingCacheStore }] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/listing-epoch"),
+    import("../src/modules/store/catalog"), import("../src/modules/store/listing-categories.server"), import("../src/modules/store/listing-cache-store")]);
+  models = listingCacheStore<string[]>("listed-models", 1);
+  counts = listingCacheStore<[number, number][]>("category-counts", 1);
   epoch = epochModule;
   catalog = catalogModule;
   categories = categoriesModule;
@@ -256,6 +263,157 @@ test("after the fit sync's bump a make's listed models and category counts and a
     await locker.query("ROLLBACK").catch(() => {});
     locker.release();
   }
+});
+
+test("after the fit sync's bump a vehicle search, its API ranking and its suggestions serve the earlier result within the wait, then the reloaded one", async () => {
+  const q = "bosch golf";
+  const page = () => inRequest(() => catalog.browseProducts({ q }));
+  const read = async () => {
+    const browsed = await page();
+    return { ids: browsed.items.map(item => item.id), total: browsed.total, scope: browsed.vehicleScope?.fitted,
+      ranked: await catalog.rankedSearchIds(q, "all"), fitting: await catalog.rankedFittingSearchIds(q, "all", GOLF),
+      suggested: (await catalog.suggestProducts(q, "all")).products };
+  };
+  const earlier = await read();
+  assert.equal(earlier.scope, true, "the query names the fixture's vehicle");
+  await addVehicleFit("BOSCH 1004");
+  const locker = await schema.pool.connect();
+  try {
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE product_override_fitments,product_vehicle_fitments IN ACCESS EXCLUSIVE MODE");
+    await withEnv({ LISTING_EPOCH_WAIT_MS: "0" }, async () => {
+      await epoch.invalidateFits();
+      const started = Date.now();
+      assert.deepEqual(await read(), earlier, "the earlier results while the reloads wait");
+      assert.ok(Date.now() - started < 2_000, "served without waiting for the held reloads");
+      await locker.query("COMMIT");
+      const fresh = (value: Awaited<ReturnType<typeof read>>) => value.total === earlier.total + 1 && value.fitting.length > earlier.fitting.length
+        && value.suggested.length > 0 && JSON.stringify(value.suggested) !== JSON.stringify(earlier.suggested);
+      const now = await until(read, fresh);
+      assert.equal(now.total, earlier.total + 1);
+      assert.equal(now.fitting.length, earlier.fitting.length + 1, "the ranked fits reloaded");
+      assert.deepEqual(now.suggested, (await catalog.suggestProducts(q, "all")).products);
+      const live = await catalog.searchCatalogItems(q, "all");
+      assert.deepEqual(now.ids, live.slice(0, now.ids.length).map(item => item.id), "the reloaded page is the uncached search's");
+    });
+  } finally {
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
+});
+
+test("an empty earlier search result is not served", async () => {
+  const q = "bosch golf zzzz";
+  const read = () => inRequest(() => catalog.browseProducts({ q }));
+  assert.equal((await read()).total, 0);
+  const locker = await schema.pool.connect();
+  try {
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE supplier_items IN ACCESS EXCLUSIVE MODE");
+    await withEnv({ LISTING_EPOCH_WAIT_MS: "0" }, async () => {
+      await epoch.invalidateFits();
+      const settled = await Promise.race([read().then(() => true), sleep(300).then(() => false)]);
+      assert.equal(settled, false, "the read waits for the reload instead of showing the empty result");
+      await locker.query("COMMIT");
+      assert.equal((await read()).total, 0);
+    });
+  } finally {
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
+});
+
+test("a cached suggestion sends no hit read until a bump", async () => {
+  const hitReads = (run: () => Promise<unknown>) => loads(run, text => text.includes("WITH main AS MATERIALIZED"));
+  const suggest = (q: string) => () => catalog.suggestProducts(q, "all");
+  for (const [q, afterBump] of [["bosch golf", true], ["bosch", false]] as const) {
+    assert.ok((await hitReads(suggest(q))).loads > 0, `${q}: the first call searches`);
+    assert.equal((await hitReads(suggest(q))).loads, 0, `${q}: the second call is cached`);
+    await epoch.invalidateFits();
+    assert.equal((await hitReads(suggest(q))).loads > 0, afterBump, `${q}: after a fit sync bump`);
+  }
+});
+
+// The listed models and the make/model category counts are persisted like the make listing (#1391): the audi make has no
+// fits, so a row can only come from the seed or from a load, and the seeds' values differ from what a load finds.
+// Loaded in before (after the isolated schema is selected), like the other store modules.
+let models: StaleCacheStore<string[]>, counts: StaleCacheStore<[number, number][]>;
+const audiModels = async () => (await catalog.getListedModelGroups("2")).map(group => group.slug).sort();
+const audiCount = async () => (await inRequest(() => categories.scopeCategoryCounts({ make: "audi" }))).get(241);
+const seatModels = async () => (await catalog.getListedModelGroups("3")).map(group => group.slug).sort();
+const seatCount = async () => (await inRequest(() => categories.scopeCategoryCounts({ make: "seat" }))).get(241);
+const stored = async (namespace: string) => (await schema.pool.query<{ epoch: number }>(
+  "SELECT epoch::int FROM storefront_listing_cache WHERE namespace=$1", [namespace])).rows;
+const reset = () => schema.pool.query("DELETE FROM storefront_listing_cache WHERE namespace IN ('listed-models','category-counts')");
+
+test("a stored current listed models and category counts row is adopted on a cold key without a load", async () => {
+  await reset();
+  const current = await epoch.fitsEpoch();
+  await models.write("2", ["40"], current);
+  await counts.write("audi|", [[241, 5]], current);
+  // The model list and the stored row are read, the fit tables are not.
+  assert.equal((await loads(async () => { assert.deepEqual(await audiModels(), ["a3-8v1"]); }, text => text.includes("storefront_model_fits"))).loads, 0, "models");
+  assert.equal((await loads(async () => { assert.equal(await audiCount(), 5); }, text => text.includes("storefront_make_fits"))).loads, 0, "counts");
+  // A row past the 10-minute TTL (within the 1-hour window) is adopted too: served once, refreshed in the background.
+  await counts.write("skoda|", [[241, 7]], current);
+  await schema.pool.query("UPDATE storefront_listing_cache SET computed_at=now()-interval '30 minutes' WHERE namespace='category-counts' AND epoch=$1", [current]);
+  const skoda = async () => (await inRequest(() => categories.scopeCategoryCounts({ make: "skoda" }))).get(241);
+  assert.equal(await skoda(), 7, "the stored count first");
+  assert.equal(await until(skoda, value => value === undefined), undefined, "then the real value (the make has no fits)");
+});
+
+test("loaded values are stored with the fits value, which the fit sync's bump moves ahead of the listing epoch", async () => {
+  await reset();
+  await epoch.invalidateListings();
+  await epoch.invalidateFits();
+  const current = await epoch.fitsEpoch();
+  assert.ok(current > await epoch.listingEpoch());
+  await audiModels();
+  await audiCount();
+  for (const namespace of ["listed-models", "category-counts"]) {
+    assert.deepEqual(await until(() => stored(namespace), rows => rows.length > 0), [{ epoch: current }], namespace);
+  }
+});
+
+test("an older stored row is served while a held reload runs, an empty one never, and the real value then replaces it", async () => {
+  await reset();
+  const current = await epoch.fitsEpoch(), older = current - 1;
+  await models.write("3", ["60"], older);
+  await counts.write("seat|", [], older);
+  const locker = await schema.pool.connect();
+  try {
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE storefront_model_fits,storefront_make_fits IN ACCESS EXCLUSIVE MODE");
+    await withEnv({ LISTING_EPOCH_WAIT_MS: "0" }, async () => {
+      // SEAT is read here for the first time: cold memory, so the stored rows are the only earlier values.
+      const started = Date.now();
+      assert.deepEqual(await seatModels(), ["leon-5f1"], "the stored value");
+      assert.ok(Date.now() - started < 2_000, "served without waiting for the held reload");
+      const waiting = seatCount();
+      assert.equal(await Promise.race([waiting.then(() => "done"), sleep(500).then(() => "waiting")]), "waiting", "an empty value is not served");
+      await locker.query("COMMIT");
+      assert.equal(await waiting, undefined, "the real value: SEAT has no fits");
+    });
+    assert.deepEqual(await until(seatModels, value => value.length === 0), [], "the real value replaces the stored one");
+    assert.deepEqual(await until(() => stored("listed-models"), rows => rows[0]?.epoch === current), [{ epoch: current }]);
+  } finally {
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
+});
+
+test("an older write never replaces a newer row, and LISTING_CACHE_PERSIST=0 writes nothing", async () => {
+  await reset();
+  const current = await epoch.fitsEpoch();
+  await models.write("2", ["40"], current);
+  await models.write("2", ["50"], current - 1);
+  assert.deepEqual((await models.read("2"))?.value, ["40"]);
+  await reset();
+  await withEnv({ LISTING_CACHE_PERSIST: "0" }, async () => {
+    await models.write("2", ["40"], current);
+    await counts.write("audi|", [[241, 1]], current);
+  });
+  assert.deepEqual([await stored("listed-models"), await stored("category-counts")], [[], []]);
 });
 
 // Last: drops the column, as on a database whose setup has not run yet.

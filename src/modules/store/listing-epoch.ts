@@ -22,7 +22,7 @@ import { db } from "@/lib/db";
  * Until setup has added fits_epoch (a missing column, 42703), both values read `epoch` and both bumps move it, for five
  * minutes, after which the column is tried again (logged once per period); a bump never throws.
  * The listing counts, page ids and facets wait at most LISTING_EPOCH_WAIT_MS (250 ms, listing-wait.ts) for that reload
- * (#771, catalog.ts), and so do most fit caches (#1368): past it a visitor gets the replaced value (unless it is empty)
+ * (#771, catalog.ts), and so do most fit caches (#1368) and the search caches (plain, API rankings, suggestions; #1394): past it a visitor gets the replaced value (unless it is empty)
  * and the reload goes on, so a large listing shows an edit once its reload ends.
  * The known values only grow (Math.max), so a racing older read cannot undo a bump. If a counter is ever set back
  * (restoring a backup, recreating the table or the column) or the app is rolled back to a release before #1368 (it reads

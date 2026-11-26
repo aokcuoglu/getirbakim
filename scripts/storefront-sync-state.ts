@@ -4,8 +4,8 @@ import { resolve } from "node:path";
 import type { BundleItem } from "./storefront-bundle-items";
 
 // Pure helpers of scripts/sync-storefront-production.ts: the watermark, the run lock and the
-// dry-run summary, argument parsing, the retry list of enrichments the target skipped and the REPXPERT vehicle data the
-// target confirmed. Paths are relative to the working directory (the checkout the sync runs in).
+// dry-run summary, argument parsing, the retry list of enrichments the target skipped, and the REPXPERT vehicle data and
+// the category images and logos (#1379) the target confirmed. Paths are relative to the working directory (the checkout the sync runs in).
 
 // AWS is the only target (the VPS target was removed in #563); the field stays so existing state and lock files keep their shape.
 export type SyncTarget = "aws";
@@ -14,6 +14,9 @@ export type SyncTarget = "aws";
 export type VehicleState = {
   digest: string; specs: number; images: number; sentAt: string; taskDefinition?: string; skippedSpecs?: number; skippedImages?: number;
 };
+// The category images and manufacturer logos the target last confirmed (#1379): the export's digest of them, their row counts,
+// when they were sent and the operations task definition that imported them.
+export type StaticMediaState = { digest: string; images: number; logos: number; sentAt: string; taskDefinition?: string };
 export type SyncState = {
   snapshotAt: string; syncedAt?: string; target?: SyncTarget; since?: string | null; baseline?: boolean; enrichments?: number; jobs?: number;
   // Supplier items whose enrichments the target skipped (item not there yet); the next export sends them again.
@@ -22,6 +25,8 @@ export type SyncState = {
   tombstones?: number;
   // Written only after a report confirmed the vehicle data; while its digest matches, exports leave the data out (#1359).
   vehicle?: VehicleState;
+  // Written only after a report confirmed the category images and logos; while its digest matches, exports leave them out (#1379).
+  staticMedia?: StaticMediaState;
 };
 type Lock = { pid: number; startedAt: string; target: SyncTarget };
 
@@ -31,11 +36,12 @@ export const LOCK_PATH = `${SYNC_DIR}/sync.lock`;
 export const LOCK_STALE_MS = 24 * 60 * 60 * 1000;
 // Retry keys kept between runs (and written to the inbound report); the count is always reported in full.
 export const RETRY_LIMIT = 10_000;
-// Unchanged REPXPERT vehicle data is still sent in full once its last confirmed send is this old (#1359): a target
-// restored or edited behind the sync's back gets it back within a week.
-export const VEHICLE_RESEND_DAYS = 7;
+// Unchanged REPXPERT vehicle data (#1359) and category images and logos (#1379) are still sent in full once their last
+// confirmed send is this old: a target restored or edited behind the sync's back gets them back within a week.
+export const RESEND_DAYS = 7;
+export const VEHICLE_RESEND_DAYS = RESEND_DAYS;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const VEHICLE_DIGEST = /^[0-9a-f]{64}$/;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 /** The watermark file (kept under its aws name so the existing watermark keeps working). */
 export const STATE_PATH = `${SYNC_DIR}/state.aws.json`;
@@ -65,25 +71,28 @@ export function parsePositiveInteger(value: string, flag: string) {
   return number;
 }
 
-/** A vehicle data digest (export-storefront-bundle.ts --vehicle-digest): 64 lower-case hex digits, nothing else. */
-export function parseVehicleDigest(value: string, flag: string) {
-  if (!VEHICLE_DIGEST.test(value)) throw new Error(`${flag} must be a sha256 hex digest: ${value}`);
+/** A data digest (export-storefront-bundle.ts --vehicle-digest, --static-digest): 64 lower-case hex digits, nothing else. */
+export function parseDigest(value: string, flag: string) {
+  if (!SHA256_HEX.test(value)) throw new Error(`${flag} must be a sha256 hex digest: ${value}`);
   return value;
 }
+export const parseVehicleDigest = parseDigest;
 
 // maxDeletions null: the export's default (storefront-bundle-tombstones.ts DEFAULT_MAX_DELETIONS).
 // vehicleData: send the REPXPERT vehicle data in full even if the target confirmed the same digest (#1359).
-export type SyncArgs = { dryRun: boolean; full: boolean; force: boolean; vehicleData: boolean; baseline: string | null; maxDeletions: number | null };
+// staticMedia: the same for the category images and logos (#1379).
+export type SyncArgs = { dryRun: boolean; full: boolean; force: boolean; vehicleData: boolean; staticMedia: boolean; baseline: string | null; maxDeletions: number | null };
 
 /** The sync's flags, strictly: a mistyped flag must never turn into a real run. */
 export function parseSyncArgs(argv: string[], now: Date): SyncArgs {
-  const parsed: SyncArgs = { dryRun: false, full: false, force: false, vehicleData: false, baseline: null, maxDeletions: null };
-  const usage = "Usage: sync-storefront-production.ts [--dry-run] [--full] [--vehicle-data] [--max-deletions=<n>] [--baseline=<ISO> [--force]]";
+  const parsed: SyncArgs = { dryRun: false, full: false, force: false, vehicleData: false, staticMedia: false, baseline: null, maxDeletions: null };
+  const usage = "Usage: sync-storefront-production.ts [--dry-run] [--full] [--vehicle-data] [--static-media] [--max-deletions=<n>] [--baseline=<ISO> [--force]]";
   for (const arg of argv) {
     if (arg === "--dry-run" && !parsed.dryRun) parsed.dryRun = true;
     else if (arg === "--full" && !parsed.full) parsed.full = true;
     else if (arg === "--force" && !parsed.force) parsed.force = true;
     else if (arg === "--vehicle-data" && !parsed.vehicleData) parsed.vehicleData = true;
+    else if (arg === "--static-media" && !parsed.staticMedia) parsed.staticMedia = true;
     else if (arg.startsWith("--baseline=") && parsed.baseline === null) parsed.baseline = parseBaseline(arg.slice("--baseline=".length), now);
     else if (arg.startsWith("--max-deletions=") && parsed.maxDeletions === null) {
       parsed.maxDeletions = parsePositiveInteger(arg.slice("--max-deletions=".length), "--max-deletions");
@@ -94,6 +103,7 @@ export function parseSyncArgs(argv: string[], now: Date): SyncArgs {
   if (parsed.force && !parsed.baseline) throw new Error("--force only applies to --baseline");
   // A baseline only records the watermark; it exports nothing for the flag to apply to.
   if (parsed.vehicleData && parsed.baseline && !parsed.dryRun) throw new Error("--vehicle-data does not apply to --baseline without --dry-run");
+  if (parsed.staticMedia && parsed.baseline && !parsed.dryRun) throw new Error("--static-media does not apply to --baseline without --dry-run");
   return parsed;
 }
 
@@ -145,58 +155,86 @@ export function releaseLock(path: string, pid = process.pid) {
 // The export's manifest.vehicleData (#1359): the digest and row counts of the REPXPERT vehicle data and whether the export sent it.
 export type ExportedVehicle = { digest: string; specs: number; images: number; sent: boolean };
 
+// The export's manifest.staticMedia (#1379): the digest and row counts of the category images and logos and whether the export sent them.
+export type ExportedStaticMedia = { digest: string; images: number; logos: number; sent: boolean };
+
 const isCount = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
 /**
  * What the sync needs from an export's manifest.json: the snapshot and counts. The export keeps its enrichments and
  * job statuses in NDJSON files and records only enrichmentCount and jobCount (#1316, #1317); only these fields are
  * returned, so the parsed vehicle data is not held in memory while the export is split. vehicle is the export's
- * vehicleData, null for an export older than #1359.
+ * vehicleData, null for an export older than #1359; staticMedia likewise for one older than #1379.
  */
 export function exportSummary(text: string) {
-  const { snapshotAt, enrichmentCount, jobCount, tombstones, invalidatedJobs, maxDeletions, vehicleData } = JSON.parse(text) as {
+  const { snapshotAt, enrichmentCount, jobCount, tombstones, invalidatedJobs, maxDeletions, vehicleData, staticMedia: staticData } = JSON.parse(text) as {
     snapshotAt?: unknown; enrichmentCount?: unknown; jobCount?: unknown; tombstones?: unknown[]; invalidatedJobs?: number; maxDeletions?: number;
     vehicleData?: Partial<Record<keyof ExportedVehicle, unknown>> | null;
+    staticMedia?: Partial<Record<keyof ExportedStaticMedia, unknown>> | null;
   };
   if (typeof snapshotAt !== "string") throw new Error("The export's manifest.json has no snapshotAt");
   if (typeof enrichmentCount !== "number") throw new Error("The export's manifest.json has no enrichmentCount");
   let vehicle: ExportedVehicle | null = null;
   if (vehicleData !== undefined) {
     const { digest, specs, images, sent } = vehicleData ?? {};
-    if (typeof digest !== "string" || !VEHICLE_DIGEST.test(digest) || !isCount(specs) || !isCount(images) || typeof sent !== "boolean") {
+    if (typeof digest !== "string" || !SHA256_HEX.test(digest) || !isCount(specs) || !isCount(images) || typeof sent !== "boolean") {
       throw new Error(`The export's manifest.json has an invalid vehicleData: ${JSON.stringify(vehicleData)}`);
     }
     vehicle = { digest, specs, images, sent };
   }
+  let staticMedia: ExportedStaticMedia | null = null;
+  if (staticData !== undefined) {
+    const { digest, images, logos, sent } = staticData ?? {};
+    if (typeof digest !== "string" || !SHA256_HEX.test(digest) || !isCount(images) || !isCount(logos) || typeof sent !== "boolean") {
+      throw new Error(`The export's manifest.json has an invalid staticMedia: ${JSON.stringify(staticData)}`);
+    }
+    staticMedia = { digest, images, logos, sent };
+  }
   return {
     snapshotAt, enrichmentCount, jobs: typeof jobCount === "number" ? jobCount : 0, tombstones: tombstones?.length ?? 0, invalidatedJobs: invalidatedJobs ?? 0, maxDeletions,
-    vehicle,
+    vehicle, staticMedia,
   };
 }
 
-// Why an export gets (or does not get) the digest of the last confirmed vehicle data; only "unchanged-candidate" passes one.
-export type VehicleSendReason = "no-state" | "full" | "forced" | "stale" | "unchanged-candidate";
+// Why an export gets (or does not get) the digest of the last confirmed data; only "unchanged-candidate" passes one.
+export type SendReason = "no-state" | "full" | "forced" | "stale" | "unchanged-candidate";
+export type VehicleSendReason = SendReason;
 
 /** A state's vehicle entry if it has the shape the sync writes (a hand-edited or truncated one counts as none). */
 function validVehicle(vehicle: VehicleState | undefined) {
-  if (!vehicle || typeof vehicle.digest !== "string" || !VEHICLE_DIGEST.test(vehicle.digest) || !isCount(vehicle.specs) || !isCount(vehicle.images)) return null;
+  if (!vehicle || typeof vehicle.digest !== "string" || !SHA256_HEX.test(vehicle.digest) || !isCount(vehicle.specs) || !isCount(vehicle.images)) return null;
   if (typeof vehicle.sentAt !== "string" || Number.isNaN(new Date(vehicle.sentAt).getTime())) return null;
   return vehicle;
+}
+
+/** A state's category image and logo entry if it has the shape the sync writes. */
+function validStaticMedia(entry: StaticMediaState | undefined) {
+  if (!entry || typeof entry.digest !== "string" || !SHA256_HEX.test(entry.digest) || !isCount(entry.images) || !isCount(entry.logos)) return null;
+  if (typeof entry.sentAt !== "string" || Number.isNaN(new Date(entry.sentAt).getTime())) return null;
+  return entry;
+}
+
+function digestToSkip(entry: { digest: string; sentAt: string } | null, opts: { full: boolean; force: boolean; now: Date }): { digest: string | null; reason: SendReason } {
+  if (opts.full) return { digest: null, reason: "full" };
+  if (opts.force) return { digest: null, reason: "forced" };
+  if (!entry) return { digest: null, reason: "no-state" };
+  const age = opts.now.getTime() - new Date(entry.sentAt).getTime();
+  if (age < 0 || age >= RESEND_DAYS * DAY_MS) return { digest: null, reason: "stale" };
+  return { digest: entry.digest, reason: "unchanged-candidate" };
 }
 
 /**
  * The digest the export may compare its REPXPERT vehicle data with (#1359): the last confirmed one, unless there is none
  * (first run, a fresh state, a new --baseline), --full or --vehicle-data asks for everything, or it was sent
- * VEHICLE_RESEND_DAYS ago or more (or "in the future", after a clock change). digest null: the export sends the data in full.
+ * RESEND_DAYS ago or more (or "in the future", after a clock change). digest null: the export sends the data in full.
  */
-export function vehicleDigestToSkip(state: SyncState | null, opts: { full: boolean; force: boolean; now: Date }): { digest: string | null; reason: VehicleSendReason } {
-  if (opts.full) return { digest: null, reason: "full" };
-  if (opts.force) return { digest: null, reason: "forced" };
-  const vehicle = validVehicle(state?.vehicle);
-  if (!vehicle) return { digest: null, reason: "no-state" };
-  const age = opts.now.getTime() - new Date(vehicle.sentAt).getTime();
-  if (age < 0 || age >= VEHICLE_RESEND_DAYS * DAY_MS) return { digest: null, reason: "stale" };
-  return { digest: vehicle.digest, reason: "unchanged-candidate" };
+export function vehicleDigestToSkip(state: SyncState | null, opts: { full: boolean; force: boolean; now: Date }) {
+  return digestToSkip(validVehicle(state?.vehicle), opts);
+}
+
+/** The same for the category images and logos (#1379): force is --static-media. */
+export function staticMediaDigestToSkip(state: SyncState | null, opts: { full: boolean; force: boolean; now: Date }) {
+  return digestToSkip(validStaticMedia(state?.staticMedia), opts);
 }
 
 // jsonBytes: the size of the part's manifest.json (split-storefront-bundle.ts caps the JSON of its enrichments, #1316,
@@ -352,6 +390,45 @@ export function nextVehicleState(input: {
   }
   return {
     vehicle: { digest: exported.digest, specs: exported.specs, images: exported.images, sentAt: now.toISOString(), ...(taskDefinition ? { taskDefinition } : {}), skippedSpecs, skippedImages },
+    warnings, notes,
+  };
+}
+
+/**
+ * The category image and logo entry of the state after a run whose report matched its bundle (#1379), with what to print about it.
+ * - The export sent them: recorded only if the report's categoryImages and logos counts equal the exported rows (the importer
+ *   upserts every row, skipping none). A report without those counts or with other counts records nothing, so the next run
+ *   sends them in full again.
+ * - The export left them out: the previous entry stays (its sentAt too, so the weekly resend still comes). When the operations
+ *   task definition differs from the one that imported them, the entry is dropped so the next run sends in full; an entry
+ *   without one takes this run's.
+ * - An export without staticMedia (older than #1379): no entry.
+ */
+export function nextStaticMediaState(input: {
+  previous?: StaticMediaState; exported: ExportedStaticMedia | null; totals: Record<string, number>; taskDefinition: string | null; now: Date;
+}): { staticMedia?: StaticMediaState; warnings: string[]; notes: string[] } {
+  const { previous, exported, totals, taskDefinition, now } = input;
+  const warnings: string[] = [], notes: string[] = [];
+  if (!exported) return { warnings, notes };
+  if (!exported.sent) {
+    if (!previous) return { warnings, notes };
+    if (taskDefinition && previous.taskDefinition && taskDefinition !== previous.taskDefinition) {
+      notes.push(`The operations task definition changed since the category images and logos were sent (${previous.taskDefinition} -> ${taskDefinition}); the next run sends them in full.`);
+      return { warnings, notes };
+    }
+    return { staticMedia: previous.taskDefinition || !taskDefinition ? previous : { ...previous, taskDefinition }, warnings, notes };
+  }
+  const { categoryImages: images, logos } = totals;
+  if (typeof images !== "number" || typeof logos !== "number") {
+    warnings.push("The import report has no category image / logo counts; they are sent in full again next run.");
+    return { warnings, notes };
+  }
+  if (images !== exported.images || logos !== exported.logos) {
+    warnings.push(`The target accounted for ${images} of ${exported.images} category images and ${logos} of ${exported.logos} logos; they are sent in full again next run.`);
+    return { warnings, notes };
+  }
+  return {
+    staticMedia: { digest: exported.digest, images: exported.images, logos: exported.logos, sentAt: now.toISOString(), ...(taskDefinition ? { taskDefinition } : {}) },
     warnings, notes,
   };
 }
