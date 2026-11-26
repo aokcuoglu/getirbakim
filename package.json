@@ -105,6 +105,7 @@
     "test:listing-summary": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-listing-summary.ts",
     "test:listing-price-order": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-listing-price-order.ts",
     "test:listing-fits-epoch": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-listing-fits-epoch.ts",
+    "test:live-price-page": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-live-price-page.ts",
     "test:search-price-order": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-search-price-order.ts",
     "test:brand-logos": "node --env-file-if-exists=.env.local --conditions=react-server --experimental-test-module-mocks --import tsx --test scripts/test-brand-logos.ts",
     "test:session-cookie": "node --import tsx --test scripts/test-session-cookie.ts",
