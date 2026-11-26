@@ -9,7 +9,7 @@ import { sharedLoads, ttlCache } from "@/lib/ttl-cache";
 import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { fitsEpoch, listingEpoch } from "./listing-epoch";
-import { listingCacheStore } from "./listing-cache-store";
+import { listingCacheStore, storedLinks } from "./listing-cache-store";
 import { buildPriceOrder, priceOrderEnabled, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
 import { listingStatementTimeoutMs } from "./listing-timeout";
@@ -327,10 +327,10 @@ const modelFittedIds=(modelIds:string[])=>cachedFitted(`model:${modelIds.join(",
  * A make's model page units that list at least one product (#639): the make page links only these, so no link ends in
  * the empty model page's 404. A unit counts when a fitted product (as in modelFittedIds) is in the storefront listing
  * (listedOnly); a fit pointing at a hidden or no longer supplied item does not. One query per make over the make's
- * series, cached like the fits (per process, reloaded when a listing edit or the fit sync moves the fits value). After a
+ * series, cached like the fits (per process and in storefront_listing_cache, so a new container adopts it, #1391; reloaded when a listing edit or the fit sync moves the fits value). After a
  * bump the make page waits at most LISTING_EPOCH_WAIT_MS for the reload, then links the earlier units (none: it waits).
  */
-const cachedListedModels=staleCache<string[]>(10*60*1000,300,{...fitListings,...boundedWait,fallbackWhen:ids=>ids.length>0});
+const cachedListedModels=staleCache<string[]>(10*60*1000,300,{...fitListings,...boundedWait,...storedLinks,fallbackWhen:ids=>ids.length>0,store:listingCacheStore<string[]>("listed-models",1)});
 export async function getListedModelGroups(brandId:string) {
  const groups=await getVehicleModelGroups(brandId);
  const modelIds=groups.flatMap(group=>group.models.map(member=>member.id));
