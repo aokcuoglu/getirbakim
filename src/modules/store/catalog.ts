@@ -12,7 +12,7 @@ import { fitsEpoch, listingEpoch } from "./listing-epoch";
 import { listingCacheStore, storedLinks } from "./listing-cache-store";
 import { buildPriceOrder, priceOrderEnabled, priceOrderHeadStore, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
-import { listingStatementTimeoutMs } from "./listing-timeout";
+import { defaultListingLimitMs, listingStatementTimeoutMs, suggestStatementTimeoutMs } from "./listing-timeout";
 export type { CatalogQuery } from "./catalog-query";
 import type { CatalogQuery } from "./catalog-query";
 import {getStoreCategories} from './categories';
@@ -268,12 +268,13 @@ export const categories = [
  * 512 batches); now 0.3-0.4 s without temp files. 120 types ("passat tdi"): 4.0 s → 1.3 s; 1,890 ("tdi"): 10.9 s → 7.8 s;
  * the same ids. The types are an array parameter, so the planner sees their number: an index read per type for a few,
  * one sequential pass for thousands. The 30 s limit stays: one type now takes ~1/60-1/90 of it, so it only stops a
- * runaway read (the vehicle search reads whole models elsewhere, vehicleFittedIds).
+ * runaway read (the vehicle search reads whole models elsewhere, vehicleFittedIds). A search read under a shorter limit
+ * (the type-ahead's, `read`, #1398) keeps the shorter one, and its signal cancels the read.
  * An admin's decisions (db/product-override-fitments.sql, #583) apply per row and type: a removed type drops that
  * automatic fitment only (a search over several types still lists the row through another), an added type lists every
  * row of the product, enriched or not. The decisions of the selected types are read once, through their index.
  */
-async function fittedProductIds(typeIds:number[],scope:string){
+async function fittedProductIds(typeIds:number[],scope:string,read?:ReadOptions){
  return (await boundedQuery<{id:string}>(`catalog.fittedProductIds ${scope}`,
   `WITH donors AS MATERIALIZED (SELECT f.supplier_item_id AS donor_id,array_agg(f.source_index) AS idx,array_agg(f.source_vehicle) AS veh,
     array_agg(f.vehicle_type_id) AS typ FROM product_vehicle_fitments f WHERE f.vehicle_type_id=ANY($1::int[]) GROUP BY 1),
@@ -288,7 +289,7 @@ async function fittedProductIds(typeIds:number[],scope:string){
    JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.vehicle_type_id=ANY($1::int[]))
   SELECT id::text FROM (SELECT t.supplier_item_id AS id FROM trusted t WHERE EXISTS (SELECT 1 FROM unnest(t.types) type_id
     WHERE (t.supplier_item_id,type_id) NOT IN (SELECT supplier_item_id,vehicle_type_id FROM decided WHERE mode='remove'))
-  UNION SELECT supplier_item_id FROM decided WHERE mode='add') fitted`,[typeIds])).rows.map(row=>row.id);
+  UNION SELECT supplier_item_id FROM decided WHERE mode='add') fitted`,[typeIds],Math.min(30_000,read?.timeoutMs||30_000),{signal:read?.signal})).rows.map(row=>row.id);
 }
 // Admin edits move products between categories (#575) and change vehicle fitments (#583): an edit bumps the listing
 // epoch and these reload (#585). The caches that read vehicle fits follow the fits value instead (`fitListings`, #1368,
@@ -452,34 +453,38 @@ export function searchHitIdsSql(parsed:ParsedSearch,values:unknown[],mode:Search
   UNION ALL SELECT id::text FROM (SELECT * FROM (${unique(priceOnly)}) price_only WHERE id NOT IN (SELECT id FROM main)
    LIMIT ${Number(cap)}-(SELECT count(*) FROM main)) price_only`;
 }
-/** Parses the query and, when nothing matches as typed, retries it with mistyped words corrected. */
-// Memoised per request: the listing, its facets and the vehicle-fit count all filter by the same search.
-// The matching ids are fetched once through the search indexes; given as `id = ANY(...)` every later
-// query reaches supplier_items by primary key. Joined as a subquery instead, the planner hash-joined
-// the whole 320k-row price view per query (~2.5 s each on the VPS, ~60 s per page).
-const catalogSearch=cache(async(raw:string,mode:SearchMode):Promise<CatalogSearch>=>{
+/**
+ * Parses the query and, when nothing matches as typed, retries it with mistyped words corrected. `read` (the type-ahead's
+ * shorter limit, #1398) applies to its catalog reads; the synonym load and the spell-correction stay unbounded.
+ */
+const searchCatalog=async(raw:string,mode:SearchMode,read?:ReadOptions):Promise<CatalogSearch>=>{
  // Admin synonyms (#822) join the parser before the query is read.
  await ensureCustomSynonyms();
  const hits=async(candidate:ParsedSearch)=>{const values:unknown[]=[];
-  return (await catalogRead<{id:string}>(`catalog.searchHits mode=${mode} q=${candidate.compact.slice(0,80)}`,searchHitIdsSql(candidate,values,mode),values)).rows.map(row=>row.id);};
+  return (await catalogRead<{id:string}>(`catalog.searchHits mode=${mode} q=${candidate.compact.slice(0,80)}`,searchHitIdsSql(candidate,values,mode),values,read)).rows.map(row=>row.id);};
  if(searchTooShort(raw))return {parsed:parseSearchQuery(raw),ids:[],tooShort:true};
  const parsed=parseSearchQuery(raw),ids=await hits(parsed);
  if(mode==="code")return {parsed,ids};
  if(ids.length){
   // Dinamik names do list vehicles ("ON FREN BALATASI … GOLF PASSAT"), so the whole query can match by name
   // alone and would hide the parts fitments link to that vehicle. A fitted part + vehicle reading adds them.
-  const vehicle=await vehicleSearch(raw,hits,false,true);
+  const vehicle=await vehicleSearch(raw,hits,false,true,read);
   return vehicle?.vehicle?.fitted?{...vehicle,ids:[...new Set([...vehicle.ids,...ids])].slice(0,maxSearchHits)}:{parsed,ids};
  }
  // Cheapest reading first: the words as typed split into part + vehicle, then the whole query
  // spell-corrected ("hava fiiltresi"), then a split with each part corrected ("fren balatsı pasat").
- const vehicle=await vehicleSearch(raw,hits,false);
+ const vehicle=await vehicleSearch(raw,hits,false,false,read);
  if(vehicle)return vehicle;
  const corrected=await correctSearch(raw,"product");
  const correctedIds=corrected?await hits(corrected.parsed):[];
  if(corrected&&correctedIds.length)return {parsed:corrected.parsed,ids:correctedIds,correctedQuery:corrected.text};
- return await vehicleSearch(raw,hits,true)??{parsed,ids};
-});
+ return await vehicleSearch(raw,hits,true,false,read)??{parsed,ids};
+};
+// Memoised per request: the listing, its facets and the vehicle-fit count all filter by the same search.
+// The matching ids are fetched once through the search indexes; given as `id = ANY(...)` every later
+// query reaches supplier_items by primary key. Joined as a subquery instead, the planner hash-joined
+// the whole 320k-row price view per query (~2.5 s each on the VPS, ~60 s per page).
+const catalogSearch=cache((raw:string,mode:SearchMode)=>searchCatalog(raw,mode));
 /** A query's words as vehicleSearch splits them; null for fewer than two or more than six (no vehicle reading). */
 function vehicleReadingWords(raw:string){
  const words=normalizeSearchText(raw.slice(0,120)).split(" ").filter(Boolean);
@@ -523,7 +528,7 @@ function liveVehicleTypeLimit(){
  * arrays, so the live read is planned for its real number of types; as one statement with both branches the planner read
  * every fitment sequentially for "passat tdi".
  */
-export async function vehicleFittedIds(parsed:ParsedSearch):Promise<string[]|null>{
+export async function vehicleFittedIds(parsed:ParsedSearch,read?:ReadOptions):Promise<string[]|null>{
  const values:unknown[]=[];
  // The words in the labels, so a timeout or slow line names the search that caused it.
  const words=[...parsed.terms.map(term=>term.text),...parsed.years.map(String)].join(" ").slice(0,60);
@@ -532,12 +537,12 @@ export async function vehicleFittedIds(parsed:ParsedSearch):Promise<string[]|nul
   models AS MATERIALIZED (SELECT v.model_id,count(*)=count(t.id) AS whole FROM vehicle_types v LEFT JOIN types t ON t.id=v.id
    WHERE v.model_id IN (SELECT model_id FROM types) GROUP BY 1)
   SELECT ARRAY(SELECT model_id FROM models WHERE whole ORDER BY 1) AS models,
-   ARRAY(SELECT t.id FROM types t JOIN models m ON m.model_id=t.model_id AND NOT m.whole ORDER BY 1) AS types`,values)).rows[0];
+   ARRAY(SELECT t.id FROM types t JOIN models m ON m.model_id=t.model_id AND NOT m.whole ORDER BY 1) AS types`,values,read)).rows[0];
  if(scope.types.length>liveVehicleTypeLimit())return null;
  const [modelFitted,typeFitted]=await Promise.all([
   scope.models.length?catalogRead<{id:string}>(`catalog.searchModelFits models=${scope.models.length}:${scope.models.slice(0,5).join(",")}`,
-   "SELECT DISTINCT supplier_item_id::text AS id FROM storefront_model_fits WHERE model_id=ANY($1::int[])",[scope.models]).then(result=>result.rows.map(row=>row.id)):[],
-  scope.types.length?fittedProductIds(scope.types,`words=${words} types=${scope.types.length}:${scope.types.slice(0,10).join(",")}`):[],
+   "SELECT DISTINCT supplier_item_id::text AS id FROM storefront_model_fits WHERE model_id=ANY($1::int[])",[scope.models],read).then(result=>result.rows.map(row=>row.id)):[],
+  scope.types.length?fittedProductIds(scope.types,`words=${words} types=${scope.types.length}:${scope.types.slice(0,10).join(",")}`,read):[],
  ]);
  return [...new Set([...modelFitted,...typeFitted])];
 }
@@ -556,7 +561,7 @@ export async function vehicleFittedIds(parsed:ParsedSearch):Promise<string[]|nul
  * `fittedOnly`: there the whole query's name matches are the result ("fren balatası tdi": pads named "… TDI"). A product part found by spell-correction is
  * reported as the corrected query.
  */
-async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<string[]>,correct:boolean,fittedOnly=false):Promise<CatalogSearch|null>{
+async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<string[]>,correct:boolean,fittedOnly=false,read?:ReadOptions):Promise<CatalogSearch|null>{
  const words=vehicleReadingWords(raw);
  if(!words)return null;
  // Notices quote the shopper's own spelling ("yağ filtresi") when each typed word is one search word.
@@ -574,9 +579,9 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   // "shooting brake" body style of "fren balatası".
   const vehicleWords=(parsed:ParsedSearch)=>fittedOnly?withoutSynonyms(parsed):parsed;
   const vehicle=await resolvePart(split.vehicle.join(" "),"vehicle",correct,async parsed=>{const values:unknown[]=[];
-   return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values)).rowCount);});
+   return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values,read)).rowCount);});
   if(!vehicle)continue;
-  const fittedIds=await vehicleFittedIds(vehicleWords(vehicle.parsed));
+  const fittedIds=await vehicleFittedIds(vehicleWords(vehicle.parsed),read);
   // Too broad to read live (liveVehicleTypeLimit): no vehicle reading; its product part is the fallback below.
   if(!fittedIds){tooBroad.push(split.product);continue;}
   const linked=new Set(fittedIds);
@@ -767,15 +772,22 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  * own rules (staleCache, #771), a first load without one fails the page. LISTING_STATEMENT_TIMEOUT_MS=0 sends the plain
  * statement again (the rollback). `workMem` (out of stock, #1342) raises work_mem for the read and keeps the 30 s it had
  * before, whatever the setting. Costs three more round trips (BEGIN, SET LOCAL, COMMIT), locally ~0.16 ms per read.
+ * `read` (#1398): `timeoutMs` replaces the setting's limit (the type-ahead's shorter one, suggestStatementTimeoutMs), and
+ * `signal` cancels the statement when its request is aborted (boundedQuery); a read with a signal stays bounded when the
+ * limit is off (55 s then). Page renders have no signal to pass: Next 16 aborts a request's signal only in route handlers
+ * (src/app/api/search/suggest/route.ts). A load a cache shares between requests never takes one: a visitor who left must
+ * not fail it for the others waiting on it.
  */
-function listingQuery<T extends QueryResultRow>({workMem}:{workMem?:string},label:string,sql:string,values:unknown[]){
+export type ReadOptions={timeoutMs?:number;signal?:AbortSignal};
+function listingQuery<T extends QueryResultRow>({workMem}:{workMem?:string},label:string,sql:string,values:unknown[],read?:ReadOptions){
  if(workMem)return boundedQuery<T>(label,sql,values,30_000,{workMem});
- const limit=listingStatementTimeoutMs();
+ const limit=read?.timeoutMs??listingStatementTimeoutMs();
+ if(read?.signal)return boundedQuery<T>(label,sql,values,limit||defaultListingLimitMs,{signal:read.signal});
  return limit?boundedQuery<T>(label,sql,values,limit):db.query<T>(sql,values);
 }
 /** A catalog read outside a catalogFilter listing (search, type-ahead, facets, brand reach) under listingQuery's limit. */
-function catalogRead<T extends QueryResultRow>(label:string,sql:string,values:unknown[]){
- return listingQuery<T>({},label,sql,values);
+function catalogRead<T extends QueryResultRow>(label:string,sql:string,values:unknown[],read?:ReadOptions){
+ return listingQuery<T>({},label,sql,values,read);
 }
 // The listing reads, from catalogFilter's `from`: its count, one page of ids in the default order (`offset` a parameter),
 // and its shown brands (the brand facet).
@@ -965,10 +977,13 @@ const sharedApiSearches=ttlCache<CatalogSearch>(30_000,4);
 const apiSearchKey=(raw:string,mode:SearchMode)=>`${mode}|${normalizeSearchText(raw.slice(0,120))}|${raw.trim().toLocaleLowerCase("tr")}`;
 // The type-ahead's hit set (#1394): the ids it ranks (at most maxRankedSuggestions) and whether there were more, kept like
 // the API rankings so a keystroke repeated within 10 minutes sends no hit read; names and products below stay live.
+// Its reads run under the type-ahead's limit (suggestStatementTimeoutMs, 5 s, #1398), not the listing's 55 s; a load that
+// hits it fails and is not kept. No abort signal: the load is shared by every request for the key, and one visitor
+// typing on must not cancel it for the others.
 type SuggestSearch=Pick<CatalogSearch,"parsed"|"correctedQuery"|"vehicle">&{ids:string[];many:boolean};
 const cachedSuggestSearches=staleCache<SuggestSearch>(aggregateTtl,500,{...listings,...boundedWait,fallbackWhen:search=>search.ids.length>0,weigh:search=>search.ids.length,maxWeight:100_000});
 const suggestSearch=(raw:string,mode:SearchMode)=>cachedSuggestSearches(apiSearchKey(raw,mode),async()=>{
- const {parsed,correctedQuery,vehicle,ids}=await catalogSearch(raw,mode);
+ const {parsed,correctedQuery,vehicle,ids}=await searchCatalog(raw,mode,{timeoutMs:suggestStatementTimeoutMs()});
  return {parsed,correctedQuery,vehicle,ids:ids.slice(0,maxRankedSuggestions),many:ids.length>maxRankedSuggestions};
 },{epoch:searchEpoch(raw,mode)});
 const apiSearch=async(raw:string,mode:SearchMode)=>sharedApiSearches(`${await searchEpoch(raw,mode)()}|${apiSearchKey(raw,mode)}`,()=>catalogSearch(raw,mode));
@@ -1206,15 +1221,18 @@ const maxRankedSuggestions=500;
 /**
  * Best matches for the header type-ahead: the catalog search's engine and readings, without prices. Broad searches return
  * up to 2x `limit` name rows (both spellings of one type): the caller (searchSuggestions) merges them by label and trims.
+ * Every read runs under the type-ahead's limit (suggestStatementTimeoutMs, #1398); `signal` (the route's request) cancels
+ * the live reads below, not the shared hit-set load (suggestSearch).
  */
-export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
+export async function suggestProducts(raw:string,mode:SearchMode,limit=6,{signal}:{signal?:AbortSignal}={}){
  await ensureCustomSynonyms();
+ const read:ReadOptions={timeoutMs:suggestStatementTimeoutMs(),signal};
  // Products named only in English ("BRAKE HOSE" for "fren hor") never reach the ranked list: their English names come
  // from the type-name dictionary and are suggested as names (#962). The recheck keeps the text-index plan (~1 ms).
  const expansion=mode==="all"&&!searchTooShort(raw)?typeNamePrefixQuery(parseSearchQuery(raw)):null;
  const [search,english]=await Promise.all([suggestSearch(raw,mode),expansion?catalogRead<{name:string;products:number}>("catalog.suggestNames",`SELECT name,products FROM search_product_names
   WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1) AND normalized=ANY($2::text[])
-  ORDER BY products DESC,name LIMIT ${Number(limit)}`,[expansion.query,expansion.names]).then(result=>result.rows):[]]);
+  ORDER BY products DESC,name LIMIT ${Number(limit)}`,[expansion.query,expansion.names],read).then(result=>result.rows):[]]);
  const notes={correctedQuery:search.correctedQuery,vehicleScope:search.vehicle};
  const englishNames=english.map(row=>({kind:"name" as const,...row}));
  if(!search.ids.length)return {products:englishNames as ProductSuggestion[],...notes};
@@ -1223,7 +1241,7 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
   // The names most products share first: "filtre" means "Hava Filtresi" (5k) more than "Filtre Hortumu".
   const names=query?(await catalogRead<{name:string;products:number}>("catalog.suggestNames",`SELECT name,products FROM search_product_names
    WHERE to_tsvector('simple',normalized) @@ to_tsquery('simple',$1)
-   ORDER BY products DESC,name LIMIT ${Number(limit)}`,[query])).rows:[];
+   ORDER BY products DESC,name LIMIT ${Number(limit)}`,[query],read)).rows:[];
   // The caller merges names by label, so both spellings of one type add up: it takes up to twice the rows.
   const merged=[...new Map([...names,...english].map(row=>[row.name,row])).values()].sort((a,b)=>b.products-a.products||a.name.localeCompare(b.name)).slice(0,limit*2);
   if(merged.length)return {products:merged.map(row=>({kind:"name" as const,...row})),...notes};
@@ -1233,7 +1251,7 @@ export async function suggestProducts(raw:string,mode:SearchMode,limit=6){
  const products=(await catalogRead<{id:string;name:string;name_overridden:boolean;brand:string;code:string}>("catalog.suggestProducts",`SELECT id,name,name_overridden,brand,code FROM (
   SELECT DISTINCT ON (name,display_brand) id::text,name,name_overridden,display_brand AS brand,display_code AS code,rank,updated_at,unavailable FROM (
    SELECT catalog.*,${catalogRank("catalog",search.parsed,bind)} AS rank FROM (${catalogEntriesSql}) catalog WHERE catalog.id=ANY($2::uuid[])) ranked
-  ORDER BY name,display_brand,unavailable,rank DESC,updated_at DESC,id) best ORDER BY unavailable,rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values)).rows;
+  ORDER BY name,display_brand,unavailable,rank DESC,updated_at DESC,id) best ORDER BY unavailable,rank DESC,updated_at DESC,id LIMIT ${Number(limit)}`,values,read)).rows;
  return {products:[...englishNames.slice(0,2),...products.map(row=>({kind:"product" as const,...row}))].slice(0,limit) as ProductSuggestion[],...notes};
 }
 export async function catalogBrands() {

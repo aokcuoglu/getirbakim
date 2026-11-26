@@ -16,10 +16,13 @@ export type SearchSuggestions = {
   vehicleScope?: VehicleSearchScope;
 };
 
-/** Header type-ahead: categories whose name has every query word as a word prefix, then products. */
-export async function searchSuggestions(raw: string, mode: SearchMode): Promise<SearchSuggestions> {
+/**
+ * Header type-ahead: categories whose name has every query word as a word prefix, then products. `signal` (the request's)
+ * cancels the product reads when the visitor has gone (suggestProducts, #1398).
+ */
+export async function searchSuggestions(raw: string, mode: SearchMode, { signal }: { signal?: AbortSignal } = {}): Promise<SearchSuggestions> {
   if (searchTooShort(raw)) return { categories: [], products: [] };
-  const [found, categories] = await Promise.all([suggestProducts(raw, mode), mode === "all" ? getStoreCategories() : []]);
+  const [found, categories] = await Promise.all([suggestProducts(raw, mode, undefined, { signal }), mode === "all" ? getStoreCategories() : []]);
   const prefixes = parseSearchQuery(raw).terms.map(term => term.alternatives.filter(a => a.prefix).map(a => a.value));
   // "fren" lists "Fren sistemi" before "Bisiklet frenleri".
   const leading = (category: { name: string }) => Number(prefixes[0]?.some(spelling => normalizeSearchText(category.name).startsWith(spelling)) ?? false);
