@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { isStatementTimeout } from "./db-errors";
 const globalDb = globalThis as unknown as { getirbakimPool?: Pool };
 // One catalog render runs 9+ queries in parallel and every product image takes a client,
 // so a 5-client pool with a 3 s acquire timeout failed pages with 500 under light load.
@@ -63,7 +64,7 @@ export async function boundedQuery<T extends QueryResultRow>(label: string, sql:
     return result;
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
-    if ((error as { code?: string }).code === "57014") console.error(`boundedQuery timeout: ${label.slice(0, 200)} (limit ${timeoutMs} ms, ${Date.now() - started} ms)`);
+    if (isStatementTimeout(error)) console.error(`boundedQuery timeout: ${label.slice(0, 200)} (limit ${timeoutMs} ms, ${Date.now() - started} ms)`);
     throw error;
   } finally { client.release(); }
 }

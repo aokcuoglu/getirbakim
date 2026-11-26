@@ -12,6 +12,7 @@ import { createRateLimiter } from "../src/lib/rate-limit";
 import { exactMatches, fitmentLevelOf, fitsFirst } from "../src/modules/partner/search-order";
 import { buildPartnerOrderEvent, buildPartnerReturnEvent, parsePartnerWebhooks, signPartnerWebhook, webhookHeaders } from "../src/modules/partner/webhook-contract";
 import { ttlCache } from "../src/lib/ttl-cache";
+import { isPoolTimeout, isStatementTimeout } from "../src/lib/db-errors";
 
 const key = "sk_".padEnd(minPartnerKeyLength + 4, "x");
 
@@ -473,6 +474,35 @@ test("partner guard: a valid key is limited per partner only; failed key checks 
   } finally {
     if (originalKeys === undefined) delete process.env.PARTNER_API_KEYS; else process.env.PARTNER_API_KEYS = originalKeys;
   }
+});
+
+test("database timeouts: a cancelled statement (57014) and pg-pool's acquire timeouts; nothing else (#1395)", () => {
+  assert.equal(isStatementTimeout(Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" })), true);
+  assert.equal(isStatementTimeout({ code: "57014" }), true);
+  for (const other of [Object.assign(new Error("deadlock detected"), { code: "40P01" }), new Error("57014"), "57014", null, undefined, { code: 57014 }])
+    assert.equal(isStatementTimeout(other), false);
+  assert.equal(isPoolTimeout(new Error("timeout exceeded when trying to connect")), true);
+  assert.equal(isPoolTimeout(new Error("Connection terminated due to connection timeout")), true);
+  for (const other of [new Error("Connection terminated unexpectedly"), new Error("timeout exceeded when trying to connect, again"), { message: "timeout exceeded when trying to connect" }, null])
+    assert.equal(isPoolTimeout(other), false);
+});
+
+test("partner search failures (#1395): a timeout is 503 SEARCH_UNAVAILABLE with Retry-After and no-store; anything else 500", async () => {
+  const { partnerSearchFailure, partnerUnavailable } = await import("../src/modules/partner/guard");
+  const unavailable = partnerUnavailable();
+  assert.equal(unavailable.status, 503);
+  assert.equal(unavailable.headers.get("retry-after"), "5");
+  assert.equal(unavailable.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await unavailable.json(), { error: { code: "SEARCH_UNAVAILABLE", message: "Search is temporarily unavailable. Retry later." } });
+  assert.equal(partnerUnavailable(12).headers.get("retry-after"), "12");
+  for (const error of [{ code: "57014" }, new Error("timeout exceeded when trying to connect")]) {
+    const failure = partnerSearchFailure(error);
+    assert.deepEqual([failure.timeout, failure.response.status, failure.response.headers.get("retry-after")], [true, 503, "5"]);
+    assert.equal((await failure.response.json()).error.code, "SEARCH_UNAVAILABLE");
+  }
+  const failed = partnerSearchFailure(new Error("relation \"x\" does not exist"));
+  assert.deepEqual([failed.timeout, failed.response.status, failed.response.headers.get("retry-after"), failed.response.headers.get("cache-control")], [false, 500, null, "no-store"]);
+  assert.deepEqual(await failed.response.json(), { error: { code: "INTERNAL_ERROR", message: "Partner search failed." } });
 });
 
 const webhookSecret = "test-webhook-secret-0123456789abcdef";

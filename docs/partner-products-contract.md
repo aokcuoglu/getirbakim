@@ -144,6 +144,11 @@ answer carries the new price. Quotes and orders read the discount fresh.
   `Retry-After`.
 - `401 UNAUTHORIZED` without a valid key, `400 VALIDATION_ERROR` for an
   invalid `vehicleTypeId`, `500 INTERNAL_ERROR` when the search fails.
+- `503 SEARCH_UNAVAILABLE` with `Retry-After` (seconds, currently 5) when the
+  search did not finish in time: a catalog read hit its server-side time limit
+  or no database connection was free (#1395). The request was valid; the same
+  request may be sent again after the delay. The body has the same shape as
+  every other error.
 - Error body: `{ "error": { "code", "message" } }`.
 
 ## Versions
@@ -151,5 +156,7 @@ answer carries the new price. Quotes and orders read the discount fresh.
 - **1.3** (#1093): `fitmentLevel`; fitting parts first; `limit` up to 30
   honoured; exact filters over the first 200 matches; 30-second answer cache.
   Engine-type fits are taken from the whole match set (#1119, same contract).
+  `503 SEARCH_UNAVAILABLE` with `Retry-After` (#1395) is additive: the contract
+  stays 1.3, and BakımX already treats every non-2xx answer alike.
 - **1.2** (#424): the endpoint's first version here, the shape BakımX's
   1.1/1.2 parser reads.
