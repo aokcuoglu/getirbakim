@@ -41,13 +41,17 @@ function failed(action: string, error: unknown) {
     logError(`${action} failed: storefront_listing_cache is missing; the persisted level is off for 5 minutes`, error);
   } else logError(`${action} failed; loading instead`, error);
 }
-const enabled = () => process.env.LISTING_CACHE_PERSIST !== "0" && Date.now() >= disabledUntil;
+/**
+ * Whether the shared level is read and written: LISTING_CACHE_PERSIST is not 0 and the table was not found missing in the
+ * last five minutes. Read per call; the price-sorted first pages' other stored source follows it too (listing-price-order.ts).
+ */
+export const listingCacheEnabled = () => process.env.LISTING_CACHE_PERSIST !== "0" && Date.now() >= disabledUntil;
 
 export function listingCacheStore<T>(namespace: string, version: number): StaleCacheStore<T> {
   const hash = (key: string) => createHash("sha256").update(JSON.stringify([version, storefrontCompanies(), key])).digest("hex");
   return {
     async read(key) {
-      if (!enabled()) return null;
+      if (!listingCacheEnabled()) return null;
       try {
         const { rows } = await db.query<{ value: T; epoch: string; age_ms: string }>(
           `SELECT value,epoch::text AS epoch,(extract(epoch FROM now()-computed_at)*1000)::bigint::text AS age_ms
@@ -59,7 +63,7 @@ export function listingCacheStore<T>(namespace: string, version: number): StaleC
       }
     },
     async write(key, value, epoch) {
-      if (!enabled()) return;
+      if (!listingCacheEnabled()) return;
       const json = JSON.stringify(value);
       if (json === undefined || Buffer.byteLength(json) > maxBytes) return;
       try {
