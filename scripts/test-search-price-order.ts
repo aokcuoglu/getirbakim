@@ -519,8 +519,19 @@ const sorts: [string, CatalogQuery["sort"]][] = [["no sort", undefined], ["relev
 
 test("every page of the relevance and newest orders of every search kind is the live ranked page: ids, total, page, pages and notes", async () => {
   const proc = await otherProcess("rank-oracle");
-  const kinds: Spec[] = [...specs, ["plain newest of another word", { q: "filtre" }]];
+  // Specs whose relevance order differs from newest (distinct ranks), so a wrong rank cannot pass on the fixture's ties.
+  const distinct: Spec[] = [
+    ["two words, brand (distinct ranks)", { q: "fren balatasi", brands: JSON.stringify(["TRW"]) }],
+    ["code, supplied (distinct ranks)", { q: "P10", searchBy: "code", availability: "supplied" }],
+  ];
+  const kinds: Spec[] = [...specs, ...distinct, ["plain newest of another word", { q: "filtre" }]];
   let orders = 0, nonEmpty = 0;
+  const idsOf = async (query: CatalogQuery, context: { vehicleTypeId?: string }) => (await Promise.all([1, 2, 3, 4].map(page => browse({ ...query, page: String(page) }, context, proc)))).flatMap(result => result.items.map(item => item.id));
+  for (const [label, base, context = {}] of distinct) {
+    const [relevance, byDate] = [await idsOf({ ...base, sort: "relevance" }, context), await idsOf({ ...base, sort: newest }, context)];
+    assert.ok(relevance.length > 24, `${label}: lists something`);
+    assert.notDeepEqual(relevance, byDate, `${label}: relevance and newest differ, or the fixture degraded to ties`);
+  }
   for (const [label, base, context = {}] of kinds) {
     for (const [sortLabel, sort] of sorts) {
       for (const page of [undefined, "1", "2", "3", "4", "99", "0", "x"]) {
@@ -652,6 +663,6 @@ test("a ranked order and a price order share SEARCH_PRICE_ORDER_MAX_IDS", async 
   assert.equal(await orders(rank), 1);
   assert.equal(await orders(rank), 0);
   assert.equal(await orders(price), 1, "72 + 72 ids is over the budget: the rank order goes");
-  assert.equal(await orders(price), 0, "the newest stays");
+  assert.equal(await orders(price), 0, "the price order stays");
   assert.equal(await orders(rank), 1, "the evicted rank order is rebuilt on return");
 });

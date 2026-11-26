@@ -1502,7 +1502,9 @@ export async function catalogBrands() {
 
 /**
  * Products of the listing, every filter kept, that are linked to the vehicle type: the total of its `fits=vehicle`
- * listing, read the way browseProducts counts it (the same cache entry), so the count matches the page it links to (#884).
+ * listing (#884). Without a search it reads the count cache entry browseProducts uses, so the count matches the page it links
+ * to. A search counts live, while browseProducts reads a search's total from its cached order (#1440): the two can differ
+ * by up to one order reload (10 minutes).
  */
 export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
  const scope:CatalogQuery={...query,fits:'vehicle',page:undefined},context={vehicleTypeId};
@@ -1513,7 +1515,7 @@ export async function vehicleFitCount(query:CatalogQuery,vehicleTypeId:string) {
 /**
  * The first `limit` products of the listing linked to the garage vehicle's type, and how many there are (#884): the
  * listing's `fits=vehicle` page 1 (every filter and the order kept), shown above the full results. The vehicle does not
- * filter the catalog (DESIGN.md); its fits are put first. Its count and page ids share the `fits=vehicle` listing's cache.
+ * filter the catalog (DESIGN.md); its fits are put first. Without a search its count and page ids share the `fits=vehicle` listing's cache; a search reads its cached order.
  * Four cards: a card is ~7.5 KB of HTML, and the 24-card page sits near the 350 KB target (#642, #739).
  */
 export async function vehicleLead(query:CatalogQuery,vehicleTypeId:string,limit=4) {
