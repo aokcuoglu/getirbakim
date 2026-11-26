@@ -7,7 +7,7 @@ const state = globalThis as typeof globalThis & { __storefrontWarmups?: number }
 const defaultWaitMs = 250;
 
 /**
- * How long the listing counts, page ids and facets wait for a reload before serving the earlier value:
+ * How long the listing counts, page ids and facets, and the search caches (plain, ranked, ranked fits, suggest, #1394), wait for a reload before serving the earlier value:
  * LISTING_EPOCH_WAIT_MS (blank or invalid: 250 ms). Unbounded (Infinity) while the storefront warm-up runs: its
  * requests must wait for their loads, or each returns after the bound and the warm-up starts the next page's scans while
  * the last ones still run, past the database pool (15 connections, shared with visitors and /api/health).
