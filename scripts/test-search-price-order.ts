@@ -95,6 +95,8 @@ const vw = { vehicleTypeId: "340" };
 type Result = Awaited<ReturnType<Catalog["browseProducts"]>>;
 const browse = (query: CatalogQuery, context: { vehicleTypeId?: string } = {}, from: Catalog = catalog, options?: { limit?: number }): Promise<Result> =>
   inRequest(() => from.browseProducts(query, context, options));
+/** `run` with every listing read waiting for its reload (LISTING_EPOCH_WAIT_MS, 250 ms by default): after a bump a slow reload would return the earlier value. */
+const patient = <T>(run: () => Promise<T>) => withEnv({ LISTING_EPOCH_WAIT_MS: "60000" }, run);
 const live = <T>(run: () => Promise<T>) => withEnv({ SEARCH_PRICE_ORDER: "0", SEARCH_RANK_ORDER: "0" }, run);
 
 before(async () => {
@@ -170,7 +172,7 @@ async function held(run: (release: () => void) => Promise<unknown>) {
  * The card reads of one page: the rows by id and their grouped offers, and the cache epoch poll (listing-epoch.ts reads the
  * shared counter when the last read is over a second old, so a page slowed by load may send one). Nothing else belongs to a warm page.
  */
-const isCardRead = (text: string) => text.includes("FROM storefront_listing_epoch") || text.startsWith("SELECT * FROM (SELECT * FROM storefront_catalog") || text.includes("FROM product_offers o WHERE o.primary_id=ANY");
+const isCardRead = (text: string) => text.startsWith("SELECT epoch::text AS epoch") || text.startsWith("SELECT * FROM (SELECT * FROM storefront_catalog") || text.includes("FROM product_offers o WHERE o.primary_id=ANY");
 const asc = "price-asc" as const, desc = "price-desc" as const;
 const priceOf = async (id: string) => (await schema.pool.query<{ price_data: { nf: number } }>("SELECT price_data FROM supplier_items WHERE id=$1", [id])).rows[0].price_data;
 // An upsert: the fixture's renamed row is an override too, and keeps its name.
@@ -264,7 +266,7 @@ test("a warm page sends only its card reads: no hit read, no count, no OFFSET pa
   assert.equal((await sent(() => browse({ q: "P10", sort: asc, searchBy: "code" }, {}, proc))).orders, 1, "a code search is its own key");
 });
 
-test("an epoch bump reloads every key; the fit sync's bump only the searches and filters that read vehicle fits", async () => {
+test("an epoch bump reloads every key; the fit sync's bump only the searches and filters that read vehicle fits", () => patient(async () => {
   const proc = await otherProcess("epochs");
   const keys: [string, CatalogQuery, boolean][] = [
     ["one word", { q: "fren", sort: asc }, false],
@@ -283,9 +285,9 @@ test("an epoch bump reloads every key; the fit sync's bump only the searches and
   await invalidateListings();
   for (const [label, query] of keys) assert.equal(await read(query), 1, `${label}: after an admin edit's bump`);
   for (const [label, query] of keys) assert.equal(await read(query), 0, `${label}: kept again`);
-});
+}));
 
-test("an admin hiding a product removes it from the order after the bump", async () => {
+test("an admin hiding a product removes it from the order after the bump", () => patient(async () => {
   const proc = await otherProcess("hide");
   const query: CatalogQuery = { q: "fren", sort: asc };
   const before = shape(await browse(query, {}, proc));
@@ -301,7 +303,7 @@ test("an admin hiding a product removes it from the order after the bump", async
     await unhide(hidden);
     await invalidateListings();
   }
-});
+}));
 
 test("after a bump with a slow load the earlier order is served within the wait, then the new one; an empty earlier value never is", async () => {
   await withEnv({ LISTING_EPOCH_WAIT_MS: "50" }, async () => {
@@ -345,11 +347,12 @@ test("after a bump with a slow load the earlier order is served within the wait,
 });
 
 test("a price change without a bump keeps the position and shows the new price; past the TTL one background load moves the order", async t => {
+  // The mocked clock runs from the first read, so the order is stamped by it and the ticks below are exact.
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   const proc = await otherProcess("fresh");
   const query: CatalogQuery = { q: "fren", sort: asc };
   const first = await browse(query, {}, proc), earlier = shape(first), moved = earlier.ids[10];
   const original = await priceOf(moved), earlierPrice = first.items.find(item => item.id === moved)!.price_kurus;
-  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   await schema.pool.query("UPDATE supplier_items SET price_data='{\"nf\":1}' WHERE id=$1", [moved]);
   try {
     const current = await browse(query, {}, proc);
@@ -358,10 +361,9 @@ test("a price change without a bump keeps the position and shows the new price; 
     const fresh = (await schema.pool.query<{ price_kurus: number }>("SELECT price_kurus FROM storefront_catalog WHERE id=$1", [moved])).rows[0].price_kurus;
     assert.equal(card.price_kurus, fresh, "the card is read live");
     assert.notEqual(fresh, earlierPrice, "the price did change");
-    // The order was stamped by the real clock before the mock started: a second of margin on both sides keeps the test off the real time between the two.
-    t.mock.timers.tick(10 * 60 * 1000 - 1000);
+    t.mock.timers.tick(10 * 60 * 1000 - 1);
     assert.equal((await sent(() => browse(query, {}, proc))).orders, 0, "within the TTL");
-    t.mock.timers.tick(1001);
+    t.mock.timers.tick(2);
     let ids: string[] = [];
     const reload = await sent(async () => {
       assert.deepEqual((await browse(query, {}, proc)).items.map(item => item.id), earlier.ids, "the stale order is served at once");
@@ -590,7 +592,7 @@ test("a warm ranked page sends only its card reads; no sort and relevance share 
   assert.equal((await sent(() => browse({ q: "fren", sort: newest, page: "2" }, {}, proc))).orders, 0);
 });
 
-test("an epoch bump reloads every ranked key; the fit sync's bump only the ones that read vehicle fits", async () => {
+test("an epoch bump reloads every ranked key; the fit sync's bump only the ones that read vehicle fits", () => patient(async () => {
   const proc = await otherProcess("rank-epochs");
   const keys: [string, CatalogQuery, boolean][] = [
     ["brand", { q: "fren", brands: JSON.stringify(["TRW"]) }, false],
@@ -610,7 +612,7 @@ test("an epoch bump reloads every ranked key; the fit sync's bump only the ones 
   await invalidateListings();
   for (const [label, query] of keys) assert.equal(await read(query), 1, `${label}: after an admin edit's bump`);
   for (const [label, query] of keys) assert.equal(await read(query), 0, `${label}: kept again`);
-});
+}));
 
 test("a failed ranked order statement reads that request live and holds the key; a held key bypasses the cache", async t => {
   t.mock.method(console, "error", () => {});
@@ -686,13 +688,15 @@ test("vehicleFitCount of a search reads the total of the order vehicleLead's pag
     assert.equal(await fitCount({ ...query, page: "3" }, proc), total, "page 2+ shows page 1's figure");
     const { rows: [fitting] } = await schema.pool.query<{ id: string }>(
       "SELECT id::text FROM supplier_items WHERE presence='present' AND code ~ '[0-5]$' AND product_data->>'ac' ILIKE 'TRW FREN%' ORDER BY code LIMIT 1");
-    await schema.pool.query("UPDATE supplier_items SET presence='inactive' WHERE id=$1", [fitting.id]);
+    await hide(fitting.id);
     try {
       assert.equal(await fitCount(query, proc), total, "the cached total until the reload");
       assert.equal(await lead(query, proc), total);
-      assert.equal(await fitCount(query), await live(() => fitCount(query)), "a fresh process loads the new state");
+      const liveCount = await live(() => fitCount(query));
+      assert.equal(liveCount, total - 1, "the change did move the live count");
+      assert.equal(await fitCount(query, await otherProcess(`fit-count-fresh-${query.sort ?? "relevance"}`)), liveCount, "a fresh process loads the new state");
     } finally {
-      await schema.pool.query("UPDATE supplier_items SET presence='present' WHERE id=$1", [fitting.id]);
+      await unhide(fitting.id);
     }
   }
 });
