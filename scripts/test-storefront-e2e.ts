@@ -26,7 +26,9 @@ import { buildInboundReport, checkInboundReport, type PartReport, reportKey } fr
 // report.json, and a part that fails its dry run must write nothing.
 // The golden fixture of the part format (#1383) is compared with the rows the real export wrote: same keys, same JSON types per key.
 // Run 3 also skips the category images and logos run 2 sent (--static-digest, #1379) and sends them again once a logo changes; run 4 imports media
-// the target already holds under another id and object key (#1385): every referencing table must point at the existing object. INSERT_ONLY lists columns the importer writes on insert but never updates: they are
+// the target already holds under another id and object key (#1385): every referencing table must point at the existing object. Run 5
+// imports run 4's parts again: an unchanged object costs one HEAD and no PUT or GET, a missing, truncated or metadata-less one is
+// rewritten (#1406). Run 6 fails one upload: the part writes no row. INSERT_ONLY lists columns the importer writes on insert but never updates: they are
 // left out of the comparisons that follow an update, so the gap stays visible. A column nobody seeded, or one that only ever holds
 // its constant default, fails assertColumnCoverage, so a new column cannot pass by being empty or defaulted on both sides.
 const skip = !process.env.DATABASE_URL && "DATABASE_URL not set";
@@ -157,7 +159,7 @@ type ExportManifest = {
 };
 type PartManifest = {
   jobs: unknown[]; enrichments: unknown[]; vehicleData?: unknown; enrichmentsFile?: unknown; staticMedia?: unknown;
-  images: unknown[]; logos: unknown[]; media: { id: string }[];
+  images: unknown[]; logos: unknown[]; media: { id: string; sha256: string }[];
 };
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -338,7 +340,9 @@ after(async () => {
 const state: {
   digest: string; staticDigest: string; snapshotAt: string; skipped: unknown[]; vehicleSnapshot: unknown[];
   full1: string; parts1: string[]; parts2: string[]; run1Reports: PartReport[]; run1Target: Record<CarriedTable, Record<string, unknown>[]> | null; run1SharedQueue: number;
-} = { digest: "", staticDigest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [], full1: "", parts1: [], parts2: [], run1Reports: [], run1Target: null, run1SharedQueue: 0 };
+  parts4: string[]; snapshot4: string;
+} = { digest: "", staticDigest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [], full1: "", parts1: [], parts2: [], run1Reports: [], run1Target: null, run1SharedQueue: 0,
+  parts4: [], snapshot4: "" };
 const vehicleRows = async (pool: Pool) => [...(await compareRows("vehicle_type_specs", pool, [])), ...(await compareRows("vehicle_type_images", pool, []))];
 
 async function importParts(parts: string[]) {
@@ -400,12 +404,14 @@ test("run 1: a full export, split, applied part by part, leaves the target equal
   // Without a drain the per-part import leaves the state queue filled too, so "drained" after the inbound run cannot pass vacuously.
   assert.ok((await target.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM enrichment_product_state_queue")).rows[0].n > 0, "the per-part import queued no product states");
   assert.equal((await target.pool.query("SELECT 1 FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id WHERE s.code='E2E-PENDING'")).rowCount, 0);
-  const exported = await readLines<{ bucket: string; object_key: string }>(join(full, "media.ndjson"));
+  const exported = await readLines<{ bucket: string; object_key: string; sha256: string }>(join(full, "media.ndjson"));
   assert.equal(exported.length, 5);
   for (const object of exported) {
     const stored = stub.objects.get(`${dstBucket}/${object.object_key}`);
     assert.ok(stored, `${object.object_key} is not in the target bucket`);
     assert.deepEqual(stored.bytes, stub.objects.get(`${srcBucket}/${object.object_key}`)!.bytes);
+    // What lets the next import skip it with one HEAD (#1406).
+    assert.deepEqual(stored.metadata, { sha256: object.sha256 }, `${object.object_key} has no sha256 metadata`);
   }
 
   // Non-vacuity: a changed carried column must fail the comparison.
@@ -546,6 +552,7 @@ test("run 4: media the target already holds under another id and object key is r
   // No digests: the category images, logos and vehicle data go whole.
   const full = join(dir, "full4");
   await run("export-storefront-bundle.ts", [full], "source");
+  state.snapshot4 = (await readJson<ExportManifest>(join(full, "manifest.json"))).snapshotAt;
   const parts = await splitStorefrontBundle(full, join(dir, "parts4"), { mediaBytes: 1e9, jsonBytes: 1e9 });
   const bundled = new Set((await readLines<{ id: string }>(join(full, "media.ndjson"))).map(row => row.id));
   for (const object of objects) assert.ok(bundled.has(object.sourceId), `${object.name}: the bundle does not carry the object`);
@@ -569,10 +576,14 @@ test("run 4: media the target already holds under another id and object key is r
     // The bundle's own key is never written or created; the existing object holds the bundle's bytes (its stub bytes were different before).
     assert.ok(!stub.puts.some(path => path.endsWith(object.bundleKey) && path.startsWith(`${dstBucket}/`)), `${object.name}: the bundle's object key was uploaded`);
     assert.ok(!stub.objects.has(`${dstBucket}/${object.bundleKey}`));
-    // Current behaviour (#1406): the importer re-PUTs known objects; flip this when #1406 lands.
+    // The existing object held other bytes and no sha256 metadata, so it is healed and stamped (#1406); a verified one is not
+    // written (run 5).
     assert.ok(stub.puts.includes(`${dstBucket}/${object.existingKey}`), `${object.name}: the existing object was not written`);
     assert.deepEqual(stub.objects.get(`${dstBucket}/${object.existingKey}`)!.bytes, object.bytes);
+    assert.deepEqual(stub.objects.get(`${dstBucket}/${object.existingKey}`)!.metadata, { sha256: object.sha }, `${object.name}: the existing object was not stamped`);
   }
+  // Every other object of these parts was stored (with its metadata) by an earlier run: only the three healed ones are written.
+  assert.deepEqual([...stub.puts].sort(), objects.map(object => `${dstBucket}/${object.existingKey}`).sort());
   // Rows compare by sha256; only the object key of the three remapped objects differs, and it differs by design.
   await compareAll([], true, { product_media_objects: ["object_key"] });
   const keyBySha = async (pool: Pool) => Object.fromEntries((await pool.query<{ sha256: string; object_key: string }>("SELECT sha256,object_key FROM product_media_objects")).rows.map(row => [row.sha256, row.object_key]));
@@ -580,6 +591,84 @@ test("run 4: media the target already holds under another id and object key is r
   for (const object of objects) { assert.equal(fromSource[object.sha], object.bundleKey); assert.equal(fromTarget[object.sha], object.existingKey); }
   const rest = (keys: Record<string, string>) => Object.fromEntries(Object.entries(keys).filter(([sha]) => !objects.some(object => object.sha === sha)));
   assert.deepEqual(rest(fromTarget), rest(fromSource));
+  state.parts4 = parts;
+});
+
+/** The object paths (bucket/key) the target's media rows give the media of `parts`, and how many media rows the parts carry in all. */
+async function partMedia(parts: string[]) {
+  const manifests = await Promise.all(parts.map(part => readJson<PartManifest>(join(part, "manifest.json"))));
+  const shas = [...new Set(manifests.flatMap(part => part.media.map(object => object.sha256)))];
+  const rows = (await target.pool.query<{ path: string }>("SELECT bucket||'/'||object_key AS path FROM product_media_objects WHERE sha256=ANY($1) ORDER BY sha256", [shas])).rows;
+  assert.equal(rows.length, shas.length, "a part's media has no row on the target");
+  return { paths: rows.map(row => row.path), rows: manifests.reduce((sum, part) => sum + part.media.length, 0) };
+}
+const resetRequests = () => { for (const list of [stub.puts, stub.gets, stub.heads]) list.length = 0; };
+
+test("run 5: a second import of the same parts sends no PUT and no object GET (#1406)", { skip }, async () => {
+  assert.ok(state.parts4.length > 1, "run 4 must have produced parts");
+  const media = await partMedia(state.parts4);
+  assert.ok(media.rows > 3);
+  resetRequests();
+  const { totals } = buildInboundReport(await importParts(state.parts4));
+  assert.deepEqual(stub.puts, []);
+  assert.deepEqual(stub.gets, []);
+  // One HEAD per media row of each part, nothing more.
+  assert.equal(stub.heads.length, media.rows);
+  assert.ok(stub.heads.every(path => path.startsWith(`${dstBucket}/`)));
+  assert.deepEqual([totals.media, totals.mediaUploaded, totals.mediaVerified], [media.rows, 0, media.rows]);
+  await compareAll([], true, { product_media_objects: ["object_key"] });
+});
+
+test("run 5: a missing, a truncated and a metadata-less object are rewritten, nothing else (#1406)", { skip }, async () => {
+  const [missing, truncated, unstamped] = (await partMedia(state.parts4)).paths;
+  const original = new Map([missing, truncated, unstamped].map(path => [path, stub.objects.get(path)!]));
+  assert.ok([...original.values()].every(object => object?.metadata?.sha256), "the objects to break are not stored and stamped");
+  stub.objects.delete(missing);
+  stub.objects.set(truncated, { ...original.get(truncated)!, bytes: original.get(truncated)!.bytes.subarray(1) });
+  stub.objects.set(unstamped, { bytes: original.get(unstamped)!.bytes, contentType: original.get(unstamped)!.contentType });
+  resetRequests();
+  const { totals } = buildInboundReport(await importParts(state.parts4));
+  const broken = [missing, truncated, unstamped].sort();
+  assert.deepEqual([...stub.puts].sort(), broken);
+  assert.deepEqual([...stub.gets].sort(), broken);
+  for (const path of broken) {
+    assert.deepEqual(stub.objects.get(path)?.bytes, original.get(path)!.bytes, `${path} was not restored`);
+    assert.deepEqual(stub.objects.get(path)?.metadata, original.get(path)!.metadata, `${path} was not stamped`);
+  }
+  assert.equal(totals.mediaUploaded, 3);
+  await compareAll([], true, { product_media_objects: ["object_key"] });
+});
+
+test("run 6: a part whose media upload fails writes no rows, and succeeds once the upload does (#1406)", { skip }, async () => {
+  assert.ok(state.snapshot4, "run 4 must have exported");
+  const bytes = randomBytes(64), sha = sha256(bytes), key = `e2e/${sha}.png`, id = randomUUID();
+  await source.pool.query(`INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at,stored_at) VALUES($1,$2,$3,$4,'image/png',64,$5,$6,$7)`,
+    [id, srcBucket, key, sha, "https://example.com/upload-fails.png", day(2), day(3)]);
+  stub.objects.set(`${srcBucket}/${key}`, { bytes, contentType: "image/png" });
+  await source.pool.query("UPDATE product_enrichments SET image_id=$2,imported_at=date_trunc('milliseconds',now()) WHERE supplier_item_id=$1", [sourceId["E2E-A"], id]);
+  const full = join(dir, "full6");
+  await run("export-storefront-bundle.ts", [full, `--since=${state.snapshot4}`], "source");
+  const parts = await splitStorefrontBundle(full, join(dir, "parts6"), { mediaBytes: 1e9, jsonBytes: 1e9 });
+  const manifests = await Promise.all(parts.map(part => readJson<PartManifest>(join(part, "manifest.json"))));
+  const failing = manifests.findIndex(part => part.media.some(object => object.sha256 === sha));
+  assert.ok(failing > 0, "the new media is not in an enrichment part");
+  assert.equal(manifests[failing].enrichments.length, 1);
+
+  await importParts(parts.slice(0, failing));
+  const before = await rawSnapshot(target.pool);
+  stub.failPuts.add(`${dstBucket}/${key}`);
+  try {
+    await assert.rejects(importParts([parts[failing]]), /AccessDenied|403/);
+  } finally { stub.failPuts.clear(); }
+  assert.deepEqual(await rawSnapshot(target.pool), before);
+  assert.equal((await target.pool.query("SELECT 1 FROM product_media_objects WHERE sha256=$1", [sha])).rowCount, 0);
+  assert.ok(!stub.objects.has(`${dstBucket}/${key}`));
+
+  await importParts(parts.slice(failing));
+  assert.deepEqual(stub.objects.get(`${dstBucket}/${key}`)?.bytes, bytes);
+  assert.equal(await target.pool.query<{ sha: string }>(`SELECT m.sha256 AS sha FROM product_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
+    JOIN product_media_objects m ON m.id=e.image_id WHERE s.code='E2E-A'`).then(result => result.rows[0]?.sha), sha);
+  await compareAll([], true, { product_media_objects: ["object_key"] });
 });
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -698,6 +787,8 @@ test("inbound: a part that fails its dry run stops the run before anything is ap
   assert.equal((await inbound.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_enrichments")).rows[0].n, 0);
   assert.ok(![...stub.objects.keys()].some(key => key.startsWith(`${inbMediaBucket}/`)), "the failed run wrote to the media bucket");
   assert.equal(stub.puts.length, puts);
+  // Dry runs send nothing to the media bucket, not even a HEAD (#1406).
+  assert.ok(!stub.heads.some(path => path.startsWith(`${inbMediaBucket}/`)), "a dry run checked media objects");
 });
 
 test("inbound: the e2e parts imported by import-storefront-inbound.ts leave the same target and report as the per-part import", { skip }, async () => {

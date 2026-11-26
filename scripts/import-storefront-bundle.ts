@@ -1,7 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve, sep } from "node:path";
-import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
 import { requireEnrichmentSchema } from "../src/modules/enrichment/schema";
@@ -9,12 +8,17 @@ import { bundleItems, resolveBundleItems } from "./storefront-bundle-items";
 import { importBundleEnrichments } from "./storefront-bundle-enrichments";
 import { importBundleJobs } from "./storefront-bundle-jobs";
 import { bundleSources, replaceBundleMappings } from "./storefront-bundle-mappings";
+import { ensureStoredObjects, type MediaTarget, mediaToRecheck, resolveMediaTargets } from "./storefront-bundle-media";
 import { applyBundleTombstones, DEFAULT_MAX_DELETIONS, pruneTombstones } from "./storefront-bundle-tombstones";
 
 // Loads a bundle from scripts/export-storefront-bundle.ts. Dry run by default; --apply writes.
 // Idempotent: rows are upserted (the bundle is the source of truth for these tables), media is
 // matched by sha256, supplier items are matched by their natural key (then by id; see storefront-bundle-items.ts),
 // and rows whose supplier item does not exist here are skipped and counted.
+// With --apply the media objects are stored before the transaction, so S3 round trips hold no row locks (#1406): an object
+// whose size and sha256 metadata match costs one HEAD, any other is written and read back (storefront-bundle-media.ts,
+// STOREFRONT_MEDIA_CONCURRENCY at a time). A failure there leaves nothing written. Inside the transaction only the rows it
+// resolved differently from that read are stored again (normally none). report.mediaUploaded / mediaVerified count them.
 // manifest.jobs (complete/partial enrichment job statuses) is upserted only where it changes (storefront-bundle-jobs.ts);
 // jobs a part does not carry are left alone, as the split sends them in the job parts that follow part-00 (#1317).
 // The bundle's category mappings replace those of its enrichments' products (storefront-bundle-mappings.ts).
@@ -48,13 +52,20 @@ try {
   }
   // The schema comes from db:setup (db/source-categories.sql, db/vehicle-type-specs.sql); DDL here would queue readers behind a table lock (#934).
   await requireEnrichmentSchema(client, ["source_categories", "source_category_labels", "source_category_images", "product_source_categories", "vehicle_type_specs", "vehicle_type_images"]);
-  await client.query("BEGIN");
-  // Bundles written before REPXPERT carried Wikidata series photographs under vehicleImages; those are ignored.
-  const vehicleSpecs: unknown[] = manifest.vehicleSpecs ?? [];
-  const vehicleImages: unknown[] = manifest.vehicleSpecs ? manifest.vehicleImages ?? [] : [];
   const json = (value: unknown) => JSON.stringify(value);
   // Each large array is serialised once and the string reused by every query below.
   const mediaJson = json(manifest.media);
+  const bytesOf = (sha256: string) => files.get(sha256)!;
+  // A plain read, then the objects: a dry run plans nothing and sends nothing to S3.
+  const mediaStarted = performance.now();
+  const planned = apply ? await resolveMediaTargets(client, mediaJson, bucket) : [];
+  const ensured = await ensureStoredObjects(storage, planned, bytesOf);
+  const mediaMs = Math.round(performance.now() - mediaStarted);
+  await client.query("BEGIN");
+  const transactionStarted = performance.now();
+  // Bundles written before REPXPERT carried Wikidata series photographs under vehicleImages; those are ignored.
+  const vehicleSpecs: unknown[] = manifest.vehicleSpecs ?? [];
+  const vehicleImages: unknown[] = manifest.vehicleSpecs ? manifest.vehicleImages ?? [] : [];
   const logosJson = json(manifest.logos);
   const enrichmentsJson = json(manifest.enrichments);
   const vehicleSpecsJson = json(vehicleSpecs);
@@ -67,10 +78,11 @@ try {
   const missingItem = "NOT EXISTS (SELECT 1 FROM bundle_items bi WHERE bi.bundle_id=r.supplier_item_id AND bi.id IS NOT NULL)";
   const vehicleTypeExists = "EXISTS (SELECT 1 FROM vehicle_types t WHERE t.id=r.vehicle_type_id)";
 
-  // Media rows keep their sha256 identity; an existing object with the same content is reused.
-  await run(`INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at)
+  // Media rows keep their sha256 identity; an existing object with the same content is reused. RETURNING names the rows
+  // this transaction inserted, which the media recheck below compares with the read before it.
+  const inserted = new Set((await client.query<{ sha256: string }>(`INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at)
     SELECT id,$2,object_key,sha256,content_type,size_bytes,source_url,created_at FROM jsonb_populate_recordset(null::product_media_objects,$1::jsonb)
-    ON CONFLICT DO NOTHING`, mediaJson, bucket);
+    ON CONFLICT DO NOTHING RETURNING sha256`, [mediaJson, bucket])).rows.map(row => row.sha256));
   await client.query(`CREATE TEMP TABLE bundle_media ON COMMIT DROP AS SELECT b.id AS bundle_id,m.id FROM jsonb_populate_recordset(null::product_media_objects,$1::jsonb) b
     JOIN product_media_objects m ON m.sha256=b.sha256`, [mediaJson]);
   if (await count("SELECT count(*) FROM bundle_media") !== manifest.media.length) throw new Error("Media rows could not be resolved by sha256");
@@ -123,6 +135,9 @@ try {
     jobs: jobs.jobs,
     skippedJobs: jobs.skipped,
     media: manifest.media.length,
+    // Objects written and read back, and objects whose HEAD matched (#1406); both 0 in a dry run.
+    mediaUploaded: ensured.uploaded,
+    mediaVerified: ensured.verified,
     skippedEnrichments: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, enrichmentsJson),
     skippedMappings: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r WHERE ${missingItem}`, json(manifest.products)),
     // Products found here by supplier key under a different id (listed after the cutover on each side separately).
@@ -146,16 +161,15 @@ try {
   } else {
     const skippedIds = (await client.query<{ id: string }>(`SELECT DISTINCT r.supplier_item_id AS id
       FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, [enrichmentsJson])).rows.map(row => row.id);
-    const targets = (await client.query<{ bucket: string; object_key: string; sha256: string; content_type: string }>(
+    const targets = (await client.query<MediaTarget>(
       "SELECT m.bucket,m.object_key,m.sha256,m.content_type FROM bundle_media bm JOIN product_media_objects m ON m.id=bm.id")).rows;
-    for (const target of targets) {
-      await storage.send(new PutObjectCommand({ Bucket: target.bucket, Key: target.object_key, Body: files.get(target.sha256)!, ContentType: target.content_type, Metadata: { sha256: target.sha256 } }));
-      const saved = await (await storage.send(new GetObjectCommand({ Bucket: target.bucket, Key: target.object_key }))).Body?.transformToByteArray();
-      if (!saved || createHash("sha256").update(saved).digest("hex") !== target.sha256) throw new Error(`Stored media integrity failed: ${target.object_key}`);
-    }
+    // No row commits unless its object was stored in this run: the ones resolved otherwise than before BEGIN are stored now.
+    const late = await ensureStoredObjects(storage, mediaToRecheck(planned, targets, inserted), bytesOf);
+    report.mediaUploaded += late.uploaded;
+    report.mediaVerified += late.verified;
     await pruneTombstones(client);
     await client.query("COMMIT");
-    console.log("APPLIED", report);
+    console.log("APPLIED", report, { mediaMs, transactionMs: Math.round(performance.now() - transactionStarted) });
     if (reportPath) {
       const byId = new Map(keys.map(item => [item.id, item]));
       await writeFile(reportPath, JSON.stringify({ report, skipped: skippedIds.map(id => byId.get(id) ?? { id }), items: enriched.items }));
