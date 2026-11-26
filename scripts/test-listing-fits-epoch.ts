@@ -258,6 +258,71 @@ test("after the fit sync's bump a make's listed models and category counts and a
   }
 });
 
+test("after the fit sync's bump a vehicle search, its API ranking and its suggestions serve the earlier result within the wait, then the reloaded one", async () => {
+  const q = "bosch golf";
+  const page = () => inRequest(() => catalog.browseProducts({ q }));
+  const read = async () => {
+    const browsed = await page();
+    return { ids: browsed.items.map(item => item.id), total: browsed.total, scope: browsed.vehicleScope?.fitted,
+      ranked: await catalog.rankedSearchIds(q, "all"), fitting: await catalog.rankedFittingSearchIds(q, "all", GOLF),
+      suggested: (await catalog.suggestProducts(q, "all")).products };
+  };
+  const earlier = await read();
+  assert.equal(earlier.scope, true, "the query names the fixture's vehicle");
+  await addVehicleFit("BOSCH 1004");
+  const locker = await schema.pool.connect();
+  try {
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE product_override_fitments,product_vehicle_fitments IN ACCESS EXCLUSIVE MODE");
+    await withEnv({ LISTING_EPOCH_WAIT_MS: "0" }, async () => {
+      await epoch.invalidateFits();
+      const started = Date.now();
+      assert.deepEqual(await read(), earlier, "the earlier results while the reloads wait");
+      assert.ok(Date.now() - started < 2_000, "served without waiting for the held reloads");
+      await locker.query("COMMIT");
+      const now = await until(read, value => value.total === earlier.total + 1);
+      assert.equal(now.total, earlier.total + 1);
+      const live = await catalog.searchCatalogItems(q, "all");
+      assert.deepEqual(now.ids, live.slice(0, now.ids.length).map(item => item.id), "the reloaded page is the uncached search's");
+    });
+  } finally {
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
+});
+
+test("an empty earlier search result is not served", async () => {
+  const q = "bosch golf zzzz";
+  const read = () => inRequest(() => catalog.browseProducts({ q }));
+  assert.equal((await read()).total, 0);
+  const locker = await schema.pool.connect();
+  try {
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE supplier_items IN ACCESS EXCLUSIVE MODE");
+    await withEnv({ LISTING_EPOCH_WAIT_MS: "0" }, async () => {
+      await epoch.invalidateFits();
+      const settled = await Promise.race([read().then(() => true), sleep(300).then(() => false)]);
+      assert.equal(settled, false, "the read waits for the reload instead of showing the empty result");
+      await locker.query("COMMIT");
+      assert.equal((await read()).total, 0);
+    });
+  } finally {
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
+});
+
+test("a cached suggestion sends no hit read until a bump", async () => {
+  const hitReads = (run: () => Promise<unknown>) => loads(run, text => text.includes("WITH main AS MATERIALIZED"));
+  const suggest = (q: string) => () => catalog.suggestProducts(q, "all");
+  for (const [q, afterBump] of [["bosch golf", true], ["bosch", false]] as const) {
+    assert.ok((await hitReads(suggest(q))).loads > 0, `${q}: the first call searches`);
+    assert.equal((await hitReads(suggest(q))).loads, 0, `${q}: the second call is cached`);
+    await epoch.invalidateFits();
+    assert.equal((await hitReads(suggest(q))).loads > 0, afterBump, `${q}: after a fit sync bump`);
+  }
+});
+
 // Last: drops the column, as on a database whose setup has not run yet.
 test("without the column both values read the epoch, both bumps move it, and nothing throws", async t => {
   await schema.pool.query("ALTER TABLE storefront_listing_epoch DROP COLUMN fits_epoch");
