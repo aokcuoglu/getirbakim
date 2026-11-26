@@ -5,10 +5,10 @@ import { GetObjectCommand } from "@aws-sdk/client-s3";
 import { Pool } from "pg";
 import { objectStorage } from "../src/lib/object-storage";
 import { sendWithSkewRetry } from "./storefront-media-read";
-import { EXPORTED_ENRICHMENT_IDS, exportedEnrichmentBatches, exportedEnrichmentIds, streamItems, streamJobs, vehicleDataDigest } from "./storefront-bundle-export";
+import { EXPORTED_ENRICHMENT_IDS, exportedEnrichmentBatches, exportedEnrichmentIds, staticMediaDigest, streamItems, streamJobs, vehicleDataDigest } from "./storefront-bundle-export";
 import { ENRICHMENTS_FILE, ITEMS_FILE, JOBS_FILE, MEDIA_FILE, ndjsonWriter, PRODUCTS_FILE, writeNdjson } from "./storefront-bundle-stream";
 import { bundleTombstones, DEFAULT_MAX_DELETIONS, exportTombstones, pruneTombstones, TOMBSTONE_RETENTION_DAYS } from "./storefront-bundle-tombstones";
-import { parsePositiveInteger, parseRetryItems, parseVehicleDigest } from "./storefront-sync-state";
+import { parsePositiveInteger, parseDigest, parseRetryItems } from "./storefront-sync-state";
 
 // Writes storefront data produced locally (Trodo category tree, labels, images, product
 // mappings, product enrichments with their images, manufacturer logos, REPXPERT vehicle type specs and pictures) to a bundle that
@@ -31,6 +31,10 @@ import { parsePositiveInteger, parseRetryItems, parseVehicleDigest } from "./sto
 // target last confirmed) equals the digest of the data in this snapshot (storefront-bundle-export.ts vehicleDataDigest):
 // then vehicleSpecs and vehicleImages are [] and their media stay out. manifest.vehicleData records { digest, specs,
 // images, sent } either way; the split keeps it out of the parts. Without the flag (a manual export) it is always sent.
+// Category images and manufacturer logos (#1379) follow the same rule with --static-digest=<sha256 hex> and
+// storefront-bundle-export.ts staticMediaDigest: while it equals the digest of the rows in this snapshot, images and logos are [] and
+// the category images' media stay out; manifest.staticMedia records { digest, images, logos, sent } (the split keeps it out of the
+// parts). The category tree and labels are always complete (the mappings and the replaced sources derive from them).
 // --retry-file=<json> adds the enrichments of the supplier items listed there (the sync's retry list: items the target
 // skipped last time) whatever their imported_at (storefront-bundle-export.ts).
 // manifest.tombstones (#564, storefront-bundle-tombstones.ts) lists the enrichments deleted or invalidated here in the
@@ -41,7 +45,7 @@ import { parsePositiveInteger, parseRetryItems, parseVehicleDigest } from "./sto
 // log entries past the retention after the export.
 //
 // Where each enrichment table comes from on the target (#553):
-// - carried: source categories, product enrichments + mappings + media, logos, vehicle_type_specs/images (unless unchanged, above) and
+// - carried: source categories, product enrichments + mappings + media, logos (unless unchanged, above), vehicle_type_specs/images (unless unchanged, above) and
 //   product_enrichment_jobs (complete/partial with an enrichment row, in full every run like the logos):
 //   product_enrichments has no status, the storefront reads it through enrichment_valid_data's
 //   `JOIN product_enrichment_jobs ... status IN ('complete','partial')`, so without the jobs a new enrichment never
@@ -69,7 +73,9 @@ const prune = process.argv.includes("--prune");
 const maxDeletionsArg = process.argv.find(arg => arg.startsWith("--max-deletions="))?.slice("--max-deletions=".length);
 const maxDeletions = maxDeletionsArg === undefined ? DEFAULT_MAX_DELETIONS : parsePositiveInteger(maxDeletionsArg, "--max-deletions");
 const vehicleDigestArg = process.argv.find(arg => arg.startsWith("--vehicle-digest="))?.slice("--vehicle-digest=".length);
-const confirmedVehicleDigest = vehicleDigestArg === undefined ? null : parseVehicleDigest(vehicleDigestArg, "--vehicle-digest");
+const confirmedVehicleDigest = vehicleDigestArg === undefined ? null : parseDigest(vehicleDigestArg, "--vehicle-digest");
+const staticDigestArg = process.argv.find(arg => arg.startsWith("--static-digest="))?.slice("--static-digest=".length);
+const confirmedStaticDigest = staticDigestArg === undefined ? null : parseDigest(staticDigestArg, "--static-digest");
 await mkdir(root, { recursive: true });
 // A manual export into a reused directory must not leave an old manifest naming the side files it rewrites.
 await rm(resolve(root, "manifest.json"), { force: true });
@@ -106,9 +112,18 @@ try {
     "SELECT id,sha256,size_bytes FROM product_media_objects WHERE id IN (SELECT media_id FROM vehicle_type_images) ORDER BY id")).rows;
   const vehicleDigest = vehicleDataDigest(vehicleSpecs, vehicleImages, vehicleMedia);
   const sendVehicle = vehicleDigest !== confirmedVehicleDigest;
-  // Kept for the media download below; the manifest names the file and the count only. Vehicle images only with the data.
-  const media = await read(`SELECT * FROM product_media_objects WHERE id IN (SELECT media_id FROM source_category_images UNION SELECT image_id FROM product_enrichments WHERE supplier_item_id IN (${EXPORTED_ENRICHMENT_IDS})
-    UNION SELECT media_id FROM vehicle_type_images WHERE $3::boolean) ORDER BY id`, [...changed, sendVehicle]);
+  // Category images and logos (#1379), read whole to digest them; they go only when the digest differs from --static-digest's.
+  const categoryImages = await read("SELECT * FROM source_category_images ORDER BY source,category_id");
+  // Hex bytea text survives JSON; the driver's Buffer would not.
+  const logos = await read(`SELECT brand_key,manufacturer,'\\x'||encode(image_data,'hex') AS image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url,imported_at
+    FROM manufacturer_logos ORDER BY brand_key`);
+  const categoryMedia = (await client.query<{ id: string; sha256: string; size_bytes: number }>(
+    "SELECT id,sha256,size_bytes FROM product_media_objects WHERE id IN (SELECT media_id FROM source_category_images) ORDER BY id")).rows;
+  const staticDigest = staticMediaDigest(categoryImages, logos, categoryMedia);
+  const sendStatic = staticDigest !== confirmedStaticDigest;
+  // Kept for the media download below; the manifest names the file and the count only. Vehicle images and category images only with their data (an image an enrichment also uses still comes through the enrichment).
+  const media = await read(`SELECT * FROM product_media_objects WHERE id IN (SELECT media_id FROM source_category_images WHERE $4::boolean UNION SELECT image_id FROM product_enrichments WHERE supplier_item_id IN (${EXPORTED_ENRICHMENT_IDS})
+    UNION SELECT media_id FROM vehicle_type_images WHERE $3::boolean) ORDER BY id`, [...changed, sendVehicle, sendStatic]);
   const manifest = {
     exportedAt: new Date().toISOString(),
     since: since?.toISOString() ?? null,
@@ -116,15 +131,15 @@ try {
     snapshotAt: (await read("SELECT now() AS at"))[0].at,
     categories: await read("SELECT * FROM source_categories ORDER BY source,category_id"),
     labels: await read("SELECT * FROM source_category_labels ORDER BY source,category_id,locale"),
-    images: await read("SELECT * FROM source_category_images ORDER BY source,category_id"),
+    // Whole or empty, never a delta: the importer upserts what a part carries and deletes nothing that is missing.
+    images: sendStatic ? categoryImages : [],
     productsFile: PRODUCTS_FILE,
     productCount: await writeNdjson(resolve(root, PRODUCTS_FILE), await read(`SELECT * FROM product_source_categories WHERE supplier_item_id IN (${EXPORTED_ENRICHMENT_IDS})
       ORDER BY supplier_item_id,source,category_id`, changed)),
     enrichmentsFile: ENRICHMENTS_FILE,
     enrichmentCount: ids.length,
-    // Hex bytea text survives JSON; the driver's Buffer would not.
-    logos: await read(`SELECT brand_key,manufacturer,'\\x'||encode(image_data,'hex') AS image_data,sha256,width,height,source_url,evidence_product_id,evidence_source_url,imported_at
-      FROM manufacturer_logos ORDER BY brand_key`),
+    logos: sendStatic ? logos : [],
+    staticMedia: { digest: staticDigest, images: categoryImages.length, logos: logos.length, sent: sendStatic },
     // Whole or empty, never a delta: the importer upserts what a part carries and deletes nothing that is missing.
     vehicleSpecs: sendVehicle ? vehicleSpecs : [],
     vehicleImages: sendVehicle ? vehicleImages : [],
@@ -152,5 +167,5 @@ try {
     await writeFile(path, bytes);
   }
   await writeFile(resolve(root, "manifest.json"), JSON.stringify(manifest));
-  console.log(`Exported ${manifest.categories.length} categories, ${manifest.labels.length} labels, ${manifest.images.length} category images, ${manifest.productCount} product mappings, ${manifest.enrichmentCount} enrichments, ${manifest.jobCount} enrichment jobs, ${manifest.logos.length} logos, ${sendVehicle ? `${vehicleSpecs.length} vehicle specs, ${vehicleImages.length} vehicle images` : `vehicle data unchanged, omitted (${vehicleSpecs.length} specs, ${vehicleImages.length} images)`}, ${manifest.mediaCount} media objects, ${manifest.itemCount} supplier item keys, ${tombstones.length} tombstones, ${invalidatedJobs} invalidated jobs (max ${maxDeletions} deletions, ${pruned} log entries older than ${TOMBSTONE_RETENTION_DAYS} days pruned)${retry.length ? ` (${retry.length} retried supplier items)` : ""} to ${root}`);
+  console.log(`Exported ${manifest.categories.length} categories, ${manifest.labels.length} labels, ${manifest.productCount} product mappings, ${manifest.enrichmentCount} enrichments, ${manifest.jobCount} enrichment jobs, ${sendStatic ? `${categoryImages.length} category images, ${logos.length} logos` : `category images and logos unchanged, omitted (${categoryImages.length} images, ${logos.length} logos)`}, ${sendVehicle ? `${vehicleSpecs.length} vehicle specs, ${vehicleImages.length} vehicle images` : `vehicle data unchanged, omitted (${vehicleSpecs.length} specs, ${vehicleImages.length} images)`}, ${manifest.mediaCount} media objects, ${manifest.itemCount} supplier item keys, ${tombstones.length} tombstones, ${invalidatedJobs} invalidated jobs (max ${maxDeletions} deletions, ${pruned} log entries older than ${TOMBSTONE_RETENTION_DAYS} days pruned)${retry.length ? ` (${retry.length} retried supplier items)` : ""} to ${root}`);
 } finally { client.release(); storage.destroy(); await pool.end(); }
