@@ -27,12 +27,15 @@ const inRequest = <T>(run: () => Promise<T>) => workStorage.run({ route: "/test"
 
 /** Another app process: a second copy of the catalog module, with its own process caches, on the same database and epoch. */
 const otherProcess = async (name: string) => await import(`../src/modules/store/catalog.ts?${name}`) as Catalog;
-/** Polls `read` until `done` holds or the deadline passes (loads finish in the background). */
+/**
+ * Polls `read` until `done` holds or the deadline passes (loads finish in the background). Timed by performance.now():
+ * the tests that mock Date hold it still.
+ */
 async function until<T>(read: () => Promise<T>, done: (value: T) => boolean, timeoutMs = 5_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
+  const deadline = performance.now() + timeoutMs;
   for (;;) {
     const value = await read();
-    if (done(value) || Date.now() > deadline) return value;
+    if (done(value) || performance.now() > deadline) return value;
     await sleep(10);
   }
 }
@@ -54,14 +57,21 @@ async function withEnv<T>(values: Record<string, string | undefined>, run: () =>
 }
 /**
  * Runs `run` with every statement's text, on any connection, passed to `onText` first; an error it returns fails that
- * statement without sending it (only for promise-style calls, as boundedQuery's).
+ * statement without sending it: a promise-style call (boundedQuery's, a named statement's) rejects with it, a
+ * callback-style one (Pool.query's: db.query) has its callback called with it. The slices' touches still pending from
+ * before (#1405, not awaited by the page) settle first, so they are neither seen nor failed here.
  */
 async function intercepted(onText: (text: string) => Error | undefined, run: () => Promise<unknown>) {
+  await priceOrder.sliceTouchesSettled();
   const original = pg.Client.prototype.query;
   pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
     const config = args[0];
     const failure = onText(typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "");
-    return failure ? Promise.reject(failure) : (original as (...rest: unknown[]) => unknown).apply(this, args);
+    if (!failure) return (original as (...rest: unknown[]) => unknown).apply(this, args);
+    const callback = args.find(arg => typeof arg === "function") as ((error: Error) => void) | undefined;
+    if (!callback) return Promise.reject(failure);
+    process.nextTick(() => callback(failure));
+    return undefined;
   } as typeof original;
   try {
     await run();
@@ -69,9 +79,11 @@ async function intercepted(onText: (text: string) => Error | undefined, run: () 
     pg.Client.prototype.query = original;
   }
 }
+/** A slice's touch of last_sliced_at (#1405): not awaited and throttled per minute, counted by its own tests only. */
+const isTouch = (text: string) => text.includes("SET last_sliced_at=now()");
 /**
  * What `run` sends on any connection: stored-order builds, live price pages (ORDER BY … OFFSET), the first pages' 480-id
- * pricing passes (headPasses) and statements naming the table.
+ * pricing passes (headPasses) and statements naming the table, touches apart.
  */
 async function sent(run: () => Promise<unknown>) {
   const texts: string[] = [];
@@ -80,7 +92,7 @@ async function sent(run: () => Promise<unknown>) {
     builds: texts.filter(text => text.includes("INSERT INTO storefront_listing_price_orders")).length,
     livePages: texts.filter(text => /ORDER BY unavailable,price_kurus (ASC|DESC) NULLS LAST,id LIMIT \d+ OFFSET/.test(text)).length,
     headPasses: texts.filter(text => /LIMIT 480\) page/.test(text)).length,
-    table: texts.filter(text => text.includes("storefront_listing_price_orders")).length,
+    table: texts.filter(text => text.includes("storefront_listing_price_orders") && !isTouch(text)).length,
   };
 }
 
@@ -103,6 +115,27 @@ const rows = 560, pages = 24;
 /** The oldest order the first pages' cache could take (its maxFallbackMs, catalog.ts), as the store is given it. */
 const headMaxAgeMs = 48 * 60 * 60 * 1000;
 const failure = (code: string) => Object.assign(new Error(`simulated ${code}`), { code });
+/** A listing's rows by display brand ($2, after the companies), for builds called directly, and the ascending order. */
+const brandRowsSql = () => `SELECT catalog.id,catalog.unavailable,catalog.price_kurus FROM (${catalog.storefrontCatalogSql}) catalog WHERE catalog.display_brand=$2`;
+const ascending = "unavailable,price_kurus ASC NULLS LAST,id";
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+/**
+ * Sets every stored order's ids, epoch, age and last deep slice (`sliced` ago; null: none) once the slices' pending
+ * touches have settled, and drops the stored page ids beside it: the first pages then take the order or price their own.
+ */
+async function setOrder(ids: string[], epoch: number, age: string, sliced: string | null) {
+  await priceOrder.sliceTouchesSettled();
+  await schema.pool.query("UPDATE storefront_listing_price_orders SET ids=$1::uuid[],epoch=$2,computed_at=now()-$3::interval,last_sliced_at=now()-$4::interval",
+    [ids, epoch, age, sliced]);
+  await schema.pool.query("DELETE FROM storefront_listing_cache WHERE namespace='page-ids'");
+}
+/** Waits until no statement has been sent on any connection for `ms`: background loads and their last reads are done. */
+async function quiet(ms = 200) {
+  let last = performance.now();
+  await intercepted(() => { last = performance.now(); return undefined; }, async () => {
+    while (performance.now() - last < ms) await sleep(20);
+  });
+}
 
 before(async () => {
   schema = await isolatedSchema("listing_price_order_test");
@@ -162,11 +195,11 @@ test("every page of both price orders is the live page, the partial last one too
   }
 });
 
-test("pages 21-23 send one build and no live page; pages 1-20 neither, their reload looks for a stored order once", async () => {
+test("pages 21-23 send one build and no live page; pages 1-20 neither, their reload looks for a stored order and its deep use once", async () => {
   await schema.pool.query("TRUNCATE storefront_listing_price_orders");
   await invalidateListings();
   assert.deepEqual(await sent(async () => { for (let page = 1; page <= 20; page++) await pageIds(bosch("price-asc", page)); }),
-    { builds: 0, livePages: 0, headPasses: 1, table: 1 });
+    { builds: 0, livePages: 0, headPasses: 1, table: 2 });
   const deep = await sent(async () => { for (let page = 21; page <= 23; page++) await pageIds(bosch("price-asc", page)); });
   assert.deepEqual({ builds: deep.builds, livePages: deep.livePages }, { builds: 1, livePages: 0 });
 });
@@ -293,15 +326,13 @@ test("the first pages' store returns the newer of the stored page ids and the st
 
 test("the first pages take an order of an older epoch or past 24 hours never; one past 10 minutes once, while their pass runs", async () => {
   const sort = "price-asc", order = await liveOrder(sort), reversed = [...order].reverse();
-  // This listing's order alone, current; then reversed (its first ids show when taken), with no stored page ids beside it.
+  // This listing's order alone, current; then reversed (its first ids show when taken), with no stored page ids beside it,
+  // and no deep page's slice recorded: the first pages price their own ids (#1405, the next test).
   await schema.pool.query("TRUNCATE storefront_listing_price_orders");
   await invalidateListings();
   assert.deepEqual(await pageIds(bosch(sort, 21)), pageOf(order, 21));
   const epoch = await currentEpoch();
-  const prepare = async (epochValue: number, age: string) => {
-    await schema.pool.query("UPDATE storefront_listing_price_orders SET ids=$1::uuid[],epoch=$2,computed_at=now()-$3::interval", [reversed, epochValue, age]);
-    await schema.pool.query("DELETE FROM storefront_listing_cache WHERE namespace='page-ids'");
-  };
+  const prepare = (epochValue: number, age: string) => setOrder(reversed, epochValue, age, null);
   try {
     await prepare(epoch, "11 minutes");
     const stale = await otherProcess("stale-head");
@@ -313,6 +344,35 @@ test("the first pages take an order of an older epoch or past 24 hours never; on
       const other = await otherProcess(`refused-head-${label.replaceAll(" ", "-")}`);
       const statements = await sent(async () => assert.deepEqual(await pageIds(bosch(sort, 20), other), pageOf(order, 20), label));
       assert.deepEqual({ builds: statements.builds, headPasses: statements.headPasses }, { builds: 0, headPasses: 1 }, label);
+    }
+  } finally {
+    await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+    await invalidateListings();
+  }
+});
+
+test("a deep page's slice within 20 minutes makes the first pages rebuild the order they refuse instead of pricing 480 ids (#1405)", async () => {
+  const sort = "price-asc", order = await liveOrder(sort), reversed = [...order].reverse();
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  await invalidateListings();
+  assert.deepEqual(await pageIds(bosch(sort, 21)), pageOf(order, 21));
+  const epoch = await currentEpoch();
+  try {
+    await setOrder(reversed, epoch, "11 minutes", "19 minutes");
+    const stale = await otherProcess("stale-head-in-use");
+    const refreshed = await sent(async () => {
+      assert.deepEqual(await pageIds(bosch(sort, 1), stale), pageOf(reversed, 1), "11 minutes old: served at once");
+      assert.deepEqual(await until(() => pageIds(bosch(sort, 1), stale), ids => same(ids, pageOf(order, 1))), pageOf(order, 1), "then the rebuilt order's");
+    });
+    assert.deepEqual({ builds: refreshed.builds, headPasses: refreshed.headPasses, livePages: refreshed.livePages }, { builds: 1, headPasses: 0, livePages: 0 }, "11 minutes old");
+    assert.deepEqual((await stored()).map(row => [row.epoch, row.age_s < 60]), [[epoch, true]], "the order rebuilt");
+    assert.deepEqual([await pageIds(bosch(sort, 20), stale), await pageIds(bosch(sort, 21), stale)], [pageOf(order, 20), pageOf(order, 21)],
+      "pages 20 and 21 from the rebuilt order");
+    for (const [label, sliced, expected] of [["sliced a minute ago", "1 minute", { builds: 1, headPasses: 0 }], ["sliced 21 minutes ago", "21 minutes", { builds: 0, headPasses: 1 }]] as const) {
+      await setOrder(reversed, epoch - 1, "0 seconds", sliced);
+      const other = await otherProcess(`older-epoch-head-${sliced.replace(" ", "-")}`);
+      const statements = await sent(async () => assert.deepEqual(await pageIds(bosch(sort, 20), other), pageOf(order, 20), label));
+      assert.deepEqual({ builds: statements.builds, headPasses: statements.headPasses }, expected, `an older epoch, ${label}`);
     }
   } finally {
     await schema.pool.query("TRUNCATE storefront_listing_price_orders");
@@ -354,14 +414,23 @@ test("a make listing's first pages take its order under the fits value; after th
     const fits = await fitsValue();
     assert.ok(fits > await currentEpoch());
     assert.deepEqual((await stored()).map(row => row.epoch), [fits], "the make's order carries the fits value");
-    // Reversed: its first ids show when the first pages take them.
-    await schema.pool.query("UPDATE storefront_listing_price_orders SET ids=$1::uuid[]", [reversed]);
+    // Reversed: its first ids show when the first pages take them. No deep page's slice recorded: a refused order is
+    // priced by the first pages' own pass.
+    await priceOrder.sliceTouchesSettled();
+    await schema.pool.query("UPDATE storefront_listing_price_orders SET ids=$1::uuid[],last_sliced_at=NULL", [reversed]);
     const other = await otherProcess("make-first-pages");
     const adopted = await sent(async () => assert.deepEqual(await pageIds(make(1), other), pageOf(reversed, 1), "the order's first ids"));
     assert.deepEqual({ builds: adopted.builds, headPasses: adopted.headPasses }, { builds: 0, headPasses: 0 });
     await invalidateFits();
     const reloaded = await sent(async () => assert.deepEqual(await pageIds(make(1), other), pageOf(order, 1), "priced again"));
     assert.deepEqual({ builds: reloaded.builds, headPasses: reloaded.headPasses }, { builds: 0, headPasses: 1 }, "the old fits value's order is refused");
+    // With a deep page's slice a minute ago (#1405), the next bump's reload rebuilds the order under the new fits value
+    // instead: during a fit sync each such reload is a whole build.
+    await schema.pool.query("UPDATE storefront_listing_price_orders SET last_sliced_at=now()-interval '1 minute'");
+    await invalidateFits();
+    const rebuilt = await sent(async () => assert.deepEqual(await pageIds(make(1), other), pageOf(order, 1), "rebuilt"));
+    assert.deepEqual({ builds: rebuilt.builds, headPasses: rebuilt.headPasses }, { builds: 1, headPasses: 0 }, "a deep page in use: the order rebuilt");
+    assert.deepEqual((await stored()).map(row => row.epoch), [await fitsValue()], "under the new fits value");
   } finally {
     await schema.pool.query("TRUNCATE storefront_listing_price_orders");
     await invalidateListings();
@@ -387,7 +456,7 @@ test("LISTING_PRICE_ORDER=0 or LISTING_CACHE_PERSIST=0 keeps pages 1-20 off the 
     assert.equal(statements.table, 0, JSON.stringify(listing));
   }
   const make = await sent(() => pageIds({ make: "vw", sort: "price-desc", page: "1" }, other));
-  assert.equal(make.table, 1, "a make listing's first page looks for its stored order on a miss");
+  assert.equal(make.table, 2, "a make listing's first page looks for its stored order and its deep use on a miss");
 });
 
 test("a failing order read on the first pages shows the live ids", async t => {
@@ -409,7 +478,7 @@ test("a failing order read on the first pages shows the live ids", async t => {
       for (const page of [1, 20]) assert.deepEqual(await pageIds(bosch(sort, page), other), pageOf(order, page), `page ${page}`);
     });
   });
-  assert.equal(failures, 1, "the head read failed");
+  assert.equal(failures, 2, "the head read and the deep-use read failed");
   assert.equal(statements?.headPasses, 1, "the page priced its own 480 ids");
   assert.equal(priceOrder.priceOrderEnabled(), true, "only a missing table turns the stored orders off");
 });
@@ -509,23 +578,126 @@ test("an older build never replaces a newer row; a listing over LISTING_PRICE_OR
   const pricedSql = `SELECT catalog.id,catalog.unavailable,catalog.price_kurus FROM (${catalog.storefrontCatalogSql}) catalog WHERE catalog.display_brand=$2`;
   const order = "unavailable,price_kurus ASC NULLS LAST,id", build = (key: string, epoch: number, brand: string) => priceOrder.buildPriceOrder(key, epoch, pricedSql, [storefrontCompanies(), brand], order);
   const listed = Number((await schema.pool.query<{ n: string }>(`SELECT count(*) AS n FROM (${catalog.storefrontCatalogSql}) catalog WHERE catalog.display_brand='BOSCH'`, [storefrontCompanies()])).rows[0].n);
-  assert.deepEqual(await build("test|epochs", 1000, "BOSCH"), { total: listed });
+  assert.deepEqual(await build("test|epochs", 1000, "BOSCH"), { total: listed, head: [] }, "no head asked: none returned");
   const boschFirst = await priceOrder.priceOrderSlice("test|epochs", 0, 3);
   assert.equal(boschFirst?.length, 3);
-  assert.deepEqual(await build("test|epochs", 999, "MAHLE"), { total: 0 }, "an older epoch: nothing stored");
+  assert.deepEqual(await build("test|epochs", 999, "MAHLE"), { total: 0, head: [] }, "an older epoch: nothing stored");
   assert.deepEqual(await priceOrder.priceOrderSlice("test|epochs", 0, 3), boschFirst);
-  assert.deepEqual(await build("test|epochs", 1000, "MAHLE"), { total: 5 }, "the same epoch replaces it");
+  assert.deepEqual(await build("test|epochs", 1000, "MAHLE"), { total: 5, head: [] }, "the same epoch replaces it");
   const meta = await priceOrder.priceOrderStore.read("test|epochs");
   assert.deepEqual([meta?.value, meta?.epoch], [{ total: 5 }, 1000]);
   assert.deepEqual(await priceOrder.priceOrderSlice("test|epochs", 3, 24), (await priceOrder.priceOrderSlice("test|epochs", 0, 5))!.slice(3), "a slice ends with the order");
   assert.deepEqual(await priceOrder.priceOrderSlice("test|epochs", 5, 24), [], "past the end: empty");
   assert.equal(await priceOrder.priceOrderSlice("test|missing", 0, 24), null, "no row");
   await withEnv({ LISTING_PRICE_ORDER_MAX_IDS: "100" }, async () => {
-    assert.deepEqual(await build("test|cap", 1000, "BOSCH"), { total: 0 });
-    assert.deepEqual(await build("test|cap", 1000, "MAHLE"), { total: 5 });
+    assert.deepEqual(await build("test|cap", 1000, "BOSCH"), { total: 0, head: [] });
+    assert.deepEqual(await build("test|cap", 1000, "MAHLE"), { total: 5, head: [] });
   });
-  assert.deepEqual(await build("test|empty", 1000, "NOBODY"), { total: 0 });
+  assert.deepEqual(await build("test|empty", 1000, "NOBODY"), { total: 0, head: [] });
   assert.equal(await priceOrder.priceOrderStore.read("test|empty"), null);
+});
+
+test("concurrent builds of one key and epoch send one statement; a row of the epoch stored within freshMs is returned instead; the head is the order's first ids (#1405)", async () => {
+  const key = "test|single", values = [storefrontCompanies(), "BOSCH"], fresh = { head: 30, freshMs: 10 * 60 * 1000 };
+  const build = (epoch: number, options?: { head?: number; freshMs?: number }) => priceOrder.buildPriceOrder(key, epoch, brandRowsSql(), values, ascending, options);
+  const listed = Number((await schema.pool.query<{ n: string }>(`SELECT count(*) AS n FROM (${catalog.storefrontCatalogSql}) catalog WHERE catalog.display_brand='BOSCH'`, [storefrontCompanies()])).rows[0].n);
+  const row = async () => (await schema.pool.query<{ epoch: number; computed_at: Date }>("SELECT epoch::int,computed_at FROM storefront_listing_price_orders WHERE epoch BETWEEN 2000 AND 2999")).rows;
+  let both: Awaited<ReturnType<typeof build>>[] = [];
+  const concurrent = await sent(async () => { both = await Promise.all([build(2000, fresh), build(2000, fresh)]); });
+  assert.equal(concurrent.builds, 1, "one statement for both");
+  assert.equal(both[0].total, listed);
+  assert.deepEqual(both[1], both[0]);
+  assert.deepEqual(both[0].head, await priceOrder.priceOrderSlice(key, 0, 30), "the head is the stored order's first ids");
+  const [built] = await row();
+  // A row of this epoch (or a newer one) stored within freshMs: returned, nothing built.
+  for (const epoch of [2000, 1999]) {
+    let again: Awaited<ReturnType<typeof build>> | undefined;
+    assert.equal((await sent(async () => { again = await build(epoch, fresh); })).builds, 0, `epoch ${epoch}`);
+    assert.deepEqual(again, both[0], `epoch ${epoch}: the stored row`);
+  }
+  assert.deepEqual(await row(), [built], "the row stays as it was");
+  // Older than freshMs, or of an older epoch than asked: built again.
+  await schema.pool.query("UPDATE storefront_listing_price_orders SET computed_at=now()-interval '11 minutes' WHERE epoch=2000");
+  assert.equal((await sent(async () => assert.equal((await build(2000, fresh)).total, listed))).builds, 1, "past freshMs");
+  assert.equal((await sent(async () => assert.equal((await build(2001, fresh)).head.length, 30))).builds, 1, "a newer epoch");
+  // Without freshMs every call builds; after a settled build the next one builds again (no build kept in flight).
+  assert.equal((await sent(async () => { await build(2001); await build(2001); })).builds, 2);
+  await schema.pool.query("DELETE FROM storefront_listing_price_orders WHERE epoch BETWEEN 2000 AND 2999");
+});
+
+test("a slice moves last_sliced_at at most once a minute and leaves the rest of the row alone (#1405)", async t => {
+  // A copy of the module: its touch throttle stays apart from the pages' and the clock it saw from theirs.
+  const copyName = "touch", copy = await import(`../src/modules/store/listing-price-order.ts?${copyName}`) as typeof priceOrder;
+  const key = "test|touch", epoch = 4100;
+  assert.ok((await copy.buildPriceOrder(key, epoch, brandRowsSql(), [storefrontCompanies(), "BOSCH"], ascending)).total > 48);
+  const row = async () => (await schema.pool.query<{ computed_at: Date; total: number; ids: string[]; sliced: Date | null; sliced_s: number | null }>(
+    `SELECT computed_at,total,ids::text[] AS ids,last_sliced_at AS sliced,extract(epoch FROM now()-last_sliced_at)::int AS sliced_s
+     FROM storefront_listing_price_orders WHERE epoch=$1`, [epoch])).rows[0];
+  const built = await row();
+  assert.equal(built.sliced, null, "no slice yet");
+  const touchesBy = async (run: () => Promise<unknown>) => {
+    let touches = 0;
+    await intercepted(text => { if (isTouch(text)) touches++; return undefined; }, async () => { await run(); await copy.sliceTouchesSettled(); });
+    return touches;
+  };
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  assert.equal(await touchesBy(async () => { await copy.priceOrderSlice(key, 0, 24); await copy.priceOrderSlice(key, 24, 24); }), 1, "two slices: one touch");
+  const first = await row();
+  assert.equal(first.sliced_s, 0, "moved now");
+  t.mock.timers.tick(copy.sliceTouchMs - 1);
+  assert.equal(await touchesBy(() => copy.priceOrderSlice(key, 0, 24)), 0, "within the minute: no statement");
+  t.mock.timers.tick(1);
+  // The process's minute is up, the row's (in SQL) not: the statement is sent and changes nothing, as when another process
+  // moved it within the minute.
+  assert.equal(await touchesBy(() => copy.priceOrderSlice(key, 0, 24)), 1);
+  assert.deepEqual((await row()).sliced, first.sliced, "moved under a minute ago in SQL: kept");
+  await schema.pool.query("UPDATE storefront_listing_price_orders SET last_sliced_at=last_sliced_at-interval '2 minutes' WHERE epoch=$1", [epoch]);
+  t.mock.timers.tick(copy.sliceTouchMs);
+  assert.equal(await touchesBy(() => copy.priceOrderSlice(key, 0, 24)), 1);
+  const moved = await row();
+  assert.equal(moved.sliced_s, 0, "both minutes up: moved");
+  assert.deepEqual([moved.computed_at, moved.total, moved.ids], [built.computed_at, built.total, built.ids], "the order itself unchanged");
+  t.mock.timers.tick(copy.sliceTouchMs);
+  assert.equal(await touchesBy(async () => assert.equal(await copy.priceOrderSlice("test|touch-none", 0, 24), null)), 0, "no row: no touch");
+  await schema.pool.query("DELETE FROM storefront_listing_price_orders WHERE epoch=$1", [epoch]);
+});
+
+test("without last_sliced_at (setup not run yet) the first pages' gate is closed and slices do not touch it for five minutes; the stored orders keep working (#1405)", async t => {
+  // A copy of the module, so its five-minute switch stays out of the other tests.
+  const copyName = "no-column", copy = await import(`../src/modules/store/listing-price-order.ts?${copyName}`) as typeof priceOrder;
+  const logged = t.mock.method(console, "error", () => {});
+  const key = "test|no-column", epoch = 4200;
+  const named: string[] = [];
+  // The shared database before setup: every statement naming the column fails as it would there.
+  const noColumn = (text: string) => {
+    if (!text.includes("last_sliced_at")) return undefined;
+    named.push(text);
+    return failure("42703");
+  };
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  await intercepted(noColumn, async () => {
+    const built = await copy.buildPriceOrder(key, epoch, brandRowsSql(), [storefrontCompanies(), "BOSCH"], ascending, { head: 3, freshMs: 10 * 60 * 1000 });
+    assert.ok(built.total > 6);
+    assert.deepEqual(await copy.priceOrderSlice(key, 0, 3), built.head, "a slice reads the order");
+    await copy.sliceTouchesSettled();
+    assert.equal(named.length, 1, "its touch failed on the column");
+    assert.equal(await copy.priceOrderInUse(key), false);
+    assert.equal((await copy.priceOrderSlice(key, 3, 3))?.length, 3);
+    t.mock.timers.tick(5 * 60 * 1000 - 1);
+    assert.equal(await copy.priceOrderInUse(key), false);
+    await copy.sliceTouchesSettled();
+    assert.equal(named.length, 1, "no statement names the column within five minutes");
+    t.mock.timers.tick(1);
+    assert.equal(await copy.priceOrderInUse(key), false);
+    assert.equal(named.length, 2, "read again after five minutes, closed again");
+    await schema.pool.query("UPDATE storefront_listing_price_orders SET computed_at=now()-interval '11 minutes' WHERE epoch=$1", [epoch]);
+    const rebuilt = await sent(async () => assert.equal((await copy.buildPriceOrder(key, epoch, brandRowsSql(), [storefrontCompanies(), "BOSCH"], ascending, { head: 3, freshMs: 10 * 60 * 1000 })).total, built.total));
+    assert.equal(rebuilt.builds, 1, "a build still stores");
+  });
+  assert.equal(copy.priceOrderEnabled(), true, "the stored orders stay on");
+  assert.deepEqual(logged.mock.calls.map(call => String(call.arguments[0]).replace(/ \(setup.*/, "")), ["Listing price order: last_sliced_at is missing", "Listing price order: last_sliced_at is missing"],
+    "logged once per five minutes");
+  await schema.pool.query("DELETE FROM storefront_listing_price_orders WHERE epoch=$1", [epoch]);
 });
 
 test("a stored order gone while its size is cached reads the page live", async () => {
@@ -586,8 +758,8 @@ test("a make listing's order carries the fits value: the fit sync's bump rebuild
   // A build under the epoch alone (a task still on the code before #1368) never replaces the make's newer row.
   const { rows: [row] } = await schema.pool.query<{ key_hash: string; total: number }>("SELECT key_hash,total FROM storefront_listing_price_orders WHERE epoch=$1", [fitsBefore + 1]);
   const pricedSql = `SELECT catalog.id,catalog.unavailable,catalog.price_kurus FROM (${catalog.storefrontCatalogSql}) catalog WHERE catalog.display_brand=$2`;
-  assert.deepEqual((await schema.pool.query(priceOrder.priceOrderBuildSql(pricedSql, "unavailable,price_kurus ASC NULLS LAST,id", "$3", "$4", "$5"),
-    [storefrontCompanies(), "MAHLE", row.key_hash, epochBefore, 1000])).rows, [], "nothing stored");
+  assert.deepEqual((await schema.pool.query(priceOrder.priceOrderBuildSql(pricedSql, "unavailable,price_kurus ASC NULLS LAST,id", "$3", "$4", "$5", "$6"),
+    [storefrontCompanies(), "MAHLE", row.key_hash, epochBefore, 1000, 3])).rows, [], "nothing stored");
   assert.deepEqual((await schema.pool.query("SELECT epoch::int,total FROM storefront_listing_price_orders WHERE key_hash=$1", [row.key_hash])).rows,
     [{ epoch: fitsBefore + 1, total: row.total }]);
 });
@@ -604,8 +776,99 @@ test("LISTING_PRICE_ORDER_MAX_IDS is at most the integer columns' 2^31-1", () =>
   assert.equal(priceOrder.priceOrderMaxIds(), 2_147_483_647);
 }));
 
-// Next to last: it moves the clock (Date only) ten minutes and more ahead. This process's polled listing epoch then stays
-// as it last read it until the real clock catches up; the tests after it move it through invalidateListings() only.
+// The tests from here on move the clock (Date only) ten minutes and more ahead. This process's polled listing epoch then
+// stays as it last read it until the real clock catches up; the tests after the first move it through invalidateListings()
+// only. This one moves it over an hour, one cache TTL a cycle, in another process whose caches nothing else reads.
+test("with page 1 and a deep page hot, each refresh prices the listing once and pages 20 and 21 read one order; once the deep traffic stops, page 1 prices its own ids (#1405)", async t => {
+  const sort = "price-asc", ttlMs = 10 * 60 * 1000, step = ttlMs + 1000;
+  const proc = await otherProcess("cycles");
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  await schema.pool.query("DELETE FROM storefront_listing_cache WHERE namespace='page-ids'");
+  await invalidateListings();
+  // A slice touched the order within the last minute in this process (earlier tests): that minute is over first.
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() + priceOrder.sliceTouchMs });
+  /** One cache TTL and a second: the process clock moves, and so does every stored row's age (computed_at, the last slice). */
+  const advance = async () => {
+    await priceOrder.sliceTouchesSettled();
+    t.mock.timers.tick(step);
+    await schema.pool.query(`UPDATE storefront_listing_price_orders SET computed_at=computed_at-$1::bigint*interval '1 millisecond',
+      last_sliced_at=last_sliced_at-$1::bigint*interval '1 millisecond'`, [step]);
+    await schema.pool.query("UPDATE storefront_listing_cache SET computed_at=computed_at-$1::bigint*interval '1 millisecond' WHERE namespace='page-ids'", [step]);
+  };
+  // A card of page 20 made the dearest: every later card moves up a place, so pages 20 and 21 both change.
+  const originals = new Map<string, unknown>();
+  let raised = 0;
+  const reprice = async (current: string[]) => {
+    const id = current[470];
+    const { rows: [row] } = await schema.pool.query<{ price_data: unknown }>("SELECT price_data FROM supplier_items WHERE id=$1", [id]);
+    if (!originals.has(id)) originals.set(id, row.price_data);
+    await schema.pool.query("UPDATE supplier_items SET price_data=jsonb_build_object('nf',$2::int) WHERE id=$1", [id, 10_000 + ++raised]);
+    const next = await liveOrder(sort);
+    assert.ok(!same(pageOf(next, 20), pageOf(current, 20)) && !same(pageOf(next, 21), pageOf(current, 21)), "pages 20 and 21 change");
+    return next;
+  };
+  /** Pages 20 and 21 of `proc` once they show `order` (the refreshes run in the background), then every load is done. */
+  const settled = async (order: string[], label: string) => {
+    const shown = await until(async () => [await pageIds(bosch(sort, 20), proc), await pageIds(bosch(sort, 21), proc)],
+      pair => same(pair, [pageOf(order, 20), pageOf(order, 21)]));
+    assert.deepEqual(shown, [pageOf(order, 20), pageOf(order, 21)], `${label}: pages 20 and 21 from the current order`);
+    assert.deepEqual(shown[0].filter(id => shown[1].includes(id)), [], `${label}: no card on both`);
+    await quiet();
+  };
+  const counts = ({ builds, headPasses, livePages }: Awaited<ReturnType<typeof sent>>) => ({ builds, headPasses, livePages });
+  const page = (number: number) => pageIds(bosch(sort, number), proc);
+  try {
+    let order = await liveOrder(sort);
+    // Cold: the deep page builds, page 1 takes the order's first ids.
+    assert.deepEqual(counts(await sent(async () => { await page(21); await page(1); await settled(order, "cold"); })), { builds: 1, headPasses: 0, livePages: 0 }, "cold");
+    const cycles: [string, () => Promise<unknown>][] = [
+      ["page 1 first", async () => { await page(1); await page(21); }],
+      ["page 21 first", async () => { await page(21); await page(1); }],
+      ["both at once", () => Promise.all([page(1), page(21)])],
+    ];
+    for (const [label, read] of cycles) {
+      order = await reprice(order);
+      await advance();
+      assert.deepEqual(counts(await sent(async () => { await read(); await settled(order, label); })), { builds: 1, headPasses: 0, livePages: 0 }, label);
+    }
+    // The deep traffic stops. Its last slice is one TTL old at the next refresh (the gate open: it may build), two at the
+    // one after (closed): from then on page 1 prices its own 480 ids and the stored order is not rebuilt.
+    const firstPages = async (label: string) => {
+      order = await reprice(order);
+      await advance();
+      return counts(await sent(async () => {
+        await page(1);
+        const shown = await until(() => page(20), ids => same(ids, pageOf(order, 20)));
+        assert.deepEqual(shown, pageOf(order, 20), label);
+        await quiet();
+      }));
+    };
+    await firstPages("page 1 alone, one TTL after the last slice");
+    const builtAge = (await stored())[0].age_s;
+    for (const ttls of [2, 3]) {
+      assert.deepEqual(await firstPages(`page 1 alone, ${ttls} TTLs after the last slice`), { builds: 0, headPasses: 1, livePages: 0 }, `${ttls} TTLs`);
+      assert.ok((await stored())[0].age_s >= builtAge + (ttls - 1) * 600, `${ttls} TTLs: the stored order is not rebuilt`);
+    }
+    // A deep page again: its stale order is sliced at once (and touched), then rebuilt; page 1 rebuilds it at its next refresh.
+    assert.deepEqual(counts(await sent(async () => {
+      await page(21);
+      assert.deepEqual(await until(() => page(21), ids => same(ids, pageOf(order, 21))), pageOf(order, 21), "the deep page's rebuild");
+      await quiet();
+    })), { builds: 1, headPasses: 0, livePages: 0 }, "a deep page again");
+    assert.deepEqual(await firstPages("page 1 after a deep page"), { builds: 1, headPasses: 0, livePages: 0 }, "page 1 after a deep page");
+    // The deep page's own refresh (due too) takes the order page 1 built.
+    assert.deepEqual(counts(await sent(async () => {
+      assert.deepEqual(await page(21), pageOf(order, 21), "page 21 from the order page 1 built");
+      await quiet();
+    })), { builds: 0, headPasses: 0, livePages: 0 }, "the deep page's refresh");
+  } finally {
+    for (const [id, priceData] of originals) await schema.pool.query("UPDATE supplier_items SET price_data=$2 WHERE id=$1", [id, priceData]);
+    await priceOrder.sliceTouchesSettled();
+    await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+    await invalidateListings();
+  }
+});
+
 test("a failed build reads the page live, builds no more for ten minutes, then stores the order", async t => {
   const query = bosch("price-asc", 21), next = bosch("price-asc", 22);
   const [live, liveNext] = [await livePage(query), await livePage(next)];
@@ -642,6 +905,38 @@ test("a failed build reads the page live, builds no more for ten minutes, then s
   const messages = logged.mock.calls.map(call => String(call.arguments[0]));
   assert.ok(messages.some(message => message.startsWith("Listing price order: build failed (57014)")));
   assert.ok(messages.some(message => message.startsWith("Listing price order: build failed (53200)")));
+});
+
+// After the failed builds above: the price-desc listing, whose builds they left alone. Its failure keeps it from building
+// for ten real minutes, which the last test does not need.
+test("a failing build started by the first pages shows their own 480 ids and starts no other within the back-off (#1405)", async t => {
+  const sort = "price-desc", order = await liveOrder(sort), reversed = [...order].reverse();
+  t.mock.method(console, "error", () => {});
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  await invalidateListings();
+  assert.deepEqual(await pageIds(bosch(sort, 21), await otherProcess("backoff-deep")), pageOf(order, 21));
+  await setOrder(reversed, await currentEpoch(), "11 minutes", "1 minute");
+  const heads = await otherProcess("backoff-heads");
+  let builds = 0;
+  const failBuild = (text: string) => {
+    if (!text.includes("INSERT INTO storefront_listing_price_orders")) return undefined;
+    builds++;
+    return failure("57014");
+  };
+  let statements: Awaited<ReturnType<typeof sent>> | undefined;
+  await intercepted(failBuild, async () => {
+    statements = await sent(async () => {
+      assert.deepEqual(await pageIds(bosch(sort, 1), heads), pageOf(reversed, 1), "11 minutes old: served at once");
+      assert.deepEqual(await until(() => pageIds(bosch(sort, 1), heads), ids => same(ids, pageOf(order, 1))), pageOf(order, 1), "then the 480-id pass's");
+      // An epoch reload within the back-off: the gate is still open, the build is not tried.
+      await invalidateListings();
+      assert.deepEqual(await pageIds(bosch(sort, 20), heads), pageOf(order, 20), "the reload's 480-id pass");
+      await quiet();
+    });
+  });
+  assert.equal(builds, 1, "one build tried");
+  assert.equal(statements?.headPasses, 2, "a pass on the refresh and on the reload");
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
 });
 
 // Last: a missing table turns the stored orders off for five minutes in this process.

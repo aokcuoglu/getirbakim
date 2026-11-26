@@ -10,7 +10,7 @@ import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { fitsEpoch, listingEpoch } from "./listing-epoch";
 import { listingCacheStore, storedLinks } from "./listing-cache-store";
-import { buildPriceOrder, priceOrderEnabled, priceOrderHeadStore, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
+import { buildPriceOrder, priceOrderEnabled, priceOrderHeadStore, priceOrderInUse, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
 import { defaultListingLimitMs, listingStatementTimeoutMs, suggestStatementTimeoutMs } from "./listing-timeout";
 export type { CatalogQuery } from "./catalog-query";
@@ -845,9 +845,15 @@ type Facets={brands:string[];attributes:CatalogFacet[]};
 const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,fallbackWhen:facets=>facets.brands.length+facets.attributes.length>0,store:listingCacheStore<Facets>("facets",1)}),cachedBrands=staleCache<string[]>(aggregateTtl,500,listings);
 // The stored whole price orders (#1369): the process keeps each one's size only, its ids stay in the table
 // (listing-price-order.ts). Same rules as the three above; an order stored empty (nothing to store) is no earlier value.
+// Its loader and the first pages' below both call buildPriceOrder (#1405), not each other's cache: a refresh of either
+// serves its stale value at once and loads in the background, so a loader awaiting the other cache would not see the
+// build. buildPriceOrder shares a running build of the same key, epoch and head size, and returns a row another load
+// stored since this one read the store; each cache then picks the row up through its own store.
 const cachedPriceOrders=staleCache<PriceOrder>(aggregateTtl,500,{...persistedListings,fallbackWhen:order=>order.total>0,store:priceOrderStore});
 // The first pages of a stored listing's price order (#1389): cachedPageIds' rows and rules, with the stored order's first
-// 480 ids as a second source (priceOrderHeadStore), so a listing a deep page ordered is not priced again. These keys have
+// 480 ids as a second source (priceOrderHeadStore), so a listing a deep page ordered is not priced again. While a deep
+// page sliced that order within the last 20 minutes (priceOrderInUse, #1405), a load rebuilds the order and takes its
+// first ids instead of its own 480-id pass, so a listing hot on both sides is priced once per refresh. These keys have
 // their own 500 entries, apart from cachedPageIds'. The size is read lazily: cachedPages is declared further down. An
 // order older than the cache's longest window (maxFallbackMs, 48 hours) is not read: nothing could take it.
 const cachedPricedHeads=staleCache<string[]>(aggregateTtl,500,{...persistedListings,fallbackWhen:ids=>ids.length>0,
@@ -1155,19 +1161,31 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // rows are sorted before the limit (VW: ~57 MB): it spilled to disk (external merge) at both the local default (4 MB) and
  // the production RDS setting (16 MB); 64 MB for this read keeps it in memory. A listing of two id sets up to
  // pricedByIdsMax rows is priced by its id array (pricedScope), off a per-row plan (#1335).
- // A stored listing's first pages (persistable, #1389) never build its whole order below, so a cold page 1 does not wait
- // for one. Their 480 ids come from the stored order's first ids instead of a pricing pass when a memory miss, refresh or
- // epoch reload finds that row newer than their stored page ids and current under the cache's rules (cachedPricedHeads;
- // a memory miss takes one up to 24 hours old and refreshes it): a listing a deep page ordered is not priced again, and
- // pages 20 and 21 then read one order. A new process's first page of such a listing without stored page ids (local
- // production build): ORIJINAL 1.74-1.84 s -> 0.14-0.15 s, /katalog 6.9-7.3 s -> 0.13-0.14 s. Ids from their own pass (a
- // first page read before any deep one, or a refresh that finds the order past 10 minutes, as both expire together unless
- // a deep page rebuilt it first) stay until their next refresh, so until then pages 20 and 21 can come from two orders up
- // to 10 minutes apart. Slicing the stored order on every first page instead reads the whole array per request: /katalog's
- // warm page 1 was 2-4 ms slower.
+ // A stored listing's first pages (persistable, #1389) never build its whole order while no deep page reads it, so a cold
+ // page 1 does not wait for one. Their 480 ids come from the stored order's first ids instead of a pricing pass when a
+ // memory miss, refresh or epoch reload finds that row newer than their stored page ids and current under the cache's
+ // rules (cachedPricedHeads; a memory miss takes one up to 24 hours old and refreshes it): a listing a deep page ordered is
+ // not priced again, and pages 20 and 21 then read one order. A new process's first page of such a listing without stored
+ // page ids (local production build): ORIJINAL 1.74-1.84 s -> 0.14-0.15 s, /katalog 6.9-7.3 s -> 0.13-0.14 s.
+ // A load that takes no such row while a deep page sliced the order within the last 20 minutes (priceOrderInUse, #1405)
+ // rebuilds the whole order and takes its first ids from that statement, as the deep pages' loader below does (the same
+ // epoch value, a filter built after it: `filter()` may be older, and the same head size, so one build serves both): the
+ // two caches expire together, and a listing hot on both sides is then priced once per refresh instead of twice, with
+ // pages 20 and 21 read from one order once the refresh has settled. A build that stores nothing (failed, backing off,
+ // nothing listed) falls back to the 480-id pass. Without such recent deep use (a first page read before any deep one, or
+ // deep traffic that stopped) a load prices its own 480 ids, which stay until their next refresh, so until then pages 20
+ // and 21 can come from two orders up to 10 minutes apart. Slicing the stored order on every first page instead reads the
+ // whole array per request: /katalog's warm page 1 was 2-4 ms slower.
  if(!search&&pricedSort&&page<=cachedPages){
   const eligible=persistable(query);
-  const ordered=await (eligible?cachedPricedHeads:pageIdCache(query))(pricedKey,async()=>{const scope=await pricedScope(total,await filter(),pricedKey);
+  const ordered=await (eligible?cachedPricedHeads:pageIdCache(query))(pricedKey,async at=>{
+   if(eligible&&total<=priceOrderMaxIds()&&await priceOrderInUse(pricedKey)){
+    const fresh=await pricedScope(total,await catalogFilter(query,context),pricedKey);
+    if(!fresh)return [];
+    const built=await buildPriceOrder(pricedKey,at,pricedRowsSql(fresh.where),fresh.values,order,{head:cachedPages*pageSize,freshMs:aggregateTtl});
+    if(built.total>0)return built.head;
+   }
+   const scope=await pricedScope(total,await filter(),pricedKey);
    if(!scope)return [];
    return (await boundedQuery<{id:string}>(`catalog.pricedPageIds ${pricedKey}`,
    `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,scope.values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
@@ -1185,14 +1203,17 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // The order is tagged with the epoch value the cache loads it under (`at`, the listing's counter: epochOf), and its filter
  // is built after that value was read: an edit after it leaves an order built from earlier id sets tagged older than the
  // counter, so it is rebuilt, never taken as current (#1369). The page's own filter may be older (built by a count miss
- // above), so the build builds its own.
+ // above), so the build builds its own. It asks for the first pages' head size, as their loader above does (#1405): a
+ // build either one starts serves the other, and one that finds a row stored within the TTL since returns it instead.
  // A listing over priceOrderMaxIds, an order with nothing stored, a row gone (the UNLOGGED table empties after a crash)
  // or a page past its end read live below, and so does a failed build (its 30 s limit included): the listing then reads
  // live without another build for ten minutes (buildPriceOrder), instead of failing the page or building per request.
  if(!search&&pricedSort&&persistable(query)&&priceOrderEnabled()&&total<=priceOrderMaxIds()){
   const stored=await cachedPriceOrders(pricedKey,async at=>{
    const scope=await pricedScope(total,await catalogFilter(query,context),pricedKey);
-   return scope?buildPriceOrder(pricedKey,at,pricedRowsSql(scope.where),scope.values,order):{total:0};},{epoch:epochOf(query)});
+   if(!scope)return {total:0};
+   const built=await buildPriceOrder(pricedKey,at,pricedRowsSql(scope.where),scope.values,order,{head:cachedPages*pageSize,freshMs:aggregateTtl});
+   return {total:built.total};},{epoch:epochOf(query)});
   const ids=stored.total>0?await priceOrderSlice(pricedKey,(page-1)*pageSize,take):null;
   if(ids?.length)return {items:await withBestOffers(await storefrontRowsByIds(ids)),total,page,pages,pageSize};
  }

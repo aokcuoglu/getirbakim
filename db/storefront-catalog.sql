@@ -312,6 +312,11 @@ CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_cache (
 -- empties it and deep pages read live until the next build. The app prunes rows older than two days. No index but the
 -- primary key: every read and write names one key_hash. The array is read whole to slice it (~16 bytes an id: 900k ids
 -- ~14 MB, stored out of line).
+-- `last_sliced_at` (#1405; nullable, not indexed): when a deep page last read a slice of the row, NULL until one does. The
+-- app moves it at most once a minute per row, by an UPDATE of this column alone (the array is not rewritten), and a
+-- build keeps it. The first pages' cache reads it by primary key when it loads: a listing a deep page sliced within the
+-- last 20 minutes refreshes its first pages by rebuilding this order (one pricing pass for both), any other by its own
+-- 480-id pass. Added only when missing: ADD COLUMN IF NOT EXISTS locks the table on every setup run.
 CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_price_orders (
  key_hash text NOT NULL,
  epoch bigint NOT NULL,
@@ -320,3 +325,8 @@ CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_price_orders (
  ids uuid[] NOT NULL,
  PRIMARY KEY (key_hash)
 );
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='storefront_listing_price_orders'::regclass AND attname='last_sliced_at' AND NOT attisdropped) THEN
+  ALTER TABLE storefront_listing_price_orders ADD COLUMN last_sliced_at timestamptz;
+ END IF;
+END $$;
