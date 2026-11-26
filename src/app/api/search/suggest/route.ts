@@ -14,9 +14,11 @@ export async function GET(request: Request) {
     // Same query, same answer for a minute: typing back and forth does not repeat the search.
     return Response.json(suggestions, { headers: { "Cache-Control": "private, max-age=60" } });
   } catch (error) {
-    // Nobody reads this answer: its reads were cancelled (boundedQuery logs that), not failed. 499: client closed request.
+    // Stopped because the visitor left: boundedQuery rejects with the signal's own reason (and logs a cancelled read).
+    // Any other failure is logged even when the visitor has left too, so an outage behind abandoned keystrokes shows.
+    if (!(request.signal.aborted && error === request.signal.reason)) console.error("Search suggestions could not be loaded", error);
+    // 499: client closed request; nobody reads this answer.
     if (request.signal.aborted) return new Response(null, { status: 499 });
-    console.error("Search suggestions could not be loaded", error);
     return Response.json({ error: "Öneriler yüklenemedi." }, { status: 500 });
   }
 }
