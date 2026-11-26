@@ -138,6 +138,42 @@ test("the garage vehicle's count stays within the manufacturer page", async () =
   assert.equal(await catalog.vehicleFitCount({}, "100"), 2);
 });
 
+// A manufacturer page binds no JS id array: a stock filter reads its listed ids first (the stock scope) and then those ids'
+// stock only (#1455). The oracle is the whole stock set's clause (LISTING_STOCK_SCOPE_MAX_IDS=0), each side read by a
+// fresh process (its own caches).
+test("a manufacturer page's stock filter lists the same cards scoped and over the whole stock set (#1455)", async () => {
+  type Catalog = typeof import("../src/modules/store/catalog");
+  const setStock = (keys: string[], stock: number) => schema.pool.query(
+    "UPDATE supplier_items SET stock_data=jsonb_build_object('stok',$2::int) WHERE id=ANY($1::uuid[])", [keys.map(key => ids[key]), stock]);
+  let processes = 0;
+  const listing = async (max: string | undefined, availability: "in_stock" | "out_of_stock", sort?: "price-asc") => {
+    const saved = process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+    if (max === undefined) delete process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+    else process.env.LISTING_STOCK_SCOPE_MAX_IDS = max;
+    try {
+      const fresh = await import(`../src/modules/store/catalog.ts?manufacturer-stock-${++processes}`) as Catalog;
+      const { items, total, pages } = await fresh.browseProducts({ manufacturer: "bosch", availability, sort });
+      return { ids: items.map(row => row.id), total, pages };
+    } finally {
+      if (saved === undefined) delete process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+      else process.env.LISTING_STOCK_SCOPE_MAX_IDS = saved;
+    }
+  };
+  // b2 and a2 sold out; b1 sold out but in stock through its offer a5, which is never a card itself.
+  await setStock(["b1", "b2", "a2"], 0);
+  try {
+    for (const availability of ["in_stock", "out_of_stock"] as const) {
+      for (const sort of [undefined, "price-asc"] as const) {
+        const scoped = await listing(undefined, availability, sort);
+        assert.deepEqual(scoped, await listing("0", availability, sort), `${availability} ${sort ?? "newest"}`);
+        assert.deepEqual([...scoped.ids].sort(), availability === "in_stock" ? sorted(["b1", "b3", "b4", "b5", "b6", "a1", "a3", "a4"]) : sorted(["b2", "a2"]));
+      }
+    }
+  } finally {
+    await setStock(["b1", "b2", "a2"], 2);
+  }
+});
+
 test("the sitemap lists the manufacturers the page indexes: 10 products in, 9 out, ORIJINAL never", async () => {
   assert.deepEqual(await sitemap.loadManufacturerSlugs(), ["bosch"]);
   assert.equal(await catalog.listingTotal({ manufacturer: "orijinal" }), 12);

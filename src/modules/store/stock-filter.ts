@@ -47,7 +47,7 @@ export function stockScopeMaxIds():number{
  return Number.isSafeInteger(value)&&value>0?Math.min(value,stockScopeCeiling):defaultStockScopeMaxIds;
 }
 
-/** A JS id array the listing binds (`param`: "$3::uuid[]") and its length. */
+/** An id array the listing binds (`param`: "$3::uuid[]") and its length. */
 export type StockScope={param:string;size:number};
 /**
  * The listing's stock clause. `idSet`: the clause narrows the listing to an id set, and catalogFilter counts it as one
@@ -61,18 +61,23 @@ export type StockClause={clause:string;idSet:boolean;workMem?:string};
  * (#1342; locally 25,018 cards were in both). Both stock filters read the lean availability view, not commerce_catalog's
  * priced rows a second time (#1242).
  *
- * Scoped (#1429): with `scope`, the smallest JS id array the listing binds (search hits, category, model, garage vehicle
- * fits, oils) of at most stockScopeMaxIds() ids, the stock filter reads the availability of those ids only, as
- * `catalog.id=ANY(ARRAY(<scoped ids>)::uuid[])`: an InitPlan run once whose array drives the catalog by primary key. The
- * unscoped clauses below read the whole stock set (a serial scan of supplier_items, ~1.3M rows, and its hash) whatever the
- * listing's size: ~0.25-0.9 s a statement. Measured locally on one snapshot, same count and ids in the newest and price
- * orders: 2k ids in stock, count 537 -> 91 ms; out of stock 1445 -> 56 ms; category=fren in stock ~0.7-1.6 s ->
- * 0.43-0.53 s, out of stock ~1.4-1.9 s -> 0.59-0.73 s. Other shapes of the same set were not linear: `catalog.id IN
- * (<scoped ids>)` planned out of stock as nested loops (4-30 s) and a correlated EXISTS took 96 s.
+ * Scoped (#1429): with `scope`, the smallest id array the listing binds of at most stockScopeMaxIds() ids, the stock
+ * filter reads the availability of those ids only, as `catalog.id=ANY(ARRAY(<scoped ids>)::uuid[])`: an InitPlan run once
+ * whose array drives the catalog by primary key. The array is a JS one the listing's own clause binds (search hits,
+ * category, model, garage vehicle fits, oils), or the listed ids of a brand, manufacturer or make-only listing read first
+ * and cached (catalogFilter's stock scopes, #1455), which every row of that listing is among. The unscoped clauses below
+ * read the whole stock set (a serial scan of supplier_items, ~1.3M rows, and its hash) whatever the listing's size:
+ * ~0.25-0.9 s a statement. Measured locally on one snapshot, same count and ids in the newest and price orders: 2k ids in
+ * stock, count 537 -> 91 ms; out of stock 1445 -> 56 ms; category=fren in stock ~0.7-1.6 s -> 0.43-0.53 s, out of stock
+ * ~1.4-1.9 s -> 0.59-0.73 s. Other shapes of the same set were not linear: `catalog.id IN (<scoped ids>)` planned out of
+ * stock as nested loops (4-30 s) and a correlated EXISTS took 96 s.
+ * The bound array reaches the scoped ids through a one-row MATERIALIZED CTE (`WITH scope AS MATERIALIZED (SELECT $n AS
+ * ids)`, read as `(SELECT ids FROM scope)`, #1455): the same ids, 10-70% faster than the parameter in place (category=fren
+ * in stock, count/page/price page: 327/328/483 -> 290/291/450 ms).
  * The scoped clause is an id set (`idSet`): a statement pricing the view must never read it (750 ms at 2k ids, over 120 s
- * at 200k), and with the bound array the listing has two id sets, so a price order first reads its ids (listedIds) and
+ * at 200k), and catalogFilter counts its listing as two id sets, so a price order first reads its ids (listedIds) and
  * prices them by bind array (pricedScope, #1335). Its reads need no extra work_mem and run under the listing's limit.
- * The listings that bind no JS array (brand, manufacturer, a make alone, /katalog) keep the unscoped clause.
+ * /katalog and the listings over the limit keep the unscoped clause.
  *
  * Unscoped out of stock reads the view through commerce_out_of_stock_ids (db/commerce.sql), whose declared size keeps deep
  * pages off a nested loop (#1286). The in-stock exclusion sits inside that subquery, a hashed SubPlan on the Function Scan
@@ -88,8 +93,9 @@ export function stockClause(availability:CatalogQuery["availability"],scope?:Sto
  if(availability==="supplied")return {clause:"NOT catalog.unavailable",idSet:false};
  const max=stockScopeMaxIds();
  if(scope&&max>0&&scope.size<=max){
-  const ids=availability==="in_stock"?scopedInStockIdsSql(scope.param):scopedOutOfStockIdsSql(scope.param);
-  return {clause:`catalog.id=ANY(ARRAY(${ids})::uuid[])`,idSet:true};
+  // The WITH heads the whole statement: the UNION ALL in stock, the EXCEPT compound out of stock.
+  const fed="((SELECT ids FROM scope)::uuid[])",ids=availability==="in_stock"?scopedInStockIdsSql(fed):scopedOutOfStockIdsSql(fed);
+  return {clause:`catalog.id=ANY(ARRAY(WITH scope AS MATERIALIZED (SELECT ${scope.param} AS ids) ${ids})::uuid[])`,idSet:true};
  }
  if(availability==="in_stock")return {clause:`catalog.id IN (${inStockIdsSql})`,idSet:false};
  return {clause:`catalog.id IN (SELECT id FROM commerce_out_of_stock_ids($1::text[]) id WHERE id NOT IN (${inStockIdsSql}))`,idSet:false,workMem:"32MB"};
