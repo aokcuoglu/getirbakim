@@ -23,7 +23,9 @@ import { buildInboundReport, checkInboundReport, type PartReport, reportKey } fr
 // importer's INSERT or from its ON CONFLICT DO UPDATE list fails. Whatever may legitimately differ is listed in LOCAL_ONLY, with its
 // reason; anything else that differs fails. The inbound tests (#1384) then run import-storefront-inbound.ts, the operations-task entry
 // point, on a third isolated schema: the same parts through a listing-capable stub, all dry runs, apply, fitment rebuild, queue drain,
-// report.json, and a part that fails its dry run must write nothing. INSERT_ONLY lists columns the importer writes on insert but never updates: they are
+// report.json, and a part that fails its dry run must write nothing.
+// Run 3 also skips the category images and logos run 2 sent (--static-digest, #1379) and sends them again once a logo changes; run 4 imports media
+// the target already holds under another id and object key (#1385): every referencing table must point at the existing object. INSERT_ONLY lists columns the importer writes on insert but never updates: they are
 // left out of the comparisons that follow an update, so the gap stays visible. A column nobody seeded, or one that only ever holds
 // its constant default, fails assertColumnCoverage, so a new column cannot pass by being empty or defaulted on both sides.
 const skip = !process.env.DATABASE_URL && "DATABASE_URL not set";
@@ -96,9 +98,10 @@ const SPECS: Record<CarriedTable, { select: string; where?: string; order: strin
   },
 };
 type Queryable = Pick<Pool, "query">;
-async function compareRows(table: CarriedTable, db: Queryable, excludeCodes: string[], afterUpdate = false) {
+type ExtraDropped = Partial<Record<CarriedTable, string[]>>;
+async function compareRows(table: CarriedTable, db: Queryable, excludeCodes: string[], afterUpdate = false, extraDropped: ExtraDropped = {}) {
   const spec = SPECS[table];
-  const dropped = [...Object.keys(LOCAL_ONLY[table]), ...(afterUpdate ? Object.keys(INSERT_ONLY[table] ?? {}) : [])];
+  const dropped = [...Object.keys(LOCAL_ONLY[table]), ...(afterUpdate ? Object.keys(INSERT_ONLY[table] ?? {}) : []), ...(extraDropped[table] ?? [])];
   const sql = `SELECT (${spec.select})-$2::text[] AS row FROM ${table} t WHERE $1::text[] IS NOT NULL ${spec.where ? `AND ${spec.where}` : ""} ORDER BY ${spec.order}`;
   return (await db.query<{ row: Record<string, unknown> }>(sql, [excludeCodes, dropped])).rows.map(entry => entry.row);
 }
@@ -223,8 +226,12 @@ const readLines = async <T>(path: string) => (await readFile(path, "utf8")).spli
 type ExportManifest = {
   snapshotAt: string; enrichmentCount: number; tombstones: { code: string; kind: string }[]; vehicleSpecs: unknown[]; vehicleImages: unknown[];
   vehicleData: { digest: string; specs: number; images: number; sent: boolean }; jobCount: number;
+  staticMedia: { digest: string; images: number; logos: number; sent: boolean }; images: unknown[]; logos: unknown[];
 };
-type PartManifest = { jobs: unknown[]; enrichments: unknown[]; vehicleData?: unknown; enrichmentsFile?: unknown };
+type PartManifest = {
+  jobs: unknown[]; enrichments: unknown[]; vehicleData?: unknown; enrichmentsFile?: unknown; staticMedia?: unknown;
+  images: unknown[]; logos: unknown[]; media: { id: string }[];
+};
 
 // ---------------------------------------------------------------------------------------------------------------------------------
 // Fixture.
@@ -345,9 +352,9 @@ async function uploadParts(parts: string[], prefix: string) {
   for (const part of parts) await uploadDirToStub(part, inboundBucket, `${prefix}/${basename(part)}`);
 }
 
-async function compareAll(excludeCodes: string[] = [], afterUpdate = false) {
+async function compareAll(excludeCodes: string[] = [], afterUpdate = false, extraDropped: ExtraDropped = {}) {
   for (const table of TABLES) {
-    const [fromSource, fromTarget] = [await compareRows(table, source.pool, excludeCodes, afterUpdate), await compareRows(table, target.pool, excludeCodes, afterUpdate)];
+    const [fromSource, fromTarget] = [await compareRows(table, source.pool, excludeCodes, afterUpdate, extraDropped), await compareRows(table, target.pool, excludeCodes, afterUpdate, extraDropped)];
     assert.ok(fromSource.length > 0 && fromTarget.length > 0, `${table}: the comparison is empty (source ${fromSource.length}, target ${fromTarget.length} rows)`);
     assert.deepEqual(fromTarget, fromSource, `${table} differs between source and target`);
   }
@@ -402,9 +409,9 @@ after(async () => {
 });
 
 const state: {
-  digest: string; snapshotAt: string; skipped: unknown[]; vehicleSnapshot: unknown[];
+  digest: string; staticDigest: string; snapshotAt: string; skipped: unknown[]; vehicleSnapshot: unknown[];
   full1: string; parts1: string[]; run1Reports: PartReport[]; run1Target: Record<CarriedTable, Record<string, unknown>[]> | null; run1SharedQueue: number;
-} = { digest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [], full1: "", parts1: [], run1Reports: [], run1Target: null, run1SharedQueue: 0 };
+} = { digest: "", staticDigest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [], full1: "", parts1: [], run1Reports: [], run1Target: null, run1SharedQueue: 0 };
 const vehicleRows = async (pool: Pool) => [...(await compareRows("vehicle_type_specs", pool, [])), ...(await compareRows("vehicle_type_images", pool, []))];
 
 async function importParts(parts: string[]) {
@@ -518,6 +525,9 @@ test("run 2: a delta with a deletion and a retry applies, resets the removed job
   const manifest = await readJson<ExportManifest>(join(full, "manifest.json"));
   assert.equal(manifest.vehicleData.sent, false);
   assert.equal(manifest.vehicleData.digest, state.digest);
+  // Run 2 changed a category image and a logo, so its static media goes (no --static-digest); run 3 confirms its digest.
+  assert.equal(manifest.staticMedia.sent, true);
+  state.staticDigest = manifest.staticMedia.digest;
   assert.deepEqual([manifest.vehicleSpecs, manifest.vehicleImages], [[], []]);
   assert.equal(manifest.enrichmentCount, 2);
   assert.deepEqual(manifest.tombstones.map(row => [row.code, row.kind]), [["E2E-GONE", "enrichment_deleted"]]);
@@ -543,16 +553,100 @@ test("run 3: changed vehicle data is sent again whatever digest the target confi
   await source.pool.query("UPDATE vehicle_type_specs SET outcome='found',full_name='Ford Focus 2' WHERE vehicle_type_id=102");
   await source.pool.query("UPDATE vehicle_type_images SET media_id=$1,width=641,height=321,imported_at=$2 WHERE vehicle_type_id=101", [mediaId.mGone, day(27)]);
   const full = join(dir, "full3");
-  await run("export-storefront-bundle.ts", [full, `--vehicle-digest=${state.digest}`], "source");
+  await run("export-storefront-bundle.ts", [full, `--vehicle-digest=${state.digest}`, `--static-digest=${state.staticDigest}`], "source");
   const manifest = await readJson<ExportManifest>(join(full, "manifest.json"));
   assert.equal(manifest.vehicleData.sent, true);
   assert.notEqual(manifest.vehicleData.digest, state.digest);
   assert.equal(manifest.vehicleSpecs.length, 3);
+  // The category images and logos run 2 sent are unchanged: skipped (#1379). Run 2 pointed a category image at an enrichment's media.
+  assert.equal(manifest.staticMedia.sent, false);
+  assert.equal(manifest.staticMedia.digest, state.staticDigest);
+  assert.deepEqual([manifest.staticMedia.images, manifest.staticMedia.logos], [1, 2]);
+  assert.deepEqual([manifest.images, manifest.logos], [[], []]);
 
   const parts = await splitStorefrontBundle(full, join(dir, "parts3"), { mediaBytes: 1e9, jsonBytes: 1e9 });
-  const { totals } = buildInboundReport(await importParts(parts));
+  const partManifests = await Promise.all(parts.map(part => readJson<PartManifest>(join(part, "manifest.json"))));
+  assert.ok(partManifests.every(part => part.images.length === 0 && part.logos.length === 0 && !("staticMedia" in part)));
+  // part-00 carries only the media of what it sends: the vehicle image, none of the category image's.
+  assert.deepEqual(partManifests[0].media.map(object => object.id), [mediaId.mGone]);
+  const reports = await importParts(parts);
+  const { totals } = buildInboundReport(reports);
   assert.deepEqual([totals.vehicleSpecs, totals.vehicleImages, totals.skippedVehicleSpecs], [2, 1, 1]);
+  assert.deepEqual([totals.categoryImages, totals.logos], [0, 0]);
   await compareAll([], true);
+});
+
+test("run 3: the static media digest flips when one logo changes, and the logos and category images travel again", { skip }, async () => {
+  const bytes = randomBytes(24);
+  await source.pool.query("UPDATE manufacturer_logos SET image_data=$1,sha256=$2 WHERE brand_key='MANN'", [bytes, sha256(bytes)]);
+  const full = join(dir, "full3-logo");
+  await run("export-storefront-bundle.ts", [full, `--vehicle-digest=${state.digest}`, `--static-digest=${state.staticDigest}`], "source");
+  const manifest = await readJson<ExportManifest>(join(full, "manifest.json"));
+  assert.equal(manifest.staticMedia.sent, true);
+  assert.notEqual(manifest.staticMedia.digest, state.staticDigest);
+  assert.equal(manifest.logos.length, 2);
+  assert.equal(manifest.images.length, 1);
+  assert.ok((await readLines<{ id: string }>(join(full, "media.ndjson"))).some(row => row.id === mediaId.mA));
+});
+
+test("run 4: media the target already holds under another id and object key is reused by every table that references it (#1385)", { skip }, async () => {
+  // One object per referencing table. The target holds each under an id and an object key the bundle does not know; the importer
+  // resolves bundle media by sha256 (ON CONFLICT DO NOTHING on the unique sha256, then bundle_media), so nothing may point at a new row.
+  const names = ["enrichment", "category", "vehicle"] as const;
+  const objects = names.map(name => {
+    const bytes = randomBytes(64), sha = sha256(bytes), sourceUrl = `https://example.com/dup-${name}.png`;
+    return { name, bytes, sha, sourceUrl, sourceId: randomUUID(), bundleKey: `e2e/${sha}.png`, existingId: randomUUID(), existingKey: `legacy/${randomUUID()}.png` };
+  });
+  const insertMedia = (pool: Pool, id: string, bucket: string, key: string, object: (typeof objects)[number]) => pool.query(
+    `INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at,stored_at) VALUES($1,$2,$3,$4,'image/png',64,$5,$6,$7)`,
+    [id, bucket, key, object.sha, object.sourceUrl, day(2), day(3)]);
+  for (const object of objects) {
+    await insertMedia(source.pool, object.sourceId, srcBucket, object.bundleKey, object);
+    stub.objects.set(`${srcBucket}/${object.bundleKey}`, { bytes: object.bytes, contentType: "image/png" });
+    await insertMedia(target.pool, object.existingId, dstBucket, object.existingKey, object);
+    stub.objects.set(`${dstBucket}/${object.existingKey}`, { bytes: object.bytes, contentType: "image/png" });
+  }
+  const [forEnrichment, forCategory, forVehicle] = objects;
+  await source.pool.query("UPDATE product_enrichments SET image_id=$2,imported_at=date_trunc('milliseconds',now()) WHERE supplier_item_id=$1", [sourceId["E2E-B"], forEnrichment.sourceId]);
+  await source.pool.query("UPDATE source_category_images SET media_id=$1 WHERE source='trodo' AND category_id=2", [forCategory.sourceId]);
+  await source.pool.query("UPDATE vehicle_type_images SET media_id=$1 WHERE vehicle_type_id=101", [forVehicle.sourceId]);
+
+  // No digests: the category images, logos and vehicle data go whole.
+  const full = join(dir, "full4");
+  await run("export-storefront-bundle.ts", [full], "source");
+  const parts = await splitStorefrontBundle(full, join(dir, "parts4"), { mediaBytes: 1e9, jsonBytes: 1e9 });
+  const bundled = new Set((await readLines<{ id: string }>(join(full, "media.ndjson"))).map(row => row.id));
+  for (const object of objects) assert.ok(bundled.has(object.sourceId), `${object.name}: the bundle does not carry the object`);
+  stub.puts.length = 0;
+  const { totals } = buildInboundReport(await importParts(parts));
+  assert.ok(totals.categoryImages > 0 && totals.vehicleImages > 0 && totals.enrichments > 0);
+
+  const one = async <T>(sql: string, ...params: unknown[]) => {
+    const { rows } = await target.pool.query<{ v: T }>(sql, params);
+    assert.equal(rows.length, 1);
+    return rows[0].v;
+  };
+  assert.equal(await one<string>("SELECT e.image_id AS v FROM product_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id WHERE s.code='E2E-B'"), forEnrichment.existingId);
+  assert.equal(await one<string>("SELECT media_id AS v FROM source_category_images WHERE source='trodo' AND category_id=2"), forCategory.existingId);
+  assert.equal(await one<string>("SELECT media_id AS v FROM vehicle_type_images WHERE vehicle_type_id=101"), forVehicle.existingId);
+  for (const object of objects) {
+    // One row per sha256, still the old one: not replaced, not duplicated, not renamed to the bundle's key.
+    const rows = (await target.pool.query<{ id: string; bucket: string; object_key: string }>("SELECT id,bucket,object_key FROM product_media_objects WHERE sha256=$1", [object.sha])).rows;
+    assert.deepEqual(rows, [{ id: object.existingId, bucket: dstBucket, object_key: object.existingKey }], `${object.name}: the target's media rows`);
+    assert.equal((await target.pool.query("SELECT 1 FROM product_media_objects WHERE object_key=$1", [object.bundleKey])).rowCount, 0);
+    // The importer writes the bytes to the existing object's key; the bundle's own key is never created.
+    assert.ok(!stub.puts.some(path => path.endsWith(object.bundleKey) && path.startsWith(`${dstBucket}/`)), `${object.name}: the bundle's object key was uploaded`);
+    assert.ok(!stub.objects.has(`${dstBucket}/${object.bundleKey}`));
+    assert.ok(stub.puts.includes(`${dstBucket}/${object.existingKey}`), `${object.name}: the existing object was not written`);
+    assert.deepEqual(stub.objects.get(`${dstBucket}/${object.existingKey}`)!.bytes, object.bytes);
+  }
+  // Rows compare by sha256; only the object key of the three remapped objects differs, and it differs by design.
+  await compareAll([], true, { product_media_objects: ["object_key"] });
+  const keyBySha = async (pool: Pool) => Object.fromEntries((await pool.query<{ sha256: string; object_key: string }>("SELECT sha256,object_key FROM product_media_objects")).rows.map(row => [row.sha256, row.object_key]));
+  const [fromSource, fromTarget] = [await keyBySha(source.pool), await keyBySha(target.pool)];
+  for (const object of objects) { assert.equal(fromSource[object.sha], object.bundleKey); assert.equal(fromTarget[object.sha], object.existingKey); }
+  const rest = (keys: Record<string, string>) => Object.fromEntries(Object.entries(keys).filter(([sha]) => !objects.some(object => object.sha === sha)));
+  assert.deepEqual(rest(fromTarget), rest(fromSource));
 });
 
 // ---------------------------------------------------------------------------------------------------------------------------------
