@@ -11,7 +11,8 @@ import type { CatalogQuery } from "../src/modules/store/catalog-query";
 // pages past the cached first 20 slice its order stored by one statement (storefront_listing_price_orders), with the
 // ids, order and cards of the live page (LISTING_PRICE_ORDER=0), under the epoch and age rules of the cached pages.
 // Pages 1-20 keep their 480 ids, taken from the stored order's first ids when that row is current and newer (#1389).
-// Nothing is written to the shared database's tables.
+// A filtered listing of at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids stores its order too, under a budget of ids
+// (#1390). Nothing is written to the shared database's tables.
 type Catalog = typeof import("../src/modules/store/catalog");
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
 let catalog: Catalog;
@@ -437,7 +438,7 @@ test("a make listing's first pages take its order under the fits value; after th
   }
 });
 
-test("LISTING_PRICE_ORDER=0 or LISTING_CACHE_PERSIST=0 keeps pages 1-20 off the table; brand-filtered, search and model listings never read it there", async () => {
+test("LISTING_PRICE_ORDER=0 or LISTING_CACHE_PERSIST=0 keeps pages 1-20 off the table; brand-filtered, search and model listings (below the filtered minimum) never read it there", async () => {
   for (const sort of ["price-asc", "price-desc"] as const) await pageIds(bosch(sort, 21));
   const orders = { "price-asc": await liveOrder("price-asc"), "price-desc": await liveOrder("price-desc") };
   for (const setting of [{ LISTING_PRICE_ORDER: "0" }, { LISTING_CACHE_PERSIST: "0" }]) await withEnv(setting, async () => {
@@ -723,7 +724,7 @@ test("LISTING_PRICE_ORDER=0 never reads the table; a listing over LISTING_PRICE_
   assert.deepEqual(await stored(), []);
 });
 
-test("brand-filtered, search and model listings store nothing; a make listing stores its order", async () => {
+test("brand-filtered and model listings below the filtered minimum (default 20,000 ids) and a search store nothing; a make listing stores its order", async () => {
   await schema.pool.query("TRUNCATE storefront_listing_price_orders");
   const listings: CatalogQuery[] = [{ manufacturer: "bosch", brands: JSON.stringify(["BOSCH"]) }, { q: "bosch" }, { make: "vw", model: "golf-7" }];
   for (const listing of listings) {
@@ -763,6 +764,281 @@ test("a make listing's order carries the fits value: the fit sync's bump rebuild
   assert.deepEqual((await schema.pool.query("SELECT epoch::int,total FROM storefront_listing_price_orders WHERE key_hash=$1", [row.key_hash])).rows,
     [{ epoch: fitsBefore + 1, total: row.total }]);
 });
+
+// Filtered listings (#1390): with LISTING_PRICE_ORDER_FILTERED_MIN_IDS=1 each of the fixture's (all of them past 20 pages)
+// stores its deep pages' order as a plain listing does, its row marked filtered.
+const anyFiltered = { LISTING_PRICE_ORDER_FILTERED_MIN_IDS: "1" };
+const frontAxle = JSON.stringify({ "Fitting Position": ["Front Axle"] });
+const brandListing = (sort: Sort, page: number): CatalogQuery => ({ brand: "BOSCH", sort, page: String(page) });
+const supplied = (sort: Sort, page: number): CatalogQuery => ({ availability: "supplied", sort, page: String(page) });
+const makeListing = (sort: Sort, page: number): CatalogQuery => ({ make: "vw", sort, page: String(page) });
+/** The stored rows by their first id, size and mark: the listings' tell-tales (an order's first card, its listing's count). */
+const storedRows = async () => (await schema.pool.query<{ first: string; epoch: number; total: number; filtered: boolean }>(
+  "SELECT ids[1]::text AS first,epoch::int,total,filtered FROM storefront_listing_price_orders ORDER BY epoch DESC,filtered,total,first")).rows;
+const rowsOf = async () => (await storedRows()).map(row => [row.first, row.total, row.filtered] as const);
+/** `query`'s count, read with the stored orders off: a read with them on could build its order in this process. */
+const liveTotal = (query: CatalogQuery) => withEnv({ LISTING_PRICE_ORDER: "0" }, async () => (await inRequest(() => catalog.browseProducts(query))).total);
+/** The first card of `query`'s order, read live. */
+const firstCard = async (query: CatalogQuery) => (await livePage({ ...query, page: "1" }))[0];
+/** The numbers of `query`'s pages past 20, from its live listing. */
+async function deepPagesOf(query: CatalogQuery) {
+  const { pages: last } = await withEnv({ LISTING_PRICE_ORDER: "0" }, () => inRequest(() => catalog.browseProducts({ ...query, page: "21" })));
+  assert.ok(last > 20, `${JSON.stringify(query)}: past 20 pages`);
+  return Array.from({ length: last - 20 }, (_, index) => 21 + index);
+}
+/** Reads every deep page of `listing` in both price orders in `from`, each against the live page: one build, then slices. */
+async function everyDeepPage(listing: CatalogQuery, from: Catalog, label: string) {
+  for (const sort of ["price-asc", "price-desc"] as const) {
+    const numbers = await deepPagesOf({ ...listing, sort }), live: string[][] = [], shown: string[][] = [];
+    for (const page of numbers) live.push(await livePage({ ...listing, sort, page: String(page) }));
+    const statements = await sent(async () => { for (const page of numbers) shown.push(await pageIds({ ...listing, sort, page: String(page) }, from)); });
+    assert.deepEqual(shown, live, `${label} ${sort}: every deep page is the live page`);
+    assert.ok(live.every(page => page.length > 0), `${label} ${sort}: cards on every page`);
+    assert.deepEqual({ builds: statements.builds, livePages: statements.livePages }, { builds: 1, livePages: 0 }, `${label} ${sort}: one build, then slices`);
+  }
+}
+/**
+ * Every row of the fixture gets the property Fitting Position: Front Axle through a shared link of its own (the two
+ * tables' foreign keys dropped in this throwaway schema, as scripts/test-listing-summary.ts does) while `run` runs.
+ */
+async function withFrontAxle(run: () => Promise<void>) {
+  await schema.pool.query(`DO $$ DECLARE fk record; BEGIN
+    FOR fk IN SELECT conrelid::regclass AS tab,conname FROM pg_constraint
+     WHERE conrelid IN ('storefront_facet_specs'::regclass,'product_enrichment_shared_links'::regclass) AND contype='f' LOOP
+     EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I',fk.tab,fk.conname);
+    END LOOP; END $$`);
+  await schema.pool.query(`INSERT INTO product_enrichment_shared_links(supplier_item_id,supplier_code,supplier_brand,donor_item_id,donor_oem,status,imported_at)
+    SELECT id,code,product_data->>'uk',id,'','test',now() FROM supplier_items`);
+  await schema.pool.query("INSERT INTO storefront_facet_specs(supplier_item_id,key,value) SELECT id,'Fitting Position','Front Axle' FROM supplier_items");
+  try {
+    await run();
+  } finally {
+    await schema.pool.query("DELETE FROM storefront_facet_specs");
+    await schema.pool.query("DELETE FROM product_enrichment_shared_links");
+  }
+}
+
+test("a filtered listing at the minimum stores its deep pages' order: every deep page of both orders is the live page, from one build and slices, its row marked filtered (#1390)", () => withEnv(anyFiltered, async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const listings: Record<string, CatalogQuery> = {
+    brand: { brand: "BOSCH" }, brands: { brands: JSON.stringify(["BOSCH", "MAHLE"]) }, model: { make: "vw", model: "golf-7" },
+    supplied: { availability: "supplied" }, "in stock": { availability: "in_stock" },
+    // One id set (the property's), and two (a make's beside it: priced by its id array, pricedScope).
+    property: { attributes: frontAxle }, "property and make": { make: "vw", attributes: frontAxle },
+  };
+  const proc = await otherProcess("filtered-every-page");
+  await withFrontAxle(async () => {
+    for (const [label, listing] of Object.entries(listings)) await everyDeepPage(listing, proc, label);
+  });
+  // Out of stock needs a listing past 20 pages of its own: BOSCH sold out while it is read.
+  await schema.pool.query(`UPDATE supplier_items SET stock_data='{"stok":0}' WHERE code LIKE 'BOSCH %'`);
+  try {
+    await everyDeepPage({ availability: "out_of_stock" }, proc, "out of stock");
+  } finally {
+    await schema.pool.query(`UPDATE supplier_items SET stock_data='{"stok":2}' WHERE code LIKE 'BOSCH %'`);
+  }
+  const filtered = await storedRows();
+  assert.equal(filtered.length, 2 * (Object.keys(listings).length + 1), "a row per listing and sort");
+  assert.ok(filtered.every(row => row.filtered), "each marked filtered");
+  await pageIds(bosch("price-asc", 21), proc);
+  assert.equal((await storedRows()).filter(row => !row.filtered).length, 1, "a plain listing's row is not");
+  await invalidateListings();
+}));
+
+test("the filtered minimum: a listing of fewer ids reads its deep pages live and stores nothing; pages 1-20 of a filtered listing never read the table (#1390)", async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const query = brandListing("price-asc", 22), total = await liveTotal(query), live = await livePage(query);
+  await withEnv({ LISTING_PRICE_ORDER_FILTERED_MIN_IDS: String(total + 1) }, async () => {
+    const below = await otherProcess("filtered-below");
+    const statements = await sent(async () => assert.deepEqual(await pageIds(query, below), live));
+    assert.deepEqual({ table: statements.table, livePages: statements.livePages }, { table: 0, livePages: 1 }, `minimum ${total + 1}: live`);
+  });
+  assert.deepEqual(await storedRows(), []);
+  const firstPages = [await livePage(brandListing("price-asc", 1)), await livePage(brandListing("price-asc", 20))];
+  await withEnv({ LISTING_PRICE_ORDER_FILTERED_MIN_IDS: String(total) }, async () => {
+    const at = await otherProcess("filtered-at");
+    const statements = await sent(async () => assert.deepEqual(await pageIds(query, at), live));
+    assert.deepEqual({ builds: statements.builds, livePages: statements.livePages }, { builds: 1, livePages: 0 }, `minimum ${total}: stored`);
+    // Pages 1-20 keep their own 480 ids, in memory: no statement names the table, a stored order beside them or not.
+    for (const proc of [at, await otherProcess("filtered-first-pages")]) {
+      let shown: string[][] = [];
+      const first = await sent(async () => { shown = [await pageIds(brandListing("price-asc", 1), proc), await pageIds(brandListing("price-asc", 20), proc)]; });
+      assert.deepEqual(shown, firstPages);
+      assert.deepEqual({ table: first.table, headPasses: first.headPasses }, { table: 0, headPasses: 1 }, "pages 1 and 20: one 480-id pass");
+    }
+  });
+  assert.deepEqual((await storedRows()).map(row => [row.total, row.filtered]), [[total, true]]);
+});
+
+test("a stock-filtered listing stores its deep pages' order below the filtered minimum; a supplied one does not (#1390)", async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const proc = await otherProcess("filtered-stock"), inStock: CatalogQuery = { availability: "in_stock", sort: "price-desc", page: "21" };
+  assert.ok(await liveTotal(inStock) < 20_000, "below the default minimum");
+  const [inStockLive, suppliedLive] = [await livePage(inStock), await livePage(supplied("price-desc", 21))];
+  const stock = await sent(async () => assert.deepEqual(await pageIds(inStock, proc), inStockLive));
+  assert.deepEqual({ builds: stock.builds, livePages: stock.livePages }, { builds: 1, livePages: 0 }, "in stock: stored");
+  const plainFilter = await sent(async () => assert.deepEqual(await pageIds(supplied("price-desc", 21), proc), suppliedLive));
+  assert.deepEqual({ table: plainFilter.table, livePages: plainFilter.livePages }, { table: 0, livePages: 1 }, "supplied: live");
+  assert.deepEqual((await storedRows()).map(row => row.filtered), [true]);
+});
+
+test("LISTING_PRICE_ORDER_FILTERED=0 neither stores nor reads a filtered order, the plain ones go on; a search stores none at the minimum (#1390)", () => withEnv(anyFiltered, async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const proc = await otherProcess("filtered-off");
+  assert.deepEqual(await pageIds(brandListing("price-desc", 21), proc), await livePage(brandListing("price-desc", 21)));
+  assert.equal((await storedRows()).length, 1, "stored while on");
+  // The switch: that order's next page reads live, so does another filtered listing, and neither names the table.
+  const queries = [brandListing("price-desc", 22), brandListing("price-asc", 21)], live = [await livePage(queries[0]), await livePage(queries[1])];
+  const plainQuery = bosch("price-desc", 21), plainLive = await livePage(plainQuery);
+  await withEnv({ LISTING_PRICE_ORDER_FILTERED: "0" }, async () => {
+    let shown: string[][] = [];
+    const off = await sent(async () => { shown = [await pageIds(queries[0], proc), await pageIds(queries[1], proc)]; });
+    assert.deepEqual(shown, live);
+    assert.deepEqual({ table: off.table, livePages: off.livePages }, { table: 0, livePages: 2 }, "filtered: live");
+    const plain = await sent(async () => assert.deepEqual(await pageIds(plainQuery, proc), plainLive));
+    assert.deepEqual({ builds: plain.builds, livePages: plain.livePages }, { builds: 1, livePages: 0 }, "plain: stored");
+  });
+  for (const sort of ["price-asc", "price-desc"] as const) {
+    const query: CatalogQuery = { q: "bosch", sort, page: "21" }, searchLive = await livePage(query);
+    const search = await sent(async () => assert.deepEqual(await pageIds(query, proc), searchLive));
+    assert.deepEqual({ table: search.table, livePages: search.livePages }, { table: 0, livePages: 1 }, `search ${sort}: live`);
+  }
+  assert.deepEqual((await storedRows()).map(row => row.filtered).sort(), [false, true], "the filtered order from before the switch, and the plain one");
+}));
+
+test("the filtered rows' budget: a filtered build evicts the least recently used filtered rows, never a plain one; a listing over the budget stores nothing (#1390)", () => withEnv(anyFiltered, async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const proc = await otherProcess("filtered-budget");
+  const [a, b, c, d] = [brandListing("price-asc", 21), brandListing("price-desc", 21), supplied("price-asc", 21), supplied("price-desc", 21)];
+  const [ascFirst, descFirst, cFirst] = [await firstCard(a), await firstCard(b), await firstCard(c)];
+  const [totalA, totalC] = [await liveTotal(a), await liveTotal(c)];
+  for (const query of [bosch("price-asc", 21), a, b]) await pageIds(query, proc);
+  await priceOrder.sliceTouchesSettled();
+  // Last used: the plain row two hours ago (older than every filtered one), A a minute ago, B five minutes ago.
+  const lastUsed = (filtered: boolean, first: string, ago: string) => schema.pool.query(`UPDATE storefront_listing_price_orders
+    SET computed_at=now()-$3::interval,last_sliced_at=now()-$3::interval WHERE filtered=$1 AND ids[1]=$2::uuid`, [filtered, first, ago]);
+  await lastUsed(false, ascFirst, "2 hours");
+  await lastUsed(true, ascFirst, "1 minute");
+  await lastUsed(true, descFirst, "5 minutes");
+  const sorted = (rows: (readonly [string, number, boolean])[]) => [...rows].map(row => JSON.stringify(row)).sort();
+  await withEnv({ LISTING_PRICE_ORDER_FILTERED_MAX_TOTAL_IDS: String(totalA + totalC) }, async () => {
+    const cLive = await livePage(c);
+    const built = await sent(async () => assert.deepEqual(await pageIds(c, proc), cLive));
+    assert.deepEqual({ builds: built.builds, livePages: built.livePages }, { builds: 1, livePages: 0 });
+    assert.deepEqual(sorted(await rowsOf()), sorted([[ascFirst, totalA, false], [ascFirst, totalA, true], [cFirst, totalC, true]]), "B evicted; A and the plain row kept");
+    // B's size is still cached: its next page finds no row and reads live.
+    const bLive = await livePage({ ...b, page: "22" });
+    const evicted = await sent(async () => assert.deepEqual(await pageIds({ ...b, page: "22" }, proc), bLive));
+    assert.deepEqual({ builds: evicted.builds, livePages: evicted.livePages }, { builds: 0, livePages: 1 }, "an evicted order reads live");
+  });
+  const before = await rowsOf();
+  await withEnv({ LISTING_PRICE_ORDER_FILTERED_MAX_TOTAL_IDS: String(totalC - 1) }, async () => {
+    const dLive = await livePage(d);
+    const over = await sent(async () => assert.deepEqual(await pageIds(d, proc), dLive));
+    assert.deepEqual({ builds: over.builds, livePages: over.livePages }, { builds: 0, livePages: 1 }, "over the budget: live");
+  });
+  assert.deepEqual(await rowsOf(), before, "nothing stored or evicted");
+}));
+
+test("a filtered row unused for an hour goes with the next filtered build; a plain row as old stays (#1390)", () => withEnv(anyFiltered, async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const proc = await otherProcess("filtered-idle");
+  const [ascFirst, descFirst, cFirst] = [await firstCard(brandListing("price-asc", 1)), await firstCard(brandListing("price-desc", 1)), await firstCard(supplied("price-asc", 1))];
+  for (const query of [bosch("price-asc", 21), brandListing("price-asc", 21), brandListing("price-desc", 21)]) await pageIds(query, proc);
+  await priceOrder.sliceTouchesSettled();
+  // All three built an hour and a minute ago; the brand's price-desc order sliced 59 minutes ago, the other two not since.
+  await schema.pool.query(`UPDATE storefront_listing_price_orders SET computed_at=now()-interval '61 minutes',
+    last_sliced_at=CASE WHEN filtered AND ids[1]=$1::uuid THEN now()-interval '59 minutes' ELSE now()-interval '61 minutes' END`, [descFirst]);
+  assert.equal(priceOrder.filteredIdleMs, 60 * 60 * 1000);
+  const [total, totalC] = [await liveTotal(brandListing("price-asc", 21)), await liveTotal(supplied("price-asc", 21))];
+  assert.equal((await sent(() => pageIds(supplied("price-asc", 21), proc))).builds, 1);
+  const sorted = (rows: (readonly [string, number, boolean])[]) => [...rows].map(row => JSON.stringify(row)).sort();
+  assert.deepEqual(sorted(await rowsOf()), sorted([[ascFirst, total, false], [descFirst, total, true], [cFirst, totalC, true]]),
+    "the brand's price-asc order gone; its price-desc one (sliced within the hour), the plain row and the new one kept");
+}));
+
+test("an eviction keeps a row another process rebuilt after it was picked (#1390)", () => withEnv(anyFiltered, async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const proc = await otherProcess("filtered-evict-race");
+  const [ascFirst, descFirst, cFirst] = [await firstCard(brandListing("price-asc", 1)), await firstCard(brandListing("price-desc", 1)), await firstCard(supplied("price-asc", 1))];
+  for (const query of [brandListing("price-asc", 21), brandListing("price-desc", 21)]) await pageIds(query, proc);
+  await priceOrder.sliceTouchesSettled();
+  // Both unused for two hours: the next filtered build picks both.
+  await schema.pool.query("UPDATE storefront_listing_price_orders SET computed_at=now()-interval '2 hours',last_sliced_at=now()-interval '2 hours'");
+  const evictionWaits = async () => (await schema.pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM pg_stat_activity
+    WHERE wait_event_type='Lock' AND query LIKE 'DELETE FROM storefront_listing_price_orders p USING%'`)).rows[0].n;
+  const locker = await schema.pool.connect();
+  try {
+    await locker.query("BEGIN");
+    // Another process rebuilds the price-desc order meanwhile: the eviction picks it from its snapshot, then waits for it.
+    await locker.query("UPDATE storefront_listing_price_orders SET computed_at=now() WHERE ids[1]=$1::uuid", [descFirst]);
+    const building = pageIds(supplied("price-asc", 21), proc);
+    assert.equal(await until(evictionWaits, n => n > 0), 1, "the eviction waits for the rebuilt row");
+    await locker.query("COMMIT");
+    await building;
+  } finally {
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
+  const [total, totalC] = [await liveTotal(brandListing("price-asc", 21)), await liveTotal(supplied("price-asc", 21))];
+  const sorted = (rows: (readonly [string, number, boolean])[]) => [...rows].map(row => JSON.stringify(row)).sort();
+  assert.deepEqual(sorted(await rowsOf()), sorted([[descFirst, total, true], [cFirst, totalC, true]]), "the idle price-asc order gone, the rebuilt price-desc one kept");
+  assert.notEqual(ascFirst, descFirst);
+}));
+
+test("a filtered listing's first deep page does not wait for its build: past the bounded wait it reads live, the build goes on and the next page slices (#1390)", () => withEnv({ ...anyFiltered, LISTING_EPOCH_WAIT_MS: "250" }, async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const proc = await otherProcess("filtered-cold-wait");
+  const [query, next] = [brandListing("price-asc", 21), brandListing("price-asc", 22)];
+  const [live, liveNext] = [await livePage(query), await livePage(next)];
+  // Holds off every write to the table (its eviction and build) while reads go on.
+  const locker = await schema.pool.connect();
+  try {
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE storefront_listing_price_orders IN SHARE MODE");
+    // Bounded here too: a page that waited for its build would wait for this lock, never released before it answers.
+    let shown: string[] | undefined;
+    const first = await sent(() => Promise.race([pageIds(query, proc).then(ids => { shown = ids; }), sleep(5_000)]));
+    assert.deepEqual(shown, live, "answered within seconds while the build waits, with the live page");
+    assert.deepEqual({ builds: first.builds, livePages: first.livePages }, { builds: 0, livePages: 1 }, "read live");
+    assert.deepEqual(await storedRows(), [], "nothing stored yet");
+    await locker.query("COMMIT");
+  } finally {
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
+  assert.equal((await until(storedRows, found => found.length === 1)).length, 1, "the build finished in the background");
+  const after = await sent(async () => assert.deepEqual(await pageIds(next, proc), liveNext));
+  assert.deepEqual({ builds: after.builds, livePages: after.livePages }, { builds: 0, livePages: 0 }, "the next page slices");
+  // A stored listing's first deep page still waits for its build, whatever the bounded wait.
+  const plain = bosch("price-asc", 21), plainLive = await livePage(plain);
+  const statements = await sent(async () => assert.deepEqual(await pageIds(plain, proc), plainLive));
+  assert.deepEqual({ builds: statements.builds, livePages: statements.livePages }, { builds: 1, livePages: 0 }, "plain: built and sliced");
+}));
+
+test("a model listing's filtered order follows the fits value, a brand-filtered one the listing epoch (#1368, #1390)", () => withEnv(anyFiltered, async () => {
+  const fitsValue = async () => (await schema.pool.query<{ fits: number }>("SELECT (epoch+fits_epoch)::int AS fits FROM storefront_listing_epoch")).rows[0].fits;
+  const model: CatalogQuery = { make: "vw", model: "golf-7", sort: "price-asc", page: "21" }, brand = brandListing("price-asc", 21);
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  // Both listings reload, with the fits value ahead of the epoch, so the two rows' values differ.
+  await invalidateListings();
+  await invalidateFits();
+  const proc = await otherProcess("filtered-epochs");
+  const read = async (query: CatalogQuery) => {
+    const live = await livePage(query);
+    return (await sent(async () => assert.deepEqual(await pageIds(query, proc), live))).builds;
+  };
+  assert.deepEqual([await read(model), await read(brand)], [1, 1]);
+  const [epochBefore, fitsBefore] = [await currentEpoch(), await fitsValue()];
+  assert.ok(fitsBefore > epochBefore);
+  assert.deepEqual((await storedRows()).map(row => [row.epoch, row.filtered]), [[fitsBefore, true], [epochBefore, true]], "the model's row, then the brand's");
+  await invalidateFits();
+  assert.deepEqual([await read(model), await read(brand)], [1, 0], "the fit sync's bump rebuilds the model's only");
+  assert.deepEqual((await storedRows()).map(row => row.epoch), [fitsBefore + 1, epochBefore]);
+  await invalidateListings();
+  assert.equal(await read(brand), 1, "an admin edit's bump rebuilds the brand's");
+  assert.deepEqual((await storedRows()).map(row => row.epoch), [fitsBefore + 1, epochBefore + 1]);
+}));
 
 test("boundedQuery writes with write: true; a plain one stays read only", async () => {
   const { boundedQuery } = await import("../src/lib/db");
@@ -938,6 +1214,79 @@ test("a failing build started by the first pages shows their own 480 ids and sta
   assert.equal(statements?.headPasses, 2, "a pass on the refresh and on the reload");
   await schema.pool.query("TRUNCATE storefront_listing_price_orders");
 });
+
+test("a filtered build that runs into its time limit builds no more for an hour; other failures back off ten minutes (#1390)", async t => {
+  // A copy of the module: its back-offs, log throttle and the clock it saw stay apart from the pages'.
+  const copyName = "filtered-timeout", copy = await import(`../src/modules/store/listing-price-order.ts?${copyName}`) as typeof priceOrder;
+  t.mock.method(console, "error", () => {});
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const build = (key: string) => copy.buildPriceOrder(key, 5000, brandRowsSql(), [storefrontCompanies(), "BOSCH"], ascending, { filtered: true, expected: rows });
+  // A timeout; any other error; a missing column the message does not name as `filtered` (not setup's column).
+  for (const [code, backoffMs] of [["57014", copy.filteredTimeoutBackoffMs], ["53200", copy.failedBuildBackoffMs], ["42703", copy.failedBuildBackoffMs]] as const) {
+    const key = `test|filtered-backoff-${code}`;
+    let inserts = 0;
+    const failBuild = (text: string) => text.includes("INSERT INTO storefront_listing_price_orders") ? (inserts++, failure(code)) : undefined;
+    await intercepted(failBuild, async () => {
+      assert.deepEqual(await build(key), { total: 0, head: [] });
+      t.mock.timers.tick(backoffMs - 1);
+      assert.deepEqual(await build(key), { total: 0, head: [] });
+    });
+    assert.equal(inserts, 1, `${code}: one build within ${backoffMs / 60_000} minutes`);
+    assert.equal(copy.filteredPriceOrderEnabled(), true, `${code}: the filtered orders stay on`);
+    t.mock.timers.tick(1);
+    assert.ok((await build(key)).total > 0, `${code}: built after the back-off`);
+  }
+  assert.equal(copy.filteredTimeoutBackoffMs, 60 * 60 * 1000);
+  await schema.pool.query("DELETE FROM storefront_listing_price_orders WHERE epoch=5000");
+});
+
+// Next to last: a missing `filtered` column turns the filtered orders off for five minutes in this process.
+test("without the filtered column (setup not run yet) filtered deep pages read live and no statement names it for five minutes; the plain orders keep working (#1390)", t => withEnv(anyFiltered, async () => {
+  const logged = t.mock.method(console, "error", () => {});
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  await schema.pool.query("ALTER TABLE storefront_listing_price_orders DROP COLUMN filtered");
+  /** What `run` sends: builds, live price pages, statements naming the table or the column, and touches (settled first). */
+  const seen = async (run: () => Promise<unknown>) => {
+    const texts: string[] = [];
+    await intercepted(text => { texts.push(text); return undefined; }, async () => { await run(); await priceOrder.sliceTouchesSettled(); });
+    return {
+      builds: texts.filter(text => text.includes("INSERT INTO storefront_listing_price_orders")).length,
+      livePages: texts.filter(text => /ORDER BY unavailable,price_kurus (ASC|DESC) NULLS LAST,id LIMIT \d+ OFFSET/.test(text)).length,
+      table: texts.filter(text => text.includes("storefront_listing_price_orders") && !isTouch(text)).length,
+      column: texts.filter(text => /\bfiltered\b/.test(text)).length,
+      touches: texts.filter(isTouch).length,
+    };
+  };
+  try {
+    const queries = [brandListing("price-asc", 21), brandListing("price-desc", 21), brandListing("price-asc", 22)], plain = makeListing("price-desc", 21);
+    const live: string[][] = [];
+    for (const query of [...queries, plain]) live.push(await livePage(query));
+    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    const proc = await otherProcess("no-filtered-column");
+    const read = (query: CatalogQuery, index: number, from = proc) => seen(async () => assert.deepEqual(await pageIds(query, from), live[index]));
+    const first = await read(queries[0], 0);
+    assert.deepEqual({ builds: first.builds, livePages: first.livePages, column: first.column }, { builds: 0, livePages: 1, column: 1 }, "the eviction fails on the column, the page reads live");
+    assert.equal(priceOrder.filteredPriceOrderEnabled(), false);
+    t.mock.timers.tick(5 * 60 * 1000 - 1);
+    for (const index of [1, 2]) assert.deepEqual(await read(queries[index], index), { builds: 0, livePages: 1, table: 0, column: 0, touches: 0 }, `within five minutes: ${index}`);
+    // A plain order: built without naming the column, sliced and touched (the first pages' gate left alone).
+    const plainOrder = await read(plain, 3);
+    assert.deepEqual({ builds: plainOrder.builds, livePages: plainOrder.livePages, column: plainOrder.column, touches: plainOrder.touches },
+      { builds: 1, livePages: 0, column: 0, touches: 1 }, "a plain order");
+    assert.equal(priceOrder.priceOrderEnabled(), true);
+    // Setup adds the column; five minutes on, the listing that failed builds at once (no build back-off for it).
+    await schema.pool.query("ALTER TABLE storefront_listing_price_orders ADD COLUMN filtered boolean NOT NULL DEFAULT false");
+    t.mock.timers.tick(1);
+    assert.equal(priceOrder.filteredPriceOrderEnabled(), true);
+    const again = await read(queries[0], 0, await otherProcess("filtered-column-added"));
+    assert.deepEqual({ builds: again.builds, livePages: again.livePages }, { builds: 1, livePages: 0 }, "stored after five minutes");
+    assert.deepEqual((await storedRows()).map(row => row.filtered).sort(), [false, true]);
+  } finally {
+    await schema.pool.query("ALTER TABLE storefront_listing_price_orders ADD COLUMN IF NOT EXISTS filtered boolean NOT NULL DEFAULT false");
+  }
+  const messages = logged.mock.calls.map(call => String(call.arguments[0]));
+  assert.deepEqual(messages, ["Listing price order: the filtered column is missing (setup not run yet); filtered listings' deep price pages read live for 5 minutes"]);
+}));
 
 // Last: a missing table turns the stored orders off for five minutes in this process.
 test("a missing table reads deep pages live and logs once", async t => {

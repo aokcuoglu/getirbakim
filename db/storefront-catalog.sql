@@ -317,6 +317,13 @@ CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_cache (
 -- build keeps it. The first pages' cache reads it by primary key when it loads: a listing a deep page sliced within the
 -- last 20 minutes refreshes its first pages by rebuilding this order (one pricing pass for both), any other by its own
 -- 480-id pass. Added only when missing: ADD COLUMN IF NOT EXISTS locks the table on every setup run.
+-- `filtered` (#1390; not indexed): the row is a filtered listing's order (a brand, property, availability, model or garage
+-- vehicle filter, no search) with at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids or a stock filter; the plain ones above
+-- stay false.
+-- Those keys are not bounded by the site's pages, so their rows share a budget of ids
+-- (LISTING_PRICE_ORDER_FILTERED_MAX_TOTAL_IDS): before a filtered build the app deletes the filtered rows unused (built
+-- or sliced) for an hour, then the least recently used ones until the new order fits. A plain row is never evicted.
+-- Added only when missing, as last_sliced_at; the plain builds never name it, so they work before setup adds it.
 CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_price_orders (
  key_hash text NOT NULL,
  epoch bigint NOT NULL,
@@ -328,5 +335,10 @@ CREATE UNLOGGED TABLE IF NOT EXISTS storefront_listing_price_orders (
 DO $$ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='storefront_listing_price_orders'::regclass AND attname='last_sliced_at' AND NOT attisdropped) THEN
   ALTER TABLE storefront_listing_price_orders ADD COLUMN last_sliced_at timestamptz;
+ END IF;
+END $$;
+DO $$ BEGIN
+ IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='storefront_listing_price_orders'::regclass AND attname='filtered' AND NOT attisdropped) THEN
+  ALTER TABLE storefront_listing_price_orders ADD COLUMN filtered boolean NOT NULL DEFAULT false;
  END IF;
 END $$;
