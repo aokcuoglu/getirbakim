@@ -2,8 +2,9 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type { Pool, PoolClient } from "pg";
-import { PutObjectCommand, HeadObjectCommand, type S3Client } from "@aws-sdk/client-s3";
+import type { S3Client } from "@aws-sdk/client-s3";
 import { objectStorage } from "../../lib/object-storage";
+import { objectIsStored, putVerifiedObject } from "../../lib/stored-object";
 import { enrichmentImportSchema, matchesEnrichment } from "../store/enrichment-contract";
 import { lockFitmentSync, loadFitmentMatcher, syncProductFitments } from "../store/fitment-sync";
 import { importManufacturerLogo } from "../store/manufacturer-logo-import";
@@ -15,6 +16,11 @@ export async function storeProductImage(client: Pick<PoolClient, "query">, file:
   return storeProductImageBytes(client, await readFile(resolve(file)), source, storage, folder);
 }
 
+/**
+ * Stores verified image bytes once per content hash (src/lib/stored-object.ts, #1417): a new image is written with its
+ * sha256 metadata and a ChecksumSHA256 the store validates; a known one costs a HEAD and is written again only when its
+ * object is missing (HEAD 404 or 403) or has another size or no sha256 metadata.
+ */
 export async function storeProductImageBytes(client: Pick<PoolClient, "query">, bytes: Buffer, source: string, storage: Pick<S3Client, "send"> = objectStorage(), folder = "products") {
   if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Invalid image size");
   const webp = bytes.subarray(0, 4).toString() === "RIFF" && bytes.subarray(8, 12).toString() === "WEBP";
@@ -26,31 +32,17 @@ export async function storeProductImageBytes(client: Pick<PoolClient, "query">, 
   const hash = createHash("sha256").update(bytes).digest("hex");
   const bucket = process.env.S3_BUCKET;
   if (!bucket) throw new Error("S3_BUCKET is required");
-  const key = `${folder}/${hash.slice(0, 2)}/${hash}.${extension}`;
-  const put = () => storage.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: bytes, ContentType: contentType, Metadata: { sha256: hash } }));
-  const verified = async () => {
-    const head = await storage.send(new HeadObjectCommand({ Bucket: bucket, Key: key })).catch(error => {
-      if (error?.$metadata?.httpStatusCode === 404) return null;
-      throw error;
-    });
-    return head?.ContentLength === bytes.length && head.Metadata?.sha256 === hash;
-  };
+  const object = { bucket, key: `${folder}/${hash.slice(0, 2)}/${hash}.${extension}`, sha256: hash, contentType };
   const existing = (await client.query("SELECT id FROM product_media_objects WHERE sha256=$1",[hash])).rows[0];
-  if (!existing) {
-    await put();
-    if (!await verified()) throw new Error("Object verification failed");
-  }
+  if (!existing) await putVerifiedObject(storage, object, bytes);
   // stored_at keeps the row young for npm run media:gc until the caller references it (src/modules/enrichment/media-gc.ts).
   const id = (await client.query(`INSERT INTO product_media_objects(bucket,object_key,sha256,content_type,size_bytes,source_url)
     VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(sha256) DO UPDATE SET stored_at=now() RETURNING id`,
-    [bucket, key, hash, contentType, bytes.length, source])).rows[0].id as string;
+    [bucket, object.key, hash, contentType, bytes.length, source])).rows[0].id as string;
   // A known object is checked only now, after the upsert: a collection batch may have deleted it (and the row, or
   // rolled the row back) meanwhile. It can also lose its sha256 metadata when another tool rewrites it. The key is the
   // hash of these bytes, so rewriting it with them restores the object instead of failing the import.
-  if (existing && !await verified()) {
-    await put();
-    if (!await verified()) throw new Error("Object verification failed");
-  }
+  if (existing && !await objectIsStored(storage, object, bytes.length)) await putVerifiedObject(storage, object, bytes);
   return id;
 }
 

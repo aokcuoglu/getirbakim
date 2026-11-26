@@ -17,7 +17,8 @@ import { buildInboundReport, checkInboundReport, type PartReport, reportKey } fr
 
 // The storefront sync end to end (#1372): export-storefront-bundle.ts -> splitStorefrontBundle -> import-storefront-bundle.ts, each
 // a real child process, between two isolated copies of the schema (a local database as source, production as target) and an
-// S3 stub on 127.0.0.1 (storefront-s3-stub.ts: whole-object GET/HEAD/PUT with x-amz-meta-* metadata, listing). It checks what
+// S3 stub on 127.0.0.1 (storefront-s3-stub.ts: whole-object GET/HEAD/PUT with x-amz-meta-* metadata and a validated
+// x-amz-checksum-sha256, listing). It checks what
 // the pieces' own tests cannot: that every column an exporter SELECT or importer INSERT carries reaches the target unchanged,
 // both when the row is new on the target (run 1) and when it already exists there and changes
 // (run 2 changes every carried non-key column of one imported row per table, run 3 the vehicle data), so a column missing from an
@@ -29,7 +30,8 @@ import { buildInboundReport, checkInboundReport, type PartReport, reportKey } fr
 // Run 3 also skips the category images and logos run 2 sent (--static-digest, #1379) and sends them again once a logo changes; run 4 imports media
 // the target already holds under another id and object key (#1385): every referencing table must point at the existing object. Run 5
 // imports run 4's parts again: an unchanged object costs one HEAD and no PUT or GET, a missing, truncated or metadata-less one is
-// rewritten (#1406). Run 6 fails one upload: the part writes no row. INSERT_ONLY lists columns the importer writes on insert but
+// rewritten (#1406) with a checksummed PUT and no read-back GET (#1417). Run 6 fails one upload, then lets it arrive corrupted
+// (the stub refuses its checksum): the part writes no row. INSERT_ONLY lists columns the importer writes on insert but
 // never updates: they are left out of the comparisons that follow an update, so the gap stays visible. A column nobody seeded, or
 // one that only ever holds its constant default, fails assertColumnCoverage, so a new column cannot pass by being empty or defaulted
 // on both sides.
@@ -409,6 +411,12 @@ test("run 1: a full export, split, applied part by part, leaves the target equal
   assert.equal((await target.pool.query("SELECT 1 FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id WHERE s.code='E2E-PENDING'")).rowCount, 0);
   const exported = await readLines<{ bucket: string; object_key: string; sha256: string }>(join(full, "media.ndjson"));
   assert.equal(exported.length, 5);
+  // Every upload to the target carried a ChecksumSHA256 the stub validated, and none was read back (#1417).
+  const onTarget = (paths: string[]) => paths.filter(path => path.startsWith(`${dstBucket}/`));
+  assert.ok(onTarget(stub.puts).length > 0, "run 1 uploaded nothing to the target");
+  assert.equal(onTarget(stub.checksummedPuts).length, onTarget(stub.puts).length, "an upload to the target carried no ChecksumSHA256");
+  assert.deepEqual(onTarget(stub.gets), [], "an uploaded object was read back");
+  assert.deepEqual([totals.mediaUploaded, totals.mediaReadBack], [onTarget(stub.puts).length, 0], "report.json does not count the uploads as acknowledged");
   for (const object of exported) {
     const stored = stub.objects.get(`${dstBucket}/${object.object_key}`);
     assert.ok(stored, `${object.object_key} is not in the target bucket`);
@@ -605,7 +613,7 @@ async function partMedia(parts: string[]) {
   assert.equal(rows.length, shas.length, "a part's media has no row on the target");
   return { paths: rows.map(row => row.path), rows: manifests.reduce((sum, part) => sum + part.media.length, 0) };
 }
-const resetRequests = () => { for (const list of [stub.puts, stub.gets, stub.heads]) list.length = 0; };
+const resetRequests = () => { for (const list of [stub.puts, stub.gets, stub.heads, stub.checksummedPuts]) list.length = 0; };
 
 test("run 5: a second import of the same parts sends no PUT and no object GET (#1406)", { skip }, async () => {
   assert.ok(state.parts4.length > 1, "run 4 must have produced parts");
@@ -618,11 +626,11 @@ test("run 5: a second import of the same parts sends no PUT and no object GET (#
   // One HEAD per media row of each part, nothing more.
   assert.equal(stub.heads.length, media.rows);
   assert.ok(stub.heads.every(path => path.startsWith(`${dstBucket}/`)));
-  assert.deepEqual([totals.media, totals.mediaUploaded, totals.mediaVerified], [media.rows, 0, media.rows]);
+  assert.deepEqual([totals.media, totals.mediaUploaded, totals.mediaReadBack, totals.mediaVerified], [media.rows, 0, 0, media.rows]);
   await compareAll([], true, { product_media_objects: ["object_key"] });
 });
 
-test("run 5: a missing, a truncated and a metadata-less object are rewritten, nothing else (#1406)", { skip }, async () => {
+test("run 5: a missing, a truncated and a metadata-less object are rewritten, nothing else, and not read back (#1406, #1417)", { skip }, async () => {
   const [missing, truncated, unstamped] = (await partMedia(state.parts4)).paths;
   const original = new Map([missing, truncated, unstamped].map(path => [path, stub.objects.get(path)!]));
   assert.ok([...original.values()].every(object => object?.metadata?.sha256), "the objects to break are not stored and stamped");
@@ -633,16 +641,20 @@ test("run 5: a missing, a truncated and a metadata-less object are rewritten, no
   const { totals } = buildInboundReport(await importParts(state.parts4));
   const broken = [missing, truncated, unstamped].sort();
   assert.deepEqual([...stub.puts].sort(), broken);
-  assert.deepEqual([...stub.gets].sort(), broken);
+  // The stub validated each PUT's ChecksumSHA256 and echoed it, so nothing is read back (#1417).
+  assert.deepEqual([...stub.checksummedPuts].sort(), broken);
+  assert.deepEqual(stub.gets, []);
   for (const path of broken) {
     assert.deepEqual(stub.objects.get(path)?.bytes, original.get(path)!.bytes, `${path} was not restored`);
     assert.deepEqual(stub.objects.get(path)?.metadata, original.get(path)!.metadata, `${path} was not stamped`);
   }
   assert.equal(totals.mediaUploaded, 3);
+  // The stub acknowledged every checksum: report.json shows no read-back (#1417).
+  assert.equal(totals.mediaReadBack, 0);
   await compareAll([], true, { product_media_objects: ["object_key"] });
 });
 
-test("run 6: a part whose media cannot be stored (its key holds other media, or the upload fails) writes no rows, and applies once it can (#1406)", { skip }, async () => {
+test("run 6: a part whose media cannot be stored (its key holds other media, the upload fails or arrives corrupted) writes no rows, and applies once it can (#1406, #1417)", { skip }, async () => {
   assert.ok(state.snapshot4, "run 4 must have exported");
   const bytes = randomBytes(64), sha = sha256(bytes), key = `e2e/${sha}.png`, id = randomUUID();
   await source.pool.query(`INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at,stored_at) VALUES($1,$2,$3,$4,'image/png',64,$5,$6,$7)`,
@@ -685,6 +697,18 @@ test("run 6: a part whose media cannot be stored (its key holds other media, or 
   assert.deepEqual(await rawSnapshot(target.pool), before);
   assert.equal((await target.pool.query("SELECT 1 FROM product_media_objects WHERE sha256=$1", [sha])).rowCount, 0);
   assert.ok(!stub.objects.has(`${dstBucket}/${key}`));
+
+  // The upload arrives with a flipped byte: the stub refuses its ChecksumSHA256 (400 BadDigest), so the importer stops
+  // before its transaction and nothing is read back or written (#1417).
+  stub.corruptPuts.add(path);
+  resetRequests();
+  try {
+    await assert.rejects(importParts([parts[failing]]), /Stored media integrity failed/);
+  } finally { stub.corruptPuts.clear(); }
+  assert.deepEqual(await rawSnapshot(target.pool), before);
+  assert.equal((await target.pool.query("SELECT 1 FROM product_media_objects WHERE sha256=$1", [sha])).rowCount, 0);
+  assert.ok(!stub.objects.has(path));
+  assert.deepEqual([stub.gets, stub.puts], [[], []], "a refused upload was read back or stored");
 
   await importParts(parts.slice(failing));
   assert.deepEqual(stub.objects.get(`${dstBucket}/${key}`)?.bytes, bytes);

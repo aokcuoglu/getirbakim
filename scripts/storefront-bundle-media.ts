@@ -1,17 +1,16 @@
-import { createHash } from "node:crypto";
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, type S3Client } from "@aws-sdk/client-s3";
 import type { PoolClient } from "pg";
+import { type ObjectStore, objectIsStored, putVerifiedObject } from "../src/lib/stored-object";
 
 // The bundle media objects of import-storefront-bundle.ts (#1406). An object whose size and sha256 metadata already match
-// costs one HEAD; a missing, different or metadata-less one is written with its sha256 metadata and read back whole, as
-// every object was before. The importer stores them before its transaction (S3 round trips no longer hold row locks) and
-// rechecks inside it only what that read could not vouch for (mediaToRecheck). Same trust as storeProductImage
-// (src/modules/enrichment/import.ts): an object with the right size and intact metadata but other bytes is not noticed.
+// costs one HEAD; a missing, different or metadata-less one is written with its sha256 metadata and a ChecksumSHA256 the
+// store validates, so an acknowledged PUT is not read back (#1417; src/lib/stored-object.ts, shared with storeProductImage).
+// The importer stores them before its transaction (S3 round trips no longer hold row locks) and rechecks inside it only
+// what that read could not vouch for (mediaToRecheck). An object with the right size and intact metadata but other bytes
+// is not noticed.
 
 export type MediaTarget = { sha256: string; bucket: string; object_key: string; content_type: string };
 /** A bundle media row's target, as read before the transaction; `known` when the target already had a row with its sha256. */
 export type PlannedMedia = MediaTarget & { known: boolean };
-type Storage = Pick<S3Client, "send">;
 
 export const DEFAULT_MEDIA_CONCURRENCY = 8;
 const MAX_MEDIA_CONCURRENCY = 32;
@@ -46,29 +45,23 @@ export async function resolveMediaTargets(db: Pick<PoolClient, "query">, mediaJs
   return rows.map(row => ({ sha256: row.sha256, bucket: row.bucket, object_key: row.object_key, content_type: row.content_type, known: row.known }));
 }
 
-const sha256Hex = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-
-/** Makes the object at `target` hold `bytes`: "verified" when it already did (HEAD only), "uploaded" when it was written and read back. */
-export async function ensureStoredObject(storage: Storage, target: MediaTarget, bytes: Uint8Array): Promise<"verified" | "uploaded"> {
-  const location = { Bucket: target.bucket, Key: target.object_key };
-  const head = await storage.send(new HeadObjectCommand(location)).catch((error: unknown) => {
-    // Without s3:ListBucket, S3 answers 403 for a missing key as well; a real permission problem fails at the PUT or GET below.
-    const status = (error as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata?.httpStatusCode;
-    if (status === 404 || status === 403) return null;
-    throw error;
-  });
-  if (head?.ContentLength === bytes.length && head.Metadata?.sha256 === target.sha256) return "verified";
-  await storage.send(new PutObjectCommand({ ...location, Body: bytes, ContentType: target.content_type, Metadata: { sha256: target.sha256 } }));
-  const saved = await (await storage.send(new GetObjectCommand(location))).Body?.transformToByteArray();
-  if (!saved || sha256Hex(saved) !== target.sha256) throw new Error(`Stored media integrity failed: ${target.object_key}`);
-  return "uploaded";
+/**
+ * Makes the object at `target` hold `bytes`: "verified" when it already did (HEAD only), "uploaded" when it was written
+ * and the store validated its checksum, "read-back" when it was written to a store that does not echo the checksum and
+ * read back (#1417).
+ */
+export async function ensureStoredObject(storage: ObjectStore, target: MediaTarget, bytes: Uint8Array): Promise<"verified" | "uploaded" | "read-back"> {
+  const object = { bucket: target.bucket, key: target.object_key, sha256: target.sha256, contentType: target.content_type };
+  if (await objectIsStored(storage, object, bytes.length)) return "verified";
+  return await putVerifiedObject(storage, object, bytes) === "acknowledged" ? "uploaded" : "read-back";
 }
 
 /**
  * ensureStoredObject for every distinct bucket/key, `concurrency` at a time. After the first failure no further object
  * starts; the ones already running finish and the call rejects with that failure. Two sha256 values on one key throw.
+ * `uploaded` counts every written object, `readBack` those of them the store did not acknowledge and that were read back.
  */
-export async function ensureStoredObjects(storage: Storage, targets: readonly MediaTarget[], bytesOf: (sha256: string) => Uint8Array,
+export async function ensureStoredObjects(storage: ObjectStore, targets: readonly MediaTarget[], bytesOf: (sha256: string) => Uint8Array,
   concurrency = mediaConcurrency()) {
   if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error(`Invalid media concurrency: ${concurrency}`);
   const byKey = new Map<string, MediaTarget>();
@@ -79,14 +72,17 @@ export async function ensureStoredObjects(storage: Storage, targets: readonly Me
     byKey.set(key, target);
   }
   const queue = [...byKey.values()];
-  const counts = { verified: 0, uploaded: 0 };
+  const counts = { verified: 0, uploaded: 0, readBack: 0 };
   const failures: unknown[] = [];
   let next = 0;
   const worker = async () => {
     while (failures.length === 0 && next < queue.length) {
       const target = queue[next++];
-      try { counts[await ensureStoredObject(storage, target, bytesOf(target.sha256))]++; }
-      catch (error) { failures.push(error); }
+      try {
+        const result = await ensureStoredObject(storage, target, bytesOf(target.sha256));
+        if (result === "verified") counts.verified++;
+        else { counts.uploaded++; if (result === "read-back") counts.readBack++; }
+      } catch (error) { failures.push(error); }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));
