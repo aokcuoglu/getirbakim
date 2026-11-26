@@ -268,9 +268,9 @@ DO $$ BEGIN
    WHERE product_data->>'oe'<>'';
  END IF;
 END $$;
--- The sale-price rules (#882), defined once and called by commerce_catalog and by livePriceChanges
--- (src/modules/store/supplier-checkout.ts). Plain SQL bodies without SET or STRICT so the planner can inline them
--- (as supplier_item_brand); PARALLEL SAFE so a call that is not inlined keeps reads of the view parallel. A SET or
+-- The sale-price rules (#882), defined once and called by commerce_supplier_catalog (commerce_catalog's supplier rows,
+-- #1424) and by livePriceChanges (src/modules/store/supplier-checkout.ts). Plain SQL bodies without SET or STRICT so
+-- the planner can inline them (as supplier_item_brand); PARALLEL SAFE so a call that is not inlined keeps reads of the view parallel. A SET or
 -- STRICT clause, or an expensive argument used twice in a body, turns the inline into a per-row call (same result,
 -- slower full scans; scripts/test-supplier-checkout.ts checks the plan). now() is the caller's `at` argument, so
 -- the functions stay IMMUTABLE. A changed signature cannot be replaced while the view uses it: add a new name.
@@ -295,9 +295,11 @@ CREATE OR REPLACE FUNCTION commerce_final_price(regular_price integer,sale_price
 LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $$
  SELECT CASE WHEN sale_price<regular_price THEN sale_price ELSE regular_price END
 $$;
--- The availability rule (#1249), defined once and called by commerce_catalog and commerce_item_availability below:
--- whether a supplier row's observation is fresh, whether a row can be sold now, and the stock label its card shows.
--- Plain SQL bodies without SET or STRICT, like the price rules above, so the planner inlines them and both views plan
+-- The availability rule (#1249), defined once: whether a supplier row's observation is fresh, whether a row can be sold
+-- now, and the stock label its card shows. commerce_supplier_catalog (commerce_catalog's supplier rows, #1424) and
+-- commerce_item_availability below call commerce_source_fresh / commerce_supplier_*; commerce_catalog and
+-- commerce_item_availability call commerce_store_stock_label.
+-- Plain SQL bodies without SET or STRICT, like the price rules above, so the planner inlines them and the views plan
 -- as if the expressions were written in place (scripts/test-unavailable-catalog.ts checks the plans). source_fresh is
 -- read once per body: the views pass it as the inlined commerce_source_fresh expression, and an argument a body reads
 -- twice is inlined only while it is cheap. commerce_source_fresh and commerce_store_stock_label are STABLE, not
@@ -482,9 +484,10 @@ $view$; cur regclass := (SELECT c.oid FROM pg_class c
 END $setup$;
 -- Availability only (#1242): the listing's "Stokta" / "Stokta yok" filter reads which rows can be sold now. A supplier
 -- row's available and stock_label depend only on the settings, its sync scope, last_seen_at and stock_data, so this view
--- skips the pricing joins (pricing, overrides' prices, brands, rates, anomalies) commerce_catalog pays for on every row.
--- Both views call the commerce_source_fresh / commerce_supplier_* / commerce_store_stock_label functions above (#1249);
--- scripts/test-unavailable-catalog.ts ("the availability view equals commerce_catalog's columns") compares both views.
+-- skips the pricing joins (pricing, overrides' prices, brands, rates, anomalies) commerce_supplier_catalog pays for on
+-- every row. It calls the functions above as the catalog views do (#1249): commerce_source_fresh / commerce_supplier_* like
+-- commerce_supplier_catalog (#1424), commerce_store_stock_label like commerce_catalog; scripts/test-unavailable-catalog.ts
+-- ("the availability view equals commerce_catalog's columns") compares it with commerce_catalog.
 DO $setup$ DECLARE def text := $view$
 SELECT id,'store'::text AS source,''::text AS company,stock>0 AS available,
  commerce_store_stock_label(stock) AS stock_label
