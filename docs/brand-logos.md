@@ -35,5 +35,5 @@ Markalar tablosundaki "Logo" filtresi ("Logosu olmayanlar") logosu eksik markala
 ### AWS yolu
 
 1. Önce sürüm yayınlanır (statik dosyalar imajla gider).
-2. Ardından yerelde `logos:reencode -- db --apply` ve `storefront:sync`; bunun için açık kullanıcı onayı gerekir.
+2. Ardından yerelde `logos:reencode -- db --apply` ve `storefront:sync`; bunun için açık kullanıcı onayı gerekir. Değişen logolar `storefront:sync`'in kategori görseli/logo özetini değiştirir ve kendiliğinden gider (#1379); `--static-media` zorlar.
 3. Prod durumu salt-okunur tünelle `-- db` kuru çalıştırmasıyla kontrol edilir; yazma tüneliyle asla `--apply` çalıştırılmaz.
