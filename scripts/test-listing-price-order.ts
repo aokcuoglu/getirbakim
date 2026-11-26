@@ -100,6 +100,9 @@ const currentEpoch = async () => (await schema.pool.query<{ epoch: number }>("SE
 const hide = (id: string) => schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [id]);
 /** BOSCH rows and pages: 560 rows (5 dropped by their supplier, listed last), 24 pages of 24 cards, the last one of 8. */
 const rows = 560, pages = 24;
+/** The oldest order the first pages' cache could take (its maxFallbackMs, catalog.ts), as the store is given it. */
+const headMaxAgeMs = 48 * 60 * 60 * 1000;
+const failure = (code: string) => Object.assign(new Error(`simulated ${code}`), { code });
 
 before(async () => {
   schema = await isolatedSchema("listing_price_order_test");
@@ -254,7 +257,7 @@ test("the first pages' store returns the newer of the stored page ids and the st
   const first = await priceOrder.priceOrderSlice(key, 0, 3);
   let pageIdRow: { value: string[]; ageMs: number; epoch: number } | null = null;
   const written: unknown[] = [];
-  const store = priceOrder.priceOrderHeadStore({ read: async () => pageIdRow, write: async (...args) => { written.push(args); } }, () => 3);
+  const store = priceOrder.priceOrderHeadStore({ read: async () => pageIdRow, write: async (...args) => { written.push(args); } }, () => 3, headMaxAgeMs);
   const read = async () => { const row = await store.read(key); return row && [row.value, row.epoch]; };
   assert.deepEqual(await read(), [first, 1000], "no page ids: the order's first ids");
   pageIdRow = { value: ["page-ids"], ageMs: 0, epoch: 999 };
@@ -268,12 +271,19 @@ test("the first pages' store returns the newer of the stored page ids and the st
   const ageMs = (await store.read(key))!.ageMs;
   assert.ok(ageMs >= 60_000 && ageMs < 120_000, "the order's age");
   assert.deepEqual(await store.read("test|no-order"), { ...pageIdRow }, "no order");
-  await withEnv({ LISTING_PRICE_ORDER: "0" }, async () => {
+  for (const setting of [{ LISTING_PRICE_ORDER: "0" }, { LISTING_CACHE_PERSIST: "0" }]) await withEnv(setting, async () => {
     const statements = await sent(async () => assert.deepEqual(await read(), [["page-ids"], 1000]));
-    assert.equal(statements.table, 0, "LISTING_PRICE_ORDER=0: the page ids only");
+    assert.equal(statements.table, 0, `${JSON.stringify(setting)}: the page ids only`);
   });
+  // An order past the oldest any caller may take is not read (its array not unpacked), even beside older page ids.
+  pageIdRow = { value: ["page-ids"], ageMs: 0, epoch: 999 };
+  await schema.pool.query("UPDATE storefront_listing_price_orders SET computed_at=now()-interval '49 hours' WHERE epoch=1000");
+  assert.deepEqual(await read(), [["page-ids"], 999], "49 hours old: not read");
+  await schema.pool.query("UPDATE storefront_listing_price_orders SET computed_at=now()-interval '47 hours' WHERE epoch=1000");
+  assert.deepEqual(await read(), [first, 1000], "47 hours old: read (a fallback while the cache reloads)");
+  pageIdRow = { value: ["page-ids"], ageMs: 120_000, epoch: 1000 };
   const logged = t.mock.method(console, "error", () => {});
-  await intercepted(text => text.includes("storefront_listing_price_orders") ? Object.assign(new Error("simulated read failure"), { code: "XX000" }) : undefined,
+  await intercepted(text => text.includes("storefront_listing_price_orders") ? failure("XX000") : undefined,
     async () => assert.deepEqual(await read(), [["page-ids"], 1000], "a failed order read: the page ids"));
   assert.match(String(logged.mock.calls[0]?.arguments[0]), /^Listing price order: head failed/);
   await store.write(key, ["a", "b"], 1002);
@@ -310,17 +320,65 @@ test("the first pages take an order of an older epoch or past 24 hours never; on
   }
 });
 
-test("LISTING_PRICE_ORDER=0 keeps pages 1-20 off the table; brand-filtered, search and model listings never read it there", async () => {
-  await pageIds(bosch("price-desc", 21));
-  await withEnv({ LISTING_PRICE_ORDER: "0" }, async () => {
-    const other = await otherProcess("off-first-pages");
-    const statements = await sent(async () => {
-      for (const sort of ["price-asc", "price-desc"] as const) for (const page of [1, 20]) {
-        await pageIds(bosch(sort, page));
-        await pageIds(bosch(sort, page), other);
-      }
+test("a missing table found by the first pages' order read turns the stored orders off: no statement names it afterwards", async t => {
+  // A copy of the module, so the switch it sets (five minutes) stays out of the other tests.
+  const copy = "missing-head", fresh = await import(`../src/modules/store/listing-price-order.ts?${copy}`) as typeof priceOrder;
+  const logged = t.mock.method(console, "error", () => {});
+  const store = fresh.priceOrderHeadStore({ read: async () => null, write: async () => {} }, () => 3, headMaxAgeMs);
+  let failed = 0;
+  await intercepted(text => text.includes("storefront_listing_price_orders") ? (failed++, failure("42P01")) : undefined,
+    async () => assert.equal(await store.read("test|missing"), null));
+  assert.equal(failed, 1);
+  assert.equal(fresh.priceOrderEnabled(), false);
+  assert.equal(priceOrder.priceOrderEnabled(), true, "the module the pages use is untouched");
+  const after = await sent(async () => {
+    assert.equal(await store.read("test|missing"), null);
+    assert.equal(await fresh.priceOrderSlice("test|missing", 0, 24), null);
+    assert.equal(await fresh.priceOrderStore.read("test|missing"), null);
+  });
+  assert.equal(after.table, 0);
+  assert.equal(logged.mock.callCount(), 1);
+  assert.match(String(logged.mock.calls[0].arguments[0]), /^Listing price order: head failed: storefront_listing_price_orders is missing/);
+});
+
+test("a make listing's first pages take its order under the fits value; after the fit sync's bump an order of the old value is priced again (#1368)", async () => {
+  const fitsValue = async () => (await schema.pool.query<{ fits: number }>("SELECT (epoch+fits_epoch)::int AS fits FROM storefront_listing_epoch")).rows[0].fits;
+  const make = (page: number): CatalogQuery => ({ make: "vw", sort: "price-asc", page: String(page) });
+  const order = await liveOrder("price-asc"), reversed = [...order].reverse();
+  // The fits value ahead of the listing epoch, so the row's tag tells which one it carries.
+  await invalidateFits();
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  await schema.pool.query("DELETE FROM storefront_listing_cache WHERE namespace='page-ids'");
+  try {
+    assert.deepEqual(await pageIds(make(21), await otherProcess("make-deep")), pageOf(order, 21));
+    const fits = await fitsValue();
+    assert.ok(fits > await currentEpoch());
+    assert.deepEqual((await stored()).map(row => row.epoch), [fits], "the make's order carries the fits value");
+    // Reversed: its first ids show when the first pages take them.
+    await schema.pool.query("UPDATE storefront_listing_price_orders SET ids=$1::uuid[]", [reversed]);
+    const other = await otherProcess("make-first-pages");
+    const adopted = await sent(async () => assert.deepEqual(await pageIds(make(1), other), pageOf(reversed, 1), "the order's first ids"));
+    assert.deepEqual({ builds: adopted.builds, headPasses: adopted.headPasses }, { builds: 0, headPasses: 0 });
+    await invalidateFits();
+    const reloaded = await sent(async () => assert.deepEqual(await pageIds(make(1), other), pageOf(order, 1), "priced again"));
+    assert.deepEqual({ builds: reloaded.builds, headPasses: reloaded.headPasses }, { builds: 0, headPasses: 1 }, "the old fits value's order is refused");
+  } finally {
+    await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+    await invalidateListings();
+  }
+});
+
+test("LISTING_PRICE_ORDER=0 or LISTING_CACHE_PERSIST=0 keeps pages 1-20 off the table; brand-filtered, search and model listings never read it there", async () => {
+  for (const sort of ["price-asc", "price-desc"] as const) await pageIds(bosch(sort, 21));
+  const orders = { "price-asc": await liveOrder("price-asc"), "price-desc": await liveOrder("price-desc") };
+  for (const setting of [{ LISTING_PRICE_ORDER: "0" }, { LISTING_CACHE_PERSIST: "0" }]) await withEnv(setting, async () => {
+    const other = await otherProcess(`off-first-pages-${Object.keys(setting)[0]}`);
+    const fresh = await sent(async () => {
+      for (const sort of ["price-asc", "price-desc"] as const) for (const page of [1, 20]) assert.deepEqual(await pageIds(bosch(sort, page), other), pageOf(orders[sort], page));
     });
-    assert.equal(statements.table, 0);
+    assert.deepEqual({ table: fresh.table, headPasses: fresh.headPasses }, { table: 0, headPasses: 2 }, `${JSON.stringify(setting)}: each order's 480 ids priced`);
+    const warm = await sent(async () => { for (const sort of ["price-asc", "price-desc"] as const) for (const page of [1, 20]) await pageIds(bosch(sort, page)); });
+    assert.equal(warm.table, 0, `${JSON.stringify(setting)}, this process`);
   });
   const listings: CatalogQuery[] = [{ manufacturer: "bosch", brands: JSON.stringify(["BOSCH"]) }, { q: "bosch" }, { make: "vw", model: "golf-7" }];
   const other = await otherProcess("first-pages-not-stored");
@@ -342,7 +400,7 @@ test("a failing order read on the first pages shows the live ids", async t => {
   const failReads = (text: string) => {
     if (!text.includes("storefront_listing_price_orders") || text.includes("INSERT")) return undefined;
     failures++;
-    return Object.assign(new Error("simulated read failure"), { code: "XX000" });
+    return failure("XX000");
   };
   const other = await otherProcess("failing-head");
   let statements: Awaited<ReturnType<typeof sent>> | undefined;

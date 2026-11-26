@@ -758,9 +758,10 @@ const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,fal
 const cachedPriceOrders=staleCache<PriceOrder>(aggregateTtl,500,{...persistedListings,fallbackWhen:order=>order.total>0,store:priceOrderStore});
 // The first pages of a stored listing's price order (#1389): cachedPageIds' rows and rules, with the stored order's first
 // 480 ids as a second source (priceOrderHeadStore), so a listing a deep page ordered is not priced again. These keys have
-// their own 500 entries, apart from cachedPageIds'. The size is read lazily: cachedPages is declared further down.
+// their own 500 entries, apart from cachedPageIds'. The size is read lazily: cachedPages is declared further down. An
+// order older than the cache's longest window (maxFallbackMs, 48 hours) is not read: nothing could take it.
 const cachedPricedHeads=staleCache<string[]>(aggregateTtl,500,{...persistedListings,fallbackWhen:ids=>ids.length>0,
- store:priceOrderHeadStore(listingCacheStore<string[]>("page-ids",1),()=>cachedPages*catalogPageSize)});
+ store:priceOrderHeadStore(listingCacheStore<string[]>("page-ids",1),()=>cachedPages*catalogPageSize,persistedListings.maxFallbackMs)});
 const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
 const persistablePage=(query:CatalogQuery,page:number)=>persistable(query)&&page<=(query.make?1:cachedPages);
 /**
