@@ -257,28 +257,38 @@ export const categories = [
  {slug:"aksesuar",name:"Aksesuar ve ekipman",art:"tools"},
 ] as const;
 /**
- * Products linked to the vehicle types `typesSql` selects (one `id` column), counting only fitments
- * observed in the product's current, trusted enrichment payload. Steps are materialised in order:
- * matching types (through their indexes), their fitments, then each candidate's payload vehicles read
- * once. Joined row by row instead, the multi-kB payload was re-read per fitment: 20 s for "passat",
- * 1-2 min for a make page. Read from the materialized links (#446): the live view, expected as one row,
- * was nested against a make's 600k fitments and never finished (BMW: minutes, 504 at the CDN).
+ * Products linked to the vehicle types `typeIds`, counting only fitments observed in the product's current, trusted
+ * enrichment payload. Steps are materialised in order: the types' fitments gathered per donor enrichment, each donor's
+ * payload vehicles read once, then the offers sharing the donor. Joined row by row instead, the multi-kB payload was
+ * re-read per fitment: 20 s for "passat", 1-2 min for a make page. Read from the materialized links (#446): the live
+ * view, expected as one row, was nested against a make's 600k fitments and never finished (BMW: minutes, 504 at the CDN).
+ * Since #1395 a donor's fitments are compared with its payload once, as arrays (`observed`: the types it agrees on), and
+ * each offer sharing the donor is one row carrying those types. Before, every offer row carried the vehicles array into
+ * a hash against the fitments: one type (17173) took 1.8-2.3 s locally and wrote ~2 GB of temp files (a 660 MB hash in
+ * 512 batches); now 0.3-0.4 s without temp files. 120 types ("passat tdi"): 4.0 s → 1.3 s; 1,890 ("tdi"): 10.9 s → 7.8 s;
+ * the same ids. The types are an array parameter, so the planner sees their number: an index read per type for a few,
+ * one sequential pass for thousands. The 30 s limit stays: one type now takes ~1/60-1/90 of it, so it only stops a
+ * runaway read (the vehicle search reads whole models elsewhere, vehicleFittedIds).
  * An admin's decisions (db/product-override-fitments.sql, #583) apply per row and type: a removed type drops that
  * automatic fitment only (a search over several types still lists the row through another), an added type lists every
  * row of the product, enriched or not. The decisions of the selected types are read once, through their index.
  */
-async function fittedProductIds(typesSql:string,values:unknown[]){
- return (await boundedQuery<{id:string}>(`catalog.fittedProductIds ${JSON.stringify(values).slice(0, 200)}`, `WITH types AS MATERIALIZED (${typesSql}),
-  fits AS MATERIALIZED (SELECT f.supplier_item_id,f.source_index,f.source_vehicle,f.vehicle_type_id FROM types JOIN product_vehicle_fitments f ON f.vehicle_type_id=types.id),
-  trusted AS MATERIALIZED (SELECT e.supplier_item_id,e.donor_item_id,e.payload->'vehicles' AS vehicles FROM storefront_enrichments e
+async function fittedProductIds(typeIds:number[]){
+ return (await boundedQuery<{id:string}>(`catalog.fittedProductIds types=${typeIds.length}:${typeIds.slice(0,20).join(",")}`,
+  `WITH donors AS MATERIALIZED (SELECT f.supplier_item_id AS donor_id,array_agg(f.source_index) AS idx,array_agg(f.source_vehicle) AS veh,
+    array_agg(f.vehicle_type_id) AS typ FROM product_vehicle_fitments f WHERE f.vehicle_type_id=ANY($1::int[]) GROUP BY 1),
+  observed AS MATERIALIZED (SELECT d.donor_id,m.types FROM donors d JOIN product_enrichments e ON e.supplier_item_id=d.donor_id
+   CROSS JOIN LATERAL (SELECT e.payload->'vehicles' AS vehicles OFFSET 0) v
+   CROSS JOIN LATERAL (SELECT array_agg(u.typ) AS types FROM unnest(d.idx,d.veh,d.typ) u(idx,veh,typ) WHERE u.veh=v.vehicles->u.idx) m
+   WHERE m.types IS NOT NULL),
+  trusted AS MATERIALIZED (SELECT e.supplier_item_id,o.types FROM observed o JOIN storefront_enrichments e ON e.donor_item_id=o.donor_id
    JOIN supplier_items s ON s.id=e.supplier_item_id AND s.code=e.supplier_code AND s.product_data->>'uk'=e.supplier_brand
-   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)
-   WHERE e.donor_item_id IN (SELECT supplier_item_id FROM fits)),
-  decided AS MATERIALIZED (SELECT ps.supplier_item_id,o.vehicle_type_id,o.mode FROM types
-   JOIN product_override_fitments o ON o.vehicle_type_id=types.id JOIN product_sources ps ON ps.product_id=o.product_id)
-  SELECT id::text FROM (SELECT t.supplier_item_id AS id FROM fits f JOIN trusted t ON t.donor_item_id=f.supplier_item_id AND f.source_vehicle=t.vehicles->f.source_index
-   WHERE (t.supplier_item_id,f.vehicle_type_id) NOT IN (SELECT supplier_item_id,vehicle_type_id FROM decided WHERE mode='remove')
-  UNION SELECT supplier_item_id FROM decided WHERE mode='add') fitted`,values)).rows.map(row=>row.id);
+   AND (e.match_basis->>'type'='exact_part' OR e.match_basis->>'supplierOem'=e.donor_oem)),
+  decided AS MATERIALIZED (SELECT ps.supplier_item_id,o.vehicle_type_id,o.mode FROM product_override_fitments o
+   JOIN product_sources ps ON ps.product_id=o.product_id WHERE o.vehicle_type_id=ANY($1::int[]))
+  SELECT id::text FROM (SELECT t.supplier_item_id AS id FROM trusted t WHERE EXISTS (SELECT 1 FROM unnest(t.types) type_id
+    WHERE (t.supplier_item_id,type_id) NOT IN (SELECT supplier_item_id,vehicle_type_id FROM decided WHERE mode='remove'))
+  UNION SELECT supplier_item_id FROM decided WHERE mode='add') fitted`,[typeIds])).rows.map(row=>row.id);
 }
 // Admin edits move products between categories (#575) and change vehicle fitments (#583): an edit bumps the listing
 // epoch and these reload (#585). The caches that read vehicle fits follow the fits value instead (`fitListings`, #1368,
@@ -345,7 +355,7 @@ export async function getListedModelGroups(brandId:string) {
  return groups.filter(group=>group.models.some(member=>listedIds.has(member.id)));
 }
 /** Ids of the products linked to one vehicle type (cached per process). */
-export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds("SELECT $1::int AS id",[typeId]));
+export const typeFittedIds=(typeId:number)=>cachedFitted(`type:${typeId}`,()=>fittedProductIds([typeId]));
 /**
  * The admin's category (#575) replaces the automatic ones: true for an item whose product the admin put in a category
  * outside `ids` (an int[] parameter such as "$2"), so it leaves the automatic category's list. The home rails (#667) use
@@ -476,11 +486,40 @@ function vehicleReadingWords(raw:string){
 }
 /**
  * The counter a cached search follows (#1368). A search that may read as a part and a vehicle (vehicleSearch: two to six
- * words, not a code search) reads the vehicle's fits (fittedProductIds), so it follows the fits value; any other search
+ * words, not a code search) reads the vehicle's fits (vehicleFittedIds), so it follows the fits value; any other search
  * never reads them and keeps its entries through the fit sync. Decided from the words alone, which its key holds, so a
  * key always reads the same counter.
  */
 const searchEpoch=(raw:string,mode:SearchMode)=>mode!=="code"&&vehicleReadingWords(raw)?fitsEpoch:listingEpoch;
+/**
+ * The supplier rows linked to the vehicle types a search's vehicle words match (vehicleSearch), the same rows
+ * fittedProductIds gives for all those types (#1395). A model whose every type matches ("bmw", "passat", "volkswagen")
+ * is read from storefront_model_fits, which the shared-link refresh keeps per model by the same rule (trusted payload,
+ * the admin's removed and added types; db/storefront-make-fits.sql); only the matched types of the other models
+ * ("passat tdi") are read live, through fittedProductIds. Read live for every matched type, a make took 8-21 s locally
+ * ("bmw": 2,451 types; "volkswagen" 10 s, "passat" 6 s) and hit its 30 s limit in production, while BakımX gives up after
+ * 4 s and searches again as the mechanic types; whole models now read in 0.02-0.35 s, the same ids. A broad engine word
+ * stays live and slow ("tdi": 1,890 types of partly matched models, ~8 s). The model rows are as fresh as the refresh
+ * (seconds behind a fitment change or an admin's decision), as on the make and model pages. Unlike modelFittedIds this
+ * adds no models read from supplier descriptions: the search never counted them. The scope is read first and handed
+ * over as arrays, so the live read is planned for its real number of types; as one statement with both branches the
+ * planner read every fitment sequentially for "passat tdi".
+ */
+export async function vehicleFittedIds(parsed:ParsedSearch):Promise<string[]>{
+ const values:unknown[]=[];
+ const scope=(await catalogRead<{models:number[];types:number[]}>("catalog.searchVehicleScope",`WITH types AS MATERIALIZED (
+   SELECT v.id,v.model_id FROM vehicle_types v WHERE ${vehicleTypeMatch("v",parsed,binder(values))}),
+  models AS MATERIALIZED (SELECT v.model_id,count(*)=count(t.id) AS whole FROM vehicle_types v LEFT JOIN types t ON t.id=v.id
+   WHERE v.model_id IN (SELECT model_id FROM types) GROUP BY 1)
+  SELECT ARRAY(SELECT model_id FROM models WHERE whole ORDER BY 1) AS models,
+   ARRAY(SELECT t.id FROM types t JOIN models m ON m.model_id=t.model_id AND NOT m.whole ORDER BY 1) AS types`,values)).rows[0];
+ const [modelFitted,typeFitted]=await Promise.all([
+  scope.models.length?catalogRead<{id:string}>(`catalog.searchModelFits models=${scope.models.length}:${scope.models.slice(0,5).join(",")}`,
+   "SELECT DISTINCT supplier_item_id::text AS id FROM storefront_model_fits WHERE model_id=ANY($1::int[])",[scope.models]).then(result=>result.rows.map(row=>row.id)):[],
+  scope.types.length?fittedProductIds(scope.types):[],
+ ]);
+ return [...new Set([...modelFitted,...typeFitted])];
+}
 /**
  * Most product names never mention vehicles, so "fren balatası passat" often matches nothing as a whole. Tries
  * every split of the words into a leading or trailing vehicle part ("passat", "golf 7 2015") and a
@@ -507,8 +546,7 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   const vehicle=await resolvePart(split.vehicle.join(" "),"vehicle",correct,async parsed=>{const values:unknown[]=[];
    return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values)).rowCount);});
   if(!vehicle)continue;
-  const fitValues:unknown[]=[];
-  const linked=new Set(await fittedProductIds(`SELECT v.id FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(vehicle.parsed),binder(fitValues))}`,fitValues));
+  const linked=new Set(await vehicleFittedIds(vehicleWords(vehicle.parsed)));
   if(fittedOnly&&!linked.size)continue;
   let ids:string[]=[];
   const product=await resolvePart(split.product.join(" "),"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
