@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { createServer, type Server } from "node:http";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, relative, resolve, sep } from "node:path";
@@ -11,14 +10,16 @@ import type { Pool } from "pg";
 import type { z } from "zod";
 import { enrichmentDataSchema } from "../src/modules/store/enrichment-contract";
 import { isolatedSchema } from "./isolated-schema";
+import { type S3Stub, startS3Stub, stubEnv } from "./storefront-s3-stub";
 import { splitStorefrontBundle } from "./split-storefront-bundle";
 import { REMOVED_JOB_ERROR } from "./storefront-bundle-tombstones";
 import { buildInboundReport, checkInboundReport, type PartReport, reportKey } from "./storefront-sync-state";
 
 // The storefront sync end to end (#1372): export-storefront-bundle.ts -> splitStorefrontBundle -> import-storefront-bundle.ts, each
 // a real child process, between two isolated copies of the schema (a local database as source, production as target) and an
-// in-test S3 stub. It checks what the pieces' own tests cannot: that every column an exporter SELECT or importer INSERT carries
-// reaches the target unchanged, both when the row is new on the target (run 1) and when it already exists there and changes
+// S3 stub on 127.0.0.1 (storefront-s3-stub.ts: whole-object GET/HEAD/PUT with x-amz-meta-* metadata, listing). It checks what
+// the pieces' own tests cannot: that every column an exporter SELECT or importer INSERT carries reaches the target unchanged,
+// both when the row is new on the target (run 1) and when it already exists there and changes
 // (run 2 changes every carried non-key column of one imported row per table, run 3 the vehicle data), so a column missing from an
 // importer's INSERT or from its ON CONFLICT DO UPDATE list fails. Whatever may legitimately differ is listed in LOCAL_ONLY, with its
 // reason; anything else that differs fails. The inbound tests (#1384) then run import-storefront-inbound.ts, the operations-task entry
@@ -26,9 +27,12 @@ import { buildInboundReport, checkInboundReport, type PartReport, reportKey } fr
 // report.json, and a part that fails its dry run must write nothing.
 // The golden fixture of the part format (#1383) is compared with the rows the real export wrote: same keys, same JSON types per key.
 // Run 3 also skips the category images and logos run 2 sent (--static-digest, #1379) and sends them again once a logo changes; run 4 imports media
-// the target already holds under another id and object key (#1385): every referencing table must point at the existing object. INSERT_ONLY lists columns the importer writes on insert but never updates: they are
-// left out of the comparisons that follow an update, so the gap stays visible. A column nobody seeded, or one that only ever holds
-// its constant default, fails assertColumnCoverage, so a new column cannot pass by being empty or defaulted on both sides.
+// the target already holds under another id and object key (#1385): every referencing table must point at the existing object. Run 5
+// imports run 4's parts again: an unchanged object costs one HEAD and no PUT or GET, a missing, truncated or metadata-less one is
+// rewritten (#1406). Run 6 fails one upload: the part writes no row. INSERT_ONLY lists columns the importer writes on insert but
+// never updates: they are left out of the comparisons that follow an update, so the gap stays visible. A column nobody seeded, or
+// one that only ever holds its constant default, fails assertColumnCoverage, so a new column cannot pass by being empty or defaulted
+// on both sides.
 const skip = !process.env.DATABASE_URL && "DATABASE_URL not set";
 if (process.env.CI && skip) throw new Error("DATABASE_URL is required in CI: the storefront e2e test must not be skipped silently");
 
@@ -108,81 +112,10 @@ async function compareRows(table: CarriedTable, db: Queryable, excludeCodes: str
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------
-// An S3 stub: path-style GET/PUT of whole objects and ListObjectsV2 (prefix, delimiter, continuation-token) on 127.0.0.1, nothing else. Anything it does not understand answers 501 and is recorded.
-type Stub = Awaited<ReturnType<typeof startS3Stub>>;
-// A small page size makes the importer's continuation loop run.
-const LIST_PAGE = 3;
-const xmlEscape = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-async function startS3Stub() {
-  const objects = new Map<string, { bytes: Buffer; contentType: string }>();
-  const state = { puts: [] as string[], unsupported: [] as string[] };
-  const server: Server = createServer((req, res) => {
-    const path = (req.url ?? "").split("?")[0].split("/").filter(Boolean).map(segment => decodeURIComponent(segment)).join("/");
-    const chunks: Buffer[] = [];
-    req.on("data", chunk => chunks.push(chunk as Buffer));
-    req.on("end", () => {
-      const fail = (status: number, code: string) => { res.writeHead(status, { "Content-Type": "application/xml" }); res.end(`<Error><Code>${code}</Code></Error>`); };
-      if (req.headers["content-encoding"]?.includes("aws-chunked") || String(req.headers["x-amz-content-sha256"] ?? "").startsWith("STREAMING-")) {
-        state.unsupported.push(`${req.method} ${path} (aws-chunked)`);
-        return fail(501, "NotImplemented");
-      }
-      if (req.method === "GET" && !path.includes("/")) {
-        const query = new URL(req.url ?? "", "http://stub").searchParams;
-        if (query.get("list-type") !== "2" || [...query.keys()].some(name => !["list-type", "prefix", "delimiter", "continuation-token"].includes(name))) {
-          state.unsupported.push(`GET ${path}?${query.toString()}`);
-          return fail(501, "NotImplemented");
-        }
-        const prefix = query.get("prefix") ?? "", delimiter = query.get("delimiter");
-        const entries = new Map<string, { key: string; size: number } | { prefix: string }>();
-        for (const [full, object] of objects) {
-          if (!full.startsWith(`${path}/${prefix}`)) continue;
-          const key = full.slice(path.length + 1), rest = key.slice(prefix.length);
-          const cut = delimiter ? rest.indexOf(delimiter) : -1;
-          if (cut >= 0) entries.set(`${prefix}${rest.slice(0, cut + delimiter!.length)}`, { prefix: `${prefix}${rest.slice(0, cut + delimiter!.length)}` });
-          else entries.set(key, { key, size: object.bytes.length });
-        }
-        const after = query.get("continuation-token");
-        const sorted = [...entries.keys()].sort().filter(name => after === null || name > after);
-        const page = sorted.slice(0, LIST_PAGE), truncated = sorted.length > page.length;
-        const body = page.map(name => {
-          const entry = entries.get(name)!;
-          return "key" in entry ? `<Contents><Key>${xmlEscape(entry.key)}</Key><Size>${entry.size}</Size></Contents>` : `<CommonPrefixes><Prefix>${xmlEscape(entry.prefix)}</Prefix></CommonPrefixes>`;
-        }).join("");
-        res.writeHead(200, { "Content-Type": "application/xml" });
-        return void res.end(`<?xml version="1.0" encoding="UTF-8"?><ListBucketResult><Name>${path}</Name><Prefix>${xmlEscape(prefix)}</Prefix><KeyCount>${page.length}</KeyCount><MaxKeys>${LIST_PAGE}</MaxKeys>`
-          + `<IsTruncated>${truncated}</IsTruncated>${truncated ? `<NextContinuationToken>${xmlEscape(page[page.length - 1])}</NextContinuationToken>` : ""}${body}</ListBucketResult>`);
-      }
-      if (req.method === "GET") {
-        const object = objects.get(path);
-        if (!object) return fail(404, "NoSuchKey");
-        res.writeHead(200, { "Content-Length": object.bytes.length, "Content-Type": object.contentType, ETag: `"${createHash("md5").update(object.bytes).digest("hex")}"` });
-        return void res.end(object.bytes);
-      }
-      if (req.method === "PUT") {
-        const bytes = Buffer.concat(chunks);
-        objects.set(path, { bytes, contentType: String(req.headers["content-type"] ?? "application/octet-stream") });
-        state.puts.push(path);
-        res.writeHead(200, { ETag: `"${createHash("md5").update(bytes).digest("hex")}"`, "Content-Length": 0 });
-        return void res.end();
-      }
-      state.unsupported.push(`${req.method} ${path}`);
-      fail(501, "NotImplemented");
-    });
-  });
-  await new Promise<void>(done => server.listen(0, "127.0.0.1", done));
-  const address = server.address();
-  if (!address || typeof address === "string") throw new Error("S3 stub has no port");
-  return {
-    url: `http://127.0.0.1:${address.port}`, objects, ...state,
-    close: () => new Promise<void>(done => { server.closeAllConnections(); server.close(() => done()); }),
-  };
-}
-
-// ---------------------------------------------------------------------------------------------------------------------------------
 type Schema = Awaited<ReturnType<typeof isolatedSchema>>;
 let source: Schema, target: Schema, inbound: Schema;
 let sourceUrl = "", targetUrl = "", inboundUrl = "";
-let stub: Stub;
+let stub: S3Stub;
 let dir = "";
 const srcBucket = `e2e-src-${randomBytes(4).toString("hex")}`;
 const dstBucket = `e2e-dst-${randomBytes(4).toString("hex")}`;
@@ -201,10 +134,7 @@ async function run(script: string, args: string[], side: Side, options: { env?: 
   const { schema, url, bucket } = sideOf(side);
   const env = { ...process.env };
   for (const name of Object.keys(env)) if (name.startsWith("AWS_") || name.startsWith("S3_")) delete env[name];
-  Object.assign(env, {
-    DATABASE_URL: url, S3_ENDPOINT: stub.url, S3_REGION: "us-east-1", S3_ACCESS_KEY_ID: "test", S3_SECRET_ACCESS_KEY: "test-secret",
-    AWS_REQUEST_CHECKSUM_CALCULATION: "WHEN_REQUIRED", AWS_RESPONSE_CHECKSUM_VALIDATION: "WHEN_REQUIRED",
-  });
+  Object.assign(env, { DATABASE_URL: url, ...stubEnv(stub.url) });
   if (bucket) env.S3_BUCKET = bucket;
   // Names the child's database sessions after the schema; killChildSessions() ends what a timed-out child's own children left behind.
   env.PGAPPNAME = schema.name;
@@ -231,7 +161,7 @@ type ExportManifest = {
 };
 type PartManifest = {
   jobs: unknown[]; enrichments: unknown[]; vehicleData?: unknown; enrichmentsFile?: unknown; staticMedia?: unknown;
-  images: unknown[]; logos: unknown[]; media: { id: string }[];
+  images: unknown[]; logos: unknown[]; media: { id: string; sha256: string }[];
 };
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -412,7 +342,9 @@ after(async () => {
 const state: {
   digest: string; staticDigest: string; snapshotAt: string; skipped: unknown[]; vehicleSnapshot: unknown[];
   full1: string; parts1: string[]; parts2: string[]; run1Reports: PartReport[]; run1Target: Record<CarriedTable, Record<string, unknown>[]> | null; run1SharedQueue: number;
-} = { digest: "", staticDigest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [], full1: "", parts1: [], parts2: [], run1Reports: [], run1Target: null, run1SharedQueue: 0 };
+  parts4: string[]; snapshot4: string;
+} = { digest: "", staticDigest: "", snapshotAt: "", skipped: [], vehicleSnapshot: [], full1: "", parts1: [], parts2: [], run1Reports: [], run1Target: null, run1SharedQueue: 0,
+  parts4: [], snapshot4: "" };
 const vehicleRows = async (pool: Pool) => [...(await compareRows("vehicle_type_specs", pool, [])), ...(await compareRows("vehicle_type_images", pool, []))];
 
 async function importParts(parts: string[]) {
@@ -474,12 +406,14 @@ test("run 1: a full export, split, applied part by part, leaves the target equal
   // Without a drain the per-part import leaves the state queue filled too, so "drained" after the inbound run cannot pass vacuously.
   assert.ok((await target.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM enrichment_product_state_queue")).rows[0].n > 0, "the per-part import queued no product states");
   assert.equal((await target.pool.query("SELECT 1 FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id WHERE s.code='E2E-PENDING'")).rowCount, 0);
-  const exported = await readLines<{ bucket: string; object_key: string }>(join(full, "media.ndjson"));
+  const exported = await readLines<{ bucket: string; object_key: string; sha256: string }>(join(full, "media.ndjson"));
   assert.equal(exported.length, 5);
   for (const object of exported) {
     const stored = stub.objects.get(`${dstBucket}/${object.object_key}`);
     assert.ok(stored, `${object.object_key} is not in the target bucket`);
     assert.deepEqual(stored.bytes, stub.objects.get(`${srcBucket}/${object.object_key}`)!.bytes);
+    // What lets the next import skip it with one HEAD (#1406).
+    assert.deepEqual(stored.metadata, { sha256: object.sha256 }, `${object.object_key} has no sha256 metadata`);
   }
 
   // Non-vacuity: a changed carried column must fail the comparison.
@@ -620,6 +554,7 @@ test("run 4: media the target already holds under another id and object key is r
   // No digests: the category images, logos and vehicle data go whole.
   const full = join(dir, "full4");
   await run("export-storefront-bundle.ts", [full], "source");
+  state.snapshot4 = (await readJson<ExportManifest>(join(full, "manifest.json"))).snapshotAt;
   const parts = await splitStorefrontBundle(full, join(dir, "parts4"), { mediaBytes: 1e9, jsonBytes: 1e9 });
   const bundled = new Set((await readLines<{ id: string }>(join(full, "media.ndjson"))).map(row => row.id));
   for (const object of objects) assert.ok(bundled.has(object.sourceId), `${object.name}: the bundle does not carry the object`);
@@ -643,10 +578,14 @@ test("run 4: media the target already holds under another id and object key is r
     // The bundle's own key is never written or created; the existing object holds the bundle's bytes (its stub bytes were different before).
     assert.ok(!stub.puts.some(path => path.endsWith(object.bundleKey) && path.startsWith(`${dstBucket}/`)), `${object.name}: the bundle's object key was uploaded`);
     assert.ok(!stub.objects.has(`${dstBucket}/${object.bundleKey}`));
-    // Current behaviour (#1406): the importer re-PUTs known objects; flip this when #1406 lands.
+    // The existing object held other bytes and no sha256 metadata, so it is healed and stamped (#1406); a verified one is not
+    // written (run 5).
     assert.ok(stub.puts.includes(`${dstBucket}/${object.existingKey}`), `${object.name}: the existing object was not written`);
     assert.deepEqual(stub.objects.get(`${dstBucket}/${object.existingKey}`)!.bytes, object.bytes);
+    assert.deepEqual(stub.objects.get(`${dstBucket}/${object.existingKey}`)!.metadata, { sha256: object.sha }, `${object.name}: the existing object was not stamped`);
   }
+  // Every other object of these parts was stored (with its metadata) by an earlier run: only the three healed ones are written.
+  assert.deepEqual([...stub.puts].sort(), objects.map(object => `${dstBucket}/${object.existingKey}`).sort());
   // Rows compare by sha256; only the object key of the three remapped objects differs, and it differs by design.
   await compareAll([], true, { product_media_objects: ["object_key"] });
   const keyBySha = async (pool: Pool) => Object.fromEntries((await pool.query<{ sha256: string; object_key: string }>("SELECT sha256,object_key FROM product_media_objects")).rows.map(row => [row.sha256, row.object_key]));
@@ -654,6 +593,103 @@ test("run 4: media the target already holds under another id and object key is r
   for (const object of objects) { assert.equal(fromSource[object.sha], object.bundleKey); assert.equal(fromTarget[object.sha], object.existingKey); }
   const rest = (keys: Record<string, string>) => Object.fromEntries(Object.entries(keys).filter(([sha]) => !objects.some(object => object.sha === sha)));
   assert.deepEqual(rest(fromTarget), rest(fromSource));
+  state.parts4 = parts;
+});
+
+/** The object paths (bucket/key) the target's media rows give the media of `parts`, and how many media rows the parts carry in all. */
+async function partMedia(parts: string[]) {
+  const manifests = await Promise.all(parts.map(part => readJson<PartManifest>(join(part, "manifest.json"))));
+  const shas = [...new Set(manifests.flatMap(part => part.media.map(object => object.sha256)))];
+  const rows = (await target.pool.query<{ path: string }>("SELECT bucket||'/'||object_key AS path FROM product_media_objects WHERE sha256=ANY($1) ORDER BY sha256", [shas])).rows;
+  assert.equal(rows.length, shas.length, "a part's media has no row on the target");
+  return { paths: rows.map(row => row.path), rows: manifests.reduce((sum, part) => sum + part.media.length, 0) };
+}
+const resetRequests = () => { for (const list of [stub.puts, stub.gets, stub.heads]) list.length = 0; };
+
+test("run 5: a second import of the same parts sends no PUT and no object GET (#1406)", { skip }, async () => {
+  assert.ok(state.parts4.length > 1, "run 4 must have produced parts");
+  const media = await partMedia(state.parts4);
+  assert.ok(media.rows > 3);
+  resetRequests();
+  const { totals } = buildInboundReport(await importParts(state.parts4));
+  assert.deepEqual(stub.puts, []);
+  assert.deepEqual(stub.gets, []);
+  // One HEAD per media row of each part, nothing more.
+  assert.equal(stub.heads.length, media.rows);
+  assert.ok(stub.heads.every(path => path.startsWith(`${dstBucket}/`)));
+  assert.deepEqual([totals.media, totals.mediaUploaded, totals.mediaVerified], [media.rows, 0, media.rows]);
+  await compareAll([], true, { product_media_objects: ["object_key"] });
+});
+
+test("run 5: a missing, a truncated and a metadata-less object are rewritten, nothing else (#1406)", { skip }, async () => {
+  const [missing, truncated, unstamped] = (await partMedia(state.parts4)).paths;
+  const original = new Map([missing, truncated, unstamped].map(path => [path, stub.objects.get(path)!]));
+  assert.ok([...original.values()].every(object => object?.metadata?.sha256), "the objects to break are not stored and stamped");
+  stub.objects.delete(missing);
+  stub.objects.set(truncated, { ...original.get(truncated)!, bytes: original.get(truncated)!.bytes.subarray(1) });
+  stub.objects.set(unstamped, { bytes: original.get(unstamped)!.bytes, contentType: original.get(unstamped)!.contentType });
+  resetRequests();
+  const { totals } = buildInboundReport(await importParts(state.parts4));
+  const broken = [missing, truncated, unstamped].sort();
+  assert.deepEqual([...stub.puts].sort(), broken);
+  assert.deepEqual([...stub.gets].sort(), broken);
+  for (const path of broken) {
+    assert.deepEqual(stub.objects.get(path)?.bytes, original.get(path)!.bytes, `${path} was not restored`);
+    assert.deepEqual(stub.objects.get(path)?.metadata, original.get(path)!.metadata, `${path} was not stamped`);
+  }
+  assert.equal(totals.mediaUploaded, 3);
+  await compareAll([], true, { product_media_objects: ["object_key"] });
+});
+
+test("run 6: a part whose media cannot be stored (its key holds other media, or the upload fails) writes no rows, and applies once it can (#1406)", { skip }, async () => {
+  assert.ok(state.snapshot4, "run 4 must have exported");
+  const bytes = randomBytes(64), sha = sha256(bytes), key = `e2e/${sha}.png`, id = randomUUID();
+  await source.pool.query(`INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at,stored_at) VALUES($1,$2,$3,$4,'image/png',64,$5,$6,$7)`,
+    [id, srcBucket, key, sha, "https://example.com/upload-fails.png", day(2), day(3)]);
+  stub.objects.set(`${srcBucket}/${key}`, { bytes, contentType: "image/png" });
+  await source.pool.query("UPDATE product_enrichments SET image_id=$2,imported_at=date_trunc('milliseconds',now()) WHERE supplier_item_id=$1", [sourceId["E2E-A"], id]);
+  const full = join(dir, "full6");
+  await run("export-storefront-bundle.ts", [full, `--since=${state.snapshot4}`], "source");
+  const parts = await splitStorefrontBundle(full, join(dir, "parts6"), { mediaBytes: 1e9, jsonBytes: 1e9 });
+  const manifests = await Promise.all(parts.map(part => readJson<PartManifest>(join(part, "manifest.json"))));
+  const failing = manifests.findIndex(part => part.media.some(object => object.sha256 === sha));
+  assert.ok(failing > 0, "the new media is not in an enrichment part");
+  assert.equal(manifests[failing].enrichments.length, 1);
+
+  await importParts(parts.slice(0, failing));
+  // The new object's key already belongs to a target row with other content: the importer stops before touching any object,
+  // where storing first would overwrite that row's object (the INSERT would then skip the bundle row on UNIQUE(bucket,object_key)).
+  const path = `${dstBucket}/${key}`, otherBytes = randomBytes(64), otherSha = sha256(otherBytes), otherId = randomUUID();
+  await target.pool.query(`INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at) VALUES($1,$2,$3,$4,'image/png',64,$5,$6)`,
+    [otherId, dstBucket, key, otherSha, "https://example.com/key-taken.png", day(2)]);
+  stub.objects.set(path, { bytes: otherBytes, contentType: "image/png", metadata: { sha256: otherSha } });
+  const taken = await rawSnapshot(target.pool);
+  resetRequests();
+  await assert.rejects(importParts([parts[failing]]), (error: Error) => {
+    assert.match(error.message, /already hold other media here, nothing was stored/);
+    assert.ok(error.message.includes(path), "the error does not name the key");
+    return true;
+  });
+  assert.deepEqual([stub.puts, stub.gets, stub.heads], [[], [], []], "an object was touched before the key conflict stopped the import");
+  assert.deepEqual(stub.objects.get(path), { bytes: otherBytes, contentType: "image/png", metadata: { sha256: otherSha } });
+  assert.deepEqual(await rawSnapshot(target.pool), taken);
+  await target.pool.query("DELETE FROM product_media_objects WHERE id=$1", [otherId]);
+  stub.objects.delete(path);
+
+  const before = await rawSnapshot(target.pool);
+  stub.failPuts.add(path);
+  try {
+    await assert.rejects(importParts([parts[failing]]), /AccessDenied|403/);
+  } finally { stub.failPuts.clear(); }
+  assert.deepEqual(await rawSnapshot(target.pool), before);
+  assert.equal((await target.pool.query("SELECT 1 FROM product_media_objects WHERE sha256=$1", [sha])).rowCount, 0);
+  assert.ok(!stub.objects.has(`${dstBucket}/${key}`));
+
+  await importParts(parts.slice(failing));
+  assert.deepEqual(stub.objects.get(`${dstBucket}/${key}`)?.bytes, bytes);
+  assert.equal(await target.pool.query<{ sha: string }>(`SELECT m.sha256 AS sha FROM product_enrichments e JOIN supplier_items s ON s.id=e.supplier_item_id
+    JOIN product_media_objects m ON m.id=e.image_id WHERE s.code='E2E-A'`).then(result => result.rows[0]?.sha), sha);
+  await compareAll([], true, { product_media_objects: ["object_key"] });
 });
 
 // ---------------------------------------------------------------------------------------------------------------------------------
@@ -772,6 +808,8 @@ test("inbound: a part that fails its dry run stops the run before anything is ap
   assert.equal((await inbound.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_enrichments")).rows[0].n, 0);
   assert.ok(![...stub.objects.keys()].some(key => key.startsWith(`${inbMediaBucket}/`)), "the failed run wrote to the media bucket");
   assert.equal(stub.puts.length, puts);
+  // Dry runs send nothing to the media bucket, not even a HEAD (#1406).
+  assert.ok(!stub.heads.some(path => path.startsWith(`${inbMediaBucket}/`)), "a dry run checked media objects");
 });
 
 test("inbound: the e2e parts imported by import-storefront-inbound.ts leave the same target and report as the per-part import", { skip }, async () => {

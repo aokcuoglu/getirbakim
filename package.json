@@ -232,7 +232,8 @@
     "test:storefront-split": "node --import tsx --test scripts/test-storefront-split.ts",
     "test:storefront-tombstones": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-storefront-tombstones.ts",
     "test:storefront-e2e": "node --env-file-if-exists=.env.local --conditions=react-server --import tsx --test scripts/test-storefront-e2e.ts",
-    "test:storefront-sync": "node --import tsx --test scripts/test-storefront-sync.ts"
+    "test:storefront-sync": "node --import tsx --test scripts/test-storefront-sync.ts",
+    "test:storefront-bundle-media": "node --conditions=react-server --import tsx --test scripts/test-storefront-bundle-media.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.9.0",
