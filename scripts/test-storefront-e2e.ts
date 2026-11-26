@@ -183,14 +183,14 @@ let stub: Stub;
 let dir = "";
 const srcBucket = `e2e-src-${randomBytes(4).toString("hex")}`;
 const dstBucket = `e2e-dst-${randomBytes(4).toString("hex")}`;
-const inbBucket = `e2e-inb-${randomBytes(4).toString("hex")}`;
+const inbMediaBucket = `e2e-inb-${randomBytes(4).toString("hex")}`;
 const inboundBucket = `e2e-inbound-${randomBytes(4).toString("hex")}`;
 
 type Side = "source" | "target" | "inbound";
 function sideOf(side: Side) {
   if (side === "source") return { schema: source, url: sourceUrl, bucket: undefined };
   if (side === "target") return { schema: target, url: targetUrl, bucket: dstBucket };
-  return { schema: inbound, url: inboundUrl, bucket: inbBucket };
+  return { schema: inbound, url: inboundUrl, bucket: inbMediaBucket };
 }
 
 /** Runs a bundle script as a child process against one schema and the stub; every spawn is checked first so it can reach nothing else. */
@@ -203,6 +203,8 @@ async function run(script: string, args: string[], side: Side, options: { env?: 
     AWS_REQUEST_CHECKSUM_CALCULATION: "WHEN_REQUIRED", AWS_RESPONSE_CHECKSUM_VALIDATION: "WHEN_REQUIRED",
   });
   if (bucket) env.S3_BUCKET = bucket;
+  // Names the child's database sessions after the schema; killChildSessions() ends what a timed-out child's own children left behind.
+  env.PGAPPNAME = schema.name;
   Object.assign(env, options.env);
   assert.match(env.S3_ENDPOINT!, /^http:\/\/127\.0\.0\.1:\d+$/);
   assert.equal(new URL(env.DATABASE_URL!).searchParams.get("options"), `-c search_path=${schema.name},public`);
@@ -314,13 +316,21 @@ async function tableRows(pool: Queryable, excludeCodes: string[], afterUpdate = 
   return rows;
 }
 
-/** Every row of the carried tables and of the derived ones the inbound import writes, as JSON in a stable order, ids included. */
+/** Every row of every base table of the pool's schema, as JSON in a stable order, ids included (nothing in an isolated schema changes on its own). */
 async function rawSnapshot(pool: Queryable) {
   const snapshot: Record<string, unknown> = {};
-  for (const table of [...TABLES, "supplier_items", "product_vehicle_fitments", "product_enrichment_shared_queue", "enrichment_product_state_queue"]) {
-    snapshot[table] = (await pool.query<{ rows: unknown }>(`SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) AS rows FROM ${table} t`)).rows[0].rows;
+  const tables = (await pool.query<{ table_name: string }>(
+    "SELECT table_name FROM information_schema.tables WHERE table_schema=current_schema() AND table_type='BASE TABLE' ORDER BY table_name")).rows;
+  assert.ok(tables.length > 20, "the schema snapshot found too few tables");
+  for (const { table_name: table } of tables) {
+    snapshot[table] = (await pool.query<{ rows: unknown }>(`SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) AS rows FROM "${table}" t`)).rows[0].rows;
   }
   return snapshot;
+}
+
+/** Ends the database sessions of a schema's child processes (named by PGAPPNAME in run()): a killed child's own children outlive it and would fall back to public. */
+async function killChildSessions(schema: Schema | undefined) {
+  if (schema) await schema.pool.query("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name=$1 AND pid<>pg_backend_pid()", [schema.name]);
 }
 
 /** Uploads a local directory to the stub under bucket/keyPrefix, keys with forward slashes. */
@@ -383,9 +393,9 @@ before(async () => {
 });
 // The schemas restore DATABASE_URL in nested order, so they are dropped innermost first.
 after(async () => {
-  try { await inbound?.drop(); } finally {
-    try { await target?.drop(); } finally {
-      try { await source?.drop(); } finally {
+  try { await killChildSessions(inbound); await inbound?.drop(); } finally {
+    try { await killChildSessions(target); await target?.drop(); } finally {
+      try { await killChildSessions(source); await source?.drop(); } finally {
         try { await stub?.close(); } finally { if (dir) await rm(dir, { recursive: true, force: true }); }
       }
     }
@@ -454,6 +464,8 @@ test("run 1: a full export, split, applied part by part, leaves the target equal
   state.run1Target = await tableRows(target.pool, ["E2E-MISSING"]);
   state.run1SharedQueue = (await target.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_enrichment_shared_queue")).rows[0].n;
   assert.ok(state.run1SharedQueue > 0, "the per-part import queued nothing for the derived tables");
+  // Without a drain the per-part import leaves the state queue filled too, so "drained" after the inbound run cannot pass vacuously.
+  assert.ok((await target.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM enrichment_product_state_queue")).rows[0].n > 0, "the per-part import queued no product states");
   assert.equal((await target.pool.query("SELECT 1 FROM product_enrichment_jobs j JOIN supplier_items s ON s.id=j.supplier_item_id WHERE s.code='E2E-PENDING'")).rowCount, 0);
   const exported = await readLines<{ bucket: string; object_key: string }>(join(full, "media.ndjson"));
   assert.equal(exported.length, 5);
@@ -568,7 +580,7 @@ test("inbound: a part that fails its dry run stops the run before anything is ap
   });
   assert.deepEqual(await rawSnapshot(inbound.pool), before);
   assert.equal((await inbound.pool.query<{ n: number }>("SELECT count(*)::int AS n FROM product_enrichments")).rows[0].n, 0);
-  assert.ok(![...stub.objects.keys()].some(key => key.startsWith(`${inbBucket}/`)), "the failed run wrote to the media bucket");
+  assert.ok(![...stub.objects.keys()].some(key => key.startsWith(`${inbMediaBucket}/`)), "the failed run wrote to the media bucket");
   assert.equal(stub.puts.length, puts);
 });
 
@@ -588,12 +600,13 @@ test("inbound: the e2e parts imported by import-storefront-inbound.ts leave the 
     assert.deepEqual(imported[table], state.run1Target[table], `${table} differs from the per-part import`);
   }
   for (const object of await readLines<{ object_key: string }>(join(state.full1, "media.ndjson"))) {
-    const stored = stub.objects.get(`${inbBucket}/${object.object_key}`);
+    const stored = stub.objects.get(`${inbMediaBucket}/${object.object_key}`);
     assert.ok(stored, `${object.object_key} is not in the media bucket`);
     assert.deepEqual(stored.bytes, stub.objects.get(`${srcBucket}/${object.object_key}`)!.bytes);
   }
 
-  const written = stub.objects.get(`${inbBucket}/${reportKey("storefront/current")}`);
+  assert.ok(!stub.puts.some(path => path.startsWith(`${inboundBucket}/`)), "the task wrote to the inbound parts bucket");
+  const written = stub.objects.get(`${inbMediaBucket}/${reportKey("storefront/current")}`);
   assert.ok(written, "report.json was not written");
   assert.equal(written.contentType, "application/json");
   const report = JSON.parse(written.bytes.toString("utf8")) as Parameters<typeof checkInboundReport>[0] & object;
