@@ -727,7 +727,7 @@ test("vehicleFitCount is the live count with the kill switch of its sort at 0, a
     const again = await sent(async () => assert.equal(await fitCount(query, held), want));
     assert.ok(again.orders === 0 && again.hits >= 1 && again.counts >= 1, "held: live hit read and count, no order statement");
   });
-||||||| parent of 53af0ff64 (perf(search): cache facets of searches scoped by category, make, model, manufacturer or garage vehicle (#1441))
+});
 
 
 // The facets of a scoped search (#1441): one entry per scope, the brand, property, availability, sort and page variants sharing it.
@@ -791,7 +791,7 @@ test("a warm scoped search page sends no hit read and no facet statement", async
 });
 
 test("facets follow the epochs: an admin bump reloads every key, the fit sync's only the ones that read vehicle fits", async () => {
-  await withEnv({ LISTING_EPOCH_WAIT_MS: "60000" }, async () => {
+  await patient(async () => {
     const proc = await otherProcess("facets-epochs");
     const keys: [string, CatalogQuery, boolean][] = [
       ["category", { q: "fren", category: "fren" }, false],
@@ -864,7 +864,7 @@ test("after a bump with a held load the earlier facets are served within the wai
 });
 
 test("an admin's store brand override changes the brand facet after the bump", async () => {
-  await withEnv({ LISTING_EPOCH_WAIT_MS: "60000" }, async () => {
+  await patient(async () => {
     const proc = await otherProcess("facets-override");
     const scope: CatalogQuery = { q: "fren", category: "fren" };
     const before = await facetsOf(scope, {}, proc);
