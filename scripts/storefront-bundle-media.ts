@@ -47,18 +47,19 @@ export async function resolveMediaTargets(db: Pick<PoolClient, "query">, mediaJs
 
 /**
  * Makes the object at `target` hold `bytes`: "verified" when it already did (HEAD only), "uploaded" when it was written
- * and the store validated its checksum (or, on a store that does not echo it, read back).
+ * and the store validated its checksum, "read-back" when it was written to a store that does not echo the checksum and
+ * read back (#1417).
  */
-export async function ensureStoredObject(storage: ObjectStore, target: MediaTarget, bytes: Uint8Array): Promise<"verified" | "uploaded"> {
+export async function ensureStoredObject(storage: ObjectStore, target: MediaTarget, bytes: Uint8Array): Promise<"verified" | "uploaded" | "read-back"> {
   const object = { bucket: target.bucket, key: target.object_key, sha256: target.sha256, contentType: target.content_type };
   if (await objectIsStored(storage, object, bytes.length)) return "verified";
-  await putVerifiedObject(storage, object, bytes);
-  return "uploaded";
+  return await putVerifiedObject(storage, object, bytes) === "acknowledged" ? "uploaded" : "read-back";
 }
 
 /**
  * ensureStoredObject for every distinct bucket/key, `concurrency` at a time. After the first failure no further object
  * starts; the ones already running finish and the call rejects with that failure. Two sha256 values on one key throw.
+ * `uploaded` counts every written object, `readBack` those of them the store did not acknowledge and that were read back.
  */
 export async function ensureStoredObjects(storage: ObjectStore, targets: readonly MediaTarget[], bytesOf: (sha256: string) => Uint8Array,
   concurrency = mediaConcurrency()) {
@@ -71,14 +72,17 @@ export async function ensureStoredObjects(storage: ObjectStore, targets: readonl
     byKey.set(key, target);
   }
   const queue = [...byKey.values()];
-  const counts = { verified: 0, uploaded: 0 };
+  const counts = { verified: 0, uploaded: 0, readBack: 0 };
   const failures: unknown[] = [];
   let next = 0;
   const worker = async () => {
     while (failures.length === 0 && next < queue.length) {
       const target = queue[next++];
-      try { counts[await ensureStoredObject(storage, target, bytesOf(target.sha256))]++; }
-      catch (error) { failures.push(error); }
+      try {
+        const result = await ensureStoredObject(storage, target, bytesOf(target.sha256));
+        if (result === "verified") counts.verified++;
+        else { counts.uploaded++; if (result === "read-back") counts.readBack++; }
+      } catch (error) { failures.push(error); }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, worker));

@@ -416,6 +416,7 @@ test("run 1: a full export, split, applied part by part, leaves the target equal
   assert.ok(onTarget(stub.puts).length > 0, "run 1 uploaded nothing to the target");
   assert.equal(onTarget(stub.checksummedPuts).length, onTarget(stub.puts).length, "an upload to the target carried no ChecksumSHA256");
   assert.deepEqual(onTarget(stub.gets), [], "an uploaded object was read back");
+  assert.deepEqual([totals.mediaUploaded, totals.mediaReadBack], [onTarget(stub.puts).length, 0], "report.json does not count the uploads as acknowledged");
   for (const object of exported) {
     const stored = stub.objects.get(`${dstBucket}/${object.object_key}`);
     assert.ok(stored, `${object.object_key} is not in the target bucket`);
@@ -625,7 +626,7 @@ test("run 5: a second import of the same parts sends no PUT and no object GET (#
   // One HEAD per media row of each part, nothing more.
   assert.equal(stub.heads.length, media.rows);
   assert.ok(stub.heads.every(path => path.startsWith(`${dstBucket}/`)));
-  assert.deepEqual([totals.media, totals.mediaUploaded, totals.mediaVerified], [media.rows, 0, media.rows]);
+  assert.deepEqual([totals.media, totals.mediaUploaded, totals.mediaReadBack, totals.mediaVerified], [media.rows, 0, 0, media.rows]);
   await compareAll([], true, { product_media_objects: ["object_key"] });
 });
 
@@ -648,6 +649,8 @@ test("run 5: a missing, a truncated and a metadata-less object are rewritten, no
     assert.deepEqual(stub.objects.get(path)?.metadata, original.get(path)!.metadata, `${path} was not stamped`);
   }
   assert.equal(totals.mediaUploaded, 3);
+  // The stub acknowledged every checksum: report.json shows no read-back (#1417).
+  assert.equal(totals.mediaReadBack, 0);
   await compareAll([], true, { product_media_objects: ["object_key"] });
 });
 

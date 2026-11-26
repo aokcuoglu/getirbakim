@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { test } from "node:test";
-import type { S3Client } from "@aws-sdk/client-s3";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { putVerifiedObject } from "../src/lib/stored-object";
 import { DEFAULT_MEDIA_CONCURRENCY, ensureStoredObject, ensureStoredObjects, type MediaTarget, mediaConcurrency, mediaToRecheck,
   type PlannedMedia } from "./storefront-bundle-media";
+import { startS3Stub } from "./storefront-s3-stub";
 
 // The bundle media store of import-storefront-bundle.ts (#1406) and its checksummed write (#1417, src/lib/stored-object.ts),
 // against an in-memory object store; the e2e (test-storefront-e2e.ts) runs it through the real importer and an S3 stub.
@@ -122,6 +124,20 @@ test("an upload whose checksum the store refuses fails the integrity check, with
   assert.ok(!fake.objects.has(object.path));
 });
 
+test("each store's checksum-mismatch error becomes the integrity error; any other PUT error passes through (#1417)", async () => {
+  const object = media("a");
+  const stored = { bucket: object.target.bucket, key: object.target.object_key, sha256: object.target.sha256, contentType: "image/png" };
+  const refusing = (name: string) => ({ send: async () => { throw Object.assign(new Error(name), { name, $metadata: { httpStatusCode: 400 } }); } }) as unknown as Pick<S3Client, "send">;
+  for (const name of ["BadDigest", "XAmzContentChecksumMismatch", "XAmzContentSHA256Mismatch"]) {
+    await assert.rejects(putVerifiedObject(refusing(name), stored, object.bytes), (error: Error) => {
+      assert.equal(error.message, `Stored media integrity failed: ${object.target.object_key}`, name);
+      assert.equal((error.cause as Error | undefined)?.name, name);
+      return true;
+    });
+  }
+  await assert.rejects(putVerifiedObject(refusing("InvalidRequest"), stored, object.bytes), { name: "InvalidRequest" });
+});
+
 test("bytes other than the expected sha256 are refused: the checksum is the target's sha256, not a hash of the bytes (#1417)", async () => {
   const [object, other] = [media("a"), media("b")];
   const fake = fakeStorage();
@@ -132,7 +148,7 @@ test("bytes other than the expected sha256 are refused: the checksum is the targ
 test("a store that does not acknowledge the checksum gets the object read back (#1417)", async () => {
   const object = media("a");
   const fake = fakeStorage({}, { ignoresChecksum: true });
-  assert.equal(await ensureStoredObject(fake.storage, object.target, object.bytes), "uploaded");
+  assert.equal(await ensureStoredObject(fake.storage, object.target, object.bytes), "read-back");
   assert.deepEqual(fake.calls, [`Head ${object.path}`, `Put ${object.path}`, `Get ${object.path}`]);
 });
 
@@ -143,14 +159,51 @@ test("on a store that ignores the checksum, a written object that reads back oth
   assert.deepEqual(fake.calls, [`Head ${object.path}`, `Put ${object.path}`, `Get ${object.path}`]);
 });
 
+test("the real S3 client with its default checksum setting sends only the explicit ChecksumSHA256, which the stub validates (#1417)", async () => {
+  // Pins what the writers rely on across SDK upgrades: objectStorage() builds its client without checksum options, and with
+  // an x-amz-checksum-* header present the SDK adds no checksum of its own and no aws-chunked trailer (the stub answers
+  // both 501). The environment override is lifted for the test; the SDK reads it lazily, at the first request.
+  const override = process.env.AWS_REQUEST_CHECKSUM_CALCULATION;
+  delete process.env.AWS_REQUEST_CHECKSUM_CALCULATION;
+  const stub = await startS3Stub();
+  const client = new S3Client({ endpoint: stub.url, region: "us-east-1", forcePathStyle: true, maxAttempts: 1,
+    credentials: { accessKeyId: "test", secretAccessKey: "test-secret" } });
+  try {
+    const object = media("real");
+    const stored = { bucket: object.target.bucket, key: object.target.object_key, sha256: object.target.sha256, contentType: "image/png" };
+    assert.equal(await putVerifiedObject(client, stored, object.bytes), "acknowledged");
+    assert.equal(stub.unsupported.length, 0, stub.unsupported.join(", "));
+    assert.deepEqual(stub.checksummedPuts, [object.path]);
+    assert.deepEqual(stub.gets, []);
+    assert.deepEqual(stub.objects.get(object.path)?.bytes, object.bytes);
+    // Non-vacuity: without the explicit checksum this default client adds one of its own (CRC32 today), which the stub
+    // refuses. A request_checksum_calculation=when_required in ~/.aws/config fails here instead of passing vacuously.
+    const other = media("default");
+    await assert.rejects(client.send(new PutObjectCommand({ Bucket: other.target.bucket, Key: other.target.object_key, Body: other.bytes })));
+    assert.equal(stub.unsupported.length, 1);
+    assert.ok(stub.unsupported[0].startsWith(`PUT ${other.path} (x-amz-checksum-`), stub.unsupported[0]);
+  } finally {
+    client.destroy();
+    await stub.close();
+    if (override !== undefined) process.env.AWS_REQUEST_CHECKSUM_CALCULATION = override;
+  }
+});
+
 test("ensureStoredObjects counts verified and uploaded objects and handles a bucket/key once", async () => {
   const objects = ["a", "b", "c", "d", "e"].map(media);
   const fake = fakeStorage(Object.fromEntries(objects.slice(0, 3).map(object => [object.path, stored(object)])));
   const bytes = new Map(objects.map(object => [object.target.sha256, object.bytes]));
   const counts = await ensureStoredObjects(fake.storage, [...objects.map(object => object.target), objects[0].target, objects[4].target], sha => bytes.get(sha)!, 3);
-  assert.deepEqual(counts, { verified: 3, uploaded: 2 });
+  assert.deepEqual(counts, { verified: 3, uploaded: 2, readBack: 0 });
   assert.equal(fake.calls.filter(call => call.startsWith("Head ")).length, 5);
   assert.deepEqual(fake.puts.map(input => `${input.Bucket}/${input.Key}`).sort(), [objects[3].path, objects[4].path].sort());
+});
+
+test("ensureStoredObjects counts the uploads a store did not acknowledge and that were read back (report.mediaReadBack, #1417)", async () => {
+  const objects = ["a", "b", "c"].map(media);
+  const fake = fakeStorage({ [objects[0].path]: stored(objects[0]) }, { ignoresChecksum: true });
+  const bytes = new Map(objects.map(object => [object.target.sha256, object.bytes]));
+  assert.deepEqual(await ensureStoredObjects(fake.storage, objects.map(object => object.target), sha => bytes.get(sha)!, 2), { verified: 1, uploaded: 2, readBack: 2 });
 });
 
 test("two sha256 values on one bucket/key stop before anything is sent", async () => {
@@ -165,7 +218,7 @@ test("no more than `concurrency` objects are in flight", async () => {
   const bytes = new Map(objects.map(object => [object.target.sha256, object.bytes]));
   for (const concurrency of [1, 4]) {
     const fake = fakeStorage();
-    assert.deepEqual(await ensureStoredObjects(fake.storage, objects.map(object => object.target), sha => bytes.get(sha)!, concurrency), { verified: 0, uploaded: 20 });
+    assert.deepEqual(await ensureStoredObjects(fake.storage, objects.map(object => object.target), sha => bytes.get(sha)!, concurrency), { verified: 0, uploaded: 20, readBack: 0 });
     assert.equal(fake.maxInFlight(), concurrency);
   }
 });

@@ -18,8 +18,9 @@ import { importerVersion } from "./storefront-sync-state";
 // and rows whose supplier item does not exist here are skipped and counted.
 // With --apply the media objects are stored before the transaction, so S3 round trips hold no row locks (#1406): an object
 // whose size and sha256 metadata match costs one HEAD, any other is written with a ChecksumSHA256 the store validates (#1417;
-// read back only where the store does not echo it; storefront-bundle-media.ts, STOREFRONT_MEDIA_CONCURRENCY at a time). A failure there leaves nothing written. Inside the transaction only the rows it
-// resolved differently from that read are stored again (normally none). report.mediaUploaded / mediaVerified count them.
+// read back only where the store does not echo it; storefront-bundle-media.ts, STOREFRONT_MEDIA_CONCURRENCY at a time).
+// A failure there leaves nothing written. Inside the transaction only the rows it resolved differently from that read are
+// stored again (normally none). report.mediaUploaded / mediaReadBack / mediaVerified count them.
 // manifest.jobs (complete/partial enrichment job statuses) is upserted only where it changes (storefront-bundle-jobs.ts);
 // jobs a part does not carry are left alone, as the split sends them in the job parts that follow part-00 (#1317).
 // The bundle's category mappings replace those of its enrichments' products (storefront-bundle-mappings.ts).
@@ -136,8 +137,10 @@ try {
     jobs: jobs.jobs,
     skippedJobs: jobs.skipped,
     media: manifest.media.length,
-    // Objects written and read back, and objects whose HEAD matched (#1406); both 0 in a dry run.
+    // Objects written, those of them read back because the store did not acknowledge their ChecksumSHA256 (#1417; 0 on
+    // S3 and MinIO), and objects whose HEAD matched (#1406); all 0 in a dry run.
     mediaUploaded: ensured.uploaded,
+    mediaReadBack: ensured.readBack,
     mediaVerified: ensured.verified,
     skippedEnrichments: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, enrichmentsJson),
     skippedMappings: await count(`SELECT count(*) FROM jsonb_populate_recordset(null::product_source_categories,$1::jsonb) r WHERE ${missingItem}`, json(manifest.products)),
@@ -168,6 +171,7 @@ try {
     // run; only a media:gc run rolled back after removing objects can leave one without it (docs/product-enrichment.md, #1406).
     const late = await ensureStoredObjects(storage, mediaToRecheck(planned, targets, inserted), bytesOf);
     report.mediaUploaded += late.uploaded;
+    report.mediaReadBack += late.readBack;
     report.mediaVerified += late.verified;
     await pruneTombstones(client);
     await client.query("COMMIT");
