@@ -285,8 +285,9 @@ async function fittedProductIds(typesSql:string,values:unknown[]){
 // listing-epoch.ts): it moves with every admin edit and also when the fit sync changed fit rows, which the others ignore.
 const listings={epoch:listingEpoch},fitListings={epoch:fitsEpoch};
 // How long a visitor waits for a reload when an earlier value exists (#771, listing-wait.ts), and how old a stored one
-// served meanwhile may be (the store's prune window). Used by the listing caches below and, since #1368, by the fit
-// caches a page reads itself (listed models, garage vehicle listings).
+// served meanwhile may be (the store's prune window). Used by the listing caches below, since #1368 by the fit
+// caches a page reads itself (listed models, garage vehicle listings), and since #1394 by the search caches (plain,
+// API rankings, suggestions).
 const boundedWait={maxWaitMs:listingWaitMs,maxFallbackMs:48*60*60*1000};
 // Fitments change when enrichments are imported or an admin decides; vehicle-type lists are shared per process.
 // Each value is an id array that can hold hundreds of thousands of uuids, so the caches are also bounded by total id
@@ -880,7 +881,7 @@ const apiSearchKey=(raw:string,mode:SearchMode)=>`${mode}|${normalizeSearchText(
 // The type-ahead's hit set (#1394): the ids it ranks (at most maxRankedSuggestions) and whether there were more, kept like
 // the API rankings so a keystroke repeated within 10 minutes sends no hit read; names and products below stay live.
 type SuggestSearch=Pick<CatalogSearch,"parsed"|"correctedQuery"|"vehicle">&{ids:string[];many:boolean};
-const cachedSuggestSearches=staleCache<SuggestSearch>(aggregateTtl,500,{...listings,...boundedWait,fallbackWhen:search=>search.ids.length>0});
+const cachedSuggestSearches=staleCache<SuggestSearch>(aggregateTtl,500,{...listings,...boundedWait,fallbackWhen:search=>search.ids.length>0,weigh:search=>search.ids.length,maxWeight:100_000});
 const suggestSearch=(raw:string,mode:SearchMode)=>cachedSuggestSearches(apiSearchKey(raw,mode),async()=>{
  const {parsed,correctedQuery,vehicle,ids}=await catalogSearch(raw,mode);
  return {parsed,correctedQuery,vehicle,ids:ids.slice(0,maxRankedSuggestions),many:ids.length>maxRankedSuggestions};

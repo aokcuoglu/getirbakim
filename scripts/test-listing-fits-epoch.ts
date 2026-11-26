@@ -280,8 +280,12 @@ test("after the fit sync's bump a vehicle search, its API ranking and its sugges
       assert.deepEqual(await read(), earlier, "the earlier results while the reloads wait");
       assert.ok(Date.now() - started < 2_000, "served without waiting for the held reloads");
       await locker.query("COMMIT");
-      const now = await until(read, value => value.total === earlier.total + 1);
+      const fresh = (value: Awaited<ReturnType<typeof read>>) => value.total === earlier.total + 1 && value.fitting.length > earlier.fitting.length
+        && value.suggested.length > 0 && JSON.stringify(value.suggested) !== JSON.stringify(earlier.suggested);
+      const now = await until(read, fresh);
       assert.equal(now.total, earlier.total + 1);
+      assert.equal(now.fitting.length, earlier.fitting.length + 1, "the ranked fits reloaded");
+      assert.deepEqual(now.suggested, (await catalog.suggestProducts(q, "all")).products);
       const live = await catalog.searchCatalogItems(q, "all");
       assert.deepEqual(now.ids, live.slice(0, now.ids.length).map(item => item.id), "the reloaded page is the uncached search's");
     });
