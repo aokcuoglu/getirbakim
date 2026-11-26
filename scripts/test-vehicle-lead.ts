@@ -264,6 +264,36 @@ test("a make-only or brand listing's stock filter reads its scope and never pric
   }
 });
 
+// Past the first 20 pages a stock-filtered listing slices its stored whole price order (#1390), built by pricedScope like
+// the first pages: with a prefetched scope (#1455) the build too prices the listing's ids read first, never the scoped
+// clause. 540 rows of one brand, 530 in stock: page 21 of the in-stock listing is a stored order's slice.
+test("a brand listing's deep stock-filtered price page and its stored order never price the view through the scope (#1455)", async () => {
+  const company = storefrontCompanies()[0];
+  await schema.pool.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+    product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+    SELECT 'basbug',$1,'G','MRK','DPT '||n,jsonb_build_object('uk','DEEPTEST','ac','DEEPTEST PARCA '||n,'ac2','','dc','TL'),jsonb_build_object('nf',100+n%97),
+     jsonb_build_object('stok',CASE WHEN n<=10 THEN 0 ELSE 2 END),1,1,1,false,'present',now()-interval '10 days',now()-make_interval(mins=>n),now()-make_interval(mins=>n)
+    FROM generate_series(1,540) n`, [company]);
+  try {
+    // The page waits for its order's build (#1390's bounded wait raised), so the slice is what it shows.
+    await withEnv({ LISTING_EPOCH_WAIT_MS: "60000" }, async () => {
+      for (const sort of ["price-asc", "price-desc"] as const) {
+        const label = `DEEPTEST in_stock ${sort} page 21`, query: CatalogQuery = { brand: "DEEPTEST", availability: "in_stock", sort, page: "21" };
+        const scoped = await stockListing(undefined, query, false), whole = await stockListing("0", query, false);
+        assert.deepEqual(scoped.listed, whole.listed, label);
+        assert.deepEqual([scoped.listed.total, scoped.listed.pages, scoped.listed.ids.length], [530, 23, 24], label);
+        assert.ok(scoped.texts.some(text => text.includes("INSERT INTO storefront_listing_price_orders")), `${label}: the order was built`);
+        assert.ok(scoped.texts.some(text => text.includes("array_agg(catalog.id)") && text.includes(scopedMarker)), label);
+        assert.ok(!scoped.texts.some(text => priced(text) && text.includes("scope AS MATERIALIZED")), label);
+        assert.ok(!whole.texts.some(text => text.includes("scope AS MATERIALIZED")), label);
+      }
+    });
+  } finally {
+    await schema.pool.query("DELETE FROM storefront_listing_price_orders");
+    await schema.pool.query("DELETE FROM supplier_items WHERE code LIKE 'DPT %'");
+  }
+});
+
 // No stored stock set: a fresh process lists a stock change at once, without a sync or an epoch bump (#1429). A running
 // process's listing follows it with its count and page caches (10 minutes), as before.
 test("a scoped stock filter reads stock live (#1429)", async () => {

@@ -1002,6 +1002,31 @@ describe("availability filter (#1242)", () => {
         }
       });
 
+      // A scope is never used older than its 10-minute TTL (maxServeMs): a request past it waits for the reload instead of
+      // getting the old scope while a background refresh runs, so a row that joined the brand since (no counter moved) is
+      // listed. Read through stockListingStatements: the scope cache alone, no listing cache. The mocked clock moves its age.
+      test("a scope older than its TTL is read again before it is used", async t => {
+        t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+        const fresh = await otherProcess(), query: CatalogQuery = { brand: "SCOPETEST", availability: "in_stock" };
+        const counted = async () => {
+          const statements = await fresh.stockListingStatements(query, 1);
+          assert.ok(statements.count.text.includes(scopedMarker) && statements.scopes.length === 1);
+          return Number((await schema.pool.query<{ count: string }>(statements.count.text, statements.count.values)).rows[0].count);
+        };
+        await item("scopeFirst", { supplier: "basbug", code: "SCP 0001", brand: "SCOPETEST", stock: 2 });
+        try {
+          assert.equal(await counted(), 1);
+          await item("scopeJoined", { supplier: "basbug", code: "SCP 0002", brand: "SCOPETEST", stock: 2 });
+          // Within the TTL the cached scope lacks the joined row (the documented bound): the whole set's clause lists it.
+          t.mock.timers.tick(10 * 60 * 1000 - 1);
+          assert.equal(await counted(), 1, "within the TTL");
+          t.mock.timers.tick(2);
+          assert.equal(await counted(), 2, "past the TTL the scope is read again before it is used");
+        } finally {
+          await schema.pool.query("DELETE FROM supplier_items WHERE id=ANY($1::uuid[])", [[ids.scopeFirst, ids.scopeJoined].filter(Boolean)]);
+        }
+      });
+
       test("a scope over LISTING_STOCK_SCOPE_MAX_IDS reads the whole stock set", async () => {
         for (const availability of ["in_stock", "out_of_stock"] as const) {
           // AVTEST lists more than one card: over a limit of 1 its scope read stops at two rows and binds nothing.

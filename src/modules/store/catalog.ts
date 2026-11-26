@@ -743,15 +743,23 @@ async function shownBrandClause(names:string[],values:unknown[]) {
 // The stock scopes of the listings that bind no JS id array (#1455): a brand's or manufacturer's (shownBrandClause) and
 // a make's alone (makeFitsSql). A stock-filtered listing of one first reads its listed ids, up to its limit
 // (prefetchedStockScopeMaxIds: the stock filter's, in stock at most 20,000), and its stock filter then reads those ids'
-// stock only (stockClause), not the whole stock set. The
-// ids travel as one array literal, never as row objects (listedIds); `ids` is null when the scope holds more than the
-// limit (the read stops one row past it), and the listing then reads the whole set. Cached per process for 10 minutes and
-// reloaded when the counter its rows follow moves (a brand's: the listing epoch, which admin brand and override edits move;
-// a make's: the fits value, as its listing's caches): a row that newly joins a brand or make (a supplier sync adds it, the
-// epoch does not move) is in its stock-filtered listing once the scope reloads, up to 10 minutes later; a row that left
-// it is dropped by the listing's own clause at once. Bounded by total id count, like the fitted id sets (#1262).
+// stock only (stockClause), not the whole stock set. The ids travel as one array literal, never as row objects
+// (listedIds); `ids` is null when the scope holds more than the limit (the read stops one row past it), and the listing
+// then reads the whole set. Cached per process and reloaded when the counter its rows follow moves (a brand's: the
+// listing epoch, which admin brand and override edits move; a make's: the fits value, as its listing's caches). A scope is
+// never used older than 10 minutes: its hard serve age equals its TTL (maxServeMs, #1453), so a request finding an older
+// one waits for the reload instead of getting it while a background refresh runs (an idle key's first stock-filtered
+// load would otherwise build on an hours-old scope, and the listing caches keep what it built); a failed reload serves
+// the old one, logged. A row that newly joins a brand or make (a supplier sync adds it, no counter moves) is therefore in
+// the scope within 10 minutes; the listing's count and page caches then add their own refresh on top (10 minutes, a
+// stock-filtered one at most LISTING_STOCK_MAX_SERVE_MS, #1453). A row that left it is dropped by the listing's own clause
+// at once. A brand's labels come from brandReach, cached apart for 10 minutes and served while it refreshes: a label an
+// automatic link adds (#470, sync_supplier_brands; no counter moves) reaches the scope up to two such windows later
+// (counted from the first visit after an idle spell), where the brand listing itself sees it one window late; admin brand
+// edits move the epoch and reload both. Bounded by total id count, like the fitted id sets (#1262).
 type StockScopeIds={size:number;ids:string|null};
-const cachedStockScopes=staleCache<StockScopeIds>(10*60*1000,500,{weigh:scope=>scope.ids?scope.size:1,maxWeight:300_000});
+const stockScopeTtlMs=10*60*1000;
+const cachedStockScopes=staleCache<StockScopeIds>(stockScopeTtlMs,500,{weigh:scope=>scope.ids?scope.size:1,maxWeight:300_000});
 /** A stock scope's cache key and counter (see above), and its rows' clause over `catalog` with its own values (`$1` the companies). */
 type StockScopeSource={key:string;epoch:()=>Promise<number>;clause:()=>Promise<{clause:string;values:unknown[]}>};
 const brandStockScope=(names:string[]):StockScopeSource=>({key:`brand|${JSON.stringify([...names].sort())}`,epoch:listingEpoch,
@@ -767,7 +775,7 @@ async function stockScope(source:StockScopeSource,max:number):Promise<{read:Stat
  const scope=await cachedStockScopes(key,async()=>{
   const row=(await catalogRead<{size:string;ids:string|null}>(`catalog.stockScope ${key}`,read.text,read.values)).rows[0];
   return {size:Number(row.size),ids:row.ids};
- },{epoch:source.epoch});
+ },{epoch:source.epoch,maxServeMs:stockScopeTtlMs});
  return {read,scope};
 }
 const facetKeys:ReadonlySet<string>=new Set(facetSpecificationKeys);

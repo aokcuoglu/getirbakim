@@ -14,8 +14,9 @@ import type { PoolClient } from "pg";
 //   (newest) and the same price-asc page, read as pricedScope does (over two or more id sets its listed ids first);
 // - wall time of each read per side, each statement in its own transaction, the side that runs first alternating per
 //   pass; the price page's time includes its listed-id read. Out of stock over the whole set runs at its 32 MB work_mem.
-//   "scope read": a brand, manufacturer or make-only listing's stock scope read (its listed ids, read once per 10 minutes
-//   and cached, so not part of the scoped reads' times), none on the whole side or for a listing that binds its own array.
+//   "scope read": a brand, manufacturer or make-only listing's stock scope read (its listed ids, read at most once per 10
+//   minutes and cached, so not part of the scoped reads' times), none on the whole side or for a listing that binds its own
+//   array.
 // `--page` (default 1) is the page of ids in both orders; past the listing's last page it reads the last one, as
 // browseProducts clamps it (the table's page column says which).
 // A scope is `key=value` pairs joined by `&`, with availability=in_stock or out_of_stock and any of category, make, model
