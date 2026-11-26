@@ -330,8 +330,19 @@ test("a vehicle reading past VEHICLE_SEARCH_MAX_LIVE_TYPES live types is skipped
   assert.equal(await withLimit("0", () => reading("superb tdi")), null);
   assert.deepEqual(discsOf(await withLimit("0", () => reading("octavia")) ?? []), ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "octaviaTsi", "superbInName"]);
   // A search reloads (an edit's bump) under the limit: the capped "tdi" split is no vehicle reading, so "superb tdi" is
-  // read instead; with "tdi" its only vehicle reading, nothing fits and nothing names "tdi".
+  // read instead.
   await epoch.invalidateListings();
   assert.deepEqual(discsOf(await withLimit("3", () => catalog.rankedSearchIds("ate fren diski superb tdi", "all"))), ["superbAdded", "superbTdi"]);
-  assert.deepEqual(await withLimit("3", () => catalog.rankedSearchIds("ate fren diski tdi", "all")), []);
+  // With "tdi" its only vehicle reading and no name holding "tdi", the product part's matches are listed: every ATE disc,
+  // as a plain search, neither fitted nor "not fitted" (no vehicle notice) nor corrected.
+  const everyDisc = Object.keys(ate).sort();
+  assert.deepEqual(discsOf(await withLimit("3", () => catalog.rankedSearchIds("ate fren diski tdi", "all"))), everyDisc);
+  const suggested = await withLimit("3", () => catalog.suggestProducts("ate fren diski tdi", "all"));
+  assert.deepEqual([suggested.vehicleScope, suggested.correctedQuery], [undefined, undefined]);
+  assert.ok(suggested.products.length > 0 && suggested.products.every(item => item.kind === "product" && everyDisc.includes(discsOf([item.id])[0])));
+  // The corrected pass the same way: "diskj" matches nothing as typed; its correction is reported, still no vehicle notice.
+  await schema.pool.query("SELECT refresh_search_vocabulary()");
+  assert.deepEqual(discsOf(await withLimit("3", () => catalog.rankedSearchIds("ate fren diskj tdi", "all"))), everyDisc);
+  const corrected = await withLimit("3", () => catalog.suggestProducts("ate fren diskj tdi", "all"));
+  assert.deepEqual([corrected.vehicleScope, corrected.correctedQuery], [undefined, "ate fren diski"]);
 });

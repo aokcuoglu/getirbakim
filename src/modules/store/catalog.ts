@@ -547,7 +547,15 @@ export async function vehicleFittedIds(parsed:ParsedSearch):Promise<string[]|nul
  * part that matches products. Splits whose parts are linked by fitments win, then the longest
  * vehicle part ("buji | bmw 320d" over "buji bmw | 320d").
  */
-/** `fittedOnly`: only readings whose vehicle has linked parts count, checked before the costlier product search. */
+/**
+ * `fittedOnly`: only readings whose vehicle has linked parts count, checked before the costlier product search.
+ * A split whose vehicle words are too broad to read live (vehicleFittedIds: null, #1395) is no reading and blocks no
+ * other split. When no split gives a reading and some were too broad, the product part of the first of them (the first
+ * tried: fewest vehicle words) whose product part matches is the result, as a plain search without a vehicle notice:
+ * its fit was not read, so it is neither fitted nor "not fitted" ("silecek benzin" lists the wipers). Not with
+ * `fittedOnly`: there the whole query's name matches are the result ("fren balatası tdi": pads named "… TDI"). A product part found by spell-correction is
+ * reported as the corrected query.
+ */
 async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<string[]>,correct:boolean,fittedOnly=false):Promise<CatalogSearch|null>{
  const words=vehicleReadingWords(raw);
  if(!words)return null;
@@ -557,6 +565,7 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
  const splits=words.slice(1).flatMap((_,index)=>{const size=index+1;
   return [{product:words.slice(0,words.length-size),vehicle:words.slice(words.length-size)},{product:words.slice(size),vehicle:words.slice(0,size)}];});
  let best:(CatalogSearch&{vehicleWords:number})|null=null;
+ const tooBroad:string[][]=[];
  for(const split of splits){
   if(best&&(best.vehicle?.fitted||split.vehicle.length<=best.vehicleWords))continue;
   if(!parseSearchQuery(split.vehicle.join(" ")).terms.some(term=>term.required&&/[a-z]/.test(term.text)))continue;
@@ -568,8 +577,8 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
    return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values)).rowCount);});
   if(!vehicle)continue;
   const fittedIds=await vehicleFittedIds(vehicleWords(vehicle.parsed));
-  // Too broad to read live (liveVehicleTypeLimit): no vehicle reading, as if the words named no vehicle.
-  if(!fittedIds)continue;
+  // Too broad to read live (liveVehicleTypeLimit): no vehicle reading; its product part is the fallback below.
+  if(!fittedIds){tooBroad.push(split.product);continue;}
   const linked=new Set(fittedIds);
   if(fittedOnly&&!linked.size)continue;
   let ids:string[]=[];
@@ -581,7 +590,15 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
    vehicle:{productText:display(product.text,split.product),vehicleText:display(vehicle.text,split.vehicle),fitted:fitted.length>0}};
   if(!best||(candidate.vehicle.fitted&&!best.vehicle?.fitted)||(candidate.vehicle.fitted===best.vehicle?.fitted&&candidate.vehicleWords>best.vehicleWords))best=candidate;
  }
- return best&&{parsed:best.parsed,ids:best.ids,vehicle:best.vehicle};
+ if(best)return {parsed:best.parsed,ids:best.ids,vehicle:best.vehicle};
+ if(fittedOnly)return null;
+ for(const productWords of tooBroad){
+  let ids:string[]=[];
+  const text=productWords.join(" ");
+  const product=await resolvePart(text,"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
+  if(product)return product.text===text?{parsed:product.parsed,ids}:{parsed:product.parsed,ids,correctedQuery:product.text};
+ }
+ return null;
 }
 // Vehicle words must be whole words ("passat", "golf 7"), so a part word that only starts a make
 // ("hava" → HAVAL) does not split "hava filtresi" into a vehicle and a part.
