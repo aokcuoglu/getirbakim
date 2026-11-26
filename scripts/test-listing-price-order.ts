@@ -957,6 +957,65 @@ test("a filtered row unused for an hour goes with the next filtered build; a pla
     "the brand's price-asc order gone; its price-desc one (sliced within the hour), the plain row and the new one kept");
 }));
 
+test("an eviction keeps a row another process rebuilt after it was picked (#1390)", () => withEnv(anyFiltered, async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const proc = await otherProcess("filtered-evict-race");
+  const [ascFirst, descFirst, cFirst] = [await firstCard(brandListing("price-asc", 1)), await firstCard(brandListing("price-desc", 1)), await firstCard(supplied("price-asc", 1))];
+  for (const query of [brandListing("price-asc", 21), brandListing("price-desc", 21)]) await pageIds(query, proc);
+  await priceOrder.sliceTouchesSettled();
+  // Both unused for two hours: the next filtered build picks both.
+  await schema.pool.query("UPDATE storefront_listing_price_orders SET computed_at=now()-interval '2 hours',last_sliced_at=now()-interval '2 hours'");
+  const evictionWaits = async () => (await schema.pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM pg_stat_activity
+    WHERE wait_event_type='Lock' AND query LIKE 'DELETE FROM storefront_listing_price_orders p USING%'`)).rows[0].n;
+  const locker = await schema.pool.connect();
+  try {
+    await locker.query("BEGIN");
+    // Another process rebuilds the price-desc order meanwhile: the eviction picks it from its snapshot, then waits for it.
+    await locker.query("UPDATE storefront_listing_price_orders SET computed_at=now() WHERE ids[1]=$1::uuid", [descFirst]);
+    const building = pageIds(supplied("price-asc", 21), proc);
+    assert.equal(await until(evictionWaits, n => n > 0), 1, "the eviction waits for the rebuilt row");
+    await locker.query("COMMIT");
+    await building;
+  } finally {
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
+  const [total, totalC] = [await liveTotal(brandListing("price-asc", 21)), await liveTotal(supplied("price-asc", 21))];
+  const sorted = (rows: (readonly [string, number, boolean])[]) => [...rows].map(row => JSON.stringify(row)).sort();
+  assert.deepEqual(sorted(await rowsOf()), sorted([[descFirst, total, true], [cFirst, totalC, true]]), "the idle price-asc order gone, the rebuilt price-desc one kept");
+  assert.notEqual(ascFirst, descFirst);
+}));
+
+test("a filtered listing's first deep page does not wait for its build: past the bounded wait it reads live, the build goes on and the next page slices (#1390)", () => withEnv({ ...anyFiltered, LISTING_EPOCH_WAIT_MS: "250" }, async () => {
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  const proc = await otherProcess("filtered-cold-wait");
+  const [query, next] = [brandListing("price-asc", 21), brandListing("price-asc", 22)];
+  const [live, liveNext] = [await livePage(query), await livePage(next)];
+  // Holds off every write to the table (its eviction and build) while reads go on.
+  const locker = await schema.pool.connect();
+  try {
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE storefront_listing_price_orders IN SHARE MODE");
+    // Bounded here too: a page that waited for its build would wait for this lock, never released before it answers.
+    let shown: string[] | undefined;
+    const first = await sent(() => Promise.race([pageIds(query, proc).then(ids => { shown = ids; }), sleep(5_000)]));
+    assert.deepEqual(shown, live, "answered within seconds while the build waits, with the live page");
+    assert.deepEqual({ builds: first.builds, livePages: first.livePages }, { builds: 0, livePages: 1 }, "read live");
+    assert.deepEqual(await storedRows(), [], "nothing stored yet");
+    await locker.query("COMMIT");
+  } finally {
+    await locker.query("ROLLBACK").catch(() => {});
+    locker.release();
+  }
+  assert.equal((await until(storedRows, found => found.length === 1)).length, 1, "the build finished in the background");
+  const after = await sent(async () => assert.deepEqual(await pageIds(next, proc), liveNext));
+  assert.deepEqual({ builds: after.builds, livePages: after.livePages }, { builds: 0, livePages: 0 }, "the next page slices");
+  // A stored listing's first deep page still waits for its build, whatever the bounded wait.
+  const plain = bosch("price-asc", 21), plainLive = await livePage(plain);
+  const statements = await sent(async () => assert.deepEqual(await pageIds(plain, proc), plainLive));
+  assert.deepEqual({ builds: statements.builds, livePages: statements.livePages }, { builds: 1, livePages: 0 }, "plain: built and sliced");
+}));
+
 test("a model listing's filtered order follows the fits value, a brand-filtered one the listing epoch (#1368, #1390)", () => withEnv(anyFiltered, async () => {
   const fitsValue = async () => (await schema.pool.query<{ fits: number }>("SELECT (epoch+fits_epoch)::int AS fits FROM storefront_listing_epoch")).rows[0].fits;
   const model: CatalogQuery = { make: "vw", model: "golf-7", sort: "price-asc", page: "21" }, brand = brandListing("price-asc", 21);
@@ -1154,6 +1213,31 @@ test("a failing build started by the first pages shows their own 480 ids and sta
   assert.equal(builds, 1, "one build tried");
   assert.equal(statements?.headPasses, 2, "a pass on the refresh and on the reload");
   await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+});
+
+test("a filtered build that runs into its time limit builds no more for an hour; other failures back off ten minutes (#1390)", async t => {
+  // A copy of the module: its back-offs, log throttle and the clock it saw stay apart from the pages'.
+  const copyName = "filtered-timeout", copy = await import(`../src/modules/store/listing-price-order.ts?${copyName}`) as typeof priceOrder;
+  t.mock.method(console, "error", () => {});
+  t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+  const build = (key: string) => copy.buildPriceOrder(key, 5000, brandRowsSql(), [storefrontCompanies(), "BOSCH"], ascending, { filtered: true, expected: rows });
+  // A timeout; any other error; a missing column the message does not name as `filtered` (not setup's column).
+  for (const [code, backoffMs] of [["57014", copy.filteredTimeoutBackoffMs], ["53200", copy.failedBuildBackoffMs], ["42703", copy.failedBuildBackoffMs]] as const) {
+    const key = `test|filtered-backoff-${code}`;
+    let inserts = 0;
+    const failBuild = (text: string) => text.includes("INSERT INTO storefront_listing_price_orders") ? (inserts++, failure(code)) : undefined;
+    await intercepted(failBuild, async () => {
+      assert.deepEqual(await build(key), { total: 0, head: [] });
+      t.mock.timers.tick(backoffMs - 1);
+      assert.deepEqual(await build(key), { total: 0, head: [] });
+    });
+    assert.equal(inserts, 1, `${code}: one build within ${backoffMs / 60_000} minutes`);
+    assert.equal(copy.filteredPriceOrderEnabled(), true, `${code}: the filtered orders stay on`);
+    t.mock.timers.tick(1);
+    assert.ok((await build(key)).total > 0, `${code}: built after the back-off`);
+  }
+  assert.equal(copy.filteredTimeoutBackoffMs, 60 * 60 * 1000);
+  await schema.pool.query("DELETE FROM storefront_listing_price_orders WHERE epoch=5000");
 });
 
 // Next to last: a missing `filtered` column turns the filtered orders off for five minutes in this process.

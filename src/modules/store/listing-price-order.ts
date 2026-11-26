@@ -48,8 +48,10 @@ import { listingCacheEnabled } from "./listing-cache-store";
  * Building the whole order costs about one live deep page. Those keys are not bounded by the site's pages, so the
  * filtered rows share a budget of LISTING_PRICE_ORDER_FILTERED_MAX_TOTAL_IDS ids (default 8,000,000, ~130 MB): before a
  * filtered build the rows unused (built or sliced) for filteredIdleMs go, then the least recently used ones until the
- * new order fits; a listing larger than the budget is not stored, and a plain row is never evicted. Two processes
- * building at once can each fit theirs, so the budget can be exceeded by one order per concurrent build.
+ * new order fits; a listing larger than the budget is not stored, and a plain row is never evicted. The budget is soft:
+ * it is checked against the listing's cached count, and two processes building at once can each fit theirs, so it can be
+ * exceeded by about one order per concurrent build until the next filtered build evicts again. A filtered build that
+ * runs into its 30 s limit backs off for an hour (filteredTimeoutBackoffMs), any other failure ten minutes.
  * LISTING_PRICE_ORDER_FILTERED=0 turns the filtered orders off alone (LISTING_PRICE_ORDER=0 turns them off too). A
  * missing `filtered` column (42703, setup not run yet) turns them off for five minutes; the plain builds never name it.
  */
@@ -63,6 +65,11 @@ const pruneEvery = 20;
 const missingTableBackoffMs = 5 * 60 * 1000;
 /** How long after a failed build starts its listing reads live before it builds again. */
 export const failedBuildBackoffMs = 10 * 60 * 1000;
+/**
+ * The same for a filtered listing's build that ran into its time limit (57014, #1390): a listing whose order cannot be
+ * built in 30 s is not tried again six times an hour per task, each try a 30 s statement.
+ */
+export const filteredTimeoutBackoffMs = 60 * 60 * 1000;
 /** How recently a deep page must have sliced a listing's order for its first pages to rebuild it (#1405): two cache TTLs. */
 export const priceOrderDeepUseMs = 20 * 60 * 1000;
 /** A row's last_sliced_at moves at most this often: per key in a process, and in SQL across processes. */
@@ -119,12 +126,13 @@ function missingColumn(error: unknown) {
   return true;
 }
 /**
- * Whether `error` is a missing column on a filtered order's statement (42703: setup has not added `filtered` yet). If so,
- * the filtered orders stay off for five minutes (filteredPriceOrderEnabled), logged once per period; the plain ones, the
- * first pages' gate and the listing's build back-off are left alone.
+ * Whether `error` is a filtered order's statement missing a column setup adds (42703 naming `filtered`, or the eviction's
+ * `last_sliced_at`: setup has not run yet). If so, the filtered orders stay off for five minutes
+ * (filteredPriceOrderEnabled), logged once per period; the plain ones, the first pages' gate and the listing's build
+ * back-off are left alone. Any other missing column is the statement's own failure.
  */
-function filteredColumnMissing(error: unknown) {
-  if (errorCode(error) !== "42703") return false;
+function filteredColumnMissing(error: unknown, columns: RegExp) {
+  if (errorCode(error) !== "42703" || !columns.test(error instanceof Error ? error.message : "")) return false;
   filteredOffUntil = Date.now() + missingColumnBackoffMs;
   logError("filtered-column", "the filtered column is missing (setup not run yet); filtered listings' deep price pages read live for 5 minutes", error);
   return true;
@@ -210,12 +218,15 @@ export function priceOrderBuildSql(pricedSql: string, order: string, keyParam: s
  * Deletes the filtered rows (#1390) unused (the later of their build and their last slice) for over `$2` ms, and the least
  * recently used ones past `$3` ids, the most recently used counted first; never `$1`'s row (the key being built) or a
  * plain one. One read of the rows' own columns (no detoast) and no index: the table holds one row per stored listing.
+ * A row picked is deleted only while it is as old as when it was picked: a row another process rebuilt or sliced since
+ * fails that check on the update's recheck (READ COMMITTED) and stays.
  */
-const evictFilteredSql = `DELETE FROM storefront_listing_price_orders WHERE key_hash IN (
- SELECT key_hash FROM (SELECT key_hash,GREATEST(computed_at,last_sliced_at) AS used,
+const evictFilteredSql = `DELETE FROM storefront_listing_price_orders p USING (
+ SELECT key_hash,used FROM (SELECT key_hash,GREATEST(computed_at,last_sliced_at) AS used,
    sum(total) OVER (ORDER BY GREATEST(computed_at,last_sliced_at) DESC,key_hash) AS kept
   FROM storefront_listing_price_orders WHERE filtered AND key_hash<>$1) filtered_rows
- WHERE used<now()-$2::bigint*interval '1 millisecond' OR kept>$3::bigint)`;
+ WHERE used<now()-$2::bigint*interval '1 millisecond' OR kept>$3::bigint) picked
+ WHERE p.key_hash=picked.key_hash AND GREATEST(p.computed_at,p.last_sliced_at)<=picked.used`;
 
 /**
  * Orders the listing (`pricedSql` with `values`) by `order` and stores it under `key` and `epoch` (the value its key
@@ -235,6 +246,9 @@ const evictFilteredSql = `DELETE FROM storefront_listing_price_orders WHERE key_
  * filtered rows idle for filteredIdleMs and the least recently used past the budget less `expected` are deleted first
  * (evictFilteredSql), and the build marks its row and stores at most the budget. A failed eviction stores nothing; a
  * missing `filtered` column turns the filtered orders off for five minutes (filteredColumnMissing), not the listing alone.
+ * A filtered build that runs into its time limit (57014) backs its listing off for filteredTimeoutBackoffMs (an hour).
+ * The budget is soft: `expected` is the cached count (up to 10 minutes old) and concurrent builds can overshoot it; the
+ * next filtered build's eviction brings the rows back under it.
  */
 export function buildPriceOrder(key: string, epoch: number, pricedSql: string, values: unknown[], order: string,
   { head = 0, freshMs, filtered = false, expected = 0 }: BuildOptions = {}): Promise<BuiltPriceOrder> {
@@ -271,7 +285,7 @@ async function storeOrder(key: string, hash: string, epoch: number, started: num
     try {
       await db.query(evictFilteredSql, [hash, filteredIdleMs, budget - expected]);
     } catch (error) {
-      if (!filteredColumnMissing(error)) failed("evict", error);
+      if (!filteredColumnMissing(error, /"(filtered|last_sliced_at)"/)) failed("evict", error);
       return nothingStored();
     }
     // A count older than the build (the count cache's) cannot take the order past the budget.
@@ -286,15 +300,16 @@ async function storeOrder(key: string, hash: string, epoch: number, started: num
     if (++builds % pruneEvery === 0) db.query("DELETE FROM storefront_listing_price_orders WHERE computed_at<now()-interval '2 days'").catch(error => failed("prune", error));
     return rows[0] ?? nothingStored();
   } catch (error) {
-    if (filtered && filteredColumnMissing(error)) return nothingStored();
+    if (filtered && filteredColumnMissing(error, /"filtered"/)) return nothingStored();
     if (missingTable(error)) {
       failed("build", error);
       return nothingStored();
     }
     // Expired failures go first, so the map holds only listings whose build failed within the back-off.
     for (const [failedKey, until] of failedBuilds) if (until <= started) failedBuilds.delete(failedKey);
-    failedBuilds.set(hash, started + failedBuildBackoffMs);
-    logError("build", `build failed (${errorCode(error) ?? "no code"}); the listing reads live for ${failedBuildBackoffMs / 60_000} minutes`, error);
+    const backoffMs = filtered && errorCode(error) === "57014" ? filteredTimeoutBackoffMs : failedBuildBackoffMs;
+    failedBuilds.set(hash, started + backoffMs);
+    logError("build", `build failed (${errorCode(error) ?? "no code"}); the listing reads live for ${backoffMs / 60_000} minutes`, error);
     return nothingStored();
   }
 }
