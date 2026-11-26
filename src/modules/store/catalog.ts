@@ -32,7 +32,7 @@ import {engineOilIds,vehicleOilProductIds} from './vehicle-oil.server';
 import {compareOffers} from './best-offer';
 import {manufacturerLabels} from './manufacturers.server';
 import {displayBrandSql,masterBrandJoinSql} from './display-brand-sql';
-import {stockClause,type StockScope} from './stock-filter';
+import {prefetchedStockScopeMaxIds,stockClause,stockScopeMaxIds,type StockScope} from './stock-filter';
 export type Product = { id: string; category: string; supplier: "dinamik" | "basbug" | "seta" | "demo"; code: string; name: string; brand: string; description: string; price_kurus: number; stock: number; updated_at: Date };
 export type CatalogProduct = Omit<Product, "price_kurus" | "stock" | "category"> & {
  category: string | null; price_kurus: number | null; stock: number | null; oem: string; source: "store" | "supplier";
@@ -740,17 +740,59 @@ async function shownBrandClause(names:string[],values:unknown[]) {
  if(ids.length){values.push(ids);reach=`(${reach} OR catalog.id=ANY($${values.length}::uuid[]))`;}
  return `${reach} AND catalog.display_brand=ANY(${key})`;
 }
+// The stock scopes of the listings that bind no JS id array (#1455): a brand's or manufacturer's (shownBrandClause) and
+// a make's alone (makeFitsSql). A stock-filtered listing of one first reads its listed ids, up to its limit
+// (prefetchedStockScopeMaxIds: the stock filter's, in stock at most 20,000), and its stock filter then reads those ids'
+// stock only (stockClause), not the whole stock set. The ids travel as one array literal, never as row objects
+// (listedIds); `ids` is null when the scope holds more than the limit (the read stops one row past it), and the listing
+// then reads the whole set. Cached per process and reloaded when the counter its rows follow moves (a brand's: the
+// listing epoch, which admin brand and override edits move; a make's: the fits value, as its listing's caches). A scope is
+// never used older than 10 minutes: its hard serve age equals its TTL (maxServeMs, #1453), so a request finding an older
+// one waits for the reload instead of getting it while a background refresh runs (an idle key's first stock-filtered
+// load would otherwise build on an hours-old scope, and the listing caches keep what it built); a failed reload serves
+// the old one, logged. A row that newly joins a brand or make (a supplier sync adds it, no counter moves) is therefore in
+// the scope within 10 minutes; the listing's count and page caches then add their own refresh on top (10 minutes, a
+// stock-filtered one at most LISTING_STOCK_MAX_SERVE_MS, #1453). A row that left it is dropped by the listing's own clause
+// at once. A brand's labels come from brandReach, cached apart for 10 minutes and served while it refreshes: a label an
+// automatic link adds (#470, sync_supplier_brands; no counter moves) reaches the scope up to two such windows later
+// (counted from the first visit after an idle spell), where the brand listing itself sees it one window late; admin brand
+// edits move the epoch and reload both. Bounded by total id count, like the fitted id sets (#1262).
+type StockScopeIds={size:number;ids:string|null};
+const stockScopeTtlMs=10*60*1000;
+const cachedStockScopes=staleCache<StockScopeIds>(stockScopeTtlMs,500,{weigh:scope=>scope.ids?scope.size:1,maxWeight:300_000});
+/** A stock scope's cache key and counter (see above), and its rows' clause over `catalog` with its own values (`$1` the companies). */
+type StockScopeSource={key:string;epoch:()=>Promise<number>;clause:()=>Promise<{clause:string;values:unknown[]}>};
+const brandStockScope=(names:string[]):StockScopeSource=>({key:`brand|${JSON.stringify([...names].sort())}`,epoch:listingEpoch,
+ clause:async()=>{const values:unknown[]=[company()];return {clause:await shownBrandClause(names,values),values};}});
+const makeStockScope=(makeId:string):StockScopeSource=>({key:`make|${makeId}`,epoch:fitsEpoch,
+ clause:async()=>({clause:`catalog.id=ANY(ARRAY(${makeFitsSql("$2::int")})::uuid[])`,values:[company(),Number(makeId)]})});
+/** The listed ids of `clause` (catalogFilter's rows: listedOnly) as one array literal while they are at most `max`, and their count up to max+1. */
+const stockScopeSql=(clause:string,max:number)=>`SELECT count(*) AS size,CASE WHEN count(*)<=${max} THEN COALESCE(array_agg(id)::text,'{}') END AS ids
+ FROM (SELECT catalog.id FROM (${catalogEntriesSql}) catalog WHERE ${listedOnly} AND ${clause} LIMIT ${max+1}) scope`;
+/** A stock scope (cached) and the statement that reads it (the timing script times it: stockListingStatements). */
+async function stockScope(source:StockScopeSource,max:number):Promise<{read:Statement;scope:StockScopeIds}>{
+ const {clause,values}=await source.clause(),read={text:stockScopeSql(clause,max),values},key=`${source.key}|${max}`;
+ const scope=await cachedStockScopes(key,async()=>{
+  const row=(await catalogRead<{size:string;ids:string|null}>(`catalog.stockScope ${key}`,read.text,read.values)).rows[0];
+  return {size:Number(row.size),ids:row.ids};
+ },{epoch:source.epoch,maxServeMs:stockScopeTtlMs});
+ return {read,scope};
+}
 const facetKeys:ReadonlySet<string>=new Set(facetSpecificationKeys);
 async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  const values: unknown[] = [company()]; const clauses: string[] = [listedOnly];
  // The clauses narrowing the listing to an id set (search, category, model, make, vehicle fits, oil, each property, a
- // scoped stock filter) go through idSet: a price order over two or more is priced by id array (pricedScope, #1335).
+ // scoped stock filter, which counts as two: see below) go through idSet: a price order over two or more is priced by id
+ // array (pricedScope, #1335).
  let idSets=0;
  const idSet=(clause:string)=>{idSets++;clauses.push(clause);};
  // The id arrays read in JS and bound (search hits, category, model, garage vehicle fits, oils), with their sizes: the
  // stock filter reads the smallest one's stock only (stockClause, #1429). The make's and properties' sets stay in SQL.
  const bounds:StockScope[]=[];
  const bound=(ids:string[])=>{values.push(ids);const param=`$${values.length}::uuid[]`;bounds.push({param,size:ids.length});return param;};
+ // The listings whose rows a stock filter may read first instead (a make alone, a manufacturer, a brand filter, #1455):
+ // their listing clauses stay as they are; the stock scope is read only for a stock filter (see below).
+ const scopeSources:StockScopeSource[]=[];
  let search:CatalogSearch|undefined;
  const fitted=query.fits==='vehicle'&&context.vehicleTypeId?await typeFittedIds(Number(context.vehicleTypeId)):undefined;
  if(query.q?.trim()) {
@@ -787,6 +829,7 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   else {
    values.push(Number(make.id));
    idSet(`catalog.id=ANY(ARRAY(${makeFitsSql(`$${values.length}::int`)})::uuid[])`);
+   scopeSources.push(makeStockScope(String(make.id)));
   }
  }
  if(query.fits==='vehicle') {
@@ -801,8 +844,13 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
   }
  }
  // A manufacturer page (#660) lists its master brand's name and labels (display_brand values), the column the brand filter reads.
- if(query.manufacturer){const labels=await manufacturerLabels(query.manufacturer);clauses.push(labels.length?await shownBrandClause(labels,values):'false');}
- const brands=selectedBrands(query);if(brands.length)clauses.push(await shownBrandClause(brands,values));
+ if(query.manufacturer){
+  const labels=await manufacturerLabels(query.manufacturer);
+  if(!labels.length)clauses.push('false');
+  else {clauses.push(await shownBrandClause(labels,values));scopeSources.push(brandStockScope(labels));}
+ }
+ const brands=selectedBrands(query);
+ if(brands.length){clauses.push(await shownBrandClause(brands,values));scopeSources.push(brandStockScope(brands));}
  // A property reads the facet rows its sidebar options come from (storefront_facet_specs, #994) instead of unpacking
  // every enrichment payload per request (#1248, locally: 1.5-3.6 s per /katalog count, 2.2-5.3 s in the root category,
  // and a price order hit the 30 s limit). The rows carry the guards applied when they were refreshed (match basis,
@@ -827,16 +875,34 @@ async function catalogFilter(query:CatalogQuery,context:CatalogContext={}) {
  }
  // The availability filter (stockClause in stock-filter.ts, which says what each one lists and why its SQL is shaped so).
  // A stock filter reads the stock of the smallest bound array's ids only when that array holds at most
- // LISTING_STOCK_SCOPE_MAX_IDS ids (#1429): an id set, so a price order reads the listing's ids first and never prices the
- // view through it. Without such an array (brand, manufacturer, a make alone, /katalog) it reads the whole stock set as a
- // plain clause, out of stock with more work_mem (listingQuery).
+ // LISTING_STOCK_SCOPE_MAX_IDS ids (#1429). Without such an array a brand, manufacturer or make-only listing reads its
+ // listed ids first (stockScope, cached, #1455) and binds the smallest scope within its limit (prefetchedStockScopeMaxIds:
+ // in stock at most 20,000) as that array, with no clause of its own: the listing's clauses already hold its rows to that
+ // scope. Only one is bound: Postgres rejects a bound value the statement does not reference. Without either (/katalog, a
+ // scope over its limit) the stock filter reads the whole stock set as a plain clause, out of stock with more work_mem
+ // (listingQuery). The scope reads are returned (`scopeReads`) for the timing script only.
+ const scopeReads:Statement[]=[];
+ const max=stockScopeMaxIds(),prefetchMax=prefetchedStockScopeMaxIds(query.availability);
+ if(prefetchMax>0&&scopeSources.length&&!bounds.some(scope=>scope.size<=max)){
+  const read=await Promise.all(scopeSources.map(source=>stockScope(source,prefetchMax)));
+  scopeReads.push(...read.map(scope=>scope.read));
+  const smallest=read.map(({scope})=>scope).filter(scope=>scope.ids!==null).sort((a,b)=>a.size-b.size)[0];
+  if(smallest){values.push(smallest.ids);bounds.push({param:`$${values.length}::uuid[]`,size:smallest.size});}
+ }
  const stock=stockClause(query.availability,bounds.sort((a,b)=>a.size-b.size)[0]);
- if(stock?.idSet)idSet(stock.clause);
+ if(stock?.idSet){
+  idSet(stock.clause);
+  // The trap guard: a scoped clause is an id set a statement pricing the view must never read (750 ms at 2k ids, over
+  // 120 s at 200k). Over a prefetched scope it can be the listing's only one (a brand's clause is not an id set), so the
+  // listing counts as two: a price order (pricedScope, the stored orders, searchOrder) then reads its ids first (listedIds)
+  // and prices them by bind array.
+  idSets=Math.max(idSets,2);
+ }
  else if(stock)clauses.push(stock.clause);
  const workMem=stock?.workMem;
  const where = clauses.length ? "WHERE "+clauses.join(" AND ") : "";
  const from = `FROM (${catalogEntriesSql}) catalog ${where}`;
- return {values,where,from,search,idSets,workMem};
+ return {values,where,from,search,idSets,workMem,scopeReads};
 }
 /**
  * A catalog listing or search read, run under a server-side time limit (#1377: listingStatementTimeoutMs, 55 s, just under
@@ -958,8 +1024,9 @@ const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.br
  * in-stock listing can show a card sold out since, labelled so. Stock filters store at any size for the stock set's cost
  * alone: #1424 attacks that cost, so measure them again after it and drop `stockFiltered(query)||` below if small stock
  * listings have become cheap. Since #1429 a category, model, garage vehicle, oil or search listing of up to
- * LISTING_STOCK_SCOPE_MAX_IDS ids reads only its own ids' stock (stockClause), while brand, manufacturer and make-only
- * listings still read the whole set, so the rule stays until those are scoped too or measured otherwise.
+ * LISTING_STOCK_SCOPE_MAX_IDS ids reads only its own ids' stock (stockClause), and since #1455 a brand, manufacturer or
+ * make-only listing of up to that many listed ids too (its stock scope read first); /katalog and the larger listings
+ * (a Volkswagen-size make) still read the whole set, so the rule stays until those are scoped too or measured otherwise.
  */
 const stockFiltered=(query:CatalogQuery)=>query.availability==="in_stock"||query.availability==="out_of_stock";
 const filteredOrder=(query:CatalogQuery,total:number)=>!query.q?.trim()&&!persistable(query)&&filteredPriceOrderEnabled()&&(stockFiltered(query)||total>=filteredPriceOrderMinIds());
@@ -1655,17 +1722,18 @@ export async function listingStatements(query:CatalogQuery):Promise<Record<"coun
  * `pricePage(row)` with its row: by those ids, none at a count of 0 (listedIds gives no scope, browseProducts reads no
  * page; a scoped clause must never reach a priced statement), the filter's clause above pricedByIdsMax rows. Without
  * `listed` (null) `pricePage(null)` reads the filter's clause. `workMem`: the filter's, which listingQuery runs its reads
- * with. Not for a search.
+ * with. `scopes`: the stock scope reads the filter made (a brand, manufacturer or make-only listing, #1455), whose result
+ * the statements above already bind (the scope cache's). Not for a search.
  */
 export async function stockListingStatements(query:CatalogQuery,page:number,context:CatalogContext={}):Promise<{count:Statement;pageIds:Statement;listed:Statement|null;
- pricePage:(listed:{count:number;ids:string|null}|null)=>Statement|null;workMem?:string}>{
+ pricePage:(listed:{count:number;ids:string|null}|null)=>Statement|null;workMem?:string;scopes:Statement[]}>{
  if(query.q?.trim()||!stockFiltered(query))throw new Error("stockListingStatements: a stock-filtered listing without a search only");
  const filter=await catalogFilter(query,context),{values,where,from}=filter,offset=(page-1)*catalogPageSize,order=listingOrder({sort:"price-asc"});
  const byClause={text:pricedPageSql(where,order,catalogPageSize,`$${values.length+1}`),values:[...values,offset]};
  return {count:{text:countSql(from),values},pageIds:{text:pageIdsSql(from,`$${values.length+1}`),values:[...values,offset]},
   listed:filter.idSets>=2?{text:listedIdsSql(from),values}:null,
   pricePage:listed=>!listed?byClause:!listed.count?null:listed.ids?{text:pricedPageSql("WHERE catalog.id=ANY($2::uuid[])",order,catalogPageSize,"$3"),values:[values[0],listed.ids,offset]}:byClause,
-  workMem:filter.workMem};
+  workMem:filter.workMem,scopes:filter.scopeReads};
 }
 /**
  * A price-sorted listing's page `page` read live (its ids, #1430), and the whole order a deep page slices instead (#1369; a filtered

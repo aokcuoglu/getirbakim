@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
 import { after, before, describe, test } from "node:test";
+import pg from "pg";
 import { isolatedSchema } from "./isolated-schema";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
 import type { CatalogProduct } from "../src/modules/store/catalog";
@@ -756,7 +757,7 @@ describe("availability filter (#1242)", () => {
     const start = source.indexOf("export function stockClause("), end = source.indexOf("\n}", start);
     assert.ok(start >= 0 && end > start, "stockClause not found in stock-filter.ts");
     const body = source.slice(start, end);
-    const { inStockIdsSql, stockClause } = await import("../src/modules/store/stock-filter");
+    const stockFilter = await import("../src/modules/store/stock-filter"), { inStockIdsSql, stockClause } = stockFilter;
     const [inStock, outOfStock] = [stockClause("in_stock"), stockClause("out_of_stock")];
     assert.ok(inStock && outOfStock);
     assert.equal(inStock.clause, `catalog.id IN (${inStockIdsSql})`);
@@ -768,19 +769,26 @@ describe("availability filter (#1242)", () => {
     assert.match(outOfStock.workMem ?? "", /^\d+MB$/);
     assert.deepEqual([inStock.idSet, outOfStock.idSet], [false, false]);
     // Scoped (#1429): the bound ids' stock as one InitPlan array, never `catalog.id IN (…)` over it: out of stock then
-    // planned nested loops (4-30 s).
+    // planned nested loops (4-30 s). The array reaches the scoped ids through a one-row MATERIALIZED CTE (#1455), whose
+    // WITH heads the whole statement (the UNION ALL in stock, the EXCEPT compound out of stock).
     const scope = { param: "$3::uuid[]", size: 10 };
     const clauses = [inStock.clause, outOfStock.clause];
+    const fed = "((SELECT ids FROM scope)::uuid[])";
     for (const availability of ["in_stock", "out_of_stock"] as const) {
       const scoped = stockClause(availability, scope);
       assert.ok(scoped, availability);
       clauses.push(scoped.clause);
       assert.ok(scoped.clause.startsWith("catalog.id=ANY(ARRAY(") && scoped.clause.endsWith(")::uuid[])"), availability);
-      assert.ok(scoped.clause.includes("a.id=ANY($3::uuid[])") && scoped.clause.includes("o.primary_id=ANY($3::uuid[])"), availability);
+      assert.ok(scoped.clause.startsWith("catalog.id=ANY(ARRAY(WITH scope AS MATERIALIZED (SELECT $3::uuid[] AS ids) "), availability);
+      assert.ok(scoped.clause.includes(`a.id=ANY(${fed})`) && scoped.clause.includes(`o.primary_id=ANY(${fed})`), availability);
+      // The bound array is read once, by the CTE only.
+      assert.equal(scoped.clause.split("$3::uuid[]").length - 1, 1, availability);
+      const ids = availability === "in_stock" ? stockFilter.scopedInStockIdsSql(fed) : stockFilter.scopedOutOfStockIdsSql(fed);
+      assert.equal(scoped.clause, `catalog.id=ANY(ARRAY(WITH scope AS MATERIALIZED (SELECT $3::uuid[] AS ids) ${ids})::uuid[])`, availability);
       assert.doesNotMatch(scoped.clause, /catalog\.id IN \(/, availability);
       assert.deepEqual([scoped.idSet, scoped.workMem], [true, undefined], availability);
     }
-    assert.match(body, /catalog\.id=ANY\(ARRAY\(\$\{ids\}\)::uuid\[\]\)/);
+    assert.match(body, /catalog\.id=ANY\(ARRAY\(WITH scope AS MATERIALIZED \(SELECT \$\{scope\.param\} AS ids\) \$\{ids\}\)::uuid\[\]\)/);
     assert.doesNotMatch(body, /catalog\.id IN \(\$\{ids\}/);
     for (const clause of clauses) assert.doesNotMatch(clause, /commerce_catalog|storefront_catalog/);
     assert.match(source, /export const inStockIdsSql=`SELECT COALESCE\(o\.primary_id,a\.id\) FROM \(\$\{availabilitySql\}\) a /);
@@ -882,6 +890,157 @@ describe("availability filter (#1242)", () => {
       assert.equal(withMax(undefined, () => stockClause("out_of_stock", scope(30_001)))?.workMem, "32MB");
       assert.deepEqual(stockClause("supplied", scope(1)), { clause: "NOT catalog.unavailable", idSet: false });
       assert.equal(stockClause(undefined, scope(1)), undefined);
+      // A brand's, manufacturer's or make's prefetched scope (#1455): the setting's limit, in stock at most 20,000 (its count
+      // lost to the whole set's in the 20-30k band); none without a stock filter or with the setting at 0.
+      const { prefetchedStockScopeMaxIds } = stockFilter;
+      for (const [value, inStock, outOfStock] of [[undefined, 20_000, 30_000], ["12000", 12_000, 12_000], ["25000", 20_000, 25_000],
+        ["999999", 20_000, 50_000], ["0", 0, 0]] as const) {
+        assert.equal(withMax(value, () => prefetchedStockScopeMaxIds("in_stock")), inStock, `in_stock ${value}`);
+        assert.equal(withMax(value, () => prefetchedStockScopeMaxIds("out_of_stock")), outOfStock, `out_of_stock ${value}`);
+        for (const availability of ["supplied", undefined] as const) assert.equal(withMax(value, () => prefetchedStockScopeMaxIds(availability)), 0, `${availability} ${value}`);
+      }
+      // catalogFilter reads its prefetched scopes up to that limit, and only when it is above 0.
+      const catalogSource = await readFile("src/modules/store/catalog.ts", "utf8");
+      assert.match(catalogSource, /prefetchMax=prefetchedStockScopeMaxIds\(query\.availability\);\n if\(prefetchMax>0&&/);
+      assert.match(catalogSource, /stockScope\(source,prefetchMax\)/);
+    });
+
+    // Brand and manufacturer listings bind no JS id array: a stock filter reads their listed ids first (the stock scope,
+    // cached) and then those ids' stock only (#1455). The oracle is the whole stock set's clause (LISTING_STOCK_SCOPE_MAX_IDS=0),
+    // each side read by a fresh process (its own caches), in both checkout modes.
+    describe("stock scopes of brand and manufacturer listings (#1455)", () => {
+      type Catalog = typeof import("../src/modules/store/catalog");
+      let processes = 0;
+      /** Another app process: a second copy of the catalog module, with its own process caches, on the same database. */
+      const otherProcess = async () => await import(`../src/modules/store/catalog.ts?brand-stock-scope-${++processes}`) as Catalog;
+      /** The text of every statement `run` sends, on any connection. */
+      async function sentTexts(run: () => Promise<unknown>) {
+        const texts: string[] = [];
+        const original = pg.Client.prototype.query;
+        pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+          const config = args[0];
+          texts.push(typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "");
+          return (original as (...rest: unknown[]) => unknown).apply(this, args);
+        } as typeof original;
+        try {
+          await run();
+        } finally {
+          pg.Client.prototype.query = original;
+        }
+        return texts;
+      }
+      /** The listing read by a fresh process under LISTING_STOCK_SCOPE_MAX_IDS=`max` (undefined: unset), and the statements it sent. */
+      async function listing(max: string | undefined, query: CatalogQuery) {
+        const saved = process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+        if (max === undefined) delete process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+        else process.env.LISTING_STOCK_SCOPE_MAX_IDS = max;
+        try {
+          const fresh = await otherProcess();
+          let listed: Awaited<ReturnType<Catalog["browseProducts"]>> | undefined;
+          const texts = await sentTexts(async () => { listed = await fresh.browseProducts(query); });
+          assert.ok(listed);
+          return { listed: { ids: listed.items.map(row => row.id), total: listed.total, page: listed.page, pages: listed.pages }, texts };
+        } finally {
+          if (saved === undefined) delete process.env.LISTING_STOCK_SCOPE_MAX_IDS;
+          else process.env.LISTING_STOCK_SCOPE_MAX_IDS = saved;
+        }
+      }
+      const scopedMarker = "catalog.id=ANY(ARRAY(WITH scope AS MATERIALIZED";
+      /** A statement over the priced view (storefront_catalog), not the lean entries or the availability view. */
+      const priced = (text: string) => /FROM storefront_catalog WHERE/.test(text);
+      const wholeClause = (availability: "in_stock" | "out_of_stock") =>
+        availability === "in_stock" ? "catalog.id IN (SELECT COALESCE(o.primary_id,a.id)" : "commerce_out_of_stock_ids(";
+      before(async () => {
+        await groups();
+        // AVTEST as a master brand of its own name, its rows keeping their shown brand: the manufacturer page /marka/avtest.
+        // The matching refresh may have created the brand already (#470).
+        await schema.pool.query("INSERT INTO brands(key,name) VALUES('AVTEST','AVTEST') ON CONFLICT (key) DO NOTHING");
+        await schema.pool.query(`INSERT INTO supplier_brands(supplier,label,brand_id,items) SELECT supplier,'AVTEST',b.id,3
+          FROM brands b CROSS JOIN unnest(ARRAY['basbug','dinamik']) supplier WHERE b.key='AVTEST' ON CONFLICT (supplier,label) DO NOTHING`);
+        const { invalidateListings } = await import("../src/modules/store/listing-epoch");
+        await invalidateListings();
+      });
+
+      test("lists the same cards, order, totals and pages scoped and over the whole stock set", async () => {
+        const mode = (await schema.pool.query<{ mode: string }>("SELECT basbug_checkout_mode AS mode FROM commerce_settings")).rows[0].mode;
+        const queries: Record<string, CatalogQuery> = {
+          "brand AVTEST": { brand: "AVTEST" }, "brand GRUPTEST": { brand: "GRUPTEST" }, "brands AVTEST+GRUPTEST": { brands: '["AVTEST","GRUPTEST"]' },
+          "manufacturer avtest": { manufacturer: "avtest" }, "manufacturer avtest + brand GRUPTEST": { manufacturer: "avtest", brand: "GRUPTEST" },
+        };
+        try {
+          for (const checkout of ["live", "snapshot"]) {
+            await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [checkout]);
+            const totals: Record<string, number> = {};
+            for (const [name, base] of Object.entries(queries)) {
+              for (const availability of ["in_stock", "out_of_stock"] as const) {
+                for (const sort of [undefined, "price-asc", "price-desc"] as const) {
+                  const label = `${checkout} ${name} ${availability} ${sort ?? "newest"}`, query = { ...base, availability, sort };
+                  const scoped = await listing(undefined, query), whole = await listing("0", query);
+                  assert.deepEqual(scoped.listed, whole.listed, label);
+                  totals[`${name} ${availability}`] = scoped.listed.total;
+                  // The scope's listed ids are read first (one array literal), then the scoped clause; 0 reads neither.
+                  assert.ok(scoped.texts.some(text => text.includes("array_agg(id)::text") && text.includes(") scope")), label);
+                  assert.ok(scoped.texts.some(text => text.includes(scopedMarker)), label);
+                  assert.ok(!scoped.texts.some(text => text.includes(wholeClause(availability))), label);
+                  assert.ok(whole.texts.some(text => text.includes(wholeClause(availability))), label);
+                  assert.ok(!whole.texts.some(text => text.includes("scope AS MATERIALIZED") || text.includes(") scope")), label);
+                  // A statement pricing the view never reads the scoped clause: a price order reads the listing's ids first.
+                  assert.ok(!scoped.texts.some(text => priced(text) && text.includes("scope AS MATERIALIZED")), label);
+                  if (sort) assert.ok(scoped.texts.some(text => text.includes("array_agg(catalog.id)") && text.includes(scopedMarker)), label);
+                }
+              }
+            }
+            // Not vacuous: both stock filters list cards of both brands; the manufacturer page lists its brand's.
+            for (const name of ["brand AVTEST", "brand GRUPTEST", "manufacturer avtest"])
+              for (const availability of ["in_stock", "out_of_stock"]) assert.ok(totals[`${name} ${availability}`] > 0, `${checkout} ${name} ${availability}`);
+            assert.equal(totals["brands AVTEST+GRUPTEST in_stock"], totals["brand AVTEST in_stock"] + totals["brand GRUPTEST in_stock"], checkout);
+            assert.equal(totals["manufacturer avtest in_stock"], totals["brand AVTEST in_stock"], checkout);
+            assert.equal(totals["manufacturer avtest + brand GRUPTEST in_stock"], 0, checkout);
+          }
+        } finally {
+          await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [mode]);
+        }
+      });
+
+      // A scope is never used older than its 10-minute TTL (maxServeMs): a request past it waits for the reload instead of
+      // getting the old scope while a background refresh runs, so a row that joined the brand since (no counter moved) is
+      // listed. Read through stockListingStatements: the scope cache alone, no listing cache. The mocked clock moves its age.
+      test("a scope older than its TTL is read again before it is used", async t => {
+        t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+        const fresh = await otherProcess(), query: CatalogQuery = { brand: "SCOPETEST", availability: "in_stock" };
+        const counted = async () => {
+          const statements = await fresh.stockListingStatements(query, 1);
+          assert.ok(statements.count.text.includes(scopedMarker) && statements.scopes.length === 1);
+          return Number((await schema.pool.query<{ count: string }>(statements.count.text, statements.count.values)).rows[0].count);
+        };
+        await item("scopeFirst", { supplier: "basbug", code: "SCP 0001", brand: "SCOPETEST", stock: 2 });
+        try {
+          assert.equal(await counted(), 1);
+          await item("scopeJoined", { supplier: "basbug", code: "SCP 0002", brand: "SCOPETEST", stock: 2 });
+          // Within the TTL the cached scope lacks the joined row (the documented bound): the whole set's clause lists it.
+          t.mock.timers.tick(10 * 60 * 1000 - 1);
+          assert.equal(await counted(), 1, "within the TTL");
+          t.mock.timers.tick(2);
+          assert.equal(await counted(), 2, "past the TTL the scope is read again before it is used");
+        } finally {
+          await schema.pool.query("DELETE FROM supplier_items WHERE id=ANY($1::uuid[])", [[ids.scopeFirst, ids.scopeJoined].filter(Boolean)]);
+        }
+      });
+
+      test("a scope over LISTING_STOCK_SCOPE_MAX_IDS reads the whole stock set", async () => {
+        for (const availability of ["in_stock", "out_of_stock"] as const) {
+          // AVTEST lists more than one card: over a limit of 1 its scope read stops at two rows and binds nothing.
+          const query = { brand: "AVTEST", availability }, over = await listing("1", query), whole = await listing("0", query);
+          assert.deepEqual(over.listed, whole.listed, availability);
+          assert.ok(over.texts.some(text => text.includes(") scope") && text.includes("LIMIT 2")), availability);
+          assert.ok(!over.texts.some(text => text.includes("scope AS MATERIALIZED")), availability);
+          assert.ok(over.texts.some(text => text.includes(wholeClause(availability))), availability);
+        }
+        // NGK lists one card, in stock: within a limit of 1 its scope is bound.
+        const ngk = await listing("1", { brand: "NGK", availability: "in_stock" });
+        assert.deepEqual(ngk.listed.ids, [ids.ngk]);
+        assert.ok(ngk.texts.some(text => text.includes(scopedMarker)));
+      });
     });
   });
 });

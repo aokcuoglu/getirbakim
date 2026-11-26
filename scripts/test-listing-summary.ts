@@ -396,16 +396,21 @@ test("a search whose hit read times out fails within the limit, and answers afte
 });
 
 test("LISTING_STATEMENT_TIMEOUT_MS=0 sends the reads as plain statements; by default they carry 55 s, an out-of-stock read keeps 30 s (#1377)", async () => {
-  const limits = async (from: Catalog, query: CatalogQuery, setting: string | undefined) => [...new Set((await sentTexts(() =>
-    withEnv({ LISTING_STATEMENT_TIMEOUT_MS: setting }, () => inRequest(() => from.listingTotal(query)))))
+  const limits = async (from: Catalog, query: CatalogQuery, setting: string | undefined, scopeMax?: string) => [...new Set((await sentTexts(() =>
+    withEnv({ LISTING_STATEMENT_TIMEOUT_MS: setting, LISTING_STOCK_SCOPE_MAX_IDS: scopeMax }, () => inRequest(() => from.listingTotal(query)))))
     .filter(text => text.includes("statement_timeout")))];
   const filtered = { manufacturer: "mahle", brands: JSON.stringify(["MAHLE"]) }, outOfStock = { manufacturer: "mahle", availability: "out_of_stock" as const };
   // Other processes: the count and the brand labels are read cold.
   const off = await otherProcess("off"), on = await otherProcess("on");
   assert.deepEqual(await limits(off, filtered, "0"), []);
   assert.deepEqual(await limits(on, filtered, undefined), ["SET LOCAL statement_timeout = 55000"]);
-  assert.deepEqual(await limits(off, outOfStock, "0"), ["SET LOCAL statement_timeout = 30000"]);
-  assert.deepEqual(await limits(on, outOfStock, undefined), ["SET LOCAL statement_timeout = 30000"]);
+  // Out of stock over the whole stock set (LISTING_STOCK_SCOPE_MAX_IDS=0) runs at its own work_mem and 30 s whatever the setting.
+  assert.deepEqual(await limits(off, outOfStock, "0", "0"), ["SET LOCAL statement_timeout = 30000"]);
+  assert.deepEqual(await limits(on, outOfStock, undefined, "0"), ["SET LOCAL statement_timeout = 30000"]);
+  // Scoped by the manufacturer's listed ids (#1455), it needs no extra work_mem and runs under the listing's limit, as its
+  // scope read does. Fresh processes: the scope is read cold.
+  assert.deepEqual(await limits(await otherProcess("scoped-off"), outOfStock, "0"), []);
+  assert.deepEqual(await limits(await otherProcess("scoped-on"), outOfStock, undefined), ["SET LOCAL statement_timeout = 55000"]);
 });
 
 /** Lock requests waiting on this schema's supplier_items: reads whileLocked holds up, until they get it or are cancelled. */
