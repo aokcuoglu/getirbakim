@@ -11,7 +11,7 @@ import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { fitsEpoch, listingEpoch } from "./listing-epoch";
 import { listingCacheStore, storedLinks } from "./listing-cache-store";
-import { buildPriceOrder, priceOrderEnabled, priceOrderHeadStore, priceOrderInUse, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
+import { buildPriceOrder, filteredPriceOrderEnabled, filteredPriceOrderMinIds, priceOrderEnabled, priceOrderHeadStore, priceOrderInUse, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
 import { defaultListingLimitMs, listingStatementTimeoutMs, searchFailureHoldMs, suggestStatementTimeoutMs } from "./listing-timeout";
 export type { CatalogQuery } from "./catalog-query";
@@ -815,6 +815,8 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // Past page 20 a price order is read from the listing's whole stored order (storefront_listing_price_orders, #1369): one
 // row per listing and sort, the same keys as the price order above, under the same rules (cachedPriceOrders). Its first
 // 480 ids also serve as the stored first pages of that price order when they are newer (cachedPricedHeads, #1389).
+// A filtered or model listing of at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids (any stock-filtered one) stores its deep
+// pages' order there too (filteredOrder, #1390): those rows share a budget of ids, its first pages stay in memory.
 // These three also wait at most LISTING_EPOCH_WAIT_MS (250 ms, listing-wait.ts) for a reload when an earlier value
 // exists (#771): the entry an epoch bump replaced, or a stored row of an older epoch or past maxStaleMs, up to 48 hours
 // old (the store's prune window). The fit sync bumps the fits value up to every 30 s while fit rows change
@@ -850,7 +852,8 @@ const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,fal
 // Its loader and the first pages' below both call buildPriceOrder (#1405), not each other's cache: a refresh of either
 // serves its stale value at once and loads in the background, so a loader awaiting the other cache would not see the
 // build. buildPriceOrder shares a running build of the same key, epoch and head size, and returns a row another load
-// stored since this one read the store; each cache then picks the row up through its own store.
+// stored since this one read the store; each cache then picks the row up through its own store. A large filtered
+// listing's order (#1390) is kept here too, under its own key; only its deep pages build it.
 const cachedPriceOrders=staleCache<PriceOrder>(aggregateTtl,500,{...persistedListings,fallbackWhen:order=>order.total>0,store:priceOrderStore});
 // The first pages of a stored listing's price order (#1389): cachedPageIds' rows and rules, with the stored order's first
 // 480 ids as a second source (priceOrderHeadStore), so a listing a deep page ordered is not priced again. While a deep
@@ -861,6 +864,22 @@ const cachedPriceOrders=staleCache<PriceOrder>(aggregateTtl,500,{...persistedLis
 const cachedPricedHeads=staleCache<string[]>(aggregateTtl,500,{...persistedListings,fallbackWhen:ids=>ids.length>0,
  store:priceOrderHeadStore(listingCacheStore<string[]>("page-ids",1),()=>cachedPages*catalogPageSize,persistedListings.maxFallbackMs)});
 const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
+/**
+ * Whether a listing persistable leaves out (a brand, property, availability, model or garage vehicle filter) stores the
+ * whole price order of its deep pages all the same (#1390): no search, the filtered orders on (filteredPriceOrderEnabled),
+ * and at least LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids (`total`, its count) or a stock filter. A live deep page's cost
+ * follows the listing's rows (~17-30 µs a row locally: brand=ORIJINAL, 155k, ~2 s; BOSCH supplied, 21k, 0.34 s), but an
+ * in-stock or out-of-stock page also reads the catalog's whole stock set whatever its size: ~0.9 s in stock at 1.8-9.8k
+ * ids, ~2.2 s out of stock at 10k. Its keys are bounded by the filtered rows' budget, not by the site's pages
+ * (listing-price-order.ts); its first pages keep their 480 ids in memory. Its stored order is at most 10 minutes old while
+ * its deep pages are read; the first request after idle time or a restart can take one up to 24 hours old (the stored
+ * rows' adoption window) while it is rebuilt. Cards are read live, so their prices and stock labels stay current: an
+ * in-stock listing can show a card sold out since, labelled so. Stock filters store at any size for the stock set's cost
+ * alone: #1424 attacks that cost, so measure them again after it and drop `stockFiltered(query)||` below if small stock
+ * listings have become cheap.
+ */
+const stockFiltered=(query:CatalogQuery)=>query.availability==="in_stock"||query.availability==="out_of_stock";
+const filteredOrder=(query:CatalogQuery,total:number)=>!query.q?.trim()&&!persistable(query)&&filteredPriceOrderEnabled()&&(stockFiltered(query)||total>=filteredPriceOrderMinIds());
 const persistablePage=(query:CatalogQuery,page:number)=>persistable(query)&&page<=(query.make?1:cachedPages);
 /**
  * A listing that reads vehicle fits (#1368): a make's or model's, or one with a garage vehicle's filter (fits, oil; their
@@ -1223,13 +1242,35 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // A listing over priceOrderMaxIds, an order with nothing stored, a row gone (the UNLOGGED table empties after a crash)
  // or a page past its end read live below, and so does a failed build (its 30 s limit included): the listing then reads
  // live without another build for ten minutes (buildPriceOrder), instead of failing the page or building per request.
- if(!search&&pricedSort&&persistable(query)&&priceOrderEnabled()&&total<=priceOrderMaxIds()){
-  const stored=await cachedPriceOrders(pricedKey,async at=>{
+ // A filtered listing (a brand, property, availability, model or garage vehicle filter) of at least
+ // LISTING_PRICE_ORDER_FILTERED_MIN_IDS ids, or with a stock filter (filteredOrder, #1390), stores its order the same way,
+ // under the same key, epoch value and rows: its live deep page prices and sorts every row whatever its depth
+ // (availability=in_stock, 325k rows: ~10 s locally). Its first pages keep their own 480 ids in memory (above), so it asks
+ // for no head, and its row is marked filtered: those share a budget of ids, the least recently used evicted
+ // (buildPriceOrder). An evicted row reads live until the cache's next load builds it again. A smaller filtered listing
+ // reads live below.
+ const filteredDeep=filteredOrder(query,total);
+ if(!search&&pricedSort&&(persistable(query)||filteredDeep)&&priceOrderEnabled()&&total<=priceOrderMaxIds()){
+  const loading=cachedPriceOrders(pricedKey,async at=>{
    const scope=await pricedScope(total,await catalogFilter(query,context),pricedKey);
    if(!scope)return {total:0};
-   const built=await buildPriceOrder(pricedKey,at,pricedRowsSql(scope.where),scope.values,order,{head:cachedPages*pageSize,freshMs:aggregateTtl});
+   const built=await buildPriceOrder(pricedKey,at,pricedRowsSql(scope.where),scope.values,order,
+    filteredDeep?{head:0,freshMs:aggregateTtl,filtered:true,expected:total}:{head:cachedPages*pageSize,freshMs:aggregateTtl});
    return {total:built.total};},{epoch:epochOf(query)});
-  const ids=stored.total>0?await priceOrderSlice(pricedKey,(page-1)*pageSize,take):null;
+  // A filtered listing's page never waits for a build (#1390): past the bounded wait (listingWaitMs, 250 ms; unbounded
+  // during the warm-up) it reads live below while the load goes on, shared by the cache's next callers. Its first deep
+  // page costs at most one live page and the wait, never a build that runs into its 30 s limit and a live page after it
+  // (such a build then backs the listing off for an hour, buildPriceOrder). A stored listing's page waits for its load,
+  // as before.
+  let stored:PriceOrder|undefined;
+  const waitMs=listingWaitMs();
+  if(filteredDeep&&Number.isFinite(waitMs)){
+   loading.catch(()=>{});
+   let timer:ReturnType<typeof setTimeout>|undefined;
+   stored=await Promise.race([loading,new Promise<undefined>(resolve=>{timer=setTimeout(()=>resolve(undefined),waitMs);})]).finally(()=>clearTimeout(timer));
+  }
+  else stored=await loading;
+  const ids=stored&&stored.total>0?await priceOrderSlice(pricedKey,(page-1)*pageSize,take):null;
   if(ids?.length)return {items:await withBestOffers(await storefrontRowsByIds(ids)),total,page,pages,pageSize};
  }
  // A search lists the best matches first unless the shopper picked another order.
@@ -1404,12 +1445,13 @@ export async function listingStatements(query:CatalogQuery):Promise<Record<"coun
   attributes:{text:attributeFacetsSql(`SELECT catalog.id ${from}`,keys),values:withKeys},summary:{text:listingSummarySql(from,keys),values:withKeys}};
 }
 /**
- * A stored listing's (persistable) price-sorted page `page` read live, and the whole order a deep page slices instead
- * (#1369), as statements for the read-only comparison scripts/listing-summary-timings.ts: the live page browseProducts
- * runs, and the build's select without its INSERT. The rows are scoped as pricedScope does with the listing's live count.
+ * A price-sorted listing's page `page` read live, and the whole order a deep page slices instead (#1369; a filtered
+ * listing's too, #1390), as statements for the read-only comparison scripts/listing-summary-timings.ts: the live page
+ * browseProducts runs, and the build's select without its INSERT. The rows are scoped as pricedScope does with the
+ * listing's live count. Not for a search, which never stores an order.
  */
 export async function priceOrderStatements(query:CatalogQuery,page:number):Promise<Record<"livePage"|"order",Statement>>{
- if(!persistable(query)||!pricedOrder(query))throw new Error("priceOrderStatements: a price-sorted listing without a search, model or narrowing filter only");
+ if(query.q?.trim()||!pricedOrder(query))throw new Error("priceOrderStatements: a price-sorted listing without a search only");
  const filter=await catalogFilter(query),label=`${filterKey(query,{})}|${query.sort}`;
  const scope=filter.idSets>=2?(await listedIds(filter,label)).scope:{where:filter.where,values:filter.values};
  if(!scope)throw new Error(`priceOrderStatements: ${label} lists no rows`);
