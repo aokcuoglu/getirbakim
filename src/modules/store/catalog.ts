@@ -1337,7 +1337,10 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
   const requested=Number(query.page);
   const page=Number.isSafeInteger(requested)?Math.min(pages,Math.max(1,requested)):1;
   // Past the cached pages the whole order is loaded once per search (searchOrder); SEARCH_RANK_ORDER=0 or a failed build ranks live.
-  const deep=page>cachedPages&&searchRankOrderEnabled()?await searchOrder(query,context):null;
+  // Keyed by the canonical plain query: brands=[], attributes={} or unparsable JSON are plain too and must share one entry.
+  // A timed-out build makes this request rerun the same live statement once; later requests are held.
+  // total/pages come from plain, so the last page can be short if the hit count moved between the two loads, as before.
+  const deep=page>cachedPages&&searchRankOrderEnabled()?await searchOrder({q:query.q,searchBy:query.searchBy},{}):null;
   const ids=page<=cachedPages?plain.ids.slice((page-1)*pageSize,page*pageSize)
    :deep?unpackIds(deep.packed,(page-1)*pageSize,pageSize)
    :(await summarizeSearch(await catalogSearch(query.q!,mode))).ids.slice((page-1)*pageSize,page*pageSize);

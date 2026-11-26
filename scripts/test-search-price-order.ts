@@ -1072,3 +1072,11 @@ test("SEARCH_RANK_ORDER=0 sends the live summary on every deep page", async () =
   });
   assert.equal(summaryTexts(await sent(() => browse(query, {}, proc))), 1, "the switch left nothing in the cache: the order loads now");
 });
+
+test("plain variants (brands=[], attributes={}, unparsable JSON, another page) share one deep order", async () => {
+  const proc = await otherProcess("deep-canonical");
+  const variants: CatalogQuery[] = [{ q: "kampana" }, { q: "kampana", brands: "[]" }, { q: "kampana", attributes: "{}" }, { q: "kampana", brands: "not json" }, { q: "kampana", sort: "relevance" }];
+  let summaries = 0;
+  for (const [index, variant] of variants.entries()) summaries += summaryTexts(await sent(() => browse({ ...variant, page: String(21 + (index % 2)) }, {}, proc)));
+  assert.equal(summaries, 2, "one plain search and one deep order for every variant");
+});
