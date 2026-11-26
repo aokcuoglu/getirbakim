@@ -1092,10 +1092,11 @@ const cachedSearchOrders=staleCache<SearchOrder>(aggregateTtl,300,{...listings,.
  weigh:order=>Math.max(1,order.total),maxWeight:searchPriceOrderMaxIds()});
 // The facets of a scoped search (#1441): catalogFacets reduces the query to its scope (search, category, make, model,
 // manufacturer, garage vehicle, oil), so brand, property, availability, sort and page variants share one entry. Warm
-// pages paid 0.8-2.6 s for them (/marka/bosch?q=fren 2.3 s, /kategori/yedek-parca?q=bosch 1.65 s, q=filtre&make=volkswagen
-// 2.06 s, the hit read being 45-80% of it). Follows the listing epoch, the fit epoch for a vehicle-scoped or
+// pages paid 0.8-2.6 s for them (/marka/bosch?q=fren 2.3 s, /kategori/yedek-parca?q=bosch 1.65 s, /yedek-parca/volkswagen?q=filtre
+// 2.3 s (make scope, measured under load), the hit read being 45-80% of it). Follows the listing epoch, the fit epoch for a vehicle-scoped or
 // vehicle-reading search (searchEpoch). No failure hold: a failed first load fails the page as the live read does, a
-// failed refresh keeps the earlier value.
+// failed refresh keeps the earlier value. Only the epochs reload early: admin spec edits (spec-actions.ts only calls
+// revalidatePath) and supplier syncs wait for the 10-minute TTL, and an idle key serves its old value once (#1453).
 const cachedSearchFacets=staleCache<Facets>(aggregateTtl,300,{...listings,...boundedWait,fallbackWhen:facets=>facets.brands.length+facets.attributes.length>0});
 const failedSearchOrders=failureHold(()=>failedBuildBackoffMs,300,()=>Date.now()),timedOutSearchOrders=failureHold(()=>filteredTimeoutBackoffMs,300,()=>Date.now());
 /**

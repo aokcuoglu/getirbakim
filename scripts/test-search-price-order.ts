@@ -772,6 +772,10 @@ test("the cached facets of every scoped search are the live facets; every varian
     }
   }
   assert.ok(nonEmpty >= 5, `scopes with facets: ${nonEmpty}`);
+  const garage: CatalogQuery = { q: "fren", fits: "vehicle" }, other = { vehicleTypeId: "341" };
+  assert.equal(facetReads(await sent(() => facetsOf(garage, other, proc))) >= 1, true, "another garage vehicle under fits has its own entry");
+  const inCategory: CatalogQuery = { q: "fren", category: "fren" };
+  assert.equal(facetReads(await sent(() => facetsOf(inCategory, other, proc))), 0, "a garage vehicle on a non-fits scope shares the entry");
 });
 
 test("a warm scoped search page sends no hit read and no facet statement", async () => {
@@ -787,24 +791,26 @@ test("a warm scoped search page sends no hit read and no facet statement", async
 });
 
 test("facets follow the epochs: an admin bump reloads every key, the fit sync's only the ones that read vehicle fits", async () => {
-  const proc = await otherProcess("facets-epochs");
-  const keys: [string, CatalogQuery, boolean][] = [
-    ["category", { q: "fren", category: "fren" }, false],
-    ["manufacturer", { q: "fren", manufacturer: "bosch" }, false],
-    ["code, in a category", { q: "P10", searchBy: "code", category: "fren" }, false],
-    ["make", { q: "fren", make: "vw" }, true],
-    ["make and model", { q: "fren", make: "vw", model: "golf" }, true],
-    ["the garage vehicle's fits", { q: "fren", fits: "vehicle" }, true],
-    ["oil", { q: "fren", oil: "viscosity" }, true],
-    ["vehicle reading, in a category", { q: "bosch golf", category: "fren" }, true],
-  ];
-  const read = async (query: CatalogQuery) => facetReads(await sent(() => facetsOf(query, query.fits || query.oil ? vw : {}, proc)));
-  for (const [label, query] of keys) assert.ok(await read(query) >= 1, `${label}: loaded`);
-  for (const [label, query] of keys) assert.equal(await read(query), 0, `${label}: kept`);
-  await invalidateFits();
-  for (const [label, query, fits] of keys) assert.equal(await read(query) >= 1, fits, `${label}: after the fit sync's bump`);
-  await invalidateListings();
-  for (const [label, query] of keys) assert.ok(await read(query) >= 1, `${label}: after an admin edit's bump`);
+  await withEnv({ LISTING_EPOCH_WAIT_MS: "60000" }, async () => {
+    const proc = await otherProcess("facets-epochs");
+    const keys: [string, CatalogQuery, boolean][] = [
+      ["category", { q: "fren", category: "fren" }, false],
+      ["manufacturer", { q: "fren", manufacturer: "bosch" }, false],
+      ["code, in a category", { q: "P10", searchBy: "code", category: "fren" }, false],
+      ["make", { q: "fren", make: "vw" }, true],
+      ["make and model", { q: "fren", make: "vw", model: "golf" }, true],
+      ["the garage vehicle's fits", { q: "fren", fits: "vehicle" }, true],
+      ["oil", { q: "fren", oil: "viscosity" }, true],
+      ["vehicle reading, in a category", { q: "bosch golf", category: "fren" }, true],
+    ];
+    const read = async (query: CatalogQuery) => facetReads(await sent(() => facetsOf(query, query.fits || query.oil ? vw : {}, proc)));
+    for (const [label, query] of keys) assert.ok(await read(query) >= 1, `${label}: loaded`);
+    for (const [label, query] of keys) assert.equal(await read(query), 0, `${label}: kept`);
+    await invalidateFits();
+    for (const [label, query, fits] of keys) assert.equal(await read(query) >= 1, fits, `${label}: after the fit sync's bump`);
+    await invalidateListings();
+    for (const [label, query] of keys) assert.ok(await read(query) >= 1, `${label}: after an admin edit's bump`);
+  });
 });
 
 test("after a bump with a held load the earlier facets are served within the wait, then the new ones; empty earlier facets never are", async () => {
@@ -858,25 +864,27 @@ test("after a bump with a held load the earlier facets are served within the wai
 });
 
 test("an admin's store brand override changes the brand facet after the bump", async () => {
-  const proc = await otherProcess("facets-override");
-  const scope: CatalogQuery = { q: "fren", category: "fren" };
-  const before = await facetsOf(scope, {}, proc);
-  assert.ok(!before.brands.includes("ESKI MARKA"));
-  const { rows: [item] } = await schema.pool.query<{ id: string }>("SELECT id::text FROM supplier_items WHERE product_data->>'category'='fren' AND product_data->>'ac' LIKE '%FREN%' AND presence='present' LIMIT 1");
-  await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,brand) VALUES($1,$1,'ESKI MARKA') ON CONFLICT (supplier_item_id) DO UPDATE SET brand='ESKI MARKA'", [item.id]);
-  try {
-    assert.deepEqual(await facetsOf(scope, {}, proc), before, "kept until the bump");
-    await invalidateListings();
-    const after = await facetsOf(scope, {}, proc);
-    assert.ok(after.brands.includes("ESKI MARKA"));
-    assert.deepEqual(after, await noFacetOff(() => facetsOf(scope)));
-  } finally {
-    await schema.pool.query("UPDATE commerce_item_overrides SET brand=NULL WHERE supplier_item_id=$1", [item.id]);
-    await invalidateListings();
-  }
+  await withEnv({ LISTING_EPOCH_WAIT_MS: "60000" }, async () => {
+    const proc = await otherProcess("facets-override");
+    const scope: CatalogQuery = { q: "fren", category: "fren" };
+    const before = await facetsOf(scope, {}, proc);
+    assert.ok(!before.brands.includes("ESKI MARKA"));
+    const { rows: [item] } = await schema.pool.query<{ id: string }>("SELECT id::text FROM supplier_items WHERE product_data->>'category'='fren' AND product_data->>'ac' LIKE '%FREN%' AND presence='present' LIMIT 1");
+    await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,brand) VALUES($1,$1,'ESKI MARKA') ON CONFLICT (supplier_item_id) DO UPDATE SET brand='ESKI MARKA'", [item.id]);
+    try {
+      assert.deepEqual(await facetsOf(scope, {}, proc), before, "kept until the bump");
+      await invalidateListings();
+      const after = await facetsOf(scope, {}, proc);
+      assert.ok(after.brands.includes("ESKI MARKA"));
+      assert.deepEqual(after, await noFacetOff(() => facetsOf(scope)));
+    } finally {
+      await schema.pool.query("UPDATE commerce_item_overrides SET brand=NULL WHERE supplier_item_id=$1", [item.id]);
+      await invalidateListings();
+    }
+  });
 });
 
-test("a failing facet statement on a cold key rejects as with the switch off and the next read retries; a failing refresh keeps the earlier facets", async t => {
+test("a failing facet statement on a cold key rejects as with the switch off and the next read retries; a failing epoch reload keeps the earlier facets", async t => {
   t.mock.method(console, "error", () => {});
   const proc = await otherProcess("facets-failing");
   const scope: CatalogQuery = { q: "fren", category: "fren" };
