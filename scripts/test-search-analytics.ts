@@ -86,42 +86,51 @@ test("a synonym load that times out keeps the last groups, is not retried within
   await epoch.invalidateListings();
   await custom.ensureCustomSynonyms();
   assert.ok(alternatives().includes("zzqkept"));
-  const saved = { SUGGEST_STATEMENT_TIMEOUT_MS: process.env.SUGGEST_STATEMENT_TIMEOUT_MS, SEARCH_FAILURE_HOLD_MS: process.env.SEARCH_FAILURE_HOLD_MS };
-  Object.assign(process.env, { SUGGEST_STATEMENT_TIMEOUT_MS: "200", SEARCH_FAILURE_HOLD_MS: "400" });
-  const locker = await schema.pool.connect();
+  const saved = { SUGGEST_STATEMENT_TIMEOUT_MS: process.env.SUGGEST_STATEMENT_TIMEOUT_MS, SEARCH_FAILURE_HOLD_MS: process.env.SEARCH_FAILURE_HOLD_MS, LISTING_STATEMENT_TIMEOUT_MS: process.env.LISTING_STATEMENT_TIMEOUT_MS };
+  const sent = async (run: () => Promise<unknown>) => {
+    const original = pg.Client.prototype.query;
+    const texts: string[] = [];
+    pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+      const config = args[0];
+      texts.push(typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "");
+      return (original as (...rest: unknown[]) => unknown).apply(this, args);
+    } as typeof original;
+    try { await run(); } finally { pg.Client.prototype.query = original; }
+    return texts;
+  };
   try {
-    await analytics.addCustomSynonymGroup(["zzqlock", "zzqnew"], adminId);
-    await locker.query("BEGIN");
-    await locker.query("LOCK TABLE search_synonyms IN ACCESS EXCLUSIVE MODE");
+    Object.assign(process.env, { SUGGEST_STATEMENT_TIMEOUT_MS: "200", SEARCH_FAILURE_HOLD_MS: "400" });
+    const locker = await schema.pool.connect();
+    try {
+      await analytics.addCustomSynonymGroup(["zzqlock", "zzqnew"], adminId);
+      await locker.query("BEGIN");
+      await locker.query("LOCK TABLE search_synonyms IN ACCESS EXCLUSIVE MODE");
+      await epoch.invalidateListings();
+      const started = Date.now();
+      await custom.ensureCustomSynonyms();
+      assert.ok(Date.now() - started < 1_000, `${Date.now() - started} ms`);
+      assert.ok(alternatives().includes("zzqkept") && !alternatives().includes("zzqnew"), "the last groups stay");
+      assert.ok(logged.mock.calls.some(call => String(call.arguments[0]).startsWith("Custom synonyms: load failed")));
+    } finally {
+      await locker.query("ROLLBACK").catch(() => {});
+      locker.release();
+    }
+    const texts = await sent(() => custom.ensureCustomSynonyms());
+    assert.ok(!texts.some(text => text.includes("search_synonyms")), "no statement within the hold");
+    assert.ok(!alternatives().includes("zzqnew"));
+    await sleep(450);
+    await custom.ensureCustomSynonyms();
+    assert.ok(alternatives().includes("zzqnew"), "loaded after the hold");
+    // Both limits off (the rollback): a plain statement, not statement_timeout = 1.
+    Object.assign(process.env, { SUGGEST_STATEMENT_TIMEOUT_MS: "0", LISTING_STATEMENT_TIMEOUT_MS: "0" });
     await epoch.invalidateListings();
-    const started = Date.now();
-    await custom.ensureCustomSynonyms();
-    assert.ok(Date.now() - started < 1_000, `${Date.now() - started} ms`);
-    assert.ok(alternatives().includes("zzqkept") && !alternatives().includes("zzqnew"), "the last groups stay");
-    assert.ok(logged.mock.calls.some(call => String(call.arguments[0]).startsWith("Custom synonyms: load failed")));
+    const plain = await sent(() => custom.ensureCustomSynonyms());
+    assert.ok(plain.some(text => text.includes("search_synonyms")), "the groups are loaded");
+    assert.ok(!plain.some(text => text.includes("statement_timeout")), "no limit is set");
   } finally {
-    await locker.query("ROLLBACK").catch(() => {});
-    locker.release();
-  }
-  const original = pg.Client.prototype.query;
-  const texts: string[] = [];
-  pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
-    const config = args[0];
-    texts.push(typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "");
-    return (original as (...rest: unknown[]) => unknown).apply(this, args);
-  } as typeof original;
-  try {
-    await custom.ensureCustomSynonyms();
-  } finally {
-    pg.Client.prototype.query = original;
-  }
-  assert.ok(!texts.some(text => text.includes("search_synonyms")), "no statement within the hold");
-  assert.ok(!alternatives().includes("zzqnew"));
-  await sleep(450);
-  await custom.ensureCustomSynonyms();
-  assert.ok(alternatives().includes("zzqnew"), "loaded after the hold");
-  for (const [key, value] of Object.entries(saved)) {
-    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]; else process.env[key] = value;
+    }
   }
 });
 

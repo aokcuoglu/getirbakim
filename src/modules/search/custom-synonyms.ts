@@ -1,5 +1,5 @@
 import "server-only";
-import { boundedQuery } from "@/lib/db";
+import { boundedQuery, db } from "@/lib/db";
 import { listingEpoch } from "@/modules/store/listing-epoch";
 import { searchFailureHoldMs, suggestStatementTimeoutMs } from "@/modules/store/listing-timeout";
 import { setCustomSynonymGroups } from "./query";
@@ -18,7 +18,8 @@ export async function ensureCustomSynonyms() {
   const epoch = await listingEpoch();
   if (epoch === loadedEpoch && Date.now() - loadedAt < refreshMs) return;
   if (failedAt && Date.now() - failedAt < searchFailureHoldMs()) return;
-  loading ??= boundedQuery<{ words: string[] }>("search.synonyms", "SELECT words FROM search_synonyms ORDER BY id", [], suggestStatementTimeoutMs())
+  const sql = "SELECT words FROM search_synonyms ORDER BY id", limit = suggestStatementTimeoutMs();
+  loading ??= (limit ? boundedQuery<{ words: string[] }>("search.synonyms", sql, [], limit) : db.query<{ words: string[] }>(sql))
     .then(({ rows }) => { setCustomSynonymGroups(rows.map(row => row.words)); loadedEpoch = epoch; failedAt = 0; })
     .catch(error => { failedAt = Date.now(); console.error("Custom synonyms: load failed; keeping the last groups", error instanceof Error ? error.message : error); })
     .finally(() => { loadedAt = Date.now(); loading = null; });

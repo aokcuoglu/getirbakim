@@ -1,6 +1,7 @@
 import "server-only";
 import { boundedQuery, db } from "@/lib/db";
 import { failureHold } from "@/lib/ttl-cache";
+import { isPoolTimeout, isStatementTimeout } from "@/lib/db-errors";
 import { listingStatementTimeoutMs, searchFailureHoldMs } from "@/modules/store/listing-timeout";
 import { compactSearchCode, exactTsQuery, parseSearchQuery, prefixTsQuery, type ParsedSearch, type ParseOptions } from "./query";
 import { typeNameExactQueries, typeNameRankBoosts, typeNameTsQueries } from "./type-names";
@@ -213,14 +214,17 @@ export function catalogRank(alias: string, parsed: ParsedSearch, bind: Bind) {
 
 // A scope whose correction failed is not asked again for a while (#1416): the failing read is the same for every query.
 const correctionFailures = failureHold(searchFailureHoldMs, 2);
+const correctionLimitMs = 5_000;
 
 /**
  * "Did you mean": after a search found nothing, swaps each word for the likeliest catalog word of
  * the scope — close in spelling and common, so a one-off typo in the data ("FIILTRESI") loses to
  * "FILTRESI". Below 0.45 similarity a match is noise ("qqzzvehicle" → "vehicle") rather than a typo
  * ("sitroen" → "citroen" is 0.45). Null when no word changes.
- * The read runs under `timeoutMs` (the type-ahead's limit) or the listing limit (#1416). It is a nicety: a failed read
- * answers null, so the search goes on as typed, and pauses the scope for SEARCH_FAILURE_HOLD_MS.
+ * The read runs under `timeoutMs` (the type-ahead's limit) or the listing limit, at most correctionLimitMs (#1416): it is
+ * a read of a few ms, so it never adds the listing's 55 s to hit reads that can take that long. It is a nicety: a failed
+ * read answers null, so the search goes on as typed. A timeout also pauses the scope for SEARCH_FAILURE_HOLD_MS; a search
+ * that found nothing while paused can stay cached (empty result) up to its cache TTL.
  */
 export async function correctSearch(raw: string, scope: SearchScope, options: ParseOptions = {}, timeoutMs?: number) {
   const parsed = parseSearchQuery(raw, options);
@@ -233,14 +237,14 @@ export async function correctSearch(raw: string, scope: SearchScope, options: Pa
       AND similarity(v.word, t.term) >= 0.45
       ORDER BY similarity(v.word, t.term) * ln(2 + v.frequency) DESC, v.word LIMIT 1) c
     WHERE c.word <> t.term`;
-  const limit = timeoutMs ?? listingStatementTimeoutMs();
+  const requested = timeoutMs ?? listingStatementTimeoutMs(), limit = requested > 0 ? Math.min(requested, correctionLimitMs) : 0;
   let rows: { term: string; word: string }[];
   try {
     ({ rows } = limit
       ? await boundedQuery<{ term: string; word: string }>(`search.correct scope=${scope} words=${words.length}`, sql, [scope, words], limit)
       : await db.query<{ term: string; word: string }>(sql, [scope, words]));
   } catch (error) {
-    correctionFailures.hold(scope, error);
+    if (isStatementTimeout(error) || isPoolTimeout(error)) correctionFailures.hold(scope, true);
     console.error("Search correction failed; searching as typed", error instanceof Error ? error.message : error);
     return null;
   }

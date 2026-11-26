@@ -581,7 +581,7 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   // "shooting brake" body style of "fren balatası".
   const vehicleWords=(parsed:ParsedSearch)=>fittedOnly?withoutSynonyms(parsed):parsed;
   const vehicle=await resolvePart(split.vehicle.join(" "),"vehicle",correct,async parsed=>{const values:unknown[]=[];
-   return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values,read)).rowCount);});
+   return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values,read)).rowCount);},read);
   if(!vehicle)continue;
   const fittedIds=await vehicleFittedIds(vehicleWords(vehicle.parsed),read);
   // Too broad to read live (liveVehicleTypeLimit): no vehicle reading; its product part is the fallback below.
@@ -589,7 +589,7 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   const linked=new Set(fittedIds);
   if(fittedOnly&&!linked.size)continue;
   let ids:string[]=[];
-  const product=await resolvePart(split.product.join(" "),"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
+  const product=await resolvePart(split.product.join(" "),"product",correct,async parsed=>(ids=await hits(parsed)).length>0,read);
   if(!product)continue;
   const fitted=ids.filter(id=>linked.has(id));
   if(fittedOnly&&!fitted.length)continue;
@@ -602,7 +602,7 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
  for(const productWords of tooBroad){
   let ids:string[]=[];
   const text=productWords.join(" ");
-  const product=await resolvePart(text,"product",correct,async parsed=>(ids=await hits(parsed)).length>0);
+  const product=await resolvePart(text,"product",correct,async parsed=>(ids=await hits(parsed)).length>0,read);
   if(product)return product.text===text?{parsed:product.parsed,ids}:{parsed:product.parsed,ids,correctedQuery:product.text};
  }
  return null;
@@ -610,12 +610,12 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
 // Vehicle words must be whole words ("passat", "golf 7"), so a part word that only starts a make
 // ("hava" → HAVAL) does not split "hava filtresi" into a vehicle and a part.
 /** The part as typed, else (when `correct`) spell-corrected, if it `matches`; null otherwise. */
-async function resolvePart(text:string,scope:"vehicle"|"product",correct:boolean,matches:(parsed:ParsedSearch)=>Promise<boolean>){
+async function resolvePart(text:string,scope:"vehicle"|"product",correct:boolean,matches:(parsed:ParsedSearch)=>Promise<boolean>,read?:ReadOptions){
  const options={years:scope==="vehicle"},parse=(value:string)=>scope==="vehicle"?wholeWords(parseSearchQuery(value,options)):parseSearchQuery(value,options);
  const parsed=parse(text);
  if(await matches(parsed))return {text,parsed};
  if(!correct)return null;
- const corrected=await correctSearch(text,scope,options);
+ const corrected=await correctSearch(text,scope,options,read?.timeoutMs);
  const correctedParsed=corrected&&parse(corrected.text);
  return corrected&&correctedParsed&&await matches(correctedParsed)?{text:corrected.text,parsed:correctedParsed}:null;
 }

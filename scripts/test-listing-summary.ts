@@ -593,6 +593,9 @@ test("the type-ahead's reads stop at SUGGEST_STATEMENT_TIMEOUT_MS while listing 
   // A cold zero-hit search also reads the spell-correction: under the type-ahead's limit alone, never the listing's (#1416).
   assert.deepEqual(await limits(() => catalog.suggestProducts("zzzqxa", "all"), { SUGGEST_STATEMENT_TIMEOUT_MS: "1500", LISTING_STATEMENT_TIMEOUT_MS: undefined }),
     ["SET LOCAL statement_timeout = 1500"]);
+  // A two-word zero-hit search reads the vehicle reading and resolvePart's corrections too: the type-ahead's limit only.
+  assert.deepEqual(await limits(() => catalog.suggestProducts("zzzqxc zzzqxd", "all"), { SUGGEST_STATEMENT_TIMEOUT_MS: "1500", LISTING_STATEMENT_TIMEOUT_MS: undefined }),
+    ["SET LOCAL statement_timeout = 1500"]);
   assert.deepEqual(await limits(() => catalog.suggestProducts("zzzqxb", "all"), { SUGGEST_STATEMENT_TIMEOUT_MS: "0", LISTING_STATEMENT_TIMEOUT_MS: "0" }), [],
     "both off: the correction is a plain statement too");
 });
