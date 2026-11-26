@@ -193,7 +193,9 @@ async function storeOrder(key: string, hash: string, epoch: number, started: num
         WHERE key_hash=$1 AND epoch>=$3::bigint AND computed_at>now()-$4::bigint*interval '1 millisecond'`, [hash, head, epoch, Math.round(freshMs)]);
       if (rows[0]) return rows[0];
     } catch (error) {
-      failed("recheck", error);
+      // A missing table turns the stored orders off (failed); any other failure only skips the check.
+      if (missingTable(error)) failed("recheck", error);
+      else logError("recheck", "fresh-row check failed; building the order anyway", error);
     }
   }
   const at = values.length;

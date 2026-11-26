@@ -831,8 +831,8 @@ test("with page 1 and a deep page hot, each refresh prices the listing once and 
       await advance();
       assert.deepEqual(counts(await sent(async () => { await read(); await settled(order, label); })), { builds: 1, headPasses: 0, livePages: 0 }, label);
     }
-    // The deep traffic stops. Its last slice is one TTL old at the next refresh (the gate open: it may build), two at the
-    // one after (closed): from then on page 1 prices its own 480 ids and the stored order is not rebuilt.
+    // The deep traffic stops. Its last slice is one TTL old at the next refresh (the gate open: page 1 rebuilds the order
+    // once more), two at the one after (closed): from then on page 1 prices its own 480 ids and the order is not rebuilt.
     const firstPages = async (label: string) => {
       order = await reprice(order);
       await advance();
@@ -843,7 +843,7 @@ test("with page 1 and a deep page hot, each refresh prices the listing once and 
         await quiet();
       }));
     };
-    await firstPages("page 1 alone, one TTL after the last slice");
+    assert.deepEqual(await firstPages("page 1 alone, one TTL after the last slice"), { builds: 1, headPasses: 0, livePages: 0 }, "1 TTL: one more build");
     const builtAge = (await stored())[0].age_s;
     for (const ttls of [2, 3]) {
       assert.deepEqual(await firstPages(`page 1 alone, ${ttls} TTLs after the last slice`), { builds: 0, headPasses: 1, livePages: 0 }, `${ttls} TTLs`);
