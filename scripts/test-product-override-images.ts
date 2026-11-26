@@ -29,13 +29,13 @@ const [basbug, , dinamik] = storefrontCompanies();
 let admin: string;
 process.env.S3_BUCKET ??= "product-media";
 
-/** Object store keeping what was put, as S3 answers HeadObject for it. */
+/** Object store keeping what was put, as S3 answers HeadObject for it; it echoes a PUT's ChecksumSHA256 as S3 does (#1417). */
 function fakeStorage() {
   const objects = new Map<string, { length: number; sha256?: string }>();
-  return { objects, send: async (command: { constructor: { name: string }; input: { Key: string; Body?: Buffer; Metadata?: Record<string, string> } }) => {
+  return { objects, send: async (command: { constructor: { name: string }; input: { Key: string; Body?: Buffer; Metadata?: Record<string, string>; ChecksumSHA256?: string } }) => {
     if (command.constructor.name === "PutObjectCommand") {
       objects.set(command.input.Key, { length: command.input.Body!.length, sha256: command.input.Metadata?.sha256 });
-      return {};
+      return { ChecksumSHA256: command.input.ChecksumSHA256 };
     }
     const object = objects.get(command.input.Key);
     if (!object) throw Object.assign(new Error("NotFound"), { $metadata: { httpStatusCode: 404 } });

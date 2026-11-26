@@ -15,17 +15,32 @@ import type { SourceQueue } from "../src/modules/enrichment/source-queue";
 const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3, 4]);
 const sha256 = createHash("sha256").update(jpeg).digest("hex");
 
-/** Object store whose single object starts with the given metadata; records the commands it receives. */
-function fakeStorage(initial: { length: number; sha256?: string } | null, keepsMetadata = true) {
-  let object = initial;
+type FakeOptions = { headStatus?: number; corruptPuts?: boolean; ignoresChecksum?: boolean };
+/**
+ * Object store whose single object starts with the given metadata; records the commands it receives. Like S3 it refuses a
+ * PUT whose ChecksumSHA256 does not match the bytes it received (BadDigest) and echoes an accepted one (#1417);
+ * `ignoresChecksum` makes it neither check nor echo, `corruptPuts` flips the first byte on arrival, `headStatus` fails HEADs.
+ */
+function fakeStorage(initial: { length: number; sha256?: string } | null, options: FakeOptions = {}) {
+  let object: { length: number; sha256?: string; bytes?: Buffer } | null = initial;
   const calls: string[] = [];
-  return { calls, send: async (command: { constructor: { name: string }; input: { Body?: Buffer; Metadata?: Record<string, string> } }) => {
+  return { calls, send: async (command: { constructor: { name: string }; input: { Body?: Buffer; Metadata?: Record<string, string>; ChecksumSHA256?: string } }) => {
     calls.push(command.constructor.name);
     if (command.constructor.name === "PutObjectCommand") {
-      object = { length: command.input.Body!.length, sha256: keepsMetadata ? command.input.Metadata?.sha256 : undefined };
-      return {};
+      const bytes = Buffer.from(command.input.Body!);
+      if (options.corruptPuts) bytes[0] ^= 0xff;
+      const checksum = options.ignoresChecksum ? undefined : command.input.ChecksumSHA256;
+      if (checksum !== undefined && checksum !== createHash("sha256").update(bytes).digest("base64")) {
+        throw Object.assign(new Error("The SHA256 you specified did not match the calculated checksum."), { name: "BadDigest", $metadata: { httpStatusCode: 400 } });
+      }
+      object = { length: bytes.length, sha256: command.input.Metadata?.sha256, bytes };
+      return checksum === undefined ? {} : { ChecksumSHA256: checksum };
+    }
+    if (command.constructor.name === "HeadObjectCommand" && options.headStatus) {
+      throw Object.assign(new Error(`HTTP ${options.headStatus}`), { $metadata: { httpStatusCode: options.headStatus } });
     }
     if (!object) throw Object.assign(new Error("NotFound"), { $metadata: { httpStatusCode: 404 } });
+    if (command.constructor.name === "GetObjectCommand") return { Body: { transformToByteArray: async () => object!.bytes } };
     return { ContentLength: object.length, Metadata: object.sha256 ? { sha256: object.sha256 } : {} };
   } };
 }
@@ -41,14 +56,26 @@ async function withImage(run: (file: string, client: PoolClient) => Promise<void
 test("a known image whose object lost its sha256 metadata is rewritten instead of failing the import", () => withImage(async (file, client) => {
   const storage = fakeStorage({ length: jpeg.length });
   assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-1");
-  assert.deepEqual(storage.calls, ["HeadObjectCommand", "PutObjectCommand", "HeadObjectCommand"]);
+  assert.deepEqual(storage.calls, ["HeadObjectCommand", "PutObjectCommand"]);
 }));
 
 test("a known image whose object is missing is restored from the downloaded bytes", () => withImage(async (file, client) => {
   const storage = fakeStorage(null);
   assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-1");
-  assert.deepEqual(storage.calls, ["HeadObjectCommand", "PutObjectCommand", "HeadObjectCommand"]);
+  assert.deepEqual(storage.calls, ["HeadObjectCommand", "PutObjectCommand"]);
 }));
+
+test("a known image whose HEAD is answered 403 (a missing key without s3:ListBucket) is written again (#1417)", () => withImage(async (file, client) => {
+  const storage = fakeStorage(null, { headStatus: 403 });
+  assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-1");
+  assert.deepEqual(storage.calls, ["HeadObjectCommand", "PutObjectCommand"]);
+}));
+
+test("a new image is written once with its checksum, without a HEAD or a read-back (#1417)", () => withImage(async (file, client) => {
+  const storage = fakeStorage(null);
+  assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-1");
+  assert.deepEqual(storage.calls, ["PutObjectCommand"]);
+}, false));
 
 test("a verified known image is not uploaded again", () => withImage(async (file, client) => {
   const storage = fakeStorage({ length: jpeg.length, sha256 });
@@ -56,25 +83,35 @@ test("a verified known image is not uploaded again", () => withImage(async (file
   assert.deepEqual(storage.calls, ["HeadObjectCommand"]);
 }));
 
-test("storage that still cannot be verified after a rewrite fails the import", () => withImage(async (file, client) => {
-  await assert.rejects(storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", fakeStorage({ length: jpeg.length }, false) as never), /Object verification failed/);
-}));
-
-test("a new image that fails verification is not retried", () => withImage(async (file, client) => {
-  const storage = fakeStorage(null, false);
-  await assert.rejects(storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), /Object verification failed/);
-  assert.deepEqual(storage.calls, ["PutObjectCommand", "HeadObjectCommand"]);
+test("a store that does not acknowledge the checksum gets the image read back, and other bytes fail the import (#1417)", () => withImage(async (file, client) => {
+  const storage = fakeStorage(null, { ignoresChecksum: true });
+  assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-1");
+  assert.deepEqual(storage.calls, ["PutObjectCommand", "GetObjectCommand"]);
+  const corrupting = fakeStorage(null, { ignoresChecksum: true, corruptPuts: true });
+  await assert.rejects(storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", corrupting as never), /Stored media integrity failed: products\/[a-f0-9]{2}\/[a-f0-9]{64}\.jpg/);
+  assert.deepEqual(corrupting.calls, ["PutObjectCommand", "GetObjectCommand"]);
 }, false));
 
-/** A client whose known row is media-1 and whose upsert returns `upserted`; records the SQL it receives in `log`. */
-function upsertClient(upserted: string, log: string[] = []) {
+/** A client whose known row is media-1 (none when `known` is false) and whose upsert returns `upserted`; records the SQL it receives in `log`. */
+function upsertClient(upserted: string, log: string[] = [], known = true) {
   const sql: string[] = [];
   return { sql, client: { query: async (text: string) => {
     sql.push(text);
     log.push(text.startsWith("SELECT") ? "select" : "upsert");
-    return { rows: [{ id: text.startsWith("SELECT") ? "media-1" : upserted }] };
+    return { rows: text.startsWith("SELECT") ? (known ? [{ id: "media-1" }] : []) : [{ id: upserted }] };
   } } as unknown as PoolClient };
 }
+
+test("a new image whose upload the store refuses (BadDigest) fails before its row is written (#1417)", () => withImage(async file => {
+  const storage = fakeStorage(null, { corruptPuts: true });
+  const { client } = upsertClient("media-1", storage.calls, false);
+  await assert.rejects(storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), (error: Error) => {
+    assert.match(error.message, /^Stored media integrity failed: /);
+    assert.equal((error.cause as Error | undefined)?.name, "BadDigest");
+    return true;
+  });
+  assert.deepEqual(storage.calls, ["select", "PutObjectCommand"]);
+}));
 
 test("storing a known image marks its row as stored now, so the media collection leaves it", () => withImage(async file => {
   const { sql, client } = upsertClient("media-1");
@@ -89,14 +126,14 @@ test("a known object is verified after the upsert and written again when a colle
   const storage = fakeStorage(null);
   const { client } = upsertClient("media-1", storage.calls);
   assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-1");
-  assert.deepEqual(storage.calls, ["select", "upsert", "HeadObjectCommand", "PutObjectCommand", "HeadObjectCommand"]);
+  assert.deepEqual(storage.calls, ["select", "upsert", "HeadObjectCommand", "PutObjectCommand"]);
 }));
 
 test("a known row the collection removed meanwhile gets a new id and its object written again", () => withImage(async file => {
   const storage = fakeStorage(null);
   const { client } = upsertClient("media-2", storage.calls);
   assert.equal(await storeProductImage(client, file, "https://picdn.trodo.com/a.jpg", storage as never), "media-2");
-  assert.deepEqual(storage.calls, ["select", "upsert", "HeadObjectCommand", "PutObjectCommand", "HeadObjectCommand"]);
+  assert.deepEqual(storage.calls, ["select", "upsert", "HeadObjectCommand", "PutObjectCommand"]);
 }));
 
 test("a vehicle-list make without model_list parses and leaves its vehicles unresolved", async () => {
