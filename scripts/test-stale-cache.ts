@@ -369,6 +369,28 @@ test("listingStatementTimeoutMs: the setting's whole milliseconds, 55 s when bla
   }
 });
 
+test("suggestStatementTimeoutMs: the setting's whole milliseconds, 5 s when blank or invalid, 0 the listing limit (#1398)", async () => {
+  const { suggestStatementTimeoutMs } = await import("../src/modules/store/listing-timeout");
+  const saved = { suggest: process.env.SUGGEST_STATEMENT_TIMEOUT_MS, listing: process.env.LISTING_STATEMENT_TIMEOUT_MS };
+  const set = (key: string, value: string | undefined) => { if (value === undefined) delete process.env[key]; else process.env[key] = value; };
+  try {
+    set("LISTING_STATEMENT_TIMEOUT_MS", undefined);
+    for (const [setting, expected] of [[undefined, 5_000], ["", 5_000], ["  ", 5_000], ["abc", 5_000], ["-5", 5_000], ["0.5", 5_000],
+      ["Infinity", 5_000], ["0", 55_000], [" 0 ", 55_000], ["200", 200], ["1500.7", 1500], ["10000", 10_000]] as const) {
+      set("SUGGEST_STATEMENT_TIMEOUT_MS", setting);
+      assert.equal(suggestStatementTimeoutMs(), expected, JSON.stringify(setting));
+    }
+    set("SUGGEST_STATEMENT_TIMEOUT_MS", "0");
+    set("LISTING_STATEMENT_TIMEOUT_MS", "20000");
+    assert.equal(suggestStatementTimeoutMs(), 20_000, "the listing's own setting");
+    set("LISTING_STATEMENT_TIMEOUT_MS", "0");
+    assert.equal(suggestStatementTimeoutMs(), 0, "both off");
+  } finally {
+    set("SUGGEST_STATEMENT_TIMEOUT_MS", saved.suggest);
+    set("LISTING_STATEMENT_TIMEOUT_MS", saved.listing);
+  }
+});
+
 test("db: two copies of the module (instrumentation and route bundles) share one pool in production", async () => {
   const globals = globalThis as { getirbakimPool?: unknown };
   const previous = globals.getirbakimPool;
