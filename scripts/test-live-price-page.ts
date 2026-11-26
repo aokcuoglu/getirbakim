@@ -69,7 +69,7 @@ async function observed(onResult: (sent: Sent, rows: { id?: string }[]) => Promi
   }
 }
 /** The live price page statements: the ordered, paged read (a stored order's build and the cached heads have no OFFSET). */
-const isLivePage = (text: string) => /^SELECT (catalog\.id::text|\*) FROM \([\s\S]*ORDER BY [\s\S]+ LIMIT \d+ OFFSET \$\d+/.test(text);
+const isLivePage = (text: string) => /^SELECT (id::text FROM \(SELECT catalog\.id|\*) FROM \([\s\S]*ORDER BY [\s\S]+ LIMIT \d+ OFFSET \$\d+/.test(text);
 async function livePageStatements(run: () => Promise<unknown>) {
   const found: Sent[] = [];
   await observed(sent => { if (isLivePage(sent.text)) found.push(sent); }, run);
@@ -95,7 +95,12 @@ before(async () => {
     CASE WHEN n%17=0 THEN 'inactive' ELSE 'present' END,now()-interval '30 days',now(),now() FROM generate_series(1,$2::int) n`, [basbug, rows]);
   await schema.pool.query("SELECT refresh_product_matches()");
   await schema.pool.query(`INSERT INTO vehicle_brands(id,name,display_name) VALUES(1,'VW','VW');
-    INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT 1,id FROM supplier_items WHERE code ~ '[02468]$'`);
+    INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(10,1,'GOLF VII (5G1)','2012-08-01','2017-03-01');
+    INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
+     VALUES(340,10,'1.6 TDI',1598,'Diesel','Dizel',110,81,'2012-08-01','golf');
+    INSERT INTO storefront_make_fits(brand_id,supplier_item_id) SELECT 1,id FROM supplier_items WHERE code ~ '[02468]$';
+    INSERT INTO product_override_fitments(product_id,vehicle_type_id,mode)
+     SELECT ps.product_id,340,'add' FROM product_sources ps JOIN supplier_items s ON s.id=ps.supplier_item_id WHERE s.code ~ '[0-5]$'`);
   await schema.pool.query(`INSERT INTO source_categories(source,category_id,parent_id,name,slug,path_ids,source_url,raw) VALUES
     ('trodo',3,NULL,'Yedek parçalar','yedek-parca','{3}','','{}'),('trodo',252,3,'Fren','fren','{3,252}','','{}');
     INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES
@@ -115,7 +120,7 @@ after(async () => { await closeDb?.(); await schema?.drop(); });
  */
 async function previousPage(sent: Sent, sort: typeof asc | typeof desc) {
   const frozen = `unavailable,price_kurus ${sort === asc ? "ASC" : "DESC"} NULLS LAST,id`;
-  const text = sent.text.replace(/^SELECT catalog\.id::text FROM/, "SELECT * FROM").replace(/ORDER BY .+? LIMIT/, `ORDER BY ${frozen} LIMIT`);
+  const text = sent.text.replace(/^SELECT id::text FROM \(SELECT catalog\.id FROM/, "SELECT * FROM").replace(/\) page$/, "").replace(/ORDER BY .+? LIMIT/, `ORDER BY ${frozen} LIMIT`);
   assert.ok(text.startsWith("SELECT * FROM (") && text.includes(`ORDER BY ${frozen} LIMIT`), "the oracle rewrote the statement");
   return catalog.withBestOffers((await schema.pool.query<Awaited<ReturnType<Catalog["browseProducts"]>>["items"][number]>(text, sent.values)).rows);
 }
@@ -184,7 +189,10 @@ test("the ordering statement sends the lean columns: no SELECT * and no pricing 
     const statements = await livePageStatements(() => live(() => browse({ ...base, sort, page: "21" })));
     assert.equal(statements.length, 1, JSON.stringify(base));
     const [{ text }] = statements;
-    assert.ok(text.startsWith("SELECT catalog.id::text FROM ("), `${JSON.stringify(base)}: ids only`);
+    // The tie-break `id` is the uuid: the cast to text is in the outer select, after the ORDER BY (a bare `id` beside
+    // `id::text` in one select would sort the text output column under the database collation).
+    assert.ok(/^SELECT id::text FROM \(SELECT catalog\.id FROM \(/.test(text) && /\) page$/.test(text), `${JSON.stringify(base)}: ids only, cast after the ordering`);
+    assert.ok(!/ORDER BY[^)]*::text/.test(text), `${JSON.stringify(base)}: ordered on the uuid`);
     // The unavailable split and the id tie-break stay in the ordering statement itself: unavailable cards carry no price
     // today, so NULLS LAST alone would give the same rows, and only the statement shows the split was dropped.
     assert.ok(text.includes(`ORDER BY unavailable,price_kurus ${sort === asc ? "ASC" : "DESC"} NULLS LAST,id LIMIT 24 OFFSET`), `${JSON.stringify(base)}: the ordering`);
@@ -212,4 +220,16 @@ test("a card that disappears between the id read and the card read is left out o
   } finally {
     await schema.pool.query("DELETE FROM commerce_item_overrides WHERE supplier_item_id=$1", [gone]);
   }
+});
+
+test("a vehicle lead on the live path reads LIMIT 2 and the first two ids of the oracle", async () => {
+  const query: CatalogQuery = { q: "fren", sort: asc };
+  let lead: Awaited<ReturnType<Catalog["vehicleLead"]>> | undefined;
+  const statements = await livePageStatements(async () => { lead = await live(() => inRequest(() => catalog.vehicleLead(query, "340", 2))); });
+  assert.ok(lead);
+  assert.equal(statements.length, 1);
+  assert.match(statements[0].text, /LIMIT 2 OFFSET/);
+  const previous = await previousPage(statements[0], asc);
+  assert.equal(previous.length, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(lead.items)), JSON.parse(JSON.stringify(previous)));
 });
