@@ -118,7 +118,7 @@ before(async () => {
      (30,1,'TIGUAN II (AD1)','2016-01-01',NULL);
     INSERT INTO vehicle_brands(id,name,display_name) VALUES(2,'AUDI','AUDI');
     INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(40,2,'A3 (8V1)','2012-01-01',NULL),(50,2,'A4 (8W2)','2015-01-01',NULL);
-    INSERT INTO vehicle_brands(id,name,display_name) VALUES(3,'SEAT','SEAT');
+    INSERT INTO vehicle_brands(id,name,display_name) VALUES(3,'SEAT','SEAT'),(4,'SKODA','SKODA');
     INSERT INTO vehicle_models(id,brand_id,name,date_from,date_to) VALUES(60,3,'LEON (5F1)','2012-01-01',NULL);
     INSERT INTO vehicle_types(id,model_id,name,cc,fuel_type,fuel_name,hp,kwt,year_of_constr_from,search_text)
      VALUES(${GOLF},10,'1.6 TDI',1598,'Diesel','Dizel',110,81,'2012-08-01','golf');
@@ -285,6 +285,12 @@ test("a stored current listed models and category counts row is adopted on a col
   // The model list and the stored row are read, the fit tables are not.
   assert.equal((await loads(async () => { assert.deepEqual(await audiModels(), ["a3-8v1"]); }, text => text.includes("storefront_model_fits"))).loads, 0, "models");
   assert.equal((await loads(async () => { assert.equal(await audiCount(), 5); }, text => text.includes("storefront_make_fits"))).loads, 0, "counts");
+  // A row past the 10-minute TTL (within the 1-hour window) is adopted too: served once, refreshed in the background.
+  await counts.write("skoda|", [[241, 7]], current);
+  await schema.pool.query("UPDATE storefront_listing_cache SET computed_at=now()-interval '30 minutes' WHERE namespace='category-counts' AND epoch=$1", [current]);
+  const skoda = async () => (await inRequest(() => categories.scopeCategoryCounts({ make: "skoda" }))).get(241);
+  assert.equal(await skoda(), 7, "the stored count first");
+  assert.equal(await until(skoda, value => value === undefined), undefined, "then the real value (the make has no fits)");
 });
 
 test("loaded values are stored with the fits value, which the fit sync's bump moves ahead of the listing epoch", async () => {

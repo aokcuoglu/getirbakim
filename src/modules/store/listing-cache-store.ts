@@ -17,8 +17,13 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
  * the level off; a missing table (setup not run yet) turns it off for five minutes. Errors are logged (throttled) and
  * count as a miss: the caller loads the value itself.
  */
-/** Staleness bounds shared by the persisted caches whose declaration cannot reach catalog.ts' own constants. */
-export const storedListing = { maxStaleMs: 24 * 60 * 60 * 1000, maxFallbackMs: 48 * 60 * 60 * 1000 };
+/**
+ * Staleness bounds of the persisted listed models and category counts (#1391). Unlike the other namespaces (ids that cards
+ * re-read live) these are rendered as model and category links and counts, and a supplier sync moves them without an epoch
+ * bump: an old row could link a model or category that has since lost its last listed product (a 404). So a new task adopts a row
+ * up to 1 hour old, and one up to 6 hours old is only the fallback while the reload runs.
+ */
+export const storedLinks = { maxStaleMs: 60 * 60 * 1000, maxFallbackMs: 6 * 60 * 60 * 1000 };
 const maxBytes = 256 * 1024;
 const pruneEvery = 200;
 const missingTableBackoffMs = 5 * 60 * 1000;
