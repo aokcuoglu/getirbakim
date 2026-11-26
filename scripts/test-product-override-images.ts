@@ -533,6 +533,41 @@ test("an automatic image converts to an upload: same media object, at the end, s
   assert.ok(await images.servableProductMedia(mediaId, storefrontCompanies()));
 });
 
+test("an automatic image of a non-present row is previewed through the admin route and cannot be converted (#1442)", async () => {
+  const mediaId = await itemWithImage("prevA", "PVA 10201", "PREVA", "prev-a");
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await syncSharedLinks(schema.pool);
+  const product = await productOf("prevA");
+  const present = await store.loadProductImages(schema.pool, product);
+  assert.deepEqual(present.automatic.map(image => [image.src, image.inStore]), [[`/api/product-media/${mediaId}`, true]]);
+  for (const presence of ["inactive", "pending_missing"]) {
+    await schema.pool.query("UPDATE supplier_items SET presence=$2 WHERE id=$1", [ids.prevA, presence]);
+    const loaded = await store.loadProductImages(schema.pool, product);
+    assert.deepEqual(loaded.automatic.map(image => [image.src, image.inStore]), [[`/api/admin/product-media/${mediaId}`, false]], presence);
+    assert.equal(await images.servableProductMedia(mediaId, storefrontCompanies()), undefined, presence);
+    assert.deepEqual(await store.convertAutomaticImage(schema.pool, product, mediaId, admin), { ok: false, reason: "stale" }, presence);
+    assert.equal((await schema.pool.query("SELECT count(*)::int AS n FROM product_override_images WHERE product_id=$1", [product])).rows[0].n, 0);
+  }
+  await schema.pool.query("UPDATE supplier_items SET presence='present' WHERE id=$1", [ids.prevA]);
+  assert.deepEqual((await store.loadProductImages(schema.pool, product)).automatic.map(image => [image.src, image.inStore]), [[`/api/product-media/${mediaId}`, true]]);
+});
+
+test("one image on a present and a non-present row of a product stays in the store and converts (#1442)", async () => {
+  const mediaId = await itemWithImage("mixA", "MIX 10301", "MIXA", "mix-a");
+  await item("mixB", { supplier: "dinamik", code: "MIXA 10301", brand: "MIXA", name: "MIXA URUN" });
+  await schema.pool.query(`INSERT INTO product_enrichment_jobs(supplier_item_id,supplier_code,supplier_brand,status) VALUES($1,'MIXA 10301','MIXA','complete')`, [ids.mixB]);
+  await schema.pool.query(`INSERT INTO product_enrichments(supplier_item_id,supplier_code,supplier_brand,source_url,source_method,manufacturer,manufacturer_part_number,image_id,payload)
+    VALUES($1,'MIXA 10301','MIXA','https://www.trodo.com/c','test','MIXA','1',$2,$3)`, [ids.mixB, mediaId, JSON.stringify({ specifications: [], oemNumbers: {}, crossReferences: {}, vehicles: [] })]);
+  await schema.pool.query("SELECT refresh_product_matches()");
+  await syncSharedLinks(schema.pool);
+  const product = await productOf("mixA");
+  assert.equal(await productOf("mixB"), product);
+  await schema.pool.query("UPDATE supplier_items SET presence='inactive' WHERE id=$1", [ids.mixB]);
+  const loaded = await store.loadProductImages(schema.pool, product);
+  assert.deepEqual(loaded.automatic.map(image => [image.src, image.inStore]), [[`/api/product-media/${mediaId}`, true]]);
+  assert.deepEqual(await store.convertAutomaticImage(schema.pool, product, mediaId, admin), { ok: true });
+});
+
 test("converting refuses a foreign image, a full gallery and a merged product (#598)", async () => {
   const mediaLimit = await itemWithImage("convL", "CVL 10102", "CONVL", "conv-l");
   const mediaOther = await itemWithImage("convO", "CVO 10103", "CONVO", "conv-o");
