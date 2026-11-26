@@ -139,11 +139,14 @@ async function sentTexts(run: () => Promise<unknown>) {
 }
 const setStock = (keys: string[], stock: number) => schema.pool.query(
   "UPDATE supplier_items SET stock_data=jsonb_build_object('stok',$2::int) WHERE id=ANY($1::uuid[])", [keys.map(key => ids[key]), stock]);
-/** The `fits=vehicle` listing page 1 read by a fresh process under LISTING_STOCK_SCOPE_MAX_IDS=`max`, and the statements it sent. */
-const stockListing = (max: string | undefined, query: CatalogQuery) => withEnv({ LISTING_STOCK_SCOPE_MAX_IDS: max }, async () => {
+/**
+ * Page 1 of the listing (the `fits=vehicle` one unless `fits` is false) read by a fresh process under
+ * LISTING_STOCK_SCOPE_MAX_IDS=`max`, and the statements it sent.
+ */
+const stockListing = (max: string | undefined, query: CatalogQuery, fits = true) => withEnv({ LISTING_STOCK_SCOPE_MAX_IDS: max }, async () => {
   const fresh = await otherProcess();
   let listing: Awaited<ReturnType<Catalog["browseProducts"]>> | undefined;
-  const texts = await sentTexts(async () => { listing = await fresh.browseProducts({ ...query, fits: "vehicle" }, { vehicleTypeId: String(GOLF) }); });
+  const texts = await sentTexts(async () => { listing = await fresh.browseProducts({ ...query, ...(fits ? { fits: "vehicle" as const } : {}) }, { vehicleTypeId: String(GOLF) }); });
   assert.ok(listing);
   return { listed: { ids: idsOf(listing.items), total: listing.total, pages: listing.pages }, texts };
 });
@@ -176,6 +179,39 @@ test("a stock filter on the vehicle's fits lists the same cards scoped and over 
         // A statement pricing the view never reads the scoped clause: a price order reads the listing's ids first (listedIds).
         assert.ok(!scoped.texts.some(text => priced(text) && text.includes("ANY(ARRAY(")), label);
         if (sort) assert.ok(scoped.texts.some(text => text.includes("array_agg(catalog.id)") && text.includes("catalog.id=ANY(ARRAY(")), label);
+      }
+    }
+  } finally {
+    await setStock(fittingKeys, 2);
+  }
+});
+
+// A price-sorted search with a stock filter builds its cached order (searchOrder, #1425): the search hits and the scoped
+// stock clause are two id sets, so the order prices the listing's ids read first (listedIds), never the clause (#1429).
+test("a price-sorted search with a stock filter never prices the view through the scoped clause (#1429)", async () => {
+  await setStock(["trw2", "febi2"], 0);
+  try {
+    // "fren balatası": five fitting pads and ATE's, which does not fit; TRW's rear pad is sold out.
+    const inStock = ["bosch2", "ate1", "trw1", "febi1", "bosch1"].map(key => ids[key]);
+    const expected: Record<string, Record<"price-asc" | "price-desc", string[]>> = {
+      "in_stock false": { "price-asc": inStock, "price-desc": [...inStock].reverse() },
+      "in_stock true": { "price-asc": inStock.filter(id => id !== ids.ate1), "price-desc": inStock.filter(id => id !== ids.ate1).reverse() },
+      "out_of_stock false": { "price-asc": [ids.trw2], "price-desc": [ids.trw2] },
+      "out_of_stock true": { "price-asc": [ids.trw2], "price-desc": [ids.trw2] },
+    };
+    for (const fits of [false, true]) {
+      for (const availability of ["in_stock", "out_of_stock"] as const) {
+        for (const sort of ["price-asc", "price-desc"] as const) {
+          const label = `${availability} ${sort} fits=${fits}`, query = { q: "fren balatası", availability, sort };
+          const scoped = await stockListing(undefined, query, fits), whole = await stockListing("0", query, fits);
+          assert.deepEqual(scoped.listed, whole.listed, label);
+          assert.deepEqual(scoped.listed.ids, expected[`${availability} ${fits}`][sort], label);
+          // The search order path ran (its build statement), with the scoped clause and the listing's ids read first.
+          assert.ok(scoped.texts.some(text => text.includes("SELECT ids::text AS ids FROM ordered")), label);
+          assert.ok(scoped.texts.some(text => text.includes("array_agg(catalog.id)") && text.includes("catalog.id=ANY(ARRAY(")), label);
+          assert.ok(!scoped.texts.some(text => priced(text) && text.includes("ANY(ARRAY(")), label);
+          assert.ok(!whole.texts.some(text => text.includes("=ANY(ARRAY(")), label);
+        }
       }
     }
   } finally {

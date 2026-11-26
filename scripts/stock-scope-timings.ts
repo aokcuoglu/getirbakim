@@ -81,11 +81,14 @@ async function readOnly<T>(read: (client: PoolClient) => Promise<T>, isolation =
 }
 const count = async (statements: Built, client: PoolClient) => Number((await client.query<{ count: string }>(statements.count.text, statements.count.values)).rows[0].count);
 const pageIds = async (statements: Built, client: PoolClient) => (await client.query<{ id: string }>(statements.pageIds.text, statements.pageIds.values)).rows.map(row => row.id);
-/** The price-asc page as pricedScope reads it: over two or more id sets the listed ids first, then the page by them. */
+/**
+ * The price-asc page as pricedScope reads it: over two or more id sets the listed ids first, then the page by them; an
+ * empty listing reads no page, as browseProducts.
+ */
 async function priceIds(statements: Built, client: PoolClient) {
-  const ids = statements.listed ? (await client.query<{ ids: string | null }>(statements.listed.text, statements.listed.values)).rows[0].ids : null;
-  const statement = statements.pricePage(ids);
-  return (await client.query<{ id: string }>(statement.text, statement.values)).rows.map(row => row.id);
+  const row = statements.listed ? (await client.query<{ count: string; ids: string | null }>(statements.listed.text, statements.listed.values)).rows[0] : null;
+  const statement = statements.pricePage(row && { count: Number(row.count), ids: row.ids });
+  return statement ? (await client.query<{ id: string }>(statement.text, statement.values)).rows.map(page => page.id) : [];
 }
 /** Both sides on one snapshot, each at its own work_mem: the same count and ids. Returns the listing's count. */
 async function sameOnOneSnapshot(scope: string, sides: Record<Side, Built>) {

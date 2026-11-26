@@ -869,10 +869,12 @@ function catalogRead<T extends QueryResultRow>(label:string,sql:string,values:un
  return listingQuery<T>({},label,sql,values,read);
 }
 // The listing reads, from catalogFilter's `from`: its count, one page of ids in the default order (`offset` a parameter),
-// and its shown brands (the brand facet).
+// its shown brands (the brand facet), and its count with its ids up to pricedByIdsMax rows (listedIds; pricedByIdsMax is
+// declared further down and read when the text is built).
 const countSql=(from:string)=>`SELECT count(*) ${from}`;
 const pageIdsSql=(from:string,offset:string)=>`SELECT id::text FROM (SELECT id,updated_at,unavailable ${from} ORDER BY ${newestOrder} LIMIT ${catalogPageSize} OFFSET ${offset}) page`;
 const brandsSql=(from:string)=>`SELECT DISTINCT display_brand AS brand ${from} ORDER BY brand`;
+const listedIdsSql=(from:string)=>`SELECT count(*) AS count,CASE WHEN count(*)<=${pricedByIdsMax} THEN array_agg(catalog.id)::text END AS ids ${from}`;
 /** The listing's product count, as the count caches keep it. */
 async function countListing(listing:{values:unknown[];from:string;workMem?:string},key:string){
  return Number((await listingQuery<{count:string}>(listing,`catalog.listingCount ${key}`,countSql(listing.from),listing.values)).rows[0].count);
@@ -1236,7 +1238,7 @@ type ListingFilter=PricedScope&{from:string;idSets:number};
  */
 async function listedIds({values,where,from,workMem}:ListingFilter,label:string):Promise<{total:number;scope:PricedScope|null}>{
  const row=(await boundedQuery<{count:string;ids:string|null}>(`catalog.pricedListedIds ${label}`,
-  `SELECT count(*) AS count,CASE WHEN count(*)<=${pricedByIdsMax} THEN array_agg(catalog.id)::text END AS ids ${from}`,values,30_000,{workMem})).rows[0];
+  listedIdsSql(from),values,30_000,{workMem})).rows[0];
  const total=Number(row.count);
  return {total,scope:row.ids?{where:"WHERE catalog.id=ANY($2::uuid[])",values:[values[0],row.ids]}:total?{where,values,workMem}:null};
 }
@@ -1603,17 +1605,20 @@ export async function listingStatements(query:CatalogQuery):Promise<Record<"coun
  * A stock-filtered listing's reads (#1429) as statements, for the read-only comparison scripts/stock-scope-timings.ts,
  * built under the LISTING_STOCK_SCOPE_MAX_IDS in force: its count and page `page` of ids in the default order (the texts
  * countListing and listingPageIds run), and a price-asc page as pricedScope reads it. Over two or more id sets that is
- * `listed` (the text listedIds runs: the count and, up to pricedByIdsMax rows, the ids as an array literal), then
- * `pricePage(ids)` by those ids; otherwise `listed` is null and `pricePage(null)` reads the filter's clause. `workMem`:
- * the filter's, which listingQuery runs its reads with. Not for a search.
+ * `listed` (listedIds' statement: the count and, up to pricedByIdsMax rows, the ids as an array literal), then
+ * `pricePage(row)` with its row: by those ids, none at a count of 0 (listedIds gives no scope, browseProducts reads no
+ * page; a scoped clause must never reach a priced statement), the filter's clause above pricedByIdsMax rows. Without
+ * `listed` (null) `pricePage(null)` reads the filter's clause. `workMem`: the filter's, which listingQuery runs its reads
+ * with. Not for a search.
  */
-export async function stockListingStatements(query:CatalogQuery,page:number,context:CatalogContext={}):Promise<{count:Statement;pageIds:Statement;listed:Statement|null;pricePage:(ids:string|null)=>Statement;workMem?:string}>{
+export async function stockListingStatements(query:CatalogQuery,page:number,context:CatalogContext={}):Promise<{count:Statement;pageIds:Statement;listed:Statement|null;
+ pricePage:(listed:{count:number;ids:string|null}|null)=>Statement|null;workMem?:string}>{
  if(query.q?.trim()||!stockFiltered(query))throw new Error("stockListingStatements: a stock-filtered listing without a search only");
  const filter=await catalogFilter(query,context),{values,where,from}=filter,offset=(page-1)*catalogPageSize,order=listingOrder({sort:"price-asc"});
+ const byClause={text:pricedPageSql(where,order,catalogPageSize,`$${values.length+1}`),values:[...values,offset]};
  return {count:{text:countSql(from),values},pageIds:{text:pageIdsSql(from,`$${values.length+1}`),values:[...values,offset]},
-  listed:filter.idSets>=2?{text:`SELECT count(*) AS count,CASE WHEN count(*)<=${pricedByIdsMax} THEN array_agg(catalog.id)::text END AS ids ${from}`,values}:null,
-  pricePage:ids=>ids?{text:pricedPageSql("WHERE catalog.id=ANY($2::uuid[])",order,catalogPageSize,"$3"),values:[values[0],ids,offset]}
-   :{text:pricedPageSql(where,order,catalogPageSize,`$${values.length+1}`),values:[...values,offset]},
+  listed:filter.idSets>=2?{text:listedIdsSql(from),values}:null,
+  pricePage:listed=>!listed?byClause:!listed.count?null:listed.ids?{text:pricedPageSql("WHERE catalog.id=ANY($2::uuid[])",order,catalogPageSize,"$3"),values:[values[0],listed.ids,offset]}:byClause,
   workMem:filter.workMem};
 }
 /**

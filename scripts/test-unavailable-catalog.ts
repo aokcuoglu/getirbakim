@@ -801,10 +801,10 @@ describe("availability filter (#1242)", () => {
       await groups();
       stockFilter = await import("../src/modules/store/stock-filter");
     });
-    /** The listed cards of `scope` that `clause` keeps, read as catalogFilter's listing reads them. */
-    const listed = async (scope: string[], clause: string) => (await schema.pool.query<{ id: string }>(
+    /** The listed cards of `scope` that `clause` keeps, read as catalogFilter's listing reads them, for `companies` (`$1`). */
+    const listed = async (scope: string[], clause: string, companies = storefrontCompanies()) => (await schema.pool.query<{ id: string }>(
       `SELECT catalog.id::text AS id FROM (${catalog.catalogEntriesSql}) catalog WHERE ${catalog.listedOnly} AND catalog.id=ANY($2::uuid[]) AND ${clause} ORDER BY 1`,
-      [storefrontCompanies(), scope])).rows.map(row => row.id);
+      [companies, scope])).rows.map(row => row.id);
     const scoped = (availability: "in_stock" | "out_of_stock", size: number) => stockFilter.stockClause(availability, { param: "$2::uuid[]", size })!;
 
     test("lists the same cards as the whole stock set's clause over any id array", async () => {
@@ -818,18 +818,26 @@ describe("availability filter (#1242)", () => {
         "a random uuid": [randomUUID()],
         "an empty array": [],
       };
+      // The companies `$1` carries: the storefront's, and without Dinamik, whose offers then neither list nor sell a group.
+      const companySets = { "all companies": storefrontCompanies(), "without Dinamik": storefrontCompanies().filter(company => company !== dinamik) };
       const mode = (await schema.pool.query<{ mode: string }>("SELECT basbug_checkout_mode AS mode FROM commerce_settings")).rows[0].mode;
       try {
         for (const checkout of ["live", "snapshot"]) {
           await schema.pool.query("UPDATE commerce_settings SET basbug_checkout_mode=$1", [checkout]);
           for (const availability of ["in_stock", "out_of_stock"] as const) {
             const whole = stockFilter.stockClause(availability)!;
-            for (const [name, scope] of Object.entries(scopes)) {
-              const clause = scoped(availability, scope.length);
-              assert.equal(clause.idSet, true, `${checkout} ${availability} ${name}`);
-              assert.deepEqual(await listed(scope, clause.clause), await listed(scope, whole.clause), `${checkout} ${availability} ${name}`);
+            for (const [companiesName, companies] of Object.entries(companySets)) {
+              for (const [name, scope] of Object.entries(scopes)) {
+                const clause = scoped(availability, scope.length), label = `${checkout} ${availability} ${companiesName} ${name}`;
+                assert.equal(clause.idSet, true, label);
+                assert.deepEqual(await listed(scope, clause.clause, companies), await listed(scope, whole.clause, companies), label);
+              }
             }
           }
+          // Without Dinamik the group whose stocked offer is Dinamik's is sold out on both sides.
+          const withoutDinamik = companySets["without Dinamik"];
+          assert.deepEqual(await listed([ids.grpPrimary], scoped("out_of_stock", 1).clause, withoutDinamik), [ids.grpPrimary], checkout);
+          assert.deepEqual(await listed([ids.grpPrimary], scoped("in_stock", 1).clause, withoutDinamik), [], checkout);
           // Not vacuous: both sides list cards, among them a primary sold only through its offer, which is never a card itself.
           const all = scopes["all fixture ids"];
           const [inStock, outOfStock] = [await listed(all, scoped("in_stock", all.length).clause), await listed(all, scoped("out_of_stock", all.length).clause)];
