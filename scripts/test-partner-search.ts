@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
+import pg from "pg";
 import { isolatedSchema } from "./isolated-schema";
 import { syncSharedLinks } from "./test-helpers/shared-links";
 import { storefrontCompanies } from "../src/modules/suppliers/storefront-sources";
@@ -77,6 +78,12 @@ before(async () => {
     [basbug, `ATE 2401${500 + index}`, { uk: "ATE", ac: disc.name ?? "ATE FREN DISKI", ac2: "", dc: "TL" }]);
     ate[key] = rows[0].id;
   }
+  // A disc whose name leads with the broad engine word (#1407), as "BENZIN POMPASI" or "DIZEL ENJEKTOR" do: there the
+  // word qualifies the part. No vehicle fits it.
+  groupIds.tdiNamed = (await schema.pool.query<{ id: string }>(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+    product_count,price_count,stock_count,conflicting,presence,first_seen_at,last_seen_at,changed_at)
+    VALUES('basbug',$1,'G','MRK','TRW DF4000',$2,'{"nf":100}','{"stok":2}',1,1,1,false,'present',now()-interval '10 days',now()-interval '1 hour',now()-interval '1 hour')
+    RETURNING id::text`, [basbug, { uk: "TRW", ac: "TDI FREN DISKI", ac2: "", dc: "TL" }])).rows[0].id;
   await schema.pool.query("SELECT refresh_product_matches()");
   await schema.pool.query("INSERT INTO product_overrides(product_id,hidden) SELECT product_id,true FROM product_sources WHERE supplier_item_id=$1", [groupIds.hidden]);
   await schema.pool.query("SELECT product_overrides_project(ARRAY(SELECT product_id FROM product_sources WHERE supplier_item_id=$1))", [groupIds.hidden]);
@@ -275,6 +282,32 @@ async function fittedHits(words: string, hits: string[], by: "hits" | "types") {
 }
 const discsOf = (rowIds: Iterable<string>) => Object.keys(ate).filter(key => new Set(rowIds).has(ate[key])).sort();
 const reads = ["hits", "types"] as const;
+/** The statements `run` sends on any connection, with its value. */
+async function sentBy<T>(run: () => Promise<T>) {
+  const original = pg.Client.prototype.query;
+  const sent: string[] = [];
+  pg.Client.prototype.query = function (this: pg.Client, ...args: unknown[]) {
+    const config = args[0];
+    sent.push(typeof config === "string" ? config : (config as { text?: string } | undefined)?.text ?? "");
+    return (original as (...rest: unknown[]) => unknown).apply(this, args);
+  } as typeof original;
+  try { return { value: await run(), sent }; }
+  finally { pg.Client.prototype.query = original; }
+}
+/** Runs `run` with the given settings, restoring them after. */
+async function withEnv<T>(settings: Record<string, string>, run: () => Promise<T>) {
+  const saved = Object.fromEntries(Object.keys(settings).map(name => [name, process.env[name]]));
+  Object.assign(process.env, settings);
+  try { return await run(); }
+  finally { for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value; }
+}
+const withLimit = <T>(limit: string, run: () => Promise<T>) => withEnv({ VEHICLE_SEARCH_MAX_LIVE_TYPES: limit }, run);
+/** The search's ranked ids under `settings`, reloaded (an edit's bump): the cached rankings do not follow the settings. */
+async function rankedUnder(settings: Record<string, string>, q: string) {
+  await epoch.invalidateListings();
+  return withEnv(settings, () => catalog.rankedSearchIds(q, "all"));
+}
+const tdiDiscs = ["bothTdiRemoved", "octaviaTdi", "passat", "superbAdded", "superbInName", "superbTdi"];
 
 test("a search's vehicle reading (#1395, #1407): whole models from the model fits, other types from the hits or the types, the rows the live read gave before", async () => {
   // Whole: both OCTAVIA III types. Partial: one of SUPERB II's two types. Mixed: "tdi" is PASSAT's only type (a whole
@@ -305,6 +338,22 @@ test("a search's vehicle reading (#1395, #1407): whole models from the model fit
   for (const by of reads) assert.deepEqual(discsOf(await fittedHits("octavia", hits, by)), ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "octaviaTsi", "superbInName"], by);
 });
 
+test("without `by`, many hits per partly matched type read from the types, fewer from the hits; the same rows (#1407)", async () => {
+  // "superb tdi": one type (210). Every supplier row is a hit: at least 300 per type, so the type-driven read.
+  const scope = await catalog.vehicleSearchScope(vehicleWords("superb tdi"));
+  assert.deepEqual(scope, { models: [], types: [210] });
+  const everyRow = (await schema.pool.query<{ id: string }>("SELECT id::text FROM supplier_items ORDER BY code")).rows.map(row => row.id);
+  assert.ok(everyRow.length >= 300, `${everyRow.length} rows`);
+  const before = await fittedBefore("superb tdi");
+  const fromTypes = (text: string) => text.includes("array_agg(f.source_index) AS idx"), fromHits = (text: string) => text.includes("unnest($1::uuid[]) h(id)");
+  for (const [hits, typeDriven] of [[everyRow, true], [everyRow.slice(0, 299), false]] as const) {
+    const { value, sent } = await sentBy((): Promise<string[]> => catalog.vehicleFittedHits(scope, [...hits], "superb tdi"));
+    assert.deepEqual(value, hits.filter(id => before.has(id)), `${hits.length} hits`);
+    assert.deepEqual([sent.some(fromTypes), sent.some(fromHits)], [typeDriven, !typeDriven], `${hits.length} hits`);
+  }
+  assert.deepEqual(discsOf(await catalog.vehicleFittedHits(scope, everyRow, "superb tdi")), ["superbAdded", "superbTdi"]);
+});
+
 test("part + vehicle searches list the fitted discs (#1395): a whole model, a single type and a mixed reading", async () => {
   for (const [q, discs] of [
     ["ate fren diski octavia", ["bothTdiRemoved", "octaviaAdded", "octaviaTdi", "octaviaTsi", "superbInName"]],
@@ -320,15 +369,8 @@ test("part + vehicle searches list the fitted discs (#1395): a whole model, a si
 });
 
 test("a reading past VEHICLE_SEARCH_MAX_LIVE_TYPES partly matched types is read after the other splits, longest vehicle first; without fitted parts it is a plain search (#1395, #1407)", async () => {
-  const saved = process.env.VEHICLE_SEARCH_MAX_LIVE_TYPES;
-  const withLimit = async <T>(limit: string, run: () => Promise<T>) => {
-    process.env.VEHICLE_SEARCH_MAX_LIVE_TYPES = limit;
-    try { return await run(); }
-    finally { if (saved === undefined) delete process.env.VEHICLE_SEARCH_MAX_LIVE_TYPES; else process.env.VEHICLE_SEARCH_MAX_LIVE_TYPES = saved; }
-  };
-  // Each search below reloads (an edit's bump): the cached rankings do not follow the setting.
-  const ranked = async (limit: string, q: string) => { await epoch.invalidateListings(); return discsOf(await withLimit(limit, () => catalog.rankedSearchIds(q, "all"))); };
-  const tdi = ["bothTdiRemoved", "octaviaTdi", "passat", "superbAdded", "superbInName", "superbTdi"];
+  const ranked = async (limit: string, q: string) => discsOf(await rankedUnder({ VEHICLE_SEARCH_MAX_LIVE_TYPES: limit }, q));
+  const tdi = tdiDiscs;
   // "tdi": four types of partly matched models (GOLF VII 100 and 102, OCTAVIA III 200, SUPERB II 210) and PASSAT, whole;
   // "superb tdi" one. Under 3 the "tdi" split is deferred, so "superb tdi" is read in its turn and wins; under 500
   // (blank or invalid settings) "tdi" is read first and "ate fren diski superb" finds the disc named SUPERB.
@@ -359,4 +401,41 @@ test("a reading past VEHICLE_SEARCH_MAX_LIVE_TYPES partly matched types is read 
   assert.deepEqual(await ranked("3", "ate fren diskj tdi"), tdi);
   const corrected = await withLimit("3", () => catalog.suggestProducts("ate fren diskj tdi", "all"));
   assert.deepEqual([corrected.vehicleScope, corrected.correctedQuery], [{ productText: "ate fren diski", vehicleText: "tdi", fitted: true }, undefined]);
+});
+
+test("next to a name match, a deferred word leading the query qualifies the part; trailing, it still reads fitted (#1407)", async () => {
+  const limit = { VEHICLE_SEARCH_MAX_LIVE_TYPES: "3" };
+  // "tdi fren diski" matches the TRW disc's name; "tdi" leads, so it is no vehicle: the name match alone, no notice
+  // (as "benzin pompası", "dizel enjektör" list their pumps and injectors).
+  assert.deepEqual(await rankedUnder(limit, "tdi fren diski"), [groupIds.tdiNamed]);
+  const leading = await withEnv(limit, () => catalog.suggestProducts("tdi fren diski", "all"));
+  assert.deepEqual([leading.vehicleScope, leading.correctedQuery], [undefined, undefined]);
+  // Trailing ("fren diski tdi", the same name match): the discs linked to a TDI type with the notice, the name match too.
+  const trailing = await rankedUnder(limit, "fren diski tdi");
+  assert.deepEqual(discsOf(trailing), tdiDiscs);
+  assert.ok(trailing.includes(groupIds.tdiNamed));
+  const notice = await withEnv(limit, () => catalog.suggestProducts("fren diski tdi", "all"));
+  assert.deepEqual(notice.vehicleScope, { productText: "fren diski", vehicleText: "tdi", fitted: true });
+  // Without a name match a leading deferred word is still read: "tdi ate fren diski" lists the TDI discs.
+  assert.deepEqual(discsOf(await rankedUnder(limit, "tdi ate fren diski")), tdiDiscs);
+  const unnamed = await withEnv(limit, () => catalog.suggestProducts("tdi ate fren diski", "all"));
+  assert.deepEqual(unnamed.vehicleScope, { productText: "ate fren diski", vehicleText: "tdi", fitted: true });
+});
+
+test("VEHICLE_SEARCH_MAX_DEFERRED_HITS: a deferred split whose product part has more hits is no vehicle reading (#1407)", async () => {
+  const values: unknown[] = [];
+  const hitCount = (await schema.pool.query(catalog.searchHitIdsSql(parseSearchQuery("ate fren diski"), values, "all"), values)).rowCount ?? 0;
+  assert.equal(hitCount, Object.keys(ate).length);
+  const under = (setting: string) => ({ VEHICLE_SEARCH_MAX_LIVE_TYPES: "3", VEHICLE_SEARCH_MAX_DEFERRED_HITS: setting });
+  const everyDisc = Object.keys(ate).sort();
+  // At the limit the deferred "tdi" is read; one below, or 0, it is not: the product part's matches, plain. Blank or
+  // invalid: 25000.
+  for (const [setting, discs] of [[String(hitCount), tdiDiscs], [String(hitCount - 1), everyDisc], ["0", everyDisc],
+    ["", tdiDiscs], [" ", tdiDiscs], ["abc", tdiDiscs], ["-1", tdiDiscs], ["2.5", tdiDiscs]] as const)
+    assert.deepEqual(discsOf(await rankedUnder(under(setting), "ate fren diski tdi")), discs, JSON.stringify(setting));
+  await epoch.invalidateListings();
+  const plain = await withEnv(under(String(hitCount - 1)), () => catalog.suggestProducts("ate fren diski tdi", "all"));
+  assert.deepEqual([plain.vehicleScope, plain.correctedQuery], [undefined, undefined]);
+  // Only deferred splits: "superb tdi" (one type) is read in its turn whatever the setting.
+  assert.deepEqual(discsOf(await rankedUnder(under("0"), "ate fren diski superb tdi")), ["superbAdded", "superbTdi"]);
 });

@@ -510,18 +510,32 @@ const searchEpoch=(raw:string,mode:SearchMode)=>mode!=="code"&&vehicleReadingWor
  * invalid 500, 0 defers every split whose words partly match a model.
  */
 const maxLiveVehicleTypes=500;
-function liveVehicleTypeLimit(){
- const setting=process.env.VEHICLE_SEARCH_MAX_LIVE_TYPES?.trim();
- const value=setting?Number(setting):maxLiveVehicleTypes;
- return Number.isInteger(value)&&value>=0?value:maxLiveVehicleTypes;
+/** A whole number of at least 0 from the environment, read per call; blank or invalid gives `fallback`. */
+function settingLimit(name:string,fallback:number){
+ const setting=process.env[name]?.trim();
+ const value=setting?Number(setting):fallback;
+ return Number.isInteger(value)&&value>=0?value:fallback;
 }
+const liveVehicleTypeLimit=()=>settingLimit("VEHICLE_SEARCH_MAX_LIVE_TYPES",maxLiveVehicleTypes);
+/**
+ * The most hits a deferred split's product part may have and still be read as a vehicle (#1407). A deferred reading is
+ * read from its hits (vehicleFittedHits), and a cold read of 41-50k hits took 3.7-5.8 s locally ("filtre dizel"): on RDS
+ * past the type-ahead's 5 s limit, whose timed-out key is then held for SEARCH_FAILURE_HOLD_MS (#1416), where the search
+ * answered in 0.13 s before. A split over the limit is no vehicle reading and the fallback order applies (another
+ * split's unfitted reading, else the plain product matches); the hits are never cut. VEHICLE_SEARCH_MAX_DEFERRED_HITS,
+ * read per call: blank or invalid 25000 ("fren balatası dizel", 22.6k hits, reads; "filtre dizel", 41.6k, does not), 0
+ * reads no deferred split as a vehicle (as #1395 did).
+ */
+const deferredHitLimit=()=>settingLimit("VEHICLE_SEARCH_MAX_DEFERRED_HITS",25_000);
 /** A search's vehicle words for statement labels, so a timeout or slow line names the search that caused it. */
 const vehicleLabel=(parsed:ParsedSearch)=>[...parsed.terms.map(term=>term.text),...parsed.years.map(String)].join(" ").slice(0,60);
 /**
  * The vehicle types a search's vehicle words match (#1395): `models` whose every type matches ("bmw", "passat",
  * "volkswagen"), and `types`, the matched types of the other models ("passat tdi"). Read first and handed to the fits
- * read (vehicleFittedHits) as arrays, so that read is planned for its real number of models, types and hits: as one
- * statement with the scope the planner read every fitment sequentially for "passat tdi".
+ * read (vehicleFittedHits) as arrays, so that read is planned for its real number of models and types: as one statement
+ * with the scope the planner read every fitment sequentially for "passat tdi". The hits are not counted in: their CTE
+ * (DISTINCT over the unnested array) is estimated at 200 rows whatever their number, which keeps the hit-driven
+ * statement on one stable plan, nested loops through the primary keys per hit and donor.
  */
 export type VehicleTypeScope={models:number[];types:number[]};
 export async function vehicleSearchScope(parsed:ParsedSearch,read?:ReadOptions):Promise<VehicleTypeScope>{
@@ -607,12 +621,15 @@ export async function vehicleFittedHits(scope:VehicleTypeScope,hitIds:string[],w
 /**
  * `fittedOnly`: only readings whose vehicle has linked parts count. A split whose vehicle words partly match more types
  * than liveVehicleTypeLimit() (an engine or fuel word, #1395, #1407) is deferred and blocks no other split. When the
- * other splits give no fitted reading, the deferred ones are read, longest vehicle phrase first, and the first with
- * fitted parts is the result, with its vehicle notice ("fren balatası dizel": the pads linked to a diesel type). A
- * deferred split without fitted parts is never a "not fitted" reading (too broad to say so): an unfitted reading of
- * another split is the result, else the product part of the first deferred split tried (fewest vehicle words) whose
- * product part matches, as a plain search without a vehicle notice. Not with `fittedOnly`: there the whole query's
- * name matches are the result. A product part found by spell-correction is reported as the corrected query.
+ * other splits give no fitted reading, the deferred ones whose product part has at most deferredHitLimit() hits are
+ * read, longest vehicle phrase first, and the first with fitted parts is the result, with its vehicle notice ("fren
+ * balatası dizel": the pads linked to a diesel type). A deferred split without fitted parts is never a "not fitted"
+ * reading (too broad to say so): an unfitted reading of another split is the result, else the product part of the first
+ * deferred split tried (fewest vehicle words) whose product part matches, as a plain search without a vehicle notice.
+ * Not with `fittedOnly`: there the whole query's name matches are the result, and a deferred split whose vehicle words
+ * lead the query is dropped: Turkish puts the qualifier before the part and the vehicle after it, so a broad word that
+ * leads a query matching product names qualifies the part ("benzin pompası", "dizel enjektör", "turbo hortumu"), while
+ * "fren balatası dizel" still reads "dizel". A product part found by spell-correction is reported as the corrected query.
  */
 async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<string[]>,correct:boolean,fittedOnly=false,read?:ReadOptions):Promise<CatalogSearch|null>{
  const words=vehicleReadingWords(raw);
@@ -621,7 +638,7 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
  const typed=raw.trim().split(/\s+/),sameWords=typed.length===words.length&&typed.every((word,index)=>normalizeSearchText(word)===words[index]);
  const display=(text:string,part:string[])=>sameWords&&text===part.join(" ")?part.map(word=>typed[words.indexOf(word)]).join(" "):text;
  const splits=words.slice(1).flatMap((_,index)=>{const size=index+1;
-  return [{product:words.slice(0,words.length-size),vehicle:words.slice(words.length-size)},{product:words.slice(size),vehicle:words.slice(0,size)}];});
+  return [{product:words.slice(0,words.length-size),vehicle:words.slice(words.length-size),leading:false},{product:words.slice(size),vehicle:words.slice(0,size),leading:true}];});
  // Each product part is resolved once: the deferred pass and the plain fallback reuse it.
  const products=new Map<string,Promise<{text:string;parsed:ParsedSearch;ids:string[]}|null>>();
  const productPart=(part:string[])=>{
@@ -636,9 +653,10 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
   return resolved;
  };
  type Reading={split:(typeof splits)[number];vehicle:{text:string;parsed:ParsedSearch};scope:VehicleTypeScope};
- const reading=async({split,vehicle,scope}:Reading)=>{
+ // `maxHits`: a product part with more hits is no reading (deferredHitLimit).
+ const reading=async({split,vehicle,scope}:Reading,maxHits=Infinity)=>{
   const product=await productPart(split.product);
-  if(!product)return null;
+  if(!product||product.ids.length>maxHits)return null;
   const fitted=await vehicleFittedHits(scope,product.ids,vehicleLabel(vehicle.parsed),read);
   return {parsed:product.parsed,ids:fitted.length?fitted:product.ids,vehicleWords:split.vehicle.length,
    vehicle:{productText:display(product.text,split.product),vehicleText:display(vehicle.text,split.vehicle),fitted:fitted.length>0}};
@@ -656,16 +674,18 @@ async function vehicleSearch(raw:string,hits:(parsed:ParsedSearch)=>Promise<stri
    return Boolean((await catalogRead("catalog.searchVehicleProbe",`SELECT 1 FROM vehicle_types v WHERE ${vehicleTypeMatch("v",vehicleWords(parsed),binder(values))} LIMIT 1`,values,read)).rowCount);},read);
   if(!vehicle)continue;
   const entry={split,vehicle,scope:await vehicleSearchScope(vehicleWords(vehicle.parsed),read)};
-  // Too broad to read in its turn (liveVehicleTypeLimit): read after the others, below.
-  if(entry.scope.types.length>liveVehicleTypeLimit()){deferred.push(entry);continue;}
+  // Too broad to read in its turn (liveVehicleTypeLimit): read after the others, below; a leading one next to a name
+  // match qualifies the part instead.
+  if(entry.scope.types.length>liveVehicleTypeLimit()){if(!(fittedOnly&&split.leading))deferred.push(entry);continue;}
   const candidate=await reading(entry);
   if(!candidate||fittedOnly&&!candidate.vehicle.fitted)continue;
   if(!best||(candidate.vehicle.fitted&&!best.vehicle?.fitted)||(candidate.vehicle.fitted===best.vehicle?.fitted&&candidate.vehicleWords>best.vehicleWords))best=candidate;
  }
- if(!best?.vehicle?.fitted){
+ const maxDeferredHits=deferredHitLimit();
+ if(maxDeferredHits&&!best?.vehicle?.fitted){
   // Longest vehicle phrase first ("volkswagen tdi" before "tdi"); the sort is stable, so equals keep the tried order.
   for(const entry of [...deferred].sort((a,b)=>b.split.vehicle.length-a.split.vehicle.length)){
-   const candidate=await reading(entry);
+   const candidate=await reading(entry,maxDeferredHits);
    if(candidate?.vehicle.fitted)return {parsed:candidate.parsed,ids:candidate.ids,vehicle:candidate.vehicle};
   }
  }
