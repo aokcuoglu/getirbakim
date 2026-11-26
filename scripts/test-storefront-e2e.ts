@@ -641,7 +641,7 @@ test("run 5: a missing, a truncated and a metadata-less object are rewritten, no
   await compareAll([], true, { product_media_objects: ["object_key"] });
 });
 
-test("run 6: a part whose media upload fails writes no rows, and succeeds once the upload does (#1406)", { skip }, async () => {
+test("run 6: a part whose media cannot be stored (its key holds other media, or the upload fails) writes no rows, and applies once it can (#1406)", { skip }, async () => {
   assert.ok(state.snapshot4, "run 4 must have exported");
   const bytes = randomBytes(64), sha = sha256(bytes), key = `e2e/${sha}.png`, id = randomUUID();
   await source.pool.query(`INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at,stored_at) VALUES($1,$2,$3,$4,'image/png',64,$5,$6,$7)`,
@@ -657,8 +657,27 @@ test("run 6: a part whose media upload fails writes no rows, and succeeds once t
   assert.equal(manifests[failing].enrichments.length, 1);
 
   await importParts(parts.slice(0, failing));
+  // The new object's key already belongs to a target row with other content: the importer stops before touching any object,
+  // where storing first would overwrite that row's object (the INSERT would then skip the bundle row on UNIQUE(bucket,object_key)).
+  const path = `${dstBucket}/${key}`, otherBytes = randomBytes(64), otherSha = sha256(otherBytes), otherId = randomUUID();
+  await target.pool.query(`INSERT INTO product_media_objects(id,bucket,object_key,sha256,content_type,size_bytes,source_url,created_at) VALUES($1,$2,$3,$4,'image/png',64,$5,$6)`,
+    [otherId, dstBucket, key, otherSha, "https://example.com/key-taken.png", day(2)]);
+  stub.objects.set(path, { bytes: otherBytes, contentType: "image/png", metadata: { sha256: otherSha } });
+  const taken = await rawSnapshot(target.pool);
+  resetRequests();
+  await assert.rejects(importParts([parts[failing]]), (error: Error) => {
+    assert.match(error.message, /already hold other media here, nothing was stored/);
+    assert.ok(error.message.includes(path), "the error does not name the key");
+    return true;
+  });
+  assert.deepEqual([stub.puts, stub.gets, stub.heads], [[], [], []], "an object was touched before the key conflict stopped the import");
+  assert.deepEqual(stub.objects.get(path), { bytes: otherBytes, contentType: "image/png", metadata: { sha256: otherSha } });
+  assert.deepEqual(await rawSnapshot(target.pool), taken);
+  await target.pool.query("DELETE FROM product_media_objects WHERE id=$1", [otherId]);
+  stub.objects.delete(path);
+
   const before = await rawSnapshot(target.pool);
-  stub.failPuts.add(`${dstBucket}/${key}`);
+  stub.failPuts.add(path);
   try {
     await assert.rejects(importParts([parts[failing]]), /AccessDenied|403/);
   } finally { stub.failPuts.clear(); }

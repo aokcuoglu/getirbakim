@@ -163,7 +163,8 @@ try {
       FROM jsonb_populate_recordset(null::product_enrichments,$1::jsonb) r WHERE ${missingItem}`, [enrichmentsJson])).rows.map(row => row.id);
     const targets = (await client.query<MediaTarget>(
       "SELECT m.bucket,m.object_key,m.sha256,m.content_type FROM bundle_media bm JOIN product_media_objects m ON m.id=bm.id")).rows;
-    // No row commits unless its object was stored in this run: the ones resolved otherwise than before BEGIN are stored now.
+    // The rows resolved otherwise than before BEGIN are stored now (normally none), so a row commits with an object stored in this
+    // run; only a media:gc run rolled back after removing objects can leave one without it (docs/product-enrichment.md, #1406).
     const late = await ensureStoredObjects(storage, mediaToRecheck(planned, targets, inserted), bytesOf);
     report.mediaUploaded += late.uploaded;
     report.mediaVerified += late.verified;

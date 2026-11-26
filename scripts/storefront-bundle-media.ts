@@ -30,11 +30,20 @@ export function mediaConcurrency(env: Record<string, string | undefined> = proce
 /**
  * Where each bundle media row's object lives on this side, as the importer's media INSERT … ON CONFLICT DO NOTHING
  * resolves it: the existing row's bucket, key and type for a known sha256, else `bucket` and the bundle's key and type.
+ * Throws, before any object is touched, when a new sha256's key already belongs to a row with other content: the INSERT
+ * would skip it (UNIQUE(bucket,object_key)) and fail the import, but storing first would overwrite that row's object.
  */
-export async function resolveMediaTargets(db: Pick<PoolClient, "query">, mediaJson: string, bucket: string) {
-  return (await db.query<PlannedMedia>(`SELECT b.sha256,COALESCE(m.bucket,$2) AS bucket,COALESCE(m.object_key,b.object_key) AS object_key,
-    COALESCE(m.content_type,b.content_type) AS content_type,m.id IS NOT NULL AS known
-    FROM jsonb_populate_recordset(null::product_media_objects,$1::jsonb) b LEFT JOIN product_media_objects m ON m.sha256=b.sha256`, [mediaJson, bucket])).rows;
+export async function resolveMediaTargets(db: Pick<PoolClient, "query">, mediaJson: string, bucket: string): Promise<PlannedMedia[]> {
+  const { rows } = await db.query<PlannedMedia & { owner: string | null }>(`SELECT b.sha256,COALESCE(m.bucket,$2) AS bucket,
+    COALESCE(m.object_key,b.object_key) AS object_key,COALESCE(m.content_type,b.content_type) AS content_type,m.id IS NOT NULL AS known,o.sha256 AS owner
+    FROM jsonb_populate_recordset(null::product_media_objects,$1::jsonb) b LEFT JOIN product_media_objects m ON m.sha256=b.sha256
+    LEFT JOIN product_media_objects o ON m.id IS NULL AND o.bucket=$2 AND o.object_key=b.object_key AND o.sha256<>b.sha256`, [mediaJson, bucket]);
+  const taken = rows.filter(row => row.owner);
+  if (taken.length) {
+    throw new Error(`Bundle media key(s) already hold other media here, nothing was stored: ${taken.slice(0, 5)
+      .map(row => `${row.bucket}/${row.object_key} (bundle ${row.sha256}, stored ${row.owner})`).join(", ")}`);
+  }
+  return rows.map(row => ({ sha256: row.sha256, bucket: row.bucket, object_key: row.object_key, content_type: row.content_type, known: row.known }));
 }
 
 const sha256Hex = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
