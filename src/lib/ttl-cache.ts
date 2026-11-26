@@ -46,3 +46,30 @@ export function sharedLoads<T>(holdMs: number, maxEntries = 100, now: () => numb
     return fresh.value;
   };
 }
+
+/**
+ * Remembers that a load failed so callers do not repeat it at once (#1416): `hold(key, error)` keeps the failure for
+ * `holdMs()` (read per call; 0 or less holds nothing), `failure(key)` returns it while it lasts. Expired entries are dropped on
+ * every insert and the oldest leave first past `maxEntries`.
+ */
+export function failureHold(holdMs: () => number, maxEntries = 500, now: () => number = Date.now) {
+  const entries = new Map<string, { error: unknown; expiresAt: number }>();
+  return {
+    failure(key: string): { error: unknown } | undefined {
+      const entry = entries.get(key);
+      if (!entry) return undefined;
+      if (entry.expiresAt > now()) return { error: entry.error };
+      entries.delete(key);
+      return undefined;
+    },
+    hold(key: string, error: unknown): void {
+      const hold = holdMs();
+      if (hold <= 0) return;
+      const time = now();
+      for (const [stored, old] of entries) if (old.expiresAt <= time) entries.delete(stored);
+      entries.delete(key);
+      entries.set(key, { error, expiresAt: time + hold });
+      if (entries.size > maxEntries) entries.delete(entries.keys().next().value!);
+    },
+  };
+}
