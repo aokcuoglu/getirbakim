@@ -361,9 +361,16 @@ CREATE TABLE IF NOT EXISTS supplier_price_anomalies (
  evidence jsonb NOT NULL, detected_at timestamptz NOT NULL DEFAULT now(), last_seen_at timestamptz NOT NULL DEFAULT now(),
  decided_by uuid REFERENCES accounts(id), decided_at timestamptz
 );
+-- The supplier rows of commerce_catalog below, priced (#1424). Never put WITH and UNION ALL in one catalog view: the planner
+-- flattens a UNION ALL view into its reader only without a WITH, and drops a subquery's unused columns only without a
+-- UNION. A view with both was one opaque subquery that built every column of every supplier row (pricing_snapshot's jsonb,
+-- the stock label, names, brands) for a price order reading id, unavailable and price_kurus. Split, this WITH-only view
+-- loses the columns a reader leaves unused and the UNION-only commerce_catalog is flattened: locally the 480 ids of a
+-- /katalog price page took 3-6 s instead of 9-13 s, and the whole /katalog order 3 s instead of 7 s (SELECT * reads, the
+-- product page, cards, cart and full scans, are unchanged). Its columns are commerce_catalog's, in the same order and types
+-- (a type is cast here, never in commerce_catalog); commerce_catalog names them, so a column added here stays out of it.
 -- Its source_fresh, available and stock_label columns, like those of commerce_item_availability below (#1242, the
--- listing's availability filter): both views call the commerce_source_fresh / commerce_supplier_* /
--- commerce_store_stock_label functions above (#1249).
+-- listing's availability filter): both views call the commerce_source_fresh / commerce_supplier_* functions above (#1249).
 DO $setup$ DECLARE def text := $view$
 -- The latest succeeded import per supplier and company: supplier_latest_imports (db/schema.sql, #1158, #1169).
 WITH latest AS (
@@ -421,6 +428,37 @@ WITH latest AS (
  'cost_kurus',round(cost*exchange_rate*100)) AS formula_snapshot
  FROM sold
 )
+SELECT id,NULLIF(product_data->>'category','') AS category,supplier,code,
+ COALESCE(override_name,NULLIF(product_data->>'ac',''),code) AS name,COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş') AS brand,
+ COALESCE(override_description,product_data->>'ac2','') AS description,
+ final_price AS price_kurus,
+ NULL::integer AS stock,changed_at AS updated_at,CASE WHEN override_hide_oem THEN '' ELSE COALESCE(product_data->>'oe','') END AS oem,
+ 'supplier'::text AS source,company,
+ commerce_supplier_available(basbug_checkout_mode,source_fresh,stock_data) AS available,
+ 99 AS max_quantity,
+ commerce_supplier_stock_label(basbug_checkout_mode,source_fresh,stock_data) AS stock_label,
+ -- docs/commerce.md: price_kind fixed (the admin's price) or sale (the campaign; list_price_kurus is the price it replaces).
+ CASE WHEN NOT overridden THEN formula_snapshot ELSE formula_snapshot
+  || jsonb_build_object('source','override','price_kind',CASE WHEN on_sale THEN 'sale' ELSE 'fixed' END,'auto_price_kurus',auto_price)
+  || CASE WHEN override_price IS NOT NULL THEN jsonb_build_object('fixed_price_kurus',override_price) ELSE '{}'::jsonb END
+  || CASE WHEN on_sale THEN jsonb_build_object('list_price_kurus',regular_price,'sale_until',sale_until) ELSE '{}'::jsonb END
+ END AS pricing_snapshot,
+ COALESCE(override_brand,master_brand,NULLIF(product_data->>'uk',''),'Belirtilmemiş') AS display_brand,COALESCE(override_part_number,code) AS display_code,
+ override_name IS NOT NULL AS name_overridden,supplier_item_brand(supplier,product_data) AS brand_label
+FROM final;
+$view$; cur regclass := (SELECT c.oid FROM pg_class c
+  WHERE c.relname='commerce_supplier_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
+ EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
+ IF pg_get_viewdef('pg_temp.setup_view_probe'::regclass) IS DISTINCT FROM pg_get_viewdef(cur) THEN
+  -- Views that read this one first (#1046, db/schema.sql); a new view has none.
+  IF cur IS NOT NULL THEN PERFORM setup_lock_dependent_views(cur); END IF;
+  EXECUTE 'CREATE OR REPLACE VIEW commerce_supplier_catalog AS '||def;
+ END IF;
+ DROP VIEW pg_temp.setup_view_probe;
+END $setup$;
+-- Every row the store sells: store products and the priced supplier rows above. A UNION ALL of plain reads (no WITH, see
+-- commerce_supplier_catalog), so readers plan both branches as their own and skip the columns they do not read (#1424).
+DO $setup$ DECLARE def text := $view$
 SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,updated_at,
  ''::text AS oem,'store'::text AS source,''::text AS company,
  stock>0 AS available,LEAST(stock,99) AS max_quantity,
@@ -429,23 +467,9 @@ SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,update
  brand AS display_brand,code AS display_code,false AS name_overridden,brand AS brand_label
 FROM store_products
 UNION ALL
-SELECT id,NULLIF(product_data->>'category',''),supplier,code,
- COALESCE(override_name,NULLIF(product_data->>'ac',''),code),COALESCE(NULLIF(product_data->>'uk',''),'Belirtilmemiş'),
- COALESCE(override_description,product_data->>'ac2',''),
- final_price,
- NULL::integer,changed_at,CASE WHEN override_hide_oem THEN '' ELSE COALESCE(product_data->>'oe','') END,'supplier',company,
- commerce_supplier_available(basbug_checkout_mode,source_fresh,stock_data),
- 99,
- commerce_supplier_stock_label(basbug_checkout_mode,source_fresh,stock_data),
- -- docs/commerce.md: price_kind fixed (the admin's price) or sale (the campaign; list_price_kurus is the price it replaces).
- CASE WHEN NOT overridden THEN formula_snapshot ELSE formula_snapshot
-  || jsonb_build_object('source','override','price_kind',CASE WHEN on_sale THEN 'sale' ELSE 'fixed' END,'auto_price_kurus',auto_price)
-  || CASE WHEN override_price IS NOT NULL THEN jsonb_build_object('fixed_price_kurus',override_price) ELSE '{}'::jsonb END
-  || CASE WHEN on_sale THEN jsonb_build_object('list_price_kurus',regular_price,'sale_until',sale_until) ELSE '{}'::jsonb END
- END,
- COALESCE(override_brand,master_brand,NULLIF(product_data->>'uk',''),'Belirtilmemiş'),COALESCE(override_part_number,code),
- override_name IS NOT NULL,supplier_item_brand(supplier,product_data)
-FROM final;
+SELECT id,category,supplier,code,name,brand,description,price_kurus,stock,updated_at,oem,source,company,
+ available,max_quantity,stock_label,pricing_snapshot,display_brand,display_code,name_overridden,brand_label
+FROM commerce_supplier_catalog;
 $view$; cur regclass := (SELECT c.oid FROM pg_class c
   WHERE c.relname='commerce_catalog' AND c.relnamespace=current_schema()::regnamespace AND c.relkind='v'); BEGIN
  EXECUTE 'CREATE VIEW pg_temp.setup_view_probe AS '||def;
