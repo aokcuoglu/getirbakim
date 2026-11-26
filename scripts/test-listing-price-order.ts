@@ -10,6 +10,7 @@ import type { CatalogQuery } from "../src/modules/store/catalog-query";
 // Stored whole price orders of the deep price-sorted pages (#1369) in an isolated copy of the schema: a plain listing's
 // pages past the cached first 20 slice its order stored by one statement (storefront_listing_price_orders), with the
 // ids, order and cards of the live page (LISTING_PRICE_ORDER=0), under the epoch and age rules of the cached pages.
+// Pages 1-20 keep their 480 ids, taken from the stored order's first ids when that row is current and newer (#1389).
 // Nothing is written to the shared database's tables.
 type Catalog = typeof import("../src/modules/store/catalog");
 let schema: Awaited<ReturnType<typeof isolatedSchema>>;
@@ -68,13 +69,17 @@ async function intercepted(onText: (text: string) => Error | undefined, run: () 
     pg.Client.prototype.query = original;
   }
 }
-/** What `run` sends on any connection: stored-order builds, live price pages (ORDER BY … OFFSET) and statements naming the table. */
+/**
+ * What `run` sends on any connection: stored-order builds, live price pages (ORDER BY … OFFSET), the first pages' 480-id
+ * pricing passes (headPasses) and statements naming the table.
+ */
 async function sent(run: () => Promise<unknown>) {
   const texts: string[] = [];
   await intercepted(text => { texts.push(text); return undefined; }, run);
   return {
     builds: texts.filter(text => text.includes("INSERT INTO storefront_listing_price_orders")).length,
     livePages: texts.filter(text => /ORDER BY unavailable,price_kurus (ASC|DESC) NULLS LAST,id LIMIT \d+ OFFSET/.test(text)).length,
+    headPasses: texts.filter(text => /LIMIT 480\) page/.test(text)).length,
     table: texts.filter(text => text.includes("storefront_listing_price_orders")).length,
   };
 }
@@ -83,14 +88,21 @@ type Sort = "price-asc" | "price-desc";
 const bosch = (sort: Sort, page: number): CatalogQuery => ({ manufacturer: "bosch", sort, page: String(page) });
 const cards = (query: CatalogQuery, from: Catalog = catalog) => inRequest(async () => (await from.browseProducts(query)).items);
 const pageIds = async (query: CatalogQuery, from: Catalog = catalog) => (await cards(query, from)).map(card => card.id);
-/** The page read live, as before #1369. */
+/** The page read live, as before #1369 (pages 1-20: their cached 480 ids). */
 const livePage = (query: CatalogQuery) => withEnv({ LISTING_PRICE_ORDER: "0" }, () => pageIds(query));
+/** The BOSCH listing's whole price order, read now by one statement: what every page must show. */
+const liveOrder = async (sort: Sort) => (await schema.pool.query<{ id: string }>(`SELECT id::text FROM (${catalog.storefrontCatalogSql}) catalog
+  WHERE catalog.display_brand='BOSCH' ORDER BY unavailable,price_kurus ${sort === "price-asc" ? "ASC" : "DESC"} NULLS LAST,id`, [storefrontCompanies()])).rows.map(row => row.id);
+const pageOf = (order: string[], page: number) => order.slice((page - 1) * 24, page * 24);
 const stored = async () => (await schema.pool.query<{ epoch: number; total: number; age_s: number }>(
   "SELECT epoch::int,total,extract(epoch FROM now()-computed_at)::int AS age_s FROM storefront_listing_price_orders ORDER BY epoch DESC,total DESC")).rows;
 const currentEpoch = async () => (await schema.pool.query<{ epoch: number }>("SELECT epoch::int FROM storefront_listing_epoch")).rows[0].epoch;
 const hide = (id: string) => schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,hidden) VALUES($1,$1,true)", [id]);
 /** BOSCH rows and pages: 560 rows (5 dropped by their supplier, listed last), 24 pages of 24 cards, the last one of 8. */
 const rows = 560, pages = 24;
+/** The oldest order the first pages' cache could take (its maxFallbackMs, catalog.ts), as the store is given it. */
+const headMaxAgeMs = 48 * 60 * 60 * 1000;
+const failure = (code: string) => Object.assign(new Error(`simulated ${code}`), { code });
 
 before(async () => {
   schema = await isolatedSchema("listing_price_order_test");
@@ -150,11 +162,11 @@ test("every page of both price orders is the live page, the partial last one too
   }
 });
 
-test("pages 21-23 send one build and no live page; pages 1-20 neither", async () => {
+test("pages 21-23 send one build and no live page; pages 1-20 neither, their reload looks for a stored order once", async () => {
   await schema.pool.query("TRUNCATE storefront_listing_price_orders");
   await invalidateListings();
   assert.deepEqual(await sent(async () => { for (let page = 1; page <= 20; page++) await pageIds(bosch("price-asc", page)); }),
-    { builds: 0, livePages: 0, table: 0 });
+    { builds: 0, livePages: 0, headPasses: 1, table: 1 });
   const deep = await sent(async () => { for (let page = 21; page <= 23; page++) await pageIds(bosch("price-asc", page)); });
   assert.deepEqual({ builds: deep.builds, livePages: deep.livePages }, { builds: 1, livePages: 0 });
 });
@@ -170,6 +182,236 @@ test("one stored row per listing and sort, of the listing's count and the curren
   assert.deepEqual((await stored()).map(row => [row.epoch, row.total]), [[Number(epoch), rows], [Number(epoch), rows]]);
   await sleep(50);
   assert.deepEqual(await pageIdRows(), before);
+});
+
+test("with a current order every page of both orders is the live order; another process prices none of pages 1-20 again", async () => {
+  for (const sort of ["price-asc", "price-desc"] as const) await pageIds(bosch(sort, 21));
+  // Without stored page ids: the other process's first pages can only come from the stored orders or a pass.
+  await schema.pool.query("DELETE FROM storefront_listing_cache WHERE namespace='page-ids'");
+  const other = await otherProcess("heads");
+  for (const sort of ["price-asc", "price-desc"] as const) {
+    const order = await liveOrder(sort), shown: string[] = [];
+    const statements = await sent(async () => { for (let page = 1; page <= pages; page++) shown.push(...await pageIds(bosch(sort, page), other)); });
+    assert.deepEqual(shown, order, sort);
+    assert.deepEqual({ builds: statements.builds, livePages: statements.livePages, headPasses: statements.headPasses }, { builds: 0, livePages: 0, headPasses: 0 }, sort);
+    for (let page = 1; page <= pages; page++) assert.deepEqual(await pageIds(bosch(sort, page)), pageOf(order, page), `${sort} page ${page}, this process`);
+  }
+});
+
+test("one pricing pass per listing: page 21 then page 1 builds once and prices no 480 ids; a cold page 1 without an order prices 480 ids and builds nothing", async () => {
+  const cold = async () => {
+    await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+    await schema.pool.query("DELETE FROM storefront_listing_cache WHERE namespace='page-ids'");
+  };
+  const order = await liveOrder("price-asc");
+  await cold();
+  const deepFirst = await otherProcess("deep-first");
+  const passes = await sent(async () => {
+    assert.deepEqual(await pageIds(bosch("price-asc", 21), deepFirst), pageOf(order, 21));
+    assert.deepEqual(await pageIds(bosch("price-asc", 1), deepFirst), pageOf(order, 1));
+  });
+  assert.deepEqual({ builds: passes.builds, headPasses: passes.headPasses, livePages: passes.livePages }, { builds: 1, headPasses: 0, livePages: 0 });
+  await cold();
+  const firstOnly = await otherProcess("first-only");
+  const first = await sent(async () => assert.deepEqual(await pageIds(bosch("price-asc", 1), firstOnly), pageOf(order, 1)));
+  assert.deepEqual({ builds: first.builds, headPasses: first.headPasses, livePages: first.livePages }, { builds: 0, headPasses: 1, livePages: 0 });
+  assert.deepEqual(await stored(), [], "page 1 never builds");
+});
+
+test("after an epoch bump pages 20 and 21 read one order: a price changed after page 21 built it moves neither", async () => {
+  const sort = "price-asc";
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  await invalidateListings();
+  // The first pages cached under this epoch by their own pass (no order stored yet).
+  const before = await liveOrder(sort);
+  assert.deepEqual(await pageIds(bosch(sort, 20)), pageOf(before, 20));
+  // An admin edit's bump: page 21 reloads first and stores the order.
+  await invalidateListings();
+  assert.equal((await sent(async () => assert.deepEqual(await pageIds(bosch(sort, 21)), pageOf(before, 21)))).builds, 1);
+  // The first card of page 21 becomes the cheapest: a pass priced now would move every card before it one place down.
+  const moved = before[480];
+  const { rows: [original] } = await schema.pool.query<{ price_data: unknown }>("SELECT price_data FROM supplier_items WHERE id=$1", [moved]);
+  await schema.pool.query(`UPDATE supplier_items SET price_data='{"nf":1}' WHERE id=$1`, [moved]);
+  try {
+    const now = await liveOrder(sort);
+    assert.equal(now[0], moved);
+    assert.notDeepEqual(pageOf(now, 20), pageOf(before, 20), "a separate pass would give page 20 another set of cards");
+    let page20: string[] = [];
+    const reload = await sent(async () => { page20 = await pageIds(bosch(sort, 20)); });
+    assert.deepEqual({ builds: reload.builds, headPasses: reload.headPasses }, { builds: 0, headPasses: 0 }, "the stored order's first ids, not a pass");
+    const page21 = await pageIds(bosch(sort, 21));
+    assert.deepEqual([page20, page21], [pageOf(before, 20), pageOf(before, 21)]);
+    assert.deepEqual(page20.filter(id => page21.includes(id)), [], "no card on both pages");
+  } finally {
+    await schema.pool.query("UPDATE supplier_items SET price_data=$2 WHERE id=$1", [moved, original.price_data]);
+    await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+    await invalidateListings();
+  }
+});
+
+test("the first pages' store returns the newer of the stored page ids and the stored order's first ids", async t => {
+  const pricedSql = `SELECT catalog.id,catalog.unavailable,catalog.price_kurus FROM (${catalog.storefrontCatalogSql}) catalog WHERE catalog.display_brand=$2`;
+  const key = "test|head", order = "unavailable,price_kurus ASC NULLS LAST,id";
+  assert.ok((await priceOrder.buildPriceOrder(key, 1000, pricedSql, [storefrontCompanies(), "BOSCH"], order)).total > 3);
+  await schema.pool.query("UPDATE storefront_listing_price_orders SET computed_at=now()-interval '1 minute' WHERE epoch=1000");
+  const first = await priceOrder.priceOrderSlice(key, 0, 3);
+  let pageIdRow: { value: string[]; ageMs: number; epoch: number } | null = null;
+  const written: unknown[] = [];
+  const store = priceOrder.priceOrderHeadStore({ read: async () => pageIdRow, write: async (...args) => { written.push(args); } }, () => 3, headMaxAgeMs);
+  const read = async () => { const row = await store.read(key); return row && [row.value, row.epoch]; };
+  assert.deepEqual(await read(), [first, 1000], "no page ids: the order's first ids");
+  pageIdRow = { value: ["page-ids"], ageMs: 0, epoch: 999 };
+  assert.deepEqual(await read(), [first, 1000], "an older epoch's page ids");
+  pageIdRow = { value: ["page-ids"], ageMs: 10 * 60 * 1000, epoch: 1001 };
+  assert.deepEqual(await read(), [["page-ids"], 1001], "a newer epoch's page ids, however old");
+  pageIdRow = { value: ["page-ids"], ageMs: 30_000, epoch: 1000 };
+  assert.deepEqual(await read(), [["page-ids"], 1000], "the same epoch: the younger page ids");
+  pageIdRow = { value: ["page-ids"], ageMs: 120_000, epoch: 1000 };
+  assert.deepEqual(await read(), [first, 1000], "the same epoch: the younger order");
+  const ageMs = (await store.read(key))!.ageMs;
+  assert.ok(ageMs >= 60_000 && ageMs < 120_000, "the order's age");
+  assert.deepEqual(await store.read("test|no-order"), { ...pageIdRow }, "no order");
+  for (const setting of [{ LISTING_PRICE_ORDER: "0" }, { LISTING_CACHE_PERSIST: "0" }]) await withEnv(setting, async () => {
+    const statements = await sent(async () => assert.deepEqual(await read(), [["page-ids"], 1000]));
+    assert.equal(statements.table, 0, `${JSON.stringify(setting)}: the page ids only`);
+  });
+  // An order past the oldest any caller may take is not read (its array not unpacked), even beside older page ids.
+  pageIdRow = { value: ["page-ids"], ageMs: 0, epoch: 999 };
+  await schema.pool.query("UPDATE storefront_listing_price_orders SET computed_at=now()-interval '49 hours' WHERE epoch=1000");
+  assert.deepEqual(await read(), [["page-ids"], 999], "49 hours old: not read");
+  await schema.pool.query("UPDATE storefront_listing_price_orders SET computed_at=now()-interval '47 hours' WHERE epoch=1000");
+  assert.deepEqual(await read(), [first, 1000], "47 hours old: read (a fallback while the cache reloads)");
+  pageIdRow = { value: ["page-ids"], ageMs: 120_000, epoch: 1000 };
+  const logged = t.mock.method(console, "error", () => {});
+  await intercepted(text => text.includes("storefront_listing_price_orders") ? failure("XX000") : undefined,
+    async () => assert.deepEqual(await read(), [["page-ids"], 1000], "a failed order read: the page ids"));
+  assert.match(String(logged.mock.calls[0]?.arguments[0]), /^Listing price order: head failed/);
+  await store.write(key, ["a", "b"], 1002);
+  assert.deepEqual(written, [[key, ["a", "b"], 1002]], "writes go to the page ids");
+  await schema.pool.query("DELETE FROM storefront_listing_price_orders WHERE epoch=1000");
+});
+
+test("the first pages take an order of an older epoch or past 24 hours never; one past 10 minutes once, while their pass runs", async () => {
+  const sort = "price-asc", order = await liveOrder(sort), reversed = [...order].reverse();
+  // This listing's order alone, current; then reversed (its first ids show when taken), with no stored page ids beside it.
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  await invalidateListings();
+  assert.deepEqual(await pageIds(bosch(sort, 21)), pageOf(order, 21));
+  const epoch = await currentEpoch();
+  const prepare = async (epochValue: number, age: string) => {
+    await schema.pool.query("UPDATE storefront_listing_price_orders SET ids=$1::uuid[],epoch=$2,computed_at=now()-$3::interval", [reversed, epochValue, age]);
+    await schema.pool.query("DELETE FROM storefront_listing_cache WHERE namespace='page-ids'");
+  };
+  try {
+    await prepare(epoch, "11 minutes");
+    const stale = await otherProcess("stale-head");
+    const served = await sent(async () => assert.deepEqual(await pageIds(bosch(sort, 1), stale), pageOf(reversed, 1), "11 minutes old: served at once"));
+    assert.deepEqual({ builds: served.builds, livePages: served.livePages }, { builds: 0, livePages: 0 });
+    assert.deepEqual(await until(() => pageIds(bosch(sort, 1), stale), ids => JSON.stringify(ids) === JSON.stringify(pageOf(order, 1))), pageOf(order, 1), "then its own pass");
+    for (const [label, epochValue, age] of [["an older epoch", epoch - 1, "0 seconds"], ["25 hours old", epoch, "25 hours"]] as const) {
+      await prepare(epochValue, age);
+      const other = await otherProcess(`refused-head-${label.replaceAll(" ", "-")}`);
+      const statements = await sent(async () => assert.deepEqual(await pageIds(bosch(sort, 20), other), pageOf(order, 20), label));
+      assert.deepEqual({ builds: statements.builds, headPasses: statements.headPasses }, { builds: 0, headPasses: 1 }, label);
+    }
+  } finally {
+    await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+    await invalidateListings();
+  }
+});
+
+test("a missing table found by the first pages' order read turns the stored orders off: no statement names it afterwards", async t => {
+  // A copy of the module, so the switch it sets (five minutes) stays out of the other tests.
+  const copy = "missing-head", fresh = await import(`../src/modules/store/listing-price-order.ts?${copy}`) as typeof priceOrder;
+  const logged = t.mock.method(console, "error", () => {});
+  const store = fresh.priceOrderHeadStore({ read: async () => null, write: async () => {} }, () => 3, headMaxAgeMs);
+  let failed = 0;
+  await intercepted(text => text.includes("storefront_listing_price_orders") ? (failed++, failure("42P01")) : undefined,
+    async () => assert.equal(await store.read("test|missing"), null));
+  assert.equal(failed, 1);
+  assert.equal(fresh.priceOrderEnabled(), false);
+  assert.equal(priceOrder.priceOrderEnabled(), true, "the module the pages use is untouched");
+  const after = await sent(async () => {
+    assert.equal(await store.read("test|missing"), null);
+    assert.equal(await fresh.priceOrderSlice("test|missing", 0, 24), null);
+    assert.equal(await fresh.priceOrderStore.read("test|missing"), null);
+  });
+  assert.equal(after.table, 0);
+  assert.equal(logged.mock.callCount(), 1);
+  assert.match(String(logged.mock.calls[0].arguments[0]), /^Listing price order: head failed: storefront_listing_price_orders is missing/);
+});
+
+test("a make listing's first pages take its order under the fits value; after the fit sync's bump an order of the old value is priced again (#1368)", async () => {
+  const fitsValue = async () => (await schema.pool.query<{ fits: number }>("SELECT (epoch+fits_epoch)::int AS fits FROM storefront_listing_epoch")).rows[0].fits;
+  const make = (page: number): CatalogQuery => ({ make: "vw", sort: "price-asc", page: String(page) });
+  const order = await liveOrder("price-asc"), reversed = [...order].reverse();
+  // The fits value ahead of the listing epoch, so the row's tag tells which one it carries.
+  await invalidateFits();
+  await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+  await schema.pool.query("DELETE FROM storefront_listing_cache WHERE namespace='page-ids'");
+  try {
+    assert.deepEqual(await pageIds(make(21), await otherProcess("make-deep")), pageOf(order, 21));
+    const fits = await fitsValue();
+    assert.ok(fits > await currentEpoch());
+    assert.deepEqual((await stored()).map(row => row.epoch), [fits], "the make's order carries the fits value");
+    // Reversed: its first ids show when the first pages take them.
+    await schema.pool.query("UPDATE storefront_listing_price_orders SET ids=$1::uuid[]", [reversed]);
+    const other = await otherProcess("make-first-pages");
+    const adopted = await sent(async () => assert.deepEqual(await pageIds(make(1), other), pageOf(reversed, 1), "the order's first ids"));
+    assert.deepEqual({ builds: adopted.builds, headPasses: adopted.headPasses }, { builds: 0, headPasses: 0 });
+    await invalidateFits();
+    const reloaded = await sent(async () => assert.deepEqual(await pageIds(make(1), other), pageOf(order, 1), "priced again"));
+    assert.deepEqual({ builds: reloaded.builds, headPasses: reloaded.headPasses }, { builds: 0, headPasses: 1 }, "the old fits value's order is refused");
+  } finally {
+    await schema.pool.query("TRUNCATE storefront_listing_price_orders");
+    await invalidateListings();
+  }
+});
+
+test("LISTING_PRICE_ORDER=0 or LISTING_CACHE_PERSIST=0 keeps pages 1-20 off the table; brand-filtered, search and model listings never read it there", async () => {
+  for (const sort of ["price-asc", "price-desc"] as const) await pageIds(bosch(sort, 21));
+  const orders = { "price-asc": await liveOrder("price-asc"), "price-desc": await liveOrder("price-desc") };
+  for (const setting of [{ LISTING_PRICE_ORDER: "0" }, { LISTING_CACHE_PERSIST: "0" }]) await withEnv(setting, async () => {
+    const other = await otherProcess(`off-first-pages-${Object.keys(setting)[0]}`);
+    const fresh = await sent(async () => {
+      for (const sort of ["price-asc", "price-desc"] as const) for (const page of [1, 20]) assert.deepEqual(await pageIds(bosch(sort, page), other), pageOf(orders[sort], page));
+    });
+    assert.deepEqual({ table: fresh.table, headPasses: fresh.headPasses }, { table: 0, headPasses: 2 }, `${JSON.stringify(setting)}: each order's 480 ids priced`);
+    const warm = await sent(async () => { for (const sort of ["price-asc", "price-desc"] as const) for (const page of [1, 20]) await pageIds(bosch(sort, page)); });
+    assert.equal(warm.table, 0, `${JSON.stringify(setting)}, this process`);
+  });
+  const listings: CatalogQuery[] = [{ manufacturer: "bosch", brands: JSON.stringify(["BOSCH"]) }, { q: "bosch" }, { make: "vw", model: "golf-7" }];
+  const other = await otherProcess("first-pages-not-stored");
+  for (const listing of listings) {
+    const statements = await sent(() => pageIds({ ...listing, sort: "price-desc", page: "1" }, other));
+    assert.equal(statements.table, 0, JSON.stringify(listing));
+  }
+  const make = await sent(() => pageIds({ make: "vw", sort: "price-desc", page: "1" }, other));
+  assert.equal(make.table, 1, "a make listing's first page looks for its stored order on a miss");
+});
+
+test("a failing order read on the first pages shows the live ids", async t => {
+  const sort = "price-desc", order = await liveOrder(sort);
+  assert.deepEqual(await pageIds(bosch(sort, 21)), pageOf(order, 21));
+  await schema.pool.query("DELETE FROM storefront_listing_cache WHERE namespace='page-ids'");
+  // Logged at most once a minute per kind: the store's test above logged this kind already.
+  t.mock.method(console, "error", () => {});
+  let failures = 0;
+  const failReads = (text: string) => {
+    if (!text.includes("storefront_listing_price_orders") || text.includes("INSERT")) return undefined;
+    failures++;
+    return failure("XX000");
+  };
+  const other = await otherProcess("failing-head");
+  let statements: Awaited<ReturnType<typeof sent>> | undefined;
+  await intercepted(failReads, async () => {
+    statements = await sent(async () => {
+      for (const page of [1, 20]) assert.deepEqual(await pageIds(bosch(sort, page), other), pageOf(order, page), `page ${page}`);
+    });
+  });
+  assert.equal(failures, 1, "the head read failed");
+  assert.equal(statements?.headPasses, 1, "the page priced its own 480 ids");
+  assert.equal(priceOrder.priceOrderEnabled(), true, "only a missing table turns the stored orders off");
 });
 
 test("cards are read live: a price and stock change shows on its card in the same position", async () => {
@@ -232,7 +474,7 @@ test("another process adopts a stored order; one past 24 hours is served while i
   assert.equal((await stored()).length, 1);
   const first = await otherProcess("first");
   let shown: string[] = [];
-  assert.deepEqual(await sent(async () => { shown = await pageIds(query, first); }), { builds: 0, livePages: 0, table: 2 }, "the size, then the slice");
+  assert.deepEqual(await sent(async () => { shown = await pageIds(query, first); }), { builds: 0, livePages: 0, headPasses: 0, table: 2 }, "the size, then the slice");
   assert.deepEqual(shown, live);
   // The stored order reversed and aged: served, the page shows its slice; rebuilt, the page is the live one again.
   const reverse = (hours: number) => schema.pool.query(`UPDATE storefront_listing_price_orders SET computed_at=now()-make_interval(hours=>$1),
@@ -299,7 +541,7 @@ test("LISTING_PRICE_ORDER=0 never reads the table; a listing over LISTING_PRICE_
   await invalidateListings();
   assert.deepEqual(await withEnv({ LISTING_PRICE_ORDER: "0" }, () => sent(async () => {
     for (const sort of ["price-asc", "price-desc"] as const) for (const page of [21, 24]) await pageIds(bosch(sort, page));
-  })), { builds: 0, livePages: 4, table: 0 });
+  })), { builds: 0, livePages: 4, headPasses: 0, table: 0 });
   await withEnv({ LISTING_PRICE_ORDER_MAX_IDS: "100" }, async () => {
     for (const sort of ["price-asc", "price-desc"] as const) {
       const statements = await sent(async () => assert.deepEqual(await pageIds(bosch(sort, 21)), await livePage(bosch(sort, 21))));

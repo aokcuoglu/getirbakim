@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { boundedQuery, db, preparedQuery } from "@/lib/db";
 import type { StaleCacheStore } from "@/lib/stale-cache";
 import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
+import { listingCacheEnabled } from "./listing-cache-store";
 
 /**
  * The whole price order of a plain listing, for its pages past the cached first 20 (#1369, db/storefront-catalog.sql
@@ -21,6 +22,13 @@ import { storefrontCompanies } from "@/modules/suppliers/storefront-sources";
  * turns them off for five minutes. Errors never reach the page: a failed read or slice reads the page live, and so does a
  * failed build (its 30 s limit included), after which the listing reads live for ten minutes instead of starting another
  * build per request. Errors are logged, each kind at most once a minute.
+ * Pages 1-20 keep their own 480 ids (catalog.ts) and never build an order, so a cold page 1 never waits for a whole one
+ * (/katalog ~6.6 s). Their cache takes the stored order's first 480 ids instead of pricing the listing again when a memory
+ * miss, refresh or epoch reload finds that row newer than their stored page ids (priceOrderHeadStore, #1389): such a load
+ * does not price a listing a deep page ordered again, and its pages 20 and 21 then come from one order. Pages 1-20 do not
+ * slice the order per request: the array is read whole to slice it (/katalog, 807k ids: ~1 ms in SQL, and a warm page 1
+ * 2-4 ms slower over HTTP when measured). Their stored sources are shared storage: LISTING_CACHE_PERSIST=0 (or a missing
+ * storefront_listing_cache) keeps them off the order too, and LISTING_PRICE_ORDER=0 off the order alone.
  */
 export const priceOrderVersion = 1;
 /** The build's work_mem: the whole order is sorted in memory (ORIJINAL ~12 MB; /katalog's 900k rows need more). */
@@ -161,4 +169,42 @@ export async function priceOrderSlice(key: string, offset: number, limit: number
     failed("slice", error);
     return null;
   }
+}
+
+type Stored<T> = Awaited<ReturnType<StaleCacheStore<T>["read"]>>;
+/**
+ * The second level of the price-sorted first pages' cache (#1389, cachedPricedHeads in catalog.ts): `pageIds` (their
+ * storefront_listing_cache rows) and the stored order's first `size()` ids, read side by side; the row of the higher
+ * epoch wins, then the younger one. staleCache then adopts or refuses it under its own rules, so a refresh or epoch
+ * reload takes a current order a deep page built instead of pricing the listing again, and a memory miss one up to 24
+ * hours old. The order's first ids are its first pages: the same rows priced and sorted the same way, the id breaking
+ * ties. Writes go to `pageIds` only (a 480-id pass loaded them); an order is written by its build alone. An error on
+ * either read counts as no row there.
+ * The order is read only while the page ids' store is on (listingCacheEnabled: LISTING_CACHE_PERSIST, the missing-table
+ * back-off) and the stored orders are (priceOrderEnabled), and only a row at most `maxAgeMs` old (the cache's longest
+ * window, its maxFallbackMs): reading the first ids unpacks the whole array (/katalog ~13 MB), which a row no caller may
+ * take is not worth.
+ */
+export function priceOrderHeadStore(pageIds: StaleCacheStore<string[]>, size: () => number, maxAgeMs: number): StaleCacheStore<string[]> {
+  const head = async (key: string): Promise<Stored<string[]>> => {
+    if (!priceOrderEnabled() || !listingCacheEnabled()) return null;
+    try {
+      const { rows } = await preparedQuery<{ ids: string[]; epoch: string; age_ms: string }>(db,
+        `SELECT ids[1:$2::int]::text[] AS ids,epoch::text AS epoch,(extract(epoch FROM now()-computed_at)*1000)::bigint::text AS age_ms
+         FROM storefront_listing_price_orders WHERE key_hash=$1 AND computed_at>now()-$3::bigint*interval '1 millisecond'`, [keyHash(key), size(), maxAgeMs]);
+      return rows[0] ? { value: rows[0].ids, epoch: Number(rows[0].epoch), ageMs: Number(rows[0].age_ms) } : null;
+    } catch (error) {
+      failed("head", error);
+      return null;
+    }
+  };
+  return {
+    async read(key) {
+      const [order, stored] = await Promise.all([head(key), pageIds.read(key).catch(() => null)]);
+      if (!order || !stored) return order ?? stored;
+      if (order.epoch !== stored.epoch) return order.epoch > stored.epoch ? order : stored;
+      return order.ageMs <= stored.ageMs ? order : stored;
+    },
+    write: (key, value, epoch) => pageIds.write(key, value, epoch),
+  };
 }

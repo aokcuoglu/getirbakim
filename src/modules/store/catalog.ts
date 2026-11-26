@@ -10,7 +10,7 @@ import { productPath } from "@/modules/seo/product-path";
 import { productIdPath } from "@/modules/seo/product-id";
 import { fitsEpoch, listingEpoch } from "./listing-epoch";
 import { listingCacheStore, storedLinks } from "./listing-cache-store";
-import { buildPriceOrder, priceOrderEnabled, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
+import { buildPriceOrder, priceOrderEnabled, priceOrderHeadStore, priceOrderMaxIds, priceOrderSelectSql, priceOrderSlice, priceOrderStore, type PriceOrder } from "./listing-price-order";
 import { listingWaitMs } from "./listing-wait";
 import { listingStatementTimeoutMs } from "./listing-timeout";
 export type { CatalogQuery } from "./catalog-query";
@@ -782,7 +782,8 @@ async function countListing(listing:{values:unknown[];from:string;workMem?:strin
 // categories) would add hundreds of thousands of rows, so model listings stay in memory, and a make's listing keeps its
 // first page only (deeper pages of the plain, category and manufacturer listings are stored up to page 20; a price order is one key).
 // Past page 20 a price order is read from the listing's whole stored order (storefront_listing_price_orders, #1369): one
-// row per listing and sort, the same keys as the price order above, under the same rules (cachedPriceOrders).
+// row per listing and sort, the same keys as the price order above, under the same rules (cachedPriceOrders). Its first
+// 480 ids also serve as the stored first pages of that price order when they are newer (cachedPricedHeads, #1389).
 // These three also wait at most LISTING_EPOCH_WAIT_MS (250 ms, listing-wait.ts) for a reload when an earlier value
 // exists (#771): the entry an epoch bump replaced, or a stored row of an older epoch or past maxStaleMs, up to 48 hours
 // old (the store's prune window). The fit sync bumps the fits value up to every 30 s while fit rows change
@@ -816,6 +817,12 @@ const cachedFacets=staleCache<Facets>(aggregateTtl,500,{...persistedListings,fal
 // The stored whole price orders (#1369): the process keeps each one's size only, its ids stay in the table
 // (listing-price-order.ts). Same rules as the three above; an order stored empty (nothing to store) is no earlier value.
 const cachedPriceOrders=staleCache<PriceOrder>(aggregateTtl,500,{...persistedListings,fallbackWhen:order=>order.total>0,store:priceOrderStore});
+// The first pages of a stored listing's price order (#1389): cachedPageIds' rows and rules, with the stored order's first
+// 480 ids as a second source (priceOrderHeadStore), so a listing a deep page ordered is not priced again. These keys have
+// their own 500 entries, apart from cachedPageIds'. The size is read lazily: cachedPages is declared further down. An
+// order older than the cache's longest window (maxFallbackMs, 48 hours) is not read: nothing could take it.
+const cachedPricedHeads=staleCache<string[]>(aggregateTtl,500,{...persistedListings,fallbackWhen:ids=>ids.length>0,
+ store:priceOrderHeadStore(listingCacheStore<string[]>("page-ids",1),()=>cachedPages*catalogPageSize,persistedListings.maxFallbackMs)});
 const persistable=(query:CatalogQuery)=>!(query.q?.trim()||query.model||query.brand||query.brands||query.attributes||query.availability||query.fits||query.oil);
 const persistablePage=(query:CatalogQuery,page:number)=>persistable(query)&&page<=(query.make?1:cachedPages);
 /**
@@ -1116,12 +1123,23 @@ export async function browseProducts(query:CatalogQuery,context:CatalogContext={
  // rows are sorted before the limit (VW: ~57 MB): it spilled to disk (external merge) at both the local default (4 MB) and
  // the production RDS setting (16 MB); 64 MB for this read keeps it in memory. A listing of two id sets up to
  // pricedByIdsMax rows is priced by its id array (pricedScope), off a per-row plan (#1335).
+ // A stored listing's first pages (persistable, #1389) never build its whole order below, so a cold page 1 does not wait
+ // for one. Their 480 ids come from the stored order's first ids instead of a pricing pass when a memory miss, refresh or
+ // epoch reload finds that row newer than their stored page ids and current under the cache's rules (cachedPricedHeads;
+ // a memory miss takes one up to 24 hours old and refreshes it): a listing a deep page ordered is not priced again, and
+ // pages 20 and 21 then read one order. A new process's first page of such a listing without stored page ids (local
+ // production build): ORIJINAL 1.74-1.84 s -> 0.14-0.15 s, /katalog 6.9-7.3 s -> 0.13-0.14 s. Ids from their own pass (a
+ // first page read before any deep one, or a refresh that finds the order past 10 minutes, as both expire together unless
+ // a deep page rebuilt it first) stay until their next refresh, so until then pages 20 and 21 can come from two orders up
+ // to 10 minutes apart. Slicing the stored order on every first page instead reads the whole array per request: /katalog's
+ // warm page 1 was 2-4 ms slower.
  if(!search&&pricedSort&&page<=cachedPages){
-  const ordered=await pageIdCache(query)(pricedKey,async()=>{const scope=await pricedScope(total,await filter(),pricedKey);
+  const eligible=persistable(query);
+  const ordered=await (eligible?cachedPricedHeads:pageIdCache(query))(pricedKey,async()=>{const scope=await pricedScope(total,await filter(),pricedKey);
    if(!scope)return [];
    return (await boundedQuery<{id:string}>(`catalog.pricedPageIds ${pricedKey}`,
    `SELECT id::text FROM (SELECT id,unavailable,price_kurus FROM (${storefrontCatalogSql}) catalog ${scope.where} ORDER BY ${order} LIMIT ${cachedPages*pageSize}) page`,scope.values,30_000,{workMem:"64MB"})).rows.map(row=>row.id);},
-   readOptions(query,persistable(query)));
+   readOptions(query,eligible));
   const items=await storefrontRowsByIds(ordered.slice((page-1)*pageSize,(page-1)*pageSize+take));
   return {items:await withBestOffers(items),total,page,pages,pageSize};
  }
