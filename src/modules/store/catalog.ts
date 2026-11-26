@@ -504,7 +504,7 @@ const searchEpoch=(raw:string,mode:SearchMode)=>mode!=="code"&&vehicleReadingWor
  * #1407). A split whose words match more (an engine or fuel word: "tdi" 1,890 types, "volkswagen tdi" 13 whole models +
  * 769 types, "dizel" 10,649-12,019, "benzin" 14,547-24,270, "quattro" 850-1,037) is deferred: vehicleSearch reads it
  * only when no other split gives a fitted reading, longest vehicle phrase first. Read from the hits (vehicleFittedHits)
- * such a reading now takes 0.1-1.2 s locally instead of 4-42 s, so it is no longer skipped (#1395 did: "fren balatası
+ * such a reading now takes 0.2-2.3 s locally instead of 4-56 s, so it is no longer skipped (#1395 did: "fren balatası
  * dizel" lost its fitted pads), but words like these say little about fit: "fren balatası passat tdi" still reads
  * "passat tdi" rather than "tdi". Whole models are never counted. VEHICLE_SEARCH_MAX_LIVE_TYPES, read per call: blank or
  * invalid 500, 0 defers every split whose words partly match a model.
@@ -548,9 +548,11 @@ const hitsPerLiveType=300;
  *   shared link (the fittedProductIds trust rule, each donor's hits as one array), each donor's payload vehicles are read
  *   once (OFFSET 0) and compared with the donor's fitments to the scope's types; the admin's removed types drop a row's
  *   fitment, added ones list its hits. Its cost follows the hits, not the types, so an engine or fuel word is no longer a
- *   scan of every fitment: locally, the same ids, "fren balatası dizel" (400 whole models + 10,649 types) 31.6 s → 0.6-0.9
- *   s, "yağ filtresi benzin" (2,720 + 14,547) 39 s → 0.5 s, "fren balatası volkswagen tdi" (13 + 769) 10.2 s → 0.8-1.1 s,
- *   "fren balatası tdi" (21 + 1,890) 10.8 s → 0.8-1.1 s, "fren balatası passat tdi" (120 types) 1.2 s → 0.8 s.
+ *   scan of every fitment. Locally, repeated reads, the same ids (upper ends on a busy machine): "fren balatası dizel" (400
+ *   whole models + 10,649 types) 31.6-46.9 s → 0.6-1.0 s, "yağ filtresi benzin" (2,720 + 14,547) 39-54 s → 0.5-1.0 s,
+ *   "fren balatası volkswagen tdi" (13 + 769) 10.2-14.3 s → 0.8-2.3 s, "fren balatası tdi" (21 + 1,890) 10.8-20.8 s →
+ *   0.8-1.2 s, "fren balatası passat tdi" (120 types) 1.2-2.8 s → 0.8-1.4 s, "fren balatası bmw" (183 whole models)
+ *   0.30-0.41 s → 0.05-0.09 s. A first read of a hit set is slower (up to 2-5 s), its rows not yet cached.
  *   Two plan traps: `f.vehicle_type_id+0` keeps the types out of the index condition, so a donor's few fitments are read
  *   through the primary key (supplier_item_id first) and tested against the hashed type array; on the bare column the
  *   planner probed product_vehicle_fitments_type_idx (vehicle_type_id, supplier_item_id) once per type and donor, 6.1M
@@ -559,8 +561,8 @@ const hitsPerLiveType=300;
  *   for a few dozen models ("fren balatası golf", 30 models: 672k index searches, 0.4-0.7 s; "filtre golf" 1.1 s), where
  *   the model rows take 40-75 ms.
  * - "types": the reading before #1407, from the scope outward: the whole models' fits and fittedProductIds over the types,
- *   kept to the hits in Node. It wins for few types against many hits: "filtre passat tdi" (41,612 hits, 120 types)
- *   1.3 s, against 1.5-3.7 s from the hits.
+ *   kept to the hits in Node. It wins for few types against many hits: "filtre passat tdi" (41,628 hits, 120 types)
+ *   1.3-2.3 s, against 1.5-5.1 s from the hits.
  * No hits (or an empty scope) read nothing.
  */
 export async function vehicleFittedHits(scope:VehicleTypeScope,hitIds:string[],words:string,read?:ReadOptions,by?:"hits"|"types"):Promise<string[]>{
