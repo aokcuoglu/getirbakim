@@ -1267,9 +1267,10 @@ const pricedRowsSql=(where:string)=>`SELECT catalog.id,catalog.unavailable,catal
 /**
  * One live page of a price order (`offset` a parameter), for a page no stored order serves: the page's ids only. It sorts
  * the lean columns the ORDER BY reads (pricedRowsSql's), so the view's names, stock labels and pricing snapshot are not
- * computed for every sorted row (#1430); browseProducts reads the cards of these ids afterwards (storefrontRowsByIds).
+ * computed for every sorted row (#1430); the cast to text comes after the ORDER BY, whose `id` tie-break stays the uuid (a
+ * bare `id` beside `id::text` would sort the output column as text); browseProducts reads the cards of these ids afterwards (storefrontRowsByIds).
  */
-const pricedPageSql=(where:string,order:string,take:number,offset:string)=>`SELECT catalog.id::text FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}`;
+const pricedPageSql=(where:string,order:string,take:number,offset:string)=>`SELECT id::text FROM (SELECT catalog.id FROM (${storefrontCatalogSql}) catalog ${where} ORDER BY ${order} LIMIT ${take} OFFSET ${offset}) page`;
 /** Page 1 whatever the total: no page asked, or one below 2 (browseProducts clamps it the same way). */
 const firstPageAsked=(query:CatalogQuery)=>{const requested=Number(query.page);return !Number.isSafeInteger(requested)||requested<=1;};
 /** The cached ids of one page of a listing without a search in the default order (newest first); page 1 of a covered listing from its summary. */
