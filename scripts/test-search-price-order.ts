@@ -125,6 +125,14 @@ before(async () => {
   // row ids[9] first for the code "P10"); their dates sit outside the groups, ids[0] newest and ids[9] oldest, so the newest
   // order cannot coincide with the relevance order whatever the random uuids tie-break to.
   await schema.pool.query("UPDATE supplier_items SET changed_at=CASE id WHEN $1 THEN timestamptz '2026-02-01' ELSE timestamptz '2025-12-01' END WHERE id=ANY($2::uuid[])", [ids[0], [ids[0], ids[9]]]);
+  // 520 rows of one more product ("kampana", 22 pages of 24): the plain searches that read past the 20 cached pages (#1447). Their
+  // names place the word first, second or last, so the ranks differ; costs and stock vary, none is a "fren" or "filtre" row.
+  await schema.pool.query(`INSERT INTO supplier_items(supplier,company,list_group,warehouse,code,product_data,price_data,stock_data,
+    product_count,price_count,stock_count,presence,first_seen_at,last_seen_at,changed_at)
+    SELECT 'basbug',$1,'G','MRK','KMP '||(2000+n),jsonb_build_object('uk','ATE','dc','TL',
+      'ac',CASE n%3 WHEN 0 THEN 'KAMPANA DISK TIPI' WHEN 1 THEN 'ARKA KAMPANA DISK TIPI' ELSE 'ARKA DISK TIPI SISTEM KAMPANA' END||' K'||n),
+     jsonb_build_object('nf',40+(n*29)%200),jsonb_build_object('stok',CASE WHEN n%7=0 THEN 0 ELSE 2 END),1,1,1,CASE WHEN n%19=0 THEN 'inactive' ELSE 'present' END,
+     now()-interval '30 days',now(),timestamptz '2026-03-01'+(n%9)*interval '1 day' FROM generate_series(1,520) n`, [basbug]);
   await schema.pool.query("SELECT refresh_product_matches()");
   // An admin-renamed row ranks from its computed name, not the stored rank.
   await schema.pool.query("INSERT INTO commerce_item_overrides(supplier_item_id,product_id,name) VALUES($1,$1,'SPORT FREN BALATA ÖZEL')", [ids[0]]);
@@ -139,7 +147,7 @@ before(async () => {
     ('trodo',3,NULL,'Yedek parçalar','yedek-parca','{3}','','{}'),('trodo',252,3,'Fren','fren','{3,252}','','{}');
     INSERT INTO source_category_labels(source,category_id,locale,name,slug) VALUES
     ('trodo',3,'tr','Yedek parçalar','yedek-parca'),('trodo',252,'tr','Fren','fren')`);
-  await schema.pool.query("INSERT INTO search_vocabulary(scope,word,frequency) VALUES('product','fren',100),('product','balatasi',100),('product','filtre',50)");
+  await schema.pool.query("INSERT INTO search_vocabulary(scope,word,frequency) VALUES('product','fren',100),('product','balatasi',100),('product','filtre',50),('product','kampana',100)");
   Object.assign(globalThis, { AsyncLocalStorage });
   workStorage = (await import("next/dist/server/app-render/work-async-storage.external")).workAsyncStorage;
   const [{ db }, catalogModule, epoch] = await Promise.all([import("../src/lib/db"), import("../src/modules/store/catalog"), import("../src/modules/store/listing-epoch")]);
@@ -946,4 +954,121 @@ test("a stock-filtered search order idle for two hours returns the fresh order a
 test("LISTING_STOCK_MAX_SERVE_MS=0 turns the bound off for search orders: the idle stock-filtered one serves stale once (#1453)", async t => {
   const seen = await idleSearchAcrossChanges(t, "stock-max-serve-off", "0");
   assert.deepEqual(seen.stockNow, seen.stockBefore);
+});
+
+// A plain relevance search past the cached 20 pages (#1447) loads its whole order once, ranked by summarizeSearch like pages 1-20.
+const summaryTexts = (reads: Awaited<ReturnType<typeof sent>>) => reads.texts.filter(text => text.startsWith("WITH hits AS MATERIALIZED")).length;
+const deepSpecs: Spec[] = [
+  ["one word", { q: "kampana" }],
+  ["code search", { q: "KMP", searchBy: "code" }],
+  ["a vehicle reading", { q: "kampana golf" }],
+  ["corrected", { q: "kampanax" }],
+];
+
+test("deep pages of a plain relevance search are the live pages: ids, total, page, pages and notes", async () => {
+  const proc = await otherProcess("deep-oracle");
+  for (const [label, base] of deepSpecs) {
+    const first = await live(() => browse({ ...base, page: "1" }, {}));
+    assert.ok(first.pages > 20, `${label}: more than 20 pages (${first.total} hits)`);
+    for (const page of ["1", "20", "21", "12", String(first.pages), String(first.pages + 1), "999"]) {
+      const query = { ...base, page };
+      assert.deepEqual(shape(await browse(query, {}, proc)), shape(await live(() => browse(query, {}))), `${label} page ${page}`);
+    }
+  }
+  assert.equal(shape(await browse({ q: "kampanax", page: "21" }, {}, proc)).correctedQuery, "kampana");
+});
+
+test("pages 20 and 21 are one summarizeSearch order: positions 457-504, 48 distinct ids", async () => {
+  const proc = await otherProcess("deep-seam");
+  const [p20, p21] = [await browse({ q: "kampana", page: "20" }, {}, proc), await browse({ q: "kampana", page: "21" }, {}, proc)];
+  const seen = [...p20.items, ...p21.items].map(item => item.id);
+  assert.equal(seen.length, 48);
+  assert.equal(new Set(seen).size, 48);
+  const order = await live(async () => (await Promise.all(Array.from({ length: 22 }, (_, index) => browse({ q: "kampana", page: String(index + 1) }, {})))).flatMap(result => result.items.map(item => item.id)));
+  assert.deepEqual(seen, order.slice(456, 504));
+});
+
+test("a warm deep page sends no hit read and no summary; pages 1-20 never load the deep order", async () => {
+  const proc = await otherProcess("deep-warm");
+  const query: CatalogQuery = { q: "kampana" };
+  for (const page of ["1", "2", "20", "20"]) {
+    const read = await sent(() => browse({ ...query, page }, {}, proc));
+    if (page === "20") assert.equal(summaryTexts(read) + read.hits, 0, "page 20 is the cached first pages");
+  }
+  const cold = await sent(() => browse({ ...query, page: "21" }, {}, proc));
+  assert.deepEqual({ hits: cold.hits, summaries: summaryTexts(cold) }, { hits: 1, summaries: 1 }, "the first deep page loads the order");
+  for (const page of ["22", "21", "20", "22"]) {
+    const warm = await sent(() => browse({ ...query, page }, {}, proc));
+    assert.equal(warm.hits + summaryTexts(warm), 0, `page ${page}`);
+    assert.ok(warm.texts.every(isCardRead), `page ${page}: ${warm.texts.filter(text => !isCardRead(text)).join(" | ")}`);
+  }
+  const shallow = await otherProcess("deep-shallow");
+  for (const page of ["1", "10", "20"]) await browse({ ...query, page }, {}, shallow);
+  assert.equal((await sent(() => browse({ ...query, page: "5" }, {}, shallow))).hits, 0);
+  assert.equal(summaryTexts(await sent(() => browse({ ...query, page: "21" }, {}, shallow))), 1, "still not loaded after pages 1-20");
+});
+
+test("the epochs reload the deep order: an admin bump every plain search, the fit sync's only a vehicle reading", () => patient(async () => {
+  const proc = await otherProcess("deep-epochs");
+  const keys: [string, CatalogQuery, boolean][] = [["one word", { q: "kampana", page: "21" }, false], ["a vehicle reading", { q: "kampana golf", page: "21" }, true]];
+  const read = async (query: CatalogQuery) => summaryTexts(await sent(() => browse(query, {}, proc)));
+  // A vehicle reading sends more summaries per load (its readings); a reload sends as many as the first load did.
+  const loads = new Map<string, number>();
+  for (const [label, query] of keys) {
+    const count = await read(query);
+    assert.ok(count >= 2, `${label}: plain search and deep order loaded`);
+    loads.set(label, count);
+  }
+  for (const [label, query] of keys) assert.equal(await read(query), 0, `${label}: kept`);
+  await invalidateFits();
+  for (const [label, query, fits] of keys) assert.equal(await read(query), fits ? loads.get(label) : 0, `${label}: after the fit sync's bump`);
+  await invalidateListings();
+  for (const [label, query] of keys) assert.equal(await read(query), loads.get(label), `${label}: after an admin edit's bump`);
+  for (const [label, query] of keys) assert.equal(await read(query), 0, `${label}: kept again`);
+}));
+
+test("a failing summary on the deep load reads that request live and holds the key; a failing hit read rejects", async t => {
+  t.mock.method(console, "error", () => {});
+  const proc = await otherProcess("deep-failing");
+  const [query, next]: CatalogQuery[] = [{ q: "kampana", page: "21" }, { q: "kampana", page: "22" }];
+  const expected = [shape(await live(() => browse(query, {}))).ids, shape(await live(() => browse(next, {}))).ids];
+  await browse({ q: "kampana" }, {}, proc);
+  let summaries = 0;
+  await intercepted(text => text.startsWith("WITH hits AS MATERIALIZED") && ++summaries === 1 ? failure("53200") : undefined, async () => {
+    const first = await sent(async () => assert.deepEqual(shape(await browse(query, {}, proc)).ids, expected[0]));
+    assert.deepEqual({ hits: first.hits, summaries: summaryTexts(first) }, { hits: 2, summaries: 2 }, "the failed load, then the live read");
+    const second = await sent(async () => assert.deepEqual(shape(await browse(next, {}, proc)).ids, expected[1]));
+    assert.deepEqual({ hits: second.hits, summaries: summaryTexts(second) }, { hits: 1, summaries: 1 }, "held: the live read only");
+  });
+  const other = await otherProcess("deep-failing-hits");
+  await browse({ q: "kampana" }, {}, other);
+  await intercepted(text => text.startsWith("WITH main AS MATERIALIZED") ? failure("53200") : undefined, async () => {
+    await assert.rejects(browse(query, {}, other), /simulated 53200/);
+  });
+});
+
+test("a plain deep order and a price order share SEARCH_PRICE_ORDER_MAX_IDS", async () => {
+  const proc = await withEnv({ SEARCH_PRICE_ORDER_MAX_IDS: "1000", NODE_ENV: "production" }, () => otherProcess("deep-budget"));
+  const deep: CatalogQuery = { q: "kampana", page: "21" }, price: CatalogQuery = { q: "kampana", sort: asc };
+  const summaries = async () => summaryTexts(await sent(() => browse(deep, {}, proc)));
+  assert.equal(await summaries(), 2, "the plain search and the deep order");
+  assert.equal(await summaries(), 0);
+  assert.equal((await sent(() => browse(price, {}, proc))).orders, 1);
+  assert.equal(await summaries(), 1, "520 + 520 ids is over the budget: the deep order was evicted and is rebuilt");
+  assert.equal(await summaries(), 0);
+});
+
+test("SEARCH_RANK_ORDER=0 sends the live summary on every deep page", async () => {
+  const proc = await otherProcess("deep-switch");
+  const query: CatalogQuery = { q: "kampana", page: "21" };
+  const expected = shape(await live(() => browse(query, {})));
+  await withEnv({ SEARCH_RANK_ORDER: "0" }, async () => {
+    await browse({ q: "kampana" }, {}, proc);
+    for (const page of ["21", "21", "22"]) {
+      const read = await sent(() => browse({ ...query, page }, {}, proc));
+      assert.deepEqual({ hits: read.hits, summaries: summaryTexts(read) }, { hits: 1, summaries: 1 }, `page ${page}`);
+    }
+    assert.deepEqual(shape(await browse(query, {}, proc)), expected);
+  });
+  assert.equal(summaryTexts(await sent(() => browse(query, {}, proc))), 1, "the switch left nothing in the cache: the order loads now");
 });
